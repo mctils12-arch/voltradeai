@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html{background:#04060c}
+body{margin:0;background:#04060c;width:max-content;min-width:100%;font-family:-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#5b9bff;text-decoration:none}a:hover{color:#8ab8ff}
+.om-sb::-webkit-scrollbar{width:6px;height:6px}
+.om-sb::-webkit-scrollbar-track{background:transparent}
+.om-sb::-webkit-scrollbar-thumb{background:#324e7d;border-radius:3px}
+.om-sb::-webkit-scrollbar-thumb:hover{background:#4a6ca6}
+.om-sb{scrollbar-width:thin;scrollbar-color:#324e7d transparent}
+</style>
+</helmet>
+<section style="display:flex;flex-direction:column;gap:40px;padding:24px;align-items:flex-start">
+  <!-- ============ 1a DESKTOP · COMPACT CARD ============ -->
+  <div id="1a" style="display:flex;flex-direction:column">
+    <div data-screen-label="1a desktop compact" style="position:relative;width:1920px;height:1080px;background:#0b1626;border:1px solid rgba(120,168,255,.12);overflow:hidden;flex:0 0 auto">
+      <!-- top nav -->
+      <div style="position:absolute;top:0;left:0;right:0;height:64px;background:#04070d;border-bottom:1px solid rgba(120,168,255,.08);display:flex;align-items:center;gap:44px;padding:0 28px;z-index:5">
+        <div style="font-size:19px;color:#f2f6ff;font-weight:700;letter-spacing:-.01em">voltrade <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#4c8dff;font-weight:600">/AI</span></div>
+        <div style="display:flex;gap:36px;height:64px;align-items:stretch">
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">Trade <span style="font-size:10px;color:#5d7399">▾</span></div>
+          <div style="position:relative;display:flex;align-items:center;gap:7px;color:#4c8dff;font-weight:600;font-size:15px">Data <span style="font-size:10px">▾</span><div style="position:absolute;left:-6px;right:-6px;bottom:0;height:3px;border-radius:2px 2px 0 0;background:#2f7cf0"></div></div>
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">AI Engine</div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:10px">
+          <div style="width:40px;height:40px;border-radius:10px;border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+          <div style="width:40px;height:40px;border-radius:10px;border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><path d="M6.5 3H3v10h3.5M10 5l3 3-3 3M13 8H7"></path></svg></div>
+        </div>
+      </div>
+      <!-- map mock -->
+      <div style="position:absolute;top:64px;left:0;right:0;bottom:0;background:#0a1322;overflow:hidden">
+        <div style="position:absolute;left:-5%;top:34%;width:85%;border-top:1px dashed rgba(110,160,255,.32);transform:rotate(-7deg)"></div>
+        <div style="position:absolute;left:0;top:52%;width:78%;border-top:1px solid rgba(110,160,255,.22);transform:rotate(4deg)"></div>
+        <div style="position:absolute;left:8%;top:70%;width:70%;border-top:1px dashed rgba(226,162,77,.28);transform:rotate(-3deg)"></div>
+        <div style="position:absolute;left:31%;top:30.5%;width:5px;height:5px;border-radius:50%;background:#cfe0ff;box-shadow:0 0 8px rgba(140,180,255,.9)"></div>
+        <div style="position:absolute;left:55%;top:47%;width:4px;height:4px;border-radius:50%;background:#9fc0ff"></div>
+        <div style="position:absolute;left:64%;top:26%;width:4px;height:4px;border-radius:50%;background:#9fc0ff"></div>
+        <div style="position:absolute;left:44%;top:66%;width:4px;height:4px;border-radius:50%;background:#7f9fd4"></div>
+        <!-- left rail -->
+        <div style="position:absolute;left:20px;top:24px;display:flex;flex-direction:column;gap:12px">
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><path d="M2 4l4-1.5 4 1.5 4-1.5v10l-4 1.5-4-1.5-4 1.5zM6 2.5v10M10 4v10"></path></svg></div>
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><path d="M2 3h12v8H8l-3 3v-3H2z"></path></svg></div>
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 4.5V8l2.5 1.5"></path></svg></div>
+        </div>
+        <!-- SAT CARD compact (tweak: satDetailsOpen) -->
+        <div style="position:absolute;left:88px;top:110px;width:352px;max-height:648px;display:flex;flex-direction:column;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0;flex:0 0 auto">
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#5d7399;font-size:13px;cursor:grab">⠿</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><rect x="6" y="6" width="4" height="4"></rect><path d="M1 8h4M11 8h4M3.5 5.5v5M12.5 5.5v5"></path></svg>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="color:#eef4ff;font-size:15px;font-weight:650">ISS (ZARYA)</span>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#6d87b8">#25544</span>
+              </div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#8ba3cc;margin-top:2px;letter-spacing:.02em;white-space:nowrap"><span style="color:#35d07f">●</span> live · NASA/ROSCOSMOS · LEO</div>
+            </div>
+            <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:rgba(120,168,255,.1)"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M3.5 8h9"></path></svg></div>
+            <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:rgba(120,168,255,.1)"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 0;flex:0 0 auto">
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ altL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ altV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ spdL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ spdV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">INCL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">51.6°</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">PERIOD MIN</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">92.9</span></div>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 14px;align-items:center;flex:0 0 auto">
+            <div style="background:#2563eb;color:#fff;font-size:12.5px;font-weight:600;border-radius:8px;padding:7px 16px;cursor:pointer" style-hover="background:#3b76f0">Inspect</div>
+            <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 14px;cursor:pointer" style-hover="background:rgba(120,168,255,.16)">Follow</div>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#43587e">SGP4</span>
+          </div>
+          <sc-if value="{{ detailsClosed }}" hint-placeholder-val="{{ true }}">
+            <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#7f9cc9;cursor:pointer" style-hover="color:#b8cdf2">DETAILS ▾</div>
+          </sc-if>
+          <sc-if value="{{ detailsOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#b8cdf2;cursor:pointer">DETAILS ▴</div>
+            <div class="om-sb" style="overflow-y:auto;border-top:1px solid rgba(120,168,255,.1);padding:14px 14px 16px;min-height:0">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ apoL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ apoV }}</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ perL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ perV }}</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ECCENTRICITY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">0.0004791</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">RAAN</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">132.4711°</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ARG PERIGEE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">89.3105°</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">MEAN ANOMALY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">270.8497°</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">MEAN MOTION</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">15.4940 rev/d</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">B* DRAG</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">2.9107e-5</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">EPOCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">07-18 04:12Z</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">TLE AGE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">6.2 h</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">REV #</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">51,204</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">INTL DESIG</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-067A</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">LAUNCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-11-20</div></div>
+                <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">OBJECT</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">PAYLOAD</div></div>
+              </div>
+              <div class="om-sb" style="margin-top:14px;border:1px solid rgba(120,168,255,.12);border-radius:8px;padding:9px 10px;overflow-x:auto">
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:5px">TLE</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#a8bee6;white-space:pre;line-height:1.6">1 25544U 98067A   26199.17525463  .00016717  00000-0  29107-4 0  9993
+2 25544  51.6349 132.4711 0004791  89.3105 270.8497 15.49401687512045</div>
+              </div>
+              <div style="margin-top:10px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#d99a4e;line-height:1.5">TLE via CelesTrak · refreshed ~6h · SGP4 propagation</div>
+            </div>
+          </sc-if>
+        </div>
+        <!-- scale + imagery caption + zoom -->
+        <div style="position:absolute;left:20px;bottom:226px;background:rgba(6,10,18,.8);border:1px solid rgba(120,168,255,.14);border-radius:4px;padding:3px 10px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#9fb6de">10 mi</div>
+        <div style="position:absolute;left:20px;bottom:40px;display:flex;flex-direction:column;gap:10px">
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center;color:#cfe0ff;font-size:20px">+</div>
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center;color:#cfe0ff;font-size:20px">−</div>
+          <div style="width:46px;height:46px;border-radius:12px;background:rgba(11,19,34,.92);border:1px solid rgba(120,168,255,.16);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" fill="#cfe0ff"><path d="M8 1l3 7H5z"></path><path d="M8 15l-3-7h6z" fill="#5d7399"></path></svg></div>
+        </div>
+        <div style="position:absolute;left:88px;bottom:52px;background:rgba(6,10,18,.8);border-radius:6px;padding:5px 12px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#9fb6de">imagery at centre: 2025-11-04 · Vantor</div>
+        <!-- style switcher -->
+        <div style="position:absolute;left:50%;bottom:40px;transform:translateX(-50%);display:flex;gap:4px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.14);border-radius:12px;padding:5px">
+          <div style="background:#2f7cf0;color:#fff;font-size:14px;font-weight:600;border-radius:9px;padding:8px 20px">Natural</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px" style-hover="background:rgba(120,168,255,.1)">Night</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px" style-hover="background:rgba(120,168,255,.1)">Terrain</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px" style-hover="background:rgba(120,168,255,.1)">Minimal</div>
+        </div>
+        <!-- LAYERS PANEL -->
+        <div style="position:absolute;top:0;right:0;bottom:0;width:432px;background:rgba(11,18,32,.94);border-left:1px solid rgba(120,168,255,.14);display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;padding:16px 18px 12px;flex:0 0 auto">
+            <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8.5l6 3 6-3M2 11.5l6 3 6-3"></path></svg>
+            <span style="color:#e8f0ff;font-size:15px;font-weight:700;letter-spacing:.08em">LAYERS</span>
+            <span style="background:rgba(226,162,77,.12);border:1px solid rgba(226,162,77,.35);color:#e8b060;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:600">moderate load</span>
+            <div style="flex:1"></div>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#8aa2c8" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg>
+            <svg width="14" height="14" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"></path></svg>
+          </div>
+          <div class="om-sb" style="flex:1;overflow-y:auto;padding:4px 12px 20px 18px;min-height:0">
+            <div style="display:flex;align-items:center;gap:12px;background:rgba(120,168,255,.05);border:1px solid rgba(120,168,255,.12);border-radius:12px;padding:8px 8px 8px 14px;margin-bottom:10px">
+              <span style="color:#8aa2c8;font-size:13.5px">Units</span>
+              <div style="display:flex;flex:1;background:rgba(4,8,16,.6);border-radius:11px;padding:3px">
+                <div style="flex:1;text-align:center;background:#2b6ef2;color:#fff;font-size:13.5px;font-weight:600;border-radius:8px;padding:7px 0">mi · °F</div>
+                <div style="flex:1;text-align:center;color:#cfe0ff;font-size:13.5px;padding:7px 0">km · °C</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:20px 1fr auto;gap:10px;align-items:center;border:1px solid rgba(120,168,255,.12);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><path d="M2 4h12M2 8h12M2 12h12"></path><circle cx="4" cy="4" r="1" fill="#8fb0e8"></circle></svg>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13.5px;color:#d9e6ff;line-height:1.45">Streams<br>inventory</div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#d99a4e;text-align:right;line-height:1.5">every archived stream ·<br>health &amp; freshness</div>
+            </div>
+            <div style="display:grid;grid-template-columns:20px 1fr auto;gap:10px;align-items:center;border:1px solid rgba(120,168,255,.12);border-radius:10px;padding:10px 12px;margin-bottom:6px">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="#8fb0e8"><path d="M9 1L3.5 9h3.5l-1 6L11.5 7H8z"></path></svg>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13.5px;color:#d9e6ff;line-height:1.45">Grid stress (TX)<br>— descriptive only</div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#d99a4e;text-align:right;line-height:1.5">gate-2 FAILED ·<br>non-predictive reading</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:14px 2px 6px">
+              <span style="color:#6d87b8;font-size:9px">▼</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">BASE</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#7f9cc9">2/12 ON</span>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><circle cx="8" cy="8" r="6"></circle><path d="M2 8h12M8 2c2.5 2.2 2.5 9.8 0 12"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Satellite imagery <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> active</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;line-height:1.55;margin-top:4px">capture date of the view centre shown on-map (bottom-left); dates vary within a view</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M1.5 13L6.5 4l3 5L11 6.5 14.5 13z"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Terrain (3D relief) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M2 6c1.5-2 3-2 4.5 0s3 2 4.5 0 2-1.5 3 0M2 10c1.5-2 3-2 4.5 0s3 2 4.5 0 2-1.5 3 0"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Seafloor (drain the ocean) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:14px 2px 6px">
+              <span style="color:#6d87b8;font-size:9px">▼</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">LIVE TRACKING</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#7f9cc9">3/4 ON</span>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="#7f9fd4"><path d="M15 8L2 2.5 5.5 8 2 13.5z"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live aircraft (ADS-B) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 212 aircraft</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M2 10h12l-2 3.5H4zM5 10V6.5h6V10M8 6.5V4.5"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live vessels (AIS) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><rect x="4" y="2.5" width="8" height="8.5" rx="2"></rect><path d="M4 7.5h8M6.5 11l-1.5 2.5M9.5 11l1.5 2.5"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live trains (rail) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 60 trains</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;margin-top:4px">NO 7 · FI 53</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8.5l6 3 6-3M2 11.5l6 3 6-3"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Satellites (live) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 16,059 orbital_sats</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;line-height:1.55;margin-top:4px">16,059 live (near-earth SGP4 + deep-space SDP4)</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08);margin-top:8px">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">FACILITIES</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">2/9 ON</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08)">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">HAZARDS &amp; ENVIRONMENT</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">0/8 ON</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08)">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">POWER GRID — US (BY STATE)</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">0/51 ON</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 1b DESKTOP · EXPANDED CARD + SCROLLED PANEL ============ -->
+  <div id="1b" style="display:flex;flex-direction:column">
+    <div data-screen-label="1b desktop expanded" style="position:relative;width:1920px;height:1080px;background:#0b1626;border:1px solid rgba(120,168,255,.12);overflow:hidden;flex:0 0 auto">
+      <div style="position:absolute;top:0;left:0;right:0;height:64px;background:#04070d;border-bottom:1px solid rgba(120,168,255,.08);display:flex;align-items:center;gap:44px;padding:0 28px;z-index:5">
+        <div style="font-size:19px;color:#f2f6ff;font-weight:700;letter-spacing:-.01em">voltrade <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#4c8dff;font-weight:600">/AI</span></div>
+        <div style="display:flex;gap:36px;height:64px;align-items:stretch">
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">Trade <span style="font-size:10px;color:#5d7399">▾</span></div>
+          <div style="position:relative;display:flex;align-items:center;gap:7px;color:#4c8dff;font-weight:600;font-size:15px">Data <span style="font-size:10px">▾</span><div style="position:absolute;left:-6px;right:-6px;bottom:0;height:3px;border-radius:2px 2px 0 0;background:#2f7cf0"></div></div>
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">AI Engine</div>
+        </div>
+        <div style="flex:1"></div>
+      </div>
+      <div style="position:absolute;top:64px;left:0;right:0;bottom:0;background:#0a1322;overflow:hidden">
+        <div style="position:absolute;left:-5%;top:30%;width:85%;border-top:1px dashed rgba(110,160,255,.32);transform:rotate(-6deg)"></div>
+        <div style="position:absolute;left:5%;top:60%;width:75%;border-top:1px solid rgba(110,160,255,.2);transform:rotate(5deg)"></div>
+        <div style="position:absolute;left:60%;top:38%;width:5px;height:5px;border-radius:50%;background:#cfe0ff;box-shadow:0 0 8px rgba(140,180,255,.9)"></div>
+        <div style="position:absolute;left:70%;top:64%;width:4px;height:4px;border-radius:50%;background:#9fc0ff"></div>
+        <!-- SAT CARD expanded -->
+        <div style="position:absolute;left:88px;top:60px;width:352px;max-height:648px;display:flex;flex-direction:column;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0;flex:0 0 auto">
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#5d7399;font-size:13px;cursor:grab">⠿</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><rect x="6" y="6" width="4" height="4"></rect><path d="M1 8h4M11 8h4M3.5 5.5v5M12.5 5.5v5"></path></svg>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="color:#eef4ff;font-size:15px;font-weight:650">ISS (ZARYA)</span>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#6d87b8">#25544</span>
+              </div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#8ba3cc;margin-top:2px;letter-spacing:.02em;white-space:nowrap"><span style="color:#35d07f">●</span> live · NASA/ROSCOSMOS · LEO</div>
+            </div>
+            <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M3.5 8h9"></path></svg></div>
+            <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 0;flex:0 0 auto">
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ altL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ altV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ spdL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ spdV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">INCL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">51.6°</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">PERIOD MIN</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">92.9</span></div>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 14px;align-items:center;flex:0 0 auto">
+            <div style="background:#2563eb;color:#fff;font-size:12.5px;font-weight:600;border-radius:8px;padding:7px 16px;cursor:pointer" style-hover="background:#3b76f0">Inspect</div>
+            <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 14px;cursor:pointer">Follow</div>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#43587e">SGP4</span>
+          </div>
+          <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#b8cdf2;cursor:pointer;flex:0 0 auto">DETAILS ▴</div>
+          <div class="om-sb" style="overflow-y:auto;border-top:1px solid rgba(120,168,255,.1);padding:14px 14px 16px;min-height:0;max-height:340px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ apoL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ apoV }}</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ perL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ perV }}</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ECCENTRICITY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">0.0004791</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">RAAN</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">132.4711°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ARG PERIGEE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">89.3105°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">MEAN ANOMALY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">270.8497°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">MEAN MOTION</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">15.4940 rev/d</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">B* DRAG</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">2.9107e-5</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">EPOCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">07-18 04:12Z</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">TLE AGE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">6.2 h</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">REV #</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">51,204</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">INTL DESIG</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-067A</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">LAUNCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-11-20</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">OBJECT</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">PAYLOAD</div></div>
+            </div>
+            <div class="om-sb" style="margin-top:14px;border:1px solid rgba(120,168,255,.12);border-radius:8px;padding:9px 10px;overflow-x:auto">
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:5px">TLE</div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#a8bee6;white-space:pre;line-height:1.6">1 25544U 98067A   26199.17525463  .00016717  00000-0  29107-4 0  9993
+2 25544  51.6349 132.4711 0004791  89.3105 270.8497 15.49401687512045</div>
+            </div>
+            <div style="margin-top:10px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#d99a4e;line-height:1.5">TLE via CelesTrak · refreshed ~6h · SGP4 propagation</div>
+          </div>
+        </div>
+        <div style="position:absolute;left:88px;bottom:52px;background:rgba(6,10,18,.8);border-radius:6px;padding:5px 12px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#9fb6de">imagery at centre: 2025-11-04 · Vantor</div>
+        <div style="position:absolute;left:50%;bottom:40px;transform:translateX(-50%);display:flex;gap:4px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.14);border-radius:12px;padding:5px">
+          <div style="background:#2f7cf0;color:#fff;font-size:14px;font-weight:600;border-radius:9px;padding:8px 20px">Natural</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px">Night</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px">Terrain</div>
+          <div style="color:#cfe0ff;font-size:14px;font-weight:500;border-radius:9px;padding:8px 20px">Minimal</div>
+        </div>
+        <!-- LAYERS PANEL scrolled to LIVE TRACKING -->
+        <div style="position:absolute;top:0;right:0;bottom:0;width:432px;background:rgba(11,18,32,.94);border-left:1px solid rgba(120,168,255,.14);display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;padding:16px 18px 12px;flex:0 0 auto">
+            <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.2"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8.5l6 3 6-3M2 11.5l6 3 6-3"></path></svg>
+            <span style="color:#e8f0ff;font-size:15px;font-weight:700;letter-spacing:.08em">LAYERS</span>
+            <span style="background:rgba(226,162,77,.12);border:1px solid rgba(226,162,77,.35);color:#e8b060;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:600">moderate load</span>
+            <div style="flex:1"></div>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#8aa2c8" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg>
+            <svg width="14" height="14" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"></path></svg>
+          </div>
+          <div class="om-sb" ref="{{ panel2Ref }}" style="flex:1;overflow-y:auto;padding:4px 12px 20px 18px;min-height:0">
+            <div style="display:flex;align-items:center;gap:12px;background:rgba(120,168,255,.05);border:1px solid rgba(120,168,255,.12);border-radius:12px;padding:8px 8px 8px 14px;margin-bottom:10px">
+              <span style="color:#8aa2c8;font-size:13.5px">Units</span>
+              <div style="display:flex;flex:1;background:rgba(4,8,16,.6);border-radius:11px;padding:3px">
+                <div style="flex:1;text-align:center;background:#2b6ef2;color:#fff;font-size:13.5px;font-weight:600;border-radius:8px;padding:7px 0">mi · °F</div>
+                <div style="flex:1;text-align:center;color:#cfe0ff;font-size:13.5px;padding:7px 0">km · °C</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:14px 2px 6px">
+              <span style="color:#6d87b8;font-size:9px">▼</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">BASE</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#7f9cc9">2/12 ON</span>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><circle cx="8" cy="8" r="6"></circle><path d="M2 8h12M8 2c2.5 2.2 2.5 9.8 0 12"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Satellite imagery <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> active</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;line-height:1.55;margin-top:4px">capture date of the view centre shown on-map (bottom-left); dates vary within a view</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M1.5 13L6.5 4l3 5L11 6.5 14.5 13z"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Terrain (3D relief) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><circle cx="8" cy="8" r="6"></circle><path d="M2 8h12M8 2c2.5 2.2 2.5 9.8 0 12"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Country borders <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8.5l6 3 6-3M2 11.5l6 3 6-3"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">State / province borders <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 581 boundaries_admin1</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;line-height:1.55;margin-top:4px">1:50m generalized (Natural Earth, public domain) — reference, not survey-grade</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:14px 2px 6px">
+              <span style="color:#6d87b8;font-size:9px">▼</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">LIVE TRACKING</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.08em;color:#7f9cc9">3/4 ON</span>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="#7f9fd4"><path d="M15 8L2 2.5 5.5 8 2 13.5z"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live aircraft (ADS-B) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 212 aircraft</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M2 10h12l-2 3.5H4zM5 10V6.5h6V10M8 6.5V4.5"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live vessels (AIS) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#5f7398">● off</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:rgba(120,168,255,.18);position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa2c8"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><rect x="4" y="2.5" width="8" height="8.5" rx="2"></rect><path d="M4 7.5h8M6.5 11l-1.5 2.5M9.5 11l1.5 2.5"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Live trains (rail) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 60 trains</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;margin-top:4px">NO 7 · FI 53</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:24px 1fr 44px;gap:9px;padding:10px 2px;align-items:start">
+              <svg style="margin-top:26px" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7f9fd4" stroke-width="1.2"><path d="M8 2l6 3-6 3-6-3z"></path><path d="M2 8.5l6 3 6-3M2 11.5l6 3 6-3"></path></svg>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;color:#e9f1ff;font-size:15px">Satellites (live) <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5d7399" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.5v3.5M8 5v.2"></path></svg></div>
+                <div style="display:flex;align-items:center;height:20px;border:1px solid rgba(120,168,255,.4);border-radius:4px;padding:2px;margin:7px 0 6px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#eaf3ff;background:#1e63d6;border-radius:2px;padding:1px 9px 2px">RAW</span></div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#9fb6de"><span style="color:#35d07f">●</span> 16,059 orbital_sats</div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#d99a4e;line-height:1.55;margin-top:4px">16,059 live (near-earth SGP4 + deep-space SDP4)</div>
+              </div>
+              <div style="width:38px;height:22px;border-radius:11px;background:#2f7cf0;position:relative;margin-top:24px;justify-self:end"><div style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08);margin-top:8px">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">FACILITIES</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">2/9 ON</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08)">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">HAZARDS &amp; ENVIRONMENT</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">0/8 ON</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:13px 2px;border-top:1px solid rgba(120,168,255,.08)">
+              <span style="color:#6d87b8;font-size:9px">▶</span>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#7f9cc9">POWER GRID — US (BY STATE)</span>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#7f9cc9">0/51 ON</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 1e INSPECT CHROME ============ -->
+  <div id="1e" style="display:flex;flex-direction:column">
+    <div data-screen-label="1e inspect chrome" style="position:relative;width:1920px;height:1080px;background:#04070e;border:1px solid rgba(120,168,255,.12);overflow:hidden;flex:0 0 auto">
+      <div style="position:absolute;top:0;left:0;right:0;height:64px;background:#04070d;border-bottom:1px solid rgba(120,168,255,.08);display:flex;align-items:center;gap:44px;padding:0 28px;z-index:5">
+        <div style="font-size:19px;color:#f2f6ff;font-weight:700;letter-spacing:-.01em">voltrade <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#4c8dff;font-weight:600">/AI</span></div>
+        <div style="display:flex;gap:36px;height:64px;align-items:stretch">
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">Trade <span style="font-size:10px;color:#5d7399">▾</span></div>
+          <div style="position:relative;display:flex;align-items:center;gap:7px;color:#4c8dff;font-weight:600;font-size:15px">Data <span style="font-size:10px">▾</span><div style="position:absolute;left:-6px;right:-6px;bottom:0;height:3px;border-radius:2px 2px 0 0;background:#2f7cf0"></div></div>
+          <div style="display:flex;align-items:center;gap:7px;color:#8aa2c8;font-size:15px">AI Engine</div>
+        </div>
+        <div style="flex:1"></div>
+      </div>
+      <div style="position:absolute;top:64px;left:0;right:0;bottom:0;overflow:hidden">
+        <div style="position:absolute;left:-40%;bottom:-160%;width:180%;height:180%;border-radius:50%;background:#081120;border-top:1px solid rgba(110,160,255,.18)"></div>
+        <div style="position:absolute;left:0;top:40%;width:100%;border-top:1px solid rgba(110,160,255,.22);transform:rotate(-14deg)"></div>
+        <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:#33507f">3D CRAFT RENDER — OUT OF SCOPE</div>
+        <!-- back pill + view toggle -->
+        <div style="position:absolute;left:50%;top:28px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:12px">
+          <div style="display:flex;align-items:center;gap:9px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:999px;padding:10px 22px;cursor:pointer" style-hover="background:rgba(20,32,54,.96)"><span style="color:#35d07f;font-size:11px">●</span><span style="color:#eaf1ff;font-size:15px;font-weight:600">Back to map</span></div>
+          <div style="display:flex;gap:4px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.14);border-radius:11px;padding:4px">
+            <sc-for list="{{ inspectChips }}" as="c" hint-placeholder-count="4">
+              <div style="font-size:13px;border-radius:8px;padding:6px 16px;cursor:pointer;background:{{ c.bg }};color:{{ c.color }};font-weight:{{ c.weight }}" style-hover="color:#fff">{{ c.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+        <!-- compact card, anchored left, clear of craft -->
+        <div style="position:absolute;left:32px;top:96px;width:352px;display:flex;flex-direction:column;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0">
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#5d7399;font-size:13px;cursor:grab">⠿</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><rect x="6" y="6" width="4" height="4"></rect><path d="M1 8h4M11 8h4M3.5 5.5v5M12.5 5.5v5"></path></svg>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="color:#eef4ff;font-size:15px;font-weight:650">ISS (ZARYA)</span>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#6d87b8">#25544</span>
+              </div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#8ba3cc;margin-top:2px;letter-spacing:.02em;white-space:nowrap"><span style="color:#35d07f">●</span> live · NASA/ROSCOSMOS · LEO</div>
+            </div>
+            <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 0">
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ altL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ altV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">{{ spdL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff;white-space:nowrap">{{ spdV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">INCL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">51.6°</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">PERIOD MIN</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">92.9</span></div>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 14px;align-items:center">
+            <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 14px;cursor:pointer" style-hover="background:rgba(120,168,255,.16)">Unfollow</div>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#43587e">SGP4</span>
+          </div>
+          <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#7f9cc9;cursor:pointer" style-hover="color:#b8cdf2">DETAILS ▾</div>
+        </div>
+        <!-- caption block -->
+        <div style="position:absolute;left:32px;bottom:32px;max-width:600px;background:rgba(6,10,18,.85);border:1px solid rgba(120,168,255,.12);border-radius:10px;padding:14px 16px">
+          <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.18em;color:#7f9cc9;margin-bottom:7px">COMPUTED EPHEMERIS VIEW</div>
+          <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#d99a4e;line-height:1.6">craft lit by the real sun direction (subsolar ephemeris, ~0.01°), earthshine fill when the Earth below is sunlit · simplified globe with real day/night terminator — not live imagery · black sky: no decorative starfield</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 1c/1d MOBILE + 1f/1g POPUPS ============ -->
+  <div style="display:flex;gap:48px;align-items:flex-start;flex-wrap:wrap">
+    <div id="1c" style="display:flex;flex-direction:column">
+      <div data-screen-label="1c mobile collapsed" style="position:relative;width:380px;height:760px;background:#0a1322;border:1px solid rgba(120,168,255,.12);border-radius:24px;overflow:hidden;flex:0 0 auto">
+        <div style="position:absolute;left:-10%;top:30%;width:120%;border-top:1px dashed rgba(110,160,255,.3);transform:rotate(-9deg)"></div>
+        <div style="position:absolute;left:44%;top:26%;width:5px;height:5px;border-radius:50%;background:#cfe0ff;box-shadow:0 0 8px rgba(140,180,255,.9)"></div>
+        <div style="position:absolute;left:66%;top:48%;width:4px;height:4px;border-radius:50%;background:#9fc0ff"></div>
+        <div style="position:absolute;left:16px;top:16px;background:rgba(6,10,18,.8);border:1px solid rgba(120,168,255,.14);border-radius:4px;padding:2px 9px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#9fb6de">50 mi</div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:rgba(11,19,34,.96);border:1px solid rgba(120,168,255,.16);border-bottom:none;border-radius:16px 16px 0 0;box-shadow:0 -10px 34px rgba(0,0,0,.5)">
+          <div style="display:flex;justify-content:center;padding:9px 0 2px"><div style="width:38px;height:4px;border-radius:2px;background:#33507f"></div></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 0">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><rect x="6" y="6" width="4" height="4"></rect><path d="M1 8h4M11 8h4M3.5 5.5v5M12.5 5.5v5"></path></svg>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="color:#eef4ff;font-size:15px;font-weight:650">ISS (ZARYA)</span>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#6d87b8">#25544</span>
+              </div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8ba3cc;margin-top:2px"><span style="color:#35d07f">●</span> live · NASA / ROSCOSMOS · LEO</div>
+            </div>
+            <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(120,168,255,.14)"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 16px 18px">
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">{{ altL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff;white-space:nowrap">{{ altV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">{{ spdL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff;white-space:nowrap">{{ spdV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8">INCL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">51.6°</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">PER MIN</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">92.9</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="1d" style="display:flex;flex-direction:column">
+      <div data-screen-label="1d mobile expanded" style="position:relative;width:380px;height:760px;background:#0a1322;border:1px solid rgba(120,168,255,.12);border-radius:24px;overflow:hidden;flex:0 0 auto">
+        <div style="position:absolute;left:-10%;top:14%;width:120%;border-top:1px dashed rgba(110,160,255,.3);transform:rotate(-9deg)"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:600px;display:flex;flex-direction:column;background:rgba(11,19,34,.96);border:1px solid rgba(120,168,255,.16);border-bottom:none;border-radius:16px 16px 0 0;box-shadow:0 -10px 34px rgba(0,0,0,.5)">
+          <div style="display:flex;justify-content:center;padding:9px 0 2px;flex:0 0 auto"><div style="width:38px;height:4px;border-radius:2px;background:#33507f"></div></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 0;flex:0 0 auto">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8fb0e8" stroke-width="1.3"><rect x="6" y="6" width="4" height="4"></rect><path d="M1 8h4M11 8h4M3.5 5.5v5M12.5 5.5v5"></path></svg>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="color:#eef4ff;font-size:15px;font-weight:650">ISS (ZARYA)</span>
+                <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#6d87b8">#25544</span>
+              </div>
+              <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:#8ba3cc;margin-top:2px"><span style="color:#35d07f">●</span> live · NASA / ROSCOSMOS · LEO</div>
+            </div>
+            <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(120,168,255,.14)"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 16px 0;flex:0 0 auto">
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">{{ altL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff;white-space:nowrap">{{ altV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">{{ spdL }}</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff;white-space:nowrap">{{ spdV }}</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8">INCL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">51.6°</span></div>
+            <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 6px 8px;display:flex;flex-direction:column;gap:3px;align-items:center"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;color:#6d87b8;white-space:nowrap">PER MIN</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">92.9</span></div>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 16px;align-items:center;flex:0 0 auto">
+            <div style="background:#2563eb;color:#fff;font-size:13px;font-weight:600;border-radius:9px;padding:10px 0;flex:1;text-align:center">Inspect</div>
+            <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:13px;font-weight:600;border-radius:9px;padding:9px 0;flex:1;text-align:center">Follow</div>
+          </div>
+          <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 16px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#b8cdf2;flex:0 0 auto">DETAILS ▴</div>
+          <div class="om-sb" style="overflow-y:auto;border-top:1px solid rgba(120,168,255,.1);padding:14px 16px 18px;min-height:0">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ apoL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ apoV }}</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">{{ perL }}</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">{{ perV }}</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ECCENTRICITY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">0.0004791</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">RAAN</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">132.4711°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">ARG PERIGEE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">89.3105°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">MEAN ANOMALY</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">270.8497°</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">EPOCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">07-18 04:12Z</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">TLE AGE</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">6.2 h</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">LAUNCH</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-11-20</div></div>
+              <div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;color:#6d87b8;margin-bottom:3px">INTL DESIG</div><div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#d6e4ff">1998-067A</div></div>
+            </div>
+            <div style="margin-top:12px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#d99a4e;line-height:1.5">TLE via CelesTrak · refreshed ~6h · SGP4 propagation</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:48px">
+      <div id="1f" style="display:flex;flex-direction:column">
+        <div data-screen-label="1f aircraft popup" style="position:relative;width:560px;height:346px;background:#0a1322;border:1px solid rgba(120,168,255,.12);overflow:hidden;flex:0 0 auto">
+          <div style="position:absolute;left:20%;top:70%;width:75%;border-top:1px dashed rgba(226,162,77,.4);transform:rotate(-16deg)"></div>
+          <div style="position:absolute;left:71%;top:47%;color:#e8b060"><svg width="18" height="18" viewBox="0 0 16 16" fill="#e8b060" style="transform:rotate(28deg)"><path d="M8 0l1.2 5.5L15 8l-5.8 1.2L8 16l-1.2-6.8L1 8l5.8-2.5z"></path></svg></div>
+          <div style="position:absolute;left:16px;top:16px;width:340px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0">
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#5d7399;font-size:13px;cursor:grab">⠿</span>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="#8fb0e8"><path d="M15 8L2 2.5 5.5 8 2 13.5z"></path></svg>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span style="color:#eef4ff;font-size:15px;font-weight:650">DAL2119</span>
+                  <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:#6d87b8">N816DN</span>
+                </div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#8ba3cc;margin-top:2px;letter-spacing:.04em"><span style="color:#35d07f">●</span> ADS-B · DELTA AIR LINES</div>
+              </div>
+              <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 0">
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">ALT FT</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">34,000</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8;white-space:nowrap">SPEED KT</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">462</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">HDG</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">227°</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">TYPE</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">B739</span></div>
+            </div>
+            <div style="display:flex;gap:8px;padding:12px 14px;align-items:center">
+              <div style="background:#2563eb;color:#fff;font-size:12.5px;font-weight:600;border-radius:8px;padding:7px 16px;cursor:pointer" style-hover="background:#3b76f0">Follow</div>
+              <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 14px;cursor:pointer">Route</div>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#43587e">ADS-B</span>
+            </div>
+            <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#7f9cc9;cursor:pointer" style-hover="color:#b8cdf2">DETAILS ▾</div>
+          </div>
+        </div>
+      </div>
+      <div id="1g" style="display:flex;flex-direction:column">
+        <div data-screen-label="1g power plant popup" style="position:relative;width:560px;height:346px;background:#0a1322;border:1px solid rgba(120,168,255,.12);overflow:hidden;flex:0 0 auto">
+          <div style="position:absolute;left:74%;top:56%;width:10px;height:10px;border-radius:50%;background:rgba(53,208,127,.25);border:1px solid #35d07f"></div>
+          <div style="position:absolute;left:71%;top:64%;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#7f9cc9">Vogtle</div>
+          <div style="position:absolute;left:16px;top:16px;width:340px;background:rgba(11,19,34,.94);border:1px solid rgba(120,168,255,.16);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0">
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;color:#5d7399;font-size:13px;cursor:grab">⠿</span>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="#8fb0e8"><path d="M9 1L3.5 9h3.5l-1 6L11.5 7H8z"></path></svg>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span style="color:#eef4ff;font-size:15px;font-weight:650">Vogtle Generating Plant</span>
+                </div>
+                <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:#8ba3cc;margin-top:2px;letter-spacing:.04em">WAYNESBORO, GA · US · EIA-860</div>
+              </div>
+              <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 16 16" stroke="#8aa2c8" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"></path></svg></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 0">
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">TYPE</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">NUCLEAR</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">CAP MW</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;color:#dbe7ff">4,536</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">FUEL</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff">URANIUM</span></div>
+              <div style="background:rgba(120,168,255,.06);border:1px solid rgba(120,168,255,.13);border-radius:8px;padding:7px 8px 8px;display:flex;flex-direction:column;gap:3px"><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;color:#6d87b8">STATUS</span><span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#dbe7ff"><span style="color:#35d07f">●</span> ONLINE</span></div>
+            </div>
+            <div style="display:flex;gap:8px;padding:12px 14px;align-items:center">
+              <div style="background:#2563eb;color:#fff;font-size:12.5px;font-weight:600;border-radius:8px;padding:7px 16px;cursor:pointer" style-hover="background:#3b76f0">Zoom to</div>
+              <div style="background:rgba(120,168,255,.1);border:1px solid rgba(120,168,255,.18);color:#c4d6f7;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 14px;cursor:pointer">SEC filings</div>
+              <div style="flex:1"></div>
+              <span style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:#43587e">EIA</span>
+            </div>
+            <div style="border-top:1px solid rgba(120,168,255,.1);padding:8px 14px;text-align:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.16em;color:#7f9cc9;cursor:pointer" style-hover="color:#b8cdf2">DETAILS ▾</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;units&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;mi · °F&quot;,&quot;km · °C&quot;],&quot;default&quot;:&quot;mi · °F&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Data&quot;},&quot;satDetailsOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Frame 1a — sat card&quot;},&quot;inspectView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Orbit&quot;,&quot;Onboard&quot;,&quot;Ground point&quot;,&quot;Follow&quot;],&quot;default&quot;:&quot;Follow&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Frame 1e — inspect&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const km = (this.props.units ?? 'mi · °F').startsWith('km');
+    const open = this.props.satDetailsOpen ?? false;
+    const view = this.props.inspectView ?? 'Orbit';
+    return {
+      altL: km ? 'ALT KM' : 'ALT MI',
+      altV: km ? '409' : '254',
+      spdL: km ? 'SPD KM/H' : 'SPD MPH',
+      spdV: km ? '27,600' : '17,150',
+      apoL: km ? 'APOGEE · KM' : 'APOGEE · MI',
+      apoV: km ? '415' : '258',
+      perL: km ? 'PERIGEE · KM' : 'PERIGEE · MI',
+      perV: km ? '404' : '251',
+      detailsOpen: open,
+      detailsClosed: !open,
+      inspectChips: ['Orbit', 'Onboard', 'Ground point', 'Follow'].map(label => {
+        const active = label === view;
+        return { label, bg: active ? '#2f7cf0' : 'transparent', color: active ? '#fff' : '#cfe0ff', weight: active ? 600 : 500 };
+      }),
+      panel2Ref: (el) => { this.p2 = el; if (el && !el._scrolled) { el._scrolled = true; el.scrollTop = 620; } }
+    };
+  }
+}
+</script>
+</body>
+</html>
