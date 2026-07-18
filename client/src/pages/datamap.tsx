@@ -42,7 +42,7 @@ import {
 // GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
-import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+import { fetchGp, fetchSatcat, parseGp, parseSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
 import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/lib/orbital/gpCache";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
@@ -281,6 +281,13 @@ function ensureSatcat(): Promise<void> {
         if (rows.length) void idbSetCatalog("satcat", rows);
         return rows;
       } catch (e) {
+        try {
+          const r = await fetch("/api/data/orbital/satcat");
+          if (r.ok) {
+            const rows = parseSatcat(await r.text());
+            if (rows.length) { void idbSetCatalog("satcat", rows); return rows; }
+          }
+        } catch { /* fall through */ }
         if (persisted && persisted.data.length) return persisted.data; // last-good, aged, real
         throw e;
       }
@@ -3653,12 +3660,31 @@ export default function DataMapPage() {
                 void idbSetCatalog("gp:active", gp);
               }
             } catch (e) {
-              if (persisted && persisted.data.length) {
+              // MIRROR rung (human-approved 2026-07-18): our origin relays a
+              // 6h GitHub-fetched CelesTrak mirror — covers a blocked or
+              // unreachable CelesTrak even for a first-ever visitor.
+              let mirrored: GpRecord[] | null = null;
+              let mirroredAt = 0;
+              try {
+                const r = await fetch("/api/data/orbital/catalog", { signal });
+                if (r.ok) {
+                  mirroredAt = Date.parse(r.headers.get("x-catalog-fetched-at") || "") || Date.now();
+                  const rows = parseGp(await r.json());
+                  if (rows.length) mirrored = rows;
+                }
+              } catch { /* fall through to stale cache */ }
+              if (mirrored) {
+                gp = mirrored;
+                orbitalGpCache = { at: mirroredAt, gp };
+                void idbSetCatalog("gp:active", gp, mirroredAt);
+                const ageMs = Date.now() - mirroredAt;
+                if (ageMs > 30 * 60_000) staleCatalogAgeMs = ageMs; // honest age when the mirror itself is old
+              } else if (persisted && persisted.data.length) {
                 gp = persisted.data; // last-good fallback — real elements, aged, labeled below
                 orbitalGpCache = { at: persisted.at, gp };
                 staleCatalogAgeMs = Date.now() - persisted.at;
               } else {
-                throw e; // nothing cached — resilient-load backoff keeps retrying
+                throw e; // nothing cached anywhere — resilient-load backoff keeps retrying
               }
             }
           }
@@ -8301,7 +8327,7 @@ export default function DataMapPage() {
               </button>
               {celOpen && (
                 <>
-                  <div className="vt-layer-row" data-vt-layer="celestial_scale">
+                  <div className="vt-layer-row" data-vt-control="celestial_scale">
                     <span className="vt-layer-ic"><Moon size={15} /></span>
                     <span className="vt-layer-name">
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Solar-system scale</span>

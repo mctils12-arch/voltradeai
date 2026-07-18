@@ -1,0 +1,59 @@
+# CELESTIAL CATALOG MIRROR — human-approved frozen-path ADDITION
+# (2026-07-18: ".github/workflows/ is frozen" — the human explicitly
+# approved adding exactly this workflow, in their own words, after the
+# CelesTrak over-fetch outage; wishlist.md carries the request+approval
+# trail. This file is additive; no existing workflow is modified.)
+#
+# WHY: CelesTrak firewalls Railway egress (R17), so the server cannot
+# mirror the catalog itself. GitHub runners are not firewalled. Every 6h
+# this fetches the GP catalog + SATCAT, validates them, and force-pushes
+# them to the single-purpose `celestial-catalog-data` branch, which the
+# server relays at /api/data/orbital/* — closing the last catalog gap
+# (a first-ever visitor during a CelesTrak outage/IP-block).
+#
+# POLITENESS: 4 fetches/day total from GitHub's IPs — far inside
+# CelesTrak's guidance — and the mirror EXISTS to stop clients fetching.
+name: celestial-catalog-mirror
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch + validate catalogs
+        run: |
+          set -eu
+          curl -sS --fail --max-time 180 -A "voltradeai-catalog-mirror/1.0 (+https://voltradeai.com)" \
+            -o gp_active.json "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json"
+          curl -sS --fail --max-time 180 -A "voltradeai-catalog-mirror/1.0 (+https://voltradeai.com)" \
+            -o satcat.csv "https://celestrak.org/pub/satcat.csv"
+          python3 - <<'PYEOF'
+          import json, datetime
+          gp = json.load(open('gp_active.json'))
+          assert isinstance(gp, list) and len(gp) > 5000, f"gp too small: {len(gp)}"
+          assert all('MEAN_MOTION' in r and 'NORAD_CAT_ID' in r for r in gp[:100]), "gp schema unexpected"
+          lines = sum(1 for _ in open('satcat.csv', encoding='utf-8', errors='replace'))
+          assert lines > 10000, f"satcat too small: {lines}"
+          json.dump({
+            "fetched_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "gp_records": len(gp),
+            "satcat_lines": lines,
+            "source": "CelesTrak (celestrak.org), fetched by the celestial-catalog-mirror workflow",
+          }, open('meta.json', 'w'))
+          PYEOF
+      - name: Publish to the data branch
+        run: |
+          set -eu
+          git config user.email "noreply@anthropic.com"
+          git config user.name "celestial-catalog-mirror"
+          git checkout --orphan celestial-catalog-data
+          git rm -rf --quiet . || true
+          git add gp_active.json satcat.csv meta.json
+          git commit -m "catalog mirror $(date -u +%FT%TZ)"
+          git push --force origin celestial-catalog-data
