@@ -18,6 +18,9 @@ import {
   GLIDE_FRAME_SEC,
   glideDtSec,
   shouldRequestGlideFrame,
+  glideRepaintDelaySec,
+  tickAnchorFromEpoch,
+  MAX_ANCHOR_LAG_MS,
 } from './satLayer.js';
 import { metersPerPixel } from '../lod.js';
 import { OCCLUSION_RADIUS } from './occlusion.js';
@@ -179,6 +182,120 @@ test('shouldRequestGlideFrame: frame-visible motion gates the continuous repaint
   assert.equal(shouldRequestGlideFrame(0, 15), true);
   // consistency with the underlying displacement math
   assert.equal(shouldRequestGlideFrame(0, 8), !shouldSkipTickRepaint(0, 8, GLIDE_FRAME_SEC));
+});
+
+// ── PULSE FIX (live report 2026-07-18: rhythmic 1Hz snapping) ──
+
+test('glideRepaintDelaySec: closes the dead band — paced repaints where per-tick motion is visible but per-frame is not', () => {
+  // continuous zone (close zoom): per-frame motion visible -> repaint every frame
+  assert.equal(glideRepaintDelaySec(0, 15, 1), 0);
+  // DEAD-BAND REGRESSION PIN (the measured pulse, drive_pulse.mjs): at
+  // z7/equator the old binary gate requested NO glide frames…
+  assert.equal(shouldRequestGlideFrame(0, 7), false, 'per-frame gate is off at z7');
+  // …while one 1s tick of worst-case motion was clearly visible (~13px) —
+  // so the only repaint was the tick buffer swap: the pulse WAS the tick.
+  assert.equal(shouldSkipTickRepaint(0, 7, 1), false, 'a full tick of motion IS visible at z7');
+  const d = glideRepaintDelaySec(0, 7, 1);
+  assert.ok(d != null && d > 0 && d < 1, 'the band now gets a finite paced delay');
+  const expected = metersPerPixel(0, 7) / MAX_GROUND_TRACK_SPEED_MPS;
+  assert.ok(Math.abs(d! - expected) < 1e-12, 'delay = time for ~one pixel of worst-case motion');
+  // idle zone (far out): even a full tick is sub-pixel -> no glide repaint
+  // owed; tick accumulation covers it and the map may idle (perf preserved).
+  assert.equal(glideRepaintDelaySec(0, 0, 1), null);
+  // no declared tick stream: the horizon falls back to the glide cap
+  assert.equal(glideRepaintDelaySec(0, 0, null), null, 'z0 is sub-pixel over even the full glide cap');
+  const d2 = glideRepaintDelaySec(0, 5, null);
+  assert.ok(d2 != null && d2 > 0 && d2 < MAX_GLIDE_SEC, 'one-off updates still pace inside the cap');
+  // fail-open: broken camera numbers -> repaint, never a silent freeze
+  assert.equal(glideRepaintDelaySec(NaN, 7, 1), 0);
+  assert.equal(glideRepaintDelaySec(0, NaN, 1), 0);
+});
+
+test('tickAnchorFromEpoch: maps the worker propagation epoch into the layer clock; bad lags fall back to arrival', () => {
+  // positions propagated at Date 5000, arriving at Date 5100 / perf 1000:
+  // the anchor must sit 100ms BEFORE arrival in the perf clock.
+  assert.equal(tickAnchorFromEpoch(5000, 5100, 1000), 900);
+  assert.equal(tickAnchorFromEpoch(5100, 5100, 1000), 1000, 'zero lag = arrival');
+  assert.equal(tickAnchorFromEpoch(6000, 5100, 1000), 1000, 'epoch in the future (skew) = arrival fallback');
+  assert.equal(tickAnchorFromEpoch(5100 - MAX_ANCHOR_LAG_MS - 1, 5100, 1000), 1000, 'absurd lag (clock jump) = arrival fallback');
+  assert.equal(tickAnchorFromEpoch(NaN, 5100, 1000), 1000, 'broken epoch = arrival fallback');
+});
+
+// A gl stub complete enough to run renderInner (compile+draw) under node.
+function makeGlStub() {
+  const gl: any = new Proxy({}, {
+    get(_t, prop: string | symbol) {
+      const p = String(prop);
+      if (p === 'getShaderParameter' || p === 'getProgramParameter') return () => true;
+      if (p === 'getAttribLocation') return (_prog: unknown, name: string) => (name === 'a_data' ? 0 : name === 'a_vel' ? 1 : 2);
+      if (p === 'getUniformLocation') return () => ({});
+      if (p === 'createShader' || p === 'createProgram' || p === 'createBuffer') return () => ({});
+      return () => undefined; // every other method is a no-op; constants used only as args
+    },
+  });
+  return gl;
+}
+const RENDER_ARGS = () => ({
+  shaderData: { variantName: 'mercator', vertexShaderPrelude: '', define: '' },
+  defaultProjectionData: {
+    mainMatrix: new Float32Array(16),
+    tileMercatorCoords: [0, 0, 1, 1],
+    clippingPlane: [0, 0, 0, 0],
+    projectionTransition: 0,
+    fallbackMatrix: new Float32Array(16),
+  },
+}) as any;
+
+test('render in the dead band schedules ONE paced repaint timer instead of a per-frame loop (pulse regression)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  let repaints = 0;
+  const timers: Array<{ cb: () => void; ms: number }> = [];
+  const fakeMap = { getZoom: () => 7, getCenter: () => ({ lat: 0 }), triggerRepaint: () => { repaints++; } };
+  const layer = new SatLayer({
+    now: () => 1100,
+    setTimeoutFn: (cb, ms) => { timers.push({ cb: cb as () => void, ms }); return timers.length; },
+    clearTimeoutFn: () => {},
+  });
+  const gl = makeGlStub();
+  layer.onAdd(fakeMap as any, gl);
+  layer.updatePositions(new Float32Array(SAT_STRIDE), { shown: 1, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  layer.setTickTime(1000); // anchored 100ms ago in the fake clock
+  const before = repaints;
+  layer.render(gl, RENDER_ARGS());
+  assert.equal(layer.getRenderFailed(), false, 'stubbed render path must not trip the failure latch');
+  assert.equal(repaints, before, 'dead band: no synchronous per-frame repaint request');
+  assert.equal(timers.length, 1, 'exactly one paced repaint timer scheduled');
+  const expectedMs = (metersPerPixel(0, 7) / MAX_GROUND_TRACK_SPEED_MPS) * 1000;
+  assert.ok(Math.abs(timers[0].ms - expectedMs) < 1e-6, 'timer waits until ~one pixel of worst-case motion');
+  // a second render while the timer is pending must not stack another
+  layer.render(gl, RENDER_ARGS());
+  assert.equal(timers.length, 1, 'single pending timer, never a pile-up');
+  // firing the timer requests the frame that draws the next glide step
+  timers[0].cb();
+  assert.equal(repaints, before + 1, 'paced timer triggers the repaint');
+});
+
+test('render at close zoom keeps the continuous glide loop (no timer, direct repaint request)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  let repaints = 0;
+  const timers: Array<{ cb: () => void; ms: number }> = [];
+  const fakeMap = { getZoom: () => 15, getCenter: () => ({ lat: 0 }), triggerRepaint: () => { repaints++; } };
+  const layer = new SatLayer({
+    now: () => 1100,
+    setTimeoutFn: (cb, ms) => { timers.push({ cb: cb as () => void, ms }); return timers.length; },
+    clearTimeoutFn: () => {},
+  });
+  const gl = makeGlStub();
+  layer.onAdd(fakeMap as any, gl);
+  layer.updatePositions(new Float32Array(SAT_STRIDE), { shown: 1, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  layer.setTickTime(1000);
+  const before = repaints;
+  layer.render(gl, RENDER_ARGS());
+  assert.equal(layer.getRenderFailed(), false);
+  assert.equal(repaints, before + 1, 'close zoom: per-frame repaint request continues');
+  assert.equal(timers.length, 0, 'no paced timer needed when the per-frame loop runs');
 });
 
 test('setTickTime: stores the anchor (defaulting to the injected clock) and requests a frame', async () => {

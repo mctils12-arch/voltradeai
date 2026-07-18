@@ -41,7 +41,7 @@ import {
 // SGP4 runs off-thread in a Web Worker, and the population draws as
 // GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
-import { SatLayer } from "@/lib/orbital/satLayer";
+import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
 import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
@@ -100,6 +100,10 @@ import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodE
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
+// block logging — a recurrence of the v1.0.396 freeze surfaces in the
+// console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
+import { startLongTaskWatchdog, longTaskWatchdogArmed } from "@/lib/longTasks";
 // PERF session #2 (user-reported lag/freezes): pure, tested guards for the
 // live-points tick pipeline — vector-build gating below visibility,
 // count quantization so the render bail engages, redundant-refetch skip.
@@ -1303,6 +1307,13 @@ export default function DataMapPage() {
         window.localStorage?.getItem("vt-fps") === "1";
     } catch { return false; }
   });
+  // §6 long-task watchdog: observe >50ms main-thread blocks for the page's
+  // lifetime (dev / ?lt only — longTaskWatchdogArmed gates, so prod mounts
+  // nothing and pays nothing).
+  useEffect(() => {
+    if (!longTaskWatchdogArmed()) return;
+    return startLongTaskWatchdog();
+  }, []);
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   // Legend v3: collapsible as one unit so it never fights the panel for
@@ -3383,8 +3394,14 @@ export default function DataMapPage() {
             // data we get"): anchor the velocity glide at this tick — the
             // shader slides every sat along its REAL SGP4 velocity between
             // 1Hz exact-physics ticks (measured 0.23m/1s vs true
-            // propagation; capped 2.5s so a stale worker holds, never lies)
-            satLayerRef.current?.setTickTime();
+            // propagation; capped 2.5s so a stale worker holds, never lies).
+            // PULSE FIX (2026-07-18): anchor at the worker's PROPAGATION
+            // EPOCH (m.timeMs, mapped Date.now→performance.now), not at
+            // arrival — the ~60-120ms 16k×2-SGP4 pack + transfer latency
+            // otherwise lagged the display and its jitter snapped every tick.
+            satLayerRef.current?.setTickTime(
+              tickAnchorFromEpoch(m.timeMs, Date.now(), performance.now()),
+            );
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
             followTick(); // O5: keep the followed satellite centered + ringed
