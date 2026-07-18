@@ -36,6 +36,24 @@ test("position provenance: top plants imagery-verified, audit artifact present",
   assert.ok(String(data.source).includes("EIA-860"), "EIA-860 must be credited as coordinate source");
 });
 
+test("OSM position overrides applied (position audit 2026-07-18)", () => {
+  // 4 wind plants were 5-22km from their real farms (registry-chain error;
+  // research/position_audit_2026-07-18.md). The overrides file is the
+  // provenance record; the shipped rows must carry the corrected coords —
+  // this catches a rebuild that silently drops position_overrides.json.
+  const ov = JSON.parse(fs.readFileSync(
+    path.join(here, "..", "datacore", "powerplants", "position_overrides.json"), "utf8"));
+  assert.ok(ov.overrides.length >= 4, "override records missing");
+  for (const o of ov.overrides) {
+    assert.ok(o.gppd_idnr && o.name && o.from?.length === 2 && o.to?.length === 2 && o.evidence,
+      `override record incomplete: ${o.name}`);
+    const row = data.plants.find((p: any) => p[0] === o.name);
+    assert.ok(row, `override target not in dataset: ${o.name}`);
+    assert.equal(row[4], Math.round(o.to[0] * 1e4) / 1e4, `${o.name}: lat not overridden`);
+    assert.equal(row[5], Math.round(o.to[1] * 1e4) / 1e4, `${o.name}: lon not overridden`);
+  }
+});
+
 test("attribution ships with the data (CC BY 4.0 requires it)", () => {
   assert.ok(String(data.source).includes("WRI"));
   assert.ok(String(data.source).includes("CC BY 4.0"));
