@@ -41,7 +41,7 @@ import {
 // SGP4 runs off-thread in a Web Worker, and the population draws as
 // GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
-import { SatLayer } from "@/lib/orbital/satLayer";
+import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
 import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
@@ -3394,8 +3394,14 @@ export default function DataMapPage() {
             // data we get"): anchor the velocity glide at this tick — the
             // shader slides every sat along its REAL SGP4 velocity between
             // 1Hz exact-physics ticks (measured 0.23m/1s vs true
-            // propagation; capped 2.5s so a stale worker holds, never lies)
-            satLayerRef.current?.setTickTime();
+            // propagation; capped 2.5s so a stale worker holds, never lies).
+            // PULSE FIX (2026-07-18): anchor at the worker's PROPAGATION
+            // EPOCH (m.timeMs, mapped Date.now→performance.now), not at
+            // arrival — the ~60-120ms 16k×2-SGP4 pack + transfer latency
+            // otherwise lagged the display and its jitter snapped every tick.
+            satLayerRef.current?.setTickTime(
+              tickAnchorFromEpoch(m.timeMs, Date.now(), performance.now()),
+            );
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
             followTick(); // O5: keep the followed satellite centered + ringed

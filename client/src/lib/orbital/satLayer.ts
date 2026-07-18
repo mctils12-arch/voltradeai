@@ -67,6 +67,10 @@ export interface SatLayerOptions {
   /** injectable monotonic clock for the glide (ms) — defaults to
    *  performance.now(); tests inject a fake to run without a browser. */
   now?: () => number;
+  /** injectable timer pair for the PACED glide repaint (pulse fix) —
+   *  defaults to setTimeout/clearTimeout; tests inject fakes. */
+  setTimeoutFn?: (cb: () => void, ms: number) => unknown;
+  clearTimeoutFn?: (handle: unknown) => void;
 }
 
 /** Subset of the worker positions message the layer echoes for the honesty panel. */
@@ -176,6 +180,73 @@ export function glideDtSec(nowMs: number, tickAnchorMs: number): number {
  */
 export function shouldRequestGlideFrame(latDeg: number, zoom: number): boolean {
   return !shouldSkipTickRepaint(latDeg, zoom, GLIDE_FRAME_SEC);
+}
+
+/**
+ * PULSE FIX (live report 2026-07-18, "rhythmic pulsing"): the binary
+ * shouldRequestGlideFrame gate left a DEAD BAND — the zoom range where one
+ * FRAME of worst-case motion is sub-pixel (so no glide frames were ever
+ * requested) but one TICK of motion is 1..30px (so the only repaint was the
+ * 1 Hz buffer swap). In that band satellites moved in pure 1 Hz snaps: the
+ * pulse WAS the tick (measured: ~10px steps once/second with zero motion
+ * between, drive_pulse.mjs, z7 equator). At the equator the band spanned
+ * zoom ~3.3..8.2 — most of the useful orbital viewing range.
+ *
+ * This function replaces the binary decision with a PACED one: how long
+ * until the worst-case object has moved ~one pixel, i.e. how long a repaint
+ * may wait without the motion becoming a visible step.
+ *   0     -> per-frame motion is visible: request every frame (old behavior)
+ *   d > 0 -> schedule ONE repaint d seconds out (paced glide — repaint
+ *            exactly as often as motion crosses a pixel, ~1..30 Hz across
+ *            the former dead band, scaling with zoom)
+ *   null  -> even a full refresh horizon of motion is sub-pixel: no glide
+ *            repaint needed (tick-accumulation repaints still cover it, and
+ *            the map may idle — the perf win this pacing preserves).
+ * `horizonSec` is the time base already covered by other repaint sources —
+ * the worker tick interval when streaming (updatePositions passes it), else
+ * MAX_GLIDE_SEC (past the cap the glide freezes, so no frames are owed).
+ * Same worst-case bound as shouldSkipTickRepaint (MAX_GROUND_TRACK_SPEED_MPS
+ * at the map-CENTER latitude — a near-pole object on a flat mercator view
+ * can exceed it by its 1/cos(lat) stretch; accepted, the globe view where
+ * low zooms actually happen has no such stretch). Fail-open: broken camera
+ * numbers return 0 (repaint), never a silent freeze. Pure; hermetic tests.
+ */
+export function glideRepaintDelaySec(
+  latDeg: number,
+  zoom: number,
+  tickIntervalSec: number | null,
+): number | null {
+  if (shouldRequestGlideFrame(latDeg, zoom)) return 0; // includes the fail-open paths
+  const mpp = metersPerPixel(latDeg, zoom);
+  if (!Number.isFinite(mpp) || mpp <= 0) return 0; // fail open — repaint
+  const secPerPixel = mpp / MAX_GROUND_TRACK_SPEED_MPS;
+  const horizonSec =
+    tickIntervalSec != null && tickIntervalSec > 0 ? tickIntervalSec : MAX_GLIDE_SEC;
+  return secPerPixel < horizonSec ? secPerPixel : null;
+}
+
+/**
+ * GLIDE ANCHOR FROM THE WORKER EPOCH (pulse fix, secondary): the worker
+ * stamps each positions message with the Date.now() epoch it propagated TO
+ * (timeMs, captured BEFORE the ~60-120ms 16k×2-SGP4 pack), while the layer's
+ * glide clock is performance.now(). Anchoring at ARRIVAL (the old wiring)
+ * told the shader "these positions are true now", hiding the pack+transfer
+ * latency: the display permanently lagged truth by that latency, and its
+ * tick-to-tick JITTER rendered as small backward snaps at close zooms. This
+ * maps the worker epoch into the layer clock so dt measures from the real
+ * propagation instant. A non-finite/negative/absurd lag (clock skew, NTP
+ * jump) falls back to the arrival anchor — the pre-fix behavior, never
+ * worse. Pure; all three clocks injected for tests.
+ */
+export const MAX_ANCHOR_LAG_MS = 10_000;
+export function tickAnchorFromEpoch(
+  epochMs: number,
+  dateNowMs: number,
+  perfNowMs: number,
+): number {
+  const lag = dateNowMs - epochMs;
+  if (!Number.isFinite(lag) || lag < 0 || lag > MAX_ANCHOR_LAG_MS) return perfNowMs;
+  return perfNowMs - lag;
 }
 
 /** Exported for satLayer.test.ts, which pins the far-side-cull block to the
@@ -341,6 +412,16 @@ export class SatLayer implements CustomLayerInterface {
   // u_dtSec stays 0 and rendering is bit-identical to the pre-glide layer.
   private tickAnchorMs: number | null = null;
   private now: () => number;
+  // PACED GLIDE (pulse fix): at most ONE pending delayed repaint at a time —
+  // scheduled by render() when per-frame motion is sub-pixel but per-tick
+  // motion is not (see glideRepaintDelaySec). Cleared on onRemove.
+  private glideTimer: unknown = null;
+  private setTimeoutFn: (cb: () => void, ms: number) => unknown;
+  private clearTimeoutFn: (handle: unknown) => void;
+  // Last tick interval the position stream declared (updatePositions) — the
+  // repaint horizon already covered by the tick path. null until a streaming
+  // caller declares one (one-off updates keep the last known stream value).
+  private lastTickIntervalSec: number | null = null;
 
   // last frame's globe projection state, mirrored for the CPU pick path so
   // picking applies the SAME far-side cull the GPU applied (see ./occlusion).
@@ -371,6 +452,9 @@ export class SatLayer implements CustomLayerInterface {
     this.colorMEO = opts.colorMEO ?? DEFAULT_COLORS.MEO;
     this.colorGEO = opts.colorGEO ?? DEFAULT_COLORS.GEO;
     this.now = opts.now ?? (() => performance.now());
+    this.setTimeoutFn = opts.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
+    this.clearTimeoutFn =
+      opts.clearTimeoutFn ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
   }
 
   // --- CustomLayerInterface ------------------------------------------------
@@ -511,31 +595,50 @@ export class SatLayer implements CustomLayerInterface {
     if (this.aShape >= 0) gl.disableVertexAttribArray(this.aShape);
 
     // GLIDE self-repaint ("needsGlide"): while satellites are present, glide
-    // is wired (tick anchor set), and per-frame motion is visible at this
-    // camera, request the next frame — the established self-animating
-    // custom-layer pattern (triggerRepaint from render schedules exactly one
-    // more frame; MapLibre coalesces). Two deliberate stop conditions keep
-    // the perf win of the 1Hz repaint-skip work:
-    //   - zoomed out where one frame's motion is sub-pixel
-    //     (shouldRequestGlideFrame) — the 1 Hz tick path still repaints when
-    //     its accumulated drift becomes visible;
-    //   - dtSec at MAX_GLIDE_SEC (stale worker): the glide is frozen at the
-    //     honesty cap, so repainting would redraw an identical frame; the
-    //     next real tick's updatePositions restarts the loop.
+    // is wired (tick anchor set), and motion is visible at this camera,
+    // keep frames coming — the established self-animating custom-layer
+    // pattern (triggerRepaint from render schedules exactly one more frame;
+    // MapLibre coalesces). PULSE FIX (2026-07-18): the request is now PACED
+    // by glideRepaintDelaySec instead of the old binary gate, which left a
+    // dead band (zoom ~3.3-8.2 at the equator) where NO glide frame was ever
+    // requested while per-tick motion was 1..30px — satellites moved in pure
+    // 1 Hz snaps there (the reported rhythmic pulsing):
+    //   delay 0    -> per-frame motion visible: request the next frame;
+    //   delay d>0  -> per-frame motion sub-pixel but per-tick motion is not:
+    //                 schedule ONE repaint for when the worst case crosses
+    //                 ~a pixel (repaint rate scales with zoom, ~1..30 Hz);
+    //   delay null -> even a tick of motion is sub-pixel: no glide repaint
+    //                 owed; the tick-accumulation path still repaints when
+    //                 drift becomes visible, and the map may idle (the perf
+    //                 win of the 1Hz repaint-skip work, preserved).
+    // dtSec at MAX_GLIDE_SEC (stale worker) stops the loop either way: the
+    // glide is frozen at the honesty cap, so repainting would redraw an
+    // identical frame; the next real tick's updatePositions restarts it.
     // Cost note (charter '1Hz orbital repaint reconsideration' — resolved):
-    // continuous repaint is paid ONLY while this layer has data, i.e. while
+    // repaint pressure exists ONLY while this layer has data, i.e. while
     // the orbital toggle is on; layer off/empty = zero repaint pressure.
-    if (
-      this.map &&
-      this.tickAnchorMs != null &&
-      dtSec < MAX_GLIDE_SEC &&
-      shouldRequestGlideFrame(this.map.getCenter().lat, this.map.getZoom())
-    ) {
-      this.map.triggerRepaint();
+    if (this.map && this.tickAnchorMs != null && dtSec < MAX_GLIDE_SEC) {
+      const delay = glideRepaintDelaySec(
+        this.map.getCenter().lat,
+        this.map.getZoom(),
+        this.lastTickIntervalSec,
+      );
+      if (delay === 0) {
+        this.map.triggerRepaint();
+      } else if (delay != null && this.glideTimer == null) {
+        this.glideTimer = this.setTimeoutFn(() => {
+          this.glideTimer = null;
+          this.map?.triggerRepaint();
+        }, delay * 1000);
+      }
     }
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
+    if (this.glideTimer != null) {
+      this.clearTimeoutFn(this.glideTimer);
+      this.glideTimer = null;
+    }
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.shapeBuffer) gl.deleteBuffer(this.shapeBuffer);
@@ -566,6 +669,12 @@ export class SatLayer implements CustomLayerInterface {
     this.total = Math.floor(data.length / SAT_STRIDE);
     this.meta = meta ?? this.meta;
     this.dataDirty = true;
+    // Remember the stream's tick interval for the paced-glide horizon (a
+    // one-off call between ticks — e.g. a filter repush — keeps the last
+    // known stream value rather than forgetting it).
+    if (tickIntervalSec != null && tickIntervalSec > 0) {
+      this.lastTickIntervalSec = tickIntervalSec;
+    }
     if (tickIntervalSec == null || !this.map) {
       this.skippedRepaintSec = 0;
       this.map?.triggerRepaint();
