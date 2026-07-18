@@ -243,6 +243,25 @@
 /* ── Base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; background: #050a13; }
+
+/* ═══ SHARED SCROLLBAR — the .om-sb spec (satellite-UX 2026-07-18 §4,
+   human-approved design doc): 6px, transparent track, #324e7d thumb that
+   brightens to #4a6ca6 on hover. Defined ONCE and applied to EVERY
+   scrollable surface app-wide (layers panel, card details, streams
+   inventory, filings/graph/earnings drawers, finder lists) — no
+   native-looking scrollbar anywhere. Deliberately-hidden scrollbars
+   (display:none rules) keep their higher specificity. ═══ */
+* { scrollbar-width: thin; scrollbar-color: #324e7d transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #324e7d; border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: #4a6ca6; }
+/* explicit tag for surfaces the drive harness asserts on (same values) */
+.om-sb { scrollbar-width: thin; scrollbar-color: #324e7d transparent; }
+.om-sb::-webkit-scrollbar { width: 6px; height: 6px; }
+.om-sb::-webkit-scrollbar-track { background: transparent; }
+.om-sb::-webkit-scrollbar-thumb { background: #324e7d; border-radius: 3px; }
+.om-sb::-webkit-scrollbar-thumb:hover { background: #4a6ca6; }
 body {
   min-height: 100dvh;
   font-family: var(--font-body);
@@ -2172,14 +2191,19 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    viewport, clipped by the page's overflow:hidden, lower rows unreachable).
    pointer-events pattern lets the empty area under the panel pass clicks
    through to the map. */
+/* flush to the TRUE right viewport edge (satellite-UX 2026-07-18 §4): the
+   panel owns the full right column so its scrollbar rides the actual screen
+   edge — the design's layers-panel placement. The FAB keeps its 12px inset
+   via margin. */
 .vt-map-controls {
-  position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 10;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 10;
   display: flex; flex-direction: column; align-items: flex-end;
   pointer-events: none;
 }
 .vt-map-controls > * { pointer-events: auto; }
 .vt-layer-panel { max-height: 100%; }
 .vt-map-fab {
+  margin: 12px 12px 0 0;
   width: 44px; height: 44px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   background: rgba(10, 22, 40, 0.92); color: var(--text-primary);
@@ -2190,17 +2214,19 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-map-fab:hover { background: var(--bg-card-hover); border-color: var(--accent); }
 .vt-map-fab:active { transform: scale(0.96); }
 
-/* Layer panel */
+/* Layer panel — full-height right column, flush to the screen edge (design
+   1a/1b: border-left only, square corners, scrollbar on the true edge) */
 .vt-layer-panel {
   width: min(320px, calc(100vw - 24px));
+  height: 100%;
   background: rgba(8, 16, 30, 0.94);
-  border: 1px solid rgba(77, 159, 255, 0.2);
-  border-radius: 12px; padding: 6px 0 8px;
+  border: none; border-left: 1px solid rgba(77, 159, 255, 0.2);
+  border-radius: 0; padding: 6px 0 8px;
   backdrop-filter: blur(10px);
   color: var(--text-primary);
   font-family: var(--font-body);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  max-height: calc(100% - 24px); overflow-y: auto;
+  max-height: 100%; overflow-y: auto;
 }
 .vt-layer-panel-head {
   display: flex; align-items: center; justify-content: space-between;

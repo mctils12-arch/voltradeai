@@ -7913,7 +7913,7 @@ export default function DataMapPage() {
             <LayersIcon size={19} />
           </button>
         ) : (
-          <div className="vt-layer-panel" role="region" aria-label="Map layers">
+          <div className="vt-layer-panel om-sb" role="region" aria-label="Map layers">
             <div className="vt-layer-panel-head">
               <span>
                 <LayersIcon size={14} /> Layers

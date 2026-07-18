@@ -125,7 +125,7 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
         </div>
       )}
       {visible.length > 0 && (
-        <div className="vt-filings-tablewrap">
+        <div className="vt-filings-tablewrap om-sb">
           <table className="vt-filings-table">
             <thead>
               <tr>
