@@ -3,6 +3,32 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Satellite UX round (live report): chips take you there, search never dead-ends, tracks restore, coverage bypasses filters, INSPECT IS THE MAP (v1.0.394, T-CLIENT, agent O8 + parent inspect retirement)
+
+Human live report (screenshots): ISS chip didn't go to the station;
+search under an active group chip didn't swap targets; "the track
+feature looks to be gone"; and (third repetition) inspect must be part
+of the map. SHIPPED: O8 agent fixes 4/4 (drive 41/41, orbital suites
+217/217) — single-member chips focus+follow+zoom via the search path;
+search overrides the filter (root cause: sentineled buffer -> no live
+position -> identity-only card; fixed with retained raw buffer +
+immediate repush); track "gone" was 3 MODES not a render break (real
+bug found: card close cleared group orbits with the toggle still on —
+now restores, 1904 verts proven); coverage bypasses the display filter
+honestly. PARENT: inspectScene RETIRED (-1466 lines: lib, tests, CSS,
+wiring) — the ⟳ chip is now one ease into the close-orbit framing the
+map-native follow provides; drive 8/8 incl. craft moving 0.426 deg over
+Earth while orbited. HARNESS NOISE RECORD: first full run failed data@
+1440 TTI 3044ms/p95 417ms; re-runs on identical code: TTI 1761/1812ms
+p95 150/200ms PASS, and a one-off wx-wind fields-on mount flake did not
+recur (endpoint 200 in sandbox+prod; weather code untouched by the
+diff) — container-age confounder reconfirmed, verdicts taken from
+converged re-runs + targeted drives. SAT PERF ("less laggy"): three
+profiling attempts defeated by this sandbox (tile-abort churn / drift /
+browser crash) — deferred to a fresh container rather than fixing on
+poisoned numbers; the O8 fixes cost ~340KB retained buffer and no
+per-tick work.
+
 ## 2026-07-18 [PIPELINE] — Wind-fleet position audit COMPLETE: all 1,139 wind plants verified, 20 more coordinate fixes (v1.0.392, T-DATACORE, agent + parent review)
 
 Full-fleet extension of the 60-plant sample (agent, worktree; report =
