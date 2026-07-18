@@ -166,32 +166,53 @@ test("orphan parentId falls back to the heliocentric rule (nothing is dropped)",
 
 test("renderedDiscPx: s=1 identity, monotone, cap, close-range truth", () => {
   for (const d of [0.1, 1, 5, 39.9, 40, 100, 612]) {
-    assert.equal(renderedDiscPx(d, 1, false, false), d, `identity at s=1, disc=${d}`);
+    for (const rel of [0.27, 1, 11.21]) {
+      assert.equal(renderedDiscPx(d, 1, rel, false, false), d, `identity at s=1, disc=${d}, rel=${rel}`);
+    }
   }
-  // enlargement below the cap, never past it
-  assert.equal(renderedDiscPx(1, 10, false, false), 10);
-  assert.equal(renderedDiscPx(1, 2500, false, false), SIZE_APPARENT_CAP_PX);
-  assert.equal(renderedDiscPx(30, 400, false, false), SIZE_APPARENT_CAP_PX);
+  // the reference response curve (2026-07-18 reconciliation): the effective
+  // multiplier is m^0.78 · rel^(−0.22), floored at 1, then capped
+  close(renderedDiscPx(1, 10, 1, false, false), Math.pow(10, 0.78), 1e-9, "rel=1 → m^0.78");
+  close(
+    renderedDiscPx(1, 10, 11.21, false, false),
+    Math.pow(10, 0.78) * Math.pow(11.21, -0.22),
+    1e-9,
+    "big bodies get proportionally less enlargement (rel^−0.22)",
+  );
+  assert.ok(
+    renderedDiscPx(1, 10, 0.27, false, false) > renderedDiscPx(1, 10, 1, false, false),
+    "small bodies get proportionally more",
+  );
+  // never shrinks below true (mEff floored at 1): Jupiter at s barely >1
+  assert.equal(renderedDiscPx(7, 1.5, 11.21, false, false), 7, "mEff floor: never below true size");
+  // cap: max slider drives any sub-cap disc to the cap, never past it
+  assert.equal(renderedDiscPx(1, SIZE_MULT_MAX, 1, false, false), SIZE_APPARENT_CAP_PX);
+  assert.equal(renderedDiscPx(30, 648, 1, false, false), SIZE_APPARENT_CAP_PX);
   // TRUE disc at/above the cap renders TRUE — fly-to framing (~612 px) is
   // exact at any s; so is the seam's 51 px Earth for a non-anchor twin
-  assert.equal(renderedDiscPx(612, 2500, false, false), 612);
-  assert.equal(renderedDiscPx(51.4, 2500, false, false), 51.4);
+  assert.equal(renderedDiscPx(612, SIZE_MULT_MAX, 1, false, false), 612);
+  assert.equal(renderedDiscPx(51.4, SIZE_MULT_MAX, 1, false, false), 51.4);
   // continuity at the cap boundary
-  close(renderedDiscPx(39.999, 2500, false, false), renderedDiscPx(40.001, 2500, false, false), 0.01, "continuous at cap");
+  close(
+    renderedDiscPx(39.999, SIZE_MULT_MAX, 1, false, false),
+    renderedDiscPx(40.001, SIZE_MULT_MAX, 1, false, false),
+    0.01,
+    "continuous at cap",
+  );
   // monotone non-increasing apparent size as the camera pulls away (disc
   // shrinks with distance; rendered must never grow while zooming out)
   let prev = Infinity;
   for (let d = 200; d > 0.01; d *= 0.9) {
-    const r = renderedDiscPx(d, 400, false, false);
+    const r = renderedDiscPx(d, 648, 1, false, false);
     assert.ok(r <= prev + 1e-9, `apparent size monotone (disc ${d.toFixed(2)})`);
     prev = r;
   }
 });
 
 test("map-anchor body is NEVER size-scaled — the seam contract survives any s", () => {
-  for (const s of [1, 400, 2500]) {
-    assert.equal(renderedDiscPx(51.36, s, true, false), 51.36, `anchor true at s=${s}`);
-    assert.equal(renderedDiscPx(3.8, s, true, false), 3.8, `anchor true small disc at s=${s}`);
+  for (const s of [1, 648, SIZE_MULT_MAX]) {
+    assert.equal(renderedDiscPx(51.36, s, 1, true, false), 51.36, `anchor true at s=${s}`);
+    assert.equal(renderedDiscPx(3.8, s, 1, true, false), 3.8, `anchor true small disc at s=${s}`);
   }
 });
 
@@ -208,10 +229,11 @@ test("SUN CAP: max exaggeration never swallows the inner system", () => {
     );
   }
   // screen-space at the VISIBLE framing: camera 15 AU out, 900 px viewport.
-  // Sun's true disc ≈ 0.84 px; at s=2500 the sun renders ≤ min(20×, cap)
+  // Sun's true disc ≈ 0.84 px; at max s the sun renders ≤ min(20×, cap)
+  // (through the response curve the Sun's rel=109 pulls its mEff to ~3.7)
   const k = 450 / Math.tan((36.87 / 2) * Math.PI / 180);
   const sunTrueDisc = 2 * k * Math.tan(Math.asin(695_700_000 / (15 * AU_M)));
-  const sunRendered = renderedDiscPx(sunTrueDisc, 2500, false, true);
+  const sunRendered = renderedDiscPx(sunTrueDisc, SIZE_MULT_MAX, 109.2, false, true);
   assert.ok(sunRendered <= Math.min(SUN_SIZE_MULT_CAP * sunTrueDisc, SIZE_APPARENT_CAP_PX) + 1e-9,
     `sun rendered ${sunRendered.toFixed(1)}px respects both caps`);
   // Mercury's compressed orbit (0.65 AU) projects ~58 px from the Sun at
@@ -223,9 +245,11 @@ test("SUN CAP: max exaggeration never swallows the inner system", () => {
 
 test("moon-class bodies still enlarge (the slider is not anchor-neutered for satellites)", () => {
   // Moon's true disc at whole-system range is sub-pixel; s enlarges toward
-  // the cap like any non-anchor body
-  const d = renderedDiscPx(0.001, 2500, false, false);
-  close(d, 2.5, 1e-9, "moon 0.001px → 2.5px at s=2500");
+  // the cap like any non-anchor body (rel 0.273 boosts its mEff)
+  const mEff = Math.pow(SIZE_MULT_MAX, 0.78) * Math.pow(0.273, -0.22);
+  const d = renderedDiscPx(0.001, SIZE_MULT_MAX, 0.273, false, false);
+  close(d, Math.min(0.001 * mEff, SIZE_APPARENT_CAP_PX), 1e-9, "moon follows the response curve");
+  assert.ok(d > 0.5, `visible at max slider (${d.toFixed(2)}px)`);
 });
 
 // ── state, sliders, presets, store ──────────────────────────────────────────
@@ -253,10 +277,18 @@ test("size slider: log mapping, round-trips, endpoints", () => {
   assert.equal(sizeSliderToMult(100), SIZE_MULT_MAX);
   assert.equal(multToSizeSlider(1), 0);
   assert.equal(multToSizeSlider(SIZE_MULT_MAX), 100);
-  for (const v of [10, 25, 50, 77, 90]) {
+  // the reference's confirmed default stop: slider 76 → ×647 (the human's
+  // screenshot read ×648 — same stop, one rounding hair), and the VISIBLE
+  // preset lands back on 76 exactly
+  assert.equal(sizeSliderToMult(76), 647);
+  assert.equal(multToSizeSlider(SCALE_PRESET_VISIBLE.s), 76);
+  for (const v of [25, 50, 76, 90]) {
     const s = sizeSliderToMult(v);
     assert.ok(Math.abs(multToSizeSlider(s) - v) <= 1, `round trip at v=${v} (s=${s})`);
   }
+  // low-end integer quantization (×2 spans several slider stops on a
+  // 1..5000 log scale): round trip stays within 3 stops
+  assert.ok(Math.abs(multToSizeSlider(sizeSliderToMult(10)) - 10) <= 3, "low-end round trip ≤3");
   // monotone
   let prev = 0;
   for (let v = 0; v <= 100; v += 5) {

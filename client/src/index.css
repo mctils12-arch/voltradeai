@@ -2622,6 +2622,20 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   .vt-card-closed .vt-card-stats { padding-bottom: 16px; }
 }
 
+/* SPACE VIEW body card (2026-07-18, reference #bodycard): right-anchored
+   over the space frame — clear of the top-left HUD text and the left
+   button rail; same card system as every popup (design 1a family). The
+   phone media block below restores the standard bottom-sheet placement. */
+.vt-site-card.vt-space-card {
+  left: auto; right: 12px; top: 12px;
+  width: min(280px, calc(100vw - 24px));
+  z-index: 12;
+}
+.vt-site-card.vt-space-card .vt-card-detbody { border-top: none; padding-top: 4px; }
+@media (max-width: 767px) {
+  .vt-site-card.vt-space-card { left: 0; right: 0; top: auto; bottom: 0; width: auto; }
+}
+
 /* MapLibre chrome — make library UI belong to the site */
 .vt-map-page .maplibregl-ctrl-group {
   background: rgba(10, 22, 40, 0.92); border-radius: 10px;

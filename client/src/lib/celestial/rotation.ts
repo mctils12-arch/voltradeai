@@ -295,6 +295,20 @@ export function axisEclOfDate(id: RotationBodyId, dateMs: number): Vec3 {
 }
 
 /**
+ * The W = 0 reference direction: the ascending node of the body's equator
+ * on the ICRF equator (R.A. = α+90°), ecliptic of date. Perpendicular to
+ * the pole by construction. Texture renderers factor the orientation as
+ * (node frame, W): a pixel's body longitude is its node-frame longitude
+ * minus W, so a spinning body re-samples the texture without rebuilding
+ * the geometry LUT (SPACE VIEW upgrade 2026-07-18 — textureSphere.ts).
+ */
+export function equatorNodeDirEclOfDate(id: RotationBodyId, dateMs: number): Vec3 {
+  const { raDeg } = poleRaDecDeg(id, dateMs);
+  const ra = raDeg * DEG;
+  return eqToEcl({ x: Math.cos(ra + Math.PI / 2), y: Math.sin(ra + Math.PI / 2), z: 0 }, dateMs);
+}
+
+/**
  * Unit vector from the body's center through the surface point where its
  * PRIME MERIDIAN crosses its equator, ecliptic of date — pole + this vector
  * fully orient the body (B4/B5 surface textures consume exactly this pair).

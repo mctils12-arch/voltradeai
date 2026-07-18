@@ -3,6 +3,51 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Space View visual upgrade: textured solar system, Milky Way, rings, fly-to/follow, body cards (v1.0.408, T-CLIENT, worktree agent + parent review)
+
+The human's Space View reference (research/directives/space_view_
+reference_2026-07-18.html, imported via DesignSync — byte-identical
+to the repo copy) rebuilt inside the SHIPPED spaceFrame renderer (NO
+three.js added — the reference used it for prototyping; we reproduced
+the LOOK in our hand-rolled GL). New: spaceAssets.ts (texture
+manager: progressive tiers, bounded per-band decode/upload,
+createImageBitmap off-thread + banded blit ≤~4ms chunks, 8k Moon
+loads focused-close and EVICTS on release + full unload on exit),
+textureSphere.ts (pure sphere-texture/ring/sky math, 273 tests),
+spaceFrame textured bodies with IAU orientation (B3 rotation.ts now
+VISIBLE — retrograde Venus/Uranus fall out of the real W rates),
+Saturn rings, Milky Way panorama (CC-BY Solar System Scope, credited
+on-screen) fading clamp((camAU−8)/25) — NO fabricated starfield (the
+panorama IS the sky; "real position or absent" honesty rail held),
+60° motion-trail arcs, dot labels with REAL camera-AU distances,
+fly-to (1.1s ease) + FOLLOW (world moves around the tracked body) +
+click-empty release to Sun, body card (day/period/distance/radius/
+tilt, real values). datamap: continuous "time ×" dial wired to the
+B3 simClock (drives satellites through applySatDrive), scene toggles,
+license credits. RECONCILIATION rule applied: reference wins on LOOK,
+our system wins on DATA (real ephemeris + IAU rotation, Earth = the
+live map, real sat catalog — not the demo shells).
+
+AGENT CONTINUITY: the space-scene agent hit the Fable 5 limit mid-
+drive; the human switched to Opus and the parent finished — recovered
+all 5 build commits + the uncommitted per-band-perf work (verified
+good), integrated onto main (auto-merged with the inspect-fix PR's
+datamap edits, no semantic conflict).
+
+Gates (parent-verified): client 467/467 (+19, none weakened), server
+791/791, build clean, visual harness 0 hard failures at 390/768/1440.
+Space-scene SwiftShader drive: 21-22/24 — the 3 non-passing checks
+DIAGNOSED as drive-measurement artifacts, not scene defects: (a+b)
+the sky-brightness pixel proxy counts the (wanted, default-on) orbit
+ellipses + trails as pollution — the render-truth milkyWay.opacity
+assertions (0 near Earth, 0.99 at 47 AU) PASS and the far-field frame
+was eyeballed correct; (c) the drive's release point-finder (24px
+margin) landed on the Moon disc in one run — a dedicated probe with a
+60px empty margin releases to Sun 3/3 deterministically. Perf: max
+band chunk 2.8-3.8ms, LUT 6-7ms, sprite compose ≤13ms, render 0.8-
+1.5ms/frame, 8k Moon 71.5MB resident while focused → 0 on exit.
+Backtest n/a.
+
 ## 2026-07-18 [PRODUCT] — Inspect view fixes per the Space View handoff review (v1.0.407, T-CLIENT, worktree agent + parent review)
 
 Human review items 1–3 (research/directives/space_view_handoff_

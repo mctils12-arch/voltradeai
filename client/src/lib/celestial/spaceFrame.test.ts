@@ -470,12 +470,15 @@ test("layoutLabelStacks: float fixed point terminates (the v1.0.396 freeze)", ()
   }
 });
 
-test("distance labels: units-preference formatter below 0.01 AU, AU above", () => {
+test("distance labels: units-preference formatter below 0.01 AU, AU above (reference fmtAU decimals)", () => {
   const moon = fmtSpaceDistance(384_400_000);
   assert.ok(/mi$|km$/.test(moon), `moon label carries a unit (${moon})`);
   assert.ok(!moon.includes("AU"));
-  assert.equal(fmtSpaceDistance(1.5 * AU_M), "1.500 AU");
-  assert.equal(fmtSpaceDistance(30 * AU_M), "30.00 AU");
+  // 2026-07-18 pinned semantics: ≥10 AU → 1dp, ≥1 → 2dp, <1 → 3dp
+  assert.equal(fmtSpaceDistance(1.5 * AU_M), "1.50 AU");
+  assert.equal(fmtSpaceDistance(30 * AU_M), "30.0 AU");
+  assert.equal(fmtSpaceDistance(4721 * AU_M), "4721.0 AU");
+  assert.equal(fmtSpaceDistance(0.5 * AU_M), "0.500 AU");
 });
 
 // ── B1: shared seam zoom math (buttons/keys/pinch ride the wheel curve) ─────
@@ -745,8 +748,80 @@ test("B2 seam invariance: the anchor's disc ignores the size slider at every sca
   const { renderedDiscPx: rd, SCALE_PRESET_VISIBLE: vis } = await import("./scaleModel.js");
   // Earth's seam disc (≈51.4px) and its fade-band discs render TRUE at any s
   for (const disc of [51.36, MAP_FADE_HI_PX, MAP_FADE_LO_PX, 3.8]) {
-    for (const s of [1, vis.s, 2500]) {
-      assert.equal(rd(disc, s, true, false), disc, `anchor disc ${disc}px true at s=${s}`);
+    for (const s of [1, vis.s, 5000]) {
+      assert.equal(rd(disc, s, 1, true, false), disc, `anchor disc ${disc}px true at s=${s}`);
     }
+  }
+});
+
+// ── SPACE VIEW VISUAL UPGRADE (2026-07-18): follow/release math + card ──────
+
+test("reanchorPose: release keeps the camera's exact world position; follow adds the body's motion delta", async () => {
+  const { reanchorPose } = await import("./spaceFrame.js");
+  const cam = { x: 3.2e11, y: -1.1e11, z: 4.7e9 };
+  const focus = { x: 1.0e11, y: 2.0e11, z: -5.0e9 };
+  const pose = reanchorPose(cam, focus, 1e7);
+  // invariant: focus + dir·dist reproduces the camera bit-tight
+  close(focus.x + pose.dir.x * pose.dist, cam.x, 1, "x preserved");
+  close(focus.y + pose.dir.y * pose.dist, cam.y, 1, "y preserved");
+  close(focus.z + pose.dir.z * pose.dist, cam.z, 1, "z preserved");
+  // floor binds when the camera sits inside the min distance
+  const near = reanchorPose({ x: 1.0e11 + 5, y: 2.0e11, z: -5.0e9 }, focus, 1e7);
+  assert.equal(near.dist, 1e7, "min-distance floor");
+  // FOLLOW contract: camPos = focusPos + dir·dist ⇒ when the body moves by
+  // Δ, the camera moves by exactly Δ (same dir/dist, new focus position)
+  const delta = { x: 7.7e8, y: -2.2e8, z: 9.9e6 };
+  const moved = { x: focus.x + delta.x, y: focus.y + delta.y, z: focus.z + delta.z };
+  const cam2 = {
+    x: moved.x + pose.dir.x * pose.dist,
+    y: moved.y + pose.dir.y * pose.dist,
+    z: moved.z + pose.dir.z * pose.dist,
+  };
+  close(cam2.x - cam.x, delta.x, 1, "camera translated by the body's delta (x)");
+  close(cam2.y - cam.y, delta.y, 1, "camera translated by the body's delta (y)");
+  close(cam2.z - cam.z, delta.z, 1, "camera translated by the body's delta (z)");
+});
+
+test("bodyCardInfo: real fact-sheet values — Jupiter 9.9h, Venus retrograde 243d, Moon around Earth", async () => {
+  const { bodyCardInfo } = await import("./spaceFrame.js");
+  const { setUnits, getUnits } = await import("../units.js");
+  const prior = getUnits();
+  try {
+    setUnits("metric");
+    const t = Date.UTC(2026, 6, 18, 12);
+    const jup = bodyCardInfo("jupiter", t)!;
+    assert.equal(jup.typeLabel, "PLANET");
+    assert.equal(jup.rows[0].label, "day length");
+    assert.equal(jup.rows[0].value, "9.9 h", "Jupiter sidereal day ≈ 9.925h");
+    assert.equal(jup.rows[1].value, "11.9 years");
+    assert.match(jup.rows[2].value, /AU from Sun$/);
+    const jupAU = parseFloat(jup.rows[2].value);
+    assert.ok(jupAU > 4.9 && jupAU < 5.5, `Jupiter live distance ${jupAU} AU`);
+    assert.match(jup.rows[3].value, /km$/, "radius through the units formatter");
+    const venus = bodyCardInfo("venus", t)!;
+    assert.match(venus.rows[0].value, /retrograde$/, "Venus retrograde tag");
+    assert.ok(Math.abs(parseFloat(venus.rows[0].value) - 243) < 1, "Venus day ≈ 243 days");
+    const tilt = parseFloat(venus.rows[4].value);
+    assert.ok(tilt > 176 && tilt < 180, `Venus near-flipped tilt ${tilt}`);
+    const moon = bodyCardInfo("moon", t)!;
+    assert.equal(moon.typeLabel, "MOON · orbits Earth");
+    assert.match(moon.rows[2].value, /from Earth$/);
+    const moonKm = parseFloat(moon.rows[2].value.replace(/,/g, ""));
+    assert.ok(moonKm > 356_000 && moonKm < 407_000, `Moon live distance ${moonKm} km within perigee–apogee`);
+    assert.match(moon.rows[1].value, /27\.\d days · around Earth/);
+    const io = bodyCardInfo("io", t)!;
+    assert.equal(io.typeLabel, "MOON · orbits Jupiter");
+    assert.match(io.rows[1].value, /around Jupiter$/);
+    const sun = bodyCardInfo("sun", t)!;
+    assert.equal(sun.typeLabel, "STAR");
+    assert.equal(sun.rows[1].value, "—");
+    assert.match(sun.rows[0].value, /25\.\d days/, "Carrington-class solar rotation from IAU W");
+    // imperial: the radius row switches to miles (UNITS PREFERENCE rule)
+    setUnits("imperial");
+    const jupImp = bodyCardInfo("jupiter", t)!;
+    assert.match(jupImp.rows[3].value, /mi$/);
+    assert.equal(bodyCardInfo("nonsense", t), null);
+  } finally {
+    setUnits(prior);
   }
 });

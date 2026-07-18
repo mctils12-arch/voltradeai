@@ -29,7 +29,7 @@
 // ephemeris (lib/celestial/solarSystem.ts — Schlyter/van Flandern, arcmin-
 // class), but the RENDER LAYOUT flows through lib/celestial/scaleModel.ts:
 // a distance-compression slider c (0 = true 1:1, 1 = Mercury→Neptune in one
-// view) and a body-size multiplier s (1–2500×, Sun capped, the map-anchor
+// view) and a body-size multiplier s (1–5000×, Sun capped, the map-anchor
 // body exempt — scaleModel's header carries the full mapping rationale).
 // THE RULE: the LAYOUT may compress; the NUMBERS never lie — labels, the
 // status line and the scale bar always print TRUE ephemeris distances
@@ -126,11 +126,13 @@ import { fmtKm, getUnits, type UnitSystem } from "../units.js";
 import { ZOOM_STEP_PER_NOTCH, zoomStepFactor } from "./zoomSeam.js";
 import {
   applyDistanceCompression,
+  compressDistance,
   renderedDiscPx,
   clampScaleState,
   getCelestialScale,
   isTrueScale,
   SUN_SIZE_MULT_CAP,
+  SIZE_REL_EARTH_KM,
   type ScaleState,
   type ScaleBodyIn,
 } from "./scaleModel.js";
@@ -152,7 +154,44 @@ import {
   hasRotationModel,
   axisEclOfDate,
   primeMeridianDeg as iauPrimeMeridianDeg,
+  equatorNodeDirEclOfDate,
+  rotationRateDegPerDay,
+  rotationPeriodDays,
+  type RotationBodyId,
 } from "./rotation.js";
+// SPACE VIEW VISUAL UPGRADE (human directive 2026-07-18 — handoff +
+// reference in research/directives/): textured bodies, Saturn rings, the
+// Milky Way backdrop, motion trails, the ecliptic grid, dot labels, the
+// body card and the release gesture — all reproduced from the reference
+// scene INSIDE this hand-rolled renderer (no three.js; the parent's
+// architecture decision). spaceAssets owns assets/tiers/prefs;
+// textureSphere owns the pure sampling/LUT/ring/sky math.
+import {
+  createSpaceTextureManager,
+  milkyWayOpacity,
+  getMilkyWayPref,
+  getEclipticGridPref,
+  getMotionTrailsPref,
+  getBodyLabelsPref,
+  MILKY_WAY_CREDIT,
+  type SpaceTextureManager,
+  type TexImage,
+} from "./spaceAssets.js";
+import {
+  buildSphereLUT,
+  createEmptySphereLUT,
+  fillSphereLUTRows,
+  composeTexturedSprite,
+  ringBandsFromTextures,
+  ringCircle3D,
+  galacticBasisEcl,
+  buildSkyRays,
+  renderSkyToBuffer,
+  spinObliquityDeg,
+  type SphereLUT,
+  type RingBand,
+  type GalacticBasis,
+} from "./textureSphere.js";
 import {
   sampleOrbitPolyline,
   layoutOrbitPolyline,
@@ -232,6 +271,38 @@ export const LABEL_BOX_W_PX = 130;
 /** Bodies drawn per-pixel are shaded at most at this sprite radius and
  *  upscaled beyond it (smooth sphere — visually lossless, 4x+ cheaper). */
 export const SPRITE_MAX_SHADE_RADIUS = 180;
+
+/** TEXTURED bodies shade to a larger cap (surface detail rewards it).
+ *  Full-res sprites are NEVER built in one task: motion frames use the
+ *  FAST tier synchronously, and the full tier streams in as row-chunked
+ *  macrotasks (each bounded) once the pose settles. */
+export const TEXTURE_MAX_SHADE_RADIUS = 224;
+
+/** The synchronous sprite tier: small enough that a per-frame rebuild
+ *  (time-warp spin, flights) stays a bounded main-thread task. */
+export const FAST_SHADE_RADIUS = 112;
+
+/** Row-chunk budget for the async full-res upgrade pipeline, pixels per
+ *  macrotask (LUT fill ≈ compose ≈ a few ms each at this size). */
+export const UPGRADE_CHUNK_PX = 45_000;
+
+/** A textured body's dot-label glyph renders while its disc is under this
+ *  size (the reference's .lbl dot: a 9px annotation ring ON the body). */
+export const LABEL_DOT_MAX_DISC_PX = 9;
+
+/** The Sun's additive glow sprite spans this many disc diameters
+ *  (reference: glow.scale = 7× the sun mesh). */
+export const SUN_GLOW_SCALE = 7;
+
+/** Ecliptic-grid AU rings (the reference's GRID_AU) + 12 bearing spokes. */
+export const GRID_AU: readonly number[] = Object.freeze([0.5, 1, 2, 5, 10, 20, 40]);
+
+/** Motion-trail arc: 60° of orbital phase trailing the body (reference). */
+export const TRAIL_ARC_DEG = 60;
+
+/** Milky Way display-opacity easing time constant, ms (the reference eases
+ *  ~6%/frame at 60fps ≈ a 270ms constant; isolated draws snap). */
+export const MILKY_WAY_EASE_MS = 270;
 
 // ── pure view math ──────────────────────────────────────────────────────────
 
@@ -541,11 +612,26 @@ export function layoutLabelStacks(
 }
 
 /** Distance label: km/mi via the units preference below 0.01 AU, AU above
- *  (AU is a fixed domain convention, like knots for vessels). */
+ *  (AU is a fixed domain convention, like knots for vessels). AU decimals
+ *  follow the reference's fmtAU (2026-07-18): ≥10 → 1dp, ≥1 → 2dp,
+ *  <1 → 3dp — so "4721.0 AU" at far range, "1.50 AU" near Earth. */
 export function fmtSpaceDistance(meters: number): string {
   if (meters < 0.01 * AU_M) return fmtKm(meters / 1000, 0);
   const au = meters / AU_M;
-  return `${au.toFixed(au < 10 ? 3 : 2)} AU`;
+  return `${au.toFixed(au >= 10 ? 1 : au >= 1 ? 2 : 3)} AU`;
+}
+
+/**
+ * Re-anchor a camera pose on a new focus body WITHOUT moving the camera:
+ * the released/re-focused camera keeps its world position exactly (above
+ * the min-distance floor). This is the release gesture's math (click empty
+ * space → back to the Sun frame) and cancelFlight's re-anchor — and the
+ * FOLLOW contract's inverse: while focused, camPos = focusPos + dir·dist,
+ * so the camera translates by exactly the body's per-frame motion delta.
+ */
+export function reanchorPose(camPos: Vec3, focusPos: Vec3, minDistM: number): { dir: Vec3; dist: number } {
+  const rel = sub(camPos, focusPos);
+  return { dir: norm3(rel), dist: Math.max(len3(rel), minDistM) };
 }
 
 // ── the scale bar (B1 §1: "mi → thousands of mi → AU, respecting the
@@ -732,6 +818,98 @@ export function defaultBodyRegistry(): SpaceBodyDef[] {
   return [...core, ...moons];
 }
 
+// ── the body info card (reference #bodycard, 2026-07-18) ────────────────────
+
+export interface BodyCardInfo {
+  id: string;
+  name: string;
+  /** "STAR" | "PLANET" | "MOON · orbits <parent>" */
+  typeLabel: string;
+  /** display-ready rows in the reference's order: day length, orbit
+   *  period, distance, radius, axial tilt. REAL values only — rotation
+   *  from the IAU model, distances live from the ephemeris at timeMs,
+   *  lengths through the units formatters. */
+  rows: { label: string; value: string }[];
+}
+
+function fmtDayLength(id: string): string {
+  if (!hasRotationModel(id)) return "—";
+  const p = rotationPeriodDays(id as RotationBodyId);
+  const retro = rotationRateDegPerDay(id as RotationBodyId) < 0 ? " · retrograde" : "";
+  return (p < 2 ? `${(p * 24).toFixed(1)} h` : `${p.toFixed(1)} days`) + retro;
+}
+
+function fmtOrbitPeriod(days: number): string {
+  if (days < 2) return `${(days * 24).toFixed(1)} h`;
+  const yr = days / 365.25;
+  if (yr < 1) return `${days < 100 ? days.toFixed(1) : String(Math.round(days))} days`;
+  return yr < 20 ? `${yr.toFixed(1)} years` : `${Math.round(yr)} years`;
+}
+
+/**
+ * Display-ready card data for a registry body at the sim-clock instant.
+ * Pure (tested against fact-sheet values: Jupiter ≈ 9.9 h, Venus 243 days
+ * retrograde, the Moon ~384,400 km from Earth). Distance rows are LIVE
+ * true ephemeris distances — never catalog averages.
+ */
+export function bodyCardInfo(id: string, timeMs: number): BodyCardInfo | null {
+  const isPlanet = (BODY_ORDER as readonly string[]).includes(id);
+  const isCurated = (MOON_IDS as readonly string[]).includes(id);
+  if (!isPlanet && !isCurated) return null;
+  const name = isPlanet ? NAMES[id as BodyId] : MOON_NAME[id as MoonId];
+  const helio = new Map(solarSystemState(timeMs).map((b) => [b.id as string, b.helioAu]));
+  let typeLabel: string;
+  let distRow: string;
+  let orbitRow: string;
+  let radiusKm: number;
+  if (id === "sun") {
+    typeLabel = "STAR";
+    distRow = "—";
+    orbitRow = "—";
+    radiusKm = BODY_RADIUS_M.sun / 1000;
+  } else if (id === "moon") {
+    typeLabel = "MOON · orbits Earth";
+    const e = helio.get("earth")!;
+    const m = helio.get("moon")!;
+    const dM = Math.hypot(m.x - e.x, m.y - e.y, m.z - e.z) * AU_M;
+    distRow = `${fmtKm(dM / 1000, 0)} from Earth`;
+    orbitRow = `${fmtOrbitPeriod(PLANET_ORBIT_PERIOD_DAYS.moon)} · around Earth`;
+    radiusKm = BODY_RADIUS_M.moon / 1000;
+  } else if (isCurated) {
+    const el = MOONS[id as MoonId];
+    const parentName = NAMES[el.parent as BodyId];
+    typeLabel = `MOON · orbits ${parentName}`;
+    const o = moonLocalOffsetEclM(id as MoonId, timeMs);
+    distRow = `${fmtKm(Math.hypot(o.x, o.y, o.z) / 1000, 0)} from ${parentName}`;
+    orbitRow = `${fmtOrbitPeriod(moonOrbitPeriodDays(id as MoonId))} · around ${parentName}`;
+    radiusKm = el.radiusKm;
+  } else {
+    typeLabel = "PLANET";
+    const p = helio.get(id)!;
+    distRow = `${fmtSpaceDistance(Math.hypot(p.x, p.y, p.z) * AU_M)} from Sun`;
+    orbitRow = fmtOrbitPeriod(PLANET_ORBIT_PERIOD_DAYS[id as Exclude<BodyId, "sun">]);
+    radiusKm = BODY_RADIUS_M[id as BodyId] / 1000;
+  }
+  // stated frame: tilt is measured to the ECLIPTIC (fact sheets quote the
+  // orbit plane — within ~2-3° for the planets, and honesty demands the
+  // frame be named rather than approximated silently)
+  const tilt = hasRotationModel(id)
+    ? `${spinObliquityDeg(axisEclOfDate(id as RotationBodyId, timeMs), rotationRateDegPerDay(id as RotationBodyId)).toFixed(1)}° to ecliptic`
+    : "—";
+  return {
+    id,
+    name,
+    typeLabel,
+    rows: [
+      { label: "day length", value: fmtDayLength(id) },
+      { label: "orbit period", value: orbitRow },
+      { label: "distance", value: distRow },
+      { label: "radius", value: fmtKm(radiusKm, 0) },
+      { label: "axial tilt", value: tilt },
+    ],
+  };
+}
+
 // ── mount ───────────────────────────────────────────────────────────────────
 
 /** Live seam facts the parent reads off the real map each frame. */
@@ -772,6 +950,17 @@ export interface SpaceFrameOptions {
   /** B3 initial orbit-paths visibility (default: the persisted preference —
    *  ON on first run). */
   orbitPaths?: boolean;
+  /** Space-view visual toggles (defaults: the persisted preferences). */
+  milkyWay?: boolean;
+  eclipticGrid?: boolean;
+  motionTrails?: boolean;
+  bodyLabels?: boolean;
+  /** the sim clock's current rate for the footer's "time ×N" (0 = paused).
+   *  The frame never owns time — it reads the ONE clock's rate for display. */
+  getTimeRate?: () => number;
+  /** focus notifications for the parent's body card: a body id when a
+   *  fly-to targets it, null on release/fly-home (card closes). */
+  onFocusBody?: (id: string | null) => void;
   /** the body registry (default: defaultBodyRegistry() — Sun/Moon/Earth +
    *  the 8 planets). Must contain exactly one emissive body (the light
    *  source) and at most one mapAnchor body. */
@@ -803,6 +992,12 @@ export interface SpaceFrameHandle {
   /** B3: toggle the orbit-ellipse polylines (cached lines restyle, never
    *  resample, on scale changes — the charter's slider rule). */
   setOrbitPaths(on: boolean): void;
+  setMilkyWay(on: boolean): void;
+  setEclipticGrid(on: boolean): void;
+  setMotionTrails(on: boolean): void;
+  setBodyLabels(on: boolean): void;
+  /** display-ready card data for a body at the frame's current instant. */
+  getBodyCard(id: string): BodyCardInfo | null;
   getState(): SpaceFrameState;
   dispose(): void;
 }
@@ -857,6 +1052,28 @@ export interface SpaceFrameState {
   /** B3 orbit-line render state: toggle + how many of the registry's
    *  lines are sampled and cached (they stream in one per macrotask). */
   orbitPaths: { on: boolean; ready: number; total: number };
+  /** visual-upgrade render truth (2026-07-18): what the frame actually
+   *  drew this frame — the drive asserts against these, never a recompute. */
+  milkyWay: { on: boolean; opacity: number; target: number };
+  eclipticGrid: boolean;
+  motionTrails: boolean;
+  bodyLabels: boolean;
+  /** resident texture facts + the perf maxima the report needs. */
+  textures: {
+    loaded: number;
+    ids: string[];
+    moonTier: string;
+    bytes: number;
+    maxChunkMs: number;
+    mainThreadDecode: boolean;
+    spriteBuildMsMax: number;
+    lutBuildMsMax: number;
+    skyMsLast: number;
+    /** body ids whose sprite composed from a texture THIS frame. */
+    texturedThisFrame: string[];
+  };
+  /** clickable label text boxes as drawn (label→fly-to hit targets). */
+  labelRects: { id: string; x: number; y: number; w: number; h: number }[];
   anchor: (EarthAnchor & { subLatDeg: number; subLonDeg: number }) | null;
   bodies: SpaceFrameBodyState[];
 }
@@ -932,11 +1149,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return layoutMemo.pos;
   };
   // rendered disc from the true radius at the LAYOUT distance, through the
-  // B2 size pipeline (anchor exempt, Sun capped, apparent cap; s=1 identity)
+  // B2 size pipeline (anchor exempt, Sun capped, apparent cap; s=1 identity;
+  // reference response curve m^0.78·rel^−0.22 — rel in Earth radii)
   const discPxOf = (id: string, layoutDistM: number, k: number): number =>
     renderedDiscPx(
       bodyDiscPx(radiusM(id), layoutDistM, k),
       scaleSt.s,
+      (defById.get(id)?.radiusKm ?? SIZE_REL_EARTH_KM) / SIZE_REL_EARTH_KM,
       defById.get(id)?.mapAnchor === "maplibre",
       !!defById.get(id)?.emissive,
     );
@@ -965,10 +1184,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return null;
   }
   function scheduleOrbitSampling(): void {
-    if (orbitJob || disposed || !orbitsOn || !nextOrbitBody()) return;
+    // trails share the sampled lines — either consumer keeps sampling live
+    if (orbitJob || disposed || (!orbitsOn && !trailsOn) || !nextOrbitBody()) return;
     orbitJob = setTimeout(() => {
       orbitJob = null;
-      if (disposed || !orbitsOn) return;
+      if (disposed || (!orbitsOn && !trailsOn)) return;
       const def = nextOrbitBody();
       if (!def) return;
       const parentId = def.parentId ?? null;
@@ -1064,6 +1284,191 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     }
   }
 
+  /** project one layout-space point; returns null when behind the camera. */
+  function projTo(
+    wx: number, wy: number, wz: number,
+    camPos: Vec3, basis: CamBasis, k: number, cx: number, cy: number,
+  ): { x: number; y: number; depth: number } | null {
+    const rx = wx - camPos.x;
+    const ry = wy - camPos.y;
+    const rz = wz - camPos.z;
+    const depth = rx * basis.f.x + ry * basis.f.y + rz * basis.f.z;
+    if (depth <= 0) return null;
+    return {
+      x: cx + (k * (rx * basis.r.x + ry * basis.r.y + rz * basis.r.z)) / depth,
+      y: cy - (k * (rx * basis.u.x + ry * basis.u.y + rz * basis.u.z)) / depth,
+      depth,
+    };
+  }
+
+  /**
+   * The Milky Way backdrop: the CC-BY panorama mapped through the REAL
+   * galactic frame onto the current camera basis, painted at a reduced
+   * working resolution (≤480 px wide), cached against the basis (pure
+   * zoom reuses it; only orbit drags repaint), upscaled to the canvas,
+   * plus the reference's additive glow pass. Opacity = the eased fade.
+   */
+  function drawMilkyWay(w: number, h: number, basis: CamBasis): void {
+    if (!ctx || milkyShown <= 0.003) return;
+    const tex = texman.getMilkyWay();
+    if (!tex) return;
+    const skyW = Math.min(480, Math.max(160, Math.round(w / 3)));
+    const skyH = Math.max(100, Math.round((skyW * h) / w));
+    if (!skyRays || skyRays.w !== skyW || skyRays.h !== skyH) {
+      skyRays = { w: skyW, h: skyH, rays: buildSkyRays(skyW, skyH, fovDeg) };
+      skyKey = "";
+    }
+    if (!galBasis) galBasis = galacticBasisEcl(timeMs);
+    const key =
+      `${skyW}x${skyH}|${q2(basis.f.x)},${q2(basis.f.y)},${q2(basis.f.z)}` +
+      `|${q2(basis.u.x)},${q2(basis.u.y)},${q2(basis.u.z)}`;
+    if (!skyCanvas || skyKey !== key) {
+      const t0 = performance.now();
+      if (!skyCanvas || skyCanvas.width !== skyW || skyCanvas.height !== skyH) {
+        skyCanvas = document.createElement("canvas");
+        skyCanvas.width = skyW;
+        skyCanvas.height = skyH;
+      }
+      const scc = skyCanvas.getContext("2d")!;
+      const img = scc.createImageData(skyW, skyH);
+      renderSkyToBuffer(skyRays.rays, skyW, skyH, basis.f, basis.r, basis.u, galBasis, tex, img.data);
+      scc.putImageData(img, 0, 0);
+      skyKey = key;
+      skyMsLast = performance.now() - t0;
+    }
+    ctx.save();
+    ctx.globalAlpha = milkyShown;
+    ctx.drawImage(skyCanvas, 0, 0, w, h);
+    // additive second pass — the reference's galaxyGlow (the band glows
+    // instead of reading as dim wallpaper)
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = milkyShown * 0.55;
+    ctx.drawImage(skyCanvas, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  /** Ecliptic grid: AU range rings + 12 bearing spokes (reference, default
+   *  OFF), drawn through the SAME layout compression as everything else,
+   *  with dim AU labels at each ring's reference bearing. */
+  function drawEclipticGrid(
+    c2d: CanvasRenderingContext2D,
+    sunPos: Vec3,
+    camPos: Vec3,
+    basis: CamBasis,
+    k: number,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+  ): void {
+    c2d.strokeStyle = "rgba(30,42,68,0.85)";
+    c2d.lineWidth = 1;
+    c2d.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+    const seg = 96;
+    for (const a of GRID_AU) {
+      const rr = compressDistance(a * AU_M, scaleSt.c);
+      c2d.beginPath();
+      let open = false;
+      let labelPt: { x: number; y: number } | null = null;
+      for (let i = 0; i <= seg; i++) {
+        const t = (i / seg) * Math.PI * 2;
+        const p = projTo(
+          sunPos.x + Math.cos(t) * rr, sunPos.y + Math.sin(t) * rr, sunPos.z,
+          camPos, basis, k, cx, cy,
+        );
+        if (!p) { open = false; continue; }
+        if (!open) { c2d.moveTo(p.x, p.y); open = true; } else c2d.lineTo(p.x, p.y);
+        if (i === 0) labelPt = p;
+      }
+      c2d.stroke();
+      if (labelPt && labelPt.x > -20 && labelPt.x < w && labelPt.y > 0 && labelPt.y < h) {
+        c2d.fillStyle = "rgba(61,74,102,0.9)";
+        c2d.fillText(`${a} AU`, labelPt.x + 4, labelPt.y - 4);
+      }
+    }
+    // bearing spokes: radial 3D segments stay straight under projection
+    // AND under the radial compression map — endpoints suffice
+    const r0 = compressDistance(0.3 * AU_M, scaleSt.c);
+    const r1 = compressDistance(45 * AU_M, scaleSt.c);
+    c2d.beginPath();
+    for (let i = 0; i < 12; i++) {
+      const t = i * 30 * DEG;
+      const p0 = projTo(sunPos.x + Math.cos(t) * r0, sunPos.y + Math.sin(t) * r0, sunPos.z, camPos, basis, k, cx, cy);
+      const p1 = projTo(sunPos.x + Math.cos(t) * r1, sunPos.y + Math.sin(t) * r1, sunPos.z, camPos, basis, k, cx, cy);
+      if (!p0 || !p1) continue;
+      c2d.moveTo(p0.x, p0.y);
+      c2d.lineTo(p1.x, p1.y);
+    }
+    c2d.stroke();
+  }
+
+  /**
+   * Motion trails (reference "Motion trails", separate toggle): a 60°
+   * trailing arc of each body's REAL sampled orbit, brighter than the
+   * orbit line, ending exactly on the body. Trailing = the PAST arc —
+   * direction of travel reads at a glance.
+   */
+  function drawMotionTrails(
+    c2d: CanvasRenderingContext2D,
+    pos: Record<string, Vec3>,
+    camPos: Vec3,
+    basis: CamBasis,
+    k: number,
+    cx: number,
+    cy: number,
+  ): void {
+    c2d.lineWidth = 1.5;
+    for (const def of defs) {
+      const entry = orbitCache.get(def.id);
+      if (!entry) continue;
+      const parentId = entry.line.parentId;
+      let px = 0;
+      let py = 0;
+      let pz = 0;
+      let verts: Float64Array;
+      if (parentId) {
+        const pp = pos[parentId];
+        if (!pp) continue;
+        const pdx = pp.x - camPos.x;
+        const pdy = pp.y - camPos.y;
+        const pdz = pp.z - camPos.z;
+        const pDist = Math.hypot(pdx, pdy, pdz);
+        if (pDist > 0 && (entry.line.maxRadiusM / pDist) * k < 2) continue;
+        px = pp.x;
+        py = pp.y;
+        pz = pp.z;
+        verts = entry.line.pts;
+      } else {
+        if (entry.layoutC !== scaleSt.c) {
+          entry.layout = layoutOrbitPolyline(entry.line.pts, scaleSt.c, entry.layout ?? undefined);
+          entry.layoutC = scaleSt.c;
+        }
+        verts = entry.layout!;
+      }
+      const n = verts.length / 3;
+      const periodMs = entry.line.periodDays * 86_400_000;
+      const f = ((((timeMs - entry.line.sampledAtMs) / periodMs) % 1) + 1) % 1;
+      const count = Math.max(6, Math.round((n * TRAIL_ARC_DEG) / 360));
+      const endIdx = Math.floor(f * n);
+      c2d.strokeStyle = pathStroke(def.color, 0.7);
+      c2d.beginPath();
+      let open = false;
+      for (let s = 0; s <= count; s++) {
+        const j = ((((endIdx - count + s) % n) + n) % n) * 3;
+        const p = projTo(px + verts[j], py + verts[j + 1], pz + verts[j + 2], camPos, basis, k, cx, cy);
+        if (!p) { open = false; continue; }
+        if (!open) { c2d.moveTo(p.x, p.y); open = true; } else c2d.lineTo(p.x, p.y);
+      }
+      // land the trail exactly on the body (sampling-granularity gap)
+      const bp = pos[def.id];
+      if (bp && open) {
+        const p = projTo(bp.x, bp.y, bp.z, camPos, basis, k, cx, cy);
+        if (p) c2d.lineTo(p.x, p.y);
+      }
+      c2d.stroke();
+    }
+  }
+
   // ── camera: focus body + unit dir (target→camera) + distance ──
   const seam0 = opts.getMapSeam();
   const entryDiscPx = mapGlobeDiscPx(seam0.zoom, seam0.centerLatDeg);
@@ -1082,6 +1487,218 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   // ── sprite cache: per-body shaded sphere, keyed on quantized size+light ──
   const spriteCache = new Map<string, HTMLCanvasElement>();
+
+  // ── SPACE VIEW VISUAL UPGRADE state (2026-07-18) ──
+  let milkyOn = opts.milkyWay ?? getMilkyWayPref();
+  let gridOn = opts.eclipticGrid ?? getEclipticGridPref();
+  let trailsOn = opts.motionTrails ?? getMotionTrailsPref();
+  let labelsOn = opts.bodyLabels ?? getBodyLabelsPref();
+  let ringBands: RingBand[] | null = null;
+  let spriteBuildMsMax = 0;
+  let lutBuildMsMax = 0;
+  let texturedIds: string[] = [];
+  // milky way display opacity (eased toward the fade target on continuous
+  // draws; isolated draws snap — deterministic either way)
+  let milkyShown = 0;
+  let milkyEasePending = false;
+  let lastDrawAt = 0;
+  let skyCanvas: HTMLCanvasElement | null = null;
+  let skyKey = "";
+  let skyRays: { w: number; h: number; rays: Float32Array } | null = null;
+  let galBasis: GalacticBasis | null = null;
+  let skyMsLast = 0;
+  let glowSprite: HTMLCanvasElement | null = null;
+  // texture LUT cache: per body, rebuilt only when the sprite size steps
+  // or the axis moves in camera space (camera orbits) — a body SPINNING
+  // under time warp only re-composes (no trig; textureSphere.ts header)
+  const lutCache = new Map<string, { key: string; lut: SphereLUT }>();
+  const q2 = (n: number): number => Math.round(n / 0.01) * 0.01;
+
+  // progressive textures: nothing was fetched before this mount ran (B0
+  // discipline — the map never pays); each texture that lands repaints
+  const texman: SpaceTextureManager = createSpaceTextureManager();
+  texman.onUpdate(() => {
+    spriteCache.clear();
+    ringBands = null;
+    kick();
+  });
+  texman.start();
+
+  function ringBandsNow(): RingBand[] | null {
+    if (ringBands) return ringBands;
+    const rt = texman.getRing();
+    if (!rt) return null;
+    ringBands = ringBandsFromTextures(rt.color, rt.alpha, 14);
+    return ringBands;
+  }
+
+  /** the reference's sun glow canvas (additive sprite, drawn at 7×). */
+  function sunGlowSprite(): HTMLCanvasElement {
+    if (glowSprite) return glowSprite;
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d")!;
+    const gr = g.createRadialGradient(128, 128, 10, 128, 128, 128);
+    gr.addColorStop(0, "rgba(255,220,150,0.9)");
+    gr.addColorStop(0.25, "rgba(255,180,80,0.35)");
+    gr.addColorStop(1, "rgba(255,150,50,0)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 256, 256);
+    glowSprite = c;
+    return c;
+  }
+
+  /**
+   * Textured body sprite — TWO TIERS so no main-thread task busts the
+   * frame budget:
+   *  · FAST tier (≤ FAST_SHADE_RADIUS): built synchronously — bounded
+   *    cost even when rebuilt every frame (time-warp spin, flights);
+   *  · FULL tier (≤ TEXTURE_MAX_SHADE_RADIUS): streamed by the upgrade
+   *    pipeline below in row-chunked macrotasks (LUT fill then compose,
+   *    ≤ UPGRADE_CHUNK_PX each) once the same pose is requested on two
+   *    consecutive settled draws — a spinning warp body keeps its fast
+   *    sprite and never wastes upgrade work.
+   */
+  interface SpriteUpgrade {
+    key: string;
+    def: SpaceBodyDef;
+    shadeR: number;
+    sunCam: Vec3;
+    axisCam: Vec3;
+    nodeCam: Vec3;
+    wq: number;
+    tex: TexImage;
+    bump: TexImage | null;
+    lut: SphereLUT;
+    lutRow: number;
+    composeRow: number;
+    canvas: HTMLCanvasElement;
+    img: ImageData;
+  }
+  let upgrade: SpriteUpgrade | null = null;
+  let upgradeTimer: ReturnType<typeof setTimeout> | null = null;
+  const lastFullReq = new Map<string, string>();
+
+  function pumpUpgrade(): void {
+    upgradeTimer = null;
+    if (!upgrade || disposed) return;
+    const u = upgrade;
+    const rows = Math.max(4, Math.round(UPGRADE_CHUNK_PX / u.lut.size));
+    const t0 = performance.now();
+    if (u.lutRow < u.lut.size) {
+      fillSphereLUTRows(u.lut, u.axisCam, u.nodeCam, u.lutRow, u.lutRow + rows);
+      u.lutRow += rows;
+      const ms = performance.now() - t0;
+      if (ms > lutBuildMsMax) lutBuildMsMax = ms;
+    } else if (u.composeRow < u.lut.size) {
+      composeTexturedSprite(
+        u.lut, u.tex, u.wq, u.def.emissive ? null : u.sunCam, u.img.data,
+        {
+          bump: u.bump, bumpStrength: 1.2,
+          rowStart: u.composeRow, rowEnd: u.composeRow + rows,
+        },
+      );
+      u.composeRow += rows;
+      const ms = performance.now() - t0;
+      if (ms > spriteBuildMsMax) spriteBuildMsMax = ms;
+    } else {
+      u.canvas.getContext("2d")!.putImageData(u.img, 0, 0);
+      if (spriteCache.size > 48) spriteCache.clear();
+      spriteCache.set(u.key, u.canvas);
+      upgrade = null;
+      kick(); // the next draw picks up the full-res sprite
+      return;
+    }
+    upgradeTimer = setTimeout(pumpUpgrade, 0);
+  }
+
+  function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3): string {
+    const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
+    return (
+      `${id}|t${tier}|${shadeR}|${wq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}` +
+      `|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}`
+    );
+  }
+
+  function texturedSprite(
+    def: SpaceBodyDef,
+    radiusPx: number,
+    sunCam: Vec3,
+    axisCam: Vec3,
+    nodeCam: Vec3,
+    wDeg: number,
+    tex: TexImage,
+    bump: TexImage | null,
+  ): HTMLCanvasElement {
+    const rq = Math.max(2, Math.round(Math.exp(Math.round(Math.log(radiusPx) / 0.06) * 0.06)));
+    const fullR = Math.min(rq, TEXTURE_MAX_SHADE_RADIUS);
+    const fastR = Math.min(rq, FAST_SHADE_RADIUS);
+    const wq = Math.round(wDeg * 2) / 2; // 0.5° spin quantum (sub-texel @1k)
+    const wantTangents = def.id === "moon" && !!bump;
+    // 1) full-res already composed for this pose? use it
+    const fullKey = spriteKey(def.id, tex.tier, fullR, wq, sunCam, axisCam);
+    const fullHit = spriteCache.get(fullKey);
+    if (fullHit) return fullHit;
+    // 2) settled pose seen twice → stream the full tier in the background
+    const settled = !flight && performance.now() - lastInputAt >= 160;
+    if (settled && fullR > fastR) {
+      if (lastFullReq.get(def.id) === fullKey) {
+        if (!upgrade || upgrade.key !== fullKey) {
+          const size = Math.max(2, Math.round(fullR)) * 2 + 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          upgrade = {
+            key: fullKey, def, shadeR: fullR, sunCam, axisCam, nodeCam, wq, tex, bump,
+            lut: createEmptySphereLUT(fullR, wantTangents),
+            lutRow: 0, composeRow: 0, canvas,
+            img: canvas.getContext("2d")!.createImageData(size, size),
+          };
+          if (!upgradeTimer) upgradeTimer = setTimeout(pumpUpgrade, 0);
+        }
+      } else {
+        lastFullReq.set(def.id, fullKey);
+        kick(); // one more draw re-requests this pose and starts the stream
+      }
+    }
+    // 3) synchronous FAST tier (bounded task; per-frame safe under warp)
+    const key = spriteKey(def.id, tex.tier, fastR, wq, sunCam, axisCam);
+    const hit = spriteCache.get(key);
+    if (hit) return hit;
+    if (spriteCache.size > 48) spriteCache.clear();
+    const lutKey =
+      `${fastR}|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}` +
+      `|${q2(nodeCam.x)},${q2(nodeCam.y)},${q2(nodeCam.z)}|b${wantTangents ? 1 : 0}`;
+    let ent = lutCache.get(def.id);
+    if (!ent || ent.key !== lutKey) {
+      const t0 = performance.now();
+      ent = { key: lutKey, lut: buildSphereLUT(fastR, axisCam, nodeCam, wantTangents) };
+      const ms = performance.now() - t0;
+      if (ms > lutBuildMsMax) lutBuildMsMax = ms;
+      if (lutCache.size > 4) lutCache.clear();
+      lutCache.set(def.id, ent);
+    }
+    const size = ent.lut.size;
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const cc = c.getContext("2d")!;
+    const img = cc.createImageData(size, size);
+    const t0 = performance.now();
+    composeTexturedSprite(
+      ent.lut,
+      tex,
+      wq,
+      def.emissive ? null : sunCam,
+      img.data,
+      wantTangents ? { bump, bumpStrength: 1.2 } : undefined,
+    );
+    const ms = performance.now() - t0;
+    if (ms > spriteBuildMsMax) spriteBuildMsMax = ms;
+    cc.putImageData(img, 0, 0);
+    spriteCache.set(key, c);
+    return c;
+  }
 
   function shadedSprite(def: SpaceBodyDef, radiusPx: number, sunCam: Vec3): HTMLCanvasElement {
     // quantize: 6% radius steps, 0.06 light-direction steps — a flight
@@ -1204,6 +1821,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       durMs: flyDurationMs(toDist / dist, swing),
       exitOnArrival: o?.exitOnArrival ?? false,
     };
+    // body card hook: a fly-to opens the target's card; flying home (to
+    // the seam) closes it
+    opts.onFocusBody?.(o?.exitOnArrival ? null : toId);
     kick();
   }
 
@@ -1286,16 +1906,32 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const cx = w / 2;
     const cy = h / 2;
 
-    // ── paint space (black is honest — no fabricated starfield) ──
+    // ── paint space: black base + the Milky Way panorama past 8 AU (the
+    // real CC-BY all-sky panorama through the real galactic frame — no
+    // fabricated random starfield: the honesty rail stands, the panorama
+    // IS the starfield) ──
     ctx.fillStyle = "#020409";
     ctx.fillRect(0, 0, w, h);
+    const nowDraw = performance.now();
+    const easeDt = lastDrawAt ? nowDraw - lastDrawAt : 1e9;
+    lastDrawAt = nowDraw;
+    const camAUtrue = len3(camTrue) / AU_M;
+    const milkyTarget = milkyOn ? milkyWayOpacity(camAUtrue) : 0;
+    if (easeDt > 1000) milkyShown = milkyTarget;
+    else milkyShown += (milkyTarget - milkyShown) * (1 - Math.exp(-easeDt / MILKY_WAY_EASE_MS));
+    if (Math.abs(milkyTarget - milkyShown) < 0.005) milkyShown = milkyTarget;
+    milkyEasePending = Math.abs(milkyTarget - milkyShown) > 0.01;
+    drawMilkyWay(w, h, basis);
+
+    // ── ecliptic grid (default OFF): AU rings + bearing spokes ──
+    if (gridOn) drawEclipticGrid(ctx, pos[sunDef.id], camPos, basis, kNow, cx, cy, w, h);
 
     // ── B3 orbit ellipses (under the bodies) — cached polylines in the
     // current layout space; sampling streams in one body per macrotask ──
-    if (orbitsOn) {
-      scheduleOrbitSampling();
-      drawOrbitPaths(ctx, pos, camPos, basis, kNow, cx, cy);
-    }
+    if (orbitsOn || trailsOn) scheduleOrbitSampling();
+    if (orbitsOn) drawOrbitPaths(ctx, pos, camPos, basis, kNow, cx, cy);
+    // 60° trailing motion arcs over the orbit lines (their own toggle)
+    if (trailsOn) drawMotionTrails(ctx, pos, camPos, basis, kNow, cx, cy);
 
     // ── project every body; depth-sort far→near for painter's occlusion.
     // Geometry (projection, disc, occlusion, shading) is LAYOUT space;
@@ -1329,22 +1965,105 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       (d) => !d.behind && d.p.x > -margin && d.p.x < w + margin && d.p.y > -margin && d.p.y < h + margin,
     );
 
+    // moon texture tiers ride the render truth: what disc the Moon drew at
+    // and whether it is the focus (2k/8k fetch + the 8k eviction contract)
+    const moonDrawn = drawn.find((x) => x.id === "moon");
+    texman.noteMoonView(moonDrawn ? moonDrawn.discPx : 0, focusId === "moon");
+    texturedIds = [];
+
     // bodies (far→near). Earth's DISC here is the impostor — the live map
     // composites above it and crossfades by opacity in the anchor below.
     for (const d of onScreen) {
       const r = d.discPx / 2;
+      // Saturn's rings: the back half paints under the disc, the front
+      // half over it (painter's split at the planet's center depth)
+      const rings = d.id === "saturn" && d.discPx >= 6 ? ringBandsNow() : null;
+      let ringEdges: ({ x: number; y: number; depth: number } | null)[][] | null = null;
+      if (rings) {
+        const trueDisc = bodyDiscPx(radiusM(d.id), d.layoutDistM, kNow);
+        const enlarge = trueDisc > 0 && Number.isFinite(trueDisc) ? d.discPx / trueDisc : 1;
+        const axisE = axisEclOfDate("saturn", timeMs);
+        const SEGS = 40;
+        ringEdges = [];
+        for (let e = 0; e <= rings.length; e++) {
+          const rel = e === 0 ? rings[0].r0 : rings[e - 1].r1;
+          const pts = ringCircle3D(pos[d.id], axisE, radiusM(d.id) * rel * enlarge, SEGS);
+          const row: ({ x: number; y: number; depth: number } | null)[] = [];
+          for (let i = 0; i < SEGS; i++) {
+            row.push(projTo(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2], camPos, basis, kNow, cx, cy));
+          }
+          ringEdges.push(row);
+        }
+      }
+      const paintRings = (back: boolean): void => {
+        if (!rings || !ringEdges) return;
+        const segs = ringEdges[0].length;
+        for (let b = 0; b < rings.length; b++) {
+          const band = rings[b];
+          if (band.alpha < 0.02) continue;
+          ctx.fillStyle = `rgba(${Math.round(band.r)},${Math.round(band.g)},${Math.round(band.b)},${band.alpha})`;
+          for (let j = 0; j < segs; j++) {
+            const j2 = (j + 1) % segs;
+            const a = ringEdges[b][j];
+            const bq = ringEdges[b][j2];
+            const c = ringEdges[b + 1][j2];
+            const dq = ringEdges[b + 1][j];
+            if (!a || !bq || !c || !dq) continue;
+            const isBack = (a.depth + bq.depth + c.depth + dq.depth) / 4 > d.p.depth;
+            if (isBack !== back) continue;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(bq.x, bq.y);
+            ctx.lineTo(c.x, c.y);
+            ctx.lineTo(dq.x, dq.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      };
+      paintRings(true);
       if (r >= 3) {
         // sun direction in camera coords for the sprite shader
         const def = defById.get(d.id)!;
         const toSunW = def.emissive ? basis.f : norm3(sub(sunPos, pos[d.id]));
         const sunCam = v3(dot(toSunW, basis.r), dot(toSunW, basis.u), -dot(toSunW, basis.f));
-        const sprite = shadedSprite(def, r, sunCam);
+        // the Sun's flare: the additive glow sprite at 7× the disc
+        // (reference look), under the textured/emissive disc
+        if (def.emissive) {
+          const glow = sunGlowSprite();
+          const gs = d.discPx * SUN_GLOW_SCALE;
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          ctx.drawImage(glow, d.p.x - gs / 2, d.p.y - gs / 2, gs, gs);
+          ctx.restore();
+        }
+        // textured when the asset is resident AND the body has an IAU
+        // rotation model (axisEcl + W drive the texture orientation —
+        // B3's rotation state becomes VISIBLE here); Lambert otherwise
+        const tex = texman.get(d.id);
+        let sprite: HTMLCanvasElement;
+        if (tex && hasRotationModel(d.id)) {
+          const rid = d.id as RotationBodyId;
+          const axisE = axisEclOfDate(rid, timeMs);
+          const nodeE = equatorNodeDirEclOfDate(rid, timeMs);
+          const axisCam = v3(dot(axisE, basis.r), dot(axisE, basis.u), -dot(axisE, basis.f));
+          const nodeCam = v3(dot(nodeE, basis.r), dot(nodeE, basis.u), -dot(nodeE, basis.f));
+          sprite = texturedSprite(
+            def, r, sunCam, axisCam, nodeCam,
+            iauPrimeMeridianDeg(rid, timeMs), tex,
+            d.id === "moon" ? texman.getMoonBump() : null,
+          );
+          texturedIds.push(d.id);
+        } else {
+          sprite = shadedSprite(def, r, sunCam);
+        }
         // the sprite's shaded disc has radius (sprite.width/2 − 1); scale the
         // whole sprite so THAT maps to exactly r (the +1 border must not
         // shrink the drawn body — true size is the contract)
         const shadeR = sprite.width / 2 - 1;
         const box = (r / shadeR) * sprite.width;
         ctx.drawImage(sprite, d.p.x - box / 2, d.p.y - box / 2, box, box);
+        paintRings(false);
       } else if (r >= 0.5) {
         ctx.fillStyle = defById.get(d.id)!.color;
         ctx.beginPath();
@@ -1404,27 +2123,31 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.textAlign = "left";
     let markers = 0;
     const markerIds = new Set<string>(); // getState reports what was DRAWN
+    const labelRects: SpaceFrameState["labelRects"] = [];
     labeled.forEach((d, i) => {
       const r = d.discPx / 2;
       const isMarker = markerNeeded(d.discPx);
+      const isSunBody = !!defById.get(d.id)!.emissive;
       if (isMarker) {
         markers++;
         markerIds.add(d.id);
-        // reticle: ring + 4 ticks OUTSIDE the (sub-pixel) body — reads as an
-        // annotation, never as a disc
-        const ring = 8;
-        ctx.strokeStyle = "rgba(190,205,225,0.6)";
-        ctx.lineWidth = 1;
+      }
+      // circle-dot glyph ON the body (the reference's .lbl dot; the Sun's
+      // is larger per .lbl.sun). It is ALSO the honesty marker: with
+      // labels toggled off, sub-pixel bodies keep their dot — nothing is
+      // ever invisible.
+      if (d.discPx < LABEL_DOT_MAX_DISC_PX && (labelsOn || isMarker)) {
+        const ring = isSunBody ? 7 : 4.5;
         ctx.beginPath();
         ctx.arc(d.p.x, d.p.y, ring, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(59,130,246,0.12)";
+        ctx.fill();
+        ctx.strokeStyle = isSunBody ? "rgba(232,217,168,0.95)" : "rgba(159,180,216,0.9)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
-        ctx.beginPath();
-        for (const [tx, ty] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-          ctx.moveTo(d.p.x + tx * ring, d.p.y + ty * ring);
-          ctx.lineTo(d.p.x + tx * (ring + 4), d.p.y + ty * (ring + 4));
-        }
-        ctx.stroke();
+        ctx.lineWidth = 1;
       }
+      if (!labelsOn) return;
       const anchorX = d.p.x + Math.max(r, 8) + 6;
       const ly = d.p.y + offsets[i];
       if (offsets[i] > 0) {
@@ -1434,7 +2157,6 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         ctx.lineTo(anchorX, ly);
         ctx.stroke();
       }
-      ctx.fillStyle = "rgba(210,222,238,0.92)";
       const extra =
         d.id === anchorDef.id && mapAnchorOpacity(d.discPx) < 0.5
           ? " · live map resumes on approach"
@@ -1443,7 +2165,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // never silently absent (zoom/fly closer and they resolve)
       const folded = foldedMoons.get(d.id) ?? 0;
       const moonsNote = folded ? ` · +${folded} moon${folded > 1 ? "s" : ""}` : "";
-      ctx.fillText(`${defById.get(d.id)!.name} · ${fmtSpaceDistance(d.distM)}${extra}${moonsNote}`, anchorX, ly);
+      // reference label typography: bright name, dim real-distance readout
+      // (the number is the TRUE camera→body distance — never layout space)
+      const name = defById.get(d.id)!.name;
+      const dim = ` · ${fmtSpaceDistance(d.distM)}${extra}${moonsNote}`;
+      ctx.fillStyle = "rgba(210,222,238,0.92)";
+      ctx.fillText(name, anchorX, ly);
+      const nameW = ctx.measureText(name).width;
+      ctx.fillStyle = "rgba(139,150,170,0.9)";
+      ctx.fillText(dim, anchorX + nameW, ly);
+      // the label text is a fly-to hit target (reference: click a label)
+      labelRects.push({ id: d.id, x: anchorX, y: ly - 7, w: nameW + ctx.measureText(dim).width, h: 14 });
     });
 
     // ── chrome (x=72 clears the page's left button rail; the bottom-left
@@ -1454,8 +2186,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.fillText(new Date(timeMs).toISOString().replace(/\.\d{3}Z$/, "Z"), 72, 22);
     const focus = drawn.find((d) => d.id === focusId)!;
     ctx.fillStyle = "rgba(160,175,198,0.8)";
+    // reference HUD line 2: "at <body> · camera N AU out[ · tracking <name>]"
+    // — the tracking suffix marks an explicit fly-to follow (not the seam
+    // anchor, not the released Sun frame)
+    const hudName = defById.get(flight ? flight.toId : focusId)!.name;
+    const trackSuffix =
+      !flight && focusId !== sunDef.id && focusId !== anchorDef.id ? ` · tracking ${hudName}` : "";
     ctx.fillText(
-      `${flight ? "flying to" : "at"} ${defById.get(flight ? flight.toId : focusId)!.name} · camera ${fmtSpaceDistance(flight ? len3(sub(camTrue, posT[flight.toId])) : focus.distM)} out`,
+      `${flight ? "flying to" : "at"} ${hudName} · camera ${fmtSpaceDistance(flight ? len3(sub(camTrue, posT[flight.toId])) : focus.distM)} out${trackSuffix}`,
       72, 38,
     );
     // honesty caption — persistent, every frame; wraps to three lines on
@@ -1465,32 +2203,46 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // wording, amber (the SIGNAL/warning hue) so a compressed layout can
     // never pass itself off as the true-scale view.
     const trueNow = isTrueScale(scaleSt);
-    const capLines = trueNow
-      ? (w < 700
-        ? [
-            "TRUE SCALE — real ephemeris positions & sizes",
-            "the camera does the compressing · sub-pixel bodies get markers",
-            "Schlyter/van Flandern (~arcmin) · Moon phase real",
-          ]
-        : [
-            "TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing",
-            "markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real",
-          ])
-      : (w < 700
-        ? [
-            "distances/sizes compressed for visibility",
-            "— labels always show real values",
-            `compression ${Math.round(scaleSt.c * 100)}% · size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · Earth (live map) true`,
-          ]
-        : [
-            "distances/sizes compressed for visibility — labels always show real values",
-            `compression ${Math.round(scaleSt.c * 100)}% · body size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · Earth (live map) always true · Schlyter/van Flandern (~arcmin)`,
-          ]);
+    // the reference footer adds the LIVE time multiplier (one sim clock —
+    // the frame only READS the rate for display)
+    const rate = opts.getTimeRate ? opts.getTimeRate() : 1;
+    const rateStr = rate === 0 ? "paused" : `×${Math.round(rate).toLocaleString("en-US")}`;
+    const capLines: { text: string; color: string }[] = [];
+    // REQUIRED visible CC-BY credit whenever the panorama is on screen
+    if (milkyShown > 0.02) capLines.push({ text: MILKY_WAY_CREDIT, color: "rgba(140,155,178,0.7)" });
+    const amberHi = "rgba(251,178,76,0.9)";
+    const amberLo = "rgba(251,178,76,0.6)";
+    const grayHi = "rgba(160,175,198,0.8)";
+    const grayLo = "rgba(140,155,178,0.65)";
+    if (trueNow) {
+      const timeNote = rate !== 1 ? ` · time ${rateStr}` : "";
+      if (w < 700) {
+        capLines.push(
+          { text: "TRUE SCALE — real ephemeris positions & sizes", color: grayHi },
+          { text: "the camera does the compressing · sub-pixel bodies get markers", color: grayLo },
+          { text: `Schlyter/van Flandern (~arcmin) · Moon phase real${timeNote}`, color: grayLo },
+        );
+      } else {
+        capLines.push(
+          { text: "TRUE SCALE — real ephemeris positions & sizes · the camera does the compressing", color: grayHi },
+          { text: `markers flag bodies smaller than a pixel · Schlyter/van Flandern (~arcmin) · Moon phase real${timeNote}`, color: grayLo },
+        );
+      }
+    } else if (w < 700) {
+      capLines.push(
+        { text: "distances/sizes compressed for visibility", color: amberHi },
+        { text: "— labels always show real values", color: amberHi },
+        { text: `compression ${Math.round(scaleSt.c * 100)}% · size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth (live map) true`, color: amberLo },
+      );
+    } else {
+      capLines.push(
+        { text: "distances/sizes compressed for visibility — labels always show real values", color: amberHi },
+        { text: `compression ${Math.round(scaleSt.c * 100)}% · body size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth (live map) always true · Schlyter/van Flandern (~arcmin)`, color: amberLo },
+      );
+    }
     capLines.forEach((line, i) => {
-      ctx.fillStyle = trueNow
-        ? (i === 0 ? "rgba(160,175,198,0.8)" : "rgba(140,155,178,0.65)")
-        : (i < capLines.length - 1 ? "rgba(251,178,76,0.9)" : "rgba(251,178,76,0.6)");
-      ctx.fillText(line, 16, h - 16 - (capLines.length - 1 - i) * 14);
+      ctx.fillStyle = line.color;
+      ctx.fillText(line.text, 16, h - 16 - (capLines.length - 1 - i) * 14);
     });
 
     // ── scale bar (B1 §1): the map's own scale control stops at the floor —
@@ -1585,6 +2337,18 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       markers,
       scaleBar: scaleBarOut,
       orbitPaths: { on: orbitsOn, ready: orbitCache.size, total: orbitTotal },
+      milkyWay: { on: milkyOn, opacity: milkyShown, target: milkyTarget },
+      eclipticGrid: gridOn,
+      motionTrails: trailsOn,
+      bodyLabels: labelsOn,
+      textures: {
+        ...texman.stats(),
+        spriteBuildMsMax,
+        lutBuildMsMax,
+        skyMsLast,
+        texturedThisFrame: texturedIds.slice(),
+      },
+      labelRects,
       anchor: anchorOut,
       bodies: drawn.map((d) => ({
         id: d.id,
@@ -1618,7 +2382,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       rafId = 0;
       if (disposed || exited) return;
       draw();
-      if (flight || performance.now() - lastInputAt < 200) {
+      // milkyEasePending: finish the panorama fade after a flight lands
+      if (flight || performance.now() - lastInputAt < 200 || milkyEasePending) {
         rafId = requestAnimationFrame(loop);
       }
     };
@@ -1698,6 +2463,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const rect = container.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+    // label text boxes fly to their body first (reference: "click a label
+    // to fly to that body") — small, specific targets beat disc proximity
+    for (const lr of lastState.labelRects) {
+      if (mx >= lr.x - 2 && mx <= lr.x + lr.w + 2 && my >= lr.y - 2 && my <= lr.y + lr.h + 2) {
+        if (lr.id === anchorDef.id) flyHome();
+        else if (lr.id !== focusId || flight) beginFlight(lr.id);
+        return;
+      }
+    }
     // nearest-first hit test: disc radius or the marker reticle, min 10px.
     // Sorted by LAYOUT distance — visual nearest wins (what you clicked is
     // what you saw; true and layout ordering can differ under compression)
@@ -1711,6 +2485,21 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         else if (b.id !== focusId || flight) beginFlight(b.id);
         return;
       }
+    }
+    // EMPTY SPACE → release back to the Sun/heliocentric frame (the
+    // reference's open todo, implemented): tracking stops, the camera
+    // keeps its exact world position (reanchorPose invariant). Guarded at
+    // the seam — releasing while focused on the map anchor would disarm
+    // the seam exit under the user's feet.
+    if (!flight && focusId !== sunDef.id && focusId !== anchorDef.id) {
+      const posL = layoutNow(timeMs);
+      const cam = add(posL[focusId], scale3(dir, dist));
+      const pose = reanchorPose(cam, posL[sunDef.id], MIN_DISTANCE_RADII * radiusM(sunDef.id));
+      focusId = sunDef.id;
+      dir = pose.dir;
+      dist = pose.dist;
+      opts.onFocusBody?.(null);
+      kick();
     }
   };
 
@@ -1783,6 +2572,33 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       lastInputAt = performance.now();
       kick(); // paths appear (sampling streams in) or vanish next frame
     },
+    setMilkyWay(on: boolean): void {
+      if (on === milkyOn) return;
+      milkyOn = on;
+      lastInputAt = performance.now();
+      kick();
+    },
+    setEclipticGrid(on: boolean): void {
+      if (on === gridOn) return;
+      gridOn = on;
+      lastInputAt = performance.now();
+      kick();
+    },
+    setMotionTrails(on: boolean): void {
+      if (on === trailsOn) return;
+      trailsOn = on;
+      lastInputAt = performance.now();
+      kick(); // shares the orbit sampling stream (scheduleOrbitSampling)
+    },
+    setBodyLabels(on: boolean): void {
+      if (on === labelsOn) return;
+      labelsOn = on;
+      lastInputAt = performance.now();
+      kick();
+    },
+    getBodyCard(id: string): BodyCardInfo | null {
+      return bodyCardInfo(id, timeMs);
+    },
     getState(): SpaceFrameState {
       if (!lastState) draw();
       return lastState!;
@@ -1804,6 +2620,18 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       container.removeEventListener("pointercancel", onPointerUp);
       container.removeEventListener("click", onClick);
       spriteCache.clear();
+      lutCache.clear();
+      upgrade = null;
+      if (upgradeTimer) {
+        clearTimeout(upgradeTimer);
+        upgradeTimer = null;
+      }
+      skyCanvas = null;
+      skyRays = null;
+      ringBands = null;
+      // leaving space unloads every texture (the directive's eviction
+      // contract; __vtSpaceTexBytes drops to 0 — drive-observable)
+      texman.dispose();
       opts.applyEarthAnchor(null); // release the map canvas (styles reset)
       try { canvas.remove(); } catch { /* detached */ }
     },
