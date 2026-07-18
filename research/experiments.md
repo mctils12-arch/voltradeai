@@ -3,6 +3,22 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PIPELINE] — Wind-fleet position audit COMPLETE: all 1,139 wind plants verified, 20 more coordinate fixes (v1.0.392, T-DATACORE, agent + parent review)
+
+Full-fleet extension of the 60-plant sample (agent, worktree; report =
+research/position_audit_wind_fleet_2026-07-18.md): 1,105/1,139 CONFIRMED
+by OSM (97.0%, median error 0.14km), 23 suspects -> 20 OVERRIDDEN
+(errors 7.0-53.2km, every one backed by a named OSM power=plant
+relation + 15/20 GEM-corroborated; biggest: Ranchero TX 300MW, 53.2km
+off), 3 honestly unresolved (entity tangles/borderline — filed, not
+guessed), 7 absent-from-OSM (5 GEM-corroborated at our coords; 2 filed
+for imagery verification). Fleet material-error rate 2.1% — the
+sample's 10% was upward-biased by forced picks. Overpass politeness
+ledger in the report (10 bulk queries, ~14MB, failures logged); reusable
+lesson: rare-tag-driven Overpass queries (generator:source=wind) beat
+index-heavy forms by 4x on dense-region boxes. Overrides total 24, all
+behind the from-guard (upstream fix self-disables); tests pin >=24 +
+Ranchero/Galactic canaries (10/10 with entityMap).
 ## 2026-07-18 [PIPELINE] — Settlement-stress composite: joins the three already-built FINRA/SEC streams (v1.0.392, T-DATACORE, scheduled-routine session)
 
 TERRITORY: T-DATACORE (server/settlementStress.ts is a new datacore server
