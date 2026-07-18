@@ -1745,6 +1745,92 @@
     once confirmed clean for a few live trading days, per KNOWN BROKEN
     #18's "re-check and mark RESOLVED" precedent.
 
+23. **[FOUND + FIXED 2026-07-18, v1.0.397, scheduled-routine session]
+    Alpaca's `/v2/stocks/bars` historical endpoint rejects `feed=delayed_sip`
+    with HTTP 400 — silently degrading VXX/SPY regime detection, ML
+    training, options vol, and correlation checks account-wide whenever
+    the account is in the (currently active) SIP-403-downgraded state.**
+    Found by following up on KNOWN BROKEN #17's diagnosability fix
+    (v1.0.317, which made `_fetch_training_bars` failures legible): this
+    session's `/api/diag/audit?type=TIER3-ML-ERROR` query showed the
+    2026-07-17 ml_retrain throttle fix's OWN stated hypothesis (b)
+    materializing — a specific diagnosable cause, but `HTTP 400: {"message":
+    "invalid feed: delayed_sip"}`, recurring on literally every retrain
+    cycle since ~19:00Z the prior day (`model_age_hours` at 40.8 with zero
+    successful retrains in that window), not the predicted HTTP 429.
+    ROOT CAUSE: `alpaca_feed.py`'s `data_feed()` resolver (the 2026-07-06
+    SIP-403 fix) downgrades to `"delayed_sip"` on entitlement rejection —
+    correct and confirmed working for snapshot/quote/trade endpoints (Tier2
+    scans kept completing normally throughout: "Scanned 11931 stocks" every
+    cycle, zero scanner degradation). But `/v2/stocks/bars` (single- or
+    multi-symbol historical daily bars) doesn't recognize `"delayed_sip"` as
+    a feed value at all — a 400 (bad request), not a 403 (entitlement), so
+    it fails regardless of subscription tier once the account is in the
+    delayed state. `data_feed()` was used identically for BOTH endpoint
+    families across 13 files (bot_engine.py, macro_data.py, ml_model_v2.py,
+    ml_model.py [dead/unimported, fixed anyway for ratchet consistency],
+    options_scanner.py, intraday_shorts.py, shadow_portfolio.py,
+    vol_surface.py, instrument_selector.py, probability_engine.py,
+    alt_data.py, etf_data_sources.py) — 29 call sites total, all wrapped in
+    bare `except Exception` (or an equivalent broad catch) that silently
+    fell back to hardcoded defaults (`vxx_ratio=1.0`, `spy_above_200d=True`,
+    `spy_below_200_days=0`) with **zero audit trail** for every site except
+    `_fetch_training_bars` (the only one with the KNOWN BROKEN #17
+    diagnosability upgrade) — meaning regime classification across the
+    whole live trading stack was likely silently defaulting to "neutral/
+    healthy" for as long as the account has been SIP-403-downgraded, not
+    just ML retraining. DOWNSTREAM CHAIN (REASONING STANDARD #1): a
+    silently-defaulted `vxx_ratio`/`spy_below_200_days` feeds
+    `get_market_regime()` → `tiered_strategy`'s regime caps and
+    `master_kill_switch` (KNOWN BROKEN #20) → position sizing and the CSP
+    tier gate → realized P&L attributed to "regime X" that may not have
+    been the actual regime. This is a HONESTY METRIC concern independent
+    of ML retraining specifically.
+    FIX: `alpaca_feed.py` gained `bars_feed()` — defers to `data_feed()`
+    for everything except the one value bars demonstrably rejects, where it
+    substitutes `"iex"` (free, always accepted; already used successfully
+    for this identical endpoint by `alphadesk/alphadesk/market.py`).
+    `data_feed()` itself is UNCHANGED — every snapshot/quote/trade call
+    site keeps `delayed_sip`'s correct consolidated-volume semantics; only
+    the 29 confirmed `/v2/stocks/bars` call sites were swept onto
+    `bars_feed()` (mechanical substitution, each site read and verified
+    individually, not regex-blind — mirrors the 2026-07-06 44-site sweep's
+    precedent for one root cause, one centralized fix). MEASUREMENT
+    INTEGRITY NOTE: `iex` undercounts consolidated volume ~30-50x, which is
+    exactly why the 2026-07-06 fix rejected it for snapshot-based dollar-
+    volume GATES — that risk doesn't transfer here because `bars_feed()`
+    only ever reaches historical BARS calls (price/regime/training series),
+    never the snapshot-based scan gate; `ml_model_v2.py`'s `volume_ratio`
+    training feature (today/20d-avg, same-source ratio) is the one place
+    an absolute-volume distortion could theoretically bias a feature, but a
+    same-ticker same-source ratio largely cancels a constant per-venue
+    market-share bias — accepted as a materially smaller integrity risk
+    than zero retraining for 40+ hours and straight up (not just quietly
+    wrong) failures on every retrain cycle.
+    RATCHET: `test_alpaca_feed.py` gained `TestBarsFeedResolution` (4 new
+    tests: sip passthrough, delayed_sip→iex substitution, env-override
+    interaction both ways) and `TestBarsEndpointsUseBarsFeed` (a source-scan
+    ratchet — for every `/v2/stocks/bars` URL occurrence in a runtime file,
+    asserts the feed resolved in that call's params is `bars_feed()`, never
+    `data_feed()`; A/B-verified live this session by reverting one call site
+    back to `data_feed()` — the ratchet failed exactly as expected, then
+    passed again after restoring the fix). Full `python3 -m pytest -q`:
+    756 passed, 2 skipped (751 baseline + 5 new, zero regressions).
+    **NEXT CHECK**: once deployed, `/api/diag/audit?type=TIER3-ML-ERROR`
+    should show zero further entries (or a genuinely new, different cause
+    if one exists) and `/api/diag/ml`'s `model_age_hours` should stop
+    climbing past ~1-2h; also worth a follow-up spot-check of `vxx_ratio`/
+    `spy_below_200_days` in a live `/api/diag/scanner` or macro snapshot to
+    confirm regime inputs are now real-valued rather than the silent
+    defaults, though no counterfactual archive exists to quantify how much
+    P&L the pre-fix silent-default period may have cost (the shadow_
+    portfolio/counterfactual logging infrastructure logs REJECTED
+    candidates' outcomes, not regime-input-quality drift — a genuinely
+    new gap, filed as its own follow-up: regime-input freshness/validity
+    should probably get its own audit-visible field, similar to
+    `data_source_errors`, rather than being inferable only from bars-fetch
+    error absence).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
