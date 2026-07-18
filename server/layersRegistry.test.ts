@@ -109,6 +109,23 @@ test("boundaries_admin1 layer: Natural Earth public domain + generalized-resolut
   assert.ok(!/boundaries_admin1["']?\s*:\s*true/.test(page), "must not be defaulted on");
 });
 
+test("celestial_paths layer: computed-ephemeris provenance + reference-not-observation honesty + default-off (sprint W1)", () => {
+  const c = registry.layers.find((x: any) => x.id === "celestial_paths");
+  assert.ok(c, "celestial_paths layer missing");
+  assert.equal(c.kind, "raw");
+  assert.equal(c.status, "live");
+  assert.equal(c.group, "base");
+  assert.ok(/astronomy-engine/.test(c.source), "source must name the ephemeris engine");
+  assert.ok(/computed/i.test(c.source), "source must state it is computed, not a feed");
+  assert.ok(/not observations/i.test(c.description), "description must carry the reference-lines honesty rail");
+  const page = fs.readFileSync(path.join(here, "..", "client", "src", "pages", "datamap.tsx"), "utf8");
+  assert.ok(page.includes("enabled.celestial_paths"), "client toggle effect must exist");
+  assert.ok(!/celestial_paths["']?\s*:\s*true/.test(page), "must not be defaulted on");
+  // the cartoon sun/moon DOM markers must never return (W1 spec: removed)
+  assert.ok(!page.includes("vt-celestial-marker"), "cartoon celestial DOM markers must stay removed");
+  assert.ok(page.includes("mountCelestialSky"), "always-on celestial sky must be mounted");
+});
+
 test("firetemp layer: GOES-East attribution + irregular-cadence honesty + FIRMS-complement note (G2b)", () => {
   const f = registry.layers.find((x: any) => x.id === "firetemp");
   assert.ok(f, "firetemp layer missing");
