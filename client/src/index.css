@@ -2460,7 +2460,9 @@ a, button, [role="button"], input { transition: all 150ms ease; }
      top-left instead so neither covers the other */
   .vt-inspect-chrome { top: 70px; }
   .vt-inspect-caption {
-    left: 8px; right: 8px; bottom: auto; top: 150px; max-width: none;
+    /* below the stacked back pill + view toggle (~70+42+10+42 = 164px
+       from the map top, +64px site header) — measured, drive-probed */
+    left: 8px; right: 8px; bottom: auto; top: 232px; max-width: none;
     padding: 8px 10px;
   }
   .vt-inspect-caption-body { font-size: 9px; line-height: 1.45; }
