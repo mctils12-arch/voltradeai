@@ -1234,12 +1234,16 @@ export default function DataMapPage() {
   // follow already orbits the craft itself (setCenterElevation puts the
   // camera center AT the craft: rotate/tilt orbit it, zoom approaches it)
   // over the live map, with the always-on celestial sky supplying the real
-  // Sun/Moon context toward the horizon. inspectCraft() below is the one
-  // affordance kept from the old chip: a single ease into the close-orbit
-  // framing — same camera model, no mode switch, the Earth keeps moving
-  // underneath. What the map camera structurally cannot do (look fully
-  // AWAY from the ground, pitch past the horizon) stays honestly out of
-  // scope rather than living in a disconnected scene the human rejected.
+  // Sun/Moon context toward the horizon. inspectCraft() below is a single
+  // ease into the close-orbit framing — same camera model, no mode switch,
+  // the Earth keeps moving underneath. What the map camera structurally
+  // cannot do (look fully AWAY from the ground, pitch past the horizon)
+  // stays honestly out of scope rather than living in a disconnected scene
+  // the human rejected.
+  // ONE ENTRY POINT (human review 2026-07-18, space_view_handoff item 2):
+  // the toolbar "⟳ inspect" chip that ran this ease directly is DELETED —
+  // the card's Inspect button (openInspect below) is the single Inspect
+  // action, and inspectCraft() survives ONLY as its GL-failure fallback.
   const inspectCraft = useCallback(() => {
     const map = mapRef.current;
     const f = satFollowRef.current;
@@ -8886,11 +8890,6 @@ export default function DataMapPage() {
                       title="Mark the exact ground point the object is passing over"
                       onClick={() => setShowNadir(!showNadir)}>
                 ⌖ ground spot
-              </button>
-              <button className="vt-satfinder-chip"
-                      title="Ease into close orbit around the craft — on the live map: rotate to circle it, tilt toward the horizon for the real Sun/Moon, zoom approaches the craft itself"
-                      onClick={inspectCraft}>
-                ⟳ inspect
               </button>
             </>
           )}
