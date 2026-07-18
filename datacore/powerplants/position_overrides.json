@@ -5,30 +5,314 @@
   {
    "gppd_idnr": "USA0057614",
    "name": "Waverly Wind Farm LLC",
-   "from": [38.2569, -95.8142],
-   "to": [38.3513, -95.5924],
+   "from": [
+    38.2569,
+    -95.8142
+   ],
+   "to": [
+    38.3513,
+    -95.5924
+   ],
    "evidence": "Human-reported case (2026-07-17 screenshots). Registry point is empty farmland ~17km WSW of the farm: nearest OSM turbine node/3879070054 16.9km NE; OSM power=plant relation/13566614 'Waverly Wind Farm' (plant:source=wind) member-node centroid (95 nodes) = 'to'. Independent: GEM 'Waverly wind farm' (199MW) @ 38.3528,-95.557 is 24.9km from 'from', 3.1km from 'to'. GPPD v1.3.0 CSV carries the same wrong value (registry-chain error)."
   },
   {
    "gppd_idnr": "USA0057214",
    "name": "Waverly Community Wind Project",
-   "from": [42.7317, -92.4711],
-   "to": [42.7435, -92.3919],
+   "from": [
+    42.7317,
+    -92.4711
+   ],
+   "to": [
+    42.7435,
+    -92.3919
+   ],
    "evidence": "Registry point = owner's fossil-plant address: 0.46km from OSM 'South Power Plant' (plant:source=oil, operator Waverly Utilities) and identical to our 'Waverly Municipal Electric North Plant' (oil) record. Actual OSM relation/14151897 'Waverly Community Wind Project' 5.8km E; its turbine nodes 4.3-8.4km. 'to' = relation member-node centroid (3 nodes)."
   },
   {
    "gppd_idnr": "USA0056506",
    "name": "Scurry County Wind LP",
-   "from": [32.7204, -100.9952],
-   "to": [32.7708, -100.836],
+   "from": [
+    32.7204,
+    -100.9952
+   ],
+   "to": [
+    32.7708,
+    -100.836
+   ],
    "evidence": "No wind feature within 3km of registry point (turbines 4.6km SW belong to another farm); OSM power=plant relation/6903041 'Scurry County Wind' 14.7km ENE beside the Camp Springs Wind substations. 'to' = relation member-node centroid (87 nodes). Our separate 'Scurry County Wind II' record is ~2km from OSM's phase-II relation and needs no fix."
   },
   {
    "gppd_idnr": "USA0058000",
    "name": "Anacacho Wind Farm  LLC",
-   "from": [29.2347, -100.2092],
-   "to": [29.1902, -100.1921],
+   "from": [
+    29.2347,
+    -100.2092
+   ],
+   "to": [
+    29.1902,
+    -100.1921
+   ],
    "evidence": "Nearest OSM turbines 4.4km S of registry point; OSM power=plant relation/4920626 'Anacacho Wind Farm' 5.5km SSE. 'to' = relation member-node centroid (55 nodes). Independent: GEM 'Anacacho wind farm' (99.8MW) @ 29.1832,-100.204 is 5.75km from 'from', 1.39km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0062259",
+   "name": "Ranchero Wind Farm LLC",
+   "from": [
+    30.5949,
+    -101.453
+   ],
+   "to": [
+    31.0154,
+    -101.7187
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 26.48km); OSM power=plant relation/14148600 'Ranchero Wind Farm' (operator Ranchero Wind Farm LLC) centroid 53.16km away, capacity 300 MW. 'to' = relation member-node centroid (120 pts), 53.2km from 'from'. Registry point is 53km SSE of the farm. Independent: GEM 'Ranchero wind farm' (300.0MW, operating) @31.0362,-101.629 is 51.87km from 'from', 8.85km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0058981",
+   "name": "Broken Bow Wind II  LLC",
+   "from": [
+    41.3239,
+    -99.3231
+   ],
+   "to": [
+    41.521,
+    -99.5592
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 16.64km); OSM power=plant relation/12284835 'Broken Bow Wind Farm Phase II' (operator NPPD) centroid 28.67km away, capacity 73.1 MW. 'to' = relation member-node centroid (49 pts), 29.5km from 'from'. Phase-matched: OSM 'Broken Bow Wind Farm Phase II' 73.1MW exact; our separate phase-I row is independently confirmed 5.7km from this target. Independent: GEM 'Broken Bow wind farm' (75.0MW, operating) @41.5184,-99.5533 is 28.92km from 'from', 0.57km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0056776",
+   "name": "Gunsight Mountain Wind Energy LLC",
+   "from": [
+    32.2403,
+    -101.4736
+   ],
+   "to": [
+    32.4864,
+    -101.4484
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 3.49km); OSM power=plant relation/14148608 'Gunsight Mountain Wind Energy' (operator Invenergy Services LLC) centroid 26.88km away, capacity 120 MW. 'to' = relation member-node centroid (67 pts), 27.5km from 'from'. Registry point sits by the Big Spring Wind Power Facility (a different farm, 8.7km); OSM operator matches (Invenergy), 120MW exact. Independent: GEM 'Gunsight wind farm' (120.0MW, operating) @32.4812,-101.429 is 27.11km from 'from', 1.91km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0059321",
+   "name": "Los Vientos Windpower IV",
+   "from": [
+    26.3806,
+    -98.8183
+   ],
+   "to": [
+    26.5697,
+    -98.6868
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 13.38km); OSM power=plant relation/6706825 'Los Vientos Wind IV' (operator Duke Energy) centroid 23.74km away, capacity 200 MW. 'to' = relation member-node centroid (105 pts), 24.8km from 'from'. Same displaced office-geocode pair as Los Vientos III; OSM phase IV relation (Duke Energy, 200MW exact)."
+  },
+  {
+   "gppd_idnr": "USA0059320",
+   "name": "Los Vientos Windpower III",
+   "from": [
+    26.3886,
+    -98.8061
+   ],
+   "to": [
+    26.4824,
+    -98.5906
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 12.14km); OSM power=plant relation/6706827 'Los Vientos Wind III' (operator Duke Energy) centroid 23.02km away, capacity 200 MW. 'to' = relation member-node centroid (105 pts), 23.9km from 'from'. Our Los Vientos III and IV rows share a displaced point pair 1.4km apart ~23km W of the real farms (office-geocode pattern); OSM phase relations are distinct and phase-matched (Duke Energy, 200MW exact)."
+  },
+  {
+   "gppd_idnr": "USA0062161",
+   "name": "Galactic Wind",
+   "from": [
+    43.1016,
+    -89.3319
+   ],
+   "to": [
+    43.173,
+    -89.5607
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 19.51km); OSM power=plant relation/14160864 'Galactic Wind' (operator Galactic Wind) centroid 20.23km away, capacity 9.9 MW. 'to' = relation member-node centroid (6 pts), 20.2km from 'from'. OSM relation carries our exact name and operator 'Galactic Wind'; 9.9MW exact. Independent: GEM 'Galactic Wind' (9.9MW, operating) @43.1711,-89.5552 is 19.7km from 'from', 0.49km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0059475",
+   "name": "Palo Duro Wind",
+   "from": [
+    36.2439,
+    -101.0014
+   ],
+   "to": [
+    36.4214,
+    -101.0295
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 12.12km); OSM power=plant relation/6861479 'Palo Duro Wind Energy Center' (operator NextEra Energy) centroid 19.26km away, capacity 249.9 MW. 'to' = relation member-node centroid (152 pts), 19.9km from 'from'. Operator NextEra; OSM capacity 249.9MW exact. Independent: GEM 'Palo Duro wind farm' (282.3MW, operating) @36.4567,-101.001 is 23.66km from 'from', 4.68km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0058098",
+   "name": "El Cabo Wind",
+   "from": [
+    34.6511,
+    -105.4617
+   ],
+   "to": [
+    34.7212,
+    -105.6418
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 8.48km); OSM power=plant relation/13683714 'El Cabo Wind Farm' (operator Avangrid Renewables) centroid 19.33km away, capacity 298 MW. 'to' = relation member-node centroid (142 pts), 18.2km from 'from'. Operator matches (Avangrid). Independent: GEM 'El Cabo wind farm' (298.0MW, operating) @34.8219,-105.645 is 25.32km from 'from', 11.2km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0059084",
+   "name": "Marshall Wind Farm",
+   "from": [
+    39.7011,
+    -96.3608
+   ],
+   "to": [
+    39.8502,
+    -96.3715
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 4.61km); OSM power=plant relation/14159682 'Marshall Wind Farm' (operator BHE Renewables, LLC) centroid 16.78km away, capacity 73.8 MW. 'to' = relation member-node centroid (36 pts), 16.6km from 'from'. BHE Renewables; 73.8MW exact. Turbines 4.6km from registry point belong to the adjacent Irish Creek farm. Independent: GEM 'Marshall (BHE) wind farm' (73.8MW, operating) @39.8611,-96.3724 is 17.82km from 'from', 1.21km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0061269",
+   "name": "Thunder Ranch Wind Project",
+   "from": [
+    36.522,
+    -97.145
+   ],
+   "to": [
+    36.5724,
+    -97.3063
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 4.4km); OSM power=plant relation/14130731 'Thunder Ranch Wind Project' (operator Thunder Ranch Wind Project, LLC) centroid 14.74km away, capacity 297.8 MW. 'to' = relation member-node centroid (120 pts), 15.5km from 'from'. EIA-860 had already moved this plant 8.3km off the GPPD raw value and it is still 14.7km from the farm - both registries wrong. Independent: GEM 'Thunder Ranch Wind Project' (297.8MW, operating) @36.5706,-97.3031 is 15.12km from 'from', 0.35km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0060503",
+   "name": "Crowned Ridge Wind Energy Center",
+   "from": [
+    45.1549,
+    -96.8368
+   ],
+   "to": [
+    45.0515,
+    -96.9314
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 7.31km); OSM power=plant relation/12114430 'Crowned Ridge Wind Energy Center' centroid 13.61km away, capacity 200.1 MW. 'to' = relation member-node centroid (92 pts), 13.7km from 'from'. Capacity pins phase I (ours 200.1MW = OSM 'Crowned Ridge Wind Energy Center' 200.1MW; the separate phase-II relation is 200.6MW, 26km S). Independent: GEM 'Crowned Ridge Wind Project' (200.0MW, operating) @45.0816,-97.0107 is 15.89km from 'from', 7.07km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0056483",
+   "name": "Post Oak Wind LLC",
+   "from": [
+    32.5144,
+    -99.6564
+   ],
+   "to": [
+    32.5328,
+    -99.5123
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 8.43km); OSM power=plant relation/7495747 'Lone Star Post Oak Wind' (operator EDP) centroid 14.07km away, capacity 200 MW. 'to' = relation member-node centroid (105 pts), 13.7km from 'from'. OSM names it 'Lone Star Post Oak Wind' (EDP) - Post Oak is Lone Star phase II; our owner field 'Mesquite Wind LLC' is the sibling phase LLC; 200MW exact."
+  },
+  {
+   "gppd_idnr": "USA0059222",
+   "name": "Passadumkeag Windpark LLC",
+   "from": [
+    45.07,
+    -68.21
+   ],
+   "to": [
+    45.132,
+    -68.351
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 11.46km); OSM power=plant relation/10064219 'Passadumkeag Windpark LLC' (operator Southern Power Co) centroid 13.09km away, capacity 42.9 MW. 'to' = relation member-node centroid (13 pts), 13.0km from 'from'. OSM relation carries our exact name 'Passadumkeag Windpark LLC' and operator (Southern Power Co); 42.9MW exact. Independent: GEM 'Passadumkeag Wind' (42.9MW, operating) @45.1273,-68.3433 is 12.25km from 'from', 0.8km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0059005",
+   "name": "Mariah del Norte",
+   "from": [
+    34.6675,
+    -102.5778
+   ],
+   "to": [
+    34.714,
+    -102.7074
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 4.24km); OSM power=plant relation/7309636 'Mariah del Norte Wind' (operator First Reserve) centroid 13.12km away, capacity 230.4 MW. 'to' = relation member-node centroid (103 pts), 12.9km from 'from'. GEM 'Mariah Del Norte wind farm' (230.4MW) @34.7157,-102.666 sits 3.8km from 'to' - independent corroboration. Independent: GEM 'Mariah Del Norte wind farm' (230.4MW, operating) @34.7157,-102.666 is 9.12km from 'from', 3.79km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0060743",
+   "name": "Rattlesnake Power  LLC",
+   "from": [
+    31.3603,
+    -99.5514
+   ],
+   "to": [
+    31.2497,
+    -99.5344
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 10.25km); OSM power=plant relation/8760035 'Rattlesnake Wind' (operator Goldwind) centroid 12.87km away, capacity 160 MW. 'to' = relation member-node centroid (64 pts), 12.4km from 'from'. Goldwind's Rattlesnake (160MW exact); Invenergy's 'Rattlesnake Den' 184km away excluded by distance. Independent: GEM 'Rattlesnake (Goldwind) wind farm' (160.0MW, operating) @31.251,-99.5004 is 13.08km from 'from', 3.24km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0057913",
+   "name": "Tule Wind LLC",
+   "from": [
+    32.6639,
+    -116.2897
+   ],
+   "to": [
+    32.7586,
+    -116.294
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 5.48km); OSM power=plant relation/12626257 'Tule Wind Energy Project' (operator Avangrid Renewables LLC) centroid 11.21km away, capacity 143 MW. 'to' = relation member-node centroid (64 pts), 10.5km from 'from'. Registry point is in the McCain Valley ~11km S of the farm (near Kumeyaay/Campo turbines); OSM operator matches (Avangrid), 143MW exact. Independent: GEM 'Tule wind farm' (143.0MW, operating) @32.7395,-116.282 is 8.44km from 'from', 2.4km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0056677",
+   "name": "Charles City Wind Farm",
+   "from": [
+    43.0003,
+    -92.62
+   ],
+   "to": [
+    43.0317,
+    -92.7264
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 4.96km); OSM power=plant relation/1198235 'Charles City Wind Farm' (operator MidAmerican Energy) centroid 9.24km away, capacity 80 MW. 'to' = relation member-node centroid (50 pts), 9.3km from 'from'. MidAmerican; 80MW exact. Independent: GEM 'Charles City wind farm' (80.0MW, operating) @43.0042,-92.7265 is 8.67km from 'from', 3.06km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0059734",
+   "name": "Briscoe Wind Farm",
+   "from": [
+    34.4323,
+    -101.2372
+   ],
+   "to": [
+    34.3766,
+    -101.3105
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 5.09km); OSM power=plant relation/7309565 'Briscoe Wind Farm' (operator Capital Dynamics) centroid 9.11km away, capacity 149.85 MW. 'to' = relation member-node centroid (86 pts), 9.1km from 'from'. OSM capacity 149.85MW ~ ours 150; operator Capital Dynamics matches. Independent: GEM 'Briscoe wind farm' (150.0MW, operating) @34.3706,-101.302 is 9.08km from 'from', 1.03km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0061070",
+   "name": "Saratoga Wind Farm",
+   "from": [
+    43.4489,
+    -92.2807
+   ],
+   "to": [
+    43.3779,
+    -92.3373
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 5.61km); OSM power=plant relation/13680945 'Saratoga Wind Farm' (operator Madison Gas and Electric) centroid 9.01km away, capacity 66 MW. 'to' = relation member-node centroid (33 pts), 9.1km from 'from'. Madison Gas and Electric; 66MW exact. Independent: GEM 'Saratoga wind farm' (66.0MW, operating) @43.3929,-92.3341 is 7.57km from 'from', 1.69km from 'to'."
+  },
+  {
+   "gppd_idnr": "USA0056544",
+   "name": "Windom Wind Project",
+   "from": [
+    43.9578,
+    -95.1306
+   ],
+   "to": [
+    43.9608,
+    -95.0437
+   ],
+   "evidence": "Batch wind-fleet audit 2026-07-18: no wind-tagged OSM feature within 3km of registry point (nearest wind generator 4.91km); OSM power=plant relation/11987839 'Windom Wind Project' centroid 6.59km away, capacity 15 MW. 'to' = relation member-node centroid (12 pts), 7.0km from 'from'. OSM 15MW ~ ours 15.6MW; small compact farm, registry point 4.9km from any turbine cannot be inside it."
   }
  ]
 }
