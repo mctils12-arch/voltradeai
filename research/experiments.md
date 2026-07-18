@@ -3,6 +3,27 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PIPELINE] — Viewport aircraft tiling live: whole visible range, not one 250nm disc (v1.0.389, T-DATACORE server side)
+
+The queue's viewport-tiling item (library + routes rewire built in
+worktree commit c34c9f3, 2026-07-16) integrated after parent review:
+/api/data/aircraft with a full explicit bbox now covers it with a
+minimal grid of 250nm discs (spacing r*sqrt(2), zero gaps by
+construction), politeness-capped at 8 discs/refresh, disc #1 resolving
+alone before fan-out, 175ms stagger, hex-id dedupe, all through the
+existing 3-provider fallback chain + shared 30s cache. No-bbox and the
+archive tick keep the legacy single point-query verbatim. Envelope adds
+structured tiling {discs, needed, cappedAt, bboxCovered} while keeping
+the coverage/coverage_note contract — the existing panel note upgrades
+automatically (no client change needed; the client has sent the full
+bbox since SCALE S1).
+
+LIVE PROOF (built dist, real feeds): CONUS-wide bbox -> 8 discs, 2,054
+aircraft merged from adsb.lol + airplanes.live, note honestly says "8 of
+40 250nm coverage discs; politeness cap 8/refresh". Legacy path
+returned ONE disc for the same view. Full server suite 770/770; build
+clean. Server-only PR (no client files) — no visual harness required.
+
 ## 2026-07-18 [PRODUCT] — Altitude curtain WALLS live: clicked plane's 3D track gets its solid ground curtain (v1.0.388, T-CLIENT)
 
 The queue's curtain-walls item (library built in worktree commit fdf60af,
