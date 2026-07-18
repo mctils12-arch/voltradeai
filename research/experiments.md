@@ -3,6 +3,39 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Celestial v2 B3: orbits, rotation, moons, ONE simulation clock (v1.0.406, T-CLIENT, worktree agent + parent review)
+
+Directive §3 complete. simClock.ts: simulated time as an affine map of
+real time (1×/60×/3600×/1 day-s/pause/⟲now), re-anchored on rate
+change (continuous instant), deliberately NOT persisted (a reload
+returns to live — persisting warp would present non-live positions as
+the current sky). THE REGRESSION CONTRACT: at 1× reset state
+simNow() === Date.now() BIT-EXACTLY and every consumer gates on
+isRealtime() to take its pre-B3 code path — pinned by tests
+(glideDtSecWarp rate-1 ≡ glideDtSec over the whole input space;
+tickAnchorFromSimEpoch rate-1 ≡ tickAnchorFromEpoch incl. fallbacks;
+worker realtime drive = byte-identical pre-B3 messages). Warp drives
+satellites as 4Hz REAL SGP4/SDP4 re-propagations at the simulated
+instant — samples, never interpolation fiction — with the glide's
+2.5-sim-second honesty cap unchanged; always-visible amber SIM chip
+whenever simulated ≠ real. moons.ts: JPL SSD mean elements (curated
+eight, Laplace-plane frames; raw-page digits — a summarized fetch had
+corrupted Titan's pole, caught against raw HTML), conventions
+validated by running the table's own Moon row against Schlyter's
+independent lunar ephemeris (rates to ~4 decimals, position 0.5–2.6°).
+rotation.ts: IAU pck00011/WGCCRE-2015 poles + prime meridians for 18
+bodies (Moon 13-term libration, Triton 9-harmonic cone); tidal locks
+PROVEN (|Ẇ| = mean motion within 0.07%; Moon PM faces Schlyter Earth
+within 7.4° ≈ real ±8° libration). orbitPath.ts: cached polylines
+from the existing Schlyter ephemeris (no second ephemeris), restyled
+never resampled through B2 layout compression. HONEST LIMITS logged
+in the charter (rotation invisible on featureless spheres until
+B4/B5; 4Hz warp stepping). Perf measured: worst sampling macrotask
+10.1ms; positions 0.036ms/frame. Gates (parent-verified, not
+agent-trusted): client 447/447 (+36, none weakened), server 791/791,
+python 756, build clean, visual harness 0 hard failures at
+390/768/1440. Backtest n/a.
+
 ## 2026-07-18 [REPAIR] — Catalog mirror v3: authenticated relay via Railway token ("use railway", v1.0.405, T-DATACORE)
 
 The human rejected creating a public mirror repo and chose Railway

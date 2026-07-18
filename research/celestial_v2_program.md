@@ -69,6 +69,28 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-18 B3 SHIPPED (v1.0.406): simClock.ts (ONE clock, affine,
+  bit-exact Date.now identity at 1× — the regression contract every
+  consumer gates on via isRealtime()); moons.ts (JPL mean elements,
+  curated eight, Laplace planes, validated against Schlyter's Moon);
+  rotation.ts (IAU pck00011/WGCCRE-2015 poles + W for 18 bodies,
+  tidal locks proven); orbitPath.ts (cached real-ephemeris polylines
+  through the B2 layout compression); spaceFrame moons+rotation+
+  ellipses; satLayer glideDtSecWarp/tickAnchorFromSimEpoch/
+  setTimeScale (rate 1 bit-identical, pinned); datamap applySatDrive
+  (realtime = the exact pre-B3 worker messages; warp = 4Hz real
+  SGP4 re-propagation at the simulated instant, never interpolation);
+  CELESTIAL panel time controls + paths toggle (data-vt-control);
+  always-visible amber SIM offset chip. HONEST LIMITS recorded:
+  rotation state is exposed but invisible on featureless Lambert
+  spheres until B4/B5 surfaces consume axisEcl+W; warp satellites
+  step at 4Hz (an ISS orbit is 1.5 real-seconds at 1 day/s).
+  NEXT = B4 (LROC Moon tiles — consumes rotation.ts Moon orientation)
+  or B7 (panel section polish); B5 planet surfaces after B4.
+- 2026-07-18 B0 shipped #531 (freeze root cause: label-stacker float
+  fixed-point; strict-increase guard). B1 shipped #532 (one camera,
+  no button). B2 shipped #535 (user scale, numbers never lie).
+  Inspect follow-camera shipped #535 (orbit+onboard views).
 - 2026-07-18 installed. B0 agent out (freeze root cause). Companion
   sat-UX agents out (card system per design doc; motion pulse).
   Nothing of B1+ built. The satellite UI design doc lives at
