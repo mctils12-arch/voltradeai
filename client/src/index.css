@@ -3398,6 +3398,14 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-time-axis-badge { font-size: 10.5px; padding: 5px 8px; gap: 6px; }
   .vt-time-axis-badge span { max-width: 45vw; }
 }
+/* Celestial v2 B3: the simulation-clock honesty chip — same amber badge
+   language as the HISTORICAL axis badge (simulated ≠ live is never
+   silent); when both are up the sim chip stacks below the axis badge. */
+.vt-sim-clock-chip { z-index: 11; }
+.vt-sim-clock-chip-stacked { top: 52px; }
+@media (max-width: 480px) {
+  .vt-sim-clock-chip-stacked { top: 46px; }
+}
 
 /* panel launcher row */
 .vt-streams-launch {
