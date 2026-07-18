@@ -57,7 +57,7 @@ import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { nightPolygon } from "@/lib/celestial/ephemeris";
 import { SatFinder } from "@/components/SatFinder";
-import { classFormNamed, formLabel, buildFormMesh } from "@/lib/orbital/model3d";
+import { classFormNamed, formLabel } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
 import { AIRLINE_PRESETS, applyAirlineFilter } from "@/lib/air/airFilter";
 // EARTH TWIN E4-1 (identity before models): SATCAT metadata + the curated
@@ -1114,63 +1114,31 @@ export default function DataMapPage() {
     el.style.transform = "none"; // resting spot centers via translateX
   }, []);
   const onToolsUp = useCallback(() => { satToolsDrag.current = null; }, []);
-  // O7 INSPECT MODE (human: "look at the sat render model … camera angle
-  // looking away from the earth … see the moon with the ISS in view"):
-  // solarView-style handoff to lib/orbital/inspectScene — a free-orbit
-  // camera around the CRAFT with real-ephemeris Sun/Moon/terminator.
-  // The map camera structurally can't do this (it always looks at the
-  // ground; zooming dives below the craft — the reported snap-back).
-  const inspectActiveRef = useRef(false);
-  const inspectHandleRef = useRef<import("@/lib/orbital/inspectScene").InspectHandle | null>(null);
-  const inspectMeshRef = useRef<{ mesh: any; label: string } | null>(null);
-  const [inspectActive, setInspectActive] = useState(false);
-  const [inspectNote, setInspectNote] = useState<string | null>(null);
-  const exitInspectRef = useRef<() => void>(() => {});
-  const exitInspect = useCallback(() => {
-    if (!inspectActiveRef.current) return;
-    inspectActiveRef.current = false;
-    setInspectActive(false);
-    const h = inspectHandleRef.current;
-    inspectHandleRef.current = null;
-    try { h?.dispose(); } catch {}
-    mapContainer.current?.classList.remove("vt-inspect-active");
+  // INSPECT IS THE MAP (human, third repetition 2026-07-18: "i want that to
+  // be part of the system not a separate thing so you can inspect as it
+  // moves around the earth and see it on the map"). The O7 separate
+  // free-orbit scene (lib/orbital/inspectScene) is RETIRED — the map-native
+  // follow already orbits the craft itself (setCenterElevation puts the
+  // camera center AT the craft: rotate/tilt orbit it, zoom approaches it)
+  // over the live map, with the always-on celestial sky supplying the real
+  // Sun/Moon context toward the horizon. inspectCraft() below is the one
+  // affordance kept from the old chip: a single ease into the close-orbit
+  // framing — same camera model, no mode switch, the Earth keeps moving
+  // underneath. What the map camera structurally cannot do (look fully
+  // AWAY from the ground, pitch past the horizon) stays honestly out of
+  // scope rather than living in a disconnected scene the human rejected.
+  const inspectCraft = useCallback(() => {
     const map = mapRef.current;
-    if (map) {
-      for (const k of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[k]?.enable(); } catch {}
-      }
-    }
-  }, []);
-  useEffect(() => { exitInspectRef.current = exitInspect; }, [exitInspect]);
-  const enterInspect = useCallback(async () => {
-    const map = mapRef.current;
-    const container = mapContainer.current;
     const f = satFollowRef.current;
-    if (!map || !container || !f || inspectActiveRef.current) return;
-    inspectActiveRef.current = true;
-    try {
-      const mod = await import("@/lib/orbital/inspectScene");
-      setInspectNote(mod.INSPECT_PROVENANCE); // honesty caption, lazy with the chunk
-      const handle = mod.mount(container, {
-        mesh: inspectMeshRef.current?.mesh ?? null,
-        meshLabel: inspectMeshRef.current?.label ?? "representative form",
-        getState: () => {
-          const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
-          return t
-            ? { latDeg: t.latDeg, lonDeg: t.lonDeg, altMeters: t.altKm * 1000, timeMs: Date.now() }
-            : { latDeg: 0, lonDeg: 0, altMeters: 400_000, timeMs: Date.now() };
-        },
-      });
-      inspectHandleRef.current = handle;
-      container.classList.add("vt-inspect-active");
-      for (const k of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[k]?.disable(); } catch {}
-      }
-      setInspectActive(true);
-    } catch {
-      inspectActiveRef.current = false;
-      try { container.classList.remove("vt-inspect-active"); } catch {}
-    }
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    // ensure the craft-centered lock so the ease orbits the craft, not ground
+    if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
+    const altKmNow = t.altKm;
+    // close-orbit framing: LEO reads big; MEO/GEO back out enough to frame
+    const zoom = altKmNow < 3000 ? 6.5 : altKmNow < 45000 ? 3.2 : 1.8;
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
   // O6-7 tier 2 (charter: "zoom out far enough … literally accurate scale"):
   // past the globe's zoom floor the viewport hands off to the true-scale
@@ -1795,9 +1763,7 @@ export default function DataMapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // O7: leaving inspect is the first Escape meaning, then solar
-      if (inspectActiveRef.current) { exitInspectRef.current(); return; }
-      // O6-7 tier 2: leaving the solar system is the next Escape meaning
+      // O6-7 tier 2: leaving the solar system is the first Escape meaning
       if (solarActiveRef.current) { exitSolarRef.current(); return; }
       setDetail(null);
       clearTrail();
@@ -3042,7 +3008,6 @@ export default function DataMapPage() {
       } catch {}
     };
     const stopFollow = () => {
-      exitInspectRef.current(); // leaving the follow always leaves inspect
       if (!satFollowRef.current) return;
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
@@ -3516,11 +3481,6 @@ export default function DataMapPage() {
         // (unknown class = honest ring-only follow, never a guessed spacecraft)
         const focusForm = sc ? classFormNamed(sc.objectType, sc.rcsSize, g.name ?? sc.name) : null;
         satModelLayerRef.current?.setForm(focusForm);
-        // O7 inspect: the scene shows whatever the map honestly shows — the
-        // class form now, upgraded in place if the real asset loads below
-        inspectMeshRef.current = focusForm
-          ? { mesh: buildFormMesh(focusForm), label: formLabel(focusForm) }
-          : null;
         // O5-3b: REAL model where a verified public asset exists. Cleared
         // FIRST so the previous target's model never rides this orbit.
         satModelLayerRef.current?.setRealMesh(null);
@@ -3532,9 +3492,6 @@ export default function DataMapPage() {
             if (!mesh) return; // fetch/decode failed → representative form stays
             if (satFollowRef.current?.noradId !== wantNorad) return;
             satModelLayerRef.current?.setRealMesh(mesh);
-            const lbl = realModelLabel(wantNorad, g.name ?? sc?.name) ?? "real model";
-            inspectMeshRef.current = { mesh, label: lbl };
-            try { inspectHandleRef.current?.setMesh(mesh, lbl); } catch {}
           });
         }
         // O6 ring fix: seed the altitude-anchored ring/model IMMEDIATELY
@@ -7434,15 +7391,6 @@ export default function DataMapPage() {
           ⬤ Back to Earth
         </button>
       )}
-      {inspectActive && (
-        <>
-          <button className="vt-solar-chip vt-solar-chip-back" onClick={exitInspect}
-                  title="Back to the map (Escape works too)">
-            ⬤ Back to map
-          </button>
-          {inspectNote && <div className="vt-inspect-note">{inspectNote}</div>}
-        </>
-      )}
 
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">
@@ -7620,8 +7568,8 @@ export default function DataMapPage() {
                 ⌖ ground spot
               </button>
               <button className="vt-satfinder-chip"
-                      title="Orbit the craft itself — look any direction including away from Earth; real-ephemeris Sun, Moon, and terminator"
-                      onClick={() => void enterInspect()}>
+                      title="Ease into close orbit around the craft — on the live map: rotate to circle it, tilt toward the horizon for the real Sun/Moon, zoom approaches the craft itself"
+                      onClick={inspectCraft}>
                 ⟳ inspect
               </button>
             </>
