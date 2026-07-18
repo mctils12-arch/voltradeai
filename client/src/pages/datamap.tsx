@@ -8282,7 +8282,7 @@ export default function DataMapPage() {
           rule: display dates where available; unknown states stay loud).
           Hidden while the space frame owns the viewport — a capture-date
           for a shrinking-globe map reads as noise; returns at the seam. */}
-      {enabled.imagery && !spaceActive && (
+      {enabled.imagery && !spaceActive && !inspectOpen && (
         <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
              title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
           {imageryDate.label}
@@ -8376,7 +8376,10 @@ export default function DataMapPage() {
           bottom-center segmented control. No tactical filters. Hidden while
           the space frame owns the viewport (a style switcher for a
           shrinking-globe map is meta-noise; returns at the seam). */}
-      {!spaceActive && (
+      {/* also hidden while the inspect follow-camera owns the viewport —
+          a map style switcher under a craft render is meta-noise, and the
+          provenance caption needs the bottom edge clear (design 1e) */}
+      {!spaceActive && !inspectOpen && (
       <div className="vt-preset-switch" role="group" aria-label="Map style preset">
         {([
           ["natural", "Natural"],
