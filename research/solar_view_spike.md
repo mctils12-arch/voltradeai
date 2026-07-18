@@ -249,3 +249,11 @@ No change to `ephemeris.ts` is required.
 - Planet inclination honesty: at top-down scale the z-excursions are
   invisible anyway (Mercury's ±0.4 AU worst); if a future edge-on view
   ships, z is already in the data.
+
+---
+SUPERSEDED 2026-07-18: the separate solar-system view this spike led to
+(solarView.ts, shipped v1.0.358/364) is retired — replaced by the
+continuous true-scale space frame (client/src/lib/celestial/
+spaceFrame.ts; experiments.md 2026-07-18 v1.0.396 entry). The spike's
+ephemeris findings (Schlyter/van Flandern accuracy, body radii) live on
+in solarSystem.ts, which spaceFrame consumes. Kept for the record.
