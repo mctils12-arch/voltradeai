@@ -362,6 +362,25 @@ export interface ProjectedPoint {
   depth: number;
 }
 
+/**
+ * The seam exit (and its scale clamp) is armed only when the camera is
+ * actually HEADING for the map: idle at the anchor focus, or on the
+ * fly-home flight. A flight to any OTHER body must never eject the user
+ * mid-arc, however close the camera swings past the anchor — the phone
+ * drive caught exactly that: the 2.2×-lunar → Moon arc passes near enough
+ * to Earth that its true disc briefly exceeds the map disc, and the
+ * un-gated seam ejected the flight to the map. While unarmed, the anchor
+ * scale follows the TRUE disc (the live map swells past you, upscaled —
+ * blurry but honest) instead of clamping at the seam size.
+ */
+export function seamExitArmed(
+  flying: boolean,
+  exitOnArrival: boolean,
+  focusIsAnchor: boolean,
+): boolean {
+  return flying ? exitOnArrival : focusIsAnchor;
+}
+
 /** Perspective projection of a world point into container CSS px. */
 export function projectPoint(
   world: Vec3,
@@ -516,8 +535,10 @@ export interface EarthAnchor {
   /** translation of the canvas center to Earth's projected point, CSS px. */
   dxPx: number;
   dyPx: number;
-  /** CSS scale that makes the drawn globe span Earth's true disc. ≥1 only
-   *  at/inside the seam — the frame clamps and exits instead of overshooting. */
+  /** CSS scale that makes the drawn globe span Earth's true disc. Clamped
+   *  at 1 only while the seam exit is ARMED (idle at the anchor / flying
+   *  home) so the handback never overshoots; on flights past Earth it
+   *  follows the true disc — the live map swells by, upscaled but honest. */
   scale: number;
   /** Earth-axis screen roll (0 while the camera up is axis-referenced —
    *  kept for a future free-roll camera). */
@@ -995,12 +1016,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (!earth.behind && Number.isFinite(earth.p.x)) {
       const cssScale = earth.discPx / mapDisc;
       const opacity = mapAnchorOpacity(earth.discPx);
+      // exit is armed only when heading for the map (idle at the anchor, or
+      // the fly-home flight) — a Moon-bound arc swinging past Earth must
+      // neither eject the user nor freeze Earth at the seam size
+      const exitArmed = seamExitArmed(!!flight, !!flight?.exitOnArrival, focusId === anchorDef.id);
       const sub_ = subCameraLatLon(norm3(sub(camPos, pos[anchorDef.id])), timeMs);
       const anchor: EarthAnchor = {
         visible: Math.abs(earth.p.x - cx) < w * 2 && Math.abs(earth.p.y - cy) < h * 2,
         dxPx: earth.p.x - cx,
         dyPx: earth.p.y - cy,
-        scale: Math.min(cssScale, 1),
+        // armed: clamp at the seam (no overshoot flash); unarmed: TRUE size
+        scale: exitArmed ? Math.min(cssScale, 1) : cssScale,
         rollDeg: northRollDeg(basis, axis), // 0 by construction (axis-up camera)
         opacity,
       };
@@ -1020,8 +1046,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         lastRecenterLon = sub_.lonDeg;
         opts.recenterMap(Math.max(-85, Math.min(85, sub_.latDeg)), sub_.lonDeg);
       }
-      // ── the seam, inward: scale crossing 1 hands the camera back ──
-      if (cssScale > 1.0001 && focusId === anchorDef.id && !exited) {
+      // ── the seam, inward: scale crossing 1 while ARMED hands the
+      // camera back ──
+      if (cssScale > 1.0001 && exitArmed && !exited) {
         exited = true;
         opts.onExitToMap();
       }

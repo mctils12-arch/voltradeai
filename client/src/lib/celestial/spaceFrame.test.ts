@@ -41,6 +41,7 @@ import {
   MIN_DISTANCE_RADII,
   DEFAULT_FOV_DEG,
   defaultBodyRegistry,
+  seamExitArmed,
   type Vec3,
 } from "./spaceFrame.js";
 import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
@@ -315,6 +316,21 @@ test("slerpUnit: endpoints, constant angular rate, antiparallel fallback", () =>
   const anti = slerpUnit(a, { x: -1, y: 0, z: 0 }, 0.5);
   close(Math.hypot(anti.x, anti.y, anti.z), 1, 1e-9, "antiparallel midpoint unit");
   assert.ok(Math.abs(anti.x) < 1e-6, "antiparallel midpoint ⊥ endpoints");
+});
+
+test("seamExitArmed: only idle-at-anchor or the fly-home flight can exit (phone-drive regression)", () => {
+  // idle at Earth → armed (zooming in hands back to the map)
+  assert.equal(seamExitArmed(false, false, true), true);
+  // idle focused elsewhere → never
+  assert.equal(seamExitArmed(false, false, false), false);
+  // THE REGRESSION: flying to the Moon (not exit-armed) swings the camera
+  // close past Earth — its true disc exceeds the map disc mid-arc, and the
+  // un-gated seam ejected the flight to the map. Must stay unarmed.
+  assert.equal(seamExitArmed(true, false, true), false);
+  assert.equal(seamExitArmed(true, false, false), false);
+  // the fly-home flight exits the moment it crosses the seam
+  assert.equal(seamExitArmed(true, true, true), true);
+  assert.equal(seamExitArmed(true, true, false), true);
 });
 
 // ── the body registry (future-proofing contract) ────────────────────────────
