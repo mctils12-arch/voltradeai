@@ -391,3 +391,76 @@ test('updatePositions: omitting tickIntervalSec always repaints (one-off updates
   layer.updatePositions(buf, { shown: 2, deepSpaceSkipped: 0, invalidSkipped: 0 });
   assert.equal(repaints, 2, 'no tickIntervalSec means every call repaints, matching pre-existing behavior');
 });
+
+// ── B3 SIM CLOCK (celestial v2, 2026-07-18): time-warped glide + epoch
+// mapping. THE REGRESSION CONTRACT: at rate 1 / simulated ≡ real, every new
+// function is bit-identical to its pre-B3 counterpart. ──
+
+test('glideDtSecWarp: rate 1 is EXACTLY glideDtSec over the whole input space', async () => {
+  const { glideDtSecWarp } = await import('./satLayer.js');
+  for (const [now, anchor] of [
+    [1000, 0], [1000, 999], [1000, 1000], [1000, 1001], [5000, 0],
+    [1000, NaN], [NaN, 0], [0, -1e12],
+  ] as Array<[number, number]>) {
+    assert.equal(glideDtSecWarp(now, anchor, 1), glideDtSec(now, anchor), `identity at (${now}, ${anchor})`);
+  }
+});
+
+test('glideDtSecWarp: scales elapsed real time by the sim rate, same honesty cap, 0 when paused', async () => {
+  const { glideDtSecWarp } = await import('./satLayer.js');
+  // 100 real ms at 10× = 1 simulated second of glide
+  assert.equal(glideDtSecWarp(1100, 1000, 10), 1);
+  // the MAX_GLIDE_SEC cap applies to SIMULATED seconds — never loosened
+  assert.equal(glideDtSecWarp(2000, 1000, 60), MAX_GLIDE_SEC, 'warp hits the cap');
+  assert.equal(glideDtSecWarp(9_999_999, 0, 86400), MAX_GLIDE_SEC);
+  // paused (rate 0) glides zero — frozen, not extrapolated
+  assert.equal(glideDtSecWarp(99_999, 0, 0), 0);
+  // broken rate freezes rather than fabricates
+  assert.equal(glideDtSecWarp(2000, 1000, NaN), 0);
+});
+
+test('tickAnchorFromSimEpoch: rate 1 is EXACTLY tickAnchorFromEpoch, including every fallback', async () => {
+  const { tickAnchorFromSimEpoch } = await import('./satLayer.js');
+  for (const [epoch, nowD] of [
+    [5000, 5100], [5100, 5100], [6000, 5100],
+    [5100 - MAX_ANCHOR_LAG_MS - 1, 5100], [NaN, 5100],
+  ] as Array<[number, number]>) {
+    assert.equal(
+      tickAnchorFromSimEpoch(epoch, nowD, 1000, 1),
+      tickAnchorFromEpoch(epoch, nowD, 1000),
+      `identity at epoch=${epoch}`,
+    );
+  }
+});
+
+test('tickAnchorFromSimEpoch: maps simulated lag into real layer-clock ms via the rate', async () => {
+  const { tickAnchorFromSimEpoch } = await import('./satLayer.js');
+  // 6000 simulated ms of lag at 60× = 100 real ms before arrival
+  assert.equal(tickAnchorFromSimEpoch(0, 6000, 1000, 60), 900);
+  // the wall-clock skew guard applies to the REAL-mapped lag: a huge sim
+  // lag at high rate is a tiny real lag — legitimate, not skew
+  assert.equal(tickAnchorFromSimEpoch(0, 3_600_000, 1000, 3600), 0, '1h sim lag at 3600× = 1s real');
+  // absurd real-mapped lag falls back to arrival (pre-fix behavior, never worse)
+  assert.equal(tickAnchorFromSimEpoch(0, (MAX_ANCHOR_LAG_MS + 1) * 60, 1000, 60), 1000);
+  // epoch ahead of sim-now (skew) falls back to arrival
+  assert.equal(tickAnchorFromSimEpoch(7000, 6000, 1000, 60), 1000);
+  // paused / broken rates anchor at arrival (glide is zero there anyway)
+  assert.equal(tickAnchorFromSimEpoch(0, 6000, 1000, 0), 1000);
+  assert.equal(tickAnchorFromSimEpoch(0, 6000, 1000, NaN), 1000);
+});
+
+test('setTimeScale: defaults to 1 (pre-B3 render math), clamps garbage to 0, round-trips', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const layer = new SatLayer({ id: 't-warp' });
+  assert.equal(layer.getTimeScale(), 1, 'default is the realtime identity');
+  layer.setTimeScale(60);
+  assert.equal(layer.getTimeScale(), 60);
+  layer.setTimeScale(0);
+  assert.equal(layer.getTimeScale(), 0, 'paused');
+  layer.setTimeScale(-5);
+  assert.equal(layer.getTimeScale(), 0, 'negative clamps to paused');
+  layer.setTimeScale(NaN);
+  assert.equal(layer.getTimeScale(), 0, 'NaN clamps to paused');
+  layer.setTimeScale(1);
+  assert.equal(layer.getTimeScale(), 1);
+});

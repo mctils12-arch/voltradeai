@@ -162,7 +162,21 @@ export const GLIDE_FRAME_SEC = 1 / 30;
  * which is exactly the pre-glide behavior.
  */
 export function glideDtSec(nowMs: number, tickAnchorMs: number): number {
-  const dt = (nowMs - tickAnchorMs) / 1000;
+  return glideDtSecWarp(nowMs, tickAnchorMs, 1);
+}
+
+/**
+ * B3 SIM-CLOCK generalization of glideDtSec: elapsed real seconds since the
+ * anchor, scaled by the simulation rate (u_dtSec is SIMULATED seconds — the
+ * worker's finite-difference velocity is per simulated second, so warped
+ * time glides rate× faster), still clamped to the same MAX_GLIDE_SEC
+ * honesty cap (the cap bounds linear-extrapolation FICTION in simulated
+ * seconds of orbital motion; warping time does not loosen it). timeScale 1
+ * is the exact pre-B3 math (pinned by test); timeScale 0 (paused) glides
+ * zero — frozen positions, honestly.
+ */
+export function glideDtSecWarp(nowMs: number, tickAnchorMs: number, timeScale: number): number {
+  const dt = ((nowMs - tickAnchorMs) / 1000) * timeScale;
   if (!Number.isFinite(dt) || dt <= 0) return 0;
   return dt < MAX_GLIDE_SEC ? dt : MAX_GLIDE_SEC;
 }
@@ -247,6 +261,28 @@ export function tickAnchorFromEpoch(
   const lag = dateNowMs - epochMs;
   if (!Number.isFinite(lag) || lag < 0 || lag > MAX_ANCHOR_LAG_MS) return perfNowMs;
   return perfNowMs - lag;
+}
+
+/**
+ * B3 SIM-CLOCK generalization of tickAnchorFromEpoch: the worker propagated
+ * to a SIMULATED epoch; the lag to the current simulated now is in
+ * simulated ms, so it maps into the layer's real (performance.now) clock
+ * divided by the rate. With rate 1 and simulated ≡ real this is EXACTLY
+ * tickAnchorFromEpoch (pinned by test). The same MAX_ANCHOR_LAG_MS guard
+ * applies to the REAL-mapped lag (the guard is about wall-clock skew);
+ * rate ≤ 0 (paused) anchors at arrival — the glide dt is zero there anyway
+ * (glideDtSecWarp × 0).
+ */
+export function tickAnchorFromSimEpoch(
+  epochSimMs: number,
+  simNowMs: number,
+  perfNowMs: number,
+  rate: number,
+): number {
+  if (!Number.isFinite(rate) || rate <= 0) return perfNowMs;
+  const lagReal = (simNowMs - epochSimMs) / rate;
+  if (!Number.isFinite(lagReal) || lagReal < 0 || lagReal > MAX_ANCHOR_LAG_MS) return perfNowMs;
+  return perfNowMs - lagReal;
 }
 
 /** Exported for satLayer.test.ts, which pins the far-side-cull block to the
@@ -411,6 +447,10 @@ export class SatLayer implements CustomLayerInterface {
   // positions message. null = glide not wired (parent never called it):
   // u_dtSec stays 0 and rendering is bit-identical to the pre-glide layer.
   private tickAnchorMs: number | null = null;
+  // B3 SIM CLOCK: simulated seconds per real second for the glide (1 =
+  // exact pre-B3 behavior; set by the parent only while the simulation
+  // clock is warped). See glideDtSecWarp.
+  private timeScaleK = 1;
   private now: () => number;
   // PACED GLIDE (pulse fix): at most ONE pending delayed repaint at a time —
   // scheduled by render() when per-frame motion is sub-pixel but per-tick
@@ -535,9 +575,13 @@ export class SatLayer implements CustomLayerInterface {
 
     // Style uniforms.
     if (this.uSize) gl.uniform1f(this.uSize, this.pointSize);
-    // GLIDE: capped seconds since the worker tick (0 when the parent hasn't
-    // wired setTickTime — renders the raw tick positions, pre-glide behavior).
-    const dtSec = this.tickAnchorMs != null ? glideDtSec(this.now(), this.tickAnchorMs) : 0;
+    // GLIDE: capped SIMULATED seconds since the worker tick (0 when the
+    // parent hasn't wired setTickTime — renders the raw tick positions,
+    // pre-glide behavior). timeScaleK is 1 except under B3 time warp, where
+    // glideDtSecWarp(…, 1) === glideDtSec — bit-identical at realtime.
+    const dtSec = this.tickAnchorMs != null
+      ? glideDtSecWarp(this.now(), this.tickAnchorMs, this.timeScaleK)
+      : 0;
     if (this.uDtSec) gl.uniform1f(this.uDtSec, dtSec);
     if (this.uOpacity) gl.uniform1f(this.uOpacity, this.globalOpacity);
     if (this.uColorLEO) gl.uniform4f(this.uColorLEO, ...this.colorLEO);
@@ -709,6 +753,25 @@ export class SatLayer implements CustomLayerInterface {
   /** Current glide anchor (ms in the layer clock) — wiring checks/tests. */
   getTickTime(): number | null {
     return this.tickAnchorMs;
+  }
+
+  /**
+   * B3 SIM CLOCK: simulated-seconds-per-real-second for the shader glide.
+   * The parent sets this alongside its worker-drive mode (1 while the
+   * simulation clock is realtime — the exact pre-B3 render math; the
+   * clock's rate under warp; 0 while paused). Non-finite/negative clamps
+   * to 0 — a broken rate freezes rather than fabricates.
+   */
+  setTimeScale(k: number): void {
+    const kk = Number.isFinite(k) && k > 0 ? k : 0;
+    if (kk === this.timeScaleK) return;
+    this.timeScaleK = kk;
+    this.map?.triggerRepaint();
+  }
+
+  /** Current glide time scale (tests/wiring checks). */
+  getTimeScale(): number {
+    return this.timeScaleK;
   }
 
   /** Set point diameter in pixels. */
