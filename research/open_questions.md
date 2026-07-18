@@ -1407,6 +1407,91 @@
     search for a genuinely different (now actually a fourth) mechanism —
     do not assume either answer before reading the probe.
 
+    UPDATE 2026-07-18 (session 3, scheduled-routine [REPAIR]) —
+    RATE-LIMITER-CONTENTION HYPOTHESIS DIRECTLY MEASURED AND CONFIRMED,
+    exactly per the prior update's own NEXT STEP ("whichever session
+    catches the next occurrence, query `/api/diag/timings?token=
+    $DIAG_TOKEN`"). SESSION-START STATE: the storm this item's prior
+    update flagged as "STILL ONGOING" at 16:01:57Z had continued —
+    `/api/diag/audit?type=TIER2-ERROR` showed 6 further occurrences this
+    session directly observed (19:18:23Z through 20:00:44Z, same
+    signature every time: `daemon rss=2xx-27xMB active_dispatches=2`),
+    then went clean for 23+ minutes straight through this session's own
+    live checks (20:00:44Z to 20:23:51Z, re-verified with `/api/diag/
+    audit`, `/api/diag/scanner` `consecutiveFailures: 0`, and a fresh
+    27.33s `/api/diag/timings` completed-scan read) — the cluster is
+    intermittent, not constant, consistent with load-dependent
+    contention rather than a fixed always-broken state.
+    LIVE CAPTURE: polled `/api/diag/timings` on a ~55s cadence and caught
+    a scan mid-flight at 20:26:23Z (`status: "in_progress",
+    last_phase_completed: "quick_scan"` at only 4.33s total — i.e.
+    already past the two prior EVENTLOOP-LAG-adjacent phases with nothing
+    unusual, then stalled somewhere inside `deep_score`, the next phase).
+    Continued polling until it finished: this particular scan did NOT
+    time out (completed at 96.96s total, under the 300s bound) but its
+    own phase breakdown is the direct evidence the hypothesis needed:
+    `deep_score` took **51.91s** (prior completed scan, read minutes
+    earlier this same session: 21.33s — ~2.4x) and the `tier_engine_
+    breakdown` sub-object showed `tier1_sec: 39.42` (prior baseline:
+    `tier1_sec: 1.01` — ~39x). Both elevated phases are exactly the two
+    the contention hypothesis predicted would be sensitive to real
+    Alpaca traffic, and both moved together in the same run — not noise
+    in one isolated phase.
+    SECOND, COMPLEMENTARY MECHANISM FOUND (read-before-write trace of
+    WHY Tier 1 specifically would be rate-limiter-sensitive, not just
+    deep_score): `tier1_csp_core()` (tiered_strategy.py:384) calls
+    `_get_t1_universe()` (tiered_strategy.py:148) → `csp_universe.
+    get_top_csp_candidates()`, gated by `LAYER1_CACHE_TTL`/
+    `LAYER2_CACHE_TTL` = 900s/15min (csp_universe.py:47-48). Cache HITS
+    are cheap (explains the 1.01s baseline); a cache MISS triggers real
+    `requests.get()` calls (csp_universe.py:116, 266) that queue behind
+    the exact same process-wide `alpaca_throttle` bucket every bars-fetch
+    call site in the codebase shares (`alpaca_rate_limiter.py`, 180
+    req/min, FROZEN mechanism). This is not a competing theory to the
+    prior session's deep_score/bars-fetch hypothesis — both are
+    independent contributors funneling into the SAME shared bottleneck,
+    which is consistent with why the two elevated phases in the captured
+    run moved together.
+    REDUNDANT-CALL-SITE CENSUS (verified this session, not assumed from
+    the prior update's "~7 files" estimate): `grep`'d every literal
+    `/v2/stocks/bars` call site across the files the prior update named
+    plus `tiered_strategy.py` — **14 call sites across 8 files**, not 7:
+    `bot_engine.py:1467,3970`; `macro_data.py:202,247,282`;
+    `options_scanner.py:206,240,539`; `vol_surface.py:263,308`;
+    `intraday_shorts.py:253,340`; `shadow_portfolio.py:333,353`.
+    (`tiered_strategy.py` itself has none — its exposure is indirect, via
+    `csp_universe.py`'s two call sites above, not a 15th direct one.)
+    NOT FIXED THIS SESSION, DELIBERATELY: per RECURRENCE ESCALATES this
+    stayed a root-cause investigation, not a re-patch — and unlike a
+    visibility-only instrument, a shared bars cache is a real behavior
+    change spanning 8 MUTABLE files that directly feed live scoring and
+    CSP sizing decisions. Before any of those 14 call sites can safely
+    share a cache, each one's actual timeframe/lookback/adjustment
+    parameters need to be read and compared (READ BEFORE WRITE) — two
+    calls that both hit `/v2/stocks/bars` for the same symbol are only
+    truly redundant if they also request the same window; assuming that
+    from the URL pattern alone, without reading each call site, is
+    exactly the "patch from assumption" the constitution forbids, and a
+    wrong merge here risks a staleness/lookahead bug in code that
+    directly drives trade decisions (REASONING STANDARD #7) — a
+    materially worse outcome than the current slow-but-correct
+    scanning delay this item tracks.
+    CONCRETE NEXT STEP for the fix session (not vague): (1) read all 14
+    call sites' actual `timeframe`/`start`/`end`/`adjustment` params and
+    build a same-symbol-same-window compatibility matrix — only truly
+    identical requests collapse; (2) implement as an ADDITIVE per-scan-
+    cycle cache (dict keyed on `(symbol, timeframe, start, end)`,
+    populated lazily on first request within a scan, passed as an
+    optional pre-fetched arg with the live call as fallback) so it can
+    land file-by-file with zero behavior change for any not-yet-touched
+    caller, rather than one large cross-file PR; (3) re-run this same
+    live-catch procedure against `/api/diag/timings` post-fix and confirm
+    `deep_score`/`tier1_sec` durations return toward the 21s/1s baseline
+    under real contention conditions, not just in a quiet window.
+    Root cause is now MEASURED, not merely theorized — the remaining gap
+    is the fix's own correctness verification, which deserves a session
+    of its own.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

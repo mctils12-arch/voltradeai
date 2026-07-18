@@ -23,6 +23,119 @@ dispatch it, verify production 200, then ask the human to approve
 deleting the now-dead workflow in THIS repo (frozen path — needs its
 own approval; until then it burns 4 pointless CelesTrak fetches/day).
 
+## 2026-07-18 (session 3, scheduled-routine) [REPAIR] — KNOWN BROKEN #18 recurrence: rate-limiter-contention hypothesis DIRECTLY MEASURED live via the timings probe (docs-only follow-up, no version bump, T-BOT investigation)
+
+TERRITORY: research/*.md only (SHARED) — no code touched, so no FROZEN,
+T-BOT, T-CLIENT, or T-DATACORE files are in this diff. Continues session
+2's investigation on the same item; does not duplicate its content.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+read from the top (this file's newest-at-top convention, confirmed by
+its own header this session — an earlier same-session read had
+mistakenly tail'd the file and needed correcting before trusting any
+loop-health count). Found session 2's entry already at the top (the
+KNOWN BROKEN #18 RECURRENCE / `timings` probe PR, v1.0.398) — this
+session's own diagnostic instrument, already merged (production is at
+v1.0.403, well past it). `research/open_questions.md` KNOWN BROKEN
+section read in full; `research/wishlist.md` DATACORE MAXIMUS block
+skimmed, nothing blocking.
+
+LOOP-HEALTH RATIO, last 10 entries (from the top, correct order):
+Celestial v2 B2 PRODUCT, Satellite catalog outage REPAIR, Design-doc
+card system PRODUCT, GMET methane-plume PIPELINE, spaceFrame
+page-freeze REPAIR, KNOWN BROKEN #18 RECURRENCE REPAIR, KNOWN BROKEN
+#23 REPAIR, ONE CONTINUOUS ZOOM PRODUCT, Aircraft round PRODUCT,
+Satellite UX round PRODUCT — 4/10 REPAIR, well under the 7/10 thrash
+threshold; no meta-problem override.
+
+`/api/health`: `status: ok`, `bot.liveness.dark: false` (no LIVENESS
+ALARM — scanner recovers between clusters, see below), `drawdownPct:
+"0.0"`, `scanner.consecutiveFailures: 0` at check time.
+
+WHY THIS ACTION: session 2 (this same day) left an explicit, dated,
+concrete NEXT STEP on KNOWN BROKEN #18 — "whichever session catches the
+next occurrence, query `/api/diag/timings?token=$DIAG_TOKEN` at/near a
+live timeout" — to confirm or refute its rate-limiter-contention
+hypothesis before any fix is attempted. That is a "judge a matured
+experiment" action per SESSION BUDGET's stated priority order (ranks
+above starting new work), and the scanner was still intermittently
+failing this session (6 further TIER2-ERROR occurrences observed
+directly, 19:18:23Z-20:00:44Z, same `active_dispatches=2` signature as
+session 2 logged), so the instrument session 2 shipped had a live
+target to confirm against.
+
+WHAT WAS FOUND: `/api/diag/audit?type=TIER2-ERROR` showed the storm
+continuing past session 2's 16:01:57Z session-end mark (6 more
+occurrences this session, then 23+ clean minutes through 20:23:51Z when
+checked repeatedly — intermittent, not constant, consistent with
+load-dependent contention rather than an always-broken state). Polled
+`/api/diag/timings` on a ~55s cadence and caught a scan mid-flight at
+20:26:23Z (`status: "in_progress", last_phase_completed: "quick_scan"`
+at 4.33s — universe_load/snapshot_fetch/quick_scan all fast and normal,
+then stalled in `deep_score`, the next phase). Continued polling to
+completion: this particular scan did NOT time out (96.96s total, under
+the 300s bound) but its phase breakdown is direct evidence for the
+hypothesis: `deep_score` took 51.91s vs. a 21.33s baseline read minutes
+earlier this same session (~2.4x), and the `tier_engine_breakdown`
+sub-object showed `tier1_sec: 39.42` vs. a 1.01s baseline (~39x) — both
+elevated together in the same run, the exact two phases the hypothesis
+named.
+
+SECOND CONTRIBUTOR TRACED (read-before-write, not assumed): `tier1_
+csp_core()` (tiered_strategy.py:384) -> `_get_t1_universe()`
+(tiered_strategy.py:148) -> `csp_universe.get_top_csp_candidates()`,
+gated by 900s/15min `LAYER1_CACHE_TTL`/`LAYER2_CACHE_TTL`
+(csp_universe.py:47-48). Cache hits are cheap (explains the 1.01s
+baseline); a miss triggers real `requests.get()` calls
+(csp_universe.py:116, 266) queuing behind the same process-wide
+`alpaca_throttle` bucket every bars-fetch call site shares
+(`alpaca_rate_limiter.py`, 180 req/min, FROZEN mechanism, cannot be
+loosened). Not a competing theory — a second contributor to the same
+shared bottleneck, consistent with both elevated phases moving together
+in the captured run.
+
+CALL-SITE CENSUS VERIFIED (session 2 estimated "~7 files" from memory;
+this session actually grepped it): 14 literal `/v2/stocks/bars` call
+sites across 8 files — `bot_engine.py:1467,3970`;
+`macro_data.py:202,247,282`; `options_scanner.py:206,240,539`;
+`vol_surface.py:263,308`; `intraday_shorts.py:253,340`;
+`shadow_portfolio.py:333,353` (`tiered_strategy.py` itself has none —
+its exposure is indirect via `csp_universe.py`'s two sites above).
+
+NOT FIXED THIS SESSION, DELIBERATELY: per RECURRENCE ESCALATES this
+stayed a root-cause investigation. A shared bars cache is a real
+behavior change spanning 8 MUTABLE files that directly feed live
+scoring and CSP sizing — before any of those 14 sites can safely share
+a cache, each one's actual timeframe/lookback/adjustment params need
+reading and comparing; assuming redundancy from the URL pattern alone
+would be exactly the "patch from assumption" READ BEFORE WRITE forbids,
+and a wrong merge risks a staleness/lookahead bug in code driving real
+trade decisions (REASONING STANDARD #7) — worse than the current
+slow-but-correct scanning delay. Full write-up, with the concrete
+3-step NEXT STEP for the fix session, filed as a UPDATE under KNOWN
+BROKEN #18 in `research/open_questions.md` (not duplicated here).
+
+GATES: no code changed this session — `python3 -m pytest -q`,
+`npx tsx --test server/*.test.ts`, `npx tsc --noEmit`, `npm run build`
+were not re-run (nothing in this diff could regress them, same
+reasoning the 2026-07-17 #18-closure docs-only session used). No
+version bump (PROMOTION RULE 4 is about `code_version` attribution for
+behavior changes; this ships none), matching that same precedent.
+
+BACKTEST: N/A — pure investigation/documentation, no trading/scoring/
+sizing/measurement code touched.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before the next check): a
+future fix session implementing the additive per-scan-cycle bars cache
+described in open_questions.md should see `deep_score`/`tier1_sec`
+durations return toward the 21s/1s baseline even during a real
+contention window (re-run this same live-catch-via-`/api/diag/timings`
+procedure to confirm) — and TIER2-ERROR should stop recurring on
+this signature. If durations stay elevated post-fix, the cache
+either missed a call site or the contention has a source outside the
+14 sites census (e.g. Tier 1's 30s-cadence stop-monitoring also shares
+the same throttle bucket) — checkable the same way, not assumed.
+
 ## 2026-07-18 [PRODUCT] — Celestial v2 B2 + catalog MIRROR + inspect follow-camera + power-plant declutter (v1.0.403, T-CLIENT, batched per the celestial-v2 directive)
 
 Four slices, one PR (human directive authorizes batching within the
