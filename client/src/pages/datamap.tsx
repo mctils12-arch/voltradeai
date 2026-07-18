@@ -72,6 +72,10 @@ import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
 import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, AIR_3D_MIN_ZOOM } from "@/lib/air/airLayer";
+// DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
+// extrapolation along the BROADCAST track/speed, capped then frozen — the
+// satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
+import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec } from "@/lib/air/airGlide";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -4332,6 +4336,24 @@ export default function DataMapPage() {
      *  everything. At the default z3.6 view, 10k overlapping icons were
      *  pure overdraw. */
     lowZoom?: { splitZoom: number; keepFraction: number };
+    /** DEAD-RECKONING GLIDE (2026-07-18, "planes stopped moving"): between
+     *  polls, re-ship the source at stepMs with each row extrapolated along
+     *  its BROADCAST velocity (velOf; null = frozen — never a guessed
+     *  vector), capped at maxSec then FROZEN (honesty cap — see airGlide).
+     *  Runs only in [minZoom, iconMaxZoom) where the motion is visible and
+     *  the icons own the map (above, the 3D layer glides in-shader), and
+     *  only over rows within the padded viewport — the setData payload
+     *  stays a few hundred features, not the full 10k snapshot. Rebuilds
+     *  THROUGH toFeatures/toVectors via withRows, so glided symbols and
+     *  velocity whiskers can never drift apart. */
+    glide?: {
+      rows: (d: any) => any[];
+      withRows: (d: any, rows: any[]) => any;
+      velOf: (row: any) => { dLon: number; dLat: number } | null;
+      minZoom: number;
+      maxSec: number;
+      stepMs: number;
+    };
   }) => {
     const map = mapRef.current;
     const { id } = opts;
@@ -4385,6 +4407,11 @@ export default function DataMapPage() {
     let lastFetch: FetchFootprint | null = null;
     let lastPayload: any = null;
     let vectorsCurrent = false;
+    // glide state: when the current payload's positions were received, and
+    // the last dt actually shipped (lets the stepper stop once frozen at
+    // the cap instead of re-shipping identical frames forever).
+    let glideAnchor: number | null = null;
+    let lastGlideDt = -1;
 
     // add-or-update the velocity-vector source/layer from a payload — shared
     // by the tick path (zoom high enough) and the zoomend lazy build.
@@ -4444,6 +4471,8 @@ export default function DataMapPage() {
           lastFetch = fetchFootprint(c.lat, c.lng, map.getZoom(), b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
         } catch {}
         lastPayload = dd;
+        glideAnchor = performance.now(); // fresh REAL positions — glide restarts from truth
+        lastGlideDt = -1;
 
         // Honest feed states (DESIGN.md): partial coverage + staleness shown.
         let note: string | undefined;
@@ -4497,6 +4526,53 @@ export default function DataMapPage() {
     };
     load();
     const iv = window.setInterval(load, opts.intervalMs);
+    // GLIDE stepper (~3.3Hz): dead-reckoned setData between polls. Skips
+    // whenever it could not be seen (hidden tab, mid-gesture — symbols ride
+    // the camera transform anyway, outside the visible-glide zoom band) or
+    // could not be honest (no payload, frozen at the cap). Downstream chain
+    // (REASONING STANDARD): setData → geojson source re-tile of a few
+    // hundred viewport rows (~1-3ms worker-side, measured in the drive);
+    // the delta-poll cursor is untouched (server-time based) and the next
+    // real payload rebuilds from truth, snapping the glide to zero.
+    let glideIv: number | undefined;
+    if (opts.glide) {
+      const g = opts.glide;
+      glideIv = window.setInterval(() => {
+        if (stop || document.hidden || glideAnchor == null || !lastPayload) return;
+        try { if (map.isMoving()) return; } catch {}
+        const z = map.getZoom();
+        if (!(z >= g.minZoom)) return;                       // sub-pixel motion — pure cost
+        if (opts.iconMaxZoom != null && z >= opts.iconMaxZoom) return; // 3D silhouettes own it
+        const dt = Math.min((performance.now() - glideAnchor) / 1000, g.maxSec);
+        if (dt <= 0 || dt === lastGlideDt) return;           // frozen at the honesty cap
+        lastGlideDt = dt;
+        const src: any = map.getSource(srcId);
+        if (!src) return;
+        let s: number, n2: number, w2: number, e2: number;
+        try {
+          const b = map.getBounds();
+          const mLat = (b.getNorth() - b.getSouth()) * 0.3;  // 30% margin: pans inside
+          const mLon = (b.getEast() - b.getWest()) * 0.3;    // coverage refill next step
+          s = b.getSouth() - mLat; n2 = b.getNorth() + mLat;
+          w2 = b.getWest() - mLon; e2 = b.getEast() + mLon;
+        } catch { return; }
+        // bounds unwrap past ±180 — test lon and its ±360 aliases so a
+        // viewport straddling the antimeridian never DROPS the wrapped side
+        const inLon = (lo: number) => (lo >= w2 && lo <= e2) || (lo + 360 >= w2 && lo + 360 <= e2) || (lo - 360 >= w2 && lo - 360 <= e2);
+        const glided: any[] = [];
+        for (const row of g.rows(lastPayload)) {
+          if (row.lat == null || row.lon == null || row.lat < s || row.lat > n2 || !inLon(row.lon)) continue;
+          const v = g.velOf(row);
+          glided.push(v ? { ...row, lon: row.lon + v.dLon * dt, lat: row.lat + v.dLat * dt } : row);
+        }
+        const gliddedPayload = g.withRows(lastPayload, glided);
+        src.setData({ type: "FeatureCollection", features: opts.toFeatures(gliddedPayload) });
+        if (opts.toVectors && shouldBuildVectors(z)) {
+          const vsrc: any = map.getSource(vecSrc);
+          if (vsrc) vsrc.setData({ type: "FeatureCollection", features: opts.toVectors(gliddedPayload) });
+        }
+      }, g.stepMs);
+    }
     // Trailing debounce ([REPAIR 2026-07-05] map perf): bare moveend fired a
     // full fetch + 10k-feature rebuild on EVERY camera settle — each wheel
     // step during a zoom was a fetch. Same 400ms pattern the wx-grid effect
@@ -4533,6 +4609,7 @@ export default function DataMapPage() {
     return () => {
       teardown();
       window.clearInterval(iv);
+      if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
       try { map.off("moveend", onMove); } catch {}
@@ -4588,9 +4665,20 @@ export default function DataMapPage() {
         const built = buildAircraftInstances(d.aircraft || []);
         airRows = built.rows;
         airLayer.setInstances(built.inst, built.groups);
+        airLayer.setTickTime(); // glide anchor: these positions are true NOW
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
         try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
+      },
+      // 2D glide: same dead-reckoning the 3D shader applies (one honesty
+      // model, two renderers) — icons stop jumping poll-to-poll at z5.5-8.
+      glide: {
+        rows: (d: any) => d.aircraft || [],
+        withRows: (d: any, rows: any[]) => ({ ...d, aircraft: rows }),
+        velOf: (a: any) => glideDegPerSec(a.lat, a.heading, a.velocity_ms, a.on_ground),
+        minZoom: AIR_GLIDE_2D_MIN_ZOOM,
+        maxSec: MAX_AIR_GLIDE_SEC,
+        stepMs: AIR_GLIDE_STEP_MS,
       },
       toFeatures: (d) => (d.aircraft || []).map((a: any) => {
         const cls = classifyAircraft(a.type, a.category);
@@ -4677,16 +4765,19 @@ export default function DataMapPage() {
     // Globe mode projects instances with the frame matrix (screen-space);
     // mercator mode keeps the ground pick.
     const pickAir = (e: any, tolPx: number): number => {
+      // pick at the GLIDED position — the pixels are dead-reckoned up to
+      // MAX_AIR_GLIDE_SEC ahead of the poll positions (many px at z8+)
+      const dtSec = airLayer.getGlideDtSec();
       const matrix = airLayer.getGlobeProjection();
       if (matrix) {
         const canvas = map.getCanvas();
         return pickNearestAircraftScreen(
           airLayer.getInstances(), matrix, e.point.x, e.point.y,
-          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx);
+          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx, dtSec);
       }
       const ll = map.unproject(e.point);
       const merc = lonLatToMercator(ll.lng, ll.lat);
-      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()));
+      return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()), dtSec);
     };
     const onAir3dClick = (e: any) => {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
@@ -4737,8 +4828,14 @@ export default function DataMapPage() {
     };
     map.on("mousemove", onAir3dMove);
     map.on("mouseout", hideHoverTip);
+    // 3D glide low-rate repaint (~3.3Hz): re-evaluates u_dtSec between polls
+    // at z8+ where the silhouettes own the map; the layer upgrades itself to
+    // per-frame self-repaint at close zooms (shouldGlidePerFrame) and stops
+    // at the honesty cap. No-op below the hand-off or with no planes.
+    const glideRepaintIv = window.setInterval(() => airLayer.glideRepaintTick(), AIR_GLIDE_STEP_MS);
     return () => {
       stopWire();
+      window.clearInterval(glideRepaintIv);
       try { map.off("click", onAir3dClick); } catch {}
       try { map.off("mousemove", onAir3dMove); } catch {}
       try { map.off("mouseout", hideHoverTip); } catch {}

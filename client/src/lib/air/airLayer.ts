@@ -35,12 +35,19 @@ import type {
 } from 'maplibre-gl';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere } from '../orbital/occlusion.js';
+import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above. */
 export const AIR_3D_MIN_ZOOM = 8;
 
-/** floats per instance: mercX, mercY, altMeters, headingDeg, band, shape. */
-export const AIR_INST_STRIDE = 6;
+/** floats per instance: mercX, mercY, altMeters, headingDeg, band, shape,
+ *  velX, velY. vel* are DISPLAY-ONLY dead-reckoning rates in normalized-
+ *  mercator units per second (airGlide.mercVelPerSec — broadcast track +
+ *  ground speed; 0 = frozen: on-ground / not broadcast). The shader glides
+ *  base + vel·u_dtSec between polls, capped at MAX_AIR_GLIDE_SEC; fields
+ *  [0..5] keep their pre-glide offsets so stride-agnostic readers survive
+ *  the extension (the satBuffer velocity-extension precedent). */
+export const AIR_INST_STRIDE = 8;
 
 /** altitude band codes (match the 2D layer's ALT_COLOR semantics). */
 export const AIR_BAND = { GROUND: 0, LOW: 1, CRUISE: 2 } as const;
@@ -154,6 +161,8 @@ export interface AircraftInstanceInput {
   heading?: number | null;
   on_ground?: boolean | null;
   category?: string | null;
+  /** broadcast ground speed (m/s) — the glide rate input; null = frozen. */
+  velocity_ms?: number | null;
 }
 
 export interface AirShapeGroup { shape: number; start: number; count: number }
@@ -183,12 +192,15 @@ export function buildAircraftInstances<T extends AircraftInstanceInput>(
     const ground = !!a.on_ground;
     const alt = ground ? 0 : Math.max(0, a.altitude_m ?? 0);
     const shape = shapeForCategory(a.category);
+    const vel = mercVelPerSec(a.lon, a.lat, a.heading, a.velocity_ms, a.on_ground);
     inst[i * AIR_INST_STRIDE] = m.x;
     inst[i * AIR_INST_STRIDE + 1] = m.y;
     inst[i * AIR_INST_STRIDE + 2] = alt;
     inst[i * AIR_INST_STRIDE + 3] = a.heading ?? 0;
     inst[i * AIR_INST_STRIDE + 4] = ground ? AIR_BAND.GROUND : alt < 3000 ? AIR_BAND.LOW : AIR_BAND.CRUISE;
     inst[i * AIR_INST_STRIDE + 5] = shape;
+    inst[i * AIR_INST_STRIDE + 6] = vel.vx;
+    inst[i * AIR_INST_STRIDE + 7] = vel.vy;
     const g = groups[groups.length - 1];
     if (g && g.shape === shape) g.count += 1;
     else groups.push({ shape, start: i, count: 1 });
@@ -196,20 +208,40 @@ export function buildAircraftInstances<T extends AircraftInstanceInput>(
   return { inst, rows, groups };
 }
 
-/** Pure: nearest instance to a mercator point within tolerance, else -1. */
+/** Glided mercator X of instance i at dtSec (wraps the antimeridian like
+ *  the shader's fract()). */
+function glidedX(inst: Float32Array, base: number, dtSec: number): number {
+  const x = inst[base] + inst[base + 6] * dtSec;
+  return ((x % 1) + 1) % 1;
+}
+
+/** Glided mercator Y of instance i at dtSec (pole-clamped like the shader). */
+function glidedY(inst: Float32Array, base: number, dtSec: number): number {
+  const y = inst[base + 1] + inst[base + 7] * dtSec;
+  return y < 0 ? 0 : y > 1 ? 1 : y;
+}
+
+/** Pure: nearest instance to a mercator point within tolerance, else -1.
+ *  `dtSec` applies the SAME display glide the shader drew with (pass the
+ *  layer's getGlideDtSec()) so the pick agrees with the pixels — a plane
+ *  25 s into a glide sits many pixels from its tick position at z8+. The
+ *  resolved index maps back to the REAL payload row; the glide never enters
+ *  what the card shows. */
 export function pickNearestAircraft(
   inst: Float32Array | null,
   mercX: number,
   mercY: number,
   tolMercUnits: number,
+  dtSec = 0,
 ): number {
   if (!inst || inst.length < AIR_INST_STRIDE) return -1;
   const n = Math.floor(inst.length / AIR_INST_STRIDE);
   let best = -1;
   let bestD2 = tolMercUnits * tolMercUnits;
   for (let i = 0; i < n; i++) {
-    const dx = inst[i * AIR_INST_STRIDE] - mercX;
-    const dy = inst[i * AIR_INST_STRIDE + 1] - mercY;
+    const base = i * AIR_INST_STRIDE;
+    const dx = glidedX(inst, base, dtSec) - mercX;
+    const dy = glidedY(inst, base, dtSec) - mercY;
     const d2 = dx * dx + dy * dy;
     if (d2 <= bestD2) { bestD2 = d2; best = i; }
   }
@@ -231,6 +263,7 @@ export function pickNearestAircraftScreen(
   width: number,
   height: number,
   tolerancePx: number,
+  dtSec = 0,
 ): number {
   if (!inst || inst.length < AIR_INST_STRIDE) return -1;
   const n = Math.floor(inst.length / AIR_INST_STRIDE);
@@ -238,7 +271,7 @@ export function pickNearestAircraftScreen(
   let bestD2 = tolerancePx * tolerancePx;
   for (let i = 0; i < n; i++) {
     const base = i * AIR_INST_STRIDE;
-    const p = mercatorToSphere(inst[base], inst[base + 1], inst[base + 2]);
+    const p = mercatorToSphere(glidedX(inst, base, dtSec), glidedY(inst, base, dtSec), inst[base + 2]);
     const w = matrix[3] * p[0] + matrix[7] * p[1] + matrix[11] * p[2] + matrix[15];
     if (!(w > 0)) continue;
     const cx = (matrix[0] * p[0] + matrix[4] * p[1] + matrix[8] * p[2] + matrix[12]) / w;
@@ -264,19 +297,27 @@ in float a_altFrac;        // per-vertex altitude fraction: 1 for silhouettes;
                            // 0→1 for the ground drop-line (constant-attrib trick)
 in vec4 a_inst;            // per-instance: mercX, mercY, altMeters, headingDeg
 in float a_band;           // per-instance: altitude band (0 ground / 1 low / 2 cruise)
+in vec2 a_vel;             // per-instance GLIDE: d/dt of (mercX, mercY) per second
 uniform float u_bearing;   // map bearing (deg) — silhouettes rotate with the map like icons
 uniform float u_altScale;  // 1, or the terrain exaggeration so vertical datums match
 uniform float u_scaleClip; // clip units per local unit at w=1 (pixel-constant via *w)
+uniform float u_dtSec;     // seconds since the poll anchor, CPU-clamped to MAX_AIR_GLIDE_SEC
 uniform float u_aspect;
 uniform vec4 u_bandColors[3];
 out vec4 v_color;
 void main() {
+  // PER-FRAME GLIDE (the satLayer pattern): poll position + broadcast-track
+  // dead-reckoning rate × capped elapsed time. fract() wraps X across the
+  // antimeridian; Y clamps at the poles like lonLatToMercator's own pack.
+  // a_vel is 0 for frozen rows (on-ground / velocity not broadcast).
+  vec2 g_xy = vec2(fract(a_inst.x + a_vel.x * u_dtSec),
+                   clamp(a_inst.y + a_vel.y * u_dtSec, 0.0, 1.0));
 #ifdef GLOBE
   // anchor far-side cull — identical to satLayer/modelLayer (inert at the
   // z>=8 zooms this layer draws at, kept for contract parity; 0.998001 =
-  // OCCLUSION_RADIUS²)
+  // OCCLUSION_RADIUS²). Uses the GLIDED position — cull where DRAWN.
   if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
-    vec3 satPos = projectToSphere(a_inst.xy) * (1.0 + a_inst.z / GLOBE_RADIUS);
+    vec3 satPos = projectToSphere(g_xy) * (1.0 + a_inst.z / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;
     float t = -dot(cam, v) / dot(v, v);
@@ -290,7 +331,7 @@ void main() {
     }
   }
 #endif
-  vec4 anchor = projectTileFor3D(a_inst.xy, a_inst.z * u_altScale * a_altFrac);
+  vec4 anchor = projectTileFor3D(g_xy, a_inst.z * u_altScale * a_altFrac);
   float rot = radians(a_inst.w - u_bearing);
   float c = cos(rot);
   float s = sin(rot);
@@ -336,9 +377,11 @@ export class AirLayer implements CustomLayerInterface {
   private aAltFrac = -1;
   private aInst = -1;
   private aBand = -1;
+  private aVel = -1;
   private uBearing: WebGLUniformLocation | null = null;
   private uAltScale: WebGLUniformLocation | null = null;
   private uScale: WebGLUniformLocation | null = null;
+  private uDtSec: WebGLUniformLocation | null = null;
   private uAspect: WebGLUniformLocation | null = null;
   private uBandColors: WebGLUniformLocation | null = null;
   private uProjMatrix: WebGLUniformLocation | null = null;
@@ -356,9 +399,16 @@ export class AirLayer implements CustomLayerInterface {
   private renderFailed = false;
   private lastMainMatrix: Float32Array | null = null;
   private lastTransition = 0;
+  // GLIDE anchor: clock reading (this.now domain, ms) at which the current
+  // instance buffer's positions were received — set by the parent via
+  // setTickTime() beside setInstances. null = glide not wired: u_dtSec
+  // stays 0 and rendering is bit-identical to the pre-glide layer.
+  private tickAnchorMs: number | null = null;
+  private now: () => number;
 
-  constructor(opts: { id?: string } = {}) {
+  constructor(opts: { id?: string; now?: () => number } = {}) {
     this.id = opts.id ?? 'aircraft-3d';
+    this.now = opts.now ?? (() => performance.now());
   }
 
   onAdd(map: MapLibreMap, _gl: AnyGl): void {
@@ -395,6 +445,40 @@ export class AirLayer implements CustomLayerInterface {
     if (s === this.altScale) return;
     this.altScale = s;
     this.map?.triggerRepaint();
+  }
+
+  /** GLIDE anchor: WHEN (this layer's clock, ms) the current instance
+   *  positions were true — the parent calls it beside setInstances on every
+   *  fresh payload (satLayer.setTickTime precedent). Omit the argument to
+   *  anchor "now". Display-only: picking maps back to real payload rows. */
+  setTickTime(tMs?: number): void {
+    this.tickAnchorMs = tMs ?? this.now();
+    this.map?.triggerRepaint();
+  }
+
+  /** Current glide anchor (ms in the layer clock) — wiring checks/tests. */
+  getTickTime(): number | null {
+    return this.tickAnchorMs;
+  }
+
+  /** Seconds of display glide in effect right now (0 when unwired) — the
+   *  CPU pick paths pass this into pickNearestAircraft* so picks agree with
+   *  the glided pixels. */
+  getGlideDtSec(): number {
+    return this.tickAnchorMs != null ? airGlideDtSec(this.now(), this.tickAnchorMs) : 0;
+  }
+
+  /** Low-rate repaint tick (parent interval, AIR_GLIDE_STEP_MS): repaint so
+   *  the shader re-evaluates u_dtSec while a glide is in progress. No-ops
+   *  below the hand-off zoom (layer not drawn), with no planes, past the
+   *  honesty cap (frozen — an identical frame), or unwired. At close zooms
+   *  renderInner's per-frame self-repaint takes over (shouldGlidePerFrame);
+   *  the extra tick there coalesces harmlessly. */
+  glideRepaintTick(): void {
+    if (!this.map || this.tickAnchorMs == null || this.count === 0) return;
+    if (this.map.getZoom() < AIR_3D_MIN_ZOOM) return;
+    if (airGlideDtSec(this.now(), this.tickAnchorMs) >= MAX_AIR_GLIDE_SEC) return;
+    this.map.triggerRepaint();
   }
 
   getCounts(): { total: number; drawn: boolean } {
@@ -463,6 +547,10 @@ export class AirLayer implements CustomLayerInterface {
 
     if (this.uBearing) gl.uniform1f(this.uBearing, this.map?.getBearing() ?? 0);
     if (this.uAltScale) gl.uniform1f(this.uAltScale, this.altScale);
+    // GLIDE: capped seconds since the poll anchor (0 when the parent hasn't
+    // wired setTickTime — renders raw poll positions, pre-glide behavior).
+    const dtSec = this.tickAnchorMs != null ? airGlideDtSec(this.now(), this.tickAnchorMs) : 0;
+    if (this.uDtSec) gl.uniform1f(this.uDtSec, dtSec);
     const h = gl.drawingBufferHeight || 1;
     const w = gl.drawingBufferWidth || 1;
     const pxPerUnit = AIR_PIXELS / LOCAL_EXTENT;
@@ -492,6 +580,10 @@ export class AirLayer implements CustomLayerInterface {
     gl.vertexAttribDivisor(this.aInst, 1);
     gl.enableVertexAttribArray(this.aBand);
     gl.vertexAttribDivisor(this.aBand, 1);
+    if (this.aVel >= 0) {
+      gl.enableVertexAttribArray(this.aVel);
+      gl.vertexAttribDivisor(this.aVel, 1);
+    }
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -531,6 +623,25 @@ export class AirLayer implements CustomLayerInterface {
     gl.disableVertexAttribArray(this.aAltFrac);
     gl.disableVertexAttribArray(this.aInst);
     gl.disableVertexAttribArray(this.aBand);
+    if (this.aVel >= 0) {
+      gl.vertexAttribDivisor(this.aVel, 0);
+      gl.disableVertexAttribArray(this.aVel);
+    }
+
+    // GLIDE self-repaint (satLayer's needsGlide pattern): while a glide is
+    // in progress AND one AIR_GLIDE_STEP_MS step would move a worst-case
+    // plane a visible (≥1px) jump at this camera, request the next frame —
+    // 60fps motion exactly where the cheap 4Hz tick would look stepped.
+    // Stops at the honesty cap (frozen frame) and at far zooms (the parent
+    // step tick covers sub-pixel-step drift there).
+    if (
+      this.map &&
+      this.tickAnchorMs != null &&
+      dtSec < MAX_AIR_GLIDE_SEC &&
+      shouldGlidePerFrame(this.map.getCenter().lat, this.map.getZoom())
+    ) {
+      this.map.triggerRepaint();
+    }
   }
 
   /** (Re)point the per-instance attributes at a group's contiguous range. */
@@ -539,6 +650,7 @@ export class AirLayer implements CustomLayerInterface {
     const base = startInstance * AIR_INST_STRIDE * 4;
     gl.vertexAttribPointer(this.aInst, 4, gl.FLOAT, false, AIR_INST_STRIDE * 4, base);
     gl.vertexAttribPointer(this.aBand, 1, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 16);
+    if (this.aVel >= 0) gl.vertexAttribPointer(this.aVel, 2, gl.FLOAT, false, AIR_INST_STRIDE * 4, base + 24);
   }
 
   private compile(gl: WebGL2RenderingContext, prelude: string, define: string, variant: string): void {
@@ -578,9 +690,11 @@ export class AirLayer implements CustomLayerInterface {
     this.aAltFrac = gl.getAttribLocation(p, 'a_altFrac');
     this.aInst = gl.getAttribLocation(p, 'a_inst');
     this.aBand = gl.getAttribLocation(p, 'a_band');
+    this.aVel = gl.getAttribLocation(p, 'a_vel');
     this.uBearing = gl.getUniformLocation(p, 'u_bearing');
     this.uAltScale = gl.getUniformLocation(p, 'u_altScale');
     this.uScale = gl.getUniformLocation(p, 'u_scaleClip');
+    this.uDtSec = gl.getUniformLocation(p, 'u_dtSec');
     this.uAspect = gl.getUniformLocation(p, 'u_aspect');
     this.uBandColors = gl.getUniformLocation(p, 'u_bandColors');
     this.uProjMatrix = gl.getUniformLocation(p, 'u_projection_matrix');
