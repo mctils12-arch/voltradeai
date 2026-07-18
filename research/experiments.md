@@ -3,6 +3,125 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PIPELINE] — Settlement-stress composite: joins the three already-built FINRA/SEC streams (v1.0.392, T-DATACORE, scheduled-routine session)
+
+TERRITORY: T-DATACORE (server/settlementStress.ts is a new datacore server
+module; touched server/routes.ts only to add the boot-poll call, a SHARED
+file, as the last small edit per the merge-order protocol).
+
+CONTEXT: scheduled EDGE-DOCTRINE session. Health check first: /api/health
+all green (Alpaca ACTIVE, bot active, drawdown 0.0%, liveness not dark) —
+no liveness alarm. KNOWN BROKEN sweep: every open item (#10, #12, #20, #22)
+is either fully resolved or explicitly gated on accumulating more live
+history/firings, not on any unfixed code defect — none warranted a
+[REPAIR] session today. Thrash-ratio check: 1 of the last 10
+experiments.md entries is [REPAIR] (well under the 7+ threshold) — no
+loop-health problem.
+
+DOCTRINE AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code.
+Checked research/ first, per Reasoning Standard #4/#10 (don't re-derive
+what's already known): every EDGE DOCTRINE #1 named example (Sentinel-2
+tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar/PDUFA
+tracker) is already built and live; Google Trends/pytrends already FAILED
+its gate-1 stability probe 2026-07-05 and correctly stayed dead. So the
+highest-EV instance of axis (a) was NOT another item from that list — it
+was the SETTLEMENT-STRESS COMPOSITE, queued in wishlist.md's DATACORE
+MAXIMUS block since 2026-07-07 as "ingredient-complete... design can
+precede data" and never picked up since (11 days, ~220 versions of
+unrelated work landed in between — a clean example of a designed, ready
+item sitting in the queue while other work kept getting picked instead).
+This is also SESSION BUDGET fall-through rule 1 (take the next queued
+item) landing on the same place as the doctrine-axis instruction — good
+sign the choice was well-reasoned rather than arbitrary.
+
+PRIOR (stated before writing any code, Reasoning Standard #10): the three
+source populations (Reg SHO threshold names, SEC FTD-listed CUSIPs, and
+FINRA short-vol-eligible symbols) are each large and largely independent
+selections, so the daily three-way intersection was expected to be a
+short, low-double-digit-or-smaller watchlist most days, not a broad
+screen — and if the intersection ran empty for weeks straight once
+deployed, that would itself be a finding worth investigating (join-key
+mismatch vs. genuinely rare joint stress) rather than assumed benign.
+This prior is NOT yet checked against production — the composite has not
+run live yet (ships this PR); a future session should read the per-day
+row counts from datacore/settlementstress/ once several weeks of
+production data exist and record whether the prior held.
+
+BUILD: server/settlementStress.ts — pure local JOIN, zero new network
+calls (reuses readPartition/readArchivedDay/readFtdPeriod from the three
+existing ingredient modules). Per trade date: persistence_days
+(consecutive ARCHIVED days on the threshold list, breaks on any archive
+gap — never fabricated), ftd_delta (current half-month FTD balance minus
+the prior half-month's, 0 if no prior record — an early-history
+limitation stated in the code, not silently assumed), short_vol_percentile
+(cross-sectional rank among symbols meeting finrashortvol's own liquidity
+floor). composite_score = persistence_days x (percentile/100) x
+sign(ftd_delta)*log1p(|ftd_delta|) — a ranking aid for the eventual gate-2
+correlation test, explicitly NOT a claimed signal (module docstring +
+manifest confidence_model both say so; not wired into deep_score or any
+order path; no /data route — an unvalidated derived score is neither RAW
+nor SIGNAL under the standing RAW OVERLAYS vs SIGNALS rule, so it stays
+internal until gate 2). A date is only archived once its short-vol day AND
+covering FTD period are both already archived by their own pollers —
+otherwise skipped and retried next pass, so this can never race ahead of
+its own ingredients. Wired into the existing boot-poll battery in
+server/routes.ts (bootSettlementStressPoll(), right after bootFtdPoll()).
+New manifest datacore/manifests/settlementstress.json — picked up
+automatically by the streams-inventory ratchet (ships transparently, no
+orphaned/hidden pipeline).
+
+RATCHET: server/settlementStress.test.ts, 7 new tests covering
+persistence-streak-with-gap, FTD delta incl. missing-prior-period,
+liquidity-floor exclusion + percentile ranking, the 3-way join (incl. a
+symbol present in only 2 of 3 archives correctly excluded), archive
+dedup (incl. an honest empty-overlap-day record), and refresh's
+only-advance-when-ingredients-ready + idempotency behavior. Found and
+fixed one bug while writing these: my first draft's tests collided across
+each other because finraQuery.ts/secFtd.ts/finraShortVolume.ts's archive
+dedup state is keyed by date/period ONLY — process-global regardless of
+baseDir (documented precedent already in finraShortVolume.test.ts's own
+comment, which I hadn't read closely enough the first pass). Fixed via
+beforeEach(_resetFinraQueryForTests, _resetFtdForTests,
+_resetSettlementStressForTests) for the three namespaces that export a
+reset, and globally-unique dates across the file for finrashortvol, which
+doesn't.
+
+GATES: `npx tsx --test server/settlementStress.test.ts` 7/7 pass.
+`npx tsx --test server/*.test.ts`: 713 passed, 7 failed — verified via
+`git stash`/`git stash pop` that all 7 failures pre-exist on main
+untouched (unrelated module-resolution errors in aircraftTiling/
+apiKeyAccounts/compression/gdeltEvents/owmTiles/seafloorTiles/
+securityMiddleware — this sandbox's node_modules needed a fresh `npm
+install`, which surfaced them identically with or without this session's
+diff). `npx tsc --noEmit`: baseline (git stash -u, true pre-change count)
+= 68 errors; my first draft added one new one (a Set iteration needing
+`--downlevelIteration`) — fixed via `Array.from()`, back to the exact
+68-error baseline. `npm run build`: clean; verified the new manifest
+lands in `dist/datacore/manifests/settlementstress.json` (R14 packaging
+lesson — runtime datacore files must be staged, not just present in the
+repo). `python3 -m pytest -q`: 751 passed, 2 skipped (no Python files
+touched this session; ran anyway per Promotion Rule 1 — sandbox needed
+`pip install -r requirements.txt` + `openpyxl` first, both pre-existing
+environment gaps unrelated to this diff).
+
+PROMOTION: no scoring/sizing/threshold changed (this is gate-1 feature
+construction feeding no trading path), so Promotion Rule 3's Sharpe/
+drawdown comparison doesn't apply — logged as an exploratory pipeline
+build instead, matching the pattern used for every other new datacore
+census stream. Version bumped 1.0.391 -> 1.0.392. wishlist.md's
+DATACORE MAXIMUS entry updated in place (append-only spirit: original
+queue text kept, marked SHIPPED with the build details) rather than
+rewritten.
+
+NEXT: gate 2 is blocked purely on calendar time (dated history needs to
+accumulate in datacore/settlementstress/ before a forward-return
+correlation test means anything) — no code work is next here. A future
+session should query the accumulated archive once several weeks of
+production dates exist, test composite_score vs. forward 5/20-day returns
+against a same-universe random-entry base rate (Reasoning Standard #3),
+and record whether the stated prior (short, low-double-digit daily
+overlap) held.
+
 ## 2026-07-18 [PIPELINE] — Audit follow-ups: Savannah River dedupe + wind-centroid card caveat (v1.0.391, T-DATACORE+T-CLIENT small slice)
 
 Two follow-ups the position audit filed, shipped: (1) nuclear facilities

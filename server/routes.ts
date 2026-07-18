@@ -103,6 +103,7 @@ import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
+import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
@@ -2011,6 +2012,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // resale-safe source). Half-month files, trailer-checksummed;
   // QUANTITY is a fail BALANCE (level), not a flow. Cache-only path.
   bootFtdPoll();
+  // SETTLEMENT-STRESS COMPOSITE (queued 2026-07-07, built this session):
+  // pure local join over the three archives above — zero incremental
+  // network/API cost. Gate-1 feature construction only, no /data route
+  // (not gate-2 validated, no predictive claim) — see server/settlementStress.ts.
+  bootSettlementStressPoll();
   app.get("/api/data/ftd", (_req, res) => {
     const hit = latestFtd();
     if (!hit) {
