@@ -53,7 +53,7 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
         onChange={(e) => setQ(e.target.value)}
       />
       {q.trim().length >= 2 && (
-        <div className="vt-satfinder-hits">
+        <div className="vt-satfinder-hits om-sb">
           {hits.length === 0 && <span className="vt-legend-note">no match in the live catalog</span>}
           {hits.map((h) => (
             <button key={h.noradId} className="vt-satfinder-hit"
@@ -82,7 +82,7 @@ export const SatFinder = memo(function SatFinder(props: SatFinderProps) {
         )}
       </div>
       {activeGrp && q.trim().length < 2 && members && members.total > 0 && (
-        <div className="vt-satfinder-hits">
+        <div className="vt-satfinder-hits om-sb">
           {members.hits.map((h) => (
             <button key={h.noradId} className="vt-satfinder-hit"
                     onClick={() => props.onFind(h.index)}>

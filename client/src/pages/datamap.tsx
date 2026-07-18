@@ -88,6 +88,7 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays } from "@/lib/orbital/propagate";
+import { apsidesKm, orbitalSpeedKmh, periodMinutes } from "@/lib/orbital/satDerived";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // EARTH TWIN A1 (E0-2, research/earth_twin_program.md): camera-altitude LOD
@@ -100,6 +101,10 @@ import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodE
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// Celestial v2 B1 (2026-07-18): the map↔space seam's shared zoom math —
+// statically importable (tiny, pure) while the space frame itself stays a
+// lazy chunk; spaceFrame re-exports these same names for its tests.
+import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -124,7 +129,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 // and returns a detach() the effect cleanup calls — no more stacking.
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
-import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits } from "@/lib/units";
+import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
 // decode table, color expression, and legend all derive from the SAME
@@ -144,6 +149,24 @@ const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cade
 // registry entry predates v2 (mid-deploy older registry). The registry's own
 // `lod` block is the source of truth and overrides this.
 const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
+// Celestial v2 B1 §1 ("existing layers fade by relevance ... rather than
+// popping"): the live surface-traffic symbol layers still draw full-size
+// point sprites at the globe's zoom floor, where a plane icon spans whole
+// countries. Same LOD-envelope pattern as orbital_sats (lib/lod.ts), upper
+// bound: fade starts ~40,000 km camera altitude (zoom ≈1 at 900px — every
+// normal working zoom is untouched, incl. the z3.6 default) and completes
+// by ~80,000 km (≈ the zoom-0 whole-globe view), so by the time the seam
+// CSS-shrinks the map into space the sprites are already gone — no pop at
+// any point on the way out. Registry `lod` blocks (layers.json v2) override
+// per layer when present; a null camera altitude fails OPEN (lib/lod.ts).
+const MARKER_LOD_FALLBACK = { camMaxKm: 80_000, fadeBandKm: 40_000 };
+const MARKER_LOD_NOTE = "hidden at this camera altitude (LOD) — zoom in";
+/** layer-id → {styleLayers, base icon-opacity} for the fade-by-relevance pass. */
+const MARKER_LOD_TARGETS: Record<string, { styleLayers: string[]; baseOpacity: number }> = {
+  aircraft: { styleLayers: ["aircraft-sym", "aircraft-sym-lo"], baseOpacity: 0.95 },
+  vessels: { styleLayers: ["vessels-sym"], baseOpacity: 0.95 },
+  trains: { styleLayers: ["trains-icons"], baseOpacity: 1 },
+};
 // EARTH TWIN E4-1: SATCAT identity catalog — module cache mirroring
 // orbitalGpCache (survives effect unmounts; one download per day at most —
 // catalog metadata changes slowly and CelesTrak rate-limits). Fetched in the
@@ -282,11 +305,28 @@ interface LayerMeta {
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
 
+/** One stat chip / details fact (satellite-UX design 2026-07-18 §1). */
+interface DetailKV { label: string; value: string }
+/** Card action button — always visible without scrolling (design 1a/1f/1g). */
+interface DetailAction { label: string; primary?: boolean; run: () => void }
+
 interface Detail {
   kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation";
   title: string;
   subtitle: string;
   body: string;
+  /** Compact vitals — ONE row of ≤4 chips always visible under the header
+   *  (design 1a: ALT · SPEED · INCL · PERIOD). Values pre-formatted through
+   *  lib/units.ts where a unit applies. Cards WITHOUT stats default their
+   *  Details open (content still scrolls INSIDE the card, capped ~60vh). */
+  stats?: DetailKV[];
+  /** Structured key/value grid at the top of the Details expander
+   *  (design 1b: apogee/perigee/RAAN/… for satellites). */
+  facts?: DetailKV[];
+  /** Small mono source tag right of the action row (SGP4 / ADS-B / EIA…). */
+  sourceTag?: string;
+  /** Action buttons (Inspect etc.) rendered in the always-visible row. */
+  actions?: DetailAction[];
   /** Optional external source link shown in the card footer (e.g. the
    *  military-installations source_url — its citable provenance). */
   sourceUrl?: string;
@@ -1059,6 +1099,13 @@ export default function DataMapPage() {
   // the freshest registry value WITHOUT re-running (and tearing down) the
   // whole effect when the registry fetch lands.
   const orbitalLodRef = useRef<LodEnvelope | null>(null);
+  // B1 fade-by-relevance (MARKER_LOD_TARGETS): current 0..1 LOD opacity per
+  // surface-traffic feed id — the apply effect writes it, the feed ticks
+  // read it so the panel honestly says WHY a hidden layer shows nothing
+  // (A1 rail: opacity 0 must be surfaced, never silent).
+  const markerLodOpRef = useRef<Record<string, number>>({});
+  // registry override for those envelopes (same pattern as orbitalLodRef)
+  const markerLodEnvRef = useRef<Record<string, LodEnvelope | null>>({});
   // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
   // the worker keeps ONE slot per GP record forever). null = not following.
   // O6-1 follow v2 + lock modes (human-refined): 'sat' pins the camera to
@@ -1173,7 +1220,6 @@ export default function DataMapPage() {
   const spaceHandleRef = useRef<import("@/lib/celestial/spaceFrame").SpaceFrameHandle | null>(null);
   const spaceCleanupRef = useRef<(() => void) | null>(null);
   const [spaceActive, setSpaceActive] = useState(false);
-  const [atZoomFloor, setAtZoomFloor] = useState(false);
   const exitSpaceRef = useRef<() => void>(() => {});
   const exitSpace = useCallback(() => {
     if (!spaceActiveRef.current) return;
@@ -1200,7 +1246,7 @@ export default function DataMapPage() {
     }
   }, []);
   useEffect(() => { exitSpaceRef.current = exitSpace; }, [exitSpace]);
-  const enterSpace = useCallback(async (entry?: { nudgeDeltaY?: number; flyOut?: boolean }) => {
+  const enterSpace = useCallback(async (entry?: { nudgeDeltaY?: number }) => {
     const map = mapRef.current;
     const container = mapContainer.current;
     if (!map || !container || spaceActiveRef.current) return;
@@ -1267,9 +1313,9 @@ export default function DataMapPage() {
       }
       setSpaceActive(true);
       // continuity: the triggering gesture's momentum carries into the frame
-      // (wheel path), or the chip's continuous outward fly (touch/a11y path)
+      // — the accumulated wheel/pinch delta or one button/key step (B1: no
+      // entry button exists; every zoom input rides the same seam)
       if (entry?.nudgeDeltaY) handle.nudgeZoom(entry.nudgeDeltaY);
-      if (entry?.flyOut) handle.flyOut();
     } catch {
       // degrade, never break: the map stays fully usable
       spaceActiveRef.current = false;
@@ -1326,7 +1372,19 @@ export default function DataMapPage() {
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const [showRawInfo, setShowRawInfo] = useState(false);
-  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detail, setDetailState] = useState<Detail | null>(null);
+  // TAP-AWAY DISMISS (2026-07-18 directive §1: "Dismiss via ✕, tap-away, and
+  // Esc"): every setDetail bumps a sequence counter, so a map-click listener
+  // can tell "some layer handler claimed this click" (seq moved — MapLibre
+  // fires all click handlers synchronously) from "nothing claimed it" (seq
+  // unchanged → close the open card) WITHOUT wrapping 40+ call sites.
+  const detailSeqRef = useRef(0);
+  const detailRef = useRef<Detail | null>(null);
+  const setDetail = useCallback((v: React.SetStateAction<Detail | null>) => {
+    detailSeqRef.current++;
+    setDetailState(v);
+  }, []);
+  useEffect(() => { detailRef.current = detail; }, [detail]);
   const applySatGroup = useCallback((key: string | null) => {
     const gp = orbitalGpRef.current;
     const mask = key && gp ? groupMask(gp, key) : null;
@@ -1381,6 +1439,30 @@ export default function DataMapPage() {
   // O6 minimize: collapse the card to a pill (focus keeps running); a NEW
   // detail always restores the full card so fresh clicks are never hidden.
   const [detailMin, setDetailMin] = useState(false);
+  // DETAILS expander (design 1a↔1b): cards WITH a stat-chip row open compact;
+  // cards without chips open with Details expanded (their content would
+  // otherwise be a bare header) — either way the expanded body scrolls
+  // INSIDE the card, never past the viewport. On phone the same flag doubles
+  // as the bottom sheet's collapsed/expanded state (design 1c↔1d).
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // bottom-sheet drag handle (phone): drag up = expand, drag down = collapse
+  // (a second down-drag dismisses), tap = toggle.
+  const sheetDragY = useRef<number | null>(null);
+  const onHandleDown = useCallback((e: React.PointerEvent) => {
+    sheetDragY.current = e.clientY;
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  }, []);
+  const onHandleUp = useCallback((e: React.PointerEvent) => {
+    const start = sheetDragY.current;
+    sheetDragY.current = null;
+    if (start == null) return;
+    const dy = e.clientY - start;
+    if (dy > 40) {
+      if (detailsOpen) setDetailsOpen(false);
+      else { setDetail(null); setDetailMin(false); }
+    } else if (dy < -40) setDetailsOpen(true);
+    else setDetailsOpen((v) => !v);
+  }, [detailsOpen, setDetail]);
   // O6 round 6: the card is DRAGGABLE by its header (human: the card must
   // never block the flight track you're inspecting). Direct style mutation
   // (tools-cluster precedent); a NEW detail resets to the default spot.
@@ -1407,6 +1489,10 @@ export default function DataMapPage() {
   const onCardHeadUp = useCallback(() => { detailDrag.current = null; }, []);
   useEffect(() => {
     setDetailMin(false);
+    // compact by default when the card has a chip row; expanded otherwise
+    // (deps stay title/kind so async enrichments — dossier/trail merges —
+    // never yank the expander or the dragged position out from the user)
+    setDetailsOpen(!(detailRef.current?.stats && detailRef.current.stats.length > 0));
     const el = detailCardRef.current;
     if (el) { el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; }
   }, [detail?.title, detail?.kind]);
@@ -1733,6 +1819,7 @@ export default function DataMapPage() {
   // Map bootstrap (maplibre JS lazy-loaded to keep the main bundle lean)
   useEffect(() => {
     let cancelled = false;
+    let offScaleUnits: (() => void) | null = null;
     (async () => {
       try {
         const maplibregl = (await import("maplibre-gl")).default;
@@ -1781,7 +1868,15 @@ export default function DataMapPage() {
         // orientation cue the 3D globe/terrain view needs. Clean Google-Earth-
         // style nav, our styling (index.css .maplibregl-ctrl-compass*).
         map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "bottom-left");
-        map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
+        // B1 scale-bar continuity: the bar follows the site-wide units
+        // preference (it was hardcoded imperial before), so the space
+        // frame's own bar — which continues this instrument past the zoom
+        // floor into AU — never flips unit systems across the seam.
+        const scaleCtl = new maplibregl.ScaleControl({ unit: getUnits() === "imperial" ? "imperial" : "metric" });
+        map.addControl(scaleCtl, "bottom-left");
+        offScaleUnits = subscribeUnits(() => {
+          try { scaleCtl.setUnit(getUnits() === "imperial" ? "imperial" : "metric"); } catch {}
+        });
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
@@ -1817,6 +1912,7 @@ export default function DataMapPage() {
     })();
     return () => {
       cancelled = true;
+      try { offScaleUnits?.(); } catch {}
       try { delete (window as any).__vtMap; } catch {}
       try { mapRef.current?.remove(); mapRef.current = null; } catch {}
     };
@@ -1831,6 +1927,12 @@ export default function DataMapPage() {
       if (spaceActiveRef.current) { try { spaceHandleRef.current?.flyHome(); } catch {} return; }
       setDetail(null);
       clearTrail();
+      // AUDIT FIX (drive-caught 2026-07-18): Esc must be equivalent to the
+      // card's ✕ — it closed the satellite card but left the FOLLOW camera
+      // running with no card on screen (no way left to end it; every later
+      // camera move got re-centered onto the craft each tick).
+      stopSatFocusRef.current?.();
+      setDetailMin(false);
       setShowRawInfo(false);
       setAnalystOpen(false); // DESIGN.md: Escape closes panels/popovers
       setTimescrubOpen(false);
@@ -1840,6 +1942,32 @@ export default function DataMapPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // TAP-AWAY DISMISS (2026-07-18 directive §1): a map click that NO layer
+  // handler claims closes the open card — same teardown as the ✕. MapLibre
+  // dispatches all click handlers synchronously, and every handler that
+  // opens/replaces a card goes through setDetail (which bumps detailSeqRef),
+  // so "seq unchanged one tick later" = genuinely empty ground. The
+  // satellite layer's own empty-ground coverage report keeps priority (it
+  // sets a card, so the seq moves and this dismisser stays silent).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const onClick = () => {
+      const seq = detailSeqRef.current;
+      window.setTimeout(() => {
+        if (detailSeqRef.current !== seq) return; // a handler claimed the click
+        if (!detailRef.current) return;           // nothing open
+        setDetail(null);
+        setDetailMin(false);
+        clearTrail();
+        stopSatFocusRef.current?.();
+      }, 60);
+    };
+    map.on("click", onClick);
+    return () => { try { map.off("click", onClick); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+
   // CONTINUOUS ZOOM SEAM: at the zoom floor further wheel-out is inert to
   // MapLibre — read the raw gesture and hand the SAME motion straight to the
   // space frame (≥60 accumulated deltaY inside 400ms windows ≈ one real
@@ -1848,29 +1976,157 @@ export default function DataMapPage() {
   // zoom impulse — no dead notch at the boundary. The ☉ chip (shown while
   // atZoomFloor) is the touch/a11y path and triggers the same continuous
   // outward fly, never a scene swap.
+  // CONTINUOUS ZOOM SEAM (celestial v2 B1 §1: ONE camera, NO entry button —
+  // the ☉ chip is deleted): at the zoom floor every further zoom-OUT input
+  // is inert to MapLibre, so each input path reads its own raw gesture and
+  // hands the SAME motion straight to the space frame:
+  //  · wheel — ≥SEAM_ENTRY_DELTAY accumulated deltaY inside 400ms windows
+  //    ≈ one real notch ("keep zooming out" simply keeps going; trackpad
+  //    micro-jitter never triggers), the accumulated delta forwarded as the
+  //    frame's first zoom impulse — no dead notch at the boundary;
+  //  · the map's +/- NavigationControl BUTTONS — a zoom-out click at the
+  //    floor enters the frame with one button-step (×2, exactly one map
+  //    zoom level); while the frame is active the same buttons keep working
+  //    (capture-intercepted before MapLibre's own handler) and a zoom-in
+  //    click near the seam rides the frame's own scale>1 handback;
+  //  · pinch — two-finger pinch-in past the floor accumulates the gesture's
+  //    scale ratio and enters with the equivalent deltaY (in-frame pinch is
+  //    the frame's own pointer handling);
+  //  · keyboard +/- — same step as the buttons.
+  // Zoom-in return needs no wiring here: inside the frame every input
+  // shrinks camera distance until the anchor scale crosses 1 and the frame
+  // hands the camera back to MapLibre (onExitToMap) — the exact reverse.
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     const el = mapContainer.current;
     if (!map || !el) return;
-    const updFloor = () => { try { setAtZoomFloor(map.getZoom() <= map.getMinZoom() + 0.05); } catch {} };
-    updFloor();
-    map.on("zoom", updFloor);
-    map.on("zoomend", updFloor);
+    const atFloor = () => {
+      try { return map.getZoom() <= map.getMinZoom() + 0.05; } catch { return false; }
+    };
+    // MapLibre's NavigationControl DISABLES the zoom-out button at minZoom
+    // (a disabled button swallows clicks entirely) — that is precisely the
+    // "buttons stop at the maplibre floor" behavior B1 removes. At the
+    // floor (and while the frame owns the camera) the button is NOT at the
+    // end of its range any more, so re-enable it whenever the control's
+    // own update disables it; away from the floor the control's normal
+    // enable/disable behavior is untouched.
+    const undisableZoomOut = () => {
+      try {
+        const b = el.querySelector(".maplibregl-ctrl-zoom-out") as HTMLButtonElement | null;
+        if (b && b.disabled && (atFloor() || spaceActiveRef.current)) b.disabled = false;
+      } catch {}
+    };
+    undisableZoomOut();
+    map.on("zoom", undisableZoomOut);
+    map.on("zoomend", undisableZoomOut);
+    map.on("move", undisableZoomOut);
+    map.on("idle", undisableZoomOut);
+    // wheel
     let acc = 0;
     let timer: number | null = null;
     const onWheel = (e: WheelEvent) => {
       if (spaceActiveRef.current || e.deltaY <= 0) return;
-      try { if (map.getZoom() > map.getMinZoom() + 0.05) { acc = 0; return; } } catch { return; }
+      if (!atFloor()) { acc = 0; return; }
       acc += e.deltaY;
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => { acc = 0; }, 400);
-      if (acc >= 60) { const carry = acc; acc = 0; void enterSpace({ nudgeDeltaY: carry }); }
+      if (acc >= SEAM_ENTRY_DELTAY) { const carry = acc; acc = 0; void enterSpace({ nudgeDeltaY: carry }); }
+    };
+    // +/- buttons: capture fires before the NavigationControl's own click
+    // handler, and stopPropagation keeps it (and the frame's body-click
+    // hit test on the container) from double-acting.
+    const onCtrlClick = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement | null)?.closest?.(
+        ".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out",
+      );
+      if (!btn) return;
+      const out = btn.classList.contains("maplibregl-ctrl-zoom-out");
+      if (spaceActiveRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+      } else if (out && atFloor()) {
+        e.preventDefault();
+        e.stopPropagation();
+        void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
+      }
+    };
+    // keyboard +/- (the map's own keyboard handler is disabled in space;
+    // typing surfaces — inputs, the analyst pane — are never hijacked)
+    const onKeyDown = (e: KeyboardEvent) => {
+      const zin = e.key === "+" || e.key === "=";
+      const zout = e.key === "-" || e.key === "_";
+      if ((!zin && !zout) || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, select, [contenteditable=true]")) return;
+      if (spaceActiveRef.current) {
+        e.preventDefault();
+        try { spaceHandleRef.current?.nudgeZoom(zout ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+      } else if (zout && atFloor()) {
+        e.preventDefault();
+        void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
+      }
+    };
+    // pinch-in past the floor (passive observers — MapLibre keeps its own
+    // gesture handling; we only watch for the clamped-at-the-floor case)
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinchPrev = 0;
+    let pinchAcc = 1;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        const [a, b] = Array.from(touches.values());
+        pinchPrev = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchAcc = 1;
+      }
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (spaceActiveRef.current || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size !== 2) return;
+      const [a, b] = Array.from(touches.values());
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchPrev > 0 && d > 0) {
+        if (atFloor()) {
+          pinchAcc *= pinchPrev / d; // >1 ⇒ fingers closing ⇒ zooming out
+          if (pinchAcc >= 1.25) {
+            const carry = wheelDeltaForFactor(pinchAcc);
+            pinchAcc = 1;
+            touches.clear();
+            void enterSpace({ nudgeDeltaY: carry });
+          }
+        } else {
+          pinchAcc = 1;
+        }
+      }
+      pinchPrev = d;
+    };
+    const onPointerEnd = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      pinchPrev = 0;
+      pinchAcc = 1;
     };
     el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+    el.addEventListener("click", onCtrlClick, { capture: true });
+    window.addEventListener("keydown", onKeyDown);
+    el.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    el.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+    el.addEventListener("pointerup", onPointerEnd, { capture: true, passive: true });
+    el.addEventListener("pointercancel", onPointerEnd, { capture: true, passive: true });
     return () => {
-      try { map.off("zoom", updFloor); map.off("zoomend", updFloor); } catch {}
+      try {
+        map.off("zoom", undisableZoomOut); map.off("zoomend", undisableZoomOut);
+        map.off("move", undisableZoomOut); map.off("idle", undisableZoomOut);
+      } catch {}
       el.removeEventListener("wheel", onWheel, { capture: true } as any);
+      el.removeEventListener("click", onCtrlClick, { capture: true } as any);
+      window.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
+      el.removeEventListener("pointermove", onPointerMove, { capture: true } as any);
+      el.removeEventListener("pointerup", onPointerEnd, { capture: true } as any);
+      el.removeEventListener("pointercancel", onPointerEnd, { capture: true } as any);
       if (timer) window.clearTimeout(timer);
     };
   }, [mapReady, enterSpace]);
@@ -3437,7 +3693,58 @@ export default function DataMapPage() {
   useEffect(() => {
     const entry = layers.find((l) => l.id === "orbital_sats") as any;
     orbitalLodRef.current = entry?.lod ?? null;
+    for (const id of Object.keys(MARKER_LOD_TARGETS)) {
+      const e = layers.find((l) => l.id === id) as any;
+      markerLodEnvRef.current[id] = e?.lod ?? null;
+    }
   }, [layers]);
+
+  // B1 §1 fade-by-relevance for the surface-traffic symbol layers
+  // (aircraft/vessels/trains): camera-altitude opacity via the same
+  // lib/lod.ts envelope math as orbital_sats, applied as a paint property.
+  // Idle re-applies cover layers that (re)mount on their own data ticks;
+  // transitions to/from fully-hidden patch the panel note in place (count
+  // and status untouched — the feed keeps polling, only the RENDER fades).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const applied = new Map<string, number>();
+    const applyMarkerLod = () => {
+      const camKm = cameraAltitudeKmFromMap(map); // null → fails OPEN (visible)
+      for (const [id, cfg] of Object.entries(MARKER_LOD_TARGETS)) {
+        const op = lodOpacity(markerLodEnvRef.current[id] ?? MARKER_LOD_FALLBACK, camKm);
+        const prevOp = markerLodOpRef.current[id] ?? 1;
+        markerLodOpRef.current[id] = op;
+        for (const lid of cfg.styleLayers) {
+          let present = false;
+          try { present = !!map.getLayer(lid); } catch {}
+          if (!present) { applied.delete(lid); continue; }
+          const val = Math.round(op * cfg.baseOpacity * 1000) / 1000;
+          if (applied.get(lid) === val) continue;
+          applied.set(lid, val);
+          try { map.setPaintProperty(lid, "icon-opacity", val); } catch {}
+        }
+        // panel honesty on the 0-crossing, preserving whatever the tick
+        // last reported (count, status) — only the note changes here
+        if ((op <= 0) !== (prevOp <= 0)) {
+          setRuntime((s) => {
+            const prev = s[id];
+            if (!prev || prev.status !== "active") return s;
+            const note = op <= 0 ? MARKER_LOD_NOTE : (prev.note === MARKER_LOD_NOTE ? undefined : prev.note);
+            if (prev.note === note) return s;
+            return { ...s, [id]: { ...prev, note } };
+          });
+        }
+      }
+    };
+    map.on("move", applyMarkerLod);
+    map.on("resize", applyMarkerLod);
+    map.on("idle", applyMarkerLod); // catches layers created after a data tick
+    applyMarkerLod();
+    return () => {
+      try { map.off("move", applyMarkerLod); map.off("resize", applyMarkerLod); map.off("idle", applyMarkerLod); } catch {}
+    };
+  }, [mapReady]);
 
   // ── O6-3: GROUP ORBITS — the real SGP4 tracks of the filtered
   // constellation, RAAN-colored so planes read apart, evenly sampled under
@@ -3667,16 +3974,53 @@ export default function DataMapPage() {
         satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
       const realLabel = realModelLabel(g.noradId, g.name ?? sc?.name);
+      // design 1a chip row + 1b details grid: chips are live/derived vitals
+      // through the units formatters; period/inclination values moved from
+      // the old body prose INTO the chips (still reachable, now glanceable).
+      const aps = apsidesKm(g.meanMotion, g.ecc);
+      const spdKmh = orbitalSpeedKmh(g.meanMotion, altKm);
+      const perMin = periodMinutes(g.meanMotion);
       setDetail({
         kind: "satellite",
         title: g.name || `NORAD ${g.noradId}`,
-        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls}${altKm != null ? ` · ${fmtKm(altKm)} altitude` : ""}`,
+        subtitle: `${sc?.objectType === "ROCKET BODY" ? "Rocket body · " : sc?.objectType === "DEBRIS" ? "Debris · " : ""}${cls}${op?.company ? ` · ${op.company}` : sc?.owner ? ` · ${sc.owner}` : ""}`,
+        // chips carry their unit in the LABEL (design 1a: "ALT MI · 254") —
+        // values still come from the units formatters, splitUnit only
+        // re-typesets (units directive 2026-07-13 upheld).
+        stats: (() => {
+          const alt = altKm != null ? splitUnit(fmtKm(altKm)) : { num: "—", unit: null };
+          const spd = spdKmh != null ? splitUnit(fmtKmh(spdKmh)) : { num: "—", unit: null };
+          return [
+            { label: `Alt${alt.unit ? ` ${alt.unit}` : ""}`, value: alt.num },
+            { label: `Spd${spd.unit ? ` ${spd.unit}` : ""}`, value: spd.num },
+            { label: "Incl", value: g.inclination != null ? `${g.inclination.toFixed(1)}°` : "—" },
+            // "PER MIN" — the design doc's own abbreviation (screens 1c/1d);
+            // the full "PERIOD MIN" ellipsized at the 4-chip width
+            { label: "Per min", value: perMin != null ? perMin.toFixed(1) : "—" },
+          ];
+        })(),
+        sourceTag: "SGP4",
+        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
+        facts: ([
+          aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
+          aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
+          g.ecc != null ? { label: "Eccentricity", value: g.ecc.toFixed(7) } : null,
+          g.raan != null ? { label: "RAAN", value: `${g.raan.toFixed(4)}°` } : null,
+          g.argp != null ? { label: "Arg perigee", value: `${g.argp.toFixed(4)}°` } : null,
+          g.meanAnomaly != null ? { label: "Mean anomaly", value: `${g.meanAnomaly.toFixed(4)}°` } : null,
+          g.meanMotion != null ? { label: "Mean motion", value: `${g.meanMotion.toFixed(4)} rev/d` } : null,
+          g.bstar != null ? { label: "B* drag", value: g.bstar.toExponential(4) } : null,
+          g.epoch ? { label: "Epoch", value: `${String(g.epoch).slice(0, 16)}Z` } : null,
+          ageDays != null ? { label: "TLE age", value: ageDays < 1 ? `${(ageDays * 24).toFixed(1)} h` : `${ageDays.toFixed(1)} d` } : null,
+          sc?.intlDes ? { label: "Intl desig", value: sc.intlDes } : null,
+          sc?.launchDate ? { label: "Launch", value: sc.launchDate } : null,
+          sc?.objectType ? { label: "Object", value: sc.objectType } : null,
+          { label: "NORAD ID", value: String(g.noradId) },
+        ].filter(Boolean)) as DetailKV[],
         body: [
-          `NORAD catalog ID: ${g.noradId}`,
           ...satelliteIdentityLines(sc, op, satcatState),
-          g.meanMotion != null ? `Orbital period: ${(1440 / g.meanMotion).toFixed(1)} min` : null,
-          g.inclination != null ? `Inclination: ${g.inclination.toFixed(1)}°` : null,
-          ageDays != null ? `Element set age: ${ageDays.toFixed(1)} days (orbit uncertainty grows with age)` : null,
+          ageDays != null ? "Element-set age above: orbit uncertainty grows with age." : null,
+          aps ? "Apogee/perigee/speed are derived from the catalogued elements (two-body a·(1±e), vis-viva) — stated derivations, not measured downlink values." : null,
           t
             ? "FOLLOWING — the camera tracks this object as it moves (updates each second). Drag to look elsewhere: the focus and orbit track stay until you close this card (✕)."
             : "No live position this tick (incomplete or decayed elements, or filtered out by a group chip) — identity only, nothing followed.",
@@ -3687,7 +4031,7 @@ export default function DataMapPage() {
           isStationComplex(g.name)
             ? "One station, one object: modules cataloged separately (e.g. UNITY, NAUKA) are collapsed into this single entry — visiting vehicles stay separate."
             : null,
-          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim.",
+          "RAW catalog data (CelesTrak GP + SATCAT), SGP4-propagated — real position, no predictive claim. TLE via CelesTrak · refreshed ~6h.",
         ].filter(Boolean).join("\n"),
         links: [{
           label: "CelesTrak catalog entry",
@@ -4050,6 +4394,14 @@ export default function DataMapPage() {
             kind: "powerplant",
             title: p.name || "Power plant",
             subtitle: `${fuelLabel} · ${mw}`,
+            // design 1g chip row: TYPE · CAP MW · STATE · STATUS (EIA-860)
+            stats: [
+              { label: "Type", value: String(fuelLabel).replace(/ plant$/i, "") },
+              { label: "Cap MW", value: (p.mw != null && p.mw !== "") ? Number(p.mw).toLocaleString() : "—" },
+              { label: "State", value: p.state || "—" },
+              { label: "Status", value: STATUS_LABEL[p.status] || p.status || "—" },
+            ],
+            sourceTag: "EIA-860",
             body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
                   `${p.state ? `State: ${p.state}\n` : ""}` +
                   `${p.status ? `Status: ${STATUS_LABEL[p.status] || p.status}\n` : ""}` +
@@ -4634,6 +4986,9 @@ export default function DataMapPage() {
         if (dd.coverage === "partial" && dd.coverage_note) note = dd.coverage_note;
         if (dd.filter_note) note = dd.filter_note; // O6-4 operator filter disclosure
         if (dd.stale) note = `stale — data as of ${new Date(dd.stale_at || Date.now()).toLocaleTimeString()}`;
+        // B1 fade-by-relevance: while the LOD envelope holds the layer at
+        // opacity 0 the tick must keep saying so (A1 rail — never silent)
+        if ((markerLodOpRef.current[id] ?? 1) <= 0) note = MARKER_LOD_NOTE;
 
         const features = opts.toFeatures(dd);
         const fc = { type: "FeatureCollection", features };
@@ -4909,14 +5264,26 @@ export default function DataMapPage() {
     // one card handler for BOTH renderers (2D symbol clicks + 3D picks)
     const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
-        const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? fmtMeters(p.alt) : "alt unknown");
+        const onGround = p.ground === true || p.ground === "true";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
+        // design 1f chip row: ALT · SPEED KT · HDG · TYPE (alt through the
+        // units formatter, unit in the label; knots stay knots — domain
+        // convention fixed in both systems per the units directive)
+        const altF = onGround
+          ? { num: "ground", unit: null as string | null }
+          : p.alt != null ? splitUnit(fmtMeters(p.alt)) : { num: "—", unit: null as string | null };
         setDetail({
           kind: "aircraft",
           title: `✈ ${p.callsign}`,
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
-          body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
-                `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
+          stats: [
+            { label: `Alt${altF.unit ? ` ${altF.unit}` : ""}`, value: altF.num },
+            { label: "Speed kt", value: p.kts != null && p.kts !== "" ? String(p.kts) : "—" },
+            { label: "Hdg", value: `${Math.round(p.heading || 0)}°` },
+            { label: "Type", value: p.type || "—" },
+          ],
+          sourceTag: "ADS-B",
+          body: `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
                 `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
@@ -5099,8 +5466,15 @@ export default function DataMapPage() {
           kind: "vessel",
           title: `⚓ ${p.name}`,
           subtitle: `${cls} · MMSI ${p.mmsi}${flag ? ` · ${flag}` : ""}`,
-          body: `${p.kts != null ? `${p.kts} kts · ` : ""}hdg ${Math.round(p.heading || 0)}°` +
-                `${p.destination ? `\nDestination (AIS-broadcast): ${p.destination}` : "\nDestination: not broadcast"}`,
+          // §5 chip row (knots stay knots — domain convention, units directive)
+          stats: [
+            { label: "Speed kt", value: p.kts != null ? String(p.kts) : "—" },
+            { label: "Hdg", value: `${Math.round(p.heading || 0)}°` },
+            { label: "Class", value: cls },
+            { label: "Flag", value: flag || "—" },
+          ],
+          sourceTag: "AIS",
+          body: `${p.destination ? `Destination (AIS-broadcast): ${p.destination}` : "Destination: not broadcast"}`,
           trailId: p.mmsi, trailKind: "vessels", dossierKey,
           links: [
             { label: "MarineTraffic", href: `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${p.mmsi}` },
@@ -5310,6 +5684,13 @@ export default function DataMapPage() {
             kind: "powerplant",
             title: p.name,
             subtitle: `${POWER_FUEL_LABEL[p.fuel] || p.fuel} · ${Number(p.mw).toLocaleString()} MW`,
+            // design 1g chip row (MW fixed in both unit systems)
+            stats: [
+              { label: "Type", value: String(POWER_FUEL_LABEL[p.fuel] || p.fuel || "—").replace(/ plant$/i, "") },
+              { label: "Cap MW", value: Number(p.mw) ? Number(p.mw).toLocaleString() : "—" },
+              { label: "Position", value: (p.verified === true || p.verified === "true") ? "verified" : "approx" },
+            ],
+            sourceTag: "GPPD/EIA",
             body: `${p.owner ? `Operator: ${p.owner}\n` : ""}` +
                   `${p.verified === true || p.verified === "true"
                      ? "Position imagery-verified.\n"
@@ -5668,6 +6049,13 @@ export default function DataMapPage() {
             kind: "nuketest",
             title: t.n && t.n !== "NA" ? t.n : "Nuclear test",
             subtitle: `${CTRY[t.c] || t.c} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
+            // §5 chip row — catalogued fields (yield in kt, catalog convention)
+            stats: [
+              { label: "Yield kt", value: t.kt ? Number(t.kt).toLocaleString() : "n/a" },
+              { label: "Country", value: CTRY[t.c] || t.c || "—" },
+              { label: "Date", value: t.d || "—" },
+            ],
+            sourceTag: "FOA/SIPRI",
             body: `${t.r ? `Site: ${t.r}\n` : ""}` +
                   `Conducted by: ${testingAgency(t.c, t.y)}\n\n` +
                   `How it was fired: ${decodeType(t.t)}.\n` +
@@ -5902,6 +6290,13 @@ export default function DataMapPage() {
             kind: "nukefacility",
             title: p.n || "Nuclear facility",
             subtitle: `${p.cat}${p.country ? ` · ${p.country}` : ""}`,
+            // §5 chip row — catalogued Wikidata fields only
+            stats: [
+              { label: "Category", value: p.cat || "—" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Catalog", value: p.qid || "Wikidata" },
+            ],
+            sourceTag: "WIKIDATA CC0",
             body: `What this marker is: a nuclear fuel-cycle or production FACILITY as catalogued in Wikidata — ` +
                   `${p.cat === "Enrichment plant" ? "a plant that enriches uranium for fuel or weapons." :
                      p.cat === "Reprocessing site" ? "a site that chemically reprocesses spent nuclear fuel." :
@@ -6005,6 +6400,14 @@ export default function DataMapPage() {
             kind: "military_installation",
             title: p.name || "Military installation",
             subtitle: `${p.operator_nation || "nation unattributed"}${p.type && p.type !== "other" ? ` · ${p.type}` : ""}`,
+            // §5 chip row — catalogued fields only, no inference
+            stats: [
+              { label: "Nation", value: p.operator_nation || "—" },
+              { label: "Branch", value: p.branch || "n/s" },
+              { label: "Type", value: p.type || "—" },
+              { label: "Status", value: p.status || "—" },
+            ],
+            sourceTag: "OSM/DoD",
             // NO timeline / cross-tie block — this layer is static reference
             // geography and is NEVER correlated with live tracking (human rule).
             body: `Military installation (reference geography).\n` +
@@ -6170,12 +6573,18 @@ export default function DataMapPage() {
         } as any);
         detach = attachLayerInteractions(map, "qh-pts", (e: any) => {
           const f = e.features?.[0]; if (!f) return; const q = f.properties;
+          const qhDepth = q.dep != null ? splitUnit(fmtKm(q.dep)) : { num: "—", unit: null as string | null };
           setDetail({
             kind: "quake",
             title: q.pl || "Earthquake",
             subtitle: `M${q.m} · ${q.d}`,
-            body: `${q.dep != null ? `Depth: ${fmtKm(q.dep)}\n` : ""}` +
-                  `\nUSGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
+            stats: [
+              { label: "Mag", value: q.m != null ? `M${q.m}` : "—" },
+              { label: `Depth${qhDepth.unit ? ` ${qhDepth.unit}` : ""}`, value: qhDepth.num },
+              { label: "Date", value: q.d || "—" },
+            ],
+            sourceTag: "USGS",
+            body: `USGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
           });
         });
         setStatus("quakehistory", "active", d.count,
@@ -6345,11 +6754,18 @@ export default function DataMapPage() {
             if (!f) return;
             const p = f.properties;
             const dossierKey = `train:${p.id}:${Date.now()}`;
+            const spdF = p.speed != null && p.speed !== "null" ? splitUnit(fmtKmh(Number(p.speed))) : { num: "—", unit: null as string | null };
             setDetail({
               kind: "train",
               title: `${p.label}`,
               subtitle: `${p.country === "FI" ? "Finland · Digitraffic (CC BY 4.0)" : "Norway · Entur (NLOD)"}`,
-              body: `${p.speed != null && p.speed !== "null" ? `Speed: ${fmtKmh(Number(p.speed))}\n` : ""}Live passenger-rail position, shown as received.`,
+              stats: [
+                { label: `Speed${spdF.unit ? ` ${spdF.unit}` : ""}`, value: spdF.num },
+                { label: "Country", value: p.country || "—" },
+                { label: "Feed", value: p.country === "FI" ? "Digitraffic" : "Entur" },
+              ],
+              sourceTag: "RAIL",
+              body: `Live passenger-rail position, shown as received.`,
               trailId: p.id, trailKind: "trains", dossierKey,
             });
             // Trains aren't Everything Graph nodes — lat/lon-only dossier.
@@ -6359,7 +6775,8 @@ export default function DataMapPage() {
           });
         }
         const per = (d.sources || []).map((s: any) => `${s.country} ${s.status === "ok" ? s.count : s.status}`).join(" · ");
-        setStatus("trains", "active", d.count, per || undefined);
+        setStatus("trains", "active", d.count,
+          (markerLodOpRef.current.trains ?? 1) <= 0 ? MARKER_LOD_NOTE : (per || undefined));
       } catch {
         if (!stop) setStatus("trains", "error");
       }
@@ -6725,10 +7142,20 @@ export default function DataMapPage() {
             if (!f) return;
             const p = f.properties;
             const dossierKey = `quake:${p.id}:${Date.now()}`;
+            const qDepth = p.depth != null ? splitUnit(fmtKm(p.depth)) : { num: "—", unit: null as string | null };
             setDetail({
               kind: "quake",
               title: `M${p.mag != null ? Number(p.mag).toFixed(1) : "?"} — ${p.place || "unknown location"}`,
-              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}${p.depth != null ? ` · ${fmtKm(p.depth)} deep` : ""}`,
+              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}`,
+              // §5 chip row (magnitude is unit-system-fixed; depth through the
+              // units formatter with the unit in the label)
+              stats: [
+                { label: "Mag", value: p.mag != null ? `M${Number(p.mag).toFixed(1)}` : "—" },
+                { label: `Depth${qDepth.unit ? ` ${qDepth.unit}` : ""}`, value: qDepth.num },
+                { label: "Status", value: p.status || "—" },
+                { label: "Tsunami", value: p.tsunami ? "ADVISORY" : "none" },
+              ],
+              sourceTag: "USGS",
               body: `${p.type !== "earthquake" ? `Reported type: ${p.type}\n` : ""}` +
                     `${p.status ? `Review status: ${p.status}\n` : ""}` +
                     `${p.magType ? `Magnitude type: ${p.magType}\n` : ""}` +
@@ -7689,12 +8116,10 @@ export default function DataMapPage() {
 
       <div ref={mapContainer} className="vt-map-canvas" />
       {fpsDebug && <FpsChip />}
-      {atZoomFloor && !spaceActive && mapReady && (
-        <button className="vt-space-chip" onClick={() => void enterSpace({ flyOut: true })}
-                title="Keep zooming out — one continuous flight into the true-scale solar system; the live map is the Earth. Zoom back in (or Escape) to return">
-          ☉ Solar system
-        </button>
-      )}
+      {/* Celestial v2 B1 (directive §1): the "☉ Solar system" chip is DELETED
+          — there is no entry button and no separate mode. Every zoom input
+          (wheel, +/- buttons, pinch, keyboard) carries through the floor into
+          the space frame via the CONTINUOUS ZOOM SEAM wiring above. */}
 
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">
@@ -7715,7 +8140,7 @@ export default function DataMapPage() {
             <LayersIcon size={19} />
           </button>
         ) : (
-          <div className="vt-layer-panel" role="region" aria-label="Map layers">
+          <div className="vt-layer-panel om-sb" role="region" aria-label="Map layers">
             <div className="vt-layer-panel-head">
               <span>
                 <LayersIcon size={14} /> Layers
@@ -7900,7 +8325,15 @@ export default function DataMapPage() {
         </div>
       )}
       {detail && !detailMin && (
-        <div ref={detailCardRef} className="vt-site-card" role="dialog" aria-label={detail.title}>
+        <div ref={detailCardRef}
+             className={`vt-site-card${!detailsOpen ? " vt-card-closed" : ""}`}
+             role="dialog" aria-label={detail.title}>
+          {/* phone bottom-sheet drag handle (design 1c/1d): tap or drag up =
+              expand, drag down = collapse then dismiss. display:none ≥768px. */}
+          <button className="vt-card-handle" aria-label={detailsOpen ? "Collapse details sheet" : "Expand details sheet"}
+                  onPointerDown={onHandleDown} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}>
+            <i aria-hidden />
+          </button>
           <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
                title="Drag to move"
                onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
@@ -7919,6 +8352,56 @@ export default function DataMapPage() {
               <X size={17} />
             </button>
           </div>
+          {/* ONE row of stat chips — the whole default card (design 1a) */}
+          {detail.stats && detail.stats.length > 0 && (
+            <div className="vt-card-stats">
+              {detail.stats.slice(0, 4).map((s) => (
+                <div key={s.label} className="vt-card-stat">
+                  <span className="vt-card-stat-l">{s.label}</span>
+                  <span className="vt-card-stat-v">{s.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* live-trail freshness — honesty machinery stays on the COMPACT
+              card (PREMIUM EXPERIENCE STANDARD: every number visibly carries
+              freshness), never buried behind the expander */}
+          {detail.trailLastT != null && (
+            <p className="vt-card-fresh">
+              <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
+                last position {formatAge(detail.trailLastT)}
+              </span>
+            </p>
+          )}
+          {/* actions + source tag — always visible without scrolling */}
+          {((detail.actions && detail.actions.length > 0) || detail.sourceTag) && (
+            <div className="vt-card-actions">
+              {(detail.actions ?? []).map((a) => (
+                <button key={a.label}
+                        className={`vt-card-actbtn${a.primary ? " vt-card-actbtn-primary" : ""}`}
+                        onClick={a.run}>
+                  {a.label}
+                </button>
+              ))}
+              {detail.sourceTag && <span className="vt-card-srctag">{detail.sourceTag}</span>}
+            </div>
+          )}
+          <button className="vt-card-details-toggle" aria-expanded={detailsOpen}
+                  onClick={() => setDetailsOpen((v) => !v)}>
+            {detailsOpen ? "DETAILS ▴" : "DETAILS ▾"}
+          </button>
+          {detailsOpen && (
+          <div className="vt-card-detbody om-sb">
+          {detail.facts && detail.facts.length > 0 && (
+            <div className="vt-card-facts">
+              {detail.facts.map((f) => (
+                <div key={f.label} className="vt-card-fact">
+                  <div className="vt-card-fact-l">{f.label}</div>
+                  <div className="vt-card-fact-v">{f.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
           {detail.sourceUrl && (
             <a className="vt-site-card-link" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
@@ -8089,13 +8572,11 @@ export default function DataMapPage() {
           {detail.trailNote && (
             <p className="vt-site-card-trail">
               Trail: {detail.trailNote}
-              {detail.trailLastT && (
-                <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
-                  {" · "}last position {formatAge(detail.trailLastT)}
-                  {" (trail extends live; gaps = coverage/sampling, not necessarily staleness)"}
-                </span>
-              )}
+              {detail.trailLastT != null &&
+                " (trail extends live; gaps = coverage/sampling, not necessarily staleness)"}
             </p>
+          )}
+          </div>
           )}
         </div>
       )}

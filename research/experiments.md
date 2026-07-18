@@ -3,6 +3,45 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Design-doc card system + Celestial v2 B1: one camera, no button (v1.0.400, T-CLIENT, two agents + parent integration)
+
+CARD SYSTEM (design source: the human's Claude Design project, 7
+screens, research/directives/satellite_ui_design_2026-07-18.dc.html):
+satellite card = compact header + 4 live stat chips (ALT/SPD/INCL/PER
+through units formatters; satDerived.ts derives apogee/perigee/speed/
+period from GP elements, LABELED as derivations, ISS+GEO ground-truth
+tests) + DETAILS expander scrolling INSIDE the card (60vh cap),
+left-anchored clear of ALL controls at 1440+1920 (audit found EVERY
+card previously covered 4 map controls), mobile bottom sheet with drag
+handle, Esc/tap-away/X dismiss. Pattern GENERALIZED to every clickable
+layer (aircraft/vessels/trains/plants x2/military/nuclear/quakes/
+tests) — chips are catalogued/broadcast fields only, nothing invented;
+design's mock buttons for nonexistent features deliberately NOT built.
+.om-sb scrollbar everywhere + panel flush to the true screen edge.
+REAL BUG fixed: Esc closed the sat card but left the follow-camera
+running headless (re-centering every second with no way out) — Esc now
+performs the full X teardown. Trail-freshness chip stays on the
+compact card (premium standard: honesty machinery always visible).
+
+B1 (celestial_v2_program.md): the sun-chip is DELETED — one camera,
+every input carries through the floor: wheel, +/- BUTTONS (root cause:
+MapLibre NavigationControl DISABLES the zoom-out button at minZoom and
+swallows clicks — re-enabled at the floor + capture-phase nudge through
+zoomSeam.ts), keyboard, pinch; return hands back seamlessly.
+FLOATING-ORIGIN audited (all f64 CPU, no f32 sink exists) and PINNED:
+0.26px max jitter at Neptune under micro camera moves. Scale bar runs
+mi/km -> AU through the units toggle (also fixed the map ScaleControl
+ignoring metric mode). Aircraft/vessels/trains got the LOD
+camera-altitude fade (no full-size sprites at the floor; on-panel
+honesty note when hidden). Agent drive 57/57.
+
+INTEGRATION: one add-add datamap conflict (tap-away effect vs zoom-seam
+effect) resolved keep-both; suites 101/101; build clean; harness 23
+pages — one data-scale TTI failure falsified by clean re-run
+(container noise, day-long documented pattern). NEXT: inspect
+follow-camera (sat-UX directive section 3) — agent to launch on this
+state; then B2 scale sliders.
+
 ## 2026-07-18 [REPAIR] — RELEASE BLOCKER: spaceFrame page-freeze root-caused to a floating-point fixed point (v1.0.397, T-CLIENT, agent + parent verify)
 
 Human report: Chrome "Page Unresponsive" at /app#/data on v1.0.396.

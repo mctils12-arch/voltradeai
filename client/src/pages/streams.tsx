@@ -117,7 +117,7 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
         </button>
       </div>
 
-      <div className="vt-streams-body">
+      <div className="vt-streams-body om-sb">
         <div className="vt-filings-filters" role="tablist" aria-label="Filter by health">
           {FILTERS.map((f) => (
             <button key={f} type="button" role="tab" aria-selected={filter === f}
