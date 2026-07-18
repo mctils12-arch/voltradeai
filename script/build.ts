@@ -70,6 +70,7 @@ async function buildAll() {
   await cp("datacore/manifests", "dist/datacore/manifests", { recursive: true });
   await cp("datacore/sentinel2/readings.jsonl", "dist/datacore/sentinel2/readings.jsonl");
   await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
+  await cp("datacore/gem/methane_emitters.json.gz", "dist/datacore/gem/methane_emitters.json.gz");
 }
 
 buildAll().catch((err) => {

@@ -163,8 +163,11 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   real CIK (393 of 24,351 entity_edges today); broadening to the
   1,010 government/private/foreign-owner edges with no CIK is filed
   as its own follow-up in open_questions.md (EVERYTHING-GRAPH,
-  2026-07-17); (c) LNG-carrier IMO join to AIS archive; (d) GMET
-  plumes as a dated map/event layer.
+  2026-07-17); (c) LNG-carrier IMO join to AIS archive; (d) **SHIPPED
+  2026-07-18 (v1.0.400, server/gemMethane.ts, GET /api/data/methane-plumes)**
+  GMET plumes RAW API route — see experiments.md for the full trace;
+  the client-side dated map/event layer itself is a separate follow-up
+  (own T-CLIENT PR, same earthquakes/buoys precedent).
 - CENSUS BUILD #4 FINRA PART 2: SHIPPED v1.0.208 — server/finraQuery.ts
   extended (not a new file — same module, same contract family) with
   weeklySummary + monthlySummary (composite-key partitions
