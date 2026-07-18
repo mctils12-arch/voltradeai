@@ -3411,25 +3411,20 @@ export default function DataMapPage() {
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch { /* style mid-swap */ }
         if (!coverageQueryAllowed(atPoint)) return;
-        // O6-3 honesty guard: with a constellation filter active the live
-        // buffer only CONTAINS that group — a coverage query over it would
-        // report "no Starlink elements had a valid position", which reads
-        // as an outage instead of a filter (live bug, screenshot-confirmed).
-        const grpInfo = satGroupInfoRef.current;
-        if (grpInfo && grpInfo.label !== "Starlink") {
-          setDetail({
-            kind: "coverage",
-            title: "Starlink coverage",
-            subtitle: `${clickLL.lat.toFixed(2)}°, ${clickLL.lng.toFixed(2)}°`,
-            body: `Coverage query unavailable while the sky is filtered to ${grpInfo.label} — the live buffer only holds that constellation. Clear the group chip to query Starlink coverage here.`,
-          });
-          return;
-        }
         // O7 STARLINK COVERAGE: reuse this tick's already-propagated buffer
         // to answer "does Starlink cover this ground point right now" rather
         // than leaving the click a pure no-op.
+        // O8 (live report 2026-07-18, replaces the O6-3 instruction card):
+        // a group chip must not dead-end this click. The DISPLAY buffer is
+        // sentineled to the group, but the worker always propagates the
+        // whole sky (the filter is a display-only copy) — so with a chip
+        // active the query reads the retained RAW tick buffer instead: one
+        // click, a real numeric answer, the map stays filtered, and the
+        // card states the bypass.
+        const grpInfo = satGroupInfoRef.current;
+        const covBuf = grpInfo ? satRawPosRef.current ?? positions : positions;
         const { visible, totalModeled } = siteCoverageReport(
-          positions, layer.getStride(), gp, clickLL.lat, clickLL.lng,
+          covBuf, layer.getStride(), gp, clickLL.lat, clickLL.lng,
         );
         const nearest = visible.slice(0, 5);
         setDetail({
@@ -3444,6 +3439,9 @@ export default function DataMapPage() {
                 : `${visible.length} of ${totalModeled} modeled Starlinks currently cover this point (>=${STARLINK_MIN_ELEV_DEG}° elevation mask).`,
             ...nearest.map((s) =>
               `${s.name ?? `NORAD ${s.noradId}`}: ${s.elevationDeg.toFixed(1)}° elevation, ${fmtKm(s.rangeKm)} range`),
+            grpInfo
+              ? `Sky is filtered to ${grpInfo.label} right now — this query bypassed the filter and read the full live catalog (the map stays filtered as you set it).`
+              : null,
             "Geometric visibility only (published ~25° user-terminal mask) — no link-budget, beam-steering, or cell-capacity model; real SGP4 position, no predictive claim.",
           ].filter(Boolean).join("\n"),
         });
