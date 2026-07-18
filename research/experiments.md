@@ -19661,3 +19661,206 @@ future entries should now carry a specific diagnosable cause (e.g. "HTTP
 future session should check both and, if (b) occurs with an HTTP 429
 specifically, treat the cross-process shared-limiter gap above as the
 next KNOWN BROKEN item with the evidence already in hand.
+
+## 2026-07-18 [PIPELINE] — EPA CAMD CEMS pipeline SHIPPED: the data census's "★ THE STANDOUT" unbuilt item — direct unit-level plant-utilization ground truth, TX pilot (v1.0.385, T-DATACORE)
+
+TERRITORY: T-DATACORE (`datacore/**`, `server/epaCamd.ts`, its test,
+`datacore/manifests/epacamd.json`; `server/routes.ts` touched
+last-and-minimal per the SHARED-file MERGE-ORDER PROTOCOL — one import
+line + one route block, nothing else in that file changed).
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in
+full. `research/experiments.md` tail (last entry: session 4's ml_retrain
+throttle fix, #516/v1.0.384) — confirmed via `mcp__github__get_commit`
+that GitHub's real `main` HEAD (a96eeab) exactly matches this branch's
+local HEAD and no open PR exists for `claude/quirky-hopper-4bh33n`, i.e.
+the prior PR (#516) is already merged and this branch is a fresh start
+per the branch-reuse protocol (local `git fetch` had returned a stale
+cached `origin/main` ref first — GitHub's own API was the tiebreaker,
+not assumed). `research/open_questions.md` KNOWN BROKEN section read in
+full (items 1-22; #4/#10/#12/#20/#21/#22 remain open judgment-call or
+follow-up items, none blocking). `research/wishlist.md` DATACORE MAXIMUS
+block read — its own NEXT line named "EPA CAMD/ENTSO-E, both gated on
+Mike's keys" as the last unclaimed program item.
+
+Loop-health ratio, last 10 tagged entries (2026-07-12 through session
+4): PRODUCT, REPAIR, PRODUCT, REPAIR, REPAIR, PRODUCT, REPAIR(docs-only),
+PIPELINE, REPAIR, REPAIR — 6/10 REPAIR, under the 7/10 thrash threshold;
+no meta-problem override.
+
+`/api/health` (production): `status: ok`, `bot.liveness.dark: false`,
+`drawdownPct: "0.0"`, `scanner.consecutiveFailures: 0` — no LIVENESS
+ALARM; proceeded with [PRODUCT]-class work per this session's own
+routine instructions (product sessions don't preempt DAILY repair duty,
+but nothing here needed it).
+
+WHY THIS ITEM: `research/data_census.md` SECTION 3 item 1 flags EPA CAMD
+CEMS "★ THE STANDOUT" — "grossLoad×opTime = DIRECT plant-utilization
+ground truth — ladder-gate-1 truth source for the whole power vertical
+(validates GPPD/satellite-thermal inferences)". `research/wishlist.md`'s
+DATACORE MAXIMUS block had marked it "FREE KEY → BLOCKED-FOR-MIKE" and
+left it as the program's sole remaining unclaimed item since 2026-07-08.
+Console/platform/earth-twin/orbital programs were all independently
+checked this session and found QUEUE CLEAR or human-gated (console
+charter W1-W6 complete 2026-07-09; platform program P1-P4 shipped,
+P5 human-gated; DATACORE DEFECT QUEUE and DATA STREAM EXPANSION build
+order both confirmed fully closed) — EPA CAMD was the one concretely
+unbuilt, highest-signal-value item left with no blocker requiring the
+human.
+
+BUILD-FIRST CHECK (before treating this as blocked, per the standing
+rule): live-probed `api.epa.gov/easey` THIS session with the shared
+`DEMO_KEY` (no Railway key, no signup) — `facilities/attributes` and
+`emissions/apportioned/daily` both returned real 200 data (445 TX
+facility-unit-year rows; 9,009 TX daily unit-rows for Q2-2026 in ONE
+call). The "BLOCKED-FOR-MIKE" framing in wishlist.md was stale: a
+dedicated `EPA_CAMD_API_KEY` (wishlist 9a, still filed, still worth
+getting) raises the ceiling and removes shared-key collision risk, but
+does not gate the pipeline's existence — DEMO_KEY is enough to build
+and run a real v1 today. CADENCE HONESTY, also live-probed (not assumed
+from the census note): this is QUARTERLY data — Q3-2026 (the
+in-progress quarter, probed 2026-07-18) was rejected outright by the
+live API with "quarter ending on 06/30/2026" as its own stated upper
+bound; only fully-CLOSED quarters are ever queryable, despite each
+record being daily-granularity internally.
+
+WHAT SHIPPED: `server/epaCamd.ts` (new) + `server/epaCamd.test.ts` (13
+new tests) + `datacore/manifests/epacamd.json` (new) + 2-line
+`server/routes.ts` addition (import + `GET /api/data/plant-operations`,
+inserted next to `/api/data/grid-demand`).
+
+SCOPE v1 (pilot, deliberate — matches GRID VISION's existing TX/ERCOT
+focus and keeps DEMO_KEY usage trivial): `stateCode=TX` only. DEMO_KEY
+is a globally shared, tightly-rate-limited api.data.gov key (~30 req/hr,
+~50 req/day, shared across every caller worldwide) — this module makes
+AT MOST one quarter-data call plus an occasional (7-day-cached)
+facility-attributes call per 12h poll, and any 429/403 is caught and
+logged, never crashes the boot. Widening past TX is filed below as the
+concrete next step once a dedicated key lands.
+
+ARCHIVE DESIGN (one JSONL file per quarter, not per day — a whole
+quarter is ONE API call): `pickQuarterToFetch()` picks at most one
+target per poll: (1) the OLDEST quarter in an 8-quarter (~2yr) backfill
+window that has never been archived (chronological backfill, a few
+quarters accumulate per day, same precedent as `secMidas.ts`'s
+`MIDAS_LOOKBACK_QUARTERS` "over the next several daily polls"), then
+once fully backfilled (2) recheck the latest closed quarter while it's
+within its own 45-day post-quarter-end correction window (comfortably
+past EPA's documented ~30-day finalization deadline from the census
+workup), then (3) nothing — steady state, EPA CAMD polled but not
+re-fetched. Vintage dedup (`archiveQuarterRows`) appends a NEW row only
+when a (facility,unit,date)'s value signature actually changes,
+DELIBERATELY seeded from the FULL existing quarter file rather than a
+bounded day-window — this sidesteps the exact bounded-seed defect class
+`fredMacro.ts` shipped and later had to repair (DATACORE DEFECT QUEUE
+item 6, closed 2026-07-05): a per-quarter file already IS the complete
+relevant dedup domain, so there is no "restart re-appends duplicate
+history" failure mode to inherit here by construction, not by patching
+it after the fact. Sealed quarters (45d+ past end, already archived)
+gzip and are never refetched. Facility lat/lon/ownerOperator come from a
+separate, 7-day-cached `facilities/attributes` call joined onto each
+daily row at write time (`entity_key: facilityId|unitId`) — never
+fabricated; an unmatched unit ships `lat/lon/ownerOperator: null`
+honestly rather than guessing.
+
+API: `GET /api/data/plant-operations` returns a per-facility rollup
+(`aggregateByFacility` — sum grossLoad MW-days, sum operating hours,
+distinct unit count, geo, owner) of the newest fetched quarter, sorted
+by output — the shape a future gate-1 comparison against a satellite/
+GPPD inference actually wants, and far lighter than shipping 9k+
+per-unit-per-day rows over the wire. `predictive: false` on every
+response; `key_mode` field states plainly whether the live shared
+DEMO_KEY or a dedicated key served the response — no silent honesty gap
+if Mike's key never lands. No `/data` map layer this session
+(deliberate scope discipline, one logical change per PR) — same
+pipeline+API-first sequencing precedent `usaSpending.ts` used ("No UI
+page... view once archive history accumulates").
+
+RATCHET: `server/epaCamd.test.ts`, 13 new tests — parse/join correctness
+(incl. the "unmatched unit -> null, never fabricated" case), quarter
+math (`quarterOf`/`quarterBounds`/`latestClosedQuarter` incl. year
+rollover/`priorQuarters`), key gating (DEMO_KEY fallback vs. a real
+key), injected-fetch URL-shape assertions against the REAL parameter
+names this session's live probes discovered, a 429-throws-never-
+swallows case, the vintage-dedup archive test (revision appends, no-op
+re-fetch), `quarterSealed` boundary (44d vs 46d), `gzipSealedQuarters`
+(gzips only the sealed file, `quarterSealed` still finds the `.gz` after
+rotation — the exact seal-detection-survives-rotation edge a naive
+version would silently break), and the full
+backfill-then-recheck-then-null `pickQuarterToFetch` state machine
+walked through all four of its states in one test. All fixture request/
+response shapes are the REAL live-probed JSON from this session's own
+`curl` calls against `api.epa.gov/easey`, not guessed from memory or
+docs.
+
+GATES: `npx tsx --test server/epaCamd.test.ts` 13/13. `npx tsx --test
+server/manifests.test.ts` 3/3 (envelope + forward-enforcement + ArchiveKind
+union all pass for the new stream). `npx tsx --test server/*.test.ts`
+703 passed / 5 failed / 708 total — the 5 failures
+(apiKeyAccounts/compression/gdeltEvents/owmTiles/seafloorTiles) are
+PRE-EXISTING and unrelated: confirmed via a `git stash` A/B (stashing
+just this session's tracked-file diff still leaves those same 5 failing,
+since none of them import `epaCamd.ts` or exercise the touched
+`routes.ts` lines). `npx tsc --noEmit` — 3 errors (vite/client +
+`node` type-entry resolution + the deprecated-`baseUrl` warning; all
+pre-existing tsconfig/environment issues, zero mention of `epaCamd.ts`
+or the `routes.ts` diff; a fresh `npm install` this session — 485
+packages — is the likely reason this count reads lower than a couple of
+recent sessions' logged "66", consistent with the SEC MIDAS session's
+prior finding that partial-sandbox installs manufacture false extra
+tsc errors, not a real regression to chase). `python3 -m pytest -q`
+(after `pip install -r requirements.txt openpyxl`, the same recurring
+sandbox gap every recent session has logged) — 751 passed, 2 skipped,
+byte-identical to the pre-session baseline (zero Python touched).
+`npm run build` clean, `dist/datacore/manifests/epacamd.json` staged
+(R14 packaging lesson respected — checked directly, not assumed).
+LIVE END-TO-END SMOKE TEST (beyond mocked-fetch unit tests): ran
+`fetchFacilityAttrs` + `fetchQuarterDaily` + `aggregateByFacility`
+directly against the real `api.epa.gov/easey` API via `npx tsx -e`
+(not just curl) — 445 facility-attr rows, 9,009 daily unit-rows for
+TX Q2-2026, 34 aggregated facilities, real names/coords (Sam Seymour,
+Temple Power Station, Montgomery County Power Station topped by
+`sumGrossLoad`). Version bumped 1.0.384 -> 1.0.385 per PROMOTION RULE 4
+(`package.json` + the matching `package-lock.json` version fields).
+
+BACKTEST: N/A — this is a RAW ground-truth data pipeline (no scoring,
+sizing, or trading logic touched), the same reasoning every other
+DATA STREAM EXPANSION stream build has used for PROMOTION RULE 3.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before any downstream use):
+this stream is not itself a trading signal — it is DATA-gate connective
+tissue whose job is validating OTHER inference roots. The concrete
+gate-1 use once TX history accumulates: compare this archive's
+`sumGrossLoad`/`sumOpTime` trend for Cushing-adjacent or ERCOT thermal
+generators against the WRI GPPD static capacity figures and any future
+satellite-thermal utilization estimator — if a satellite-based
+inference correlates with EPA's own ground truth, it clears gate 1; if
+not, that inference is dead at gate 1 exactly like the tank-shadow v2
+estimator was (open_questions.md TANK-FILL % v2), with EPA CAMD now
+available as the correct ground truth to test it against instead of
+EIA's facility-scale weekly aggregate.
+
+NEXT (concrete, not vague): (1) let the 8-quarter TX backfill complete
+over the next several daily polls (mirrors the SEC MIDAS precedent —
+nothing to do, just time); (2) once TX history is a few weeks deep,
+run the gate-1 comparison named above; (3) EPA_CAMD_API_KEY (wishlist
+9a) is still worth getting from Mike — not to unblock this (it's
+unblocked), but to widen past the TX pilot and remove DEMO_KEY's
+shared-caller collision risk; (4) a `/data` map layer for this stream
+(facility markers colored by utilization, RAW no predictive claim) is
+a clean, small follow-up PR once (1) gives it something worth showing.
+`research/wishlist.md`'s DATACORE MAXIMUS block and `research/
+data_census.md`'s SECTION 3 item 1 both updated in this same PR to
+reflect SHIPPED status (data_census.md's own update protocol asks for
+a `[BUILT vX]` marker, which this session also applied retroactively
+to `jodi`/`occ-volume`/`finra`/`secftd`/`secmidas`/`gem` — all
+confirmed built via a repo grep — since the census document had never
+once been updated despite its own protocol, a small honesty debt worth
+closing in the same pass). BONUS FINDING while doing that pass: ENTSO-E
+(census SECTION 3 item 3, wishlist 9c) was marked "BLOCKED-FOR-MIKE" in
+BOTH files despite being resolved and built 2026-07-07
+(`server/euLoad.ts`, `/api/data/eu-load`) — stale in two places at
+once, now corrected in both; wishlist.md's own DATACORE MAXIMUS NEXT
+line ("EPA CAMD/ENTSO-E, both gated on Mike's keys") was therefore
+wrong on both halves, also corrected. Net result: nothing in the
+DATACORE MAXIMUS program is actually key-blocked as of this session.
