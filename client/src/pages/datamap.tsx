@@ -53,7 +53,7 @@ import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { buildFormMesh } from "@/lib/orbital/model3d";
-import type { FollowCameraHandle, InspectView } from "@/lib/orbital/followCamera";
+import type { FollowCameraHandle, InspectView, EarthTextureState } from "@/lib/orbital/followCamera";
 import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
@@ -1284,6 +1284,10 @@ export default function DataMapPage() {
   const inspectSyncTimerRef = useRef<number | null>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectView, setInspectView] = useState<InspectView>("orbit");
+  // Earth-imagery lifecycle from the overlay handle — the one-line credit
+  // claims "NASA imagery" only while the texture is actually on screen
+  // (load failure = the labeled simplified-globe fallback, stated instead).
+  const [inspectEarthTex, setInspectEarthTex] = useState<EarthTextureState>("loading");
   const closeInspectRef = useRef<() => void>(() => {});
   const openInspectRef = useRef<() => void>(() => {});
   // GENERIC_MESH_LABEL lives in the lazily-loaded module; cached after the
@@ -1389,6 +1393,7 @@ export default function DataMapPage() {
         try { (map as any)[h]?.disable(); } catch {}
       }
       setInspectView("orbit");
+      setInspectEarthTex(handle.getEarthTexture());
       setInspectOpen(true);
       // 1 Hz sync: (a) the real .vtm model often lands AFTER the follow
       // starts — swap it in when the model layer has it; (b) a mid-session
@@ -1407,6 +1412,7 @@ export default function DataMapPage() {
           (h as any).__lastMesh = cur.mesh;
           h.setMesh(cur.mesh, cur.label);
         }
+        setInspectEarthTex(h.getEarthTexture()); // credit follows reality
       }, 1000);
     } catch (e) {
       // degrade, never break: the kept map-ease fallback
@@ -8912,6 +8918,14 @@ export default function DataMapPage() {
               Onboard
             </button>
           </div>
+          {/* one-line credit only — the honest label for whichever Earth is
+              actually rendering (never the deleted methodology essay) */}
+          {inspectEarthTex === "ready" && (
+            <div className="vt-inspect-credit" role="note">Earth: NASA imagery</div>
+          )}
+          {inspectEarthTex === "failed" && (
+            <div className="vt-inspect-credit" role="note">Earth: simplified globe — imagery unavailable</div>
+          )}
         </div>
       )}
       {/* (the "COMPUTED EPHEMERIS VIEW" methodology caption is DELETED —

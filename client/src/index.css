@@ -2437,6 +2437,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 }
 .vt-inspect-viewbtn:hover { color: #fff; }
 .vt-inspect-viewbtn.on { background: #2f7cf0; color: #fff; font-weight: 600; }
+/* one-line imagery credit under the toggle — the only inspect text overlay
+   (space_view_handoff 2026-07-18 item 1: no on-screen essay) */
+.vt-inspect-credit {
+  pointer-events: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px; letter-spacing: 0.06em;
+  color: #8aa2c8; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
 
 /* (the "COMPUTED EPHEMERIS VIEW" methodology caption + its phone offset
    are DELETED — human review 2026-07-18, space_view_handoff item 1) */
