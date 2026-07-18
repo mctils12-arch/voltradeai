@@ -398,7 +398,7 @@ const PANEL_GROUPS = [
 const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
-  weather_temp: "base", weather_wind: "base", boundaries: "base", places: "base",
+  weather_temp: "base", weather_wind: "base", boundaries: "base", boundaries_admin1: "base", places: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
@@ -590,6 +590,25 @@ const VESSEL_COLOR: Record<string, string> = {
 // Legend entry that renders THE ACTUAL registry shape the map draws
 // (iconDataURL rasterizes the same ImageData registerIcons feeds maplibre).
 // data-vt-icon is the parity hook the harness checks in both directions.
+// Debug fps readout (sprint W2 2026-07-17): rAF cadence over 1s windows —
+// measures the page's real achievable frame rate including main-thread jank.
+// Rendered ONLY behind the debug flag (?fps=1 or localStorage vt-fps=1), so
+// the rAF loop never runs for normal users (zero-cost-when-off).
+function FpsChip() {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let frames = 0, last = performance.now(), raf = 0;
+    const loop = (t: number) => {
+      frames++;
+      if (t - last >= 1000) { setFps(Math.round((frames * 1000) / (t - last))); frames = 0; last = t; }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return <div className="vt-fps-chip" aria-label="Frames per second (debug)">{fps} fps</div>;
+}
+
 function LegendIcon({ icon, color, label }: { icon: string; color: string; label: string }) {
   return (
     <span className="vt-legend-item" data-vt-icon={icon}>
@@ -854,12 +873,11 @@ const LegendPanel = memo(function LegendPanel({
               <div className="vt-legend-sec-head">Military installations</div>
               <div className="vt-legend-items">
                 {["United States of America", "China", "Russia", "United Kingdom", "France", "India", "Other"].map((n) => (
-                  <span key={n} className="vt-legend-chip">
-                    <i style={{ background: n === "Other" ? militaryNationTint("zzz-other") : militaryNationTint(n) }} />
-                    {n === "United States of America" ? "United States" : n}
-                  </span>
+                  <LegendIcon key={n} icon="vt-military"
+                    color={n === "Other" ? militaryNationTint("zzz-other") : militaryNationTint(n)}
+                    label={n === "United States of America" ? "United States" : n} />
                 ))}
-                <span className="vt-legend-note">colour = operator nation (reference palette, not a threat board) · centroid dots at low zoom, boundaries at high zoom · Officially published installation locations. Sources: US DoD open data, OpenStreetMap contributors (© OpenStreetMap contributors), and cited government publications. Reference geography only — current as of retrieval date; not operational information.</span>
+                <span className="vt-legend-note">colour = operator nation (reference palette, not a threat board) · shield symbols at low zoom, boundaries at high zoom · Officially published installation locations. Sources: US DoD open data, OpenStreetMap contributors (© OpenStreetMap contributors), and cited government publications. Reference geography only — current as of retrieval date; not operational information.</span>
               </div>
             </div>
           )}
@@ -1254,6 +1272,14 @@ export default function DataMapPage() {
   // from never mounting them.
   const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  // W2 debug flag — evaluated once; when false the FpsChip (and its rAF
+  // loop) never mounts.
+  const [fpsDebug] = useState<boolean>(() => {
+    try {
+      return new URLSearchParams(window.location.search).has("fps") ||
+        window.localStorage?.getItem("vt-fps") === "1";
+    } catch { return false; }
+  });
   const [panelOpen, setPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   // Legend v3: collapsible as one unit so it never fights the panel for
@@ -3462,6 +3488,52 @@ export default function DataMapPage() {
     );
   }, [enabled.boundaries, mapReady, setStatus]);
 
+  // ── state/province borders (RAW; Natural Earth 1:50m admin-1 lines,
+  // PUBLIC DOMAIN — sprint W3 2026-07-17). Same self-hosted pattern as
+  // country borders, one level down: thinner, dimmer, and faded out below
+  // zoom ~3 where 581 sub-national lines are just noise on a globe view. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.boundaries_admin1) {
+      try {
+        if (map.getLayer("ne-admin1")) map.removeLayer("ne-admin1");
+        if (map.getSource("ne-admin1")) map.removeSource("ne-admin1");
+      } catch {}
+      setStatus("boundaries_admin1", "off");
+      return;
+    }
+    setStatus("boundaries_admin1", "loading");
+    return runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/boundaries_admin1", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!map.getSource("ne-admin1")) {
+          map.addSource("ne-admin1", { type: "geojson", data: d as any } as any);
+        }
+        if (!map.getLayer("ne-admin1")) {
+          const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+          map.addLayer({
+            id: "ne-admin1", type: "line", source: "ne-admin1", minzoom: 2,
+            paint: {
+              // dimmer + thinner than country borders (visual hierarchy:
+              // admin-0 reads first), fading in across zoom 2→4
+              "line-color": "rgba(179,194,216,0.38)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.5, 8, 1.1],
+              "line-opacity": ["interpolate", ["linear"], ["zoom"], 2, 0, 3, 0.55, 4, 1],
+            },
+          } as any, firstMarker?.id);
+        }
+        setStatus("boundaries_admin1", "active", d?.features?.length,
+          "1:50m generalized (Natural Earth, public domain) — first-level subdivisions worldwide; reference, not survey-grade");
+      },
+      (failures) => setStatus("boundaries_admin1", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+  }, [enabled.boundaries_admin1, mapReady, setStatus]);
+
   // ── power grid (RAW; OSM power features © OpenStreetMap contributors,
   // ODbL — DATACORE MAXIMUS Phase 2 TX pilot. Single 16MB PMTiles on our
   // origin (range requests, zero-cost-when-off: the file is fetched only
@@ -5510,13 +5582,21 @@ export default function DataMapPage() {
           paint: { "line-color": ["get", "tint"], "line-width": 1.1, "line-opacity": 0.7 },
         } as any);
         map.addLayer({
-          id: "mil-inst-pt", type: "circle", source: "mil-inst-centroid",
+          // SYMBOL not dot (human 2026-07-17: "can we get a symbol instead of
+          // the dot — i like the outline and shade box, don't change that"):
+          // shield/crossed-swords SDF, nation tint. Polygon fill+outline
+          // layers above are untouched.
+          id: "mil-inst-pt", type: "symbol", source: "mil-inst-centroid",
+          layout: {
+            "icon-image": "vt-military",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.34, 6, 0.5, 10, 0.62],
+            "icon-allow-overlap": false,       // declutter at low zoom (collision cull)
+          },
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2.2, 6, 4, 10, 5],
-            "circle-color": ["get", "tint"],
-            "circle-stroke-width": 1, "circle-stroke-color": "rgba(8,12,20,0.85)",
-            // fade the low-zoom dots out as the polygons take over at high zoom
-            "circle-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.9, 9, 0.35],
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+            // fade the low-zoom symbols out as the polygons take over at high zoom
+            "icon-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.9, 9, 0.35],
           },
         } as any);
         const onClick = (e: any) => {
@@ -7202,6 +7282,7 @@ export default function DataMapPage() {
       </div>
 
       <div ref={mapContainer} className="vt-map-canvas" />
+      {fpsDebug && <FpsChip />}
       {atZoomFloor && !solarActive && mapReady && (
         <button className="vt-solar-chip" onClick={() => void enterSolar()}
                 title="Hand off to the true-scale solar system — real ephemeris, literal sizes and distances">

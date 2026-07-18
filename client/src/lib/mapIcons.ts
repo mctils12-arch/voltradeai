@@ -516,6 +516,35 @@ const shapes: Record<string, () => ImageData> = {
     }
     ctx.closePath(); ctx.fill();
   }),
+  // military installation (static reference geography, human-specced
+  // 2026-07-17): heater shield enclosing crossed swords — reads "military
+  // base" at a glance (symbols-not-dots directive). icon-color carries the
+  // OPERATOR NATION from the muted palette; no red/threat styling. The
+  // polygon fill/outline layers stay unchanged — this replaces only the
+  // low-zoom centroid dot.
+  "vt-military": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3;
+    ctx.beginPath();                                   // heater shield
+    ctx.moveTo(m - 12, 6);
+    ctx.lineTo(m + 12, 6);
+    ctx.lineTo(m + 12, m + 2);
+    ctx.quadraticCurveTo(m + 12, s - 10, m, s - 4);
+    ctx.quadraticCurveTo(m - 12, s - 10, m - 12, m + 2);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();                                   // crossed swords (tips up)
+    ctx.moveTo(m + 6, 11); ctx.lineTo(m - 6, s - 13);
+    ctx.moveTo(m - 6, 11); ctx.lineTo(m + 6, s - 13);
+    ctx.stroke();
+    ctx.lineWidth = 2.6;                               // crossguards near the hilts
+    ctx.beginPath();
+    ctx.moveTo(m - 5.8, m + 0.9); ctx.lineTo(m - 0.2, m + 5.1);
+    ctx.moveTo(m + 0.2, m + 5.1); ctx.lineTo(m + 5.8, m + 0.9);
+    ctx.stroke();
+  }),
   // PFAS drinking-water detection (Location Context Engine hazard layer):
   // water droplet with a chemical-ring cutout — distinct from the radiation
   // trefoil and nuke-test/accident silhouettes. icon-color carries the

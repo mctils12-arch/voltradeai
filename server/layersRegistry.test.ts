@@ -88,6 +88,27 @@ test("boundaries layer: Natural Earth public domain + generalized-resolution hon
   assert.ok(/generalized|110m/i.test(b.description), "description must state the generalized resolution");
 });
 
+test("boundaries_admin1 layer: Natural Earth public domain + generalized-resolution honesty + route + default-off (sprint W3)", () => {
+  const b = registry.layers.find((x: any) => x.id === "boundaries_admin1");
+  assert.ok(b, "boundaries_admin1 layer missing");
+  assert.equal(b.kind, "raw");
+  assert.equal(b.status, "live");
+  assert.equal(b.group, "base");
+  assert.ok(/Natural Earth/i.test(b.source), "attribution must name Natural Earth");
+  assert.ok(/public domain/i.test(b.source), "source must state public domain");
+  assert.ok(/generalized|50m/i.test(b.description), "description must state the generalized resolution");
+  // artifact exists, is slim, and carries its compile provenance banner
+  const art = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "boundaries", "ne_50m_admin1_lines.json"), "utf8"));
+  assert.ok(Array.isArray(art.features) && art.features.length > 500, "admin-1 artifact must carry the ~581 line features");
+  assert.ok(/Natural Earth 1:50m admin-1/.test(art._doc), "artifact must carry its provenance _doc");
+  // served route + client wiring pinned; never defaulted on (state lines are opt-in)
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes("/api/data/boundaries_admin1"), "server must serve the admin-1 route");
+  const page = fs.readFileSync(path.join(here, "..", "client", "src", "pages", "datamap.tsx"), "utf8");
+  assert.ok(page.includes("enabled.boundaries_admin1"), "client effect must exist");
+  assert.ok(!/boundaries_admin1["']?\s*:\s*true/.test(page), "must not be defaulted on");
+});
+
 test("firetemp layer: GOES-East attribution + irregular-cadence honesty + FIRMS-complement note (G2b)", () => {
   const f = registry.layers.find((x: any) => x.id === "firetemp");
   assert.ok(f, "firetemp layer missing");

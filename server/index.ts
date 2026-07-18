@@ -5,9 +5,38 @@ import { registerBillingRoutes } from "./billing";
 import { registerNewsletterRoutes } from "./newsletter";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+// ── W6 security-hardening middleware (2026-07-18) ──────────────────────────
+// All mounted BELOW, BEFORE routes register. None edit auth.ts/billing.ts.
+import { securityHeaders } from "./securityHeaders";
+import { requestLog } from "./requestLog";
+import { globalRateLimit, createStrictAuthLimiter } from "./rateLimit";
+import { antiScraping, registerHoneypots } from "./antiScraping";
+import { registerRobots } from "./robots";
+import { registerAdminStats } from "./adminStats";
+import { registerTerms } from "./terms";
 
 const app = express();
 app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
+
+// ── SECURITY HARDENING — mounted FIRST, before routes (W6, 2026-07-18) ──────
+// Order matters: (1) headers on every response, (2) structured request log
+// captures all traffic, (3) generous global rate limit, (4) anti-scraping
+// scorer on the /api surface + honeypot traps, (5) robots.txt, admin stats,
+// and ToS content served ahead of the SPA catch-all. The strict auth limiter
+// is mounted on the real login/register paths (from routes.ts/auth.ts) without
+// touching auth.ts. See server/compression.test.ts precedent + the mount-order
+// pin in server/securityMiddleware.test.ts.
+app.use(securityHeaders());
+app.use(requestLog());
+app.use(globalRateLimit());
+app.use(antiScraping());
+const strictAuth = createStrictAuthLimiter();
+app.use("/api/auth/login", strictAuth.middleware);
+app.use("/api/auth/register", strictAuth.middleware);
+registerRobots(app);
+registerHoneypots(app);
+registerAdminStats(app);
+registerTerms(app);
 // [REPAIR 2026-07-05, /data load perf] Response compression. Railway's edge
 // does NOT gzip for us — an aircraft snapshot was ~0.8MB raw (~120KB
 // gzipped) and the powerplants static JSON 800KB (~200KB), refetched by
