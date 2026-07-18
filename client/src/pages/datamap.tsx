@@ -106,6 +106,16 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // statically importable (tiny, pure) while the space frame itself stays a
 // lazy chunk; spaceFrame re-exports these same names for its tests.
 import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
+// Celestial v2 B2 (2026-07-18): user-controlled scale for the space view —
+// pure mapping + persisted preference store (localStorage, the units.ts
+// pattern), statically importable for the LAYERS-panel CELESTIAL section
+// while the space frame stays a lazy chunk (same split as zoomSeam above).
+// The layout may compress; the numbers never lie.
+import {
+  getCelestialScale, setCelestialScale, subscribeCelestialScale,
+  sizeSliderToMult, multToSizeSlider, isTrueScale,
+  SCALE_PRESET_TRUE, SCALE_PRESET_VISIBLE, SUN_SIZE_MULT_CAP,
+} from "@/lib/celestial/scaleModel";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -1286,6 +1296,9 @@ export default function DataMapPage() {
       const axis = getTimeAxis();
       const handle = mountSpaceFrame(container, {
         timeMs: axis.mode === "historical" ? axis.atMs : Date.now(),
+        // B2: layout scale from the persisted preference (VISIBLE default);
+        // labels/scale bar stay true regardless — layout only
+        scale: getCelestialScale(),
         getMapSeam: () => {
           const c = map.getCenter();
           return { zoom: map.getZoom(), minZoom: map.getMinZoom(), centerLatDeg: c.lat, centerLonDeg: c.lng };
@@ -1319,11 +1332,13 @@ export default function DataMapPage() {
         try { handle.setTime(a.mode === "historical" ? a.atMs : Date.now()); } catch {}
       });
       const offUnits = subscribeUnits(() => { try { handle.render(); } catch {} });
+      // B2: panel slider/preset changes re-flow the space layout live
+      const offScale = subscribeCelestialScale(() => { try { handle.setScale(getCelestialScale()); } catch {} });
       const iv = window.setInterval(() => {
         if (getTimeAxis().mode === "live") { try { handle.setTime(Date.now()); } catch {} }
       }, 60_000);
       spaceCleanupRef.current = () => {
-        offAxis(); offUnits(); window.clearInterval(iv);
+        offAxis(); offUnits(); offScale(); window.clearInterval(iv);
         try { delete (window as any).__vtSpace; } catch {}
       };
       container.classList.add("vt-space-active");
@@ -1390,6 +1405,15 @@ export default function DataMapPage() {
   const [histPlay, setHistPlay] = useState(false);
   const [legendOpen, setLegendOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // Celestial v2 B2: the CELESTIAL panel section's view of the persisted
+  // scale state. Store-of-record is lib/celestial/scaleModel.ts (localStorage
+  // — the vt-units pattern); the space frame subscribes separately inside
+  // enterSpace, so slider moves re-flow the layout live when it's mounted
+  // and simply persist when it isn't.
+  const [celScale, setCelScaleView] = useState(getCelestialScale());
+  useEffect(() => subscribeCelestialScale(() => setCelScaleView(getCelestialScale())), []);
+  // collapsed by default, like every non-base/live panel group
+  const [celOpen, setCelOpen] = useState(false);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetailState] = useState<Detail | null>(null);
   // TAP-AWAY DISMISS (2026-07-18 directive §1: "Dismiss via ✕, tap-away, and
@@ -8255,6 +8279,95 @@ export default function DataMapPage() {
               <span className="vt-streams-launch-sub">gate-2 FAILED · non-predictive reading</span>
             </button>
             {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
+            {/* CELESTIAL section (celestial v2 B2/§7, 2026-07-18) — the
+                space view's scale controls, styled as a panel group. Not a
+                registry layer: it controls the client-side space frame, so
+                it renders unconditionally (always ACTIVE — the state applies
+                the moment you zoom out past the globe, and pre-setting it
+                before entering space is exactly how presets are meant to be
+                used; disabling it on the map would just add a dead state).
+                Honesty: the descriptions are the directive's own wording;
+                the render cost is stated measured, and excluded from the
+                load badge above because the frame is not a data layer and
+                costs 0 while idle (render-on-demand, no rAF loop). */}
+            <div className="vt-layer-group" data-vt-celestial>
+              <button className="vt-layer-group-head" aria-expanded={celOpen}
+                      onClick={() => setCelOpen((v) => !v)}>
+                <span className={`vt-layer-group-chev${celOpen ? "" : " closed"}`}>▾</span>
+                <span>Celestial — space view</span>
+                <span className="vt-layer-group-count" data-vt-celestial-state>
+                  {isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
+                </span>
+              </button>
+              {celOpen && (
+                <>
+                  <div className="vt-layer-row" data-vt-layer="celestial_scale">
+                    <span className="vt-layer-ic"><Moon size={15} /></span>
+                    <span className="vt-layer-name">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Solar-system scale</span>
+                      <span className="vt-kind-badge raw">RAW</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: spaceActive ? "#4ade80" : "#6680a0" }} />{" "}
+                        {spaceActive ? "active — in space view" : "applies past the globe (keep zooming out)"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="vt-layer-desc" role="note"
+                       style={{ fontFamily: "var(--font-mono)", color: "var(--accent-orange)", fontSize: "10.5px" }}>
+                    {isTrueScale(celScale)
+                      ? "true 1:1 — real ephemeris distances and sizes; sub-pixel bodies carry markers"
+                      : "distances/sizes compressed for visibility — labels always show real values"}
+                  </div>
+                  <div className="vt-field-controls" role="group" aria-label="Celestial scale controls">
+                    <label className="vt-field-slider">
+                      <span>{celScale.c === 0 ? "distance true 1:1" : `compression ${Math.round(celScale.c * 100)}%`}</span>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={Math.round(celScale.c * 100)}
+                        aria-label="Distance compression"
+                        data-vt-celestial-dist
+                        onChange={(e) => setCelestialScale({ c: Number(e.target.value) / 100 })}
+                      />
+                    </label>
+                    <label className="vt-field-slider">
+                      <span>body size ×{Math.round(celScale.s)}</span>
+                      <input
+                        type="range" min={0} max={100} step={1}
+                        value={multToSizeSlider(celScale.s)}
+                        aria-label="Body size multiplier"
+                        data-vt-celestial-size
+                        onChange={(e) => setCelestialScale({ s: sizeSliderToMult(Number(e.target.value)) })}
+                      />
+                    </label>
+                    <span style={{ display: "inline-flex", gap: 6 }}>
+                      <button
+                        className={`vt-preset-pill${isTrueScale(celScale) ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={isTrueScale(celScale)}
+                        data-vt-celestial-true
+                        onClick={() => setCelestialScale(SCALE_PRESET_TRUE)}>
+                        TRUE SCALE
+                      </button>
+                      <button
+                        className={`vt-preset-pill${celScale.c === SCALE_PRESET_VISIBLE.c && celScale.s === SCALE_PRESET_VISIBLE.s ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celScale.c === SCALE_PRESET_VISIBLE.c && celScale.s === SCALE_PRESET_VISIBLE.s}
+                        data-vt-celestial-visible
+                        onClick={() => setCelestialScale(SCALE_PRESET_VISIBLE)}>
+                        VISIBLE
+                      </button>
+                    </span>
+                    <span className="vt-field-note">
+                      TRUE SCALE: everything at real 1:1 — planets go sub-pixel, markers + labels carry the
+                      view. VISIBLE (default): all 8 planets in one view. Sun capped ×{SUN_SIZE_MULT_CAP};
+                      Earth (the live map) always true size. Setting persists.
+                    </span>
+                    <span className="vt-field-note">
+                      render cost: 0 while idle (draws only on input/flight; ~0.1 ms/frame measured) — not
+                      counted in the load badge; the space frame is not a data layer.
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
             {/* SELF-SEE FOR UNKNOWN GROUPS (BUILD ORDER 4 #2 — caught live by
                 the layer-scale synthetic harness, not assumed): a registry-
                 native `group` value the client doesn't have a PANEL_GROUPS
