@@ -75,7 +75,12 @@ import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircr
 // DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
-import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec } from "@/lib/air/airGlide";
+import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec } from "@/lib/air/airGlide";
+// SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
+// card is open, each live poll appends its REAL fix so the 3D trail +
+// altitude curtain reach the plane's CURRENT position instead of ending at
+// the last archived sample (1-5 min behind at cruise).
+import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -1815,6 +1820,17 @@ export default function DataMapPage() {
     };
   }, [mapReady, enterSolar]);
 
+  // SESSION BREADCRUMBS state (2026-07-18): the followed aircraft's live
+  // fixes this session (display-only; the archive stays the recorded
+  // truth), and the last fetched archived track so a fresh crumb can
+  // repaint the merged trail WITHOUT hitting the track endpoint.
+  const airCrumbsRef = useRef<{ id: string | null; crumbs: Crumb[] }>({ id: null, crumbs: [] });
+  const archivedTrackRef = useRef<{ kind: string; id: string; raw: TrackPoint[] } | null>(null);
+  // The followed plane's latest REAL fix + its broadcast dead-reckoning
+  // rate + the receipt anchor — lets the curtain tail meet the plane where
+  // it is DRAWN between polls (the same glide the plane renders with).
+  const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+
   const clearTrail = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -1823,22 +1839,22 @@ export default function DataMapPage() {
       if (map.getSource("trail")) map.removeSource("trail");
     } catch {}
     try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
+    // NOTE: archivedTrackRef is deliberately NOT cleared here. paintTrack's
+    // first-paint setup branch calls clearTrail before adding the source —
+    // clearing the cache there wiped the archived points showTrail had just
+    // stored, so every follow-tick repainted crumbs-only until the 30s
+    // refresh (probe-caught: ArcLayer held 2 quads instead of ~30). The
+    // cache is read only under a {kind,id} match while that card is open —
+    // a stale entry can never be misused.
   };
 
-  /** Fetch the archived track and paint/refresh the trail. On refresh the
-   *  existing geojson source is UPDATED via setData (no layer churn).
-   *  Returns the note + newest position time so the card can show live
-   *  freshness. ([REPAIR 2026-07-05]: the trail was fetched ONCE at
-   *  selection and never again — a static snapshot while the aircraft
-   *  kept moving; see the refresh effect below.) */
-  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
-      Promise<{ note: string; lastT?: number }> => {
+  /** Paint/refresh the trail layers from a (possibly crumb-extended) point
+   *  list — extracted from showTrail so a live breadcrumb can repaint
+   *  without a refetch. Returns the newest position time. */
+  const paintTrack = (kind: "aircraft" | "vessels" | "trains", raw: TrackPoint[]): number | undefined => {
     const map = mapRef.current;
-    if (!map) return { note: "" };
+    if (!map) return undefined;
     try {
-      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
-      const d = await r.json();
-      const raw = (d.points || []) as Array<{ lo: number; la: number; t?: number }>;
       const pts = raw.map((p) => [p.lo, p.la]);
       const lastT = raw.length ? raw[raw.length - 1].t : undefined;
       const feature = {
@@ -1900,8 +1916,69 @@ export default function DataMapPage() {
         try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
       }
       (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
+      return lastT;
+    } catch { return undefined; }
+  };
+
+  /** Compose the followed aircraft's display track — archived history +
+   *  session crumbs + a dead-reckoned TAIL to where the plane is DRAWN
+   *  right now (the same broadcast-velocity glide the plane itself renders
+   *  with, same MAX_AIR_GLIDE_SEC cap; altitude held at the last broadcast
+   *  value — vertical rate isn't in the feed, never invented) — and paint
+   *  it. Snaps to the real fix on every poll. Without the tail the curtain
+   *  would end up to a glide-cap behind the moving plane at high zoom —
+   *  the reported "data is cut off" gap. */
+  const paintFollowedTrail = () => {
+    const fid = airCrumbsRef.current.id;
+    if (!fid) return;
+    const at = archivedTrackRef.current;
+    const base = at && at.kind === "aircraft" && at.id === fid ? at.raw : [];
+    let track = mergeTrackWithCrumbs(base, airCrumbsRef.current.crumbs);
+    const lv = airFollowLiveRef.current;
+    if (lv && lv.id === fid && lv.vel) {
+      const dt = airGlideDtSec(performance.now(), lv.anchorMs);
+      if (dt > 0) {
+        track = track.concat({
+          lo: lv.fix.lo + lv.vel.dLon * dt,
+          la: lv.fix.la + lv.vel.dLat * dt,
+          al: lv.fix.al, t: lv.fix.t + dt,
+        });
+      }
+    }
+    paintTrack("aircraft", track);
+  };
+
+  /** Fetch the archived track, merge the session's live breadcrumbs for the
+   *  followed aircraft (mergeTrackWithCrumbs — archived history untouched,
+   *  crumbs only extend past its newest sample), and paint/refresh the
+   *  trail. On refresh the existing geojson source is UPDATED via setData
+   *  (no layer churn). Returns the note + newest position time so the card
+   *  can show live freshness. ([REPAIR 2026-07-05]: the trail was fetched
+   *  ONCE at selection and never again — a static snapshot while the
+   *  aircraft kept moving; see the refresh effect below.) */
+  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
+      Promise<{ note: string; lastT?: number }> => {
+    if (!mapRef.current) return { note: "" };
+    try {
+      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
+      const d = await r.json();
+      const raw = (d.points || []) as TrackPoint[];
+      archivedTrackRef.current = { kind, id, raw };
+      const followed = kind === "aircraft" && airCrumbsRef.current.id === id;
+      const merged = followed ? mergeTrackWithCrumbs(raw, airCrumbsRef.current.crumbs) : raw;
+      let lastT: number | undefined;
+      if (followed) {
+        paintFollowedTrail(); // includes the dead-reckoned tail to the drawn plane
+        lastT = merged.length ? merged[merged.length - 1].t : undefined;
+      } else {
+        lastT = paintTrack(kind, merged);
+      }
+      const liveN = merged.length - raw.length;
       return {
-        note: d.note || (pts.length ? `${pts.length} archived positions (our own feed history)` : ""),
+        note: d.note || (merged.length
+          ? `${raw.length} archived positions (our own feed history, sampled ~1-5 min at cruise)` +
+            (liveN > 0 ? ` + ${liveN} live fixes this session` : "")
+          : ""),
         lastT,
       };
     } catch { return { note: "trail unavailable" }; }
@@ -1936,6 +2013,20 @@ export default function DataMapPage() {
   // honest without hammering the tiny track endpoint).
   const detailTrailId = detail?.trailId;
   const detailTrailKind = detail?.trailKind;
+  // Breadcrumb ownership follows the open card: a fresh aircraft card
+  // starts an empty session buffer for that hex; closing the card (or
+  // following a non-aircraft) drops it — crumbs never outlive the follow.
+  useEffect(() => {
+    if (detailTrailKind === "aircraft" && detailTrailId) {
+      if (airCrumbsRef.current.id !== detailTrailId) {
+        airCrumbsRef.current = { id: detailTrailId, crumbs: [] };
+        airFollowLiveRef.current = null;
+      }
+    } else {
+      airCrumbsRef.current = { id: null, crumbs: [] };
+      airFollowLiveRef.current = null;
+    }
+  }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
     const iv = setInterval(async () => {
@@ -4670,6 +4761,36 @@ export default function DataMapPage() {
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
         try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
+        // SESSION BREADCRUMB: while this plane's card is open, append its
+        // fresh REAL fix and repaint the merged trail + curtain so they
+        // reach the CURRENT position (the archive lags 1-5 min at cruise).
+        // pushCrumb dedupes the server-cache window (same snapshot time).
+        try {
+          const fid = airCrumbsRef.current.id;
+          if (fid) {
+            const live = (d.aircraft || []).find((x: any) => x.icao24 === fid);
+            if (live && live.lat != null && live.lon != null) {
+              const t = Number.isFinite(d.time) ? Number(d.time) : Date.now() / 1000;
+              const fix: Crumb = {
+                lo: live.lon, la: live.lat,
+                al: live.on_ground ? 0 : (live.altitude_m ?? null), t,
+              };
+              // tail anchor: the same fresh-fix instant the plane's own
+              // glide anchors at (setTickTime above)
+              airFollowLiveRef.current = {
+                id: fid, fix, anchorMs: performance.now(),
+                vel: glideDegPerSec(live.lat, live.heading, live.velocity_ms, live.on_ground),
+              };
+              const before = airCrumbsRef.current.crumbs;
+              const after = pushCrumb(before, fix);
+              if (after !== before) {
+                airCrumbsRef.current.crumbs = after;
+                setDetail(prev => prev && prev.trailId === fid ? { ...prev, trailLastT: t } : prev);
+              }
+              paintFollowedTrail(); // fresh fix and/or re-anchored tail
+            }
+          }
+        } catch { /* trail continuity must never break the tick */ }
       },
       // 2D glide: same dead-reckoning the 3D shader applies (one honesty
       // model, two renderers) — icons stop jumping poll-to-poll at z5.5-8.
@@ -4730,7 +4851,8 @@ export default function DataMapPage() {
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
-                `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast).`,
+                `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast). ` +
+                `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
@@ -4832,8 +4954,13 @@ export default function DataMapPage() {
     // 3D glide low-rate repaint (~3.3Hz): re-evaluates u_dtSec between polls
     // at z8+ where the silhouettes own the map; the layer upgrades itself to
     // per-frame self-repaint at close zooms (shouldGlidePerFrame) and stops
-    // at the honesty cap. No-op below the hand-off or with no planes.
-    const glideRepaintIv = window.setInterval(() => airLayer.glideRepaintTick(), AIR_GLIDE_STEP_MS);
+    // at the honesty cap. No-op below the hand-off or with no planes. The
+    // same tick keeps the followed plane's curtain tail meeting the drawn
+    // (glided) plane — a <1ms wall rebuild, only while a card is open.
+    const glideRepaintIv = window.setInterval(() => {
+      airLayer.glideRepaintTick();
+      try { if (!document.hidden && airFollowLiveRef.current) paintFollowedTrail(); } catch {}
+    }, AIR_GLIDE_STEP_MS);
     return () => {
       stopWire();
       window.clearInterval(glideRepaintIv);
