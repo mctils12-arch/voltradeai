@@ -47,7 +47,7 @@ import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/or
 // not a side viewer): the followed satellite resolves to a lit, tumbling
 // class-representative form drawn at its live position on the globe.
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
-import { ArcLayer } from "@/lib/orbital/arcLayer";
+import { ArcLayer, defaultWallRamp } from "@/lib/orbital/arcLayer";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
@@ -692,7 +692,7 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-chip"><i style={{ background: "#4d9fff" }} /> Cruise</span>
                     <span className="vt-legend-chip"><i style={{ background: "#fbb24c" }} /> Low Altitude</span>
                     <span className="vt-legend-chip"><i style={{ background: "#6680a0" }} /> On Ground</span>
-                    <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain</span>
+                    <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain. Click a plane: its archived track draws in 3D with a solid altitude curtain to the ground, colored by the same bands</span>
                     {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
                         telephony codes), one airline's sky at a time */}
                     <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }}>
@@ -1807,7 +1807,7 @@ export default function DataMapPage() {
       if (map.getLayer("trail-line")) map.removeLayer("trail-line");
       if (map.getSource("trail")) map.removeSource("trail");
     } catch {}
-    try { airTrail3dRef.current?.setArcs(null); } catch {}
+    try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
   };
 
   /** Fetch the archived track and paint/refresh the trail. On refresh the
@@ -1861,16 +1861,14 @@ export default function DataMapPage() {
             p3[i * 3 + 1] = m.y;
             p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al) * altScale;
           }
-          // CURTAIN (reference-style): ribbed vertical lines tying the track
-          // to the ground every few points — altitude reads at a glance.
-          const rib: number[] = [];
-          for (let i = 0; i < raw.length; i += 3) {
-            const alt = p3[i * 3 + 2];
-            if (alt === ARC_GAP || alt <= 0) continue;
-            rib.push(p3[i * 3], p3[i * 3 + 1], alt,
-                     p3[i * 3], p3[i * 3 + 1], 0,
-                     p3[i * 3], p3[i * 3 + 1], ARC_GAP); // gap breaks to the next rib
-          }
+          // CURTAIN v2 (the human's "plane with the 3d terrain and altitude
+          // path" ask): a SOLID VeloViewer-style wall from the ground up to
+          // the flight path via ArcLayer.setWalls — replaces the ribbed
+          // vertical lines. Colored by REAL altitude through the same AIR
+          // band stops as the aircraft silhouettes (defaultWallRamp,
+          // test-pinned to airLayer BAND_COLORS): the ramp unscales the
+          // terrain exaggeration so 3000m stays cruise-blue regardless of
+          // the 1.3x mesh factor.
           let arcs = airTrail3dRef.current;
           if (!arcs) {
             arcs = new ArcLayer({ id: "aircraft-trail-3d" });
@@ -1879,11 +1877,12 @@ export default function DataMapPage() {
           if (!map.getLayer("aircraft-trail-3d")) map.addLayer(arcs);
           arcs.setArcs(raw.length >= 2 ? [
             { pts: p3, color: [0.49, 0.77, 1.0, 0.9] },
-            { pts: new Float32Array(rib), color: [0.49, 0.77, 1.0, 0.28] },
           ] : null);
+          arcs.setWalls(raw.length >= 2 ? [{ pts: p3 }] : null,
+            { ramp: (alt) => defaultWallRamp(alt / altScale) });
         } catch { /* the flat trail still works */ }
       } else {
-        try { airTrail3dRef.current?.setArcs(null); } catch {}
+        try { airTrail3dRef.current?.setArcs(null); airTrail3dRef.current?.setWalls(null); } catch {}
       }
       (window as any).__vtTrailLen = pts.length; // harness ratchet reads this
       return {
@@ -4570,7 +4569,7 @@ export default function DataMapPage() {
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
           body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
                 `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
-                `trail is our own archived feed history — the 3D line climbs at the RECORDED altitude (gaps where altitude wasn't broadcast).`,
+                `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast).`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
           links: [
             { label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${String(p.icao24 || "").toUpperCase()}` },
