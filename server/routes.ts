@@ -95,6 +95,7 @@ import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
+import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
@@ -813,70 +814,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   const backoffClear = (p: string) => { feedBackoff[p] = { failures: 0, until: 0 }; };
 
-  async function fetchAircraft(lamin: number, lamax: number, lomin: number, lomax: number) {
+  async function fetchAircraft(lamin: number, lamax: number, lomin: number, lomax: number, tiled = false) {
     const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
-    let aircraft: any[] = [];
-    let source = "";
-    let coverage = "full";
-    let coverage_note = "";
     const time = Math.floor(Date.now() / 1000);
 
-    // Both providers share the point+radius API shape (hard max 250nm) —
-    // wide viewports are served best-effort around view center. Two
-    // independent networks so one flaking doesn't kill the layer — the
-    // 2026-07-03 prod incident was a single provider's egress flake
-    // exponentially backing off = zero aircraft for fresh bboxes.
-    const clat = (lamin + lamax) / 2;
-    const clon = (lomin + lomax) / 2;
-    const latSpanNm = Math.abs(lamax - lamin) * 60;
-    const lonSpanNm = Math.abs(lomax - lomin) * 60 * Math.max(0.1, Math.cos((clat * Math.PI) / 180));
-    const neededNm = Math.ceil(Math.sqrt(latSpanNm ** 2 + lonSpanNm ** 2) / 2);
-    const radiusNm = Math.min(250, Math.max(50, neededNm));
-    if (neededNm > 250) {
-      coverage = "partial";
-      coverage_note = `feed covers ~250nm around view center (viewport needs ~${neededNm}nm) — zoom in for full coverage`;
-    }
-    const PROVIDERS = [
-      { key: "adsblol", url: `https://api.adsb.lol/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "adsb.lol (ADS-B, community)", arr: "ac" },
-      { key: "airplaneslive", url: `https://api.airplanes.live/v2/point/${clat.toFixed(3)}/${clon.toFixed(3)}/${radiusNm}`, label: "airplanes.live (ADS-B, community)", arr: "ac" },
-      { key: "adsbfi", url: `https://opendata.adsb.fi/api/v2/lat/${clat.toFixed(3)}/lon/${clon.toFixed(3)}/dist/${radiusNm}`, label: "adsb.fi (ADS-B, community)", arr: "aircraft" },
+    // All providers share the point+radius API shape (hard max 250nm) — one
+    // request can never cover a wide viewport. VIEWPORT TILING (human
+    // directive 2026-07-16, "the whole visible range"): with an explicit
+    // client bbox (tiled=true) the bbox is covered by a minimal grid of
+    // 250nm discs, capped at MAX_DISCS_PER_REFRESH=8 for provider
+    // politeness, deduped by hex id and merged into one snapshot; the
+    // envelope's `tiling` block states TRUE coverage. Without a bbox
+    // (tiled=false) behavior is the legacy single point-query around view
+    // center. Three independent networks so one flaking doesn't kill the
+    // layer — the 2026-07-03 prod incident was a single provider's egress
+    // flake exponentially backing off = zero aircraft for fresh bboxes.
+    // Chain walk, backoff, mapping and stagger live in aircraftTiling.ts.
+    const plan = planDiscs(lamin, lamax, lomin, lomax, tiled ? MAX_DISCS_PER_REFRESH : 1);
+    const PROVIDERS: DiscProvider[] = [
+      { key: "adsblol", label: "adsb.lol (ADS-B, community)", arr: "ac", url: (la, lo, r) => `https://api.adsb.lol/v2/point/${la.toFixed(3)}/${lo.toFixed(3)}/${r}` },
+      { key: "airplaneslive", label: "airplanes.live (ADS-B, community)", arr: "ac", url: (la, lo, r) => `https://api.airplanes.live/v2/point/${la.toFixed(3)}/${lo.toFixed(3)}/${r}` },
+      { key: "adsbfi", label: "adsb.fi (ADS-B, community)", arr: "aircraft", url: (la, lo, r) => `https://opendata.adsb.fi/api/v2/lat/${la.toFixed(3)}/lon/${lo.toFixed(3)}/dist/${r}` },
     ];
-    const errs: string[] = [];
-    for (const fb of PROVIDERS) {
-      if (source) break;
-      if (backoffActive(fb.key)) { errs.push(`${fb.key} in backoff`); continue; }
-      try {
-        const r2 = await fetch(fb.url, { headers: UA, signal: AbortSignal.timeout(12000) });
-        if (!r2.ok) throw new Error(`${fb.key} ${r2.status}`);
-        const raw2: any = await r2.json();
-        aircraft = (raw2[fb.arr] || []).slice(0, 10000).map((a: any) => ({
-          icao24: a.hex,
-          callsign: String(a.flight || "").trim(),
-          origin_country: a.r || "",
-          lon: a.lon,
-          lat: a.lat,
-          altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
-          on_ground: a.alt_baro === "ground",
-          velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
-          heading: a.track ?? null,
-          type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
-          category: a.category || null,          // ADS-B emitter category (A1..A7)
-        })).filter((a: any) => a.lat != null && a.lon != null);
-        source = fb.label;
-        backoffClear(fb.key);
-      } catch (e: any) {
-        backoffBump(fb.key);
-        // capture the underlying cause — bare "fetch failed" is undiagnosable
-        const cause = e?.cause?.code || e?.cause?.message || "";
-        errs.push(`${fb.key}: ${e?.message}${cause ? ` (${cause})` : ""}`);
-      }
-    }
-    if (!source) throw new Error(errs.join(" | "));
+    const { aircraft, sources, discsOk } = await fetchDiscs(plan, {
+      providers: PROVIDERS, headers: UA,
+      backoffActive, backoffBump, backoffClear,
+    });
 
     // Feed the permanent archive (adaptive thinning inside; fire-and-forget).
     try { archiveAircraft(aircraft, ARCHIVE_SITES); } catch {}
 
-    return { source, kind: "raw", time, coverage, coverage_note: coverage_note || undefined, count: aircraft.length, aircraft };
+    // tilingEnvelope keeps the legacy coverage/coverage_note contract and
+    // adds { tiling: { discs, needed, cappedAt, bboxCovered } } so the
+    // layers panel can state true coverage.
+    return { source: sources.join(" + "), kind: "raw", time, ...tilingEnvelope(plan, discsOk, !tiled), count: aircraft.length, aircraft };
   }
 
   app.get("/api/data/aircraft", async (req, res) => {
@@ -893,7 +864,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const lamax = Math.round(num(req.query.lamax, -85, 85, 85) * 10) / 10;
     const lomin = Math.round(num(req.query.lomin, -180, 180, -180) * 10) / 10;
     const lomax = Math.round(num(req.query.lomax, -180, 180, 180) * 10) / 10;
-    const key = `${lamin},${lamax},${lomin},${lomax}`;
+    // VIEWPORT TILING is opt-in by presence of a full explicit bbox — any
+    // param absent/garbage = legacy single point-query (backward compat).
+    const tiled = [req.query.lamin, req.query.lamax, req.query.lomin, req.query.lomax]
+      .every((v) => v !== undefined && Number.isFinite(parseFloat(String(v))));
+    const key = `${lamin},${lamax},${lomin},${lomax}|${tiled ? "t" : "1"}`;
     const hit = aircraftCache.get(key);
     if (hit && Date.now() - hit.at < 30_000) {
       // Delta support: if the client already holds this snapshot, don't
@@ -915,7 +890,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // orphan can't clobber its replacement.
       let slot = aircraftInflight.get(key);
       if (slotExpired(slot, Date.now())) {
-        slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax), Date.now(), (self) => {
+        slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax, tiled), Date.now(), (self) => {
           if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
         });
         aircraftInflight.set(key, slot);
