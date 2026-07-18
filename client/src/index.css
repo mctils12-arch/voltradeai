@@ -2394,6 +2394,78 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 /* (the ☉ "Solar system" chip is DELETED — celestial v2 B1 §1: no entry
    button, no separate mode; the zoom inputs themselves are the way out) */
 
+/* INSPECT FOLLOW-CAMERA (satellite-UX directive 2026-07-18 §3, design 1e —
+   lib/orbital/followCamera). The overlay canvas sits OVER the map canvas
+   and the celestial sky (z 5) but UNDER every UI surface: the §1 detail
+   card (z 11), the layers panel (z 10) and the inspect chrome (z 31) all
+   stay usable without covering the craft render. */
+.vt-follow-cam { z-index: 8; }
+/* map-camera chrome is meaningless while the craft camera owns the view
+   (map gestures are disabled; the overlay has its own drag/zoom) */
+.vt-inspect-active .maplibregl-ctrl { display: none; }
+/* the ground-observer sky is the wrong frame at the craft — the overlay
+   draws the real Sun/Moon from the craft's own position (suspended, not
+   disposed: it resumes on Back to map). Same rule as the space frame. */
+.vt-inspect-active .vt-celestial-sky { display: none; }
+
+/* back pill + Orbit/Onboard toggle, top-center (design 1e) */
+.vt-inspect-chrome {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
+  z-index: 31; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  pointer-events: none; /* children re-enable — empty space stays draggable */
+}
+.vt-inspect-back {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 9px;
+  background: rgba(11, 19, 34, 0.94);
+  border: 1px solid rgba(120, 168, 255, 0.16); border-radius: 999px;
+  padding: 9px 20px; cursor: pointer;
+  color: #eaf1ff; font-size: 14px; font-weight: 600;
+}
+.vt-inspect-back:hover { background: rgba(20, 32, 54, 0.96); }
+.vt-inspect-back-dot { color: #35d07f; font-size: 10px; }
+.vt-inspect-views {
+  pointer-events: auto;
+  display: inline-flex; gap: 4px; padding: 4px;
+  background: rgba(11, 19, 34, 0.94);
+  border: 1px solid rgba(120, 168, 255, 0.14); border-radius: 11px;
+}
+.vt-inspect-viewbtn {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12.5px; border-radius: 8px; padding: 6px 15px;
+  color: var(--text-secondary, #8aa2c8);
+}
+.vt-inspect-viewbtn:hover { color: #fff; }
+.vt-inspect-viewbtn.on { background: #2f7cf0; color: #fff; font-weight: 600; }
+
+/* provenance caption, bottom-left (design 1e; caption discipline — the
+   honesty machinery stays on screen, PREMIUM EXPERIENCE STANDARD (c)) */
+.vt-inspect-caption {
+  position: absolute; left: 32px; bottom: 32px; z-index: 30;
+  max-width: min(600px, calc(100vw - 64px));
+  background: rgba(6, 10, 18, 0.85);
+  border: 1px solid rgba(120, 168, 255, 0.12); border-radius: 10px;
+  padding: 12px 14px;
+}
+.vt-inspect-caption-head {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px; letter-spacing: 0.18em; color: #7f9cc9; margin-bottom: 6px;
+}
+.vt-inspect-caption-body {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px; color: #d99a4e; line-height: 1.55;
+}
+@media (max-width: 767px) {
+  /* phone: the card is a bottom sheet — the caption docks compact at the
+     top-left instead so neither covers the other */
+  .vt-inspect-chrome { top: 70px; }
+  .vt-inspect-caption {
+    left: 8px; right: 8px; bottom: auto; top: 150px; max-width: none;
+    padding: 8px 10px;
+  }
+  .vt-inspect-caption-body { font-size: 9px; line-height: 1.45; }
+}
+
 /* W2 debug fps readout — behind ?fps=1 / localStorage vt-fps=1 only */
 .vt-fps-chip {
   position: absolute; z-index: 31; top: 64px; left: 10px;
