@@ -3,6 +3,53 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Celestial v2 B2 + catalog MIRROR + inspect follow-camera + power-plant declutter (v1.0.403, T-CLIENT, batched per the celestial-v2 directive)
+
+Four slices, one PR (human directive authorizes batching within the
+size cap):
+
+B2 USER-CONTROLLED SCALE (celestial_v2_program.md): scaleModel.ts —
+distance compression r' = AU·(r/AU)^(1−0.55c) and size s∈[1,2500]
+with a 40px apparent cap (Sun ×20, Earth never size-scaled: it IS the
+map anchor and the numbers never lie — compression moves LAYOUT, all
+readouts stay true-scale). Presets TRUE SCALE {c:0,s:1} / VISIBLE
+{c:1,s:400} (startup default); sliders persist in localStorage.
+Dual-space spaceFrame: layout positions draw, true positions caption.
+
+CATALOG MIRROR (the human-approved frozen-path ADDITION — approval
+recorded in wishlist.md): .github/workflows/celestial-catalog-mirror.yml
+fetches GP+SATCAT every 6h from GitHub runners (CelesTrak firewalls
+Railway, not GitHub), validates (>5000 GP records, >10000 satcat
+lines), force-pushes to the orphan celestial-catalog-data branch.
+server/routes.ts relays it at /api/data/orbital/{catalog,satcat} with
+an hour cache + x-catalog-fetched-at header; honest 503 while the
+branch doesn't exist yet. Client fetch ladder now: fixture -> memory
+-> IDB fresh -> CelesTrak -> MIRROR (age surfaced if >30min) ->
+last-good stale IDB -> retry. Closes the first-ever-visitor-during-
+IP-block gap; the human's blocked IP works the moment the first cron
+lands.
+
+INSPECT FOLLOW-CAMERA (sat-UX directive §3, "part of the system not a
+separate thing"): followCamera.ts — ORBIT view (full-sphere drag,
+dolly 2×–50×) and ONBOARD view (free-look, FOV 75°→6°) around the
+LIVE glided SGP4 state; umbra/penumbra from real cone geometry; Earth
+impostor labeled "simplified globe, NOT live imagery"; exact camera
+restore on back; 22KB lazy chunk; map-ease kept as GL-failure
+fallback. 21/21 tests. Phone caption cleared of stacked chrome (390px
+drive probe).
+
+POWER-PLANT DECLUTTER (human-directed: "get rid of the circles that
+show how many there are in a region"): maplibre count-clusters
+deleted; fuel symbols render at every zoom with a low-zoom size ramp
+(0.3 @ z2) + collision cull, the grid/substation pattern. Plus B2
+controls-row accounting fix (data-vt-control, not data-vt-layer — the
+harness data-scale n+1 failure was REAL, a controls row counted as a
+registry layer).
+
+Gates: python 756 pass; client node:test 411 pass; server 788 pass;
+visual harness 0 hard failures. Backtest: n/a (no trading-logic
+change).
+
 ## 2026-07-18 [REPAIR] — Satellite catalog outage: no persistent cache tripped CelesTrak's over-fetch IP block (v1.0.401, T-CLIENT)
 
 Human report (live production): satellites layer dead at "still
