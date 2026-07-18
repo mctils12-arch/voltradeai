@@ -4169,6 +4169,14 @@ export default function DataMapPage() {
             kind: "powerplant",
             title: p.name || "Power plant",
             subtitle: `${fuelLabel} · ${mw}`,
+            // design 1g chip row: TYPE · CAP MW · STATE · STATUS (EIA-860)
+            stats: [
+              { label: "Type", value: String(fuelLabel).replace(/ plant$/i, "") },
+              { label: "Cap MW", value: (p.mw != null && p.mw !== "") ? Number(p.mw).toLocaleString() : "—" },
+              { label: "State", value: p.state || "—" },
+              { label: "Status", value: STATUS_LABEL[p.status] || p.status || "—" },
+            ],
+            sourceTag: "EIA-860",
             body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
                   `${p.state ? `State: ${p.state}\n` : ""}` +
                   `${p.status ? `Status: ${STATUS_LABEL[p.status] || p.status}\n` : ""}` +
@@ -5028,14 +5036,26 @@ export default function DataMapPage() {
     // one card handler for BOTH renderers (2D symbol clicks + 3D picks)
     const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
-        const alt = p.ground === true || p.ground === "true" ? "on ground" : (p.alt != null ? fmtMeters(p.alt) : "alt unknown");
+        const onGround = p.ground === true || p.ground === "true";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
+        // design 1f chip row: ALT · SPEED KT · HDG · TYPE (alt through the
+        // units formatter, unit in the label; knots stay knots — domain
+        // convention fixed in both systems per the units directive)
+        const altF = onGround
+          ? { num: "ground", unit: null as string | null }
+          : p.alt != null ? splitUnit(fmtMeters(p.alt)) : { num: "—", unit: null as string | null };
         setDetail({
           kind: "aircraft",
           title: `✈ ${p.callsign}`,
           subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
-          body: `${alt}${p.kts ? ` · ${p.kts} kts` : ""} · hdg ${Math.round(p.heading || 0)}°\n` +
-                `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
+          stats: [
+            { label: `Alt${altF.unit ? ` ${altF.unit}` : ""}`, value: altF.num },
+            { label: "Speed kt", value: p.kts != null && p.kts !== "" ? String(p.kts) : "—" },
+            { label: "Hdg", value: `${Math.round(p.heading || 0)}°` },
+            { label: "Type", value: p.type || "—" },
+          ],
+          sourceTag: "ADS-B",
+          body: `Route/flight-plan data unavailable — filed plans are a paid source (wishlist); ` +
                 `trail is our own archived feed history — the 3D line + solid ground curtain climb at the RECORDED altitude, colored by the same low/cruise bands as the planes (gaps where altitude wasn't broadcast). ` +
                 `Archived history is sampled every 1-5 min, so straight segments join real recorded fixes (never smoothed into invented curves); while this card is open the newest segment extends LIVE at the ~15s feed cadence.`,
           trailId: p.icao24, trailKind: "aircraft", dossierKey,
@@ -5218,8 +5238,15 @@ export default function DataMapPage() {
           kind: "vessel",
           title: `⚓ ${p.name}`,
           subtitle: `${cls} · MMSI ${p.mmsi}${flag ? ` · ${flag}` : ""}`,
-          body: `${p.kts != null ? `${p.kts} kts · ` : ""}hdg ${Math.round(p.heading || 0)}°` +
-                `${p.destination ? `\nDestination (AIS-broadcast): ${p.destination}` : "\nDestination: not broadcast"}`,
+          // §5 chip row (knots stay knots — domain convention, units directive)
+          stats: [
+            { label: "Speed kt", value: p.kts != null ? String(p.kts) : "—" },
+            { label: "Hdg", value: `${Math.round(p.heading || 0)}°` },
+            { label: "Class", value: cls },
+            { label: "Flag", value: flag || "—" },
+          ],
+          sourceTag: "AIS",
+          body: `${p.destination ? `Destination (AIS-broadcast): ${p.destination}` : "Destination: not broadcast"}`,
           trailId: p.mmsi, trailKind: "vessels", dossierKey,
           links: [
             { label: "MarineTraffic", href: `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${p.mmsi}` },
@@ -5429,6 +5456,13 @@ export default function DataMapPage() {
             kind: "powerplant",
             title: p.name,
             subtitle: `${POWER_FUEL_LABEL[p.fuel] || p.fuel} · ${Number(p.mw).toLocaleString()} MW`,
+            // design 1g chip row (MW fixed in both unit systems)
+            stats: [
+              { label: "Type", value: String(POWER_FUEL_LABEL[p.fuel] || p.fuel || "—").replace(/ plant$/i, "") },
+              { label: "Cap MW", value: Number(p.mw) ? Number(p.mw).toLocaleString() : "—" },
+              { label: "Position", value: (p.verified === true || p.verified === "true") ? "verified" : "approx" },
+            ],
+            sourceTag: "GPPD/EIA",
             body: `${p.owner ? `Operator: ${p.owner}\n` : ""}` +
                   `${p.verified === true || p.verified === "true"
                      ? "Position imagery-verified.\n"
@@ -5787,6 +5821,13 @@ export default function DataMapPage() {
             kind: "nuketest",
             title: t.n && t.n !== "NA" ? t.n : "Nuclear test",
             subtitle: `${CTRY[t.c] || t.c} · ${t.d}${t.kt ? ` · ${Number(t.kt).toLocaleString()} kt` : ""}`,
+            // §5 chip row — catalogued fields (yield in kt, catalog convention)
+            stats: [
+              { label: "Yield kt", value: t.kt ? Number(t.kt).toLocaleString() : "n/a" },
+              { label: "Country", value: CTRY[t.c] || t.c || "—" },
+              { label: "Date", value: t.d || "—" },
+            ],
+            sourceTag: "FOA/SIPRI",
             body: `${t.r ? `Site: ${t.r}\n` : ""}` +
                   `Conducted by: ${testingAgency(t.c, t.y)}\n\n` +
                   `How it was fired: ${decodeType(t.t)}.\n` +
@@ -6021,6 +6062,13 @@ export default function DataMapPage() {
             kind: "nukefacility",
             title: p.n || "Nuclear facility",
             subtitle: `${p.cat}${p.country ? ` · ${p.country}` : ""}`,
+            // §5 chip row — catalogued Wikidata fields only
+            stats: [
+              { label: "Category", value: p.cat || "—" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Catalog", value: p.qid || "Wikidata" },
+            ],
+            sourceTag: "WIKIDATA CC0",
             body: `What this marker is: a nuclear fuel-cycle or production FACILITY as catalogued in Wikidata — ` +
                   `${p.cat === "Enrichment plant" ? "a plant that enriches uranium for fuel or weapons." :
                      p.cat === "Reprocessing site" ? "a site that chemically reprocesses spent nuclear fuel." :
@@ -6124,6 +6172,14 @@ export default function DataMapPage() {
             kind: "military_installation",
             title: p.name || "Military installation",
             subtitle: `${p.operator_nation || "nation unattributed"}${p.type && p.type !== "other" ? ` · ${p.type}` : ""}`,
+            // §5 chip row — catalogued fields only, no inference
+            stats: [
+              { label: "Nation", value: p.operator_nation || "—" },
+              { label: "Branch", value: p.branch || "n/s" },
+              { label: "Type", value: p.type || "—" },
+              { label: "Status", value: p.status || "—" },
+            ],
+            sourceTag: "OSM/DoD",
             // NO timeline / cross-tie block — this layer is static reference
             // geography and is NEVER correlated with live tracking (human rule).
             body: `Military installation (reference geography).\n` +
@@ -6289,12 +6345,18 @@ export default function DataMapPage() {
         } as any);
         detach = attachLayerInteractions(map, "qh-pts", (e: any) => {
           const f = e.features?.[0]; if (!f) return; const q = f.properties;
+          const qhDepth = q.dep != null ? splitUnit(fmtKm(q.dep)) : { num: "—", unit: null as string | null };
           setDetail({
             kind: "quake",
             title: q.pl || "Earthquake",
             subtitle: `M${q.m} · ${q.d}`,
-            body: `${q.dep != null ? `Depth: ${fmtKm(q.dep)}\n` : ""}` +
-                  `\nUSGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
+            stats: [
+              { label: "Mag", value: q.m != null ? `M${q.m}` : "—" },
+              { label: `Depth${qhDepth.unit ? ` ${qhDepth.unit}` : ""}`, value: qhDepth.num },
+              { label: "Date", value: q.d || "—" },
+            ],
+            sourceTag: "USGS",
+            body: `USGS ANSS ComCat (public domain) — historical catalog M6+ since 1900; the live quakes layer covers the present.`,
           });
         });
         setStatus("quakehistory", "active", d.count,
@@ -6464,11 +6526,18 @@ export default function DataMapPage() {
             if (!f) return;
             const p = f.properties;
             const dossierKey = `train:${p.id}:${Date.now()}`;
+            const spdF = p.speed != null && p.speed !== "null" ? splitUnit(fmtKmh(Number(p.speed))) : { num: "—", unit: null as string | null };
             setDetail({
               kind: "train",
               title: `${p.label}`,
               subtitle: `${p.country === "FI" ? "Finland · Digitraffic (CC BY 4.0)" : "Norway · Entur (NLOD)"}`,
-              body: `${p.speed != null && p.speed !== "null" ? `Speed: ${fmtKmh(Number(p.speed))}\n` : ""}Live passenger-rail position, shown as received.`,
+              stats: [
+                { label: `Speed${spdF.unit ? ` ${spdF.unit}` : ""}`, value: spdF.num },
+                { label: "Country", value: p.country || "—" },
+                { label: "Feed", value: p.country === "FI" ? "Digitraffic" : "Entur" },
+              ],
+              sourceTag: "RAIL",
+              body: `Live passenger-rail position, shown as received.`,
               trailId: p.id, trailKind: "trains", dossierKey,
             });
             // Trains aren't Everything Graph nodes — lat/lon-only dossier.
@@ -6844,10 +6913,20 @@ export default function DataMapPage() {
             if (!f) return;
             const p = f.properties;
             const dossierKey = `quake:${p.id}:${Date.now()}`;
+            const qDepth = p.depth != null ? splitUnit(fmtKm(p.depth)) : { num: "—", unit: null as string | null };
             setDetail({
               kind: "quake",
               title: `M${p.mag != null ? Number(p.mag).toFixed(1) : "?"} — ${p.place || "unknown location"}`,
-              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}${p.depth != null ? ` · ${fmtKm(p.depth)} deep` : ""}`,
+              subtitle: `${p.time ? new Date(p.time).toUTCString() : "time unknown"}`,
+              // §5 chip row (magnitude is unit-system-fixed; depth through the
+              // units formatter with the unit in the label)
+              stats: [
+                { label: "Mag", value: p.mag != null ? `M${Number(p.mag).toFixed(1)}` : "—" },
+                { label: `Depth${qDepth.unit ? ` ${qDepth.unit}` : ""}`, value: qDepth.num },
+                { label: "Status", value: p.status || "—" },
+                { label: "Tsunami", value: p.tsunami ? "ADVISORY" : "none" },
+              ],
+              sourceTag: "USGS",
               body: `${p.type !== "earthquake" ? `Reported type: ${p.type}\n` : ""}` +
                     `${p.status ? `Review status: ${p.status}\n` : ""}` +
                     `${p.magType ? `Magnitude type: ${p.magType}\n` : ""}` +
