@@ -1312,13 +1312,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (376KB, scripts/boundaries_admin1_build.py). Day-cached, fetched only
   // when the layer is enabled (zero-cost-when-off).
   // Celestial catalog RELAY (human-approved mirror, 2026-07-18): CelesTrak
-  // firewalls Railway egress (R17), so the celestial-catalog-mirror GitHub
-  // workflow publishes the catalogs to the celestial-catalog-data branch
-  // every 6h; this route relays them from GitHub raw with an in-memory hour
-  // cache. The CLIENT uses this only when its direct CelesTrak fetch fails
-  // (fetch ladder in datamap) — the mirror's fetched_at rides a header so
-  // the client can state the catalog's true age honestly.
-  const CATALOG_RAW_BASE = "https://raw.githubusercontent.com/mctils12-arch/voltradeai/celestial-catalog-data";
+  // firewalls Railway egress (R17), so a GitHub Actions cron mirrors the
+  // catalogs every 6h and this route relays them from GitHub raw with an
+  // in-memory hour cache. The CLIENT uses this only when its direct
+  // CelesTrak fetch fails (fetch ladder in datamap) — the mirror's
+  // fetched_at rides a header so the client can state the catalog's true
+  // age honestly.
+  // 2026-07-18 v2 (human-approved same day): the mirror lives in the
+  // PUBLIC voltradeai-catalog repo (data branch, force-pushed) — the
+  // first design mirrored into THIS repo, which is private, and raw
+  // access 404s on private repos without credentials Railway doesn't
+  // have. Failures are never cached, so this recovers without a deploy
+  // the moment the public mirror exists.
+  const CATALOG_RAW_BASE = "https://raw.githubusercontent.com/mctils12-arch/voltradeai-catalog/data";
   const catalogRelayCache: Record<string, { at: number; body: string; fetchedAt: string } | undefined> = {};
   const relayCatalog = async (file: string, contentType: string, res: any) => {
     try {
