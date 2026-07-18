@@ -101,6 +101,10 @@ import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodE
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
+// Celestial v2 B1 (2026-07-18): the map↔space seam's shared zoom math —
+// statically importable (tiny, pure) while the space frame itself stays a
+// lazy chunk; spaceFrame re-exports these same names for its tests.
+import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -145,6 +149,24 @@ const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cade
 // registry entry predates v2 (mid-deploy older registry). The registry's own
 // `lod` block is the source of truth and overrides this.
 const ORBITAL_LOD_FALLBACK = { camMinKm: 100, fadeBandKm: 150 };
+// Celestial v2 B1 §1 ("existing layers fade by relevance ... rather than
+// popping"): the live surface-traffic symbol layers still draw full-size
+// point sprites at the globe's zoom floor, where a plane icon spans whole
+// countries. Same LOD-envelope pattern as orbital_sats (lib/lod.ts), upper
+// bound: fade starts ~40,000 km camera altitude (zoom ≈1 at 900px — every
+// normal working zoom is untouched, incl. the z3.6 default) and completes
+// by ~80,000 km (≈ the zoom-0 whole-globe view), so by the time the seam
+// CSS-shrinks the map into space the sprites are already gone — no pop at
+// any point on the way out. Registry `lod` blocks (layers.json v2) override
+// per layer when present; a null camera altitude fails OPEN (lib/lod.ts).
+const MARKER_LOD_FALLBACK = { camMaxKm: 80_000, fadeBandKm: 40_000 };
+const MARKER_LOD_NOTE = "hidden at this camera altitude (LOD) — zoom in";
+/** layer-id → {styleLayers, base icon-opacity} for the fade-by-relevance pass. */
+const MARKER_LOD_TARGETS: Record<string, { styleLayers: string[]; baseOpacity: number }> = {
+  aircraft: { styleLayers: ["aircraft-sym", "aircraft-sym-lo"], baseOpacity: 0.95 },
+  vessels: { styleLayers: ["vessels-sym"], baseOpacity: 0.95 },
+  trains: { styleLayers: ["trains-icons"], baseOpacity: 1 },
+};
 // EARTH TWIN E4-1: SATCAT identity catalog — module cache mirroring
 // orbitalGpCache (survives effect unmounts; one download per day at most —
 // catalog metadata changes slowly and CelesTrak rate-limits). Fetched in the
@@ -1077,6 +1099,13 @@ export default function DataMapPage() {
   // the freshest registry value WITHOUT re-running (and tearing down) the
   // whole effect when the registry fetch lands.
   const orbitalLodRef = useRef<LodEnvelope | null>(null);
+  // B1 fade-by-relevance (MARKER_LOD_TARGETS): current 0..1 LOD opacity per
+  // surface-traffic feed id — the apply effect writes it, the feed ticks
+  // read it so the panel honestly says WHY a hidden layer shows nothing
+  // (A1 rail: opacity 0 must be surfaced, never silent).
+  const markerLodOpRef = useRef<Record<string, number>>({});
+  // registry override for those envelopes (same pattern as orbitalLodRef)
+  const markerLodEnvRef = useRef<Record<string, LodEnvelope | null>>({});
   // ORBITAL O5 slice 1: the followed satellite (buffer index is stable —
   // the worker keeps ONE slot per GP record forever). null = not following.
   // O6-1 follow v2 + lock modes (human-refined): 'sat' pins the camera to
@@ -1191,7 +1220,6 @@ export default function DataMapPage() {
   const spaceHandleRef = useRef<import("@/lib/celestial/spaceFrame").SpaceFrameHandle | null>(null);
   const spaceCleanupRef = useRef<(() => void) | null>(null);
   const [spaceActive, setSpaceActive] = useState(false);
-  const [atZoomFloor, setAtZoomFloor] = useState(false);
   const exitSpaceRef = useRef<() => void>(() => {});
   const exitSpace = useCallback(() => {
     if (!spaceActiveRef.current) return;
@@ -1218,7 +1246,7 @@ export default function DataMapPage() {
     }
   }, []);
   useEffect(() => { exitSpaceRef.current = exitSpace; }, [exitSpace]);
-  const enterSpace = useCallback(async (entry?: { nudgeDeltaY?: number; flyOut?: boolean }) => {
+  const enterSpace = useCallback(async (entry?: { nudgeDeltaY?: number }) => {
     const map = mapRef.current;
     const container = mapContainer.current;
     if (!map || !container || spaceActiveRef.current) return;
@@ -1285,9 +1313,9 @@ export default function DataMapPage() {
       }
       setSpaceActive(true);
       // continuity: the triggering gesture's momentum carries into the frame
-      // (wheel path), or the chip's continuous outward fly (touch/a11y path)
+      // — the accumulated wheel/pinch delta or one button/key step (B1: no
+      // entry button exists; every zoom input rides the same seam)
       if (entry?.nudgeDeltaY) handle.nudgeZoom(entry.nudgeDeltaY);
-      if (entry?.flyOut) handle.flyOut();
     } catch {
       // degrade, never break: the map stays fully usable
       spaceActiveRef.current = false;
@@ -1791,6 +1819,7 @@ export default function DataMapPage() {
   // Map bootstrap (maplibre JS lazy-loaded to keep the main bundle lean)
   useEffect(() => {
     let cancelled = false;
+    let offScaleUnits: (() => void) | null = null;
     (async () => {
       try {
         const maplibregl = (await import("maplibre-gl")).default;
@@ -1839,7 +1868,15 @@ export default function DataMapPage() {
         // orientation cue the 3D globe/terrain view needs. Clean Google-Earth-
         // style nav, our styling (index.css .maplibregl-ctrl-compass*).
         map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "bottom-left");
-        map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
+        // B1 scale-bar continuity: the bar follows the site-wide units
+        // preference (it was hardcoded imperial before), so the space
+        // frame's own bar — which continues this instrument past the zoom
+        // floor into AU — never flips unit systems across the seam.
+        const scaleCtl = new maplibregl.ScaleControl({ unit: getUnits() === "imperial" ? "imperial" : "metric" });
+        map.addControl(scaleCtl, "bottom-left");
+        offScaleUnits = subscribeUnits(() => {
+          try { scaleCtl.setUnit(getUnits() === "imperial" ? "imperial" : "metric"); } catch {}
+        });
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
@@ -1875,6 +1912,7 @@ export default function DataMapPage() {
     })();
     return () => {
       cancelled = true;
+      try { offScaleUnits?.(); } catch {}
       try { delete (window as any).__vtMap; } catch {}
       try { mapRef.current?.remove(); mapRef.current = null; } catch {}
     };
@@ -1938,29 +1976,157 @@ export default function DataMapPage() {
   // zoom impulse — no dead notch at the boundary. The ☉ chip (shown while
   // atZoomFloor) is the touch/a11y path and triggers the same continuous
   // outward fly, never a scene swap.
+  // CONTINUOUS ZOOM SEAM (celestial v2 B1 §1: ONE camera, NO entry button —
+  // the ☉ chip is deleted): at the zoom floor every further zoom-OUT input
+  // is inert to MapLibre, so each input path reads its own raw gesture and
+  // hands the SAME motion straight to the space frame:
+  //  · wheel — ≥SEAM_ENTRY_DELTAY accumulated deltaY inside 400ms windows
+  //    ≈ one real notch ("keep zooming out" simply keeps going; trackpad
+  //    micro-jitter never triggers), the accumulated delta forwarded as the
+  //    frame's first zoom impulse — no dead notch at the boundary;
+  //  · the map's +/- NavigationControl BUTTONS — a zoom-out click at the
+  //    floor enters the frame with one button-step (×2, exactly one map
+  //    zoom level); while the frame is active the same buttons keep working
+  //    (capture-intercepted before MapLibre's own handler) and a zoom-in
+  //    click near the seam rides the frame's own scale>1 handback;
+  //  · pinch — two-finger pinch-in past the floor accumulates the gesture's
+  //    scale ratio and enters with the equivalent deltaY (in-frame pinch is
+  //    the frame's own pointer handling);
+  //  · keyboard +/- — same step as the buttons.
+  // Zoom-in return needs no wiring here: inside the frame every input
+  // shrinks camera distance until the anchor scale crosses 1 and the frame
+  // hands the camera back to MapLibre (onExitToMap) — the exact reverse.
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     const el = mapContainer.current;
     if (!map || !el) return;
-    const updFloor = () => { try { setAtZoomFloor(map.getZoom() <= map.getMinZoom() + 0.05); } catch {} };
-    updFloor();
-    map.on("zoom", updFloor);
-    map.on("zoomend", updFloor);
+    const atFloor = () => {
+      try { return map.getZoom() <= map.getMinZoom() + 0.05; } catch { return false; }
+    };
+    // MapLibre's NavigationControl DISABLES the zoom-out button at minZoom
+    // (a disabled button swallows clicks entirely) — that is precisely the
+    // "buttons stop at the maplibre floor" behavior B1 removes. At the
+    // floor (and while the frame owns the camera) the button is NOT at the
+    // end of its range any more, so re-enable it whenever the control's
+    // own update disables it; away from the floor the control's normal
+    // enable/disable behavior is untouched.
+    const undisableZoomOut = () => {
+      try {
+        const b = el.querySelector(".maplibregl-ctrl-zoom-out") as HTMLButtonElement | null;
+        if (b && b.disabled && (atFloor() || spaceActiveRef.current)) b.disabled = false;
+      } catch {}
+    };
+    undisableZoomOut();
+    map.on("zoom", undisableZoomOut);
+    map.on("zoomend", undisableZoomOut);
+    map.on("move", undisableZoomOut);
+    map.on("idle", undisableZoomOut);
+    // wheel
     let acc = 0;
     let timer: number | null = null;
     const onWheel = (e: WheelEvent) => {
       if (spaceActiveRef.current || e.deltaY <= 0) return;
-      try { if (map.getZoom() > map.getMinZoom() + 0.05) { acc = 0; return; } } catch { return; }
+      if (!atFloor()) { acc = 0; return; }
       acc += e.deltaY;
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => { acc = 0; }, 400);
-      if (acc >= 60) { const carry = acc; acc = 0; void enterSpace({ nudgeDeltaY: carry }); }
+      if (acc >= SEAM_ENTRY_DELTAY) { const carry = acc; acc = 0; void enterSpace({ nudgeDeltaY: carry }); }
+    };
+    // +/- buttons: capture fires before the NavigationControl's own click
+    // handler, and stopPropagation keeps it (and the frame's body-click
+    // hit test on the container) from double-acting.
+    const onCtrlClick = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement | null)?.closest?.(
+        ".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out",
+      );
+      if (!btn) return;
+      const out = btn.classList.contains("maplibregl-ctrl-zoom-out");
+      if (spaceActiveRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+      } else if (out && atFloor()) {
+        e.preventDefault();
+        e.stopPropagation();
+        void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
+      }
+    };
+    // keyboard +/- (the map's own keyboard handler is disabled in space;
+    // typing surfaces — inputs, the analyst pane — are never hijacked)
+    const onKeyDown = (e: KeyboardEvent) => {
+      const zin = e.key === "+" || e.key === "=";
+      const zout = e.key === "-" || e.key === "_";
+      if ((!zin && !zout) || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, select, [contenteditable=true]")) return;
+      if (spaceActiveRef.current) {
+        e.preventDefault();
+        try { spaceHandleRef.current?.nudgeZoom(zout ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+      } else if (zout && atFloor()) {
+        e.preventDefault();
+        void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
+      }
+    };
+    // pinch-in past the floor (passive observers — MapLibre keeps its own
+    // gesture handling; we only watch for the clamped-at-the-floor case)
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinchPrev = 0;
+    let pinchAcc = 1;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        const [a, b] = Array.from(touches.values());
+        pinchPrev = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchAcc = 1;
+      }
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (spaceActiveRef.current || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size !== 2) return;
+      const [a, b] = Array.from(touches.values());
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchPrev > 0 && d > 0) {
+        if (atFloor()) {
+          pinchAcc *= pinchPrev / d; // >1 ⇒ fingers closing ⇒ zooming out
+          if (pinchAcc >= 1.25) {
+            const carry = wheelDeltaForFactor(pinchAcc);
+            pinchAcc = 1;
+            touches.clear();
+            void enterSpace({ nudgeDeltaY: carry });
+          }
+        } else {
+          pinchAcc = 1;
+        }
+      }
+      pinchPrev = d;
+    };
+    const onPointerEnd = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      pinchPrev = 0;
+      pinchAcc = 1;
     };
     el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+    el.addEventListener("click", onCtrlClick, { capture: true });
+    window.addEventListener("keydown", onKeyDown);
+    el.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    el.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+    el.addEventListener("pointerup", onPointerEnd, { capture: true, passive: true });
+    el.addEventListener("pointercancel", onPointerEnd, { capture: true, passive: true });
     return () => {
-      try { map.off("zoom", updFloor); map.off("zoomend", updFloor); } catch {}
+      try {
+        map.off("zoom", undisableZoomOut); map.off("zoomend", undisableZoomOut);
+        map.off("move", undisableZoomOut); map.off("idle", undisableZoomOut);
+      } catch {}
       el.removeEventListener("wheel", onWheel, { capture: true } as any);
+      el.removeEventListener("click", onCtrlClick, { capture: true } as any);
+      window.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true } as any);
+      el.removeEventListener("pointermove", onPointerMove, { capture: true } as any);
+      el.removeEventListener("pointerup", onPointerEnd, { capture: true } as any);
+      el.removeEventListener("pointercancel", onPointerEnd, { capture: true } as any);
       if (timer) window.clearTimeout(timer);
     };
   }, [mapReady, enterSpace]);
@@ -3527,7 +3693,58 @@ export default function DataMapPage() {
   useEffect(() => {
     const entry = layers.find((l) => l.id === "orbital_sats") as any;
     orbitalLodRef.current = entry?.lod ?? null;
+    for (const id of Object.keys(MARKER_LOD_TARGETS)) {
+      const e = layers.find((l) => l.id === id) as any;
+      markerLodEnvRef.current[id] = e?.lod ?? null;
+    }
   }, [layers]);
+
+  // B1 §1 fade-by-relevance for the surface-traffic symbol layers
+  // (aircraft/vessels/trains): camera-altitude opacity via the same
+  // lib/lod.ts envelope math as orbital_sats, applied as a paint property.
+  // Idle re-applies cover layers that (re)mount on their own data ticks;
+  // transitions to/from fully-hidden patch the panel note in place (count
+  // and status untouched — the feed keeps polling, only the RENDER fades).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const applied = new Map<string, number>();
+    const applyMarkerLod = () => {
+      const camKm = cameraAltitudeKmFromMap(map); // null → fails OPEN (visible)
+      for (const [id, cfg] of Object.entries(MARKER_LOD_TARGETS)) {
+        const op = lodOpacity(markerLodEnvRef.current[id] ?? MARKER_LOD_FALLBACK, camKm);
+        const prevOp = markerLodOpRef.current[id] ?? 1;
+        markerLodOpRef.current[id] = op;
+        for (const lid of cfg.styleLayers) {
+          let present = false;
+          try { present = !!map.getLayer(lid); } catch {}
+          if (!present) { applied.delete(lid); continue; }
+          const val = Math.round(op * cfg.baseOpacity * 1000) / 1000;
+          if (applied.get(lid) === val) continue;
+          applied.set(lid, val);
+          try { map.setPaintProperty(lid, "icon-opacity", val); } catch {}
+        }
+        // panel honesty on the 0-crossing, preserving whatever the tick
+        // last reported (count, status) — only the note changes here
+        if ((op <= 0) !== (prevOp <= 0)) {
+          setRuntime((s) => {
+            const prev = s[id];
+            if (!prev || prev.status !== "active") return s;
+            const note = op <= 0 ? MARKER_LOD_NOTE : (prev.note === MARKER_LOD_NOTE ? undefined : prev.note);
+            if (prev.note === note) return s;
+            return { ...s, [id]: { ...prev, note } };
+          });
+        }
+      }
+    };
+    map.on("move", applyMarkerLod);
+    map.on("resize", applyMarkerLod);
+    map.on("idle", applyMarkerLod); // catches layers created after a data tick
+    applyMarkerLod();
+    return () => {
+      try { map.off("move", applyMarkerLod); map.off("resize", applyMarkerLod); map.off("idle", applyMarkerLod); } catch {}
+    };
+  }, [mapReady]);
 
   // ── O6-3: GROUP ORBITS — the real SGP4 tracks of the filtered
   // constellation, RAAN-colored so planes read apart, evenly sampled under
@@ -4769,6 +4986,9 @@ export default function DataMapPage() {
         if (dd.coverage === "partial" && dd.coverage_note) note = dd.coverage_note;
         if (dd.filter_note) note = dd.filter_note; // O6-4 operator filter disclosure
         if (dd.stale) note = `stale — data as of ${new Date(dd.stale_at || Date.now()).toLocaleTimeString()}`;
+        // B1 fade-by-relevance: while the LOD envelope holds the layer at
+        // opacity 0 the tick must keep saying so (A1 rail — never silent)
+        if ((markerLodOpRef.current[id] ?? 1) <= 0) note = MARKER_LOD_NOTE;
 
         const features = opts.toFeatures(dd);
         const fc = { type: "FeatureCollection", features };
@@ -6555,7 +6775,8 @@ export default function DataMapPage() {
           });
         }
         const per = (d.sources || []).map((s: any) => `${s.country} ${s.status === "ok" ? s.count : s.status}`).join(" · ");
-        setStatus("trains", "active", d.count, per || undefined);
+        setStatus("trains", "active", d.count,
+          (markerLodOpRef.current.trains ?? 1) <= 0 ? MARKER_LOD_NOTE : (per || undefined));
       } catch {
         if (!stop) setStatus("trains", "error");
       }
@@ -7895,12 +8116,10 @@ export default function DataMapPage() {
 
       <div ref={mapContainer} className="vt-map-canvas" />
       {fpsDebug && <FpsChip />}
-      {atZoomFloor && !spaceActive && mapReady && (
-        <button className="vt-space-chip" onClick={() => void enterSpace({ flyOut: true })}
-                title="Keep zooming out — one continuous flight into the true-scale solar system; the live map is the Earth. Zoom back in (or Escape) to return">
-          ☉ Solar system
-        </button>
-      )}
+      {/* Celestial v2 B1 (directive §1): the "☉ Solar system" chip is DELETED
+          — there is no entry button and no separate mode. Every zoom input
+          (wheel, +/- buttons, pinch, keyboard) carries through the floor into
+          the space frame via the CONTINUOUS ZOOM SEAM wiring above. */}
 
       {!mapReady && !mapError && (
         <div className="vt-map-skeleton" aria-label="Map loading">

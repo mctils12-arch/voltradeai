@@ -37,6 +37,11 @@ import {
   layoutLabelStacks,
   LABEL_COLLIDE_PX,
   fmtSpaceDistance,
+  wheelDeltaForFactor,
+  ZOOM_BUTTON_DELTAY,
+  niceScaleFloor,
+  spaceScaleBar,
+  SCALE_BAR_MAX_W_PX,
   FRAME_DISC_FRACTION,
   MIN_DISTANCE_RADII,
   DEFAULT_FOV_DEG,
@@ -452,4 +457,160 @@ test("distance labels: units-preference formatter below 0.01 AU, AU above", () =
   assert.ok(!moon.includes("AU"));
   assert.equal(fmtSpaceDistance(1.5 * AU_M), "1.500 AU");
   assert.equal(fmtSpaceDistance(30 * AU_M), "30.00 AU");
+});
+
+// ── B1: shared seam zoom math (buttons/keys/pinch ride the wheel curve) ─────
+
+test("wheelDeltaForFactor: exact inverse of zoomStepFactor; button step = one map zoom level", () => {
+  for (const f of [1.0001, 1.18, 2, 10, 0.5, 0.03]) {
+    close(zoomStepFactor(wheelDeltaForFactor(f)), f, 1e-12, `round trip ×${f}`);
+  }
+  // one +/- button click doubles (halves) camera distance — the same visual
+  // step a MapLibre zoom level makes on the map side of the seam
+  close(zoomStepFactor(ZOOM_BUTTON_DELTAY), 2, 1e-12, "button step is ×2");
+  close(zoomStepFactor(-ZOOM_BUTTON_DELTAY), 0.5, 1e-12, "zoom-in button is ×1/2");
+  assert.ok(ZOOM_BUTTON_DELTAY > 0, "outward is positive deltaY (wheel convention)");
+});
+
+// ── B1: the scale bar through mi → thousands of mi → AU ─────────────────────
+
+test("niceScaleFloor: largest 1/2/3/5×10^n at or below target, any magnitude", () => {
+  assert.equal(niceScaleFloor(7), 5);
+  assert.equal(niceScaleFloor(5), 5);
+  assert.equal(niceScaleFloor(4.99), 3);
+  assert.equal(niceScaleFloor(2.5), 2);
+  assert.equal(niceScaleFloor(1), 1);
+  assert.equal(niceScaleFloor(9_999), 5000);
+  close(niceScaleFloor(0.047), 0.03, 1e-12, "sub-unit magnitudes");
+  // exhaustive sweep: result is always ≤ target and within ×2 of it (the
+  // widest gap in the 1/2/3/5 series) — so the bar never collapses
+  for (let e = -3; e <= 6; e++) {
+    for (const m of [1.01, 1.9, 2.5, 3.3, 4.9, 6, 8, 9.9]) {
+      const t = m * Math.pow(10, e);
+      const n = niceScaleFloor(t);
+      assert.ok(n <= t + 1e-12 * t, `≤ target at ${t}`);
+      assert.ok(n >= t / 2 - 1e-12 * t, `within ×2 at ${t}`);
+    }
+  }
+});
+
+test("spaceScaleBar: unit ladder (mi/km → AU), fits the max width, honest labels", () => {
+  // near the seam (~600 m/px): mi in imperial, km in metric — never AU
+  const imp = spaceScaleBar(600, "imperial");
+  const met = spaceScaleBar(600, "metric");
+  assert.ok(/ mi$/.test(imp.label), `imperial near-seam label (${imp.label})`);
+  assert.ok(/ km$/.test(met.label), `metric near-seam label (${met.label})`);
+  // thousands of mi (Moon-range framing, ~50 km/px)
+  const mid = spaceScaleBar(50_000, "imperial");
+  assert.ok(/ mi$/.test(mid.label) && parseFloat(mid.label.replace(/,/g, "")) >= 1000,
+    `thousands of miles (${mid.label})`);
+  // solar-system range: AU regardless of unit system (domain convention,
+  // same switch the distance labels use)
+  for (const sys of ["imperial", "metric"] as const) {
+    const au = spaceScaleBar(0.05 * AU_M, sys);
+    assert.ok(/ AU$/.test(au.label), `AU far out in ${sys} (${au.label})`);
+  }
+  // AU labels keep trimmed decimals (0.02, never 0.020)
+  const fine = spaceScaleBar((0.021 * AU_M) / 100, "imperial");
+  assert.equal(fine.label, "0.02 AU");
+  // geometry contract at every magnitude: bar fits maxWidth and stays at
+  // least half of it (the nice-series gap bound)
+  for (const mpp of [1, 600, 5e4, 5e6, 1e9, 5e10]) {
+    for (const sys of ["imperial", "metric"] as const) {
+      const bar = spaceScaleBar(mpp, sys);
+      assert.ok(bar.widthPx <= SCALE_BAR_MAX_W_PX + 1e-9, `fits at ${mpp} m/px (${bar.widthPx})`);
+      assert.ok(bar.widthPx >= SCALE_BAR_MAX_W_PX / 2 - 1e-9, `readable at ${mpp} m/px (${bar.widthPx})`);
+    }
+  }
+});
+
+test("scale-bar seam continuity: (dist − R)/k at the entry camera equals the map's ground m/px", () => {
+  // MapLibre's center ground meters/px at the floor (512px worlds — the
+  // same constant lib/lod.ts pins): 40075016.686/512 · cos(lat) / 2^zoom
+  const lat = 37.5;
+  const zoom = -2;
+  const mppMap = ((40_075_016.686 / 512) * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  const d0 = distanceForDiscPx(BODY_RADIUS_M.earth, mapGlobeDiscPx(zoom, lat), k);
+  const mppFrame = (d0 - BODY_RADIUS_M.earth) / k;
+  // same instrument to within the globe-projection approximation (<7% —
+  // visually indistinguishable on a 1-2-3-5 quantized bar; both sides pick
+  // the same nice value at the seam)
+  close(mppFrame / mppMap, 1, 0.07, `frame ${mppFrame.toFixed(0)} vs map ${mppMap.toFixed(0)} m/px`);
+  assert.equal(
+    spaceScaleBar(mppFrame, "imperial").label,
+    spaceScaleBar(mppMap, "imperial").label,
+    "both sides of the seam label the same nice distance",
+  );
+});
+
+// ── B1: floating-origin precision (directive §1 — f64 on CPU, camera-
+// relative values only downstream) ──────────────────────────────────────────
+
+test("floating origin: sub-pixel projection stability at Neptune range (30 AU)", () => {
+  const reg = defaultBodyRegistry();
+  const t = Date.UTC(2026, 6, 18);
+  const pos: Record<string, Vec3> = {};
+  for (const d of reg) pos[d.id] = d.ephemeris(t);
+  const k = perspectiveScalePx(DEFAULT_FOV_DEG, 900);
+  const axis = earthAxisEcl(t);
+  const v = {
+    sub: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
+    add: (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
+    scale: (a: Vec3, s: number): Vec3 => ({ x: a.x * s, y: a.y * s, z: a.z * s }),
+    len: (a: Vec3): number => Math.hypot(a.x, a.y, a.z),
+  };
+  const unit = (a: Vec3): Vec3 => v.scale(a, 1 / v.len(a));
+  const nep = pos.neptune;
+  assert.ok(v.len(nep) > 28 * AU_M, "Neptune is ~30 AU out (the far-range case)");
+  // camera on the anti-sunward side of Neptune, at closest approach — both
+  // Neptune (near) and the Sun (30 AU beyond) are in front of the camera
+  const dir = unit(v.sub(nep, pos.sun));
+  const dist0 = MIN_DISTANCE_RADII * BODY_RADIUS_M.neptune;
+  const basis = camBasis(dir, axis);
+
+  // (a) micro DISTANCE steps (1e-7 relative — far below one wheel tick):
+  // the Sun's projected point and Neptune's disc must move smoothly, with
+  // no quantization jumps — catastrophic cancellation in a f32 path would
+  // show up as multi-pixel snapping here
+  let prev: { x: number; y: number } | null = null;
+  let prevDisc: number | null = null;
+  for (let i = 0; i <= 100; i++) {
+    const dist = dist0 * (1 + i * 1e-7);
+    const cam = v.add(nep, v.scale(dir, dist));
+    const p = projectPoint(pos.sun, cam, basis, k, 720, 450);
+    assert.ok(Number.isFinite(p.x) && p.depth > 0, `Sun in front at step ${i}`);
+    if (prev) {
+      const d = Math.hypot(p.x - prev.x, p.y - prev.y);
+      assert.ok(d < 0.05, `sub-pixel Sun motion per micro-step (${d}px at step ${i})`);
+    }
+    prev = { x: p.x, y: p.y };
+    const disc = bodyDiscPx(BODY_RADIUS_M.neptune, dist, k);
+    if (prevDisc != null) {
+      assert.ok(prevDisc - disc >= 0, `disc shrinks monotonically (step ${i})`);
+      assert.ok(prevDisc - disc < 0.01, `disc changes sub-centipixel per micro-step (step ${i})`);
+    }
+    prevDisc = disc;
+  }
+
+  // (b) micro ANGULAR steps (1e-6 rad ≈ 0.2 arcsec of camera swing): the
+  // projected Sun must track at the analytic rate k·Δθ (±20%) with strictly
+  // monotonic screen motion — oscillation or snapping = precision jitter
+  const stepRad = 1e-6;
+  const cam0 = v.add(nep, v.scale(dir, dist0));
+  let prevX: number | null = null;
+  const deltas: number[] = [];
+  for (let i = 0; i <= 50; i++) {
+    const d2 = rotateAbout(dir, axis, (i * stepRad * 180) / Math.PI);
+    const b2 = camBasis(d2, axis);
+    const p = projectPoint(pos.sun, cam0, b2, k, 720, 450);
+    assert.ok(Number.isFinite(p.x), `finite at swing step ${i}`);
+    if (prevX != null) deltas.push(p.x - prevX);
+    prevX = p.x;
+  }
+  const expected = k * stepRad; // ≈ 0.00135 px per step at fov 36.87/900px
+  for (const d of deltas) {
+    assert.ok(Math.sign(d) === Math.sign(deltas[0]), "monotonic swing (no oscillation)");
+    close(Math.abs(d), expected, expected * 0.2, "swing tracks the analytic rate");
+  }
 });

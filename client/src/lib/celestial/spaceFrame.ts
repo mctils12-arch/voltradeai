@@ -4,7 +4,10 @@
 // with whatever layers you have on, terminator and all — shrinks into space
 // in one continuous motion; zoom back in and you're seamlessly back on the
 // map. Standing near the Moon, Earth is right there behind you — the live
-// one.").
+// one."). Celestial v2 B1 (directive §1, 2026-07-18): there is NO entry
+// button of any kind — the seam is reached only by zoom inputs themselves
+// (wheel, pinch, the map's +/- buttons, keyboard +/-), all riding the same
+// exponential curve (see zoomSeam.ts).
 //
 // WHAT THIS REPLACES: lib/celestial/solarView.ts (the separate top-down
 // 2D-ortho solar-system scene) is RETIRED — same precedent as inspectScene.
@@ -32,6 +35,20 @@
 // Exponential zoom (each wheel tick MULTIPLIES camera distance) is what
 // makes 12 orders of magnitude traversable; the geometry itself is never
 // touched.
+//
+// FLOATING ORIGIN (B1 precision audit, 2026-07-18 — directive §1 "camera-
+// relative rendering with double-precision origin offsets on CPU, single-
+// precision only for camera-relative GPU coords"): every world position,
+// camera position, and difference is computed in JS DOUBLES on the CPU, and
+// the only values that ever leave this module are CAMERA-RELATIVE — screen
+// pixels handed to Canvas2D (projectPoint subtracts camPos in f64 FIRST:
+// rel = world − camPos, then projects rel) and the CSS px of the Earth
+// anchor. No absolute heliocentric meters ever reach a float32 path: there
+// is no WebGL here, no f32 attribute/uniform upload, and Canvas2D receives
+// only viewport-scale numbers. Residual f64 rounding at Neptune range
+// (~4.5e12 m, mantissa resolution ~0.5 m) is ~1e-8 of the closest camera
+// distance — orders of magnitude below a pixel; the jitter test pins this
+// (sub-pixel projection stability at 30 AU under micro camera moves).
 //
 // HONESTY RAILS
 // - Bodies smaller than MARKER_MAX_DISC_PX on screen carry a labeled marker
@@ -69,7 +86,7 @@
 // anchor ships.
 //
 // Interop: mountSpaceFrame(container, opts) → handle (setTime/render/
-// flyTo/flyHome/flyOut/nudgeZoom/getState/dispose) — the celestialSky
+// flyTo/flyHome/nudgeZoom/getState/dispose) — the celestialSky
 // mount-handle idiom. All view math is exported pure for tests.
 
 import {
@@ -80,7 +97,13 @@ import {
   type BodyId,
 } from "./solarSystem.js";
 import { gmstDeg } from "./ephemeris.js";
-import { fmtKm } from "../units.js";
+import { fmtKm, getUnits, type UnitSystem } from "../units.js";
+import { ZOOM_STEP_PER_NOTCH, zoomStepFactor } from "./zoomSeam.js";
+
+// the seam's zoom math is shared with datamap's input wiring (see
+// zoomSeam.ts header) — re-exported so this module's public surface and
+// its tests keep one name per contract.
+export { ZOOM_STEP_PER_NOTCH, zoomStepFactor, wheelDeltaForFactor, ZOOM_BUTTON_DELTAY } from "./zoomSeam.js";
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -91,19 +114,13 @@ const RAD = 180 / Math.PI;
  *  angular sizes are continuous across the seam. */
 export const DEFAULT_FOV_DEG = 36.87;
 
-/** One standard wheel notch (deltaY 100) multiplies camera distance by this
- *  (~×1.18/tick per the approved design); deltaY scales the exponent so
- *  trackpads glide smoothly through the same curve. */
-export const ZOOM_STEP_PER_NOTCH = 1.18;
-
 /** A body whose true disc is smaller than this carries a labeled marker. */
 export const MARKER_MAX_DISC_PX = 2;
 
 /** Live-map ↔ impostor crossfade band, in Earth-disc CSS px. Above HI the
  *  live map is fully opaque (from lunar distance Earth is ~45px at 900px
  *  viewport height — deliberately above HI, so the Earth you see from the
- *  Moon is the live one; the chip fly-out's 2.2×-lunar framing at ~20px
- *  stays mostly live too). Below LO — where the map would be a sub-14px
+ *  Moon is the live one). Below LO — where the map would be a sub-14px
  *  blob with no legible content — the impostor carries the disc alone. */
 export const MAP_FADE_HI_PX = 24;
 export const MAP_FADE_LO_PX = 14;
@@ -176,12 +193,6 @@ export function bodyDiscPx(radiusM: number, distM: number, k: number): number {
 export function distanceForDiscPx(radiusM: number, discPx: number, k: number): number {
   const theta = Math.atan(discPx / (2 * k));
   return radiusM / Math.sin(Math.max(1e-12, theta));
-}
-
-/** Exponential zoom: wheel deltaY → camera-distance multiplier. deltaY 100
- *  (one notch) = ×ZOOM_STEP_PER_NOTCH out; negative deltaY zooms in. */
-export function zoomStepFactor(deltaY: number): number {
-  return Math.pow(ZOOM_STEP_PER_NOTCH, deltaY / 100);
 }
 
 /** MapLibre globe apparent disc, CSS px: worldSize/π/cos(centerLat)
@@ -459,6 +470,70 @@ export function fmtSpaceDistance(meters: number): string {
   return `${au.toFixed(au < 10 ? 3 : 2)} AU`;
 }
 
+// ── the scale bar (B1 §1: "mi → thousands of mi → AU, respecting the
+// existing mi/km units toggle") ─────────────────────────────────────────────
+
+/** Max bar width, px — matches MapLibre ScaleControl's default maxWidth so
+ *  the bar reads as the same instrument on both sides of the seam. */
+export const SCALE_BAR_MAX_W_PX = 100;
+
+/** AU switch threshold for the BAR, same constant the distance labels use
+ *  (0.01 AU ≈ 930,000 mi): below it the bar is mi/km per the units
+ *  preference, above it AU (fixed domain convention). */
+export const SCALE_BAR_AU_SWITCH_M = 0.01 * AU_M;
+
+const M_PER_MI = 1609.344;
+
+/** Largest "nice" value (1/2/3/5 × 10^n — MapLibre's own series) ≤ target.
+ *  Exported for the test's exhaustive sweep. */
+export function niceScaleFloor(target: number): number {
+  if (!(target > 0) || !Number.isFinite(target)) return 1;
+  const exp = Math.floor(Math.log10(target));
+  const base = Math.pow(10, exp);
+  for (const m of [5, 3, 2, 1]) if (m * base <= target) return m * base;
+  return base; // unreachable (1×base ≤ target by construction), kept safe
+}
+
+/**
+ * The space frame's scale bar: given meters-per-CSS-px at the focus plane,
+ * pick a round distance whose bar fits in SCALE_BAR_MAX_W_PX and label it in
+ * the current unit system (mi/km below the AU switch, AU above — the same
+ * ladder as fmtSpaceDistance, so bar and labels never disagree on units).
+ *
+ * SEAM CONTINUITY (why metersPerPx = (dist − R)/k is the right input): the
+ * map's own ScaleControl shows ground meters/px at the view center, which
+ * for MapLibre equals cameraAltitude / cameraToCenterPx — and this frame's
+ * perspective k IS cameraToCenterPx (same fov, same viewport), while
+ * (dist − R) IS the camera altitude over the focus surface. At the seam the
+ * two bars therefore show the same number by construction.
+ */
+export function spaceScaleBar(
+  metersPerPx: number,
+  system: UnitSystem = getUnits(),
+  maxWidthPx: number = SCALE_BAR_MAX_W_PX,
+): { widthPx: number; label: string } {
+  const mpp = Math.max(1e-9, metersPerPx);
+  const maxM = mpp * maxWidthPx;
+  let unitM: number;
+  let suffix: string;
+  if (maxM >= SCALE_BAR_AU_SWITCH_M) {
+    unitM = AU_M;
+    suffix = " AU";
+  } else if (system === "imperial") {
+    unitM = M_PER_MI;
+    suffix = " mi";
+  } else {
+    unitM = 1000;
+    suffix = " km";
+  }
+  const nice = niceScaleFloor(maxM / unitM);
+  const label =
+    nice >= 1000
+      ? `${nice.toLocaleString("en-US")}${suffix}`
+      : `${Number(nice.toFixed(3))}${suffix}`; // 0.02 AU stays "0.02", never "0.020"
+  return { widthPx: (nice * unitM) / mpp, label };
+}
+
 // ── the body registry ───────────────────────────────────────────────────────
 
 /**
@@ -591,9 +666,8 @@ export interface SpaceFrameHandle {
   flyTo(id: string): void;
   /** fly home to the seam and hand the camera back to the map. */
   flyHome(): void;
-  /** chip path: one continuous outward fly to an Earth+Moon framing. */
-  flyOut(): void;
-  /** wheel/pinch impulse — multiplies camera distance (exponential zoom). */
+  /** wheel/pinch/button impulse — multiplies camera distance (exponential
+   *  zoom; buttons/keys convert to deltaY via zoomSeam.ZOOM_BUTTON_DELTAY). */
   nudgeZoom(deltaY: number): void;
   getState(): SpaceFrameState;
   dispose(): void;
@@ -621,6 +695,9 @@ export interface SpaceFrameState {
   animating: boolean;
   renderMsLast: number;
   markers: number;
+  /** the scale bar as DRAWN this frame (render truth for the harness):
+   *  mi/km per the units preference near bodies, AU at system range. */
+  scaleBar: { widthPx: number; label: string } | null;
   anchor: (EarthAnchor & { subLatDeg: number; subLonDeg: number }) | null;
   bodies: SpaceFrameBodyState[];
 }
@@ -1000,7 +1077,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
     // ── chrome (x=72 clears the page's left button rail; the bottom-left
     // caption slot is free because the parent hides the map-meta overlays
-    // — preset switch, imagery-date chip — while the frame is active) ──
+    // — preset switch, imagery-date chip — while the frame is active, and
+    // raises the surviving +/- zoom buttons above the caption via CSS) ──
     ctx.fillStyle = "rgba(210,222,238,0.85)";
     ctx.fillText(new Date(timeMs).toISOString().replace(/\.\d{3}Z$/, "Z"), 72, 22);
     const focus = drawn.find((d) => d.id === focusId)!;
@@ -1025,6 +1103,38 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       ctx.fillStyle = i === 0 ? "rgba(160,175,198,0.8)" : "rgba(140,155,178,0.65)";
       ctx.fillText(line, 16, h - 16 - (capLines.length - 1 - i) * 14);
     });
+
+    // ── scale bar (B1 §1): the map's own scale control stops at the floor —
+    // this continues the SAME instrument through mi → thousands of mi → AU,
+    // switching with the units preference, styled after .maplibregl-ctrl-
+    // scale (translucent box, hairline frame, end ticks). Input is meters/px
+    // at the focus body's surface, which equals the map bar's ground m/px at
+    // the seam by construction (see spaceScaleBar). Sits just above the
+    // caption; the zoom buttons are raised above both via CSS. ──
+    let scaleBarOut: { widthPx: number; label: string } | null = null;
+    {
+      const barId = flight ? flight.toId : focusId; // agree with the status line
+      const focusForBar = drawn.find((d) => d.id === barId);
+      if (focusForBar) {
+        const mpp = Math.max(1e-9, (focusForBar.distM - radiusM(barId)) / kNow);
+        const bar = spaceScaleBar(mpp, getUnits());
+        scaleBarOut = bar;
+        const bx = 16;
+        const by = h - 16 - capLines.length * 14 - 12; // baseline of the bar
+        ctx.fillStyle = "rgba(5,10,19,0.6)";
+        ctx.fillRect(bx - 4, by - 20, bar.widthPx + 8, 24);
+        ctx.strokeStyle = "rgba(102,128,160,0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); // left tick, bottom rule, right tick — the classic bar
+        ctx.moveTo(bx + 0.5, by - 6);
+        ctx.lineTo(bx + 0.5, by + 0.5);
+        ctx.lineTo(bx + bar.widthPx - 0.5, by + 0.5);
+        ctx.lineTo(bx + bar.widthPx - 0.5, by - 6);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(170,185,205,0.9)";
+        ctx.fillText(bar.label, bx + 4, by - 10);
+      }
+    }
 
     // ── the Earth anchor: pose the LIVE MAP as the Earth ──
     const seam = opts.getMapSeam();
@@ -1083,6 +1193,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       animating: !!flight || performance.now() - lastInputAt < 200,
       renderMsLast,
       markers,
+      scaleBar: scaleBarOut,
       anchor: anchorOut,
       bodies: drawn.map((d) => ({
         id: d.id,
@@ -1251,19 +1362,6 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       beginFlight(id);
     },
     flyHome,
-    flyOut(): void {
-      if (exited) return;
-      // continuous outward fly on the current ray to a framing that shows
-      // the anchor with its nearest companion (Earth+Moon today: 2.2× the
-      // REAL current lunar distance — from ephemeris, not a constant)
-      cancelFlight();
-      const pos = positionsNow(timeMs);
-      const moonDef = defById.get("moon");
-      const out = moonDef
-        ? 2.2 * len3(sub(pos[moonDef.id], pos[anchorDef.id]))
-        : 60 * radiusM(anchorDef.id);
-      beginFlight(anchorDef.id, { toDir: dir, toDist: out });
-    },
     nudgeZoom(deltaY: number): void {
       lastInputAt = performance.now();
       nudge(deltaY);

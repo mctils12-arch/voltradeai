@@ -2372,8 +2372,17 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    solarView scene): the frame's canvas is the container's FIRST child so the
    globe-transparent map canvas composites over it, and the LIVE map canvas
    is CSS-posed per frame (inline transform/opacity) as the Earth anchor. */
-/* zoom chevrons pointing at a shrinking map are a lie */
+/* Map-specific chrome (scale bar, attribution, compass) hides while the
+   frame owns the viewport — the frame draws its OWN scale bar continuing
+   the same instrument into AU. The +/- ZOOM BUTTONS survive (B1 §1: "the
+   existing zoom controls extend continuously"): datamap capture-intercepts
+   their clicks and drives the frame's exponential zoom, so one instrument
+   works street→Neptune. The button column is raised above the frame's
+   bottom-left scale bar + honesty caption. */
 .vt-space-active .maplibregl-ctrl { display: none; }
+.vt-space-active .maplibregl-ctrl.maplibregl-ctrl-group { display: block; }
+.vt-space-active .maplibregl-ctrl-group button.maplibregl-ctrl-compass { display: none; }
+.vt-space-active .maplibregl-ctrl-bottom-left { bottom: 96px; }
 /* the always-on celestial sky renders the FROM-THE-GROUND view (topocentric
    az/el) — wrong once the camera leaves Earth; the frame draws the same
    bodies from the camera's true position instead. Suspended, not disposed:
@@ -2382,17 +2391,8 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 /* (the style-preset switch and imagery-date chip are SIBLINGS of the map
    container, not descendants — they hide via !spaceActive in JSX instead) */
 .vt-space-active .maplibregl-canvas { will-change: transform, opacity; }
-.vt-space-chip {
-  position: absolute; z-index: 31;
-  left: 50%; transform: translateX(-50%); bottom: 118px;
-  padding: 6px 14px; border-radius: 999px;
-  font-size: 12px; font-weight: 600; cursor: pointer;
-  color: var(--text-primary);
-  background: var(--surface-1, rgba(10, 16, 28, 0.9));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
-  backdrop-filter: blur(6px);
-}
-.vt-space-chip:hover { border-color: var(--accent, #4d9fff); color: var(--accent, #4d9fff); }
+/* (the ☉ "Solar system" chip is DELETED — celestial v2 B1 §1: no entry
+   button, no separate mode; the zoom inputs themselves are the way out) */
 
 /* W2 debug fps readout — behind ?fps=1 / localStorage vt-fps=1 only */
 .vt-fps-chip {
