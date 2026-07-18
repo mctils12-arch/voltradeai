@@ -3,6 +3,33 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [REPAIR] — RELEASE BLOCKER: spaceFrame page-freeze root-caused to a floating-point fixed point (v1.0.397, T-CLIENT, agent + parent verify)
+
+Human report: Chrome "Page Unresponsive" at /app#/data on v1.0.396.
+ROOT CAUSE (CDP Debugger.pause evidence, not a guess):
+layoutLabelStacks() in spaceFrame.ts — the greedy label stacker steps a
+colliding label to yj+14, but in doubles that sum can round DOWN
+(captured live: 507.7892615010763 -> 521.7892615010762, delta
+13.999999999999943 < 14); the collision refires on the identical value,
+moved stays true, the while loop spins forever INSIDE draw() — one
+synchronous task, blocked forever. TIME-DEPENDENT: 117/2920 sampled
+epochs hang the verbatim algorithm (why ship-day drives passed 33/33
+and production froze later — freeze roulette). Honest load finding:
+cold load itself does NOT hang (startup long tasks are pre-existing
+maplibre/SwiftShader compile); the freeze needs the space frame, one
+stray wheel notch away (entry threshold 60 deltaY) — consistent with
+"during load" reports. FIX: a move must STRICTLY increase y (ny > y
+guard) — restores the termination proof under any rounding; a label on
+the fixed point stays put (one float-ulp of overlap, invisible).
+Regression tests pin the rounding precondition, the 2-label minimal
+repro, and the captured 9-anchor cluster (25/25). Also shipped: the
+directive's long-task watchdog (dev-only PerformanceObserver,
+prod-inert, __vtLongTasks seam). VERIFIED on the integrated build:
+fly-home from 46.79 AU lands in 2s, zero new long tasks, event-loop
+probes <=9ms; stress drive DONE with no hang. Lesson filed: greedy
+geometry loops need termination proofs that survive float rounding —
+"x = max(x, y+c)" without a strict-increase guard is a latent infinite
+loop wherever it feeds a while(moved).
 ## 2026-07-18 (session 2, scheduled-routine) [REPAIR] — KNOWN BROKEN #18 RECURRENCE (live, ongoing): Tier2 full-scan "Daemon timeout" back since 13:35Z, ruled out the O(n²) mechanism, shipped a `timings` diag probe to confirm the leading rate-limiter-contention hypothesis (v1.0.398, T-BOT — server/bot.ts + server/diag.ts)
 
 TERRITORY: T-BOT (`server/bot.ts` outside frozen paths) per the WORKSTREAM
