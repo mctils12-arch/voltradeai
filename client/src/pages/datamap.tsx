@@ -53,7 +53,7 @@ import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { buildFormMesh } from "@/lib/orbital/model3d";
-import type { FollowCameraHandle, InspectView } from "@/lib/orbital/followCamera";
+import type { FollowCameraHandle, InspectView, EarthTextureState } from "@/lib/orbital/followCamera";
 import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
@@ -1234,12 +1234,16 @@ export default function DataMapPage() {
   // follow already orbits the craft itself (setCenterElevation puts the
   // camera center AT the craft: rotate/tilt orbit it, zoom approaches it)
   // over the live map, with the always-on celestial sky supplying the real
-  // Sun/Moon context toward the horizon. inspectCraft() below is the one
-  // affordance kept from the old chip: a single ease into the close-orbit
-  // framing — same camera model, no mode switch, the Earth keeps moving
-  // underneath. What the map camera structurally cannot do (look fully
-  // AWAY from the ground, pitch past the horizon) stays honestly out of
-  // scope rather than living in a disconnected scene the human rejected.
+  // Sun/Moon context toward the horizon. inspectCraft() below is a single
+  // ease into the close-orbit framing — same camera model, no mode switch,
+  // the Earth keeps moving underneath. What the map camera structurally
+  // cannot do (look fully AWAY from the ground, pitch past the horizon)
+  // stays honestly out of scope rather than living in a disconnected scene
+  // the human rejected.
+  // ONE ENTRY POINT (human review 2026-07-18, space_view_handoff item 2):
+  // the toolbar "⟳ inspect" chip that ran this ease directly is DELETED —
+  // the card's Inspect button (openInspect below) is the single Inspect
+  // action, and inspectCraft() survives ONLY as its GL-failure fallback.
   const inspectCraft = useCallback(() => {
     const map = mapRef.current;
     const f = satFollowRef.current;
@@ -1280,7 +1284,10 @@ export default function DataMapPage() {
   const inspectSyncTimerRef = useRef<number | null>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectView, setInspectView] = useState<InspectView>("orbit");
-  const [inspectCaption, setInspectCaption] = useState<string>("");
+  // Earth-imagery lifecycle from the overlay handle — the one-line credit
+  // claims "NASA imagery" only while the texture is actually on screen
+  // (load failure = the labeled simplified-globe fallback, stated instead).
+  const [inspectEarthTex, setInspectEarthTex] = useState<EarthTextureState>("loading");
   const closeInspectRef = useRef<() => void>(() => {});
   const openInspectRef = useRef<() => void>(() => {});
   // GENERIC_MESH_LABEL lives in the lazily-loaded module; cached after the
@@ -1386,7 +1393,7 @@ export default function DataMapPage() {
         try { (map as any)[h]?.disable(); } catch {}
       }
       setInspectView("orbit");
-      setInspectCaption(`${handle.getProvenance()} Craft: ${label}.`);
+      setInspectEarthTex(handle.getEarthTexture());
       setInspectOpen(true);
       // 1 Hz sync: (a) the real .vtm model often lands AFTER the follow
       // starts — swap it in when the model layer has it; (b) a mid-session
@@ -1404,8 +1411,8 @@ export default function DataMapPage() {
         if (cur.mesh && cur.mesh !== (h as any).__lastMesh) {
           (h as any).__lastMesh = cur.mesh;
           h.setMesh(cur.mesh, cur.label);
-          setInspectCaption(`${h.getProvenance()} Craft: ${cur.label}.`);
         }
+        setInspectEarthTex(h.getEarthTexture()); // credit follows reality
       }, 1000);
     } catch (e) {
       // degrade, never break: the kept map-ease fallback
@@ -1422,7 +1429,6 @@ export default function DataMapPage() {
     if (!h) return;
     h.setView(v);
     setInspectView(v);
-    setInspectCaption(`${h.getProvenance()} Craft: ${h.getMeshLabel()}.`);
   }, []);
   // any teardown path that unmounts the page must not leak the overlay
   useEffect(() => () => { closeInspectRef.current(); }, []);
@@ -8887,11 +8893,6 @@ export default function DataMapPage() {
                       onClick={() => setShowNadir(!showNadir)}>
                 ⌖ ground spot
               </button>
-              <button className="vt-satfinder-chip"
-                      title="Ease into close orbit around the craft — on the live map: rotate to circle it, tilt toward the horizon for the real Sun/Moon, zoom approaches the craft itself"
-                      onClick={inspectCraft}>
-                ⟳ inspect
-              </button>
             </>
           )}
         </div>
@@ -8917,16 +8918,19 @@ export default function DataMapPage() {
               Onboard
             </button>
           </div>
+          {/* one-line credit only — the honest label for whichever Earth is
+              actually rendering (never the deleted methodology essay) */}
+          {inspectEarthTex === "ready" && (
+            <div className="vt-inspect-credit" role="note">Earth: NASA imagery</div>
+          )}
+          {inspectEarthTex === "failed" && (
+            <div className="vt-inspect-credit" role="note">Earth: simplified globe — imagery unavailable</div>
+          )}
         </div>
       )}
-      {inspectOpen && (
-        // provenance caption (design 1e; the retired scene's discipline —
-        // every simplification labeled, on screen, always)
-        <div className="vt-inspect-caption" role="note">
-          <div className="vt-inspect-caption-head">COMPUTED EPHEMERIS VIEW</div>
-          <div className="vt-inspect-caption-body">{inspectCaption}</div>
-        </div>
-      )}
+      {/* (the "COMPUTED EPHEMERIS VIEW" methodology caption is DELETED —
+          human review 2026-07-18, space_view_handoff item 1: no on-screen
+          essay; honesty lives in the card's chips + the one-line credit) */}
       {detail && detailMin && (
         // O6 minimize (human-requested): the card collapses to a pill so the
         // globe shows through — the focus/follow keeps running underneath;

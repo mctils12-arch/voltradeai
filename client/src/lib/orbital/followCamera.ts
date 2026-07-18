@@ -43,11 +43,16 @@
 //            at 1 AU — penumbra dim transition, umbra black; earthShadow()
 //            below, unit-tested).
 //   EARTH  — a sphere of TRUE ANGULAR SIZE from the craft's live altitude
-//            (asin(R/(R+h))), in the nadir direction, shaded by the REAL
-//            day/night terminator, with a 15° graticule so the live ground
-//            motion is visible. A simplified globe — NEVER live imagery
-//            (and never claimed to be; the map-canvas composite alternative
-//            was considered and NOT used — this label says which).
+//            (asin(R/(R+h))), in the nadir direction, textured with a
+//            NASA-derived equirectangular surface map (threex.planets
+//            earthmap1k, shipped at EARTH_TEXTURE_URL — a STATIC base map,
+//            not live imagery of the moment; the credit line the parent
+//            renders says so) and shaded by the REAL day/night terminator.
+//            The texture is aligned through the SAME scene→ECEF rotation
+//            the 15° graticule always used (sceneToEcefMat3, unit-pinned),
+//            so the subsatellite point is geographically right. If the
+//            texture cannot load, the scene falls back to the labeled
+//            simplified graticule globe — never a broken texture.
 //   MOON   — disc at the real ephemeris direction, true angular size,
 //            sphere-shaded by the real sun direction (real phase +
 //            lit-side orientation). Display-grade (~1°), labeled.
@@ -109,6 +114,15 @@ export const MAX_GLIDE_SEC = 2.5;
 /** Onboard neighbor-marker cap (nearest first) — bounds the per-refresh
  *  upload; the count actually drawn vs total is reported honestly. */
 export const NEIGHBOR_CAP = 4096;
+/** NASA-derived equirectangular Earth surface map (threex.planets
+ *  earthmap1k lineage), shipped in client/public/space — fetched lazily at
+ *  mount, ~336 KB, zero bundle growth. Load failure falls back to the
+ *  labeled simplified graticule globe (getEarthTexture() reports which). */
+export const EARTH_TEXTURE_URL = '/space/earthmap1k.jpg';
+
+/** Earth-texture lifecycle, surfaced so the parent's credit line never
+ *  claims imagery that is not actually on screen. */
+export type EarthTextureState = 'loading' | 'ready' | 'failed';
 
 export type InspectView = 'orbit' | 'onboard';
 
@@ -118,13 +132,13 @@ export const ORBIT_VIEW_PROVENANCE =
   'LIVE FOLLOW — the craft rides its real SGP4 orbit; time never stops. ' +
   'Craft lit by the real sun direction (subsolar ephemeris, ~0.01°): Lambert with hard-clamp self-shadow approximation, ' +
   'earthshine fill only while the Earth below is sunlit, and the craft darkens through penumbra into Earth’s umbra ' +
-  '(real shadow-cone geometry). Earth: simplified globe at true angular size — real day/night terminator + graticule, ' +
-  'NOT live imagery. Moon at its real ephemeris direction and phase (display-grade, ~1°); Sun disc at true angular size ' +
-  '(~0.53°). Black sky: no decorative starfield — real positions or absent.';
+  '(real shadow-cone geometry). Earth at true angular size with NASA-derived surface imagery (a static base map, ' +
+  'NOT live imagery of this moment) under the real day/night terminator. Moon at its real ephemeris direction and phase ' +
+  '(display-grade, ~1°); Sun disc at true angular size (~0.53°). Black sky: no decorative starfield — real positions or absent.';
 export const ONBOARD_VIEW_PROVENANCE =
   'LIVE FOLLOW, ONBOARD — free-look from the craft’s real moving SGP4 position; time never stops. ' +
-  'Earth below: simplified globe at true angular size — real day/night terminator + graticule, NOT live imagery ' +
-  '(map-canvas compositing deliberately not used). Moon/Sun at their real ephemeris directions and true angular sizes; ' +
+  'Earth below at true angular size with NASA-derived surface imagery (a static base map, NOT live imagery of this ' +
+  'moment) under the real day/night terminator. Moon/Sun at their real ephemeris directions and true angular sizes; ' +
   'other satellites are live catalogued positions from the same SGP4 buffer, drawn as markers (not lit models). ' +
   'Black sky: no decorative starfield — real positions or absent.';
 
@@ -603,9 +617,12 @@ void main() {
   v_world = wp;
 }`;
 
-// Day/night by the REAL terminator (dot(surface normal, real sun dir)); a
-// 15° lat/lon graticule via the scene→ECEF rotation makes the live ground
-// motion visible. Simplified globe — labeled, never imagery.
+// Day/night by the REAL terminator (dot(surface normal, real sun dir)),
+// over the NASA-derived equirect surface map sampled through the SAME
+// scene→ECEF rotation the graticule always used (sceneToEcefMat3 — the
+// alignment is unit-pinned, so the subsatellite geography is right).
+// u_hasTex=0 (texture still loading / failed) keeps the labeled simplified
+// graticule globe as the honest fallback.
 const EARTH_FS = `#version 300 es
 precision highp float;
 in vec3 v_normal;
@@ -613,23 +630,32 @@ in vec3 v_world;
 uniform vec3 u_sun;
 uniform vec3 u_camPos;
 uniform mat3 u_sceneToEcef;
+uniform sampler2D u_tex; // NASA-derived equirect surface map (static)
+uniform float u_hasTex;  // 1 once loaded; 0 = simplified-globe fallback
 out vec4 o;
 void main() {
   vec3 n = normalize(v_normal);
   float lit = dot(n, u_sun);
   float day = smoothstep(-0.08, 0.12, lit);
-  vec3 dayCol = mix(vec3(0.07, 0.20, 0.42), vec3(0.16, 0.36, 0.60), 0.5 + 0.5 * n.y);
-  vec3 nightCol = vec3(0.004, 0.006, 0.012);
-  vec3 c = mix(nightCol, dayCol, day);
-  // graticule: real lat/lon under this fragment (scene normal → ECEF)
+  // real lat/lon under this fragment (scene normal → ECEF)
   vec3 ne = normalize(u_sceneToEcef * n);
   float latDeg = degrees(asin(clamp(ne.z, -1.0, 1.0)));
   float lonDeg = degrees(atan(ne.y, ne.x));
+  // equirect sample: u=0 at 180°W → lon/360+0.5; v=0 at the north pole
+  // (image top row = +90°, default DOM upload order) → 0.5-lat/180
+  vec3 texCol = texture(u_tex, vec2(lonDeg / 360.0 + 0.5, 0.5 - latDeg / 180.0)).rgb;
+  vec3 flatDay = mix(vec3(0.07, 0.20, 0.42), vec3(0.16, 0.36, 0.60), 0.5 + 0.5 * n.y);
+  vec3 dayCol = mix(flatDay, texCol, u_hasTex);
+  // night side: near-black; with imagery, a faint earthshine-grade hint of
+  // the same real surface (display shading — no fabricated city lights)
+  vec3 nightCol = mix(vec3(0.004, 0.006, 0.012), texCol * vec3(0.020, 0.024, 0.034), u_hasTex);
+  vec3 c = mix(nightCol, dayCol, day);
+  // 15° graticule: only the no-texture fallback needs it to show motion
   vec2 g = vec2(latDeg / 15.0, lonDeg / 15.0);
   vec2 dg = fwidth(g);
   vec2 cell = abs(fract(g) - 0.5);
   vec2 line = 1.0 - smoothstep(vec2(0.0), dg * 1.4, cell);
-  float grat = max(line.x, line.y);
+  float grat = max(line.x, line.y) * (1.0 - u_hasTex);
   c += vec3(0.10, 0.16, 0.22) * grat * (0.25 + 0.75 * day);
   vec3 vDir = normalize(u_camPos - v_world);
   float rim = pow(1.0 - clamp(dot(n, vDir), 0.0, 1.0), 3.0);
@@ -751,6 +777,9 @@ export interface FollowCameraHandle {
   getRenderFailed(): boolean;
   getCamera(): { yaw: number; pitch: number; dist: number };
   getLook(): { azDeg: number; elDeg: number; fovDeg: number };
+  /** Earth-imagery lifecycle — the parent's credit line renders from this,
+   *  so "NASA imagery" is only ever claimed while it is actually drawn. */
+  getEarthTexture(): EarthTextureState;
   /** drive/test seams — real internal state, prod-inert to read. */
   setLook(azDeg: number, elDeg: number): void;
   getLighting(): LightingReadout | null;
@@ -780,6 +809,7 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
   let lastState: CraftState | null = null;
   let lastLighting: LightingReadout | null = null;
   let neighborCount = { drawn: 0, total: 0 };
+  let earthTexState: EarthTextureState = 'loading';
   const frameTimes: number[] = [];
 
   const doc: Document | null =
@@ -797,6 +827,7 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
     getRenderFailed: () => renderFailed,
     getCamera: () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist }),
     getLook: () => ({ azDeg: look.azDeg, elDeg: look.elDeg, fovDeg: look.fovDeg }),
+    getEarthTexture: () => 'failed', // no GL → nothing textured is drawn
     setLook(az, el) { look.azDeg = az; look.elDeg = Math.max(-LOOK_EL_LIMIT_DEG, Math.min(LOOK_EL_LIMIT_DEG, el)); },
     getLighting: () => lastLighting,
     getStateNow: () => lastState,
@@ -840,6 +871,7 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
   let bufQuad: WebGLBuffer | null = null;
   let bufPoints: WebGLBuffer | null = null;
   let bufLine: WebGLBuffer | null = null;
+  let earthTex: WebGLTexture | null = null;
   let pointScene: Float32Array | null = null; // scene-space marker positions
   let lastNeighborRefreshMs = 0;
   let prevSample: CraftState | null = null;
@@ -901,7 +933,8 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
     gl = canvas.getContext('webgl2', { antialias: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('followCamera: WebGL2 unavailable');
     meshProg = compile(MESH_VS, MESH_FS, ['a_pos', 'a_normal', 'a_color'], ['u_mvp', 'u_sun', 'u_shadow', 'u_fillK']);
-    earthProg = compile(EARTH_VS, EARTH_FS, ['a_pos'], ['u_mvp', 'u_center', 'u_radius', 'u_sun', 'u_camPos', 'u_sceneToEcef']);
+    earthProg = compile(EARTH_VS, EARTH_FS, ['a_pos'],
+      ['u_mvp', 'u_center', 'u_radius', 'u_sun', 'u_camPos', 'u_sceneToEcef', 'u_tex', 'u_hasTex']);
     discProg = compile(DISC_VS, DISC_FS, ['a_uv'],
       ['u_mvp', 'u_centerPos', 'u_right', 'u_up2', 'u_radius', 'u_mode', 'u_facing', 'u_sun']);
     pointProg = compile(POINT_VS, POINT_FS, ['a_pos'], ['u_mvp', 'u_color']);
@@ -923,6 +956,36 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
     renderFailed = true;
     // eslint-disable-next-line no-console
     console.error('followCamera: disabling after GL init failure (page continues):', e);
+  }
+
+  // ── Earth imagery: lazy fetch of the NASA-derived surface map. Any
+  // failure (network, decode, upload) latches 'failed' and the simplified
+  // graticule globe stays — the scene never breaks over a texture. ──
+  if (gl && !renderFailed && typeof Image !== 'undefined') {
+    const img = new Image();
+    img.onload = () => {
+      if (disposed || !gl || renderFailed) return;
+      try {
+        earthTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, earthTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); // lon seam at ±180°
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        earthTexState = 'ready';
+        drawFrame();
+      } catch (e) {
+        earthTexState = 'failed';
+        // eslint-disable-next-line no-console
+        console.error('followCamera: earth texture upload failed (simplified globe stays):', e);
+      }
+    };
+    img.onerror = () => { earthTexState = 'failed'; };
+    img.src = EARTH_TEXTURE_URL;
+  } else {
+    earthTexState = 'failed';
   }
 
   function resizeBacking(): void {
@@ -1053,6 +1116,11 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
       g.uniform3f(p.unis.u_sun, sunScene[0], sunScene[1], sunScene[2]);
       g.uniform3f(p.unis.u_camPos, eye[0], eye[1], eye[2]);
       g.uniformMatrix3fv(p.unis.u_sceneToEcef, false, sceneToEcef);
+      const texOn = earthTexState === 'ready' && earthTex != null;
+      g.activeTexture(g.TEXTURE0);
+      g.bindTexture(g.TEXTURE_2D, texOn ? earthTex : null);
+      g.uniform1i(p.unis.u_tex, 0);
+      g.uniform1f(p.unis.u_hasTex, texOn ? 1 : 0);
       g.bindBuffer(g.ARRAY_BUFFER, bufSphere);
       g.enableVertexAttribArray(p.attrs.a_pos);
       g.vertexAttribPointer(p.attrs.a_pos, 3, g.FLOAT, false, 0, 0);
@@ -1299,6 +1367,7 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
           for (const b of [bufMeshPos, bufMeshNor, bufMeshCol, bufSphere, bufQuad, bufPoints, bufLine]) {
             if (b) gl.deleteBuffer(b);
           }
+          if (earthTex) gl.deleteTexture(earthTex);
           for (const p of [meshProg, earthProg, discProg, pointProg, lineProg]) {
             if (p) gl.deleteProgram(p.prog);
           }
@@ -1309,6 +1378,7 @@ export function mountFollowCamera(container: HTMLElement, opts: FollowCameraOpti
     getRenderFailed: () => renderFailed,
     getCamera: () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist }),
     getLook: () => ({ azDeg: look.azDeg, elDeg: look.elDeg, fovDeg: look.fovDeg }),
+    getEarthTexture: () => earthTexState,
     setLook(az: number, el: number): void {
       look.azDeg = ((az % 360) + 360) % 360;
       look.elDeg = Math.max(-LOOK_EL_LIMIT_DEG, Math.min(LOOK_EL_LIMIT_DEG, el));

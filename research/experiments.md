@@ -3,6 +3,32 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PRODUCT] — Inspect view fixes per the Space View handoff review (v1.0.407, T-CLIENT, worktree agent + parent review)
+
+Human review items 1–3 (research/directives/space_view_handoff_
+2026-07-18.md, verbatim): (1) the "COMPUTED EPHEMERIS VIEW"
+methodology block DELETED — caption JSX, state, and its
+phone-offset CSS; honesty stays in the card chips + a one-line
+credit. (2) ONE Inspect entry point — the toolbar "⟳ inspect" chip
+(a plain map ease, different behavior) removed; the card's Inspect
+(follow-camera) is the single action; inspectCraft() KEPT as the
+GL-failure fallback (3 call sites, not dead code). (3) REAL Earth
+in inspect: NASA-derived earthmap1k (client/public/space/, 344KB
+lazy-fetched, zero bundle growth) sampled equirect in the fragment
+shader through the SAME pinned sceneToEcef frame as the old
+graticule; umbra/terminator lighting + live neighbors unchanged on
+top; credit "Earth: NASA imagery", degrading honestly to
+"simplified globe — imagery unavailable" when the fetch fails.
+Clouds texture deliberately NOT shipped (static clouds ≠ real
+current weather). Maplibre itself cannot render the inspect
+geometry (camera below an orbiting craft, Earth off-center against
+space) — imagery-on-impostor is the honest fix, stated as such.
+Gates (parent-verified on the integrated tree): client 448/448
+(+1, none weakened), build clean, agent drive 14/14 (pixel A/B
+proves the texture: palette delta 68.2, terrain hue inversion;
+Chad nadir renders Sahel tan not rainforest green — orientation
+proven), harness 0 hard failures. Backtest n/a.
+
 ## 2026-07-18 [PRODUCT] — Celestial v2 B3: orbits, rotation, moons, ONE simulation clock (v1.0.406, T-CLIENT, worktree agent + parent review)
 
 Directive §3 complete. simClock.ts: simulated time as an affine map of

@@ -11,7 +11,7 @@ import {
   createLookCam, lookApplyDrag, lookApplyZoom, lookStep, lookDirScene,
   meshExtent, mountFollowCamera,
   EARTH_RADIUS_M, PITCH_LIMIT_RAD, LOOK_EL_LIMIT_DEG, LOOK_FOV_MIN_DEG, LOOK_FOV_MAX_DEG,
-  MAX_GLIDE_SEC, NEIGHBOR_CAP,
+  MAX_GLIDE_SEC, NEIGHBOR_CAP, EARTH_TEXTURE_URL,
   ORBIT_VIEW_PROVENANCE, ONBOARD_VIEW_PROVENANCE, GENERIC_MESH_LABEL,
 } from './followCamera.js';
 import { subsolarPoint } from '../celestial/ephemeris.js';
@@ -267,11 +267,31 @@ test('provenance: every simplification labeled — the caption discipline', () =
     assert.match(p, /NOT live imagery/);
     assert.match(p, /no decorative starfield/);
     assert.match(p, /time never stops/);
+    // real-Earth inspect (space_view_handoff 2026-07-18 item 3): the Earth
+    // is NASA-derived imagery, credited — and still honestly a static map
+    assert.match(p, /NASA-derived/);
+    assert.match(p, /static base map/);
   }
   assert.match(ORBIT_VIEW_PROVENANCE, /umbra/);
   assert.match(ORBIT_VIEW_PROVENANCE, /self-shadow approximation/);
   assert.match(ONBOARD_VIEW_PROVENANCE, /markers/);
   assert.match(GENERIC_MESH_LABEL, /not imagery of this unit/);
+});
+
+test('earth texture: public asset path pinned; equirect decode shares the pinned scene→ECEF frame', () => {
+  // the asset ships in client/public/space — a moved/renamed file would
+  // silently regress to the fallback globe without this pin
+  assert.equal(EARTH_TEXTURE_URL, '/space/earthmap1k.jpg');
+  // the shader's uv comes from the SAME lat/lon decode the graticule used:
+  // ne = u_sceneToEcef * n, lat = asin(ne.z), lon = atan(ne.y, ne.x) —
+  // sanity-pin the mapping at Greenwich-equator: scene.y (Up) is the local
+  // zenith, whose ECEF at (0,0) is (1,0,0) → lat 0, lon 0 → uv (0.5, 0.5),
+  // the exact center of the equirect map (Greenwich at image center).
+  const m = sceneToEcefMat3(0, 0);
+  const up = [m[3], m[4], m[5]]; // column 1 = scene.y in ECEF
+  const lat = Math.asin(up[2]) * 180 / Math.PI;
+  const lon = Math.atan2(up[1], up[0]) * 180 / Math.PI;
+  assert.ok(close(lon / 360 + 0.5, 0.5) && close(0.5 - lat / 180, 0.5));
 });
 
 test('mount without a DOM: inert handle, latched failed, view/mesh setters still safe', () => {
@@ -281,6 +301,7 @@ test('mount without a DOM: inert handle, latched failed, view/mesh setters still
     getState: () => null,
   });
   assert.equal(h.getRenderFailed(), true, 'no-DOM mount latches failed (parent falls back to the map ease)');
+  assert.equal(h.getEarthTexture(), 'failed', 'no GL → the credit line must never claim imagery');
   h.setView('onboard');
   assert.equal(h.getView(), 'onboard');
   assert.equal(h.getProvenance(), ONBOARD_VIEW_PROVENANCE);
