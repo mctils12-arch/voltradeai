@@ -92,6 +92,54 @@ class TestFeedResolution(unittest.TestCase):
             os.environ.pop("ALPACA_DATA_FEED", None)
 
 
+class TestBarsFeedResolution(unittest.TestCase):
+    """[REPAIR 2026-07-18]: live production evidence — TIER3-ML-ERROR
+    recurring every ML retrain cycle since ~2026-07-17T19:00Z with
+    HTTP 400 {"message":"invalid feed: delayed_sip"} from Alpaca's
+    /v2/stocks/bars endpoint, while the SAME account/state's snapshot
+    calls (data_feed() resolving to the identical "delayed_sip" value)
+    keep succeeding — Tier2 scans completed normally throughout. The bars
+    endpoint's feed enum doesn't include "delayed_sip" (a real-time-tape
+    delay concept meaningless for already-historical daily bars);
+    bars_feed() swaps in "iex" — the free value alphadesk/alphadesk/
+    market.py already uses successfully for this same endpoint — only for
+    that one rejected value, leaving every other resolution untouched."""
+
+    def setUp(self):
+        alpaca_feed._reset_for_tests()
+        os.environ.pop("ALPACA_DATA_FEED", None)
+
+    def test_sip_when_entitled_passes_through(self):
+        alpaca_feed.data_feed(now=1000, probe=lambda: 200)
+        self.assertEqual(alpaca_feed.bars_feed(), "sip")
+
+    def test_delayed_sip_downgrades_to_iex_for_bars_only(self):
+        alpaca_feed.data_feed(now=1000, probe=lambda: 403)
+        self.assertEqual(alpaca_feed.data_feed(now=1000), "delayed_sip",
+            "sanity: the account IS in the downgraded state this test targets")
+        self.assertEqual(alpaca_feed.bars_feed(), "iex",
+            "bars endpoint rejects delayed_sip with HTTP 400 — iex is the "
+            "only free value it accepts; data_feed() must stay delayed_sip "
+            "for every non-bars (snapshot/quote/trade) call site")
+
+    def test_env_override_delayed_sip_still_downgrades_for_bars(self):
+        """An explicit ALPACA_DATA_FEED=delayed_sip override (tests/
+        emergencies) must not bypass the bars-endpoint substitution —
+        the override forces WHAT feed(), not which endpoint validates it."""
+        os.environ["ALPACA_DATA_FEED"] = "delayed_sip"
+        try:
+            self.assertEqual(alpaca_feed.bars_feed(), "iex")
+        finally:
+            os.environ.pop("ALPACA_DATA_FEED", None)
+
+    def test_env_override_other_value_passes_through_unchanged(self):
+        os.environ["ALPACA_DATA_FEED"] = "otc"
+        try:
+            self.assertEqual(alpaca_feed.bars_feed(), "otc")
+        finally:
+            os.environ.pop("ALPACA_DATA_FEED", None)
+
+
 class TestNoHardcodedFeeds(unittest.TestCase):
     HARDCODED = re.compile(r'''feed=sip|["']feed["']\s*:\s*["'](?:sip|iex|delayed_sip)["']''')
 
@@ -110,6 +158,41 @@ class TestNoHardcodedFeeds(unittest.TestCase):
                 offenders.append(f"{f}: {m.group(0)}")
         self.assertEqual(offenders, [],
             f"hardcoded Alpaca feed found — use alpaca_feed.data_feed(): {offenders}")
+
+
+class TestBarsEndpointsUseBarsFeed(unittest.TestCase):
+    """RATCHET [REPAIR 2026-07-18]: every /v2/stocks/bars (single- or
+    multi-symbol) call site must resolve its feed via bars_feed(), never
+    data_feed() — the 2026-07-18 incident (see TestBarsFeedResolution)
+    was exactly a bars call site using data_feed()'s "delayed_sip" value,
+    which that endpoint's API rejects outright with HTTP 400. Would have
+    caught every one of the 29 sites this repair fixed across 13 files."""
+
+    BARS_URL = re.compile(r'/v2/stocks/(?:\{[^}]+\}/)?bars')
+
+    def test_bars_call_sites_use_bars_feed(self):
+        offenders = []
+        for f in os.listdir(REPO):
+            if not f.endswith(".py") or f.startswith("test_") or f == "alpaca_feed.py":
+                continue
+            src = open(os.path.join(REPO, f), encoding="utf-8", errors="replace").read()
+            for m in self.BARS_URL.finditer(src):
+                window = src[m.end():m.end() + 400]
+                # Stop the search scope at the next bars URL occurrence so one
+                # call's feed param can't be mistaken for a neighboring call's.
+                next_bars = self.BARS_URL.search(window[1:])
+                scope = window if next_bars is None else window[:next_bars.start() + 1]
+                if "feed" not in scope:
+                    continue  # this bars call passes no feed param — different bug class
+                if "bars_feed()" in scope:
+                    continue
+                if "data_feed()" in scope:
+                    offenders.append(f"{f}: /bars call near offset {m.start()} "
+                                      f"still resolves its feed via data_feed()")
+        self.assertEqual(offenders, [],
+            f"bars endpoint(s) using data_feed() instead of bars_feed() — "
+            f"Alpaca's bars API rejects the delayed_sip value data_feed() can "
+            f"return with HTTP 400: {offenders}")
 
 
 if __name__ == "__main__":

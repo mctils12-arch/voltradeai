@@ -34,7 +34,7 @@ import math
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
-from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 
 CACHE_DIR = "/tmp/voltrade_etf_cache"
@@ -164,7 +164,7 @@ def fetch_bars_alpaca(symbols, days=1900):
             "end": end_iso,
             "limit": 10000,
             "adjustment": "all",  # split + dividend
-            "feed": data_feed(),
+            "feed": bars_feed(),
         }
         try:
             url = f"{ALPACA_DATA}/v2/stocks/bars"

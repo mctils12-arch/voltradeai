@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 
 import requests
 import numpy as np
-from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 try:
     import lightgbm as lgb
@@ -389,7 +389,7 @@ def _fetch_alpaca_training_data(days=60, max_tickers=500):
         batch = tickers[i:i+20]
         try:
             url = (f"{ALPACA_DATA_URL}/v2/stocks/bars"
-                   f"?symbols={','.join(batch)}&timeframe=1Day&start={start_date}&limit=1000&adjustment=all&feed={data_feed()}")
+                   f"?symbols={','.join(batch)}&timeframe=1Day&start={start_date}&limit=1000&adjustment=all&feed={bars_feed()}")
             resp = requests.get(url, headers=_alpaca_headers(), timeout=15)
             data = resp.json()
             batch_bars = data.get("bars", {})

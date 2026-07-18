@@ -104,6 +104,32 @@ def data_feed(now: float | None = None, probe=None) -> str:
         return _state["feed"]
 
 
+def bars_feed() -> str:
+    """The feed every /v2/stocks/bars (historical, single- or multi-symbol)
+    call site should request. [REPAIR 2026-07-18]: live production evidence
+    (TIER3-ML-ERROR, recurring every retrain cycle since ~2026-07-17T19:00Z)
+    showed Alpaca's bars endpoint rejecting the resolved feed outright —
+    HTTP 400 {"message":"invalid feed: delayed_sip"} — while the SAME
+    account, in the SAME downgraded state, succeeds on every snapshot/quote/
+    trade call using data_feed()'s identical "delayed_sip" value (Tier2
+    scans keep completing normally). "delayed_sip" is Alpaca's real-time-tape
+    delay concept (give me the consolidated tape 15 minutes stale) — it does
+    not apply to already-historical daily bars, so the bars endpoint's own
+    feed enum doesn't include it; requesting it there isn't an entitlement
+    question (403), it's a bad request (400) regardless of subscription.
+    "iex" is the free, always-accepted value for bars specifically (already
+    used successfully for this exact endpoint by alphadesk/alphadesk/
+    market.py). data_feed() itself is UNCHANGED — every snapshot/quote/trade
+    call site keeps delayed_sip's superior consolidated-volume semantics
+    (measurement integrity for the dollar-volume scan gate still matters
+    there); this resolver only substitutes iex for the one feed value bars
+    demonstrably rejects, and passes "sip"/any forced value straight through
+    otherwise.
+    """
+    feed = data_feed()
+    return "iex" if feed == _DELAYED else feed
+
+
 def feed_status() -> dict:
     """For diagnostics/scan meta: current feed + downgrade info."""
     with _lock:

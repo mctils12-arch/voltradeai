@@ -40,7 +40,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict
 
 import requests
-from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 # [REPAIR 2026-07-17] ml_model_v2 is imported both by the long-running daemon
 # (where bot_engine.py already calls install_global_throttle()) AND by
@@ -281,7 +281,7 @@ def _fetch_training_bars(days: int = 365, max_tickers: int = 200, fast_mode: boo
             r = requests.get(f"{DATA_URL}/v2/stocks/bars",
                 params={"symbols": ",".join(batch), "timeframe": "1Day",
                         "start": start_date, "limit": 10000,
-                        "adjustment": "all", "feed": data_feed()},
+                        "adjustment": "all", "feed": bars_feed()},
                 headers=_h(), timeout=20)
             if r.status_code != 200:
                 last_error = f"HTTP {r.status_code}: {r.text[:180]}"
@@ -1917,12 +1917,12 @@ def _build_options_synthetic_training():
     try:
         r = requests.get(f"{DATA_URL}/v2/stocks/bars",
             params={"symbols":"VXX","timeframe":"1Day","start":"2020-01-01",
-                    "limit":2000,"feed": data_feed()},
+                    "limit":2000,"feed": bars_feed()},
             headers=_h(), timeout=15)
         vxx_bars = r.json().get("bars",{}).get("VXX",[])
         r2 = requests.get(f"{DATA_URL}/v2/stocks/bars",
             params={"symbols":"SPY","timeframe":"1Day","start":"2020-01-01",
-                    "limit":2000,"feed": data_feed()},
+                    "limit":2000,"feed": bars_feed()},
             headers=_h(), timeout=15)
         spy_bars = r2.json().get("bars",{}).get("SPY",[])
 

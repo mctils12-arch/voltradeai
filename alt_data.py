@@ -8,7 +8,7 @@ import time
 import re
 import requests
 from datetime import datetime, timedelta
-from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
 CACHE_DIR = "/tmp/voltrade_alt_cache"
@@ -274,7 +274,7 @@ def get_short_interest(ticker: str) -> dict:
         }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=30&adjustment=all&feed={data_feed()}"
+        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=30&adjustment=all&feed={bars_feed()}"
         resp = requests.get(url, headers=alpaca_headers, timeout=8)
         bars = resp.json().get("bars", [])
         # Alpaca uses "c", "o", "h", "l", "v" same as Polygon
@@ -453,7 +453,7 @@ def get_ftd_signal(ticker: str) -> dict:
         }
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
-        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=15&adjustment=all&feed={data_feed()}"
+        url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars?timeframe=1Day&start={start}&limit=15&adjustment=all&feed={bars_feed()}"
         resp = requests.get(url, headers=alpaca_headers, timeout=8)
         bars = resp.json().get("bars", [])
 

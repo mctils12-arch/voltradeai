@@ -3,6 +3,179 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 (session, scheduled-routine) [REPAIR] — KNOWN BROKEN #23: `/v2/stocks/bars` rejects `feed=delayed_sip` with HTTP 400 — VXX/SPY regime detection + ML training silently degraded account-wide, not just ML retrain (v1.0.397, T-BOT + shared alpaca_feed.py infra)
+
+TERRITORY: primarily T-BOT (bot_engine.py, ml_model_v2.py, instrument_selector.py)
+plus `alpaca_feed.py` and the other Alpaca-data-fetching modules
+(macro_data.py, options_scanner.py, intraday_shorts.py, shadow_portfolio.py,
+vol_surface.py, probability_engine.py, alt_data.py, etf_data_sources.py,
+ml_model.py) — cross-cutting core infra not explicitly enumerated in any
+WORKSTREAM PARTITION territory; noting this honestly since it doesn't fit
+the standard territory list. `package.json`/`package-lock.json` version
+bump touched last per the SHARED-file MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in full.
+`research/experiments.md` — **CORRECTED MID-SESSION**: initially read via
+`tail`, which (since the file is "Newest at top" per its own line 3, not
+append-at-bottom) actually surfaced the OLDEST visible entries, not the
+newest — the loop-health ratio below was recomputed from `grep ... | head`
+once this was caught, and the recomputed ratio is what's reported here (the
+tail-based read never entered the decision, only the corrected head-based
+one did). `research/open_questions.md` KNOWN BROKEN section read in full
+(items 1-22). `research/wishlist.md` DATACORE MAXIMUS block skimmed — no
+new items relevant to this session's eventual action.
+
+LOOP-HEALTH RATIO, last 10 entries (correctly read from the top this time):
+solarView retired [PRODUCT], Aircraft round [PRODUCT], Satellite UX round
+[PRODUCT], Wind-fleet position audit [PIPELINE], Settlement-stress
+composite [PIPELINE], Savannah River dedupe [PIPELINE], Position audit
+60-plant [PIPELINE], D3 ground-lock drag-release [REPAIR], Viewport
+aircraft tiling [PIPELINE], Altitude curtain WALLS [PRODUCT] — 1/10
+REPAIR, well under the 7/10 thrash threshold; no meta-problem override.
+This doesn't change the session's chosen action (SESSION BUDGET ranks "fix
+a bug seen in audit logs" as the top PRIMARY-action priority regardless of
+loop-health ratio; the ratio only escalates when REPAIR-heavy, it never
+deprioritizes a live-bug fix when healthy).
+
+`/api/health` (production, DIAG_TOKEN available this session): `status:
+ok`, `bot.liveness.dark: false`, `drawdownPct: "0.0"`,
+`scanner.consecutiveFailures: 0` — no LIVENESS ALARM. Per SESSION BUDGET,
+checked `/api/diag/audit` for bugs before picking a primary action.
+
+WHAT WAS FOUND: `/api/diag/audit?type=TIER3-ML-ERROR&limit=100` showed the
+2026-07-17 (session 4) ml_retrain-throttle fix's OWN stated follow-up
+hypothesis materializing — that session made `_fetch_training_bars`
+failures diagnosable but not yet diagnosed, and predicted a future session
+should check whether post-deploy failures carry a specific cause. They do:
+every retrain cycle since ~2026-07-17T19:00Z (spanning the entire session,
+36+ consecutive entries at ~30-60min intervals) failed identically with
+`HTTP 400: {"message":"invalid feed: delayed_sip"}` — NOT the HTTP 429
+that session's hypothesis (b) anticipated. `/api/diag/ml` confirmed the
+real cost: `model_age_hours: 40.8`, zero successful retrains in that
+window. Traced the root cause (READ BEFORE WRITE — read `alpaca_feed.py`,
+`ml_model_v2.py._fetch_training_bars`, then grepped every `/v2/stocks/bars`
+call site in the repo before touching anything): `alpaca_feed.py`'s
+`data_feed()` (the 2026-07-06 SIP-403 fix) correctly downgrades to
+`"delayed_sip"` when the account's real-time SIP entitlement is rejected —
+confirmed still working correctly for snapshot/quote/trade endpoints (Tier2
+scans completed normally every cycle throughout, "Scanned 11931 stocks",
+zero scanner degradation on `/api/diag/scanner`). But Alpaca's historical
+`/v2/stocks/bars` endpoint doesn't accept `"delayed_sip"` as a feed value
+at all — it's a real-time-tape delay concept that doesn't apply to
+already-past daily bars — so it 400s regardless of subscription tier
+whenever the account is in the downgraded state, not a 403 entitlement
+question. `data_feed()` was used identically for bars AND snapshot/quote
+calls across 13 files (bot_engine.py, macro_data.py, ml_model_v2.py,
+ml_model.py, options_scanner.py, intraday_shorts.py, shadow_portfolio.py,
+vol_surface.py, instrument_selector.py, probability_engine.py, alt_data.py,
+etf_data_sources.py) — 29 bars call sites total (each individually read and
+confirmed as a genuine `/v2/stocks/bars` or `/v2/stocks/{ticker}/bars`
+call, not regex-blind), every one wrapped in a bare `except Exception` (or
+equivalent) that silently falls back to hardcoded defaults
+(`vxx_ratio=1.0`, `spy_above_200d=True`, `spy_below_200_days=0`) with ZERO
+audit trail anywhere except `_fetch_training_bars` (the one site the
+2026-07-17 KNOWN BROKEN #17 diagnosability fix had reached).
+
+REASONING STANDARD #1 (downstream chain, stated before shipping): a
+silently-defaulted `vxx_ratio`/`spy_below_200_days` feeds
+`macro_data.get_market_regime()` → `tiered_strategy`'s regime-adaptive caps
+and `master_kill_switch` (KNOWN BROKEN #20) → position sizing and the CSP
+tier gate → live P&L attributed to a regime label that may not reflect the
+market's actual regime while the account has been SIP-403-downgraded. This
+is a HONESTY METRIC concern (GOAL priority 2 — corrupted learning inputs)
+independent of and larger in blast radius than the ML-retrain symptom that
+surfaced it; the retrain failures were the one LOUD, diagnosable instance
+of a bug that was mostly silent everywhere else.
+
+FIX: `alpaca_feed.py` gained `bars_feed()` — defers to `data_feed()` for
+every value except the one bars demonstrably rejects, substituting `"iex"`
+only then (free, always accepted; already proven for this identical
+endpoint by the separate `alphadesk/alphadesk/market.py` package, which
+hardcodes `feed=iex` for its own bars calls). `data_feed()` itself is
+UNCHANGED — every snapshot/quote/trade call site keeps `delayed_sip`'s
+correct full-consolidated-volume semantics (the 2026-07-06 fix's own
+measurement-integrity reasoning for rejecting iex there still holds and
+was not touched). All 29 confirmed bars call sites swept onto
+`bars_feed()` — one root cause, one centralized fix, mirroring the
+2026-07-06 44-site sweep's own precedent for treating this shape of bug as
+ONE logical change. `ml_model.py` (confirmed dead/unimported — grepped,
+zero live importers, retired per `server/fillsSlippageWiring.test.ts`'s
+own comment) got the same one-line fix too, for ratchet consistency rather
+than carving out a dead-code exception.
+
+MEASUREMENT INTEGRITY NOTE (stated explicitly, per the MEASUREMENT
+INTEGRITY section's requirement to state bias direction): `iex` undercounts
+consolidated volume ~30-50x — exactly why 2026-07-06 rejected it for the
+snapshot-based dollar-volume scan GATE. That risk does not transfer here:
+`bars_feed()` only ever reaches historical bars calls (price/regime/
+training series), never the snapshot-based scan gate, which still uses
+`data_feed()` unchanged. The one place an absolute-volume distortion could
+theoretically bias something is `ml_model_v2.py`'s `volume_ratio` training
+feature (today/20d-avg — a same-ticker, same-source ratio), where a
+roughly-constant per-venue market-share bias largely cancels in the ratio;
+judged a materially smaller integrity risk than the alternative (zero
+retraining for 40+ hours, and every regime input in the interim silently
+defaulting rather than being honestly stale).
+
+RATCHET: `test_alpaca_feed.py` gained `TestBarsFeedResolution` (4 tests:
+sip passthrough unchanged, delayed_sip→iex substitution, forced-env
+delayed_sip still downgrades for bars, forced-env other values pass
+through untouched) and `TestBarsEndpointsUseBarsFeed` (source-scan ratchet:
+for every `/v2/stocks/bars` URL occurrence in a runtime file, asserts the
+feed resolved in that call's params is `bars_feed()`, never `data_feed()`
+— scoped per-occurrence so one call's feed can't be mistaken for a
+neighboring call's). A/B-VERIFIED LIVE this session (not just written and
+trusted): reverted one call site (`ml_model_v2.py`'s `_fetch_training_bars`)
+back to `data_feed()`, re-ran the new ratchet — it failed with the exact
+expected offender message; restored the fix, ratchet passed again.
+
+GATES: `pip install -r requirements.txt openpyxl` (same recurring sandbox
+gap every session logs) then `python3 -m pytest -q` — 756 passed, 2
+skipped (751 baseline + 5 new [4 TestBarsFeedResolution + 1
+TestBarsEndpointsUseBarsFeed], zero regressions). `npm install` (fresh —
+node_modules was absent this session — completed clean). `npx tsc --noEmit`
+— 68 errors, pre-existing baseline noise (zero TS files touched by this
+fix; matches prior sessions' logged range of 64-68 depending on sandbox
+install state, e.g. the 2026-07-18 EPA CAMD session's "66" and the R19
+session's "64" — not a regression to chase). `npx tsx --test
+server/*.test.ts` — 778 passed, 0 failed (no regressions; run for
+completeness since `package.json`/`package-lock.json` changed, though no
+server/ TS logic was touched). No client/ files touched — visual harness
+does not apply. Version bumped 1.0.396 -> 1.0.397 per PROMOTION RULE 4
+(read-and-increment at commit time, per the SHARED-file MERGE-ORDER
+PROTOCOL — re-read immediately before this commit, not planned ahead;
+`package-lock.json`'s stale 1.0.392 version field re-synced to 1.0.397 in
+the same edit, the same harmless-drift pattern several prior sessions have
+logged and fixed).
+
+BACKTEST: N/A — this restores documented existing regime-detection and
+ML-training data-fetching to working order; it is a bug fix to a data
+plumbing layer (which feed value an HTTP call requests), not a change to
+any scoring, sizing, or threshold value, so PROMOTION RULE 3's Sharpe/
+drawdown comparison doesn't apply — same reasoning every other
+alpaca_feed.py-adjacent fix in this repo's history has used (2026-07-06's
+own 44-site sweep, 2026-07-07's stdout-corruption fix, 2026-07-17's
+throttle fix).
+
+HYPOTHESIS (REASONING STANDARD #10, stated before any live confirmation):
+once deployed, `/api/diag/audit?type=TIER3-ML-ERROR` should show zero
+further entries (or, if a genuinely different cause exists, a new and
+different diagnosable message — not this one repeating) and
+`/api/diag/ml`'s `model_age_hours` should stop climbing past ~1-2h on the
+next Tier-3 hourly cycle. A live spot-check of `vxx_ratio`/
+`spy_below_200_days` (via `/api/diag/scanner` or a macro snapshot) would
+also be worth a future session's time to confirm regime inputs are now
+real-valued rather than the silent defaults this bug left in their place —
+no counterfactual archive exists to retroactively quantify how much the
+silent-default period cost, since `shadow_portfolio`'s counterfactual
+logging tracks REJECTED-candidate outcomes, not regime-input quality
+drift. Filed as KNOWN BROKEN #23 in open_questions.md with this full trace
+and a follow-up idea (a `data_source_errors`-style audit-visible field for
+regime-input freshness/validity, since right now this class of bug is only
+inferable from bars-fetch error absence, which is exactly what let it run
+silently everywhere except the one site with prior diagnosability
+investment).
+
 ## 2026-07-18 [PRODUCT] — ONE CONTINUOUS ZOOM: the live map IS the Earth in true-scale space; solarView retired (v1.0.396, T-CLIENT, agent + parent review)
 
 Human vision (this session, "figure out what would be best… in the

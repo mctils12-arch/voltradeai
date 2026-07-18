@@ -14,7 +14,7 @@ import re
 import requests
 from math import log, sqrt, exp, pi
 from datetime import datetime, timedelta, timezone
-from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
+from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 logger = logging.getLogger(__name__)
 
@@ -267,7 +267,7 @@ def _fetch_spot_price(ticker: str) -> float:
                 "start": start,
                 "limit": 5,
                 "adjustment": "all",
-                "feed": data_feed(),
+                "feed": bars_feed(),
             },
             headers=_headers(),
             timeout=10,
@@ -298,7 +298,7 @@ def _fetch_historical_bars(ticker: str, days: int = 90) -> list:
             "start": start,
             "limit": 200,
             "adjustment": "all",
-            "feed": data_feed(),
+            "feed": bars_feed(),
         }
         if page_token:
             params["page_token"] = page_token
