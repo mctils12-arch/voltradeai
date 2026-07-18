@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-18 [PIPELINE] — Audit follow-ups: Savannah River dedupe + wind-centroid card caveat (v1.0.391, T-DATACORE+T-CLIENT small slice)
+
+Two follow-ups the position audit filed, shipped: (1) nuclear facilities
+Q139796054 'Savannah River Plant' removed — same facility as Q2458173
+'Savannah River Site' (historical vs current name) at IDENTICAL coords;
+67 -> 66, dedup recorded in the artifact _doc. (2) Wind plant cards now
+carry the centroid caveat: a CORRECT wind-farm point is the farm
+centroid — turbines spread km around it, so imagery at the marker can
+honestly show empty ground (distinct from the 4 genuinely-wrong coords
+the audit fixed; this closes the honesty gap the audit named). Full
+wind-fleet batch verification agent still out.
+
 ## 2026-07-18 [PIPELINE] — Position audit: 60-plant OSM cross-check; 4 wind coordinates fixed incl. the human's Waverly case (v1.0.390, T-DATACORE, agent + parent review)
 
 Re-run of the lost wind-verification audit (subagent, worktree; full

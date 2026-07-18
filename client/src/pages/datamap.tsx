@@ -4981,6 +4981,14 @@ export default function DataMapPage() {
                   `${p.verified === true || p.verified === "true"
                      ? "Position imagery-verified.\n"
                      : "Position approximate (registry-reported — GPPD/EIA-860).\n"}` +
+                  // wind-centroid caveat (position audit 2026-07-18): a CORRECT
+                  // wind-farm point is the farm centroid — turbines spread over
+                  // km around it, so imagery at the exact marker can honestly
+                  // show empty ground (the human's screenshot case, distinct
+                  // from the 4 genuinely-wrong coords the audit fixed).
+                  `${p.fuel === "wind"
+                     ? "Wind farms span many turbines — this marker is the farm centroid; the nearest turbine may be a few km away.\n"
+                     : ""}` +
                   `Static reference data — WRI GPPD v1.3.0 (CC BY 4.0) + EIA-860.`,
             dossierKey,
           });
