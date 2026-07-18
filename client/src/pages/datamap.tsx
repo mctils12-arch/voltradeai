@@ -1889,6 +1889,12 @@ export default function DataMapPage() {
       if (spaceActiveRef.current) { try { spaceHandleRef.current?.flyHome(); } catch {} return; }
       setDetail(null);
       clearTrail();
+      // AUDIT FIX (drive-caught 2026-07-18): Esc must be equivalent to the
+      // card's ✕ — it closed the satellite card but left the FOLLOW camera
+      // running with no card on screen (no way left to end it; every later
+      // camera move got re-centered onto the craft each tick).
+      stopSatFocusRef.current?.();
+      setDetailMin(false);
       setShowRawInfo(false);
       setAnalystOpen(false); // DESIGN.md: Escape closes panels/popovers
       setTimescrubOpen(false);
@@ -3771,7 +3777,9 @@ export default function DataMapPage() {
             { label: `Alt${alt.unit ? ` ${alt.unit}` : ""}`, value: alt.num },
             { label: `Spd${spd.unit ? ` ${spd.unit}` : ""}`, value: spd.num },
             { label: "Incl", value: g.inclination != null ? `${g.inclination.toFixed(1)}°` : "—" },
-            { label: "Period min", value: perMin != null ? perMin.toFixed(1) : "—" },
+            // "PER MIN" — the design doc's own abbreviation (screens 1c/1d);
+            // the full "PERIOD MIN" ellipsized at the 4-chip width
+            { label: "Per min", value: perMin != null ? perMin.toFixed(1) : "—" },
           ];
         })(),
         sourceTag: "SGP4",
