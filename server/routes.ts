@@ -21,6 +21,7 @@ import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
+import datacoreBoundariesAdmin1 from "../datacore/boundaries/ne_50m_admin1_lines.json";
 import { version as pkgVersion } from "../package.json";
 import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
@@ -1327,6 +1328,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/boundaries", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     res.json({ kind: "raw", source: "Natural Earth 1:110m admin-0 (public domain)", ...(datacoreBoundaries as any) });
+  });
+
+  // State/province borders (RAW; Natural Earth 1:50m admin-1 lines, PUBLIC
+  // DOMAIN — sprint W3 2026-07-17). Same self-hosted slim-compile pattern
+  // (376KB, scripts/boundaries_admin1_build.py). Day-cached, fetched only
+  // when the layer is enabled (zero-cost-when-off).
+  app.get("/api/data/boundaries_admin1", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({ kind: "raw", source: "Natural Earth 1:50m admin-1 (public domain)", ...(datacoreBoundariesAdmin1 as any) });
   });
 
   // Live trains overlay (RAW) — Finland Digitraffic (CC BY 4.0) + Norway

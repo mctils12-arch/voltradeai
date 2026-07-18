@@ -1359,6 +1359,17 @@
    "field": false
   },
   {
+   "id": "boundaries_admin1",
+   "name": "State / province borders",
+   "kind": "raw",
+   "status": "live",
+   "group": "base",
+   "costTier": "light",
+   "source": "Natural Earth 1:50m admin-1 (public domain) \u2014 compiled into datacore",
+   "description": "State and province boundary lines (first-level subdivisions, worldwide) as a thin reference overlay. Generalized 1:50m (not survey-grade); de-facto boundaries per Natural Earth policy. Fades in around zoom 3. Self-hosted \u2014 zero external dependency.",
+   "field": false
+  },
+  {
    "id": "places",
    "name": "Places & labels",
    "kind": "raw",
