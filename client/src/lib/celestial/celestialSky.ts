@@ -28,8 +28,9 @@
 // TRUE angular diameter and TRUE apparent magnitude. Apparent
 // size + position + brightness IS the real, observable scale — what an eye at
 // the observer actually sees — and that is exactly what this renders. (The
-// literal-distance true-scale view already exists separately in
-// lib/celestial/solarView.ts, for the zoomed-way-out solar-system mode.)
+// literal-distance true-scale rendering lives in lib/celestial/spaceFrame.ts
+// — the continuous zoom-out space frame, where the live map itself becomes
+// the Earth; this sky suspends while that frame is active.)
 //
 // Hermetic core: celestialState / the path builders / the geometry helpers are
 // pure functions of (timeMs, observer) — no DOM, no clock reads, no network —
@@ -399,7 +400,7 @@ export function bodySkyPath(
 // WebGL2 SKY SCENE
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// An always-on overlay canvas (the solarView / inspectScene handoff pattern:
+// An always-on overlay canvas (the shared celestial mount-handle idiom:
 // mount(container, opts) → { setTime, render, dispose, getRenderFailed,
 // getState }). The parent aligns it to the map camera each frame via
 // opts.getView(). Every FRAGMENT shader declares `precision highp float` and no
