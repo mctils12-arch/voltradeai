@@ -4498,11 +4498,14 @@ export default function DataMapPage() {
     let lastFetch: FetchFootprint | null = null;
     let lastPayload: any = null;
     let vectorsCurrent = false;
-    // glide state: when the current payload's positions were received, and
-    // the last dt actually shipped (lets the stepper stop once frozen at
-    // the cap instead of re-shipping identical frames forever).
+    // glide state: when the current payload's positions were received, the
+    // last dt actually shipped (lets the stepper stop once frozen at the
+    // cap instead of re-shipping identical frames forever), and whether the
+    // last step shipped an empty set (skip repeat empty setDatas — measured
+    // at ~2x idle frame cost on an empty viewport under SwiftShader).
     let glideAnchor: number | null = null;
     let lastGlideDt = -1;
+    let lastGlideEmpty = false;
 
     // add-or-update the velocity-vector source/layer from a payload — shared
     // by the tick path (zoom high enough) and the zoomend lazy build.
@@ -4656,6 +4659,8 @@ export default function DataMapPage() {
           const v = g.velOf(row);
           glided.push(v ? { ...row, lon: row.lon + v.dLon * dt, lat: row.lat + v.dLat * dt } : row);
         }
+        if (glided.length === 0 && lastGlideEmpty) return; // nothing to move, nothing to clear
+        lastGlideEmpty = glided.length === 0;
         const gliddedPayload = g.withRows(lastPayload, glided);
         src.setData({ type: "FeatureCollection", features: opts.toFeatures(gliddedPayload) });
         if (opts.toVectors && shouldBuildVectors(z)) {
