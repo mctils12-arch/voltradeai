@@ -5865,16 +5865,16 @@ export default function DataMapPage() {
   }, [enabled.sites, mapReady, setStatus]);
 
   // ── US power plants (RAW; static reference data, WRI GPPD CC BY 4.0) ──
-  // ~9.8k plants: maplibre native clustering keeps low zooms legible and
-  // cheap on phones (DESIGN.md performance budget — clustering is
-  // client-side, the server serves one cached static JSON). Unclustered
-  // points render fuel-type SDF silhouettes with per-feature tint.
+  // ~9.8k plants rendered as fuel-type SDF silhouettes with per-feature
+  // tint at EVERY zoom; density is handled by the symbol collision cull
+  // (no count-cluster circles — human-directed 2026-07-18), matching the
+  // grid/substation layers. Server serves one cached static JSON.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!enabled.powerplants) {
       try {
-        for (const l of ["pp-points", "pp-cluster-count", "pp-clusters"]) if (map.getLayer(l)) map.removeLayer(l);
+        if (map.getLayer("pp-points")) map.removeLayer("pp-points");
         if (map.getSource("powerplants")) map.removeSource("powerplants");
       } catch {}
       setStatus("powerplants", "off");
@@ -5891,9 +5891,13 @@ export default function DataMapPage() {
         if (signal.aborted) return;
         if (!d.plants) throw new Error("no plants in response");
         if (map.getSource("powerplants")) return;
+        // NO COUNT-CLUSTER BUBBLES (human-directed 2026-07-18: "get rid of
+        // the circles that show how many there are in a region"): plants
+        // render as their fuel symbols at every zoom, decluttered by the
+        // collision cull (the grid/substation precedent) — smaller when
+        // dense, filling in as you zoom, never a count circle.
         map.addSource("powerplants", {
           type: "geojson",
-          cluster: true, clusterMaxZoom: 7, clusterRadius: 50,
           data: {
             type: "FeatureCollection",
             features: d.plants.map(([name, mw, fuel, owner, lat, lon, verified]: [string, number, string, string, number, number, number], idx: number) => ({
@@ -5914,48 +5918,20 @@ export default function DataMapPage() {
           } as any,
         });
         map.addLayer({
-          id: "pp-clusters", type: "circle", source: "powerplants",
-          filter: ["has", "point_count"],
-          paint: {
-            "circle-color": "rgba(77,159,255,0.28)",
-            "circle-stroke-color": "rgba(124,196,255,0.85)",
-            "circle-stroke-width": 1.4,
-            "circle-radius": ["step", ["get", "point_count"], 12, 25, 16, 100, 21, 500, 27],
-          },
-        });
-        map.addLayer({
-          id: "pp-cluster-count", type: "symbol", source: "powerplants",
-          filter: ["has", "point_count"],
-          layout: {
-            "text-field": ["get", "point_count_abbreviated"],
-            "text-font": ["Open Sans Semibold"],
-            "text-size": 11,
-            "text-allow-overlap": true,
-          },
-          paint: { "text-color": "#eef3fb" },
-        });
-        map.addLayer({
           id: "pp-points", type: "symbol", source: "powerplants",
-          filter: ["!", ["has", "point_count"]],
           layout: {
             "icon-image": ["get", "icon"],
-            "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 0.8],
-            "icon-allow-overlap": true,
-            "icon-ignore-placement": true,
+            // low-zoom sizes shrink (aircraft fill-rate precedent) and the
+            // collision cull decides density — bigger plants win nothing;
+            // it's spatial, honest, and circle-free
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 6, 0.5, 10, 0.8],
+            "icon-allow-overlap": false,
           },
           paint: {
             "icon-color": ["get", "color"],
             "icon-halo-color": "rgba(5,10,19,0.95)",
             "icon-halo-width": 1.3,
           },
-        });
-        const detachClusters = attachLayerInteractions(map, "pp-clusters", (e: any) => {
-          const f = e.features?.[0];
-          if (!f) return;
-          const src: any = map.getSource("powerplants");
-          src.getClusterExpansionZoom(f.properties.cluster_id, (err: any, zoom: number) => {
-            if (!err) map.easeTo({ center: f.geometry.coordinates, zoom: zoom + 0.3 });
-          });
         });
         const detachPoints = attachLayerInteractions(map, "pp-points", (e: any) => {
           const f = e.features?.[0];
@@ -5990,7 +5966,7 @@ export default function DataMapPage() {
           });
           fetchDossier(dossierKey, `facility:plant:${p.plantId}`, e.lngLat?.lat, e.lngLat?.lng);
         });
-        detach = () => { detachClusters(); detachPoints(); };
+        detach = () => { detachPoints(); };
         setStatus("powerplants", "active", d.count ?? d.plants.length,
           `top ${d.verified_count ?? 100} by MW imagery-verified · rest approximate`);
       },
