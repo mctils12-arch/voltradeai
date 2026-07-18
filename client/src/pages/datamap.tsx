@@ -55,7 +55,7 @@ import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
-import { subsolarPoint, moonState, moonPhaseGlyph, nightPolygon } from "@/lib/celestial/ephemeris";
+import { nightPolygon } from "@/lib/celestial/ephemeris";
 import { SatFinder } from "@/components/SatFinder";
 import { classFormNamed, formLabel, buildFormMesh } from "@/lib/orbital/model3d";
 import { loadRealModel, realModelLabel } from "@/lib/orbital/realMesh";
@@ -399,6 +399,7 @@ const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", boundaries_admin1: "base", places: "base",
+  celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
@@ -962,12 +963,20 @@ const LegendPanel = memo(function LegendPanel({
           )}
           {enabled.daynight && (
             <div className="vt-legend-sec">
-              <div className="vt-legend-sec-head">Day/Night & Moon</div>
+              <div className="vt-legend-sec-head">Day/Night</div>
               <div className="vt-legend-items">
                 <span className="vt-legend-chip"><i style={{ background: "#020617" }} /> night side (right now)</span>
-                <span className="vt-legend-chip">☀️ sun overhead point</span>
-                <span className="vt-legend-chip">🌗 moon overhead point (real phase)</span>
-                <span className="vt-legend-note">computed ephemeris (Meeus low-precision) — display-grade, recomputed each minute; no feed</span>
+                <span className="vt-legend-note">terminator: computed ephemeris (Meeus low-precision) — display-grade, recomputed each minute; no feed. The Sun, Moon (real phase) and planets render in the sky itself — always on, real astronomy-engine ephemeris at true apparent size; tilt toward the horizon they're above to see them</span>
+              </div>
+            </div>
+          )}
+          {enabled.celestial_paths && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Celestial paths</div>
+              <div className="vt-legend-items">
+                <span className="vt-legend-chip"><i style={{ background: "#f2d980" }} /> ecliptic</span>
+                <span className="vt-legend-chip">body-colored lines = Moon/planet sky tracks</span>
+                <span className="vt-legend-note">real ephemeris (astronomy-engine), sky frozen at the current sidereal time; segments below the horizon fade out — reference lines, not observations</span>
               </div>
             </div>
           )}
@@ -1272,6 +1281,10 @@ export default function DataMapPage() {
   // from never mounting them.
   const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  // W1 always-on celestial sky: handle + readiness (the paths toggle effect
+  // must re-run once the async mount lands).
+  const celestialRef = useRef<any>(null);
+  const [celestialReady, setCelestialReady] = useState(false);
   // W2 debug flag — evaluated once; when false the FpsChip (and its rAF
   // loop) never mounts.
   const [fpsDebug] = useState<boolean>(() => {
@@ -2755,11 +2768,14 @@ export default function DataMapPage() {
     }
   }, [enabled.biomass, mapReady, setStatus]);
 
-  // ── day/night terminator + sun/moon overhead points (RAW; EARTH TWIN
-  // O6-7 tier 1 — COMPUTED EPHEMERIS, no feed: Meeus low-precision series,
-  // display-grade accuracy stated on the layer. The shade recomputes every
-  // minute; ☀/moon are DOM markers (color emoji) at the exact overhead
-  // points, click → the numbers + honesty note. ──
+  // ── day/night terminator (RAW; EARTH TWIN O6-7 tier 1 — COMPUTED
+  // EPHEMERIS, no feed: Meeus low-precision series, display-grade accuracy
+  // stated on the layer; shade recomputes every minute). SPRINT W1
+  // (human-directed 2026-07-17): the cartoon ☀️/🌗 emoji DOM markers are
+  // REMOVED — the real Sun/Moon/planets now render in the always-on
+  // celestial sky (next effect), at true apparent size/position from real
+  // ephemeris. The terminator shade stays: it is the on-map "night side
+  // right now" readout. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -2767,85 +2783,98 @@ export default function DataMapPage() {
       setStatus("daynight", "off");
       return;
     }
-    let stop = false;
-    let sunMarker: any = null;
-    let moonMarker: any = null;
-    let moonEl: HTMLDivElement | null = null;
     let timer: number | undefined;
-    (async () => {
-      const maplibregl = (await import("maplibre-gl")).default;
-      if (stop) return;
-      const update = () => {
-        const now = Date.now();
-        try {
-          const feat = nightPolygon(now);
-          const src: any = map.getSource("daynight");
-          if (src) src.setData(feat as any);
-          else {
-            map.addSource("daynight", { type: "geojson", data: feat as any });
-            const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
-            map.addLayer({
-              id: "daynight-shade", type: "fill", source: "daynight",
-              paint: { "fill-color": "#020617", "fill-opacity": 0.38 },
-            } as any, firstMarker?.id);
-          }
-        } catch { /* style mid-swap — next tick retries */ }
-        const sun = subsolarPoint(now);
-        const moon = moonState(now);
-        try {
-          if (!sunMarker) {
-            const el = document.createElement("div");
-            el.className = "vt-celestial-marker";
-            el.textContent = "☀️";
-            el.title = "Subsolar point — the sun is directly overhead here right now";
-            el.onclick = () => {
-              const s2 = subsolarPoint(Date.now());
-              setDetail({
-                kind: "celestial", title: "Sun — subsolar point",
-                subtitle: `${s2.latDeg.toFixed(2)}°, ${s2.lonDeg.toFixed(2)}°`,
-                body: "The point on Earth where the sun is directly overhead at this moment; the shaded hemisphere is in night right now.\nComputed ephemeris (Meeus low-precision) — display-grade (~0.01°), recomputed each minute. No feed, pure computation.",
-              });
-            };
-            sunMarker = new maplibregl.Marker({ element: el }).setLngLat([sun.lonDeg, sun.latDeg]).addTo(map);
-          } else {
-            sunMarker.setLngLat([sun.lonDeg, sun.latDeg]);
-          }
-          const glyph = moonPhaseGlyph(moon.illuminatedFraction, moon.waxing);
-          if (!moonMarker) {
-            moonEl = document.createElement("div");
-            moonEl.className = "vt-celestial-marker";
-            moonEl.textContent = glyph;
-            moonEl.title = "Sublunar point — the moon is directly overhead here (real phase shown)";
-            moonEl.onclick = () => {
-              const m2 = moonState(Date.now());
-              setDetail({
-                kind: "celestial", title: "Moon — sublunar point",
-                subtitle: `${m2.latDeg.toFixed(2)}°, ${m2.lonDeg.toFixed(2)}° · ${Math.round(m2.illuminatedFraction * 100)}% lit (${m2.waxing ? "waxing" : "waning"})`,
-                body: `The point on Earth where the moon is directly overhead at this moment.\nDistance: ${fmtKm(m2.distanceKm)} · apparent size: ${m2.angularSizeArcmin.toFixed(1)} arcmin.\nComputed ephemeris (Meeus low-precision, truncated lunar series) — display-grade (~1°), recomputed each minute. No feed, pure computation.`,
-              });
-            };
-            moonMarker = new maplibregl.Marker({ element: moonEl }).setLngLat([moon.lonDeg, moon.latDeg]).addTo(map);
-          } else {
-            moonMarker.setLngLat([moon.lonDeg, moon.latDeg]);
-            if (moonEl) moonEl.textContent = glyph;
-          }
-          setStatus("daynight", "active", undefined,
-            `computed ephemeris (display-grade) — shaded side is night NOW · ☀ overhead point · ${glyph} ${Math.round(moon.illuminatedFraction * 100)}% lit`);
-        } catch { /* markers are chrome */ }
-      };
-      update();
-      timer = window.setInterval(update, 60_000);
-    })();
+    const update = () => {
+      try {
+        const feat = nightPolygon(Date.now());
+        const src: any = map.getSource("daynight");
+        if (src) src.setData(feat as any);
+        else {
+          map.addSource("daynight", { type: "geojson", data: feat as any });
+          const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+          map.addLayer({
+            id: "daynight-shade", type: "fill", source: "daynight",
+            paint: { "fill-color": "#020617", "fill-opacity": 0.38 },
+          } as any, firstMarker?.id);
+        }
+        setStatus("daynight", "active", undefined,
+          "computed ephemeris (display-grade) — shaded side is night NOW · the realistic Sun/Moon/planets render in the sky itself (always on, astronomy-engine)");
+      } catch { /* style mid-swap — next tick retries */ }
+    };
+    update();
+    timer = window.setInterval(update, 60_000);
     return () => {
-      stop = true;
       window.clearInterval(timer);
-      try { sunMarker?.remove(); moonMarker?.remove(); } catch {}
       try {
         if (map.getLayer("daynight-shade")) map.removeLayer("daynight-shade");
         if (map.getSource("daynight")) map.removeSource("daynight");
       } catch {}
     };
-  }, [enabled.daynight, mapReady, setStatus, setDetail]);
+  }, [enabled.daynight, mapReady, setStatus]);
+
+  // ── ALWAYS-ON celestial sky (SPRINT W1, human-directed 2026-07-17:
+  // "real scale sun moon and planets just always on that look real").
+  // client/src/lib/celestial/celestialSky.ts — real astronomy-engine
+  // ephemeris, true apparent angular sizes (0.35° render floor for planets,
+  // stated in the lib), real moon phase + earthshine, sun flare that grows
+  // as the look direction approaches the sun. Observer = map center; the
+  // sky aligns to the map camera each frame (bearing/pitch/fov), so bodies
+  // appear when the camera tilts toward the horizon they're above. Bundle
+  // note: dynamic import keeps astronomy-engine in its own chunk. GL
+  // failure latches inside the lib and the page continues. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = mapContainer.current;
+    if (!map || !mapReady || !container) return;
+    let disposed = false;
+    let handle: any = null;
+    (async () => {
+      const { mountCelestialSky } = await import("@/lib/celestial/celestialSky");
+      if (disposed) return;
+      handle = mountCelestialSky(container, {
+        getView: () => {
+          const c = map.getCenter();
+          // maplibre stores the vertical fov on the transform; normalize
+          // radians vs degrees defensively (API differs across versions)
+          const rawFov = (map as any).transform?.fov ?? 36.87;
+          return {
+            timeMs: Date.now(),
+            observerLatDeg: c.lat,
+            observerLonDeg: c.lng,
+            lookAzDeg: map.getBearing(),
+            lookElDeg: map.getPitch() - 90, // pitch 0 = straight down
+            fovDeg: rawFov > 3.2 ? rawFov : (rawFov * 180) / Math.PI,
+          };
+        },
+      });
+      celestialRef.current = handle;
+      (window as any).__vtCelestial = handle; // harness seam (prod-inert, like __vtMap)
+      setCelestialReady(true);
+    })();
+    return () => {
+      disposed = true;
+      try { handle?.dispose(); } catch {}
+      celestialRef.current = null;
+      setCelestialReady(false);
+      try { delete (window as any).__vtCelestial; } catch {}
+    };
+  }, [mapReady]);
+
+  // ── celestial paths toggle (SPRINT W1: "you could turn on the path of
+  // everything") — ecliptic + Moon/planet sky tracks on the same sky
+  // projection, real ephemeris, default OFF. Pure GPU-line render inside
+  // the sky canvas; zero cost while off. ──
+  useEffect(() => {
+    const h = celestialRef.current;
+    if (!celestialReady || !h) { if (!enabled.celestial_paths) setStatus("celestial_paths", "off"); return; }
+    h.setPathsVisible(!!enabled.celestial_paths);
+    if (enabled.celestial_paths) {
+      setStatus("celestial_paths", "active", undefined,
+        "ecliptic + Moon/planet sky tracks — real ephemeris (astronomy-engine), frozen sidereal frame; segments below the horizon fade out");
+    } else {
+      setStatus("celestial_paths", "off");
+    }
+  }, [enabled.celestial_paths, celestialReady, setStatus]);
 
   // ── satellites (RAW; ORBITAL program O2 — live GP elements client-fetched
   // from CelesTrak, SGP4 propagated off-thread in a Web Worker, drawn as
