@@ -3326,6 +3326,14 @@ export default function DataMapPage() {
       if (!satFollowRef.current) arcs.setArcs(null);
       return;
     }
+    // O8 (live report 2026-07-18, "the track feature looks to be gone"):
+    // while a follow is live, its single amber arc owns the layer (focusSat
+    // set it) — do NOT rebuild group arcs over it. `satFollowing` in the
+    // deps re-runs this effect when the follow ENDS, so closing the card
+    // RESTORES the group orbits instead of leaving the orbits toggle ON
+    // with zero tracks rendered (the old dead state: stopFollow cleared
+    // arcs and nothing ever rebuilt them until the toggle was flicked).
+    if (satFollowRef.current) return;
     const gp = orbitalGpRef.current;
     const mask = satGroupMaskRef.current;
     if (!gp || !mask) return;
@@ -3343,7 +3351,7 @@ export default function DataMapPage() {
     }
     arcs.setArcs(list.length ? list : null);
     setSatArcInfo({ shown: list.length, total: members.length });
-  }, [satGroup, satGroupOrbits, mapReady, gpVersion]);
+  }, [satGroup, satGroupOrbits, mapReady, gpVersion, satFollowing]);
 
   // ── satellite click-to-identify (ORBITAL O3; research/orbital_program.md's
   // "O3 picking" recipe). SatLayer is a raw custom WebGL layer with no
