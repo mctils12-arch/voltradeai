@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -41,7 +41,7 @@ import {
 // SGP4 runs off-thread in a Web Worker, and the population draws as
 // GPU-instanced points. REAL positions only — SGP4 near-earth + SDP4 deep space
 // and are skipped + COUNTED, never fabricated.
-import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
+import { SatLayer, tickAnchorFromEpoch, tickAnchorFromSimEpoch } from "@/lib/orbital/satLayer";
 import { fetchGp, fetchSatcat, parseGp, parseSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
 import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/lib/orbital/gpCache";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
@@ -118,6 +118,21 @@ import {
   sizeSliderToMult, multToSizeSlider, isTrueScale,
   SCALE_PRESET_TRUE, SCALE_PRESET_VISIBLE, SUN_SIZE_MULT_CAP,
 } from "@/lib/celestial/scaleModel";
+// Celestial v2 B3 (2026-07-18): ONE SIMULATION CLOCK for the whole
+// celestial system — planet/moon positions, rotations, the terminator,
+// moon phase and the SATELLITE PROPAGATION EPOCH all derive their instant
+// from it. At 1× real time simNow() IS Date.now() bit-exactly (the store
+// guarantees the identity), so every consumer below takes its pre-B3 code
+// path there — zero behavior change until the user warps time. When
+// simulated ≠ real, an always-visible amber chip says so (honesty
+// machinery, the vt-time-axis-badge pattern).
+import {
+  SIM_RATES, getSimClock, setSimRate, resetSimClock, subscribeSimClock,
+  simNow, simNowMs, isRealtime, simOffsetMs, simRateLabel, fmtSimOffset,
+} from "@/lib/celestial/simClock";
+// B3 orbit-ellipse paths preference (persisted; the frame samples/caches
+// the polylines — this is just the toggle store, statically importable).
+import { getOrbitPathsPref, setOrbitPathsPref, subscribeOrbitPathsPref } from "@/lib/celestial/orbitPath";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
 // block logging — a recurrence of the v1.0.396 freeze surfaces in the
 // console, never silently as Chrome's kill dialog. Prod-inert (?lt arms it).
@@ -1343,14 +1358,17 @@ export default function DataMapPage() {
           if (!layer || !fol) return null;
           return mod.glidedCraftState(
             layer.getPositions(), fol.index, layer.getTickTime(), performance.now(),
-            Date.now() + (Number((window as any).__vtInspectTimeOffsetMs) || 0), // prod-inert test seam (drive d)
+            // B3: the sim clock is the time source (≡ Date.now() at 1×);
+            // __vtInspectTimeOffsetMs stays the prod-inert test seam (drive d)
+            simNow() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
           );
         },
         // onboard markers read the RAW tick (a group chip is display-only —
         // real objects are never hidden from the sky you stand in)
         getNeighborBuffer: () => satRawPosRef.current ?? satLayerRef.current?.getPositions() ?? null,
         selfIndex: f.index,
-        getTimeMs: () => Date.now() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
+        // B3: sim-clock time source (≡ Date.now() at 1× — no behavior change)
+        getTimeMs: () => simNow() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
         initialView: "orbit",
       });
       if (handle.getRenderFailed()) {
@@ -1470,10 +1488,16 @@ export default function DataMapPage() {
       const mapCanvas = container.querySelector(".maplibregl-canvas") as HTMLElement | null;
       const axis = getTimeAxis();
       const handle = mountSpaceFrame(container, {
-        timeMs: axis.mode === "historical" ? axis.atMs : Date.now(),
+        // B3: the ONE simulation clock is the frame's time source (at 1×
+        // realtime simNow() === Date.now() bit-exactly — no behavior
+        // change); a historical Time Machine instant still overrides
+        // (archive replay wins over the sim clock, the E1 contract).
+        timeMs: axis.mode === "historical" ? axis.atMs : simNow(),
         // B2: layout scale from the persisted preference (VISIBLE default);
         // labels/scale bar stay true regardless — layout only
         scale: getCelestialScale(),
+        // B3: orbit-ellipse polylines per the persisted toggle
+        orbitPaths: getOrbitPathsPref(),
         getMapSeam: () => {
           const c = map.getCenter();
           return { zoom: map.getZoom(), minZoom: map.getMinZoom(), centerLatDeg: c.lat, centerLonDeg: c.lng };
@@ -1504,16 +1528,42 @@ export default function DataMapPage() {
       // planetarium), units repaint labels; live mode ticks 60s (Moon ≈ 0.5'/min)
       const offAxis = subscribeTimeAxis(() => {
         const a = getTimeAxis();
-        try { handle.setTime(a.mode === "historical" ? a.atMs : Date.now()); } catch {}
+        try { handle.setTime(a.mode === "historical" ? a.atMs : simNow()); } catch {}
       });
       const offUnits = subscribeUnits(() => { try { handle.render(); } catch {} });
       // B2: panel slider/preset changes re-flow the space layout live
       const offScale = subscribeCelestialScale(() => { try { handle.setScale(getCelestialScale()); } catch {} });
+      // B3: orbit-paths toggle applies live
+      const offOrbits = subscribeOrbitPathsPref(() => { try { handle.setOrbitPaths(getOrbitPathsPref()); } catch {} });
       const iv = window.setInterval(() => {
-        if (getTimeAxis().mode === "live") { try { handle.setTime(Date.now()); } catch {} }
+        if (getTimeAxis().mode === "live") { try { handle.setTime(simNow()); } catch {} }
       }, 60_000);
+      // B3 TIME WARP: at rates > 1× the sky visibly moves (1 day/s sweeps
+      // the Moon's whole orbit in ~27 s) — drive the frame per-frame while
+      // warped; at 1×/paused the 60 s tick above is exactly the pre-B3
+      // cadence (no rAF loop mounted, idle frames stay free).
+      let warpRaf = 0;
+      const warpLoop = (): void => {
+        warpRaf = 0;
+        if (getSimClock().rate <= 1 || getTimeAxis().mode !== "live") return;
+        try { handle.setTime(simNow()); } catch {}
+        warpRaf = requestAnimationFrame(warpLoop);
+      };
+      const armWarp = (): void => {
+        if (!warpRaf && getSimClock().rate > 1 && getTimeAxis().mode === "live") {
+          warpRaf = requestAnimationFrame(warpLoop);
+        }
+      };
+      const offSim = subscribeSimClock(() => {
+        const a = getTimeAxis();
+        try { handle.setTime(a.mode === "historical" ? a.atMs : simNow()); } catch {}
+        armWarp();
+      });
+      armWarp(); // entering space while already warped keeps time flowing
       spaceCleanupRef.current = () => {
-        offAxis(); offUnits(); offScale(); window.clearInterval(iv);
+        offAxis(); offUnits(); offScale(); offOrbits(); offSim();
+        window.clearInterval(iv);
+        if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = 0; }
         try { delete (window as any).__vtSpace; } catch {}
       };
       container.classList.add("vt-space-active");
@@ -1587,6 +1637,22 @@ export default function DataMapPage() {
   // and simply persist when it isn't.
   const [celScale, setCelScaleView] = useState(getCelestialScale());
   useEffect(() => subscribeCelestialScale(() => setCelScaleView(getCelestialScale())), []);
+  // Celestial v2 B3: the panel's view of the ONE simulation clock + the
+  // orbit-paths toggle (stores of record: lib/celestial/simClock.ts —
+  // deliberately NOT persisted, reload returns to live — and orbitPath.ts).
+  const [simSt, setSimSt] = useState(getSimClock());
+  useEffect(() => subscribeSimClock(() => setSimSt(getSimClock())), []);
+  // the honest offset chip's "+3h 12m" grows while warped — re-render 1 Hz,
+  // only while simulated ≠ real (costs nothing at realtime)
+  const [, setSimChipTick] = useState(0);
+  const simIsReal = isRealtime(simSt);
+  useEffect(() => {
+    if (simIsReal) return;
+    const iv = window.setInterval(() => setSimChipTick((v) => v + 1), 1000);
+    return () => window.clearInterval(iv);
+  }, [simIsReal]);
+  const [celOrbits, setCelOrbitsView] = useState(getOrbitPathsPref());
+  useEffect(() => subscribeOrbitPathsPref(() => setCelOrbitsView(getOrbitPathsPref())), []);
   // collapsed by default, like every non-base/live panel group
   const [celOpen, setCelOpen] = useState(false);
   const [showRawInfo, setShowRawInfo] = useState(false);
@@ -3427,7 +3493,9 @@ export default function DataMapPage() {
     let timer: number | undefined;
     const update = () => {
       try {
-        const feat = nightPolygon(Date.now());
+        // B3: the terminator derives its instant from the ONE simulation
+        // clock (simNow() === Date.now() bit-exactly at 1× realtime)
+        const feat = nightPolygon(simNow());
         const src: any = map.getSource("daynight");
         if (src) src.setData(feat as any);
         else {
@@ -3442,10 +3510,20 @@ export default function DataMapPage() {
           "computed ephemeris (display-grade) — shaded side is night NOW · the realistic Sun/Moon/planets render in the sky itself (always on, astronomy-engine)");
       } catch { /* style mid-swap — next tick retries */ }
     };
+    // B3: recompute cadence follows the sim clock — 60 s at real time (the
+    // pre-B3 cadence, ~0.25°/min of sun motion), 1 s while warped (at 1
+    // day/s the terminator sweeps the globe once per second; 1 Hz is an
+    // honest sampling of that, not an animation promise).
+    const arm = () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = window.setInterval(update, getSimClock().rate > 1 ? 1_000 : 60_000);
+    };
+    const offSim = subscribeSimClock(() => { update(); arm(); });
     update();
-    timer = window.setInterval(update, 60_000);
+    arm();
     return () => {
       window.clearInterval(timer);
+      offSim();
       try {
         if (map.getLayer("daynight-shade")) map.removeLayer("daynight-shade");
         if (map.getSource("daynight")) map.removeSource("daynight");
@@ -3479,7 +3557,11 @@ export default function DataMapPage() {
           // radians vs degrees defensively (API differs across versions)
           const rawFov = (map as any).transform?.fov ?? 36.87;
           return {
-            timeMs: Date.now(),
+            // B3: sky positions + moon phase follow the ONE simulation
+            // clock (identical to Date.now() at 1× realtime); the sky's
+            // own rAF loop re-reads this every frame, so time warp flows
+            // through with no extra wiring
+            timeMs: simNow(),
             observerLatDeg: c.lat,
             observerLonDeg: c.lng,
             lookAzDeg: map.getBearing(),
@@ -3721,6 +3803,45 @@ export default function DataMapPage() {
     let lodPaused = false;
     let lodLastOpacity = -1; // sentinel: first applyLod() always applies
     let lastCounts = { shown: 0, skipped: 0 };
+    // ── B3 SIM CLOCK → SATELLITE PROPAGATION EPOCH (celestial v2 §3: "Time
+    // rate drives EVERYTHING … satellite propagation epoch"). ONE function
+    // asserts the worker's drive state from (LOD, sim clock):
+    //   · LOD-hidden        → stop (exactly the pre-B3 pause).
+    //   · realtime (1×, no offset) → the worker's own self-driven 1 Hz loop
+    //     at Date.now() — the EXACT pre-B3 message sequence; regression-
+    //     pinned by isRealtime()'s bit-exact identity.
+    //   · warped/offset/paused → main thread drives explicit ticks at the
+    //     SIMULATED now (real SGP4/SDP4 at the simulated instant — samples,
+    //     never interpolation fiction): 4 Hz real cadence at rates > 1×
+    //     (~15 sim-s steps at 60×), 1 Hz at 1×-with-offset, a single frozen
+    //     tick when paused. The layer's glide runs at the sim rate between
+    //     ticks under the same 2.5 sim-second honesty cap.
+    const SAT_WARP_TICK_HZ = 4;
+    let satWarpTimer: number | null = null;
+    const stopSatWarpTimer = () => {
+      if (satWarpTimer != null) { window.clearInterval(satWarpTimer); satWarpTimer = null; }
+    };
+    const applySatDrive = () => {
+      const worker = satWorkerRef.current;
+      if (!worker) return;
+      const st = getSimClock();
+      satLayerRef.current?.setTimeScale(st.rate); // 1 at realtime = identity
+      stopSatWarpTimer();
+      if (lodPaused) { worker.postMessage({ type: "stop" }); return; }
+      if (isRealtime(st)) {
+        worker.postMessage({ type: "start", hz: 1 }); // today's exact drive
+        return;
+      }
+      worker.postMessage({ type: "stop" });
+      worker.postMessage({ type: "tick", timeMs: simNow() }); // immediate
+      if (st.rate > 0) {
+        const hz = st.rate > 1 ? SAT_WARP_TICK_HZ : 1;
+        satWarpTimer = window.setInterval(
+          () => satWorkerRef.current?.postMessage({ type: "tick", timeMs: simNow() }),
+          Math.round(1000 / hz),
+        );
+      }
+    };
     // O8: the last tick's full meta, so a filter change can re-push the
     // retained raw buffer with honest counts without waiting for a tick.
     let lastMeta: { shown: number; deepSpaceSkipped: number; invalidSkipped: number } | null = null;
@@ -3799,12 +3920,12 @@ export default function DataMapPage() {
       layer.setGlobalOpacity(op);
       if (op <= 0 && !lodPaused) {
         lodPaused = true;
-        satWorkerRef.current?.postMessage({ type: "stop" }); // pause: gp stays loaded
+        applySatDrive(); // pause (stop): gp stays loaded — same message as pre-B3
         stopFollow(); // an invisible object is never silently "followed"
         publishOrbitalStatus();
       } else if (op > 0 && lodPaused) {
         lodPaused = false;
-        satWorkerRef.current?.postMessage({ type: "start", hz: 1 }); // resume: ticks immediately
+        applySatDrive(); // resume: realtime → start hz 1 (pre-B3 exact); warped → sim ticks
         publishOrbitalStatus();
       }
       updateMinis(); // zooming through the band updates minis between ticks
@@ -3921,11 +4042,17 @@ export default function DataMapPage() {
             lastMeta = { shown: m.shown, deepSpaceSkipped: m.deepSpaceSkipped, invalidSkipped: m.invalidSkipped };
             const gmask = satGroupMaskRef.current;
             if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
+            // B3: at realtime the stream is the worker's own 1 Hz loop —
+            // declare it so tick-repaint skipping works exactly as pre-B3;
+            // under sim-clock warp the ticks are main-driven at the
+            // simulated instant and every one repaints (motion is rate×
+            // faster than the skip math's real-speed bound assumes).
+            const simSt = getSimClock();
             satLayerRef.current?.updatePositions(posBuf, {
               shown: m.shown,
               deepSpaceSkipped: m.deepSpaceSkipped,
               invalidSkipped: m.invalidSkipped,
-            }, 1);
+            }, isRealtime(simSt) ? 1 : undefined);
             // SMOOTH SKY (human: "make them move smoothly … still use the
             // data we get"): anchor the velocity glide at this tick — the
             // shader slides every sat along its REAL SGP4 velocity between
@@ -3935,8 +4062,13 @@ export default function DataMapPage() {
             // EPOCH (m.timeMs, mapped Date.now→performance.now), not at
             // arrival — the ~60-120ms 16k×2-SGP4 pack + transfer latency
             // otherwise lagged the display and its jitter snapped every tick.
+            // B3: under warp m.timeMs is a SIMULATED epoch — map its lag
+            // through the sim rate (tickAnchorFromSimEpoch; rate 1 is the
+            // bit-identical pre-B3 mapping, pinned by satLayer tests).
             satLayerRef.current?.setTickTime(
-              tickAnchorFromEpoch(m.timeMs, Date.now(), performance.now()),
+              isRealtime(simSt)
+                ? tickAnchorFromEpoch(m.timeMs, Date.now(), performance.now())
+                : tickAnchorFromSimEpoch(m.timeMs, simNowMs(simSt, Date.now()), performance.now(), simSt.rate),
             );
             lastCounts = { shown: m.shown, skipped: m.deepSpaceSkipped + m.invalidSkipped };
             publishOrbitalStatus(); // formats the LOD-paused note when applicable
@@ -3945,7 +4077,7 @@ export default function DataMapPage() {
           }
         };
         worker.postMessage({ type: "init", gp });
-        worker.postMessage({ type: "start", hz: 1 });
+        applySatDrive(); // realtime → the pre-B3 `start hz 1`; warped → sim ticks
         applyLod(); // a page opened already deep-zoomed pauses immediately
         // E4-1: identity catalog in the background, non-blocking — and once
         // it lands, identified objects stop being dots (SYMBOLS NOT DOTS):
@@ -3965,7 +4097,10 @@ export default function DataMapPage() {
       { timeoutMs: 45_000 },
     );
 
-    return () => { map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); d3Detach(); stopLoad(); teardown(); };
+    // B3: rate changes re-assert the worker drive mode live
+    const offSimClock = subscribeSimClock(applySatDrive);
+
+    return () => { offSimClock(); stopSatWarpTimer(); map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); d3Detach(); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched
@@ -8246,6 +8381,26 @@ export default function DataMapPage() {
           </button>
         </div>
       )}
+      {/* Celestial v2 B3: ALWAYS-VISIBLE honest offset chip whenever the
+          simulation clock diverges from real time (directive §3 + PREMIUM
+          EXPERIENCE STANDARD: simulated ≠ live is never silent). Same amber
+          honesty language as the HISTORICAL badge; stacks under it when
+          both are up. ⟲ now snaps everything back to live. */}
+      {!simIsReal && (
+        <div
+          className={`vt-time-axis-badge vt-sim-clock-chip${historicalAtMs !== null ? " vt-sim-clock-chip-stacked" : ""}`}
+          data-testid="sim-clock-chip"
+          role="status"
+        >
+          <Clock size={13} />
+          <span>
+            SIM {fmtSimOffset(simOffsetMs(simSt, Date.now()))} · {simRateLabel(simSt.rate)} — not live
+          </span>
+          <button className="vt-time-axis-badge-live" onClick={() => resetSimClock()}>
+            ⟲ now
+          </button>
+        </div>
+      )}
 
       {/* EARTH TWIN E3 follow-up: 3D aircraft hover tooltip (altitude on
           hover). Always mounted (so the ref is live before the aircraft
@@ -8554,6 +8709,92 @@ export default function DataMapPage() {
                     <span className="vt-field-note">
                       render cost: 0 while idle (draws only on input/flight; ~0.1 ms/frame measured) — not
                       counted in the load badge; the space frame is not a data layer.
+                    </span>
+                  </div>
+                  {/* B3 orbit-ellipse paths (directive §3): real-ephemeris
+                      polylines, precomputed + cached; they restyle (never
+                      resample) with the scale sliders. data-vt-control, NOT
+                      data-vt-layer — this is a control row, not a registry
+                      layer (harness accounting). */}
+                  <div className="vt-layer-row" data-vt-control="celestial_orbits">
+                    <span className="vt-layer-ic"><Orbit size={15} /></span>
+                    <span className="vt-layer-name">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Orbital paths</span>
+                      <span className="vt-kind-badge raw">RAW</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: celOrbits ? "#4ade80" : "#6680a0" }} />{" "}
+                        {celOrbits ? "on — ellipses drawn in the space view" : "off"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="vt-field-controls" role="group" aria-label="Orbital path controls">
+                    <span style={{ display: "inline-flex", gap: 6 }}>
+                      <button
+                        className={`vt-preset-pill${celOrbits ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={celOrbits}
+                        data-vt-celestial-orbits
+                        onClick={() => setOrbitPathsPref(!celOrbits)}>
+                        {celOrbits ? "PATHS ON" : "PATHS OFF"}
+                      </button>
+                    </span>
+                    <span className="vt-field-note">
+                      full ellipses Mercury–Neptune + the Moon + Io, Europa, Ganymede, Callisto, Titan,
+                      Triton, Phobos, Deimos — sampled from the real ephemeris (JPL mean elements for the
+                      moons), drawn in whatever compression the slider is set to. Setting persists.
+                    </span>
+                  </div>
+                  {/* B3 SIMULATION TIME (directive §3): one clock drives
+                      planet/moon positions, rotations, the terminator, moon
+                      phase AND the satellite propagation epoch together.
+                      At 1× (live) behavior is exactly realtime; any warp
+                      raises the always-visible SIM chip on the map. */}
+                  <div className="vt-layer-row" data-vt-control="celestial_time">
+                    <span className="vt-layer-ic"><Clock size={15} /></span>
+                    <span className="vt-layer-name">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Simulation time</span>
+                      <span className="vt-kind-badge raw">RAW</span>
+                      <span className="vt-layer-status">
+                        <i style={{ background: simIsReal ? "#4ade80" : "#f5a524" }} />{" "}
+                        {simIsReal
+                          ? "live — tracking real time"
+                          : `${simRateLabel(simSt.rate)} · SIM ${fmtSimOffset(simOffsetMs(simSt, Date.now()))} — not live`}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="vt-field-controls" role="group" aria-label="Simulation time rate">
+                    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+                      {SIM_RATES.map((r) => (
+                        <button
+                          key={r}
+                          className={`vt-preset-pill${simSt.rate === r ? " vt-preset-pill-on" : ""}`}
+                          aria-pressed={simSt.rate === r}
+                          data-vt-sim-rate={r}
+                          onClick={() => setSimRate(r)}>
+                          {simRateLabel(r)}
+                        </button>
+                      ))}
+                      <button
+                        className={`vt-preset-pill${simSt.rate === 0 ? " vt-preset-pill-on" : ""}`}
+                        aria-pressed={simSt.rate === 0}
+                        aria-label="Pause simulation time"
+                        data-vt-sim-pause
+                        onClick={() => setSimRate(0)}>
+                        ⏸ pause
+                      </button>
+                      <button
+                        className="vt-preset-pill"
+                        disabled={simIsReal}
+                        aria-label="Snap back to real time"
+                        data-vt-sim-reset
+                        onClick={() => resetSimClock()}>
+                        ⟲ now
+                      </button>
+                    </span>
+                    <span className="vt-field-note">
+                      one simulation clock drives planet + moon positions, rotations, Earth&apos;s terminator,
+                      moon phase and the live satellites&apos; propagation epoch together. Warped satellites are
+                      re-propagated real SGP4/SDP4 samples at the simulated instant — never interpolated
+                      fiction. Not persisted: reload returns to live.
                     </span>
                   </div>
                 </>
