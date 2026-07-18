@@ -1517,3 +1517,28 @@ DECISION REQUESTED: (a) approve Mapillary-coverage assessment (free,
 one session: quantify image density along N sample rural feeders vs
 urban); (b) approve or defer the pole-detector GPU workload pending
 (a)'s result; (c) confirm GSV stays off the table on ToS grounds.
+
+## 2026-07-18 — CelesTrak catalog SERVER RELAY (decision + frozen-path approval needed)
+
+Production outage today: the client refetched the full ~13MB GP catalog
+on every reload (no persistent cache) and CelesTrak's over-fetch policy
+IP-blocked the human's own address. SHIPPED same-day: client IndexedDB
+catalog cache (fresh = zero network, blocked = last-good fallback with
+honest age note) — the layer now survives blocks and stops causing
+them. REMAINING GAP: a first-ever visitor during a CelesTrak outage (or
+whose IP is pre-blocked) has no catalog at all. The robust fix is
+serving the catalog from OUR origin with a 6h server cache — but
+CelesTrak firewalls Railway egress (R17, filed earlier). BUILD-FIRST
+OPTIONS for human decision:
+ (a) GitHub Actions cron (every 6h) fetches gp.php + SATCAT from a
+     GitHub runner (not firewalled), commits to a data branch or
+     uploads an artifact Railway serves. COST: $0. REQUIRES: editing
+     .github/workflows/ — a FROZEN PATH, so explicit human approval of
+     the new workflow file is needed (this entry is that request).
+ (b) A tiny free-tier worker elsewhere (Cloudflare) as fetch proxy —
+     new infra dependency, ~$0 but another account to manage.
+ (c) Space-Track.org API (requires a free account + auth secrets in
+     Railway) — official source, rate-limited but relay-friendly.
+Recommendation: (a) — zero cost, no new accounts, the artifact is
+just data (the workflow change is mechanical and reviewable in one
+screen).

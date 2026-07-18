@@ -43,6 +43,7 @@ import {
 // and are skipped + COUNTED, never fabricated.
 import { SatLayer, tickAnchorFromEpoch } from "@/lib/orbital/satLayer";
 import { fetchGp, fetchSatcat, type GpRecord, type SatcatRecord } from "@/lib/orbital/tle";
+import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/lib/orbital/gpCache";
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
 // class-representative form drawn at its live position on the globe.
@@ -198,6 +199,9 @@ function shapeCodesFromSatcat(gp: GpRecord[], byNorad: Map<number, SatcatRecord>
 // signal terminates the worker (timeout semantics preserved); Worker
 // construction failure falls back to the main-thread path (degrade, never
 // break).
+// Honest stale-catalog banner (gpCache last-good fallback) — read by the
+// orbital status publisher; null = catalog is fresh.
+const orbitalStaleNoteRef = { current: null as string | null };
 function fetchGpOffThread(group: string, signal?: AbortSignal): Promise<GpRecord[]> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
@@ -255,7 +259,22 @@ function ensureSatcat(): Promise<void> {
   if (satcatByNorad && Date.now() - satcatFetchedAt < SATCAT_TTL_MS) return Promise.resolve();
   if (satcatInflight) return satcatInflight;
   satcatState = "loading";
-  satcatInflight = fetchSatcatRowsOffThread()
+  satcatInflight = (async () => {
+      // persistent-cache-first (same politeness policy as the GP catalog —
+      // lib/orbital/gpCache.ts): a fresh cached SATCAT costs zero network.
+      const persisted = await idbGetCatalog<SatcatRecord[]>("satcat");
+      if (persisted && persisted.data.length && catalogPlan(Date.now(), persisted.at, SATCAT_TTL_MS) === "use-cached") {
+        return persisted.data;
+      }
+      try {
+        const rows = await fetchSatcatRowsOffThread();
+        if (rows.length) void idbSetCatalog("satcat", rows);
+        return rows;
+      } catch (e) {
+        if (persisted && persisted.data.length) return persisted.data; // last-good, aged, real
+        throw e;
+      }
+    })()
     .then(async (rows) => {
       // An HTTP error page (CelesTrak 403/5xx) parses to [] — NEVER cache
       // that as "ready" or identity stays dead for the whole TTL (review
@@ -3536,7 +3555,7 @@ export default function DataMapPage() {
         setStatus("orbital_sats", "active", grp ? grp.count : lastCounts.shown,
           grp
             ? `filtered to ${grp.label} — ${grp.count.toLocaleString()} of ${lastCounts.shown.toLocaleString()} live shown (clear the chip to see the whole sky)`
-            : `${lastCounts.shown.toLocaleString()} live (near-earth SGP4 + deep-space SDP4)${lastCounts.skipped ? ` · ${lastCounts.skipped.toLocaleString()} not rendered (incomplete/decayed elements)` : ""}`);
+            : `${lastCounts.shown.toLocaleString()} live (near-earth SGP4 + deep-space SDP4)${lastCounts.skipped ? ` · ${lastCounts.skipped.toLocaleString()} not rendered (incomplete/decayed elements)` : ""}${orbitalStaleNoteRef.current ? ` · ${orbitalStaleNoteRef.current}` : ""}`);
       }
     };
     // O8 (live report 2026-07-18): re-derive the layer's display buffer from
@@ -3585,18 +3604,45 @@ export default function DataMapPage() {
       async (signal) => {
         const fixture = (window as any).__vtOrbitalGpFixture;
         let gp: GpRecord[];
+        let staleCatalogAgeMs: number | null = null;
         if (Array.isArray(fixture) && fixture.length) {
           gp = fixture as GpRecord[];
         } else if (orbitalGpCache && Date.now() - orbitalGpCache.at < ORBITAL_GP_TTL_MS) {
           gp = orbitalGpCache.gp; // reuse cached elements — toggling never re-hits CelesTrak
         } else {
-          // PERF: fetched + parsed in a one-shot worker (150-500ms main-thread
-          // freeze removed); the resilient-load signal still aborts/times out.
-          gp = await fetchGpOffThread("active", signal);
-          if (gp.length) orbitalGpCache = { at: Date.now(), gp }; // cache for the session
+          // PERSISTENT CACHE (production outage 2026-07-18: reload-refetching
+          // the full ~13MB catalog tripped CelesTrak's over-fetch IP block —
+          // see lib/orbital/gpCache.ts). Fresh IDB catalog = ZERO network;
+          // stale = refetch, falling back to the last-good catalog with its
+          // age surfaced honestly if CelesTrak is unreachable/blocking.
+          const persisted = await idbGetCatalog<GpRecord[]>("gp:active");
+          if (persisted && catalogPlan(Date.now(), persisted.at, ORBITAL_GP_TTL_MS) === "use-cached") {
+            gp = persisted.data;
+            orbitalGpCache = { at: persisted.at, gp };
+          } else {
+            try {
+              // PERF: fetched + parsed in a one-shot worker (150-500ms
+              // main-thread freeze removed); the signal still aborts.
+              gp = await fetchGpOffThread("active", signal);
+              if (gp.length) {
+                orbitalGpCache = { at: Date.now(), gp };
+                void idbSetCatalog("gp:active", gp);
+              }
+            } catch (e) {
+              if (persisted && persisted.data.length) {
+                gp = persisted.data; // last-good fallback — real elements, aged, labeled below
+                orbitalGpCache = { at: persisted.at, gp };
+                staleCatalogAgeMs = Date.now() - persisted.at;
+              } else {
+                throw e; // nothing cached — resilient-load backoff keeps retrying
+              }
+            }
+          }
         }
         if (signal.aborted) return;
         if (!gp.length) throw new Error("no orbital elements returned");
+        if (staleCatalogAgeMs != null) orbitalStaleNoteRef.current = staleCatalogNote(staleCatalogAgeMs);
+        else if (!(Array.isArray(fixture) && fixture.length)) orbitalStaleNoteRef.current = null;
         // one physical station = ONE object (human-directed 2026-07-16):
         // ISS/CSS module entries collapse to the core-module keeper BEFORE
         // the worker/ref split, so buffer indices stay aligned everywhere
