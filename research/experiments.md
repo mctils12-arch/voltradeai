@@ -211,6 +211,42 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Galaxy detail: REAL bright-star catalog + sharper Milky Way (v1.0.417, T-CLIENT, worktree agent + parent review)
+
+Human: "the galaxy in the background need to be way more detailed." The
+background was the 8k panorama alone (soft) with NO stars (the
+reference's FABRICATED random starfield was correctly dropped for
+honesty). Now: REAL stars from the Yale Bright Star Catalog (public
+domain) — starCatalog.ts parses the BSC (9096 stars, RA/Dec/V-mag/
+K-color) into a compact 106.6KB fixed-stride binary (bsc5.bin, 8.7×
+smaller than the 932KB source; J2000 unit dir int16 + V-mag int16 +
+blackbody RGB uint8) + bsc5_bright.json (22 named brightest for
+labels). RA/Dec → the scene's ecliptic frame via the SAME Schlyter
+obliquity as eclFromEq (so stars register with the panorama's real
+star field — both the one real sky); V-mag → point size 0.5-2.8px +
+brightness; K-temp → blackbody RGB (Tanner-Helland). Stars fade 2→6
+AU (leading the panorama's 8-AU glow), 0 near Earth (near-Earth sky
+stays honestly black). Panorama sharpened: decode cap 4096×2048,
+working res 480→900px, bilinear + 1.12 exposure, row-band chunked
+(single-shot 900px was 72ms → now 6-9ms/frame). Credits both surfaced
+("Stars: Yale BSC public domain" + panorama CC-BY). Replaces the
+"no fabricated starfield" note with REAL DATA — honesty upheld, not
+weakened. Gates (parent-verified, MY OWN drive): client 550/550
+(+15), build clean, visual harness 0 hard failures, territory
+celestial/*.ts + client/public/space/ only. Star drive 12/12 (clean
+run — first run's 2 position-check fails were unsettled-frame
+artifacts under container load, falsified by re-run): 9096 catalog
+resident, 393 real stars on-screen, Vega renders lum 173 rgb
+159,175,197 (blue-white, correct for 9600K) at its TRUE projected
+position, color varies (24k blue + 1.1k red points), lazy-load +
+evict, starMs 0.8 / skyMs 12.7 (<16). Eyeballed: rich detailed
+starfield, Rigil Kentaurus labeled. Integration: 2 keep-both
+conflicts in the rAF loop-continue condition (nav's zoomEaseActive +
+galaxy's star/sky ease terms) resolved keep-all. NOTE: no CELESTIAL-
+panel toggle row for stars yet (default-ON pref + setStars handle
+exist; panel wiring is datamap territory — a small follow-up).
+Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Space navigation: Earth-map feel (zoom-to-cursor + pan) + DEFINITIVE crisp-during-motion (v1.0.415, T-CLIENT, worktree agent + parent review)
 
 The human's #1 live complaint: "mechanics of the earth for zooming and
