@@ -1492,6 +1492,42 @@
     is the fix's own correctness verification, which deserves a session
     of its own.
 
+    UPDATE 2026-07-19 (session 2, scheduled-routine, [REPAIR], v1.0.416)
+    — FIRST FILE-BY-FILE FIX LANDED, per this item's own 2026-07-18
+    NEXT STEP (1). Storm STILL ACTIVE at session start: `TIER2-ERROR`
+    recurring continuously since 13:36:01Z, 16 occurrences by 16:11:47Z
+    (~2h35m). Built the full 14-site compatibility matrix by hand (symbol,
+    start formula, limit, adjustment) exactly as the prior session's own
+    caution demanded before merging anything — most of the 14 turned out
+    genuinely NOT collapsible (different tickers, different windows,
+    different `adjustment` flags); only 2 true duplicates survived:
+    `bot_engine.py`'s `deep_score()` credit_spread (TLT/HYG) fetch — market
+    -wide, not ticker-specific, but re-issued on every one of up to 15
+    deep-scored candidates per scan (the single highest-multiplier site of
+    the 14) — and `macro_data.py`'s `get_macro_snapshot()` SPY 300d/220
+    bars, fetched twice in the SAME function call despite its own comment
+    already claiming reuse. Both fixed with zero-risk, proven patterns
+    (the first mirrors the codebase's own existing `_MOST_ACTIVES_CACHE`
+    2026-05-18 fix for the identical bug class; the second just makes the
+    existing "already fetched above — reuse" comment true). Full trace,
+    the compatibility matrix, and the two sites deliberately left alone
+    (the VXX cross-file dup between `macro_data.py`/`options_scanner.py`,
+    and `csp_universe.py`'s cache-miss path) are in experiments.md's
+    2026-07-19 session-2 entry. RATCHET: `test_deep_score_credit_spread_
+    cache.py` + `test_macro_snapshot_spy_dedup.py`, 6 new behavioral tests
+    (call-count assertions against mocked `requests.get`, not just
+    static-shape checks). THIS IS DELIBERATELY PARTIAL — 2 of 14 sites,
+    chosen for zero inference risk, not maximum coverage. NOT YET
+    LIVE-CONFIRMED (this PR is pending merge — market-hours session, human
+    judgment call on whether the still-active storm counts as the
+    "critical live break" merge-timing exception). NEXT STEP for whichever
+    session catches the next occurrence post-merge: re-run the
+    `/api/diag/timings` live-catch procedure; if `deep_score`/`tier1_sec`
+    are still elevated, that points at the remaining untouched sites (VXX
+    cross-file merge, `csp_universe.py`'s cache-miss path), not evidence
+    this fix was wrong — do not re-diagnose from scratch, continue from
+    here.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
