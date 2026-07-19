@@ -116,6 +116,62 @@ test("compose: front-lit center shows the exact texel; night side falls to the 5
   assert.equal(em[c], 126, "emissive full bright");
 });
 
+test("B6 fullBright (realistic OFF): the night side is full-bright — the terminator vanishes", () => {
+  const lut = buildSphereLUT(8, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+  const t = tex(36, 18, (x) => [x * 7, 100, 200]);
+  const R = lut.shadeR;
+  const c = ((R + 1) * lut.size + (R + 1)) * 4;
+  // light from BEHIND, but fullBright ⇒ the centre texel renders at weight 1.
+  const out = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: -1 }, out, { fullBright: true });
+  assert.equal(out[c], 126, "night-lit centre is full-bright when realistic is off");
+  assert.equal(out[c + 1], 100);
+  assert.equal(out[c + 2], 200);
+});
+
+test("B6 shadowFactor (eclipse/umbra): darkens the lit disc uniformly", () => {
+  const lut = buildSphereLUT(8, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+  const t = tex(36, 18, () => [200, 200, 200]);
+  const R = lut.shadeR;
+  const c = ((R + 1) * lut.size + (R + 1)) * 4;
+  const full = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: 1 }, full, { shadowFactor: 1 });
+  const ecl = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: 1 }, ecl, { shadowFactor: 0.25 });
+  close(ecl[c], full[c] * 0.25, 1.5, "umbra factor scales the lit pixel");
+  assert.ok(ecl[c] < full[c] - 40, "eclipsed disc is materially darker");
+});
+
+test("B6 ringShadow: a surface pixel under the ring annulus is darkened; one outside it is not", () => {
+  // camera looks at (lonNode 0, lat 0); axis up on screen ⇒ body frame z = axis.
+  const lut = buildSphereLUT(24, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+  const t = tex(36, 18, () => [200, 200, 200]);
+  const R = lut.shadeR;
+  const size = lut.size;
+  // Sun 40° above the ring plane, in +x of the body frame → ring shadow lands
+  // on the southern hemisphere (−z, i.e. LOWER on screen since screen-y is up).
+  const el = 40 * (Math.PI / 180);
+  const sun = { x: Math.cos(el), y: 0, z: Math.sin(el) };
+  const ring = { sun, rInner: SATURN_RING_INNER_REL, rOuter: SATURN_RING_OUTER_REL, strength: 0.3 };
+  const withRing = new Uint8ClampedArray(size * size * 4);
+  composeTexturedSprite(lut, t, 0, sun, withRing, { ringShadow: ring });
+  const noRing = new Uint8ClampedArray(size * size * 4);
+  composeTexturedSprite(lut, t, 0, sun, noRing, { ringShadow: null });
+  // scan the southern face (rows below centre) for a pixel the ring darkened
+  let darkened = 0;
+  for (let py = R + 2; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      const i = (py * size + px) * 4;
+      if (!lut.mask[py * size + px]) continue;
+      if (withRing[i] < noRing[i] - 20) darkened++;
+    }
+  }
+  assert.ok(darkened > 4, `ring casts a shadow band on the disc (${darkened} darkened pixels)`);
+  // the near-north sub-solar centre pixel is NOT ring-shadowed (Sun-side hemisphere)
+  const cN = ((R + 1 - Math.round(R * 0.6)) * size + (R + 1)) * 4;
+  assert.ok(withRing[cN] >= noRing[cN] - 2, "the northern/sun-side face keeps its brightness");
+});
+
 test("compose: texLonOffsetDeg shifts the source-map prime meridian (B5 planet maps)", () => {
   const lut = buildSphereLUT(8, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
   const t = tex(36, 18, (x) => [x * 7, 100, 200]); // longitude-striped: r ∝ column

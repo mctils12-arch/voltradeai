@@ -182,6 +182,7 @@ import {
   getEclipticGridPref,
   getMotionTrailsPref,
   getBodyLabelsPref,
+  getRealisticLightingPref,
   MILKY_WAY_CREDIT,
   textureLonOffsetDeg,
   type SpaceTextureManager,
@@ -210,10 +211,20 @@ import {
   buildSkyRays,
   renderSkyToBuffer,
   spinObliquityDeg,
+  SATURN_RING_INNER_REL,
+  SATURN_RING_OUTER_REL,
   type SphereLUT,
   type RingBand,
   type GalacticBasis,
+  type RingShadowParams,
 } from "./textureSphere.js";
+// B6 UNIVERSAL LIGHTING (directive §8): ONE Sun lights everything — real
+// terminators/phases already come from the lambert shading below; this adds
+// eclipse (umbra cone) + ring shadows, all from real positions at the sim clock.
+import {
+  shadowConeFactor,
+  pointInSphereShadow,
+} from "./bodyLighting.js";
 import {
   sampleOrbitPolyline,
   layoutOrbitPolyline,
@@ -538,6 +549,11 @@ export const LABEL_DOT_MAX_DISC_PX = 9;
 /** The Sun's additive glow sprite spans this many disc diameters
  *  (reference: glow.scale = 7× the sun mesh). */
 export const SUN_GLOW_SCALE = 7;
+
+/** B6 shadow darkening: the residual brightness (0..1) of a ring quad in the
+ *  planet's own shadow, and of a planet-disc pixel under the ring shadow.
+ *  Not fully black — a little in-scatter/ring-shine keeps it readable. */
+export const RING_SHADOW_STRENGTH = 0.32;
 
 /** Ecliptic-grid AU rings (the reference's GRID_AU) + 12 bearing spokes. */
 export const GRID_AU: readonly number[] = Object.freeze([0.5, 1, 2, 5, 10, 20, 40]);
@@ -1202,6 +1218,9 @@ export interface SpaceFrameOptions {
   eclipticGrid?: boolean;
   motionTrails?: boolean;
   bodyLabels?: boolean;
+  /** B6 realistic (physically-lit) mode. Default: the persisted pref (ON).
+   *  OFF = even-lit inspection mode (full-bright, no terminator). */
+  realisticLighting?: boolean;
   /** the sim clock's current rate for the footer's "time ×N" (0 = paused).
    *  The frame never owns time — it reads the ONE clock's rate for display. */
   getTimeRate?: () => number;
@@ -1245,6 +1264,11 @@ export interface SpaceFrameHandle {
   setEclipticGrid(on: boolean): void;
   setMotionTrails(on: boolean): void;
   setBodyLabels(on: boolean): void;
+  /** B6: toggle realistic (physically-lit) mode. ON (default) = real
+   *  terminators/phases/eclipse+ring shadows under the sim clock; OFF =
+   *  even-lit inspection mode (full-bright, no terminator). The CELESTIAL-panel
+   *  row that drives this is a parent datamap follow-up. */
+  setRealisticLighting(on: boolean): void;
   /** DEBUG/DRIVE seam: project a sky direction (RA/Dec, J2000 degrees) into
    *  container CSS px using the live camera — the SAME transform stars +
    *  panorama register through. Proves a known star lands at its true place. */
@@ -1267,6 +1291,11 @@ export interface SpaceFrameBodyState {
   marker: boolean;
   /** camera-relative illuminated fraction (real phase from HERE). */
   litFraction: number;
+  /** B6 eclipse/umbra: direct-sunlight factor 0..1 from real cone geometry
+   *  (1 = fully sunlit, 0 = total umbra). < 1 ⇒ this body is eclipsed by its
+   *  parent at the sim-clock instant (a lunar eclipse for the Moon). Pure
+   *  geometry — reported regardless of the realistic-lighting toggle. */
+  sunlitFactor: number;
   /** TRUE camera→body distance, meters — what the label prints. THE
    *  NUMBERS NEVER LIE: computed from real ephemeris positions with the
    *  camera at its real distance from the focus body, at every c/s. */
@@ -1327,6 +1356,8 @@ export interface SpaceFrameState {
   eclipticGrid: boolean;
   motionTrails: boolean;
   bodyLabels: boolean;
+  /** B6: realistic (physically-lit) vs even-lit inspection mode. */
+  realisticLighting: boolean;
   /** resident texture facts + the perf maxima the report needs. */
   textures: {
     loaded: number;
@@ -1950,6 +1981,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let gridOn = opts.eclipticGrid ?? getEclipticGridPref();
   let trailsOn = opts.motionTrails ?? getMotionTrailsPref();
   let labelsOn = opts.bodyLabels ?? getBodyLabelsPref();
+  // B6 universal lighting: ON = physically-lit (terminators/phases/eclipse+
+  // ring shadows); OFF = even-lit inspection (full-bright, no terminator).
+  let realistic = opts.realisticLighting ?? getRealisticLightingPref();
   let ringBands: RingBand[] | null = null;
   let spriteBuildMsMax = 0;
   let lutBuildMsMax = 0;
@@ -2081,6 +2115,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     bufW: number, bufH: number, bx: number, by: number, bw: number, bh: number,
     camPos: Vec3, center: Vec3, R: number, basis: CamBasis, k: number, cx: number, cy: number,
     X: Vec3, Y: Vec3, Z: Vec3, wDeg: number, sun: Vec3, texLonOffsetDeg: number,
+    shadowFactor: number,
   ): MoonSurfaceView {
     const stepX = bw / bufW;
     const stepY = bh / bufH;
@@ -2091,6 +2126,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       r: basis.r, u: basis.u, f: basis.f,
       cam: camPos, center, radius: R,
       X, Y, Z, wDeg, sun, texLonOffsetDeg,
+      // B6: realistic OFF ⇒ full-bright patch; the eclipse scalar matches the
+      // far sprite so the terminator/eclipse read consistently across zoom.
+      fullBright: !realistic,
+      shadowFactor,
     };
   }
 
@@ -2116,16 +2155,41 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     mpTimer = setTimeout(pumpMoonPatch, 0);
   }
 
+  /** B6 eclipse/umbra factor for a body: a moon in its PARENT's real shadow
+   *  cone darkens (lunar eclipse = Moon in Earth's umbra; a Jovian moon in
+   *  Jupiter's) — everything else stays 1. Pure GEOMETRY from TRUE ecliptic
+   *  positions (the physical cone, never the compressed layout) and the real
+   *  Sun distance, so the darkening turns on and off at the correct sim-clock
+   *  instants. Not gated on the realistic toggle — the shading paths already
+   *  ignore the factor in full-bright inspection mode — so getState can report
+   *  the honest eclipse geometry regardless of the display toggle. */
+  function eclipseFactor(id: string, posT: Record<string, Vec3>): number {
+    const parentId = defById.get(id)?.parentId;
+    if (!parentId) return 1;
+    const bc = posT[id];
+    const pc = posT[parentId];
+    const sc = posT[sunDef.id];
+    if (!bc || !pc || !sc) return 1;
+    const pRel = sub(bc, pc);
+    const sunV = sub(sc, pc);
+    const sunDist = len3(sunV);
+    if (sunDist <= 0) return 1;
+    const sunDir = { x: sunV.x / sunDist, y: sunV.y / sunDist, z: sunV.z / sunDist };
+    return shadowConeFactor(pRel, sunDir, radiusM(parentId), radiusM(sunDef.id), sunDist).factor;
+  }
+
   /** Draw a focused-close rocky body (Moon/Mars/Mercury/Venus) as a real-
    *  imagery perspective patch. Returns true when it handled the body (caller
    *  skips the disc sprite). Body-generic: geometry from radiusM(bodyId), pose
    *  from pos[bodyId], orientation from rotation.ts for `bodyId`, tiles from the
-   *  body's own Trek manager — the exact B4 path, parameterised by bodyId. */
+   *  body's own Trek manager — the exact B4 path, parameterised by bodyId.
+   *  `shadowFactor` is the body's B6 eclipse/umbra scalar (1 = fully sunlit). */
   function drawBodyPatch(
     bodyId: string,
     d: { p: ProjectedPoint; layoutDistM: number },
     sunPos: Vec3, pos: Record<string, Vec3>, camPos: Vec3, basis: CamBasis,
     k: number, cx: number, cy: number, w: number, h: number,
+    shadowFactor: number,
   ): boolean {
     if (!ctx) return false;
     const mgr = tileManagerFor(bodyId);
@@ -2192,7 +2256,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const mosKey = mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0";
     const key =
       `${bodyId}|${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
-      `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}`;
+      `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}` +
+      // B6: fold the realistic toggle + eclipse scalar into the pose key so the
+      // patch rebuilds when they change (a toggle flip / a moon entering umbra)
+      `|L${realistic ? 1 : 0}|e${Math.round(shadowFactor * 40)}`;
     // ── DRAW: keep the crisp high-res buffer on screen, even DURING motion ───
     // The high-res buffer maps buffer pixels to the disc bbox; drawing it into
     // the CURRENT bbox keeps the silhouette exact while its surface texture is
@@ -2223,7 +2290,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         cv.height = fd.bufH;
         mpFast = { canvas: cv, img: cv.getContext("2d")!.createImageData(fd.bufW, fd.bufH), bufW: fd.bufW, bufH: fd.bufH };
       }
-      const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon);
+      const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon, shadowFactor);
       const tf = performance.now();
       renderMoonSurfaceRows(fView, base, detail, mpFast.img.data, 0, fd.bufH);
       const fms = performance.now() - tf;
@@ -2252,7 +2319,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       mpBuilding = {
         key, canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
         bufW: ld.bufW, bufH: ld.bufH, bx, by, bw, bh,
-        view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon),
+        view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon, shadowFactor),
         base, detail, row: 0, ready: false, nCam,
       };
       if (!mpTimer) mpTimer = setTimeout(pumpMoonPatch, 0);
@@ -2319,6 +2386,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     wq: number;
     tex: TexImage;
     bump: TexImage | null;
+    light: BodyLight;
     lut: SphereLUT;
     lutRow: number;
     composeRow: number;
@@ -2347,6 +2415,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           bump: u.bump, bumpStrength: 1.2,
           rowStart: u.composeRow, rowEnd: u.composeRow + rows,
           texLonOffsetDeg: textureLonOffsetDeg(u.def.id),
+          fullBright: !u.light.realistic,
+          shadowFactor: u.light.shadowFactor,
+          ringShadow: u.light.ring,
         },
       );
       u.composeRow += rows;
@@ -2363,11 +2434,27 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     upgradeTimer = setTimeout(pumpUpgrade, 0);
   }
 
-  function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3): string {
+  /** B6 light state that changes a body's shaded pixels beyond its pose:
+   *  realistic on/off, the eclipse/umbra scalar, and the ring shadow. Folded
+   *  into the sprite cache key so a toggle or an eclipse re-shades correctly. */
+  interface BodyLight {
+    realistic: boolean;
+    shadowFactor: number;
+    ring: RingShadowParams | null;
+  }
+  function lightKey(l: BodyLight): string {
+    const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
+    const r = l.ring
+      ? `r${sq(l.ring.sun.x)},${sq(l.ring.sun.y)},${sq(l.ring.sun.z)}`
+      : "r0";
+    return `L${l.realistic ? 1 : 0}|e${Math.round(l.shadowFactor * 40)}|${r}`;
+  }
+
+  function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3, light: BodyLight): string {
     const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
     return (
       `${id}|t${tier}|${shadeR}|${wq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}` +
-      `|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}`
+      `|${q2(axisCam.x)},${q2(axisCam.y)},${q2(axisCam.z)}|${lightKey(light)}`
     );
   }
 
@@ -2380,6 +2467,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     wDeg: number,
     tex: TexImage,
     bump: TexImage | null,
+    light: BodyLight,
   ): HTMLCanvasElement {
     const rq = Math.max(2, Math.round(Math.exp(Math.round(Math.log(radiusPx) / 0.06) * 0.06)));
     const fullR = Math.min(rq, TEXTURE_MAX_SHADE_RADIUS);
@@ -2387,7 +2475,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const wq = Math.round(wDeg * 2) / 2; // 0.5° spin quantum (sub-texel @1k)
     const wantTangents = def.id === "moon" && !!bump;
     // 1) full-res already composed for this pose? use it
-    const fullKey = spriteKey(def.id, tex.tier, fullR, wq, sunCam, axisCam);
+    const fullKey = spriteKey(def.id, tex.tier, fullR, wq, sunCam, axisCam, light);
     const fullHit = spriteCache.get(fullKey);
     if (fullHit) return fullHit;
     // 2) settled pose seen twice → stream the full tier in the background
@@ -2400,7 +2488,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           canvas.width = size;
           canvas.height = size;
           upgrade = {
-            key: fullKey, def, shadeR: fullR, sunCam, axisCam, nodeCam, wq, tex, bump,
+            key: fullKey, def, shadeR: fullR, sunCam, axisCam, nodeCam, wq, tex, bump, light,
             lut: createEmptySphereLUT(fullR, wantTangents),
             lutRow: 0, composeRow: 0, canvas,
             img: canvas.getContext("2d")!.createImageData(size, size),
@@ -2413,7 +2501,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
     }
     // 3) synchronous FAST tier (bounded task; per-frame safe under warp)
-    const key = spriteKey(def.id, tex.tier, fastR, wq, sunCam, axisCam);
+    const key = spriteKey(def.id, tex.tier, fastR, wq, sunCam, axisCam, light);
     const hit = spriteCache.get(key);
     if (hit) return hit;
     if (spriteCache.size > 48) spriteCache.clear();
@@ -2442,9 +2530,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       wq,
       def.emissive ? null : sunCam,
       img.data,
-      wantTangents
-        ? { bump, bumpStrength: 1.2, texLonOffsetDeg: textureLonOffsetDeg(def.id) }
-        : { texLonOffsetDeg: textureLonOffsetDeg(def.id) },
+      {
+        ...(wantTangents ? { bump, bumpStrength: 1.2 } : {}),
+        texLonOffsetDeg: textureLonOffsetDeg(def.id),
+        fullBright: !light.realistic,
+        shadowFactor: light.shadowFactor,
+        ringShadow: light.ring,
+      },
     );
     const ms = performance.now() - t0;
     if (ms > spriteBuildMsMax) spriteBuildMsMax = ms;
@@ -2453,12 +2545,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return c;
   }
 
-  function shadedSprite(def: SpaceBodyDef, radiusPx: number, sunCam: Vec3): HTMLCanvasElement {
+  function shadedSprite(def: SpaceBodyDef, radiusPx: number, sunCam: Vec3, light: BodyLight): HTMLCanvasElement {
     // quantize: 6% radius steps, 0.06 light-direction steps — a flight
     // re-shades a handful of times, idle frames reuse the cache
     const rq = Math.max(2, Math.round(Math.exp(Math.round(Math.log(radiusPx) / 0.06) * 0.06)));
     const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
-    const key = `${def.id}|${rq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}`;
+    const key = `${def.id}|${rq}|${sq(sunCam.x)},${sq(sunCam.y)},${sq(sunCam.z)}|${lightKey(light)}`;
     const hit = spriteCache.get(key);
     if (hit) return hit;
     if (spriteCache.size > 48) spriteCache.clear(); // tiny working set, no LRU needed
@@ -2496,10 +2588,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           if (nz2 < 0) continue;
           const nz = Math.sqrt(nz2);
           const lit = nx * s.x + ny * s.y + nz * s.z;
-          // soft terminator (±0.04 of the cosine) — display smoothing only
+          // soft terminator (±0.04 of the cosine) — display smoothing only.
+          // B6: realistic OFF ⇒ full-bright (no terminator); ON ⇒ the lambert
+          // curve × the eclipse/umbra factor (a moon in its parent's shadow).
           const day = Math.max(0, Math.min(1, (lit + 0.03) / 0.07));
           const shade = 0.05 + 0.95 * Math.max(lit, 0);
-          const w = 0.05 + 0.95 * (day * shade);
+          const w = light.realistic ? (0.05 + 0.95 * (day * shade)) * light.shadowFactor : 1;
           const i = (py * size + px) * 4;
           img.data[i] = cr * w;
           img.data[i + 1] = cg * w;
@@ -2770,20 +2864,37 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // half over it (painter's split at the planet's center depth)
       const rings = d.id === "saturn" && d.discPx >= 6 ? ringBandsNow() : null;
       let ringEdges: ({ x: number; y: number; depth: number } | null)[][] | null = null;
+      // B6 planet-shadow-on-rings: per-edge×segment flag — true when that ring
+      // vertex sits in Saturn's OWN shadow (its umbra cast across the rings),
+      // from REAL geometry (Sun→planet direction, ring offset in real metres).
+      let ringShadowGrid: boolean[][] | null = null;
       if (rings) {
         const trueDisc = bodyDiscPx(radiusM(d.id), d.layoutDistM, kNow);
         const enlarge = trueDisc > 0 && Number.isFinite(trueDisc) ? d.discPx / trueDisc : 1;
         const axisE = axisEclOfDate("saturn", timeMs);
         const SEGS = 40;
+        const Rp = radiusM(d.id);
+        const sunDirEcl = realistic ? norm3(sub(posT[sunDef.id], posT[d.id])) : null;
         ringEdges = [];
+        ringShadowGrid = sunDirEcl ? [] : null;
         for (let e = 0; e <= rings.length; e++) {
           const rel = e === 0 ? rings[0].r0 : rings[e - 1].r1;
-          const pts = ringCircle3D(pos[d.id], axisE, radiusM(d.id) * rel * enlarge, SEGS);
+          const pts = ringCircle3D(pos[d.id], axisE, Rp * rel * enlarge, SEGS);
           const row: ({ x: number; y: number; depth: number } | null)[] = [];
           for (let i = 0; i < SEGS; i++) {
             row.push(projTo(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2], camPos, basis, kNow, cx, cy));
           }
           ringEdges.push(row);
+          if (sunDirEcl && ringShadowGrid) {
+            // real-metre ring offsets at this radius (same segment order) → is
+            // each vertex behind the planet from the Sun?
+            const off = ringCircle3D({ x: 0, y: 0, z: 0 }, axisE, Rp * rel, SEGS);
+            const srow: boolean[] = [];
+            for (let i = 0; i < SEGS; i++) {
+              srow.push(pointInSphereShadow({ x: off[i * 3], y: off[i * 3 + 1], z: off[i * 3 + 2] }, sunDirEcl, Rp));
+            }
+            ringShadowGrid.push(srow);
+          }
         }
       }
       const paintRings = (back: boolean): void => {
@@ -2792,7 +2903,6 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         for (let b = 0; b < rings.length; b++) {
           const band = rings[b];
           if (band.alpha < 0.02) continue;
-          ctx.fillStyle = `rgba(${Math.round(band.r)},${Math.round(band.g)},${Math.round(band.b)},${band.alpha})`;
           for (let j = 0; j < segs; j++) {
             const j2 = (j + 1) % segs;
             const a = ringEdges[b][j];
@@ -2802,6 +2912,16 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
             if (!a || !bq || !c || !dq) continue;
             const isBack = (a.depth + bq.depth + c.depth + dq.depth) / 4 > d.p.depth;
             if (isBack !== back) continue;
+            // B6: a ring quad mostly inside the planet's shadow reads much
+            // darker (the planet's shadow falling across its own rings).
+            let shade = 1;
+            if (ringShadowGrid) {
+              const nShadow =
+                (ringShadowGrid[b][j] ? 1 : 0) + (ringShadowGrid[b][j2] ? 1 : 0) +
+                (ringShadowGrid[b + 1][j2] ? 1 : 0) + (ringShadowGrid[b + 1][j] ? 1 : 0);
+              if (nShadow >= 3) shade = RING_SHADOW_STRENGTH;
+            }
+            ctx.fillStyle = `rgba(${Math.round(band.r * shade)},${Math.round(band.g * shade)},${Math.round(band.b * shade)},${band.alpha})`;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(bq.x, bq.y);
@@ -2821,10 +2941,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         // Handles it entirely. Gas giants have no Trek surface (trekBody→null)
         // and fall through to the textured cloud-band sprite below. Saturn's
         // rings are painted above regardless; the rocky bodies carry none.
+        // B6: the eclipse/umbra scalar (a moon in its parent's real shadow),
+        // computed from TRUE positions at the sim-clock instant. 1 for planets
+        // (no parent) and whenever realistic lighting is off.
+        const eclipse = eclipseFactor(d.id, posT);
         if (
           trekBody(d.id) &&
           d.layoutDistM < MOON_PATCH_ACTIVATE_RADII * radiusM(d.id) &&
-          drawBodyPatch(d.id, d, sunPos, pos, camPos, basis, kNow, cx, cy, w, h)
+          drawBodyPatch(d.id, d, sunPos, pos, camPos, basis, kNow, cx, cy, w, h, eclipse)
         ) {
           moonPatchDrewThisFrame = true;
           continue;
@@ -2852,14 +2976,31 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           const nodeE = equatorNodeDirEclOfDate(rid, timeMs);
           const axisCam = v3(dot(axisE, basis.r), dot(axisE, basis.u), -dot(axisE, basis.f));
           const nodeCam = v3(dot(nodeE, basis.r), dot(nodeE, basis.u), -dot(nodeE, basis.f));
+          // B6 ring shadow-on-disc (Saturn): express the Sun in the LUT's body
+          // frame (Z = spin axis, X = equator node, Y = Z×X) so compose can test
+          // each pixel's surface point against the ring annulus.
+          let ring: RingShadowParams | null = null;
+          if (d.id === "saturn" && realistic && ringBandsNow()) {
+            const Zc = norm3(axisCam);
+            const Xc = norm3(nodeCam);
+            const Yc = cross(Zc, Xc);
+            ring = {
+              sun: { x: dot(sunCam, Xc), y: dot(sunCam, Yc), z: dot(sunCam, Zc) },
+              rInner: SATURN_RING_INNER_REL,
+              rOuter: SATURN_RING_OUTER_REL,
+              strength: RING_SHADOW_STRENGTH,
+            };
+          }
+          const light: BodyLight = { realistic, shadowFactor: eclipse, ring };
           sprite = texturedSprite(
             def, r, sunCam, axisCam, nodeCam,
             iauPrimeMeridianDeg(rid, timeMs), tex,
             d.id === "moon" ? texman.getMoonBump() : null,
+            light,
           );
           texturedIds.push(d.id);
         } else {
-          sprite = shadedSprite(def, r, sunCam);
+          sprite = shadedSprite(def, r, sunCam, { realistic, shadowFactor: eclipse, ring: null });
         }
         // the sprite's shaded disc has radius (sprite.width/2 − 1); scale the
         // whole sprite so THAT maps to exactly r (the +1 border must not
@@ -3171,6 +3312,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       eclipticGrid: gridOn,
       motionTrails: trailsOn,
       bodyLabels: labelsOn,
+      // B6: realistic (physically-lit) vs even-lit inspection mode.
+      realisticLighting: realistic,
       textures: {
         ...texman.stats(),
         spriteBuildMsMax,
@@ -3192,6 +3335,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         // never a recomputation that could drift from it
         marker: markerIds.has(d.id),
         litFraction: d.lit,
+        // B6 eclipse/umbra: direct-sunlight factor from real geometry (1 =
+        // fully sunlit, 0 = total umbra) — < 1 ⇒ this body is being eclipsed
+        // by its parent at the sim-clock instant (a lunar eclipse for the Moon).
+        sunlitFactor: eclipseFactor(d.id, posT),
         distM: d.distM,
         layoutDistM: d.layoutDistM,
         // B3 rotation state (IAU pole + W at the sim-clock instant) — the
@@ -3636,6 +3783,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     setBodyLabels(on: boolean): void {
       if (on === labelsOn) return;
       labelsOn = on;
+      lastInputAt = performance.now();
+      kick();
+    },
+    setRealisticLighting(on: boolean): void {
+      if (on === realistic) return;
+      realistic = on;
+      // shaded/textured sprites + surface patches re-key on the realistic bit,
+      // so a flip re-shades every body next frame (terminator on ⇄ full-bright).
       lastInputAt = performance.now();
       kick();
     },

@@ -159,6 +159,13 @@ export interface MoonSurfaceView {
    *  for the Moon (byte-identical), 180 for the planet map family. Optional so
    *  the Moon's existing views need no change. */
   texLonOffsetDeg?: number;
+  /** B6 realistic-lighting OFF (even-lit inspection mode): full-bright, no
+   *  terminator. Optional (default = realistic ON). */
+  fullBright?: boolean;
+  /** B6 whole-patch eclipse/umbra multiplier (0..1, 1 = fully sunlit) — the
+   *  close surface patch matches the far sprite's eclipse darkening so the
+   *  terminator/eclipse read consistently across the zoom continuum. */
+  shadowFactor?: number;
 }
 
 /**
@@ -177,6 +184,8 @@ export function renderMoonSurfaceRows(
 ): { hits: number } {
   const { bw, bh, originX, originY, stepX, stepY, cx, cy, k, r, u, f, cam, center, radius, X, Y, Z, wDeg, sun } = view;
   const texOff = (view.texLonOffsetDeg ?? 0) / 360;
+  const fullBright = !!view.fullBright;
+  const shadowFactor = view.shadowFactor ?? 1;
   const y0 = Math.max(0, rowStart);
   const y1 = Math.min(bh, rowEnd);
   let hits = 0;
@@ -207,8 +216,10 @@ export function renderMoonSurfaceRows(
       const n = { x: nx, y: ny, z: nz };
       const { lonDeg, latDeg } = surfaceLonLat(n, X, Y, Z, wDeg);
       const rgb = (detail && sampleDetail(detail, lonDeg, latDeg)) || sampleBase(base, lonDeg, latDeg, texOff);
+      // B6: realistic OFF ⇒ full-bright (no terminator); ON ⇒ lambert × the
+      // eclipse/umbra factor (matches the far-sprite shading for zoom continuity).
       const lit = nx * sun.x + ny * sun.y + nz * sun.z;
-      const w = lambertWeight(lit);
+      const w = fullBright ? 1 : lambertWeight(lit) * shadowFactor;
       out[o] = rgb[0] * w;
       out[o + 1] = rgb[1] * w;
       out[o + 2] = rgb[2] * w;

@@ -259,3 +259,38 @@ test("texLonOffsetDeg omitted ≡ offset 0 (Moon path byte-identical)", () => {
   renderMoonSurfaceRows(b.view, base, null, b.out, 0, 40);
   assert.deepEqual(Array.from(a.out), Array.from(b.out));
 });
+
+// ── B6 universal lighting on the close surface patch ─────────────────────────
+
+test("B6 fullBright (realistic OFF): the night side of the patch is full-bright", () => {
+  const base = solid(8, 8, 200, 200, 200);
+  const { view, out } = frontalView(48, 48, base, null);
+  view.sun = { x: -1, y: 0, z: 0 }; // sun BEHIND the body ⇒ near side is night
+  view.fullBright = true;
+  renderMoonSurfaceRows(view, base, null, out, 0, 48);
+  const c = (24 * 48 + 24) * 4;
+  assert.equal(out[c + 3], 255, "centre is opaque");
+  assert.equal(out[c], 200, "night-lit centre is full-bright (no terminator)");
+});
+
+test("B6 shadowFactor (eclipse): the lit patch darkens by the umbra factor, matching the far sprite", () => {
+  const base = solid(8, 8, 200, 200, 200);
+  const lit = frontalView(48, 48, base, null); // sun toward the camera (+x): full lit
+  const ecl = frontalView(48, 48, base, null);
+  ecl.view.shadowFactor = 0.2;
+  renderMoonSurfaceRows(lit.view, base, null, lit.out, 0, 48);
+  renderMoonSurfaceRows(ecl.view, base, null, ecl.out, 0, 48);
+  const c = (24 * 48 + 24) * 4;
+  assert.ok(lit.out[c] > 150, "un-eclipsed patch is bright");
+  assert.ok(Math.abs(ecl.out[c] - lit.out[c] * 0.2) < 3, "patch darkens by the eclipse scalar");
+});
+
+test("B6 shadowFactor omitted ≡ 1 (fully sunlit patch, byte-identical)", () => {
+  const base = solid(8, 8, 180, 160, 140);
+  const a = frontalView(40, 40, base, null);
+  const b = frontalView(40, 40, base, null);
+  b.view.shadowFactor = 1;
+  renderMoonSurfaceRows(a.view, base, null, a.out, 0, 40);
+  renderMoonSurfaceRows(b.view, base, null, b.out, 0, 40);
+  assert.deepEqual(Array.from(a.out), Array.from(b.out));
+});
