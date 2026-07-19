@@ -1909,9 +1909,33 @@
     later in the day once several hourly DIAGNOSTIC entries have
     accumulated post-restart.
 
-22. **[FIXED 2026-07-17, v1.0.380 — pending live confirmation] Floor-basket
-    ETFs (SMH/KWEB/VXUS/GLD) were subject to active stop-loss/take-profit/
-    time-stop logic meant only for actively-traded satellite positions.**
+22. **[RESOLVED 2026-07-19 — ≥44h live confirmation clean, v1.0.380]**
+    ~~Floor-basket ETFs (SMH/KWEB/VXUS/GLD) were subject to active
+    stop-loss/take-profit/time-stop logic meant only for actively-traded
+    satellite positions.~~ CLOSING UPDATE (2026-07-19, scheduled-routine
+    session, docs-only): queried production directly, ~44h after v1.0.380
+    deployed. `/api/diag/audit?type=WS-EXIT` and `?type=WS-EXIT-ERROR` —
+    **zero** entries of either since the fix (the endpoint scans the full
+    retained window, not just the recent tail — confirmed by the type-scoped
+    query reaching further back than an unfiltered `limit=200` query, same
+    verification method KNOWN BROKEN #18's closure used). Cross-checked
+    against `/api/diag/orders?limit=200`: the 200 most recent orders end at
+    2026-07-17T15:35:47Z (the deploy) and are dominated by the EXACT
+    pre-fix pattern this item describes — repeated VXUS/KWEB sell-then-
+    immediate-rebuy cycles at ~30-90min cadence throughout 2026-07-16 and
+    2026-07-17, same qty each time (VXUS ~42-44 shares, KWEB ~95/189-190
+    shares) — i.e. this was firing far more often than the "5x" first
+    noticed, not an isolated incident. Zero orders of any kind have posted
+    since the deploy timestamp (~44h, spanning one full trading day
+    2026-07-18 plus partial 2026-07-17/07-19), consistent with the fix
+    suppressing the erroneous stop/rebuy churn entirely; the regime hasn't
+    independently changed enough in that window to trigger a legitimate
+    `_manage_spy_floor()`/`_manage_defensive_floor()` rebalance either, so
+    this confirms absence-of-bug rather than proving the legitimate
+    regime-change exit path still fires correctly — that will be observable
+    the next time a real regime shift occurs. VERDICT: RESOLVED per KNOWN
+    BROKEN #18's "re-check and mark RESOLVED" precedent. Original
+    diagnosis and fix description below, unchanged.
     Found live via `/api/diag/audit`: 5x erroneous "WS TIME STOP" sells of
     VXUS + 1x "WS STOP LOSS" sell of SMH in a single session (2026-07-17,
     market hours), each immediately re-bought by `_manage_spy_floor()`'s
@@ -2020,6 +2044,20 @@
     should probably get its own audit-visible field, similar to
     `data_source_errors`, rather than being inferable only from bars-fetch
     error absence).
+    CONFIRMATION UPDATE (2026-07-19, same scheduled-routine session as
+    item #22's closure): `/api/diag/audit?type=TIER3-ML-ERROR` — zero
+    entries anywhere in the retained window, ~44h post-deploy.
+    `/api/diag/ml` shows `model_age_hours: 23.6`, `retrain_needed: false`,
+    `retrain_overdue: false` — consistent with the system's own
+    `needs_retrain = model_age_hours > 24` daily cadence (`server/bot.ts`),
+    not a stuck/failing retrain; the item's original "should stop climbing
+    past ~1-2h" language was itself imprecise (retrain is daily, not
+    hourly) but the underlying claim — no further silent bars-fetch
+    failures — holds. NOT independently re-verified this session: the
+    `vxx_ratio`/`spy_below_200_days` real-value spot-check the item asked
+    for — no existing `/api/diag/*` probe exposes those fields; adding one
+    would be a second logical change, left as the item's own still-open
+    follow-up rather than done here.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

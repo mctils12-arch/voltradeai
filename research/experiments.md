@@ -21496,3 +21496,97 @@ once, now corrected in both; wishlist.md's own DATACORE MAXIMUS NEXT
 line ("EPA CAMD/ENTSO-E, both gated on Mike's keys") was therefore
 wrong on both halves, also corrected. Net result: nothing in the
 DATACORE MAXIMUS program is actually key-blocked as of this session.
+
+## 2026-07-19 [REPAIR] — KNOWN BROKEN #22 CLOSED: ≥44h live confirmation the floor-basket stop-exemption fix (v1.0.380) actually stopped the erroneous stop/rebuy churn; docs-only session, no code changed
+
+TERRITORY: research/*.md only (SHARED per WORKSTREAM PARTITION) — no
+FROZEN, T-BOT, T-CLIENT, or T-DATACORE files touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in
+full. `research/experiments.md` tail (last entry: session's EPA CAMD
+CEMS pipeline, #EPA-CAMD/v1.0.385). `research/open_questions.md` KNOWN
+BROKEN section read in full (items 1-23). `research/wishlist.md`
+DATACORE MAXIMUS block skimmed (unrelated to this session's territory).
+`/api/health` (production): `status: ok`, `bot.liveness.dark: false`
+(no LIVENESS ALARM), `drawdownPct: "0.0"`, `scanner.consecutiveFailures:
+0`, `equityPeak: 109967.44` — healthy, no repair-worthy break visible in
+`/api/health` itself. Loop-health ratio, last 10 tagged entries
+(2026-07-13 through 2026-07-18): REPAIR, PRODUCT, REPAIR, REPAIR,
+PRODUCT, REPAIR, PIPELINE, REPAIR, REPAIR, PIPELINE — 6/10 REPAIR, under
+the 7/10 thrash threshold; no meta-problem override.
+
+WHY THIS ITEM: swept `/api/diag/audit` for live errors first (per
+SESSION BUDGET's "fix a bug seen in audit logs" ranking above judging a
+matured experiment) — `type=TIER3-ML-ERROR`, `type=TIER-KILL`, and a
+broad unfiltered `limit=30` scan all came back clean; no new break
+surfaced. Fell through to the next-ranked action, "judge a matured
+experiment": KNOWN BROKEN #22 (floor-basket ETFs wrongly subject to
+satellite-position stop-loss/time-stop logic, fixed 2026-07-17 v1.0.380)
+carried an explicit, dated, cheap NEXT CHECK — the exact KNOWN BROKEN
+#18 closure precedent for what counts as the session's primary action.
+
+CHECK PERFORMED: queried production directly, ~44h after v1.0.380
+deployed (2026-07-17, session 3, same day as the fix). `/api/diag/audit
+?type=WS-EXIT&limit=30` and `?type=WS-EXIT-ERROR&limit=20` — **zero**
+entries of either since the fix. Verified the type-scoped query isn't
+just truncating to a shallow recent window (same method KNOWN BROKEN
+#18's closure used): an unfiltered `limit=500` audit scan only reaches
+back to 2026-07-19T10:01Z (~63 min, high base traffic from TIER2/T2-FAIL
+entries fills the window fast), so the WS-EXIT zero-count is a real
+absence over the full ~44h span, not an artifact of a shallow scan.
+Cross-checked against `/api/diag/orders?limit=200`: the 200 most recent
+orders are ALL floor-basket tickers (QQQ/SMH/KWEB/VXUS) and end abruptly
+at 2026-07-17T15:35:47Z — the deploy. Reading that pre-fix order
+history confirmed the bug's actual severity was worse than the original
+diagnosis's "5x" count: repeated VXUS sell-then-immediate-rebuy and
+KWEB sell-then-immediate-rebuy cycles at ~30-90min cadence, same qty
+each time (VXUS ~42-44 shares, KWEB ~95/189-190 shares), running
+continuously through 2026-07-16 and all of 2026-07-17 up to the deploy
+— then nothing. Zero orders of any kind (not just floor-basket) have
+posted in the ~44h since, spanning one full trading day (2026-07-18)
+plus partial 2026-07-17/07-19 — consistent with the fix suppressing the
+churn entirely, though this also means the window hasn't independently
+exercised the legitimate `_manage_spy_floor()`/`_manage_defensive_floor()`
+regime-change exit path either; that remains to observe whenever a real
+regime shift next occurs, not evidence against the fix.
+
+VERDICT: KNOWN BROKEN #22 CLOSED. `research/open_questions.md` item #22
+updated in place (heading changed to `[RESOLVED 2026-07-19 — ≥44h live
+confirmation clean, v1.0.380]`, closing update appended, original
+diagnosis/fix text kept unchanged below it) per the append-only spirit
+for research/* SHARED files — same pattern KNOWN BROKEN #18's closure
+used. Also added a smaller CONFIRMATION UPDATE to item #23 (SIP bars-feed
+400 fix, v1.0.397) in the same pass: `TIER3-ML-ERROR` remains at zero
+~44h post-deploy and `model_age_hours: 23.6` / `retrain_needed: false`
+is consistent with the system's actual daily (not hourly) retrain
+cadence — the item's own "should stop climbing past ~1-2h" phrasing was
+imprecise about that cadence, but the underlying no-more-silent-failures
+claim holds. Did NOT attempt item #23's `vxx_ratio`/`spy_below_200_days`
+live spot-check: no existing `/api/diag/*` probe exposes those fields,
+and adding one would be a second logical change — left as that item's
+still-open follow-up rather than bundled here.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none — this session reads
+production diagnostics and updates two research/*.md files; it does not
+touch scoring, sizing, execution, or any code path. Zero effect on any
+live trading decision.
+
+BACKTEST: N/A — pure documentation/verification session, no
+strategy/parameter/measurement code touched.
+
+GATES: no code changed, so `python3 -m pytest -q` / `npx tsx --test
+server/*.test.ts` / `npx tsc --noEmit` / `npm run build` were not
+re-run — nothing in this PR could regress them. Visual harness not
+applicable (no client/ files touched).
+
+HYPOTHESIS (stated before the next check, per REASONING STANDARD #10):
+with KNOWN BROKEN #22 now closed, a future session should NOT see
+WS-EXIT fire on QQQ/SMH/KWEB/VXUS/GLD from stop-loss/time-stop logic
+again — any future exit on those tickers should only come from the two
+`_manage_*_floor()` regime-change paths, distinguishable in the audit
+message text (those paths don't emit "WS STOP LOSS"/"WS TIME STOP"
+phrasing). If the old pattern recurs, per this item's own 2026-07-17
+note that would mean the module-scope/shared-constant fix has a gap
+(e.g. a fourth call site not covered), not a reopening of a fully-
+disproven theory — the root cause here was directly traced and fixed,
+not just theorized.
