@@ -337,17 +337,28 @@ export const MOON_PATCH_ACTIVATE_RADII = 3.5;
 
 /** Synchronous MOTION tier: the patch buffer's long side, px. Kept small so a
  *  per-frame rebuild during an orbit drag stays a bounded main-thread task
- *  (~6ms at this size — benchmarked); upscaled to the disc while moving. */
-export const MOON_PATCH_FAST_LONG_PX = 200;
+ *  (SwiftShader-verified well under 16ms at this size); upscaled to the disc
+ *  while moving, replaced by the full tier once the pose settles. */
+export const MOON_PATCH_FAST_LONG_PX = 140;
 
 /** Streamed SETTLED tier: the patch buffer's long side, px. Rendered in
- *  UPGRADE_CHUNK_PX row bands (each ~6ms) once the pose settles, then shown
- *  at full sharpness — real 100 m/px LROC imagery over the visible patch. */
+ *  MOON_PATCH_CHUNK_PX row bands (each well under a frame) once the pose
+ *  settles, then shown at full sharpness — real LROC imagery over the patch. */
 export const MOON_PATCH_FULL_LONG_PX = 900;
 
-/** Extra degrees beyond the geometric horizon cap the tile mosaic covers, so
- *  the sharp region reaches a touch past the visible limb. */
-export const MOON_PATCH_HALFSPAN_MARGIN_DEG = 6;
+/** Row-chunk budget for the settled patch stream, px per macrotask (smaller
+ *  than the sprite's UPGRADE_CHUNK_PX because a patch pixel costs a ray-sphere
+ *  solve + atan2/asin — SwiftShader-verified under 16ms). */
+export const MOON_PATCH_CHUNK_PX = 24_000;
+
+/** The tile mosaic covers the viewport-visible surface arc times this factor
+ *  (headroom past the viewport corners so the sharp region fills the frame). */
+export const MOON_PATCH_COVER_MARGIN = 1.6;
+
+/** Floor on the covered half-span, degrees — a mosaic never shrinks below a
+ *  couple of degrees (avoids a degenerate one-texel fetch and gives the near
+ *  edges of the patch real coverage). */
+export const MOON_PATCH_MIN_HALFSPAN_DEG = 2;
 
 /** A textured body's dot-label glyph renders while its disc is under this
  *  size (the reference's .lbl dot: a 9px annotation ring ON the body). */
@@ -1663,7 +1674,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     mpTimer = null;
     if (!mpBuilding || disposed) return;
     const b = mpBuilding;
-    const rows = Math.max(4, Math.round(UPGRADE_CHUNK_PX / b.bufW));
+    const rows = Math.max(4, Math.round(MOON_PATCH_CHUNK_PX / b.bufW));
     const t0 = performance.now();
     const end = Math.min(b.bufH, b.row + rows);
     renderMoonSurfaceRows(b.view, b.base, b.detail, b.img.data, b.row, end);
@@ -1704,16 +1715,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const nCam = norm3(sub(camPos, center));
     const subPt = surfaceLonLat(nCam, X, Y, Z, wDeg);
     const horizonDeg = Math.acos(Math.min(1, R / distC)) * RAD;
-    const halfSpanDeg = Math.min(88, horizonDeg + MOON_PATCH_HALFSPAN_MARGIN_DEG);
-    const pxPerDeg = (k * (R * DEG)) / Math.max(1, distC - R);
-    moonTiles.request(subPt.lonDeg, subPt.latDeg, pxPerDeg, halfSpanDeg);
-    const mos = moonTiles.current();
-    const detail: DetailOverlay | null = mos
-      ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
-      : null;
-    moonCreditOn = !!mos;
     // true-geometry disc bbox, clamped to the canvas (decoupled from the B2
-    // size slider up close — the ray-sphere IS the true sphere)
+    // size slider up close — the ray-sphere IS the true sphere). Computed
+    // FIRST because the tile request is sized to what this bbox actually
+    // shows on screen, not the whole horizon cap.
     const rDisc = bodyDiscPx(R, distC, k) / 2;
     const bx = Math.max(0, Math.floor(d.p.x - rDisc));
     const by = Math.max(0, Math.floor(d.p.y - rDisc));
@@ -1721,6 +1726,25 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const bh = Math.min(h, Math.ceil(d.p.y + rDisc)) - by;
     if (bw <= 0 || bh <= 0) return false;
     const sun = norm3(sub(sunPos, center));
+    // request tiles at the on-screen SURFACE resolution over ONLY the patch
+    // the viewport actually shows: when the disc dwarfs the viewport (skimming
+    // the surface), the visible surface arc is tiny but at high resolution —
+    // so cover that small arc at native tile detail (true ~100 m/px at the
+    // floor), instead of the whole horizon cap at coarse detail. Span capped
+    // by the geometric horizon; resolution matched to the true on-screen
+    // px-per-surface-degree; the mosaic-px budget bounds the fetch.
+    const pxPerSurfDeg = (k * R * DEG) / Math.max(1, distC - R);
+    const bboxLongPx = Math.max(bw, bh);
+    const coverHalfDeg = Math.min(
+      horizonDeg,
+      Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, ((bboxLongPx / pxPerSurfDeg) / 2) * MOON_PATCH_COVER_MARGIN),
+    );
+    moonTiles.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+    const mos = moonTiles.current();
+    const detail: DetailOverlay | null = mos
+      ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
+      : null;
+    moonCreditOn = !!mos;
     // pose key: what makes the patch pixels change
     const distBucket = Math.round(Math.log(distC) / 0.02);
     const mosKey = mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0";

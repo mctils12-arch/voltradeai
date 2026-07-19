@@ -37,9 +37,19 @@ export interface TexImageLike {
 
 // ── planning (pure) ─────────────────────────────────────────────────────────
 
-/** Ceiling on tiles per mosaic (GPU budget): 24 tiles → ≤ 6×4 × 256px =
- *  1536×1024 RGBA ≈ 6 MB, comfortably under the ~4096 mobile texture cap. */
-export const MOON_MAX_TILES = 24;
+/** Mosaic edge cap, px (GPU budget): the stitched RGBA never exceeds this on
+ *  either side — 2048² RGBA ≈ 16 MB, under the ~4096 mobile texture cap. This
+ *  is the real bound (tiles below is a safety net). */
+export const MOON_MOSAIC_MAX_PX = 2048;
+
+/** Hard safety ceiling on tiles per mosaic (fetch bound). At 256px/tile,
+ *  MOON_MOSAIC_MAX_PX already limits an axis to 8 tiles ⇒ ≤ 64. */
+export const MOON_MAX_TILES = 72;
+
+/** Concurrent tile fetches while a mosaic builds (a mosaic can be dozens of
+ *  tiles; serial would take seconds). Bounded so outstanding requests stay
+ *  polite to the service. */
+export const MOON_FETCH_CONCURRENCY = 6;
 
 export interface MoonTarget {
   z: number;
@@ -60,10 +70,11 @@ export function planMoonTarget(
   subLatDeg: number,
   pxPerDeg: number,
   halfSpanDeg: number,
-  opts: { scheme?: TrekScheme; maxTiles?: number; minZ?: number } = {},
+  opts: { scheme?: TrekScheme; maxTiles?: number; minZ?: number; maxPx?: number } = {},
 ): MoonTarget | null {
   const scheme = opts.scheme ?? MOON_TREK;
   const maxTiles = opts.maxTiles ?? MOON_MAX_TILES;
+  const maxPx = opts.maxPx ?? MOON_MOSAIC_MAX_PX;
   const minZ = opts.minZ ?? 2;
   const latMax = clampLatDeg(subLatDeg + halfSpanDeg);
   const latMin = clampLatDeg(subLatDeg - halfSpanDeg);
@@ -73,12 +84,17 @@ export function planMoonTarget(
     latMin,
     latMax,
   };
+  // finest native level whose mosaic fits the pixel/tile budget: start at the
+  // demanded resolution and back off until the stitched mosaic is within
+  // MOON_MOSAIC_MAX_PX (the real GPU bound — coarser levels are never worth
+  // fetching since a finer one that fits always looks better).
   let z = zoomForResolution(pxPerDeg, scheme, minZ);
   for (; z >= minZ; z--) {
     const tiles = tilesForBbox(bbox, z);
-    if (tiles.length && tiles.length <= maxTiles) {
-      const mosaic = mosaicWindow(tiles, scheme);
-      if (mosaic) return { z, bbox, tiles, mosaic };
+    if (!tiles.length) continue;
+    const mosaic = mosaicWindow(tiles, scheme);
+    if (mosaic && mosaic.pxW <= maxPx && mosaic.pxH <= maxPx && tiles.length <= maxTiles) {
+      return { z, bbox, tiles, mosaic };
     }
   }
   return null;
@@ -238,22 +254,33 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
     building = true;
     try {
       const placements = tilePlacements(target.tiles);
-      // fetch every missing tile (serial — bounded outstanding requests;
-      // decode is off-thread inside fetchTile)
-      for (const t of target.tiles) {
-        const k = tkey(t);
-        if (tileCache.has(k) || disposed) continue;
-        try {
-          const img = await fetchTile(tileUrl(t, scheme), abort.signal);
-          if (disposed) return;
-          if (tileCache.size > 96) tileCache.clear(); // bounded cache
-          tileCache.set(k, img);
-        } catch {
-          // a 404 / network miss: that tile stays base-only (silent degrade,
-          // never a broken mosaic) — leave it out of the cache
+      // fetch every missing tile with bounded concurrency (a mosaic is dozens
+      // of tiles; decode is off-thread inside fetchTile). A 404/network miss
+      // leaves that tile base-only — silent degrade, never a broken mosaic.
+      const missing = target.tiles.filter((t) => !tileCache.has(tkey(t)));
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < missing.length && !disposed) {
+          const t = missing[next++];
+          const k = tkey(t);
+          if (tileCache.has(k)) continue;
+          try {
+            const img = await fetchTile(tileUrl(t, scheme), abort.signal);
+            if (disposed) return;
+            if (tileCache.size > 160) tileCache.clear(); // bounded cache
+            tileCache.set(k, img);
+          } catch { /* missing tile → base fallback */ }
         }
-      }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(MOON_FETCH_CONCURRENCY, Math.max(1, missing.length)) }, () => worker()),
+      );
       if (disposed) return;
+      // supersede: if a newer target arrived while we fetched (the camera kept
+      // moving), don't waste work stitching this stale mosaic — bail and let
+      // finally{} rebuild for the freshest pose, so the FIRST mosaic shown is
+      // the one that matches where the camera actually settled.
+      if (pending && targetKey(pending) !== targetKey(target)) return;
       const m = target.mosaic;
       const out = new Uint8ClampedArray(m.pxW * m.pxH * 4);
       // banded readback: blit tiles into the mosaic buffer in row bands, each
