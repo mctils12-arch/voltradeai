@@ -47,8 +47,15 @@ export interface MethanePlume {
   lon: number | null;
 }
 
+export interface GemProvenance {
+  attribution: string;
+  license: string;
+  release: string;
+  built_at?: string;
+}
+
 interface GemMethaneFile {
-  provenance: { attribution: string; license: string; release: string; built_at?: string };
+  provenance: GemProvenance;
   plumes: Array<Record<string, any>>;
 }
 

@@ -5077,7 +5077,7 @@ experiments.md for the full result) — the CSS-only addition is one new
 attribute-selector rule scoped to `.vt-graph-typebadge[data-type=
 "institution"]`, not reachable from the default `/data` map render path.
 
-## [GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY · filed 2026-07-18, gate 0/2 — unattempted] Does satellite-detected plume density/rate near a GEM-catalogued oil/gas/coal asset track that operator's own emissions disclosures?
+## [GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY · filed 2026-07-18, gate 2(a) done 2026-07-19 — proximity join + map layer shipped, still NOT a signal] Does satellite-detected plume density/rate near a GEM-catalogued oil/gas/coal asset track that operator's own emissions disclosures?
 
 Filed alongside `server/gemMethane.ts` shipping (`/api/data/methane-plumes`,
 research/experiments.md 2026-07-18 [PIPELINE] entry) — a HYPOTHESIS, not
@@ -5126,3 +5126,42 @@ angles are a crowded, well-covered thesis space in institutional research;
 "nobody noticed" is not a credible answer here, so the real edge (if any)
 is narrowly in the disclosure-lag mechanism above, not in discovering the
 plumes exist.
+
+UPDATE 2026-07-19 ([PRODUCT], T-DATACORE+T-CLIENT) — GATE 2(a) SHIPPED:
+the proximity join (`server/gemMethaneProximity.ts`) and the map layer
+(datamap.tsx `methane_plumes`, group "environmental") both built. Join
+scope is the two point-geometry registries only — `oil_gas_extraction`
+(fields, 7,673 rows, ~7,055 with coordinates) and `coal_mine_tracker`
+(non_closed, 5,382 mines) — `gas_pipelines`/`oil_ngl_pipelines` are
+route/WKT geometry, not a single lat/lon per asset, and are NOT joined
+here (a plume tagged "pipeline", ~48 of 3,474, simply finds no match,
+honestly, rather than a fabricated nearest-point guess against a route).
+Method: grid-indexed (0.5° cells) nearest + second-nearest haversine
+search, MATCH_RADIUS_KM=2 (stated constant from GEM's own location-
+accuracy vocabulary, not tuned), AMBIGUOUS_MARGIN_KM=0.5 flags a plume
+where two assets are nearly equidistant instead of silently picking one.
+LIVE JOIN RESULT on the real GEM release (2026-07-19): 3,473 plumes ->
+1,027 matched within 2km (772 coal_mine, 255 oil_gas_extraction), 206 of
+those flagged ambiguous, 2,446 unmatched. Sanity check: coal-mine matches
+(772) land under the plume file's own "coal mine" infrastructureType tag
+count (1,690) as expected for a stricter 2km geometric radius vs. GEM's
+own (looser) infrastructure-note tagging — consistent, not suspicious.
+
+STILL GATE 2, NOT A SIGNAL — REASONING STANDARD #10 discipline: the join
+only answers "which catalogued asset is nearest," not the hypothesis
+itself. Still required before this clears gate 2:
+  (b) repeat-detection RATE per asset (a single detection is noise) —
+      needs the matched-plume set grouped by nearestAsset.id and time-
+      binned; not built.
+  (c) a same-universe BASE RATE (REASONING STANDARD #3): do assets with
+      ANY nearby plume underperform peers with none, before conditioning
+      on rate/magnitude at all? Requires a price/returns join against the
+      operator entity (via ownership.json.gz's Owner/Parent -> CIK
+      crosswalk, entityGraph.ts already reads this) — not built.
+  (d) matching against operators' own disclosed methane intensity
+      (10-K/ESG) — CURRENTLY UNSOURCED, unchanged from the filing.
+NEXT STEP (not this session): (b) is the smallest next slice — group
+`cachedGemMethaneProximity().plumes` by `nearestAsset.id`, compute a
+detection count/rate per asset, and surface it as a sortable stat before
+attempting (c)/(d). Discount stays heavy (REASONING STANDARD #4) — this
+update proves the join works, not that the underlying thesis has edge.

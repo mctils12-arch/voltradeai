@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -11,7 +11,7 @@ import {
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
-  PFAS_COUNT_BANDS,
+  PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import FilingsView from "./filings";
@@ -375,7 +375,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume";
   title: string;
   subtitle: string;
   body: string;
@@ -523,6 +523,7 @@ const LAYER_GROUP: Record<string, string> = {
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
+  methane_plumes: "environmental",
   aerosol: "environmental",
   vegetation: "environmental",
   soilmoisture: "environmental",
@@ -860,7 +861,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -869,6 +870,14 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.high} label="Fire — High Confidence" />
                     <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.nominal} label="Fire — Nominal" />
                     <LegendIcon icon="vt-fire" color={FIRE_CONFIDENCE_COLOR.low} label="Fire — Low Confidence" />
+                  </>
+                )}
+                {enabled.methane_plumes && (
+                  <>
+                    <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.oil_gas_extraction} label={METHANE_MATCH_LABEL.oil_gas_extraction} />
+                    <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.coal_mine} label={METHANE_MATCH_LABEL.coal_mine} />
+                    <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.unmatched} label={METHANE_MATCH_LABEL.unmatched} />
+                    <span className="vt-legend-note">nearest catalogued GEM asset within 2km — a proximity fact, not a confirmed emissions attribution</span>
                   </>
                 )}
                 {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
@@ -6771,6 +6780,101 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.nukefacilities, mapReady, mapSettled, setStatus]);
 
+  // ── Methane plumes (RAW; GEM GMET satellite plume detections, STATIC
+  // reference dataset — see server/gemMethane.ts). Each plume carries
+  // nearestAsset from the gate-2(a) proximity join (server/
+  // gemMethaneProximity.ts, research/open_questions.md's GEM METHANE-PLUME
+  // × EXTRACTION-REGISTRY PROXIMITY hypothesis): the nearest catalogued GEM
+  // oil/gas-extraction or coal-mine asset within 2km, or null. icon-color
+  // carries WHICH registry matched (never a risk/severity claim — a
+  // geometric proximity fact, not a confirmed emissions attribution). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.methane_plumes) {
+      try {
+        if (map.getLayer("methane-plumes-pt")) map.removeLayer("methane-plumes-pt");
+        if (map.getSource("methane-plumes")) map.removeSource("methane-plumes");
+      } catch {}
+      setStatus("methane_plumes", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("methane_plumes", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("methane_plumes", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/methane-plumes", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.plumes)) throw new Error("no plumes");
+        if (map.getSource("methane-plumes")) return;
+        map.addSource("methane-plumes", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.plumes.map((p: any) => {
+              const matchKind: MethaneMatchKind = p.nearestAsset?.kind || "unmatched";
+              return {
+                type: "Feature", geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+                properties: { ...p, matchKind, tint: METHANE_MATCH_COLOR[matchKind] },
+              };
+            }),
+          } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "methane-plumes-pt", type: "symbol", source: "methane-plumes",
+          layout: {
+            "icon-image": "vt-plume",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.32, 8, 0.62],
+            "icon-allow-overlap": true,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.2,
+          },
+        } as any);
+        detach = attachLayerInteractions(map, "methane-plumes-pt", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const asset = p.nearestAsset ? (typeof p.nearestAsset === "string" ? JSON.parse(p.nearestAsset) : p.nearestAsset) : null;
+          const matchKind: MethaneMatchKind = p.matchKind;
+          setDetail({
+            kind: "methaneplume",
+            title: p.name || "Methane plume detection",
+            subtitle: `${p.infrastructureType || "unclassified infrastructure"}${p.country ? ` · ${p.country}` : ""}`,
+            stats: [
+              { label: "Detected", value: p.observedAt ? p.observedAt.slice(0, 10) : "—" },
+              { label: "Provider", value: p.provider || "—" },
+              { label: "Match", value: METHANE_MATCH_LABEL[matchKind] },
+              ...(asset ? [{ label: "Distance", value: `${asset.distanceKm.toFixed(2)} km` }] : []),
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `What this marker is: a satellite methane-plume detection catalogued by Global Energy Monitor's GMET ` +
+                  `(${p.provider || "unspecified provider"}${p.instrument ? `, ${p.instrument}` : ""}).` +
+                  `${p.emissionsKgHr != null ? ` Modeled emissions rate: ${p.emissionsKgHr.toFixed(1)} kg/hr` +
+                    `${p.emissionsUncertaintyKgHr != null ? ` (±${p.emissionsUncertaintyKgHr.toFixed(1)})` : ""}.` : ""}\n\n` +
+                  (asset
+                    ? `Nearest catalogued GEM asset: ${asset.name || asset.id} (${asset.kind === "coal_mine" ? "coal mine" : "oil/gas extraction"}), ` +
+                      `${asset.distanceKm.toFixed(2)}km away. ` +
+                      `${asset.operator ? `Operator: ${asset.operator}. ` : ""}${asset.owner ? `Owner: ${asset.owner}. ` : ""}${asset.parent ? `Parent: ${asset.parent}. ` : ""}` +
+                      `${p.ambiguousMatch ? "A second catalogued asset sits nearly as close — this match is AMBIGUOUS, shown as the nearest candidate only. " : ""}` +
+                      `This is a GEOMETRIC PROXIMITY FACT, not a confirmed emissions attribution — flaring, pipeline leaks, and unrelated nearby infrastructure can all produce a similar-looking match.`
+                    : `No GEM oil/gas-extraction or coal-mine asset is catalogued within 2km of this detection.`) +
+                  `\n\nRAW satellite detection, no predictive claim. Source: Global Energy Monitor GMET / Oil & Gas Extraction Tracker / ` +
+                  `Global Coal Mine Tracker (CC BY 4.0). The plume × extraction-registry proximity hypothesis (research/open_questions.md) ` +
+                  `is gate-2(a) only — this proximity join, not a validated signal.`,
+          });
+        });
+        setStatus("methane_plumes", "active", d.count,
+          `${d.count} plume detections (${d.matchedCount ?? 0} within 2km of a catalogued asset, ${d.ambiguousCount ?? 0} ambiguous) — GEM GMET CC BY 4.0`);
+      },
+      (failures) => setStatus("methane_plumes", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.methane_plumes, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -8010,6 +8114,7 @@ export default function DataMapPage() {
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
+    id === "methane_plumes" ? <Cloud size={15} /> :
     id === "nightlights" ? <Moon size={15} /> :
     id === "aerosol" ? <CloudFog size={15} /> :
     id === "vegetation" ? <Leaf size={15} /> :
@@ -8039,7 +8144,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

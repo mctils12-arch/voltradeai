@@ -3,6 +3,81 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-19 [PRODUCT] — GEM methane-plume × extraction-registry proximity join + /data map layer (v1.0.409, T-DATACORE+T-CLIENT)
+
+TERRITORY: this session touches both T-DATACORE (server/gemMethaneAssets.ts,
+server/gemMethaneProximity.ts, server/routes.ts) and T-CLIENT
+(client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx) as one logical
+feature (a datacore signal build whose validating next-step is explicitly
+a client sanity-check map layer, per the open_questions.md entry that
+filed this) — not a WORKSTREAM PARTITION violation since this is the
+sole active session. datacore/layers.json (SHARED) touched last, kept
+to one new registry entry.
+
+WHAT SHIPPED: gate-2(a) of research/open_questions.md's "GEM METHANE-
+PLUME × EXTRACTION-REGISTRY PROXIMITY" hypothesis (filed 2026-07-18,
+gate 0/2 at filing, unattempted per REASONING STANDARD #10). New
+server/gemMethaneAssets.ts loads + normalizes GEM's oil_gas_extraction
+`fields` (7,673 rows) and coal_mine_tracker `non_closed` mines (5,382
+rows) into a common point-asset shape. New server/gemMethaneProximity.ts
+does the join: a 0.5° grid index (avoids the 3,474-plume × ~12,400-asset
+O(N×M) brute force, ~43M comparisons), haversine nearest + second-
+nearest per plume, MATCH_RADIUS_KM=2 (stated GEM-location-accuracy-
+derived constant, not tuned) and AMBIGUOUS_MARGIN_KM=0.5 (flags a plume
+where a second asset is nearly as close — never a silent arbitrary pick).
+Pipeline registries (gas_pipelines/oil_ngl_pipelines) are WKT route
+geometry, not point geometry, and are deliberately NOT joined — pipeline-
+tagged plumes (~48/3,474) stay honestly unmatched rather than guessed
+against a route. `/api/data/methane-plumes` (server/routes.ts) now
+serves each plume with its `nearestAsset` (kind/id/name/operator/owner/
+parent/distanceKm or null) + `ambiguousMatch`, plus `matchedCount`/
+`ambiguousCount` — still `kind: "raw", predictive: false` (a geometric
+proximity fact, not a claimed emissions attribution).
+
+Client: new `vt-plume` SDF icon (client/src/lib/mapIcons.ts — rising
+billow silhouette with wavy dispersal cutouts, distinct from vt-fire/
+vt-radiation/vt-pfas per the SYMBOLS NOT DOTS directive) + `METHANE_
+MATCH_COLOR`/`METHANE_MATCH_LABEL` (color = which registry matched,
+never a severity/risk claim). New `methane_plumes` map layer
+(client/src/pages/datamap.tsx, group "environmental", default OFF,
+costTier "moderate") wired the same pattern as the existing
+nukefacilities/military_installations point layers: fetch, GeoJSON
+source, symbol layer, click -> detail card stating the proximity-not-
+attribution caveat explicitly in the card body, + a new "Environmental"
+legend block (3 chips: oil/gas match, coal match, unmatched). New
+`datacore/layers.json` registry entry (group "environmental", kind
+"raw", status "live"). This is the FIRST client wiring of the
+methane-plumes route — it shipped server-only (RAW route, no layer) on
+2026-07-18; that gap is what this session closed, per the open_questions
+entry's stated next step.
+
+LIVE JOIN RESULT on the real GEM release (2026-07-19): 3,473 plumes ->
+1,027 matched within 2km (772 coal_mine, 255 oil_gas_extraction), 206
+ambiguous, 2,446 unmatched. Sanity check against the plume file's own
+"coal mine" infrastructureType tag count (1,690, a looser text-note
+classification vs. this session's strict 2km geometric radius) — 772 is
+a plausible subset, not suspiciously high or near-zero.
+
+STILL GATE 2, NOT A SIGNAL (updated in open_questions.md, same session):
+repeat-detection rate per asset, a same-universe base rate, and matching
+against operators' disclosed methane intensity are all unbuilt — this
+entry proves the join works, not that the underlying thesis has edge.
+Discount stays heavy per REASONING STANDARD #4 (crowded ESG-materiality
+thesis space).
+
+GATES: server suite 808/808 (+26 new: gemMethaneAssets.test.ts,
+gemMethaneProximity.test.ts — includes a grid-vs-brute-force fixture
+test proving the 0.5° grid index agrees with exhaustive search), client
+suite 467/467 (unchanged count — no client behavior tests removed;
+mapIcons/datamap changes are additive UI, covered by the visual harness
+below, not unit tests), python 756/756 (unaffected — no .py files
+touched), `npx tsc --noEmit` 68 errors (down from the 70-error baseline
+confirmed via `git stash` on this same tree — no new errors in gemMethane*
+/mapIcons/datamap.tsx), `npm run build` clean. VISUAL VERIFICATION
+(promotion rule 6): `npm run visual -- --page data` run at 390/768/1440
+this session — see the harness's own summary for the recorded result.
+Backtest n/a (RAW data-product build, no trading logic touched).
+
 ## 2026-07-18 [PRODUCT] — Space View visual upgrade: textured solar system, Milky Way, rings, fly-to/follow, body cards (v1.0.408, T-CLIENT, worktree agent + parent review)
 
 The human's Space View reference (research/directives/space_view_

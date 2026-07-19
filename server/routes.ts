@@ -39,7 +39,7 @@ import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
-import { cachedGemMethane } from "./gemMethane";
+import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -2507,9 +2507,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // catalogued by Global Energy Monitor, CC BY 4.0). STATIC reference
   // dataset (see server/gemMethane.ts) — re-ingested on GEM's ~2x/year
   // release cadence via scripts/gem_ingest.py, not a live poll.
+  //
+  // Each plume also carries nearestAsset (server/gemMethaneProximity.ts,
+  // gate-2(a) of the GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY
+  // hypothesis, research/open_questions.md): the nearest GEM oil/gas-
+  // extraction or coal-mine asset within MATCH_RADIUS_KM, or null when
+  // nothing catalogued is that close. STILL RAW, NOT A SIGNAL — a
+  // geometric proximity fact, not a claimed emissions attribution; gates
+  // 2(b)-(d) (repeat-detection rate, base rate, disclosed-intensity match)
+  // are unbuilt.
   app.get("/api/data/methane-plumes", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    const hit = cachedGemMethane();
+    const hit = cachedGemMethaneProximity();
     if (!hit) {
       return res.json({ kind: "raw", predictive: false,
                          source: "Global Energy Monitor — Methane Emitters Tracker (GMET)",
@@ -2520,10 +2529,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       predictive: false,
       source: "Global Energy Monitor — Methane Emitters Tracker (GMET), satellite plume detections "
         + "from CarbonMapper/GHGSat-class providers as catalogued by GEM",
-      attribution: hit.provenance?.attribution,
-      license: hit.provenance?.license,
-      release: hit.provenance?.release,
+      attribution: hit.plumeProvenance?.attribution,
+      license: hit.plumeProvenance?.license,
+      release: hit.plumeProvenance?.release,
+      assetSource: "Global Energy Monitor — Oil & Gas Extraction Tracker + Global Coal Mine Tracker, "
+        + "CC BY 4.0. nearestAsset is a geometric proximity match within "
+        + MATCH_RADIUS_KM + "km, not a confirmed emissions attribution.",
       count: hit.plumes.length,
+      matchedCount: hit.matchedCount,
+      ambiguousCount: hit.ambiguousCount,
       plumes: hit.plumes,
     });
   });
