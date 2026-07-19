@@ -201,6 +201,20 @@ import {
   ORBIT_SAMPLES_MOON,
   type OrbitPolyline,
 } from "./orbitPath.js";
+// B4 "MOON FOR REAL": real LROC WAC tiles streamed into a perspective surface
+// patch when the camera skims the Moon (the disc sprite caps out at ~448 px of
+// texels; the surface patch shows real 100 m/px imagery where the eye looks).
+import {
+  createMoonTileManager,
+  MOON_TREK_CREDIT,
+  type MoonTileManager,
+} from "./moonTiles.js";
+import {
+  renderMoonSurfaceRows,
+  surfaceLonLat,
+  type MoonSurfaceView,
+  type DetailOverlay,
+} from "./moonSurface.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -313,6 +327,27 @@ export const FAST_SHADE_RADIUS = 112;
 /** Row-chunk budget for the async full-res upgrade pipeline, pixels per
  *  macrotask (LUT fill ≈ compose ≈ a few ms each at this size). */
 export const UPGRADE_CHUNK_PX = 45_000;
+
+// ── B4 "MOON FOR REAL" — focused-close LROC surface patch ───────────────────
+
+/** Camera within this many Moon radii → the perspective surface patch takes
+ *  over from the billboard disc sprite (below it the true disc exceeds ~700px,
+ *  where the ≤448px sprite is visibly soft). */
+export const MOON_PATCH_ACTIVATE_RADII = 3.5;
+
+/** Synchronous MOTION tier: the patch buffer's long side, px. Kept small so a
+ *  per-frame rebuild during an orbit drag stays a bounded main-thread task
+ *  (~6ms at this size — benchmarked); upscaled to the disc while moving. */
+export const MOON_PATCH_FAST_LONG_PX = 200;
+
+/** Streamed SETTLED tier: the patch buffer's long side, px. Rendered in
+ *  UPGRADE_CHUNK_PX row bands (each ~6ms) once the pose settles, then shown
+ *  at full sharpness — real 100 m/px LROC imagery over the visible patch. */
+export const MOON_PATCH_FULL_LONG_PX = 900;
+
+/** Extra degrees beyond the geometric horizon cap the tile mosaic covers, so
+ *  the sharp region reaches a touch past the visible limb. */
+export const MOON_PATCH_HALFSPAN_MARGIN_DEG = 6;
 
 /** A textured body's dot-label glyph renders while its disc is under this
  *  size (the reference's .lbl dot: a 9px annotation ring ON the body). */
@@ -1104,6 +1139,23 @@ export interface SpaceFrameState {
   labelRects: { id: string; x: number; y: number; w: number; h: number }[];
   anchor: (EarthAnchor & { subLatDeg: number; subLonDeg: number }) | null;
   bodies: SpaceFrameBodyState[];
+  /** B4: the focused-close Moon surface patch (real LROC tiles). Inactive
+   *  when the camera is far — zero cost, nothing streamed. */
+  moonPatch: {
+    active: boolean;
+    /** full streamed tier drawn this frame (vs the motion tier). */
+    full: boolean;
+    /** resident tile mosaic: native level, tiles composited, RGBA bytes. */
+    mosaicZ: number | null;
+    mosaicTiles: number;
+    tileBytes: number;
+    /** worst single main-thread patch-render band, ms (the ≤16ms proof). */
+    patchMsMax: number;
+    /** worst single main-thread tile-readback band, ms. */
+    tileChunkMsMax: number;
+    /** the credit line is shown (a mosaic is on screen). */
+    credited: boolean;
+  };
 }
 
 interface FlightState {
@@ -1552,6 +1604,179 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   });
   texman.start();
 
+  // ── B4: focused-close Moon — real LROC tiles → perspective surface patch ──
+  const moonTiles: MoonTileManager = createMoonTileManager();
+  moonTiles.onUpdate(() => { mpFull = null; kick(); }); // fresh mosaic → re-stream
+  const RAD = 180 / Math.PI;
+  interface MoonPatchBuf {
+    key: string;
+    canvas: HTMLCanvasElement;
+    img: ImageData;
+    bufW: number;
+    bufH: number;
+    bx: number;
+    by: number;
+    bw: number;
+    bh: number;
+    view: MoonSurfaceView;
+    base: TexImage;
+    detail: DetailOverlay | null;
+    row: number;
+    ready: boolean;
+  }
+  let mpFast: { canvas: HTMLCanvasElement; img: ImageData; bufW: number; bufH: number } | null = null;
+  let mpFull: MoonPatchBuf | null = null;
+  let mpBuilding: MoonPatchBuf | null = null;
+  let mpTimer: ReturnType<typeof setTimeout> | null = null;
+  let moonPatchOn = false;
+  let moonPatchDrewThisFrame = false;
+  let moonPatchFullThisFrame = false;
+  let moonPatchMsMax = 0;
+  let moonCreditOn = false;
+
+  /** buffer dims fitting MOON_PATCH_*_LONG_PX on the bbox's long side. */
+  function patchBufDims(bw: number, bh: number, longPx: number): { bufW: number; bufH: number } {
+    const long = Math.max(bw, bh);
+    const s = long > longPx ? longPx / long : 1;
+    return { bufW: Math.max(2, Math.round(bw * s)), bufH: Math.max(2, Math.round(bh * s)) };
+  }
+
+  /** build a MoonSurfaceView mapping a bufW×bufH buffer onto canvas bbox. */
+  function patchView(
+    bufW: number, bufH: number, bx: number, by: number, bw: number, bh: number,
+    camPos: Vec3, center: Vec3, R: number, basis: CamBasis, k: number, cx: number, cy: number,
+    X: Vec3, Y: Vec3, Z: Vec3, wDeg: number, sun: Vec3,
+  ): MoonSurfaceView {
+    const stepX = bw / bufW;
+    const stepY = bh / bufH;
+    return {
+      bw: bufW, bh: bufH,
+      originX: bx + stepX / 2, originY: by + stepY / 2, stepX, stepY,
+      cx, cy, k,
+      r: basis.r, u: basis.u, f: basis.f,
+      cam: camPos, center, radius: R,
+      X, Y, Z, wDeg, sun,
+    };
+  }
+
+  function pumpMoonPatch(): void {
+    mpTimer = null;
+    if (!mpBuilding || disposed) return;
+    const b = mpBuilding;
+    const rows = Math.max(4, Math.round(UPGRADE_CHUNK_PX / b.bufW));
+    const t0 = performance.now();
+    const end = Math.min(b.bufH, b.row + rows);
+    renderMoonSurfaceRows(b.view, b.base, b.detail, b.img.data, b.row, end);
+    const ms = performance.now() - t0;
+    if (ms > moonPatchMsMax) moonPatchMsMax = ms;
+    b.row = end;
+    if (b.row >= b.bufH) {
+      b.canvas.getContext("2d")!.putImageData(b.img, 0, 0);
+      b.ready = true;
+      mpFull = b;
+      mpBuilding = null;
+      kick();
+      return;
+    }
+    mpTimer = setTimeout(pumpMoonPatch, 0);
+  }
+
+  /** Draw the focused-close Moon as a real-imagery perspective patch. Returns
+   *  true when it handled the Moon (caller skips the disc sprite). */
+  function drawMoonPatch(
+    d: { p: ProjectedPoint; layoutDistM: number },
+    sunPos: Vec3, pos: Record<string, Vec3>, camPos: Vec3, basis: CamBasis,
+    k: number, cx: number, cy: number, w: number, h: number,
+  ): boolean {
+    if (!ctx) return false;
+    const base = texman.get("moon");
+    if (!base) return false; // no fallback texture yet → let the sprite draw
+    const R = radiusM("moon");
+    const center = pos.moon;
+    const distC = Math.max(R * 1.0001, d.layoutDistM);
+    // orientation (identical to the sprite path — alignment inherited)
+    const Z = norm3(axisEclOfDate("moon", timeMs));
+    const X = norm3(equatorNodeDirEclOfDate("moon", timeMs));
+    const Y = norm3(cross(Z, X));
+    const wDeg = iauPrimeMeridianDeg("moon", timeMs);
+    // sub-camera surface point → mosaic request (screen-matched resolution,
+    // span = the geometric horizon cap + a small margin)
+    const nCam = norm3(sub(camPos, center));
+    const subPt = surfaceLonLat(nCam, X, Y, Z, wDeg);
+    const horizonDeg = Math.acos(Math.min(1, R / distC)) * RAD;
+    const halfSpanDeg = Math.min(88, horizonDeg + MOON_PATCH_HALFSPAN_MARGIN_DEG);
+    const pxPerDeg = (k * (R * DEG)) / Math.max(1, distC - R);
+    moonTiles.request(subPt.lonDeg, subPt.latDeg, pxPerDeg, halfSpanDeg);
+    const mos = moonTiles.current();
+    const detail: DetailOverlay | null = mos
+      ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
+      : null;
+    moonCreditOn = !!mos;
+    // true-geometry disc bbox, clamped to the canvas (decoupled from the B2
+    // size slider up close — the ray-sphere IS the true sphere)
+    const rDisc = bodyDiscPx(R, distC, k) / 2;
+    const bx = Math.max(0, Math.floor(d.p.x - rDisc));
+    const by = Math.max(0, Math.floor(d.p.y - rDisc));
+    const bw = Math.min(w, Math.ceil(d.p.x + rDisc)) - bx;
+    const bh = Math.min(h, Math.ceil(d.p.y + rDisc)) - by;
+    if (bw <= 0 || bh <= 0) return false;
+    const sun = norm3(sub(sunPos, center));
+    // pose key: what makes the patch pixels change
+    const distBucket = Math.round(Math.log(distC) / 0.02);
+    const mosKey = mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0";
+    const key =
+      `${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
+      `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}`;
+    // 1) full streamed tier ready for this exact pose → use it
+    if (mpFull && mpFull.key === key && mpFull.ready) {
+      ctx.drawImage(mpFull.canvas, bx, by, bw, bh);
+      moonPatchFullThisFrame = true;
+      return true;
+    }
+    // 2) synchronous FAST tier (bounded task) every changed frame
+    const fd = patchBufDims(bw, bh, MOON_PATCH_FAST_LONG_PX);
+    if (!mpFast || mpFast.bufW !== fd.bufW || mpFast.bufH !== fd.bufH) {
+      const cv = document.createElement("canvas");
+      cv.width = fd.bufW;
+      cv.height = fd.bufH;
+      mpFast = { canvas: cv, img: cv.getContext("2d")!.createImageData(fd.bufW, fd.bufH), bufW: fd.bufW, bufH: fd.bufH };
+    }
+    const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun);
+    const tf = performance.now();
+    renderMoonSurfaceRows(fView, base, detail, mpFast.img.data, 0, fd.bufH);
+    const fms = performance.now() - tf;
+    if (fms > moonPatchMsMax) moonPatchMsMax = fms;
+    mpFast.canvas.getContext("2d")!.putImageData(mpFast.img, 0, 0);
+    ctx.drawImage(mpFast.canvas, bx, by, bw, bh);
+    // 3) settled pose → stream the full tier in bounded row bands
+    const settled = !flight && performance.now() - lastInputAt >= 160;
+    if (settled && (!mpBuilding || mpBuilding.key !== key)) {
+      const ld = patchBufDims(bw, bh, MOON_PATCH_FULL_LONG_PX);
+      const cv = document.createElement("canvas");
+      cv.width = ld.bufW;
+      cv.height = ld.bufH;
+      mpBuilding = {
+        key, canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
+        bufW: ld.bufW, bufH: ld.bufH, bx, by, bw, bh,
+        view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun),
+        base, detail, row: 0, ready: false,
+      };
+      if (!mpTimer) mpTimer = setTimeout(pumpMoonPatch, 0);
+    }
+    return true;
+  }
+
+  /** Leaving the focused-close range: evict tiles + patch buffers (GPU
+   *  budget), exactly like the 8k tier's eviction. */
+  function evictMoonPatch(): void {
+    moonTiles.clear();
+    mpFull = null;
+    mpFast = null;
+    mpBuilding = null;
+    if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
+    moonCreditOn = false;
+  }
+
   function ringBandsNow(): RingBand[] | null {
     if (ringBands) return ringBands;
     const rt = texman.getRing();
@@ -1890,6 +2115,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const posT = positionsNow(timeMs);
     const pos = layoutNow(timeMs);
     const axis = earthAxisEcl(timeMs);
+    moonPatchDrewThisFrame = false;
+    moonPatchFullThisFrame = false;
 
     // flight progression — camera pose derived in BOTH spaces from the one
     // shared (focus/blend, dir, dist) parameterization
@@ -2053,6 +2280,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (r >= 3) {
         // sun direction in camera coords for the sprite shader
         const def = defById.get(d.id)!;
+        // B4: focused-close Moon → real LROC surface patch instead of the
+        // capped disc sprite (the far tier). Handles it entirely; the Moon
+        // carries no rings, so nothing else in this branch is needed.
+        if (
+          d.id === "moon" &&
+          d.layoutDistM < MOON_PATCH_ACTIVATE_RADII * radiusM("moon") &&
+          drawMoonPatch(d, sunPos, pos, camPos, basis, kNow, cx, cy, w, h)
+        ) {
+          moonPatchDrewThisFrame = true;
+          continue;
+        }
         const toSunW = def.emissive ? basis.f : norm3(sub(sunPos, pos[d.id]));
         const sunCam = v3(dot(toSunW, basis.r), dot(toSunW, basis.u), -dot(toSunW, basis.f));
         // the Sun's flare: the additive glow sprite at 7× the disc
@@ -2238,6 +2476,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const capLines: { text: string; color: string }[] = [];
     // REQUIRED visible CC-BY credit whenever the panorama is on screen
     if (milkyShown > 0.02) capLines.push({ text: MILKY_WAY_CREDIT, color: "rgba(140,155,178,0.7)" });
+    // B4: the required visible source credit whenever real LROC tiles are on
+    // screen (public-domain courtesy line — never claim it as live)
+    if (moonPatchDrewThisFrame && moonCreditOn) {
+      capLines.push({ text: MOON_TREK_CREDIT, color: "rgba(140,155,178,0.7)" });
+    }
     const amberHi = "rgba(251,178,76,0.9)";
     const amberLo = "rgba(251,178,76,0.6)";
     const grayHi = "rgba(160,175,198,0.8)";
@@ -2353,6 +2596,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       opts.applyEarthAnchor({ visible: false, dxPx: 0, dyPx: 0, scale: 1, rollDeg: 0, opacity: 0 });
     }
 
+    // B4 eviction: the moment the Moon stops being the focused-close body,
+    // drop its tile mosaic + patch buffers (GPU budget — matches the 8k
+    // tier's eviction; __vtMoonTileBytes drops to 0)
+    if (moonPatchDrewThisFrame) moonPatchOn = true;
+    else if (moonPatchOn) { moonPatchOn = false; evictMoonPatch(); }
+
     renderMsLast = performance.now() - t0;
     lastState = {
       timeMs,
@@ -2399,6 +2648,19 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         primeMeridianDeg: hasRotationModel(d.id) ? iauPrimeMeridianDeg(d.id, timeMs) : null,
         insideParent: insideParent.has(d.id),
       })),
+      moonPatch: (() => {
+        const st = moonTiles.stats();
+        return {
+          active: moonPatchDrewThisFrame,
+          full: moonPatchFullThisFrame,
+          mosaicZ: st.z,
+          mosaicTiles: st.tiles,
+          tileBytes: st.bytes,
+          patchMsMax: moonPatchMsMax,
+          tileChunkMsMax: st.maxChunkMs,
+          credited: moonPatchDrewThisFrame && moonCreditOn,
+        };
+      })(),
     };
   }
 
@@ -2698,6 +2960,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       skyCanvas = null;
       skyRays = null;
       ringBands = null;
+      // B4: free the Moon tile mosaic + patch buffers on exit (__vtMoonTileBytes
+      // → 0, drive-observable) alongside the base textures
+      if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
+      moonTiles.dispose();
+      mpFull = null;
+      mpFast = null;
+      mpBuilding = null;
       // leaving space unloads every texture (the directive's eviction
       // contract; __vtSpaceTexBytes drops to 0 — drive-observable)
       texman.dispose();
