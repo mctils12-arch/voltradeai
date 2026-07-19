@@ -6,6 +6,14 @@ import assert from "node:assert/strict";
 import {
   MOON_TREK,
   MOON_TREK_CREDIT,
+  MARS_TREK,
+  MARS_TREK_CREDIT,
+  MERCURY_TREK,
+  MERCURY_TREK_CREDIT,
+  VENUS_TREK,
+  VENUS_TREK_CREDIT,
+  TREK_BODIES,
+  trekBody,
   matrixWidth,
   matrixHeight,
   degPerTile,
@@ -223,4 +231,121 @@ test("mosaicWindow describes the stitched equirect extent", () => {
 
 test("mosaicWindow is null for no tiles", () => {
   assert.equal(mosaicWindow([]), null);
+});
+
+// ── B5: sibling rocky-body Trek schemes (probed from each body's own
+// WMTSCapabilities.xml + a live tile fetch, 2026-07-19) ──────────────────────
+
+test("B5 schemes carry each body's own max native z (probed, not assumed)", () => {
+  // Mars/Mercury 404 at z=8 → maxZ 7; Venus 404 at z=6 → maxZ 5; Moon keeps 8.
+  assert.equal(MOON_TREK.maxZ, 8);
+  assert.equal(MARS_TREK.maxZ, 7);
+  assert.equal(MERCURY_TREK.maxZ, 7);
+  assert.equal(VENUS_TREK.maxZ, 5);
+  // all Trek EQ tiles are 256 px regardless of body
+  for (const s of [MOON_TREK, MARS_TREK, MERCURY_TREK, VENUS_TREK]) {
+    assert.equal(s.tilePx, 256);
+  }
+});
+
+test("B5 tile extension: Venus is PNG, the rest default to JPEG", () => {
+  // the Moon/Mars/Mercury schemes carry no ext ⇒ tileUrl must still emit .jpg
+  assert.equal(MARS_TREK.ext, "jpg");
+  assert.equal(MERCURY_TREK.ext, "jpg");
+  assert.equal(VENUS_TREK.ext, "png");
+  assert.match(tileUrl({ z: 7, x: 3, y: 4 }, MARS_TREK), /\/7\/4\/3\.jpg$/);
+  assert.match(tileUrl({ z: 7, x: 3, y: 4 }, MERCURY_TREK), /\/7\/4\/3\.jpg$/);
+  assert.match(tileUrl({ z: 5, x: 3, y: 4 }, VENUS_TREK), /\/5\/4\/3\.png$/);
+  // MOON_TREK (no ext field) is untouched — still .jpg (byte-identical to B4)
+  assert.match(tileUrl({ z: 8, x: 1, y: 1 }, MOON_TREK), /\.jpg$/);
+});
+
+test("B5 baseUrls point at the real Trek EQ endpoints", () => {
+  assert.match(MARS_TREK.baseUrl, /trek\.nasa\.gov\/tiles\/Mars\/EQ\/Mars_Viking_MDIM21/);
+  assert.match(MERCURY_TREK.baseUrl, /trek\.nasa\.gov\/tiles\/Mercury\/EQ\/Mercury_MESSENGER_MDIS/);
+  assert.match(VENUS_TREK.baseUrl, /trek\.nasa\.gov\/tiles\/Venus\/EQ\/Venus_Magellan_C3-MDIR/);
+  // every baseUrl ends at the default028mm matrix set (no trailing slash)
+  for (const s of [MOON_TREK, MARS_TREK, MERCURY_TREK, VENUS_TREK]) {
+    assert.match(s.baseUrl, /default028mm$/);
+  }
+});
+
+test("TREK_BODIES registry: the four rocky bodies, gas giants absent", () => {
+  assert.deepEqual(new Set(Object.keys(TREK_BODIES)), new Set(["moon", "mars", "mercury", "venus"]));
+  // gas giants + the Sun never get a surface patch
+  for (const id of ["jupiter", "saturn", "uranus", "neptune", "sun", "earth"]) {
+    assert.equal(trekBody(id), null, `${id} has no Trek surface`);
+  }
+  assert.equal(trekBody("mars")!.scheme, MARS_TREK);
+  assert.equal(trekBody("moon")!.scheme, MOON_TREK);
+});
+
+test("each body's credit names its instrument + trek.nasa.gov", () => {
+  assert.match(MARS_TREK_CREDIT, /Mars.*Viking.*trek\.nasa\.gov/);
+  assert.match(MERCURY_TREK_CREDIT, /Mercury.*MESSENGER.*trek\.nasa\.gov/);
+  assert.match(VENUS_TREK_CREDIT, /Venus.*Magellan.*trek\.nasa\.gov/);
+});
+
+test("zoomForResolution saturates at EACH body's own maxZ, not the Moon's", () => {
+  assert.equal(zoomForResolution(1e6, MARS_TREK), 7);
+  assert.equal(zoomForResolution(1e6, MERCURY_TREK), 7);
+  assert.equal(zoomForResolution(1e6, VENUS_TREK), 5);
+  assert.equal(zoomForResolution(1e6, MOON_TREK), 8);
+});
+
+// ── known planetary features land in the right tile (per-body alignment
+// contract — the same selenographic→areographic frame the base sprite uses,
+// with lon in [-180,180] positive-East as the Trek EQ bbox defines) ──────────
+
+test("Mars — Olympus Mons (18.65°N, 226.2°E) lands NW of centre", () => {
+  const lon = normLonDeg(226.2); // 226.2°E → −133.8°
+  const lat = 18.65;
+  const z = 6; // within Mars maxZ 7
+  const x = tileColForLon(lon, z);
+  const y = tileRowForLat(lat, z);
+  const b = tileBboxDeg({ z, x, y });
+  assert.ok(lon >= b.lonMin && lon <= b.lonMax, `lon ${lon} in [${b.lonMin},${b.lonMax}]`);
+  assert.ok(lat >= b.latMin && lat <= b.latMax, `lat ${lat} in [${b.latMin},${b.latMax}]`);
+  assert.ok(x < matrixWidth(z) / 2, "west of prime meridian (−133.8°)");
+  assert.ok(y < matrixHeight(z) / 2, "north of equator");
+});
+
+test("Mars — Valles Marineris (~14°S, 59°W) lands SW of centre", () => {
+  const lon = -59;
+  const lat = -14;
+  const z = 6;
+  const x = tileColForLon(lon, z);
+  const y = tileRowForLat(lat, z);
+  const b = tileBboxDeg({ z, x, y });
+  assert.ok(lon >= b.lonMin && lon <= b.lonMax);
+  assert.ok(lat >= b.latMin && lat <= b.latMax);
+  assert.ok(x < matrixWidth(z) / 2, "west of prime meridian");
+  assert.ok(y > matrixHeight(z) / 2, "south of equator");
+});
+
+test("Mercury — Caloris Basin (~30.5°N, 189.8°E) lands NW near the antimeridian", () => {
+  const lon = normLonDeg(189.8); // → −170.2°
+  const lat = 30.5;
+  const z = 5; // within Mercury maxZ 7
+  const x = tileColForLon(lon, z);
+  const y = tileRowForLat(lat, z);
+  const b = tileBboxDeg({ z, x, y });
+  assert.ok(lon >= b.lonMin && lon <= b.lonMax, `lon ${lon} in [${b.lonMin},${b.lonMax}]`);
+  assert.ok(lat >= b.latMin && lat <= b.latMax);
+  // −170° is just east of the −180 west edge ⇒ a low column, and northern
+  assert.ok(x < matrixWidth(z) * 0.1, "near the west edge / antimeridian");
+  assert.ok(y < matrixHeight(z) / 2, "north of equator");
+});
+
+test("Venus — Maxwell Montes (~65°N, 3.3°E) lands just E of centre, far north", () => {
+  const lon = 3.3;
+  const lat = 65.2;
+  const z = 4; // within Venus maxZ 5
+  const x = tileColForLon(lon, z);
+  const y = tileRowForLat(lat, z);
+  const b = tileBboxDeg({ z, x, y });
+  assert.ok(lon >= b.lonMin && lon <= b.lonMax);
+  assert.ok(lat >= b.latMin && lat <= b.latMax);
+  assert.ok(x >= matrixWidth(z) / 2, "east of the prime meridian");
+  assert.ok(y < matrixHeight(z) / 2, "north of equator");
 });

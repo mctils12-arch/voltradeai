@@ -109,9 +109,12 @@ export function sampleDetail(
 
 /** Base equirect nearest texel [r,g,b] — the textureSphere.equirectUV
  *  convention (lon 0 at u = 0.5, east-increasing; v = 0 at the north pole),
- *  inlined for per-pixel speed. */
-function sampleBase(tex: TexLike, lonDeg: number, latDeg: number): [number, number, number] {
-  let u = lonDeg / 360 + 0.5;
+ *  inlined for per-pixel speed. `texOff` is the source-map prime-meridian
+ *  offset as a u-fraction (0 for the Moon ⇒ byte-identical; 0.5 for the planet
+ *  map family whose lon 0 sits at the texture's left edge — so the base
+ *  fallback shows the SAME true frame as the streamed Trek detail tiles). */
+function sampleBase(tex: TexLike, lonDeg: number, latDeg: number, texOff: number): [number, number, number] {
+  let u = lonDeg / 360 + 0.5 + texOff;
   u -= Math.floor(u);
   let v = 0.5 - latDeg / 180;
   if (v < 0) v = 0;
@@ -152,6 +155,10 @@ export interface MoonSurfaceView {
   Z: Vec3;
   wDeg: number;
   sun: Vec3;
+  /** source-map prime-meridian offset (deg) for the base fallback texture; 0
+   *  for the Moon (byte-identical), 180 for the planet map family. Optional so
+   *  the Moon's existing views need no change. */
+  texLonOffsetDeg?: number;
 }
 
 /**
@@ -169,6 +176,7 @@ export function renderMoonSurfaceRows(
   rowEnd: number,
 ): { hits: number } {
   const { bw, bh, originX, originY, stepX, stepY, cx, cy, k, r, u, f, cam, center, radius, X, Y, Z, wDeg, sun } = view;
+  const texOff = (view.texLonOffsetDeg ?? 0) / 360;
   const y0 = Math.max(0, rowStart);
   const y1 = Math.min(bh, rowEnd);
   let hits = 0;
@@ -198,7 +206,7 @@ export function renderMoonSurfaceRows(
       nz /= nl;
       const n = { x: nx, y: ny, z: nz };
       const { lonDeg, latDeg } = surfaceLonLat(n, X, Y, Z, wDeg);
-      const rgb = (detail && sampleDetail(detail, lonDeg, latDeg)) || sampleBase(base, lonDeg, latDeg);
+      const rgb = (detail && sampleDetail(detail, lonDeg, latDeg)) || sampleBase(base, lonDeg, latDeg, texOff);
       const lit = nx * sun.x + ny * sun.y + nz * sun.z;
       const w = lambertWeight(lit);
       out[o] = rgb[0] * w;

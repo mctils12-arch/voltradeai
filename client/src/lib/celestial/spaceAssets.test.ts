@@ -26,6 +26,8 @@ import {
   getEclipticGridPref,
   getMotionTrailsPref,
   getBodyLabelsPref,
+  textureLonOffsetDeg,
+  TEXTURE_LON_OFFSET_DEG,
 } from "./spaceAssets.js";
 
 const SPACE_DIR = path.resolve(
@@ -104,4 +106,22 @@ test("view prefs: node-safe defaults + set/subscribe round trip", () => {
   setMilkyWayPref(false);
   setMilkyWayPref(true);
   assert.equal(fired, 2, "unsubscribed");
+});
+
+test("B5 texture longitude offset: planet map family 180°, Moon/Sun 0°", () => {
+  // the classic planet map family (marsmap1k/mercurymap/venusmap) places lon 0
+  // at the texture's west edge — a 180° shift from equirectUV's centred lon 0.
+  // Measured against each body's own Trek mosaic (Mars 0.63 / Venus 0.54 /
+  // Mercury ~0.25 correlation, all peaking ~180°) on 2026-07-19.
+  assert.equal(textureLonOffsetDeg("mars"), 180);
+  assert.equal(textureLonOffsetDeg("mercury"), 180);
+  assert.equal(textureLonOffsetDeg("venus"), 180);
+  // the LRO moon_8k mosaic + everything unspecified keep the centred convention
+  assert.equal(textureLonOffsetDeg("moon"), 0);
+  assert.equal(textureLonOffsetDeg("sun"), 0);
+  assert.equal(textureLonOffsetDeg("jupiter"), 0);
+  assert.equal(textureLonOffsetDeg("earth"), 0);
+  assert.equal(textureLonOffsetDeg("nonexistent"), 0);
+  // the map only carries the offset bodies (no accidental 0-valued entries)
+  assert.deepEqual(new Set(Object.keys(TEXTURE_LON_OFFSET_DEG)), new Set(["mars", "mercury", "venus"]));
 });

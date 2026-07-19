@@ -155,6 +155,39 @@ test("clear() evicts the mosaic (bytes drop to 0), then a new request rebuilds",
   mgr.dispose();
 });
 
+test("clear() during an in-flight build does NOT repopulate the mosaic (B5 evict race)", async () => {
+  // a fetch that only resolves when we release it — lets us evict mid-build
+  const gates: Array<() => void> = [];
+  let fetches = 0;
+  const fetchTile = async (): Promise<TexImageLike> => {
+    fetches++;
+    await new Promise<void>((res) => gates.push(res));
+    const px = MOON_TREK.tilePx;
+    const d = new Uint8ClampedArray(px * px * 4);
+    for (let p = 0; p < px * px; p++) { d[p * 4] = 50; d[p * 4 + 3] = 255; }
+    return { data: d, width: px, height: px };
+  };
+  const mgr = createMoonTileManager({ fetchTile, bandRows: 128 });
+  mgr.request(0, 0, 20, 8);
+  await settle(() => fetches > 0); // build is now awaiting the gated fetches
+  // EVICT while the fetches are still outstanding
+  mgr.clear();
+  assert.equal(mgr.current(), null);
+  assert.equal((globalThis as any).__vtMoonTileBytes, 0);
+  // release every gated fetch → the stale build must bail, not set a mosaic
+  for (const g of gates) g();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(mgr.current(), null, "evicted build never repopulated the mosaic");
+  assert.equal((globalThis as any).__vtMoonTileBytes, 0, "__vtMoonTileBytes stayed 0 after the race");
+  // a fresh request after the race still works
+  mgr.request(0, 0, 20, 8);
+  await settle(() => gates.length > fetches - 1); // new fetches queued
+  for (const g of gates) g();
+  await settle(() => mgr.current() !== null);
+  assert.ok(mgr.stats().bytes > 0, "manager still usable after an evict-during-build race");
+  mgr.dispose();
+});
+
 test("a new sub-point supersedes and rebuilds a different mosaic", async () => {
   const { deps } = fakeDeps();
   const mgr = createMoonTileManager(deps);
