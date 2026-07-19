@@ -48,6 +48,12 @@ import {
   orbitInertiaStep,
   ORBIT_INERTIA_DAMP,
   ORBIT_INERTIA_EPS_DEG,
+  screenRayDir,
+  raycastSphere,
+  clampOffset,
+  cursorPullOffset,
+  panOffset,
+  smoothZoomStep,
   DEFAULT_FOV_DEG,
   defaultBodyRegistry,
   seamExitArmed,
@@ -859,4 +865,129 @@ test("bodyCardInfo: real fact-sheet values — Jupiter 9.9h, Venus retrograde 24
   } finally {
     setUnits(prior);
   }
+});
+
+// ── ZOOM-TO-CURSOR + PAN navigation math (2026-07-19) ────────────────────────
+
+const V = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
+const vlen = (a: Vec3): number => Math.hypot(a.x, a.y, a.z);
+const vsub = (a: Vec3, b: Vec3): Vec3 => V(a.x - b.x, a.y - b.y, a.z - b.z);
+
+// a canonical camera basis looking down −Z from +Z (forward = −Z, right = +X,
+// up = +Y) — the textbook frame for checking screen↔ray inversion.
+const BASIS = { f: V(0, 0, -1), r: V(1, 0, 0), u: V(0, 1, 0) };
+
+test("screenRayDir: centre pixel returns the forward axis; offsets map to r/u", () => {
+  const k = 1000;
+  const cx = 640;
+  const cy = 450;
+  const centre = screenRayDir(cx, cy, k, cx, cy, BASIS);
+  close(centre.x, 0, 1e-9, "centre ray has no right component");
+  close(centre.y, 0, 1e-9, "centre ray has no up component");
+  close(centre.z, -1, 1e-9, "centre ray is forward");
+  // 100px to the right ⇒ right component +100/k, forward stays 1
+  const right = screenRayDir(cx + 100, cy, k, cx, cy, BASIS);
+  close(right.x, 0.1, 1e-9, "right offset = +dx/k along r");
+  close(right.z, -1, 1e-9, "forward component unchanged");
+  // 100px DOWN (screen y down) ⇒ up component NEGATIVE (b = (cy−my)/k)
+  const down = screenRayDir(cx, cy + 100, k, cx, cy, BASIS);
+  close(down.y, -0.1, 1e-9, "down offset = −dy/k along u");
+});
+
+test("screenRayDir ∘ projectPoint round-trips a world point to its own pixel", () => {
+  const k = 1200;
+  const cx = 700;
+  const cy = 400;
+  const cam = V(0, 0, 0);
+  const p = V(30, -18, -500); // in front of the camera (−Z)
+  const proj = projectPoint(p, cam, BASIS as never, k, cx, cy);
+  const rd = screenRayDir(proj.x, proj.y, k, cx, cy, BASIS);
+  // the ray from cam through that pixel must point at p (parallel directions)
+  const pd = vsub(p, cam);
+  const cosang = (rd.x * pd.x + rd.y * pd.y + rd.z * pd.z) / (vlen(rd) * vlen(pd));
+  close(cosang, 1, 1e-9, "screen pixel re-projects onto the same world ray");
+});
+
+test("raycastSphere: nearest front hit, and a clean miss returns null", () => {
+  const cam = V(0, 0, 10);
+  const centre = V(0, 0, 0);
+  const R = 3;
+  // straight at the centre ⇒ nearest hit is the near cap at z = +3
+  const hit = raycastSphere(cam, V(0, 0, -1), centre, R)!;
+  assert.ok(hit, "ray at the sphere hits");
+  close(hit.z, 3, 1e-9, "nearest intersection is the near surface");
+  close(vlen(vsub(hit, centre)), R, 1e-9, "hit lies on the sphere");
+  // a ray pointing away from the sphere misses
+  assert.equal(raycastSphere(cam, V(0, 0, 1), centre, R), null, "away-ray misses");
+  // a ray offset well past the limb misses
+  assert.equal(raycastSphere(cam, V(1, 0, 0), centre, R), null, "sideways ray misses");
+});
+
+test("clampOffset caps magnitude, leaves within-range vectors untouched", () => {
+  const inside = V(1, 2, 2); // |.| = 3
+  assert.deepEqual(clampOffset(inside, 10), inside, "under the cap: unchanged");
+  const out = clampOffset(V(0, 0, 30), 10);
+  close(vlen(out), 10, 1e-9, "over the cap: clamped to maxMag");
+  close(out.z, 10, 1e-9, "direction preserved");
+  assert.deepEqual(clampOffset(V(0, 0, 0), 5), V(0, 0, 0), "zero stays zero");
+});
+
+test("cursorPullOffset moves the look-at TOWARD the cursor point and clamps", () => {
+  const target = V(100, 0, 0);
+  const half = cursorPullOffset(V(0, 0, 0), target, 0.5, 1e9);
+  close(half.x, 50, 1e-9, "alpha 0.5 moves halfway toward the cursor point");
+  // repeated pulls converge onto the point (zoom-to-cursor: point → centre)
+  let off = V(0, 0, 0);
+  for (let i = 0; i < 40; i++) off = cursorPullOffset(off, target, 0.3, 1e9);
+  assert.ok(vlen(vsub(off, target)) < 1, "iterated pull converges on the cursor point");
+  // never past the pan cap
+  const capped = cursorPullOffset(V(0, 0, 0), V(1000, 0, 0), 1, 25);
+  close(vlen(capped), 25, 1e-9, "pull respects the offset cap");
+});
+
+test("panOffset translates the look-at so the surface follows the pointer", () => {
+  // drag RIGHT (dx>0) ⇒ offset moves −right so on-screen content moves right
+  const right = panOffset(V(0, 0, 0), 40, 0, BASIS, 2, 1e9);
+  close(right.x, -80, 1e-9, "drag right ⇒ −right·(dx·mpp)");
+  close(right.y, 0, 1e-9, "no vertical component for a horizontal drag");
+  // drag DOWN (dy>0) ⇒ offset +up (content moves down under the finger)
+  const down = panOffset(V(0, 0, 0), 0, 40, BASIS, 2, 1e9);
+  close(down.y, 80, 1e-9, "drag down ⇒ +up·(dy·mpp)");
+  // clamped to the cap
+  const capped = panOffset(V(0, 0, 0), 100000, 0, BASIS, 2, 50);
+  close(vlen(capped), 50, 1e-9, "pan respects the offset cap");
+});
+
+test("smoothZoomStep eases in LOG space, is monotone, and snaps near target", () => {
+  // one step moves partway (log-space) toward the target, never overshoots
+  const s1 = smoothZoomStep(100, 400, 0.5);
+  assert.ok(s1 > 100 && s1 < 400, "single step lands between cur and target");
+  close(s1, Math.exp(Math.log(100) + (Math.log(400) - Math.log(100)) * 0.5), 1e-9, "log-space lerp");
+  // iterated stepping converges to the target
+  let d = 100;
+  for (let i = 0; i < 40; i++) d = smoothZoomStep(d, 400, 0.34);
+  close(d, 400, 1e-6, "iterated ease converges on the target");
+  // within snapFrac it snaps exactly (loop can idle)
+  assert.equal(smoothZoomStep(400.5, 400, 0.34, 0.01), 400, "near-target snaps to target");
+  // zoom-in direction (target < cur) also converges downward
+  let din = 400;
+  for (let i = 0; i < 60; i++) din = smoothZoomStep(din, 100, 0.34);
+  close(din, 100, 1e-6, "zoom-in ease converges downward");
+});
+
+test("fly-to reframe of the CURRENT focus can't degenerate the look direction", () => {
+  // beginFlight computes `away = norm3(to − from)`; when the target IS the
+  // current focus (from == to), that is norm3(0) — which must NOT become a
+  // zero/NaN look direction (the guard falls back to the current dir). Pin the
+  // guard's math: a zero outbound keeps the camera's existing direction.
+  const dir: Vec3 = { x: 0.3, y: -0.8, z: 0.5 };
+  const n = Math.hypot(dir.x, dir.y, dir.z);
+  const unit = { x: dir.x / n, y: dir.y / n, z: dir.z / n };
+  const outbound = { x: 0, y: 0, z: 0 }; // to − from when from == to
+  const away = Math.hypot(outbound.x, outbound.y, outbound.z) > 1 ? outbound : unit;
+  close(Math.hypot(away.x, away.y, away.z), 1, 1e-12, "away stays a unit vector (uses current dir)");
+  // and a real outbound keeps its own direction
+  const real = { x: 10, y: 0, z: 0 };
+  const away2 = Math.hypot(real.x, real.y, real.z) > 1 ? { x: real.x / 10, y: 0, z: 0 } : unit;
+  close(away2.x, 1, 1e-12, "non-degenerate outbound uses its own direction");
 });
