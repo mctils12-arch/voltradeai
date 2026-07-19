@@ -90,7 +90,7 @@ import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
-import { epochAgeDays } from "@/lib/orbital/propagate";
+import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
 import { apsidesKm, orbitalSpeedKmh, periodMinutes } from "@/lib/orbital/satDerived";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
@@ -3768,34 +3768,47 @@ export default function DataMapPage() {
         try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
         return;
       }
+      // camera motion lives in smoothFollowFrame below (per-frame) — this
+      // tick keeps ring/nadir/status honest at physics rate.
+    };
+    // ── SMOOTH FOLLOW (human 2026-07-19, demo sat-inspect-fix.html: "the
+    // way the mechanics work for sat lock … the one on the site does not
+    // move smoothly"): the ONE followed craft gets one extra SGP4
+    // propagation per FRAME (same kernel as sampleOrbitArc; single object =
+    // cheap) and camera + model anchor ride it via jumpTo — continuous
+    // 60fps motion. The old per-tick 800ms easeTo raced the 1Hz worker and
+    // was skipped whenever the map moved → hop-pause-hop. MAP-NATIVE CRAFT
+    // ORBIT (round 10) is unchanged: center IS the craft at its real
+    // altitude, so rotate/tilt/zoom still orbit the moving craft natively.
+    let smoothRaf: number | null = null;
+    const smoothFollowFrame = () => {
+      smoothRaf = requestAnimationFrame(smoothFollowFrame);
+      const f = satFollowRef.current;
+      if (!f || document.hidden) return;
+      const g = orbitalGpRef.current?.[f.index];
+      if (!g) return;
+      const p = propagate(g, simNow());
+      if (!p) return; // no honest position this frame — never guess
+      const m = lonLatToMercator(p.lonDeg, p.latDeg);
+      // model + focus ring ride the frame-fresh anchor (worker tick backstops)
+      satModelLayerRef.current?.setAnchor({ mercX: m.x, mercY: m.y, altMeters: p.altKm * 1000 });
+      if (inspectActiveRef.current) return; // overlay owns the view — map camera frozen
+      if (!f.lockMode) return;              // camera handed back — the model still glides
       try {
-        if (!map.isMoving()) {
-          // MAP-NATIVE CRAFT ORBIT (human round 10, verbatim: "I dont want
-          // it to be a separate thing it need to be part of the map"): the
-          // camera CENTER itself is un-clamped from the ground and given
-          // the craft's real altitude (maplibre v5 setCenterElevation +
-          // setCenterClampedToGround(false)) — the center point IS the
-          // craft, in the real map scene over real imagery. Every native
-          // gesture now does the right thing with zero custom math:
-          // rotate/tilt ORBIT the craft, zoom approaches THE CRAFT (no
-          // more diving to the terrain under it — the old snap-back), and
-          // there is no offset/feedback loop left to jerk or wander (this
-          // replaces round 9's h·tan(pitch) analytic ground-center, which
-          // was the best a ground-clamped camera could do). 'ground' mode
-          // stays clamped and pins the nadir (watch the ground track).
-          if (f.lockMode === "sat") {
-            (map as any).setCenterClampedToGround?.(false);
-            (map as any).setCenterElevation?.(t.altKm * 1000);
-          } else {
-            (map as any).setCenterClampedToGround?.(true);
-            (map as any).setCenterElevation?.(0);
-          }
-          // linear + near-tick duration: the chase reads as one continuous
-          // motion instead of hop-pause-hop (the "moves all around" feel)
-          map.easeTo({ center: [t.lonDeg, t.latDeg], duration: 800, easing: (x: number) => x });
+        // let the click-framing / wheel / ± zoom eases finish (a jumpTo
+        // would abort them mid-flight); the chase resumes next frame
+        if (map.isZooming()) return;
+        if (f.lockMode === "sat") {
+          (map as any).setCenterClampedToGround?.(false);
+          (map as any).setCenterElevation?.(p.altKm * 1000);
+        } else {
+          (map as any).setCenterClampedToGround?.(true);
+          (map as any).setCenterElevation?.(0);
         }
+        map.jumpTo({ center: [p.lonDeg, p.latDeg] });
       } catch {}
     };
+    smoothRaf = requestAnimationFrame(smoothFollowFrame);
     const stopFollow = () => {
       if (!satFollowRef.current) return;
       // the inspect overlay cannot outlive its follow — close it FIRST so
@@ -4167,7 +4180,7 @@ export default function DataMapPage() {
     // B3: rate changes re-assert the worker drive mode live
     const offSimClock = subscribeSimClock(applySatDrive);
 
-    return () => { offSimClock(); stopSatWarpTimer(); map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); d3Detach(); stopLoad(); teardown(); };
+    return () => { if (smoothRaf != null) cancelAnimationFrame(smoothRaf); offSimClock(); stopSatWarpTimer(); map.off("move", applyLod); map.off("resize", applyLod); map.off("dragstart", releaseCamera); d3Detach(); stopLoad(); teardown(); };
   }, [enabled["orbital_sats"], mapReady, setStatus]);
 
   // EARTH TWIN A1: keep the orbital LOD envelope in sync with the fetched

@@ -92,7 +92,7 @@ void main() {
 export const MODEL_PIXELS = 72;
 /** Zoom-to-inspect ceiling — the model grows past the focus zoom (2^Δzoom)
  *  up to this, so "get really close" actually gets close. */
-export const MODEL_MAX_PIXELS = 480;
+export const MODEL_MAX_PIXELS = 1600;
 /** On-screen size of an O6-2 auto-3D mini (browse-zoom form, not focused). */
 export const MINI_PIXELS = 34;
 /** Focus ring RADIUS in px — drawn at the anchor's rendered altitude. */
