@@ -181,3 +181,84 @@ export function cachedGemMethaneProximity(): MethaneProximityResult | null {
 export function _resetGemMethaneProximityCacheForTests(): void {
   cached = undefined;
 }
+
+export interface AssetPlumeStat {
+  kind: GemAsset["kind"];
+  id: string;
+  name: string | null;
+  operator: string | null;
+  owner: string | null;
+  parent: string | null;
+  detectionCount: number;
+  ambiguousCount: number;
+  firstObservedAt: string | null;
+  lastObservedAt: string | null;
+  spanDays: number | null;
+  detectionsPerYear: number | null;
+  avgEmissionsKgHr: number | null;
+  avgDistanceKm: number;
+}
+
+const MS_PER_DAY = 86400000;
+
+/** Gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY
+ *  hypothesis (research/open_questions.md): groups matched plumes by their
+ *  nearestAsset and computes a repeat-detection rate per asset — a single
+ *  detection is noise, not a rate. `detectionsPerYear` stays null until an
+ *  asset has >=2 dated detections spanning a positive number of days
+ *  (never divides by a zero/undefined span, never fabricates a rate off
+ *  one data point). Still NOT A SIGNAL: this ranks a catalogued FACT ("N
+ *  detections over M days near this asset"), not a trading claim — gates
+ *  2(c) (same-universe base rate) and 2(d) (disclosed-intensity match)
+ *  remain unbuilt. Pure function — no I/O, unit-testable against fixtures.
+ *  Sorted by detectionCount desc (ties broken by most-recent detection) as
+ *  a default ranking; a client may re-sort by any returned field. */
+export function computeMethaneAssetStats(plumes: PlumeWithAsset[]): AssetPlumeStat[] {
+  const groups = new Map<string, PlumeWithAsset[]>();
+  for (const p of plumes) {
+    if (!p.nearestAsset) continue;
+    const bucket = groups.get(p.nearestAsset.id);
+    if (bucket) bucket.push(p);
+    else groups.set(p.nearestAsset.id, [p]);
+  }
+  const out: AssetPlumeStat[] = [];
+  groups.forEach((group: PlumeWithAsset[], id: string) => {
+    const asset = group[0].nearestAsset!;
+    const dates = group
+      .map((p) => (p.observedAt ? Date.parse(p.observedAt) : NaN))
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b);
+    const firstMs = dates.length ? dates[0] : null;
+    const lastMs = dates.length ? dates[dates.length - 1] : null;
+    const spanDays = firstMs !== null && lastMs !== null ? (lastMs - firstMs) / MS_PER_DAY : null;
+    const detectionsPerYear =
+      group.length >= 2 && spanDays !== null && spanDays > 0
+        ? (group.length / spanDays) * 365
+        : null;
+    const emissions = group.map((p) => p.emissionsKgHr).filter((v): v is number => v !== null);
+    const avgEmissionsKgHr = emissions.length
+      ? emissions.reduce((s, v) => s + v, 0) / emissions.length
+      : null;
+    const avgDistanceKm = group.reduce((s, p) => s + p.nearestAsset!.distanceKm, 0) / group.length;
+    out.push({
+      kind: asset.kind,
+      id,
+      name: asset.name,
+      operator: asset.operator,
+      owner: asset.owner,
+      parent: asset.parent,
+      detectionCount: group.length,
+      ambiguousCount: group.filter((p) => p.ambiguousMatch).length,
+      firstObservedAt: firstMs !== null ? new Date(firstMs).toISOString() : null,
+      lastObservedAt: lastMs !== null ? new Date(lastMs).toISOString() : null,
+      spanDays,
+      detectionsPerYear,
+      avgEmissionsKgHr,
+      avgDistanceKm,
+    });
+  });
+  out.sort((a, b) =>
+    b.detectionCount - a.detectionCount ||
+    (b.lastObservedAt || "").localeCompare(a.lastObservedAt || ""));
+  return out;
+}

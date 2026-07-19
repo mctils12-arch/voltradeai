@@ -5330,3 +5330,24 @@ NEXT STEP (not this session): (b) is the smallest next slice — group
 detection count/rate per asset, and surface it as a sortable stat before
 attempting (c)/(d). Discount stays heavy (REASONING STANDARD #4) — this
 update proves the join works, not that the underlying thesis has edge.
+
+UPDATE 2026-07-19 (scheduled-routine, session 3), [PRODUCT],
+T-DATACORE+T-CLIENT — GATE 2(b) SHIPPED (v1.0.417):
+`computeMethaneAssetStats()` (server/gemMethaneProximity.ts) groups
+matched plumes by `nearestAsset.id` and computes `detectionCount`,
+`ambiguousCount`, `firstObservedAt`/`lastObservedAt`, `spanDays`,
+`detectionsPerYear`, `avgEmissionsKgHr`, `avgDistanceKm` per asset.
+Exposed at `GET /api/data/methane-plumes/by-asset` (RAW, `predictive:
+false`, explicit disclaimer naming gates 2(c)/(d) as still open) and
+surfaced client-side as `MethaneClusterPanel` (datamap.tsx) — a
+sortable (Detections / Rate-per-year / Last seen, client-side re-sort,
+no refetch) top-N list nested in the Environmental legend section,
+visible only while the methane_plumes layer is on. HONESTY GUARD:
+`detectionsPerYear` is `null` unless an asset has >=2 dated detections
+spanning a positive number of days — never a fabricated single-point
+rate, never a divide-by-zero on same-day repeats. 7 new tests
+(server/gemMethaneProximity.test.ts) pin this, including a hand-
+verified rate calculation. Full trace in experiments.md.
+STILL GATE 2, NOT A SIGNAL — (b) is now a ranked, honestly-nulled FACT,
+not a rate claim proven predictive. (c) and (d) remain exactly as
+scoped above, unstarted; this update changes nothing about them.

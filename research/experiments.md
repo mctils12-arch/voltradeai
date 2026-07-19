@@ -21799,3 +21799,137 @@ short of the LIVENESS ALARM bar) severe enough to count as the "fixes a
 critical live break" exception this routine's own instructions carve
 out. Left as a human judgment call rather than self-declared, since the
 fix is a partial, latency-only improvement, not a guaranteed resolution.
+
+## 2026-07-19 (scheduled-routine, session 3) [PRODUCT] — GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY gate-2(b): per-asset repeat-detection rate, ranked API + client cluster panel (v1.0.417, T-DATACORE+T-CLIENT)
+
+TERRITORY: T-DATACORE (`server/gemMethaneProximity.ts` + its test file) +
+T-CLIENT (`client/src/pages/datamap.tsx`, `client/src/index.css`) +
+SHARED `server/routes.ts`/`package.json`/`package-lock.json` (route
+registration + version bump, last and minimal per MERGE-ORDER PROTOCOL)
++ `research/*.md`.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in
+full. `research/experiments.md` tail (last entry: KNOWN BROKEN #18
+fourth-mechanism, v1.0.416, same day). `research/open_questions.md`
+KNOWN BROKEN section read in full (items 1-23, none newly broken).
+`research/wishlist.md` DATACORE MAXIMUS block + platform_program.md +
+data_census.md skimmed for queued product work. `/api/health`
+(production): `status: ok`, `bot.liveness.dark: false` (no LIVENESS
+ALARM), `drawdownPct: "0.0"`, `scanner.consecutiveFailures: 4` (down
+from 5 pre-v1.0.416, no worsening) — healthy enough that a repair does
+not preempt this PRODUCT session per its own instructions.
+
+WHY THIS ITEM: `research/open_questions.md`'s GEM METHANE-PLUME ×
+EXTRACTION-REGISTRY PROXIMITY entry (filed 2026-07-18, gate-2(a) proximity
+join shipped 2026-07-19 earlier today) named its own concrete NEXT STEP
+explicitly: "(b) is the smallest next slice — group
+`cachedGemMethaneProximity().plumes` by `nearestAsset.id`, compute a
+detection count/rate per asset, and surface it as a sortable stat before
+attempting (c)/(d)." This is textbook ladder-gate product work (CLAUDE.md
+PRODUCT session menu item (a): "advance a datacore/ pipeline through its
+next ladder gate — gate 2 signal testing IS product work") with the next
+step already scoped by the prior session, so no re-discovery was needed —
+picked over starting a brand-new hypothesis per SESSION BUDGET's ordering
+(queued item from open_questions.md outranks fresh research).
+
+BUILD (gate 2(b) only — NOT gate 2(c)/(d), NOT a signal):
+1. `server/gemMethaneProximity.ts` gained `computeMethaneAssetStats()`
+   (pure function, no I/O): groups matched plumes (`nearestAsset !==
+   null`) by `nearestAsset.id`, computing per asset: `detectionCount`,
+   `ambiguousCount`, `firstObservedAt`/`lastObservedAt` (min/max of
+   parsed `observedAt`), `spanDays`, `detectionsPerYear`,
+   `avgEmissionsKgHr` (mean of non-null readings), `avgDistanceKm`.
+   HONESTY DISCIPLINE (REASONING STANDARD #10's "never fabricate"
+   extended to rates): `detectionsPerYear` stays `null` unless an asset
+   has >=2 dated detections spanning a *positive* number of days — a
+   single detection, or multiple same-day detections, never produces a
+   divide-by-zero or a fabricated one-point "rate." Sorted by
+   `detectionCount` desc (ties by most-recent) as the default ranking;
+   every field is independently sortable client-side.
+2. `server/routes.ts` gained `GET /api/data/methane-plumes/by-asset` —
+   reuses the existing `cachedGemMethaneProximity()` cache (no new I/O
+   or re-ingest path), returns `kind: "raw", predictive: false` plus an
+   explicit `disclaimer` field stating this is NOT a trading signal and
+   naming the still-open gates 2(c)/(d), matching the RAW-vs-SIGNAL
+   surface rule (STANDING BEHAVIORS) — this is a ranked catalogued fact
+   ("N detections over M days near this asset"), not an interpreted
+   SIGNAL, so no ladder gate blocks its surfacing, but the disclaimer
+   keeps that boundary visible on every response.
+3. `client/src/pages/datamap.tsx` gained `MethaneClusterPanel` — a
+   self-contained component (own fetch + local sort/expand state, never
+   touching the memoized `LegendPanel`'s props, preserving the SCALE
+   program S1(d) memo boundary noted in that file) nested inside the
+   Environmental legend section, mounted only while `enabled.methane_plumes`
+   is true. Renders the top 5 (expandable to 25) catalogued asset
+   clusters with a click-to-resort control (Detections / Rate-per-year /
+   Last seen — no refetch on resort, all three orderings computed
+   client-side from the one fetched array) and the same NOT-A-SIGNAL
+   disclaimer text as the API. New CSS block (`.vt-methane-*`,
+   `client/src/index.css`) reuses existing design tokens
+   (`var(--text-*)`, `var(--accent*)`, `var(--font-mono)`) — no new
+   design-system primitives invented; mobile-narrows via a 420px query
+   that drops the rate column (name/count/date are the load-bearing
+   fields at 390px).
+
+RATCHET: 7 new tests in `server/gemMethaneProximity.test.ts`
+(`computeMethaneAssetStats`): unmatched plumes excluded from grouping;
+a single detection never fabricates a rate (`detectionsPerYear: null`,
+`spanDays: 0`); >=2 dated detections spanning >0 days compute a hand-
+verified annualized rate (2 detections / ~181 days ≈ 4.03/yr, asserted
+to 2 decimal tolerance); undated detections never crash and degrade to
+null rate/span; `avgEmissionsKgHr` averages only non-null readings,
+ignoring nulls rather than treating them as zero; `ambiguousCount`
+tracks per-asset and the default ranking sorts by `detectionCount` desc
+(3 detections outranks 2, verified against a synthetic 2-asset fixture);
+empty input returns an empty list without throwing.
+
+GATES: `npx tsx --test server/gemMethaneProximity.test.ts` — 16/16
+passed (9 pre-existing + 7 new). Full `npx tsx --test server/*.test.ts`
+— 815/815 passed, 0 failed (this count already includes the 7 new
+tests; zero regressions elsewhere). `python3 -m pytest` not re-run — no Python file
+touched this session. `npx tsc --noEmit`: 72 errors, BYTE-IDENTICAL
+count to a `git stash`-verified baseline taken the same session (pre-
+existing `MapIterator`/`downlevelIteration` and unrelated-file noise,
+same precedent as KNOWN BROKEN #18's "byte-identical baseline" bar) —
+this session's own first draft of `computeMethaneAssetStats` used a
+`for (const [id, group] of groups)` loop that DID add new errors (a
+`TS2802` plus a cascade of `TS7006` implicit-`any` errors once the
+Map-iteration error broke downstream type inference) — caught by this
+exact baseline-diff check, not accepted; rewritten to use
+`groups.forEach((group, id) => ...)`, which the codebase's other
+`Map`-keyed loops don't uniformly use but which sidesteps the
+`downlevelIteration` TS config gap entirely with explicit parameter
+types, restoring the byte-identical 72/72 count. `npm run build` —
+clean (client + server, only pre-existing unrelated warnings: an
+`astronomy-engine` ESM default-export warning and two >500kB chunk-size
+notices, both present before this session's changes). VISUAL
+VERIFICATION (PROMOTION RULE 6, client/ touched): `npm run visual` at
+390/768/1440 run this session — see below for the disposition (this
+entry is being written while that run is still in flight; the honest
+state is recorded rather than a fabricated "passed" claim).
+
+BACKTEST: N/A — this is a read-only aggregation over an already-cached,
+already-served dataset (no new archive write, no live-trading code
+path touched). No scoring/sizing/execution logic changed.
+
+LADDER STATE (unchanged framing, restated per REASONING STANDARD #10
+discipline): still gate 2, NOT a signal. Gate 2(c) (same-universe base
+rate: do assets with any nearby plume underperform peers with none,
+before conditioning on rate/magnitude) and gate 2(d) (matching against
+operators' own disclosed methane intensity, still CURRENTLY UNSOURCED)
+remain unbuilt and are the next steps for whichever session picks this
+back up — `research/open_questions.md`'s entry updated in place with
+this gate-2(b) completion, matching the append-only-within-entry
+pattern gate-2(a)'s own update used.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before any future use): this
+ranking will show a small number of assets with unusually high repeat-
+detection rates relative to the corpus (a power-law-ish distribution is
+the expected shape for real recurring leak sources vs. one-off transient
+detections) — if the distribution instead looks flat/uniform across all
+matched assets, that would weaken the "repeat detections indicate a
+persistent source" premise the eventual gate-2(c) base-rate test depends
+on, and would be worth noting explicitly rather than silently proceeding
+to (c). Discount stays heavy per REASONING STANDARD #4 — this session
+proves the rate computation is honest and correctly plumbed, not that
+the underlying thesis has edge.

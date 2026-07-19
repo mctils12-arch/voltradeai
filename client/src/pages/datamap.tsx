@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
@@ -737,6 +737,90 @@ function LegendIcon({ icon, color, label }: { icon: string; color: string; label
   );
 }
 
+interface MethaneAssetStat {
+  kind: MethaneMatchKind;
+  id: string;
+  name: string | null;
+  operator: string | null;
+  detectionCount: number;
+  detectionsPerYear: number | null;
+  lastObservedAt: string | null;
+}
+
+// Gate-2(b) surface (research/open_questions.md, GEM METHANE-PLUME ×
+// EXTRACTION-REGISTRY PROXIMITY): ranks catalogued assets by repeat plume-
+// detection count. Self-contained data fetch + local sort/expand state so
+// it never touches the memoized LegendPanel's own props (SCALE program S1(d)
+// memo boundary, above) — only mounts while the methane_plumes layer is on.
+// Still RAW/NOT-A-SIGNAL by design: a ranked fact, no trading claim.
+function MethaneClusterPanel() {
+  const [assets, setAssets] = useState<MethaneAssetStat[] | null>(null);
+  const [error, setError] = useState(false);
+  const [sortKey, setSortKey] = useState<"count" | "rate" | "recent">("count");
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/data/methane-plumes/by-asset")
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then((d) => { if (!cancelled) setAssets(Array.isArray(d.assets) ? d.assets : []); })
+      .catch(() => { if (!cancelled) setError(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const sorted = useMemo(() => {
+    if (!assets) return [];
+    const arr = [...assets];
+    if (sortKey === "count") arr.sort((a, b) => b.detectionCount - a.detectionCount);
+    else if (sortKey === "rate") arr.sort((a, b) => (b.detectionsPerYear ?? -1) - (a.detectionsPerYear ?? -1));
+    else arr.sort((a, b) => (b.lastObservedAt || "").localeCompare(a.lastObservedAt || ""));
+    return arr;
+  }, [assets, sortKey]);
+
+  if (error) return <span className="vt-legend-note">cluster ranking unavailable</span>;
+  if (!assets) return <span className="vt-legend-note">loading asset clusters…</span>;
+  if (assets.length === 0) return null;
+
+  const shown = sorted.slice(0, expanded ? 25 : 5);
+  const SORT_LABEL: Record<typeof sortKey, string> = { count: "Detections", rate: "Rate/yr", recent: "Last seen" };
+
+  return (
+    <div className="vt-methane-clusters">
+      <div className="vt-methane-clusters-head">
+        <span>Top catalogued asset clusters</span>
+        <div className="vt-methane-sort" role="group" aria-label="Sort clusters by">
+          {(Object.keys(SORT_LABEL) as Array<typeof sortKey>).map((k) => (
+            <button key={k} type="button"
+                    className={`vt-methane-sort-btn${sortKey === k ? " active" : ""}`}
+                    onClick={() => setSortKey(k)}>
+              {SORT_LABEL[k]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="vt-methane-cluster-rows">
+        {shown.map((a) => (
+          <div key={a.id} className="vt-methane-cluster-row">
+            <img src={iconDataURL("vt-plume", METHANE_MATCH_COLOR[a.kind])} width={11} height={11} alt="" aria-hidden />
+            <span className="vt-methane-cluster-name" title={a.operator || undefined}>{a.name || a.id}</span>
+            <span className="vt-methane-cluster-count">{a.detectionCount}&times;</span>
+            <span className="vt-methane-cluster-rate">{a.detectionsPerYear != null ? `${a.detectionsPerYear.toFixed(1)}/yr` : "—"}</span>
+            <span className="vt-methane-cluster-date">{a.lastObservedAt ? a.lastObservedAt.slice(0, 10) : "—"}</span>
+          </div>
+        ))}
+      </div>
+      {sorted.length > 5 && (
+        <button type="button" className="vt-methane-more" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? "show fewer" : `show ${Math.min(sorted.length, 25) - 5} more`}
+        </button>
+      )}
+      <span className="vt-legend-note">
+        ranked by catalogued repeat-detection count — NOT a trading signal, gate 2(b) of an open hypothesis
+      </span>
+    </div>
+  );
+}
+
 // LEGEND v3 (legend directive 2026-07-04): symbol entries render the SAME
 // registry shapes the map draws (iconDataURL — one shared icon source;
 // DESIGN.md legend rule). Sections mirror the panel groups, entries appear
@@ -878,6 +962,7 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.coal_mine} label={METHANE_MATCH_LABEL.coal_mine} />
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.unmatched} label={METHANE_MATCH_LABEL.unmatched} />
                     <span className="vt-legend-note">nearest catalogued GEM asset within 2km — a proximity fact, not a confirmed emissions attribution</span>
+                    <MethaneClusterPanel />
                   </>
                 )}
                 {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}

@@ -7,9 +7,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  haversineKm, buildAssetGrid, joinPlumesToAssets,
+  haversineKm, buildAssetGrid, joinPlumesToAssets, computeMethaneAssetStats,
   cachedGemMethaneProximity, _resetGemMethaneProximityCacheForTests,
   MATCH_RADIUS_KM,
+  type PlumeWithAsset,
 } from "./gemMethaneProximity";
 import { _resetGemMethaneCacheForTests } from "./gemMethane";
 import { _resetGemAssetsCacheForTests } from "./gemMethaneAssets";
@@ -96,6 +97,93 @@ test("joinPlumesToAssets: grid search matches brute force on a scattered fixture
     assert.equal(gridResult[i].nearestAsset !== null, expectMatch, `plume ${p.id} match/no-match disagrees with brute force`);
     if (expectMatch) assert.equal(gridResult[i].nearestAsset?.id, bestId, `plume ${p.id} nearest-asset id disagrees with brute force`);
   }
+});
+
+function matched(
+  id: string, assetId: string, kind: GemAsset["kind"],
+  opts: { observedAt?: string | null; emissionsKgHr?: number | null; distanceKm?: number; ambiguous?: boolean } = {},
+): PlumeWithAsset {
+  return {
+    ...plume(id, 35.0, -119.0),
+    observedAt: opts.observedAt ?? null,
+    emissionsKgHr: opts.emissionsKgHr ?? null,
+    nearestAsset: {
+      kind, id: assetId, name: `${assetId} name`, operator: "Op Co", owner: null, parent: null,
+      distanceKm: opts.distanceKm ?? 0.5,
+    },
+    ambiguousMatch: opts.ambiguous ?? false,
+  };
+}
+
+test("computeMethaneAssetStats: unmatched plumes are excluded, matched plumes group by nearestAsset.id", () => {
+  const unmatched: PlumeWithAsset = { ...plume("P0", 0, 0), nearestAsset: null, ambiguousMatch: false };
+  const stats = computeMethaneAssetStats([
+    unmatched,
+    matched("P1", "A1", "coal_mine"),
+    matched("P2", "A1", "coal_mine"),
+    matched("P3", "A2", "oil_gas_extraction"),
+  ]);
+  assert.equal(stats.length, 2, "one entry per distinct asset, the unmatched plume contributes nothing");
+  const a1 = stats.find((s) => s.id === "A1")!;
+  assert.equal(a1.detectionCount, 2);
+  assert.equal(a1.kind, "coal_mine");
+});
+
+test("computeMethaneAssetStats: a single detection never fabricates a rate", () => {
+  const stats = computeMethaneAssetStats([matched("P1", "A1", "coal_mine", { observedAt: "2026-01-01" })]);
+  assert.equal(stats[0].detectionCount, 1);
+  assert.equal(stats[0].detectionsPerYear, null, "one data point is not a rate");
+  assert.equal(stats[0].spanDays, 0, "a single dated detection has a zero-length span");
+});
+
+test("computeMethaneAssetStats: >=2 dated detections spanning >0 days compute an honest annualized rate", () => {
+  const stats = computeMethaneAssetStats([
+    matched("P1", "A1", "coal_mine", { observedAt: "2026-01-01" }),
+    matched("P2", "A1", "coal_mine", { observedAt: "2026-07-01" }), // ~181 days later
+  ]);
+  assert.equal(stats[0].detectionCount, 2);
+  assert.equal(stats[0].spanDays !== null && stats[0].spanDays > 180 && stats[0].spanDays < 182, true);
+  // 2 detections / (~181/365 yr) ~= 4.03/yr
+  assert.ok(stats[0].detectionsPerYear! > 3.9 && stats[0].detectionsPerYear! < 4.1,
+    `expected ~4.03/yr, got ${stats[0].detectionsPerYear}`);
+});
+
+test("computeMethaneAssetStats: undated detections never crash and yield a null rate/span", () => {
+  const stats = computeMethaneAssetStats([
+    matched("P1", "A1", "coal_mine", { observedAt: null }),
+    matched("P2", "A1", "coal_mine", { observedAt: null }),
+  ]);
+  assert.equal(stats[0].detectionCount, 2);
+  assert.equal(stats[0].firstObservedAt, null);
+  assert.equal(stats[0].spanDays, null);
+  assert.equal(stats[0].detectionsPerYear, null);
+});
+
+test("computeMethaneAssetStats: avgEmissionsKgHr averages only non-null readings", () => {
+  const stats = computeMethaneAssetStats([
+    matched("P1", "A1", "coal_mine", { emissionsKgHr: 100 }),
+    matched("P2", "A1", "coal_mine", { emissionsKgHr: null }),
+    matched("P3", "A1", "coal_mine", { emissionsKgHr: 300 }),
+  ]);
+  assert.equal(stats[0].avgEmissionsKgHr, 200, "averages the 2 non-null readings, ignoring the null one");
+});
+
+test("computeMethaneAssetStats: ambiguousCount tracks per-asset, ranking sorts by detectionCount desc", () => {
+  const stats = computeMethaneAssetStats([
+    matched("P1", "A1", "coal_mine", { ambiguous: true }),
+    matched("P2", "A1", "coal_mine", { ambiguous: false }),
+    matched("P3", "A2", "oil_gas_extraction", { observedAt: "2026-01-01" }),
+    matched("P4", "A2", "oil_gas_extraction", { observedAt: "2026-02-01" }),
+    matched("P5", "A2", "oil_gas_extraction", { observedAt: "2026-03-01" }),
+  ]);
+  assert.equal(stats[0].id, "A2", "3 detections outranks 2");
+  assert.equal(stats[0].detectionCount, 3);
+  assert.equal(stats[1].id, "A1");
+  assert.equal(stats[1].ambiguousCount, 1);
+});
+
+test("computeMethaneAssetStats: empty input yields an empty list, never throws", () => {
+  assert.deepEqual(computeMethaneAssetStats([]), []);
 });
 
 test("cachedGemMethaneProximity: joins the real repo fixtures and caches across calls", () => {

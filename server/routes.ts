@@ -39,7 +39,7 @@ import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
-import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
+import { cachedGemMethaneProximity, computeMethaneAssetStats, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -2539,6 +2539,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       matchedCount: hit.matchedCount,
       ambiguousCount: hit.ambiguousCount,
       plumes: hit.plumes,
+    });
+  });
+
+  // Gate-2(b) of the same hypothesis (research/open_questions.md): a single
+  // plume detection is noise, not a rate — this groups matched plumes by
+  // their nearestAsset and ranks assets by repeat-detection count.
+  // STILL RAW, NOT A SIGNAL: gates 2(c) (same-universe base rate) and 2(d)
+  // (match against operators' own disclosed methane intensity) are unbuilt;
+  // this is a ranked catalogued fact, not a trading claim.
+  app.get("/api/data/methane-plumes/by-asset", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemMethaneProximity();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false, warming_up: true, count: 0, assets: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor GMET plume detections joined to the Oil & Gas Extraction / "
+        + "Coal Mine trackers by geometric proximity (within " + MATCH_RADIUS_KM + "km).",
+      disclaimer: "Ranked by catalogued repeat-detection count — NOT a trading signal. Gate 2(b) "
+        + "of an open hypothesis (research/open_questions.md); detectionsPerYear requires >=2 "
+        + "dated detections spanning >0 days, otherwise null, never a fabricated rate from one "
+        + "observation.",
+      attribution: hit.plumeProvenance?.attribution,
+      license: hit.plumeProvenance?.license,
+      count: hit.plumes.length,
+      assets: computeMethaneAssetStats(hit.plumes),
     });
   });
 
