@@ -239,6 +239,11 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
   let building = false;
   let pending: MoonTarget | null = null;
   let disposed = false;
+  // clear()/dispose() bump this; an in-flight build() captures it at the start
+  // and bails if it changed, so a build that was streaming when the mosaic was
+  // EVICTED never re-populates it afterwards (the __vtMoonTileBytes → 0 contract
+  // must hold even mid-build — B5 continuous refresh made this reachable).
+  let gen = 0;
   let maxChunkMs = 0;
   const mainThreadDecode = false;
   let update: () => void = () => {};
@@ -252,6 +257,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
   async function build(target: MoonTarget): Promise<void> {
     if (building || disposed) return;
     building = true;
+    const myGen = gen; // bail if clear()/dispose() bumps this mid-build
     try {
       const placements = tilePlacements(target.tiles);
       // fetch every missing tile with bounded concurrency (a mosaic is dozens
@@ -260,7 +266,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
       const missing = target.tiles.filter((t) => !tileCache.has(tkey(t)));
       let next = 0;
       const worker = async (): Promise<void> => {
-        while (next < missing.length && !disposed) {
+        while (next < missing.length && !disposed && myGen === gen) {
           const t = missing[next++];
           const k = tkey(t);
           if (tileCache.has(k)) continue;
@@ -275,7 +281,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
       await Promise.all(
         Array.from({ length: Math.min(MOON_FETCH_CONCURRENCY, Math.max(1, missing.length)) }, () => worker()),
       );
-      if (disposed) return;
+      if (disposed || myGen !== gen) return; // evicted mid-fetch → drop the work
       // supersede: if a newer target arrived while we fetched (the camera kept
       // moving), don't waste work stitching this stale mosaic — bail and let
       // finally{} rebuild for the freshest pose, so the FIRST mosaic shown is
@@ -299,7 +305,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
         if (yEnd < m.pxH) await new Promise((r) => setTimeout(r, 0));
       }
       for (const p of placements) if (tileCache.has(tkey(p.tile))) composited++;
-      if (disposed) return;
+      if (disposed || myGen !== gen) return; // evicted mid-stitch → don't repopulate
       mosaic = {
         tex: { data: out, width: m.pxW, height: m.pxH },
         lonMin: m.lonMin,
@@ -337,6 +343,9 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
       return mosaic;
     },
     clear(): void {
+      // bump the generation FIRST (before any early-out) so a build in flight —
+      // even one that hasn't cached a tile yet — bails instead of repopulating
+      gen++;
       if (!mosaic && !tileCache.size) return;
       mosaic = null;
       builtKey = "";
@@ -361,6 +370,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      gen++;
       try { abort.abort(); } catch { /* already */ }
       tileCache.clear();
       mosaic = null;
