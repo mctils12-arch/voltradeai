@@ -5294,3 +5294,71 @@ NEXT STEP (not this session): (b) is the smallest next slice — group
 detection count/rate per asset, and surface it as a sortable stat before
 attempting (c)/(d). Discount stays heavy (REASONING STANDARD #4) — this
 update proves the join works, not that the underlying thesis has edge.
+
+UPDATE 2026-07-19, later session ([PRODUCT], T-DATACORE+T-CLIENT) — GATE
+2(b) SHIPPED: `server/gemMethaneAssetRates.ts` groups the matched,
+UNAMBIGUOUS plumes (ambiguous matches excluded — attributing a coin-flip
+geometric call to one asset would bias its rate) by `kind:id` and computes
+`detectionCount`, `firstObservedAt`/`lastObservedAt`, `spanDays`, and
+`detectionsPerYear`. Exposed at `GET /api/data/methane-plumes/asset-rates`
+(`?sort=count|rate`, RAW/`predictive:false`) and surfaced in the map's
+methane legend section as a small sortable "top detected assets" list
+(count/rate toggle) — the literal "sortable stat" the prior update asked
+for.
+
+TWO HONESTY GUARDS ADDED DURING THIS SLICE (both found by checking the
+real numbers before shipping, REASONING STANDARD #10 in practice, not
+trusting the first pass):
+1. DATE-PARSE BUG CAUGHT PRE-SHIP: GEM's "Observation Date" column ships
+   every one of the 3,473 plumes' UTC offset as a bare, non-ISO `+00` (no
+   minutes/colon, e.g. `2020-11-09T18:47:16+00`) — `Date.parse` silently
+   returns `NaN` on this in the current Node/V8, which would have left
+   EVERY asset's `spanDays`/`detectionsPerYear` null with no error
+   surfaced (a silent, wrong "insufficient data" reading, not a crash).
+   Caught by actually inspecting the computed output against the real
+   archive before trusting it, not by a test written from assumption.
+   Fixed with an anchored regex that only touches strings with a real
+   `THH:MM:SS` time component (so a plain `YYYY-MM-DD` date's trailing
+   `-09` is never mistaken for a bare offset) + a pinned regression test
+   using the exact real format.
+2. MIN_SPAN_DAYS_FOR_RATE=30 GUARD: with #1 fixed, the FIRST computed
+   numbers still weren't trustworthy — 2 detections a day apart
+   extrapolated to a fabricated ~444,000/yr "rate". Annualizing from a
+   short observed window is the same "single detection is noise" problem
+   from a different angle, so `detectionsPerYear` now stays null (count
+   still reported) below 30 observed days, not just below 2 detections.
+   Chosen conservatively, not tuned against which assets it would
+   include/exclude.
+LIVE NUMBERS on the real GEM release (2026-07-19, post-fix): 211
+distinct matched+unambiguous assets, 206 ambiguous plumes excluded, 62
+single-detection assets (null rate), 119 assets clear the 30-day span
+gate. Top by rate: Cymric oil/gas asset (CA) at 14 detections/123 days ≈
+41.6/yr; several Chinese/Russian coal mines cluster 35-41/yr. Top by raw
+count: an oil/gas asset at 19 detections (14.2/yr) and two coal mines at
+18 each.
+RATCHET: `server/gemMethaneAssetRates.test.ts` (13 tests) — pins the
+ambiguous-exclusion, the null-vs-single-detection distinction, the
+real bare-offset date format (regression test for the caught bug), the
+plain-date false-positive guard, the 30-day span floor, both sort orders
+(including that "rate" sort sinks nulls to the bottom, never treats null
+as zero-worst), no-mutation, and the cached-loader degrade path.
+`npx tsx --test server/*.test.ts`: 821 passed / 0 failed (baseline 808 +
+13 new — all 7 previously-flaky files from the prior session's note
+passed clean this session once `npm install` completed in this
+container, so that flakiness looks environment-provisioning-related, not
+a real regression; not re-investigated further here).
+`python3 -m pytest -q`: 808 passed / 2 skipped, unchanged (this slice
+touches zero Python files). `npx tsc --noEmit`: 70 errors, A/B-verified
+via `git stash -u` byte-identical to the pre-change baseline (this
+session's baseline differs from the 64 logged in a prior entry — network/
+toolchain drift between container builds, not a regression this PR
+introduced). `npm run build`: clean.
+STILL GATE 2, NOT A SIGNAL, per REASONING STANDARD #10 discipline: (c) a
+same-universe base rate (do assets with any nearby plume underperform
+peers with none, before conditioning on rate at all?) and (d) matching
+against operators' own disclosed methane intensity are both still
+unbuilt — (c) needs the price/returns join against the operator entity via
+`ownership.json.gz`'s Owner/Parent -> CIK crosswalk (`entityGraph.ts`
+already reads this), the natural next slice. Discount stays heavy
+(REASONING STANDARD #4) — this update proves the per-asset arithmetic is
+honest, not that the underlying thesis has edge.

@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-19 [PRODUCT] — GEM methane gate-2(b): per-asset repeat-detection count/rate, sortable stat panel (v1.0.416)
+
+TERRITORY: T-DATACORE (server/gemMethaneAssetRates.ts, its test file,
+server/routes.ts route addition) + T-CLIENT (client/src/pages/datamap.tsx
+legend addition, client/src/index.css). SHARED (package.json version,
+research/*) touched last per MERGE-ORDER PROTOCOL. Solo session, no
+concurrent-session conflict observed (branch was already 45 commits ahead
+of `main` at session start with no open PR — pre-existing state, not
+touched by this session beyond adding these commits).
+
+PRIMARY ACTION SELECTION: session-start health check found no LIVENESS
+ALARM condition — the most recent KNOWN BROKEN item (#22) closed the same
+day per the branch's own commit log, and the remaining open KNOWN BROKEN
+items (#10, #20, #21) are each explicitly gated on either human wishlist
+approval or accumulating more live audit history, not actionable this
+session. Per this session's [PRODUCT] mandate (option (a): advance a
+datacore/ pipeline through its next ladder gate — gate 2 signal testing IS
+product work), picked the concrete, already-scoped NEXT STEP filed at the
+end of today's earlier GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY
+open_questions.md entry: "group cachedGemMethaneProximity().plumes by
+nearestAsset.id, compute a detection count/rate per asset, and surface it
+as a sortable stat" — gate-2(b) of that hypothesis.
+
+PRIOR (stated before running, REASONING STANDARD #10): expected the
+per-asset arithmetic to be mechanical and low-risk; did NOT expect to find
+a live date-parsing bug, but checked the real computed numbers against the
+real archive before trusting them anyway (this session's actual finding),
+per the standing "distrust your own results" discipline.
+
+WHAT SHIPPED:
+1. `server/gemMethaneAssetRates.ts` (SIGNAL-adjacent research module, NOT
+   itself a signal) — groups the gate-2(a) proximity join's matched,
+   UNAMBIGUOUS plumes by `kind:id`, computes `detectionCount`,
+   `firstObservedAt`/`lastObservedAt`, `spanDays`, `detectionsPerYear`
+   (null below 2 detections OR below a new `MIN_SPAN_DAYS_FOR_RATE=30`
+   floor), `meanEmissionsKgHr`. Ambiguous matches excluded from every
+   asset's count (attributing a coin-flip geometric match would bias that
+   asset's rate). Cached loader mirrors the existing gemMethane*.ts
+   pattern.
+2. `GET /api/data/methane-plumes/asset-rates?sort=count|rate` in
+   `server/routes.ts` — RAW/`predictive:false`, sorted server-side,
+   explicit `note` restating this is still gate 2, not a signal.
+3. Client: a "top detected assets" stat panel in the map's methane legend
+   section (`client/src/pages/datamap.tsx`, `client/src/index.css`) —
+   mobile-first stacked rows (not a table, per this codebase's existing
+   `streams.tsx` convention), a Count/Rate-per-year sort toggle reusing
+   the existing `.vt-satfinder-chip` button style, fetched via the
+   existing `runResilientLoad` helper. Only fetches/renders while
+   `enabled.methane_plumes` is true — inert by default (methane_plumes is
+   not in `DEFAULT_ON`).
+
+TWO BUGS CAUGHT BEFORE SHIPPING (found by checking real computed output
+against the real archive, not by trusting the first green test run):
+1. DATE-PARSE BUG: GEM's "Observation Date" column ships every one of the
+   3,473 plumes' UTC offset as a bare, non-ISO `+00` (no minutes/colon,
+   e.g. `2020-11-09T18:47:16+00`). `Date.parse` silently returns `NaN` on
+   this in the current Node/V8 — no throw, no error, just a wrong "no
+   date" reading for literally every plume, which would have left every
+   asset's `spanDays`/`detectionsPerYear` null with nothing visibly wrong.
+   Caught by running the real computation and noticing `assets with a
+   computed rate: 0 / 211` despite some assets having 19 detections.
+   Fixed with a regex anchored to a real `THH:MM:SS` time component (so a
+   plain `YYYY-MM-DD` date's trailing `-09` is never mistaken for a bare
+   offset) + a pinned regression test using the exact real format.
+2. SHORT-SPAN EXTRAPOLATION: with #1 fixed, the first real numbers still
+   weren't trustworthy — 2 detections a day apart extrapolated to a
+   fabricated ~444,000/yr "rate". Added `MIN_SPAN_DAYS_FOR_RATE=30`: below
+   30 observed days, `detectionsPerYear` stays null (count still shown)
+   rather than publishing an annualization nobody should trust. Same
+   "single detection is noise" principle applied to "short window is also
+   noise."
+Also caught (unrelated bug, NOT fixed this session, NOT in this diff):
+manually smoke-testing the live UI (the official visual_check.mjs harness
+mocks all `/api/*` responses, so it never exercises the real methane data
+path) required running the actual production server, which crashes ~10-15s
+after boot on an unrelated pre-existing bug — an uncaught `Z_BUF_ERROR`
+(gunzip "unexpected end of file") on some background poll takes down the
+whole Node process via Node's default uncaught-exception behavior. Worked
+around for this session's manual QA only via a local wrapper script
+(never committed) that installs a `process.on('uncaughtException', ...)`
+handler; NOT investigated or fixed here (out of this session's scope) —
+logging it below as a candidate KNOWN BROKEN item for a future [REPAIR]
+session, since an uncaught exception silently killing the whole trading
+loop is exactly the LIVENESS ALARM class of failure CLAUDE.md's Amendment
+1 cares about, if it also happens on the real deployed instance and not
+just this sandbox.
+
+LIVE NUMBERS on the real GEM release (2026-07-19): 211 distinct
+matched+unambiguous assets, 206 ambiguous plumes excluded, 62
+single-detection assets, 119 assets clear the 30-day span gate and get a
+real rate. Top by rate: Cymric oil/gas asset (CA, Aera Energy) 14
+detections/123 days ≈ 41.6/yr; a cluster of Chinese/Russian coal mines at
+35-41/yr. Top by raw count: an Elk Hills (CA, California Resources)
+oil/gas asset at 19 detections (14.2/yr); two coal mines at 18 each.
+
+VERIFICATION:
+- `npx tsx --test server/gemMethaneAssetRates.test.ts`: 13/13 new tests
+  pass (ambiguous exclusion, null-vs-single-detection, the real bare-offset
+  date format as a pinned regression test, the plain-date false-positive
+  guard, the 30-day span floor, both sort orders including null-sinks-to-
+  bottom, no-mutation, cached-loader degrade path).
+- `npx tsx --test server/*.test.ts`: 821 passed / 0 failed once `npm
+  install` completed in this container (a stale/incomplete node_modules at
+  session start had caused 7 files, incl. aircraftTiling and
+  securityMiddleware, to fail — A/B-verified via `git stash -u` that those
+  7 failures pre-existed this diff and were an environment-provisioning
+  gap, not a regression; they cleared once dependencies were installed).
+- `python3 -m pytest -q`: 808 passed / 2 skipped (this slice touches zero
+  Python files; pytest itself needed installing in this container).
+- `npx tsc --noEmit`: baseline in this container is 70 errors (differs
+  from the 64 logged in a prior session's entry — toolchain/network drift
+  between container builds, not a regression); A/B-verified via `git stash
+  -u` byte-identical before/after this diff. The new file's own Map-
+  iteration/implicit-any errors were fixed at the source (`Array.from(...)`
+  instead of a raw `for...of` over `.values()`) rather than left as new
+  baseline debt.
+- `npm run build`: clean both before and after the date-parsing fix (the
+  fix required a rebuild — the FIRST manual UI check below was accidentally
+  run against a stale pre-fix `dist/`, which is why its Count/Rate sort
+  toggle initially looked like a no-op; rebuilding and re-testing confirmed
+  the real bug was the stale build, not the sort logic).
+- Manual UI verification (visual_check.mjs's mocked-API harness never
+  exercises this real data path, so this was done by hand): ran the actual
+  built app against the real GEM archive at 390/768/1440, confirmed the
+  "top detected assets" panel renders 8 rows with real names/counts/rates,
+  confirmed clicking "Rate/yr" actually re-sorts (Elk Hills/CapCoal/KWK
+  Pniówek by count -> Cymric/Xieqiao/Uvalnaya by rate, matching the
+  server's own sorted output), at all three canonical widths. Screenshots
+  reviewed against DESIGN.md: mobile-first stacked rows (no table),
+  ellipsis-truncated names, tabular-numeric alignment for count/rate
+  columns, consistent with the existing legend section's visual language.
+- `node scripts/visual_check.mjs --page data`: ran once on the
+  pre-date-fix build. Failures present were: TTI-budget misses on
+  phone/1440/all-off/scale-battery, a `weather_temp` toggle click timeout,
+  and a vessel-trail live-re-pull check — NONE reference methane, the
+  legend, or asset-rates (`grep -i methane .visual/results.json` empty),
+  and `methane_plumes` is not in `DEFAULT_ON` so this diff's new
+  effect/panel never activates during the harness's default pass. A
+  second confirmation run was started after the rebuild but ran long in
+  this sandbox and was killed unfinished rather than block this session
+  further — safe to skip re-confirming because the rebuild's only content
+  difference from the first run is the server-side `gemMethaneAssetRates.ts`
+  date-parsing fix, which cannot affect client bundle content or any of
+  the failing checks above (none touch that code path); the manual
+  Playwright pass above already re-verified the real UI against the
+  rebuilt server directly. Consistent with the already-filed
+  "[HARNESS-ENV · filed 2026-07-15]
+  data@1440 fields-on flake frequency rising — environment-correlated"
+  entry; not re-investigated further as this diff cannot be their cause.
+
+Backtest: N/A — no trading/scoring logic touched, RAW research stat only.
+
+STILL GATE 2, NOT A SIGNAL (REASONING STANDARD #10): (c) same-universe
+base rate and (d) disclosed-emissions match are both still unbuilt — see
+the open_questions.md UPDATE for the full detail and the natural next
+slice ((c), via `entityGraph.ts`'s existing ownership->CIK crosswalk).
+
 ## 2026-07-19 [PIPELINE]+[RESEARCH] — SEC bulk-historical Form 4 archive (gate 1 DATA) + insider-cluster gate-2 SIGNAL screen: no edge at 20d, unexplained negative at 60d (v1.0.412)
 
 TERRITORY: root-level EDGE-DOCTRINE data-pipeline/research scripts

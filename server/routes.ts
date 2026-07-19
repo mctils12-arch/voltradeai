@@ -40,6 +40,7 @@ import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
+import { cachedGemMethaneAssetRates, sortAssetDetectionRates, type AssetRateSort } from "./gemMethaneAssetRates";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -2539,6 +2540,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       matchedCount: hit.matchedCount,
       ambiguousCount: hit.ambiguousCount,
       plumes: hit.plumes,
+    });
+  });
+
+  // Gate-2(b) of the same hypothesis (server/gemMethaneAssetRates.ts):
+  // repeat-detection count/rate per matched asset, matched+unambiguous
+  // detections only. STILL NOT A SIGNAL — no same-universe base rate or
+  // disclosed-emissions comparison yet (gates 2(c)/(d), unbuilt).
+  app.get("/api/data/methane-plumes/asset-rates", (req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemMethaneAssetRates();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false, warming_up: true, count: 0, rates: [] });
+    }
+    const sortBy: AssetRateSort = req.query.sort === "rate" ? "rate" : "count";
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Methane Emitters Tracker (GMET) joined to the Oil & Gas "
+        + "Extraction Tracker + Global Coal Mine Tracker (all CC BY 4.0)",
+      note: "Gate-2(b) of the plume × extraction-registry proximity hypothesis "
+        + "(research/open_questions.md): repeat-detection count/rate per catalogued asset. "
+        + "Ambiguous proximity matches are excluded. NOT a validated signal — no base-rate or "
+        + "disclosed-emissions comparison yet.",
+      sortedBy: sortBy,
+      excludedAmbiguousCount: hit.excludedAmbiguousCount,
+      singleDetectionAssetCount: hit.singleDetectionAssetCount,
+      count: hit.rates.length,
+      rates: sortAssetDetectionRates(hit.rates, sortBy),
     });
   });
 

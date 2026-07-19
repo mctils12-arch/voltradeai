@@ -2339,6 +2339,18 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-legend-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .vt-legend-note { font-size: 9.5px; color: var(--text-tertiary); display: inline-flex; align-items: center; }
 
+/* GEM methane gate-2(b): per-asset repeat-detection stat list — mobile-first
+   stacked rows (390px primary viewport), not a table. */
+.vt-methane-rates { width: 100%; margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.vt-methane-rates-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.vt-methane-rate-row {
+  display: flex; align-items: center; gap: 6px; font-size: 10.5px;
+  color: var(--text-secondary); padding: 2px 0;
+}
+.vt-methane-rate-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-methane-rate-kind { flex: 0 0 auto; color: var(--text-tertiary); font-size: 9.5px; }
+.vt-methane-rate-count, .vt-methane-rate-rate { flex: 0 0 auto; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
 /* O6 follow tools — minimizable cluster shown while a satellite is focused.
    Round 7: whole cluster drags; default spot bottom-CENTER so it never shares
    the left column with the detail card (the two were stacking). */

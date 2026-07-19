@@ -728,6 +728,17 @@ function FpsChip() {
   return <div className="vt-fps-chip" aria-label="Frames per second (debug)">{fps} fps</div>;
 }
 
+// Mirrors server/gemMethaneAssetRates.ts's AssetDetectionRate — gate-2(b)
+// of the GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY hypothesis.
+interface MethaneAssetRate {
+  assetKind: "oil_gas_extraction" | "coal_mine";
+  assetId: string;
+  name: string | null;
+  operator: string | null;
+  detectionCount: number;
+  detectionsPerYear: number | null;
+}
+
 function LegendIcon({ icon, color, label }: { icon: string; color: string; label: string }) {
   return (
     <span className="vt-legend-item" data-vt-icon={icon}>
@@ -778,6 +789,9 @@ interface LegendPanelProps {
    *  filter, then focuses (one path for search hits + group members). */
   onFindSat: (index: number) => void;
   seafloorConfShares: Record<string, Record<string, number>>;
+  methaneAssetRates: MethaneAssetRate[];
+  methaneRateSort: "count" | "rate";
+  setMethaneRateSort: React.Dispatch<React.SetStateAction<"count" | "rate">>;
 }
 
 const LegendPanel = memo(function LegendPanel({
@@ -787,6 +801,7 @@ const LegendPanel = memo(function LegendPanel({
   satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
   setSatGroupOrbits, onFindSat,
   seafloorConfShares,
+  methaneAssetRates, methaneRateSort, setMethaneRateSort,
 }: LegendPanelProps) {
   return (
     <div className="vt-legend" data-vt-legend>
@@ -878,6 +893,27 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.coal_mine} label={METHANE_MATCH_LABEL.coal_mine} />
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.unmatched} label={METHANE_MATCH_LABEL.unmatched} />
                     <span className="vt-legend-note">nearest catalogued GEM asset within 2km — a proximity fact, not a confirmed emissions attribution</span>
+                    {methaneAssetRates.length > 0 && (
+                      <div className="vt-methane-rates">
+                        <div className="vt-methane-rates-head">
+                          <span className="vt-legend-note">top detected assets (gate-2(b) — repeat-detection stat, not a signal)</span>
+                          <div className="vt-satfinder-groups">
+                            <button className={`vt-satfinder-chip${methaneRateSort === "count" ? " vt-satfinder-chip-on" : ""}`}
+                                    onClick={() => setMethaneRateSort("count")}>Count</button>
+                            <button className={`vt-satfinder-chip${methaneRateSort === "rate" ? " vt-satfinder-chip-on" : ""}`}
+                                    onClick={() => setMethaneRateSort("rate")}>Rate/yr</button>
+                          </div>
+                        </div>
+                        {methaneAssetRates.slice(0, 8).map((r) => (
+                          <div key={`${r.assetKind}:${r.assetId}`} className="vt-methane-rate-row">
+                            <span className="vt-methane-rate-name">{r.name || r.assetId}</span>
+                            <span className="vt-methane-rate-kind">{r.assetKind === "coal_mine" ? "Coal" : "Oil/Gas"}</span>
+                            <span className="vt-methane-rate-count">{r.detectionCount}×</span>
+                            <span className="vt-methane-rate-rate">{r.detectionsPerYear !== null ? `${r.detectionsPerYear.toFixed(1)}/yr` : "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
                 {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
@@ -1971,6 +2007,11 @@ export default function DataMapPage() {
   }, [mapPreset, mapReady]);
 
   const [descOpen, setDescOpen] = useState<Record<string, boolean>>({});
+  // GEM methane gate-2(b) (server/gemMethaneAssetRates.ts): per-asset
+  // repeat-detection count/rate, fetched only while the layer is on.
+  // NOT a signal — see the legend note where it renders.
+  const [methaneAssetRates, setMethaneAssetRates] = useState<MethaneAssetRate[]>([]);
+  const [methaneRateSort, setMethaneRateSort] = useState<"count" | "rate">("count");
   // worldview_globe.md G2a: night-lights time-scrubber state. Defaults to
   // the charter's "yesterday" — GIBS daily layers never carry today's data.
   const [nightlightsDate, setNightlightsDate] = useState<string>(() => gibsDefaultDate(Date.now()));
@@ -6875,6 +6916,25 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.methane_plumes, mapReady, mapSettled, setStatus]);
 
+  // ── Methane gate-2(b): per-asset repeat-detection count/rate (server/
+  // gemMethaneAssetRates.ts), a separate lightweight fetch from the map
+  // layer above — no map source/layer involved, just the legend stat panel
+  // below. Re-fetches on sort change since the server does the sorting. ──
+  useEffect(() => {
+    if (!enabled.methane_plumes) { setMethaneAssetRates([]); return; }
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch(`/api/data/methane-plumes/asset-rates?sort=${methaneRateSort}`, { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.rates)) throw new Error("no rates");
+        setMethaneAssetRates(d.rates);
+      },
+      () => {}, // secondary stat panel — a failed fetch just leaves it empty, no layer-status error needed
+    );
+    return () => stopLoad();
+  }, [enabled.methane_plumes, methaneRateSort]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -9058,6 +9118,8 @@ export default function DataMapPage() {
               satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
               applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
               onFindSat={findSat} seafloorConfShares={seafloorConfShares}
+              methaneAssetRates={methaneAssetRates} methaneRateSort={methaneRateSort}
+              setMethaneRateSort={setMethaneRateSort}
             />
           </div>
         )}
