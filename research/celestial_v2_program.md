@@ -69,6 +69,16 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-19 B4 SHIPPED (v1.0.411): the REAL deep-zoom Moon. Focused-
+  close, the Moon renders a perspective surface patch sampling real
+  NASA LROC WAC global-mosaic tiles (trek.nasa.gov, public domain,
+  CORS * → browser-direct) at native z8 ≈ 100 m/px (~13× the 8k base);
+  lroc.ts/moonSurface.ts/moonTiles.ts, aligned to the same node-frame
+  lon/lat as the base sprite (pearson 0.626 vs -0.001 control), evicts
+  to 0 on zoom-out/exit, tasks <16ms. Also v1.0.410: space navigation
+  (MIN_ZOOM_RADII 1.05 close-approach + rotational inertia). NEXT = B5
+  planet surfaces (reuse the Trek-scheme lroc.ts for Mars) or B7 panel.
+
 - 2026-07-18 B3 SHIPPED (v1.0.406): simClock.ts (ONE clock, affine,
   bit-exact Date.now identity at 1× — the regression contract every
   consumer gates on via isRealtime()); moons.ts (JPL mean elements,

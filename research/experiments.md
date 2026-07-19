@@ -78,6 +78,36 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Celestial v2 B4: the REAL deep-zoom Moon (NASA LROC WAC tiles) (v1.0.411, T-CLIENT, worktree agent + parent review)
+
+Human: "zoom in way more to the moon and it to be real like from the
+images we have of it." After the nav fix let the camera skim the
+surface, the Moon was still one 8k billboard (~1.3 km/px, soft).
+B4 replaces it, when focused-close, with a perspective SURFACE PATCH
+sampling REAL NASA Moon Trek LROC WAC global-mosaic tiles (public
+domain, CORS `*` → browser-direct, NO relay). Parent pre-verified the
+data path (200 JPEG + ACAO *); the agent probed the full WMTS scheme
+from WMTSCapabilities.xml: EQ plate-carrée, EPSG:104903 selenographic,
+256px tiles, MatrixWidth=2^(z+1)/Height=2^z, MAX NATIVE z=8 (z9→404) =
+~364 px/deg ≈ 100 m/px, ~13× the 8k base. New pure modules lroc.ts
+(WMTS tile math, feature-pinned: Tycho 11.36°W/43.31°S, Mare Imbrium),
+moonSurface.ts (perspective raycast patch, node-frame lon/lat IDENTICAL
+to the sprite path so tiles register pixel-for-pixel), moonTiles.ts
+(streaming mosaic manager, off-thread decode, eviction). Patch
+activates <3.5 radii; tile z tracks true on-screen resolution over the
+visible arc (z8 at the 1.05 floor). ALIGNMENT proven: base-vs-right-
+tile pearson 0.626 vs wrong-tile control −0.001. HONESTY: real imagery
+only, credited "Moon: NASA LRO · LROC WAC 303 ppd · trek.nasa.gov",
+404→base fallback silent, nothing upscaled-and-claimed. Structured so
+Mars/other Trek bodies reuse lroc.ts later (Moon-only built/tested).
+Gates (parent-verified on the integrated tree, my own drive not the
+agent's word): client 511/511 (+42), build clean, visual harness 0
+hard failures; B4 SwiftShader drive vs REAL trek tiles 16/16 — 94+
+real requests all 200, z8; surface detail 3.84× the base-8k same-pose;
+patch task 8.2ms / tile chunk 3.0ms (<16); mosaic 16.8MB close → 0 on
+zoom-out → 0 on exit; zero page errors; close frame eyeballed (crisp
+craters, sharp rims/shadows). Charter B4 DONE. Backtest n/a.
+
 ## 2026-07-18 [PRODUCT] — Space navigation: closer zoom floor + rotational inertia (v1.0.410, T-CLIENT)
 
 Human live review of the Space View: "zoom in way more to the moon" +
