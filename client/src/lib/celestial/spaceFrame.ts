@@ -112,9 +112,12 @@
 // is true-scale, a later Moon tile pyramid becomes a second anchor by
 // declaration alone — no camera, projection, or seam change; the anchor
 // machinery (pose + crossfade + seam) already runs off the registry entry,
-// not off "Earth". The camera's up-reference stays Earth's spin axis (north
-// up) for now; a per-anchor axis is a registry field away when a non-Earth
-// anchor ships.
+// not off "Earth". The camera's up-reference is the ECLIPTIC POLE
+// (CAMERA_UP_ECL, human 2026-07-19 — level = the solar system's plane;
+// replaces the earlier spin-axis up whose 23.44° slant read as "tilted").
+// Earth's spin axis still drives the anchor roll (northRollDeg) with a
+// seam blend to 0 on the armed approach, so the map handback stays
+// north-up with no snap.
 //
 // Interop: mountSpaceFrame(container, opts) → handle (setTime/render/
 // flyTo/flyHome/nudgeZoom/getState/dispose) — the celestialSky
@@ -333,6 +336,31 @@ export function polarClampDots(locked: boolean): { dotHi: number; dotLo: number 
     dotHi: Math.cos(locked ? LOCK_POLAR_MIN : UNLOCK_POLAR_MIN),
     dotLo: Math.cos(locked ? LOCK_POLAR_MAX : UNLOCK_POLAR_MAX),
   };
+}
+
+/** CAMERA up-reference: the ECLIPTIC POLE (human 2026-07-19, Space View
+ *  brief FIX 1 — "up permanently (0,1,0)", the reference scene's world-up).
+ *  "Level" = the plane of the solar system, so orbit paths read level on
+ *  screen instead of slanting 23.44° (the old spin-axis up — the reported
+ *  "tilted/wonky" view). Earth's REAL spin axis still orients Earth itself
+ *  and the live-map anchor roll (northRollDeg) — only the camera's sense of
+ *  up changes. Roll stays impossible: camBasis rebuilds from this constant
+ *  every frame. */
+export const CAMERA_UP_ECL: Vec3 = { x: 0, y: 0, z: 1 };
+
+/** Live-map anchor roll blend at the seam. Far out, the map rides Earth's
+ *  tilted axis (rotate(rollDeg) — real axial tilt in the level ecliptic
+ *  frame). On the ARMED final approach (heading for the map: idle at the
+ *  anchor or flying home) the roll eases to 0 as the map disc closes on
+ *  seam size, so the handback — which resets the canvas transform — lands
+ *  on an already-unrotated, north-up map: no snap. Unarmed flybys keep the
+ *  full roll (the map stays glued to the tilted Earth; no exit will fire).
+ *  Returns the multiplier for rollDeg in [0,1]. */
+export function seamRollBlendFactor(cssScale: number, exitArmed: boolean): number {
+  if (!exitArmed) return 1;
+  if (!Number.isFinite(cssScale)) return 1;
+  const t = Math.min(1, Math.max(0, (cssScale - 0.5) / 0.5));
+  return 1 - t;
 }
 
 /** One coasting step: advance the residual angular velocity and decay it.
@@ -778,9 +806,11 @@ export interface CamBasis {
 }
 
 /** Camera basis from dir (unit, target → camera) and an up-reference. The up
- *  axis is built FROM the reference (Earth's spin axis), so north is always
- *  screen-up and the anchor roll is 0 by construction — the map's own
- *  north-up drawing needs no CSS rotation until a free-roll camera exists. */
+ *  axis is built FROM the reference every frame, so screen roll about the
+ *  reference is 0 by construction — no free-roll camera exists. With the
+ *  ecliptic-pole reference (CAMERA_UP_ECL) "level" is the solar system's
+ *  plane; Earth's north then rolls on screen by its real 23.44° tilt, and
+ *  the live-map anchor compensates via northRollDeg (seam-blended to 0). */
 export function camBasis(dir: Vec3, upRef: Vec3): CamBasis {
   const f = scale3(dir, -1); // camera looks at the target
   let r = cross(f, upRef);
@@ -2681,8 +2711,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // distance in that case.
       const outbound = sub(to, from);
       const away = len3(outbound) > 1 ? norm3(outbound) : dir;
-      const axis = earthAxisEcl(timeMs);
-      toDir = rotateAbout(away, camBasis(away, axis).u, ARRIVAL_LOOKBACK_OFFSET_DEG);
+      toDir = rotateAbout(away, camBasis(away, CAMERA_UP_ECL).u, ARRIVAL_LOOKBACK_OFFSET_DEG);
       const { w, h } = cssSize();
       toDist = o?.toDist ?? Math.max(
         MIN_DISTANCE_RADII * radiusM(toId),
@@ -2800,7 +2829,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       camTrue = add(add(posT[focusId], focusOff), scale3(dir, dist));
       viewDir = dir;
     }
-    const basis = camBasis(viewDir, axis);
+    const basis = camBasis(viewDir, CAMERA_UP_ECL); // level = the ecliptic; axis (Earth spin) still drives the anchor roll
     const cx = w / 2;
     const cy = h / 2;
     // capture the live camera for the drive's projectSkyRaDec seam
@@ -3277,7 +3306,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         dyPx: earth.p.y - cy,
         // armed: clamp at the seam (no overshoot flash); unarmed: TRUE size
         scale: exitArmed ? Math.min(cssScale, 1) : cssScale,
-        rollDeg: northRollDeg(basis, axis), // 0 by construction (axis-up camera)
+        // real roll of Earth's north under the ecliptic-up camera (up to
+        // ±23.44°) keeps the live map glued to the tilted Earth; on the
+        // ARMED approach it blends to 0 so the seam handback (transform
+        // reset) lands north-up with no snap — see seamRollBlendFactor.
+        rollDeg: northRollDeg(basis, axis) * seamRollBlendFactor(cssScale, exitArmed),
         opacity,
       };
       opts.applyEarthAnchor(anchor);
@@ -3469,7 +3502,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const center = pos[focusId];
     const lookAt = add(center, focusOff);
     const camPos = add(lookAt, scale3(dir, dist));
-    const basis = camBasis(dir, earthAxisEcl(timeMs));
+    const basis = camBasis(dir, CAMERA_UP_ECL);
     const k = perspectiveScalePx(fovDeg, cssSize().h);
     return { camPos, basis, k, center };
   }
@@ -3560,7 +3593,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
    *  only widens — roll impossible in both, camBasis rebuilds up). Shared by
    *  live drag and the inertial coast — the ONLY pitch-bounding site. */
   function applyOrbit(yawDeg: number, pitchDeg: number): void {
-    const axis = earthAxisEcl(timeMs);
+    const axis = CAMERA_UP_ECL; // yaw about the ecliptic pole — level = the solar system's plane
     const b = camBasis(dir, axis);
     let nd = rotateAbout(dir, axis, yawDeg);
     nd = rotateAbout(nd, b.r, pitchDeg);
@@ -3576,7 +3609,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
    *  / kick (callers own those). meters/px = dist/k at the look-at plane, so
    *  the surface moves 1:1 under the pointer, exactly like panning the map. */
   function panOffsetBy(dxPx: number, dyPx: number): void {
-    const basis = camBasis(dir, earthAxisEcl(timeMs));
+    const basis = camBasis(dir, CAMERA_UP_ECL);
     const k = perspectiveScalePx(fovDeg, cssSize().h);
     const maxOff = PAN_MAX_OFFSET_RADII * radiusM(focusId);
     focusOff = panOffset(focusOff, dxPx, dyPx, basis, dist / k, maxOff);

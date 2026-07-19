@@ -53,6 +53,8 @@ import {
   LOCK_POLAR_MAX,
   UNLOCK_POLAR_MIN,
   UNLOCK_POLAR_MAX,
+  CAMERA_UP_ECL,
+  seamRollBlendFactor,
   screenRayDir,
   raycastSphere,
   clampOffset,
@@ -276,6 +278,48 @@ test("polarClampDots: lock forbids under-ecliptic, unlock only widens", () => {
   // level view (polar = π/2) is always allowed in both states
   assert.ok(0 <= lock.dotHi && 0 >= lock.dotLo, "level allowed locked");
   assert.ok(0 <= free.dotHi && 0 >= free.dotLo, "level allowed unlocked");
+});
+
+test("CAMERA_UP_ECL: the ecliptic pole, unit, and roll-free for its own basis", () => {
+  // the up-reference is the ecliptic pole (level = the solar system's plane)
+  assert.equal(CAMERA_UP_ECL.x, 0);
+  assert.equal(CAMERA_UP_ECL.y, 0);
+  assert.equal(CAMERA_UP_ECL.z, 1);
+  // roll about the REFERENCE is still 0 by construction, from any view dir
+  const nrm = (a: Vec3): Vec3 => {
+    const l = Math.hypot(a.x, a.y, a.z);
+    return { x: a.x / l, y: a.y / l, z: a.z / l };
+  };
+  const dirs: Vec3[] = [
+    { x: 1, y: 0, z: 0 },
+    nrm({ x: 0.4, y: -0.7, z: 0.3 }),
+    nrm({ x: -0.2, y: 0.9, z: -0.35 }),
+  ];
+  for (const d of dirs) {
+    const b = camBasis(d, CAMERA_UP_ECL);
+    close(northRollDeg(b, CAMERA_UP_ECL), 0, 1e-9, "no roll about the up-reference");
+  }
+  // Earth's tilted spin axis DOES roll under this camera (up to ±obliquity) —
+  // that real roll is what the anchor pose compensates via rollDeg
+  const axis = earthAxisEcl(Date.UTC(2026, 0, 1));
+  const b = camBasis(nrm({ x: 1, y: 0.5, z: 0 }), CAMERA_UP_ECL);
+  const r = Math.abs(northRollDeg(b, axis));
+  assert.ok(r > 0.1 && r <= obliquityDeg(Date.UTC(2026, 0, 1)) + 0.5,
+    `spin-axis roll within obliquity bound (got ${r})`);
+});
+
+test("seamRollBlendFactor: full roll unarmed, eases to 0 at the seam armed", () => {
+  // unarmed flybys keep the map glued at full roll regardless of disc size
+  close(seamRollBlendFactor(0.2, false), 1, 1e-12, "unarmed small");
+  close(seamRollBlendFactor(2.0, false), 1, 1e-12, "unarmed past seam");
+  // armed: far out full roll, blending starts at half seam size, 0 at seam
+  close(seamRollBlendFactor(0.2, true), 1, 1e-12, "armed far out");
+  close(seamRollBlendFactor(0.5, true), 1, 1e-12, "blend starts at 0.5");
+  close(seamRollBlendFactor(0.75, true), 0.5, 1e-12, "midpoint half roll");
+  close(seamRollBlendFactor(1.0, true), 0, 1e-12, "north-up at the seam");
+  close(seamRollBlendFactor(1.5, true), 0, 1e-12, "stays 0 past the seam");
+  // degenerate input never breaks the pose
+  close(seamRollBlendFactor(Number.NaN, true), 1, 1e-12, "NaN scale keeps full roll");
 });
 
 // ── phase / lighting ────────────────────────────────────────────────────────
