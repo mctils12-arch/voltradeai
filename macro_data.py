@@ -194,6 +194,14 @@ def get_macro_snapshot() -> dict:
     # Passed to get_market_regime() as spy_below_200_days.
     # When >= 10, forces BEAR regime regardless of VXX level.
     # This catches the 2022-style slow grinding bear that VXX ratio missed.
+    # REPAIR 2026-07-19 (KNOWN BROKEN #18, fourth-mechanism investigation):
+    # _spy_bars_300d is exposed at function scope so the spy_vs_ma50 block
+    # below can actually reuse it — its own comment already claimed "already
+    # fetched 300 days of SPY above for MA200 calc — reuse" but the code
+    # never did, silently re-issuing the byte-identical request a second
+    # time on every call. None default so the reuse check below is safe if
+    # this fetch itself raises.
+    _spy_bars_300d = None
     try:
         import requests as _req
         _alpaca_key    = os.environ.get("ALPACA_KEY", "")
@@ -205,6 +213,7 @@ def get_macro_snapshot() -> dict:
                     "limit": 220, "feed": bars_feed()},
             headers=_h, timeout=8)
         _spy_bars = _r.json().get("bars", {}).get("SPY", [])
+        _spy_bars_300d = _spy_bars
         if len(_spy_bars) >= 200:
             _closes  = [float(b["c"]) for b in _spy_bars]
             _ma200   = sum(_closes[-200:]) / 200
@@ -271,10 +280,16 @@ def get_macro_snapshot() -> dict:
 
     # SPY / 50-day MA — trend gauge
     try:
-        # Reuse SPY bars from above if already fetched; else fetch
+        # REPAIR 2026-07-19: actually reuse _spy_bars_300d from the MA200
+        # block above (same symbol/timeframe/start/limit/feed — a byte-
+        # identical request) instead of re-fetching it. Only falls back to
+        # a live fetch if that earlier call failed or returned too few
+        # bars, so this is strictly additive — no change in the value
+        # produced when the reuse path is taken, same window in both cases.
         _spy_closes_local = None
-        if "spy_vs_ma200" in result:
-            # We already fetched 300 days of SPY above for MA200 calc — reuse
+        if _spy_bars_300d and len(_spy_bars_300d) >= 50:
+            _spy_closes_local = [float(b["c"]) for b in _spy_bars_300d]
+        else:
             try:
                 _spy_start = (datetime.now() - timedelta(days=300)).strftime("%Y-%m-%d")
                 alpaca_throttle.acquire()

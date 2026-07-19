@@ -21590,3 +21590,212 @@ note that would mean the module-scope/shared-constant fix has a gap
 (e.g. a fourth call site not covered), not a reopening of a fully-
 disproven theory — the root cause here was directly traced and fixed,
 not just theorized.
+
+## 2026-07-19 (scheduled-routine, session 2) [REPAIR] — KNOWN BROKEN #18 fourth-mechanism: first live fix for the rate-limiter-contention TIER2-ERROR storm — 2 confirmed-redundant Alpaca bars fetches eliminated (v1.0.416, T-BOT)
+
+TERRITORY: T-BOT (`bot_engine.py`, `macro_data.py`) + new test files +
+SHARED `package.json`/`package-lock.json` (version bump only, last and
+minimal per MERGE-ORDER PROTOCOL) + `research/*.md`. No FROZEN path
+touched — `alpaca_rate_limiter.py` itself was read for context only,
+never edited.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in
+full. `research/experiments.md` tail (last entry: KNOWN BROKEN #22
+closure, docs-only, this same day). `research/open_questions.md` KNOWN
+BROKEN section read in full (items 1-23). `research/wishlist.md`
+DATACORE MAXIMUS block skimmed (unrelated territory this session).
+Loop-health ratio, last 10 tagged entries (2026-07-13 through this
+session's start): PRODUCT, REPAIR, REPAIR, PRODUCT, REPAIR, PIPELINE,
+REPAIR, REPAIR, PIPELINE, REPAIR — 6/10 REPAIR, under the 7/10 thrash
+threshold; no meta-problem override.
+
+`/api/health`: `status: ok`, `bot.liveness.dark: false` (no LIVENESS
+ALARM — Tier 1 stop-monitoring and Tier 3 hourly cycle both still
+running normally), but `scanner.consecutiveFailures: 5` — degraded, not
+dark. Per SESSION BUDGET's "fix a bug seen in audit logs" ranking above
+all other fall-through tiers, pulled the live audit trail before picking
+an action.
+
+WHY THIS ITEM: `/api/diag/audit?type=TIER2-ERROR&limit=30` showed the
+identical "Daemon timeout — daemon rss=2xx-27xMB active_dispatches=2"
+signature recurring continuously since **2026-07-19T13:36:01Z** — 16
+occurrences by this session's start (16:11:47Z, ~2h35m and counting,
+STILL ONGOING at session end too — confirmed with one more live check
+after this fix was written, 16:11:47Z entry present). This is the exact
+same symptom KNOWN BROKEN #18's 2026-07-18 update already root-caused
+and left a CONCRETE NEXT STEP for: `bars_feed()`'s fix (KNOWN BROKEN
+#23, v1.0.397) turned 14 previously-fast-failing `/v2/stocks/bars` call
+sites across 6 files into real, throttled network round-trips sharing
+one process-wide `alpaca_throttle` bucket (`alpaca_rate_limiter.py`,
+FROZEN, 180 req/min) — a live-measured `deep_score` 51.91s / `tier1_sec`
+39.42s blowup (vs. 21.33s/1.01s baselines) directly confirmed the
+contention, and the prior session named the fix precisely: "(1) read all
+14 call sites' actual timeframe/start/end/adjustment params and build a
+same-symbol-same-window compatibility matrix — only truly identical
+requests collapse; (2) implement as an ADDITIVE per-scan-cycle cache...
+so it can land file-by-file with zero behavior change for any
+not-yet-touched caller, rather than one large cross-file PR." Per
+RECURRENCE ESCALATES this was NOT re-patched blind — it was continued
+exactly along the trail the prior session already laid, not restarted.
+
+READ BEFORE WRITE (this session's own verification, not trusted from
+yesterday's notes): re-ran the literal `/v2/stocks/bars` grep across all
+6 named files plus the 3 other files the very first 2026-07-18 update
+had named (`instrument_selector.py`, `tiered_strategy.py`,
+`csp_universe.py`) — confirmed the same 14 sites in the same 6 files
+(`bot_engine.py:1467,3970`; `macro_data.py:202,247,282`;
+`options_scanner.py:206,240,539`; `vol_surface.py:263,308`;
+`intraday_shorts.py:253,340`; `shadow_portfolio.py:333,353`) still exist
+unchanged, and that `csp_universe.py`'s two `requests.get` calls hit
+`/v2/orders`/trading endpoints, not `/v2/stocks/bars` — a different
+mechanism (already TTL-cached at 900s/15min per the prior session's own
+note), correctly excluded from this scope.
+
+READ EVERY CALL SITE'S ACTUAL PARAMS before touching anything (the prior
+session's own warning: "two calls that both hit /v2/stocks/bars for the
+same symbol are only truly redundant if they also request the same
+window... assuming that from the URL pattern alone... is exactly the
+'patch from assumption' the constitution forbids"). Built the
+compatibility matrix by hand across all 14 sites (symbol(s), start
+formula, limit, adjustment): almost none actually match — `vol_surface.py`
+and `options_scanner.py:539` fetch a variable per-candidate `ticker`
+with different windows/adjustment flags from the fixed-symbol sites;
+`options_scanner.py`'s own SPY window (`-80d`/`limit 60`) differs from
+`macro_data.py`'s (`-300d`/`limit 220`) — NOT collapsible without
+information loss, correctly left alone. Only two TRUE duplicates
+survived the matrix, both fixed this session, both zero-risk because
+each reuses data already fetched moments earlier in the exact same
+invocation or an identical fixed-window request, not a new inferred
+equivalence:
+
+1. **`bot_engine.py`'s `deep_score()` credit_spread block (TLT/HYG,
+   line ~1467).** This is the highest-impact of the 14 — `credit_spread`
+   is a market-wide feature (doesn't use `ticker` at all) but was
+   re-fetched fresh on EVERY `deep_score()` call, and `scan_market()`
+   calls `deep_score()` serially for up to 15 candidates per cycle
+   (`top_candidates` capped at 15, `_deep_cap` normally lower) — up to
+   15x fully redundant identical Alpaca requests per scan, all through
+   the same shared throttle bucket, concentrated in the exact phase the
+   prior session's `/api/diag/timings` capture flagged as blowing up
+   (`deep_score`). Fixed by mirroring the codebase's OWN existing,
+   already-proven pattern for this exact bug class — `_MOST_ACTIVES_CACHE`
+   (2026-05-18, same file, same "was hitting Alpaca once PER TICKER per
+   scan... causing 429s and slow scans" bug, same fix shape): added
+   `_CREDIT_SPREAD_CACHE`/`_CREDIT_SPREAD_CACHE_TIME` module-level
+   globals, 60s TTL (same reasoning as the precedent — a 21-day return
+   spread cannot materially shift within one scan cycle). Not a new
+   pattern invented this session; a proven one re-applied to a second
+   instance of the same class of bug.
+
+2. **`macro_data.py`'s `get_macro_snapshot()` SPY 300-day/220-limit
+   bars, fetched twice in the SAME function call.** The MA50 block's own
+   comment already claimed "We already fetched 300 days of SPY above for
+   MA200 calc — reuse" — the code just never actually did it, silently
+   re-issuing the byte-identical request (same symbol/timeframe/start
+   formula/limit/feed) a few lines later every single time. Zero
+   inference risk: exposed `_spy_bars_300d` at function scope (`None`
+   default, safe if the first fetch itself raised) and made the MA50
+   block use it directly when `len >= 50`, falling back to a live fetch
+   only if the first block's data is missing or too short — the
+   fallback path is preserved, not deleted, so a first-block failure
+   still degrades to today's exact behavior rather than a new blind spot.
+
+DELIBERATELY NOT DONE THIS SESSION (per the prior session's own "land
+file-by-file... rather than one large cross-file PR" plan and this
+constitution's one-logical-change-per-PR rule): the VXX 1Day/45d/limit-40
+request in `macro_data.py` (line ~247) and `options_scanner.py`'s
+`_get_vxx_ratio_raw()` (line ~205) ARE byte-identical in every param
+(verified — both `start=(now-45d)`, `limit=40`, `feed=bars_feed()`), a
+real cross-file duplicate. Not merged this session: `options_scanner.py`
+already has its own 60s-TTL cache wrapper (`_get_vxx_ratio()`,
+2026-04-20) but it returns only the ratio float, while `macro_data.py`
+also needs the raw closes list (`vxx_closes`) — collapsing the two would
+require either a new shared module both files import or one calling into
+the other's cache, a real cross-file coupling change that deserves its
+own session's read-before-write scrutiny, not a rider on this PR. Left
+named here as the concrete next step, together with the 10 genuinely
+per-ticker/different-window sites the compatibility matrix correctly
+excluded (no cache opportunity there without an actual behavior change).
+
+RATCHET: two new test files, both behavioral (call-count assertions
+against a mocked `requests.get`, not just static source-shape checks).
+`test_deep_score_credit_spread_cache.py` (3 tests) — patches
+`bot_engine.requests.get` (counting only the `TLT,HYG` request) and
+`bot_engine.get_stock_details` (bypasses the unrelated `analyze.py`
+subprocess path deep_score's own early-return guard depends on, per
+`test_get_stock_details_diag.py`'s documented behavior): two `deep_score()`
+calls within the 60s TTL produce exactly 1 fetch and identical
+`credit_spread` values; an artificially expired cache (`_CACHE_TIME -=
+61`) correctly triggers a second real fetch, proving this isn't a
+permanent staleness trap; the cache variable itself ends up holding the
+real computed (non-default) value. `test_macro_snapshot_spy_dedup.py`
+(3 tests) — patches `macro_data._load_cache`/`_save_cache` (bypass the
+5-min disk cache so the mocked-network path actually runs, without
+writing test data into the real `/tmp/voltrade_macro_cache.json`) and
+`yfinance.Ticker`: confirms the SPY 300d/220-limit endpoint is hit
+exactly once (not twice) per call, that the resulting `spy_vs_ma50`
+value exactly matches a hand-computed expectation from the shared bars
+(proving reuse didn't change WHICH data feeds the calc), and — a
+deliberate negative case — that an artificially short first-block fetch
+(<50 bars) still triggers the MA50 block's own live-refetch fallback
+rather than silently trusting unusable cached data.
+
+GATES: `python3 -m pytest test_deep_score_credit_spread_cache.py
+test_macro_snapshot_spy_dedup.py -v` — 6/6 passed (the deep_score suite
+takes ~65s wall time — real `ThreadPoolExecutor`/`ml_score()` work inside
+`deep_score()` that a full mock-everything rewrite would need a dedicated
+session to eliminate; not attempted here, scope discipline). Full
+`python3 -m pytest -q` (after the same recurring sandbox
+`pip install -r requirements.txt openpyxl` gap every recent session has
+logged) — 814 passed, 2 skipped, 0 failed. No TypeScript/client files
+touched this session, so `npx tsc --noEmit`/`npm run build`/visual
+harness are not applicable — not run, per PROMOTION RULE 6 only applying
+to `client/` changes. Version bumped 1.0.415 → 1.0.416 (`package.json` +
+`package-lock.json`'s two root-package version fields — the lockfile had
+drifted to a stale 1.0.412 from a few sessions back; corrected in the
+same edit since PROMOTION RULE 4 asks for both files "matching").
+
+BACKTEST: N/A — this changes network-call cardinality only, not any
+scoring/sizing/execution logic. `credit_spread`'s COMPUTED VALUE is
+provably unchanged by the cache (same source data, same formula,
+verified by `test_cache_holds_the_real_computed_spread_value` and the
+MA50 exact-match test) — this is a latency/reliability fix, not a
+strategy change, so PROMOTION RULE 3's backtest-Sharpe gate does not
+apply (mirrors every prior visibility/latency fix on this same KNOWN
+BROKEN #18 item, e.g. `eventLoopLag.ts`, none of which ran a backtest
+either).
+
+HYPOTHESIS (REASONING STANDARD #10, stated before observing the next
+occurrence): this is a PARTIAL fix — 2 of 14 confirmed-redundant sites
+closed, both deliberately chosen for zero inference risk over maximum
+coverage. It should measurably REDUCE (not necessarily eliminate) load
+on the shared `alpaca_throttle` bucket during `deep_score`'s hot loop —
+up to 14 fewer redundant calls per scan cycle in the best case (15
+candidates × 1 dedup on credit_spread), plus 1 fewer per
+`get_macro_snapshot()` cache-miss. Given the prior session's own
+measurement showed BOTH `deep_score` (credit_spread's own home) AND
+`tier1_sec` (a completely separate `csp_universe.py` cache-miss path
+this session did not touch) elevated together, this fix alone may not
+fully resolve the TIER2-ERROR recurrence — the VXX cross-file merge and
+the CSP-universe cache-miss path remain untouched. NEXT STEP for
+whichever session catches the next occurrence: re-run the prior
+session's own live-catch procedure (`/api/diag/timings?token=
+$DIAG_TOKEN` polled during a live scan) and confirm `deep_score`'s phase
+duration moved back toward its 21.33s baseline under real contention —
+if it's still elevated, that's evidence the remaining 12 sites (VXX
+cross-file dup + the 10 genuinely-different-window per-ticker sites +
+`csp_universe.py`'s cache-miss path) matter more than this session's two
+sites, not evidence this fix was wrong. If TIER2-ERROR goes fully quiet
+for several days, KNOWN BROKEN #18 gets its next closure update exactly
+like the 2026-07-13/2026-07-17 precedents.
+
+MERGE TIMING NOTE (scheduled-routine instruction this session ran
+under): today is a live market-hours session (2026-07-19). This PR is
+prepared but should NOT be merged until after 4:00 PM ET UNLESS a human
+judges the ongoing, still-ACTIVE TIER2-ERROR storm (2h35m+ and counting,
+scanner degraded — Tier 2 unable to generate new trade candidates,
+though Tier 1 stop-monitoring and Tier 3 remain healthy, so this is
+short of the LIVENESS ALARM bar) severe enough to count as the "fixes a
+critical live break" exception this routine's own instructions carve
+out. Left as a human judgment call rather than self-declared, since the
+fix is a partial, latency-only improvement, not a guaranteed resolution.

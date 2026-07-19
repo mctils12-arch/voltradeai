@@ -165,6 +165,18 @@ _YF_CACHE_MAX = 50   # Cap cache size to prevent unbounded memory growth
 _MOST_ACTIVES_CACHE: list = []
 _MOST_ACTIVES_CACHE_TIME: float = 0.0
 
+# REPAIR 2026-07-19 (KNOWN BROKEN #18, fourth-mechanism investigation —
+# rate-limiter contention during deep_score): same bug class as the
+# most-actives cache above. TLT/HYG credit_spread is market-wide, not
+# ticker-specific, but was fetched fresh inside deep_score() on every
+# candidate call — up to 15x redundant identical Alpaca calls per scan
+# cycle, all funneling through the shared alpaca_throttle bucket
+# (alpaca_rate_limiter.py, FROZEN, 180 req/min process-wide). 60s TTL
+# matches the most-actives cache's own reasoning: a 21-day return spread
+# cannot materially shift within one scan cycle.
+_CREDIT_SPREAD_CACHE: float = 0.0
+_CREDIT_SPREAD_CACHE_TIME: float = 0.0
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "") or os.environ.get("POLYGON_API_KEY", "")  # FIX: accept either name (5 other files use POLYGON_KEY)
@@ -1460,25 +1472,34 @@ except Exception as e:
         except Exception:
             pass
 
-        # credit_spread: TLT-HYG 21d return spread
+        # credit_spread: TLT-HYG 21d return spread (market-wide, not
+        # ticker-specific — cached 60s across the whole scan cycle, see
+        # _CREDIT_SPREAD_CACHE above)
         _credit_spread = 0.0
         try:
-            alpaca_throttle.acquire()
-            _cs_resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/bars",
-                params={"symbols": "TLT,HYG", "timeframe": "1Day",
-                        "start": (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d"),
-                        "limit": 30, "feed": bars_feed()},
-                headers=_alpaca_headers(), timeout=8)
-            _cs_data = _cs_resp.json().get("bars", {})
-            _tlt_bars = _cs_data.get("TLT", [])
-            _hyg_bars = _cs_data.get("HYG", [])
-            if len(_tlt_bars) >= 21 and len(_hyg_bars) >= 21:
-                tlt_now = float(_tlt_bars[-1]["c"])
-                tlt_21 = float(_tlt_bars[-22]["c"])
-                hyg_now = float(_hyg_bars[-1]["c"])
-                hyg_21 = float(_hyg_bars[-22]["c"])
-                if tlt_21 > 0 and hyg_21 > 0:
-                    _credit_spread = round((tlt_now / tlt_21 - 1) - (hyg_now / hyg_21 - 1), 4)
+            global _CREDIT_SPREAD_CACHE, _CREDIT_SPREAD_CACHE_TIME
+            _cs_cached = (time.time() - _CREDIT_SPREAD_CACHE_TIME) < 60
+            if _cs_cached:
+                _credit_spread = _CREDIT_SPREAD_CACHE
+            else:
+                alpaca_throttle.acquire()
+                _cs_resp = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/bars",
+                    params={"symbols": "TLT,HYG", "timeframe": "1Day",
+                            "start": (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d"),
+                            "limit": 30, "feed": bars_feed()},
+                    headers=_alpaca_headers(), timeout=8)
+                _cs_data = _cs_resp.json().get("bars", {})
+                _tlt_bars = _cs_data.get("TLT", [])
+                _hyg_bars = _cs_data.get("HYG", [])
+                if len(_tlt_bars) >= 21 and len(_hyg_bars) >= 21:
+                    tlt_now = float(_tlt_bars[-1]["c"])
+                    tlt_21 = float(_tlt_bars[-22]["c"])
+                    hyg_now = float(_hyg_bars[-1]["c"])
+                    hyg_21 = float(_hyg_bars[-22]["c"])
+                    if tlt_21 > 0 and hyg_21 > 0:
+                        _credit_spread = round((tlt_now / tlt_21 - 1) - (hyg_now / hyg_21 - 1), 4)
+                _CREDIT_SPREAD_CACHE = _credit_spread
+                _CREDIT_SPREAD_CACHE_TIME = time.time()
         except Exception:
             pass
 
