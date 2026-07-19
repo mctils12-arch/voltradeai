@@ -344,19 +344,39 @@ export const MOON_PATCH_ACTIVATE_RADII = 3.5;
  *  while moving, replaced by the full tier once the pose settles. */
 export const MOON_PATCH_FAST_LONG_PX = 140;
 
-/** Streamed SETTLED tier: the patch buffer's long side, px. Rendered in
- *  MOON_PATCH_CHUNK_PX row bands (each well under a frame) once the pose
- *  settles, then shown at full sharpness — real LROC imagery over the patch. */
-export const MOON_PATCH_FULL_LONG_PX = 900;
+/** Streamed high-res tier: the patch buffer's long side, px. Rendered in
+ *  MOON_PATCH_CHUNK_PX row bands (each well under a frame), refreshed
+ *  CONTINUOUSLY (during orbit/pan too — B5, not only when settled), then shown
+ *  at full sharpness — real Trek imagery over the patch. patchBufDims caps the
+ *  buffer at the disc's own pixel size, so a 900px disc stays 1:1; this larger
+ *  cap only sharpens discs bigger than 900px (big/hi-dpi screens, very close).
+ *  Kept moderate: a larger buffer is crisper but takes more bands to build, so
+ *  it lags further behind fast motion before the fresh crisp frame swaps in. */
+export const MOON_PATCH_FULL_LONG_PX = 1100;
+
+/** During motion the last high-res buffer is kept on screen (no downgrade to
+ *  the low-res fast tier) as long as the camera has rotated less than this from
+ *  the pose it was rendered at — stored as a cosine for a cheap dot-product
+ *  test. Beyond it (a fast fling) the registered fast tier takes over until a
+ *  fresh high-res buffer lands. ~40° keeps orbit/pan crisp; the buffer refreshes
+ *  well before the lag reaches the cap at normal drag speed. */
+export const MOON_PATCH_MOTION_KEEP_COS = Math.cos((40 * Math.PI) / 180);
 
 /** Row-chunk budget for the settled patch stream, px per macrotask (smaller
  *  than the sprite's UPGRADE_CHUNK_PX because a patch pixel costs a ray-sphere
- *  solve + atan2/asin — SwiftShader-verified under 16ms). */
-export const MOON_PATCH_CHUNK_PX = 24_000;
+ *  solve + atan2/asin). Banding is OUTPUT-IDENTICAL (proven by moonSurface's
+ *  "chunked rows compose to the same buffer" test) — only the task granularity
+ *  changes. Kept below the fast tier's one-shot worst case (≈140²=19.6k px) so
+ *  a settled full-tier band is never the frame's largest task; B5 lowered it
+ *  from 24k after drive-measuring 18–20ms bands on a loaded machine (Venus/Mars
+ *  deep zoom). Every body — Moon included — inherits the smaller, safer band. */
+export const MOON_PATCH_CHUNK_PX = 12_000;
 
 /** The tile mosaic covers the viewport-visible surface arc times this factor
- *  (headroom past the viewport corners so the sharp region fills the frame). */
-export const MOON_PATCH_COVER_MARGIN = 1.6;
+ *  (headroom past the viewport corners so the sharp region fills the frame AND
+ *  a PREFETCH ring so panning/orbiting into new surface reveals already-resident
+ *  tiles instead of soft/unloaded gaps — B5 widened from 1.6). */
+export const MOON_PATCH_COVER_MARGIN = 2.1;
 
 /** Floor on the covered half-span, degrees — a mosaic never shrinks below a
  *  couple of degrees (avoids a degenerate one-texel fetch and gives the near
@@ -1631,7 +1651,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     let m = bodyTileManagers.get(bodyId);
     if (!m) {
       m = createMoonTileManager({ scheme: tb.scheme });
-      m.onUpdate(() => { mpFull = null; kick(); }); // fresh mosaic → re-stream
+      // a fresher mosaic → repaint and let the pose key (its mosKey changed)
+      // trigger a rebuild; DON'T blank mpFull — keep the current crisp buffer on
+      // screen until the sharper one is ready (no mid-motion resolution drop)
+      m.onUpdate(() => { kick(); });
       bodyTileManagers.set(bodyId, m);
     }
     return m;
@@ -1652,6 +1675,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     detail: DetailOverlay | null;
     row: number;
     ready: boolean;
+    /** unit camera→body direction the buffer was rendered for (motion staleness
+     *  test: keep showing this crisp buffer while the camera stays within
+     *  MOON_PATCH_MOTION_KEEP_COS of it). */
+    nCam: Vec3;
   }
   let mpFast: { canvas: HTMLCanvasElement; img: ImageData; bufW: number; bufH: number } | null = null;
   let mpFull: MoonPatchBuf | null = null;
@@ -1790,30 +1817,44 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const key =
       `${bodyId}|${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
       `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}`;
-    // 1) full streamed tier ready for this exact pose → use it
-    if (mpFull && mpFull.key === key && mpFull.ready) {
-      ctx.drawImage(mpFull.canvas, bx, by, bw, bh);
+    // ── DRAW: prefer the crisp high-res buffer, even DURING motion ──────────
+    // The high-res buffer maps buffer pixels to the disc bbox; drawing it into
+    // the CURRENT bbox keeps the silhouette exact while the surface texture is
+    // at most one refresh-build stale. So during orbit/pan we keep FULL
+    // sharpness (swapping in a fresher build as it lands) instead of dropping to
+    // the low-res fast tier — the fix for "goes fuzzy when you move around it".
+    const fullUsable =
+      mpFull && mpFull.ready &&
+      (mpFull.key === key ||
+        mpFull.nCam.x * nCam.x + mpFull.nCam.y * nCam.y + mpFull.nCam.z * nCam.z >= MOON_PATCH_MOTION_KEEP_COS);
+    if (fullUsable) {
+      ctx.drawImage(mpFull!.canvas, bx, by, bw, bh);
       moonPatchFullThisFrame = true;
-      return true;
+    } else {
+      // bootstrap only (first approach at a body, or a fast fling past the
+      // staleness cap): a synchronous bounded fast tier so SOMETHING registered
+      // shows immediately while the first high-res buffer streams in
+      const fd = patchBufDims(bw, bh, MOON_PATCH_FAST_LONG_PX);
+      if (!mpFast || mpFast.bufW !== fd.bufW || mpFast.bufH !== fd.bufH) {
+        const cv = document.createElement("canvas");
+        cv.width = fd.bufW;
+        cv.height = fd.bufH;
+        mpFast = { canvas: cv, img: cv.getContext("2d")!.createImageData(fd.bufW, fd.bufH), bufW: fd.bufW, bufH: fd.bufH };
+      }
+      const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon);
+      const tf = performance.now();
+      renderMoonSurfaceRows(fView, base, detail, mpFast.img.data, 0, fd.bufH);
+      const fms = performance.now() - tf;
+      if (fms > moonPatchMsMax) moonPatchMsMax = fms;
+      mpFast.canvas.getContext("2d")!.putImageData(mpFast.img, 0, 0);
+      ctx.drawImage(mpFast.canvas, bx, by, bw, bh);
     }
-    // 2) synchronous FAST tier (bounded task) every changed frame
-    const fd = patchBufDims(bw, bh, MOON_PATCH_FAST_LONG_PX);
-    if (!mpFast || mpFast.bufW !== fd.bufW || mpFast.bufH !== fd.bufH) {
-      const cv = document.createElement("canvas");
-      cv.width = fd.bufW;
-      cv.height = fd.bufH;
-      mpFast = { canvas: cv, img: cv.getContext("2d")!.createImageData(fd.bufW, fd.bufH), bufW: fd.bufW, bufH: fd.bufH };
-    }
-    const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon);
-    const tf = performance.now();
-    renderMoonSurfaceRows(fView, base, detail, mpFast.img.data, 0, fd.bufH);
-    const fms = performance.now() - tf;
-    if (fms > moonPatchMsMax) moonPatchMsMax = fms;
-    mpFast.canvas.getContext("2d")!.putImageData(mpFast.img, 0, 0);
-    ctx.drawImage(mpFast.canvas, bx, by, bw, bh);
-    // 3) settled pose → stream the full tier in bounded row bands
-    const settled = !flight && performance.now() - lastInputAt >= 160;
-    if (settled && (!mpBuilding || mpBuilding.key !== key)) {
+    // ── REFRESH: keep a high-res build in flight for the CURRENT pose, always ──
+    // (motion included, not just when settled): one build at a time; when it
+    // completes pumpMoonPatch swaps it into mpFull, and the next frame — if the
+    // camera has moved on — starts the next. The crisp tier thus tracks the
+    // camera with bounded (single-build) lag instead of only appearing at rest.
+    if ((!mpFull || mpFull.key !== key) && !mpBuilding) {
       const ld = patchBufDims(bw, bh, MOON_PATCH_FULL_LONG_PX);
       const cv = document.createElement("canvas");
       cv.width = ld.bufW;
@@ -1822,7 +1863,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         key, canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
         bufW: ld.bufW, bufH: ld.bufH, bx, by, bw, bh,
         view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon),
-        base, detail, row: 0, ready: false,
+        base, detail, row: 0, ready: false, nCam,
       };
       if (!mpTimer) mpTimer = setTimeout(pumpMoonPatch, 0);
     }
