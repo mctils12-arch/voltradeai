@@ -1528,6 +1528,90 @@
     this fix was wrong — do not re-diagnose from scratch, continue from
     here.
 
+    UPDATE 2026-07-19 (scheduled-routine session 3, [REPAIR], v1.0.418) —
+    RAN EXACTLY THE PRIOR UPDATE'S OWN NEXT STEP: v1.0.416 merged (PR #550,
+    confirmed via `git log`) and is live (server uptime traced to a recent
+    restart). `TIER2-ERROR` is **STILL RECURRING** post-merge: 11 occurrences
+    checked live across 17:33-19:56Z (~94 min), average spacing ~8.5 min —
+    statistically unchanged from the pre-fix ~9.7 min cadence the prior
+    session measured. `active_dispatches` reads exactly `2` on every single
+    occurrence (never elevated toward `MAX_INFLIGHT_REQUESTS=8`) — this
+    ITSELF is new evidence: it refutes daemon-side concurrency-exhaustion as
+    the proximate mechanism (a healthy 2 inflight dispatches cannot itself
+    cause a 300s timeout; something inside one of those 2 dispatches is
+    simply taking too long). A live `/api/diag/timings` pull (this session,
+    the exact procedure the prior update named) confirmed the partial fix
+    DID work where it was aimed: `deep_score` read 22.21s, back near the
+    21.33s baseline (up from the pre-fix 51.91s blowup) — the credit_spread
+    cache is doing its job. But `tier_engine_breakdown.tier1_sec` read
+    **42.94s**, barely below `csp_universe.py`'s own hard-coded
+    `PREFETCH_BUDGET_S=45.0` wall-clock cap for Layer 2's per-ticker
+    prefetch — exactly the "remaining untouched sites" this item's own
+    prior update predicted, now measured directly rather than guessed.
+    NEW HYPOTHESIS (structural, not measurement-noise-dependent): Layer 2's
+    cache-miss path (`_layer2_score`, `deep_score_limit=150`) prefetches
+    `_score_iv_rank` + `_score_vrp` for up to 150 tickers = up to 300 network
+    calls via an 8-worker `ThreadPoolExecutor`, all funneling through the
+    SAME shared `alpaca_throttle` bucket (`alpaca_rate_limiter.py`, FROZEN,
+    180 req/min = 3 req/s) that `deep_score`'s own calls and Tier 1
+    stop-monitoring share. 300 calls in a 45s budget needs ~6.7 req/s —
+    more than 2x the throttle's sustainable rate — so the prefetch is
+    mathematically guaranteed to exhaust its own wall budget on ANY
+    cache-miss cycle regardless of what else is running, and while it runs
+    it starves every other concurrent Alpaca-bound call sharing the same
+    bucket (a plausible explanation for occasional `deep_score` elevation
+    too, on cycles where both tiers land in the same window). This is
+    STRUCTURALLY DIFFERENT from the three already-investigated/refuted-or-
+    fixed event-loop-lag mechanisms (tmpCleanup sync fs — refuted;
+    SQLite sync write — refuted; shadowFleet O(n²) — confirmed fixed) and
+    from this morning's deep_score/macro_data dedup (which measurably
+    worked, just wasn't the dominant load): a fifth mechanism, per this
+    item's own precedent for what counts as "new" vs. reopening an already-
+    disproven theory.
+    NOT YET DIRECTLY CONFIRMED — one live `/api/diag/timings` sample is a
+    single data point (REASONING STANDARD #4/#10 applies exactly as it did
+    to the event-loop-lag period-matching guesses two weeks ago), and
+    whether Layer 2's 900s cache TTL usually protects against this (making
+    the expensive path rare) or misses far more often than intended (e.g.
+    if cache writes are silently failing) is UNKNOWN — not measured this
+    session. Per this item's own established discipline (build the
+    instrument before guessing the fix — the exact pattern that produced
+    the shadowFleet confirmation, not the tmpCleanup/SQLite guesses):
+    SHIPPED (v1.0.418, no behavior change) — `csp_universe.py` gained
+    `build_prefetch_stats()` (pure function: cache_hit/completed/total/
+    elapsed_sec/budget_exceeded) and a module-level
+    `get_last_layer2_prefetch_stats()`, recorded at all three `_layer2_score`
+    exit points (cache hit, no-candidates, and the real prefetch path).
+    `tiered_strategy.py`'s `TieredStrategy.run_tiers()` now merges this into
+    `tier_timings["csp_layer2_prefetch"]` — reaching `/api/diag/timings` for
+    free, since `bot_engine.py` already surfaces `tier_timings` verbatim.
+    Zero trading/sizing/scoring logic touched — pure visibility, mirroring
+    `eventLoopLag.ts`/`dbWriteTiming.ts`'s precedent exactly.
+    RATCHET: `test_csp_universe_layer2_prefetch.py` (9 new tests) — pure
+    coverage of `build_prefetch_stats()`'s four shapes (cache hit, all-
+    completed, budget-exceeded, zero-candidates), `_layer2_score` wiring at
+    all three exit points (including a stale-cache-miss integration test
+    with mocked `_score_iv_rank`/`_score_vrp` so it stays fast), and a
+    `TieredStrategy.run_tiers()` wiring-pin test proving `tier_timings`
+    carries the reading forward without changing `actions`/`tier_stats`
+    shape. The import-then-attach line in `tiered_strategy.py` is narrowed
+    to `except ImportError:` specifically (not `except Exception:`) —
+    `test_silent_except_ratchet.py`'s pinned-count ratchet caught the
+    broader form on first pass this session (would have raised
+    `tiered_strategy.py`'s pin from 3 to 4) and forced the narrower,
+    correct fix rather than a silent swallow.
+    NEXT STEP for whichever session catches the next TIER2-ERROR occurrence:
+    query `/api/diag/timings` and read `tier_timings.csp_layer2_prefetch`.
+    `cache_hit: false` with `budget_exceeded: true` (completed < total) in
+    the SAME window as a `TIER2-ERROR` confirms the throttle-overcommit
+    theory directly — the fix at that point is reducing `deep_score_limit`
+    or otherwise capping Layer 2's per-cycle call volume to fit the shared
+    throttle's real throughput (an evidence-backed parameter change at that
+    point, not a guess). `cache_hit: true` (or `budget_exceeded: false`)
+    during a TIER2-ERROR would refute this theory in turn and mean the
+    search continues past Layer 2 — do not assume either answer before
+    reading it.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

@@ -801,6 +801,18 @@ class TieredStrategy:
         tier_timings["tier1_sec"] = round(_t.time() - _t_phase, 2)
         logger.info(f"T1 CSP: {len(t1_actions)} candidates [{tier_timings['tier1_sec']}s]")
 
+        # KNOWN BROKEN #18 continuation (2026-07-19): surface whether this
+        # tier1_sec reading was a CSP Layer 2 scoring cache hit (near-instant)
+        # or a fresh compute (up to 150 tickers x 2 Alpaca-bound calls in a
+        # 45s wall budget) so a slow tier1_sec is diagnosable instead of a
+        # guess — see csp_universe.get_last_layer2_prefetch_stats() docstring.
+        try:
+            from csp_universe import get_last_layer2_prefetch_stats
+        except ImportError:
+            pass
+        else:
+            tier_timings["csp_layer2_prefetch"] = get_last_layer2_prefetch_stats()
+
         # Tier 2 — multiply T1 sizing (if PM approved)
         _t_phase = _t.time()
         t1_after_t2 = tier2_leverage_multiplier(ctx, t1_actions)
