@@ -1,0 +1,356 @@
+// moonTiles — LROC WAC tile STREAMING + MOSAIC for the focused-close Moon
+// (CELESTIAL v2 B4). The browser fetches Trek tiles DIRECTLY (CORS `*`,
+// crossOrigin="anonymous"), decodes them OFF-thread (createImageBitmap), and
+// stitches the visible near-side region into ONE high-res equirect mosaic
+// that moonSurface samples as its detail overlay. Discipline mirrors
+// spaceAssets: nothing loads until the Moon is focused-close (zero startup
+// cost), decode is off-thread, main-thread readback is banded (no task
+// >16ms), the mosaic is EVICTED on zoom-out and fully freed on dispose.
+//
+// Split: the PLANNING + STITCH math is pure/testable (moonTiles.test.ts); the
+// manager owns fetch/canvas and is constructed only from the mounted frame,
+// with injectable fetch/decode seams so the pipeline is exercisable headless.
+
+import {
+  MOON_TREK,
+  MOON_TREK_CREDIT,
+  type TrekScheme,
+  type TileId,
+  type BboxDeg,
+  type MosaicWindow,
+  matrixWidth,
+  degPerTile,
+  clampLatDeg,
+  zoomForResolution,
+  tilesForBbox,
+  mosaicWindow,
+  tileUrl,
+} from "./lroc.ts";
+
+export { MOON_TREK_CREDIT };
+
+export interface TexImageLike {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+}
+
+// ── planning (pure) ─────────────────────────────────────────────────────────
+
+/** Ceiling on tiles per mosaic (GPU budget): 24 tiles → ≤ 6×4 × 256px =
+ *  1536×1024 RGBA ≈ 6 MB, comfortably under the ~4096 mobile texture cap. */
+export const MOON_MAX_TILES = 24;
+
+export interface MoonTarget {
+  z: number;
+  bbox: BboxDeg;
+  tiles: TileId[];
+  mosaic: MosaicWindow;
+}
+
+/**
+ * Plan the mosaic for a sub-camera point at the given on-screen resolution.
+ * Picks the finest native level meeting `pxPerDeg`, then backs OFF one level
+ * at a time until the region fits within MOON_MAX_TILES (bounded fetch +
+ * memory). `halfSpanDeg` is the mosaic half-width around the sub-point; lat
+ * is clamped to the poles. Returns null if nothing resolves (degenerate).
+ */
+export function planMoonTarget(
+  subLonDeg: number,
+  subLatDeg: number,
+  pxPerDeg: number,
+  halfSpanDeg: number,
+  opts: { scheme?: TrekScheme; maxTiles?: number; minZ?: number } = {},
+): MoonTarget | null {
+  const scheme = opts.scheme ?? MOON_TREK;
+  const maxTiles = opts.maxTiles ?? MOON_MAX_TILES;
+  const minZ = opts.minZ ?? 2;
+  const latMax = clampLatDeg(subLatDeg + halfSpanDeg);
+  const latMin = clampLatDeg(subLatDeg - halfSpanDeg);
+  const bbox: BboxDeg = {
+    lonMin: subLonDeg - halfSpanDeg,
+    lonMax: subLonDeg + halfSpanDeg,
+    latMin,
+    latMax,
+  };
+  let z = zoomForResolution(pxPerDeg, scheme, minZ);
+  for (; z >= minZ; z--) {
+    const tiles = tilesForBbox(bbox, z);
+    if (tiles.length && tiles.length <= maxTiles) {
+      const mosaic = mosaicWindow(tiles, scheme);
+      if (mosaic) return { z, bbox, tiles, mosaic };
+    }
+  }
+  return null;
+}
+
+/** A stable key for a target — the manager rebuilds only when it changes. */
+export function targetKey(t: MoonTarget): string {
+  return `${t.z}|${t.tiles[0]?.x},${t.tiles[0]?.y}|${t.mosaic.cols}x${t.mosaic.rows}`;
+}
+
+// ── stitch (pure) ───────────────────────────────────────────────────────────
+
+export interface TilePlacement {
+  tile: TileId;
+  /** column index within the mosaic (0 = west), row index (0 = north). */
+  col: number;
+  row: number;
+}
+
+/** Where each tile sits in the mosaic grid (handles the wrapped west anchor).
+ *  Order follows tilesForBbox (row-major from the NW corner). */
+export function tilePlacements(tiles: TileId[]): TilePlacement[] {
+  if (!tiles.length) return [];
+  const z = tiles[0].z;
+  const w = matrixWidth(z);
+  const firstX = tiles[0].x;
+  const firstY = tiles[0].y;
+  return tiles.map((tile) => ({
+    tile,
+    col: ((tile.x - firstX) % w + w) % w,
+    row: tile.y - firstY,
+  }));
+}
+
+/**
+ * Blit an already-decoded tile RGBA (`tileRgba`, tilePx²) into the mosaic
+ * buffer `out` (mosaic.pxW × mosaic.pxH RGBA) at grid (col,row), for the
+ * mosaic rows that fall in [rowStart,rowEnd) — chunkable so a full mosaic
+ * readback never busts a frame. No-op for a placement outside the band.
+ */
+export function blitTile(
+  tileRgba: TexImageLike,
+  place: TilePlacement,
+  mosaic: MosaicWindow,
+  tilePx: number,
+  out: Uint8ClampedArray,
+  rowStart: number,
+  rowEnd: number,
+): void {
+  const oy0 = place.row * tilePx;
+  const ox0 = place.col * tilePx;
+  const y0 = Math.max(oy0, rowStart);
+  const y1 = Math.min(oy0 + tilePx, rowEnd, mosaic.pxH);
+  const x1 = Math.min(ox0 + tilePx, mosaic.pxW);
+  for (let y = y0; y < y1; y++) {
+    const sy = y - oy0;
+    let di = (y * mosaic.pxW + ox0) * 4;
+    let si = sy * tilePx * 4;
+    for (let x = ox0; x < x1; x++) {
+      out[di] = tileRgba.data[si];
+      out[di + 1] = tileRgba.data[si + 1];
+      out[di + 2] = tileRgba.data[si + 2];
+      out[di + 3] = 255;
+      di += 4;
+      si += 4;
+    }
+  }
+}
+
+// ── the manager (DOM side — constructed only by the mounted frame) ──────────
+
+export interface MoonMosaic {
+  tex: TexImageLike;
+  /** DetailOverlay window fields (moonSurface consumes these directly). */
+  lonMin: number;
+  lonSpan: number;
+  latMax: number;
+  latSpan: number;
+  z: number;
+  tiles: number;
+}
+
+export interface MoonTileStats {
+  /** mosaic bytes resident (0 when evicted). */
+  bytes: number;
+  /** tiles composited into the current mosaic. */
+  tiles: number;
+  z: number | null;
+  /** worst single main-thread readback band, ms (the ≤16ms proof). */
+  maxChunkMs: number;
+  building: boolean;
+  mainThreadDecode: boolean;
+}
+
+export interface MoonTileManager {
+  /** per settled close frame: ensure a mosaic for this sub-point/resolution. */
+  request(subLonDeg: number, subLatDeg: number, pxPerDeg: number, halfSpanDeg: number): void;
+  /** best resident mosaic (null when none / evicted). */
+  current(): MoonMosaic | null;
+  /** drop the mosaic + tile cache (zoom-out eviction). */
+  clear(): void;
+  stats(): MoonTileStats;
+  onUpdate(cb: () => void): void;
+  dispose(): void;
+}
+
+export interface MoonTileDeps {
+  scheme?: TrekScheme;
+  /** fetch a tile as a decoded RGBA image (off-thread). Browser default uses
+   *  fetch + createImageBitmap + a banded canvas readback. */
+  fetchTile?: (url: string, signal: AbortSignal) => Promise<TexImageLike>;
+  /** rows per readback band (bounded main-thread task). */
+  bandRows?: number;
+}
+
+async function defaultFetchTile(url: string, signal: AbortSignal): Promise<TexImageLike> {
+  const res = await fetch(url, { signal, mode: "cors" });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const blob = await res.blob();
+  const bmp = await createImageBitmap(blob);
+  const w = bmp.width;
+  const h = bmp.height;
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(bmp, 0, 0);
+  try { bmp.close(); } catch { /* closed */ }
+  const img = ctx.getImageData(0, 0, w, h);
+  return { data: img.data, width: w, height: h };
+}
+
+export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager {
+  const scheme = deps.scheme ?? MOON_TREK;
+  const fetchTile = deps.fetchTile ?? defaultFetchTile;
+  const bandRows = deps.bandRows ?? 64;
+  const tilePx = scheme.tilePx;
+
+  const tileCache = new Map<string, TexImageLike>(); // key: z/x/y
+  let mosaic: MoonMosaic | null = null;
+  let builtKey = "";
+  let building = false;
+  let pending: MoonTarget | null = null;
+  let disposed = false;
+  let maxChunkMs = 0;
+  const mainThreadDecode = false;
+  let update: () => void = () => {};
+  const abort = new AbortController();
+
+  const mirror = (): void => {
+    try { (globalThis as any).__vtMoonTileBytes = mosaic ? mosaic.tex.data.byteLength : 0; } catch { /* sandboxed */ }
+  };
+  const tkey = (t: TileId): string => `${t.z}/${t.x}/${t.y}`;
+
+  async function build(target: MoonTarget): Promise<void> {
+    if (building || disposed) return;
+    building = true;
+    try {
+      const placements = tilePlacements(target.tiles);
+      // fetch every missing tile (serial — bounded outstanding requests;
+      // decode is off-thread inside fetchTile)
+      for (const t of target.tiles) {
+        const k = tkey(t);
+        if (tileCache.has(k) || disposed) continue;
+        try {
+          const img = await fetchTile(tileUrl(t, scheme), abort.signal);
+          if (disposed) return;
+          if (tileCache.size > 96) tileCache.clear(); // bounded cache
+          tileCache.set(k, img);
+        } catch {
+          // a 404 / network miss: that tile stays base-only (silent degrade,
+          // never a broken mosaic) — leave it out of the cache
+        }
+      }
+      if (disposed) return;
+      const m = target.mosaic;
+      const out = new Uint8ClampedArray(m.pxW * m.pxH * 4);
+      // banded readback: blit tiles into the mosaic buffer in row bands, each
+      // a bounded main-thread task (yield between bands)
+      let composited = 0;
+      for (let y = 0; y < m.pxH; y += bandRows) {
+        const yEnd = Math.min(y + bandRows, m.pxH);
+        const t0 = nowMs();
+        for (const p of placements) {
+          const img = tileCache.get(tkey(p.tile));
+          if (!img) continue;
+          blitTile(img, p, m, tilePx, out, y, yEnd);
+        }
+        const ms = nowMs() - t0;
+        if (ms > maxChunkMs) maxChunkMs = ms;
+        if (yEnd < m.pxH) await new Promise((r) => setTimeout(r, 0));
+      }
+      for (const p of placements) if (tileCache.has(tkey(p.tile))) composited++;
+      if (disposed) return;
+      mosaic = {
+        tex: { data: out, width: m.pxW, height: m.pxH },
+        lonMin: m.lonMin,
+        lonSpan: m.lonSpan,
+        latMax: m.latMax,
+        latSpan: m.latSpan,
+        z: m.z,
+        tiles: composited,
+      };
+      builtKey = targetKey(target);
+      mirror();
+      update();
+    } finally {
+      building = false;
+      // a request that arrived mid-build supersedes: rebuild for it
+      if (pending && !disposed) {
+        const next = pending;
+        pending = null;
+        if (targetKey(next) !== builtKey) void build(next);
+      }
+    }
+  }
+
+  return {
+    request(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg): void {
+      if (disposed) return;
+      const target = planMoonTarget(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, { scheme });
+      if (!target) return;
+      const key = targetKey(target);
+      if (key === builtKey && mosaic) return; // already resident
+      if (building) { pending = target; return; }
+      void build(target);
+    },
+    current(): MoonMosaic | null {
+      return mosaic;
+    },
+    clear(): void {
+      if (!mosaic && !tileCache.size) return;
+      mosaic = null;
+      builtKey = "";
+      pending = null;
+      tileCache.clear();
+      mirror();
+      update();
+    },
+    stats(): MoonTileStats {
+      return {
+        bytes: mosaic ? mosaic.tex.data.byteLength : 0,
+        tiles: mosaic ? mosaic.tiles : 0,
+        z: mosaic ? mosaic.z : null,
+        maxChunkMs,
+        building,
+        mainThreadDecode,
+      };
+    },
+    onUpdate(cb): void {
+      update = cb;
+    },
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      try { abort.abort(); } catch { /* already */ }
+      tileCache.clear();
+      mosaic = null;
+      pending = null;
+      mirror();
+      update = () => {};
+    },
+  };
+}
+
+function nowMs(): number {
+  try {
+    return performance.now();
+  } catch {
+    return Date.now();
+  }
+}
+
+// re-exports the frame needs alongside the manager
+export { degPerTile, MOON_TREK };
