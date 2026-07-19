@@ -2090,6 +2090,97 @@
   (or sourcing free historical Form 4 index files from SEC's bulk data
   page, `www.sec.gov/Archives/edgar/full-index/`, which is public and free
   — worth trying before waiting on live accumulation, unexplored).
+
+  UPDATE 2026-07-19 (this session, [PIPELINE]+[RESEARCH]) — the
+  "unexplored" free historical path above was explored and is now a real
+  gate-1 archive AND a real gate-2 screen, both run live this session.
+  DATA (gate 1): SEC publishes a keyless, PRE-PARSED structured TSV
+  dataset per calendar quarter (SUBMISSION/REPORTINGOWNER/NONDERIV_TRANS/
+  ...) at the `insider-transactions-data-sets` page, going back to 2006,
+  82 quarters live-confirmed available — no XML parsing, no per-filing
+  HTTP request, no waiting for live accumulation at all. New
+  `sec_form4_bulk.py` (+ `test_sec_form4_bulk.py`, 26 tests) downloads,
+  joins, and archives officer/director open-market P/S transactions
+  (10%-owner-only filers excluded per this entry's own prior — a fund's
+  purchase is a portfolio decision, not the same information event as an
+  insider's own money); wired into `server/bot.ts`'s hourly Tier 3 call
+  exactly like `cftc_cot.py`, self-guarding to one quarter fetched per
+  ~12h so it is nightly-free going forward, chronological 8-quarter
+  backfill window. LIVE DATA-QUALITY FINDING: SEC's raw
+  `ISSUERTRADINGSYMBOL` field is free text, not a validated ticker —
+  live-probed values include `N/A`, `NONE`, `-`, `NASDAQ:SVC`, and
+  dual-class/merged values like `GEF, GEF-B` — a dedicated ticker-shape
+  filter now rejects these rather than guessing which class was meant
+  (never fabricate an attribution the filer didn't actually report).
+
+  SIGNAL (gate 2): new `form4_gate2_test.py` (+ `test_form4_gate2.py`, 26
+  tests) builds per-ticker chronological events, flags a `cluster` when
+  >=2 DISTINCT officer/director owners bought the same issuer within a
+  causal (backward-only, no-lookahead) 5-calendar-day window, and
+  compares forward 20d/60d returns against each ticker's OWN
+  unconditional forward-return distribution (a same-symbol baseline like
+  `cot_gate2_test.py`'s, but additionally excluding any baseline entry
+  within one horizon of that ticker's own signal events — a
+  contaminated-baseline guard neither this repo's COT screen nor the
+  original PRIOR anticipated needing). Uses a Welch two-sample t-test
+  rather than `cot_gate2_test.py`'s Newey-West HAC correction — justified
+  explicitly in the module docstring: COT's autocorrelation problem comes
+  from one symbol sampled weekly with heavily overlapping horizons; Form 4
+  events are cross-sectional (many different tickers), a much weaker
+  dependence structure, so a HAC correction built for a different problem
+  would be cargo-culted rigor, not real rigor.
+
+  A LIVE SELECTION BUG WAS FOUND AND FIXED MID-SESSION, and it mattered:
+  the ticker sampler (network calls don't scale to fetching bars for
+  every one of ~2,700 archived tickers in one session, so a capped sample
+  is unavoidable) originally prioritized cluster-eligible tickers first,
+  filling remaining budget with single-buy tickers. Once the archive grew
+  past ~4 quarters, cluster-eligible tickers ALONE (1,180) exceeded the
+  500-ticker cap, silently starving the "single" bucket to zero clean
+  observations — every reported "single" event was actually a non-cluster
+  event belonging to a ticker that ALSO had a cluster elsewhere, a
+  selection bias invisible in a small sample and only exposed once the
+  sample was large enough to saturate the cap. Fixed to a balanced ~50/50
+  split (ratchet: `test_full_budget_used_when_one_bucket_is_scarce` +
+  `test_single_bucket_not_starved_when_cluster_pool_exceeds_cap`,
+  A/B-verified against the pre-fix logic).
+
+  RESULTS, all three runs kept honest rather than reporting only the best
+  one (REASONING STANDARD #4/#10 — distrust in proportion to what was
+  tried, state the prior before updating): a SMALL, pre-fix sample (2
+  quarters, 300-ticker cap) showed an exciting 20d cluster hit (mean diff
+  +2.36pp over baseline, p=0.0002) that appeared to strengthen with a
+  150->300 ticker resample. It DID NOT REPLICATE once backfilled to 6
+  quarters (2025q1-2026q2) and corrected to the balanced 500-ticker
+  sample (2,227 events, 806 clustered, 477/500 tickers fetched
+  successfully): 20d shows NO separation (cluster mean_diff +0.50pp,
+  p=0.48; single -0.54pp, p=0.35) — this is exactly the COT-SLV pattern
+  this repo has now seen twice, an exciting small-sample raw gap that
+  does not survive a larger, more rigorous re-test. 60d shows a
+  SURPRISE the opposite direction of the stated PRIOR: BOTH buckets
+  underperform their ticker-matched baseline (cluster -3.97pp, p=0.049
+  marginal; single -4.68pp, p=0.008, clears even a same-session
+  Bonferroni bar of 0.05/4=0.0125 in the NEGATIVE direction). NOT YET
+  CALLED A KILL, deliberately: the 60d baseline's own pooled mean is
+  unusually high (+8.55%, vs. +1.92% at 20d) — worth checking whether the
+  fetched-ticker universe (skewed toward officer/director-active names in
+  a 2025-2026 window) happens to include a disproportionate share of
+  momentum small-caps whose OWN unconditional 60d drift is elevated,
+  which would make "insiders underperform their own ticker's baseline"
+  read as a false negative rather than a real one — an unchecked
+  confound, not yet ruled out. NEXT STEPS: (1) the archive keeps
+  backfilling automatically via Tier 3 (6 of the 8-quarter target window
+  archived from this session's manual runs — 2025q1 through 2026q2; the
+  hourly poll fills the remaining 2 older quarters + future new quarters
+  with zero further attention needed); (2) a future
+  session should sanity-check the 60d baseline-inflation confound above
+  before treating the negative 60d finding as real; (3) the `code S`
+  sales mirror test (predictive shorts) named in this entry's original
+  PRIOR was NOT run this session — deliberately, to keep the live
+  network-call budget to one hypothesis at a time — filed as the
+  concrete next run; (4) re-run this exact screen once BACKFILL_QUARTERS
+  reaches its full 8-quarter window for a still-larger, still-corrected
+  sample before drawing any promotion-or-kill conclusion.
 - **CFTC Commitments of Traders (COT) positioning** (gate 1 DATA PASSED
   2026-07-05 — see `cftc_cot.py` / `test_cftc_cot.py`; EDGE DOCTRINE #1
   standing example; recovered this session from a stalled dirty PR
