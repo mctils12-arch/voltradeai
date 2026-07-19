@@ -2097,6 +2097,7 @@ export default function DataMapPage() {
   const [terrainExag, setTerrainExag] = useState<number>(readTerrainExag);
   const terrainExagRef = useRef<number>(terrainExag);
   const terrainWasOnRef = useRef<boolean>(false);
+  const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
   useEffect(() => {
     terrainExagRef.current = terrainExag;
     try { window.localStorage.setItem(TERRAIN_EXAG_KEY, String(terrainExag)); } catch {}
@@ -2846,12 +2847,23 @@ export default function DataMapPage() {
     // Auto-tilt on a genuine off→on transition from a top-down camera: 3D
     // relief is invisible at zero pitch, so ease to a Google-Earth angle once.
     // 58° stays safely above peaks (steeper landings clip the camera INTO
-    // terrain — a smeared wall). Never on exaggeration change or disable, and
-    // never when the user is already tilted.
+    // terrain — a smeared wall). Never on exaggeration change, and never when
+    // the user is already tilted. SYMMETRIC RESTORE: terrain off undoes OUR
+    // tilt (ease back to top-down) — but only ours; a user pitch gesture
+    // (pitchstart with an originalEvent) takes ownership and we never fight
+    // it. Keeps auto-actions reversible (no permanent camera side effect —
+    // caught by the visual harness's pitch-0 trail-click baseline).
     if (enabled.terrain && !terrainWasOnRef.current) {
-      try { if (map.getPitch() < 15) map.easeTo({ pitch: 58, duration: 1400 }); } catch {}
+      try {
+        if (map.getPitch() < 15) { map.easeTo({ pitch: 58, duration: 1400 }); autoTiltedRef.current = true; }
+      } catch {}
+    } else if (!enabled.terrain && terrainWasOnRef.current && autoTiltedRef.current) {
+      autoTiltedRef.current = false;
+      try { map.easeTo({ pitch: 0, duration: 900 }); } catch {}
     }
     terrainWasOnRef.current = enabled.terrain;
+    const onUserPitch = (e: any) => { if (e && e.originalEvent) autoTiltedRef.current = false; };
+    try { map.on("pitchstart", onUserPitch); } catch {}
     const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
     const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
@@ -2924,6 +2936,7 @@ export default function DataMapPage() {
     // keep the map lean when off (mesh + hillshade already detached above)
     if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
     if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
+    return () => { try { map.off("pitchstart", onUserPitch); } catch {} };
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
