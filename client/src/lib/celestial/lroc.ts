@@ -47,6 +47,10 @@ export interface TrekScheme {
   tilePx: number;
   /** deepest level that returns imagery (z beyond this 404s). */
   maxZ: number;
+  /** tile file extension (Trek serves JPEG for most bodies, PNG for a few —
+   *  Venus's Magellan mosaic is PNG). Defaults to "jpg" so MOON_TREK and every
+   *  existing caller stay byte-identical. */
+  ext?: "jpg" | "png";
 }
 
 export const MOON_TREK: TrekScheme = {
@@ -59,6 +63,73 @@ export const MOON_TREK: TrekScheme = {
 /** visible on-screen credit (public-domain courtesy line, shown whenever a
  *  Trek tile is resident — parallels spaceAssets.MILKY_WAY_CREDIT). */
 export const MOON_TREK_CREDIT = "Moon: NASA LRO · LROC WAC 303 ppd · trek.nasa.gov";
+
+// ── B5 "PLANET SURFACES" — sibling Trek EQ mosaics for the rocky bodies ──────
+// (CELESTIAL v2 B5, directive §5, 2026-07-19). Every one of these was probed
+// from its own WMTSCapabilities.xml + a live tile fetch on 2026-07-19 (curl
+// evidence in the B5 report — NOTHING assumed from the Moon). All four bodies
+// share the EXACT NASA Trek EQ plate-carrée convention this module already
+// encodes — TileMatrixSet default028mm, TopLeftCorner (−180,+90), 256 px tiles,
+// MatrixWidth = 2^(z+1), MatrixHeight = 2^z — so matrixWidth/degPerTile/
+// tileColForLon/… are shared verbatim; ONLY the endpoint, the deepest served
+// level (each 404s one past its maxZ), and the tile extension differ per body.
+// The gas giants (Jupiter/Saturn/Uranus/Neptune) have NO solid surface and NO
+// Trek mosaic — they keep their cloud-band sprites and are absent here.
+//
+//   MARS    z0..7 (z8→404), .jpg — Viking MDIM21 colour, 232 m/px source;
+//           z7 = 512×256 tiles ≈ 325 m/px equator (~8× the 8k base sprite).
+//   MERCURY z0..7 (z8→404), .jpg — MESSENGER MDIS BDR, 166 m/px source;
+//           z7 ≈ 234 m/px equator (~8× the base sprite).
+//   VENUS   z0..5 (z6→404), .png — Magellan C3-MDIR SAR radar mosaic, 2025 m/px
+//           source; z5 = 64×32 tiles ≈ 2.32 km/px equator (~2× the base sprite).
+
+export const MARS_TREK: TrekScheme = {
+  baseUrl:
+    "https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm",
+  tilePx: 256,
+  maxZ: 7,
+  ext: "jpg",
+};
+export const MARS_TREK_CREDIT = "Mars: NASA/USGS Viking MDIM21 · trek.nasa.gov";
+
+export const MERCURY_TREK: TrekScheme = {
+  baseUrl:
+    "https://trek.nasa.gov/tiles/Mercury/EQ/Mercury_MESSENGER_MDIS_Basemap_BDR_Mosaic_Global_166m/1.0.0/default/default028mm",
+  tilePx: 256,
+  maxZ: 7,
+  ext: "jpg",
+};
+export const MERCURY_TREK_CREDIT = "Mercury: NASA/JHUAPL MESSENGER MDIS · trek.nasa.gov";
+
+export const VENUS_TREK: TrekScheme = {
+  baseUrl:
+    "https://trek.nasa.gov/tiles/Venus/EQ/Venus_Magellan_C3-MDIR_Global_Mosaic_2025m/1.0.0/default/default028mm",
+  tilePx: 256,
+  maxZ: 5,
+  ext: "png",
+};
+export const VENUS_TREK_CREDIT = "Venus: NASA/JPL Magellan C3-MDIR · trek.nasa.gov";
+
+/** A body that has a real Trek surface mosaic: its scheme + on-screen credit. */
+export interface TrekBody {
+  scheme: TrekScheme;
+  credit: string;
+}
+
+/** Registry of every body B5 streams a real surface for (the Moon from B4 +
+ *  the rocky planets). Keyed by the same body id spaceFrame/rotation use. A
+ *  body absent here (gas giants, the Sun) simply never gets a surface patch. */
+export const TREK_BODIES: Record<string, TrekBody> = {
+  moon: { scheme: MOON_TREK, credit: MOON_TREK_CREDIT },
+  mars: { scheme: MARS_TREK, credit: MARS_TREK_CREDIT },
+  mercury: { scheme: MERCURY_TREK, credit: MERCURY_TREK_CREDIT },
+  venus: { scheme: VENUS_TREK, credit: VENUS_TREK_CREDIT },
+};
+
+/** The Trek surface config for a body id, or null if it has none. */
+export function trekBody(id: string): TrekBody | null {
+  return TREK_BODIES[id] ?? null;
+}
 
 /** columns at level z (MatrixWidth). */
 export function matrixWidth(z: number): number {
@@ -110,9 +181,10 @@ export interface TileId {
   y: number;
 }
 
-/** WMTS tile URL — note the /{z}/{y}/{x}.jpg (row before column) order. */
+/** WMTS tile URL — note the /{z}/{y}/{x}.ext (row before column) order. The
+ *  extension is the scheme's `ext` (default "jpg" — Venus is "png"). */
 export function tileUrl(t: TileId, s: TrekScheme = MOON_TREK): string {
-  return `${s.baseUrl}/${t.z}/${t.y}/${t.x}.jpg`;
+  return `${s.baseUrl}/${t.z}/${t.y}/${t.x}.${s.ext ?? "jpg"}`;
 }
 
 export interface BboxDeg {
