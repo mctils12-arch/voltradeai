@@ -31,6 +31,7 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
+import { readTerrainExag, writeTerrainExag, clampTerrainExag } from "@/lib/terrainExag";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -1908,6 +1909,24 @@ export default function DataMapPage() {
   // never a silent failure.
   const [globeOn, setGlobeOn] = useState<boolean>(readGlobePref);
   const [globeSupport, setGlobeSupport] = useState<"unknown" | "ok" | "unavailable">("unknown");
+  // 3D TERRAIN §A: user-adjustable vertical exaggeration (1.0–3.0×, default
+  // 1.3× UNCHANGED). React state drives the slider UI; terrainExagRef mirrors
+  // it for the map's non-React callbacks — the terrain effect, the aircraft
+  // setAltScale coupling, the 3D-trail curtain scale, and the drain-ocean mesh
+  // swap ALL read terrainExagRef.current so the vertical datum stays in
+  // lock-step everywhere the mesh is exaggerated.
+  const [terrainExag, setTerrainExag] = useState<number>(readTerrainExag);
+  const terrainExagRef = useRef<number>(terrainExag);
+  useEffect(() => { terrainExagRef.current = terrainExag; }, [terrainExag]);
+  // §A explainer popover open state (the ⓘ next to the EXAG slider).
+  const [exagTipOpen, setExagTipOpen] = useState<boolean>(false);
+  // §C auto-tilt: remembers whether terrain was on last effect pass so a
+  // top-down camera eases to 3D only on the OFF→ON transition (never on
+  // exaggeration changes, seafloor toggles, preset swaps, or disable).
+  const terrainWasOnRef = useRef<boolean>(false);
+  // §A live sync handle for the aircraft 3D layer (created inside the aircraft
+  // effect); lets the slider re-datum altitudes without tearing that effect down.
+  const airLayerRef = useRef<any>(null);
   // Style presets (worldview-globe G1): switch the BASE look on the one globe —
   // real-first geographic identities, no tactical FLIR/NVG. Persisted per browser.
   const [mapPreset, setMapPreset] = useState<string>(() => {
@@ -1951,7 +1970,8 @@ export default function DataMapPage() {
           } as any);
         }
         if (!map.getLayer("blackmarble")) {
-          map.addLayer({ id: "blackmarble", type: "raster", source: "blackmarble" } as any, "imagery");
+          map.addLayer({ id: "blackmarble", type: "raster", source: "blackmarble",
+            paint: { "raster-fade-duration": 0 } } as any, "imagery"); // §D: no fade-in on the night base
         }
       } else {
         if (map.getLayer("blackmarble")) map.removeLayer("blackmarble");
@@ -2176,6 +2196,10 @@ export default function DataMapPage() {
         const maplibregl = (await import("maplibre-gl")).default;
         if (cancelled || !mapContainer.current || mapRef.current) return;
         glRef.current = maplibregl;
+        // 3D TERRAIN §D perceived-speed: raise the global tile-fetch
+        // concurrency (default 16 → 32) so imagery + DEM tiles stream in as
+        // fast as the network allows when panning/zooming a terrain view.
+        try { maplibregl.setMaxParallelImageRequests?.(32); } catch {}
         // pmtiles:// protocol (single static file on our origin, range
         // requests — powers the OSM grid layer; registration is idempotent)
         try {
@@ -2203,7 +2227,11 @@ export default function DataMapPage() {
             },
             layers: [
               { id: "bg", type: "background", paint: { "background-color": "#050a13" } },
-              { id: "imagery", type: "raster", source: "imagery" },
+              // §D color+speed: tiles appear instantly (no cross-fade) and the
+              // satellite base gets a modest saturation/contrast lift so relief
+              // reads richer when draped over the 3D mesh.
+              { id: "imagery", type: "raster", source: "imagery",
+                paint: { "raster-fade-duration": 0, "raster-saturation": 0.18, "raster-contrast": 0.12 } },
             ],
           },
           center: [-96.77, 37.5],
@@ -2549,10 +2577,11 @@ export default function DataMapPage() {
       // vessels/trains live at the surface.
       if (kind === "aircraft") {
         try {
-          // terrain match: the DEM mesh is exaggerated 1.3x — the track uses
-          // the SAME factor so it flies over the mountains it really flew
-          // over (the aircraft 3D layer's setAltScale precedent).
-          const altScale = map.getTerrain() ? 1.3 : 1;
+          // terrain match: the DEM mesh is exaggerated by terrainExagRef
+          // (§A slider, default 1.3×) — the track uses the SAME factor so it
+          // flies over the mountains it really flew over (the aircraft 3D
+          // layer's setAltScale precedent).
+          const altScale = map.getTerrain() ? terrainExagRef.current : 1;
           const p3 = new Float32Array(raw.length * 3);
           for (let i = 0; i < raw.length; i++) {
             const m = lonLatToMercator(raw[i].lo, raw[i].la);
@@ -2567,8 +2596,8 @@ export default function DataMapPage() {
           // vertical lines. Colored by REAL altitude through the same AIR
           // band stops as the aircraft silhouettes (defaultWallRamp,
           // test-pinned to airLayer BAND_COLORS): the ramp unscales the
-          // terrain exaggeration so 3000m stays cruise-blue regardless of
-          // the 1.3x mesh factor.
+          // terrain exaggeration (altScale = terrainExagRef.current) so 3000m
+          // stays cruise-blue regardless of the current mesh factor.
           let arcs = airTrail3dRef.current;
           if (!arcs) {
             arcs = new ArcLayer({ id: "aircraft-trail-3d" });
@@ -2817,9 +2846,11 @@ export default function DataMapPage() {
   //    minimal) where it is the sole relief cue — over photo imagery it made
   //    real mountains look like a tinted map, so imagery presets now show
   //    the photo draped on the true displacement + a sky/fog horizon
-  // exaggeration 1.3 everywhere: the aircraft layer + 3D trails match their
-  // altitudes to this exact constant (setAltScale coupling). Degrade-safe:
-  // any failure keeps the base map alive. ──
+  // exaggeration is terrainExagRef.current (default 1.3×, §A slider): the
+  // aircraft layer + 3D trails match their altitudes to this SAME value
+  // (setAltScale coupling) so the vertical datum never drifts across the
+  // mesh, the planes, and the drain-ocean swap. Degrade-safe: any failure
+  // keeps the base map alive. ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -2847,9 +2878,25 @@ export default function DataMapPage() {
           attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
         } as any);
       }
-      map.setTerrain(meshSource ? ({ source: meshSource, exaggeration: 1.3 } as any) : null);
+      // §A: exaggeration comes from terrainExagRef (default 1.3×), the single
+      // source of truth the aircraft/trail/drain datum also reads — never a
+      // literal here again. The drain-ocean mesh swap re-runs THIS effect with
+      // the swapped meshSource, so it picks up the same current exaggeration.
+      map.setTerrain(meshSource ? ({ source: meshSource, exaggeration: terrainExagRef.current } as any) : null);
     } catch {
       if (enabled.terrain) setStatus("terrain", "error");
+    }
+    // §C AUTO-TILT: on the terrain layer's OFF→ON transition from a top-down
+    // camera, ease to a Google-Earth-style pitch so the new 3D relief is
+    // actually visible (the original "3D does nothing" complaint). 58° keeps
+    // the camera safely above peaks. Never fires on exaggeration changes,
+    // seafloor toggles, preset swaps, or disable — guarded by terrainWasOnRef.
+    {
+      const wasOn = terrainWasOnRef.current;
+      terrainWasOnRef.current = enabled.terrain;
+      if (enabled.terrain && !wasOn && map.getPitch() < 15) {
+        try { map.easeTo({ pitch: 58, duration: 1400 }); } catch {}
+      }
     }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
@@ -2896,6 +2943,28 @@ export default function DataMapPage() {
     if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
     if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
+
+  // §A: apply a new vertical exaggeration from the slider. Persists it,
+  // updates the ref (so every non-React callback sees the live value), and —
+  // while terrain is on — re-datums the live mesh CHEAPLY via a direct
+  // setTerrain (NOT a hillshade rebuild, so no flicker) and re-runs the
+  // aircraft altitude sync so planes/curtains stay glued to the new relief.
+  const applyTerrainExag = useCallback((v: number) => {
+    const exag = clampTerrainExag(v);
+    terrainExagRef.current = exag;
+    setTerrainExag(exag);
+    writeTerrainExag(exag);
+    const map = mapRef.current;
+    if (!map) return;
+    const hasTerrain = (() => { try { return !!map.getTerrain(); } catch { return false; } })();
+    if (hasTerrain) {
+      const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
+      if (meshSource) { try { map.setTerrain({ source: meshSource, exaggeration: exag } as any); } catch {} }
+    }
+    // altitude-datum sync (L5668 coupling): planes/curtains ride the mesh at
+    // the SAME factor, so a plane above a peak stays above the exaggerated peak.
+    try { airLayerRef.current?.setAltScale(hasTerrain ? exag : 1); } catch {}
+  }, [enabled.seafloor, enabled.terrain]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
   // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
@@ -5643,6 +5712,7 @@ export default function DataMapPage() {
         if (map.getSource("aircraft")) map.removeSource("aircraft");
         if (map.getSource("aircraft-vec")) map.removeSource("aircraft-vec");
       } catch {}
+      airLayerRef.current = null; // §A: no live 3D layer to re-datum while off
       setStatus("aircraft", "off");
       return;
     }
@@ -5660,6 +5730,7 @@ export default function DataMapPage() {
     const airLayer = new AirLayer({ id: "aircraft-3d" });
     try { map.addLayer(airLayer); } catch {}
     (window as any).__vtAir = airLayer; // harness seam (prod-inert, like __vtMap)
+    airLayerRef.current = airLayer; // §A: stable handle for the exag slider's live setAltScale
     let airRows: any[] = []; // index-aligned to the instance buffer (picking)
 
     const wire = () => wireLivePoints({
@@ -5678,7 +5749,7 @@ export default function DataMapPage() {
         airLayer.setTickTime(); // glide anchor: these positions are true NOW
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
-        try { airLayer.setAltScale(map.getTerrain() ? 1.3 : 1); } catch {}
+        try { airLayer.setAltScale(map.getTerrain() ? terrainExagRef.current : 1); } catch {}
         // SESSION BREADCRUMB: while this plane's card is open, append its
         // fresh REAL fix and repaint the merged trail + curtain so they
         // reach the CURRENT position (the archive lags 1-5 min at cruise).
@@ -8250,6 +8321,42 @@ export default function DataMapPage() {
           <div className="vt-layer-desc" role="note">
             {l.description}
             <span className="vt-layer-desc-src">Source: {l.source}</span>
+          </div>
+        )}
+        {/* 3D TERRAIN §A+B: vertical-exaggeration slider + ⓘ explainer, only
+            while the Terrain layer is active. data-vt-control (NOT
+            data-vt-layer) so it never inflates the registry-count battery. */}
+        {l.id === "terrain" && on && (
+          <div className="vt-field-controls vt-exag-row" role="group"
+               aria-label="Terrain vertical exaggeration" data-vt-control="terrain_exag">
+            <label className="vt-field-slider vt-exag-slider">
+              <span className="vt-exag-tag">EXAG</span>
+              <input
+                type="range" min={1} max={3} step={0.1}
+                value={terrainExag}
+                aria-label="Terrain vertical exaggeration"
+                onChange={(e) => applyTerrainExag(Number(e.target.value))}
+              />
+              <span className="vt-exag-val">{terrainExag.toFixed(1)}×</span>
+            </label>
+            <span className="vt-exag-info-wrap">
+              <button className="vt-exag-info" aria-expanded={exagTipOpen}
+                      aria-label="About vertical exaggeration"
+                      onClick={() => setExagTipOpen((o) => !o)}>
+                <Info size={13} aria-hidden />
+              </button>
+              {exagTipOpen && (
+                <div className="vt-exag-pop" role="note">
+                  <div className="vt-exag-pop-h">VERTICAL EXAGGERATION</div>
+                  <div className="vt-exag-pop-b">Multiplies terrain height so mountains and valleys read clearly from altitude. Elevation data stays real; only the look changes.</div>
+                  <div className="vt-exag-pop-stops">
+                    <div><b>1.0×</b> — true scale (Earth looks nearly flat)</div>
+                    <div><b>1.3×</b> — balanced · default</div>
+                    <div><b>3.0×</b> — dramatic relief</div>
+                  </div>
+                </div>
+              )}
+            </span>
           </div>
         )}
         {(l as any).field && on && (

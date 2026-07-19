@@ -3555,6 +3555,45 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-field-unit:hover { background: rgba(77, 159, 255, 0.12); }
 .vt-field-note { flex-basis: 100%; font-size: 10px; line-height: 1.4; }
 
+/* ── 3D terrain vertical-exaggeration control (handoff §A+B) ──────────────
+   Sits in the Terrain layer row under the status line, same left inset as
+   the field controls. EXAG label · range (accent) · value, plus an ⓘ that
+   opens a vt-popup-styled explainer. */
+.vt-exag-row { align-items: center; }
+.vt-exag-slider { flex: 1 1 170px; }
+.vt-exag-tag {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 1.5px; color: var(--text-tertiary); flex: none;
+}
+.vt-exag-slider input[type="range"] { flex: 1; min-width: 90px; accent-color: var(--accent); min-height: 24px; }
+.vt-exag-val { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); flex: none; min-width: 34px; text-align: right; }
+.vt-exag-info-wrap { position: relative; display: inline-flex; flex: none; }
+.vt-exag-info {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; min-width: 28px; min-height: 28px;
+  border-radius: 7px; border: 1px solid rgba(77, 159, 255, 0.3);
+  background: transparent; color: var(--text-tertiary); cursor: pointer;
+}
+.vt-exag-info:hover, .vt-exag-info[aria-expanded="true"] { background: rgba(77, 159, 255, 0.15); color: var(--accent-bright); }
+.vt-exag-pop {
+  position: absolute; z-index: 60; right: 0; top: 34px; width: 270px;
+  background: #0d2440; border: 1px solid rgba(96, 158, 222, 0.45);
+  border-radius: 8px; padding: 11px 13px; cursor: default;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.vt-exag-pop-h {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 1.8px; color: var(--text-tertiary); margin-bottom: 7px;
+}
+.vt-exag-pop-b { font-size: 12.5px; line-height: 1.55; color: #c7dcf0; margin-bottom: 9px; }
+.vt-exag-pop-stops {
+  display: flex; flex-direction: column; gap: 4px;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--text-secondary);
+}
+.vt-exag-pop-stops b { color: #d5e7f9; font-weight: 600; }
+/* 390px: keep the popover fully on-screen inside the panel */
+@media (max-width: 430px) { .vt-exag-pop { width: min(270px, 78vw); } }
+
 /* ── GIBS time-scrubber (worldview_globe.md G2a) ──────────────────────── */
 .vt-gibs-scrubber { display: inline-flex; align-items: center; gap: 4px; }
 .vt-gibs-scrubber button {
