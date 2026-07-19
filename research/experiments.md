@@ -211,6 +211,42 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Space navigation: Earth-map feel (zoom-to-cursor + pan) + DEFINITIVE crisp-during-motion (v1.0.415, T-CLIENT, worktree agent + parent review)
+
+The human's #1 live complaint: "mechanics of the earth for zooming and
+panning … hard to maneuver around the universe … the Claude design was
+easy," plus "it gets fuzzy when you move around it." Reworked the
+space camera to the maplibre + reference-OrbitControls feel and made
+the surfaces stay sharp through all motion.
+NAV: wheel = smooth eased (log-momentum) zoom toward the CURSOR's
+surface point (screenRayDir → raycastSphere → cursorPullOffset moves
+the look-at, a body-relative focusOff reset to 0 on every focus change
+so fly-to/release/seam/follow are untouched); left-drag = orbit +
+release inertia; right/shift/two-finger drag = PAN the look-at across
+the surface; pinch = zoom to centroid. Pure math unit-tested
+(screenRayDir round-trip, raycastSphere, cursorPullOffset, panOffset,
+smoothZoomStep). Also fixed a latent beginFlight from==to → norm3(0)
+degenerate-camera bug (guarded + tested).
+CRISP-DURING-MOTION (definitive — the gate B5 FAILED): root cause was
+B5's cos-40° cone dropping the patch to the low-res fast tier when a
+sustained drag out-ran a streamed build; fix = once a high-res buffer
+exists, always draw it during orbit/pan/zoom (silhouette exact via
+bbox, texture ≤1 build stale), rebuild on 150ms settle, wider prefetch
+(2.1→2.8). moonTiles readback band 64→32 rows for the <16ms budget.
+Gates (parent-verified, MY OWN drive on the integrated tree, not the
+agent's word): client 535/535 (+9), build clean, territory
+celestial/*.ts only. Mars nav+crisp drive 14/14 (clean run): zoom-to-
+cursor body shift −108px vs 0 centred control; pan translates look-at;
+high-res FULL tier held 10/10 motion frames at BOTH ~1.8 radii AND the
+floor; CRISP orbit 139-154% / pan 133-336% of settled (B5 was ~30-37%
+— DEFINITIVELY FIXED); fly-to/release-to-Sun/fly-home-seam all work;
+trek tiles 200; zero errors; tasks <16ms (one 16.9ms tile-band spike
+under heavy concurrent sandbox load falsified by a clean re-run →
+4.5ms — the agent's 32-row band already mitigates; production GPU
+won't hit it). Visual harness: only the pre-existing wx-wind weather-
+tile sandbox flake (weather tiles don't load here; data-scale registry
+battery passes). Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Celestial v2 B5: real deep-zoom PLANET surfaces (Mars/Mercury/Venus Trek tiles) (v1.0.414, T-CLIENT, worktree agent + parent review)
 
 Generalizes B4's Moon Trek-tile pattern to the rocky planets. lroc.ts

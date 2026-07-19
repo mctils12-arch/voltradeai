@@ -69,6 +69,18 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-19 NAVIGATION SHIPPED (v1.0.415): space camera to the
+  maplibre Earth-map feel — smooth eased wheel zoom TOWARD THE CURSOR's
+  surface point, left-drag orbit + inertia, right/shift/two-finger PAN
+  across the surface, pinch-to-centroid. DEFINITIVE crisp-during-motion
+  fix (the gate B5 failed): high-res tier held during ALL orbit/pan/
+  zoom at every in-range distance — my drive 139-154% orbit / 133-336%
+  pan of settled (was ~30-37%). Fixed a beginFlight from==to degenerate
+  camera bug. NEXT (human live feedback): GALAXY — real bright-star
+  catalog (Yale BSC verified: 9096 stars, RA/Dec/V-mag/K-color/names) as
+  GPU points + sharper Milky Way panorama; honest real positions. THEN
+  B6 universal lighting.
+
 - 2026-07-19 B5 SHIPPED (v1.0.414): real deep-zoom PLANET surfaces —
   Mars (Viking MDIM21 z7 ~325m/px), Mercury (MESSENGER z7 ~234m/px),
   Venus (Magellan z5) via the generalized B4 Trek pattern (lroc.ts
