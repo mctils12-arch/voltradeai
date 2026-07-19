@@ -5130,6 +5130,20 @@ context probe + honest SKIP-with-reason?). Any harness change is its
 own [RULE-REVIEW] PR with the bias statement (a retry can only mask
 real regressions if unbounded — cap + log both outcomes).
 
+UPDATE 2026-07-19 (scheduled-routine, session 3) — 5th occurrence, a
+NEW symptom variant: same `data @ 1440px` battery, but this time a
+perf-gate frame-time spike (`p95 367ms > 350ms gate`) rather than the
+prior "layers/tiles never mount" symptom. A/A-proved again on the exact
+same commit (GEM methane gate-2(b), v1.0.417): full-suite run FAILED,
+immediate `--page data`-scoped re-run on identical code PASSED (p95
+200ms). The failure mode isn't fixed identical each time — mount-
+timeout vs. frame-time-spike — but the signature (this one page/width,
+transient, idle machine, code-identical flip) matches. Still not
+root-caused, still not fixed here (out of scope for a PRODUCT session
+touching an unrelated feature) — logged per RECURRENCE ESCALATES so
+the occurrence count stays visible for whichever session eventually
+takes the per-battery-retry-or-honest-skip fix.
+
 ## [EVERYTHING-GRAPH · filed 2026-07-17, GEM ownership CIK join SHIPPED] Broaden `owns` beyond CIK-to-CIK pairs — the more novel joins are state/foreign ownership, which this slice deliberately excludes
 
 SHIPPED this session (v1.0.374, T-DATACORE): `server/entityGraph.ts` gained

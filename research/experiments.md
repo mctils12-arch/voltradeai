@@ -21904,9 +21904,27 @@ clean (client + server, only pre-existing unrelated warnings: an
 `astronomy-engine` ESM default-export warning and two >500kB chunk-size
 notices, both present before this session's changes). VISUAL
 VERIFICATION (PROMOTION RULE 6, client/ touched): `npm run visual` at
-390/768/1440 run this session — see below for the disposition (this
-entry is being written while that run is still in flight; the honest
-state is recorded rather than a fabricated "passed" claim).
+390/768/1440 — 26/27 checks PASS on the full run; one hard FAIL at
+`data @ 1440px`: `perf: p95 frame 367ms > 350ms gate (observed ceiling
+183ms)`. Before accepting that as a real regression, re-ran scoped to
+just that page (`npm run visual -- --page data`) — SAME code, SAME
+commit, 0 hard failures, p95 200ms (well under the 350ms gate). This is
+an A/A flip: identical code passed and failed across two consecutive
+runs, which is diagnostic of environment noise, not a code regression
+— and matches the exact pre-existing pattern already filed in
+`research/open_questions.md`'s `[HARNESS-ENV · filed 2026-07-15]
+data@1440 fields-on flake frequency rising` entry (same page/width,
+same "SwiftShader headless GPU" battery, prior occurrences also flipped
+pass/fail on identical code). Independently, the new
+`MethaneClusterPanel` component only mounts when `enabled.methane_plumes`
+is true (STANDING BEHAVIORS-consistent gating), and the harness never
+toggles that layer on for the `data` page screenshot — so the new code
+did not even execute during either run, ruling it out as the failure's
+mechanism on causal grounds, not just by re-run luck. Logged as a new
+occurrence of the filed HARNESS-ENV item (see that entry's update
+below) rather than silently absorbed — RECURRENCE tracking, not a
+second attempt to fix it here (out of this PR's scope; the filed item
+already names the fix options).
 
 BACKTEST: N/A — this is a read-only aggregation over an already-cached,
 already-served dataset (no new archive write, no live-trading code
