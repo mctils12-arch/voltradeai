@@ -69,6 +69,17 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-19 B6 SHIPPED (v1.0.419): universal sun-driven lighting —
+  bodyLighting.ts (terminator/phase/eclipse-cone/ring-shadow geometry)
+  unifying all shading paths + eclipse umbra + Saturn ring shadows +
+  Realistic-lighting toggle (default on), all under the B3 sim clock
+  (real 2025 lunar eclipse blacks the Moon under time-warp). CHARTER
+  B0-B7 + nav + galaxy + lighting all SHIPPED — celestial v2 major
+  arc COMPLETE. FOLLOW-UP: CELESTIAL-panel toggle rows for Stars +
+  Realistic-lighting (handles/prefs exist; datamap wiring). Also the
+  SMOOTH-SATLOCK patch (human 2026-07-19) is queued: per-frame SGP4 +
+  jumpTo follow (datamap.tsx + modelLayer.ts) — its own PR.
+
 - 2026-07-19 GALAXY SHIPPED (v1.0.417): real Yale BSC bright stars
   (9096, compact 106KB bsc5.bin) rendered at true J2000 sky positions
   with V-mag size + K-temp blackbody color, over a sharpened Milky Way

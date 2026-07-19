@@ -33,6 +33,9 @@ import {
   STAR_FIELD_FADE_START_AU,
   starFieldOpacity,
   getStarsPref,
+  getRealisticLightingPref,
+  setRealisticLightingPref,
+  subscribeRealisticLightingPref,
   loadStarCatalog,
 } from "./spaceAssets.js";
 import { decodeStarAsset } from "./starCatalog.js";
@@ -150,6 +153,20 @@ test("loadStarCatalog: fetches + decodes the bundled binary, attaches names (fix
   } finally {
     (globalThis as unknown as { fetch: typeof fetch }).fetch = orig;
   }
+});
+
+test("B6 realistic-lighting pref: default ON + set/subscribe round trip", () => {
+  assert.equal(getRealisticLightingPref(), true, "realistic lighting default ON");
+  let fired = 0;
+  const off = subscribeRealisticLightingPref(() => { fired++; });
+  setRealisticLightingPref(false);
+  assert.equal(getRealisticLightingPref(), false, "inspection mode after set(false)");
+  assert.equal(fired, 1);
+  setRealisticLightingPref(false);
+  assert.equal(fired, 1, "no-op set never notifies");
+  setRealisticLightingPref(true);
+  assert.equal(getRealisticLightingPref(), true);
+  off();
 });
 
 test("star prefs: default ON", () => {

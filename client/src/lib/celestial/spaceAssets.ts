@@ -257,6 +257,17 @@ export const getEclipticGridPref = gridPref.get;
 export const setEclipticGridPref = gridPref.set;
 export const subscribeEclipticGridPref = gridPref.subscribe;
 
+/** Realistic (physically-lit) mode — B6 universal sun-driven lighting: real
+ *  terminators, phases, eclipse + ring shadows. DEFAULT ON. OFF = even-lit
+ *  inspection mode (full-bright, no terminator) for studying a surface. The
+ *  CELESTIAL-panel row that flips this is a parent datamap follow-up (batched
+ *  with the Stars toggle); this pref + the frame's setRealisticLighting handle
+ *  are the mechanism. */
+const realisticLightingPref = makeBoolPref("vt-celestial-realistic", true);
+export const getRealisticLightingPref = realisticLightingPref.get;
+export const setRealisticLightingPref = realisticLightingPref.set;
+export const subscribeRealisticLightingPref = realisticLightingPref.subscribe;
+
 /** 60° trailing motion arcs (default ON, the reference's "Motion trails"). */
 const trailsPref = makeBoolPref("vt-celestial-trails", true);
 export const getMotionTrailsPref = trailsPref.get;

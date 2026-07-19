@@ -37,10 +37,23 @@
 //    panorama is presentation (stated) — the panorama itself is
 //    © Solar System Scope CC-BY 4.0 (spaceAssets.MILKY_WAY_CREDIT).
 
+import { surfaceInRingShadow } from "./bodyLighting.ts";
+
 export interface Vec3 {
   x: number;
   y: number;
   z: number;
+}
+
+/** B6 ring shadow-on-disc descriptor: the Sun direction expressed in the
+ *  body frame (X = equator node, Y, Z = spin axis — the SAME frame the LUT's
+ *  lonNode/lat live in), the ring annulus in planet radii, and the darkening
+ *  strength applied to a shadowed pixel (0..1, e.g. 0.35). */
+export interface RingShadowParams {
+  sun: Vec3;
+  rInner: number;
+  rOuter: number;
+  strength: number;
 }
 
 export interface TexLike {
@@ -207,6 +220,15 @@ export function lambertWeight(lit: number): number {
  * texel — the Sun; its glow is drawn by the frame). No trig — the warp
  * spin path. Optional emboss bump from a height map's u/v gradients
  * (presentation relief; strength ~1.2).
+ *
+ * B6 universal lighting (all optional, default = prior behaviour):
+ *  · fullBright — the "realistic lighting OFF" inspection mode: skip the
+ *    lambert term so every masked pixel is the raw texel (no terminator);
+ *  · shadowFactor — a whole-disc eclipse/umbra multiplier (0..1, 1 = none),
+ *    e.g. the Moon darkening in Earth's umbra during a lunar eclipse;
+ *  · ringShadow — a per-pixel Saturn ring shadow cast on the disc, from the
+ *    Sun's elevation over the ring plane (bodyLighting.surfaceInRingShadow),
+ *    reconstructing the body-frame surface normal from the LUT's lonNode/lat.
  */
 export function composeTexturedSprite(
   lut: SphereLUT,
@@ -214,7 +236,16 @@ export function composeTexturedSprite(
   wDeg: number,
   lightCam: Vec3 | null,
   out: Uint8ClampedArray,
-  opts?: { bump?: TexLike | null; bumpStrength?: number; rowStart?: number; rowEnd?: number; texLonOffsetDeg?: number },
+  opts?: {
+    bump?: TexLike | null;
+    bumpStrength?: number;
+    rowStart?: number;
+    rowEnd?: number;
+    texLonOffsetDeg?: number;
+    fullBright?: boolean;
+    shadowFactor?: number;
+    ringShadow?: RingShadowParams | null;
+  },
 ): void {
   const { size, nx, ny, nz, lonNode, lat, mask, ex, ey, ez } = lut;
   const tw = tex.width;
@@ -222,7 +253,10 @@ export function composeTexturedSprite(
   const td = tex.data;
   const bump = opts?.bump ?? null;
   const bk = opts?.bumpStrength ?? 1.2;
-  const s = lightCam ? norm3(lightCam) : null;
+  const fullBright = !!opts?.fullBright;
+  const shadowFactor = opts?.shadowFactor ?? 1;
+  const ring = opts?.ringShadow ?? null;
+  const s = lightCam && !fullBright ? norm3(lightCam) : null;
   // source-map prime-meridian offset (0 for the Moon/Sun ⇒ byte-identical;
   // 180 for the planet map family whose lon 0 sits at the texture's left edge)
   const texOff = (opts?.texLonOffsetDeg ?? 0) / 360;
@@ -266,6 +300,21 @@ export function composeTexturedSprite(
         else if (lit < -1) lit = -1;
       }
       w = lambertWeight(lit);
+      // B6 eclipse/umbra: darken the whole lit disc by the shadow factor.
+      if (shadowFactor !== 1) w *= shadowFactor;
+      // B6 ring shadow: reconstruct the body-frame surface unit normal from the
+      // LUT's node-frame lon/lat and test it against the Sun in the same frame.
+      if (ring && lit > 0) {
+        const la = lat[i] * DEG;
+        const lo = lonNode[i] * DEG;
+        const cl = Math.cos(la);
+        const px = cl * Math.cos(lo);
+        const py = cl * Math.sin(lo);
+        const pz = Math.sin(la);
+        if (surfaceInRingShadow({ x: px, y: py, z: pz }, ring.sun, ring.rInner, ring.rOuter)) {
+          w *= ring.strength;
+        }
+      }
     }
     out[o] = td[ti] * w;
     out[o + 1] = td[ti + 1] * w;
