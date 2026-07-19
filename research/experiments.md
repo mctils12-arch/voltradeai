@@ -78,6 +78,29 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-18 [PRODUCT] — Space navigation: closer zoom floor + rotational inertia (v1.0.410, T-CLIENT)
+
+Human live review of the Space View: "zoom in way more to the moon" +
+"its hard to maneuver around the galaxy ... exactly like the claude
+design had it". Two spaceFrame.ts fixes reproducing the reference's
+damped-OrbitControls feel: (1) MIN_ZOOM_RADII (1.05) — a manual
+wheel/pinch closest-approach floor SEPARATED from the fly-to arrival
+clamp (MIN_DISTANCE_RADII 3.2): fly-to still frames the whole body
+(~4.5 radii) but manual zoom now skims the surface, ~3× closer
+(drive-verified 1.050 radii on the Moon, was hard-capped at 3.2 — the
+"3455 mi / 1080 mi radius = 3.2" the human's screenshot was stuck at).
+(2) Rotational inertia — orbitInertiaStep() coasts the orbit after a
+drag releases and decays it geometrically (~0.9/frame ≈ 1 s glide);
+grabbing (pointerdown) zeroes it (OrbitControls parity); the rAF loop
+stays alive only while coasting, then idles. Pure damping math + the
+closer-floor invariant unit-tested (+3 assertions). Drive: close
+approach 1.050 radii; inertia = 12 post-release motion frames with
+zero input, then animating settles to false (no runaway loop — the
+decay's boundedness is also unit-proven). NOTE: at the surface the 8k
+texture softens (~1.3 km/px) — the real-imagery deep zoom is the next
+slice (B4 LRO tile pyramid). Gates: client 469/469 (+3), build clean,
+visual harness 0 hard failures. Backtest n/a.
+
 ## 2026-07-18 [PRODUCT] — Space View visual upgrade: textured solar system, Milky Way, rings, fly-to/follow, body cards (v1.0.408, T-CLIENT, worktree agent + parent review)
 
 The human's Space View reference (research/directives/space_view_

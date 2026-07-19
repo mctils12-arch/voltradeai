@@ -44,6 +44,10 @@ import {
   SCALE_BAR_MAX_W_PX,
   FRAME_DISC_FRACTION,
   MIN_DISTANCE_RADII,
+  MIN_ZOOM_RADII,
+  orbitInertiaStep,
+  ORBIT_INERTIA_DAMP,
+  ORBIT_INERTIA_EPS_DEG,
   DEFAULT_FOV_DEG,
   defaultBodyRegistry,
   seamExitArmed,
@@ -206,6 +210,37 @@ test("fly-to framing: aspect-safe fraction of the SHORT side, floored at closest
   const d = distanceForDiscPx(BODY_RADIUS_M.moon, FRAME_DISC_FRACTION * 900, k);
   close(d / BODY_RADIUS_M.moon, 4.5, 0.15, "≈4.5 body radii at 1440×900");
   assert.ok(d / BODY_RADIUS_M.moon > MIN_DISTANCE_RADII, "framing outside closest approach");
+});
+
+test("manual zoom floor is far closer than the arrival clamp (skim the surface)", () => {
+  // the human ask: "zoom in way more to the moon" — manual wheel/pinch may
+  // approach to MIN_ZOOM_RADII (just above the surface) while fly-to still
+  // frames the whole body at MIN_DISTANCE_RADII.
+  assert.ok(MIN_ZOOM_RADII < MIN_DISTANCE_RADII, "manual floor closer than arrival clamp");
+  assert.ok(MIN_ZOOM_RADII > 1, "still outside the surface (never inside the sphere)");
+  // Moon radius 1737.4 km → the old floor was 3.2 radii ≈ 5560 km; the new
+  // manual floor 1.05 radii ≈ 1824 km — you get ~3× closer.
+  const moonR = BODY_RADIUS_M.moon;
+  assert.ok(MIN_ZOOM_RADII * moonR < 0.35 * (MIN_DISTANCE_RADII * moonR), "≈3× closer approach");
+});
+
+test("orbitInertiaStep: coasts, decays geometrically, snaps to rest below eps", () => {
+  // one step returns the current velocity as the applied rotation and the
+  // decayed velocity for next frame (the damped-OrbitControls glide)
+  const a = orbitInertiaStep(2.0);
+  close(a.stepDeg, 2.0, 1e-9, "applies the full current velocity this frame");
+  close(a.velDeg, 2.0 * ORBIT_INERTIA_DAMP, 1e-9, "decays by the damp factor");
+  // geometric decay over N frames
+  let v = 3.0, n = 0;
+  while (Math.abs(v) >= ORBIT_INERTIA_EPS_DEG && n < 1000) { v = orbitInertiaStep(v).velDeg; n++; }
+  assert.ok(n > 20 && n < 120, `coasts a natural number of frames (got ${n})`);
+  // at/under the epsilon it rests: zero step, zero velocity (loop can idle)
+  const rest = orbitInertiaStep(ORBIT_INERTIA_EPS_DEG * 0.5);
+  assert.equal(rest.stepDeg, 0, "no step below eps");
+  assert.equal(rest.velDeg, 0, "snaps to exact rest");
+  // sign preserved (coast continues the drag's direction), NaN clamps to rest
+  assert.ok(orbitInertiaStep(-1.5).stepDeg < 0, "negative velocity coasts negative");
+  assert.equal(orbitInertiaStep(Number.NaN).velDeg, 0, "NaN velocity rests");
 });
 
 // ── phase / lighting ────────────────────────────────────────────────────────
