@@ -230,7 +230,10 @@ async function defaultFetchTile(url: string, signal: AbortSignal): Promise<TexIm
 export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager {
   const scheme = deps.scheme ?? MOON_TREK;
   const fetchTile = deps.fetchTile ?? defaultFetchTile;
-  const bandRows = deps.bandRows ?? 64;
+  // 32 (down from 64) halves the worst tile-readback band so it stays under the
+  // 16ms frame budget even on a loaded SwiftShader machine (a 2048px-wide mosaic
+  // band measured ~19ms at 64 rows during the 2026-07-19 crisp-motion drive).
+  const bandRows = deps.bandRows ?? 32;
   const tilePx = scheme.tilePx;
 
   const tileCache = new Map<string, TexImageLike>(); // key: z/x/y
