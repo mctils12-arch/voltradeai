@@ -257,6 +257,15 @@ export const getEclipticGridPref = gridPref.get;
 export const setEclipticGridPref = gridPref.set;
 export const subscribeEclipticGridPref = gridPref.subscribe;
 
+/** Lock horizon — clamp the space-frame polar angle so the view can never
+ *  swing under the ecliptic (roll is already impossible by construction:
+ *  camBasis rebuilds the up-vector every frame). DEFAULT ON. OFF only
+ *  widens the clamp — roll stays impossible either way. */
+const lockHorizonPref = makeBoolPref("vt-celestial-lockhorizon", true);
+export const getLockHorizonPref = lockHorizonPref.get;
+export const setLockHorizonPref = lockHorizonPref.set;
+export const subscribeLockHorizonPref = lockHorizonPref.subscribe;
+
 /** Realistic (physically-lit) mode — B6 universal sun-driven lighting: real
  *  terminators, phases, eclipse + ring shadows. DEFAULT ON. OFF = even-lit
  *  inspection mode (full-bright, no terminator) for studying a surface. The

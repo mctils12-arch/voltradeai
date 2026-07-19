@@ -141,6 +141,7 @@ import { getOrbitPathsPref, setOrbitPathsPref, subscribeOrbitPathsPref } from "@
 import {
   getMilkyWayPref, setMilkyWayPref, subscribeMilkyWayPref,
   getEclipticGridPref, setEclipticGridPref, subscribeEclipticGridPref,
+  getLockHorizonPref, setLockHorizonPref, subscribeLockHorizonPref,
   getMotionTrailsPref, setMotionTrailsPref, subscribeMotionTrailsPref,
   getBodyLabelsPref, setBodyLabelsPref, subscribeBodyLabelsPref,
   SPACE_IMAGERY_CREDIT,
@@ -1529,6 +1530,7 @@ export default function DataMapPage() {
         // 2026-07-18 scene toggles (persisted): panorama/grid/trails/labels
         milkyWay: getMilkyWayPref(),
         eclipticGrid: getEclipticGridPref(),
+        lockHorizon: getLockHorizonPref(),
         motionTrails: getMotionTrailsPref(),
         bodyLabels: getBodyLabelsPref(),
         // the footer's "time ×N" reads the ONE sim clock's rate (display
@@ -1576,6 +1578,7 @@ export default function DataMapPage() {
       // 2026-07-18 scene toggles apply live while mounted
       const offGalaxy = subscribeMilkyWayPref(() => { try { handle.setMilkyWay(getMilkyWayPref()); } catch {} });
       const offGrid = subscribeEclipticGridPref(() => { try { handle.setEclipticGrid(getEclipticGridPref()); } catch {} });
+      const offLock = subscribeLockHorizonPref(() => { try { handle.setLockHorizon(getLockHorizonPref()); } catch {} });
       const offTrails = subscribeMotionTrailsPref(() => { try { handle.setMotionTrails(getMotionTrailsPref()); } catch {} });
       const offLabels = subscribeBodyLabelsPref(() => { try { handle.setBodyLabels(getBodyLabelsPref()); } catch {} });
       const iv = window.setInterval(() => {
@@ -1605,7 +1608,7 @@ export default function DataMapPage() {
       armWarp(); // entering space while already warped keeps time flowing
       spaceCleanupRef.current = () => {
         offAxis(); offUnits(); offScale(); offOrbits(); offSim();
-        offGalaxy(); offGrid(); offTrails(); offLabels();
+        offGalaxy(); offGrid(); offLock(); offTrails(); offLabels();
         window.clearInterval(iv);
         if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = 0; }
         try { delete (window as any).__vtSpace; } catch {}
@@ -1703,6 +1706,8 @@ export default function DataMapPage() {
   useEffect(() => subscribeMilkyWayPref(() => setCelGalaxyView(getMilkyWayPref())), []);
   const [celGrid, setCelGridView] = useState(getEclipticGridPref());
   useEffect(() => subscribeEclipticGridPref(() => setCelGridView(getEclipticGridPref())), []);
+  const [celLock, setCelLockView] = useState(getLockHorizonPref());
+  useEffect(() => subscribeLockHorizonPref(() => setCelLockView(getLockHorizonPref())), []);
   const [celTrails, setCelTrailsView] = useState(getMotionTrailsPref());
   useEffect(() => subscribeMotionTrailsPref(() => setCelTrailsView(getMotionTrailsPref())), []);
   const [celLabels, setCelLabelsView] = useState(getBodyLabelsPref());
@@ -8900,7 +8905,7 @@ export default function DataMapPage() {
                   {/* reference "N/7 ON" family: our five SPACE FRAME handle
                       toggles (orbits · trails · galaxy · grid · labels) —
                       rotation + time are the sim clock, sats a separate layer */}
-                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels].filter(Boolean).length}/5 ON
+                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock].filter(Boolean).length}/6 ON
                   {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
               </button>
@@ -8975,11 +8980,11 @@ export default function DataMapPage() {
                       reproduced in our design system: ONE row per toggle,
                       each an iOS .vt-switch + a per-toggle status LED
                       (green on / gray off) + an honest status line, under
-                      the group's "N/5 ON" counter. Every toggle drives the
+                      the group's "N/6 ON" counter. Every toggle drives the
                       EXISTING spaceFrame handle setter through its persisted
                       pref (subscribed live in enterSpace: setOrbitPaths /
                       setMotionTrails / setMilkyWay / setEclipticGrid /
-                      setBodyLabels) — the render already supports all five.
+                      setBodyLabels / setLockHorizon) — the frame supports all six.
                       data-vt-control, NEVER data-vt-layer: these are view
                       controls, not registry layers (the layer-scale harness
                       counts data-vt-layer rows).
@@ -9015,6 +9020,11 @@ export default function DataMapPage() {
                       status: celLabels
                         ? "on — click a label to fly to that body"
                         : "off — sub-pixel honesty markers stay on" },
+                    { key: "lockhorizon", name: "Lock horizon", icon: <Shield size={15} />,
+                      on: celLock, toggle: () => setLockHorizonPref(!celLock),
+                      status: celLock
+                        ? "on — view never swings under the ecliptic"
+                        : "off — full polar range (roll still impossible)" },
                   ] as const).map((t) => (
                     <div key={t.key} className="vt-layer-row" data-vt-control={`celestial_${t.key}`}>
                       <span className="vt-layer-ic">{t.icon}</span>
@@ -9045,7 +9055,7 @@ export default function DataMapPage() {
                       orbits: full ellipses Mercury–Neptune + the Moon + Io, Europa, Ganymede, Callisto, Titan,
                       Triton, Phobos, Deimos (JPL mean elements), drawn in whatever compression the slider is set to.
                       Milky Way: 8k panorama © Solar System Scope (CC-BY 4.0, solarsystemscope.com), aligned to the
-                      real galactic plane. Ecliptic grid off by default. All five settings persist.
+                      real galactic plane. Ecliptic grid off by default. All six settings persist.
                     </span>
                     <span className="vt-field-note">
                       {SPACE_IMAGERY_CREDIT}. Textures load only in the space view (progressive tiers;

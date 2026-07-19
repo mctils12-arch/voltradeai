@@ -48,6 +48,11 @@ import {
   orbitInertiaStep,
   ORBIT_INERTIA_DAMP,
   ORBIT_INERTIA_EPS_DEG,
+  polarClampDots,
+  LOCK_POLAR_MIN,
+  LOCK_POLAR_MAX,
+  UNLOCK_POLAR_MIN,
+  UNLOCK_POLAR_MAX,
   screenRayDir,
   raycastSphere,
   clampOffset,
@@ -247,6 +252,30 @@ test("orbitInertiaStep: coasts, decays geometrically, snaps to rest below eps", 
   // sign preserved (coast continues the drag's direction), NaN clamps to rest
   assert.ok(orbitInertiaStep(-1.5).stepDeg < 0, "negative velocity coasts negative");
   assert.equal(orbitInertiaStep(Number.NaN).velDeg, 0, "NaN velocity rests");
+});
+
+test("polarClampDots: lock forbids under-ecliptic, unlock only widens", () => {
+  const lock = polarClampDots(true);
+  const free = polarClampDots(false);
+  // locked bounds are the charter values: near-pole to just past level
+  close(lock.dotHi, Math.cos(LOCK_POLAR_MIN), 1e-12, "lock hi = cos(0.12)");
+  close(lock.dotLo, Math.cos(LOCK_POLAR_MAX), 1e-12, "lock lo = cos(π/2+0.42)");
+  // under-the-ecliptic view directions (polar > π/2+0.42) are OUT while
+  // locked: dot(dir,axis) = cos(polar) < dotLo
+  const under = Math.cos(Math.PI / 2 + 0.6); // 0.6 rad below level
+  assert.ok(under < lock.dotLo, "under-ecliptic rejected while locked");
+  // ...and IN when unlocked (the toggle only widens, never narrows)
+  assert.ok(under >= free.dotLo && under <= free.dotHi, "unlock admits it");
+  assert.ok(free.dotHi >= lock.dotHi && free.dotLo <= lock.dotLo, "unlock is a superset");
+  // both states still guard the exact poles (basis can never degenerate:
+  // the smallest polar gap keeps |cross(dir,axis)| ≈ sin(0.05) ≫ camBasis's
+  // 1e-6 fallback threshold)
+  assert.ok(free.dotHi < 1 && free.dotLo > -1, "poles excluded even unlocked");
+  close(free.dotHi, Math.cos(UNLOCK_POLAR_MIN), 1e-12, "free hi = cos(0.05)");
+  close(free.dotLo, Math.cos(UNLOCK_POLAR_MAX), 1e-12, "free lo = cos(π-0.05)");
+  // level view (polar = π/2) is always allowed in both states
+  assert.ok(0 <= lock.dotHi && 0 >= lock.dotLo, "level allowed locked");
+  assert.ok(0 <= free.dotHi && 0 >= free.dotLo, "level allowed unlocked");
 });
 
 // ── phase / lighting ────────────────────────────────────────────────────────

@@ -180,6 +180,7 @@ import {
   getMilkyWayPref,
   getStarsPref,
   getEclipticGridPref,
+  getLockHorizonPref,
   getMotionTrailsPref,
   getBodyLabelsPref,
   getRealisticLightingPref,
@@ -313,6 +314,26 @@ export const MIN_ZOOM_RADII = 1.05;
  *  (pointerdown) zeroes it, exactly like OrbitControls. Pure, unit-tested. */
 export const ORBIT_INERTIA_DAMP = 0.9;
 export const ORBIT_INERTIA_EPS_DEG = 0.015;
+
+/** North-lock polar clamp (radians from the up axis). Lock ON (default): the
+ *  camera can tip near the top pole (0.12) but never swing under the ecliptic
+ *  (π/2+0.42 past level). OFF only WIDENS the clamp (small pole guards keep
+ *  the basis non-degenerate) — roll stays impossible either way, because
+ *  camBasis rebuilds the up-vector every frame (see spaceFrame.test.ts
+ *  "roll 0 by construction"). Pure + exported so the clamp is unit-testable. */
+export const LOCK_POLAR_MIN = 0.12;
+export const LOCK_POLAR_MAX = Math.PI / 2 + 0.42;
+export const UNLOCK_POLAR_MIN = 0.05;
+export const UNLOCK_POLAR_MAX = Math.PI - 0.05;
+
+/** dot(dir,axis)=cos(polar) bounds for the current lock state. A candidate
+ *  orbit direction is accepted iff dotLo ≤ dot ≤ dotHi. */
+export function polarClampDots(locked: boolean): { dotHi: number; dotLo: number } {
+  return {
+    dotHi: Math.cos(locked ? LOCK_POLAR_MIN : UNLOCK_POLAR_MIN),
+    dotLo: Math.cos(locked ? LOCK_POLAR_MAX : UNLOCK_POLAR_MAX),
+  };
+}
 
 /** One coasting step: advance the residual angular velocity and decay it.
  *  Returns the applied step (deg) and the decayed velocity; below the
@@ -1216,6 +1237,9 @@ export interface SpaceFrameOptions {
   /** Real bright-star point layer (Yale BSC). Default: the persisted pref (ON). */
   stars?: boolean;
   eclipticGrid?: boolean;
+  /** Lock horizon — polar clamp keeps the view from swinging under the
+   *  ecliptic (default: the persisted pref, ON). OFF only widens the clamp. */
+  lockHorizon?: boolean;
   motionTrails?: boolean;
   bodyLabels?: boolean;
   /** B6 realistic (physically-lit) mode. Default: the persisted pref (ON).
@@ -1262,6 +1286,8 @@ export interface SpaceFrameHandle {
   /** toggle the real bright-star point layer (Yale BSC). */
   setStars(on: boolean): void;
   setEclipticGrid(on: boolean): void;
+  /** Lock horizon: live polar-clamp toggle (ON = never under the ecliptic). */
+  setLockHorizon(on: boolean): void;
   setMotionTrails(on: boolean): void;
   setBodyLabels(on: boolean): void;
   /** B6: toggle realistic (physically-lit) mode. ON (default) = real
@@ -1981,6 +2007,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let gridOn = opts.eclipticGrid ?? getEclipticGridPref();
   let trailsOn = opts.motionTrails ?? getMotionTrailsPref();
   let labelsOn = opts.bodyLabels ?? getBodyLabelsPref();
+  // Lock horizon (2026-07-19): polar clamp state — see polarClampDots.
+  let lockHorizon = opts.lockHorizon ?? getLockHorizonPref();
   // B6 universal lighting: ON = physically-lit (terminators/phases/eclipse+
   // ring shadows); OFF = even-lit inspection (full-bright, no terminator).
   let realistic = opts.realisticLighting ?? getRealisticLightingPref();
@@ -3528,14 +3556,19 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   const DRAG_DEG_PER_PX = 0.25;
 
   /** yaw about the ecliptic axis + pitch about the camera-right axis, with
-   *  the pole clamp so the axis-up basis never degenerates. Shared by live
-   *  drag and the inertial coast. */
+   *  the lock-horizon polar clamp (never under the ecliptic while ON; OFF
+   *  only widens — roll impossible in both, camBasis rebuilds up). Shared by
+   *  live drag and the inertial coast — the ONLY pitch-bounding site. */
   function applyOrbit(yawDeg: number, pitchDeg: number): void {
     const axis = earthAxisEcl(timeMs);
     const b = camBasis(dir, axis);
     let nd = rotateAbout(dir, axis, yawDeg);
     nd = rotateAbout(nd, b.r, pitchDeg);
-    if (Math.abs(dot(nd, axis)) < 0.985) dir = norm3(nd);
+    // polar clamp: dot(dir,axis)=cos(polar). Out of bounds ⇒ yaw-only, so a
+    // wild drag slides along the clamp instead of dying at it.
+    const { dotHi, dotLo } = polarClampDots(lockHorizon);
+    const d = dot(nd, axis);
+    if (d >= dotLo && d <= dotHi) dir = norm3(nd);
     else dir = norm3(rotateAbout(dir, axis, yawDeg));
   }
 
@@ -3771,6 +3804,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     setEclipticGrid(on: boolean): void {
       if (on === gridOn) return;
       gridOn = on;
+      lastInputAt = performance.now();
+      kick();
+    },
+    setLockHorizon(on: boolean): void {
+      if (on === lockHorizon) return;
+      lockHorizon = on;
       lastInputAt = performance.now();
       kick();
     },
