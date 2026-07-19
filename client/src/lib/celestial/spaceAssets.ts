@@ -73,6 +73,31 @@ export const MOON_TIER_FILES: Record<"1k" | "2k" | "8k", string> = {
   "8k": "moon_8k.jpg",
 };
 
+// ── B5: per-body source-map prime-meridian registration ─────────────────────
+// equirectUV (textureSphere) assumes each map places lon 0 at texture centre
+// (u = 0.5). That holds for the LRO moon_8k mosaic, but the planet map family
+// (marsmap1k / mercurymap / venusmap — the classic PlanetPixelEmporium/"Solar
+// System Scope" set) places lon 0 at the LEFT edge (u = 0), a 180° shift. This
+// was a latent orientation error in the far textured sprite that B5 surfaces
+// (real Trek tiles are true-areographic and would mismatch the base). Measured
+// against each body's own Trek mosaic on 2026-07-19 (curl+correlation evidence
+// in the B5 report): Mars pearson 0.63, Venus 0.54, Mercury ~0.25 (low surface
+// contrast) all peak at ~180°. The offset is added to u in BOTH the far sprite
+// and the focused-close patch base, so the whole zoom continuum shows the SAME
+// true frame the Trek tiles + rotation.ts use. Bodies absent here (moon, sun,
+// gas giants) keep offset 0 — the Moon path stays byte-identical.
+export const TEXTURE_LON_OFFSET_DEG: Record<string, number> = {
+  mars: 180,
+  mercury: 180,
+  venus: 180,
+};
+
+/** Source-map longitude offset (deg) added to u for a body's equirect texture;
+ *  0 for bodies whose map already centres lon 0 (the Moon, the Sun). */
+export function textureLonOffsetDeg(id: string): number {
+  return TEXTURE_LON_OFFSET_DEG[id] ?? 0;
+}
+
 export const MOON_BUMP_FILE = "moonbump1k.jpg";
 
 export const SATURN_RING_FILES = {

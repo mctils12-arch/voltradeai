@@ -116,6 +116,26 @@ test("compose: front-lit center shows the exact texel; night side falls to the 5
   assert.equal(em[c], 126, "emissive full bright");
 });
 
+test("compose: texLonOffsetDeg shifts the source-map prime meridian (B5 planet maps)", () => {
+  const lut = buildSphereLUT(8, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+  const t = tex(36, 18, (x) => [x * 7, 100, 200]); // longitude-striped: r ∝ column
+  const R = lut.shadeR;
+  const c = ((R + 1) * lut.size + (R + 1)) * 4;
+  // offset 0 (Moon/Sun): centre (lon 0) → u=0.5 → x=18 → r=126 (unchanged)
+  const a = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: 1 }, a, { texLonOffsetDeg: 0 });
+  assert.equal(a[c], 126, "offset 0 keeps the u=0.5 centre meridian");
+  // offset 180 (marsmap/mercurymap/venusmap — lon 0 at the texture's west edge):
+  // u = 0.5 + 0.5 → wraps to 0 → x=0 → r=0
+  const b = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: 1 }, b, { texLonOffsetDeg: 180 });
+  assert.equal(b[c], 0, "offset 180 samples the west-edge column (x=0)");
+  // omitting the field ≡ offset 0 (default byte-identical — the Moon regression)
+  const d = new Uint8ClampedArray(lut.size * lut.size * 4);
+  composeTexturedSprite(lut, t, 0, { x: 0, y: 0, z: 1 }, d);
+  assert.deepEqual(Array.from(d), Array.from(a));
+});
+
 test("bump: emboss shading perturbs the lit weight without breaking bounds", () => {
   const lut = buildSphereLUT(8, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }, true);
   const t = tex(16, 8, () => [128, 128, 128]);

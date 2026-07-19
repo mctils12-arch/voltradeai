@@ -214,7 +214,7 @@ export function composeTexturedSprite(
   wDeg: number,
   lightCam: Vec3 | null,
   out: Uint8ClampedArray,
-  opts?: { bump?: TexLike | null; bumpStrength?: number; rowStart?: number; rowEnd?: number },
+  opts?: { bump?: TexLike | null; bumpStrength?: number; rowStart?: number; rowEnd?: number; texLonOffsetDeg?: number },
 ): void {
   const { size, nx, ny, nz, lonNode, lat, mask, ex, ey, ez } = lut;
   const tw = tex.width;
@@ -223,6 +223,9 @@ export function composeTexturedSprite(
   const bump = opts?.bump ?? null;
   const bk = opts?.bumpStrength ?? 1.2;
   const s = lightCam ? norm3(lightCam) : null;
+  // source-map prime-meridian offset (0 for the Moon/Sun ⇒ byte-identical;
+  // 180 for the planet map family whose lon 0 sits at the texture's left edge)
+  const texOff = (opts?.texLonOffsetDeg ?? 0) / 360;
   const i0 = Math.max(0, opts?.rowStart ?? 0) * size;
   const n = Math.min(size, opts?.rowEnd ?? size) * size;
   for (let i = i0; i < n; i++) {
@@ -232,7 +235,7 @@ export function composeTexturedSprite(
       continue;
     }
     const lon = lonNode[i] - wDeg;
-    let u = lon / 360 + 0.5;
+    let u = lon / 360 + 0.5 + texOff;
     u -= Math.floor(u); // wrap to [0,1)
     const v = Math.min(1, Math.max(0, 0.5 - lat[i] / 180));
     const tx = Math.min(tw - 1, (u * tw) | 0);

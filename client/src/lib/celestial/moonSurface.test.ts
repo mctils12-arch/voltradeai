@@ -215,3 +215,47 @@ test("chunked rows compose to the same buffer as a single pass", () => {
   for (let r = 0; r < 48; r += 7) renderMoonSurfaceRows(b.view, base, null, b.out, r, r + 7);
   assert.deepEqual(Array.from(a.out), Array.from(b.out));
 });
+
+// ── B5: per-body base-texture longitude offset (planet map family) ──────────
+
+/** base with the west edge (u≈0) RED and the centre (u≈0.5) BLUE, so the
+ *  sampled meridian at the sub-camera point (lon 0) is decidable by colour. */
+function meridianBase(): TexLike {
+  const w = 4, h = 2;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) { data[i * 4] = 120; data[i * 4 + 1] = 120; data[i * 4 + 2] = 120; data[i * 4 + 3] = 255; }
+  const setCol = (col: number, r: number, g: number, b: number): void => {
+    for (let y = 0; y < h; y++) { const i = (y * w + col) * 4; data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255; }
+  };
+  setCol(0, 255, 0, 0); // u≈0 (west edge) red
+  setCol(2, 0, 0, 255); // u≈0.5 (centre) blue
+  return { data, width: w, height: h };
+}
+
+test("texLonOffsetDeg=0 samples the u=0.5 meridian at the sub-camera point (Moon)", () => {
+  const base = meridianBase();
+  const { view, out } = frontalView(32, 32, base, null);
+  view.texLonOffsetDeg = 0;
+  renderMoonSurfaceRows(view, base, null, out, 0, 32);
+  const c = (16 * 32 + 16) * 4;
+  assert.ok(out[c + 2] > out[c], `centre blue (u=0.5): b=${out[c + 2]} r=${out[c]}`);
+});
+
+test("texLonOffsetDeg=180 shifts the sub-camera meridian by 180° (planet maps)", () => {
+  const base = meridianBase();
+  const { view, out } = frontalView(32, 32, base, null);
+  view.texLonOffsetDeg = 180; // planet map family: lon 0 at the texture's west edge
+  renderMoonSurfaceRows(view, base, null, out, 0, 32);
+  const c = (16 * 32 + 16) * 4;
+  assert.ok(out[c] > out[c + 2], `centre red (u wraps to 0): r=${out[c]} b=${out[c + 2]}`);
+});
+
+test("texLonOffsetDeg omitted ≡ offset 0 (Moon path byte-identical)", () => {
+  const base = solid(8, 8, 200, 200, 200);
+  const a = frontalView(40, 40, base, null);      // texLonOffsetDeg undefined
+  const b = frontalView(40, 40, base, null);
+  b.view.texLonOffsetDeg = 0;                      // explicit 0
+  renderMoonSurfaceRows(a.view, base, null, a.out, 0, 40);
+  renderMoonSurfaceRows(b.view, base, null, b.out, 0, 40);
+  assert.deepEqual(Array.from(a.out), Array.from(b.out));
+});

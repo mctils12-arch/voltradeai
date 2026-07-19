@@ -174,6 +174,7 @@ import {
   getMotionTrailsPref,
   getBodyLabelsPref,
   MILKY_WAY_CREDIT,
+  textureLonOffsetDeg,
   type SpaceTextureManager,
   type TexImage,
 } from "./spaceAssets.js";
@@ -1676,7 +1677,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   function patchView(
     bufW: number, bufH: number, bx: number, by: number, bw: number, bh: number,
     camPos: Vec3, center: Vec3, R: number, basis: CamBasis, k: number, cx: number, cy: number,
-    X: Vec3, Y: Vec3, Z: Vec3, wDeg: number, sun: Vec3,
+    X: Vec3, Y: Vec3, Z: Vec3, wDeg: number, sun: Vec3, texLonOffsetDeg: number,
   ): MoonSurfaceView {
     const stepX = bw / bufW;
     const stepY = bh / bufH;
@@ -1686,7 +1687,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       cx, cy, k,
       r: basis.r, u: basis.u, f: basis.f,
       cam: camPos, center, radius: R,
-      X, Y, Z, wDeg, sun,
+      X, Y, Z, wDeg, sun, texLonOffsetDeg,
     };
   }
 
@@ -1733,6 +1734,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (patchBodyId && patchBodyId !== bodyId) evictBodyPatch();
     patchBodyId = bodyId;
     const rid = bodyId as RotationBodyId;
+    // source-map prime-meridian offset so the base fallback shows the SAME true
+    // frame as the streamed Trek detail tiles (0 for the Moon, 180 for planets)
+    const texLon = textureLonOffsetDeg(bodyId);
     const R = radiusM(bodyId);
     const center = pos[bodyId];
     const distC = Math.max(R * 1.0001, d.layoutDistM);
@@ -1800,7 +1804,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       cv.height = fd.bufH;
       mpFast = { canvas: cv, img: cv.getContext("2d")!.createImageData(fd.bufW, fd.bufH), bufW: fd.bufW, bufH: fd.bufH };
     }
-    const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun);
+    const fView = patchView(fd.bufW, fd.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon);
     const tf = performance.now();
     renderMoonSurfaceRows(fView, base, detail, mpFast.img.data, 0, fd.bufH);
     const fms = performance.now() - tf;
@@ -1817,7 +1821,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       mpBuilding = {
         key, canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
         bufW: ld.bufW, bufH: ld.bufH, bx, by, bw, bh,
-        view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun),
+        view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon),
         base, detail, row: 0, ready: false,
       };
       if (!mpTimer) mpTimer = setTimeout(pumpMoonPatch, 0);
@@ -1911,6 +1915,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         {
           bump: u.bump, bumpStrength: 1.2,
           rowStart: u.composeRow, rowEnd: u.composeRow + rows,
+          texLonOffsetDeg: textureLonOffsetDeg(u.def.id),
         },
       );
       u.composeRow += rows;
@@ -2006,7 +2011,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       wq,
       def.emissive ? null : sunCam,
       img.data,
-      wantTangents ? { bump, bumpStrength: 1.2 } : undefined,
+      wantTangents
+        ? { bump, bumpStrength: 1.2, texLonOffsetDeg: textureLonOffsetDeg(def.id) }
+        : { texLonOffsetDeg: textureLonOffsetDeg(def.id) },
     );
     const ms = performance.now() - t0;
     if (ms > spriteBuildMsMax) spriteBuildMsMax = ms;
