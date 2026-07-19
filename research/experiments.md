@@ -211,6 +211,48 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Celestial v2 B5: real deep-zoom PLANET surfaces (Mars/Mercury/Venus Trek tiles) (v1.0.414, T-CLIENT, worktree agent + parent review)
+
+Generalizes B4's Moon Trek-tile pattern to the rocky planets. lroc.ts
+gains per-body TrekScheme + TREK_BODIES registry; the moonSurface
+raycast patch + tile manager are body-agnostic (per-body tile mgrs,
+credit, eviction). WIRED (real NASA Trek, CORS * → browser-direct):
+MARS Viking MDIM21 z0-7 ≈325 m/px (~64× the shipped 1k texture),
+MERCURY MESSENGER MDIS z0-7 ≈234 m/px, VENUS Magellan C3-MDIR z0-5
+≈2.3 km/px (.png path). Gas giants NOT wired (no solid surface / no
+Trek mosaic — keep cloud sprites). REAL BUG the agent found+fixed: the
+shipped planet textures (marsmap1k/mercurymap/venusmap) place lon 0 at
+the texture WEST edge — a latent 180° equirectUV error; measured
+against each body's own Trek mosaic (peaks at 180°) and corrected with
+a per-body textureLonOffsetDeg on BOTH the far sprite and the patch
+base, so the whole zoom continuum shows one true frame. Alignment
+pinned (Olympus Mons/Valles Marineris/Caloris/Maxwell Montes land in
+the right tile). Moon byte-identical (default offset 0; all 190 Moon
+tests unchanged). Gates (parent-verified, my own drive): client
+527/527 (+16), build clean, territory = celestial/*.ts only. Mars
+drive vs REAL trek tiles: real tiles 200 at z7, 5.88× sharpening,
+alignment right 0.561 vs 0.000 control, evict/unload to 0, tasks
+<16ms, zero errors (Mercury 11/11, Venus PNG path proven).
+
+DURING-MOTION CRISPNESS (human feedback "it gets fuzzy when you move
+around it"): the agent reworked the shared patch to keep the last
+high-res buffer on screen during motion + refresh continuously +
+prefetch — a real improvement over the pre-B5 drop-to-fast-tier. BUT
+my independent drive measured only ~30-37% of settled detail-energy
+during active orbit AT THE 1.05 EXTREME-SKIM FLOOR (the documented
+fast-tier fallback zone — a wildly-rotated stale buffer looks worse
+than the fast tier). I could NOT cleanly measure the user's natural
+~2-radii distance (the drive re-zooms to the floor for its settled
+probe). HONEST STATUS: partial — better than before, not proven fully
+crisp during motion. The DEFINITIVE fix is folded into the next
+NAVIGATION/MOTION wave (Earth-map-style camera), which will own
+"crisp during ALL motion at ALL in-range distances" as an explicit
+acceptance gate measured at the user's actual viewing distances.
+HONEST LIMITS also: Venus sharpening marginal (Trek caps z5, same
+Magellan source as venusmap.jpg); Mercury base↔tile correlation weak
+in absolute terms (uniform low-contrast surface) but direction
+correct. Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Celestial v2 B7: SPACE FRAME per-toggle rows in the CELESTIAL panel (v1.0.413, T-CLIENT, worktree agent + parent review)
 
 Panel presentation to match the human's Claude design ("exactly like

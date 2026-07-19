@@ -69,6 +69,22 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-19 B5 SHIPPED (v1.0.414): real deep-zoom PLANET surfaces —
+  Mars (Viking MDIM21 z7 ~325m/px), Mercury (MESSENGER z7 ~234m/px),
+  Venus (Magellan z5) via the generalized B4 Trek pattern (lroc.ts
+  per-body TrekScheme). Fixed a latent 180deg texture-longitude bug in
+  the shipped planet maps. Gas giants keep cloud sprites (no surface).
+  During-motion crispness improved but only PARTIAL at close skim (my
+  drive ~30-37% of settled at 1.05 radii, the documented fast-tier
+  fallback) — the DEFINITIVE crisp-during-motion fix is owned by the
+  NAVIGATION/MOTION wave next (Earth-map camera). Also B7 SHIPPED
+  (#546, v1.0.413): CELESTIAL panel per-toggle rows. NEXT (human live
+  feedback, priority over B6): (1) NAVIGATION — space camera to feel
+  like the maplibre Earth map (zoom-to-cursor, pan, smooth) + crisp-
+  during-motion acceptance gate; (2) GALAXY — real bright-star catalog
+  (Yale BSC ~9110 stars, real RA/dec/mag/K-color) + sharper panorama.
+  THEN B6 universal lighting.
+
 - 2026-07-19 B4 SHIPPED (v1.0.411): the REAL deep-zoom Moon. Focused-
   close, the Moon renders a perspective surface patch sampling real
   NASA LROC WAC global-mosaic tiles (trek.nasa.gov, public domain,
