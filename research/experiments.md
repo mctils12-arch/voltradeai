@@ -211,6 +211,32 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Celestial v2 B7: SPACE FRAME per-toggle rows in the CELESTIAL panel (v1.0.413, T-CLIENT, worktree agent + parent review)
+
+Panel presentation to match the human's Claude design ("exactly like
+the claude design had it" — the panel too). The four scene toggles
+(Motion trails, Milky Way, Ecliptic grid [default off], Labels) were
+ALREADY WIRED to the spaceFrame handle setters since #541 — the agent
+correctly did NOT re-wire working code; B7's delta is splitting them
+from one lumped "Space scene" pill row into the reference's per-toggle
+rows (RAW badge, iOS switch, per-row status LED + honest line, "N/5 ON"
+counter), data-vt-control on every row (harness registry accounting).
+Reconciled honestly: the reference's "time ×" + "planet rotation" map
+onto the shipped B3 ONE sim clock (already in the panel) — NOT
+duplicated; an amber note points to the Simulation time section.
+Reused existing localStorage prefs (no new store). One commit,
+datamap.tsx only. Gates: client 511/511, build clean, B7's own
+SwiftShader drive PASS (each toggle flips the render truth, counter
+updates, persists across reload, 390px no overflow, zero errors) +
+data-scale registry-count battery PASS. NOTE: the visual harness
+"fields-on" scenario hard-fails in THIS sandbox — it renders live
+OpenWeatherMap weather tiles + wind arrows that don't load here (no
+weather fixtures), so the wx layer group never mounts and its
+raster-opacity reads null; confirmed PRE-EXISTING on clean main (the
+run hangs on it there too), unrelated to B7's CELESTIAL change, and
+recent client PRs merged green through it. Filed as an environmental
+harness limitation, not a code regression. Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Celestial v2 B4: the REAL deep-zoom Moon (NASA LROC WAC tiles) (v1.0.411, T-CLIENT, worktree agent + parent review)
 
 Human: "zoom in way more to the moon and it to be real like from the
