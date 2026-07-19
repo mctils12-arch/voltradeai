@@ -28,7 +28,15 @@ import {
   getBodyLabelsPref,
   textureLonOffsetDeg,
   TEXTURE_LON_OFFSET_DEG,
+  STAR_CATALOG_FILE,
+  STAR_NAMES_FILE,
+  STAR_FIELD_FADE_START_AU,
+  starFieldOpacity,
+  getStarsPref,
+  loadStarCatalog,
 } from "./spaceAssets.js";
+import { decodeStarAsset } from "./starCatalog.js";
+import { readFileSync } from "node:fs";
 
 const SPACE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -74,6 +82,78 @@ test("milky way fade: reference curve clamp((camAU-8)/25,0,1) — invisible near
     assert.ok(o >= 0 && o <= 1, "clamped");
     prev = o;
   }
+});
+
+test("star field fade: bright stars appear EARLIER than the panorama, black near Earth", () => {
+  assert.equal(starFieldOpacity(1), 0, "black near Earth (1 AU)");
+  assert.equal(starFieldOpacity(STAR_FIELD_FADE_START_AU), 0, "starts at 2 AU");
+  assert.ok(starFieldOpacity(4) > 0 && starFieldOpacity(4) < 1, "ramping mid inner-system");
+  assert.equal(starFieldOpacity(6), 1, "full by 6 AU");
+  assert.equal(starFieldOpacity(50), 1, "stays visible far out");
+  assert.equal(starFieldOpacity(Number.NaN), 0, "non-finite → hidden");
+  // the reconciliation: at 6 AU stars are already full while the panorama
+  // (starts 8 AU) is still 0 — the real bright stars lead the faint glow
+  assert.equal(milkyWayOpacity(6), 0, "panorama still absent where stars are full");
+  let prev = -1;
+  for (let au = 0; au <= 10; au += 0.25) {
+    const o = starFieldOpacity(au);
+    assert.ok(o >= prev && o >= 0 && o <= 1, "monotone clamped");
+    prev = o;
+  }
+});
+
+test("star catalog asset: committed, decodes to ~9096 real stars, compact vs the source", () => {
+  const bin = readFileSync(path.join(SPACE_DIR, STAR_CATALOG_FILE));
+  assert.ok(bin.byteLength < 200_000, `compact asset (${bin.byteLength} bytes) — far below the 932 KB source`);
+  const ab = bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength);
+  const cat = decodeStarAsset(ab);
+  assert.ok(cat.count >= 9000 && cat.count <= 9200, `star count ${cat.count} ≈ Yale BSC`);
+  // every direction is a unit vector; magnitudes span the catalog range
+  let minMag = Infinity;
+  let maxMag = -Infinity;
+  for (let i = 0; i < cat.count; i++) {
+    const l = Math.hypot(cat.dirEq[i * 3], cat.dirEq[i * 3 + 1], cat.dirEq[i * 3 + 2]);
+    assert.ok(Math.abs(l - 1) < 1e-3, `star ${i} unit direction`);
+    if (cat.mag[i] < minMag) minMag = cat.mag[i];
+    if (cat.mag[i] > maxMag) maxMag = cat.mag[i];
+  }
+  assert.ok(minMag < -1, `has a very bright star (Sirius −1.46): min ${minMag}`);
+  assert.ok(maxMag > 6, `has faint naked-eye stars: max ${maxMag}`);
+  // the brightest-names file exists and references real indices
+  const names = JSON.parse(readFileSync(path.join(SPACE_DIR, STAR_NAMES_FILE), "utf8"));
+  assert.ok(Array.isArray(names) && names.length >= 10, "bright-star names bundled");
+  assert.ok(names.some((n: { name: string }) => n.name === "Sirius"), "Sirius named");
+});
+
+test("loadStarCatalog: fetches + decodes the bundled binary, attaches names (fixture fetch)", async () => {
+  const bin = readFileSync(path.join(SPACE_DIR, STAR_CATALOG_FILE));
+  const names = readFileSync(path.join(SPACE_DIR, STAR_NAMES_FILE));
+  const orig = globalThis.fetch;
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string) => {
+    const u = String(url);
+    if (u.endsWith(STAR_CATALOG_FILE)) {
+      return { ok: true, arrayBuffer: async () => bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength) } as Response;
+    }
+    if (u.endsWith(STAR_NAMES_FILE)) {
+      return { ok: true, json: async () => JSON.parse(names.toString()) } as Response;
+    }
+    return { ok: false } as Response;
+  }) as typeof fetch;
+  try {
+    const cat = await loadStarCatalog("/space/");
+    assert.ok(cat && cat.count > 9000, "catalog loaded");
+    assert.ok(cat!.names.size >= 10, "names attached");
+    // null on failure, never throw
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () => ({ ok: false } as Response)) as typeof fetch;
+    const none = await loadStarCatalog("/space/");
+    assert.equal(none, null, "missing asset → null (degrade, never break)");
+  } finally {
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = orig;
+  }
+});
+
+test("star prefs: default ON", () => {
+  assert.equal(getStarsPref(), true, "real stars default ON");
 });
 
 test("moon texture tier: 1k default, 2k on a large disc, 8k ONLY focused/close, eviction side", () => {

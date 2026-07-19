@@ -40,6 +40,8 @@
 // able. The manager itself touches fetch/canvas and is only constructed
 // from the mounted frame.
 
+import { decodeStarAsset, type StarCatalog } from "./starCatalog.ts";
+
 export interface TexImage {
   data: Uint8ClampedArray;
   width: number;
@@ -107,12 +109,22 @@ export const SATURN_RING_FILES = {
 
 export const MILKY_WAY_FILE = "8k_stars_milky_way.jpg";
 
-/** Decode caps (working resolutions), per asset kind — see header. */
+/** Real bright-star catalog (Yale BSC, public domain) — the compact binary +
+ *  the brightest-star names, both bundled in client/public/space/. */
+export const STAR_CATALOG_FILE = "bsc5.bin";
+export const STAR_NAMES_FILE = "bsc5_bright.json";
+
+/** Decode caps (working resolutions), per asset kind — see header. The Milky
+ *  Way panorama decodes at 4096×2048 (galaxy detail upgrade 2026-07-19 — the
+ *  band read soft when it filled the screen; a 33 MB working buffer, freed on
+ *  exit like the Moon's 8k tier). Its 8k source stays the sole source: the sky
+ *  renders through a capped working resolution, so a >8k panorama would add
+ *  megabytes with no visible gain here. */
 export const DECODE_CAPS: Record<string, { w: number; h: number }> = {
   low: { w: 1024, h: 512 },
   "2k": { w: 2048, h: 1024 },
   "8k": { w: 4096, h: 2048 },
-  milkyway: { w: 2048, h: 1024 },
+  milkyway: { w: 4096, h: 2048 },
   ring: { w: 1024, h: 128 },
 };
 
@@ -133,6 +145,49 @@ export function milkyWayOpacity(camAU: number): number {
   if (!Number.isFinite(camAU)) return 0;
   const t = (camAU - MILKY_WAY_FADE_START_AU) / MILKY_WAY_FADE_SPAN_AU;
   return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+// ── real bright-star field fade (galaxy detail upgrade 2026-07-19) ───────────
+// The REAL bright stars (Yale BSC) reconcile with the panorama fade like the
+// real sky does: the bright stars pop as the camera leaves the inner solar
+// system — EARLIER than the faint galactic glow. They ramp from 2 AU to full
+// by 6 AU (the panorama only *begins* at 8 AU), so by the far galaxy view both
+// the panorama band AND the point stars are present = materially more detail.
+// Still 0 at ~1 AU near Earth, so the near-Earth sky stays honestly black.
+export const STAR_FIELD_FADE_START_AU = 2;
+export const STAR_FIELD_FADE_SPAN_AU = 4;
+
+export function starFieldOpacity(camAU: number): number {
+  if (!Number.isFinite(camAU)) return 0;
+  const t = (camAU - STAR_FIELD_FADE_START_AU) / STAR_FIELD_FADE_SPAN_AU;
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+/** Lazily fetch + decode the bundled star catalog (binary) and attach the
+ *  brightest-star names. NO cost until the mounted frame calls this. Returns
+ *  null on any failure — the sky degrades to the panorama alone, never breaks. */
+export async function loadStarCatalog(
+  base: string = SPACE_TEXTURE_BASE,
+  signal?: AbortSignal,
+): Promise<StarCatalog | null> {
+  try {
+    const res = await fetch(base + STAR_CATALOG_FILE, { signal });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    const cat = decodeStarAsset(buf);
+    try {
+      const nres = await fetch(base + STAR_NAMES_FILE, { signal });
+      if (nres.ok) {
+        const names = (await nres.json()) as { i: number; name: string }[];
+        for (const n of names) {
+          if (Number.isInteger(n.i) && n.i >= 0 && n.i < cat.count) cat.names.set(n.i, n.name);
+        }
+      }
+    } catch { /* names optional — the field renders without labels */ }
+    return cat;
+  } catch {
+    return null;
+  }
 }
 
 // ── Moon texture tier chooser ───────────────────────────────────────────────
@@ -187,6 +242,13 @@ const milkyPref = makeBoolPref("vt-celestial-milkyway", true);
 export const getMilkyWayPref = milkyPref.get;
 export const setMilkyWayPref = milkyPref.set;
 export const subscribeMilkyWayPref = milkyPref.subscribe;
+
+/** Real bright stars (Yale BSC) point layer (default ON — fades in earlier
+ *  than the panorama; see starFieldOpacity). */
+const starsPref = makeBoolPref("vt-celestial-stars", true);
+export const getStarsPref = starsPref.get;
+export const setStarsPref = starsPref.set;
+export const subscribeStarsPref = starsPref.subscribe;
 
 /** Ecliptic grid — AU range rings + bearing spokes (default OFF, matching
  *  the reference panel). */

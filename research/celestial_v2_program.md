@@ -69,6 +69,17 @@ mid-range mobile verification with before/after profiler numbers in
 every PR.
 
 ## RESUME STATE (newest first)
+- 2026-07-19 GALAXY SHIPPED (v1.0.417): real Yale BSC bright stars
+  (9096, compact 106KB bsc5.bin) rendered at true J2000 sky positions
+  with V-mag size + K-temp blackbody color, over a sharpened Milky Way
+  panorama; honest real sky (replaces the no-starfield note with real
+  data), fades 2->6 AU, 0 near Earth, credited. All THREE human live-
+  feedback items now shipped: fuzzy (definitive, #548), Earth-map
+  navigation (#548), galaxy detail (this). NEXT = B6 universal
+  lighting (sun-driven terminators/phases on every body, eclipse+ring
+  shadows, craft umbra, Realistic-lighting toggle default-on) — then
+  a small follow-up to add the CELESTIAL-panel Stars toggle row.
+
 - 2026-07-19 NAVIGATION SHIPPED (v1.0.415): space camera to the
   maplibre Earth-map feel — smooth eased wheel zoom TOWARD THE CURSOR's
   surface point, left-drag orbit + inertia, right/shift/two-finger PAN
