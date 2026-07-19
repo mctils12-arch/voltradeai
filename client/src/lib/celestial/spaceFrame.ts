@@ -206,9 +206,11 @@ import {
 // texels; the surface patch shows real 100 m/px imagery where the eye looks).
 import {
   createMoonTileManager,
-  MOON_TREK_CREDIT,
   type MoonTileManager,
 } from "./moonTiles.js";
+// B5 "PLANET SURFACES": the same tile→patch path streams Mars/Mercury/Venus
+// (and the B4 Moon) — trekBody() supplies each body's Trek scheme + credit.
+import { trekBody } from "./lroc.js";
 import {
   renderMoonSurfaceRows,
   surfaceLonLat,
@@ -1615,9 +1617,24 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   });
   texman.start();
 
-  // ── B4: focused-close Moon — real LROC tiles → perspective surface patch ──
-  const moonTiles: MoonTileManager = createMoonTileManager();
-  moonTiles.onUpdate(() => { mpFull = null; kick(); }); // fresh mosaic → re-stream
+  // ── B4/B5: focused-close rocky bodies — real Trek tiles → surface patch ──
+  // ONE tile manager per body (the B4 Moon + the B5 rocky planets Mars/Mercury/
+  // Venus). Only one body is ever focused-close at a time (you cannot be within
+  // a few radii of two bodies at once), so a single set of patch buffers below
+  // is tagged with the body it belongs to (patchBodyId) and evicted on a body
+  // switch. Each manager is built lazily from the body's own Trek scheme.
+  const bodyTileManagers = new Map<string, MoonTileManager>();
+  function tileManagerFor(bodyId: string): MoonTileManager | null {
+    const tb = trekBody(bodyId);
+    if (!tb) return null;
+    let m = bodyTileManagers.get(bodyId);
+    if (!m) {
+      m = createMoonTileManager({ scheme: tb.scheme });
+      m.onUpdate(() => { mpFull = null; kick(); }); // fresh mosaic → re-stream
+      bodyTileManagers.set(bodyId, m);
+    }
+    return m;
+  }
   const RAD = 180 / Math.PI;
   interface MoonPatchBuf {
     key: string;
@@ -1644,6 +1661,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let moonPatchFullThisFrame = false;
   let moonPatchMsMax = 0;
   let moonCreditOn = false;
+  // which body the current patch buffers belong to, and its on-screen credit
+  let patchBodyId: string | null = null;
+  let patchCreditText = "";
 
   /** buffer dims fitting MOON_PATCH_*_LONG_PX on the bbox's long side. */
   function patchBufDims(bw: number, bh: number, longPx: number): { bufW: number; bufH: number } {
@@ -1692,24 +1712,37 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     mpTimer = setTimeout(pumpMoonPatch, 0);
   }
 
-  /** Draw the focused-close Moon as a real-imagery perspective patch. Returns
-   *  true when it handled the Moon (caller skips the disc sprite). */
-  function drawMoonPatch(
+  /** Draw a focused-close rocky body (Moon/Mars/Mercury/Venus) as a real-
+   *  imagery perspective patch. Returns true when it handled the body (caller
+   *  skips the disc sprite). Body-generic: geometry from radiusM(bodyId), pose
+   *  from pos[bodyId], orientation from rotation.ts for `bodyId`, tiles from the
+   *  body's own Trek manager — the exact B4 path, parameterised by bodyId. */
+  function drawBodyPatch(
+    bodyId: string,
     d: { p: ProjectedPoint; layoutDistM: number },
     sunPos: Vec3, pos: Record<string, Vec3>, camPos: Vec3, basis: CamBasis,
     k: number, cx: number, cy: number, w: number, h: number,
   ): boolean {
     if (!ctx) return false;
-    const base = texman.get("moon");
+    const mgr = tileManagerFor(bodyId);
+    if (!mgr) return false; // not a Trek-surfaced body
+    const base = texman.get(bodyId);
     if (!base) return false; // no fallback texture yet → let the sprite draw
-    const R = radiusM("moon");
-    const center = pos.moon;
+    // switching focused-close bodies: drop the prior body's patch + tiles first
+    // (GPU budget — only one body's mosaic is ever resident)
+    if (patchBodyId && patchBodyId !== bodyId) evictBodyPatch();
+    patchBodyId = bodyId;
+    const rid = bodyId as RotationBodyId;
+    const R = radiusM(bodyId);
+    const center = pos[bodyId];
     const distC = Math.max(R * 1.0001, d.layoutDistM);
-    // orientation (identical to the sprite path — alignment inherited)
-    const Z = norm3(axisEclOfDate("moon", timeMs));
-    const X = norm3(equatorNodeDirEclOfDate("moon", timeMs));
+    // orientation (identical to the sprite path — alignment inherited): the
+    // body's real IAU pole + prime meridian for THIS body (areographic for
+    // Mars, etc.), exactly as the far-tier textured sprite uses
+    const Z = norm3(axisEclOfDate(rid, timeMs));
+    const X = norm3(equatorNodeDirEclOfDate(rid, timeMs));
     const Y = norm3(cross(Z, X));
-    const wDeg = iauPrimeMeridianDeg("moon", timeMs);
+    const wDeg = iauPrimeMeridianDeg(rid, timeMs);
     // sub-camera surface point → mosaic request (screen-matched resolution,
     // span = the geometric horizon cap + a small margin)
     const nCam = norm3(sub(camPos, center));
@@ -1739,17 +1772,19 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       horizonDeg,
       Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, ((bboxLongPx / pxPerSurfDeg) / 2) * MOON_PATCH_COVER_MARGIN),
     );
-    moonTiles.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
-    const mos = moonTiles.current();
+    mgr.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+    const mos = mgr.current();
     const detail: DetailOverlay | null = mos
       ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
       : null;
     moonCreditOn = !!mos;
-    // pose key: what makes the patch pixels change
+    patchCreditText = trekBody(bodyId)!.credit;
+    // pose key: what makes the patch pixels change (body id included so a
+    // buffer from a different body can never be mistaken for a match)
     const distBucket = Math.round(Math.log(distC) / 0.02);
     const mosKey = mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0";
     const key =
-      `${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
+      `${bodyId}|${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
       `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}`;
     // 1) full streamed tier ready for this exact pose → use it
     if (mpFull && mpFull.key === key && mpFull.ready) {
@@ -1790,15 +1825,18 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return true;
   }
 
-  /** Leaving the focused-close range: evict tiles + patch buffers (GPU
-   *  budget), exactly like the 8k tier's eviction. */
-  function evictMoonPatch(): void {
-    moonTiles.clear();
+  /** Leaving the focused-close range (or switching bodies): evict the active
+   *  body's tiles + patch buffers (GPU budget), exactly like the 8k tier's
+   *  eviction. Clears only the currently-resident body's mosaic. */
+  function evictBodyPatch(): void {
+    if (patchBodyId) bodyTileManagers.get(patchBodyId)?.clear();
     mpFull = null;
     mpFast = null;
     mpBuilding = null;
     if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
+    patchBodyId = null;
     moonCreditOn = false;
+    patchCreditText = "";
   }
 
   function ringBandsNow(): RingBand[] | null {
@@ -2304,13 +2342,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (r >= 3) {
         // sun direction in camera coords for the sprite shader
         const def = defById.get(d.id)!;
-        // B4: focused-close Moon → real LROC surface patch instead of the
-        // capped disc sprite (the far tier). Handles it entirely; the Moon
-        // carries no rings, so nothing else in this branch is needed.
+        // B4/B5: a focused-close rocky body (Moon + Mars/Mercury/Venus) → real
+        // Trek surface patch instead of the capped disc sprite (the far tier).
+        // Handles it entirely. Gas giants have no Trek surface (trekBody→null)
+        // and fall through to the textured cloud-band sprite below. Saturn's
+        // rings are painted above regardless; the rocky bodies carry none.
         if (
-          d.id === "moon" &&
-          d.layoutDistM < MOON_PATCH_ACTIVATE_RADII * radiusM("moon") &&
-          drawMoonPatch(d, sunPos, pos, camPos, basis, kNow, cx, cy, w, h)
+          trekBody(d.id) &&
+          d.layoutDistM < MOON_PATCH_ACTIVATE_RADII * radiusM(d.id) &&
+          drawBodyPatch(d.id, d, sunPos, pos, camPos, basis, kNow, cx, cy, w, h)
         ) {
           moonPatchDrewThisFrame = true;
           continue;
@@ -2500,10 +2540,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const capLines: { text: string; color: string }[] = [];
     // REQUIRED visible CC-BY credit whenever the panorama is on screen
     if (milkyShown > 0.02) capLines.push({ text: MILKY_WAY_CREDIT, color: "rgba(140,155,178,0.7)" });
-    // B4: the required visible source credit whenever real LROC tiles are on
-    // screen (public-domain courtesy line — never claim it as live)
-    if (moonPatchDrewThisFrame && moonCreditOn) {
-      capLines.push({ text: MOON_TREK_CREDIT, color: "rgba(140,155,178,0.7)" });
+    // B4/B5: the required visible source credit whenever real Trek tiles are on
+    // screen — the ACTIVE body's own credit (Moon/Mars/Mercury/Venus), a
+    // public-domain courtesy line, never claimed as live
+    if (moonPatchDrewThisFrame && moonCreditOn && patchCreditText) {
+      capLines.push({ text: patchCreditText, color: "rgba(140,155,178,0.7)" });
     }
     const amberHi = "rgba(251,178,76,0.9)";
     const amberLo = "rgba(251,178,76,0.6)";
@@ -2620,11 +2661,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       opts.applyEarthAnchor({ visible: false, dxPx: 0, dyPx: 0, scale: 1, rollDeg: 0, opacity: 0 });
     }
 
-    // B4 eviction: the moment the Moon stops being the focused-close body,
-    // drop its tile mosaic + patch buffers (GPU budget — matches the 8k
-    // tier's eviction; __vtMoonTileBytes drops to 0)
+    // B4/B5 eviction: the moment no rocky body is the focused-close body, drop
+    // its tile mosaic + patch buffers (GPU budget — matches the 8k tier's
+    // eviction; __vtMoonTileBytes drops to 0)
     if (moonPatchDrewThisFrame) moonPatchOn = true;
-    else if (moonPatchOn) { moonPatchOn = false; evictMoonPatch(); }
+    else if (moonPatchOn) { moonPatchOn = false; evictBodyPatch(); }
 
     renderMsLast = performance.now() - t0;
     lastState = {
@@ -2673,10 +2714,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         insideParent: insideParent.has(d.id),
       })),
       moonPatch: (() => {
-        const st = moonTiles.stats();
+        const mgr = patchBodyId ? bodyTileManagers.get(patchBodyId) : null;
+        const st = mgr ? mgr.stats() : { z: null, tiles: 0, bytes: 0, maxChunkMs: 0 };
         return {
           active: moonPatchDrewThisFrame,
           full: moonPatchFullThisFrame,
+          // which rocky body's surface is streaming (Moon/Mars/Mercury/Venus)
+          body: patchBodyId,
           mosaicZ: st.z,
           mosaicTiles: st.tiles,
           tileBytes: st.bytes,
@@ -2984,10 +3028,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       skyCanvas = null;
       skyRays = null;
       ringBands = null;
-      // B4: free the Moon tile mosaic + patch buffers on exit (__vtMoonTileBytes
-      // → 0, drive-observable) alongside the base textures
+      // B4/B5: free every rocky-body tile mosaic + patch buffers on exit
+      // (__vtMoonTileBytes → 0, drive-observable) alongside the base textures
       if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
-      moonTiles.dispose();
+      for (const m of bodyTileManagers.values()) m.dispose();
+      bodyTileManagers.clear();
+      patchBodyId = null;
       mpFull = null;
       mpFast = null;
       mpBuilding = null;
