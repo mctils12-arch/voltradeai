@@ -4291,6 +4291,29 @@ print(json.dumps(run_daily_update()))
       }
     } catch (err: any) { console.error("[tier3-cot]", err?.message || err); }
 
+    // 6. SEC bulk-historical Form 3/4/5 insider-transaction archive update
+    // (EDGE DOCTRINE #1 free-data pipeline; DATA-LADDER GATE 1 ONLY — see
+    // sec_form4_bulk.py / research/open_questions.md's "Insider Form 4
+    // clustering as a signal"). Quarterly-cadence dataset, so this hourly
+    // call self-guards to hit the network at most once per ~12h and
+    // downloads at most one quarter per invocation during backfill.
+    try {
+      const { stdout: form4Out } = await execPythonSerialized(`python3 -c "
+from sec_form4_bulk import run_update
+import json
+print(json.dumps(run_update()))
+"`, { timeout: 120000 });
+      const form4Result = JSON.parse(form4Out.trim());
+      if (form4Result.status === "error") {
+        audit("TIER3-FORM4BULK", `Form4 bulk update failed: ${form4Result.reason}`);
+      } else {
+        const errored = Object.entries(form4Result.results || {}).filter(([, v]: [string, any]) => v.status === "error");
+        if (errored.length > 0) {
+          audit("TIER3-FORM4BULK", `Form4 bulk update: ${errored.length} quarter(s) failed — ${errored.map(([q]) => q).join(", ")}`);
+        }
+      }
+    } catch (err: any) { console.error("[tier3-form4bulk]", err?.message || err); }
+
     audit("TIER3", "Strategic scan complete");
   }
 

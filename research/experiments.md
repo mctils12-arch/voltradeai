@@ -3,6 +3,139 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-19 [PIPELINE]+[RESEARCH] — SEC bulk-historical Form 4 archive (gate 1 DATA) + insider-cluster gate-2 SIGNAL screen: no edge at 20d, unexplained negative at 60d (v1.0.412)
+
+TERRITORY: root-level EDGE-DOCTRINE data-pipeline/research scripts
+(`sec_form4_bulk.py`, `form4_gate2_test.py`, their test modules — same
+class of file as `cftc_cot.py`/`cot_gate2_test.py`, not under datacore/)
++ a small Tier 3 wiring addition in `server/bot.ts` mirroring
+`cftc_cot`'s existing pattern (no scoring/tier logic touched) +
+`storage_config.py` (2 new path constants) + SHARED minimal
+(`package.json` version, `research/*`, last commit per MERGE-ORDER
+PROTOCOL). Solo session — no concurrent-session conflict.
+
+PRIMARY ACTION SELECTION: session-start health check found the trading
+loop alive and healthy (`/api/health`: bot active, drawdownPct 0.0,
+scanner ok, liveness not dark; `/api/diag/ml`: model fresh 14.7h,
+zero TIER3-ML-ERROR since the KNOWN BROKEN #23 fix deployed — that fix
+IS holding live) — not a [REPAIR] session. KNOWN BROKEN's remaining open
+items (#4 equityPeak, #10 dead SCORE_BAND config, #12b/c, #20
+master_kill_switch, #21 analyze.py blind spot) are each explicitly
+gated on either human wishlist approval or accumulating more live audit
+history, not actionable this session. The EDGE DOCTRINE #1 standing
+examples (tank-shadow, EDGAR Form 4 real-time, CFTC COT, FDA calendar,
+Google Trends, USASpending) and `research/data_census.md`'s entire
+CENSUS MASTER RANKING are ALL already built — the usual "next pipeline
+off the list" well is dry. Picked instead
+`research/open_questions.md`'s own explicitly-flagged unexplored
+step inside an EXISTING hypothesis: "sourcing free historical Form 4
+index files from SEC's bulk data page... worth trying before waiting on
+live accumulation" — a queued, concrete, self-contained next step per
+SESSION BUDGET's fall-through order, not a new speculative angle.
+
+PRIOR (stated before running, per REASONING STANDARD #10 — copied
+verbatim from the open_questions.md entry this session updates): expect
+a small positive edge concentrated in officer/director (not 10%-owner
+fund) buys on small/mid caps, close to zero on mega-caps; kill if no
+separation from baseline.
+
+WHAT SHIPPED:
+1. `sec_form4_bulk.py` (DATA-LADDER GATE 1) — discovers available
+   quarters by scraping the live SEC index page (its URL base path
+   changed generations mid-history, `.../structureddata/...` ->
+   `.../datastandardsinnovation/...`, so this reads the live listing
+   rather than guessing a static pattern, same lesson the 2026-07-08 COT
+   Newey-West session logged for a different provider), downloads one
+   quarter's structured zip, joins SUBMISSION+REPORTINGOWNER onto
+   NONDERIV_TRANS, filters to Form 4 officer/director P/S open-market
+   transactions. Chronological 8-quarter backfill, one quarter per poll,
+   wired into `server/bot.ts` Tier 3's existing hourly maintenance call
+   (self-guards to ~12h between network hits). 82 quarters confirmed
+   available back to 2006 — this dataset was available and unexplored
+   the whole time gate 2 sat "blocked on accumulating live history".
+   LIVE DATA-QUALITY FIX: SEC's `ISSUERTRADINGSYMBOL` field is free
+   text — live-probed garbage values (`N/A`, `NONE`, `-`,
+   `NASDAQ:SVC`, dual-class `GEF, GEF-B`) are rejected by a ticker-shape
+   filter rather than guessed at.
+2. `form4_gate2_test.py` (SIGNAL) — causal (backward-only) cluster
+   detection (>=2 distinct officer/director owners buying the same
+   issuer within 5 calendar days), forward 20d/60d returns via the
+   existing `backtest_v2.fetch_bars` (Alpaca-first/Yahoo-fallback, same
+   as `cot_gate2_test.py`), each ticker compared against ITS OWN
+   unconditional forward-return distribution with event-adjacent windows
+   excluded from that baseline (a contamination guard this session added
+   beyond the COT precedent — an event's own price move must not leak
+   into its "neutral" comparison group). Welch two-sample t-test, not
+   Newey-West — documented reasoning in the module docstring for why:
+   COT's HAC correction fixes a single-symbol weekly-overlap
+   autocorrelation problem that cross-sectional, many-different-ticker
+   Form 4 events mostly don't have.
+3. RATCHET: `test_sec_form4_bulk.py` (26 tests, real captured SEC field
+   shapes — a real Oklo Inc. director buy, a real joint TenPercentOwner
+   filing, live-probed garbage ticker values) + `test_form4_gate2.py`
+   (26 tests, pure-function, no network). `python3 -m pytest -q`: 808
+   passed / 2 skipped (756 prior baseline + 52 new, zero regressions).
+   `npx tsx --test server/*.test.ts`: 743 passed / 7 failed — A/B
+   verified via `git stash` that the 2 failures not already documented
+   as pre-existing in a prior session (aircraftTiling, securityMiddleware)
+   fail identically with this session's diff stashed out, confirming all
+   7 are pre-existing and unrelated (the other 5 — apiKeyAccounts/
+   compression/gdeltEvents/owmTiles/seafloorTiles — were already logged
+   pre-existing by the 2026-07-18 EPA CAMD session). `npx tsc --noEmit`:
+   3 errors, byte-identical pre-existing set (vite/client + node
+   type-entry + deprecated-baseUrl, zero mention of this session's
+   files). `npm run build` clean.
+
+LIVE RESULT — kept honest across all 3 runs, not just the best one
+(REASONING STANDARD #4/#10): a SMALL pre-fix sample (2 quarters,
+150-then-300-ticker cap) showed an exciting 20d cluster hit (mean_diff
++2.36pp, p=0.0002) that appeared to strengthen as the sample grew from
+150->300. It reversed once backfilled to 6 quarters (2025q1-2026q2,
+2,743 tickers in-archive) — but that 6-quarter/500-cap run exposed a
+REAL SELECTION BUG found live this session: cluster-eligible tickers
+alone (1,180) exceeded the 500-ticker sampling cap, so the priority-order
+sampler gave the "single" bucket ZERO clean tickers once the cap
+saturated — every "single" observation was actually a non-cluster event
+riding on a ticker that also had a cluster elsewhere. Fixed to a
+balanced ~50/50 cluster/single split (ratcheted:
+`test_single_bucket_not_starved_when_cluster_pool_exceeds_cap` +
+`test_full_budget_used_when_one_bucket_is_scarce`). FINAL (corrected,
+authoritative) run: 6 quarters, 500-ticker balanced cap, 2,227 events
+(806 clustered), 477/500 tickers fetched successfully (23 Yahoo-side
+misses, mostly malformed/delisted symbols, logged not swallowed) —
+- **20d: NO SEPARATION from baseline** — cluster mean_diff +0.50pp
+  (p=0.48), single -0.54pp (p=0.35). The exciting small-sample hit did
+  NOT replicate — the same "raw gap doesn't survive a bigger, more
+  rigorous re-test" pattern this repo already saw once with COT's SLV.
+- **60d: SURPRISE, opposite the stated PRIOR** — both buckets
+  UNDERPERFORM their ticker-matched baseline (cluster -3.97pp, p=0.049
+  marginal; single -4.68pp, p=0.008, clears a same-session Bonferroni
+  bar of 0.0125 in the negative direction). NOT called a kill this
+  session: the 60d baseline's own pooled mean is unusually high (+8.55%
+  vs. +1.92% at 20d) — an unchecked confound (does the fetched-ticker
+  universe skew toward 2025-2026 momentum small-caps with elevated
+  unconditional 60d drift, making insider buys look like relative
+  underperformance vs. a baseline that's itself inflated?) that a future
+  session must rule out before trusting the negative-60d read either way.
+
+HYPOTHESIS STATUS: NOT KILLED, NOT PASSED — closer to a kill-leaning
+"no edge found" than the original PRIOR expected, on the first
+adequately-powered, selection-bias-corrected test this hypothesis has
+ever received. Backtest: N/A (pure DATA+SIGNAL ladder work, no
+scoring/sizing/trading logic touched, same reasoning every prior gate-1/
+gate-2 session in this repo has used).
+
+NEXT: (1) archive keeps backfilling automatically via the new Tier 3
+wiring (6/8 quarters already seeded manually this session; hourly poll
+finishes the window with zero further attention); (2) investigate the
+60d baseline-inflation confound named above before trusting the
+negative-60d finding; (3) run the `code S` sales mirror test (predictive
+shorts) named in the original PRIOR — not run this session, deliberately
+one hypothesis at a time; (4) re-run this exact screen once the full
+8-quarter backfill completes for a still-larger confirmation/kill
+decision. Full detail in `research/open_questions.md`'s "Insider Form 4
+clustering as a signal" entry (same update, this session).
+
 ## 2026-07-19 [PRODUCT] — GEM methane-plume × extraction-registry proximity join + /data map layer (v1.0.409, T-DATACORE+T-CLIENT)
 
 TERRITORY: this session touches both T-DATACORE (server/gemMethaneAssets.ts,
