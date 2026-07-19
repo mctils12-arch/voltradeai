@@ -249,6 +249,34 @@ export const MAP_FADE_LO_PX = 14;
 export const FRAME_DISC_FRACTION = 0.68;
 export const MIN_DISTANCE_RADII = 3.2;
 
+/** Manual (wheel/pinch) closest-approach floor, in body radii — SEPARATE
+ *  from the fly-to arrival clamp (MIN_DISTANCE_RADII) so an arrival still
+ *  frames the whole body (~4.5 radii) while the user can then push right in
+ *  to skim the surface (human, 2026-07-18: "zoom in way more to the moon").
+ *  1.05 sits just above the surface; the texture softens there until the
+ *  LRO tile pyramid lands, but the APPROACH is no longer capped. */
+export const MIN_ZOOM_RADII = 1.05;
+
+/** Rotational inertia (the reference's damped OrbitControls feel — human:
+ *  "exactly like the claude design"): after a drag releases, the orbit
+ *  coasts and decays by this factor per frame (~0.9 ⇒ ≈1 s glide), and the
+ *  rAF loop stays alive until |velocity| drops below the epsilon. Grabbing
+ *  (pointerdown) zeroes it, exactly like OrbitControls. Pure, unit-tested. */
+export const ORBIT_INERTIA_DAMP = 0.9;
+export const ORBIT_INERTIA_EPS_DEG = 0.015;
+
+/** One coasting step: advance the residual angular velocity and decay it.
+ *  Returns the applied step (deg) and the decayed velocity; below the
+ *  epsilon it snaps to rest so the loop can idle. */
+export function orbitInertiaStep(
+  velDeg: number,
+  damp: number = ORBIT_INERTIA_DAMP,
+  epsDeg: number = ORBIT_INERTIA_EPS_DEG,
+): { stepDeg: number; velDeg: number } {
+  if (!Number.isFinite(velDeg) || Math.abs(velDeg) < epsDeg) return { stepDeg: 0, velDeg: 0 };
+  return { stepDeg: velDeg, velDeg: velDeg * damp };
+}
+
 /** Arrivals swing PAST the target and look back the way they came, offset
  *  sideways by this angle — so the place you left (Earth, when flying out)
  *  hangs beside the target instead of hiding behind your back or behind the
@@ -2332,7 +2360,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       distM: dist,
       scale: { c: scaleSt.c, s: scaleSt.s },
       flying: !!flight,
-      animating: !!flight || performance.now() - lastInputAt < 200,
+      animating: !!flight || performance.now() - lastInputAt < 200
+        || Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG,
       renderMsLast,
       markers,
       scaleBar: scaleBarOut,
@@ -2381,9 +2410,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const loop = (): void => {
       rafId = 0;
       if (disposed || exited) return;
+      // INERTIA COAST: when the drag has released but the orbit still has
+      // residual velocity, advance + decay it before drawing (the reference's
+      // damped-OrbitControls glide). Dragging drives dir directly, so skip.
+      if (!dragging && (Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG)) {
+        const y = orbitInertiaStep(orbitVelYaw);
+        const p = orbitInertiaStep(orbitVelPitch);
+        applyOrbit(y.stepDeg, p.stepDeg);
+        orbitVelYaw = y.velDeg;
+        orbitVelPitch = p.velDeg;
+      }
       draw();
+      const coasting = Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG;
       // milkyEasePending: finish the panorama fade after a flight lands
-      if (flight || performance.now() - lastInputAt < 200 || milkyEasePending) {
+      if (flight || coasting || performance.now() - lastInputAt < 200 || milkyEasePending) {
         rafId = requestAnimationFrame(loop);
       }
     };
@@ -2400,10 +2440,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (exited) return;
     cancelFlight();
     // per-body closest approach; for Earth the seam (scale > 1 inside
-    // draw()) hands back to the map long before this floor could bind
+    // draw()) hands back to the map long before this floor could bind.
+    // MIN_ZOOM_RADII (not the arrival clamp) — manual zoom skims the surface.
     dist = Math.min(
       MAX_CAMERA_DISTANCE_M,
-      Math.max(MIN_DISTANCE_RADII * radiusM(focusId), dist * zoomStepFactor(deltaY)),
+      Math.max(MIN_ZOOM_RADII * radiusM(focusId), dist * zoomStepFactor(deltaY)),
     );
     kick();
   }
@@ -2412,9 +2453,32 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDist = 0;
   let dragMoved = 0;
+  let dragging = false;
+  // residual angular velocity (deg/frame) for the post-release coast — the
+  // reference's damped OrbitControls feel; decayed by orbitInertiaStep().
+  let orbitVelYaw = 0;
+  let orbitVelPitch = 0;
+  const DRAG_DEG_PER_PX = 0.25;
+
+  /** yaw about the ecliptic axis + pitch about the camera-right axis, with
+   *  the pole clamp so the axis-up basis never degenerates. Shared by live
+   *  drag and the inertial coast. */
+  function applyOrbit(yawDeg: number, pitchDeg: number): void {
+    const axis = earthAxisEcl(timeMs);
+    const b = camBasis(dir, axis);
+    let nd = rotateAbout(dir, axis, yawDeg);
+    nd = rotateAbout(nd, b.r, pitchDeg);
+    if (Math.abs(dot(nd, axis)) < 0.985) dir = norm3(nd);
+    else dir = norm3(rotateAbout(dir, axis, yawDeg));
+  }
+
   const onPointerDown = (e: PointerEvent): void => {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     dragMoved = 0;
+    dragging = pointers.size === 1;
+    // grabbing kills the coast (OrbitControls parity: catch the spinning globe)
+    orbitVelYaw = 0;
+    orbitVelPitch = 0;
     if (pointers.size === 2) {
       const [a, b] = Array.from(pointers.values());
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -2428,13 +2492,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     lastInputAt = performance.now();
     if (pointers.size === 2) {
+      dragging = false;
       const [a, b] = Array.from(pointers.values());
       const d2 = Math.hypot(a.x - b.x, a.y - b.y);
       if (pinchDist > 0 && d2 > 0) {
         cancelFlight();
         dist = Math.min(
           MAX_CAMERA_DISTANCE_M,
-          Math.max(MIN_DISTANCE_RADII * radiusM(focusId), dist * (pinchDist / d2)),
+          Math.max(MIN_ZOOM_RADII * radiusM(focusId), dist * (pinchDist / d2)),
         );
         kick();
       }
@@ -2444,19 +2509,23 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     dragMoved += Math.abs(dx) + Math.abs(dy);
     if (dragMoved < 3) return;
     cancelFlight();
-    // orbit: yaw about the Earth axis, pitch about the camera right axis
-    const axis = earthAxisEcl(timeMs);
-    const b = camBasis(dir, axis);
-    let nd = rotateAbout(dir, axis, dx * 0.25);
-    nd = rotateAbout(nd, b.r, dy * 0.25);
-    // clamp away from the poles so the axis-up basis never degenerates
-    if (Math.abs(dot(nd, axis)) < 0.985) dir = norm3(nd);
-    else dir = norm3(rotateAbout(dir, axis, dx * 0.25));
+    const yaw = dx * DRAG_DEG_PER_PX;
+    const pitch = dy * DRAG_DEG_PER_PX;
+    applyOrbit(yaw, pitch);
+    // record the last delta as the coast velocity (released → glides on)
+    orbitVelYaw = yaw;
+    orbitVelPitch = pitch;
     kick();
   };
   const onPointerUp = (e: PointerEvent): void => {
     pointers.delete(e.pointerId);
     pinchDist = 0;
+    if (pointers.size === 0) {
+      dragging = false;
+      // leave orbitVel* intact → the loop coasts it out (unless the drag
+      // barely moved, in which case velocity is already ~0)
+      if (Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG) kick();
+    }
   };
   const onClick = (e: MouseEvent): void => {
     if (dragMoved >= 4 || exited || !lastState) return;
