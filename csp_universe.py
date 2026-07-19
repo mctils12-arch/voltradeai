@@ -76,6 +76,35 @@ CSP_BLOCKED_TICKERS = {
 # Max universe size after Layer 2 ranking
 MAX_UNIVERSE_SIZE = 200
 
+# KNOWN BROKEN #18 continuation (2026-07-19): direct instrument for the
+# untested hypothesis that Layer 2's cache-miss prefetch (up to
+# deep_score_limit tickers x 2 network calls each, PREFETCH_BUDGET_S wall
+# clock) structurally overcommits the shared alpaca_throttle bucket and is
+# a contributor to the still-recurring TIER2-ERROR "Daemon timeout" storm.
+# Same precedent as eventLoopLag.ts/dbWriteTiming.ts: surface the real
+# number so the next occurrence can be checked directly instead of guessed.
+_LAST_LAYER2_PREFETCH: Dict[str, Any] = {}
+
+
+def build_prefetch_stats(cache_hit: bool, completed: int = 0, total: int = 0,
+                          elapsed_sec: float = 0.0) -> Dict[str, Any]:
+    """Pure function: shape the diagnostics dict for one _layer2_score()
+    call. Separated from _layer2_score so the budget_exceeded logic is
+    unit-testable without spinning up real ThreadPoolExecutor timing."""
+    return {
+        "cache_hit": cache_hit,
+        "completed": completed,
+        "total": total,
+        "elapsed_sec": round(elapsed_sec, 2),
+        "budget_exceeded": (not cache_hit) and completed < total,
+    }
+
+
+def get_last_layer2_prefetch_stats() -> Dict[str, Any]:
+    """Diagnostics only — stats from the most recent _layer2_score() call
+    in this process. Empty dict if _layer2_score has never run yet."""
+    return dict(_LAST_LAYER2_PREFETCH)
+
 
 def _is_likely_etf_leveraged(ticker: str) -> bool:
     """Heuristic: avoid tickers matching known leveraged ETF patterns."""
@@ -530,11 +559,17 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
                 cached = json.load(f)
             if time.time() - cached.get("_cached_at", 0) < LAYER2_CACHE_TTL:
                 logger.debug(f"Layer 2 cache hit: {len(cached.get('scores', []))} tickers")
+                _LAST_LAYER2_PREFETCH.clear()
+                _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=True))
+                _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
                 return cached.get("scores", [])
         except Exception:
             pass
 
     if not candidates:
+        _LAST_LAYER2_PREFETCH.clear()
+        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=False))
+        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
         return []
 
     # Per-scan caches for expensive factors (avoid duplicate API calls).
@@ -624,6 +659,16 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
             f"Layer 2 prefetch: {completed_count}/{len(deep_candidates)} "
             f"deep candidates in {time.time() - prefetch_start:.1f}s"
         )
+        _LAST_LAYER2_PREFETCH.clear()
+        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(
+            cache_hit=False, completed=completed_count,
+            total=len(deep_candidates), elapsed_sec=time.time() - prefetch_start,
+        ))
+        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
+    else:
+        _LAST_LAYER2_PREFETCH.clear()
+        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=False))
+        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
 
     scored = []
     for idx, (ticker, price, volume, dollar_volume) in enumerate(sorted_candidates):

@@ -21835,3 +21835,199 @@ short of the LIVENESS ALARM bar) severe enough to count as the "fixes a
 critical live break" exception this routine's own instructions carve
 out. Left as a human judgment call rather than self-declared, since the
 fix is a partial, latency-only improvement, not a guaranteed resolution.
+
+## 2026-07-19 (scheduled-routine, session 3) [REPAIR] — Loop-health ratio hit 7/10 REPAIR; diagnosed as the KNOWN BROKEN #18 storm continuing past this morning's partial fix, not thrash — CSP Layer 2 prefetch throttle-overcommit theory found + instrumented, not yet confirmed (v1.0.418, T-BOT)
+
+TERRITORY: T-BOT (`csp_universe.py`, `tiered_strategy.py`) + new test file +
+SHARED `package.json`/`package-lock.json` (version bump, last/minimal per
+MERGE-ORDER PROTOCOL) + `research/*.md`. No FROZEN path edited —
+`alpaca_rate_limiter.py` read for context only (its 180 req/min constant is
+central to this session's math), never touched.
+
+SESSION-START CHECKS (MEMORY PROTOCOL, in order): CLAUDE.md read in full.
+`research/experiments.md` tail (last entry: this morning's session 2, KNOWN
+BROKEN #18 fourth-mechanism partial fix, v1.0.416, merge pending market
+close). `research/open_questions.md` KNOWN BROKEN section read in full
+(items 1-23, including all of #18's history from FOUND 2026-07-10 through
+today's pending-merge update). `research/wishlist.md` DATACORE MAXIMUS block
+skimmed (unrelated territory). Confirmed via `git log`/`git status` that
+PR #550 (v1.0.416) AND a later PR #551 (v1.0.417, unrelated orbital/T-CLIENT
+work by a different session) are both merged to `main`; my branch matched
+`main` HEAD exactly, no stale unmerged work to reconcile.
+
+LOOP-HEALTH RATIO CHECK (HEALTH OF THE LOOP ITSELF, rule 2 — done FIRST,
+before any other fall-through step, since the rule says this overrides
+normal work if triggered): counted the last 10 dated `## ` headers in
+`experiments.md` at session start (2026-07-12 through this morning's session
+2): REPAIR, REPAIR, PRODUCT, REPAIR, PIPELINE, REPAIR, REPAIR, PIPELINE,
+REPAIR, REPAIR = **7 REPAIR / 1 PRODUCT / 2 PIPELINE — crosses the 7-in-10
+thrash threshold** (the prior two sessions today both read "6/10" — true at
+the moment each of THEM checked, before their own entry was appended; this
+session's count includes session 2's own entry, which is what tips it to 7).
+Per the rule, this makes "why does this system keep generating breaks" the
+session's Priority-1 item, ahead of the normal SESSION BUDGET ladder.
+
+DIAGNOSIS (rule 2's own instruction: "diagnose WHY — flaky subsystem,
+missing tests, coupling"): read all 7 REPAIR entries' actual content before
+concluding anything (RECURRENCE ESCALATES/REASONING STANDARD #4 — don't
+pattern-match from titles alone). Finding: 2 of the 7 (KNOWN BROKEN #18
+CLOSED 2026-07-17, KNOWN BROKEN #22 CLOSED 2026-07-19 session 1) are
+docs-only ≥24h/≥44h live-confirmation CLOSURES of already-shipped fixes
+holding — i.e. evidence fixes DO ratchet, not evidence of thrash; the tag
+scheme conflates "verifying a fix held" with "patching something new," which
+is a real, worth-naming blind spot in the counting rule itself (not
+something this session has standing to change — CLAUDE.md's own
+FROZEN-PATHS clause makes any change to the counting rule a constitutional
+amendment; filing the observation here for a future audit, not proposing
+the change now since this session found only one data point of it, not a
+recurring problem with the rule itself worth a wishlist entry yet). Of the
+remaining 5 genuine new-repairs (#21 confirm, #21 fix, floor-basket #22
+found, TIER3-ML-ERROR silent-except fix, #18 fourth-mechanism partial fix),
+the common thread is real: EVERY one was found only via live production
+audit-log archaeology, days-to-weeks after the underlying bug shipped, never
+by a test or pre-merge check — because each is a genuinely different
+subsystem/interaction bug (a monotonic-peak memory-gauge bug, a
+new-instrument-vs-generic-logic interaction gap, a masked subprocess
+exception, an Alpaca-call redundancy), not the same mechanism recurring.
+CONCLUSION: this is NOT the "system generates breaks faster than fixes
+hold" failure mode the rule is built to catch — repairs here DO ratchet
+(shadowFleet's fix held ≥4 days confirmed; floor-basket's fix held ≥44h
+confirmed) — but the ratio correctly flagged that ONE specific area,
+KNOWN BROKEN #18's TIER2-ERROR storm, has now had FOUR distinct root-cause
+mechanisms in 9 days and is not yet resolved. Per the rule's own spirit,
+that item — not a generic codebase-wide audit — is where this session's
+Priority-1 attention belongs. This also happens to be exactly SESSION
+BUDGET's own top-ranked action ("fix a bug seen in audit logs" outranks
+judging a matured experiment or starting new research), so the two rules
+point at the same target with no conflict to adjudicate.
+
+LIVE HEALTH CHECK before committing to this (GOAL priority 1 always checked
+regardless of session type): `/api/health` — `status: ok`,
+`bot.liveness.dark: false` (no LIVENESS ALARM), `scanner.consecutiveFailures:
+0`, `drawdownPct: "0.0"` — no higher-priority break demanding attention
+first.
+
+INVESTIGATION (continuing KNOWN BROKEN #18, not restarting it — per its own
+prior update's explicit NEXT STEP): `/api/diag/audit?type=TIER2-ERROR` shows
+the storm is **STILL ACTIVE** post-v1.0.416-merge: 11 occurrences across
+17:33-19:56Z (~94 min), ~8.5 min average spacing — statistically the same
+as the pre-fix ~9.7 min cadence, i.e. this morning's dedup fix did NOT move
+the needle on frequency (consistent with its own PR text calling itself
+"deliberately partial"). Every single occurrence reads `active_dispatches=2`
+— never elevated toward `MAX_INFLIGHT_REQUESTS=8` — which is itself new
+information: it rules out daemon-side concurrency exhaustion as the
+proximate cause (2 healthy inflight dispatches can't by themselves produce
+a 300s timeout). Ran the exact live-catch procedure the prior session's own
+NEXT STEP named: `/api/diag/timings` during a live scan showed `deep_score:
+22.21s` (back near the 21.33s baseline — confirms this morning's fix DID
+work where it was aimed) but `tier_engine_breakdown.tier1_sec: 42.94s` —
+still ~42x the ~1s baseline, and suspiciously close to `csp_universe.py`'s
+own `PREFETCH_BUDGET_S=45.0` hard cap for Layer 2's per-ticker prefetch.
+READ BEFORE WRITE traced `tier1_sec` to `tiered_strategy.py`'s
+`tier1_csp_core()` → `_get_t1_universe()` → `csp_universe.get_top_csp_
+candidates()` → `_layer2_score()`: on a cache miss (`LAYER2_CACHE_TTL=900s`),
+this scores up to `deep_score_limit=150` tickers with 2 network calls each
+(`_score_iv_rank`, `_score_vrp`) via an 8-worker `ThreadPoolExecutor`, all
+sharing the SAME process-wide `alpaca_throttle` bucket
+(`alpaca_rate_limiter.py`, FROZEN, 180 req/min = 3 req/s) that `deep_score`'s
+own calls and Tier 1 stop-monitoring also use. THE MATH (structural, not
+measurement-noise-dependent — REASONING STANDARD #1, trace the interaction):
+up to 300 calls in a 45s wall budget needs ~6.7 req/s, more than double the
+shared throttle's 3 req/s sustainable rate — mathematically guaranteed to
+exhaust the prefetch's own budget on any cache-miss cycle regardless of
+what else is running, while starving every other Alpaca-bound call sharing
+the bucket for the duration. This is a GENUINELY NEW, fifth mechanism on
+this item (distinct from the refuted tmpCleanup/SQLite-write theories, the
+confirmed-fixed shadowFleet O(n²) theory, and this morning's deep_score/
+macro_data dedup, which measurably worked but wasn't the dominant load) —
+not a re-guess at an already-disproven one.
+
+WHAT WAS NOT DONE, deliberately: did not ship a blind parameter fix
+(lowering `deep_score_limit`, tightening `PREFETCH_BUDGET_S`, etc.) off ONE
+live sample. REASONING STANDARD #4/#10 applies exactly as it did to the
+period-matching guesses this item's own history shows got refuted twice
+before shadowFleet's direct measurement found the real cause — one
+`/api/diag/timings` snapshot is suggestive, not proof, and whether Layer 2's
+900s cache usually prevents this (making the expensive path rare) or misses
+far more often than intended is UNMEASURED. Per this item's own established
+and successful discipline (build the direct instrument BEFORE guessing the
+fix — the exact pattern that found shadowFleet, not the pattern that wasted
+two cycles on tmpCleanup/SQLite), this session's fix is visibility-only.
+
+FIX (v1.0.418, zero behavior change): `csp_universe.py` — added
+`build_prefetch_stats()` (pure function: cache_hit/completed/total/
+elapsed_sec/budget_exceeded from four inputs, no I/O) and module-level
+`get_last_layer2_prefetch_stats()`, recorded at all three `_layer2_score()`
+exit points (cache hit, no-candidates early-return, and the real prefetch
+path — the no-candidates path was a real gap caught by this session's own
+first test run: `_layer2_score([])` returns before any instrumentation
+existed, which would have left stale data from a prior call visible).
+`tiered_strategy.py` — `TieredStrategy.run_tiers()` merges this into
+`tier_timings["csp_layer2_prefetch"]` right after computing `tier1_sec`,
+which reaches `/api/diag/timings` for free since `bot_engine.py` already
+surfaces `tier_timings` verbatim — no new endpoint needed, same free-ride
+precedent `tier_timings` itself already established.
+
+RATCHET: `test_csp_universe_layer2_prefetch.py` (NEW, 9 tests) —
+`build_prefetch_stats()`'s four shapes (cache-hit, all-completed,
+budget-exceeded matching the exact live-observed completed<total shape,
+zero-candidates not misread as a blowup); `_layer2_score`'s wiring at all
+three exit points, including a stale-cache integration test with
+`_score_iv_rank`/`_score_vrp` mocked (kept fast — deliberately not testing
+the real 45s ThreadPoolExecutor timeout path, same tradeoff
+`eventLoopLag.test.ts`/`dbWriteTiming.test.ts` made for their own
+instruments); a `TieredStrategy.run_tiers()` wiring-pin test confirming
+`tier_timings` carries the reading forward without changing `actions`/
+`tier_stats` shape (mirrors `test_run_tiers_logs_masterkill_shadow_without_
+changing_return_shape`'s existing convention in `test_tiered_strategy.py`).
+CAUGHT BY THE HARNESS, not manual review: `tiered_strategy.py`'s
+`get_last_layer2_prefetch_stats` import wrapped in `except Exception: pass`
+on first pass — `test_silent_except_ratchet.py`'s pinned-exact-count
+ratchet (`tiered_strategy.py` pinned at 3) failed immediately, correctly
+refusing to let a 4th silent broad-except handler ship (the precise defect
+class named in that ratchet's own docstring as the root of two historical
+incidents). Fixed by narrowing to `except ImportError:` specifically —
+exits the ratchet's scope by definition since it isn't `Exception`/
+`BaseException`/bare-`except`. This is the ratchet doing exactly its job.
+
+GATES: `python3 -m pytest test_csp_universe_layer2_prefetch.py
+test_tiered_strategy.py -v` — 20/20 passed. Full `python3 -m pytest -q`
+(after the same recurring sandbox `pip install -r requirements.txt pytest
+openpyxl` gap every recent session has logged) — 823 passed (814 baseline +
+9 new), 2 skipped, 0 failed, including `test_silent_except_ratchet.py`
+green after the narrowing fix above. No client/ files touched — `npx tsc
+--noEmit`/`npm run build`/visual harness not applicable (PROMOTION RULE 6
+scope). Version bumped 1.0.417 → 1.0.418 (`package.json` +
+`package-lock.json`'s two root-package version fields — the lockfile had
+drifted to a stale 1.0.416 again, same recurring drift a prior session
+already fixed once; corrected in the same edit).
+
+BACKTEST: N/A — this is pure diagnostics (a read-only stats recorder on an
+existing scoring pipeline), no scoring/sizing/execution logic touched.
+`_layer2_score`'s actual candidate ranking, scores, and network-call
+behavior are byte-identical before/after (proven by the stale-cache
+integration test asserting the same 2-candidate result list either way) —
+mirrors every prior latency/visibility fix on this item, none of which ran
+a backtest either.
+
+HYPOTHESIS (REASONING STANDARD #10, stated before the next occurrence):
+if the throttle-overcommit theory is correct, the NEXT `TIER2-ERROR`
+occurrence's `/api/diag/timings` reading should show
+`tier_timings.csp_layer2_prefetch = {cache_hit: false, budget_exceeded:
+true, completed < total}` in the same window. That reading — not this
+session's single sample — is what should trigger the actual fix (most
+likely capping `deep_score_limit` or otherwise reducing Layer 2's per-cycle
+call volume to fit the shared throttle's real ~3 req/s throughput, an
+evidence-backed threshold change at that point, not a guess). A reading of
+`cache_hit: true` or `budget_exceeded: false` during a future TIER2-ERROR
+would refute this theory in turn — per this item's own 9-day discipline,
+that would mean continuing the search past Layer 2 (the VXX cross-file dup
+and the 10 genuinely-different-window `/v2/stocks/bars` sites from this
+morning's compatibility matrix remain the next candidates), not restarting
+from scratch. LOOP-HEALTH NOTE for the next session's own ratio check: this
+entry is tagged REPAIR (it is one — a real, if partial, contribution to an
+open item), so the raw ratio will likely still read high next time; per
+this session's own diagnosis above, that reading should be interpreted the
+same way — check whether repairs are holding (they are) and whether this
+specific item resolves, not treated as an automatic re-trigger of a
+codebase-wide audit each time.
