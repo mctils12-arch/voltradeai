@@ -3,6 +3,33 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-19 [PRODUCT] — Smooth sat lock: per-frame SGP4 + jumpTo follow (v1.0.420, T-CLIENT, human-authored patch)
+
+Human patch (research/directives/smooth_satlock_patch_2026-07-19.md,
+verbatim upload + design ref sat-inspect-fix.html): the site's sat-lock
+jerks — followTick moved the camera with map.easeTo({duration:800})
+once per ~1Hz worker tick AND skipped the move whenever map.isMoving(),
+so the ease chased a stale tick position → hop-pause-hop. FIX (the
+human's 4 exact edits, applied verbatim, targets pre-verified): the ONE
+followed craft gets one extra SGP4 propagate() per FRAME (same kernel
+sampleOrbitArc uses; single object = cheap), and camera + model anchor
+ride it via map.jumpTo (no easing — 60fps jumps ARE the smooth motion)
+in a self-gated rAF loop (smoothFollowFrame: guards on satFollowRef/
+lockMode/inspectActiveRef/isZooming/document.hidden; the per-tick
+followTick body keeps ring/nadir/status honest as the backstop).
+MAP-NATIVE CRAFT ORBIT (round 10) unchanged — center IS the craft at
+real altitude, so rotate/tilt/zoom still orbit the moving craft. Plus
+modelLayer MODEL_MAX_PIXELS 480→1600 (the demo's zoom-all-the-way-in).
+Gates (parent-verified, MY OWN drives): client 571/571, build clean.
+Follow-contract drive V1/V2/V3 PASS (center un-clamped, at the ISS's
+real 432km altitude, riding the nadir 6km, tracking smoothly at ground
+speed 14.8km/2.2s — no wander). Anti-hop micro-continuity probe
+(satfinder→ISS lock, high-freq center sampling): center advances on
+100% of frames, longest stall 137ms — vs the old 800ms ease+pause
+cadence: the hop is GONE (SwiftShader ~7fps caps the observed rate;
+real GPU is 60fps). Territory datamap.tsx + modelLayer.ts (disjoint
+from the celestial arc). Backtest n/a.
+
 ## 2026-07-19 [PIPELINE]+[RESEARCH] — SEC bulk-historical Form 4 archive (gate 1 DATA) + insider-cluster gate-2 SIGNAL screen: no edge at 20d, unexplained negative at 60d (v1.0.412)
 
 TERRITORY: root-level EDGE-DOCTRINE data-pipeline/research scripts
