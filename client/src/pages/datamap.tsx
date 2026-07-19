@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -8805,7 +8805,9 @@ export default function DataMapPage() {
                 <span className={`vt-layer-group-chev${celOpen ? "" : " closed"}`}>▾</span>
                 <span>Celestial — space view</span>
                 <span className="vt-layer-group-count" data-vt-celestial-state>
-                  {/* reference "N/7 ON" family: our five scene toggles */}
+                  {/* reference "N/7 ON" family: our five SPACE FRAME handle
+                      toggles (orbits · trails · galaxy · grid · labels) —
+                      rotation + time are the sim clock, sats a separate layer */}
                   {[celOrbits, celTrails, celGalaxy, celGrid, celLabels].filter(Boolean).length}/5 ON
                   {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
@@ -8876,90 +8878,82 @@ export default function DataMapPage() {
                       counted in the load badge; the space frame is not a data layer.
                     </span>
                   </div>
-                  {/* B3 orbit-ellipse paths (directive §3): real-ephemeris
-                      polylines, precomputed + cached; they restyle (never
-                      resample) with the scale sliders. data-vt-control, NOT
-                      data-vt-layer — this is a control row, not a registry
-                      layer (harness accounting). */}
-                  <div className="vt-layer-row" data-vt-control="celestial_orbits">
-                    <span className="vt-layer-ic"><Orbit size={15} /></span>
-                    <span className="vt-layer-name">
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Orbital paths</span>
-                      <span className="vt-kind-badge raw">RAW</span>
-                      <span className="vt-layer-status">
-                        <i style={{ background: celOrbits ? "#4ade80" : "#6680a0" }} />{" "}
-                        {celOrbits ? "on — ellipses drawn in the space view" : "off"}
+                  {/* SPACE FRAME toggle group (celestial v2 B7, 2026-07-18) —
+                      the human's reference #panel "SPACE FRAME" group,
+                      reproduced in our design system: ONE row per toggle,
+                      each an iOS .vt-switch + a per-toggle status LED
+                      (green on / gray off) + an honest status line, under
+                      the group's "N/5 ON" counter. Every toggle drives the
+                      EXISTING spaceFrame handle setter through its persisted
+                      pref (subscribed live in enterSpace: setOrbitPaths /
+                      setMotionTrails / setMilkyWay / setEclipticGrid /
+                      setBodyLabels) — the render already supports all five.
+                      data-vt-control, NEVER data-vt-layer: these are view
+                      controls, not registry layers (the layer-scale harness
+                      counts data-vt-layer rows).
+                      RECONCILED, not duplicated: the reference's "planet
+                      rotation" and continuous "time ×" dial are our ONE sim
+                      clock below (Simulation time) — bodies spin off that
+                      clock, so there is no separate rotation handle to wire;
+                      "Satellites (live)" is the orbital sat layer in its own
+                      group above, not a space-frame toggle. */}
+                  {([
+                    { key: "orbits", name: "Orbit paths", icon: <Orbit size={15} />,
+                      on: celOrbits, toggle: () => setOrbitPathsPref(!celOrbits),
+                      status: celOrbits
+                        ? "on — full ellipses Mercury–Neptune + 9 moons, real ephemeris"
+                        : "off — orbit ellipses hidden" },
+                    { key: "trails", name: "Motion trails", icon: <Waypoints size={15} />,
+                      on: celTrails, toggle: () => setMotionTrailsPref(!celTrails),
+                      status: celTrails
+                        ? "on — 60° trailing arc shows direction of travel"
+                        : "off — no motion arcs" },
+                    { key: "galaxy", name: "Milky Way", icon: <Sparkles size={15} />,
+                      on: celGalaxy, toggle: () => setMilkyWayPref(!celGalaxy),
+                      status: celGalaxy
+                        ? "on — fades in past 8 AU camera altitude"
+                        : "off — black sky (honest: no decorative stars)" },
+                    { key: "grid", name: "Ecliptic grid", icon: <Grid3x3 size={15} />,
+                      on: celGrid, toggle: () => setEclipticGridPref(!celGrid),
+                      status: celGrid
+                        ? "on — AU range rings + bearing spokes"
+                        : "off — AU range rings + bearing spokes" },
+                    { key: "labels", name: "Labels", icon: <Tag size={15} />,
+                      on: celLabels, toggle: () => setBodyLabelsPref(!celLabels),
+                      status: celLabels
+                        ? "on — click a label to fly to that body"
+                        : "off — sub-pixel honesty markers stay on" },
+                  ] as const).map((t) => (
+                    <div key={t.key} className="vt-layer-row" data-vt-control={`celestial_${t.key}`}>
+                      <span className="vt-layer-ic">{t.icon}</span>
+                      <span className="vt-layer-name">
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {t.name}<span className="vt-kind-badge raw">RAW</span>
+                        </span>
+                        <span className="vt-layer-status">
+                          <i style={{ background: t.on ? "#4ade80" : "#6680a0" }} /> {t.status}
+                        </span>
                       </span>
-                    </span>
-                  </div>
-                  <div className="vt-field-controls" role="group" aria-label="Orbital path controls">
-                    <span style={{ display: "inline-flex", gap: 6 }}>
                       <button
-                        className={`vt-preset-pill${celOrbits ? " vt-preset-pill-on" : ""}`}
-                        aria-pressed={celOrbits}
-                        data-vt-celestial-orbits
-                        onClick={() => setOrbitPathsPref(!celOrbits)}>
-                        {celOrbits ? "PATHS ON" : "PATHS OFF"}
+                        role="switch"
+                        aria-checked={t.on}
+                        aria-label={`Toggle ${t.name}`}
+                        className={`vt-switch${t.on ? " on" : ""}`}
+                        data-vt-celestial-toggle={t.key}
+                        onClick={t.toggle}>
+                        <i />
                       </button>
+                    </div>
+                  ))}
+                  <div className="vt-field-controls" role="note" aria-label="Space frame notes">
+                    <span className="vt-field-note" style={{ fontFamily: "var(--font-mono)", color: "var(--accent-orange)" }}>
+                      planet rotation &amp; time-warp: the one Simulation time clock below · live satellites: their own layer above.
                     </span>
                     <span className="vt-field-note">
-                      full ellipses Mercury–Neptune + the Moon + Io, Europa, Ganymede, Callisto, Titan,
-                      Triton, Phobos, Deimos — sampled from the real ephemeris (JPL mean elements for the
-                      moons), drawn in whatever compression the slider is set to. Setting persists.
-                    </span>
-                  </div>
-                  {/* SPACE SCENE toggles (2026-07-18 reference reconciliation):
-                      motion trails, the Milky Way panorama, the ecliptic grid
-                      and body labels — persisted prefs applied live by the
-                      frame. data-vt-control, never data-vt-layer. */}
-                  <div className="vt-layer-row" data-vt-control="celestial_scene">
-                    <span className="vt-layer-ic"><Sparkles size={15} /></span>
-                    <span className="vt-layer-name">
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Space scene</span>
-                      <span className="vt-kind-badge raw">RAW</span>
-                      <span className="vt-layer-status">
-                        <i style={{ background: celTrails || celGalaxy || celGrid || celLabels ? "#4ade80" : "#6680a0" }} />{" "}
-                        trails · galaxy · grid · labels
-                      </span>
-                    </span>
-                  </div>
-                  <div className="vt-field-controls" role="group" aria-label="Space scene toggles">
-                    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
-                      <button
-                        className={`vt-preset-pill${celTrails ? " vt-preset-pill-on" : ""}`}
-                        aria-pressed={celTrails}
-                        data-vt-celestial-trails
-                        onClick={() => setMotionTrailsPref(!celTrails)}>
-                        TRAILS
-                      </button>
-                      <button
-                        className={`vt-preset-pill${celGalaxy ? " vt-preset-pill-on" : ""}`}
-                        aria-pressed={celGalaxy}
-                        data-vt-celestial-galaxy
-                        onClick={() => setMilkyWayPref(!celGalaxy)}>
-                        MILKY WAY
-                      </button>
-                      <button
-                        className={`vt-preset-pill${celGrid ? " vt-preset-pill-on" : ""}`}
-                        aria-pressed={celGrid}
-                        data-vt-celestial-gridtoggle
-                        onClick={() => setEclipticGridPref(!celGrid)}>
-                        AU GRID
-                      </button>
-                      <button
-                        className={`vt-preset-pill${celLabels ? " vt-preset-pill-on" : ""}`}
-                        aria-pressed={celLabels}
-                        data-vt-celestial-labels
-                        onClick={() => setBodyLabelsPref(!celLabels)}>
-                        LABELS
-                      </button>
-                    </span>
-                    <span className="vt-field-note">
-                      trails: 60° trailing arc of each real orbit — direction of travel at a glance.
-                      Milky Way: 8k panorama © Solar System Scope (CC-BY 4.0, solarsystemscope.com),
-                      aligned to the real galactic plane, fades in past 8 AU camera altitude. AU grid:
-                      range rings + bearing spokes (off by default). Labels: names with real distances —
-                      sub-pixel honesty markers stay on either way. Settings persist.
+                      orbits: full ellipses Mercury–Neptune + the Moon + Io, Europa, Ganymede, Callisto, Titan,
+                      Triton, Phobos, Deimos (JPL mean elements), drawn in whatever compression the slider is set to.
+                      Milky Way: 8k panorama © Solar System Scope (CC-BY 4.0, solarsystemscope.com), aligned to the
+                      real galactic plane. Ecliptic grid off by default. All five settings persist.
                     </span>
                     <span className="vt-field-note">
                       {SPACE_IMAGERY_CREDIT}. Textures load only in the space view (progressive tiers;
