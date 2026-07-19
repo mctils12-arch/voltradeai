@@ -452,6 +452,13 @@ export function buildSkyRays(w: number, h: number, fovDeg: number): Float32Array
  * handedness is presentation — see header). Per pixel: 9 mults + atan2 +
  * asin + texel fetch; callers size the target so one repaint stays a few
  * ms and cache it against the camera basis.
+ *
+ * `bilinear` (default false = nearest, the exact-equality test's path)
+ * interpolates the four surrounding texels — the galaxy detail upgrade
+ * (2026-07-19) renders the panorama at a higher working resolution and
+ * with bilinear sampling so the band no longer reads as soft wallpaper
+ * when it fills the screen far out. An optional `exposure` (default 1)
+ * lifts contrast/brightness of the band multiplicatively.
  */
 export function renderSkyToBuffer(
   rays: Float32Array,
@@ -463,11 +470,14 @@ export function renderSkyToBuffer(
   g: GalacticBasis,
   tex: TexLike,
   out: Uint8ClampedArray,
+  bilinear = false,
+  exposure = 1,
 ): void {
   const tw = tex.width;
   const th = tex.height;
   const td = tex.data;
   const n = w * h;
+  const ex = exposure;
   for (let i = 0; i < n; i++) {
     const rx = rays[i * 3];
     const ry = rays[i * 3 + 1];
@@ -483,13 +493,49 @@ export function renderSkyToBuffer(
     let tu = 0.5 - lon / 360;
     tu -= Math.floor(tu);
     const tv = Math.min(1, Math.max(0, 0.5 - lat / 180));
-    const tx = Math.min(tw - 1, (tu * tw) | 0);
-    const ty = Math.min(th - 1, (tv * th) | 0);
-    const ti = (ty * tw + tx) * 4;
     const o = i * 4;
-    out[o] = td[ti];
-    out[o + 1] = td[ti + 1];
-    out[o + 2] = td[ti + 2];
+    let cr: number;
+    let cg: number;
+    let cb: number;
+    if (bilinear) {
+      // bilinear over four texels, u wrapping horizontally, v clamped
+      const fx = tu * tw - 0.5;
+      const fy = tv * th - 0.5;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const wx = fx - x0;
+      const wy = fy - y0;
+      const xa = ((x0 % tw) + tw) % tw;
+      const xb = (xa + 1) % tw;
+      const ya = y0 < 0 ? 0 : y0 >= th ? th - 1 : y0;
+      const yb = y0 + 1 < 0 ? 0 : y0 + 1 >= th ? th - 1 : y0 + 1;
+      const iAA = (ya * tw + xa) * 4;
+      const iBA = (ya * tw + xb) * 4;
+      const iAB = (yb * tw + xa) * 4;
+      const iBB = (yb * tw + xb) * 4;
+      const w00 = (1 - wx) * (1 - wy);
+      const w10 = wx * (1 - wy);
+      const w01 = (1 - wx) * wy;
+      const w11 = wx * wy;
+      cr = td[iAA] * w00 + td[iBA] * w10 + td[iAB] * w01 + td[iBB] * w11;
+      cg = td[iAA + 1] * w00 + td[iBA + 1] * w10 + td[iAB + 1] * w01 + td[iBB + 1] * w11;
+      cb = td[iAA + 2] * w00 + td[iBA + 2] * w10 + td[iAB + 2] * w01 + td[iBB + 2] * w11;
+    } else {
+      const tx = Math.min(tw - 1, (tu * tw) | 0);
+      const ty = Math.min(th - 1, (tv * th) | 0);
+      const ti = (ty * tw + tx) * 4;
+      cr = td[ti];
+      cg = td[ti + 1];
+      cb = td[ti + 2];
+    }
+    if (ex !== 1) {
+      cr *= ex;
+      cg *= ex;
+      cb *= ex;
+    }
+    out[o] = cr;
+    out[o + 1] = cg;
+    out[o + 2] = cb;
     out[o + 3] = 255;
   }
 }

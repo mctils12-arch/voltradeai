@@ -64,9 +64,15 @@
 //   layout is not true 1:1 the caption says so in amber, verbatim from the
 //   directive: "distances/sizes compressed for visibility — labels always
 //   show real values".
-// - No starfield: a decorative random sky would violate "real position or
-//   absent" (the retired solarView made the same choice; a real bright-star
-//   catalog remains future work). Black is honest.
+// - Starfield: REAL bright stars only (Yale Bright Star Catalog, public
+//   domain — starCatalog.ts). Each of the 9096 stars is drawn at its true
+//   RA/Dec direction (converted to the scene's ecliptic-of-date frame, so it
+//   registers with the panorama's own star field), sized/brightened by its
+//   real V magnitude and tinted by its real color temperature. NEVER a
+//   fabricated random sky (the "real position or absent" rail): positions and
+//   colors are data; only magnitude→size and K→RGB are stated presentation
+//   mappings. The field fades in as the camera leaves the inner solar system
+//   (earlier than the faint galactic glow), so it is black near Earth.
 // - Body shading is geometric: a Lambert-lit sphere under the real Sun
 //   direction, so the Moon's phase (lit fraction AND terminator orientation)
 //   falls out of the ephemeris rather than being painted on.
@@ -169,7 +175,10 @@ import {
 import {
   createSpaceTextureManager,
   milkyWayOpacity,
+  starFieldOpacity,
+  loadStarCatalog,
   getMilkyWayPref,
+  getStarsPref,
   getEclipticGridPref,
   getMotionTrailsPref,
   getBodyLabelsPref,
@@ -178,6 +187,18 @@ import {
   type SpaceTextureManager,
   type TexImage,
 } from "./spaceAssets.js";
+// GALAXY / STARFIELD DETAIL (human directive 2026-07-19): the REAL bright-star
+// sky (Yale BSC, public domain) as GPU-cheap Canvas2D points, registered to the
+// same ecliptic frame as the panorama — replaces the old "no starfield" note
+// with real positions, never fabrication.
+import {
+  eqToEclDir,
+  projectStarScreen,
+  starSizePx,
+  starIntensity,
+  STAR_CATALOG_CREDIT,
+  type StarCatalog,
+} from "./starCatalog.js";
 import {
   buildSphereLUT,
   createEmptySphereLUT,
@@ -1176,6 +1197,8 @@ export interface SpaceFrameOptions {
   orbitPaths?: boolean;
   /** Space-view visual toggles (defaults: the persisted preferences). */
   milkyWay?: boolean;
+  /** Real bright-star point layer (Yale BSC). Default: the persisted pref (ON). */
+  stars?: boolean;
   eclipticGrid?: boolean;
   motionTrails?: boolean;
   bodyLabels?: boolean;
@@ -1283,6 +1306,18 @@ export interface SpaceFrameState {
   /** visual-upgrade render truth (2026-07-18): what the frame actually
    *  drew this frame — the drive asserts against these, never a recompute. */
   milkyWay: { on: boolean; opacity: number; target: number };
+  /** real Yale BSC bright-star field render truth (galaxy detail 2026-07-19):
+   *  toggle, eased opacity, fade target, whether the catalog is resident, its
+   *  star count, how many points were drawn this frame, and the layer cost. */
+  starfield: {
+    on: boolean;
+    opacity: number;
+    target: number;
+    loaded: boolean;
+    count: number;
+    rendered: number;
+    msLast: number;
+  };
   eclipticGrid: boolean;
   motionTrails: boolean;
   bodyLabels: boolean;
@@ -1548,17 +1583,24 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   /**
    * The Milky Way backdrop: the CC-BY panorama mapped through the REAL
-   * galactic frame onto the current camera basis, painted at a reduced
-   * working resolution (≤480 px wide), cached against the basis (pure
-   * zoom reuses it; only orbit drags repaint), upscaled to the canvas,
+   * galactic frame onto the current camera basis, cached against the basis
+   * (pure zoom reuses it; only orbit drags repaint), upscaled to the canvas,
    * plus the reference's additive glow pass. Opacity = the eased fade.
+   *
+   * GALAXY DETAIL (2026-07-19): the working resolution is raised (≤900 px
+   * wide, was ≤480) and the panorama is sampled BILINEARLY with a mild
+   * exposure lift — the band no longer reads as soft wallpaper when it fills
+   * the screen far out. The 8k source decodes at 4096×2048 now (spaceAssets
+   * DECODE_CAPS), so there is real texel detail to interpolate. Cost is paid
+   * only on orbit/resize (cached against the basis), well within the frame
+   * budget; skyMsLast reports it.
    */
   function drawMilkyWay(w: number, h: number, basis: CamBasis): void {
     if (!ctx || milkyShown <= 0.003) return;
     const tex = texman.getMilkyWay();
     if (!tex) return;
-    const skyW = Math.min(480, Math.max(160, Math.round(w / 3)));
-    const skyH = Math.max(100, Math.round((skyW * h) / w));
+    const skyW = Math.min(900, Math.max(240, Math.round(w / 1.6)));
+    const skyH = Math.max(150, Math.round((skyW * h) / w));
     if (!skyRays || skyRays.w !== skyW || skyRays.h !== skyH) {
       skyRays = { w: skyW, h: skyH, rays: buildSkyRays(skyW, skyH, fovDeg) };
       skyKey = "";
@@ -1576,7 +1618,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
       const scc = skyCanvas.getContext("2d")!;
       const img = scc.createImageData(skyW, skyH);
-      renderSkyToBuffer(skyRays.rays, skyW, skyH, basis.f, basis.r, basis.u, galBasis, tex, img.data);
+      renderSkyToBuffer(skyRays.rays, skyW, skyH, basis.f, basis.r, basis.u, galBasis, tex, img.data, true, 1.12);
       scc.putImageData(img, 0, 0);
       skyKey = key;
       skyMsLast = performance.now() - t0;
@@ -1590,6 +1632,135 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     ctx.globalAlpha = milkyShown * 0.55;
     ctx.drawImage(skyCanvas, 0, 0, w, h);
     ctx.restore();
+  }
+
+  // ── GALAXY / STARFIELD: the real Yale BSC bright stars ─────────────────────
+
+  /** Lazily fetch the bundled star catalog once (space-view only — this mount
+   *  runs only when the user has left Earth). Degrades to panorama-only. */
+  function ensureStars(): void {
+    if (starLoadStarted || disposed) return;
+    starLoadStarted = true;
+    void loadStarCatalog(undefined, starAbort.signal).then((cat) => {
+      if (disposed || !cat) return;
+      starCat = cat;
+      const n = cat.count;
+      starSizeArr = new Float32Array(n);
+      starAlphaArr = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        starSizeArr[i] = starSizePx(cat.mag[i]);
+        starAlphaArr[i] = starIntensity(cat.mag[i]);
+      }
+      computeStarEcl(timeMs);
+      kick(); // repaint now that the real sky is resident
+    });
+  }
+
+  /** Precompute each star's direction in the scene's ecliptic-of-date frame
+   *  (registers with the panorama). Recomputed only if the sim epoch drifts a
+   *  year — the obliquity change is otherwise sub-pixel. */
+  function computeStarEcl(t: number): void {
+    if (!starCat) return;
+    const n = starCat.count;
+    if (!starEclDir || starEclDir.length !== n * 3) starEclDir = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const e = eqToEclDir(
+        { x: starCat.dirEq[i * 3], y: starCat.dirEq[i * 3 + 1], z: starCat.dirEq[i * 3 + 2] },
+        t,
+      );
+      starEclDir[i * 3] = e.x;
+      starEclDir[i * 3 + 1] = e.y;
+      starEclDir[i * 3 + 2] = e.z;
+    }
+    starEclEpochMs = t;
+    starKey = ""; // directions changed → invalidate the cached point layer
+  }
+
+  /**
+   * Draw the real bright-star field. Points are projected gnomonically at
+   * their true sky directions onto a full-resolution offscreen canvas cached
+   * against the camera basis (stars are at infinity → they move only on
+   * orbit/resize, never on zoom — the panorama's caching discipline), then
+   * composited ADDITIVELY over the panorama. Size + brightness come from the
+   * real V magnitude, color from the real K temperature. The brightest named
+   * stars carry crisp live labels far out (labels toggle honored).
+   */
+  function drawStarfield(w: number, h: number, basis: CamBasis, k: number, cx: number, cy: number): void {
+    if (!ctx || !starsOn || starsShown <= 0.003 || !starCat || !starEclDir || !starSizeArr || !starAlphaArr) {
+      starRendered = 0;
+      return;
+    }
+    if (Math.abs(timeMs - starEclEpochMs) > 400 * 86_400_000) computeStarEcl(timeMs);
+    const key =
+      `${w}x${h}|${Math.round(k)}|${q2(basis.f.x)},${q2(basis.f.y)},${q2(basis.f.z)}` +
+      `|${q2(basis.u.x)},${q2(basis.u.y)},${q2(basis.u.z)}`;
+    if (!starCanvas || starCanvas.width !== w || starCanvas.height !== h) {
+      starCanvas = document.createElement("canvas");
+      starCanvas.width = w;
+      starCanvas.height = h;
+      starKey = "";
+    }
+    if (starKey !== key) {
+      const t0 = performance.now();
+      const scc = starCanvas.getContext("2d")!;
+      scc.clearRect(0, 0, w, h);
+      const n = starCat.count;
+      const fx = basis.f.x, fy = basis.f.y, fz = basis.f.z;
+      const rx = basis.r.x, ry = basis.r.y, rz = basis.r.z;
+      const ux = basis.u.x, uy = basis.u.y, uz = basis.u.z;
+      let drew = 0;
+      for (let i = 0; i < n; i++) {
+        const dx = starEclDir[i * 3];
+        const dy = starEclDir[i * 3 + 1];
+        const dz = starEclDir[i * 3 + 2];
+        const fwd = dx * fx + dy * fy + dz * fz;
+        if (fwd <= 1e-6) continue;
+        const sx = cx + (k * (dx * rx + dy * ry + dz * rz)) / fwd;
+        const sy = cy - (k * (dx * ux + dy * uy + dz * uz)) / fwd;
+        if (sx < -3 || sy < -3 || sx > w + 3 || sy > h + 3) continue;
+        const size = starSizeArr[i];
+        const ri = i * 3;
+        scc.fillStyle = `rgba(${starCat.rgb[ri]},${starCat.rgb[ri + 1]},${starCat.rgb[ri + 2]},${starAlphaArr[i]})`;
+        const side = size < 1.3 ? 1 : size < 2 ? 2 : Math.round(size);
+        scc.fillRect(sx - side / 2, sy - side / 2, side, side);
+        if (size > 2.1) {
+          // the ~few dozen brightest get a faint round halo → they read as stars
+          scc.globalAlpha = starAlphaArr[i] * 0.3;
+          scc.beginPath();
+          scc.arc(sx, sy, size * 1.4, 0, Math.PI * 2);
+          scc.fill();
+          scc.globalAlpha = 1;
+        }
+        drew++;
+      }
+      starRendered = drew;
+      starKey = key;
+      starMsLast = performance.now() - t0;
+    }
+    ctx.save();
+    ctx.globalAlpha = starsShown;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.drawImage(starCanvas, 0, 0);
+    ctx.restore();
+    // brightest named stars: crisp live labels (cheap — ≤~22), far-out only
+    if (labelsOn && starsShown > 0.55 && starCat.names.size) {
+      ctx.save();
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.fillStyle = `rgba(150,166,190,${(0.7 * starsShown).toFixed(3)})`;
+      for (const [i, name] of starCat.names) {
+        if (i >= starCat.count) continue;
+        const dx = starEclDir[i * 3];
+        const dy = starEclDir[i * 3 + 1];
+        const dz = starEclDir[i * 3 + 2];
+        const fwd = dx * basis.f.x + dy * basis.f.y + dz * basis.f.z;
+        if (fwd <= 1e-6) continue;
+        const sx = cx + (k * (dx * basis.r.x + dy * basis.r.y + dz * basis.r.z)) / fwd;
+        const sy = cy - (k * (dx * basis.u.x + dy * basis.u.y + dz * basis.u.z)) / fwd;
+        if (sx < 0 || sy < 0 || sx > w || sy > h) continue;
+        ctx.fillText(name, sx + 5, sy - 4);
+      }
+      ctx.restore();
+    }
   }
 
   /** Ecliptic grid: AU range rings + 12 bearing spokes (reference, default
@@ -1743,6 +1914,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   // ── SPACE VIEW VISUAL UPGRADE state (2026-07-18) ──
   let milkyOn = opts.milkyWay ?? getMilkyWayPref();
+  let starsOn = opts.stars ?? getStarsPref();
   let gridOn = opts.eclipticGrid ?? getEclipticGridPref();
   let trailsOn = opts.motionTrails ?? getMotionTrailsPref();
   let labelsOn = opts.bodyLabels ?? getBodyLabelsPref();
@@ -1760,6 +1932,25 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let skyRays: { w: number; h: number; rays: Float32Array } | null = null;
   let galBasis: GalacticBasis | null = null;
   let skyMsLast = 0;
+  // GALAXY / STARFIELD (2026-07-19): the real Yale BSC bright stars. Loaded
+  // lazily (space-view only), the point layer cached against the camera basis
+  // like the panorama (stars are at infinity → they never move on zoom, only
+  // on orbit/resize), composited additively over the panorama, and freed on
+  // exit. eclDir is the per-star ecliptic-frame direction (recomputed only if
+  // the sim epoch drifts a year — obliquity change is otherwise sub-pixel).
+  let starCat: StarCatalog | null = null;
+  let starLoadStarted = false;
+  const starAbort = new AbortController();
+  let starEclDir: Float32Array | null = null;
+  let starSizeArr: Float32Array | null = null;
+  let starAlphaArr: Float32Array | null = null;
+  let starEclEpochMs = 0;
+  let starCanvas: HTMLCanvasElement | null = null;
+  let starKey = "";
+  let starMsLast = 0;
+  let starsShown = 0;
+  let starEasePending = false;
+  let starRendered = 0;
   let glowSprite: HTMLCanvasElement | null = null;
   // texture LUT cache: per body, rebuilt only when the sprite size steps
   // or the axis moves in camera space (camera orbits) — a body SPINNING
@@ -2445,10 +2636,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const cx = w / 2;
     const cy = h / 2;
 
-    // ── paint space: black base + the Milky Way panorama past 8 AU (the
-    // real CC-BY all-sky panorama through the real galactic frame — no
-    // fabricated random starfield: the honesty rail stands, the panorama
-    // IS the starfield) ──
+    // ── paint space: black base + the Milky Way panorama past 8 AU + the
+    // REAL Yale BSC bright stars (starCatalog.ts) as they leave the inner
+    // solar system. Both are the one real sky, at true directions through the
+    // real galactic/ecliptic frame — never a fabricated random starfield. ──
     ctx.fillStyle = "#020409";
     ctx.fillRect(0, 0, w, h);
     const nowDraw = performance.now();
@@ -2461,6 +2652,16 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (Math.abs(milkyTarget - milkyShown) < 0.005) milkyShown = milkyTarget;
     milkyEasePending = Math.abs(milkyTarget - milkyShown) > 0.01;
     drawMilkyWay(w, h, basis);
+    // real bright stars fade in EARLIER than the faint galactic glow (they pop
+    // as the camera leaves the inner system); lazily loaded once the field
+    // would show, additively composited over the panorama.
+    const starTarget = starsOn ? starFieldOpacity(camAUtrue) : 0;
+    if (starTarget > 0) ensureStars();
+    if (easeDt > 1000) starsShown = starTarget;
+    else starsShown += (starTarget - starsShown) * (1 - Math.exp(-easeDt / MILKY_WAY_EASE_MS));
+    if (Math.abs(starTarget - starsShown) < 0.005) starsShown = starTarget;
+    starEasePending = Math.abs(starTarget - starsShown) > 0.01;
+    drawStarfield(w, h, basis, kNow, cx, cy);
 
     // ── ecliptic grid (default OFF): AU rings + bearing spokes ──
     if (gridOn) drawEclipticGrid(ctx, pos[sunDef.id], camPos, basis, kNow, cx, cy, w, h);
@@ -2762,6 +2963,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const capLines: { text: string; color: string }[] = [];
     // REQUIRED visible CC-BY credit whenever the panorama is on screen
     if (milkyShown > 0.02) capLines.push({ text: MILKY_WAY_CREDIT, color: "rgba(140,155,178,0.7)" });
+    // public-domain courtesy credit whenever the real bright stars are visible
+    if (starsShown > 0.02 && starCat) capLines.push({ text: STAR_CATALOG_CREDIT, color: "rgba(140,155,178,0.7)" });
     // B4/B5: the required visible source credit whenever real Trek tiles are on
     // screen — the ACTIVE body's own credit (Moon/Mars/Mercury/Venus), a
     // public-domain courtesy line, never claimed as live
@@ -2905,6 +3108,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       scaleBar: scaleBarOut,
       orbitPaths: { on: orbitsOn, ready: orbitCache.size, total: orbitTotal },
       milkyWay: { on: milkyOn, opacity: milkyShown, target: milkyTarget },
+      starfield: {
+        on: starsOn,
+        opacity: starsShown,
+        target: starTarget,
+        loaded: !!starCat,
+        count: starCat ? starCat.count : 0,
+        rendered: starRendered,
+        msLast: starMsLast,
+      },
       eclipticGrid: gridOn,
       motionTrails: trailsOn,
       bodyLabels: labelsOn,
@@ -2981,8 +3193,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (!flight) advanceZoomEase();
       draw();
       const coasting = Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG;
-      // milkyEasePending: finish the panorama fade after a flight lands
-      if (flight || coasting || zoomEaseActive() || performance.now() - lastInputAt < 200 || milkyEasePending) {
+      // milkyEasePending / starEasePending: finish the sky fades after motion;
+      // zoomEaseActive: keep easing the smooth zoom-to-cursor to rest
+      if (flight || coasting || zoomEaseActive() || performance.now() - lastInputAt < 200 || milkyEasePending || starEasePending) {
         rafId = requestAnimationFrame(loop);
       }
     };
@@ -3393,6 +3606,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       skyCanvas = null;
       skyRays = null;
       ringBands = null;
+      // GALAXY: abort any in-flight catalog fetch and free the star layer +
+      // catalog buffers (leaving space unloads the real sky like everything else)
+      try { starAbort.abort(); } catch { /* already */ }
+      starCanvas = null;
+      starCat = null;
+      starEclDir = null;
+      starSizeArr = null;
+      starAlphaArr = null;
       // B4/B5: free every rocky-body tile mosaic + patch buffers on exit
       // (__vtMoonTileBytes → 0, drive-observable) alongside the base textures
       if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
