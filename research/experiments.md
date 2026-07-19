@@ -211,6 +211,39 @@ confirmed via `git stash` on this same tree — no new errors in gemMethane*
 this session — see the harness's own summary for the recorded result.
 Backtest n/a (RAW data-product build, no trading logic touched).
 
+## 2026-07-19 [PRODUCT] — Celestial v2 B6: universal sun-driven lighting (v1.0.419, T-CLIENT, worktree agent + parent review)
+
+Charter §8, the last major celestial slice. New bodyLighting.ts (pure
+geometry, no deps): terminatorLit (n·sunDir), phaseFraction
+((1+cosα)/2), shadowConeFactor (real umbra/penumbra cone —
+generalizes followCamera.earthShadow to a 3D body↔body frame),
+surfaceInRingShadow (ring-plane-crossing band, tracks the Sun's ring
+elevation), pointInSphereShadow (planet-shadow-on-rings). Unified the
+three pre-existing Lambert shading paths (far untextured sprite, far
+textured sprite, close surface patch) onto one BodyLight and ADDED
+eclipse/umbra darkening, Saturn ring shadow (per-pixel on disc +
+planet shadow on rings), and a Realistic-lighting toggle
+(setRealisticLighting handle + vt-celestial-realistic pref, default
+ON; OFF = full-bright inspection). ALL lighting derives from the ONE
+B3 sim clock (simNow → real positions) so it moves under time-warp.
+Gates (parent-verified, MY OWN drive): client 571/571 (+21), build
+clean, visual harness 0 hard failures, territory celestial/*.ts only.
+B6 drive 10/10 (clean run; the 1 miss on the first run was a one-time
+SwiftShader patch-build spike 49.8ms → 10ms on re-run, steady
+renderMs 0.3-1.5ms): real terminator (maxL 161 / minL 4), realistic-
+OFF full-bright, crescent phase, Saturn ring shadow (4619 px, gone
+when OFF), patch↔sprite terminator consistency (Δangle 10°), and the
+headline — advancing the sim clock to the REAL 2025-03-14 total lunar
+eclipse the ephemeris reproduces turns the Moon disc BLACK
+(sunlitFactor 0.000) vs 1.000 at the control instant 7 days later:
+time moves → the lighting moves. HONEST APPROX: eclipse darkening is
+disc-uniform (evaluated at body center) — total eclipses (the visible
+case) render correctly; partial-phase curvature across the disc not
+resolved. Black Marble night lights deferred (charter optional).
+FOLLOW-UP (parent, datamap territory): wire the CELESTIAL-panel
+"Realistic lighting" + "Stars" toggle rows (both handles+prefs exist).
+Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Galaxy detail: REAL bright-star catalog + sharper Milky Way (v1.0.417, T-CLIENT, worktree agent + parent review)
 
 Human: "the galaxy in the background need to be way more detailed." The
