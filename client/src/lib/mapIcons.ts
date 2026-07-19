@@ -570,6 +570,29 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fill();
     ctx.restore();
   }),
+  // satellite-detected methane plume (GEM GMET, symbols-not-dots directive):
+  // a rising billow narrowing to a point at its ground source, with wavy
+  // dispersal cutouts — reads as "venting gas", distinct from the flame
+  // (vt-fire), trefoil (vt-radiation), and water-droplet (vt-pfas) marks.
+  // icon-color carries the nearest-asset match kind (oil/gas vs coal vs
+  // unmatched), never a risk/severity claim (RAW proximity fact only).
+  "vt-plume": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, s - 4);
+    ctx.bezierCurveTo(m - 9, s - 12, m - 11, 10, m - 5, 6);
+    ctx.bezierCurveTo(m - 1, 2, m + 1, 2, m + 5, 6);
+    ctx.bezierCurveTo(m + 11, 10, m + 9, s - 12, m, s - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(m - 6, m - 3); ctx.quadraticCurveTo(m, m - 6, m + 6, m - 3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 5, m + 5); ctx.quadraticCurveTo(m, m + 2, m + 5, m + 5); ctx.stroke();
+    ctx.restore();
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -763,6 +786,22 @@ export function radiationBandColor(uSvH: number | null | undefined, unit: string
   for (const b of RADIATION_BANDS) if (uSvH < b.max) return b.color;
   return RADIATION_BANDS[RADIATION_BANDS.length - 1].color;
 }
+
+// Methane plume nearestAsset.kind -> tint (server/gemMethaneProximity.ts).
+// Color carries WHICH catalogued asset registry matched, never a severity
+// or risk claim — "unmatched" is not lower-priority, just geometrically
+// farther than MATCH_RADIUS_KM from anything in either registry.
+export type MethaneMatchKind = "oil_gas_extraction" | "coal_mine" | "unmatched";
+export const METHANE_MATCH_COLOR: Record<MethaneMatchKind, string> = {
+  oil_gas_extraction: "#fb923c", // amber — gas/oil
+  coal_mine: "#78716c",          // stone — coal
+  unmatched: "#64748b",          // slate — no nearby catalogued asset
+};
+export const METHANE_MATCH_LABEL: Record<MethaneMatchKind, string> = {
+  oil_gas_extraction: "Near oil/gas extraction asset",
+  coal_mine: "Near coal mine",
+  unmatched: "No nearby catalogued asset",
+};
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
  *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
