@@ -1240,9 +1240,15 @@ export interface SpaceFrameHandle {
    *  resample, on scale changes — the charter's slider rule). */
   setOrbitPaths(on: boolean): void;
   setMilkyWay(on: boolean): void;
+  /** toggle the real bright-star point layer (Yale BSC). */
+  setStars(on: boolean): void;
   setEclipticGrid(on: boolean): void;
   setMotionTrails(on: boolean): void;
   setBodyLabels(on: boolean): void;
+  /** DEBUG/DRIVE seam: project a sky direction (RA/Dec, J2000 degrees) into
+   *  container CSS px using the live camera — the SAME transform stars +
+   *  panorama register through. Proves a known star lands at its true place. */
+  projectSkyRaDec(raDeg: number, decDeg: number): { x: number; y: number; front: boolean };
   /** display-ready card data for a body at the frame's current instant. */
   getBodyCard(id: string): BodyCardInfo | null;
   getState(): SpaceFrameState;
@@ -1603,35 +1609,59 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const skyH = Math.max(150, Math.round((skyW * h) / w));
     if (!skyRays || skyRays.w !== skyW || skyRays.h !== skyH) {
       skyRays = { w: skyW, h: skyH, rays: buildSkyRays(skyW, skyH, fovDeg) };
-      skyKey = "";
+      skyReadyKey = "";
+      skyWorkKey = "";
     }
     if (!galBasis) galBasis = galacticBasisEcl(timeMs);
     const key =
       `${skyW}x${skyH}|${q2(basis.f.x)},${q2(basis.f.y)},${q2(basis.f.z)}` +
       `|${q2(basis.u.x)},${q2(basis.u.y)},${q2(basis.u.z)}`;
-    if (!skyCanvas || skyKey !== key) {
-      const t0 = performance.now();
-      if (!skyCanvas || skyCanvas.width !== skyW || skyCanvas.height !== skyH) {
-        skyCanvas = document.createElement("canvas");
-        skyCanvas.width = skyW;
-        skyCanvas.height = skyH;
-      }
-      const scc = skyCanvas.getContext("2d")!;
-      const img = scc.createImageData(skyW, skyH);
-      renderSkyToBuffer(skyRays.rays, skyW, skyH, basis.f, basis.r, basis.u, galBasis, tex, img.data, true, 1.12);
-      scc.putImageData(img, 0, 0);
-      skyKey = key;
-      skyMsLast = performance.now() - t0;
+    if (!skyCanvas || skyCanvas.width !== skyW || skyCanvas.height !== skyH) {
+      skyCanvas = document.createElement("canvas");
+      skyCanvas.width = skyW;
+      skyCanvas.height = skyH;
+      skyReadyKey = "";
+      skyWorkKey = "";
     }
-    ctx.save();
-    ctx.globalAlpha = milkyShown;
-    ctx.drawImage(skyCanvas, 0, 0, w, h);
-    // additive second pass — the reference's galaxyGlow (the band glows
-    // instead of reading as dim wallpaper)
-    ctx.globalCompositeOperation = "lighter";
-    ctx.globalAlpha = milkyShown * 0.55;
-    ctx.drawImage(skyCanvas, 0, 0, w, h);
-    ctx.restore();
+    if (skyReadyKey !== key) {
+      // (re)start the build for this camera basis if it changed mid-flight
+      if (skyWorkKey !== key) {
+        skyWorkKey = key;
+        skyWorkRow = 0;
+        if (!skyWork || skyWork.length !== skyW * skyH * 4) skyWork = new Uint8ClampedArray(skyW * skyH * 4);
+      }
+      const t0 = performance.now();
+      const BUDGET_MS = 8; // per-frame slice — keeps the sky task well under 16 ms
+      const bandRows = Math.max(4, Math.floor(24_000 / skyW));
+      while (skyWorkRow < skyH && performance.now() - t0 < BUDGET_MS) {
+        const end = Math.min(skyH, skyWorkRow + bandRows);
+        renderSkyToBuffer(skyRays.rays, skyW, skyH, basis.f, basis.r, basis.u, galBasis, tex, skyWork!, true, 1.12, skyWorkRow, end);
+        skyWorkRow = end;
+      }
+      skyMsLast = performance.now() - t0;
+      if (skyWorkRow >= skyH) {
+        const scc = skyCanvas.getContext("2d")!;
+        scc.putImageData(new ImageData(new Uint8ClampedArray(skyWork!), skyW, skyH), 0, 0);
+        skyReadyKey = key;
+        skyWorkKey = "";
+        skyRenderPending = false;
+      } else {
+        skyRenderPending = true; // keep drawing until the build finishes
+      }
+    }
+    // composite whatever completed buffer we have (during a fast orbit this may
+    // be the previous basis for a frame or two — an invisible backdrop lag)
+    if (skyReadyKey) {
+      ctx.save();
+      ctx.globalAlpha = milkyShown;
+      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      // additive second pass — the reference's galaxyGlow (the band glows
+      // instead of reading as dim wallpaper)
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = milkyShown * 0.55;
+      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      ctx.restore();
+    }
   }
 
   // ── GALAXY / STARFIELD: the real Yale BSC bright stars ─────────────────────
@@ -1747,18 +1777,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       ctx.save();
       ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.fillStyle = `rgba(150,166,190,${(0.7 * starsShown).toFixed(3)})`;
-      for (const [i, name] of starCat.names) {
-        if (i >= starCat.count) continue;
-        const dx = starEclDir[i * 3];
-        const dy = starEclDir[i * 3 + 1];
-        const dz = starEclDir[i * 3 + 2];
+      const sd = starEclDir;
+      const c2 = ctx;
+      starCat.names.forEach((name, i) => {
+        if (i >= starCat!.count) return;
+        const dx = sd[i * 3];
+        const dy = sd[i * 3 + 1];
+        const dz = sd[i * 3 + 2];
         const fwd = dx * basis.f.x + dy * basis.f.y + dz * basis.f.z;
-        if (fwd <= 1e-6) continue;
+        if (fwd <= 1e-6) return;
         const sx = cx + (k * (dx * basis.r.x + dy * basis.r.y + dz * basis.r.z)) / fwd;
         const sy = cy - (k * (dx * basis.u.x + dy * basis.u.y + dz * basis.u.z)) / fwd;
-        if (sx < 0 || sy < 0 || sx > w || sy > h) continue;
-        ctx.fillText(name, sx + 5, sy - 4);
-      }
+        if (sx < 0 || sy < 0 || sx > w || sy > h) return;
+        c2.fillText(name, sx + 5, sy - 4);
+      });
       ctx.restore();
     }
   }
@@ -1928,10 +1960,19 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let milkyEasePending = false;
   let lastDrawAt = 0;
   let skyCanvas: HTMLCanvasElement | null = null;
-  let skyKey = "";
   let skyRays: { w: number; h: number; rays: Float32Array } | null = null;
   let galBasis: GalacticBasis | null = null;
   let skyMsLast = 0;
+  // progressive panorama render (galaxy detail 2026-07-19): the sky is built
+  // at a high working resolution in row bands across frames so no single sky
+  // repaint exceeds the budget; skyReadyKey holds the completed buffer's basis
+  // key, skyWork accumulates the in-progress one, skyRenderPending keeps the
+  // rAF alive until a build finishes.
+  let skyWork: Uint8ClampedArray | null = null;
+  let skyWorkRow = 0;
+  let skyWorkKey = "";
+  let skyReadyKey = "";
+  let skyRenderPending = false;
   // GALAXY / STARFIELD (2026-07-19): the real Yale BSC bright stars. Loaded
   // lazily (space-view only), the point layer cached against the camera basis
   // like the panorama (stars are at infinity → they never move on zoom, only
@@ -1951,6 +1992,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let starsShown = 0;
   let starEasePending = false;
   let starRendered = 0;
+  // live camera capture (drive seam for projectSkyRaDec)
+  let lastBasis: CamBasis | null = null;
+  let lastK = 0;
+  let lastCx = 0;
+  let lastCy = 0;
   let glowSprite: HTMLCanvasElement | null = null;
   // texture LUT cache: per body, rebuilt only when the sprite size steps
   // or the axis moves in camera space (camera orbits) — a body SPINNING
@@ -2635,6 +2681,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const basis = camBasis(viewDir, axis);
     const cx = w / 2;
     const cy = h / 2;
+    // capture the live camera for the drive's projectSkyRaDec seam
+    lastBasis = basis;
+    lastK = kNow;
+    lastCx = cx;
+    lastCy = cy;
 
     // ── paint space: black base + the Milky Way panorama past 8 AU + the
     // REAL Yale BSC bright stars (starCatalog.ts) as they leave the inner
@@ -3193,9 +3244,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (!flight) advanceZoomEase();
       draw();
       const coasting = Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG;
-      // milkyEasePending / starEasePending: finish the sky fades after motion;
-      // zoomEaseActive: keep easing the smooth zoom-to-cursor to rest
-      if (flight || coasting || zoomEaseActive() || performance.now() - lastInputAt < 200 || milkyEasePending || starEasePending) {
+      // sky fades (milky/star ease) + skyRenderPending (progressive panorama
+      // build) + zoomEaseActive (smooth zoom-to-cursor easing to rest)
+      if (flight || coasting || zoomEaseActive() || performance.now() - lastInputAt < 200 || milkyEasePending || starEasePending || skyRenderPending) {
         rafId = requestAnimationFrame(loop);
       }
     };
@@ -3554,6 +3605,22 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       lastInputAt = performance.now();
       kick();
     },
+    setStars(on: boolean): void {
+      if (on === starsOn) return;
+      starsOn = on;
+      if (on) ensureStars();
+      lastInputAt = performance.now();
+      kick();
+    },
+    projectSkyRaDec(raDeg: number, decDeg: number): { x: number; y: number; front: boolean } {
+      if (!lastState) draw();
+      if (!lastBasis) return { x: NaN, y: NaN, front: false };
+      const ra = raDeg * DEG;
+      const dec = decDeg * DEG;
+      const eq = v3(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
+      const e = eqToEclDir(eq, timeMs);
+      return projectStarScreen(e, lastBasis, lastK, lastCx, lastCy);
+    },
     setEclipticGrid(on: boolean): void {
       if (on === gridOn) return;
       gridOn = on;
@@ -3605,6 +3672,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
       skyCanvas = null;
       skyRays = null;
+      skyWork = null;
+      skyReadyKey = "";
+      skyWorkKey = "";
+      skyRenderPending = false;
       ringBands = null;
       // GALAXY: abort any in-flight catalog fetch and free the star layer +
       // catalog buffers (leaving space unloads the real sky like everything else)

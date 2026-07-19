@@ -291,3 +291,42 @@ test("sky rays + render: center ray is the forward axis; the band paints where t
   renderSkyToBuffer(rays, w, h, g.Z, g.X, g.Y, g, pano, out2);
   assert.equal(out2[c], 5, "looking at the pole: off-band dark");
 });
+
+test("sky render: row-band chunking reproduces the whole-buffer result", () => {
+  const rays = buildSkyRays(12, 10, 40);
+  const g = galacticBasisEcl(Date.UTC(2026, 6, 19));
+  const pano = tex(64, 32, (x, y) => [x * 3, y * 6, 255 - x]);
+  const w = 12;
+  const h = 10;
+  const whole = new Uint8ClampedArray(w * h * 4);
+  renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, whole, true, 1.1);
+  const banded = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y += 3) {
+    renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, banded, true, 1.1, y, Math.min(h, y + 3));
+  }
+  for (let i = 0; i < whole.length; i++) assert.equal(banded[i], whole[i], `pixel byte ${i} matches`);
+});
+
+test("sky render: bilinear interpolates between texels (nearest snaps)", () => {
+  const rays = buildSkyRays(9, 7, 40);
+  const g = galacticBasisEcl(Date.UTC(2026, 6, 19));
+  // a horizontal gradient panorama — bilinear must produce in-between values
+  const pano = tex(64, 32, (x) => [Math.round((x / 63) * 255), 128, 0]);
+  const w = 9;
+  const h = 7;
+  const near = new Uint8ClampedArray(w * h * 4);
+  const bil = new Uint8ClampedArray(w * h * 4);
+  renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, near, false, 1);
+  renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, bil, true, 1);
+  let differ = 0;
+  for (let i = 0; i < w * h; i++) if (near[i * 4] !== bil[i * 4]) differ++;
+  assert.ok(differ > 0, "bilinear differs from nearest on a gradient");
+  // exposure lift brightens the band
+  const dim = new Uint8ClampedArray(w * h * 4);
+  const lit = new Uint8ClampedArray(w * h * 4);
+  renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, dim, false, 1);
+  renderSkyToBuffer(rays, w, h, g.X, g.Y, g.Z, g, pano, lit, false, 1.5);
+  let brighter = 0;
+  for (let i = 0; i < w * h; i++) if (lit[i * 4] >= dim[i * 4]) brighter++;
+  assert.equal(brighter, w * h, "exposure ≥1 never darkens");
+});

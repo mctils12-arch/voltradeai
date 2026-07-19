@@ -472,13 +472,20 @@ export function renderSkyToBuffer(
   out: Uint8ClampedArray,
   bilinear = false,
   exposure = 1,
+  rowStart = 0,
+  rowEnd = -1,
 ): void {
   const tw = tex.width;
   const th = tex.height;
   const td = tex.data;
-  const n = w * h;
+  // render only rows [rowStart, rowEnd) — the frame chunks the panorama across
+  // macrotasks so no single sky repaint exceeds the 16 ms budget at high
+  // working resolution (default renders the whole buffer).
+  const y1 = rowEnd < 0 ? h : Math.min(h, rowEnd);
+  const iStart = Math.max(0, rowStart) * w;
+  const n = y1 * w;
   const ex = exposure;
-  for (let i = 0; i < n; i++) {
+  for (let i = iStart; i < n; i++) {
     const rx = rays[i * 3];
     const ry = rays[i * 3 + 1];
     const rz = rays[i * 3 + 2];
