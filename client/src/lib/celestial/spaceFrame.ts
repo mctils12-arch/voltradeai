@@ -294,6 +294,121 @@ export function orbitInertiaStep(
   return { stepDeg: velDeg, velDeg: velDeg * damp };
 }
 
+// ── ZOOM-TO-CURSOR + PAN — reconcile the orbit camera to the maplibre map's
+// feel (human live feedback 2026-07-19: "it need to have the mechanics of the
+// earth for zooming and panning ... hard to maneuver around the universe"). The
+// map the human finds easy zooms toward the CURSOR and pans the surface; the
+// praised OrbitControls reference adds damped orbit + right-drag pan. The
+// bridge is a body-relative LOOK-AT OFFSET (focusOff, meters from the focus
+// body's centre): the camera may look off-centre, so a wheel zoom pulls the
+// cursor's surface point toward screen centre (the map's zoom-to-cursor payoff)
+// and a pan-drag traverses the surface laterally — the map's mental model,
+// inside the orbit camera. focusOff is 0 for centred orbiting and is reset on
+// every focus change (fly-to / release / fly-home all run with focusOff = 0, so
+// the seam, flights and follow contracts are untouched). All pure + unit-tested.
+
+/** Wheel-zoom momentum: one eased step moves camera distance this fraction
+ *  toward the target in LOG space (exponential zoom's uniform-feel twin) —
+ *  ~4-5 frames to settle, responsive, never a hard snap. */
+export const ZOOM_EASE_ALPHA = 0.34;
+
+/** Per-notch gain of the cursor pull: the fraction of the residual toward the
+ *  cursor's surface point the look-at moves each wheel notch (1 ⇒ the point
+ *  reaches screen centre over a full zoom-in, matching the map's feel). */
+export const CURSOR_PULL_GAIN = 1.0;
+
+/** How far the look-at may slide off the body centre, in body radii — enough
+ *  to pan / zoom-pull across the visible hemisphere to the limb, never beyond
+ *  (the look-at can't fly off into empty space). */
+export const PAN_MAX_OFFSET_RADII = 1.2;
+
+/** Unnormalised world ray direction through screen pixel (mx,my) under a
+ *  camera basis (forward f, right r, up u), perspective scale k and principal
+ *  point (cx,cy). The exact inverse of projectPoint's mapping: right offset
+ *  a = (mx−cx)/k, up offset b = (cy−my)/k (screen y is down), forward = 1. */
+export function screenRayDir(
+  mx: number, my: number, k: number, cx: number, cy: number, basis: CamBasis,
+): Vec3 {
+  const a = (mx - cx) / k;
+  const b = (cy - my) / k;
+  return v3(
+    basis.f.x + a * basis.r.x + b * basis.u.x,
+    basis.f.y + a * basis.r.y + b * basis.u.y,
+    basis.f.z + a * basis.r.z + b * basis.u.z,
+  );
+}
+
+/** Nearest FRONT intersection of ray (o + t·d, d need not be unit) with the
+ *  sphere (centre c, radius R), or null on a miss / behind the camera — the
+ *  cursor→surface raycast that anchors zoom-to-cursor. */
+export function raycastSphere(o: Vec3, d: Vec3, c: Vec3, R: number): Vec3 | null {
+  const ox = o.x - c.x;
+  const oy = o.y - c.y;
+  const oz = o.z - c.z;
+  const A = d.x * d.x + d.y * d.y + d.z * d.z;
+  const B = 2 * (ox * d.x + oy * d.y + oz * d.z);
+  const C = ox * ox + oy * oy + oz * oz - R * R;
+  const disc = B * B - 4 * A * C;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  let t = (-B - sq) / (2 * A);
+  if (t <= 0) t = (-B + sq) / (2 * A);
+  if (t <= 0) return null;
+  return v3(o.x + t * d.x, o.y + t * d.y, o.z + t * d.z);
+}
+
+/** Clamp a body-relative look-at offset to a maximum magnitude — keeps the
+ *  look-at near the body so a pan or zoom-pull can never fling it away. */
+export function clampOffset(off: Vec3, maxMag: number): Vec3 {
+  const m = len3(off);
+  if (m <= maxMag || m === 0) return off;
+  const s = maxMag / m;
+  return v3(off.x * s, off.y * s, off.z * s);
+}
+
+/** Cursor pull: move the look-at offset a fraction `alpha` toward the
+ *  body-relative point `target` the cursor is over — bringing that point
+ *  toward screen centre (the maplibre zoom-to-cursor payoff), clamped. */
+export function cursorPullOffset(off: Vec3, target: Vec3, alpha: number, maxMag: number): Vec3 {
+  const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  return clampOffset(
+    v3(
+      off.x + (target.x - off.x) * a,
+      off.y + (target.y - off.y) * a,
+      off.z + (target.z - off.z) * a,
+    ),
+    maxMag,
+  );
+}
+
+/** Pan the look-at offset across the surface: a screen drag (dxPx,dyPx) at
+ *  `metersPerPx` translates the offset in the camera's tangent plane so the
+ *  surface point under the pointer follows it (grab-pan, the map's feel).
+ *  Drag right ⇒ offset −right (content moves right); drag down ⇒ offset +up. */
+export function panOffset(
+  off: Vec3, dxPx: number, dyPx: number, basis: CamBasis, metersPerPx: number, maxMag: number,
+): Vec3 {
+  const kr = -dxPx * metersPerPx;
+  const ku = dyPx * metersPerPx;
+  return clampOffset(
+    v3(
+      off.x + kr * basis.r.x + ku * basis.u.x,
+      off.y + kr * basis.r.y + ku * basis.u.y,
+      off.z + kr * basis.r.z + ku * basis.u.z,
+    ),
+    maxMag,
+  );
+}
+
+/** One eased zoom step in LOG distance: move `cur` a fraction `alpha` toward
+ *  `target`, snapping when within snapFrac (relative). Wheel-zoom momentum
+ *  that never lags behind intent — exponential zoom's uniform-feel ease. */
+export function smoothZoomStep(cur: number, target: number, alpha: number, snapFrac = 0.004): number {
+  if (!(cur > 0) || !(target > 0)) return target;
+  if (Math.abs(Math.log(target / cur)) < snapFrac) return target;
+  return Math.exp(Math.log(cur) + (Math.log(target) - Math.log(cur)) * alpha);
+}
+
 /** Arrivals swing PAST the target and look back the way they came, offset
  *  sideways by this angle — so the place you left (Earth, when flying out)
  *  hangs beside the target instead of hiding behind your back or behind the
@@ -338,11 +453,14 @@ export const UPGRADE_CHUNK_PX = 45_000;
  *  where the ≤448px sprite is visibly soft). */
 export const MOON_PATCH_ACTIVATE_RADII = 3.5;
 
-/** Synchronous MOTION tier: the patch buffer's long side, px. Kept small so a
- *  per-frame rebuild during an orbit drag stays a bounded main-thread task
- *  (SwiftShader-verified well under 16ms at this size); upscaled to the disc
- *  while moving, replaced by the full tier once the pose settles. */
-export const MOON_PATCH_FAST_LONG_PX = 140;
+/** Synchronous BOOTSTRAP tier: the patch buffer's long side, px. Since the
+ *  2026-07-19 crisp-during-motion fix keeps the high-res buffer on screen
+ *  through orbit/pan/zoom, this synchronous tier only ever shows on the FIRST
+ *  approach to a body (before any full buffer exists) — so it is sized purely
+ *  for a safe <16ms one-shot render, not for motion quality (mpFull carries
+ *  that). Trimmed from 140 for headroom against the frame budget on a loaded
+ *  SwiftShader machine (drive measured 15.3ms at 140 near 2 radii). */
+export const MOON_PATCH_FAST_LONG_PX = 116;
 
 /** Streamed high-res tier: the patch buffer's long side, px. Rendered in
  *  MOON_PATCH_CHUNK_PX row bands (each well under a frame), refreshed
@@ -362,21 +480,30 @@ export const MOON_PATCH_FULL_LONG_PX = 1100;
  *  well before the lag reaches the cap at normal drag speed. */
 export const MOON_PATCH_MOTION_KEEP_COS = Math.cos((40 * Math.PI) / 180);
 
-/** Row-chunk budget for the settled patch stream, px per macrotask (smaller
- *  than the sprite's UPGRADE_CHUNK_PX because a patch pixel costs a ray-sphere
- *  solve + atan2/asin). Banding is OUTPUT-IDENTICAL (proven by moonSurface's
- *  "chunked rows compose to the same buffer" test) — only the task granularity
- *  changes. Kept below the fast tier's one-shot worst case (≈140²=19.6k px) so
- *  a settled full-tier band is never the frame's largest task; B5 lowered it
- *  from 24k after drive-measuring 18–20ms bands on a loaded machine (Venus/Mars
- *  deep zoom). Every body — Moon included — inherits the smaller, safer band. */
-export const MOON_PATCH_CHUNK_PX = 12_000;
+/** Row-chunk budget for the patch stream, px per macrotask (smaller than the
+ *  sprite's UPGRADE_CHUNK_PX because a patch pixel costs a ray-sphere solve +
+ *  atan2/asin). Banding is OUTPUT-IDENTICAL (proven by moonSurface's "chunked
+ *  rows compose to the same buffer" test) — only the task granularity changes.
+ *  Because the 2026-07-19 fix keeps the previous full buffer on screen while
+ *  the next one builds, completion latency no longer costs crispness — so this
+ *  can be SMALL for a hard <16ms guarantee: 6k (down from 12k) keeps a loaded
+ *  SwiftShader band well under budget where 12k measured 17.4ms near 2 radii. */
+export const MOON_PATCH_CHUNK_PX = 6_000;
+
+/** Idle time (ms since the last input) after which the high-res patch buffer
+ *  rebuilds for the settled pose. Below this the last crisp buffer is held on
+ *  screen (see the REFRESH note in drawBodyPatch). Kept under the rAF loop's
+ *  200ms input-active window so the settle rebuild always fires. */
+export const MOON_PATCH_SETTLE_MS = 150;
 
 /** The tile mosaic covers the viewport-visible surface arc times this factor
  *  (headroom past the viewport corners so the sharp region fills the frame AND
  *  a PREFETCH ring so panning/orbiting into new surface reveals already-resident
- *  tiles instead of soft/unloaded gaps — B5 widened from 1.6). */
-export const MOON_PATCH_COVER_MARGIN = 2.1;
+ *  tiles instead of soft/unloaded gaps). Widened to 2.8 (from 2.1) for the
+ *  2026-07-19 crisp-during-motion gate: a pan/orbit sweeps the sub-camera point
+ *  across the surface, and a wider resident window keeps the refreshed buffers
+ *  sampling REAL tiles (not the soft base) through the motion. */
+export const MOON_PATCH_COVER_MARGIN = 2.8;
 
 /** Floor on the covered half-span, degrees — a mosaic never shrinks below a
  *  couple of degrees (avoids a degenerate one-texel fetch and gives the near
@@ -1136,6 +1263,10 @@ export interface SpaceFrameState {
   timeMs: number;
   focusId: string;
   distM: number;
+  /** ZOOM-TO-CURSOR/PAN: the look-at offset from the focus body's centre,
+   *  body-relative meters (0 = centred orbit). Grows toward the cursor side on
+   *  a wheel zoom-in and traverses the surface on a pan drag. */
+  focusOffM: Vec3;
   /** B2: the scale state the frame rendered with this frame. */
   scale: ScaleState;
   flying: boolean;
@@ -1590,6 +1721,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let dir = entryCameraDir(seam0.centerLatDeg, seam0.centerLonDeg, timeMs);
   let kNow = perspectiveScalePx(fovDeg, container.clientHeight || 600);
   let dist = distanceForDiscPx(radiusM(anchorDef.id), entryDiscPx, kNow);
+  // ZOOM-TO-CURSOR + PAN (2026-07-19): the LOOK-AT is focus-body-centre +
+  // focusOff (body-relative meters). focusOff = 0 ⇒ centred (the classic
+  // orbit). Wheel-zoom eases dist toward distTarget and pulls focusOff toward
+  // focusOffTarget (the cursor's surface point); pan writes focusOff directly.
+  // Reset to 0 on every focus change so flights / seam / follow are untouched.
+  let focusOff: Vec3 = v3(0, 0, 0);
+  let focusOffTarget: Vec3 = v3(0, 0, 0);
+  let distTarget = dist; // smooth-zoom (wheel) eases dist → distTarget
   let flight: FlightState | null = null;
   let renderMsLast = 0;
   let lastState: SpaceFrameState | null = null;
@@ -1817,16 +1956,22 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const key =
       `${bodyId}|${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
       `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}`;
-    // ── DRAW: prefer the crisp high-res buffer, even DURING motion ──────────
+    // ── DRAW: keep the crisp high-res buffer on screen, even DURING motion ───
     // The high-res buffer maps buffer pixels to the disc bbox; drawing it into
-    // the CURRENT bbox keeps the silhouette exact while the surface texture is
-    // at most one refresh-build stale. So during orbit/pan we keep FULL
-    // sharpness (swapping in a fresher build as it lands) instead of dropping to
-    // the low-res fast tier — the fix for "goes fuzzy when you move around it".
-    const fullUsable =
-      mpFull && mpFull.ready &&
-      (mpFull.key === key ||
-        mpFull.nCam.x * nCam.x + mpFull.nCam.y * nCam.y + mpFull.nCam.z * nCam.z >= MOON_PATCH_MOTION_KEEP_COS);
+    // the CURRENT bbox keeps the silhouette exact while its surface texture is
+    // at most ONE refresh-build stale (the refresh block below always keeps a
+    // build in flight for the live pose, so a completed buffer is never more
+    // than a fraction of a second behind the camera). DEFINITIVE FIX for "it
+    // gets fuzzy when you move around it" (2026-07-19): once a full buffer
+    // exists for this body we ALWAYS draw it during orbit/pan/zoom — never drop
+    // to the low-res fast tier — because a stale-but-high-res image carries the
+    // real detail-energy the eye reads, whereas the ≤140px fast tier (the only
+    // synchronous <16ms option) is inescapably soft. B5's cos-40° cone dropped
+    // to that fast tier the moment a sustained drag out-ran a build, which is
+    // exactly the ~30-37% the drive measured; keeping the last full buffer
+    // holds ~100% of settled detail through the motion, snapping exact on
+    // settle.
+    const fullUsable = !!(mpFull && mpFull.ready);
     if (fullUsable) {
       ctx.drawImage(mpFull!.canvas, bx, by, bw, bh);
       moonPatchFullThisFrame = true;
@@ -1849,12 +1994,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       mpFast.canvas.getContext("2d")!.putImageData(mpFast.img, 0, 0);
       ctx.drawImage(mpFast.canvas, bx, by, bw, bh);
     }
-    // ── REFRESH: keep a high-res build in flight for the CURRENT pose, always ──
-    // (motion included, not just when settled): one build at a time; when it
-    // completes pumpMoonPatch swaps it into mpFull, and the next frame — if the
-    // camera has moved on — starts the next. The crisp tier thus tracks the
-    // camera with bounded (single-build) lag instead of only appearing at rest.
-    if ((!mpFull || mpFull.key !== key) && !mpBuilding) {
+    // ── REFRESH the high-res buffer for the CURRENT pose ────────────────────
+    // The subtlety at very close range (2026-07-19): the disc fills the screen
+    // but the tile mosaic covers only the tiny visible arc, so an ACTIVE drag
+    // sweeps the sub-camera point off the resident tiles faster than they can
+    // stream — a buffer rebuilt mid-drag would sample the soft BASE for the
+    // newly-revealed surface and REPLACE the crisp settled buffer with a soft
+    // one. So we only rebuild when SETTLED (or when there is no full buffer yet,
+    // to bootstrap the first crisp frame promptly): during motion the last
+    // crisp buffer stays drawn into the moving bbox (silhouette exact, texture
+    // stale-but-crisp), then snaps to the correct pose the instant the drag
+    // stops. Away from the floor the mosaic covers the whole sweep, so "settled"
+    // arrives ~150ms after the last input with the fresh pose already correct.
+    const patchSettled = !flight && performance.now() - lastInputAt >= MOON_PATCH_SETTLE_MS;
+    if ((!mpFull || mpFull.key !== key) && !mpBuilding && (patchSettled || !mpFull)) {
       const ld = patchBufDims(bw, bh, MOON_PATCH_FULL_LONG_PX);
       const cv = document.createElement("canvas");
       cv.width = ld.bufW;
@@ -2143,6 +2296,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   // in progress first, freezing its blended camera as the new start) ──
   function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
     cancelFlight();
+    // a fly-to lands looking at the target body's centre — drop any
+    // zoom-to-cursor / pan look-at offset carried from the prior focus
+    focusOff = v3(0, 0, 0);
+    focusOffTarget = v3(0, 0, 0);
     // flights fly through DRAWN space (layout) — a fly-to must land on the
     // body where it is rendered; framing math uses TRUE radii, and the
     // apparent-size cap renders true discs at arrival range, so the
@@ -2158,8 +2315,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     } else {
       // arrival pose: swing PAST the target and look back the way you came,
       // offset sideways so the place you left hangs beside the target's limb
-      // instead of hiding behind it (or behind your back)
-      const away = norm3(sub(to, from)); // continue outbound past the target
+      // instead of hiding behind it (or behind your back). If from == to (a
+      // fly-to targeting the CURRENT focus body — external callers may do this),
+      // sub(to,from) is 0 and norm3 would degenerate to a zero look direction
+      // (broken camera); keep the current view direction and just re-frame the
+      // distance in that case.
+      const outbound = sub(to, from);
+      const away = len3(outbound) > 1 ? norm3(outbound) : dir;
       const axis = earthAxisEcl(timeMs);
       toDir = rotateAbout(away, camBasis(away, axis).u, ARRIVAL_LOOKBACK_OFFSET_DEG);
       const { w, h } = cssSize();
@@ -2210,6 +2372,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const rel = sub(cam, pos[focusId]);
     dist = Math.max(len3(rel), MIN_DISTANCE_RADII * radiusM(focusId));
     dir = norm3(rel);
+    // new focus ⇒ recentre the look-at (a frozen flight lands looking at the
+    // body centre; zoom-to-cursor/pan offsets belong to the prior body only)
+    focusOff = v3(0, 0, 0);
+    focusOffTarget = v3(0, 0, 0);
+    distTarget = dist;
   }
 
   // ── the frame ──
@@ -2258,13 +2425,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
             kNow,
           );
         }
+        // arrived: look-at is the body centre (focusOff already 0), and the
+        // smooth-zoom target tracks the landed distance (no idle drift)
+        focusOff = v3(0, 0, 0);
+        focusOffTarget = v3(0, 0, 0);
+        distTarget = dist;
         camPos = add(pos[focusId], scale3(dir, dist));
         camTrue = add(posT[focusId], scale3(dir, dist));
         viewDir = dir;
       }
     } else {
-      camPos = add(pos[focusId], scale3(dir, dist));
-      camTrue = add(posT[focusId], scale3(dir, dist));
+      // idle: the camera looks at (focus centre + focusOff) — the look-at
+      // offset is what zoom-to-cursor and pan move (0 for centred orbiting).
+      camPos = add(add(pos[focusId], focusOff), scale3(dir, dist));
+      camTrue = add(add(posT[focusId], focusOff), scale3(dir, dist));
       viewDir = dir;
     }
     const basis = camBasis(viewDir, axis);
@@ -2720,10 +2894,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       timeMs,
       focusId,
       distM: dist,
+      focusOffM: { x: focusOff.x, y: focusOff.y, z: focusOff.z },
       scale: { c: scaleSt.c, s: scaleSt.s },
       flying: !!flight,
       animating: !!flight || performance.now() - lastInputAt < 200
-        || Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG,
+        || Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG
+        || zoomEaseActive(),
       renderMsLast,
       markers,
       scaleBar: scaleBarOut,
@@ -2798,40 +2974,142 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         orbitVelYaw = y.velDeg;
         orbitVelPitch = p.velDeg;
       }
+      // SMOOTH ZOOM-TO-CURSOR (2026-07-19): a wheel notch sets distTarget +
+      // focusOffTarget; each frame eases dist (log space) and the look-at
+      // offset toward them — maplibre-style momentum, no hard snap. Pan writes
+      // focusOff == focusOffTarget so this is a no-op mid-pan.
+      if (!flight) advanceZoomEase();
       draw();
       const coasting = Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG;
       // milkyEasePending: finish the panorama fade after a flight lands
-      if (flight || coasting || performance.now() - lastInputAt < 200 || milkyEasePending) {
+      if (flight || coasting || zoomEaseActive() || performance.now() - lastInputAt < 200 || milkyEasePending) {
         rafId = requestAnimationFrame(loop);
       }
     };
     rafId = requestAnimationFrame(loop);
   }
 
+  /** true while the smooth-zoom distance OR the look-at offset is still
+   *  easing toward its target — keeps the rAF loop alive until it settles. */
+  function zoomEaseActive(): boolean {
+    const dr = dist > 0 && distTarget > 0 ? Math.abs(Math.log(dist / distTarget)) : 0;
+    const fx = focusOff.x - focusOffTarget.x;
+    const fy = focusOff.y - focusOffTarget.y;
+    const fz = focusOff.z - focusOffTarget.z;
+    const fd = Math.hypot(fx, fy, fz);
+    return dr > 0.004 || fd > radiusM(focusId) * 1e-4;
+  }
+
+  /** one eased step of the smooth-zoom distance + look-at offset toward their
+   *  targets (log-space distance, linear offset), snapping when within eps. */
+  function advanceZoomEase(): void {
+    if (!zoomEaseActive()) {
+      dist = distTarget;
+      focusOff = focusOffTarget;
+      return;
+    }
+    dist = smoothZoomStep(dist, distTarget, ZOOM_EASE_ALPHA);
+    focusOff = v3(
+      focusOff.x + (focusOffTarget.x - focusOff.x) * ZOOM_EASE_ALPHA,
+      focusOff.y + (focusOffTarget.y - focusOff.y) * ZOOM_EASE_ALPHA,
+      focusOff.z + (focusOffTarget.z - focusOff.z) * ZOOM_EASE_ALPHA,
+    );
+  }
+
   // ── input (container-level: events bubble up from the map canvas) ──
-  const onWheel = (e: WheelEvent): void => {
-    e.preventDefault();
-    lastInputAt = performance.now();
-    nudge(e.deltaY);
-  };
+
+  /** clamp a distance to the manual zoom band [MIN_ZOOM_RADII·R, MAX]. */
+  function clampDist(d: number): number {
+    return Math.min(MAX_CAMERA_DISTANCE_M, Math.max(MIN_ZOOM_RADII * radiusM(focusId), d));
+  }
+
+  /** the LIVE camera pose (layout space) for a raycast: look-at = focus centre
+   *  + focusOff, camPos = look-at + dir·dist, basis from the axis-up rule. */
+  function liveCamera(): { camPos: Vec3; basis: CamBasis; k: number; center: Vec3 } {
+    const pos = layoutNow(timeMs);
+    const center = pos[focusId];
+    const lookAt = add(center, focusOff);
+    const camPos = add(lookAt, scale3(dir, dist));
+    const basis = camBasis(dir, earthAxisEcl(timeMs));
+    const k = perspectiveScalePx(fovDeg, cssSize().h);
+    return { camPos, basis, k, center };
+  }
+
+  /** the body-relative surface point the cursor (container px) is over, or
+   *  null on a miss — the anchor of zoom-to-cursor. */
+  function cursorHitOffset(mx: number, my: number): Vec3 | null {
+    const { camPos, basis, k, center } = liveCamera();
+    const { w, h } = cssSize();
+    const rd = screenRayDir(mx, my, k, w / 2, h / 2, basis);
+    const hit = raycastSphere(camPos, rd, center, radiusM(focusId));
+    return hit ? sub(hit, center) : null;
+  }
+
+  /** WHEEL / trackpad zoom — maplibre-parity: ease the camera distance toward
+   *  a target (momentum, no snap) AND pull the cursor's surface point toward
+   *  screen centre (zoom-to-cursor). Zoom-out un-winds the pull back to
+   *  centred. A cursor that misses the body falls back to plain centred zoom. */
+  function wheelZoom(deltaY: number, mx: number, my: number): void {
+    if (exited) return;
+    cancelFlight();
+    const g = zoomStepFactor(deltaY);
+    distTarget = clampDist(distTarget * g);
+    // the Earth anchor hands the camera back to the LIVE MAP at the seam — keep
+    // its zoom centred so the handoff frame is untouched (the map itself does
+    // cursor-zoom once control returns). Every other body gets zoom-to-cursor.
+    if (focusId === anchorDef.id) { kick(); return; }
+    const maxOff = PAN_MAX_OFFSET_RADII * radiusM(focusId);
+    if (g < 1) {
+      // zoom IN: pull the look-at toward the cursor's surface point so that
+      // point tracks toward centre — the map's "zoom in on the crater" feel.
+      const hit = cursorHitOffset(mx, my);
+      if (hit && Number.isFinite(hit.x + hit.y + hit.z)) {
+        focusOffTarget = cursorPullOffset(focusOffTarget, hit, (1 - g) * CURSOR_PULL_GAIN, maxOff);
+      }
+    } else if (g > 1) {
+      // zoom OUT: recentre — unwind the look-at offset back toward the body.
+      focusOffTarget = cursorPullOffset(focusOffTarget, v3(0, 0, 0), (1 - 1 / g) * CURSOR_PULL_GAIN, maxOff);
+    }
+    kick();
+  }
+
+  /** Programmatic / button / keyboard / seam-entry zoom toward SCREEN CENTRE
+   *  (no cursor). Immediate (discrete inputs snap), keeping distTarget in sync
+   *  so a following wheel gesture eases from the right place; the look-at
+   *  offset is untouched (centred zoom for the +/- buttons). */
   function nudge(deltaY: number): void {
     if (exited) return;
     cancelFlight();
     // per-body closest approach; for Earth the seam (scale > 1 inside
     // draw()) hands back to the map long before this floor could bind.
     // MIN_ZOOM_RADII (not the arrival clamp) — manual zoom skims the surface.
-    dist = Math.min(
-      MAX_CAMERA_DISTANCE_M,
-      Math.max(MIN_ZOOM_RADII * radiusM(focusId), dist * zoomStepFactor(deltaY)),
-    );
+    dist = clampDist(dist * zoomStepFactor(deltaY));
+    distTarget = dist;
     kick();
   }
 
-  // drag = orbit the focus body; two pointers = pinch zoom
+  const onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    lastInputAt = performance.now();
+    const rect = container.getBoundingClientRect();
+    wheelZoom(e.deltaY, e.clientX - rect.left, e.clientY - rect.top);
+  };
+
+  // INPUT MAPPING (maplibre-parity, 2026-07-19):
+  //  · left-drag (mouse) / one-finger (touch) = ORBIT (+ release inertia) —
+  //    the OrbitControls-rotate gesture the human called "easy".
+  //  · right-drag OR shift+left-drag (mouse) / two-finger drag (touch) = PAN —
+  //    translate the look-at across the surface (OrbitControls-pan / the map's
+  //    two-finger pan), keeping the surface point under the pointer.
+  //  · wheel / trackpad = smooth zoom toward the CURSOR (see wheelZoom).
+  //  · two-finger pinch (touch) = smooth zoom toward the pinch CENTROID.
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDist = 0;
+  let pinchCx = 0;
+  let pinchCy = 0;
   let dragMoved = 0;
   let dragging = false;
+  let panMode = false; // this drag pans (right/shift/two-finger) vs orbits
   // residual angular velocity (deg/frame) for the post-release coast — the
   // reference's damped OrbitControls feel; decayed by orbitInertiaStep().
   let orbitVelYaw = 0;
@@ -2850,16 +3128,31 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     else dir = norm3(rotateAbout(dir, axis, yawDeg));
   }
 
+  /** translate the look-at offset by a screen drag (grab-pan) — no cancelFlight
+   *  / kick (callers own those). meters/px = dist/k at the look-at plane, so
+   *  the surface moves 1:1 under the pointer, exactly like panning the map. */
+  function panOffsetBy(dxPx: number, dyPx: number): void {
+    const basis = camBasis(dir, earthAxisEcl(timeMs));
+    const k = perspectiveScalePx(fovDeg, cssSize().h);
+    const maxOff = PAN_MAX_OFFSET_RADII * radiusM(focusId);
+    focusOff = panOffset(focusOff, dxPx, dyPx, basis, dist / k, maxOff);
+    focusOffTarget = focusOff; // pan is direct manipulation — nothing to ease
+  }
+
   const onPointerDown = (e: PointerEvent): void => {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     dragMoved = 0;
     dragging = pointers.size === 1;
+    // right-button or shift ⇒ this single-pointer drag PANS instead of orbiting
+    panMode = pointers.size === 1 && (e.button === 2 || e.shiftKey);
     // grabbing kills the coast (OrbitControls parity: catch the spinning globe)
     orbitVelYaw = 0;
     orbitVelPitch = 0;
     if (pointers.size === 2) {
       const [a, b] = Array.from(pointers.values());
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      pinchCx = (a.x + b.x) / 2;
+      pinchCy = (a.y + b.y) / 2;
     }
   };
   const onPointerMove = (e: PointerEvent): void => {
@@ -2873,20 +3166,34 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       dragging = false;
       const [a, b] = Array.from(pointers.values());
       const d2 = Math.hypot(a.x - b.x, a.y - b.y);
+      const cx2 = (a.x + b.x) / 2;
+      const cy2 = (a.y + b.y) / 2;
+      cancelFlight();
+      // pinch distance ⇒ zoom (immediate — direct manipulation); centroid
+      // translation ⇒ pan. Together = zoom toward the pinch centroid + drag,
+      // the map's two-finger gesture.
       if (pinchDist > 0 && d2 > 0) {
-        cancelFlight();
-        dist = Math.min(
-          MAX_CAMERA_DISTANCE_M,
-          Math.max(MIN_ZOOM_RADII * radiusM(focusId), dist * (pinchDist / d2)),
-        );
-        kick();
+        dist = clampDist(dist * (pinchDist / d2));
+        distTarget = dist;
       }
+      panOffsetBy(cx2 - pinchCx, cy2 - pinchCy);
       pinchDist = d2;
+      pinchCx = cx2;
+      pinchCy = cy2;
+      kick();
       return;
     }
     dragMoved += Math.abs(dx) + Math.abs(dy);
     if (dragMoved < 3) return;
     cancelFlight();
+    if (panMode) {
+      // PAN: traverse the surface; no orbit, no coast
+      panOffsetBy(dx, dy);
+      orbitVelYaw = 0;
+      orbitVelPitch = 0;
+      kick();
+      return;
+    }
     const yaw = dx * DRAG_DEG_PER_PX;
     const pitch = dy * DRAG_DEG_PER_PX;
     applyOrbit(yaw, pitch);
@@ -2940,15 +3247,23 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // the seam exit under the user's feet.
     if (!flight && focusId !== sunDef.id && focusId !== anchorDef.id) {
       const posL = layoutNow(timeMs);
-      const cam = add(posL[focusId], scale3(dir, dist));
+      // the camera keeps its exact world position (look-at offset included)
+      const cam = add(add(posL[focusId], focusOff), scale3(dir, dist));
       const pose = reanchorPose(cam, posL[sunDef.id], MIN_DISTANCE_RADII * radiusM(sunDef.id));
       focusId = sunDef.id;
       dir = pose.dir;
       dist = pose.dist;
+      // released to the Sun frame ⇒ centred look-at (offsets were the body's)
+      focusOff = v3(0, 0, 0);
+      focusOffTarget = v3(0, 0, 0);
+      distTarget = dist;
       opts.onFocusBody?.(null);
       kick();
     }
   };
+
+  // right-drag pans (not a browser context menu) while the space frame is live
+  const onContextMenu = (e: MouseEvent): void => { e.preventDefault(); };
 
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("pointerdown", onPointerDown);
@@ -2956,6 +3271,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   container.addEventListener("pointerup", onPointerUp);
   container.addEventListener("pointercancel", onPointerUp);
   container.addEventListener("click", onClick);
+  container.addEventListener("contextmenu", onContextMenu);
 
   let ro: ResizeObserver | null = null;
   if (typeof ResizeObserver !== "undefined") {
@@ -2979,7 +3295,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // invariant — compression never touches the camera→anchor distance,
     // and the anchor body is never size-scaled).
     const pos = layoutNow(timeMs);
-    const camNow = add(pos[focusId], scale3(dir, dist));
+    const camNow = add(add(pos[focusId], focusOff), scale3(dir, dist));
     const homeDir = norm3(sub(camNow, pos[anchorDef.id]));
     beginFlight(anchorDef.id, { toDir: homeDir, toDist: target, exitOnArrival: true });
   }
@@ -3066,6 +3382,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       container.removeEventListener("pointerup", onPointerUp);
       container.removeEventListener("pointercancel", onPointerUp);
       container.removeEventListener("click", onClick);
+      container.removeEventListener("contextmenu", onContextMenu);
       spriteCache.clear();
       lutCache.clear();
       upgrade = null;
