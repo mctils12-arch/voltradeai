@@ -5458,3 +5458,20 @@ the 2026-07-20 session ran it twice this way.)
 
 RELATED: [HARNESS-ENV · 2026-07-15] fields-on flake — likely the same
 click-reliability family; fix both in the same harness PR.
+
+### UPDATE 2026-07-20 (same day): diagnosis COMPLETE, fix shipped
+The missing failing-run reading landed: [TILT-DIAG] after the cost OFF
+sweep = {pitch:58, terrainOn:true, rowChecked:"true"} — the app STATE
+still had terrain enabled, i.e. the harness's restore click NEVER LANDED
+(missed-click confirmed; zero app bugs — the tilt is correct behavior
+for terrain-on). Fix (this measurement PR): clickSwitchVerified() —
+click, verify aria-checked flipped, retry up to 2× with re-scroll — at
+all three fire-and-forget restore sites (toggle-consistency flip-back +
+cost-sweep on/off loops); a restore that STILL fails now surfaces as a
+named failure ("restore-to-off never landed") instead of silently
+poisoning every later check as the misleading trail-flake. Assertions
+on app behavior untouched; the change is strictly fail-louder.
+Remaining open: WHY the click misses (~50%) under SwiftShader —
+suspected scroll/layout race; the retry makes it moot for reliability,
+but if the named restore failure ever fires repeatedly, that mechanism
+hunt reopens.

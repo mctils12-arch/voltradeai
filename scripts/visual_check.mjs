@@ -1166,6 +1166,34 @@ async function main() {
       } catch (e) {
         if (!e?.skip) checks.failures.push("self-see: driver error — " + (e?.message || e));
       }
+      // VERIFIED SWITCH CLICK ([MEASUREMENT-DEBT 2026-07-20] fix): the
+      // batteries below restore page state via toggle clicks that were
+      // fire-and-forget (`.catch(() => {})`) — a missed click left terrain
+      // enabled + the camera auto-tilted, and every later check inherited a
+      // pitched viewport (the ~50% data@1440 trail flake; instrumented run
+      // pinned rowChecked=true after the "off" sweep = the click never
+      // landed). This clicks, VERIFIES aria-checked actually flipped, and
+      // retries (re-scrolling) up to 2 more times. Assertions are untouched
+      // — this fixes the driver's hand, not the ruler's scale.
+      const clickSwitchVerified = async (id, wantChecked) => {
+        const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const cur = await sw.getAttribute("aria-checked").catch(() => null);
+          if (cur === String(wantChecked)) return true;
+          await page.evaluate((lid) => {
+            document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" });
+          }, id).catch(() => {});
+          await page.waitForTimeout(80);
+          await sw.click({ timeout: 4000 }).catch(() => {});
+          // poll briefly for the pill to reflect the click
+          for (let i = 0; i < 8; i++) {
+            await page.waitForTimeout(150);
+            const now = await sw.getAttribute("aria-checked").catch(() => null);
+            if (now === String(wantChecked)) return true;
+          }
+        }
+        return false;
+      };
       // ── TOGGLE CONSISTENCY (state-desync repair 2026-07-04): for EVERY
       // toggleable registry layer, flipping the switch must move pill,
       // label, and actual map state TOGETHER — pill ON with a label still
@@ -1215,8 +1243,11 @@ async function main() {
           } else if (state.pill === "true" && (state.rt === "off" || state.rt === "none")) {
             desyncs.push(`toggle-consistency: '${id}' pill ON but runtime '${state.rt}' / label '${state.label}' — the production desync`);
           }
-          // flip back to leave the page in its default state
-          await sw.click({ timeout: 4000 }).catch(() => {});
+          // flip back to leave the page in its default state — VERIFIED
+          // (a silent miss here poisoned every later check; see helper)
+          if (!(await clickSwitchVerified(id, before === "true"))) {
+            desyncs.push(`toggle-consistency: '${id}' flip-back never landed — page left in non-default state`);
+          }
           await page.waitForTimeout(150);
         }
         checks.failures.push(...desyncs);
@@ -1246,9 +1277,7 @@ async function main() {
         }
         const extraToggle = ["terrain", "weather", "weather_temp", "weather_wind", "rivergauges", "alerts", "surfacewater", "forest", "boundaries"];
         for (const id of extraToggle) {
-          const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
-          await page.evaluate((lid) => document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" }), id);
-          await sw.click({ timeout: 4000 }).catch(() => {});
+          await clickSwitchVerified(id, true);
           await page.waitForTimeout(60);
         }
         await page.waitForTimeout(200);
@@ -1257,9 +1286,14 @@ async function main() {
         if (costNote !== "heavy load") {
           checks.failures.push(`cost-budget: expected 'heavy load' badge with ${extraToggle.length} extra layers on (weight 35), got '${costNote}' — cost-budget consumer not wired or threshold drifted`);
         }
-        // flip back off to restore default state for the remaining checks/screenshots
+        // flip back off to restore default state for the remaining checks/
+        // screenshots — VERIFIED per switch: a missed terrain off-click left
+        // the auto-tilted camera pitched for every later check (the trail
+        // flake's root cause, instrumented 2026-07-20)
         for (const id of extraToggle) {
-          await page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first().click({ timeout: 4000 }).catch(() => {});
+          if (!(await clickSwitchVerified(id, false))) {
+            checks.failures.push(`cost-budget: '${id}' restore-to-off never landed — page left in non-default state`);
+          }
         }
         await page.waitForTimeout(150);
       } catch (e) {
