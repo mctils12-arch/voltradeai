@@ -101,17 +101,47 @@ _inflight_sem = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
 _active_dispatch_lock = threading.Lock()
 _active_dispatch_count = 0
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-20 (KNOWN BROKEN #18 continuation): the
+# count above answers "how many", never "what" or "for how long" — live
+# TIER2-ERROR catches this session found active_dispatches==2 on every
+# occurrence (never near MAX_INFLIGHT_REQUESTS=8), which the count alone
+# can't distinguish from "one abandoned run_full_scan zombie thread still
+# running from the PRIOR timed-out cycle, competing for the shared
+# alpaca_throttle bucket with a fresh run_full_scan that just started" — a
+# self-perpetuating cascade would look identical to healthy 2x concurrency
+# in the count alone. This registry tracks method name + start time per
+# active dispatch so _health() can surface exactly that.
+_active_dispatch_detail = {}  # dispatch_id -> {"method": str, "started_at": float}
+_active_dispatch_next_id = 0
 
-def _inc_active_dispatch():
-    global _active_dispatch_count
+
+def _inc_active_dispatch(method):
+    """Register a dispatch as active. Returns an id for the matching _dec call."""
+    global _active_dispatch_count, _active_dispatch_next_id
     with _active_dispatch_lock:
         _active_dispatch_count += 1
+        _active_dispatch_next_id += 1
+        dispatch_id = _active_dispatch_next_id
+        _active_dispatch_detail[dispatch_id] = {"method": method, "started_at": time.time()}
+    return dispatch_id
 
 
-def _dec_active_dispatch():
+def _dec_active_dispatch(dispatch_id):
     global _active_dispatch_count
     with _active_dispatch_lock:
         _active_dispatch_count -= 1
+        _active_dispatch_detail.pop(dispatch_id, None)
+
+
+def _active_dispatch_snapshot():
+    """Point-in-time [{method, elapsed_sec}, ...] for every dispatch still
+    running, including ones the RPC handler already gave up waiting on."""
+    now = time.time()
+    with _active_dispatch_lock:
+        return [
+            {"method": d["method"], "elapsed_sec": round(now - d["started_at"], 1)}
+            for d in _active_dispatch_detail.values()
+        ]
 
 
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
@@ -340,6 +370,7 @@ class RPCDispatcher:
             "max_rss_mb": MAX_RSS_MB,
             "modules_loaded": list(_modules_loaded.keys()),
             "active_dispatches": _active_dispatch_count,
+            "active_dispatch_detail": _active_dispatch_snapshot(),
             "pid": os.getpid(),
         }
 
@@ -466,7 +497,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                 result_holder = {"done": False, "response": None}
 
                 def _run():
-                    _inc_active_dispatch()
+                    dispatch_id = _inc_active_dispatch(method)
                     try:
                         result_holder["response"] = _dispatcher.dispatch(method, args)
                     except Exception as e:
@@ -476,7 +507,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                         }
                     finally:
                         result_holder["done"] = True
-                        _dec_active_dispatch()
+                        _dec_active_dispatch(dispatch_id)
 
                 try:
                     t = threading.Thread(target=_run, daemon=True)

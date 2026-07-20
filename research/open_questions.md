@@ -1612,6 +1612,100 @@
     search continues past Layer 2 — do not assume either answer before
     reading it.
 
+    UPDATE 2026-07-20 (scheduled-routine session, [REPAIR], v1.0.454) —
+    ATTEMPTED the exact live-catch this item's own NEXT STEP asks for;
+    caught the storm ACTIVE but the specific correlation NOT YET closed,
+    plus a new, better-targeted instrument shipped so the next occurrence
+    closes it without a live stakeout. Session-start health check found
+    the storm recurring in real time: `/api/diag/audit?type=TIER2-ERROR`
+    showed THREE fresh occurrences in the prior ~35 minutes (19:29:20Z,
+    19:36:20Z, 19:57:13Z), each landing at EXACTLY 300.0s after its own
+    scan's start time — direct confirmation these are the daemon RPC's
+    own `REQUEST_TIMEOUT_SEC=300` firing, not a slower/different failure
+    mode. Two of the interleaved scans that did NOT time out still
+    finished suspiciously close to the ceiling (295s at 19:43:15Z, 298s
+    at 19:50:13Z) — the system is chronically running near the 300s wall,
+    not occasionally spiking into it. `active_dispatches` read exactly
+    `2` on all three occurrences (unchanged from the prior session's
+    reading), consistent with either "healthy 2x concurrency" or "one
+    abandoned zombie thread from the PRIOR timed-out cycle piling onto a
+    fresh scan" — the bare count still can't distinguish these, exactly
+    as the prior session's own caveat said.
+    LIVE-CATCH ATTEMPT: polled `/api/diag/audit` + `/api/diag/timings`
+    every 15-20s across two windows (~8 min each, spanning 20:20-20:38Z)
+    trying to catch a TIER2-ERROR and its `csp_layer2_prefetch` reading in
+    the same window. The storm had quieted by the time polling started
+    (interval widened to 15min after consecutive successes; two scans in
+    the watched windows completed fast at 72s/74s) — no TIER2-ERROR
+    occurred live during either window, so this specific correlation
+    (`cache_hit: false` + `budget_exceeded: true` coincident with a real
+    timeout) is STILL NOT CAUGHT. ONE useful data point recorded anyway: a
+    genuine cache-miss cycle observed mid-session (150/150 completed,
+    `elapsed_sec: 32.45` of the 45s budget, `budget_exceeded: false`,
+    `tier1_sec: 40.97`, total scan `71.82s`) completed comfortably — this
+    is evidence AGAINST the strict reading of the prior session's math
+    ("300 calls in 45s needs ~6.7 req/s, >2x the shared throttle's 3
+    req/s, mathematically guaranteed to exceed budget on any cache-miss
+    cycle") — a real cache-miss cycle did NOT blow its budget here, so
+    the overrun (when it happens) is conditional on something ELSE also
+    running concurrently, not a deterministic property of Layer 2 alone.
+    NEW HYPOTHESIS (targets that "something else"): the abandoned-zombie-
+    thread mechanism the daemon's own code comment already names
+    (`voltrade_daemon.py`'s `RPCHandler.handle()` — `t.join(300)` gives up
+    waiting but cannot kill the thread, so a timed-out `run_full_scan`
+    keeps running and keeps drawing from the shared `alpaca_throttle`
+    bucket) would produce exactly this session's observed pattern: a
+    timeout at T creates a zombie that competes with the NEXT scan
+    (started after a 120s backoff, so likely still overlapping the
+    zombie's own tail), which is why failures cluster and then clear once
+    the backlog drains (matches: 19:24→19:29 fail, 19:31→19:36 fail,
+    19:38→19:43 succeeds-but-close, 19:45→19:50 succeeds-but-close,
+    19:52→19:57 fail, 19:59→20:01 finally fast again). This was previously
+    unfalsifiable because `active_dispatches` only ever reported a count.
+    SHIPPED (v1.0.454, no trading/scoring/sizing logic touched — pure
+    visibility, same class as the prior two sessions' instrumentation):
+    `voltrade_daemon.py`'s dispatch-tracking now records method name +
+    start time per active dispatch (`_active_dispatch_detail`), not just a
+    count; `_health()` returns a new `active_dispatch_detail: [{method,
+    elapsed_sec}, ...]` field. `server/bot.ts`'s TIER2-ERROR daemon-health
+    probe now formats this into the audit line, e.g. `active_dispatches=2
+    [run_full_scan:340.2s, run_full_scan:8.1s]` — the first NEXT time this
+    fires, the audit log itself (no live poll needed) will show whether
+    the second dispatch is a stale `run_full_scan` far past 300s old (the
+    zombie-pileup theory, confirmed) or something short-lived and
+    unrelated (theory refuted, search continues elsewhere).
+    RATCHET: `test_daemon_active_dispatches.py` extended (2 new tests:
+    method+elapsed tracking, concurrent dispatches distinguished by
+    method; 3 existing tests updated for the new required `method` arg on
+    `_inc_active_dispatch`/id-based `_dec_active_dispatch`; the live-socket
+    integration test now asserts the real `health` RPC call's own detail
+    entry) + `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+    wiring-pinned test asserting bot.ts actually reads
+    `active_dispatch_detail` and formats method+elapsed, not just the
+    count.
+    GATES: `python3 -m pytest -q` 830 passed, 2 skipped (0 regressions,
+    17/17 in the two daemon-dispatch test files specifically); `npx tsx
+    --test server/*.test.ts` 755 passed / 7 failed, same 7
+    (aircraftTiling/apiKeyAccounts/compression/gdeltEvents/owmTiles/
+    seafloorTiles/securityMiddleware) confirmed byte-identical baseline
+    via `git stash` A/B this session; `npx tsc --noEmit` 70 errors,
+    confirmed byte-identical via the same `git stash` A/B; `npm run
+    build` clean. package-lock.json's root version fields had drifted
+    stale to 1.0.452 again (same recurring class, now three sessions
+    running) — corrected as part of this session's own `npm install`,
+    then bumped 1.0.453 → 1.0.454 for this change.
+    NEXT STEP unchanged in spirit, sharpened in mechanism: whichever
+    session catches the next TIER2-ERROR should now read the audit line's
+    `active_dispatch_detail` directly — no live poll needed. A second
+    `run_full_scan` entry with `elapsed_sec` near or above 300 confirms
+    the zombie-pileup cascade (fix: either stop routing a timed-out
+    daemon call's zombie thread through the SAME throttle bucket as fresh
+    calls, or shrink `REQUEST_TIMEOUT_SEC`/backoff so zombies clear before
+    the next attempt starts) — a short-lived or absent second entry
+    refutes it and the search should return to the original
+    `csp_layer2_prefetch` correlation (still open, unchanged from the
+    prior update).
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

@@ -3641,8 +3641,20 @@ else:
           // evidence KNOWN BROKEN #18 needs to confirm or refute the
           // zombie-thread-pileup theory was never actually captured.
           const hr = h && h.status === "ok" ? h.result : null;
+          // DAEMON-TIMEOUT-VISIBILITY 2026-07-20 (KNOWN BROKEN #18 continuation):
+          // active_dispatches alone can't distinguish healthy 2x concurrency from
+          // a self-perpetuating cascade — an abandoned run_full_scan zombie thread
+          // from the PRIOR timed-out cycle still running and competing for the
+          // shared alpaca_throttle bucket with a fresh run_full_scan that just
+          // started would also read active_dispatches=2. voltrade_daemon.py now
+          // tracks method name + elapsed time per active dispatch; surface it here
+          // so the next TIER2-ERROR occurrence's audit line answers "what, and for
+          // how long" directly instead of needing a live diag/health poll.
+          const dispatchDetail = Array.isArray(hr?.active_dispatch_detail) && hr.active_dispatch_detail.length > 0
+            ? ` [${hr.active_dispatch_detail.map((d: any) => `${d.method}:${d.elapsed_sec}s`).join(", ")}]`
+            : "";
           daemonState = hr && hr.alive
-            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"} uptime=${hr.uptime_seconds}s`
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;

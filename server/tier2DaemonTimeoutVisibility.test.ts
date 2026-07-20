@@ -88,6 +88,22 @@ test("BUGFIX 2026-07-11: the daemon branch unwraps pythonRpc's {status,result} e
   );
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-20: the daemon branch surfaces active_dispatch_detail (method + elapsed time per in-flight dispatch), not just the bare count", () => {
+  // active_dispatches alone can't distinguish healthy 2x concurrency from a
+  // self-perpetuating cascade (an abandoned run_full_scan zombie thread from
+  // a PRIOR timed-out cycle still running, competing for the shared
+  // alpaca_throttle bucket with a fresh run_full_scan) — three live
+  // TIER2-ERROR catches this session all read active_dispatches=2 with no
+  // way to tell which. voltrade_daemon.py's _health() now returns
+  // active_dispatch_detail; this pins that bot.ts actually reads it.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("active_dispatch_detail"), "must read hr.active_dispatch_detail off the unwrapped health result");
+  assert.ok(daemonBranch.includes("d.method") && daemonBranch.includes("d.elapsed_sec"), "must format each active dispatch's method name and elapsed time, not just the count");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
