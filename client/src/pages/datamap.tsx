@@ -2103,6 +2103,7 @@ export default function DataMapPage() {
   const terrainExagRef = useRef<number>(terrainExag);
   const terrainWasOnRef = useRef<boolean>(false);
   const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
+  const lastUserPitchAtRef = useRef<number>(0); // last REAL pitch gesture — the restore never fights it
   useEffect(() => {
     terrainExagRef.current = terrainExag;
     try { window.localStorage.setItem(TERRAIN_EXAG_KEY, String(terrainExag)); } catch {}
@@ -2864,10 +2865,27 @@ export default function DataMapPage() {
       } catch {}
     } else if (!enabled.terrain && terrainWasOnRef.current && autoTiltedRef.current) {
       autoTiltedRef.current = false;
-      try { map.easeTo({ pitch: 0, duration: 900 }); } catch {}
+      // fire AFTER this effect's terrain teardown (setTerrain(null), source
+      // removal) so the mesh swap can't abort the ease mid-flight, and
+      // verify once at idle: the restore is an INVARIANT (terrain off ⇒
+      // back to top-down) unless a real user pitch gesture intervened —
+      // caught flaky in the harness when the 900ms ease raced the teardown.
+      const restoreStarted = performance.now();
+      window.setTimeout(() => {
+        const m = mapRef.current;
+        if (!m || lastUserPitchAtRef.current > restoreStarted) return;
+        try { m.easeTo({ pitch: 0, duration: 900 }); } catch {}
+        window.setTimeout(() => {
+          const m2 = mapRef.current;
+          if (!m2 || lastUserPitchAtRef.current > restoreStarted) return;
+          try { if (m2.getPitch() > 0.5 && !m2.isMoving()) m2.jumpTo({ pitch: 0 }); } catch {}
+        }, 1400);
+      }, 0);
     }
     terrainWasOnRef.current = enabled.terrain;
-    const onUserPitch = (e: any) => { if (e && e.originalEvent) autoTiltedRef.current = false; };
+    const onUserPitch = (e: any) => {
+      if (e && e.originalEvent) { autoTiltedRef.current = false; lastUserPitchAtRef.current = performance.now(); }
+    };
     try { map.on("pitchstart", onUserPitch); } catch {}
     const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
     const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
