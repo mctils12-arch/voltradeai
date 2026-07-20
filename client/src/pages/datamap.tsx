@@ -1287,6 +1287,42 @@ export default function DataMapPage() {
           (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
+  // ORBIT / ONBOARD as IN-MAP modes (human 2026-07-20: "the other functions
+  // of orbit or onboard need to be in the same place as the inspect button
+  // and work") — the old overlay's two views, rebuilt on the live map:
+  // ORBIT re-frames to the standard follow view (craft centered, camera
+  // parked at 2.3× its altitude — drag/tilt then orbit the moving craft);
+  // ONBOARD rides the craft's own viewpoint: ground lock on the nadir,
+  // top-down, camera altitude ≈ the craft's real altitude — you see the
+  // ground the craft sees, gliding with it per frame.
+  const orbitCraft = useCallback(() => {
+    const map = mapRef.current;
+    const f = satFollowRef.current;
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
+    const altKmNow = t.altKm;
+    const frameZoom = zoomForCameraAltitudeKm(
+      Math.max(altKmNow * 2.3, 900), t.latDeg,
+      map.getCanvas()?.height ?? 900,
+      (map as any).getVerticalFieldOfView?.(), map.getPitch?.());
+    const zoom = altKmNow < 3000 ? Math.min(frameZoom, 4.3) : Math.min(frameZoom, 1.0);
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
+  }, []);
+  const onboardCraft = useCallback(() => {
+    const map = mapRef.current;
+    const f = satFollowRef.current;
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    if (f.lockMode !== "ground") { f.lockMode = "ground"; setSatLockMode("ground"); }
+    const zoom = zoomForCameraAltitudeKm(
+      Math.max(t.altKm, 120), t.latDeg,
+      map.getCanvas()?.height ?? 900,
+      (map as any).getVerticalFieldOfView?.(), 0);
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 0, duration: 1400 });
+  }, []);
   // CONTINUOUS SPACE FRAME (human-approved 2026-07-18 — the third "no
   // separate scenes" directive, same precedent as INSPECT IS THE MAP above):
   // the O6-7 separate solar-system scene (lib/celestial/solarView) is
@@ -4416,7 +4452,14 @@ export default function DataMapPage() {
         sourceTag: "SGP4",
         // Inspect = the in-map close-orbit ease + sat lock (2026-07-19 brief:
         // same viewer, real imagery, layers intact; ✕ releases via stopFollow)
-        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
+        actions: t ? [
+          // one place, three working views (human 2026-07-20): Inspect zooms
+          // onto the locked craft; Orbit re-frames the follow view; Onboard
+          // rides the craft's own viewpoint — all in the live map.
+          { label: "Inspect", primary: true, run: () => inspectCraft() },
+          { label: "Orbit", run: () => orbitCraft() },
+          { label: "Onboard", run: () => onboardCraft() },
+        ] : undefined,
         facts: ([
           aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
           aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
