@@ -8,7 +8,7 @@
       <a href="#analyze">How it works</a>
       <a href="#bot">The Bot</a>
       <a href="/pricing" data-route="/pricing">Pricing</a>
-      <a href="#">Docs</a>
+      <a href="/developers" data-route="/developers">Docs</a>
     </div>
     <div class="nav-cta">
       <a href="/login" class="btn-login" data-route="/login">Log in</a>
