@@ -1923,7 +1923,6 @@ export default function DataMapPage() {
   // §C auto-tilt: remembers whether terrain was on last effect pass so a
   // top-down camera eases to 3D only on the OFF→ON transition (never on
   // exaggeration changes, seafloor toggles, preset swaps, or disable).
-  const terrainWasOnRef = useRef<boolean>(false);
   // §A live sync handle for the aircraft 3D layer (created inside the aircraft
   // effect); lets the slider re-datum altitudes without tearing that effect down.
   const airLayerRef = useRef<any>(null);
@@ -2886,18 +2885,12 @@ export default function DataMapPage() {
     } catch {
       if (enabled.terrain) setStatus("terrain", "error");
     }
-    // §C AUTO-TILT: on the terrain layer's OFF→ON transition from a top-down
-    // camera, ease to a Google-Earth-style pitch so the new 3D relief is
-    // actually visible (the original "3D does nothing" complaint). 58° keeps
-    // the camera safely above peaks. Never fires on exaggeration changes,
-    // seafloor toggles, preset swaps, or disable — guarded by terrainWasOnRef.
-    {
-      const wasOn = terrainWasOnRef.current;
-      terrainWasOnRef.current = enabled.terrain;
-      if (enabled.terrain && !wasOn && map.getPitch() < 15) {
-        try { map.easeTo({ pitch: 58, duration: 1400 }); } catch {}
-      }
-    }
+    // §C AUTO-TILT deferred: an off→on ease to pitch 58 made the new relief
+    // visible, but its 1400ms flight collided with concurrent aircraft
+    // selection (the trail-freshness gate caught it — a click mid-ease lands
+    // off the moving target). Deferred to a non-colliding redo; the other
+    // three terrain upgrades (exaggeration slider, explainer, speed/color)
+    // ship without it.
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors

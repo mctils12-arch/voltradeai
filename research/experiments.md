@@ -3,6 +3,35 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-20 [PRODUCT] — 3D Terrain upgrades: exaggeration slider + explainer + speed/color (v1.0.421, T-CLIENT, worktree agent + parent review; auto-tilt DEFERRED)
+
+Human handoff (research/directives/terrain_3d_handoff_2026-07-19.md +
+design .dc.html): 4 upgrades to the existing 3D terrain. SHIPPED 3 of
+4: (A) VERTICAL EXAGGERATION SLIDER 1.0–3.0× (terrainExag.ts pref
+store, default 1.3 UNCHANGED, terrainExagRef for non-React callbacks;
+slider live-updates via setTerrain without hillshade rebuild) — kept
+in LOCK-STEP with the aircraft-altitude datum (airLayer.setAltScale)
+AND the drain-ocean mesh swap (both read the same ref); (B) ⓘ
+EXPLAINER (approved copy); (D) SPEED/COLOR: setMaxParallelImageRequests
+32, imagery raster-fade-duration 0 + saturation 0.18 + contrast 0.12,
+fade 0 on the night/blackmarble base too. terrainExag.ts +5 tests.
+Gates (parent-verified, MY OWN drive): client 576/576, build clean.
+Terrain drive: imagery colors set, slider live-updates 1↔3×, aircraft
+setAltScale LOCK-STEP at BOTH 1.0× and 3.0×, drain-ocean keeps exag,
+persist across reload — all pass. (C) AUTO-TILT DEFERRED: the off→on
+ease to pitch 58 (to make relief visible — the "3D does nothing"
+complaint) was implemented and its own drive passed, BUT the 1400ms
+ease collided with concurrent aircraft selection — the visual harness
+trail-freshness gate went RED (a click mid-ease lands off the moving
+target; confirmed by disable-and-retest: removing auto-tilt turns the
+gate green, only the pre-existing wx-wind sandbox flakes remain, same
+as clean main). Rather than ship a real interaction regression or game
+the gate, auto-tilt is REMOVED from this PR (block + terrainWasOnRef
+deleted, no dead code) and deferred to a non-colliding redo (e.g.
+tilt only when no live-tracking interaction is pending, or a shorter/
+interruptible ease that yields to input). The other three upgrades
+ship clean. Backtest n/a.
+
 ## 2026-07-19 [PRODUCT] — Smooth sat lock: per-frame SGP4 + jumpTo follow (v1.0.420, T-CLIENT, human-authored patch)
 
 Human patch (research/directives/smooth_satlock_patch_2026-07-19.md,
