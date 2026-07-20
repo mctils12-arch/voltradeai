@@ -22917,3 +22917,31 @@ the old guard); phone probe ALL PASSED (north-lock cycle exact through
 the rig, space FLY HOME works — the arbitration fix un-broke the seam);
 panels probe ALL PASSED; unit suites 34/34; harness 0 hard failures at
 390/768/1440; python 822 passed. BACKTEST: N/A (pure client).
+
+## 2026-07-20 — [PRODUCT] T-CLIENT: ALTITUDE/TIME live edge — ticking clock + dashed dead-reckoned tail (v1.0.450)
+
+HUMAN DIRECTIVE (verbatim): "issues where the trail behind the plane and
+it should continuously update the altitude / time banner at the bottom
+as it get it from adsb". The per-fix pipeline already worked (crumb →
+paintFollowedTrail on every distinct poll fix + 30s archive refresh) but
+BETWEEN fixes the chart froze at the last fix time.
+
+CHANGE (FlightProfilePanel): while pinned live, the time axis runs to
+NOW at 1Hz — the sample paths (built once in the t0..t1 fix domain)
+compress horizontally via a group transform (vector-effect:
+non-scaling-stroke keeps line widths true); a DASHED tail extends from
+the last real fix to the right edge at the HELD altitude — the 3D glide
+tail's honesty model (position dead-reckoned, altitude held at last
+broadcast, drawn dashed, never passed off as data); the playhead rides
+the edge; the banner clock and the right axis label tick every second
+(clock even while collapsed). Scrub maps over the extended domain and
+clamps to the last real fix (the tail region carries no data). New fix
+→ samples rebuild → domain resets.
+
+VERIFICATION: new live-update probe with a MOVING fixture (hero drifts
+north, altitude climbing, fresh time every poll) ALL PASSED — banner
+ticks (17:30:59Z→17:31:04Z over 5s), dashed tail drawn, trail grew
+26→29 points across polls, follow stayed engaged and the camera tracked
+the drifting plane (lat 39.19→39.254); port/phone/panels probes ALL
+PASSED; unit suites 34/34; harness 0 hard failures at 390/768/1440;
+python 825 passed. BACKTEST: N/A (pure client).

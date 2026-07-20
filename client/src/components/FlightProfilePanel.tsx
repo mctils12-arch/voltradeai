@@ -115,6 +115,21 @@ export default function FlightProfilePanel({
   const t1 = samples.length ? samples[samples.length - 1].t : 0;
   const span = Math.max(1, t1 - t0);
 
+  // LIVE EDGE (human 2026-07-20: the banner "should continuously update …
+  // as it gets it from adsb"): while pinned live the time axis runs to NOW,
+  // ticking every second — the sample paths (built once in the t0..t1
+  // domain) compress horizontally via a group transform, and a DASHED tail
+  // extends from the last real fix to the right edge at the held altitude
+  // (the 3D glide tail's honesty model: position dead-reckoned, altitude
+  // held at the last broadcast, drawn dashed — never passed off as data).
+  const dataGRef = useRef<SVGGElement | null>(null);
+  const tailRef = useRef<SVGLineElement | null>(null);
+  const axisEndRef = useRef<HTMLSpanElement | null>(null);
+  const liveEdgeRef = useRef(t1);
+  const extOf = () => Math.max(span, liveEdgeRef.current - t0);
+  /** time → x under the DISPLAY domain (t0 → live edge). */
+  const XT = (t: number) => ((t - t0) / extOf()) * CW;
+
   // y domain: REAL meters, headroom like the prototype (alt·1.08 → grid step)
   const yMaxM = useMemo(() => {
     const top = Math.max(altMax, 1) * 1.08;
@@ -176,7 +191,7 @@ export default function FlightProfilePanel({
     const ph = playheadRef.current;
     const dot = phDotRef.current;
     const ck = clockElRef.current;
-    if (ph) ph.setAttribute("transform", `translate(${X(tSec)},0)`);
+    if (ph) ph.setAttribute("transform", `translate(${XT(tSec)},0)`);
     if (dot) {
       const s = sampleAt(samples, tSec);
       dot.setAttribute("cy", s && !s.gap ? String(Y(s.altM)) : String(Y(0)));
@@ -185,12 +200,54 @@ export default function FlightProfilePanel({
     if (ck) ck.textContent = utc(tSec);
   };
 
-  // live mode: pin to the newest fix whenever the track extends
+  /** One live-edge tick: extend the axis to NOW, compress the sample
+   *  paths, place the dashed tail + playhead at the edge, tick the clock. */
+  const paintLiveEdge = () => {
+    if (samples.length < 2) return;
+    const nowSec = Date.now() / 1000;
+    liveEdgeRef.current = Math.max(t1, nowSec);
+    const sx = span / extOf();
+    dataGRef.current?.setAttribute("transform", `scale(${sx} 1)`);
+    const lastS = samples[samples.length - 1];
+    const tail = tailRef.current;
+    if (tail) {
+      if (!lastS.gap && liveEdgeRef.current > t1 + 1) {
+        const y = Y(lastS.altM).toFixed(1);
+        tail.setAttribute("x1", XT(t1).toFixed(1));
+        tail.setAttribute("x2", String(CW));
+        tail.setAttribute("y1", y);
+        tail.setAttribute("y2", y);
+        tail.style.display = "";
+      } else {
+        tail.style.display = "none";
+      }
+    }
+    const ph = playheadRef.current, dot = phDotRef.current, ck = clockElRef.current;
+    if (ph) ph.setAttribute("transform", `translate(${CW},0)`);
+    if (dot) {
+      dot.setAttribute("cy", String(Y(lastS.gap ? 0 : lastS.altM)));
+      dot.style.display = lastS.gap ? "none" : "";
+    }
+    if (ck) ck.textContent = utc(nowSec);
+    if (axisEndRef.current) axisEndRef.current.textContent = utc(nowSec);
+  };
+
+  // live mode: the edge ticks every second (clock even while collapsed —
+  // the SVG refs are simply absent then); scrub/replay stops the ticking
+  useEffect(() => {
+    if (!live) return;
+    paintLiveEdge();
+    const iv = window.setInterval(() => { if (!document.hidden) paintLiveEdge(); }, 1000);
+    return () => window.clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, expanded, t1, paths]);
+
+  // pin to the newest fix whenever the track extends
   useEffect(() => {
     const c = clockRef.current;
     if (c.live) {
       c.t = t1;
-      paintHead(t1);
+      paintLiveEdge();
       onClockChange?.();
     } else {
       paintHead(c.t); // re-place after a geometry rebuild
@@ -262,7 +319,9 @@ export default function FlightProfilePanel({
     const r = el.getBoundingClientRect();
     const u = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     const c = clockRef.current;
-    c.t = t0 + u * span;
+    // pointer maps over the DISPLAY domain (t0 → live edge); the dashed
+    // tail region carries no data, so times past the last fix clamp to it
+    c.t = Math.min(t1, t0 + u * extOf());
     c.live = false;
     c.playing = false;
     if (playing) setPlaying(false);
@@ -351,9 +410,18 @@ export default function FlightProfilePanel({
                   <text x="6" y={g.y - 3} fontSize="8.5" fill="#8fa3bf" fontFamily="var(--font-mono)">{g.label}</text>
                 </g>
               ))}
-              <path d={paths.band} fill="rgba(77,163,255,.16)" />
-              <path d={paths.ter} fill="rgba(56,84,52,.55)" stroke="#6b8f5e" strokeWidth="1.2" />
-              <path d={paths.alt} fill="none" stroke="#4da3ff" strokeWidth="2" />
+              {/* sample paths live in the t0..t1 domain; the group transform
+                  compresses them as the live edge extends the axis to NOW
+                  (non-scaling strokes keep line widths true) */}
+              <g ref={dataGRef}>
+                <path d={paths.band} fill="rgba(77,163,255,.16)" />
+                <path d={paths.ter} fill="rgba(56,84,52,.55)" stroke="#6b8f5e" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+                <path d={paths.alt} fill="none" stroke="#4da3ff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              </g>
+              {/* dashed dead-reckoned tail: last real fix → now, altitude
+                  held at the last broadcast (never drawn as solid data) */}
+              <line ref={tailRef} stroke="#4da3ff" strokeWidth="2" strokeDasharray="4 5"
+                    opacity="0.55" style={{ display: "none" }} />
               <g ref={playheadRef}>
                 <line x1="0" y1="0" x2="0" y2={CH} stroke="rgba(223,232,245,.85)" strokeWidth="1" />
                 <circle ref={phDotRef} cx="0" cy="0" r="4" fill="#fff" stroke="#4da3ff" strokeWidth="2" />
@@ -362,7 +430,9 @@ export default function FlightProfilePanel({
           </div>
           <div className="vt-flight-axis">
             <span>{utc(t0)}</span>
-            <span>{utc(t1)}</span>
+            {/* right edge = the live clock while pinned (ticks via ref);
+                a paused/replaying chart shows the last real fix time */}
+            <span ref={axisEndRef}>{utc(t1)}</span>
           </div>
         </>
       )}
