@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   searchSats, SAT_GROUPS, groupMask, maskCount, applyGroupSentinel,
+  applyFollowSolo,
   spreadIndices, GROUP_ARC_CAP, collapseStationComplexes, isStationComplex,
   groupMemberHits,
 } from './satFind.js';
@@ -50,6 +51,23 @@ test('applyGroupSentinel: non-members get the sentinel class, members untouched,
   assert.equal(out[2 * SAT_STRIDE + 3], 0);
   assert.equal(buf[1 * SAT_STRIDE + 3], 0, 'source buffer untouched');
   assert.equal(applyGroupSentinel(buf, null), buf, 'no mask = passthrough, no copy');
+});
+
+test('applyFollowSolo: only the followed slot survives, input never mutated, null = passthrough', () => {
+  const buf = new Float32Array(3 * SAT_STRIDE);
+  for (let i = 0; i < 3; i++) { buf[i * SAT_STRIDE] = 0.5; buf[i * SAT_STRIDE + 3] = 0; }
+  const out = applyFollowSolo(buf, 1);
+  assert.equal(out[0 * SAT_STRIDE + 3], -1, 'neighbor hidden — cannot be accidentally re-picked');
+  assert.equal(out[1 * SAT_STRIDE + 3], 0, 'followed craft untouched');
+  assert.equal(out[2 * SAT_STRIDE + 3], -1, 'neighbor hidden');
+  assert.equal(buf[0 * SAT_STRIDE + 3], 0, 'source buffer untouched');
+  assert.equal(applyFollowSolo(buf, null), buf, 'no follow = passthrough, no copy');
+  // composes after a group mask: solo wins over an already-filtered sky
+  const grouped = applyGroupSentinel(buf, new Uint8Array([1, 1, 0]));
+  const solo = applyFollowSolo(grouped, 0);
+  assert.equal(solo[0 * SAT_STRIDE + 3], 0, 'followed member survives the composition');
+  assert.equal(solo[1 * SAT_STRIDE + 3], -1);
+  assert.equal(solo[2 * SAT_STRIDE + 3], -1);
 });
 
 test('groupMemberHits: members as clickable hits, capped with an honest total, buffer-aligned indices', () => {

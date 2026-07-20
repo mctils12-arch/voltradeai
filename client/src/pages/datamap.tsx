@@ -54,7 +54,7 @@ import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
-import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
+import { groupMask, maskCount, applyGroupSentinel, applyFollowSolo, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { nightPolygon } from "@/lib/celestial/ephemeris";
@@ -3718,6 +3718,7 @@ export default function DataMapPage() {
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
       satFollowRef.current = null;
+      satRepushRef.current?.(); // FOLLOW SOLO ends — the whole sky returns this frame
       satModelLayerRef.current?.setAnchor(null); // model + ring vanish with the follow
       satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
       setSatFollowing(false); // tools cluster goes with the focus
@@ -3886,7 +3887,11 @@ export default function DataMapPage() {
       const raw = satRawPosRef.current;
       if (!layer || !raw || !lastMeta) return;
       const gmask = satGroupMaskRef.current;
-      layer.updatePositions(gmask ? applyGroupSentinel(raw, gmask) : raw, lastMeta);
+      // follow solo composes AFTER the group mask (both honor the same
+      // sentinel; solo wins — one craft on screen while locked)
+      let buf = gmask ? applyGroupSentinel(raw, gmask) : raw;
+      buf = applyFollowSolo(buf, satFollowRef.current?.index ?? null);
+      layer.updatePositions(buf, lastMeta);
       publishOrbitalStatus();
     };
     satRepushRef.current = repushPositions;
@@ -4022,6 +4027,8 @@ export default function DataMapPage() {
             lastMeta = { shown: m.shown, deepSpaceSkipped: m.deepSpaceSkipped, invalidSkipped: m.invalidSkipped };
             const gmask = satGroupMaskRef.current;
             if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
+            // follow solo (2026-07-20): only the locked craft renders/picks
+            posBuf = applyFollowSolo(posBuf, satFollowRef.current?.index ?? null);
             // B3: at realtime the stream is the worker's own 1 Hz loop —
             // declare it so tick-repaint skipping works exactly as pre-B3;
             // under sim-clock warp the ticks are main-driven at the
@@ -4314,6 +4321,7 @@ export default function DataMapPage() {
       // position this tick; the focus persists until the card's ✕. ──
       if (t && s) {
         satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, lockMode: "sat" };
+        satRepushRef.current?.(); // FOLLOW SOLO takes effect THIS frame — the rest of the sky hides
         setSatFollowing(true); // shows the follow-tools cluster
         setSatLockMode("sat");
         // phone (live report round 9): the layers panel covers ~half the

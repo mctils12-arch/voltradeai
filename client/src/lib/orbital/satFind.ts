@@ -118,6 +118,24 @@ export function applyGroupSentinel(buf: Float32Array, mask: Uint8Array | null): 
   return out;
 }
 
+/**
+ * FOLLOW SOLO (human 2026-07-20: "when you click on one make all the other
+ * satellites go away … I accidentally click another sat"): while one object
+ * is focused, sentinel-out every OTHER slot so the sky shows only the
+ * followed craft — and, because the picker honors the same sentinel, a drag
+ * around the craft can never accidentally re-target a neighbor. Same
+ * copy-never-mutate contract as applyGroupSentinel; keepIndex null = no-op.
+ */
+export function applyFollowSolo(buf: Float32Array, keepIndex: number | null): Float32Array {
+  if (keepIndex == null) return buf;
+  const out = buf.slice();
+  const n = Math.floor(out.length / SAT_STRIDE);
+  for (let i = 0; i < n; i++) {
+    if (i !== keepIndex) out[i * SAT_STRIDE + 3] = -1;
+  }
+  return out;
+}
+
 /** Max simultaneous group orbit arcs — beyond this the one-shot SGP4
  *  sampling cost climbs and the sky saturates; the UI must SAY when the
  *  cap bites (sampled evenly ACROSS ORBITAL PLANES, never silently).
