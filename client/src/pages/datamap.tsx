@@ -2021,6 +2021,7 @@ export default function DataMapPage() {
   const terrainExagRef = useRef<number>(terrainExag);
   const terrainWasOnRef = useRef<boolean>(false);
   const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
+  const exagRafRef = useRef<number | null>(null); // rAF-coalesced slider apply
   const lastUserPitchAtRef = useRef<number>(0); // last REAL pitch gesture — the restore never fights it
   useEffect(() => {
     terrainExagRef.current = terrainExag;
@@ -8575,21 +8576,26 @@ export default function DataMapPage() {
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   setTerrainExag(v);
-                  // live, hillshade-untouched: re-apply the mesh factor + keep
-                  // the aircraft altitude datum in lock-step (the setAltScale
-                  // sync site only runs per 15s aircraft refresh — too slow).
-                  const map = mapRef.current;
-                  try {
-                    const t = map?.getTerrain?.();
-                    if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: v } as any);
-                    (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? v : 1);
-                    // curtain + 3D trail: the ref updates in an effect AFTER
-                    // this handler — write it now so the immediate repaint
-                    // scales tops (and re-queries bases: cfg includes the
-                    // exaggeration) at the NEW factor, not the previous one.
-                    terrainExagRef.current = v;
-                    repaintTrail3d();
-                  } catch {}
+                  terrainExagRef.current = v; // live value for every reader
+                  // rAF-COALESCED APPLY (human 2026-07-20: "when you would
+                  // slide there was bugs"): a drag fires dozens of input
+                  // events per second, and each one re-applied the terrain
+                  // mesh AND rebuilt the whole curtain — GL thrash, visible
+                  // glitching. Now the label updates per event (cheap) and
+                  // the mesh/datum/curtain apply once per frame at the
+                  // LATEST value.
+                  if (exagRafRef.current != null) return;
+                  exagRafRef.current = requestAnimationFrame(() => {
+                    exagRafRef.current = null;
+                    const map = mapRef.current;
+                    const vv = terrainExagRef.current;
+                    try {
+                      const t = map?.getTerrain?.();
+                      if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: vv } as any);
+                      (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? vv : 1);
+                      repaintTrail3d();
+                    } catch {}
+                  });
                 }}
               />
               <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>
