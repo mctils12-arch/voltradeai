@@ -3156,13 +3156,27 @@ def _scan_market_inner():
         _pos_list = current_positions if isinstance(current_positions, list) else []
         _max_sec = _slots_params.get("MAX_SECTOR_POSITIONS", MAX_SECTOR_POSITIONS) \
             if '_slots_params' in dir() else MAX_SECTOR_POSITIONS
-        if check_sector_correlation(
-            ticker,
-            current_tickers + [t["ticker"] for t in trades],
-            sector=stock.get("sector"),
-            existing_positions=_pos_list,
-            max_sector_positions=_max_sec,
-        ):
+        # REPAIR 2026-07-20 (live break): this was the only unguarded call
+        # in the per-candidate loop — an exception here aborted the WHOLE
+        # scan, not just this candidate (confirmed live: Tier2 failed every
+        # cycle for 30+ min). Fail-open (not blocked) on error; the
+        # portfolio-wide correlation gate in risk_kill_switch still runs
+        # downstream before execution.
+        try:
+            _sector_blocked = check_sector_correlation(
+                ticker,
+                current_tickers + [t["ticker"] for t in trades],
+                sector=stock.get("sector"),
+                existing_positions=_pos_list,
+                max_sector_positions=_max_sec,
+            )
+        except Exception as _corr_err:
+            import logging as _corr_log
+            _corr_log.getLogger("bot_engine").warning(
+                f"check_sector_correlation raised for {ticker}: {_corr_err}"
+            )
+            _sector_blocked = False
+        if _sector_blocked:
             try:
                 from shadow_portfolio import update_last_decision
                 update_last_decision(
@@ -3294,12 +3308,26 @@ def _scan_market_inner():
 
         # Dynamic position sizing (replaces fixed 5%)
         if _has_sizer:
-            sizing = calculate_position(
-                trade={**stock, "score": final_score, "side": side},
-                equity=portfolio_value,
-                current_positions=current_positions if isinstance(current_positions, list) else [],
-                macro=_macro,
-            )
+            # REPAIR 2026-07-20: same fail-open-per-candidate reasoning as
+            # the correlation check above — calculate_position was the
+            # other unguarded call in this loop capable of aborting the
+            # whole scan on a single candidate's bad data. Here the safe
+            # default is to skip just this candidate (we have no valid
+            # sizing to trade on), not to fabricate a size.
+            try:
+                sizing = calculate_position(
+                    trade={**stock, "score": final_score, "side": side},
+                    equity=portfolio_value,
+                    current_positions=current_positions if isinstance(current_positions, list) else [],
+                    macro=_macro,
+                )
+            except Exception as _sizing_err:
+                import logging as _sizing_log
+                _sizing_log.getLogger("bot_engine").warning(
+                    f"calculate_position raised for {ticker}: "
+                    f"{type(_sizing_err).__name__}: {_sizing_err} — skipping candidate, scan continues"
+                )
+                continue
             if sizing.get("blocked"):
                 continue  # Sizing engine blocked this trade (halted, too small, etc.)
             shares = sizing["shares"]

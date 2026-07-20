@@ -21,6 +21,8 @@ skipped silently.
 """
 import importlib
 import os
+import sys
+import types
 import unittest
 
 import voltrade_daemon
@@ -112,6 +114,76 @@ class TestRPCDispatchTable(unittest.TestCase):
         self.assertEqual(attr_name, "get_shadow_stats")
         import shadow_portfolio
         self.assertTrue(callable(getattr(shadow_portfolio, attr_name)))
+
+
+class TestDispatchDoesNotMaskInternalTypeErrors(unittest.TestCase):
+    """
+    Regression for the 2026-07-20 live break: run_full_scan (->
+    bot_engine.scan_market) failed every Tier2 cycle for 30+ minutes
+    straight, every audit-log entry reading "scan_market() takes 0
+    positional arguments but 1 was given". scan_market() takes zero
+    args and was called as fn(**{}) == fn() — that call can only ever
+    raise a TypeError that came from INSIDE the function's own
+    execution. The old dispatch() caught that TypeError, assumed it
+    meant "wrong calling convention", and blindly retried fn({}) — one
+    positional arg into a zero-arg function — which fails for an
+    unrelated reason and overwrites the real error/message. The real
+    bug was undiagnosable from the audit log for the entire outage.
+
+    Fix: decide kwargs-vs-positional via inspect.signature(fn).bind(),
+    which validates the binding without calling the function — so it
+    can never raise a TypeError from the function's body. The real
+    call then happens outside any except TypeError, so an internal
+    TypeError propagates with its true message.
+
+    These tests register throwaway routes against a fake module (never
+    touching the real _routes table's live methods) so they exercise
+    dispatch()'s calling-convention logic directly and cheaply.
+    """
+
+    def setUp(self):
+        self.dispatcher = RPCDispatcher()
+        self.mod = types.ModuleType("_test_dispatch_masking_mod")
+        sys.modules[self.mod.__name__] = self.mod
+        voltrade_daemon._modules_loaded[self.mod.__name__] = self.mod
+
+    def tearDown(self):
+        sys.modules.pop(self.mod.__name__, None)
+        voltrade_daemon._modules_loaded.pop(self.mod.__name__, None)
+
+    def test_zero_arg_function_internal_typeerror_is_not_masked(self):
+        def broken_zero_arg():
+            return 1 + "not a number"  # genuine TypeError raised from inside
+
+        self.mod.broken_zero_arg = broken_zero_arg
+        self.dispatcher._routes["_test_broken_zero_arg"] = (self.mod.__name__, "broken_zero_arg")
+
+        result = self.dispatcher.dispatch("_test_broken_zero_arg", {})
+        self.assertEqual(result["status"], "error")
+        self.assertIn("unsupported operand", result["error_message"])
+        self.assertNotIn("positional argument", result["error_message"])
+
+    def test_kwargs_call_convention_still_works(self):
+        def wants_kwargs(a=None, b=None):
+            return {"a": a, "b": b}
+
+        self.mod.wants_kwargs = wants_kwargs
+        self.dispatcher._routes["_test_wants_kwargs"] = (self.mod.__name__, "wants_kwargs")
+
+        result = self.dispatcher.dispatch("_test_wants_kwargs", {"a": 1, "b": 2})
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], {"a": 1, "b": 2})
+
+    def test_positional_dict_call_convention_still_works(self):
+        def wants_positional_dict(d):
+            return {"got": d}
+
+        self.mod.wants_positional_dict = wants_positional_dict
+        self.dispatcher._routes["_test_wants_positional"] = (self.mod.__name__, "wants_positional_dict")
+
+        result = self.dispatcher.dispatch("_test_wants_positional", {"x": 1})
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["result"], {"got": {"x": 1}})
 
 
 if __name__ == "__main__":

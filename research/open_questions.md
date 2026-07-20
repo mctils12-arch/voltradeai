@@ -2179,6 +2179,40 @@
     would be a second logical change, left as the item's own still-open
     follow-up rather than done here.
 
+24. **[FOUND + FIXED 2026-07-20, v1.0.448, scheduled-routine session,
+    NOT YET LIVE-CONFIRMED (pending deploy)] Tier2 scanning dead every
+    cycle since 2026-07-20 15:27:03 UTC — `run_full_scan` → `bot_engine
+    .scan_market()` failing with `scan_market() takes 0 positional
+    arguments but 1 was given`, backing off up to 480s, reproducing
+    identically across a daemon restart.** ROOT CAUSE:
+    `voltrade_daemon.py`'s `RPCDispatcher.dispatch()` chose the calling
+    convention via `try: fn(**args) except TypeError: fn(args)`.
+    `scan_market()` takes zero args and is always called with `args={}`,
+    so `fn(**{})` is exactly `fn()` — any TypeError from that call can
+    only have come from INSIDE scan_market()'s own execution. The bare
+    `except TypeError` couldn't distinguish that from a genuine calling-
+    convention mismatch, so it retried `fn(args)` — one positional dict
+    into a zero-arg function — which fails for an unrelated reason and
+    overwrote the real error/message. The actual internal TypeError has
+    been completely undiagnosable from the audit log for the whole
+    outage; this masking pattern exposes every zero/kwargs-only route
+    behind the dispatcher, not just this one. See experiments.md
+    2026-07-20 entry for the two-part fix (dispatch now decides the
+    calling convention via `inspect.signature(fn).bind()`, which cannot
+    raise from the function body; plus the two previously-unguarded
+    per-candidate calls in `scan_market`'s trade loop — sector
+    correlation and position sizing — now fail-isolated per-candidate
+    instead of aborting the whole scan) and why full root-cause wasn't
+    reachable this session (sandbox has no ALPACA_KEY/network to
+    reproduce scan_market() live). **NEXT CHECK**: once deployed,
+    `/api/diag/audit?type=TIER2-ERROR` should show zero further
+    `scan_market() takes 0 positional arguments` entries; `/api/diag/
+    scanner`'s `consecutiveFailures` should return to 0 and stay there.
+    If a scan STILL fails post-deploy, the dispatch fix guarantees the
+    audit log will now show the real error message instead of the
+    phantom one — read that message first, it should localize the
+    remaining bug directly.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

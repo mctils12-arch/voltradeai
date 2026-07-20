@@ -52,6 +52,7 @@ Each method accepts a JSON dict of args and returns a JSON dict.
 Responses always include {"status": "ok" | "error", "result" | "error_message"}.
 """
 
+import inspect
 import json
 import logging
 import os
@@ -258,12 +259,50 @@ class RPCDispatcher:
                         pass
 
                 # Call with args dict as kwargs or positional depending on
-                # the method's signature. Try kwargs first.
-                try:
-                    result = fn(**args) if isinstance(args, dict) else fn(args)
-                except TypeError:
-                    # Some methods take a single positional dict
-                    result = fn(args)
+                # the method's signature.
+                #
+                # REPAIR 2026-07-20 (live break: run_full_scan/scan_market
+                # failing every cycle with "scan_market() takes 0 positional
+                # arguments but 1 was given"): the old code called fn(**args)
+                # inside a `try: ... except TypeError:` and, on ANY TypeError,
+                # blindly retried fn(args) assuming the first call failed
+                # because of a calling-convention mismatch. But scan_market()
+                # takes zero args, so fn(**{}) IS fn() — it can only raise a
+                # TypeError from something inside the function's own
+                # execution, never from the call itself. The retry then
+                # called fn({}) — one positional arg into a zero-arg
+                # function — which fails FOR A DIFFERENT REASON and
+                # overwrites the real error with a misleading one. Every
+                # real TypeError raised during a scan was being silently
+                # replaced by this phantom "takes 0 positional arguments"
+                # message, making the actual bug undiagnosable from the
+                # audit log (confirmed live 2026-07-20: 30+ min of
+                # consecutive scan failures, all reporting the same
+                # misleading message).
+                #
+                # Fix: decide kwargs-vs-positional by validating the BINDING
+                # against the function's real signature (inspect.signature
+                # .bind — this does not call the function, so it cannot
+                # raise a TypeError from the function body). Only fall back
+                # to positional-dict calling when the binding genuinely
+                # doesn't match. Once the calling convention is decided, the
+                # real call is made OUTSIDE any except TypeError — so a
+                # TypeError raised by the method's own logic propagates with
+                # its real message to the outer handler below.
+                if isinstance(args, dict):
+                    try:
+                        inspect.signature(fn).bind(**args)
+                        _call_as_kwargs = True
+                    except TypeError:
+                        _call_as_kwargs = False
+                else:
+                    _call_as_kwargs = False
+
+                # The actual call is OUTSIDE the bind-check's try/except, so
+                # a TypeError raised by fn's own body is never mistaken for
+                # a signature mismatch and never triggers the positional
+                # retry.
+                result = fn(**args) if _call_as_kwargs else fn(args)
 
                 if method == "run_full_scan":
                     # DAEMON-TRACE 2026-04-23: phase = scan_market_returned
