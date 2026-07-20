@@ -22241,3 +22241,76 @@ this session's own diagnosis above, that reading should be interpreted the
 same way — check whether repairs are holding (they are) and whether this
 specific item resolves, not treated as an automatic re-trigger of a
 codebase-wide audit each time.
+
+## 2026-07-19/20 (human-directed session) [PRODUCT] — Space View + 3D Terrain design-handoff wave SHIPPED (v1.0.420–.426, T-CLIENT): smooth sat-lock, terrain exaggeration slider/auto-tilt/imagery tuning, space-frame lock-horizon + ecliptic-level camera, separate ephemeris inspect overlay DELETED
+
+TERRITORY: T-CLIENT (client/src/**, index.css; datacore/layers.json one-string
+description append under SHARED minimal-edit rule).
+
+CONTEXT: the human uploaded three Design-Claude artifacts (SMOOTHSATLOCKPATCH.md,
+3D_Terrain_Integration.zip, CLAUDECODEPROMPT.md) with the complaint "i keep
+asking for this and … you dont build it right and it still has the same issues."
+ROOT CAUSE OF THE RECURRENCE, verified against origin/main before touching
+anything: the previously-designed smooth sat-lock fix WAS NEVER ON MAIN — main
+still had the per-tick 800ms easeTo and MODEL_MAX_PIXELS=480. The repeated
+"same issues" were un-shipped work, not mis-built work. Two scoping subagents
+(terrain, space-view) verified every patch anchor against the real tree; all
+edits applied by the parent session after read-before-write on each region.
+
+SHIPPED (each its own commit + version tag):
+- v1.0.420 smooth sat-lock: per-frame SGP4 propagate for the ONE followed
+  craft in a rAF loop; camera+model ride jumpTo (60fps continuous), worker
+  tick stays the honesty backstop; MODEL_MAX_PIXELS 480→1600.
+- v1.0.421 3D terrain handoff: user exaggeration slider 1.0–3.0× (new
+  lib/terrainExag.ts pref store, default 1.3 unchanged) with ALL THREE
+  coupled read-sites (setTerrain mesh, aircraft setAltScale datum, trail
+  curtain altScale) reading the same live ref; ⓘ explainer (approved copy);
+  auto-tilt to 58° on terrain-on from top-down; imagery raster-fade 0 +
+  saturation/contrast lift; maplibre parallel tile fetches 16→32. Skipped
+  the README-optional DEM maxzoom cap (Mapterhorn is TileJSON-served; no
+  clean inline cap). New unit test: terrainExag clamp (5 pass).
+- v1.0.422 + v1.0.425 auto-tilt symmetric restore, then made teardown-safe
+  + idle-verified after the visual harness caught the restore ease racing
+  the terrain teardown (flaky pitched-camera → 1440 trail-click miss).
+  User pitch gestures (pitchstart with originalEvent) always win.
+- v1.0.423 space frame "Lock horizon": polarClampDots(locked) pure+tested,
+  clamp [0.12, π/2+0.42] ON-by-default (never under the ecliptic), OFF only
+  widens; 6th SPACE FRAME toggle row, persisted pref, live handle setter.
+- v1.0.424 camera up-reference → ECLIPTIC POLE (CAMERA_UP_ECL): the real
+  "tilted/wonky" cause was the spin-axis up slanting the whole system
+  23.44°. Seam coupling handled: northRollDeg now genuinely nonzero keeps
+  the live-map anchor glued to the tilted Earth (rotate(rollDeg) machinery
+  already existed), and seamRollBlendFactor eases roll→0 across the ARMED
+  approach so the seam handback lands north-up, no snap. +2 pure tests.
+- v1.0.426 Inspect IS the map: lib/orbital/followCamera.ts (separate WebGL
+  ephemeris overlay, 1396 lines) DELETED with all call sites, chrome, CSS,
+  and input guards; the card's Inspect now runs the in-map close-orbit
+  ease + sat lock (one action; ✕ releases). Human 2026-07-19 brief
+  explicitly supersedes the 2026-07-18 §3 overlay decision (HUMAN
+  SOVEREIGNTY — newer explicit instruction wins; recorded here, not
+  silently resolved). followCamera.test.ts leaves with its module —
+  deletion, not weakening; surviving behaviors keep their assertions.
+
+HONESTY FLAGS filed during the build: the space-view brief's reference
+files (space-view.html, sat-inspect-fix.html) were NOT in the upload — the
+north-lock/inspect work was scoped from the real code instead, and the
+brief's three.js premises (camera.up writes, roll) did not exist in the
+shipped Canvas2D frame (roll impossible by construction; the clamp +
+up-reference were the real deliverables). The brief's remaining space-frame
+items (Milky Way fade tuning, moon orbit rings on follow, body info-card
+parity with the reference demo) were NOT verifiable without the reference
+files and are left unbuilt rather than guessed.
+
+VERIFICATION: node:test suites green (spaceFrame 50/50, textureSphere
+18/18, terrainExag 5/5, orbital modelLayer/follow/model3d/realMesh/
+occlusion 33/33); npm run build green each commit; visual harness
+(--soft, data battery 390/768/1440 + zero-cost + layer-scale) run per
+commit wave — the two failures it surfaced (permanent auto-tilt pitch;
+restore race) were both real regressions in MY changes, fixed in v422/v425
+rather than papered over. One harness run was invalidated by rebuilding
+dist/ mid-run (self-inflicted; noted so the next session doesn't chase the
+phantom "-1/N layers" data-scale failure — never rebuild while the harness
+is running). Final full-battery run on the finished tree: pending at log
+time; PR will carry the result.
+
+BACKTEST: N/A — zero trading-logic changes (pure client/UX territory).

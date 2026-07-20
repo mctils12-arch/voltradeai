@@ -5414,3 +5414,47 @@ NEXT STEP (not this session): (b) is the smallest next slice — group
 detection count/rate per asset, and surface it as a sortable stat before
 attempting (c)/(d). Discount stays heavy (REASONING STANDARD #4) — this
 update proves the join works, not that the underlying thesis has edge.
+
+## [MEASUREMENT-DEBT · filed 2026-07-20] Visual harness: unverified flip-back clicks leave non-default state for later checks — diagnosed via the terrain auto-tilt saga; fix is harness-side (own PR per MEASUREMENT INTEGRITY)
+
+SYMPTOM: data@1440 trail-freshness check fails ~50% of runs — the aircraft
+click misses because the camera is pitched 58° (screenshot shows the
+trapezoid), even though the terrain row reads "off".
+
+DIAGNOSIS (4-point in-page instrumentation, 2026-07-20; recipe below):
+in failing runs the cost-budget sweep ends with map.getTerrain() TRUE —
+the sweep's terrain "off" click did not land. Both the toggle-consistency
+battery and the cost sweep restore state via BEST-EFFORT clicks
+(`.click().catch(() => {})`, never verified), so a missed flip-back leaves
+terrain enabled → the v1.0.421 auto-tilt (correctly) keeps the camera at
+58° for a terrain-on view → every later check inherits a non-default
+camera the harness assumes is top-down. Passing runs show the clean
+sequence: tilt 58 at sweep-ON, pitch 0 + terrain off at sweep-end (the
+v1.0.427 ownership+watchdog restore verified working under the full
+harness environment — 5/5 batteries green when the click lands).
+
+APP SIDE IS DONE: three restore iterations hardened the app invariant
+(v422 symmetric restore → v425 teardown-safe → v427 ownership + 700ms
+eventual-consistency watchdog; probe 3/3 + one full-battery PASS). What
+remains is HARNESS reliability: flip-back clicks that restore default
+state must be VERIFIED (re-read aria-checked; retry once) — in
+toggle-consistency's flip-back AND the cost sweep's off loop. That is
+measurement code: own [RULE-REVIEW]/[REPAIR] PR, never bundled with
+feature work (this filing is the required separation).
+
+WHY THE CLICK MISSES (unconfirmed, candidates for the fix session): the
+terrain row grows ~90px when ON (the EXAG slider block) shifting rows
+below mid-sweep; the cost badge mounting/unmounting shifts the panel;
+SwiftShader jank between scrollIntoView and click. rowChecked in a
+FAILING run would discriminate (true = missed click confirmed) — the
+passing-run reading was taken but no failing run has carried the probe yet.
+
+DIAG RECIPE (rebuild on demand): patch visual_check.mjs with a tiltDiag()
+helper logging {pitch, terrainOn: !!map.getTerrain(), rowChecked:
+aria-checked of the terrain switch, hasSlider: !!querySelector(
+'[data-vt-terrain-exag]')} at: after toggle-consistency, after cost ON,
+after cost OFF, before trail check. (Temporary patch only — revert after;
+the 2026-07-20 session ran it twice this way.)
+
+RELATED: [HARNESS-ENV · 2026-07-15] fields-on flake — likely the same
+click-reliability family; fix both in the same harness PR.

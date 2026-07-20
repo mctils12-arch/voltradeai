@@ -12,8 +12,8 @@
 //    spaceFrame.apparentLitFraction, pinned here as the shared contract);
 //  · shadowConeFactor — the umbra/penumbra cone of ANY occluder on ANY point
 //    (lunar eclipse = Moon in Earth's cone; Jovian-moon eclipse = moon in
-//    Jupiter's cone; craft in Earth's umbra — this generalises the ENU-frame
-//    lib/orbital/followCamera.earthShadow to a 3-D body↔body frame);
+//    Jupiter's cone; craft in Earth's umbra — this generalises the retired
+//    follow-camera overlay's ENU-frame earthShadow to a body↔body frame);
 //  · surfaceInRingShadow — a planet surface point shadowed by its ring
 //    annulus (Saturn's rings darken the winter hemisphere);
 //  · pointInSphereShadow — a ring point (or craft) shadowed BY the planet
@@ -76,7 +76,7 @@ export interface ShadowConeResult {
  * penumbra diverges at tanβ = (R☉ + Rocc)/D (D = occluder→Sun distance). Inside
  * the umbra radius ⇒ 0; outside the penumbra radius ⇒ 1; a linear ramp across
  * the band (a stated display-grade approximation of the real partial-eclipse
- * falloff — the SAME model lib/orbital/followCamera.earthShadow uses for the
+ * falloff — the same model the retired follow-camera overlay used for the
  * craft, generalised off the ENU axis to an arbitrary 3-D geometry).
  *
  * Lunar eclipse: pRel = Moon − Earth, ŝ = unit(Sun − Earth), Rocc = R⊕,
