@@ -22765,3 +22765,109 @@ passed deterministically when run alone, hint-bar dragScheme proxy
 true); harness 0 hard failures at 390/768/1440; unit suites 14/14
 (cameraRig+panelLayout); python 822 passed. BACKTEST: N/A (pure
 client).
+
+## 2026-07-20 (scheduled-routine session) [REPAIR] — LIVE BREAK: Tier2 scanning dead since 15:27 UTC, masked by an RPC dispatch bug that overwrites real errors with a phantom one; dispatch fixed + per-candidate scan isolation added (v1.0.448, T-BOT)
+
+TERRITORY: T-BOT (bot_engine.py, voltrade_daemon.py — bot-engine-adjacent
+RPC infra, not client/datacore).
+
+DISCOVERED via routine health check: `/api/health` reported "ok", but
+`/api/diag/scanner` showed `consecutiveFailures` climbing and
+`/api/diag/audit` showed every Tier2 scan since 2026-07-20 15:27:03 UTC
+failing with the identical message: `daemon run_full_scan failed:
+scan_market() takes 0 positional arguments but 1 was given`, backing off
+180s→240s→480s per RULE-STYLE exponential backoff, repeating across a
+daemon restart (uptime reset to 66s, same error resumed immediately —
+ruling out a transient restart glitch). Still active at session end
+(46+ min, `consecutiveFailures: 5`) — this is the LIVENESS/KEEP-THE-
+SYSTEM-ALIVE priority-1 item this session, not a queued fall-through.
+
+ROOT CAUSE (traced by hand — sandbox has no ALPACA_KEY/network so live
+repro wasn't possible; found via `/api/diag/timings` pinning the last
+completed phase to `deep_score` plus static analysis of every unguarded
+call after it): `voltrade_daemon.py`'s `RPCDispatcher.dispatch()` picked
+the calling convention with `try: fn(**args) except TypeError:
+fn(args)`. `run_full_scan` maps to `bot_engine.scan_market()`, which
+takes ZERO args, and bot.ts always calls it with `args={}` — so
+`fn(**{})` IS `fn()`. That call can only raise a TypeError from
+something INSIDE scan_market()'s own execution, never from the call
+itself. The bare `except TypeError` had no way to tell "wrong calling
+convention" apart from "the function's own logic raised a TypeError",
+so it retried `fn(args)` — one positional dict into a zero-arg function
+— which fails for an unrelated reason and overwrites the real error
+with the phantom "takes 0 positional arguments" message. The actual bug
+inside scan_market() has been completely undiagnosable from the audit
+log for the whole outage; this masking is itself a systemic flaw (every
+zero/kwargs-only route behind this dispatcher has the same exposure,
+not just run_full_scan).
+
+FIX 1 (voltrade_daemon.py, the masking): calling convention is now
+decided via `inspect.signature(fn).bind(**args)` — this validates the
+binding WITHOUT invoking the function, so it can only raise TypeError
+for a genuine signature mismatch, never from the function's body. The
+real call then happens outside any `except TypeError`, so an internal
+TypeError propagates to the outer handler with its true message. Next
+occurrence (of this or any other route) will show the real error in the
+audit log instead of a decoy.
+
+FIX 2 (bot_engine.py, defense in depth — this one plausibly restores
+scanning immediately regardless of the mystery TypeError's exact cause):
+audited every call in the `for stock in deep_scored:` per-candidate loop
+(the code after `_timing_log("deep_score")`, ~500 lines) for missing
+try/except — nearly all of it already defensively wrapped, matching the
+file's own convention, EXCEPT two calls: `check_sector_correlation(...)`
+and `calculate_position(...)`. Either one raising ANY exception
+(TypeError or otherwise) for a SINGLE candidate propagates out of the
+whole `for` loop, out of `_scan_market_inner()`, out of `scan_market()`
+— aborting evaluation of every remaining candidate in that scan cycle,
+not just the one that triggered it. Both are now wrapped: correlation
+check fails open (treat as not blocked — risk_kill_switch's portfolio-
+wide correlation gate still runs downstream before execution), sizing
+failure skips just that one candidate (`continue`). One bad candidate
+can no longer take down an 11,000+ ticker scan.
+
+WHY NOT FULLY ROOT-CAUSED: reproducing scan_market() needs live Alpaca
+data (11K-ticker snapshot fetch, account/positions lookups) this
+sandbox has no credentials or network path for. Read every call between
+`deep_score` and `step6_trade_loop_and_options` — the two now-guarded
+calls were the only unguarded ones; if the real TypeError originates
+elsewhere in that stretch (inside an already-try/except'd block that
+happens to re-raise, or the ThreadPoolExecutor dead-code block at
+bot_engine.py:2886-2892), FIX 1 alone guarantees the NEXT occurrence's
+real message reaches the audit log and localizes it in one read instead
+of an open-ended search.
+
+TESTS: 3 new tests in test_voltrade_daemon.py
+(TestDispatchDoesNotMaskInternalTypeErrors) pin the dispatch fix
+directly — a zero-arg route whose body raises TypeError now surfaces
+the real message (not "positional argument"); kwargs- and positional-
+dict calling conventions both still resolve correctly. Existing
+test_shadow_portfolio.py::TestBotEngineCallSites source-inspection
+tests re-verified against the new try/except (had to trim an
+over-verbose inline comment to stay inside the test's 800-char
+proximity window — the check itself untouched). Full suite: 826
+passed, 2 skipped (test_grid_county_ba needed openpyxl pip-installed —
+env gap, not a code failure, same class noted in the 2026-07-19 #550
+log).
+
+BACKTEST: N/A — RPC dispatch + defensive error handling, no
+scoring/sizing/rule logic changed. Neither call's INPUTS or PASS/FAIL
+decision logic were touched, only what happens when they raise.
+
+MERGE TIMING: prepared during market hours (2026-07-20, per this
+session's explicit routine instructions). Recommend this qualifies for
+the "critical live break" exception — Tier2 scanning has been fully
+dead for 46+ minutes and counting, actively missing trade candidates
+market-wide, with no other path to recovery until deployed (the bug
+reproduces deterministically across a daemon restart, so waiting for
+another restart will not self-heal it). Leaving the merge-or-wait
+decision to the human/reviewing session per this run's instructions,
+but flagging the severity explicitly rather than defaulting to
+after-4pm-ET.
+
+LOOP-HEALTH CHECK (last 10 tags before this entry): REPAIR, PRODUCT,
+PRODUCT, PRODUCT, REPAIR, PRODUCT, REPAIR, PRODUCT, PRODUCT, PRODUCT —
+3/10 REPAIR, below the 7/10 thrash threshold. No meta-problem; this
+session's REPAIR was picked because it's an active, currently-ongoing
+live break outranking all queued PRODUCT/RESEARCH fall-through per
+GOAL priority 1.
