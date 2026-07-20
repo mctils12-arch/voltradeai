@@ -1403,7 +1403,10 @@ export default function DataMapPage() {
     container?.classList.remove("vt-space-active");
     const map = mapRef.current;
     if (map) {
-      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
+      // NOT "keyboard": the map is created keyboard:false (the nav cluster
+      // owns the keys); re-enabling it here made arrows/+/- double-fire
+      // after one space round-trip
+      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate"] as const) {
         try { (map as any)[h]?.enable(); } catch {}
       }
       // NO easeTo: the frame lands exactly at the zoom floor, above the
@@ -9115,6 +9118,11 @@ export default function DataMapPage() {
         map={mapReady ? mapRef.current : null}
         mapReady={mapReady}
         suspended={spaceActive}
+        // BOTH input systems, everywhere (human 2026-07-20: "i want both
+        // the new controls and mouse"): buttons always; the mouse stays
+        // NATIVE (left-drag pans) except in the flight view, where the
+        // prototype orbit scheme takes the canvas (right-drag still pans)
+        dragScheme={detail?.kind === "aircraft" && !!flightProfile && !spaceActive}
         onZoomOutAtFloor={() => {
           void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
           return true;
@@ -9156,10 +9164,12 @@ export default function DataMapPage() {
           return s ? { lng: s.lon, lat: s.lat } : null;
         }}
       />
-      {/* hint bar (returns with the rig's mouse scheme; hidden <860px) */}
-      {!spaceActive && (
+      {/* hint bar — plane view only, where the orbit mouse scheme differs
+          from the map's native gestures (base map needs no hint: the mouse
+          works the way every map works) */}
+      {detail?.kind === "aircraft" && flightProfile && !spaceActive && (
         <div className="vt-map-hintbar" aria-hidden>
-          DRAG ROTATE · RIGHT-DRAG PAN · DBL-CLICK RECENTER{detail?.kind === "aircraft" && flightProfile ? " · SPACE PLAY" : ""}
+          DRAG ROTATE · RIGHT-DRAG PAN · DBL-CLICK RECENTER · SPACE PLAY
         </div>
       )}
       {/* ALTITUDE / TIME profile (handoff §3) — mounts with an open flight

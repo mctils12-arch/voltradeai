@@ -14,12 +14,18 @@
 // per-frame jumpTo, the space frame, MapLibre's own touch gestures and
 // inertia): the rig is PASSIVE unless it has active input or unsettled
 // goals — while passive it re-seeds cur+goal from the live camera on every
-// loop start, so it never fights an external move. Mouse gestures on the
-// canvas are intercepted at capture BEFORE MapLibre's handlers (the
-// zoom-seam precedent in datamap): left-drag rotates, right/shift-drag
-// pans, wheel zooms exponentially, double-click recenters — the exact
-// prototype scheme. TOUCH pointers pass through untouched to MapLibre's
-// native gestures (phones keep standard one-finger pan / pinch).
+// loop start, so it never fights an external move.
+//
+// MOUSE SCHEME IS PLANE-VIEW ONLY (human 2026-07-20: "i still want to be
+// able to move around the map with mouse controls"): the base map keeps
+// MapLibre's NATIVE mouse gestures — left-drag pans, wheel zooms,
+// right-drag rotates — exactly as before the handoff. Only while the
+// caller sets dragScheme (an open flight card) are mouse gestures
+// intercepted at capture BEFORE MapLibre's handlers (the zoom-seam
+// precedent in datamap): left-drag rotates/orbits, right/shift-drag pans,
+// wheel zooms exponentially, double-click recenters — the exact prototype
+// scheme, in the context it was designed for. TOUCH pointers always pass
+// through untouched (phones keep standard one-finger pan / pinch).
 //
 // Keyboard (prototype-exact): Q/E rotate, R/F tilt, arrows pan, +/− zoom.
 // Space is owned by the flight profile panel (play/pause), not here.
@@ -71,6 +77,11 @@ export interface MapNavClusterProps {
   followTarget?: () => { lng: number; lat: number } | null;
   /** double-click recenter fires this with the clicked point. */
   onRecenter?: (lngLat: { lng: number; lat: number }) => void;
+  /** true = the prototype ORBIT mouse scheme owns the canvas (left-drag
+   *  rotate, right-drag pan, wheel rig-zoom) — the flight view. false
+   *  (default) = MapLibre's native gestures untouched: left-drag PANS,
+   *  the standard map feel (human directive 2026-07-20). */
+  dragScheme?: boolean;
   /** suspended (space-frame) mode: the rig is inert but zoom buttons stay —
    *  each press forwards one seam step to the space camera (out = true). */
   onSuspendedZoom?: (out: boolean) => void;
@@ -95,6 +106,7 @@ export default function MapNavCluster({
   onRecenter,
   onSuspendedZoom,
   onSuspendedReset,
+  dragScheme = false,
 }: MapNavClusterProps) {
   const ringRef = useRef<SVGGElement | null>(null);
   const rigRef = useRef<Rig>({
@@ -317,8 +329,11 @@ export default function MapNavCluster({
   }, []);
 
   // ── canvas mouse scheme (prototype-exact; mouse pointers only) ────────
+  // PLANE VIEW ONLY (dragScheme): everywhere else this effect stays off and
+  // MapLibre's native mouse handling owns the canvas — left-drag pans,
+  // wheel zooms, right-drag rotates, exactly the pre-handoff map feel.
   useEffect(() => {
-    if (!map || !mapReady) return;
+    if (!map || !mapReady || !dragScheme) return;
     const el = map.getCanvasContainer();
     let drag: { x: number; y: number; mode: "rot" | "pan"; moved: boolean } | null = null;
 
@@ -412,7 +427,7 @@ export default function MapNavCluster({
       el.removeEventListener("contextmenu", onCtx);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, mapReady]);
+  }, [map, mapReady, dragScheme]);
 
   // compass dial drag/click
   const dialState = useRef<{ grab: number; startBearing: number; moved: boolean } | null>(null);

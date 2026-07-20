@@ -22668,3 +22668,34 @@ zoom ceiling 17.5 → deep-zoom inspection unchanged via pinch/native
 (map maxZoom untouched); pitch 84 → curtain grazing look preserved,
 tile-cover bounded → freeze vector closed; veclines filter → whisker
 loses click priority but has no card of its own (nothing lost).
+
+## 2026-07-20 — [PRODUCT] T-CLIENT: both input systems — native mouse everywhere + button cluster; orbit scheme scoped to the flight view (v1.0.445)
+
+HUMAN DIRECTIVE (verbatim): "i still want to be able to move around the
+map with mouse controls" + "i want both the new controls and mouse".
+The re-landed cluster (#566) applied the prototype ORBIT mouse scheme
+site-wide — left-drag rotated instead of panning, so the standard
+move-the-map gesture was gone everywhere.
+
+CHANGE: MapNavCluster gets a dragScheme prop (default false). OFF =
+the canvas mouse-scheme effect never binds; MapLibre's native gestures
+own the mouse (left-drag pan, wheel zoom, right-drag rotate — the
+pre-handoff feel). ON = the prototype orbit scheme, exactly as it was.
+datamap passes dragScheme only for an open flight card outside space
+(the context the handoff designed it for; right-drag still pans there).
+Buttons stay site-wide in both modes. Hint bar now plane-view only —
+the base map needs no hints for standard behavior. Fix in passing on
+the same input-arbitration surface: space-frame exit re-enabled the
+map's "keyboard" handler that init deliberately disabled (cluster owns
+keys) → arrows/+/- double-fired after one space round-trip; keyboard
+removed from the re-enable list. Camera-lock handbacks on native drags
+were already wired (map dragstart listeners from #562, kept by #566) —
+verified live: flight follow and sat ground lock release on native pan.
+
+VERIFICATION: cameraRig 12/12; build green; live probe ALL CHECKS
+PASSED — new checks: base left-drag pans 1.61° with bearing 0.00 (no
+orbit leak), base wheel zooms natively, plane-view left-drag rotates
+−34° with the card staying open; all v1.0.444 regressions re-ran green
+(zoom stops at exactly 17.50, tilt 84.00, latch clean, plane click,
+space FLY HOME). Harness --page data 0 hard failures at 390/768/1440.
+Python suite 822 passed, 3 skipped. BACKTEST: N/A (pure client).
