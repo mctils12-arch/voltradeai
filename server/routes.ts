@@ -32,7 +32,7 @@ import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, a
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
-import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, scheduleVesselHeartbeat } from "./vesselStream";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
@@ -929,6 +929,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const vesselStatics: Map<string, { shiptype: number | null; destination: string | null; name: string | null }> = new Map();
   let vesselSocket: WSClient | null = null;
   let vesselSocketUp = 0;
+  // Observability gap closed 2026-07-20: an error/close on the AIS websocket
+  // previously only reached console.error, invisible to anyone outside a
+  // Railway shell. Bounded last-event state, surfaced on the existing public
+  // /api/data/vessels response below (never a diag-token-gated field — this
+  // is stream health, not trading data).
+  let vesselLastError: { at: number; message: string } | null = null;
+  let vesselLastClose: number | null = null;
 
   function ensureVesselStream(): boolean {
     const key = process.env.AISSTREAM_KEY || "";
@@ -992,10 +999,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch {}
       });
-      ws.on("error", (e: any) => console.error("[datacore] aisstream:", e?.message || e));
-      ws.on("close", () => { if (vesselSocket === ws) vesselSocket = null; });
+      ws.on("error", (e: any) => {
+        vesselLastError = { at: Date.now(), message: String(e?.message || e) };
+        console.error("[datacore] aisstream:", e?.message || e);
+      });
+      ws.on("close", () => {
+        if (vesselSocket === ws) vesselSocket = null;
+        vesselLastClose = Date.now();
+      });
       return true;
     } catch (e: any) {
+      vesselLastError = { at: Date.now(), message: String(e?.message || e) };
       console.error("[datacore] aisstream connect:", e?.message || e);
       vesselSocket = null;
       return false;
@@ -1006,6 +1020,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // /api/data/vessels request, so every deploy doesn't leave the vessels
   // layer (and its archive recording) cold until someone opens the map.
   bootVesselStream(process.env, ensureVesselStream);
+  // Ongoing-drop fix (2026-07-20): the boot connect above only covers
+  // cold start. Re-trigger the (idempotent, no-ops when OPEN/CONNECTING)
+  // connect on a timer too, so a mid-session disconnect self-heals even
+  // when no one is polling /api/data/vessels — see vesselStream.ts for the
+  // live evidence this was needed (14h-stale archive, repeated requests
+  // over several minutes did not recover it on their own).
+  scheduleVesselHeartbeat(process.env, ensureVesselStream, 60_000, setInterval);
 
   // SCALE S1(b) — vessels delta: short-TTL snapshot per expanded bbox +
   // the aircraft `time`/`since` protocol (the client's sinceRef machinery
@@ -1048,6 +1069,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
       kind: "raw",
       warming_up: hit.data.count === 0 && now - vesselSocketUp < 30_000,
+      // Stream health (2026-07-20 observability fix): a stalled upstream
+      // websocket used to look IDENTICAL to a genuinely quiet moment from
+      // this response alone (count 0, warming_up false either way) — the
+      // live incident this closed had zero vessels for 14h+ with no way to
+      // tell "no ships nearby" from "connection dead" without shell access.
+      stream_status: {
+        ready_state: vesselSocket ? vesselSocket.readyState : null,
+        connected_since: vesselSocketUp || null,
+        last_error: vesselLastError,
+        last_close_at: vesselLastClose,
+      },
       ...hit.data,
     });
   });

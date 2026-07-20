@@ -2179,6 +2179,80 @@
     would be a second logical change, left as the item's own still-open
     follow-up rather than done here.
 
+24. **[FOUND + FIXED (pending deploy verification) 2026-07-20, v1.0.444,
+    scheduled PRODUCT session] Vessel/AIS archive silently dead ~14h+ —
+    the shadow-fleet gate-1 investigation this session set out to do
+    surfaced a live datacore pipeline outage instead.**
+    Discovered while scoping the SHADOW-FLEET SIGNAL gate-1 validation
+    plan (line ~3381): `curl /api/data/archive/stats` showed the `vessels`
+    kind's newest file as `2026-07-19-23.jsonl.gz` (a fully-compressed
+    hour, no in-progress current-hour file at all) against every other
+    stream having a live 2026-07-20 file — and `/api/data/vessels` (global
+    bbox) returned `count:0, total_in_view:0` repeatedly over several
+    minutes of polling, `warming_up:false` throughout (i.e. not "just
+    reconnected", genuinely stalled). ROOT CAUSE (read-before-write on
+    `server/routes.ts`'s vessel-stream closure + `server/vesselStream.ts`):
+    `ensureVesselStream()` (the AIS websocket connect/reconnect function)
+    was ONLY ever invoked in two places — once at process boot
+    (`bootVesselStream`, KNOWN BROKEN #9's fix) and once per incoming
+    `/api/data/vessels` request. Neither the 60s archive-snapshot
+    `setInterval` nor anything else re-triggers it independently. If the
+    upstream websocket drops for any reason (network blip, aisstream-side
+    disconnect) during a quiet traffic period, the connection — and
+    everything downstream (the archive tick itself never calls
+    `ensureVesselStream()`, only reads the now-permanently-empty
+    `vesselPositions` map) — can stay dead indefinitely with zero
+    self-healing. This is the SAME SUBSYSTEM as KNOWN BROKEN #9 but a
+    DISTINCT trigger condition (that fix closed cold-start-only; this gap
+    is mid-session drop with no traffic to re-trigger it), so patching it
+    is a new fix, not a forbidden re-patch of an already-"fixed" item.
+    FIX (own PR, T-BOT/SHARED territory — routes.ts is a SHARED file per
+    WORKSTREAM PARTITION, edited as the last, minimal commit): (a)
+    `server/vesselStream.ts` gained `scheduleVesselHeartbeat(env, connect,
+    intervalMs, setIntervalFn)` — same shape as the existing
+    `bootVesselStream`, injectable timer for testability — called from
+    `routes.ts` right after the boot connect with a 60s interval, so a
+    dropped connection retries every minute regardless of site traffic
+    (`ensureVesselStream()` was already idempotent — no-ops when
+    OPEN/CONNECTING — so this is safe to call on a blind timer). (b)
+    OBSERVABILITY: an error/close on the websocket previously only reached
+    `console.error`, invisible to anything outside a Railway shell —
+    bounded `vesselLastError`/`vesselLastClose` state now surfaces on the
+    EXISTING PUBLIC `/api/data/vessels` response as `stream_status:
+    {ready_state, connected_since, last_error, last_close_at}` (never a
+    diag-token-gated field — this is stream health, not trading/PII data),
+    so a stalled connection is now distinguishable from a genuinely quiet
+    ocean moment without shell access. RATCHET:
+    `server/vesselStream.test.ts` gained 3 new tests for
+    `scheduleVesselHeartbeat` (schedules on the injected timer at the
+    right interval + unrefs it; calls the injected connect function per
+    tick; does nothing without `AISSTREAM_KEY` — mirrors the existing
+    `bootVesselStream` test pattern). GATES: `npx tsx --test
+    server/*.test.ts` 822/822; `python3 -m pytest -q` 823 passed, 2
+    skipped (unrelated to this change); `npx tsc --noEmit` 72 errors,
+    byte-identical to the `git stash`-verified baseline; `npm run build`
+    clean. Also fixed in passing: `package-lock.json`'s version field had
+    drifted to 1.0.441 against `package.json`'s 1.0.443 (the same
+    recurring lockfile-drift class prior sessions have hit) — corrected
+    alongside this session's own 1.0.443→1.0.444 bump.
+    BACKTEST: N/A — zero trading-logic changes (a datacore ingestion
+    pipeline's connection resilience, not scoring/sizing/execution).
+    NOT YET LIVE-VERIFIED (pending deploy): this session confirmed the
+    dead state pre-fix (repeated live curls, see above) but the fix has
+    not yet been observed recovering production — the archive was still
+    at `count:0`/pre-fix code on the last check. **NEXT SESSION: curl
+    `/api/data/vessels?lamin=-85&lamax=85&lomin=-180&lomax=180` — expect
+    `count>0` and `stream_status.ready_state:1` within ~2 minutes of the
+    new code deploying (boot connect + first heartbeat tick), and confirm
+    `/api/data/archive/stats`'s `vessels.newest` has resumed advancing
+    hourly. If it's STILL dead after deploy with `stream_status.last_error`
+    populated, that error message is the next real lead (something
+    upstream — key validity, aisstream-side block — not the reconnect
+    cadence, which this fix addresses).** The SHADOW-FLEET SIGNAL gate-1
+    validation plan (line ~3381) is now blocked on this recovering, since
+    it needs live archived vessel tracks to test against — picked back up
+    once the archive is confirmed flowing again.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

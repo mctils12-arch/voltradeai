@@ -22609,3 +22609,118 @@ died — uptime spanned the whole event). BACKTEST: N/A (pure client).
 VERIFICATION: pick/occlusion/airLayer/flightTrackLayer 50/50;
 cameraRig+ 39/39; build green per commit; the two headless drives
 above are the load-bearing checks. BACKTEST: N/A (pure client).
+
+## 2026-07-20 (scheduled-routine [PRODUCT] session) [REPAIR] — Vessel/AIS archive silently dead ~14h+, found while scoping SHADOW-FLEET gate-1; heartbeat reconnect + stream-health observability shipped (v1.0.444, T-BOT/SHARED)
+
+TERRITORY: routes.ts/vesselStream.ts are SHARED per WORKSTREAM PARTITION
+(no other datacore/T-DATACORE files touched); edited as a small, isolated
+diff, package.json/package-lock.json bumped last.
+
+LIVE HEALTH CHECK first (GOAL priority 1): `/api/health` — status ok,
+`bot.liveness.dark: false`, drawdownPct "0.0", no compliance warnings.
+No trading-loop break to note.
+
+MISSION FOR THIS SESSION was the PRODUCT mandate (build datacore/ + /data).
+A background research agent surveyed research/open_questions.md +
+wishlist.md + program RESUME STATEs for the next unblocked ladder action
+(the DATA CENSUS's top-11 is essentially fully built now — only DTCC SBSDR
+remains, human-gated on a volume-budget decision) and identified the
+SHADOW-FLEET SIGNAL gate-1 validation plan (open_questions.md ~line 3381,
+filed 2026-07-04, never executed — ~15 sessions since then all ran
+T-CLIENT space-view/terrain work instead) as the best candidate: build a
+reference list of publicly documented shadow-fleet vessels (OFAC SDN
+vessel annexes), test whether our own gap/loiter detections are enriched
+for them vs. a size-matched random tanker sample, odds ratio + CI.
+
+Confirmed the OFAC SDN.CSV is live-fetchable (sanctionslistservice.ofac.
+treas.gov, public domain, 787 vessel rows carry an explicit `MMSI \d{9}`
+in Remarks, overwhelmingly Iranian crude-tanker sanctions-evasion — a
+legitimate real reference cohort, no fabrication). Before building the
+gate-1 script, checked the actual data path it would depend on
+(`/api/data/track/vessels/:mmsi`, `/api/data/vessels`, both public) —
+and found the dependency itself broken: `curl /api/data/archive/stats`
+showed `vessels.newest = 2026-07-19-23.jsonl.gz` (a fully-compressed
+hour, no current-hour file) while every OTHER stream had a live
+2026-07-20 entry; `/api/data/vessels` returned `count:0, total_in_view:0`
+across three polls over ~30s and again after an 8-minute wait, always
+`warming_up:false` (i.e. not "just reconnected" — genuinely stalled, not
+a warm-up delay).
+
+ROOT CAUSE (read-before-write on the actual `server/routes.ts` closure +
+`server/vesselStream.ts`): `ensureVesselStream()` — the AIS websocket
+connect/reconnect function — is only ever invoked at process boot
+(`bootVesselStream`, KNOWN BROKEN #9's 2026-07-04 fix) and inside the
+`/api/data/vessels` request handler. The 60s archive-snapshot
+`setInterval` never calls it; it only reads the (now permanently empty)
+in-memory `vesselPositions` map and no-ops when empty — so if the
+upstream websocket drops during a quiet-traffic window, there is
+literally no mechanism left to reconnect it. Same subsystem as KNOWN
+BROKEN #9, a genuinely distinct trigger (cold-start vs. mid-session
+drop-with-no-traffic), so fixing it is a new fix, not a forbidden
+re-patch of an already-closed item (HEALTH OF THE LOOP rule 4 checked).
+
+FIX: `server/vesselStream.ts` gained `scheduleVesselHeartbeat(env,
+connect, intervalMs, setIntervalFn)` — mirrors `bootVesselStream`'s
+shape, injectable timer for testability — wired into `routes.ts` right
+after the boot call, 60s interval, calling the already-idempotent
+`ensureVesselStream` (no-ops when OPEN/CONNECTING, so a blind timer call
+is safe). Second fix, observability: an error/close on the socket
+previously only reached `console.error` (invisible outside a Railway
+shell); bounded `vesselLastError`/`vesselLastClose` state now rides the
+EXISTING PUBLIC `/api/data/vessels` response as a new `stream_status:
+{ready_state, connected_since, last_error, last_close_at}` field — never
+a diag-token field, since this is stream health, not trading/PII data —
+so a stalled connection is now distinguishable from a genuinely quiet
+ocean moment by anyone (this session included) without shell access.
+
+RATCHET: `server/vesselStream.test.ts` +3 tests for
+`scheduleVesselHeartbeat` (schedules on the injected timer at the given
+interval + unrefs it; invokes the injected connect function per tick;
+does nothing without `AISSTREAM_KEY` — same pattern as the existing
+`bootVesselStream` tests). GATES: `npx tsx --test server/*.test.ts`
+822/822; `python3 -m pytest -q` 823 passed/2 skipped (both pre-existing,
+unrelated); `npx tsc --noEmit` 72 errors, byte-identical to the `git
+stash`-verified baseline (pre-existing config/Map-iteration noise
+throughout the repo, none in the touched files' new code); `npm run
+build` clean. In passing: `package-lock.json`'s version field had
+drifted to 1.0.441 vs. `package.json`'s 1.0.443 (the same recurring
+lockfile-drift class earlier sessions have hit) — corrected alongside
+this session's 1.0.443→1.0.444 bump.
+
+BACKTEST: N/A — a datacore ingestion pipeline's connection resilience,
+zero trading scoring/sizing/execution logic touched.
+
+NOT YET LIVE-VERIFIED: this session confirmed the dead state pre-fix
+(repeated live curls against production, both before and after writing
+the fix — the fix has not deployed yet at session-log time) but did not
+observe recovery, since that requires the PR to merge and Railway to
+redeploy. NEXT SESSION (or this session's own fall-through, if the
+deploy lands in time): re-curl `/api/data/vessels?lamin=-85&lamax=85&
+lomin=-180&lomax=180` — expect `count>0` and `stream_status.ready_state:
+1` within ~2 minutes of the new code being live, and confirm
+`/api/data/archive/stats`'s `vessels.newest` has resumed advancing
+hourly. If it is STILL dead post-deploy with `stream_status.last_error`
+now populated, that error message (previously invisible) is the real
+next lead — likely something upstream of reconnect cadence entirely
+(key validity, an aisstream-side block), which this fix does not
+address.
+
+HYPOTHESIS STATED BEFORE the next observation (REASONING STANDARD #10):
+the heartbeat fix resolves this IF the root cause is "nothing
+re-triggers reconnect between requests" — predicted outcome is recovery
+within ~2 minutes of deploy. If it does NOT recover and `last_error`
+shows something like an auth/rate-limit message, that refutes the
+"needs a periodic nudge" theory and points at the upstream key/service
+instead — logged here so the next session can tell which happened
+without re-deriving the diagnosis.
+
+SESSION BUDGET FALL-THROUGH: the SHADOW-FLEET SIGNAL gate-1 validation
+(open_questions.md #24 cross-reference, ~line 3381) is the queued next
+item once this archive is confirmed flowing again — it directly depends
+on this fix, so it was correctly deferred rather than attempted against
+dead data. Runner-up candidates surfaced by this session's own survey,
+still open for whoever picks up next: EPA CAMD `/data` map layer (RAW
+overlay, pipeline already shipped, small clean PR) and PORT DWELL
+gate-2 (needs external published TEU/Kiel-index sourcing first, heavier
+lift). DTCC SBSDR, EPA_CAMD_API_KEY widening, CelesTrak server relay,
+and PLATFORM P5 billing remain human-gated, not actionable this session.
