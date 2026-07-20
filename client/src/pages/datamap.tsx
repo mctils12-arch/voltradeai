@@ -84,7 +84,7 @@ import { satelliteIdentityLines, nameStemForOperator, buildNoradIndex } from "@/
 import { followTarget } from "@/lib/orbital/follow";
 // EARTH TWIN E3 (true-altitude aircraft): 3D heading-oriented silhouettes at
 // real baro altitude take over from the 2D icons at AIR_3D_MIN_ZOOM.
-import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, AIR_3D_MIN_ZOOM, shapeForCategory } from "@/lib/air/airLayer";
+import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircraftScreen, pickNearestAircraftScreenMercator, AIR_3D_MIN_ZOOM, shapeForCategory } from "@/lib/air/airLayer";
 // DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
@@ -98,7 +98,7 @@ import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
-import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
+import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
 import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX } from "@/lib/terrainExag";
@@ -4605,12 +4605,21 @@ export default function DataMapPage() {
       // its ground point by its altitude, and ground-mercator picking was
       // selecting whatever LEO object's nadir sat under the cursor.
       const globeMatrix = layer.getGlobeProjection();
+      const mercMatrix = layer.getMercatorProjection();
       const canvas = map.getCanvas();
       const hit = globeMatrix
         ? pickNearestSatelliteScreen(
             positions, layer.getStride(), gp, globeMatrix,
             e.point.x, e.point.y, canvas.clientWidth || 1, canvas.clientHeight || 1,
             PICK_TOLERANCE_PX, layer.getGlobeCamera())
+        // MERCATOR screen pick (2026-07-20, same displaced-by-altitude miss
+        // as aircraft): tilted terrain views draw orbits far from their
+        // ground points — pick with the frame's own projection.
+        : mercMatrix
+        ? pickNearestSatelliteScreenMercator(
+            positions, layer.getStride(), gp, mercMatrix,
+            e.point.x, e.point.y, canvas.clientWidth || 1, canvas.clientHeight || 1,
+            PICK_TOLERANCE_PX)
         : pickNearestSatellite(
         positions, layer.getStride(), gp, clickMerc.x, clickMerc.y,
         pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom()),
@@ -6129,11 +6138,22 @@ export default function DataMapPage() {
       // pick at the GLIDED position — the pixels are dead-reckoned up to
       // MAX_AIR_GLIDE_SEC ahead of the poll positions (many px at z8+)
       const dtSec = airLayer.getGlideDtSec();
+      const canvas = map.getCanvas();
       const matrix = airLayer.getGlobeProjection();
       if (matrix) {
-        const canvas = map.getCanvas();
         return pickNearestAircraftScreen(
           airLayer.getInstances(), matrix, e.point.x, e.point.y,
+          canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx, dtSec);
+      }
+      // MERCATOR screen pick (2026-07-20: "you cant click on planes … they
+      // only work on an overhead view") — at tilt the silhouette renders
+      // displaced by altitude×exaggeration; picking must use the same
+      // projection the shader drew with, not the ground point.
+      const mercMatrix = airLayer.getMercatorProjection();
+      if (mercMatrix) {
+        return pickNearestAircraftScreenMercator(
+          airLayer.getInstances(), mercMatrix, airLayer.getAltScale(),
+          e.point.x, e.point.y,
           canvas.clientWidth || 1, canvas.clientHeight || 1, tolPx, dtSec);
       }
       const ll = map.unproject(e.point);

@@ -877,6 +877,14 @@ export class SatLayer implements CustomLayerInterface {
    *  matrix the shader used) — non-null only in full globe mode, where the
    *  CPU sphere math (occlusion.mercatorToSphere) mirrors the GPU. Null =
    *  caller falls back to ground-mercator picking. */
+  /** Mercator-mode complement of getGlobeProjection — screen picking must
+   *  work there too (tilted terrain views: objects render displaced from
+   *  their ground point by altitude; ground picking misses them). */
+  getMercatorProjection(): Float32Array | null {
+    if (!this.lastMainMatrix || this.lastTransition > 0.999) return null;
+    return this.lastMainMatrix;
+  }
+
   getGlobeProjection(): Float32Array | null {
     if (!this.lastMainMatrix || this.lastTransition <= 0.999) return null;
     return this.lastMainMatrix;

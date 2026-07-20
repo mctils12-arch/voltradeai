@@ -60,7 +60,7 @@ import {
   altRampColor,
 } from './trackModel.js';
 import { AIR_SILHOUETTES, AIR_SHAPE } from './airLayer.js';
-import { mercatorToSphere } from '../orbital/occlusion.js';
+import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -504,7 +504,10 @@ export class FlightTrackLayer implements CustomLayerInterface {
     if (this.lastTransition > 0.999) {
       p = mercatorToSphere(mercX, mercY, z) as [number, number, number];
     } else {
-      p = [mercX, mercY, z];
+      // pd.mainMatrix consumes MERCATOR-unit z, never meters — with raw
+      // meters the tag flew off-screen in tilted mercator views (same
+      // latent bug as the picks; pinned 2026-07-20)
+      p = [mercX, mercY, mercatorZFromAltitude(z, mercY)];
     }
     const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
     if (!(w > 0)) return null;

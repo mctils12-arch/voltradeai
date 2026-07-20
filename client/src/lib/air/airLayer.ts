@@ -34,7 +34,7 @@ import type {
   Map as MapLibreMap,
 } from 'maplibre-gl';
 import { lonLatToMercator } from '../orbital/satBuffer.js';
-import { mercatorToSphere } from '../orbital/occlusion.js';
+import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
@@ -296,6 +296,49 @@ export function pickNearestAircraftScreen(
   return best;
 }
 
+/**
+ * SCREEN-SPACE picking for MERCATOR mode (2026-07-20: the globe screen-pick
+ * fix above never covered mercator — with terrain's auto-tilt the silhouette
+ * renders displaced by altitude and the ground pick missed every airborne
+ * plane; overhead the two coincide, matching "only works overhead").
+ * Projection mirrors the shader's mercator branch exactly:
+ * clip = matrix × [glidedMercX, glidedMercY, altMeters × altScale, 1]
+ * (projectTileFor3D's elevation contract; altScale = terrain exaggeration).
+ */
+export function pickNearestAircraftScreenMercator(
+  inst: Float32Array | null,
+  matrix: ArrayLike<number>,
+  altScale: number,
+  clickX: number,
+  clickY: number,
+  width: number,
+  height: number,
+  tolerancePx: number,
+  dtSec = 0,
+): number {
+  if (!inst || inst.length < AIR_INST_STRIDE) return -1;
+  const n = Math.floor(inst.length / AIR_INST_STRIDE);
+  let best = -1;
+  let bestD2 = tolerancePx * tolerancePx;
+  for (let i = 0; i < n; i++) {
+    const base = i * AIR_INST_STRIDE;
+    const px = glidedX(inst, base, dtSec);
+    const py = glidedY(inst, base, dtSec);
+    // pd.mainMatrix consumes MERCATOR-unit z, never meters (see
+    // mercatorZFromAltitude — meters produced w ≈ −10⁹ garbage)
+    const pz = mercatorZFromAltitude(inst[base + 2] * altScale, py);
+    const w = matrix[3] * px + matrix[7] * py + matrix[11] * pz + matrix[15];
+    if (!(w > 0)) continue;
+    const cx = (matrix[0] * px + matrix[4] * py + matrix[8] * pz + matrix[12]) / w;
+    const cy = (matrix[1] * px + matrix[5] * py + matrix[9] * pz + matrix[13]) / w;
+    const dx = ((cx + 1) / 2) * width - clickX;
+    const dy = ((1 - cy) / 2) * height - clickY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) { bestD2 = d2; best = i; }
+  }
+  return best;
+}
+
 /** Silhouette length on screen in px (the focused-traffic size at z8+). */
 export const AIR_PIXELS = 30;
 const LOCAL_EXTENT = 1.24; // silhouette spans ~[-0.62, 0.62]
@@ -511,6 +554,22 @@ export class AirLayer implements CustomLayerInterface {
   getGlobeProjection(): Float32Array | null {
     if (!this.lastMainMatrix || this.lastTransition <= 0.999) return null;
     return this.lastMainMatrix;
+  }
+
+  /** Last frame's projection matrix in MERCATOR mode (the complement of
+   *  getGlobeProjection) — screen-space picking must work there too: at
+   *  tilt a cruising plane renders displaced from its ground point by its
+   *  altitude, so ground-mercator picking missed it (2026-07-20 report:
+   *  "you cant click on planes, they only work overhead"). */
+  getMercatorProjection(): Float32Array | null {
+    if (!this.lastMainMatrix || this.lastTransition > 0.999) return null;
+    return this.lastMainMatrix;
+  }
+
+  /** The altitude scale the shader is currently drawing with (terrain
+   *  exaggeration, 1 when off) — CPU picks must use the SAME datum. */
+  getAltScale(): number {
+    return this.altScale;
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {

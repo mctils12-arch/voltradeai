@@ -12,7 +12,7 @@
 // testable (`npx tsx --test`).
 
 import { SENTINEL_SKIP } from './satBuffer.js';
-import { earthOccludes, mercatorToSphere, type Vec3 } from './occlusion.js';
+import { earthOccludes, mercatorToSphere, mercatorZFromAltitude, type Vec3 } from './occlusion.js';
 import type { GpRecord } from './tle.js';
 
 export interface PickResult {
@@ -142,6 +142,57 @@ export function pickNearestSatelliteScreen(
       bestD2 = d2;
       bestI = i;
     }
+  }
+  if (bestI < 0) return null;
+  const base = bestI * stride;
+  return {
+    index: bestI,
+    gp: gp[bestI],
+    altMeters: positions[base + 2],
+    classCode: positions[base + 3],
+  };
+}
+
+/**
+ * SCREEN-SPACE picking for MERCATOR mode (2026-07-20 — the same displaced-
+ * by-altitude miss the globe fix above solved, which mercator never got:
+ * with terrain's tilted view an orbiting object renders far from its ground
+ * point, and ground-mercator picking selects nothing / the wrong nadir).
+ * Projection mirrors the shader's mercator branch:
+ * clip = matrix × [mercX, mercY, altMeters, 1] (projectTileFor3D contract;
+ * satellites carry no terrain exaggeration). No far-side cull in mercator.
+ */
+export function pickNearestSatelliteScreenMercator(
+  positions: ArrayLike<number>,
+  stride: number,
+  gp: GpRecord[],
+  matrix: ArrayLike<number>, // column-major mat4, the frame's mainMatrix
+  clickX: number,
+  clickY: number,
+  width: number,
+  height: number,
+  tolerancePx: number,
+): PickResult | null {
+  const total = Math.min(gp.length, Math.floor(positions.length / stride));
+  const tol2 = tolerancePx * tolerancePx;
+  let bestI = -1;
+  let bestD2 = tol2;
+  for (let i = 0; i < total; i++) {
+    const base = i * stride;
+    if (positions[base + 3] === SENTINEL_SKIP) continue; // not rendered
+    const px = positions[base];
+    const py = positions[base + 1];
+    // pd.mainMatrix consumes MERCATOR-unit z, never meters (occlusion.ts
+    // mercatorZFromAltitude — empirically pinned 2026-07-20)
+    const pz = mercatorZFromAltitude(positions[base + 2], py);
+    const w = matrix[3] * px + matrix[7] * py + matrix[11] * pz + matrix[15];
+    if (!(w > 0)) continue; // behind the camera
+    const cx = (matrix[0] * px + matrix[4] * py + matrix[8] * pz + matrix[12]) / w;
+    const cy = (matrix[1] * px + matrix[5] * py + matrix[9] * pz + matrix[13]) / w;
+    const dx = ((cx + 1) / 2) * width - clickX;
+    const dy = ((1 - cy) / 2) * height - clickY;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) { bestD2 = d2; bestI = i; }
   }
   if (bestI < 0) return null;
   const base = bestI * stride;
