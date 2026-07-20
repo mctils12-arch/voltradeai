@@ -251,6 +251,28 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     setActiveTab(tabId);
   };
 
+  // Hash → state (2026-07-20 audit repair): every tab change writes a
+  // history entry via the state→hash sync effect above, but nothing read
+  // the hash back — so the browser Back/Forward buttons (and any
+  // same-document link to /app#/<tab>) changed the URL while the view
+  // stayed frozen. datamap owns the #/data/* subpaths (its own hashchange
+  // listener); this only moves the top-level tab and analyze section, and
+  // routes through handleTabClick so auth gating still applies.
+  useEffect(() => {
+    const onHash = () => {
+      const hash = window.location.hash.replace("#/", "");
+      const [root, sub] = hash.split("/");
+      if (root && root !== activeTab && TABS.some(t => t.id === root)) {
+        handleTabClick(root as TabId);
+      }
+      if (root === "analyze" && (sub === "options" || sub === "smart-money" || sub === "structure" || sub === "etf-builder") && sub !== analyzeSection) {
+        setAnalyzeSection(sub);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [activeTab, analyzeSection, authenticated]);
+
   const handleLoginSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     setShowLogin(false);
