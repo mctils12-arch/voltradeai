@@ -22573,3 +22573,39 @@ arcLayer/satFind/follow/spaceFrame; visual harness 5/5 on the exact
 merged tree. Site health confirmed UP end-to-end during the incident
 (the "down" was the #561 deploy window / client state; server never
 died — uptime spanned the whole event). BACKTEST: N/A (pure client).
+
+## 2026-07-20 (human-directed session, rounds 5–6) [PRODUCT] — Mercator screen picking + 360 nav cluster re-landed with fixed arbitration + click-to-frame (v1.0.441–.443, T-CLIENT, #564/#566)
+
+- v1.0.441 (#564) MERCATOR SCREEN PICKING: "you cant click on planes,
+  they only work overhead" root-caused two layers deep — (1) the O6
+  screen-pick fix only ever covered GLOBE mode; mercator still picked
+  the GROUND point while silhouettes/sats render displaced by altitude
+  at tilt; (2) extending it exposed a UNIT CONTRACT: pd.mainMatrix
+  consumes z in MERCATOR UNITS (altM/(2πR·cosφ)), never meters —
+  pinned empirically (meters → w≈−10⁹; the formula reproduces the
+  shader's pixels: test plane 32px above its ground point at 58°).
+  Shared occlusion.mercatorZFromAltitude; aircraft+satellite mercator
+  screen picks; flightTrackLayer's tag projection had the same latent
+  meters bug (fixed). END-TO-END: headless real-app drive with a
+  synthetic 2000m terrarium DEM clicked the DISPLACED silhouette →
+  exact-target card opened; ground point honestly misses. KEY METHOD
+  NOTE for future probes: intercept tilejson + serve a constant-
+  elevation terrarium PNG — real DEM is unreachable from the sandbox
+  and elevation=0 hides this entire bug class.
+- v1.0.442 (#566) 360 NAV CLUSTER RE-LANDED — the human explicitly
+  asked for it back ("the 360 control that we had before"), overriding
+  the round-4 subtraction. The #561 arbitration bug fixed per the
+  filed warning: onUserPan now follows the O6-1 drag convention (air
+  follow releases, guided approach cancels, sat GROUND lock frees the
+  camera, SAT lock + focus SURVIVE). BROWSER-DRIVEN pre-merge as the
+  warning demanded: fixture OMM catalog → search-focus ISS → hold
+  cluster pan 700ms → camera moved AND focus survived (the #561
+  handler fails this drive). Cluster replaces NavigationControl →
+  also resolves "the alt/speed banner covers the +/−".
+- v1.0.443 (#566) CLICK-TO-FRAME: plane click from zoom<8.6 eases to
+  z9.2/pitch≥55 so the 3D line + curtain read immediately; never
+  zooms out, never flattens a steeper user tilt.
+
+VERIFICATION: pick/occlusion/airLayer/flightTrackLayer 50/50;
+cameraRig+ 39/39; build green per commit; the two headless drives
+above are the load-bearing checks. BACKTEST: N/A (pure client).
