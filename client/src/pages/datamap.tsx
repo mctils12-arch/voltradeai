@@ -1,5 +1,5 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag } from "lucide-react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -182,6 +182,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
+import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
 // decode table, color expression, and legend all derive from the SAME
@@ -1584,8 +1585,14 @@ export default function DataMapPage() {
     if (!longTaskWatchdogArmed()) return;
     return startLongTaskWatchdog();
   }, []);
-  const [panelOpen, setPanelOpen] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // layers panel open/collapsed state is REMEMBERED on desktop (layout
+  // memory, human 2026-07-20); phones keep collapsed-by-default
+  const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    if (window.innerWidth < 768) return false;
+    const saved = getPanelPrefs("layers-panel").min;
+    return saved == null ? true : !saved;
+  });
   // Legend v3: collapsible as one unit so it never fights the panel for
   // space — open on desktop, collapsed on phone by default.
   // history time machine (shared): scrub 1900 -> now across every history
@@ -1738,30 +1745,21 @@ export default function DataMapPage() {
     } else if (dy < -40) setDetailsOpen(true);
     else setDetailsOpen((v) => !v);
   }, [detailsOpen, setDetail]);
-  // O6 round 6: the card is DRAGGABLE by its header (human: the card must
-  // never block the flight track you're inspecting). Direct style mutation
-  // (tools-cluster precedent); a NEW detail resets to the default spot.
+  // O6 round 6 + layout memory (human 2026-07-20): the card is DRAGGABLE by
+  // its header and the spot is REMEMBERED automatically (panelLayout lib) —
+  // a new card opens where you left the last one, not back at the default.
+  // The padlock stops accidental drags; double-click the grip resets.
   const detailCardRef = useRef<HTMLDivElement | null>(null);
-  const detailDrag = useRef<{ dx: number; dy: number } | null>(null);
-  const onCardHeadDown = useCallback((e: React.PointerEvent) => {
-    if ((e.target as Element).closest("button")) return; // buttons stay buttons
-    const el = detailCardRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    detailDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    e.preventDefault();
+  const [cardLocked, setCardLocked] = useState<boolean>(() => !!getPanelPrefs("site-card").locked);
+  const cardLockedRef = useRef(cardLocked);
+  cardLockedRef.current = cardLocked;
+  const cardDrag = useMemo(
+    () => panelDragProps("site-card", () => detailCardRef.current, () => cardLockedRef.current),
+    [],
+  );
+  const toggleCardLock = useCallback(() => {
+    setCardLocked((v) => { const n = !v; savePanelPrefs("site-card", { locked: n }); return n; });
   }, []);
-  const onCardHeadMove = useCallback((e: React.PointerEvent) => {
-    const el = detailCardRef.current;
-    const d = detailDrag.current;
-    if (!el || !d) return;
-    el.style.left = `${Math.max(0, Math.min(window.innerWidth - 80, e.clientX - d.dx))}px`;
-    el.style.top = `${Math.max(0, Math.min(window.innerHeight - 60, e.clientY - d.dy))}px`;
-    el.style.right = "auto";
-    el.style.bottom = "auto";
-  }, []);
-  const onCardHeadUp = useCallback(() => { detailDrag.current = null; }, []);
   useEffect(() => {
     setDetailMin(false);
     // compact by default when the card has a chip row; expanded otherwise
@@ -1769,8 +1767,31 @@ export default function DataMapPage() {
     // never yank the expander or the dragged position out from the user)
     setDetailsOpen(!(detailRef.current?.stats && detailRef.current.stats.length > 0));
     const el = detailCardRef.current;
-    if (el) { el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; }
+    if (el && !applyPanelPos(el, "site-card")) clearPanelPos(el);
   }, [detail?.title, detail?.kind]);
+  // the min pill and the full card are different DOM nodes — re-apply the
+  // remembered spot whenever the variant swaps
+  useEffect(() => {
+    const el = detailCardRef.current;
+    if (el && !applyPanelPos(el, "site-card")) clearPanelPos(el);
+  }, [detailMin]);
+  // space-view body card — same movable/locked/remembered chrome ("all
+  // controls"), its own remembered spot (space is a different workspace)
+  const spaceCardRef = useRef<HTMLDivElement | null>(null);
+  const [spaceCardLocked, setSpaceCardLocked] = useState<boolean>(() => !!getPanelPrefs("space-card").locked);
+  const spaceCardLockedRef = useRef(spaceCardLocked);
+  spaceCardLockedRef.current = spaceCardLocked;
+  const spaceCardDrag = useMemo(
+    () => panelDragProps("space-card", () => spaceCardRef.current, () => spaceCardLockedRef.current),
+    [],
+  );
+  const toggleSpaceCardLock = useCallback(() => {
+    setSpaceCardLocked((v) => { const n = !v; savePanelPrefs("space-card", { locked: n }); return n; });
+  }, []);
+  useEffect(() => {
+    const el = spaceCardRef.current;
+    if (el && !applyPanelPos(el, "space-card")) clearPanelPos(el);
+  }, [spaceCard?.name]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
@@ -9208,7 +9229,8 @@ export default function DataMapPage() {
       {/* Layers control — top-right; collapsed by default on phone */}
       <div className="vt-map-controls">
         {!panelOpen ? (
-          <button className="vt-map-fab" aria-label="Open layers panel" onClick={() => setPanelOpen(true)}>
+          <button className="vt-map-fab" aria-label="Open layers panel"
+                  onClick={() => { setPanelOpen(true); savePanelPrefs("layers-panel", { min: false }); }}>
             <LayersIcon size={19} />
           </button>
         ) : (
@@ -9228,7 +9250,8 @@ export default function DataMapPage() {
                         onClick={() => setShowRawInfo(v => !v)}>
                   <Info size={15} />
                 </button>
-                <button className="vt-icon-btn" aria-label="Collapse layers panel" onClick={() => setPanelOpen(false)}>
+                <button className="vt-icon-btn" aria-label="Collapse layers panel"
+                        onClick={() => { setPanelOpen(false); savePanelPrefs("layers-panel", { min: true }); }}>
                   <X size={15} />
                 </button>
               </span>
@@ -9567,13 +9590,22 @@ export default function DataMapPage() {
           second while open. Desktop: right-anchored compact card;
           phone: the standard bottom sheet (vt-site-card media query). */}
       {spaceActive && spaceCard && (
-        <div className="vt-site-card vt-space-card" role="dialog"
+        <div ref={spaceCardRef} className="vt-site-card vt-space-card" role="dialog"
              aria-label={`${spaceCard.name} — body data`} data-vt-space-card>
-          <div className="vt-site-card-head">
-            <div>
+          <div className="vt-site-card-head" {...spaceCardDrag}
+               style={{ cursor: spaceCardLocked ? "default" : "grab", touchAction: "none" }}
+               title={spaceCardLocked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}>
+            <span className="vt-card-grip" aria-hidden>⠿</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title">{spaceCard.name}</div>
               <div className="vt-site-card-cat">{spaceCard.typeLabel} · TRACKED</div>
             </div>
+            <button className={`vt-icon-btn vt-lock-btn${spaceCardLocked ? " on" : ""}`} aria-pressed={spaceCardLocked}
+                    aria-label={spaceCardLocked ? "Unlock card position" : "Lock card position"}
+                    title={spaceCardLocked ? "Position locked — click to unlock" : "Lock position"}
+                    onClick={toggleSpaceCardLock}>
+              {spaceCardLocked ? <Lock size={13} /> : <LockOpen size={13} />}
+            </button>
             <button className="vt-icon-btn" aria-label="Close body card"
                     onClick={() => setSpaceFocus(null)}>
               <X size={14} />
@@ -9666,13 +9698,18 @@ export default function DataMapPage() {
         // globe shows through — the focus/follow keeps running underneath;
         // click the pill to restore, ✕ still ends everything.
         <div ref={detailCardRef} className="vt-site-card vt-site-card-min" role="dialog" aria-label={detail.title}
-             style={{ cursor: "grab", touchAction: "none" }}
-             onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
-             onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
+             style={{ cursor: cardLocked ? "default" : "grab", touchAction: "none" }}
+             {...cardDrag}>
           <span className="vt-card-grip" aria-hidden>⠿</span>
           <button className="vt-site-card-restore" onClick={() => setDetailMin(false)}
                   aria-label="Restore details">
             {detail.title}
+          </button>
+          <button className={`vt-icon-btn vt-lock-btn${cardLocked ? " on" : ""}`} aria-pressed={cardLocked}
+                  aria-label={cardLocked ? "Unlock card position" : "Lock card position"}
+                  title={cardLocked ? "Position locked — click to unlock" : "Lock position"}
+                  onClick={toggleCardLock}>
+            {cardLocked ? <Lock size={13} /> : <LockOpen size={13} />}
           </button>
           <button className="vt-icon-btn" aria-label="Close details"
                   onClick={() => { setDetail(null); setDetailMin(false); clearTrail(); stopSatFocusRef.current?.(); }}>
@@ -9690,10 +9727,9 @@ export default function DataMapPage() {
                   onPointerDown={onHandleDown} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}>
             <i aria-hidden />
           </button>
-          <div className="vt-site-card-head" style={{ cursor: "grab", touchAction: "none" }}
-               title="Drag to move"
-               onPointerDown={onCardHeadDown} onPointerMove={onCardHeadMove}
-               onPointerUp={onCardHeadUp} onPointerCancel={onCardHeadUp}>
+          <div className="vt-site-card-head" style={{ cursor: cardLocked ? "default" : "grab", touchAction: "none" }}
+               title={cardLocked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}
+               {...cardDrag}>
             <span className="vt-card-grip" aria-hidden>⠿</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -9705,6 +9741,12 @@ export default function DataMapPage() {
               </div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
+            <button className={`vt-icon-btn vt-lock-btn${cardLocked ? " on" : ""}`} aria-pressed={cardLocked}
+                    aria-label={cardLocked ? "Unlock card position" : "Lock card position"}
+                    title={cardLocked ? "Position locked — click to unlock" : "Lock position"}
+                    onClick={toggleCardLock}>
+              {cardLocked ? <Lock size={14} /> : <LockOpen size={14} />}
+            </button>
             <button className="vt-icon-btn" aria-label="Minimize details"
                     onClick={() => setDetailMin(true)}>
               <Minus size={17} />

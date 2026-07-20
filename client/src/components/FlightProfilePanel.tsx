@@ -24,6 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUnits, subscribeUnits } from "@/lib/units";
 import { sampleAt, type TrackSample } from "@/lib/air/trackModel";
+import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
 
 export interface FlightClock {
   /** epoch seconds the marker/card/profile display right now. */
@@ -76,10 +77,33 @@ export default function FlightProfilePanel({
 }: FlightProfilePanelProps) {
   const [playing, setPlaying] = useState(false);
   const [live, setLive] = useState(true);
-  const [expanded, setExpanded] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // desktop remembers collapsed/expanded (layout memory, human 2026-07-20);
+  // phones stay collapsed by default
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    if (window.innerWidth < 768) return false;
+    const saved = getPanelPrefs("flight-profile").min;
+    return saved == null ? true : !saved;
+  });
   const [, setUnitsTick] = useState(0);
   useEffect(() => subscribeUnits(() => setUnitsTick((v) => v + 1)), []);
+
+  // drag/lock/remembered placement (panelLayout lib — same chrome as the
+  // cards and the nav cluster)
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [locked, setLocked] = useState<boolean>(() => !!getPanelPrefs("flight-profile").locked);
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
+  const drag = useMemo(
+    () => panelDragProps("flight-profile", () => rootRef.current, () => lockedRef.current),
+    [],
+  );
+  const toggleLock = () =>
+    setLocked((v) => { const n = !v; savePanelPrefs("flight-profile", { locked: n }); return n; });
+  useEffect(() => {
+    const el = rootRef.current;
+    if (el && !applyPanelPos(el, "flight-profile")) clearPanelPos(el);
+  }, [expanded]);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<SVGGElement | null>(null);
@@ -268,8 +292,10 @@ export default function FlightProfilePanel({
   if (samples.length < 2 || !paths) return null;
 
   return (
-    <div className={`vt-flight-profile${expanded ? "" : " vt-flight-profile-min"}`} data-vt-flight-profile>
-      <div className="vt-flight-profile-top">
+    <div ref={rootRef} className={`vt-flight-profile${expanded ? "" : " vt-flight-profile-min"}`} data-vt-flight-profile>
+      <div className="vt-flight-profile-top" {...drag}
+           style={{ cursor: locked ? undefined : "grab", touchAction: "none" }}
+           title={locked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}>
         <button className="vt-flight-play" data-vt-flight-play onClick={togglePlay}
                 aria-label={playing ? "Pause replay" : "Replay track"} title="Play / pause — Space">
           {playing ? (
@@ -292,11 +318,22 @@ export default function FlightProfilePanel({
           <span><i className="terr" />TERRAIN</span>
           <span><b />AGL BAND</span>
         </div>
+        <button className={`vt-flight-profile-toggle vt-lock-btn${locked ? " on" : ""}`} aria-pressed={locked}
+                aria-label={locked ? "Unlock panel position" : "Lock panel position"}
+                title={locked ? "Position locked — click to unlock" : "Lock position"}
+                onClick={toggleLock}>
+          {locked ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 11V7a4 4 0 0 1 8 0v4" /><rect x="5" y="11" width="14" height="9" rx="1.5" /></svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 11V7a4 4 0 0 1 7.6-1.7" /><rect x="5" y="11" width="14" height="9" rx="1.5" /></svg>
+          )}
+        </button>
         <button className="vt-flight-profile-toggle" aria-expanded={expanded}
                 aria-label={expanded ? "Collapse altitude profile" : "Expand altitude profile"}
                 onClick={() => {
                   const v = !expanded;
                   setExpanded(v);
+                  savePanelPrefs("flight-profile", { min: !v });
                   if (v && window.innerWidth < 768) onPhoneExpand?.();
                 }}>
           {expanded ? "▾" : "▴"}

@@ -39,6 +39,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
 import {
   RIG_DAMPING_PER_S,
   RIG_DRAG_ROTATE_DEG_PX,
@@ -128,6 +130,29 @@ export default function MapNavCluster({
   // phone: collapsed by default behind a compass FAB (DESIGN.md rule 2 —
   // controls collapse on phone; desktop always shows the cluster).
   const [openOnPhone, setOpenOnPhone] = useState(false);
+  // layout memory (human 2026-07-20): the cluster is draggable by its grip,
+  // minimizable to a chip, lockable, and the placement/state is remembered.
+  // Desktop only — the phone keeps its FAB collapse pattern.
+  const isPhone = useIsMobile();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [navLocked, setNavLocked] = useState<boolean>(() => !!getPanelPrefs("nav-cluster").locked);
+  const navLockedRef = useRef(navLocked);
+  navLockedRef.current = navLocked;
+  const [navMin, setNavMin] = useState<boolean>(() => !!getPanelPrefs("nav-cluster").min);
+  const navDrag = useMemo(
+    () => panelDragProps("nav-cluster", () => rootRef.current, () => navLockedRef.current),
+    [],
+  );
+  const toggleNavLock = () =>
+    setNavLocked((v) => { const n = !v; savePanelPrefs("nav-cluster", { locked: n }); return n; });
+  const setNavMinimized = (v: boolean) => { setNavMin(v); savePanelPrefs("nav-cluster", { min: v }); };
+  const minChipActive = navMin && !isPhone;
+  // re-apply the remembered spot whenever the rendered variant swaps (the
+  // suspended stack, the mini chip and the full cluster are separate nodes)
+  useEffect(() => {
+    const el = rootRef.current;
+    if (el && !applyPanelPos(el, "nav-cluster")) clearPanelPos(el);
+  }, [suspended, minChipActive, mapReady]);
 
   // compass ring rotation follows the LIVE camera (also when other systems
   // move it): cheap DOM write on the map's own move events.
@@ -489,6 +514,48 @@ export default function MapNavCluster({
     </svg>
   );
 
+  // shared move/lock/minimize grip (layout memory, human 2026-07-20) —
+  // desktop only (the phone FAB pattern stands; CSS hides this <768px)
+  const gripRow = (
+    <div className="vt-nav-grip" {...navDrag}
+         style={{ cursor: navLocked ? "default" : "grab", touchAction: "none" }}
+         title={navLocked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}>
+      <span className="vt-card-grip" aria-hidden>⠿</span>
+      <button className={`vt-nav-gripbtn${navLocked ? " on" : ""}`} aria-pressed={navLocked}
+              aria-label={navLocked ? "Unlock controls position" : "Lock controls position"}
+              title={navLocked ? "Position locked — click to unlock" : "Lock position"}
+              onClick={toggleNavLock}>
+        {navLocked
+          ? <Icon d="M8 11V7a4 4 0 0 1 8 0v4|M5 11h14v9H5z" size={12} />
+          : <Icon d="M8 11V7a4 4 0 0 1 7.6-1.7|M5 11h14v9H5z" size={12} />}
+      </button>
+      <button className="vt-nav-gripbtn" aria-label="Minimize map controls" title="Minimize controls"
+              onClick={() => setNavMinimized(true)}>
+        <Icon d="M5 12h14" size={12} />
+      </button>
+    </div>
+  );
+
+  if (minChipActive) {
+    // minimized: one compass chip, still draggable/remembered; click restores
+    return (
+      <div ref={rootRef} className="vt-nav-cluster vt-nav-open" data-vt-nav data-vt-nav-min>
+        <div className="vt-nav-card vt-nav-chiprow" {...navDrag}
+             style={{ cursor: navLocked ? "default" : "grab", touchAction: "none" }}
+             title={navLocked ? "Position locked" : "Drag to move · click the compass to restore"}>
+          <span className="vt-card-grip" aria-hidden>⠿</span>
+          <button className="vt-nav-btn" data-vt-nav-restore aria-label="Show map controls"
+                  title="Show map controls" onClick={() => setNavMinimized(false)}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M15.5 8.5 13 13l-4.5 2.5L11 11z" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (suspended) {
     // space frame owns the camera — the rig stays inert, but button zoom
     // survives (the old NavigationControl kept working in space; the seam's
@@ -508,7 +575,8 @@ export default function MapNavCluster({
       onLostPointerCapture: stopSpaceHold,
     });
     return (
-      <div className="vt-nav-cluster vt-nav-open" data-vt-nav role="group" aria-label="Space view navigation">
+      <div ref={rootRef} className="vt-nav-cluster vt-nav-open" data-vt-nav role="group" aria-label="Space view navigation">
+        {gripRow}
         <div className="vt-nav-lbl">ZOOM</div>
         <div className="vt-nav-card vt-nav-btncol">
           <div className="vt-nav-row">
@@ -551,7 +619,8 @@ export default function MapNavCluster({
           <path d="M15.5 8.5 13 13l-4.5 2.5L11 11z" fill="currentColor" stroke="none" />
         </svg>
       </button>
-      <div className={`vt-nav-cluster${openOnPhone ? " vt-nav-open" : ""}`} data-vt-nav role="group" aria-label="Map navigation">
+      <div ref={rootRef} className={`vt-nav-cluster${openOnPhone ? " vt-nav-open" : ""}`} data-vt-nav role="group" aria-label="Map navigation">
+        {gripRow}
         <div className="vt-nav-compass" data-vt-nav-compass title="Drag to rotate · click N to reset"
              onPointerDown={onDialDown} onPointerMove={onDialMove}
              onPointerUp={onDialUp} onPointerCancel={onDialUp}>

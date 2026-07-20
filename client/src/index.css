@@ -3806,3 +3806,30 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-flight-chart { height: 84px; }
   .vt-map-page.vt-profile-open .vt-preset-switch { bottom: 170px; }
 }
+
+/* ── MOVABLE PANELS: grip / lock / mini chrome (layout memory, human
+      2026-07-20 — every floating card & control drags, minimizes, locks,
+      and remembers its spot; panelLayout lib owns persistence) ─────────── */
+.vt-lock-btn { opacity: 0.55; }
+.vt-lock-btn:hover { opacity: 0.95; }
+.vt-lock-btn.on { opacity: 1; color: var(--accent, #4d9fff); }
+.vt-nav-grip {
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 8px;
+  background: rgba(13, 22, 38, 0.78);
+  border: 1px solid rgba(120, 168, 255, 0.14);
+  color: #8fa3bf; user-select: none; -webkit-user-select: none;
+}
+.vt-nav-grip .vt-card-grip { font-size: 11px; letter-spacing: 1px; cursor: inherit; }
+.vt-nav-gripbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 18px; border: 0; border-radius: 5px;
+  background: transparent; color: #8fa3bf; cursor: pointer; padding: 0;
+}
+.vt-nav-gripbtn:hover { background: rgba(120, 168, 255, 0.14); color: #dfe8f5; }
+.vt-nav-gripbtn.on { color: var(--accent, #4d9fff); }
+.vt-nav-chiprow { display: flex; align-items: center; gap: 5px; padding: 4px 7px; color: #8fa3bf; }
+@media (max-width: 767px) {
+  /* phones keep the bottom-sheet / FAB patterns — no custom placement */
+  .vt-nav-grip, .vt-lock-btn { display: none; }
+}

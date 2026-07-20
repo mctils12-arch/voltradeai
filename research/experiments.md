@@ -22699,3 +22699,40 @@ orbit leak), base wheel zooms natively, plane-view left-drag rotates
 (zoom stops at exactly 17.50, tilt 84.00, latch clean, plane click,
 space FLY HOME). Harness --page data 0 hard failures at 390/768/1440.
 Python suite 822 passed, 3 skipped. BACKTEST: N/A (pure client).
+
+## 2026-07-20 — [PRODUCT] T-CLIENT: movable / minimizable / lockable panels with automatic layout memory (v1.0.446)
+
+HUMAN DIRECTIVE (verbatim): "the card or info that pops up cover other
+things and you need to be able to move them minimize them all controls
+and it to remember where you put them automatically so you don't have
+to rearrange them every time and the ability to lock them in place so
+you dont accidently move them".
+
+CHANGE: new client/src/lib/panelLayout.ts — ONE persistence system
+(localStorage vt-panel-layout-v1) for every floating surface: per-panel
+{pos, min, locked}; container-relative coordinates (the old card drag
+used viewport coords — subtly off under the topbar); positions clamped
+on restore so a spot saved on a big window stays reachable on a small
+one; width frozen before un-anchoring edge-spanned panels (the profile
+bar gets its width from left+right CSS); drag ignores button presses;
+double-click on a grip forgets the spot (back to default). Wired into:
+(1) detail card — existing drag now REMEMBERED + padlock in the header
+(min pill included; a fresh card still opens expanded on purpose — you
+clicked for info); (2) space-view body card — gained grip/drag/lock/
+memory; (3) nav cluster — grip row (drag/lock/minimize-to-compass-chip,
+chip itself draggable, keyboard nav still works minimized), remembered
+across both base and space variants; (4) flight profile — drag/lock +
+collapsed state remembered; (5) layers panel — collapsed state
+remembered (docked, not draggable by design). Phones (<768px) exempt:
+bottom-sheet/FAB patterns stand, grips/locks hidden (DESIGN.md).
+
+VERIFICATION: panelLayout 4/4 unit tests (parse hostile records, clamp,
+merge/reset semantics) + all prior suites 34/34; dedicated Playwright
+probe ALL PASSED — card drag 68,68→459,411 remembered across full
+reload, locked card immovable + lock remembered, dblclick resets,
+cluster drag/min-chip/restore all remembered, profile keeps width
+(916→916) when un-anchored + collapse remembered, layers collapse
+remembered; controls regression probe re-ran ALL PASSED (native pan,
+17.50 zoom ceiling, tilt 84, latch, plane click, space FLY HOME);
+harness 0 hard failures at 390/768/1440; python suite 822 passed.
+BACKTEST: N/A (pure client).
