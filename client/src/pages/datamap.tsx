@@ -8239,16 +8239,13 @@ export default function DataMapPage() {
                   } catch {}
                 }}
               />
-              <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>
                 {terrainExag.toFixed(1)}×
               </span>
             </label>
-            <span className="vt-field-note">
-              VERTICAL EXAGGERATION — multiplies terrain height so mountains and
-              valleys read clearly from altitude. Elevation data stays real; only
-              the look changes. 1.0× true scale · 1.3× balanced (default) · 3.0×
-              dramatic relief.
-            </span>
+            {/* design ref (human 2026-07-20): the row is JUST the compact
+                EXAG slider + value — the full approved explainer lives
+                behind the ⓘ (registry description), verbatim */}
           </div>
         )}
         {(l as any).field && on && (
