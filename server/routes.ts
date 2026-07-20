@@ -68,6 +68,7 @@ import { bootCotPoll, latestCot, searchMarkets as searchCotMarkets,
 import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
+import { bootFinancialsPoll, latestFinancialsMeta, readArchivedSnapshot as readFinancialsSnapshot } from "./fdicBankFinancials";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
 import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
 import { bootEpaCamdPoll, latestEpaCamd, aggregateByFacility, epaCamdUsingDemoKey } from "./epaCamd";
@@ -2239,6 +2240,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.failures.length,
       note: "most recent US bank failures/assistance events, amounts in $ thousands as published; cost is the estimated DIF loss and is null until estimated; regional-bank-stress signals stay gate-locked until ladder validation",
       failures: hit.failures,
+    });
+  });
+
+  // FDIC per-bank quarterly financials snapshot (RAW — BUILD ORDER 6 #3
+  // v2, keyless). One immutable file per REPDTE quarter; read from the
+  // archive on request rather than held resident (event-loop rule: the
+  // read is synchronous file I/O off a small gzipped file, not a fetch).
+  bootFinancialsPoll();
+  app.get("/api/data/bank-financials", (_req, res) => {
+    const meta = latestFinancialsMeta();
+    if (!meta) {
+      return res.json({ kind: "raw", source: "FDIC Bank Data API", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "FDIC Bank Data API — per-bank quarterly financials (US government data)",
+      attribution: "FDIC Bank Data API",
+      time: meta.at,
+      repdte: meta.repdte,
+      count: meta.count,
+      note: "latest published quarter's per-institution financials, amounts in $ thousands as published; deposits_uninsured_k and nonperforming_pct are the regional-bank-stress fields (join on cert against /api/data/bank-failures); needs >=2 archived quarters before any delta is computable — gate-locked until ladder validation",
+      banks: readFinancialsSnapshot(meta.repdte),
     });
   });
 

@@ -1,0 +1,24 @@
+{
+ "stream": "fdicbankfinancials",
+ "storage": "one immutable JSONL(.gz) file per REPDTE quarter under <archive>/fdicbankfinancials/<REPDTE>.jsonl.gz — a published quarter never changes so it is gzipped immediately and never re-fetched once present",
+ "written_by": "server/fdicBankFinancials.ts refreshFinancials (24h poll checking for a new REPDTE; cheap 1-record probe until a new quarter actually publishes, eager boot)",
+ "source": "FDIC Bank Data API /banks/financials — keyless JSON. HOST NOTE: api.fdic.gov (banks.data.fdic.gov 301s there, same probe finding as fdicfailures). ~4,352 institutions at the latest quarter (REPDTE), stable CERT-ordered pagination verified live 2026-07-20 (limit hard-caps at 10000/page; a >10000 limit 400s with validate:too_big). REPDTE arrives YYYYMMDD (normalized to ISO)",
+ "license": "FDIC public data (US government agency); attribution 'FDIC Bank Data API'",
+ "attribution": "FDIC Bank Data API",
+ "schema_version": 1,
+ "field_map": {
+  "cert — join key to fdicfailures and other CERT-keyed streams": "FDIC certificate number",
+  "repdte": "reporting quarter end date, ISO, normalized from REPDTE (YYYYMMDD)",
+  "assets_k/deposits_k/deposits_domestic_k/deposits_insured_k/deposits_uninsured_k/equity_k/net_income_k": "$ THOUSANDS as published (ASSET/DEP/DEPDOM/DEPINS/DEPUNINS/EQ/NETINC)",
+  "roa_pct/roe_pct": "return on assets / equity, percent as published (ROA/ROE)",
+  "nonperforming_pct": "nonperforming assets as a percent of total assets (NPERFV)",
+  "rt": "as-fetched UTC date"
+ },
+ "confidence_model": "RAW official quarterly regulatory financials. Same regional-bank-stress hypothesis family as fdicfailures (join on CERT), gate-locked: gate 1 = cross-check a known-failed bank's last snapshot before failure against its fdicfailures record; gate 2 = deposits_uninsured_k/deposits_k spikes and nonperforming_pct deltas vs forward KRE/regional-bank returns. Needs >=2 archived quarters to compute ANY delta — not testable from this session's single snapshot alone.",
+ "geo_fields": ["state", "city"],
+ "entity_key": "cert + repdte",
+ "sentiment": null,
+ "started": "2026-07-20",
+ "cadence": "quarterly (REPDTE publication); 24h poll makes quiet stretches between quarters a single cheap probe request",
+ "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 6 #3 v2 — the documented follow-up to fdicfailures v1 (fdicBanks.ts docstring, filed 2026-07-06); EDGE DOCTRINE #2 territory (small regional banks — whales can't fish there)."
+}

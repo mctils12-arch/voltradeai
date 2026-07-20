@@ -3,6 +3,147 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-20 [PIPELINE] — FDIC bank-financials v2: the documented quarterly-snapshot follow-up to fdicfailures v1 (v1.0.435, T-DATACORE, scheduled-routine session)
+
+TERRITORY: T-DATACORE (server/fdicBankFinancials.ts + test, datacore/
+manifests/; server/routes.ts import + one route, kept minimal per
+WORKSTREAM PARTITION's SHARED rule).
+
+LIVE HEALTH CHECK first (GOAL priority 1): `curl https://voltradeai-
+production.up.railway.app/api/health` — `status: ok`,
+`bot.liveness.dark: false`, `scanner.consecutiveFailures: 0`,
+`drawdownPct: "0.0"`. No LIVENESS ALARM. KNOWN BROKEN check
+(open_questions.md): every currently-open item (#10 dead score-band
+config, #12b/c ML-feedback dead-code + unwired exit paths, #20 CSP
+master-kill-switch threshold question, #21 root-cause of the alt-data
+enrichment blind spot) is explicitly gated on accumulated evidence
+(shadow_portfolio history, D2 live verification, counterfactual
+logging, a live-code trace already completed) — none is an actionable
+unfixed break today, so this is NOT a [REPAIR] session. No AUDITS &
+DEBT register item is overdue (staleness next due 2026-08-04;
+constitutional next due ~2026-08-03). Loop-health: last 10
+experiments.md entries are mostly [PRODUCT] (Space View/terrain/
+celestial waves) with a couple of [REPAIR]/[RULE-REVIEW] mixed in —
+nowhere near the 7+ thrash threshold.
+
+PRIOR (stated before building, REASONING STANDARD #10): a per-bank
+FDIC financials archive is a mechanical extension of an already-proven
+pipeline (fdicBanks.ts's failures stream), so I expect zero new API
+surprises beyond pagination shape — but I explicitly expected the
+deposits_uninsured_k field to exist and be populated given SVB-era
+FDIC reporting changes; if it were absent, the core "run risk" half of
+the stated hypothesis would need a different proxy. CONFIRMED live
+(see below): DEPUNINS is populated per-bank.
+
+WHY THIS, not a new pipeline: `research/data_census.md`'s CENSUS
+MASTER RANKING has all but one of its ranked items already built (the
+lone remainder, DTCC SBSDR, is gated on a 147MB/day volume-budget
+decision, not a one-PR build). Of CLAUDE.md's own example list (tank
+shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+Trends), EDGAR Form4/USAspending/CFTC COT/FDA calendar are all already
+live (server/usaSpending.ts, cftcCot.ts, fdaEvents.ts, SEC Form4
+archive), and Google Trends already failed its gate-1 stability probe
+2026-07-05 (upstream pytrends archived; replaced by Wikimedia
+pageviews). `server/fdicBanks.ts`'s own docstring (line 14-16) names
+its exact follow-up: "the quarterly financials snapshot (~4.6k banks,
+paginated, needs a once-per-quarter claim) is the documented follow-up,
+its own PR" — BUILD ORDER 6 #3 v2. This is EDGE DOCTRINE #1 (build the
+processing on data we can already freely receive) + #2 (small regional
+banks are structurally under-arbitraged — whales can't fish there).
+
+BUILD: `server/fdicBankFinancials.ts` — `fetchLatestRepdte()` probes
+`/banks/financials?limit=1&sort_by=REPDTE&sort_order=DESC` (one cheap
+request) to find the newest published quarter; `fetchFinancialsSnapshot()`
+pages through the full quarter (stable `sort_by=CERT&sort_order=ASC`,
+`FINANCIALS_PAGE_LIMIT=10000`, offset-stepped, capped at 50 pages as a
+runaway backstop) with an explicit `fields=` list (CERT, NAME, REPDTE,
+STALP, CITY, ASSET, DEP, DEPDOM, DEPINS, DEPUNINS, EQ, NETINC, ROA,
+ROE, NPERFV). Archive model is DELIBERATELY DIFFERENT from
+fdicfailures' rolling event-dedup: a REPDTE quarter is immutable once
+published, so `snapshotArchived()` is a simple presence check
+(`<archive>/fdicbankfinancials/<REPDTE>.jsonl.gz`) and a quarter
+already on disk is NEVER re-fetched — `refreshFinancials()` costs one
+small probe request on every quiet day between quarters. Gzipped
+immediately on write (unlike failures' 2-day-aged sweep) since nothing
+will ever append to a closed quarter's file. `readArchivedSnapshot()`
+reads-on-demand for the API route rather than holding ~4,352 records
+resident in server memory indefinitely.
+
+LIVE VERIFICATION (read-before-write, not assumed from memory or the
+FDIC docs — same discipline as fdicBanks.ts's own probe): curled
+`api.fdic.gov/banks/financials` directly before writing any code.
+Confirmed: (1) same host gotcha as failures (`banks.data.fdic.gov`
+301s, `api.fdic.gov` doesn't); (2) `limit=20000` 400s
+("validate:too_big" / "Number must be less than or equal to 10000"),
+`limit=10000` doesn't — pins `FINANCIALS_PAGE_LIMIT`; (3) the latest
+quarter (REPDTE 20260331) has exactly 4,352 institutions, matching
+fdicBanks.ts's own "~4.6k banks" estimate; (4) `sort_by=CERT&
+sort_order=ASC` with `offset` returns a stable, non-overlapping
+partition across pages (spot-checked offset=0/3/4000); (5) the full
+~150-field kitchen-sink schema includes DEPUNINS (uninsured deposits —
+the run-risk field) and NPERFV (nonperforming-assets ratio — the
+asset-quality field) populated on a real record, confirming the
+hypothesis's two core fields actually exist and aren't null-everywhere.
+
+RATCHET: `server/fdicBankFinancials.test.ts` — 9 new tests:
+REPDTE normalization + garbage handling, nested-envelope parse with
+null-field integrity (absent DEPUNINS stays null, never coerced to 0),
+`fetchLatestRepdte` host/sort pin, paginated fetch (multi-page
+stitching AND the "short page is itself the stop signal even if the
+reported total is stale/wrong" edge case), archive dedup (already-
+archived quarter never re-fetched, gzip-immediate, idempotent
+re-archive), and a full `refreshFinancials` round-trip (new quarter
+fetches once; same quarter on a later call skips the paginated pull
+entirely — verified via a call counter, not just a mock return value).
+`server/streamsInventory.test.ts` still passes with the new manifest
+picked up automatically (runtime directory enumeration, no manual
+registration needed).
+
+GATES: `npx tsx --test server/fdicBankFinancials.test.ts` 9/9 (first
+attempt caught its own bug: a `url.includes("limit=1")` test
+discriminator false-matched `limit=10000` as a substring — fixed to
+key off `sort_by=REPDTE` instead; not a product bug, a test-code bug,
+fixed before landing). Full `npx tsx --test server/*.test.ts`
+760/767, 7 failures — diffed via `git stash`: byte-identical to the
+pre-change baseline (aircraftTiling/apiKeyAccounts/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware, all network-
+dependent per prior sessions' notes), zero regressions. `npx tsc
+--noEmit` 8 lines of pre-existing config-only warnings (vite/client
+type lib + a deprecated tsconfig option, not per-file errors this
+session's diff could cause), byte-identical to the `git stash`-verified
+baseline. `npm run build` clean (this sandbox had no `node_modules` at
+all — `npm install` run this session, non-destructive, `package-
+lock.json` diff after the version bump is 2 lines, confirming install
+didn't silently rewrite the lockfile). `python3 -m pytest -q` — sandbox
+also had no Python deps installed (`ModuleNotFoundError: numpy`, then
+`openpyxl` from requirements-dev.txt); installed both `requirements.txt`
+and `requirements-dev.txt` (session-run/test-only, not shipped in the
+Dockerfile image per its own header) — 826 passed, 1 skipped (the
+documented legacy `backtest_v1028_full` skip), 0 failures, 0 Python
+files touched this session so this is a pure environment-setup step,
+not a code fix.
+
+VERSION: 1.0.434 → 1.0.435. Also fixed `package-lock.json`'s two
+root-package version fields directly in this PR (same recurring drift
+three prior sessions have now each fixed once).
+
+BACKTEST: N/A — archive-only pipeline build, zero scoring/sizing/
+execution logic touched.
+
+NEXT STEP (not this session, per REASONING STANDARD #10 — stated
+before, not after): gate 1 needs >=1 more quarter archived before any
+delta is computable at all (this session's snapshot is the FIRST
+archived quarter); the natural gate-1 check once a second quarter
+lands is cross-checking a known-failed bank's LAST snapshot before
+failure (join on `cert` against `/api/data/bank-failures`) against its
+FDIC failure-record assets/deposits, then gate 2 (deposit/asset-
+quality deltas vs forward KRE/regional-bank returns) once enough
+quarters accumulate for a real base rate. SMALL SEPARATE NOTE (not
+actioned): `data_census.md`'s only remaining unbuilt ranked item, DTCC
+SBSDR, stays gated on the 147MB/day volume-budget decision already on
+record — a future session with that decision made can pick it up
+directly.
+
 ## 2026-07-20 [PRODUCT] — GEM methane-plume gate-2(b): repeat-detection count/rate per asset + /data hotspots view (v1.0.421, T-DATACORE+T-CLIENT, scheduled-routine session)
 
 TERRITORY: T-DATACORE (server/gemMethaneProximity.ts, server/routes.ts) +
