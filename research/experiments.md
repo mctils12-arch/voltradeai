@@ -22393,3 +22393,39 @@ proposes structural work via wishlist.md rather than patching again.
 VERIFICATION: build green; satFind/arcLayer/follow 25/25; visual
 harness (verified-clicks version) run on the final build — result in
 the PR. BACKTEST: N/A (pure client).
+
+## 2026-07-20 (human-directed session, round 4) [REPAIR] — #561 revert salvage: flight-track COMPONENTS re-landed without the nav-rig overhaul (v1.0.439–.440, T-CLIENT, #562)
+
+CONTEXT: another session's #561 ("Flight Track 3D replacement", 4,067
+lines) deployed, the human reported "the sat stuff is fucked … the site
+is down", and #561 was reverted wholesale. Human directive to this
+session: "from the broken pr add the components from the pr and not try
+to rebuild the whole system."
+
+METHOD: revert-revert onto a clean main base, then SUBTRACT the
+suspected breaker instead of hand-reassembling 19 interleaved hunks.
+KEPT: trackModel (+test), flightTrackLayer (+test — the fine-grained
+terrain-draped curtain), FlightProfilePanel, their datamap wiring,
+arcLayer wall-mode retirement, maxPitch 88, the filed handoff docs.
+CUT: MapNavCluster + cameraRig (site-wide nav replacement) — its
+onUserPan called stopSatFocusRef on ANY pan, releasing the satellite
+lock against the O6-1 focus-until-✕ rule (the exact "sat stuff fucked"
+symptom), and it replaced NavigationControl/keyboard/zoom-seam handling
+globally. Stock controls restored verbatim; cluster css + hint bar
+(advertised the rig's mouse scheme) removed; harness nav assertions
+restored. The panel's Follow toggle kept working via a minimal glide-
+tick recenter with drag release. Plus v1.0.440: the reported EXAG
+slider drag-thrash fixed (rAF-coalesced apply).
+
+WARNING TO FUTURE SESSIONS: do NOT re-land MapNavCluster/cameraRig
+as-is. If the nav-cluster design is wanted, its follow arbitration must
+respect the satellite focus-until-✕ rule and the replacement of stock
+controls needs its own staged PR with the sat-follow interaction
+explicitly driven in a browser before merge. Version 438 is BURNED
+(reverted deploy); the salvage shipped as 439/440.
+
+VERIFICATION: build green; 87/87 across flightTrackLayer/trackModel/
+arcLayer/satFind/follow/spaceFrame; visual harness 5/5 on the exact
+merged tree. Site health confirmed UP end-to-end during the incident
+(the "down" was the #561 deploy window / client state; server never
+died — uptime spanned the whole event). BACKTEST: N/A (pure client).
