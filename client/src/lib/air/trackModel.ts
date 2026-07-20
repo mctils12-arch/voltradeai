@@ -67,6 +67,65 @@ export const TRACK_MAX_SAMPLES = 6000;
 const R_EARTH_M = 6371008.8;
 const D2R = Math.PI / 180;
 
+// ── current-flight trim (human 2026-07-20: the ALTITUDE/TIME chart "doesn't
+// have that data" — the archive serves up to 48h, so a plane that flew,
+// PARKED for hours (no broadcast altitude on the ground), then flew again
+// rendered as two slivers around a giant honest gap. The display track —
+// chart AND 3D trail — shows the CURRENT flight; the archive keeps
+// everything.) ────────────────────────────────────────────────────────────
+
+/** a fix-to-fix hole longer than this = out of coverage / a different
+ *  flight — the newest contiguous block wins. */
+export const FLIGHT_SPLIT_GAP_SEC = 45 * 60;
+/** a sustained no-altitude dwell this long (parked at the gate — ground
+ *  fixes rarely carry baro altitude) splits flights when airborne fixes
+ *  exist after it. */
+export const FLIGHT_GROUND_DWELL_SEC = 15 * 60;
+/** an entirely ground-dwelling track (never airborne in the window) keeps
+ *  only this trailing slice — 48h of parked dots is noise, not a flight. */
+export const FLIGHT_PARKED_KEEP_SEC = 60 * 60;
+
+/**
+ * Trim raw archived fixes to the CURRENT flight. Pure; returns the input
+ * array when nothing needs trimming. Boundaries, newest wins:
+ *  1. a time hole > FLIGHT_SPLIT_GAP_SEC;
+ *  2. a no-altitude dwell ≥ FLIGHT_GROUND_DWELL_SEC with airborne fixes
+ *     after it (the dwell's last fix is KEPT — one ground point leads into
+ *     the takeoff);
+ *  3. never airborne at all → the trailing FLIGHT_PARKED_KEEP_SEC.
+ */
+export function trimToCurrentFlight(raw: RawTrackPoint[]): RawTrackPoint[] {
+  const pts = raw.filter((p) => p != null && Number.isFinite(p.t));
+  if (pts.length < 2) return raw;
+  let start = 0;
+  // newest hard time hole
+  for (let i = pts.length - 1; i > 0; i--) {
+    if ((pts[i].t as number) - (pts[i - 1].t as number) > FLIGHT_SPLIT_GAP_SEC) { start = i; break; }
+  }
+  // newest sustained ground dwell with flight after it
+  let runEnd = -1; // newest index of the current no-altitude run
+  for (let i = pts.length - 1; i >= start; i--) {
+    if (pts[i].al == null) {
+      if (runEnd < 0) runEnd = i;
+    } else if (runEnd >= 0) {
+      const span = (pts[runEnd].t as number) - (pts[i + 1].t as number);
+      if (span >= FLIGHT_GROUND_DWELL_SEC && runEnd < pts.length - 1) {
+        start = Math.max(start, runEnd); // keep the dwell's LAST fix
+        break;
+      }
+      runEnd = -1;
+    }
+  }
+  let out = start > 0 ? pts.slice(start) : pts;
+  // never airborne → trailing slice only
+  if (!out.some((p) => p.al != null)) {
+    const tEnd = out[out.length - 1].t as number;
+    const cut = out.findIndex((p) => (p.t as number) >= tEnd - FLIGHT_PARKED_KEEP_SEC);
+    if (cut > 0) out = out.slice(cut);
+  }
+  return out.length === raw.length ? raw : out;
+}
+
 /** Great-circle meters between two fixes (haversine — the spacing ruler). */
 export function distMeters(la1: number, lo1: number, la2: number, lo2: number): number {
   const phi1 = la1 * D2R, phi2 = la2 * D2R;

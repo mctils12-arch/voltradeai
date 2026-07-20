@@ -58,7 +58,7 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 // teal→blue→violet ramp, and the selected-flight marker/drop-line/tag.
 import { FlightTrackLayer, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
 import {
-  buildTrackSamples, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
+  buildTrackSamples, trimToCurrentFlight, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
   CURTAIN_BELOW_TERRAIN_M, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
@@ -183,6 +183,7 @@ import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
 import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
+import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
 // decode table, color expression, and legend all derive from the SAME
@@ -2068,7 +2069,12 @@ export default function DataMapPage() {
   const unitSystem = useSyncExternalStore(subscribeUnits, getUnits, getUnits);
   // weather temp labels follow the global pref by default; its own °F/°C
   // chip still overrides for the map-label layer specifically.
+  // ONE unit system site-wide (human 2026-07-20: "have that change all
+  // units thru the entire site when switched"): the temperature-label
+  // display follows the site setting; its layer-panel °F/°C button is
+  // just another entry point to the SAME setting (setUnits below).
   const [tempUnitF, setTempUnitF] = useState(() => getUnits() === "imperial");
+  useEffect(() => subscribeUnits(() => setTempUnitF(getUnits() === "imperial")), []);
   useEffect(() => { setTempUnitF(unitSystem === "imperial"); }, [unitSystem]);
   const [wxGrid, setWxGrid] = useState<any>(null);
   useEffect(() => {
@@ -2516,9 +2522,13 @@ export default function DataMapPage() {
     return g;
   };
 
+  // DEM-tile fill-in retries for the chart's ground profile (bounded — a
+  // permanently failing tile must never loop the repaint)
+  const elevRetryRef = useRef(0);
   const clearTrail = () => {
     const map = mapRef.current;
     if (!map) return;
+    elevRetryRef.current = 0;
     try {
       if (map.getLayer("trail-line")) map.removeLayer("trail-line");
       if (map.getSource("trail")) map.removeSource("trail");
@@ -2596,21 +2606,42 @@ export default function DataMapPage() {
         // returns the ground ALREADY in that datum.
         const terrainOn = !!map.getTerrain();
         const altScale = terrainOn ? terrainExagRef.current : 1;
-        const { samples, altMin, altMax } = buildTrackSamples(raw);
+        // display = the CURRENT flight (archive gaps + parked dwells split
+        // flights; the newest wins) — the archive itself keeps everything
+        const flight = trimToCurrentFlight(raw);
+        const { samples, altMin, altMax } = buildTrackSamples(flight);
         const n = samples.length;
         const merc = new Float32Array(n * 2);
         const altM = new Float32Array(n);
         const groundZ = new Float32Array(n);
         const groundM = new Float32Array(n);
+        // terrain toggle OFF: the DISPLAY ground stays 0 (the map is a flat
+        // plane without the mesh) but the REAL ground for the chart's
+        // terrain profile / AGL band comes from the DEM tiles directly
+        // (lib/elevation — human 2026-07-20 AGL directive). Tiles still in
+        // flight read 0 this paint; the retry below fills them in.
+        let elevPending = false;
+        if (!terrainOn) prefetchElevation(samples);
         for (let i = 0; i < n; i++) {
           const s = samples[i];
           const m = lonLatToMercator(s.lon, s.lat);
           merc[i * 2] = m.x;
           merc[i * 2 + 1] = m.y;
           altM[i] = s.altM; // NaN = honest gap
-          const g = terrainOn ? groundDisplayAt(map, s.lon, s.lat) : 0;
-          groundZ[i] = g;
-          groundM[i] = altScale > 0 ? g / altScale : g;
+          if (terrainOn) {
+            const g = groundDisplayAt(map, s.lon, s.lat);
+            groundZ[i] = g;
+            groundM[i] = altScale > 0 ? g / altScale : g;
+          } else {
+            groundZ[i] = 0;
+            const gDem = groundElevationSync(s.lon, s.lat);
+            if (gDem == null) elevPending = true;
+            groundM[i] = gDem ?? 0;
+          }
+        }
+        if (elevPending && elevRetryRef.current < 3) {
+          elevRetryRef.current++;
+          window.setTimeout(() => { try { repaintTrail3d(); } catch {} }, 2500);
         }
         let layer = flightTrackRef.current;
         if (!layer) {
@@ -2770,13 +2801,22 @@ export default function DataMapPage() {
           const fa = splitUnit(fmtMeters(alt));
           set("alt", fa.num, fa.unit);
           if (terrainOn) {
-            // AGL = MSL − real terrain under the craft (exaggeration undone);
-            // without the DEM there is no honest AGL — show the gap, never 0
+            // AGL = MSL − real terrain under the craft (exaggeration undone)
             const aglM = Math.max(0, alt - (altScale > 0 ? gZ / altScale : 0));
             const fg = splitUnit(fmtMeters(aglM));
             set("agl", fg.num, fg.unit);
           } else {
-            set("agl", "—", null);
+            // TERRAIN TOGGLE OFF (human 2026-07-20: "take the msl and if we
+            // know the ground point … calculate the agl") — the same global
+            // DEM is a plain tile set; decode it directly. null = the tile
+            // is still in flight → "—" this tick, real AGL the next.
+            const gDem = groundElevationSync(lon, lat);
+            if (gDem == null) {
+              set("agl", "—", null);
+            } else {
+              const fg = splitUnit(fmtMeters(Math.max(0, alt - gDem)));
+              set("agl", fg.num, fg.unit);
+            }
           }
         }
         set("gs", gsKt == null ? "—" : String(Math.round(gsKt)), gsKt == null ? null : "kt");
@@ -3085,6 +3125,13 @@ export default function DataMapPage() {
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
           encoding: "terrarium",
+          // PERF (human 2026-07-20: "terrain … renders very slowly and it
+          // very laggy"): cap DEM fetches at z12 — the 30m source data is
+          // exhausted by ~z11.5, so deeper tiles were pure upsampled churn
+          // (16× the requests at z14, re-meshed per tile). Explicit source
+          // options take precedence over the TileJSON (maplibre
+          // loadTileJson), so this cap is authoritative.
+          maxzoom: 12,
         } as any);
       }
       if (enabled.seafloor && !map.getSource("ocean-terrain-dem")) {
@@ -3097,7 +3144,9 @@ export default function DataMapPage() {
           tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
           encoding: "terrarium",
           tileSize: 256,
-          maxzoom: 15,
+          // same z12 perf cap as the land mesh (ETOPO bathymetry is ~1.8km
+          // native — z15 fetches were 64× upsampled churn)
+          maxzoom: 12,
           attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
         } as any);
       }
@@ -7231,7 +7280,7 @@ export default function DataMapPage() {
               { label: "Detected", value: p.observedAt ? p.observedAt.slice(0, 10) : "—" },
               { label: "Provider", value: p.provider || "—" },
               { label: "Match", value: METHANE_MATCH_LABEL[matchKind] },
-              ...(asset ? [{ label: "Distance", value: `${asset.distanceKm.toFixed(2)} km` }] : []),
+              ...(asset ? [{ label: "Distance", value: fmtKm(asset.distanceKm, 2) }] : []),
             ],
             sourceTag: "GEM CC BY 4.0",
             body: `What this marker is: a satellite methane-plume detection catalogued by Global Energy Monitor's GMET ` +
@@ -7240,7 +7289,7 @@ export default function DataMapPage() {
                     `${p.emissionsUncertaintyKgHr != null ? ` (±${p.emissionsUncertaintyKgHr.toFixed(1)})` : ""}.` : ""}\n\n` +
                   (asset
                     ? `Nearest catalogued GEM asset: ${asset.name || asset.id} (${asset.kind === "coal_mine" ? "coal mine" : "oil/gas extraction"}), ` +
-                      `${asset.distanceKm.toFixed(2)}km away. ` +
+                      `${fmtKm(asset.distanceKm, 2)} away. ` +
                       `${asset.operator ? `Operator: ${asset.operator}. ` : ""}${asset.owner ? `Owner: ${asset.owner}. ` : ""}${asset.parent ? `Parent: ${asset.parent}. ` : ""}` +
                       `${p.ambiguousMatch ? "A second catalogued asset sits nearly as close — this match is AMBIGUOUS, shown as the nearest candidate only. " : ""}` +
                       `This is a GEOMETRIC PROXIMITY FACT, not a confirmed emissions attribution — flaring, pipeline leaks, and unrelated nearby infrastructure can all produce a similar-looking match.`
@@ -8692,8 +8741,10 @@ export default function DataMapPage() {
                   <span>value labels</span>
                 </label>
                 {tempLabels && (
-                  <button className="vt-field-unit" onClick={() => setTempUnitF(!tempUnitF)}
-                          aria-label="Toggle temperature unit">
+                  // flips the SITE unit system (one setting everywhere —
+                  // the subscription above keeps this state in step)
+                  <button className="vt-field-unit" onClick={() => setUnits(tempUnitF ? "metric" : "imperial")}
+                          aria-label="Toggle unit system (site-wide)">
                     {tempUnitF ? "°F" : "°C"}
                   </button>
                 )}
@@ -9227,7 +9278,7 @@ export default function DataMapPage() {
           clockRef={flightClockRef}
           onClockChange={updateFlightMarker}
           onPhoneExpand={() => setDetailMin(true)}
-          sourceNote="ADS-B track (our archive + live)"
+          sourceNote={`ADS-B track (our archive + live)${enabled.terrain ? "" : " · ground: Terrain Tiles DEM"}`}
         />
       )}
       {fpsDebug && <FpsChip />}

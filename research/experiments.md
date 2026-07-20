@@ -22945,3 +22945,49 @@ ticks (17:30:59Z→17:31:04Z over 5s), dashed tail drawn, trail grew
 the drifting plane (lat 39.19→39.254); port/phone/panels probes ALL
 PASSED; unit suites 34/34; harness 0 hard failures at 390/768/1440;
 python 825 passed. BACKTEST: N/A (pure client).
+
+## 2026-07-20 — [PRODUCT] T-CLIENT: four-item flight/UX round — DEM AGL, current-flight trim, terrain perf caps, one unit system (v1.0.451)
+
+HUMAN DIRECTIVE (verbatim): "the altitude and / time line track it
+doesn't have that data … the agl issue is not working can we take the
+msl and if we know the ground point and have the whole world mapped can
+we calculate the agl … for the units in the layer tab have that change
+all unit thru the entire site when switched and for the future changes
+or additions … when i turn on terrain 3d relief … it renders very
+slowly and it very laggy".
+
+1. AGL WITHOUT THE TERRAIN TOGGLE — new lib/elevation.ts decodes the
+   global terrarium DEM tiles directly (the same AWS Open Data set the
+   seafloor mesh consumes): tile addressing + terrarium decode +
+   bilinear sampling (pure, 5 unit tests — including a real found bug:
+   edge/1×1 bilinear read OOB → NaN → "no data"), Int16 decoded-tile
+   LRU. Flight card AGL = MSL − DEM ground when the mesh is off ("—"
+   only while the covering tile is in flight); the chart's TERRAIN
+   profile + AGL band get real ground too (display ground stays 0 —
+   the map IS flat without the mesh; bounded 3-retry repaint fills
+   tiles in). sourceNote discloses "ground: Terrain Tiles DEM".
+2. CHART "doesn't have that data" — DIAGNOSIS: the archive honestly
+   has no altitude while a plane sits parked (ground fixes rarely
+   broadcast baro), so a 48h window rendered two flight slivers around
+   a giant gap. FIX: trimToCurrentFlight (trackModel, 3 unit tests) —
+   the DISPLAY track (chart + 3D trail) is the newest flight: split at
+   >45min coverage holes and ≥15min no-altitude dwells (keeping one
+   ground lead-in fix); never-airborne windows keep the trailing hour.
+   The archive keeps everything.
+3. TERRAIN LAG — DEM sources capped at maxzoom 12 (land: Copernicus
+   30m is exhausted by ~z11.5; ocean: ETOPO ~1.8km — z15 fetches were
+   16–64× upsampled churn re-meshed per tile). Verified in the
+   installed maplibre: explicit source options take precedence over
+   TileJSON, so the cap is authoritative.
+4. ONE UNIT SYSTEM — the temperature-labels °F/°C button now flips the
+   SITE unit setting (setUnits) and subscribes to it (it was a rogue
+   local toggle seeded from the setting but never following it); the
+   methane-plume card's hardcoded "km" strings now go through fmtKm.
+   Site audit found no other hardcoded unit strings outside the
+   domain-fixed ones (kt/fpm/hPa/MW per the UNITS PREFERENCE rule).
+
+VERIFICATION: live probe extended with a synthetic 500m DEM tile —
+AGL reads 17,495 ft (exact: 5,833m − 500m), banner still ticking,
+trail still growing, follow engaged; port probe ALL PASSED; unit
+suites 41/41; harness 0 hard failures at 390/768/1440; python 825
+passed. BACKTEST: N/A (pure client).

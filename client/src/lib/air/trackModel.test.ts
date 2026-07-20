@@ -10,6 +10,7 @@ import {
   sampleAt,
   headingAt,
   distMeters,
+  trimToCurrentFlight,
   TRACK_DENSIFY_M,
   TRACK_MAX_SAMPLES,
   RAMP_LO,
@@ -125,4 +126,36 @@ test('headingAt follows the track tangent (due-east track → ~90°)', () => {
   const { samples } = buildTrackSamples(raw);
   const h = headingAt(samples, 50)!;
   near(h, 90, 1.5, 'east tangent');
+});
+
+test('trimToCurrentFlight: a time hole splits flights — the newest block wins', () => {
+  const mk = (t: number, al: number | null): { t: number; la: number; lo: number; al: number | null } =>
+    ({ t, la: 39 + t / 1e6, lo: -107, al });
+  const old = [mk(0, 3000), mk(300, 3200), mk(600, 3400)];
+  const fresh = [mk(600 + 46 * 60, 2000), mk(600 + 46 * 60 + 300, 2500)];
+  const out = trimToCurrentFlight([...old, ...fresh]);
+  assert.equal(out.length, 2, 'only the newest contiguous block remains');
+  assert.equal(out[0].t, fresh[0].t);
+});
+
+test('trimToCurrentFlight: a parked dwell (no broadcast altitude) splits flights, keeping one ground lead-in fix', () => {
+  const mk = (t: number, al: number | null) => ({ t, la: 39, lo: -107, al });
+  const flight1 = [mk(0, 5000), mk(300, 5200)];
+  // parked 20 min: fixes every 5 min, no altitude
+  const parked = [mk(600, null), mk(900, null), mk(1200, null), mk(1500, null), mk(1800, null)];
+  const flight2 = [mk(2100, 800), mk(2400, 1500)];
+  const out = trimToCurrentFlight([...flight1, ...parked, ...flight2]);
+  assert.equal(out[0].t, 1800, 'starts at the dwell\'s last fix (ground lead-in)');
+  assert.equal(out.length, 3, 'lead-in + the new flight');
+});
+
+test('trimToCurrentFlight: never-airborne track keeps only the trailing hour; short/clean tracks pass through', () => {
+  const mk = (t: number, al: number | null) => ({ t, la: 39, lo: -107, al });
+  const parkedAllDay: any[] = [];
+  for (let t = 0; t <= 6 * 3600; t += 300) parkedAllDay.push(mk(t, null));
+  const out = trimToCurrentFlight(parkedAllDay);
+  assert.ok((out[out.length - 1].t as number) - (out[0].t as number) <= 3600, 'trailing hour only');
+  // clean continuous flight untouched (same array back)
+  const clean = [mk(0, 3000), mk(300, 3100), mk(600, 3200)];
+  assert.equal(trimToCurrentFlight(clean), clean, 'no-trim returns the input array');
 });
