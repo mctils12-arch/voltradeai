@@ -3697,6 +3697,17 @@ export default function DataMapPage() {
       const m = lonLatToMercator(p.lonDeg, p.latDeg);
       // model + focus ring ride the frame-fresh anchor (worker tick backstops)
       satModelLayerRef.current?.setAnchor({ mercX: m.x, mercY: m.y, altMeters: p.altKm * 1000 });
+      // GROUND SPOT rides the same frame-fresh fix (human 2026-07-20: "the
+      // ground point is laggy still") — one tiny single-point setData per
+      // frame; the tick's version stays as the create/teardown backstop.
+      if (showNadirRef.current) {
+        try {
+          (map.getSource("sat-nadir") as any)?.setData({
+            type: "FeatureCollection",
+            features: [{ type: "Feature", geometry: { type: "Point", coordinates: [p.lonDeg, p.latDeg] }, properties: {} }],
+          });
+        } catch {}
+      }
       if (!f.lockMode) return;              // camera handed back — the model still glides
       try {
         // let the click-framing / wheel / ± zoom eases finish (a jumpTo
