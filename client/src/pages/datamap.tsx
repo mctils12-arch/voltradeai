@@ -8817,14 +8817,19 @@ export default function DataMapPage() {
         )}
         {l.id === "terrain" && on && (
           <div className="vt-field-controls" role="group" aria-label="Terrain relief controls">
-            <label className="vt-field-slider">
+            {/* ONE vertical datum (user question 2026-07-20 "is it supposed
+                to?"): exaggeration scales terrain AND flight-track heights
+                together — otherwise a plane at 10k ft would render inside a
+                mountain drawn 3× taller. Displayed numbers stay true. */}
+            <label className="vt-field-slider"
+                   title="Scales ALL vertical relief — terrain and flight-track heights share one datum so planes never sink into stretched mountains; displayed altitudes stay true">
               <span style={{ letterSpacing: "1.5px", fontSize: "10px", color: "var(--text-tertiary)" }}>
                 EXAG
               </span>
               <input
                 type="range" min={TERRAIN_EXAG_MIN} max={TERRAIN_EXAG_MAX} step={0.1}
                 value={terrainExag}
-                aria-label="Terrain vertical exaggeration"
+                aria-label="Terrain vertical exaggeration — scales terrain and flight-track heights together"
                 data-vt-terrain-exag
                 onChange={(e) => {
                   const v = Number(e.target.value);
