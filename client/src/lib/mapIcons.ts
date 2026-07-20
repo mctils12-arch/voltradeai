@@ -815,6 +815,38 @@ export function quakeMagnitudeColor(mag: number | null | undefined): string {
   return "#8bc34a";
 }
 
+/** EPA CAMD CEMS ground-truth utilization (server/epaCamd.ts): fraction of
+ *  possible unit-hours a facility actually operated in the archived quarter
+ *  (sumOpTime / (unitCount x hours-in-quarter)). Pure calendar math, no
+ *  network — the quarter's own hour count, accounting for real month
+ *  lengths (not a fixed 91-day assumption). */
+export function camdQuarterHours(year: number, quarter: number): number {
+  const startMonth = (quarter - 1) * 3;
+  const start = Date.UTC(year, startMonth, 1);
+  const end = Date.UTC(year, startMonth + 3, 1);
+  return ((end - start) / 86_400_000) * 24;
+}
+
+export function camdUtilizationPct(
+  sumOpTime: number | null | undefined, unitCount: number | null | undefined,
+  year: number, quarter: number,
+): number | null {
+  if (!unitCount || typeof sumOpTime !== "number" || !Number.isFinite(sumOpTime)) return null;
+  const hours = camdQuarterHours(year, quarter) * unitCount;
+  return hours > 0 ? sumOpTime / hours : null;
+}
+
+/** Utilization tier tint — same low-to-high, blue-to-red convention as
+ *  quakeMagnitudeColor above. A null pct (missing sumOpTime/unitCount)
+ *  tints as the lowest band rather than guessing a value. */
+export function camdUtilizationColor(pct: number | null | undefined): string {
+  const p = typeof pct === "number" && Number.isFinite(pct) ? pct : 0;
+  if (p >= 0.75) return "#ff3b3b";
+  if (p >= 0.5) return "#ffd23f";
+  if (p >= 0.25) return "#8bc34a";
+  return "#4d9fff";
+}
+
 /** Project a short velocity-vector endpoint from position/heading/speed.
  *  Length scales with speed (capped) — pure math, cheap for 10k features. */
 export function velocityEndpoint(lat: number, lon: number, headingDeg: number,

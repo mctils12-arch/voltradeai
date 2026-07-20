@@ -9,6 +9,7 @@ import {
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
+  camdUtilizationPct, camdUtilizationColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
@@ -390,7 +391,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant";
   title: string;
   subtitle: string;
   body: string;
@@ -534,6 +535,7 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
+  plant_operations: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -861,7 +863,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -879,6 +881,15 @@ const LegendPanel = memo(function LegendPanel({
                 ))}
                 {enabled.powergrid_hifld_sub && (
                   <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
+                )}
+                {enabled.plant_operations && (
+                  <>
+                    <LegendIcon icon="vt-power" color={camdUtilizationColor(0.9)} label="EPA CAMD Util. 75%+" />
+                    <LegendIcon icon="vt-power" color={camdUtilizationColor(0.6)} label="EPA CAMD Util. 50-75%" />
+                    <LegendIcon icon="vt-power" color={camdUtilizationColor(0.35)} label="EPA CAMD Util. 25-50%" />
+                    <LegendIcon icon="vt-power" color={camdUtilizationColor(0.1)} label="EPA CAMD Util. <25%" />
+                    <span className="vt-legend-note">ground-truth capacity utilization from EPA's own unit-level CEMS reporting (TX pilot, quarterly) — not fuel type</span>
+                  </>
                 )}
               </div>
             </div>
@@ -6611,6 +6622,107 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.powerplants, mapReady, mapSettled, setStatus]);
 
+  // ── EPA CAMD CEMS plant operations (RAW; ground-truth utilization, TX
+  // pilot — server/epaCamd.ts, research/experiments.md 2026-07-18). One
+  // marker per facility, the vt-power silhouette (same "kind" as the GPPD
+  // powerplants layer above) tinted by camdUtilizationColor — a DATA-DRIVEN
+  // second dimension (real EPA CEMS operating-hours utilization), not fuel
+  // type: this stream's whole point is ground truth for OTHER inference
+  // roots, so the map leads with the number that's actually new. Facilities
+  // whose facility/attributes join missed (lat/lon null) are skipped
+  // honestly rather than guessed. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.plant_operations) {
+      try {
+        if (map.getLayer("camd-plants-pt")) map.removeLayer("camd-plants-pt");
+        if (map.getSource("camd-plants")) map.removeSource("camd-plants");
+      } catch {}
+      setStatus("plant_operations", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("plant_operations", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("plant_operations", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/plant-operations", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (d.warming_up) { setStatus("plant_operations", "loading", 0, "warming up — first EPA CAMD quarter still loading (quarterly cadence)"); return; }
+        if (!Array.isArray(d.facilities)) throw new Error("no facilities in response");
+        if (map.getSource("camd-plants")) return;
+        const geoFacilities = d.facilities.filter((f: any) => Number.isFinite(f.lat) && Number.isFinite(f.lon));
+        map.addSource("camd-plants", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: geoFacilities.map((f: any) => {
+              const pct = camdUtilizationPct(f.sumOpTime, f.unitCount, d.year, d.quarter);
+              return {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+                properties: {
+                  facilityId: f.facilityId, name: f.facilityName || `Facility ${f.facilityId}`,
+                  unitCount: f.unitCount, sumOpTime: f.sumOpTime, sumGrossLoad: f.sumGrossLoad,
+                  primaryFuelInfo: f.primaryFuelInfo, ownerOperator: f.ownerOperator,
+                  utilizationPct: pct,
+                  icon: "vt-power", color: camdUtilizationColor(pct),
+                },
+              };
+            }),
+          } as any,
+        });
+        map.addLayer({
+          id: "camd-plants-pt", type: "symbol", source: "camd-plants",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.35, 6, 0.55, 10, 0.85],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "color"],
+            "icon-halo-color": "rgba(5,10,19,0.95)",
+            "icon-halo-width": 1.3,
+          },
+        });
+        detach = attachLayerInteractions(map, "camd-plants-pt", (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties;
+          const pct = typeof p.utilizationPct === "number" ? p.utilizationPct : null;
+          const dossierKey = `camdplant:${p.facilityId}:${Date.now()}`;
+          setDetail({
+            kind: "camdplant",
+            title: p.name,
+            subtitle: `EPA CAMD ground truth · TX · ${d.year} Q${d.quarter}`,
+            stats: [
+              { label: "Utilization", value: pct != null ? `${(pct * 100).toFixed(0)}%` : "—" },
+              { label: "Units", value: String(p.unitCount ?? "—") },
+              { label: "Op hours", value: Number.isFinite(p.sumOpTime) ? Number(p.sumOpTime).toLocaleString() : "—" },
+              { label: "Gross load", value: Number.isFinite(p.sumGrossLoad) ? `${Number(p.sumGrossLoad).toLocaleString()} MW-days` : "—" },
+            ],
+            sourceTag: "EPA CAMD CEMS",
+            body: `${p.primaryFuelInfo ? `Primary fuel: ${p.primaryFuelInfo}\n` : ""}` +
+                  `${p.ownerOperator ? `Operator: ${p.ownerOperator}\n` : ""}` +
+                  `Utilization = operating hours actually reported to EPA's Continuous Emissions Monitoring system, as a fraction of every possible unit-hour in ${d.year} Q${d.quarter} — direct ground truth, not a modeled estimate.\n` +
+                  `v1 pilot scope: Texas only. ${d.key_mode === "shared api.data.gov DEMO_KEY (rate-limited)" ? "Served via the shared api.data.gov DEMO_KEY." : "Served via a dedicated EPA CAMD API key."}\n` +
+                  `RAW ground-truth reading, no predictive claim — this stream exists to validate OTHER inference roots (satellite/imagery power-utilization estimators), not as a trading signal itself.`,
+            dossierKey,
+          });
+          fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+        });
+        setStatus("plant_operations", "active", geoFacilities.length,
+          `${d.year} Q${d.quarter} · TX pilot · ${d.facilities.length - geoFacilities.length} unmatched (no position)`);
+      },
+      (failures) => setStatus("plant_operations", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.plant_operations, mapReady, mapSettled, setStatus]);
+
   // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
   // domain — first Location Context Engine hazard layer. Points colored by NPL
   // status; every site passed the server-side data-quality gate. Facts only —
@@ -8544,6 +8656,7 @@ export default function DataMapPage() {
     id === "vessels" ? <Ship size={15} /> :
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
+    id === "plant_operations" ? <Gauge size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -8577,7 +8690,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

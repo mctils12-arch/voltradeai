@@ -302,6 +302,17 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   Mike's keys" line two entries up had gone stale in two different
   directions at once; nothing in the DATACORE MAXIMUS program is
   actually key-blocked as of this session.
+- **EPA CAMD /data map layer: SHIPPED 2026-07-20** — the 2026-07-18
+  entry's own item (4) NEXT step: `plant_operations` layer in
+  datamap.tsx (facilities group), one marker per TX facility from the
+  newest archived quarter, tinted by a DATA-DRIVEN utilization tier
+  (operating-hours fraction, `camdUtilizationPct`/`camdUtilizationColor`
+  in mapIcons.ts) rather than fuel type — the point of this stream is
+  ground truth, so the map leads with the number that's actually new.
+  RAW, no predictive claim (registry `kind: "raw"`). Facilities whose
+  facility/attributes join missed a position render nothing, honestly,
+  rather than guessed; the click card discloses the unmatched count.
+  Full trace in experiments.md. Program queue is clear again.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
