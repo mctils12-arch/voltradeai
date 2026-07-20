@@ -3666,22 +3666,25 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   align-items: center; justify-content: center;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
 }
-.vt-nav-fab[aria-expanded="true"] { color: var(--flight-accent); border-color: rgba(77, 163, 255, 0.4); }
+/* NORTH-LOCK pill in space mode: same FAB slot, wide (FLY HOME text) */
+.vt-nav-fab.vt-nav-flyhome {
+  width: auto; padding: 0 16px; border-radius: 22px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px;
+  font-weight: 600;
+}
+/* phone: the cluster is TOO MUCH (human 2026-07-20) — no expandable
+   controls at all; the FAB *is* the control (north lock: tap = face
+   north, then 90° steps; in space it is the FLY HOME pill). */
 @media (max-width: 639px) {
   .vt-nav-fab { display: flex; }
   .vt-nav-cluster { display: none; }
-  .vt-nav-cluster.vt-nav-open { display: flex; right: 8px; bottom: 148px; top: auto; justify-content: flex-end; }
-  .vt-map-page[data-vt-panel-open="true"] .vt-nav-cluster { right: 8px; } /* phone panel overlays instead */
 }
 /* analyst pane open at mid widths: the left-docked pane and the shifted
    cluster share the same band (harness-caught at 768: send button covered)
-   — collapse to the FAB like the phone (transient, reopenable on top). */
+   — collapse to the north-lock button like the phone. */
 @media (max-width: 1279px) {
   .vt-map-page[data-vt-analyst-open="true"] .vt-nav-fab { display: flex; }
   .vt-map-page[data-vt-analyst-open="true"] .vt-nav-cluster { display: none; }
-  .vt-map-page[data-vt-analyst-open="true"] .vt-nav-cluster.vt-nav-open {
-    display: flex; right: 8px; bottom: 148px; top: auto; justify-content: flex-end;
-  }
 }
 
 /* ── hint bar (top-center; hidden under 860px per the handoff) ────────── */

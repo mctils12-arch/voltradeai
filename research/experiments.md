@@ -22736,3 +22736,32 @@ remembered; controls regression probe re-ran ALL PASSED (native pan,
 17.50 zoom ceiling, tilt 84, latch, plane click, space FLY HOME);
 harness 0 hard failures at 390/768/1440; python suite 822 passed.
 BACKTEST: N/A (pure client).
+
+## 2026-07-20 — [PRODUCT] T-CLIENT: phone NORTH LOCK — one compass button replaces the whole cluster on mobile (v1.0.447)
+
+HUMAN DIRECTIVE (verbatim, with screenshot): "mobile does not need the
+new controls just the north lock and if you tap it it will go 0 90 180
+360 … it just too much for mobile to have".
+
+CHANGE: <640px the control cluster is GONE entirely (no FAB-expandable
+stack — that mechanism is deleted, openOnPhone/vt-nav-open removed with
+its CSS per the staleness rule). In its place, the existing FAB slot
+becomes the NORTH LOCK: a 44px compass button whose needle tracks the
+live bearing (same map-move paint as the desktop dial); tap = ease to
+face north; when already squared on a 90° step, each tap turns one
+quarter further — 0 → 90 → 180 → 270 → 0, always the shortest way,
+450ms ease. Touch gestures stay fully native (pan/pinch/two-finger
+rotate untouched). In SPACE mode on phone the same slot shows only a
+FLY HOME pill (pinch covers zoom; a phone user can never be stranded
+past the globe). The analyst-open ≤1279px collapse now lands on the
+north-lock button instead of the expandable stack. Desktop unchanged.
+
+VERIFICATION: dedicated phone probe (390×844, touch) ALL PASSED —
+cluster display:none, compass visible, tap cycle measured exactly
+37→0→90→180→270→0, space shows FLY HOME pill only and it lands back on
+the map; desktop regression probes re-ran ALL PASSED (controls + panel
+layout memory; one flaky orbit-drag reading under probe CPU contention
+passed deterministically when run alone, hint-bar dragScheme proxy
+true); harness 0 hard failures at 390/768/1440; unit suites 14/14
+(cameraRig+panelLayout); python 822 passed. BACKTEST: N/A (pure
+client).

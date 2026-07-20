@@ -39,7 +39,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
 import {
   RIG_DAMPING_PER_S,
@@ -127,13 +126,11 @@ export default function MapNavCluster({
   suspendedRef.current = !!suspended;
   const followRef = useRef<MapNavClusterProps["followTarget"]>(followTarget);
   followRef.current = followTarget;
-  // phone: collapsed by default behind a compass FAB (DESIGN.md rule 2 —
-  // controls collapse on phone; desktop always shows the cluster).
-  const [openOnPhone, setOpenOnPhone] = useState(false);
+  // phone: NO cluster at all (human 2026-07-20: "mobile does not need the
+  // new controls just the north lock … it just too much for mobile") — CSS
+  // hides the cluster <640px and shows one compass button instead.
   // layout memory (human 2026-07-20): the cluster is draggable by its grip,
   // minimizable to a chip, lockable, and the placement/state is remembered.
-  // Desktop only — the phone keeps its FAB collapse pattern.
-  const isPhone = useIsMobile();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [navLocked, setNavLocked] = useState<boolean>(() => !!getPanelPrefs("nav-cluster").locked);
   const navLockedRef = useRef(navLocked);
@@ -146,7 +143,7 @@ export default function MapNavCluster({
   const toggleNavLock = () =>
     setNavLocked((v) => { const n = !v; savePanelPrefs("nav-cluster", { locked: n }); return n; });
   const setNavMinimized = (v: boolean) => { setNavMin(v); savePanelPrefs("nav-cluster", { min: v }); };
-  const minChipActive = navMin && !isPhone;
+  const minChipActive = navMin;
   // re-apply the remembered spot whenever the rendered variant swaps (the
   // suspended stack, the mini chip and the full cluster are separate nodes)
   useEffect(() => {
@@ -155,17 +152,34 @@ export default function MapNavCluster({
   }, [suspended, minChipActive, mapReady]);
 
   // compass ring rotation follows the LIVE camera (also when other systems
-  // move it): cheap DOM write on the map's own move events.
+  // move it): cheap DOM write on the map's own move events. The phone
+  // compass button's needle rides the same paint.
+  const fabRingRef = useRef<SVGGElement | null>(null);
   useEffect(() => {
     if (!map || !mapReady) return;
     const paint = () => {
-      const el = ringRef.current;
-      if (el) el.setAttribute("transform", `rotate(${-map.getBearing()} 46 46)`);
+      const b = -map.getBearing();
+      ringRef.current?.setAttribute("transform", `rotate(${b} 46 46)`);
+      fabRingRef.current?.setAttribute("transform", `rotate(${b} 12 12)`);
     };
     paint();
     map.on("move", paint);
     return () => { try { map.off("move", paint); } catch {} };
   }, [map, mapReady]);
+
+  // NORTH LOCK (human 2026-07-20): the phone's single control. Tap = face
+  // north; when already squared on a 90° step, each tap turns one quarter
+  // further — 0 → 90 → 180 → 270 → 0. Shortest-way ease, never a snap cut.
+  const tapNorthCycle = () => {
+    if (!map) return;
+    try {
+      const raw = ((map.getBearing() % 360) + 360) % 360;
+      const nearest = Math.round(raw / 90) * 90;
+      const onStep = Math.abs(raw - nearest) < 2;
+      const target = onStep ? (nearest + 90) % 360 : 0;
+      map.easeTo({ bearing: target, duration: 450 });
+    } catch {}
+  };
 
   // ── the rig loop ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -539,7 +553,7 @@ export default function MapNavCluster({
   if (minChipActive) {
     // minimized: one compass chip, still draggable/remembered; click restores
     return (
-      <div ref={rootRef} className="vt-nav-cluster vt-nav-open" data-vt-nav data-vt-nav-min>
+      <div ref={rootRef} className="vt-nav-cluster" data-vt-nav data-vt-nav-min>
         <div className="vt-nav-card vt-nav-chiprow" {...navDrag}
              style={{ cursor: navLocked ? "default" : "grab", touchAction: "none" }}
              title={navLocked ? "Position locked" : "Drag to move · click the compass to restore"}>
@@ -575,7 +589,15 @@ export default function MapNavCluster({
       onLostPointerCapture: stopSpaceHold,
     });
     return (
-      <div ref={rootRef} className="vt-nav-cluster vt-nav-open" data-vt-nav role="group" aria-label="Space view navigation">
+      <>
+        {/* phone: just the way home (pinch covers zoom; the cluster is
+            hidden <640px) — the space view must never strand a phone user */}
+        <button className="vt-nav-fab vt-nav-flyhome" data-vt-nav-fab
+                title="Fly home to the live map" aria-label="Fly home to the live map"
+                onClick={() => onSuspendedReset?.()}>
+          FLY HOME
+        </button>
+        <div ref={rootRef} className="vt-nav-cluster" data-vt-nav role="group" aria-label="Space view navigation">
         {gripRow}
         <div className="vt-nav-lbl">ZOOM</div>
         <div className="vt-nav-card vt-nav-btncol">
@@ -594,7 +616,8 @@ export default function MapNavCluster({
                 title="Fly home to the live map" onClick={() => onSuspendedReset?.()}>
           FLY HOME
         </button>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -611,15 +634,22 @@ export default function MapNavCluster({
 
   return (
     <>
-      {/* phone FAB (collapsed-by-default per DESIGN.md; desktop hides it) */}
-      <button className="vt-nav-fab" data-vt-nav-fab aria-label={openOnPhone ? "Hide map navigation" : "Show map navigation"}
-              aria-expanded={openOnPhone} onClick={() => setOpenOnPhone((v) => !v)}>
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M15.5 8.5 13 13l-4.5 2.5L11 11z" fill="currentColor" stroke="none" />
+      {/* phone (and analyst-collapsed mid widths): ONE compass button —
+          the whole cluster is too much for a phone (human 2026-07-20).
+          The needle tracks the live bearing; tap = face north; when
+          already squared, each tap turns 90° further. CSS decides when
+          this shows (<640px, or analyst open ≤1279px). */}
+      <button className="vt-nav-fab" data-vt-nav-fab aria-label="Rotate view: face north, then 90° steps"
+              title="Tap: face north · tap again: turn 90°" onClick={tapNorthCycle}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <g ref={fabRingRef}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 4.6 14.3 12l-2.3-1.4L9.7 12z" fill="#ff6b6b" stroke="none" />
+            <path d="M12 19.4 9.7 12l2.3 1.4 2.3-1.4z" fill="currentColor" stroke="none" opacity="0.65" />
+          </g>
         </svg>
       </button>
-      <div ref={rootRef} className={`vt-nav-cluster${openOnPhone ? " vt-nav-open" : ""}`} data-vt-nav role="group" aria-label="Map navigation">
+      <div ref={rootRef} className="vt-nav-cluster" data-vt-nav role="group" aria-label="Map navigation">
         {gripRow}
         <div className="vt-nav-compass" data-vt-nav-compass title="Drag to rotate · click N to reset"
              onPointerDown={onDialDown} onPointerMove={onDialMove}
