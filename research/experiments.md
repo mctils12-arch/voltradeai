@@ -3,6 +3,150 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-20 [REPAIR]+[RESEARCH] — GEM methane join was silently dead on prod since gate-2(a) (packaging defect, fixed) + first real gate-2(c) base-rate verdict on the re-joined data (v1.0.441, T-DATACORE, scheduled-routine session)
+
+TERRITORY: T-DATACORE (script/build.ts, server/repoFiles.test.ts,
+server/gemMethaneAssets.test.ts, scripts/gem_methane_gate2c.py — new
+standalone research script, no runtime import). package.json/
+package-lock.json touched last, minimally, per WORKSTREAM PARTITION.
+
+LIVE HEALTH CHECK first (GOAL priority 1): `/api/health` — status ok,
+`bot.liveness.dark: false`, `scanner.consecutiveFailures: 0`,
+`drawdownPct: "0.0"`. Server had recently restarted (uptime ~530s at
+session start, following the prior human-directed T-CLIENT session's
+merges); `/api/diag/audit` showed clean TIER2 cycles post-restart, no
+active recurrence of KNOWN BROKEN #18's TIER2-ERROR/throttle-overcommit
+storm (still open, instrumented v1.0.418, needs a fresh occurrence's
+`/api/diag/timings` reading to judge — not actionable this session, no
+new data since the restart).
+
+LOOP-HEALTH RATIO: of the last 10 real (non-docs-only) merged PRs by PR
+number (#552–#562, excluding the reverted #561 and the docs-only #563),
+2 are [REPAIR] (#552 CSP-prefetch instrumentation, #562 this session's
+flight-track salvage precedent) — 2/10, nowhere near the 7+ thrash
+threshold. NOTE: experiments.md's own append convention ("newest at top")
+was broken by several recent human-directed sessions that appended at the
+bottom instead (visible by comparing PR numbers to file position) — flagged
+here for the next STALENESS AUDIT rather than silently corrected mid-session
+(append-only; not this session's territory to reorder history).
+
+PRIMARY ACTION: research/open_questions.md's GEM METHANE-PLUME ×
+EXTRACTION-REGISTRY PROXIMITY hypothesis had its NEXT STEP explicitly filed
+by the prior gate-2(b) session — (c), a same-universe base-rate test
+(REASONING STANDARD #3). Built `scripts/gem_methane_gate2c.py` to run it
+(ticker resolution: GEM Entity ID join for coal mines via
+`coal_mine_tracker.json.gz`'s own Owner/Parent GEM Entity ID columns —
+found by inspecting the raw file, not assumed from `gemMethaneAssets.ts`'s
+TS model which drops these columns; exact-normalized-name join for oil/gas
+via `ownership.json.gz`'s entities, reusing `server/usaSpending.ts`'s
+`normalizeCompanyName`/collision-drop precedent ported to Python; CIK ->
+ticker via SEC's company_tickers.json, same suffix-preference de-dup as
+`server/sec8kEarnings.ts`'s `getCikTickerMap`).
+
+BUG FOUND (before the research script could produce anything): live-
+querying `/api/data/methane-plumes` and `/api/data/methane-plumes/asset-stats`
+on production returned `matchedCount:0, ambiguousCount:0, assetStats:[]` —
+the proximity join has had NOTHING to match against on every real deploy
+since gate-2(a) shipped (v1.0.409, 2026-07-19). ROOT CAUSE (traced via
+`server/repoFiles.ts`'s own docstring, which already names this exact
+defect class from the 2026-07-07 R14 repair): the frozen Dockerfile ships
+`dist/` only, so `gemMethaneAssets.ts`'s `repoDataPath("datacore/gem/
+oil_gas_extraction.json.gz")`/`coal_mine_tracker.json.gz` calls need those
+two files staged into `dist/datacore/gem/` by `script/build.ts` — but
+build.ts's copy list (added when `ownership.json.gz`/`methane_emitters.json.gz`
+were staged for gate-1/entityGraph) was never extended when gate-2(a) added
+these two NEW reads. `cachedGemAssets()` degraded to `{assets: []}` with no
+error anywhere — a silent empty result, not a crash, exactly the failure
+shape CLAUDE.md's GOAL section calls out as worse than a loud one. The
+2026-07-20 gate-2(b) session's own "LIVE BOOT" verification ("matches
+gate-2(a)'s own documented numbers exactly") was a FALSE POSITIVE: it ran
+`node dist/index.cjs` from a directory that still had the full repo-tree
+`datacore/` present, so `repoDataPath`'s working-tree-preferred branch
+masked the dist/ miss — the exact "verify the POSITIVE case on prod, not
+just error-free responses" lesson R14 already stated, not actually applied.
+
+FIX (v1.0.441): `script/build.ts` gained the two missing `cp()` calls.
+RATCHET (closing the gap that let this ship twice): `server/repoFiles.test.ts`'s
+existing build.ts ratchet was a hand-maintained 2-file string list that
+never grew when gate-2(a) added new reads — replaced with a scan of every
+real `repoDataPath("datacore/...")` call site across `server/*.ts`,
+asserting each is staged (would have failed the day gate-2(a) merged,
+instead of 1 day + an unknown number of production deploys later). Also
+added a genuinely behavioral test (`gemMethaneAssets.test.ts`) that builds
+a temp dir shaped exactly like the production image (`dist/datacore/gem/`
+only, no top-level `datacore/`) and proves `loadGemAssets()`'s default
+`repoDataPath()`-resolved paths actually return real assets through that
+layout — the existing `cachedGemAssets` test in the same file never
+exercised this because it always runs against a full repo checkout, which
+is exactly why the bug shipped invisibly under the existing suite.
+VERIFIED END-TO-END (not just unit tests): ran the real `npm run build`,
+copied ONLY the resulting `dist/` into a fresh scratch directory (no repo
+tree), and called `cachedGemAssets()`/`cachedGemMethaneProximity()` against
+it via `tsx` with `cwd` pointed at that directory — recovered
+`assets.length: 12437`, `matchedCount: 1027`, `ambiguousCount: 206`,
+`assetStats.length: 211`, exactly matching gate-2(a)'s original documented
+numbers, for real this time.
+
+GATES: `npx tsx --test server/*.test.ts` 761/761 (754 pass + 7 pre-existing
+baseline failures unrelated to this change — confirmed byte-identical via
+`git stash` A/B: aircraftTiling/apiKeyAccounts/compression/gdeltEvents/
+owmTiles/seafloorTiles/securityMiddleware, none touched here); `npx tsc
+--noEmit` 72 errors, identical count to the `git stash`-verified baseline;
+`npm run build` clean, `dist/datacore/gem/` confirmed to contain all four
+files. package.json/package-lock.json version bumped 1.0.440 → 1.0.441 at
+commit time (also silently corrected package-lock.json's root version
+fields, which had drifted to a stale 1.0.428 — the same recurring
+lockfile-drift class two prior sessions have each fixed once already; a
+`npm install` in this session's fresh sandbox surfaced it).
+
+BACKTEST: N/A — this is a data-pipeline packaging fix (no scoring/sizing/
+execution logic touched) plus a standalone, non-wired research script.
+
+SECOND ACTION (same session, enabled by the fix above — see
+open_questions.md's GEM METHANE entry for the full write-up): ran gate-2(c)
+for the first time against the now-correctly-joined data. Found and fixed
+TWO bugs in the new script itself during this process, both caught by
+direct verification against real data rather than trusted from a first
+clean-looking run: (1) CIK format mismatch — `ownership.json.gz` zero-pads
+CIKs (and a few rows carry a literal "CIK" prefix) while SEC's
+company_tickers.json uses bare ints; `server/entityGraph.ts`'s
+`ensureNode()` already guards this (`String(Number(cik))`) but the port
+missed it, so EVERY resolution silently returned zero tickers on the first
+run — caught by manually tracing one known-public operator (California
+Resources Corp) through the resolver instead of accepting "0 tickers
+resolved, INSUFFICIENT SAMPLE" as an honest null result without checking
+why. (2) the baseline-date sampler seeded its RNG with Python's builtin
+`hash(ticker)`, which is randomized per-process (`PYTHONHASHSEED`) — two
+runs of `hash("CRC")` in this same sandbox returned different values,
+silently breaking the reproducibility the script's own docstring promised;
+fixed with `zlib.crc32`, verified two independent runs now produce
+byte-identical output. RESULT after both fixes: only 8 of 3,473 plumes'
+operators resolve to a public ticker (ARLP/BTU/CNR/CODQL/CRC/CVX/HCC/METC),
+N=32 dated detection events — clears MIN_SAMPLE=20 for the first
+non-"INSUFFICIENT SAMPLE" verdict this hypothesis has ever gotten: **FAIL
+at all three horizons (5/20/60 trading days)** — no evidence assets with
+nearby plume detections underperform the same-ticker random-baseline-date
+alpha (raw means run the OTHER direction: 60d detect +16.1% vs baseline
++7.3%). The script's own added concentration diagnostic flags this as NOT
+cross-sectionally robust: California Resources Corp (CRC) — a 2020-vintage
+bankruptcy-emergence recovery story, unrelated to methane — alone accounts
+for 74-83% of total |alpha| at every horizon; the other 7 tickers show no
+consistent sign (CNR +1%, BTU -11%, CVX +14%, METC -1%, HCC +16%,
+CODQL +1%, ARLP -20% at 60d). Full caveats (lookahead: `observedAt` is
+GEM's satellite date, not a recorded disclosure date; resolution method:
+precision-first exact-ID/exact-normalized-name only) are stated in the
+script's own docstring, written BEFORE any return was computed per
+REASONING STANDARD #10.
+
+HYPOTHESIS STATUS: not supported by this pass, but N is too small and too
+concentrated in one name to count as a clean disconfirmation either —
+logged honestly as data-availability-limited, not as a closed question.
+NEXT STEP filed in open_questions.md: re-run once GEM ships a newer
+release (more history per already-resolved ticker reduces single-name
+dominance); widen the oil/gas name-match against `ownership.json.gz`'s
+`Abbreviation` field; (d) — disclosed-intensity matching — remains
+unsourced.
+
 ## 2026-07-20 [PRODUCT] — GEM methane-plume gate-2(b): repeat-detection count/rate per asset + /data hotspots view (v1.0.421, T-DATACORE+T-CLIENT, scheduled-routine session)
 
 TERRITORY: T-DATACORE (server/gemMethaneProximity.ts, server/routes.ts) +

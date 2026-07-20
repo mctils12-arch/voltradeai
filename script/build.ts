@@ -71,6 +71,17 @@ async function buildAll() {
   await cp("datacore/sentinel2/readings.jsonl", "dist/datacore/sentinel2/readings.jsonl");
   await cp("datacore/gem/ownership.json.gz", "dist/datacore/gem/ownership.json.gz");
   await cp("datacore/gem/methane_emitters.json.gz", "dist/datacore/gem/methane_emitters.json.gz");
+  // [REPAIR 2026-07-20] gemMethaneAssets.ts (server/gemMethaneAssets.ts,
+  // shipped v1.0.409 2026-07-19) reads these two via repoDataPath at
+  // runtime but was never added here — exactly the R14 defect class this
+  // comment block already names. Live-verified 2026-07-20: production's
+  // /api/data/methane-plumes served matchedCount:0/assetStats:[] on every
+  // request since gate-2(a) shipped (cachedGemAssets() silently degraded
+  // to zero assets, so the proximity join had nothing to match against —
+  // no error anywhere, just empty results, the exact silent-failure shape
+  // this resolver's own docstring warns about).
+  await cp("datacore/gem/oil_gas_extraction.json.gz", "dist/datacore/gem/oil_gas_extraction.json.gz");
+  await cp("datacore/gem/coal_mine_tracker.json.gz", "dist/datacore/gem/coal_mine_tracker.json.gz");
 }
 
 buildAll().catch((err) => {
