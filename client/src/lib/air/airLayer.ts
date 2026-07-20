@@ -36,6 +36,7 @@ import type {
 import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
+import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
  *
@@ -347,6 +348,7 @@ const LOCAL_EXTENT = 1.24; // silhouette spans ~[-0.62, 0.62]
 export const AIR_VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec2 a_local;           // silhouette vertex (per-vertex)
 in float a_altFrac;        // per-vertex altitude fraction: 1 for silhouettes;
                            // 0→1 for the ground drop-line (constant-attrib trick)
@@ -386,7 +388,7 @@ void main() {
     }
   }
 #endif
-  vec4 anchor = projectTileFor3D(g_xy, a_inst.z * u_altScale * a_altFrac);
+  vec4 anchor = projectTileFor3D(g_xy, vtProjElev(a_inst.z * u_altScale * a_altFrac, g_xy.y));
   float rot = radians(a_inst.w - u_bearing);
   float c = cos(rot);
   float s = sin(rot);
@@ -451,7 +453,13 @@ export class AirLayer implements CustomLayerInterface {
   private geomUploaded = false;
   private count = 0;
   private altScale = 1;
-  private renderFailed = false;
+  // SELF-HEALING render failures (2026-07-20, flightTrackLayer precedent):
+  // a transient GL exception (context loss under terrain load) used to
+  // latch the layer dead for the session — every plane silently gone even
+  // after the context recovered. Failures drop the GL objects and count a
+  // streak; the next poll's setInstances re-arms a clean rebuild.
+  private failStreak = 0;
+  private static readonly MAX_FAIL_STREAK = 5;
   private lastMainMatrix: Float32Array | null = null;
   private lastTransition = 0;
   // GLIDE anchor: clock reading (this.now domain, ms) at which the current
@@ -471,15 +479,25 @@ export class AirLayer implements CustomLayerInterface {
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
-    if (this.program) gl.deleteProgram(this.program);
-    for (const b of [...this.geomBuffers, this.lineBuffer, this.instBuffer]) if (b) gl.deleteBuffer(b);
+    this.dropGlObjects(gl);
+    this.map = null;
+  }
+
+  /** Forget every GL handle (safe on a lost context — deletes no-op) so
+   *  the next render rebuilds from scratch. */
+  private dropGlObjects(gl?: AnyGl): void {
+    try {
+      if (gl) {
+        if (this.program) gl.deleteProgram(this.program);
+        for (const b of [...this.geomBuffers, this.lineBuffer, this.instBuffer]) if (b) gl.deleteBuffer(b);
+      }
+    } catch { /* context gone — handles already invalid */ }
     this.program = null;
     this.geomBuffers = [];
     this.lineBuffer = this.instBuffer = null;
     this.cachedVariant = null;
     this.geomUploaded = false;
     this.instDirty = this.inst != null;
-    this.map = null;
   }
 
   /** Fresh tick's instance buffer + contiguous per-shape draw groups
@@ -492,6 +510,7 @@ export class AirLayer implements CustomLayerInterface {
       ? (groups && groups.length ? groups : [{ shape: AIR_SHAPE.DEFAULT, start: 0, count: this.count }])
       : [];
     this.instDirty = inst != null;
+    this.failStreak = 0; // fresh data re-arms rendering after transient GL failures
     this.map?.triggerRepaint();
   }
 
@@ -546,7 +565,7 @@ export class AirLayer implements CustomLayerInterface {
   }
 
   getRenderFailed(): boolean {
-    return this.renderFailed;
+    return this.failStreak >= AirLayer.MAX_FAIL_STREAK;
   }
 
   /** Last frame's projection matrix — non-null only in full globe mode
@@ -573,17 +592,21 @@ export class AirLayer implements CustomLayerInterface {
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
-    if (this.renderFailed) return;
+    if (this.failStreak >= AirLayer.MAX_FAIL_STREAK) return;
     if (!this.inst || this.count === 0) return;
     // LOD hand-off: the 2D symbol layer owns everything below the split
     if ((this.map?.getZoom() ?? 0) < AIR_3D_MIN_ZOOM) return;
-    if (!(gl instanceof WebGL2RenderingContext)) { this.renderFailed = true; return; } // instancing needs GL2 (maplibre v5 guarantees it)
+    if (!(gl instanceof WebGL2RenderingContext)) { this.failStreak = AirLayer.MAX_FAIL_STREAK; return; } // instancing needs GL2 (maplibre v5 guarantees it)
     try {
       this.renderInner(gl, args);
+      this.failStreak = 0; // a clean frame ends any failure streak
     } catch (e) {
-      this.renderFailed = true;
+      this.failStreak++;
+      this.dropGlObjects(gl); // stale handles from a lost context throw forever
       // eslint-disable-next-line no-console
-      console.error('AirLayer: disabling after render failure (map continues):', e);
+      console.error(
+        `AirLayer: render failure ${this.failStreak}/${AirLayer.MAX_FAIL_STREAK} ` +
+        '(GL objects dropped for a clean retry; map continues):', e);
     }
   }
 

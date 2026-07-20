@@ -23133,3 +23133,53 @@ rendering as an unmatched (null lat/lon, dropped from the map) rather
 than a wrong position, but still a completeness gap worth a dedicated
 look once the 8-quarter backfill is further along and the unmatched
 count can be measured for real.
+## 2026-07-20 — [REPAIR] T-CLIENT: THE flat-map 3D bug — elevation units for custom-layer projection; self-healing GL layers (v1.0.453)
+
+HUMAN REPORT (verbatim + 4 screenshots, same plane from different
+angles): "yes the 3d trail/curtain does not show. there is issue with
+the terrain 3d it breaks and show a white page some times" + two
+reference designs (flight-path-3d = the installed handoff prototype;
+sat-inspect-v2 = NEW, 403 on fetch — awaiting file upload).
+
+ROOT CAUSE 1 (probe-proven, the big one): MapLibre's custom-layer
+projection matrices consume DIFFERENT elevation units per projection —
+full GLOBE wants METERS; MERCATOR (the flat map, which the user runs)
+wants MERCATOR-UNIT z. Measured through the live matrix: z=0 matched
+map.project to the pixel; z=10,668 m gave w ≈ −1.84e9 → clip garbage.
+EVERY 3D custom layer (flight track, aircraft silhouettes, satellites,
+sat models, orbit arcs) passed raw meters — perfect on the globe,
+smeared sheets / fragments / flung-off-screen geometry on flat maps.
+The CPU pick paths already encoded the split (…ScreenMercator uses
+mercatorZFromAltitude) — only the shaders were wrong. FIX: new
+lib/glElev.ts — GLSL vtProjElev(eleMeters, mercY): meters in full
+globe (transition>0.999), else meters·cosh(π(1−2y))/(2πR) (the exact
+sech-identity mirror of the pinned CPU mercatorZFromAltitude, which is
+unit-tested against MapLibre's public MercatorCoordinate.fromLngLat);
+injected into all five vertex shaders; every projectTileFor3D call
+wrapped. Verified: replayed the user's REAL production track (AAL2861/
+acb827, fetched live: 31 pts/30 h — trim keeps the current flight's 6)
+in pure mercator — before: giant violet smear (census 138); after:
+correct wall at every angle (census 2,221–3,030, globe parity),
+eyeballed screenshots at overhead/55°/80°.
+
+ROOT CAUSE 2 (the "sometimes never comes back" half): every GL layer
+had a PERMANENT failure latch — one transient GL exception (context
+loss during a terrain hiccup = the white-page episodes) killed the
+layer for the session even after recovery, and stale GL handles from a
+lost context would throw forever anyway. FIX (flightTrackLayer +
+airLayer): failures DROP the GL objects and count a streak (5
+consecutive = disabled); any success or fresh data (every poll) resets
+— the layer rebuilds cleanly on the recovered context. Latch test
+UPDATED to the stronger self-healing contract. datamap re-kicks
+repaintTrail3d on webglcontextrestored. (satLayer/modelLayer/arcLayer
+still have the old latch — noted in open_questions as follow-up.)
+Also: the ARCHIVE DENSITY finding — cruise sampling is 5 min ⇒ 68–140
+km straight slabs between real fixes; honest but angular. Filed for a
+follow-up server change (T-DATACORE: cruise 5min→~75s, gz volume a few
+MB/day).
+
+VERIFICATION: 138 unit tests pass across the affected suites (glElev
+3 new incl. the MapLibre ground-truth pin; guard tests generalized to
+multiple GLOBE blocks — invariant unchanged); real-data mercator +
+globe probes eyeballed; port/live/phone probes ALL PASSED; harness 0
+hard failures at 390/768/1440; python 825 passed. BACKTEST: N/A.

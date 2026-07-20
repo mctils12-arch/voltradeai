@@ -11,13 +11,15 @@ import { OCCLUSION_RADIUS } from './occlusion.js';
 const src = MODEL_VERT_SRC('/* prelude stub */', '#define GLOBE');
 
 test('far-side cull: identical formulas to satLayer/occlusion, guarded to GLOBE', () => {
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  assert.ok(ifdef >= 0 && endif > ifdef);
-  const block = src.slice(ifdef, endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  assert.ok(__guards.length > 0);
   for (const sym of ['u_projection_clipping_plane', 'u_projection_transition', 'projectToSphere', 'GLOBE_RADIUS']) {
-    assert.ok(block.includes(sym), `cull block uses ${sym}`);
-    const outside = src.slice(0, ifdef) + src.slice(endif);
+    assert.ok(__guarded.includes(sym), `cull block uses ${sym}`);
+    const outside = __outside;
     assert.ok(!outside.includes(sym), `${sym} must not leak outside #ifdef GLOBE (mercator prelude lacks it)`);
   }
   assert.ok(src.includes('u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w)'),
@@ -29,7 +31,7 @@ test('far-side cull: identical formulas to satLayer/occlusion, guarded to GLOBE'
 });
 
 test('anchor projects through projectTileFor3D and offsets scale by anchor.w (constant pixel size)', () => {
-  assert.ok(src.includes('projectTileFor3D(u_anchor.xy, u_anchor.z)'),
+  assert.ok(src.includes('projectTileFor3D(u_anchor.xy, vtProjElev(u_anchor.z, u_anchor.y))'),
     'the model rides the SAME altitude-aware projection as the point field');
   assert.ok(/\* anchor\.w/.test(src),
     'clip-space offsets multiply by anchor.w — the constant-screen-size contract');

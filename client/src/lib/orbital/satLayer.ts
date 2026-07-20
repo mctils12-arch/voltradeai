@@ -48,6 +48,7 @@ import { SAT_STRIDE, readSatAt } from './satBuffer.js';
 import { cameraFromClippingPlane, type Vec3 } from './occlusion.js';
 import type { SatPositionsMessage } from './satWorker.js';
 import { metersPerPixel } from '../lod.js';
+import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -291,6 +292,7 @@ export function tickAnchorFromSimEpoch(
 export const VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec4 a_data;            // x=mercX(0..1) y=mercY(0..1) z=altMeters w=classCode
 in vec3 a_vel;             // GLIDE: d/dt of (mercX, mercY, altMeters) per second
 in float a_shape;          // SYMBOLS NOT DOTS: 0=unidentified(dot) 1=payload 2=rocket body 3=debris
@@ -350,7 +352,7 @@ void main() {
     }
   }
 #endif
-  gl_Position = projectTileFor3D(g_xy, g_alt);
+  gl_Position = projectTileFor3D(g_xy, vtProjElev(g_alt, g_xy.y));
   // identified objects draw as type glyphs and need more pixels to read
   gl_PointSize = a_shape > 0.5 ? u_size * 2.6 : u_size;
   v_color = cls < 0.5 ? u_colorLEO : (cls < 1.5 ? u_colorMEO : u_colorGEO);

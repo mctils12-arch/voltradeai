@@ -68,12 +68,15 @@ test('buildArcVertices: ribbon quads; gaps and antimeridian jumps break the line
 
 test('shader contract: true-altitude projection, GLOBE-guarded fragment-discard cull', () => {
   const src = ARC_VERT_SRC('/* prelude stub */', '#define GLOBE');
-  assert.ok(src.includes('projectTileFor3D(a_pos.xy, a_pos.z)'), 'arc vertices at REAL altitude');
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  assert.ok(src.includes('projectTileFor3D(a_pos.xy, vtProjElev(a_pos.z, a_pos.y))'), 'arc vertices at REAL altitude');
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   for (const sym of ['u_projection_clipping_plane', 'u_projection_transition', 'projectToSphere', 'GLOBE_RADIUS']) {
-    assert.ok(src.slice(ifdef, endif).includes(sym) && !outside.includes(sym), `${sym} inside the GLOBE guard`);
+    assert.ok(__guarded.includes(sym) && !outside.includes(sym), `${sym} inside the GLOBE guard`);
   }
   assert.ok(src.includes((OCCLUSION_RADIUS * OCCLUSION_RADIUS).toFixed(6)), 'cull radius² matches ./occlusion');
   assert.ok(src.includes('v_cull = 1.0'), 'far side flags the fragment stage (discard), never snaps a vertex');

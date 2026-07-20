@@ -119,7 +119,7 @@ test('tail builder emits the same layout from one from→to pair', () => {
 
 test('shader contract pins: projectTileFor3D, GLOBE far-side fragment discard, wall rim exemption', () => {
   const vs = FT_VERT_SRC('/*prelude*/', '#define GLOBE');
-  assert.ok(vs.includes('projectTileFor3D(a_pos.xy, a_pos.z)'), 'true-altitude projection');
+  assert.ok(vs.includes('projectTileFor3D(a_pos.xy, vtProjElev(a_pos.z, a_pos.y))'), 'true-altitude projection');
   assert.ok(vs.includes('0.998001'), 'far-side cull constant (OCCLUSION_RADIUS²)');
   assert.ok(vs.includes('v_cull'), 'cull flagged to the fragment stage, vertices never snapped');
   assert.ok(FT_FRAG_SRC.includes('discard'), 'fragment discard');
@@ -176,14 +176,23 @@ test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cul
   assert.ok(calls.includes('drawElements'), 'geometry drawn');
 });
 
-test('render is a no-op with nothing set, and latches off after a GL failure', () => {
+test('render is a no-op with nothing set; GL failures SELF-HEAL (streak + re-arm), never a session-long latch', () => {
   const layer = new FlightTrackLayer();
   const exploding: any = new Proxy({}, { get: () => { throw new Error('boom'); } });
   layer.render(exploding, {} as any); // nothing set → returns before touching gl
   assert.equal(layer.getRenderFailed(), false, 'no-op path never touches gl');
   layer.setTrack(input2(), 1);
+  // one transient failure (context loss during a terrain hiccup) must NOT
+  // kill the layer for the session — the 2026-07-20 "trail does not show" bug
   layer.render(exploding, {} as any);
-  assert.equal(layer.getRenderFailed(), true, 'failure latch trips instead of crashing the map');
+  assert.equal(layer.getRenderFailed(), false, 'a single failure is retried, not latched');
+  // a persistent streak (5 consecutive) disables it…
+  for (let i = 0; i < 4; i++) layer.render(exploding, {} as any);
+  assert.equal(layer.getRenderFailed(), true, 'persistent failures disable the layer');
+  layer.render(exploding, {} as any); // disabled → early return, no throw
+  // …and fresh data (every poll calls setTrack) re-arms a clean rebuild
+  layer.setTrack(input2(), 1);
+  assert.equal(layer.getRenderFailed(), false, 'new data re-arms rendering after recovery');
 });
 
 test('projectToScreen uses the cached frame matrix (mercator: matrix × [merc, altMeters])', () => {

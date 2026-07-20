@@ -23,6 +23,7 @@ import type {
   Map as MapLibreMap,
 } from 'maplibre-gl';
 import { buildFormMesh, rotationMat3, type FormKind, type Mesh } from './model3d.js';
+import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -37,6 +38,7 @@ export interface ModelAnchor {
 export const MODEL_VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec3 a_pos;             // model space, ~[-1.2, 1.2]
 in vec3 a_normal;
 in vec3 a_color;
@@ -67,7 +69,7 @@ void main() {
     }
   }
 #endif
-  vec4 anchor = projectTileFor3D(u_anchor.xy, u_anchor.z);
+  vec4 anchor = projectTileFor3D(u_anchor.xy, vtProjElev(u_anchor.z, u_anchor.y));
   vec3 p = u_rot * a_pos;
   // constant-pixel-size: clip-space offset scaled by w cancels perspective
   gl_Position = anchor + vec4(p.x * u_scaleClip / u_aspect, p.y * u_scaleClip, 0.0, 0.0) * anchor.w;

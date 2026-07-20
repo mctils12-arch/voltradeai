@@ -2500,6 +2500,23 @@ export default function DataMapPage() {
     try { map.on("dragstart", release); } catch {}
     return () => { try { map.off("dragstart", release); } catch {} };
   }, [mapReady]);
+  // GL context recovery (2026-07-20 "white page sometimes" report): when
+  // the browser restores a lost WebGL context, MapLibre rebuilds its own
+  // layers — kick the flight track too so the trail returns without
+  // waiting for the next poll (the layers' fail-streak reset handles the
+  // rest).
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const onRestore = () => {
+      try { repaintTrail3d(); } catch {}
+      try { map.triggerRepaint(); } catch {}
+    };
+    try { map.on("webglcontextrestored" as any, onRestore); } catch {}
+    return () => { try { map.off("webglcontextrestored" as any, onRestore); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
   const flightShapeRef = useRef(0);
   // the selected plane's latest BROADCAST rates (real feed values — the

@@ -97,8 +97,8 @@ test('shader contract: constant-pixel extrusion by w/viewport, width uniform, cu
   const src = ARC_VERT_SRC('/* prelude stub */', '#define GLOBE');
   // extrusion: both endpoints projected at TRUE altitude, ribbon extruded in
   // screen space and scaled back by w so the width is pixel-constant
-  assert.ok(src.includes('projectTileFor3D(a_pos.xy, a_pos.z)'), 'this endpoint at REAL altitude');
-  assert.ok(src.includes('projectTileFor3D(a_other.xy, a_other.z)'), 'other endpoint projected for the screen direction');
+  assert.ok(src.includes('projectTileFor3D(a_pos.xy, vtProjElev(a_pos.z, a_pos.y))'), 'this endpoint at REAL altitude');
+  assert.ok(src.includes('projectTileFor3D(a_other.xy, vtProjElev(a_other.z, a_other.y))'), 'other endpoint projected for the screen direction');
   assert.ok(src.includes('uniform float u_width'), 'default width is a uniform');
   assert.ok(src.includes('uniform vec2 u_viewport'), 'viewport uniform for px→NDC');
   assert.ok(src.includes('(widthPx * 0.5) * 2.0 / u_viewport'), 'half-width in px converted via viewport');
@@ -106,11 +106,14 @@ test('shader contract: constant-pixel extrusion by w/viewport, width uniform, cu
   assert.ok(src.includes('a_ext.z > 0.0 ? a_ext.z : u_width'), 'per-arc width override falls back to the uniform');
   // far-side cull: same GLOBE-guarded fragment-flag pattern as before —
   // vertices are never snapped for culling (ribbons would smear)
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   for (const sym of ['u_projection_clipping_plane', 'u_projection_transition', 'projectToSphere', 'GLOBE_RADIUS']) {
-    assert.ok(src.slice(ifdef, endif).includes(sym) && !outside.includes(sym), `${sym} inside the GLOBE guard`);
+    assert.ok(__guarded.includes(sym) && !outside.includes(sym), `${sym} inside the GLOBE guard`);
   }
   assert.ok(src.includes('0.998001'), 'cull radius² unchanged (OCCLUSION_RADIUS²)');
   assert.ok(src.includes('v_cull = 1.0'), 'far side flags the FRAGMENT stage — never a snapped vertex');

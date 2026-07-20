@@ -29,16 +29,17 @@ const PRELUDE = '/* prelude stub */';
 const src = VERT_SRC(PRELUDE, '#define GLOBE');
 
 test('far-side cull block exists and is guarded to the GLOBE shader variant', () => {
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  assert.ok(ifdef >= 0, 'has #ifdef GLOBE');
-  assert.ok(endif > ifdef, 'has matching #endif');
-  const block = src.slice(ifdef, endif);
-  // globe-only symbols must ONLY appear inside the guard, or the mercator
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  assert.ok(__guards.length > 0, 'has #ifdef GLOBE guards');
+  // globe-only symbols must ONLY appear inside a guard, or the mercator
   // variant (whose prelude lacks them) would fail to compile.
   for (const sym of ['u_projection_clipping_plane', 'u_projection_transition', 'projectToSphere', 'GLOBE_RADIUS']) {
-    assert.ok(block.includes(sym), `cull block uses ${sym}`);
-    const outside = src.slice(0, ifdef) + src.slice(endif);
+    assert.ok(__guarded.includes(sym), `cull block uses ${sym}`);
+    const outside = __outside;
     assert.ok(!outside.includes(sym), `${sym} must not leak outside #ifdef GLOBE`);
   }
 });
@@ -75,16 +76,21 @@ test('altitude enters the sphere position (GEO must cull differently from LEO)',
 
 test('sentinel slots are still culled before the far-side test', () => {
   const sentinel = src.indexOf('cls < 0.0');
-  const cull = src.indexOf('#ifdef GLOBE');
+  // the far-side cull block is the one that projects the glided position
+  // (the vtProjElev guard higher up is a unit conversion, not the cull)
+  const cull = src.indexOf('projectToSphere(g_xy)');
   assert.ok(sentinel >= 0 && sentinel < cull, 'sentinel check precedes the far-side cull');
 });
 
 // ── LOD envelope fade (EARTH TWIN A1 / E0-2) ──
 
 test('LOD: u_opacity is declared OUTSIDE the GLOBE guard and scales the final alpha', () => {
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   assert.ok(outside.includes('uniform float u_opacity;'),
     'u_opacity must compile in BOTH projection variants (declared outside #ifdef GLOBE)');
   const alphaMul = src.indexOf('v_color.a *= u_opacity;');
@@ -108,9 +114,12 @@ test('LOD: setGlobalOpacity clamps to 0..1 and getGlobalOpacity reports it (no-G
 // ── SYMBOLS NOT DOTS (human-directed 2026-07-15) ──
 
 test('SHAPES: a_shape declared outside the GLOBE guard; glyph branches exist; dot stays the unidentified fallback', () => {
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   assert.ok(outside.includes('in float a_shape;'), 'a_shape compiles in BOTH projection variants');
   assert.ok(src.includes('v_shape = a_shape;'), 'shape code reaches the fragment stage');
   assert.ok(/a_shape > 0\.5 \? u_size \* 2\.6 : u_size/.test(src),
@@ -145,16 +154,19 @@ test('LOD: at opacity 0 render() is a no-op even with data loaded (zero GPU cost
 // ── PER-FRAME VELOCITY GLIDE (human directive 2026-07-17) ──
 
 test('GLIDE shader contract: a_vel + u_dtSec exist OUTSIDE the GLOBE guard; position and cull use the glided coords', () => {
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   assert.ok(outside.includes('in vec3 a_vel;'), 'a_vel compiles in BOTH projection variants');
   assert.ok(outside.includes('uniform float u_dtSec;'), 'u_dtSec compiles in BOTH projection variants');
   // glided position: base + velocity × dt, antimeridian-wrapped X, pole-clamped Y
   assert.ok(src.includes('fract(a_data.x + a_vel.x * u_dtSec)'), 'X glides and wraps via fract');
   assert.ok(src.includes('clamp(a_data.y + a_vel.y * u_dtSec, 0.0, 1.0)'), 'Y glides and clamps at the poles');
   assert.ok(src.includes('float g_alt = a_data.z + a_vel.z * u_dtSec;'), 'altitude glides too');
-  assert.ok(src.includes('projectTileFor3D(g_xy, g_alt)'), 'the DRAWN position is the glided one');
+  assert.ok(src.includes('projectTileFor3D(g_xy, vtProjElev(g_alt, g_xy.y))'), 'the DRAWN position is the glided one');
   assert.ok(!src.includes('projectTileFor3D(a_data.xy'), 'no path draws the un-glided position anymore');
 });
 

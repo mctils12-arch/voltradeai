@@ -61,6 +61,7 @@ import {
 } from './trackModel.js';
 import { AIR_SILHOUETTES, AIR_SHAPE } from './airLayer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
+import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -246,6 +247,7 @@ export function buildTailVertices(tail: TrackTail, altScale: number): Float32Arr
 export const FT_VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec3 a_pos;
 in vec3 a_other;
 in vec3 a_ext;    // x: side (-1|0|+1; 0 = world-space wall vertex), y: dirSign, z: widthPx
@@ -271,8 +273,8 @@ void main() {
     }
   }
 #endif
-  vec4 self = projectTileFor3D(a_pos.xy, a_pos.z);
-  vec4 other = projectTileFor3D(a_other.xy, a_other.z);
+  vec4 self = projectTileFor3D(a_pos.xy, vtProjElev(a_pos.z, a_pos.y));
+  vec4 other = projectTileFor3D(a_other.xy, vtProjElev(a_other.z, a_other.y));
   vec2 ndcSelf = self.xy / max(abs(self.w), 1e-9);
   vec2 ndcOther = other.xy / max(abs(other.w), 1e-9);
   vec2 dirPx = (ndcOther - ndcSelf) * a_ext.y * u_viewport;
@@ -307,6 +309,7 @@ void main() {
 export const FT_MARKER_VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec2 a_local;
 in float a_altFrac;
 uniform vec2 u_anchor;     // normalized mercator
@@ -334,7 +337,7 @@ void main() {
     }
   }
 #endif
-  vec4 anchor = projectTileFor3D(u_anchor, mix(u_groundZ, u_altZ, a_altFrac));
+  vec4 anchor = projectTileFor3D(u_anchor, vtProjElev(mix(u_groundZ, u_altZ, a_altFrac), u_anchor.y));
   float c = cos(u_rot);
   float s = sin(u_rot);
   vec2 p = vec2(a_local.x * c + a_local.y * s, -a_local.x * s + a_local.y * c);
@@ -411,7 +414,16 @@ export class FlightTrackLayer implements CustomLayerInterface {
   private altScale = 1;
   private dirty = false;
   private tailDirty = false;
-  private renderFailed = false;
+  // SELF-HEALING render failures (live report 2026-07-20: "the 3d trail/
+  // curtain does not show" — the old boolean latch meant ONE transient GL
+  // exception, e.g. a context loss during a terrain hiccup, killed the
+  // layer for the whole session even after the context recovered). A
+  // failure now DROPS the GL objects (stale handles from a lost context
+  // would throw forever) and counts a streak; new data (setTrack — every
+  // poll) re-arms a retry, which rebuilds on the healthy context. Only a
+  // persistent streak with no successes stays disabled.
+  private failStreak = 0;
+  private static readonly MAX_FAIL_STREAK = 5;
   // last frame's projection (for CPU screen-projection of the floating tag
   // — the pickNearestAircraftScreen precedent, extended to mercator via the
   // prelude's own formula: matrix × [mercX, mercY, elevationMeters, 1])
@@ -427,9 +439,20 @@ export class FlightTrackLayer implements CustomLayerInterface {
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
-    for (const p of [this.program, this.mProgram]) if (p) gl.deleteProgram(p);
-    for (const b of [this.buffer, this.indexBuffer, this.tailBuffer, this.tailIndexBuffer,
-      this.mGlyphBuffer, this.mDotBuffer, this.mLineBuffer]) if (b) gl.deleteBuffer(b);
+    this.dropGlObjects(gl);
+    this.map = null;
+  }
+
+  /** Forget every GL handle (deleting on a possibly-lost context is safe —
+   *  deletes are no-ops there) so the next render rebuilds from scratch. */
+  private dropGlObjects(gl?: AnyGl): void {
+    try {
+      if (gl) {
+        for (const p of [this.program, this.mProgram]) if (p) gl.deleteProgram(p);
+        for (const b of [this.buffer, this.indexBuffer, this.tailBuffer, this.tailIndexBuffer,
+          this.mGlyphBuffer, this.mDotBuffer, this.mLineBuffer]) if (b) gl.deleteBuffer(b);
+      }
+    } catch { /* context gone — handles are already invalid */ }
     this.program = this.mProgram = null;
     this.buffer = this.indexBuffer = this.tailBuffer = this.tailIndexBuffer = null;
     this.mGlyphBuffer = this.mDotBuffer = this.mLineBuffer = null;
@@ -437,7 +460,6 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.cachedVariant = null;
     this.dirty = this.verts != null;
     this.tailDirty = this.tailVerts != null;
-    this.map = null;
   }
 
   /** Replace the displayed track (null clears — the layer then costs
@@ -450,6 +472,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
       ? buildQuadIndices(this.verts.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG)
       : null;
     this.dirty = this.verts != null;
+    this.failStreak = 0; // new data re-arms rendering after transient GL failures
     this.map?.triggerRepaint();
   }
 
@@ -480,7 +503,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
   }
 
   getRenderFailed(): boolean {
-    return this.renderFailed;
+    return this.failStreak >= FlightTrackLayer.MAX_FAIL_STREAK;
   }
 
   /**
@@ -518,16 +541,20 @@ export class FlightTrackLayer implements CustomLayerInterface {
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
-    if (this.renderFailed) return;
+    if (this.failStreak >= FlightTrackLayer.MAX_FAIL_STREAK) return;
     const hasGeom = this.verts != null && this.verts.length > 0;
     const hasTail = this.tailVerts != null && this.tailVerts.length > 0;
     if (!hasGeom && !hasTail && !this.marker) return; // nothing set → zero cost
     try {
       this.renderInner(gl as WebGL2RenderingContext, args, hasGeom, hasTail);
+      this.failStreak = 0; // a clean frame ends any failure streak
     } catch (e) {
-      this.renderFailed = true;
+      this.failStreak++;
+      this.dropGlObjects(gl); // stale handles from a lost context throw forever
       // eslint-disable-next-line no-console
-      console.error('FlightTrackLayer: disabling after render failure (map continues):', e);
+      console.error(
+        `FlightTrackLayer: render failure ${this.failStreak}/${FlightTrackLayer.MAX_FAIL_STREAK} ` +
+        '(GL objects dropped for a clean retry; map continues):', e);
     }
   }
 

@@ -52,6 +52,7 @@ import type {
   Map as MapLibreMap,
 } from 'maplibre-gl';
 import { ARC_GAP } from './orbitArc.js';
+import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -136,6 +137,7 @@ export function buildArcIndices(segCount: number): Uint32Array {
 export const ARC_VERT_SRC = (prelude: string, define: string): string => `#version 300 es
 ${prelude}
 ${define}
+${VT_PROJ_ELEV_GLSL}
 in vec3 a_pos;    // THIS endpoint: mercX, mercY, altMeters
 in vec3 a_other;  // the segment's OTHER endpoint
 in vec3 a_ext;    // x: side (-1|+1), y: dirSign (+1 start / -1 end), z: widthPx (0 = u_width)
@@ -162,8 +164,8 @@ void main() {
     }
   }
 #endif
-  vec4 self = projectTileFor3D(a_pos.xy, a_pos.z);
-  vec4 other = projectTileFor3D(a_other.xy, a_other.z);
+  vec4 self = projectTileFor3D(a_pos.xy, vtProjElev(a_pos.z, a_pos.y));
+  vec4 other = projectTileFor3D(a_other.xy, vtProjElev(a_other.z, a_other.y));
   // screen-space segment direction, consistent start→end for the whole
   // quad via a_ext.y; abs(w) guards a behind-camera endpoint from
   // flipping the ribbon inside out.

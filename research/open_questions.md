@@ -5571,3 +5571,16 @@ Remaining open: WHY the click misses (~50%) under SwiftShader —
 suspected scroll/layout race; the retry makes it moot for reliability,
 but if the named restore failure ever fires repeatedly, that mechanism
 hunt reopens.
+
+
+## [T-CLIENT/T-DATACORE follow-ups from the 2026-07-20 flat-map 3D repair]
+- satLayer/modelLayer/arcLayer still carry the PERMANENT render-failure
+  latch (flightTrackLayer/airLayer got the self-healing streak in
+  v1.0.452). Same 20-line pattern; apply on next touch.
+- ARCHIVE DENSITY: aircraft cruise sampling is 5 min ⇒ 68–140 km
+  straight slabs in the 3D trail between real fixes. Proposal: cruise
+  5min→~75s in aircraftIntervalMs (gz volume ≈ few MB/day). Own PR,
+  T-DATACORE territory, measurement-neutral.
+- sat-inspect-v2 design (human 2026-07-20): claude.ai/design share link
+  403s from the session — need the HTML uploaded like the flight handoff
+  zip before the satellite view can be matched to it.

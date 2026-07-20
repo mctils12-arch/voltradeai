@@ -102,7 +102,7 @@ test('pickNearestAircraft: nearest within tolerance, honest miss outside it', ()
 
 test('shader contract: altitude-aware projection, GLOBE-guarded cull identical to the orbital layers, bearing-relative rotation, w-scaled offsets', () => {
   const src = AIR_VERT_SRC('/* prelude stub */', '#define GLOBE');
-  assert.ok(src.includes('projectTileFor3D(g_xy, a_inst.z * u_altScale * a_altFrac)'),
+  assert.ok(src.includes('projectTileFor3D(g_xy, vtProjElev(a_inst.z * u_altScale * a_altFrac, g_xy.y))'),
     'anchor = GLIDED position + REAL altitude (terrain-exaggeration matched, drop-line fraction)');
   // GLIDE contract (the satLayer shader-glide pattern): dead-reckoned
   // anchor = poll position + broadcast velocity × capped elapsed seconds,
@@ -111,11 +111,14 @@ test('shader contract: altitude-aware projection, GLOBE-guarded cull identical t
   assert.ok(src.includes('fract(a_inst.x + a_vel.x * u_dtSec)'), 'X glides and wraps the antimeridian');
   assert.ok(src.includes('clamp(a_inst.y + a_vel.y * u_dtSec, 0.0, 1.0)'), 'Y glides and clamps at the poles');
   assert.ok(src.includes('projectToSphere(g_xy)'), 'far-side cull uses the glided position');
-  const ifdef = src.indexOf('#ifdef GLOBE');
-  const endif = src.indexOf('#endif');
-  const outside = src.slice(0, ifdef) + src.slice(endif);
+  // vtProjElev (2026-07-20) adds a second GLOBE guard — collect ALL guarded
+  // blocks; the invariant (globe symbols never leak outside a guard) stands
+  const __guards = Array.from(src.matchAll(/#ifdef GLOBE[\s\S]*?#endif/g)).map((m) => m[0]);
+  const __guarded = __guards.join('\n');
+  const __outside = src.replace(/#ifdef GLOBE[\s\S]*?#endif/g, '');
+  const outside = __outside;
   for (const sym of ['u_projection_clipping_plane', 'u_projection_transition', 'projectToSphere', 'GLOBE_RADIUS']) {
-    assert.ok(src.slice(ifdef, endif).includes(sym) && !outside.includes(sym),
+    assert.ok(__guarded.includes(sym) && !outside.includes(sym),
       `${sym} contained in the GLOBE guard`);
   }
   const r2 = (OCCLUSION_RADIUS * OCCLUSION_RADIUS).toFixed(6);
