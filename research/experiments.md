@@ -22871,3 +22871,49 @@ PRODUCT, PRODUCT, REPAIR, PRODUCT, REPAIR, PRODUCT, PRODUCT, PRODUCT —
 session's REPAIR was picked because it's an active, currently-ongoing
 live break outranking all queued PRODUCT/RESEARCH fall-through per
 GOAL priority 1.
+## 2026-07-20 — [REPAIR] T-CLIENT: click = frame + follow + trail; extreme-tilt picking; per-channel camera arbitration (v1.0.449)
+
+HUMAN DIRECTIVE (verbatim): "there are many times where the line follow
+the plane it doesn't show up in a lot of cases when you click on a plane
+it should show up and zoom in to the plane and follow it and the trail
+should appear and when you move around the 0 90 180 360 or the tilt
+down or up as well. and an issue with the tilt down or up in that mode
+at extreme angles you try to click on a plane and it will not recognize
+it".
+
+DIAGNOSIS (headless probe, pixel census + scan-clicks): (a) the curtain
+itself renders fine at every bearing/tilt (census 788–1825 across
+0/90/180/270/84°/10°) — the "trail missing" experience was the
+click-to-frame only firing below z8.6, follow never engaging, and
+archive-thin planes having nothing drawn until crumbs accumulate;
+(b) at 84° tilt a 5,800m plane renders ~60px above its ground point and
+clicking the RENDERED silhouette DID pick — but the queryRenderedFeatures
+precedence guard dropped the click whenever ANY feature (pp-points,
+labels, borders — which crowd the compressed horizon at tilt) sat under
+the cursor.
+
+CHANGES: (1) every plane click now centers the plane (zoom only ever
+UP to ≥9.2, tilt lifted to 55) and arms the FOLLOW lock when the ease
+lands (pendingFollowRef disarmed by drag/close/space-entry/new click);
+crumbs already start at card-open, so the trail appears and grows even
+for archive-empty planes. (2) feature-precedence guard DELETED from
+onAir3dClick/onAir3dMove — the plane's claim is its own ±12px rendered
+silhouette; clicks outside it fall through to the feature layers'
+handlers exactly as before. (3) follow recenter skips while
+map.isEasing() (it was killing the click-frame ease mid-flight).
+(4) entering the space frame releases the flight follow (camera handoff,
+same as the sat locks). (5) north-lock taps route through the RIG goal
+(damped, shortest-way) instead of easeTo so they compose with follow.
+(6) rig PER-CHANNEL ARBITRATION: a channel with cur === goal (settled —
+snap-settle guarantees exact equality) adopts the live camera every
+frame, so pinch/wheel/jumpTo/seam writes are never stomped because some
+other channel is still settling (probe-caught: the north-lock settle
+tail blocked the space seam's zoom jump on phone).
+
+VERIFICATION: port probe ALL PASSED incl. new checks — auto-follow
+engages (z9.20, center within 0.06° of the plane AFTER an orbit drag),
+84°-tilt click opens the card at the rendered offset (−60px; NEVER on
+the old guard); phone probe ALL PASSED (north-lock cycle exact through
+the rig, space FLY HOME works — the arbitration fix un-broke the seam);
+panels probe ALL PASSED; unit suites 34/34; harness 0 hard failures at
+390/768/1440; python 822 passed. BACKTEST: N/A (pure client).

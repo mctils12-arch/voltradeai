@@ -1536,6 +1536,11 @@ export default function DataMapPage() {
       for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
         try { (map as any)[h]?.disable(); } catch {}
       }
+      // the space frame owns the camera — an active flight follow (or a
+      // click-frame ease about to arm one) must hand it over, exactly like
+      // the sat locks; otherwise the follow recenter fights the frame
+      pendingFollowRef.current = null;
+      if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
       setSpaceActive(true);
       // continuity: the triggering gesture's momentum carries into the frame
       // — the accumulated wheel/pinch delta or one button/key step (B1: no
@@ -2465,12 +2470,16 @@ export default function DataMapPage() {
   const [flightFollow, setFlightFollow] = useState(false);
   const flightFollowRef = useRef(false);
   // a real drag hands the camera back (the same convention as the sat
-  // ground lock) — replaces the deleted nav-rig's onUserPan release
+  // ground lock) — and disarms a click-frame ease that hasn't landed yet
+  const pendingFollowRef = useRef<string | null>(null);
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
-    const release = () => { if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); } };
+    const release = () => {
+      pendingFollowRef.current = null;
+      if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
+    };
     try { map.on("dragstart", release); } catch {}
     return () => { try { map.off("dragstart", release); } catch {} };
   }, [mapReady]);
@@ -2523,6 +2532,7 @@ export default function DataMapPage() {
     setFlightProfile(null);
     flightMarkerPosRef.current = null;
     flightClockRef.current = { t: 0, live: true, playing: false };
+    pendingFollowRef.current = null; // an in-flight click-frame must not re-arm follow
     if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
     if (flightTagRef.current) flightTagRef.current.style.display = "none";
     // NOTE: archivedTrackRef is deliberately NOT cleared here. paintTrack's
@@ -2773,12 +2783,14 @@ export default function DataMapPage() {
         set("vs", vsFpm == null ? "—" : `${vsFpm >= 0 ? "+" : ""}${Math.round(vsFpm)}`,
           vsFpm == null ? null : "fpm");
       }
-      // FOLLOW AIRCRAFT (salvage: the nav-rig's damped follow is not
-      // re-landed) — recenter on the same glided/replay position the marker
-      // shows. The glide tick is ~300ms and a plane moves a few px per tick
-      // at these zooms, so the straight recenter reads smooth; a drag
-      // releases the follow (listener below).
-      if (flightFollowRef.current) { try { map.jumpTo({ center: [lon, lat] }); } catch {} }
+      // FOLLOW AIRCRAFT — recenter on the same glided/replay position the
+      // marker shows. NEVER while an ease is in flight (the click-frame
+      // ease and the north-lock rotation both died mid-animation when this
+      // jumpTo stomped them — live report 2026-07-20 round 2); the nav
+      // rig's followTarget covers recentering whenever the rig is awake.
+      if (flightFollowRef.current) {
+        try { if (!(map as any).isEasing?.()) map.jumpTo({ center: [lon, lat] }); } catch {}
+      }
     } catch { /* readouts must never break the tick */ }
   };
 
@@ -6075,19 +6087,30 @@ export default function DataMapPage() {
     const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
-        // CLICK-TO-FRAME (human 2026-07-20: "when you click on a plane it
-        // should zoom in more to it so you can see its path and it 3d line
-        // and shade area") — from wide views, ease onto the plane at the
-        // 3D-trail zoom with a working tilt so the altitude line + curtain
-        // read immediately. Never zooms OUT (a close view stays put), never
-        // re-pitches a camera the user already tilted past level.
+        // CLICK-TO-FRAME + AUTO-FOLLOW (human 2026-07-20 round 2: "when you
+        // click on a plane it should show up and zoom in to the plane and
+        // follow it and the trail should appear") — EVERY click centers the
+        // plane at a working 3D-trail view (zoom only ever goes UP; tilt
+        // lifts to 55 so the curtain reads) and the follow lock engages the
+        // moment the ease lands. Rotating/tilting/zooming afterwards keeps
+        // the lock (the rig composes them); only a pan/drag releases it.
+        try { stopSatFocusRef.current?.(); } catch {}
         try {
-          if (lngLat && map.getZoom() < 8.6) {
+          if (lngLat) {
+            const zNow = map.getZoom();
+            const key = String(p.icao24 || "");
+            pendingFollowRef.current = key;
             map.easeTo({
               center: [lngLat.lng, lngLat.lat],
-              zoom: 9.2,
+              zoom: Math.max(zNow, 9.2),
               pitch: Math.max(map.getPitch(), 55),
-              duration: 1600,
+              duration: zNow < 8.6 ? 1600 : 800,
+            });
+            map.once("moveend", () => {
+              if (pendingFollowRef.current !== key) return; // disarmed (drag/close/new click)
+              pendingFollowRef.current = null;
+              flightFollowRef.current = true;
+              setFlightFollow(true);
             });
           }
         } catch {}
@@ -6175,13 +6198,16 @@ export default function DataMapPage() {
     };
     const onAir3dClick = (e: any) => {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
-      let atPoint: unknown[] = [];
-      try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
-      // the velocity whisker starts AT the plane — it must never claim the
-      // click meant for the silhouette above it (probe-verified 2026-07-20:
-      // the guard swallowed every dead-center plane click)
-      atPoint = atPoint.filter((f: any) => !String(f?.layer?.id || "").endsWith("-veclines"));
-      if (atPoint.length > 0) return; // a feature-scoped handler owns this click
+      // NO feature-precedence guard (live report 2026-07-20 round 2: "at
+      // extreme angles you try to click on a plane and it will not
+      // recognize it") — at tilt the horizon compresses labels, borders and
+      // site markers under half the sky, so queryRenderedFeatures almost
+      // always found SOMETHING and the guard dropped the plane click. The
+      // pick tolerance (±12px around the RENDERED silhouette) is the
+      // plane's whole claim; a click outside it falls through to the
+      // feature layers' own handlers exactly as before, and a click ON a
+      // plane overlapping a marker goes to the plane — the thing drawn on
+      // top is the thing you clicked.
       const ll = map.unproject(e.point);
       const idx = pickAir(e, 12);
       if (idx < 0) return;
@@ -6210,11 +6236,7 @@ export default function DataMapPage() {
         const tip = airHoverTipRef.current;
         if (!tip) return;
         if (map.getZoom() < AIR_3D_MIN_ZOOM) { hideHoverTip(); return; }
-        let atPoint: unknown[] = [];
-        try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
-        // same whisker exemption as the click handler above
-        atPoint = atPoint.filter((f: any) => !String(f?.layer?.id || "").endsWith("-veclines"));
-        if (atPoint.length > 0) { hideHoverTip(); return; } // a feature-scoped layer owns this pixel
+        // no feature-precedence guard — same reasoning as the click handler
         const idx = pickAir(e, 10);
         const a = idx >= 0 ? airRows[idx] : null;
         if (!a) { hideHoverTip(); return; }

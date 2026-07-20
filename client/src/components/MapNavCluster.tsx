@@ -169,7 +169,10 @@ export default function MapNavCluster({
 
   // NORTH LOCK (human 2026-07-20): the phone's single control. Tap = face
   // north; when already squared on a 90° step, each tap turns one quarter
-  // further — 0 → 90 → 180 → 270 → 0. Shortest-way ease, never a snap cut.
+  // further — 0 → 90 → 180 → 270 → 0, always the short way. Runs through
+  // the RIG (damped goal), never map.easeTo: while a flight follow owns
+  // the center, an ease would fight the follow recenter — rig goals
+  // compose (bearing turns while the center stays locked on the plane).
   const tapNorthCycle = () => {
     if (!map) return;
     try {
@@ -177,7 +180,10 @@ export default function MapNavCluster({
       const nearest = Math.round(raw / 90) * 90;
       const onStep = Math.abs(raw - nearest) < 2;
       const target = onStep ? (nearest + 90) % 360 : 0;
-      map.easeTo({ bearing: target, duration: 450 });
+      wake(); // re-seeds goals from the live camera when passive
+      const r = rig();
+      const delta = (((target - r.goal.bearing) % 360) + 540) % 360 - 180;
+      r.goal.bearing += delta;
     } catch {}
   };
 
@@ -199,6 +205,19 @@ export default function MapNavCluster({
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       if (suspendedRef.current) { activeRef.current = false; return; }
+
+      // PER-CHANNEL ARBITRATION: a channel the rig is NOT actively moving
+      // (cur === goal — snap-settle guarantees exact equality) adopts the
+      // live camera every frame, so an external writer (pinch, wheel, a
+      // jumpTo, the space seam) is never stomped mid-gesture just because
+      // some OTHER channel is still settling (e.g. a north-lock turn).
+      try {
+        const lc = map.getCenter();
+        const live = { bearing: map.getBearing(), pitch: map.getPitch(), zoom: map.getZoom(), lng: lc.lng, lat: lc.lat };
+        for (const k of ["bearing", "pitch", "zoom", "lng", "lat"] as const) {
+          if (rig.cur[k] === rig.goal[k]) { rig.cur[k] = live[k]; rig.goal[k] = live[k]; }
+        }
+      } catch { /* map torn down mid-frame */ }
 
       const held = heldRef.current;
       const keys = keysRef.current;
