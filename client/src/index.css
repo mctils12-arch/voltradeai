@@ -2394,63 +2394,9 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 /* (the ☉ "Solar system" chip is DELETED — celestial v2 B1 §1: no entry
    button, no separate mode; the zoom inputs themselves are the way out) */
 
-/* INSPECT FOLLOW-CAMERA (satellite-UX directive 2026-07-18 §3, design 1e —
-   lib/orbital/followCamera). The overlay canvas sits OVER the map canvas
-   and the celestial sky (z 5) but UNDER every UI surface: the §1 detail
-   card (z 11), the layers panel (z 10) and the inspect chrome (z 31) all
-   stay usable without covering the craft render. */
-.vt-follow-cam { z-index: 8; }
-/* map-camera chrome is meaningless while the craft camera owns the view
-   (map gestures are disabled; the overlay has its own drag/zoom) */
-.vt-inspect-active .maplibregl-ctrl { display: none; }
-/* the ground-observer sky is the wrong frame at the craft — the overlay
-   draws the real Sun/Moon from the craft's own position (suspended, not
-   disposed: it resumes on Back to map). Same rule as the space frame. */
-.vt-inspect-active .vt-celestial-sky { display: none; }
-
-/* back pill + Orbit/Onboard toggle, top-center (design 1e) */
-.vt-inspect-chrome {
-  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
-  z-index: 31; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  pointer-events: none; /* children re-enable — empty space stays draggable */
-}
-.vt-inspect-back {
-  pointer-events: auto;
-  display: inline-flex; align-items: center; gap: 9px;
-  background: rgba(11, 19, 34, 0.94);
-  border: 1px solid rgba(120, 168, 255, 0.16); border-radius: 999px;
-  padding: 9px 20px; cursor: pointer;
-  color: #eaf1ff; font-size: 14px; font-weight: 600;
-}
-.vt-inspect-back:hover { background: rgba(20, 32, 54, 0.96); }
-.vt-inspect-back-dot { color: #35d07f; font-size: 10px; }
-.vt-inspect-views {
-  pointer-events: auto;
-  display: inline-flex; gap: 4px; padding: 4px;
-  background: rgba(11, 19, 34, 0.94);
-  border: 1px solid rgba(120, 168, 255, 0.14); border-radius: 11px;
-}
-.vt-inspect-viewbtn {
-  border: none; background: transparent; cursor: pointer;
-  font-size: 12.5px; border-radius: 8px; padding: 6px 15px;
-  color: var(--text-secondary, #8aa2c8);
-}
-.vt-inspect-viewbtn:hover { color: #fff; }
-.vt-inspect-viewbtn.on { background: #2f7cf0; color: #fff; font-weight: 600; }
-/* one-line imagery credit under the toggle — the only inspect text overlay
-   (space_view_handoff 2026-07-18 item 1: no on-screen essay) */
-.vt-inspect-credit {
-  pointer-events: none;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px; letter-spacing: 0.06em;
-  color: #8aa2c8; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-
-/* (the "COMPUTED EPHEMERIS VIEW" methodology caption + its phone offset
-   are DELETED — human review 2026-07-18, space_view_handoff item 1) */
-@media (max-width: 767px) {
-  .vt-inspect-chrome { top: 70px; }
-}
+/* (the INSPECT FOLLOW-CAMERA overlay + all .vt-inspect-* chrome are
+   DELETED — human 2026-07-19 Space View brief FIX 2: inspect IS the map,
+   one action, no separate viewer, no on-screen methodology text) */
 
 /* W2 debug fps readout — behind ?fps=1 / localStorage vt-fps=1 only */
 .vt-fps-chip {

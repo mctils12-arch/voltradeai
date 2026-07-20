@@ -52,8 +52,6 @@ import { ArcLayer, defaultWallRamp } from "@/lib/orbital/arcLayer";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
-import { buildFormMesh } from "@/lib/orbital/model3d";
-import type { FollowCameraHandle, InspectView, EarthTextureState } from "@/lib/orbital/followCamera";
 import { raanColor } from "@/lib/orbital/orbitArc";
 import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
@@ -1262,10 +1260,15 @@ export default function DataMapPage() {
   // cannot do (look fully AWAY from the ground, pitch past the horizon)
   // stays honestly out of scope rather than living in a disconnected scene
   // the human rejected.
-  // ONE ENTRY POINT (human review 2026-07-18, space_view_handoff item 2):
-  // the toolbar "⟳ inspect" chip that ran this ease directly is DELETED —
-  // the card's Inspect button (openInspect below) is the single Inspect
-  // action, and inspectCraft() survives ONLY as its GL-failure fallback.
+  // ONE ENTRY POINT (human 2026-07-19 Space View brief FIX 2, superseding
+  // the 2026-07-18 §3 overlay decision): the SEPARATE ephemeris overlay
+  // (lib/orbital/followCamera) is DELETED — "the craft renders in the SAME
+  // scene/camera as the real map". inspectCraft() below IS the single
+  // Inspect action: close-orbit ease + sat lock in the live map, over real
+  // imagery with every active layer intact; the card's ✕ releases back to
+  // the free map (stopFollow). Close zoom can't lose the craft — the model
+  // scales to MODEL_MAX_PIXELS (1600) with no high-zoom cull, and the
+  // per-frame smooth follow keeps camera + model riding the real SGP4 arc.
   const inspectCraft = useCallback(() => {
     const map = mapRef.current;
     const f = satFollowRef.current;
@@ -1283,177 +1286,6 @@ export default function DataMapPage() {
           (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
-  // ── INSPECT FOLLOW-CAMERA (satellite-UX directive 2026-07-18 §3, design
-  // screen 1e; celestial_v2_program.md SAT-UX slice). The human's history:
-  // the SEPARATE O7 scene was retired for discontinuity, then the map-native
-  // ease above was found insufficient ("clicking Inspect, the satellite
-  // leaves the frame entirely"). Resolution: a WebGL overlay whose camera is
-  // ATTACHED to the live moving craft (lib/orbital/followCamera) — time
-  // never stops, the sat flies its real SGP4 orbit, the terminator advances.
-  // inspectCraft() above is KEPT verbatim as the GL-failure fallback (the
-  // latch pattern): if the overlay can't render, Inspect degrades to the
-  // plain close-orbit ease instead of a black screen.
-  // Downstream traces: (1) while active, followTick suppresses its camera
-  // easeTo (model anchor + nadir keep updating) so "Back to map" can restore
-  // the EXACT stored camera; (2) map input handlers are disabled
-  // (spaceFrame precedent) and the zoom-seam listeners guard on
-  // inspectActiveRef so a wheel can never enter the space frame mid-inspect;
-  // (3) stopFollow closes the inspect first — card ✕ / Esc / tap-away /
-  // layer-off / LOD-hide all land back on the exact prior camera.
-  const inspectActiveRef = useRef(false);
-  const inspectHandleRef = useRef<FollowCameraHandle | null>(null);
-  const inspectPrevCamRef = useRef<{ lng: number; lat: number; zoom: number; bearing: number; pitch: number } | null>(null);
-  const inspectSyncTimerRef = useRef<number | null>(null);
-  const [inspectOpen, setInspectOpen] = useState(false);
-  const [inspectView, setInspectView] = useState<InspectView>("orbit");
-  // Earth-imagery lifecycle from the overlay handle — the one-line credit
-  // claims "NASA imagery" only while the texture is actually on screen
-  // (load failure = the labeled simplified-globe fallback, stated instead).
-  const [inspectEarthTex, setInspectEarthTex] = useState<EarthTextureState>("loading");
-  const closeInspectRef = useRef<() => void>(() => {});
-  const openInspectRef = useRef<() => void>(() => {});
-  // GENERIC_MESH_LABEL lives in the lazily-loaded module; cached after the
-  // first open so inspectMeshNow stays synchronous (same text until then).
-  const GENERIC_MESH_LABEL_REF = useRef(
-    "Generic bus + solar panels — representative placeholder only (no catalogued class for this object); not imagery of this unit");
-  /** The craft mesh + honest caption for the inspect view: real model >
-   *  catalogued class form > generic bus+panels (labeled placeholder). */
-  const inspectMeshNow = useCallback((): { mesh: any; label: string } => {
-    const model = satModelLayerRef.current;
-    const f = satFollowRef.current;
-    const real = model?.getRealMesh() ?? null;
-    if (real && f) {
-      return { mesh: real, label: realModelLabel(f.noradId, f.name) ?? "verified public model (simplified for display)" };
-    }
-    const form = model?.getForm() ?? null;
-    const active = model?.getActiveMesh() ?? null;
-    if (form && active) return { mesh: active, label: formLabel(form) };
-    return { mesh: buildFormMesh("smallsat"), label: GENERIC_MESH_LABEL_REF.current };
-  }, []);
-  const closeInspect = useCallback(() => {
-    if (!inspectActiveRef.current) return;
-    inspectActiveRef.current = false;
-    setInspectOpen(false);
-    if (inspectSyncTimerRef.current != null) { window.clearInterval(inspectSyncTimerRef.current); inspectSyncTimerRef.current = null; }
-    const handle = inspectHandleRef.current;
-    inspectHandleRef.current = null;
-    try { handle?.dispose(); } catch {}
-    try { delete (window as any).__vtInspect; } catch {}
-    const container = mapContainer.current;
-    try { container?.classList.remove("vt-inspect-active"); } catch {}
-    const map = mapRef.current;
-    if (map) {
-      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[h]?.enable(); } catch {}
-      }
-      // EXACT prior camera (directive §3 / drive f): jumpTo — no ease, no
-      // drift; the next followTick may then resume tracking (pre-inspect
-      // behavior, since the follow itself never stopped).
-      const prev = inspectPrevCamRef.current;
-      if (prev) {
-        try { map.jumpTo({ center: [prev.lng, prev.lat], zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch }); } catch {}
-      }
-    }
-    inspectPrevCamRef.current = null;
-  }, []);
-  useEffect(() => { closeInspectRef.current = closeInspect; }, [closeInspect]);
-  const openInspect = useCallback(async () => {
-    const map = mapRef.current;
-    const container = mapContainer.current;
-    const f = satFollowRef.current;
-    if (!map || !container || !f || inspectActiveRef.current) return;
-    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
-    if (!t) return; // no honest live position this tick — nothing to attach to
-    inspectActiveRef.current = true;
-    try {
-      // lazy: the map bundle grows by nothing until someone actually inspects
-      const mod = await import("@/lib/orbital/followCamera");
-      GENERIC_MESH_LABEL_REF.current = mod.GENERIC_MESH_LABEL;
-      if (!inspectActiveRef.current || !satFollowRef.current) { inspectActiveRef.current = false; return; }
-      // store the EXACT camera to restore, then freeze any running ease so
-      // nothing moves underneath the overlay
-      const c = map.getCenter();
-      inspectPrevCamRef.current = { lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
-      try { map.stop(); } catch {}
-      const { mesh, label } = inspectMeshNow();
-      const handle = mod.mountFollowCamera(container, {
-        mesh,
-        meshLabel: label,
-        // LIVE state every frame: exact-tick buffer position + the worker's
-        // real velocity glide (the same math the map layer's shader applies)
-        getState: () => {
-          const layer = satLayerRef.current;
-          const fol = satFollowRef.current;
-          if (!layer || !fol) return null;
-          return mod.glidedCraftState(
-            layer.getPositions(), fol.index, layer.getTickTime(), performance.now(),
-            // B3: the sim clock is the time source (≡ Date.now() at 1×);
-            // __vtInspectTimeOffsetMs stays the prod-inert test seam (drive d)
-            simNow() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
-          );
-        },
-        // onboard markers read the RAW tick (a group chip is display-only —
-        // real objects are never hidden from the sky you stand in)
-        getNeighborBuffer: () => satRawPosRef.current ?? satLayerRef.current?.getPositions() ?? null,
-        selfIndex: f.index,
-        // B3: sim-clock time source (≡ Date.now() at 1× — no behavior change)
-        getTimeMs: () => simNow() + (Number((window as any).__vtInspectTimeOffsetMs) || 0),
-        initialView: "orbit",
-      });
-      if (handle.getRenderFailed()) {
-        // GL latch at mount → the kept fallback: plain close-orbit map ease
-        try { handle.dispose(); } catch {}
-        inspectActiveRef.current = false;
-        inspectPrevCamRef.current = null;
-        inspectCraft();
-        return;
-      }
-      inspectHandleRef.current = handle;
-      (window as any).__vtInspect = handle; // harness seam (prod-inert, like __vtMap/__vtSpace)
-      container.classList.add("vt-inspect-active");
-      for (const h of ["scrollZoom", "dragPan", "dragRotate", "doubleClickZoom", "touchZoomRotate", "keyboard"] as const) {
-        try { (map as any)[h]?.disable(); } catch {}
-      }
-      setInspectView("orbit");
-      setInspectEarthTex(handle.getEarthTexture());
-      setInspectOpen(true);
-      // 1 Hz sync: (a) the real .vtm model often lands AFTER the follow
-      // starts — swap it in when the model layer has it; (b) a mid-session
-      // GL failure latches → fall back to the map ease instead of a dead
-      // black overlay.
-      inspectSyncTimerRef.current = window.setInterval(() => {
-        const h = inspectHandleRef.current;
-        if (!h) return;
-        if (h.getRenderFailed()) {
-          closeInspectRef.current();
-          inspectCraft();
-          return;
-        }
-        const cur = inspectMeshNow();
-        if (cur.mesh && cur.mesh !== (h as any).__lastMesh) {
-          (h as any).__lastMesh = cur.mesh;
-          h.setMesh(cur.mesh, cur.label);
-        }
-        setInspectEarthTex(h.getEarthTexture()); // credit follows reality
-      }, 1000);
-    } catch (e) {
-      // degrade, never break: the kept map-ease fallback
-      inspectActiveRef.current = false;
-      inspectPrevCamRef.current = null;
-      // eslint-disable-next-line no-console
-      console.error("inspect follow-camera failed to mount (falling back to map ease):", e);
-      inspectCraft();
-    }
-  }, [inspectCraft, inspectMeshNow]);
-  useEffect(() => { openInspectRef.current = () => { void openInspect(); }; }, [openInspect]);
-  const setInspectViewMode = useCallback((v: InspectView) => {
-    const h = inspectHandleRef.current;
-    if (!h) return;
-    h.setView(v);
-    setInspectView(v);
-  }, []);
-  // any teardown path that unmounts the page must not leak the overlay
-  useEffect(() => () => { closeInspectRef.current(); }, []);
   // CONTINUOUS SPACE FRAME (human-approved 2026-07-18 — the third "no
   // separate scenes" directive, same precedent as INSPECT IS THE MAP above):
   // the O6-7 separate solar-system scene (lib/celestial/solarView) is
@@ -2299,9 +2131,6 @@ export default function DataMapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // inspect follow-camera: Esc = Back to map ONLY (directive §3) — the
-      // card and the follow stay; a second Esc then does the full teardown.
-      if (inspectActiveRef.current) { closeInspectRef.current(); return; }
       // space frame: Escape = fly home — a continuous flight back through
       // the seam (the frame exits itself on landing), never a scene cut
       if (spaceActiveRef.current) { try { spaceHandleRef.current?.flyHome(); } catch {} return; }
@@ -2406,7 +2235,6 @@ export default function DataMapPage() {
     let acc = 0;
     let timer: number | null = null;
     const onWheel = (e: WheelEvent) => {
-      if (inspectActiveRef.current) return; // inspect overlay owns its own wheel
       if (spaceActiveRef.current || e.deltaY <= 0) return;
       if (!atFloor()) { acc = 0; return; }
       acc += e.deltaY;
@@ -2418,7 +2246,6 @@ export default function DataMapPage() {
     // handler, and stopPropagation keeps it (and the frame's body-click
     // hit test on the container) from double-acting.
     const onCtrlClick = (e: MouseEvent) => {
-      if (inspectActiveRef.current) return; // map ctrls are hidden during inspect anyway
       const btn = (e.target as HTMLElement | null)?.closest?.(
         ".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out",
       );
@@ -2437,7 +2264,6 @@ export default function DataMapPage() {
     // keyboard +/- (the map's own keyboard handler is disabled in space;
     // typing surfaces — inputs, the analyst pane — are never hijacked)
     const onKeyDown = (e: KeyboardEvent) => {
-      if (inspectActiveRef.current) return; // inspect: keyboard zoom stays out of the seam
       const zin = e.key === "+" || e.key === "=";
       const zout = e.key === "-" || e.key === "_";
       if ((!zin && !zout) || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2466,7 +2292,6 @@ export default function DataMapPage() {
       }
     };
     const onPointerMove = (e: PointerEvent) => {
-      if (inspectActiveRef.current) return; // pinch belongs to the inspect overlay
       if (spaceActiveRef.current || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.size !== 2) return;
@@ -3821,11 +3646,6 @@ export default function DataMapPage() {
         }
       } catch { /* marker is chrome */ }
       if (!t) return; // sentinel this tick — ring cleared, camera stays put
-      // INSPECT FOLLOW-CAMERA: while the overlay owns the view, the MAP
-      // camera must not move — "Back to map" restores the exact stored
-      // camera. The overlay reads the live buffer itself; anchor/nadir
-      // updates above keep the map layers honest underneath.
-      if (inspectActiveRef.current) return;
       // O6-1: camera tracks only while locked — after a drag the focus
       // persists (arc + moving model) from anywhere on the globe.
       if (!f.lockMode) {
@@ -3857,7 +3677,6 @@ export default function DataMapPage() {
       const m = lonLatToMercator(p.lonDeg, p.latDeg);
       // model + focus ring ride the frame-fresh anchor (worker tick backstops)
       satModelLayerRef.current?.setAnchor({ mercX: m.x, mercY: m.y, altMeters: p.altKm * 1000 });
-      if (inspectActiveRef.current) return; // overlay owns the view — map camera frozen
       if (!f.lockMode) return;              // camera handed back — the model still glides
       try {
         // let the click-framing / wheel / ± zoom eases finish (a jumpTo
@@ -3876,10 +3695,6 @@ export default function DataMapPage() {
     smoothRaf = requestAnimationFrame(smoothFollowFrame);
     const stopFollow = () => {
       if (!satFollowRef.current) return;
-      // the inspect overlay cannot outlive its follow — close it FIRST so
-      // the camera restore below lands on the stored pre-inspect pose
-      // (card ✕ / Esc / tap-away / layer-off / LOD-hide all route here)
-      closeInspectRef.current();
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
       satFollowRef.current = null;
@@ -4560,9 +4375,9 @@ export default function DataMapPage() {
           ];
         })(),
         sourceTag: "SGP4",
-        // Inspect = the follow-camera overlay (directive §3); the plain
-        // close-orbit ease survives inside openInspect as the GL-fail fallback
-        actions: t ? [{ label: "Inspect", primary: true, run: () => openInspectRef.current() }] : undefined,
+        // Inspect = the in-map close-orbit ease + sat lock (2026-07-19 brief:
+        // same viewer, real imagery, layers intact; ✕ releases via stopFollow)
+        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
         facts: ([
           aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
           aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
@@ -8691,7 +8506,7 @@ export default function DataMapPage() {
           rule: display dates where available; unknown states stay loud).
           Hidden while the space frame owns the viewport — a capture-date
           for a shrinking-globe map reads as noise; returns at the seam. */}
-      {enabled.imagery && !spaceActive && !inspectOpen && (
+      {enabled.imagery && !spaceActive && (
         <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
              title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
           {imageryDate.label}
@@ -8788,7 +8603,7 @@ export default function DataMapPage() {
       {/* also hidden while the inspect follow-camera owns the viewport —
           a map style switcher under a craft render is meta-noise, and the
           provenance caption needs the bottom edge clear (design 1e) */}
-      {!spaceActive && !inspectOpen && (
+      {!spaceActive && (
       <div className="vt-preset-switch" role="group" aria-label="Map style preset">
         {([
           ["natural", "Natural"],
@@ -9218,7 +9033,7 @@ export default function DataMapPage() {
       )}
 
       {/* Detail card — side card on desktop, bottom sheet on phone */}
-      {satFollowing && !inspectOpen && (
+      {satFollowing && (
         // O6 follow tools (human-requested): minimizable cluster — re-lock
         // the camera on the object, zoom in/out AROUND it, toggle the exact
         // ground spot it's passing over.
@@ -9278,40 +9093,9 @@ export default function DataMapPage() {
           )}
         </div>
       )}
-      {inspectOpen && (
-        // INSPECT CHROME (design screen 1e): back pill + view toggle,
-        // top-center over the follow-camera canvas. The §1 card stays
-        // rendered (left-anchored, z-index above the canvas) — available
-        // without covering the craft.
-        <div className="vt-inspect-chrome">
-          <button className="vt-inspect-back" onClick={() => closeInspectRef.current()}>
-            <span className="vt-inspect-back-dot" aria-hidden>●</span> Back to map
-          </button>
-          <div className="vt-inspect-views" role="tablist" aria-label="Inspect view">
-            <button role="tab" aria-selected={inspectView === "orbit"}
-                    className={`vt-inspect-viewbtn${inspectView === "orbit" ? " on" : ""}`}
-                    onClick={() => setInspectViewMode("orbit")}>
-              Orbit
-            </button>
-            <button role="tab" aria-selected={inspectView === "onboard"}
-                    className={`vt-inspect-viewbtn${inspectView === "onboard" ? " on" : ""}`}
-                    onClick={() => setInspectViewMode("onboard")}>
-              Onboard
-            </button>
-          </div>
-          {/* one-line credit only — the honest label for whichever Earth is
-              actually rendering (never the deleted methodology essay) */}
-          {inspectEarthTex === "ready" && (
-            <div className="vt-inspect-credit" role="note">Earth: NASA imagery</div>
-          )}
-          {inspectEarthTex === "failed" && (
-            <div className="vt-inspect-credit" role="note">Earth: simplified globe — imagery unavailable</div>
-          )}
-        </div>
-      )}
-      {/* (the "COMPUTED EPHEMERIS VIEW" methodology caption is DELETED —
-          human review 2026-07-18, space_view_handoff item 1: no on-screen
-          essay; honesty lives in the card's chips + the one-line credit) */}
+      {/* (the separate ephemeris inspect overlay + its chrome are DELETED —
+          human 2026-07-19 Space View brief FIX 2: inspect IS the map; no
+          on-screen methodology essay; honesty lives in the card's chips) */}
       {detail && detailMin && (
         // O6 minimize (human-requested): the card collapses to a pill so the
         // globe shows through — the focus/follow keeps running underneath;
