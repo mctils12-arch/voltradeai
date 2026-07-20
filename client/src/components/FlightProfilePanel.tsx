@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUnits, subscribeUnits } from "@/lib/units";
 import { sampleAt, type TrackSample } from "@/lib/air/trackModel";
-import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 
 export interface FlightClock {
   /** epoch seconds the marker/card/profile display right now. */
@@ -95,15 +95,22 @@ export default function FlightProfilePanel({
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const drag = useMemo(
-    () => panelDragProps("flight-profile", () => rootRef.current, () => lockedRef.current),
+    () => panelDragProps("flight-profile", () => rootRef.current, () => lockedRef.current,
+      { defaultOrigin: "bottom left" }),
     [],
   );
   const toggleLock = () =>
     setLocked((v) => { const n = !v; savePanelPrefs("flight-profile", { locked: n }); return n; });
+  // panel SCALE (human 2026-07-20: "scale them up or down to fit your
+  // screen") — remembered CSS transform; the bottom bar grows upward from
+  // its bottom-left anchor so it never sinks below the viewport.
+  const [pScale, setPScale] = useState<number>(() => clampScale(getPanelPrefs("flight-profile").scale));
+  const bumpScale = (dir: number) => setPScale(stepPanelScale("flight-profile", dir));
   useEffect(() => {
     const el = rootRef.current;
     if (el && !applyPanelPos(el, "flight-profile")) clearPanelPos(el);
-  }, [expanded]);
+    applyPanelScale(el, "flight-profile", "bottom left");
+  }, [expanded, pScale]);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<SVGGElement | null>(null);
@@ -377,6 +384,14 @@ export default function FlightProfilePanel({
           <span><i className="terr" />TERRAIN</span>
           <span><b />AGL BAND</span>
         </div>
+        <button className="vt-flight-profile-toggle" data-vt-scale-down aria-label="Shrink panel"
+                title="Smaller (size is remembered)" onClick={() => bumpScale(-1)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="10" r="6" /><path d="M14.5 14.5 20 20M7.5 10h5" /></svg>
+        </button>
+        <button className="vt-flight-profile-toggle" data-vt-scale-up aria-label="Enlarge panel"
+                title="Bigger (size is remembered)" onClick={() => bumpScale(1)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="10" r="6" /><path d="M14.5 14.5 20 20M10 7.5v5M7.5 10h5" /></svg>
+        </button>
         <button className={`vt-flight-profile-toggle vt-lock-btn${locked ? " on" : ""}`} aria-pressed={locked}
                 aria-label={locked ? "Unlock panel position" : "Lock panel position"}
                 title={locked ? "Position locked — click to unlock" : "Lock position"}

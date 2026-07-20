@@ -3833,6 +3833,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-nav-gripbtn.on { color: var(--accent, #4d9fff); }
 .vt-nav-chiprow { display: flex; align-items: center; gap: 5px; padding: 4px 7px; color: #8fa3bf; }
 @media (max-width: 767px) {
-  /* phones keep the bottom-sheet / FAB patterns — no custom placement */
-  .vt-nav-grip, .vt-lock-btn { display: none; }
+  /* phones keep the bottom-sheet / FAB patterns — no custom placement,
+     no scaling (applyPanelScale no-ops there too) */
+  .vt-nav-grip, .vt-lock-btn, [data-vt-scale-up], [data-vt-scale-down] { display: none; }
 }

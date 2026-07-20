@@ -39,7 +39,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
-import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import {
   RIG_DAMPING_PER_S,
   RIG_DRAG_ROTATE_DEG_PX,
@@ -137,19 +137,26 @@ export default function MapNavCluster({
   navLockedRef.current = navLocked;
   const [navMin, setNavMin] = useState<boolean>(() => !!getPanelPrefs("nav-cluster").min);
   const navDrag = useMemo(
-    () => panelDragProps("nav-cluster", () => rootRef.current, () => navLockedRef.current),
+    () => panelDragProps("nav-cluster", () => rootRef.current, () => navLockedRef.current,
+      { defaultOrigin: "center right" }),
     [],
   );
   const toggleNavLock = () =>
     setNavLocked((v) => { const n = !v; savePanelPrefs("nav-cluster", { locked: n }); return n; });
   const setNavMinimized = (v: boolean) => { setNavMin(v); savePanelPrefs("nav-cluster", { min: v }); };
   const minChipActive = navMin;
-  // re-apply the remembered spot whenever the rendered variant swaps (the
-  // suspended stack, the mini chip and the full cluster are separate nodes)
+  // panel SCALE (human 2026-07-20: "ability to scale them up or down to fit
+  // your screen") — ± buttons in the grip step a remembered CSS transform;
+  // the right-anchored cluster grows from its right edge into the map.
+  const [navScale, setNavScale] = useState<number>(() => clampScale(getPanelPrefs("nav-cluster").scale));
+  const bumpNavScale = (dir: number) => setNavScale(stepPanelScale("nav-cluster", dir));
+  // re-apply the remembered spot + scale whenever the rendered variant swaps
+  // (the suspended stack, the mini chip and the full cluster are separate nodes)
   useEffect(() => {
     const el = rootRef.current;
     if (el && !applyPanelPos(el, "nav-cluster")) clearPanelPos(el);
-  }, [suspended, minChipActive, mapReady]);
+    applyPanelScale(el, "nav-cluster", "center right");
+  }, [suspended, minChipActive, mapReady, navScale]);
 
   // compass ring rotation follows the LIVE camera (also when other systems
   // move it): cheap DOM write on the map's own move events. The phone
@@ -561,6 +568,14 @@ export default function MapNavCluster({
         {navLocked
           ? <Icon d="M8 11V7a4 4 0 0 1 8 0v4|M5 11h14v9H5z" size={12} />
           : <Icon d="M8 11V7a4 4 0 0 1 7.6-1.7|M5 11h14v9H5z" size={12} />}
+      </button>
+      <button className="vt-nav-gripbtn" data-vt-scale-down aria-label="Shrink controls"
+              title="Smaller (size is remembered)" onClick={() => bumpNavScale(-1)}>
+        <Icon d="M10 10m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0|M14.5 14.5 20 20|M7.5 10h5" size={12} />
+      </button>
+      <button className="vt-nav-gripbtn" data-vt-scale-up aria-label="Enlarge controls"
+              title="Bigger (size is remembered)" onClick={() => bumpNavScale(1)}>
+        <Icon d="M10 10m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0|M14.5 14.5 20 20|M10 7.5v5M7.5 10h5" size={12} />
       </button>
       <button className="vt-nav-gripbtn" aria-label="Minimize map controls" title="Minimize controls"
               onClick={() => setNavMinimized(true)}>

@@ -5,7 +5,13 @@
 // them in place so you dont accidently move them").
 //
 // One localStorage record holds every panel's preferences:
-//   { [panelId]: { pos?: {left, top}, min?: boolean, locked?: boolean } }
+//   { [panelId]: { pos?: {left, top}, min?: boolean, locked?: boolean, scale?: number } }
+//
+// SCALE (human directive 2026-07-20: "the ability to scale them up or
+// down to fit your screen" — popups AND the zoom/pan/tilt cluster):
+// a per-panel CSS transform scale, stepped by ± buttons, persisted like
+// position. Transform (not font-size) so every child — buttons, SVG,
+// sliders — scales together and layout inside the panel never reflows.
 //
 // Coordinates are CONTAINER-relative (the panel's offsetParent — the map
 // page root), not viewport-relative: the topbar and side rail offset the
@@ -21,7 +27,7 @@
 // the storage + DOM wrappers are thin and no-throw.
 
 export interface PanelPos { left: number; top: number }
-export interface PanelPrefs { pos?: PanelPos; min?: boolean; locked?: boolean }
+export interface PanelPrefs { pos?: PanelPos; min?: boolean; locked?: boolean; scale?: number }
 export type PanelLayout = Record<string, PanelPrefs>;
 
 export const PANEL_LAYOUT_KEY = "vt-panel-layout-v1";
@@ -31,6 +37,18 @@ export const PANEL_DRAG_MIN_W = 768;
  *  (grip reachable), matching the pre-existing card drag rule. */
 export const PANEL_KEEP_X = 80;
 export const PANEL_KEEP_Y = 60;
+/** scale bounds — below 0.7 controls fall under tap-target size; above
+ *  1.6 a single card can swallow a 1440px map. One step per click. */
+export const PANEL_SCALE_MIN = 0.7;
+export const PANEL_SCALE_MAX = 1.6;
+export const PANEL_SCALE_STEP = 0.1;
+
+/** Snap a stored/requested scale into the legal range; anything
+ *  non-finite (or ≤0) means "no preference" → 1. Pure. */
+export function clampScale(s: unknown): number {
+  if (typeof s !== "number" || !Number.isFinite(s) || s <= 0) return 1;
+  return Math.min(PANEL_SCALE_MAX, Math.max(PANEL_SCALE_MIN, s));
+}
 
 /** Tolerant parse — bad JSON, wrong shapes, or non-finite numbers degrade
  *  to "no preference", never a throw (a corrupt record must not brick the
@@ -52,6 +70,9 @@ export function parseLayout(raw: string | null | undefined): PanelLayout {
       }
       if (typeof p.min === "boolean") prefs.min = p.min;
       if (typeof p.locked === "boolean") prefs.locked = p.locked;
+      if (typeof p.scale === "number" && Number.isFinite(p.scale) && p.scale > 0) {
+        prefs.scale = clampScale(p.scale);
+      }
       out[id] = prefs;
     }
     return out;
@@ -69,12 +90,12 @@ export function clampPos(pos: PanelPos, cw: number, ch: number): PanelPos {
   };
 }
 
-/** Merge a preference patch into a layout (pos/min/locked update
+/** Merge a preference patch into a layout (pos/min/locked/scale update
  *  independently; explicit `undefined` in the patch deletes the field —
  *  how double-click-reset forgets a position). Pure. */
 export function mergePrefs(layout: PanelLayout, id: string, patch: Partial<PanelPrefs>): PanelLayout {
   const cur = { ...(layout[id] ?? {}) };
-  for (const k of ["pos", "min", "locked"] as const) {
+  for (const k of ["pos", "min", "locked", "scale"] as const) {
     if (k in patch) {
       const v = patch[k];
       if (v === undefined) delete cur[k];
@@ -143,6 +164,31 @@ export function clearPanelPos(el: HTMLElement | null): void {
   el.style.width = "";
 }
 
+/** Apply a panel's saved scale as a CSS transform. `defaultOrigin` is the
+ *  panel's CSS anchor corner ("top right", "bottom left", …) so growth
+ *  pushes INTO the map, never off-screen; once the panel has a custom
+ *  left/top position that placed corner becomes the origin instead.
+ *  Phones are exempt (same rule as placement). No-throw. */
+export function applyPanelScale(el: HTMLElement | null, id: string, defaultOrigin = "top left"): void {
+  if (!el) return;
+  try {
+    if (typeof window !== "undefined" && window.innerWidth < PANEL_DRAG_MIN_W) return;
+    const s = clampScale(getPanelPrefs(id).scale);
+    el.style.transformOrigin = el.style.left ? "top left" : defaultOrigin;
+    el.style.transform = s === 1 ? "" : `scale(${s})`;
+  } catch { /* styles best-effort */ }
+}
+
+/** Step a panel's scale one notch and persist it; returns the new value
+ *  (the caller re-applies + re-renders). dir > 0 grows, dir < 0 shrinks. */
+export function stepPanelScale(id: string, dir: number): number {
+  const cur = clampScale(getPanelPrefs(id).scale);
+  // snap to the step grid so repeated ± clicks land on clean values
+  const next = clampScale(Math.round((cur + Math.sign(dir) * PANEL_SCALE_STEP) * 10) / 10);
+  savePanelPrefs(id, { scale: next === 1 ? undefined : next });
+  return next;
+}
+
 /** structural pointer-event shape — works for React synthetic and native */
 interface PtrEv {
   clientX: number;
@@ -171,7 +217,7 @@ export function panelDragProps(
   id: string,
   getEl: () => HTMLElement | null,
   isLocked: () => boolean,
-  onMoved?: () => void,
+  opts?: { onMoved?: () => void; defaultOrigin?: string },
 ): PanelDragProps {
   let drag: { dx: number; dy: number; moved: boolean } | null = null;
   const release = () => {
@@ -180,7 +226,7 @@ export function panelDragProps(
       const box = containerOf(el).getBoundingClientRect();
       const r = el.getBoundingClientRect();
       savePanelPrefs(id, { pos: { left: r.left - box.left, top: r.top - box.top } });
-      onMoved?.();
+      opts?.onMoved?.();
     }
     drag = null;
   };
@@ -199,7 +245,13 @@ export function panelDragProps(
     onPointerMove(e) {
       const el = getEl();
       if (!el || !drag) return;
-      if (!drag.moved) freezeWidth(el); // before the anchors change
+      if (!drag.moved) {
+        freezeWidth(el); // before the anchors change
+        // scale origin follows the placement corner: left/top placement
+        // is about to pin the top-left, so a scaled panel must grow from
+        // there or the visual box drifts away from the pointer.
+        if (el.style.transform) el.style.transformOrigin = "top left";
+      }
       const box = containerOf(el).getBoundingClientRect();
       const p = clampPos(
         { left: e.clientX - drag.dx - box.left, top: e.clientY - drag.dy - box.top },
@@ -216,7 +268,10 @@ export function panelDragProps(
     onDoubleClick(e) {
       if ((e.target as Element | null)?.closest?.("button")) return;
       savePanelPrefs(id, { pos: undefined });
-      clearPanelPos(getEl());
+      const el = getEl();
+      clearPanelPos(el);
+      // back on the stylesheet anchor — scale grows from that corner again
+      if (el && opts?.defaultOrigin) el.style.transformOrigin = opts.defaultOrigin;
     },
   };
 }

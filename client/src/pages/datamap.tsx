@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -183,7 +183,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
-import { applyPanelPos, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
@@ -1771,12 +1771,17 @@ export default function DataMapPage() {
   const cardLockedRef = useRef(cardLocked);
   cardLockedRef.current = cardLocked;
   const cardDrag = useMemo(
-    () => panelDragProps("site-card", () => detailCardRef.current, () => cardLockedRef.current),
+    () => panelDragProps("site-card", () => detailCardRef.current, () => cardLockedRef.current,
+      { defaultOrigin: "top left" }),
     [],
   );
   const toggleCardLock = useCallback(() => {
     setCardLocked((v) => { const n = !v; savePanelPrefs("site-card", { locked: n }); return n; });
   }, []);
+  // panel SCALE (human 2026-07-20: "scale them up or down to fit your
+  // screen") — remembered CSS transform per card, stepped by ± buttons
+  const [cardScale, setCardScale] = useState<number>(() => clampScale(getPanelPrefs("site-card").scale));
+  const bumpCardScale = useCallback((dir: number) => setCardScale(stepPanelScale("site-card", dir)), []);
   useEffect(() => {
     setDetailMin(false);
     // compact by default when the card has a chip row; expanded otherwise
@@ -1785,13 +1790,15 @@ export default function DataMapPage() {
     setDetailsOpen(!(detailRef.current?.stats && detailRef.current.stats.length > 0));
     const el = detailCardRef.current;
     if (el && !applyPanelPos(el, "site-card")) clearPanelPos(el);
+    applyPanelScale(el, "site-card", "top left");
   }, [detail?.title, detail?.kind]);
   // the min pill and the full card are different DOM nodes — re-apply the
-  // remembered spot whenever the variant swaps
+  // remembered spot + scale whenever the variant swaps
   useEffect(() => {
     const el = detailCardRef.current;
     if (el && !applyPanelPos(el, "site-card")) clearPanelPos(el);
-  }, [detailMin]);
+    applyPanelScale(el, "site-card", "top left");
+  }, [detailMin, cardScale]);
   // space-view body card — same movable/locked/remembered chrome ("all
   // controls"), its own remembered spot (space is a different workspace)
   const spaceCardRef = useRef<HTMLDivElement | null>(null);
@@ -1799,16 +1806,21 @@ export default function DataMapPage() {
   const spaceCardLockedRef = useRef(spaceCardLocked);
   spaceCardLockedRef.current = spaceCardLocked;
   const spaceCardDrag = useMemo(
-    () => panelDragProps("space-card", () => spaceCardRef.current, () => spaceCardLockedRef.current),
+    () => panelDragProps("space-card", () => spaceCardRef.current, () => spaceCardLockedRef.current,
+      { defaultOrigin: "top right" }),
     [],
   );
   const toggleSpaceCardLock = useCallback(() => {
     setSpaceCardLocked((v) => { const n = !v; savePanelPrefs("space-card", { locked: n }); return n; });
   }, []);
+  const [spaceCardScale, setSpaceCardScale] = useState<number>(() => clampScale(getPanelPrefs("space-card").scale));
+  const bumpSpaceCardScale = useCallback((dir: number) => setSpaceCardScale(stepPanelScale("space-card", dir)), []);
   useEffect(() => {
     const el = spaceCardRef.current;
     if (el && !applyPanelPos(el, "space-card")) clearPanelPos(el);
-  }, [spaceCard?.name]);
+    // right-anchored card grows leftward into the map, never off-screen
+    applyPanelScale(el, "space-card", "top right");
+  }, [spaceCard?.name, spaceCardScale]);
   // Full filings view (#/data/filings) — overlay on top of the map page so
   // the map stays mounted; hash-driven so it deep-links and back-buttons.
   const [filingsOpen, setFilingsOpen] = useState(() => window.location.hash === "#/data/filings");
@@ -2064,6 +2076,7 @@ export default function DataMapPage() {
   const terrainWasOnRef = useRef<boolean>(false);
   const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
   const exagRafRef = useRef<number | null>(null); // rAF-coalesced slider apply
+  const exagTrailTimerRef = useRef<number | null>(null); // trailing trail re-datum — rebuilding the curtain per-frame is what made the drag lag
   const lastUserPitchAtRef = useRef<number>(0); // last REAL pitch gesture — the restore never fights it
   useEffect(() => {
     terrainExagRef.current = terrainExag;
@@ -8824,18 +8837,27 @@ export default function DataMapPage() {
                   // glitching. Now the label updates per event (cheap) and
                   // the mesh/datum/curtain apply once per frame at the
                   // LATEST value.
-                  if (exagRafRef.current != null) return;
-                  exagRafRef.current = requestAnimationFrame(() => {
-                    exagRafRef.current = null;
-                    const map = mapRef.current;
-                    const vv = terrainExagRef.current;
-                    try {
-                      const t = map?.getTerrain?.();
-                      if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: vv } as any);
-                      (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? vv : 1);
-                      repaintTrail3d();
-                    } catch {}
-                  });
+                  if (exagRafRef.current == null) {
+                    exagRafRef.current = requestAnimationFrame(() => {
+                      exagRafRef.current = null;
+                      const map = mapRef.current;
+                      const vv = terrainExagRef.current;
+                      try {
+                        const t = map?.getTerrain?.();
+                        if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: vv } as any);
+                        (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? vv : 1);
+                      } catch {}
+                    });
+                  }
+                  // the TRACK rebuild is the heavy half (thousands of
+                  // terrain queries, cache datum-flushed each time) — a
+                  // per-frame rebuild during the drag was the "very laggy"
+                  // report; trail re-datums once, 250ms after the last move
+                  if (exagTrailTimerRef.current != null) window.clearTimeout(exagTrailTimerRef.current);
+                  exagTrailTimerRef.current = window.setTimeout(() => {
+                    exagTrailTimerRef.current = null;
+                    try { repaintTrail3d(); } catch {}
+                  }, 250);
                 }}
               />
               <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>
@@ -9803,6 +9825,14 @@ export default function DataMapPage() {
               <div className="vt-site-card-title">{spaceCard.name}</div>
               <div className="vt-site-card-cat">{spaceCard.typeLabel} · TRACKED</div>
             </div>
+            <button className="vt-icon-btn" data-vt-scale-down aria-label="Shrink card"
+                    title="Smaller (size is remembered)" onClick={() => bumpSpaceCardScale(-1)}>
+              <ZoomOut size={13} />
+            </button>
+            <button className="vt-icon-btn" data-vt-scale-up aria-label="Enlarge card"
+                    title="Bigger (size is remembered)" onClick={() => bumpSpaceCardScale(1)}>
+              <ZoomIn size={13} />
+            </button>
             <button className={`vt-icon-btn vt-lock-btn${spaceCardLocked ? " on" : ""}`} aria-pressed={spaceCardLocked}
                     aria-label={spaceCardLocked ? "Unlock card position" : "Lock card position"}
                     title={spaceCardLocked ? "Position locked — click to unlock" : "Lock position"}
@@ -9944,6 +9974,14 @@ export default function DataMapPage() {
               </div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
+            <button className="vt-icon-btn" data-vt-scale-down aria-label="Shrink card"
+                    title="Smaller (size is remembered)" onClick={() => bumpCardScale(-1)}>
+              <ZoomOut size={14} />
+            </button>
+            <button className="vt-icon-btn" data-vt-scale-up aria-label="Enlarge card"
+                    title="Bigger (size is remembered)" onClick={() => bumpCardScale(1)}>
+              <ZoomIn size={14} />
+            </button>
             <button className={`vt-icon-btn vt-lock-btn${cardLocked ? " on" : ""}`} aria-pressed={cardLocked}
                     aria-label={cardLocked ? "Unlock card position" : "Lock card position"}
                     title={cardLocked ? "Position locked — click to unlock" : "Lock position"}

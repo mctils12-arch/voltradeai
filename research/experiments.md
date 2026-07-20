@@ -23311,3 +23311,53 @@ VERIFICATION: 138 unit tests pass across the affected suites (glElev
 multiple GLOBE blocks — invariant unchanged); real-data mercator +
 globe probes eyeballed; port/live/phone probes ALL PASSED; harness 0
 hard failures at 390/768/1440; python 825 passed. BACKTEST: N/A.
+
+## 2026-07-20 (human-directed session, round 9) [PRODUCT] — Terrain-on curtain visible, exag-drag lag fixed, panel scaling (v1.0.455, T-CLIENT)
+
+TYPE: [PRODUCT] (live-test feedback wave, continuing the round-8 report:
+"when i turn on terrain the last one it very laggy almost unusable and
+it does not show the trail curtain and if i move the exag to the 1.3X
+it should work as well … ability to scale them up or down to fit your
+screen").
+
+1. TERRAIN-ON CURTAIN INVISIBLE (root-caused by GL-state bisect): with
+   the terrain mesh enabled, MapLibre gives '2d' custom layers no
+   usable depth buffer — the depth test failed everywhere (trail pixel
+   census 223 with test on vs 2,502 with test off; the renderingMode
+   '3d' hypothesis was tried and REFUTED — still 223 — and reverted).
+   FIX (flightTrackLayer renderInner): skip the depth test only while
+   map.getTerrain() is truthy — the trail X-rays through ridges rather
+   than vanishing; normal depth behavior everywhere else. Verified:
+   census 2,501 with terrain on, screenshot shows curtain+wall over
+   the mesh with the plane marker.
+2. EXAG DRAG LAG ("very laggy almost unusable"): the slider rebuilt
+   the terrain mesh AND the whole curtain (thousands of DEM queries,
+   datum-flushed ground cache) on EVERY input event of a drag. FIX:
+   per-rAF coalesced setTerrain/setAltScale (latest value, once per
+   frame) + the heavy repaintTrail3d re-datums ONCE, 250ms after the
+   last slider move. The terrain effect's deps never included the exag
+   value, so the debounced slider path is the only per-drag rebuild.
+   Probe (drag burst → 1.3×): terrainExag 1.3, altScale 1.3,
+   getRenderFailed false, census 2,491 — the curtain survives and
+   re-datums at the new exaggeration.
+3. PANEL SCALING (new UI capability on every movable panel): panel
+   prefs gain scale (0.7–1.6, 0.1 steps, clamped+validated on parse;
+   back-to-1.0 deletes the field). applyPanelScale renders it as a CSS
+   transform with an ANCHOR-AWARE origin — right-anchored panels grow
+   leftward INTO the map, the bottom profile bar grows upward, and the
+   origin follows the placed corner once a panel is dragged (reset
+   restores the stylesheet corner). ± buttons on the site card, space
+   card, flight profile bar, and the nav-cluster grip; phones exempt
+   (buttons hidden <768px, apply no-ops) — the bottom-sheet/FAB
+   patterns stand.
+
+VERIFICATION: 601 client unit tests (panelLayout 5 incl. new scale
+parse/clamp/merge pins); node server 819; python 825 passed 3 skipped;
+probes — panels ALL PASSED (×1.2 grow → survives reload → restores
+natural size; cluster right edge pinned 1092→1092 while scaling;
+dblclick-reset re-aimed at the grip glyph since buttons swallow it),
+terrain (censuses above, real AAL2861 archive replay), port/live/phone
+ALL PASSED; harness 0 hard failures at 390/768/1440. BACKTEST: N/A (no
+strategy change). Concurrent-merge note: #570 (T-BOT) took v1.0.454
+mid-session — clean fast-forward, no file overlap, version
+read-and-incremented to 1.0.455 at commit time.

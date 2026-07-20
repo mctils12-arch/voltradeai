@@ -579,12 +579,19 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.lastMainMatrix.set(pd0.mainMatrix as ArrayLike<number>);
     this.lastTransition = pd0.projectionTransition;
 
-    // THE CRITICAL FIX (c): depth-test against the terrain mesh's real
-    // depth, never write it. MapLibre re-syncs its own tracked GL state
-    // after custom layers via setDirty(), so setting state directly is safe.
+    // THE CRITICAL FIX (c), amended 2026-07-20 (probe-bisected): WITHOUT
+    // terrain the depth buffer is the normal cleared-far one — depth-test
+    // LEQUAL works and costs nothing. WITH terrain enabled MapLibre leaves
+    // NO usable depth for '2d' custom layers (every fragment failed: the
+    // trail was invisible, census 223 vs 2,502) — so the test is SKIPPED
+    // there: the curtain X-rays through ridges rather than vanishing.
+    // Never writes depth either way. MapLibre re-syncs its own tracked GL
+    // state after custom layers via setDirty().
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.enable(gl.DEPTH_TEST);
+    const terrainOn = !!(this.map && (this.map as unknown as { getTerrain?: () => unknown }).getTerrain?.());
+    if (terrainOn) gl.disable(gl.DEPTH_TEST);
+    else gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
     gl.depthRange(0, 1);

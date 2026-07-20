@@ -7,8 +7,11 @@ import {
   parseLayout,
   clampPos,
   mergePrefs,
+  clampScale,
   PANEL_KEEP_X,
   PANEL_KEEP_Y,
+  PANEL_SCALE_MIN,
+  PANEL_SCALE_MAX,
   type PanelLayout,
 } from './panelLayout.js';
 
@@ -64,4 +67,35 @@ test('mergePrefs: pos/min/locked update independently; undefined deletes (double
   // other panels untouched
   l = mergePrefs(l, 'nav-cluster', { min: false });
   assert.deepEqual(l['site-card'], { locked: true, min: true });
+});
+
+test('scale: parse validates, merge round-trips, clamp bounds the range', () => {
+  // clampScale — non-finite / nonsense means "no preference" (1)
+  assert.equal(clampScale(undefined), 1);
+  assert.equal(clampScale(NaN), 1);
+  assert.equal(clampScale(-2), 1);
+  assert.equal(clampScale(0), 1);
+  assert.equal(clampScale(1.2), 1.2, 'in-range value passes through');
+  assert.equal(clampScale(0.1), PANEL_SCALE_MIN, 'floor');
+  assert.equal(clampScale(9), PANEL_SCALE_MAX, 'ceiling');
+
+  // parseLayout — a stored scale survives; hostile values are dropped or clamped
+  const back = parseLayout(JSON.stringify({
+    'site-card': { scale: 1.3 },
+    a: { scale: 'big' },
+    b: { scale: Infinity },
+    c: { scale: 99 },
+  }));
+  assert.deepEqual(back['site-card'], { scale: 1.3 });
+  assert.deepEqual(back.a, {}, 'string scale dropped');
+  assert.deepEqual(back.b, {}, 'Infinity dropped');
+  assert.deepEqual(back.c, { scale: PANEL_SCALE_MAX }, 'absurd value clamped, not dropped');
+
+  // mergePrefs — scale updates independently of pos/lock; undefined deletes
+  let l: PanelLayout = { 'site-card': { pos: { left: 5, top: 6 }, locked: true } };
+  l = mergePrefs(l, 'site-card', { scale: 1.2 });
+  assert.deepEqual(l['site-card'], { pos: { left: 5, top: 6 }, locked: true, scale: 1.2 });
+  l = mergePrefs(l, 'site-card', { scale: undefined });
+  assert.deepEqual(l['site-card'], { pos: { left: 5, top: 6 }, locked: true },
+    'back-to-1 forgets the field (record stays minimal)');
 });
