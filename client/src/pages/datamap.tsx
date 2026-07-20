@@ -6048,6 +6048,22 @@ export default function DataMapPage() {
     const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
+        // CLICK-TO-FRAME (human 2026-07-20: "when you click on a plane it
+        // should zoom in more to it so you can see its path and it 3d line
+        // and shade area") — from wide views, ease onto the plane at the
+        // 3D-trail zoom with a working tilt so the altitude line + curtain
+        // read immediately. Never zooms OUT (a close view stays put), never
+        // re-pitches a camera the user already tilted past level.
+        try {
+          if (lngLat && map.getZoom() < 8.6) {
+            map.easeTo({
+              center: [lngLat.lng, lngLat.lat],
+              zoom: 9.2,
+              pitch: Math.max(map.getPitch(), 55),
+              duration: 1600,
+            });
+          }
+        } catch {}
         // FLIGHT CARD (handoff §2): the live 2×2 grid (ALT MSL / ALT AGL /
         // GND SPD / VERT SPD, ref-updated every glide tick + poll) replaces
         // the click-time stat chips; the replay marker's class silhouette
