@@ -44,6 +44,20 @@ export type Vec3 = readonly [number, number, number];
  * projectToSphere() (y = north pole axis, longitude offset +π) scaled by
  * (1 + alt/GLOBE_RADIUS), so CPU tests mirror what the GPU renders.
  */
+/**
+ * MERCATOR-mode altitude for pd.mainMatrix: the matrix consumes z in
+ * MERCATOR UNITS, not meters — mercZ = altMeters / (2πR·cos(lat)), the
+ * classic mercatorZfromAltitude (empirically pinned 2026-07-20: feeding
+ * meters produced w ≈ −10⁹ garbage; this formula reproduces the shader's
+ * pixels exactly). lat derives from mercY with the same formula
+ * mercatorToSphere uses. Clamped near the poles (cos→0).
+ */
+export function mercatorZFromAltitude(altMeters: number, mercY: number): number {
+  const sphericalY = 2 * Math.atan(Math.exp(Math.PI - mercY * Math.PI * 2)) - Math.PI * 0.5;
+  const c = Math.max(1e-6, Math.cos(sphericalY));
+  return altMeters / (2 * Math.PI * GLOBE_RADIUS_M * c);
+}
+
 export function mercatorToSphere(mercX: number, mercY: number, altMeters: number): Vec3 {
   const sphericalX = mercX * Math.PI * 2 + Math.PI;
   const sphericalY = 2 * Math.atan(Math.exp(Math.PI - mercY * Math.PI * 2)) - Math.PI * 0.5;

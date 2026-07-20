@@ -2,10 +2,10 @@
 // DOM/WebGL/map). Run: npx tsx --test client/src/lib/orbital/pick.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickNearestSatellite, pickNearestSatelliteScreen, pixelToleranceToMercUnits } from './pick.ts';
+import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from './pick.ts';
 import { SAT_STRIDE, SENTINEL_SKIP, CLASS_CODE } from './satBuffer.ts';
 import type { GpRecord } from './tle.ts';
-import { mercatorToSphere } from './occlusion.ts';
+import { mercatorToSphere, mercatorZFromAltitude } from './occlusion.ts';
 
 function gp(noradId: number): GpRecord {
   return {
@@ -163,4 +163,35 @@ test('pickNearestSatelliteScreen: altitude displacement respected — the MEO ob
   const masked = positions.slice(); masked[SAT_STRIDE + 3] = SENTINEL_SKIP;
   assert.equal(pickNearestSatelliteScreen(masked, SAT_STRIDE, gp, I, sMeo[0], sMeo[1], W, H, 12), null,
     'sentinel (filtered/unrendered) slots are never pickable');
+});
+
+test('pickNearestSatelliteScreenMercator: mercator-unit z (never meters) — the tilted-terrain click fix', () => {
+  // Matrix with an x-shear on z so altitude visibly displaces the screen
+  // position: clip.x = mx + 1000·z, clip.y = my, w = 1. With z in MERCATOR
+  // units (alt/(2πR·cos φ)) the shear is a modest on-screen shift; feeding
+  // raw METERS would fling it off-screen by ~10⁵ px (the 2026-07-20 bug).
+  const M = [1, 0, 0, 0, 0, 1, 0, 0, 1000, 0, 1, 0, 0, 0, 0, 1];
+  const gp = [{ noradId: 1, name: 'SAT' }] as any[];
+  const positions = buf([[0.25, 0.5, 400_000, CLASS_CODE.LEO]]);
+  const W = 1000, H = 1000;
+  const z = mercatorZFromAltitude(400_000, 0.5);
+  assert.ok(z > 0.0099 && z < 0.0101, `mercZ at the equator ≈ alt/2πR (${z})`);
+  const sx = ((0.25 + 1000 * z + 1) / 2) * W;   // displaced by the shear
+  const sy = ((1 - 0.5) / 2) * H;
+  const hit = pickNearestSatelliteScreenMercator(positions, SAT_STRIDE, gp, M, sx, sy, W, H, 12);
+  assert.equal(hit?.gp.name, 'SAT', 'click at the DISPLACED render position hits');
+  const groundSx = ((0.25 + 1) / 2) * W; // where the nadir would be — no object drawn there
+  assert.equal(pickNearestSatelliteScreenMercator(positions, SAT_STRIDE, gp, M, groundSx, sy, W, H, 12), null,
+    'the ground point is an honest miss — the object does not render there');
+  // sentinel stays unpickable in the mercator path too
+  const masked = positions.slice(); masked[3] = SENTINEL_SKIP;
+  assert.equal(pickNearestSatelliteScreenMercator(masked, SAT_STRIDE, gp, M, sx, sy, W, H, 12), null);
+});
+
+test('mercatorZFromAltitude: latitude scaling + pole guard', () => {
+  const zEq = mercatorZFromAltitude(1000, 0.5);            // equator
+  const zMid = mercatorZFromAltitude(1000, 0.3);           // ~55°N → smaller circumference → bigger z
+  assert.ok(zMid > zEq, 'higher latitude → larger mercator z for the same meters');
+  assert.ok(Number.isFinite(mercatorZFromAltitude(1000, 0)), 'pole clamp keeps it finite');
+  assert.equal(mercatorZFromAltitude(0, 0.42), 0, 'zero altitude → zero z');
 });
