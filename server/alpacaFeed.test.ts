@@ -34,3 +34,20 @@ test("passes real snapshot data through", () => {
 test("non-2xx without message body is still an error", () => {
   assert.match(String(alpacaErrorBody(429, {})), /status 429/);
 });
+
+// Ratchet: no server code may hardcode feed=sip again — that exact string is
+// what silently killed the market-data proxy AND the bot's overnight-gap
+// guard (bot.ts one-liner parsed the error body as price 0, so the 5% gap
+// check never fired). delayed_sip / the resolveAlpacaFeed default are the
+// permitted forms; a genuine SIP plan opts in via ALPACA_DATA_FEED.
+test("no hardcoded feed=sip anywhere in server code", async () => {
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const offenders: string[] = [];
+  for (const f of readdirSync("server")) {
+    if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
+    const src = readFileSync(`server/${f}`, "utf8");
+    let idx = -1;
+    while ((idx = src.indexOf("feed=sip", idx + 1)) !== -1) offenders.push(`${f}@${idx}`);
+  }
+  assert.deepEqual(offenders, []);
+});

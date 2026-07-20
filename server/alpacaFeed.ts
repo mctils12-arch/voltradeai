@@ -1,5 +1,5 @@
 // Alpaca market-data feed selection + upstream error detection.
-// 2026-07-20 [REPAIR]: the data proxy hardcoded feed=sip, which this
+// 2026-07-20 [REPAIR]: the data proxy hardcoded the sip feed param, which this
 // account's subscription rejects ("subscription does not permit querying
 // recent SIP data"). The error body ({message}) parsed as an empty snapshot
 // map, so the scanner, sector heatmap, and watchlist prices all rendered

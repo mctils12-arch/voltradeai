@@ -2409,7 +2409,10 @@ print(json.dumps(s))
     const tf = tfMap[timeframe] || "1Day";
 
     try {
-      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=sip`;
+      // 2026-07-20 [REPAIR]: the sip feed param is rejected by this account's data
+      // subscription (see server/alpacaFeed.ts); delayed_sip keeps full
+      // consolidated bars at a 15-minute delay.
+      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=delayed_sip`;
       const r = await fetch(url, {
         headers: {
           "APCA-API-KEY-ID": ALPACA_KEY,
@@ -3035,7 +3038,11 @@ print(json.dumps(result[:20]))
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execPythonSerialized(
-          `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
+          // 2026-07-20 [REPAIR]: the sip feed param returned {message:...} on this
+          // subscription, so this parsed 0 and the 5% overnight-gap guard
+          // silently never fired. delayed_sip restores a real price (15-min
+          // delayed — fine for detecting an overnight gap).
+          `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=delayed_sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
           { timeout: 8000 }
         );
         const currentPrice = parseFloat(priceCheck.trim());
