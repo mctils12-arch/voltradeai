@@ -564,12 +564,20 @@ function startServer() {
       // each call returns one MORE point so a live-refreshing trail visibly
       // grows across the popup's 30s interval; a static-snapshot regression
       // shows identical coordinates on every read.
+      // 2026-07-20 (flight-track handoff): points now carry `al` altitudes
+      // (climb profile) so the curtain + altitude line + ALTITUDE/TIME
+      // profile panel actually render under the harness — an altitude-less
+      // fixture exercised none of the 3D track path.
       if (u.startsWith("/api/data/track/")) {
         trackCalls++;
         const nowSec = Math.floor(Date.now() / 1000);
         const points = [];
         for (let k = 0; k <= 2 + trackCalls; k++) {
-          points.push({ t: nowSec - (2 + trackCalls - k) * 60, la: 36 + k * 0.05, lo: -97 + k * 0.05 });
+          points.push({
+            t: nowSec - (2 + trackCalls - k) * 60,
+            la: 36 + k * 0.05, lo: -97 + k * 0.05,
+            al: 1500 + k * 400, // steady climb — exercises the ramp min→max
+          });
         }
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ kind: "aircraft", id: u.split("/").pop(), points, count: points.length }));

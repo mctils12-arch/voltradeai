@@ -3569,3 +3569,136 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 /* W1: the always-on celestial sky canvas — under the UI overlays (which
    carry z-index 30+), over the map canvas; never eats gestures. */
 .vt-celestial-sky { z-index: 5; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FLIGHT TRACK 3D + NAV CLUSTER (design_handoff_flight_track_3d,
+   human-approved prototype, installed 2026-07-20). Handoff design tokens
+   promoted to NAMED variables (DESIGN.md tokens-only discipline — the
+   approved handoff extends the palette; values are the spec, exact):
+   panel rgba(9,15,27,.86) · border rgba(130,170,230,.16) · radius 14 ·
+   blur 14 · ink-dim #8fa3bf · accent #4da3ff · teal #38d1c1.
+   Site fonts kept per the handoff's own rule (Geist / Geist Mono).
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --flight-panel: rgba(9, 15, 27, 0.86);
+  --flight-panel-border: rgba(130, 170, 230, 0.16);
+  --flight-ink: #dfe8f5;
+  --flight-ink-dim: #8fa3bf;
+  --flight-accent: #4da3ff;
+  --flight-accent-soft: rgba(77, 163, 255, 0.16);
+  --flight-teal: #38d1c1;
+}
+
+/* ── flight card additions (aircraft detail card, handoff §2) ─────────── */
+.vt-flight-badge {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.8px; color: var(--flight-teal);
+  border: 1px solid rgba(56, 209, 193, 0.35); padding: 3px 7px; border-radius: 99px;
+  white-space: nowrap; font-family: var(--font-body); flex: none;
+}
+.vt-flight-badge .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--flight-teal);
+  animation: vt-flight-pulse 1.6s infinite;
+}
+@keyframes vt-flight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.vt-flight-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
+  padding: 12px 14px 0; flex: 0 0 auto;
+}
+.vt-flight-grid .lbl {
+  font-size: 10px; letter-spacing: 1px; color: var(--flight-ink-dim);
+  font-family: var(--font-mono); text-transform: uppercase;
+}
+.vt-flight-grid .val {
+  font-size: 15px; font-weight: 600; margin-top: 2px; font-family: var(--font-mono);
+  color: var(--flight-ink);
+}
+.vt-flight-grid .val small { font-size: 10px; color: var(--flight-ink-dim); font-weight: 500; }
+.vt-flight-follow {
+  margin: 12px 14px 0; display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: transparent; border: 1px solid var(--flight-panel-border);
+  color: var(--flight-ink-dim); border-radius: 9px; padding: 7px 0;
+  font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-body);
+  min-height: 32px;
+}
+.vt-flight-follow:hover { border-color: var(--flight-accent); color: var(--flight-ink); }
+.vt-flight-follow.on {
+  background: var(--flight-accent-soft); border-color: var(--flight-accent);
+  color: var(--flight-accent);
+}
+
+/* ── in-scene floating tag (handoff §4; screen-projected DOM chip) ────── */
+.vt-flight-tag {
+  position: absolute; z-index: 9; pointer-events: none;
+  transform: translate(-50%, -130%);
+  background: var(--flight-panel); border: 1px solid var(--flight-panel-border);
+  border-radius: 8px; padding: 4px 9px; font-size: 11px; font-weight: 600;
+  white-space: nowrap; display: flex; gap: 7px; align-items: center;
+  color: var(--flight-ink); font-family: var(--font-body);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.vt-flight-tag .alt { color: var(--flight-accent); font-weight: 500; font-family: var(--font-mono); }
+
+/* ── altitude/time profile (handoff §3; bottom bar) ───────────────────── */
+.vt-flight-profile {
+  position: absolute; left: 16px; right: 176px; bottom: 16px; z-index: 10;
+  padding: 12px 16px 10px;
+  background: var(--flight-panel); border: 1px solid var(--flight-panel-border);
+  border-radius: 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  color: var(--flight-ink); font-family: var(--font-body);
+}
+.vt-map-page[data-vt-panel-open="true"] .vt-flight-profile { right: 508px; }
+.vt-flight-profile-min { padding: 8px 12px; }
+.vt-flight-profile-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.vt-flight-play {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--flight-accent);
+  background: var(--flight-accent-soft); color: var(--flight-accent); cursor: pointer;
+  flex: none; display: flex; align-items: center; justify-content: center;
+}
+.vt-flight-play:hover { background: rgba(77, 163, 255, 0.3); }
+.vt-flight-profile-title {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.6px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vt-flight-clock { font-family: var(--font-mono); }
+.vt-flight-profile-src { color: var(--flight-ink-dim); font-weight: 500; }
+.vt-flight-live-btn {
+  margin-left: 8px; border: 1px solid rgba(56, 209, 193, 0.35); background: transparent;
+  color: var(--flight-teal); border-radius: 99px; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.8px; padding: 2px 8px; cursor: pointer;
+}
+.vt-flight-live-btn:hover { background: rgba(56, 209, 193, 0.12); }
+.vt-flight-legend {
+  margin-left: auto; display: flex; gap: 14px; font-size: 10px;
+  color: var(--flight-ink-dim); align-items: center; flex: none;
+}
+.vt-flight-legend i {
+  display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--flight-accent);
+  margin-right: 5px; vertical-align: middle;
+}
+.vt-flight-legend i.terr { border-top-color: #6b8f5e; }
+.vt-flight-legend b {
+  display: inline-block; width: 12px; height: 10px; background: rgba(77, 163, 255, 0.22);
+  border-top: 1px solid rgba(77, 163, 255, 0.6); margin-right: 5px; vertical-align: middle;
+}
+.vt-flight-profile-toggle {
+  border: 0; background: none; color: var(--flight-ink-dim); cursor: pointer;
+  font-size: 12px; padding: 2px 6px; flex: none; min-width: 28px; min-height: 28px;
+}
+.vt-flight-profile-toggle:hover { color: var(--flight-ink); }
+.vt-flight-chartwrap { position: relative; margin-top: 8px; cursor: crosshair; touch-action: none; }
+.vt-flight-chart { display: block; width: 100%; height: 118px; }
+.vt-flight-axis {
+  display: flex; justify-content: space-between; font-size: 9px;
+  color: var(--flight-ink-dim); margin-top: 4px; font-family: var(--font-mono);
+}
+/* the profile owns the bottom edge while open — bottom-center controls lift */
+.vt-map-page.vt-profile-open .vt-preset-switch { bottom: 208px; }
+.vt-map-page.vt-profile-open .vt-nuke-timebar { bottom: 252px; }
+@media (max-width: 767px) {
+  .vt-flight-profile { left: 8px; right: 8px; bottom: 8px; }
+  .vt-flight-legend { display: none; }
+  .vt-flight-chart { height: 84px; }
+  .vt-map-page.vt-profile-open .vt-preset-switch { bottom: 170px; }
+}
