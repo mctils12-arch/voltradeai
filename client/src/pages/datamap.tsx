@@ -2392,6 +2392,13 @@ export default function DataMapPage() {
   // rate + the receipt anchor — lets the curtain tail meet the plane where
   // it is DRAWN between polls (the same glide the plane renders with).
   const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+  // Ground-elevation memo for the terrain-following curtain base — keyed by
+  // terrain config (source|exaggeration: queryTerrainElevation's result
+  // already includes the exaggeration, so a slider move changes every value).
+  // 25s TTL: DEM tiles that load AFTER a query returned 0 refine the base on
+  // the next cycle instead of freezing flat. Archived points never move, so
+  // the 300ms glide-tick rebuild is Map hits + one query for the moving tail.
+  const groundElevCacheRef = useRef<{ cfg: string; at: number; m: Map<string, number> }>({ cfg: "", at: 0, m: new Map() });
 
   const clearTrail = () => {
     const map = mapRef.current;
@@ -2447,12 +2454,37 @@ export default function DataMapPage() {
           // flew over (the aircraft 3D layer's setAltScale precedent).
           const altScale = map.getTerrain() ? terrainExagRef.current : 1;
           const p3 = new Float32Array(raw.length * 3);
+          // CURTAIN BASE FOLLOWS TERRAIN (2026-07-20 report: flat sea-level
+          // base cut through / floated over relief): per-point ground via
+          // map.queryTerrainElevation — MapLibre returns it ALREADY
+          // multiplied by the exaggeration (Terrain.getElevation ×
+          // this.exaggeration), the same datum as the altScale'd tops, so it
+          // is NOT scaled again here. null (terrain off) → 0 = the old
+          // sea-level base. Memoized per point + terrain config (25s TTL —
+          // late-loading DEM tiles report 0 until ready, so 0s must age out).
+          const terrSpec = map.getTerrain?.() as any;
+          const gcfg = terrSpec ? `${terrSpec.source}|${terrSpec.exaggeration}` : "";
+          const gc = groundElevCacheRef.current;
+          const gnow = Date.now();
+          if (gc.cfg !== gcfg || gnow - gc.at > 25_000 || gc.m.size > 4000) {
+            gc.cfg = gcfg; gc.at = gnow; gc.m.clear();
+          }
+          const bottoms = new Float32Array(raw.length); // 0 = sea-level fallback
           for (let i = 0; i < raw.length; i++) {
             const m = lonLatToMercator(raw[i].lo, raw[i].la);
             const al = (raw[i] as any).al;
             p3[i * 3] = m.x;
             p3[i * 3 + 1] = m.y;
             p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al) * altScale;
+            if (terrSpec) {
+              const k = `${raw[i].lo},${raw[i].la}`;
+              let g = gc.m.get(k);
+              if (g === undefined) {
+                try { g = map.queryTerrainElevation([raw[i].lo, raw[i].la]) ?? 0; } catch { g = 0; }
+                gc.m.set(k, g);
+              }
+              bottoms[i] = g;
+            }
           }
           // CURTAIN v2 (the human's "plane with the 3d terrain and altitude
           // path" ask): a SOLID VeloViewer-style wall from the ground up to
@@ -2471,7 +2503,7 @@ export default function DataMapPage() {
           arcs.setArcs(raw.length >= 2 ? [
             { pts: p3, color: [0.49, 0.77, 1.0, 0.9] },
           ] : null);
-          arcs.setWalls(raw.length >= 2 ? [{ pts: p3 }] : null,
+          arcs.setWalls(raw.length >= 2 ? [{ pts: p3, bottoms }] : null,
             { ramp: (alt) => defaultWallRamp(alt / altScale) });
         } catch { /* the flat trail still works */ }
       } else {
@@ -2508,6 +2540,21 @@ export default function DataMapPage() {
       }
     }
     paintTrack("aircraft", track);
+  };
+
+  /** Re-derive the 3D trail + curtain from the cached track when the terrain
+   *  DATUM changes (exaggeration slider, terrain/drain toggle): top z AND the
+   *  terrain-following base both depend on it — waiting for the next poll
+   *  left the curtain floating/clipped for up to 30s. No-op unless a 3D
+   *  trail is actually on screen; reads refs only. */
+  const repaintTrail3d = () => {
+    try {
+      if (!airTrail3dRef.current || airTrail3dRef.current.getVertexCount() === 0) return;
+      groundElevCacheRef.current.cfg = " stale"; // datum changed — force fresh queries
+      if (airCrumbsRef.current.id) { paintFollowedTrail(); return; }
+      const at = archivedTrackRef.current;
+      if (at && at.kind === "aircraft") paintTrack("aircraft", at.raw);
+    } catch {}
   };
 
   /** Fetch the archived track, merge the session's live breadcrumbs for the
@@ -2793,6 +2840,11 @@ export default function DataMapPage() {
     } catch {
       if (enabled.terrain) setStatus("terrain", "error");
     }
+    // 3D trail + curtain datum follows the mesh state (altScale + terrain
+    // base) — re-derive now, and once more when DEM tiles finish loading
+    // (queries return 0 until then; the idle handler is cleaned up below).
+    repaintTrail3d();
+    if (meshSource) { try { map.once("idle", repaintTrail3d); } catch {} }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors
@@ -2840,6 +2892,7 @@ export default function DataMapPage() {
     return () => {
       if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
       try { map.off("pitchstart", onUserPitch); } catch {}
+      try { map.off("idle", repaintTrail3d); } catch {}
     };
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
@@ -8236,6 +8289,12 @@ export default function DataMapPage() {
                     const t = map?.getTerrain?.();
                     if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: v } as any);
                     (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? v : 1);
+                    // curtain + 3D trail: the ref updates in an effect AFTER
+                    // this handler — write it now so the immediate repaint
+                    // scales tops (and re-queries bases: cfg includes the
+                    // exaggeration) at the NEW factor, not the previous one.
+                    terrainExagRef.current = v;
+                    repaintTrail3d();
                   } catch {}
                 }}
               />
