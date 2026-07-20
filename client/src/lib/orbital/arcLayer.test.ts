@@ -142,3 +142,16 @@ test('API smoke (no GL): setArcs semantics unchanged — empty render is a no-op
   layer.render(explodingGl as any, {} as any);
   assert.equal(layer.getRenderFailed(), false);
 });
+
+test('SELF-HEALING failures (2026-07-20, flightTrackLayer pattern): one throw retries, 5 disable, fresh arcs re-arm', () => {
+  const layer = new ArcLayer();
+  const explodingGl = new Proxy({}, { get() { throw new Error('broken gl'); } });
+  layer.setArcs([{ pts: new Float32Array([0.1, 0.5, 400_000, 0.11, 0.5, 400_000]), color: [1, 1, 1, 1] }]);
+  layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), false, 'ONE failure stays retryable (transient context loss)');
+  for (let i = 0; i < 4; i++) layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), true, 'a persistent streak (5) self-disables');
+  layer.render(explodingGl as any, {} as any); // disabled → silent no-op, MUST NOT throw
+  layer.setArcs([{ pts: new Float32Array([0.2, 0.5, 500_000, 0.21, 0.5, 500_000]), color: [1, 1, 1, 1] }]);
+  assert.equal(layer.getRenderFailed(), false, 'fresh arcs re-arm the retry');
+});

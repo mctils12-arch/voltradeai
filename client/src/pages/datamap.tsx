@@ -184,6 +184,7 @@ import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
 import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { installDrapeOrderGuard } from "@/lib/drapeOrder";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
 // 2026-07-16): GEBCO TID measured-vs-predicted seafloor confidence — the
@@ -2170,6 +2171,7 @@ export default function DataMapPage() {
   useEffect(() => {
     let cancelled = false;
     let offScaleUnits: (() => void) | null = null;
+    let offDrapeGuard: (() => void) | null = null;
     (async () => {
       try {
         const maplibregl = (await import("maplibre-gl")).default;
@@ -2242,6 +2244,13 @@ export default function DataMapPage() {
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
+        // DRAPE-ORDER GUARD (terrain lag root cause, probe-proven
+        // 2026-07-20): a custom GL layer buried under a draped layer splits
+        // MapLibre's terrain texture stack and defeats the RTT cache —
+        // 588ms/frame buried vs 180ms floated in the same scene. Layers
+        // mount in async order all over this file, so the guard re-floats
+        // buried customs on every styledata instead of trusting add order.
+        offDrapeGuard = installDrapeOrderGuard(map as any);
         let readyFired = false;
         const ready = () => {
           if (cancelled || readyFired) return;
@@ -2275,6 +2284,7 @@ export default function DataMapPage() {
     return () => {
       cancelled = true;
       try { offScaleUnits?.(); } catch {}
+      try { offDrapeGuard?.(); } catch {}
       try { delete (window as any).__vtMap; } catch {}
       try { mapRef.current?.remove(); mapRef.current = null; } catch {}
     };
@@ -2513,21 +2523,47 @@ export default function DataMapPage() {
     try { map.on("dragstart", release); } catch {}
     return () => { try { map.off("dragstart", release); } catch {} };
   }, [mapReady]);
-  // GL context recovery (2026-07-20 "white page sometimes" report): when
-  // the browser restores a lost WebGL context, MapLibre rebuilds its own
-  // layers — kick the flight track too so the trail returns without
-  // waiting for the next poll (the layers' fail-streak reset handles the
-  // rest).
+  // GL context recovery (2026-07-20 "white page sometimes" report; deepened
+  // by the stability audit): on restore MapLibre re-applies the serialized
+  // style — but style serialization SKIPS custom layers (maplibre
+  // style.serialize, type !== 'custom'), so every custom GL layer silently
+  // vanishes until its owner effect happens to re-run. The registry holds
+  // the LIVE instances (owner effects register/unregister); the restore
+  // handler re-adds any that MapLibre dropped — their self-healing GL paths
+  // rebuild programs/buffers on the recovered context, and the drape-order
+  // guard re-floats them above the draped layers.
+  const customLayerRegistryRef = useRef<Map<string, any>>(new Map());
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
     if (!map) return;
+    let retryTimer: number | null = null;
     const onRestore = () => {
-      try { repaintTrail3d(); } catch {}
-      try { map.triggerRepaint(); } catch {}
+      // the restore event fires while the re-applied style is still LOADING
+      // (probe-caught 2026-07-20: addLayer throws "not done loading" there)
+      // — retry until every registered layer is back or ~10s passes.
+      let tries = 0;
+      const attempt = () => {
+        retryTimer = null;
+        tries++;
+        let missing = false;
+        for (const [id, impl] of customLayerRegistryRef.current) {
+          try {
+            if (!map.getLayer(id)) map.addLayer(impl);
+            if (!map.getLayer(id)) missing = true;
+          } catch { missing = true; }
+        }
+        try { repaintTrail3d(); } catch {}
+        try { map.triggerRepaint(); } catch {}
+        if (missing && tries < 40) retryTimer = window.setTimeout(attempt, 250);
+      };
+      attempt();
     };
     try { map.on("webglcontextrestored" as any, onRestore); } catch {}
-    return () => { try { map.off("webglcontextrestored" as any, onRestore); } catch {} };
+    return () => {
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      try { map.off("webglcontextrestored" as any, onRestore); } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
@@ -3161,7 +3197,11 @@ export default function DataMapPage() {
     const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
     const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
-      if (enabled.terrain && !map.getSource("terrain-dem")) {
+      // only attach the Mapterhorn pyramid when it will BE the mesh — with
+      // the drain on, meshSource is ocean-terrain-dem and a parked
+      // terrain-dem just retains a third DEM tile cache for nothing
+      // (GPU-memory finding, stability audit 2026-07-20)
+      if (meshSource === "terrain-dem" && !map.getSource("terrain-dem")) {
         map.addSource("terrain-dem", {
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
@@ -3241,8 +3281,10 @@ export default function DataMapPage() {
       : imageryVisible
         ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
         : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
-    // keep the map lean when off (mesh + hillshade already detached above)
-    if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
+    // keep the map lean when off (mesh + hillshade already detached above);
+    // terrain-dem also goes whenever it is NOT the active mesh (the drain
+    // owns the mesh then) — a parked DEM pyramid is pure GPU-memory cost
+    if (meshSource !== "terrain-dem") { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
     if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
     return () => {
       if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
@@ -3310,7 +3352,11 @@ export default function DataMapPage() {
           tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
           encoding: "terrarium",
           tileSize: 256,
-          maxzoom: 15,
+          // z12 perf cap, same rationale as the mesh sources (2026-07-20
+          // "very laggy" fix): ETOPO bathymetry is ~1.8km native, so deeper
+          // tiles were pure upsampled churn — this tint source missed the
+          // cap and kept fetching to z15 (stability audit, 2026-07-20).
+          maxzoom: 12,
           attribution: "Bathymetry: NOAA ETOPO1 · Terrain Tiles (Mapzen, AWS Open Data)",
         } as any);
       }
@@ -4054,6 +4100,10 @@ export default function DataMapPage() {
         if (arcs && map.getLayer(arcs.id)) map.removeLayer(arcs.id);
       } catch {}
       satArcLayerRef.current = null;
+      // intentional removals — the context-restore re-add must not resurrect
+      for (const id of ["orbital_sats", "orbital_sat_model", "orbital_arcs"]) {
+        customLayerRegistryRef.current.delete(id);
+      }
       stopSatFocusRef.current = null;
       // O6-3: masks are index-aligned to THIS gp load — never survive it
       satGroupMaskRef.current = null;
@@ -4249,6 +4299,15 @@ export default function DataMapPage() {
     if (!enabled["orbital_sats"]) {
       teardown();
       setStatus("orbital_sats", "off");
+      // LEAK FIX (stability audit 2026-07-20): the smooth-follow rAF, the
+      // dragstart release, and the D3 pointer/wheel listeners are installed
+      // ABOVE this gate — the old bare return leaked one perpetual rAF loop
+      // + listener set per disabled-path run, and sats-off is the DEFAULT
+      // (every /data mount leaked one). Clean them in THIS run — a returned
+      // cleanup would only fire on the next dep change, too late.
+      if (smoothRaf != null) { cancelAnimationFrame(smoothRaf); smoothRaf = null; }
+      try { map.off("dragstart", releaseCamera); } catch {}
+      d3Detach();
       return;
     }
 
@@ -4472,15 +4531,18 @@ export default function DataMapPage() {
         const layer = new SatLayer({ id: "orbital_sats" });
         satLayerRef.current = layer;
         map.addLayer(layer);
+        customLayerRegistryRef.current.set("orbital_sats", layer); // context-restore re-add
         // O5-2b: the focused-satellite 3D form layer sits above the points
         // (draws nothing until a follow sets its anchor + form)
         const modelLayer = new SatModelLayer({ id: "orbital_sat_model" });
         satModelLayerRef.current = modelLayer;
         map.addLayer(modelLayer);
+        customLayerRegistryRef.current.set("orbital_sat_model", modelLayer);
         // O6-1: the focused object's real orbit track (zero cost until set)
         const arcLayer = new ArcLayer({ id: "orbital_arcs" });
         satArcLayerRef.current = arcLayer;
         map.addLayer(arcLayer);
+        customLayerRegistryRef.current.set("orbital_arcs", arcLayer);
 
         const worker = new Worker(
           new URL("../lib/orbital/satWorker.ts", import.meta.url),
@@ -6068,6 +6130,7 @@ export default function DataMapPage() {
     // before the first payload; instances rebuilt from each fresh snapshot.
     const airLayer = new AirLayer({ id: "aircraft-3d" });
     try { map.addLayer(airLayer); } catch {}
+    customLayerRegistryRef.current.set("aircraft-3d", airLayer); // context-restore re-add
     (window as any).__vtAir = airLayer; // harness seam (prod-inert, like __vtMap)
     let airRows: any[] = []; // index-aligned to the instance buffer (picking)
 
@@ -6361,6 +6424,7 @@ export default function DataMapPage() {
       if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
       hideHoverTip();
       try { delete (window as any).__vtAir; } catch {}
+      customLayerRegistryRef.current.delete("aircraft-3d"); // intentional removal — not a restore case
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
   }, [enabled.aircraft, mapReady, wireLivePoints, setStatus, airFilter]);

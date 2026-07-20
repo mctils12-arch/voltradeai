@@ -141,7 +141,11 @@ export class SatModelLayer implements CustomLayerInterface {
   private meshDirty = false;
   private form: FormKind | null = null;
   private anchor: ModelAnchor | null = null;
-  private renderFailed = false; // same self-disable latch as satLayer
+  // SELF-HEALING failures (stability audit 2026-07-20; the flightTrackLayer
+  // pattern — see satLayer for the full rationale): drop GL objects on a
+  // throw, count a streak, re-arm on fresh anchors/minis from the worker.
+  private failStreak = 0;
+  private static readonly MAX_FAIL_STREAK = 5;
 
   // O6-2 minis: class forms drawn at browse zoom without a click. Static
   // per-form GPU buffers (uploaded once), one small uniform-anchored draw
@@ -181,6 +185,7 @@ export class SatModelLayer implements CustomLayerInterface {
   /** O6-2: replace the auto-3D minis (empty/null clears). */
   setMinis(minis: MiniModel[] | null): void {
     this.minis = minis ?? [];
+    this.failStreak = 0; // fresh data re-arms rendering after transient GL failures
     this.map?.triggerRepaint();
   }
 
@@ -195,6 +200,7 @@ export class SatModelLayer implements CustomLayerInterface {
     this.form = form;
     this.mesh = form ? buildFormMesh(form) : null;
     this.meshDirty = true;
+    this.failStreak = 0; // new focus target re-arms after transient GL failures
     this.map?.triggerRepaint();
   }
 
@@ -223,7 +229,11 @@ export class SatModelLayer implements CustomLayerInterface {
     return this.realMesh ?? this.mesh;
   }
 
-  /** The followed satellite's live position (null = not following). */
+  /** The followed satellite's live position (null = not following).
+   *  NOTE: called per FRAME by the smooth-follow loop — deliberately does
+   *  NOT reset failStreak (a per-frame re-arm would turn a persistent GL
+   *  failure into an endless throw/recompile loop; setMinis and setForm,
+   *  on tick/user cadence, are the re-arm points). */
   setAnchor(a: ModelAnchor | null): void {
     this.anchor = a;
     this.map?.triggerRepaint();
@@ -234,22 +244,47 @@ export class SatModelLayer implements CustomLayerInterface {
   }
 
   getRenderFailed(): boolean {
-    return this.renderFailed;
+    return this.failStreak >= SatModelLayer.MAX_FAIL_STREAK;
+  }
+
+  /** Forget every GL handle (deletes on a lost context are safe no-ops) so
+   *  the next render rebuilds from scratch on the recovered context. */
+  private dropGlObjects(gl?: AnyGl): void {
+    try {
+      if (gl) {
+        if (this.program) gl.deleteProgram(this.program);
+        for (const b of [this.bufPos, this.bufNor, this.bufCol]) if (b) gl.deleteBuffer(b);
+        for (const fb of Array.from(this.formBuffers.values())) {
+          gl.deleteBuffer(fb.pos); gl.deleteBuffer(fb.nor); gl.deleteBuffer(fb.col);
+        }
+        if (this.ringBuffer) gl.deleteBuffer(this.ringBuffer);
+      }
+    } catch { /* context gone — handles are already invalid */ }
+    this.program = null;
+    this.cachedVariant = null;
+    this.bufPos = this.bufNor = this.bufCol = null;
+    this.formBuffers.clear();
+    this.ringBuffer = null;
+    this.meshDirty = this.getActiveMesh() != null;
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
-    if (this.renderFailed) return;
+    if (this.failStreak >= SatModelLayer.MAX_FAIL_STREAK) return;
     const focused = !!(this.anchor && this.getActiveMesh());
     // an anchor with NO mesh (unknown class) still draws the focus RING
     if (!this.anchor && this.minis.length === 0) return; // nothing to draw → zero cost, no repaint
     try {
       this.renderInner(gl, args, focused);
+      this.failStreak = 0; // a clean frame ends any failure streak
       // NO self-repaint: the attitude is camera-driven (gestures repaint the
       // map themselves) and position updates arrive via setAnchor each tick.
     } catch (e) {
-      this.renderFailed = true;
+      this.failStreak++;
+      this.dropGlObjects(gl); // stale handles from a lost context throw forever
       // eslint-disable-next-line no-console
-      console.error('SatModelLayer: disabling after render failure (map continues):', e);
+      console.error(
+        `SatModelLayer: render failure ${this.failStreak}/${SatModelLayer.MAX_FAIL_STREAK} ` +
+        '(GL objects dropped for a clean retry; map continues):', e);
     }
   }
 

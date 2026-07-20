@@ -23361,3 +23361,81 @@ ALL PASSED; harness 0 hard failures at 390/768/1440. BACKTEST: N/A (no
 strategy change). Concurrent-merge note: #570 (T-BOT) took v1.0.454
 mid-session — clean fast-forward, no file overlap, version
 read-and-incremented to 1.0.455 at commit time.
+
+## 2026-07-20 (human-directed session, round 10) [REPAIR] — Terrain-lag ROOT CAUSE (drape-stack split) + GL stability wave (v1.0.456, T-CLIENT)
+
+TYPE: [REPAIR] (live report: "terrain … stability issues and bugs it
+laggy"; also answered "is the curtain supposed to grow with exag?" —
+yes, one vertical datum, now stated on the slider tooltip, shipped as
+the prior small commit on this branch).
+
+METHOD: 4-agent parallel audit (MapLibre v5.24 RTT internals from
+installed source; per-frame animation inventory; stability/crash paths;
+instrumented live measurement on the production build) + a
+mechanism-isolation probe. All numbers SwiftShader-relative.
+
+ROOT CAUSE (probe-proven, scratchpad/perf_audit/mechanism.mjs): with 3D
+terrain on, MapLibre drapes background/fill/line/raster/hillshade layers
+into per-tile RTT textures; CONSECUTIVE draped layers share one texture
+stack, and a custom layer sandwiched between draped layers SPLITS the
+stack — a split defeats the cross-frame texture cache entirely (12 pool
+allocations per frame; every visible tile re-rasterizes every frame).
+aircraft-3d mounts BEFORE its sibling layers exist, so it landed between
+imagery(raster) and aircraft-veclines(line): 588ms/frame. A NO-OP render
+at the same position still cost 585ms (our GL code exonerated —
+position is everything); moveLayer to top = 180ms, 0 allocs — identical
+to removing the layer. Terrain alone: 3.3× base, goes idle, fine.
+
+FIX 1 (the lag): lib/drapeOrder.ts — buriedCustomIds/floatBuried
+CustomLayers + installDrapeOrderGuard(map): on every styledata, any
+custom layer with a draped layer above it floats to the top
+(idempotent, so the styledata it fires terminates the loop; phones/
+globe unaffected — order hygiene is projection-independent). Wired at
+map init. VERIFIED (verify_drape.mjs): ONE stack, 0 pool allocs,
+terrain+aircraft = 1.04× the terrain-only baseline (interaction term
+GONE), click/trail/curtain intact (census 7429). Harness RATCHET: the
+cost-budget battery now fails the build if any custom layer is buried
+while terrain is on.
+
+FIX 2 (GPU memory / white page): seafloor-dem tint had MISSED the z12
+cap (still fetching to z15 — 64× upsampled churn); terrain-dem stayed
+attached while the ocean drain owned the mesh (a parked third DEM
+pyramid). Both fixed; audit's white-page verdict: GPU context loss /
+GPU-process crash under DEM+raster memory pressure at pitch 84, NOT a
+JS throw (the terrain effect is fully try/catch-wrapped; a React crash
+would show the dark ErrorBoundary, not white).
+
+FIX 3 (context-loss recovery): MapLibre's restore setStyle silently
+DROPS custom layers (style serialization skips type 'custom') —
+aircraft-3d/orbital layers vanished until a manual toggle. New
+customLayerRegistry re-adds live instances on webglcontextrestored;
+probe caught that the event fires while the restored style is still
+LOADING (addLayer throws, was swallowed) → settle-retry loop (250ms ×
+40). VERIFIED with a REAL loss/restore cycle via WEBGL_lose_context
+(verify_restore.mjs): aircraft-3d back, rendering, no page errors.
+
+FIX 4 (one-strike latches): satLayer/modelLayer/arcLayer still had the
+permanent renderFailed latch — one transient GL throw disabled them for
+the session. Converted to the shipped flightTrackLayer failStreak
+pattern (drop GL objects on throw, streak of 5 disables, fresh data
+re-arms; setAnchor deliberately does NOT re-arm — per-frame cadence
+would loop a persistent failure). satLayer also rebuilds its vertex
+buffer lazily post-drop (was onAdd-only).
+
+FIX 5 (leak): the orbital effect installed the smooth-follow rAF +
+dragstart + D3 pointer/wheel listeners BEFORE its enabled gate and the
+disabled path returned bare — one perpetual rAF loop + listener set
+leaked per run, and sats-off is the DEFAULT (every /data mount leaked).
+Disabled path now cleans them in-run.
+
+AUDIT FINDINGS FILED, NOT FIXED (open_questions.md follow-ups): the
+never-idle glide repaint duty cycle (300ms tick + per-frame glide at
+z≥9.2) — now cheap since the 8.8× interaction term is gone, but still
+holds the map out of idle; the always-on celestialSky rAF; the ~9k
+queryTerrainElevation rebuild storm on trail rebuilds (25s cache TTL vs
+15-30s triggers); prepareForRender per-frame CPU ∝ source count.
+
+VERIFICATION: 607 client unit tests (drapeOrder 4 new; sat/arc/model
+self-healing contracts pinned); mechanism + drape + restore probes as
+above; harness + pytest in flight at log time — commit gated on green.
+BACKTEST: N/A (no strategy change). Audit tokens: ~525k (4 agents).

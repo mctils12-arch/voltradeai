@@ -225,7 +225,11 @@ export class ArcLayer implements CustomLayerInterface {
   private verts: Float32Array | null = null;
   private indices: Uint32Array | null = null;
   private dirty = false;
-  private renderFailed = false;
+  // SELF-HEALING failures (stability audit 2026-07-20; the flightTrackLayer
+  // pattern — see satLayer for the full rationale): drop GL objects on a
+  // throw, count a streak, re-arm on fresh arcs.
+  private failStreak = 0;
+  private static readonly MAX_FAIL_STREAK = 5;
   private defaultWidthPx: number;
 
   constructor(opts: { id?: string; widthPx?: number } = {}) {
@@ -257,6 +261,7 @@ export class ArcLayer implements CustomLayerInterface {
       ? buildArcIndices(this.verts.length / ARC_VERT_STRIDE / ARC_VERTS_PER_SEG)
       : null;
     this.dirty = this.verts != null;
+    this.failStreak = 0; // fresh data re-arms rendering after transient GL failures
     this.map?.triggerRepaint();
   }
 
@@ -265,18 +270,39 @@ export class ArcLayer implements CustomLayerInterface {
   }
 
   getRenderFailed(): boolean {
-    return this.renderFailed;
+    return this.failStreak >= ArcLayer.MAX_FAIL_STREAK;
+  }
+
+  /** Forget every GL handle (deletes on a lost context are safe no-ops) so
+   *  the next render rebuilds from scratch on the recovered context. */
+  private dropGlObjects(gl?: AnyGl): void {
+    try {
+      if (gl) {
+        if (this.program) gl.deleteProgram(this.program);
+        if (this.buffer) gl.deleteBuffer(this.buffer);
+        if (this.indexBuffer) gl.deleteBuffer(this.indexBuffer);
+      }
+    } catch { /* context gone — handles are already invalid */ }
+    this.program = null;
+    this.buffer = null;
+    this.indexBuffer = null;
+    this.cachedVariant = null;
+    this.dirty = this.verts != null;
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
-    if (this.renderFailed) return;
+    if (this.failStreak >= ArcLayer.MAX_FAIL_STREAK) return;
     if (!this.verts || this.verts.length === 0) return; // nothing set → zero cost
     try {
       this.renderInner(gl, args);
+      this.failStreak = 0; // a clean frame ends any failure streak
     } catch (e) {
-      this.renderFailed = true;
+      this.failStreak++;
+      this.dropGlObjects(gl); // stale handles from a lost context throw forever
       // eslint-disable-next-line no-console
-      console.error('ArcLayer: disabling after render failure (map continues):', e);
+      console.error(
+        `ArcLayer: render failure ${this.failStreak}/${ArcLayer.MAX_FAIL_STREAK} ` +
+        '(GL objects dropped for a clean retry; map continues):', e);
     }
   }
 

@@ -5678,3 +5678,25 @@ hunt reopens.
 - sat-inspect-v2 design (human 2026-07-20): claude.ai/design share link
   403s from the session — need the HTML uploaded like the flight handoff
   zip before the satellite view can be matched to it.
+
+### UPDATE 2026-07-20 (round 10): latch follow-up SHIPPED; new perf follow-ups filed
+The satLayer/modelLayer/arcLayer self-healing conversion shipped in
+v1.0.456 (with context-restore re-add via the custom-layer registry) —
+that item above is CLOSED. New follow-ups from the 4-agent terrain
+audit (all measured under SwiftShader; ratios are the finding):
+- NEVER-IDLE GLIDE LOOP: with aircraft on, the 300ms glide repaint tick
+  (datamap glideRepaintIv) + per-frame glide at z≥9.2 hold the map out
+  of idle permanently (10.6-10.9 renders/s terrain-off). Post-fix each
+  frame is cheap (1.04× terrain baseline), but an idle-when-static
+  scheme (skip tick when no aircraft moved a pixel) would cut battery/
+  GPU duty. Measure first: renders/s vs pixels moved.
+- celestialSky runs an unconditional rAF WebGL draw on the normal map
+  (celestialSky.ts ~995) — a fixed per-frame tax; gate by visibility?
+- TRAIL REBUILD STORM: paintTrack re-queries up to ~9k
+  queryTerrainElevation samples with a 25s cache TTL while rebuild
+  triggers arrive every 15-30s — periodic main-thread stalls with a
+  followed plane + terrain. Options: raise TTL (datum-keyed), or move
+  ground sampling to the DEM decoder (lib/elevation) off the query path.
+- MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
+  sources every terrain frame (CPU ∝ source count) — consolidating tiny
+  GeoJSON sources helps terrain perf even for non-draped layers.

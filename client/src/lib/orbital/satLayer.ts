@@ -479,13 +479,18 @@ export class SatLayer implements CustomLayerInterface {
   private colorMEO: Rgba;
   private colorGEO: Rgba;
 
-  // Set true if render throws (e.g. shaders fail to compile/link on a
-  // constrained GL — a SwiftShader harness, an old device). render() is called
-  // by MapLibre inside its per-frame loop; an uncaught throw there would break
-  // the ENTIRE map every frame, not just this layer. So we catch once, disable
-  // ourselves, and let the base map carry on (mirrors the globeSupport
-  // "unavailable" degrade pattern). getRenderFailed() surfaces it for honesty.
-  private renderFailed = false;
+  // SELF-HEALING render failures (stability audit 2026-07-20; mirrors the
+  // shipped flightTrackLayer/airLayer pattern): the old one-strike boolean
+  // latch meant a single transient GL exception — e.g. a context loss under
+  // terrain memory pressure — killed the layer for the whole session even
+  // after the context recovered, and stale handles from the lost context
+  // would throw forever anyway. A failure now DROPS the GL objects and
+  // counts a streak; fresh data (updatePositions — the worker ticks every
+  // second) re-arms a retry that rebuilds on the healthy context. Only a
+  // persistent streak with no successes stays disabled (a genuinely
+  // unsupported GL fails fast and quietly, same as before).
+  private failStreak = 0;
+  private static readonly MAX_FAIL_STREAK = 5;
 
   constructor(opts: SatLayerOptions = {}) {
     this.id = opts.id ?? 'orbital-sats';
@@ -512,21 +517,44 @@ export class SatLayer implements CustomLayerInterface {
   }
 
   render(gl: AnyGl, args: CustomRenderMethodInput): void {
-    if (this.renderFailed) return; // disabled after a prior failure — never crash the map
+    if (this.failStreak >= SatLayer.MAX_FAIL_STREAK) return; // streak exhausted — never crash the map
     if (this.globalOpacity <= 0) return; // fully faded out (LOD envelope) — zero draw calls
     if (!this.data || this.total === 0) return;
     try {
       this.renderInner(gl, args);
+      this.failStreak = 0; // a clean frame ends any failure streak
     } catch (e) {
-      this.renderFailed = true;
+      this.failStreak++;
+      this.dropGlObjects(gl); // stale handles from a lost context throw forever
       // eslint-disable-next-line no-console
-      console.error('SatLayer: disabling after render failure (map continues):', e);
+      console.error(
+        `SatLayer: render failure ${this.failStreak}/${SatLayer.MAX_FAIL_STREAK} ` +
+        '(GL objects dropped for a clean retry; map continues):', e);
     }
   }
 
-  /** True once render has failed and the layer has self-disabled (for the honesty panel). */
+  /** Forget every GL handle (deletes on a possibly-lost context are safe
+   *  no-ops) so the next render rebuilds from scratch. */
+  private dropGlObjects(gl?: AnyGl): void {
+    try {
+      if (gl) {
+        if (this.program) gl.deleteProgram(this.program);
+        if (this.buffer) gl.deleteBuffer(this.buffer);
+        if (this.shapeBuffer) gl.deleteBuffer(this.shapeBuffer);
+      }
+    } catch { /* context gone — handles are already invalid */ }
+    this.program = null;
+    this.cachedVariant = null; // force a recompile on the fresh context
+    this.buffer = null;
+    this.shapeBuffer = null;
+    this.shapeDirty = this.shapeCodes != null;
+    this.dataDirty = this.data != null;
+    this.uploadedFloats = -1;
+  }
+
+  /** True while the failure streak has the layer disabled (honesty panel). */
   getRenderFailed(): boolean {
-    return this.renderFailed;
+    return this.failStreak >= SatLayer.MAX_FAIL_STREAK;
   }
 
   private renderInner(gl: AnyGl, args: CustomRenderMethodInput): void {
@@ -535,6 +563,13 @@ export class SatLayer implements CustomLayerInterface {
     const sd = args.shaderData;
     if (this.program == null || this.cachedVariant !== sd.variantName) {
       this.compile(gl, sd.vertexShaderPrelude, sd.define, sd.variantName);
+    }
+    // buffer is created in onAdd normally, but rebuilt here after a
+    // dropGlObjects (self-healing retry on a recovered context)
+    if (this.buffer == null) {
+      this.buffer = gl.createBuffer();
+      this.uploadedFloats = -1;
+      this.dataDirty = this.data != null;
     }
     if (this.program == null || this.buffer == null) return;
 
@@ -715,6 +750,7 @@ export class SatLayer implements CustomLayerInterface {
     this.total = Math.floor(data.length / SAT_STRIDE);
     this.meta = meta ?? this.meta;
     this.dataDirty = true;
+    this.failStreak = 0; // fresh data re-arms rendering after transient GL failures
     // Remember the stream's tick interval for the paced-glide horizon (a
     // one-off call between ticks — e.g. a filter repush — keeps the last
     // known stream value rather than forgetting it).

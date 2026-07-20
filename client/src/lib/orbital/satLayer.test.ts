@@ -476,3 +476,18 @@ test('setTimeScale: defaults to 1 (pre-B3 render math), clamps garbage to 0, rou
   layer.setTimeScale(1);
   assert.equal(layer.getTimeScale(), 1);
 });
+
+test('SELF-HEALING failures (2026-07-20, flightTrackLayer pattern): one throw retries, 5 disable, fresh positions re-arm', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  const layer = new SatLayer();
+  const explodingGl = new Proxy({}, { get() { throw new Error('broken gl'); } });
+  layer.updatePositions(new Float32Array(SAT_STRIDE)); // one satellite → render attempts GL
+  layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), false, 'ONE failure stays retryable (transient context loss)');
+  for (let i = 0; i < 4; i++) layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), true, 'a persistent streak (5) self-disables');
+  layer.render(explodingGl as any, {} as any); // disabled → silent no-op, MUST NOT throw
+  layer.updatePositions(new Float32Array(SAT_STRIDE)); // worker tick re-arms
+  assert.equal(layer.getRenderFailed(), false, 'fresh positions re-arm the retry');
+});

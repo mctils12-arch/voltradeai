@@ -1294,6 +1294,30 @@ async function main() {
         if (costNote !== "heavy load") {
           checks.failures.push(`cost-budget: expected 'heavy load' badge with ${extraToggle.length} extra layers on (weight 35), got '${costNote}' — cost-budget consumer not wired or threshold drifted`);
         }
+        // ── DRAPE-ORDER RATCHET (terrain-lag root cause, probe-proven
+        // 2026-07-20): with terrain ON (it is, in this battery), a custom GL
+        // layer buried under a draped layer (fill/line/raster/background/
+        // hillshade) splits MapLibre's RTT stack and silently defeats the
+        // terrain texture cache — 588ms/frame buried vs 180ms floated in the
+        // same scene (scratchpad mechanism probe). lib/drapeOrder.ts guards
+        // this at runtime; this check makes a regression build-failing.
+        const buried = await page.evaluate(() => {
+          const DRAPED = new Set(["background", "fill", "line", "raster", "hillshade", "color-relief"]);
+          const map = window.__vtMap;
+          const order = map?.style?._order || [];
+          const layers = map?.style?._layers || {};
+          const seq = order.map((id) => ({ id, type: layers[id]?.type }));
+          const out = [];
+          for (let i = 0; i < seq.length; i++) {
+            if (seq[i].type !== "custom") continue;
+            if (seq.slice(i + 1).some((l) => DRAPED.has(l.type))) out.push(seq[i].id);
+          }
+          return out;
+        });
+        checks.info.buriedCustomLayers = buried.join(",") || "none";
+        if (buried.length) {
+          checks.failures.push(`drape-order: custom layer(s) buried under draped layers with terrain on: ${buried.join(", ")} — RTT stack split regresses the 2026-07-20 terrain-lag fix (lib/drapeOrder.ts)`);
+        }
         // flip back off to restore default state for the remaining checks/
         // screenshots — VERIFIED per switch: a missed terrain off-click left
         // the auto-tilted camera pitched for every later check (the trail

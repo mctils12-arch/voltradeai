@@ -49,11 +49,18 @@ test('API smoke (no GL): form/anchor setters, unknown class = no mesh, no-anchor
   layer.setAnchor({ mercX: 0.3, mercY: 0.4, altMeters: 550_000 });
   assert.deepEqual(layer.getAnchor(), { mercX: 0.3, mercY: 0.4, altMeters: 550_000 });
   // O6 ring fix: an anchor with NO mesh now DRAWS (the focus ring rides the
-  // anchor at true altitude) — with a broken GL the failure latch must trip
-  // gracefully instead of crashing the map.
+  // anchor at true altitude) — with a broken GL failures must degrade
+  // gracefully instead of crashing the map. SELF-HEALING contract
+  // (2026-07-20, flightTrackLayer pattern): one transient failure is
+  // retryable; only a persistent streak disables; fresh data re-arms.
   const explodingGl = new Proxy({}, { get() { throw new Error('gl touched'); } });
   layer.render(explodingGl as any, {} as any);
-  assert.equal(layer.getRenderFailed(), true, 'ring draw attempted → latch trips on a broken GL');
+  assert.equal(layer.getRenderFailed(), false, 'ONE failure stays retryable (transient context loss)');
+  for (let i = 0; i < 4; i++) layer.render(explodingGl as any, {} as any);
+  assert.equal(layer.getRenderFailed(), true, 'a persistent streak (5) self-disables');
+  layer.render(explodingGl as any, {} as any); // disabled → no-throw no-op
+  layer.setForm('bus'); // fresh focus target re-arms the retry
+  assert.equal(layer.getRenderFailed(), false, 'new data re-arms after the streak');
   // with neither anchor nor mesh nor minis, render is a pure no-op (fresh layer)
   const idle = new SatModelLayer();
   idle.render(explodingGl as any, {} as any);
