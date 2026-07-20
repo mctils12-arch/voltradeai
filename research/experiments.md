@@ -3,6 +3,134 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-20 [REPAIR] — KNOWN BROKEN #18 continuation: live TIER2-ERROR storm caught active (3 fresh exact-300s timeouts), one theory-refuting data point recorded, per-method dispatch-detail instrument shipped so the next occurrence self-diagnoses (v1.0.454, T-BOT, scheduled-routine session)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths) + `voltrade_daemon.py`
+(closely-coupled infra this item's own prior sessions have always touched
+alongside bot.ts, not explicitly listed under any territory — treated as
+T-BOT-adjacent, matching precedent) + their test files
+(`test_daemon_active_dispatches.py`, `test_voltrade_daemon.py`,
+`server/tier2DaemonTimeoutVisibility.test.ts`) + SHARED minimal
+(`package.json`/`package-lock.json` version, `research/*`, last commit per
+MERGE-ORDER PROTOCOL). Solo session.
+
+LIVE HEALTH CHECK first (GOAL priority 1): `/api/health` — status ok,
+`bot.liveness.dark: false`, `scanner.consecutiveFailures: 0`,
+`drawdownPct: "0.0"`, Alpaca account ACTIVE. No LIVENESS ALARM.
+
+LOOP-HEALTH RATIO: last 10 experiments.md entries by date — 1/10 tagged
+[REPAIR] (the 2026-07-20 GEM-methane-packaging entry; the rest are
+[PRODUCT]/[PIPELINE]/[RESEARCH]) — nowhere near the 7+ thrash threshold.
+
+PRIMARY ACTION SELECTION: per REPAIR MANDATE, checked `research/
+open_questions.md`'s KNOWN BROKEN section first. Item #18 (TIER2-ERROR
+daemon-timeout storm, open since 2026-07-10, three prior sessions of
+progressively narrowing root-cause work) was the only KNOWN BROKEN item
+with both an open status and a concrete, actionable NEXT STEP. Rather than
+guess, checked `/api/diag/audit` live and found the storm ACTIVELY
+RECURRING at session start — three fresh `TIER2-ERROR` occurrences in the
+prior ~35 minutes, each landing at exactly 300.0s after its own scan's
+start (`19:24:20→19:29:20`, `19:31:20→19:36:20`, `19:52:13→19:57:13`),
+plus two near-miss completions at 295s/298s — direct new confirmation this
+is `REQUEST_TIMEOUT_SEC=300` firing, and that the system runs chronically
+close to that wall rather than occasionally spiking into it. This is
+Priority-1/2 repair work on a live, currently-recurring break — the
+highest-value action available per SESSION BUDGET, ahead of new research.
+
+WHAT WAS ATTEMPTED: this item's own prior NEXT STEP asks for
+`/api/diag/timings.tier_timings.csp_layer2_prefetch`'s `cache_hit`/
+`budget_exceeded` fields correlated with a live `TIER2-ERROR` in the SAME
+window. Polled `/api/diag/audit` + `/api/diag/timings` every 15-20s across
+two ~8-minute windows (20:20-20:28Z, 20:31-20:38Z per `date -u`) trying to
+catch the correlation live. The storm had quieted by then (scan interval
+widened to 15min after consecutive successes; two observed scans completed
+fast at 72s/74s) — NO TIER2-ERROR occurred during either watch window, so
+the specific correlation this item's NEXT STEP asks for remains uncaught.
+Per REASONING STANDARD #4/#10: an intermittent live phenomenon that isn't
+reproducible on demand within one session's bounded polling window is an
+honest miss, not something to force by over-interpreting a thin sample.
+
+ONE useful data point WAS recorded despite the miss, and it's evidence
+AGAINST the strict form of the prior session's own theory: a genuine
+cache-miss Layer-2 prefetch cycle observed mid-session completed well
+inside budget (`completed: 150/150`, `elapsed_sec: 32.45` of the 45s cap,
+`budget_exceeded: false`, `tier1_sec: 40.97`, total scan `71.82s`). The
+prior session's math ("300 calls in a 45s budget needs ~6.7 req/s, >2x the
+shared throttle's 3 req/s sustainable rate, mathematically guaranteed to
+exceed budget on ANY cache-miss cycle") predicted this cycle should have
+been tight-to-blown; it wasn't. This doesn't refute Layer-2 contention as
+A cause, but it does refute it being a DETERMINISTIC property of every
+cache-miss cycle in isolation — something else concurrent must be the
+differentiator between this comfortable 71.82s run and the exact-300s
+timeouts.
+
+NEW HYPOTHESIS (not guessed — built from the daemon's own existing code
+comment, previously unconfirmed for lack of an instrument): `voltrade_
+daemon.py`'s `RPCHandler.handle()` already documents that `t.join(300)`
+gives up waiting on a timed-out `run_full_scan` without being able to kill
+the thread — the abandoned thread keeps running and keeps drawing from the
+SAME shared `alpaca_throttle` bucket as the next scan attempt (started
+after only a 120s backoff, likely still overlapping the zombie's tail).
+This predicts exactly the observed clustering-then-clearing pattern (two
+back-to-back timeouts, then two close-but-surviving scans, then one more
+timeout, then a fast clean recovery once the backlog presumably drained) —
+`active_dispatches` reading `2` on every occurrence is CONSISTENT with
+this (one zombie + one live) but was previously unfalsifiable because the
+counter never recorded WHAT each active dispatch was or how long it had
+been running, only the bare count.
+
+SHIPPED (v1.0.454, pure visibility — no trading/scoring/sizing logic
+touched, same class as the two prior sessions' TIER2-ERROR instrumentation):
+`voltrade_daemon.py`'s active-dispatch tracking now records method name +
+start timestamp per dispatch (`_active_dispatch_detail`, keyed by a new
+per-dispatch id returned from `_inc_active_dispatch(method)` and consumed
+by `_dec_active_dispatch(dispatch_id)`), not just a count. `_health()`
+gained `active_dispatch_detail: [{method, elapsed_sec}, ...]`.
+`server/bot.ts`'s existing TIER2-ERROR daemon-health probe now formats
+this into the audit line itself, e.g. `active_dispatches=2
+[run_full_scan:340.2s, run_full_scan:8.1s]` — so the NEXT occurrence
+confirms or refutes the zombie-pileup theory directly from the persisted
+audit log, no live stakeout required.
+
+RATCHET: `test_daemon_active_dispatches.py` (the pre-existing dedicated
+file for this exact counter, from the 2026-07-10 session — found and used
+as the right home for this coverage rather than duplicating it elsewhere)
+— 3 existing tests updated for the new required `method` arg / id-based
+decrement, 2 new tests (method+elapsed tracking; two concurrent dispatches
+distinguished by method, the exact shape a real zombie-pileup catch
+needs), the live-socket integration test extended to assert the real
+`health` RPC's own detail entry. `server/tier2DaemonTimeoutVisibility
+.test.ts` gained one new wiring-pinned test asserting bot.ts's daemon
+branch actually reads `active_dispatch_detail` and formats `method`/
+`elapsed_sec`, not just the bare count.
+
+GATES: `python3 -m pytest -q` 830 passed, 2 skipped (0 regressions; 17/17
+across the two daemon-dispatch test files); `npx tsx --test
+server/*.test.ts` 755 passed / 7 failed — A/B-verified via `git stash`
+this session that the same 7 (aircraftTiling/apiKeyAccounts/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) fail identically on
+main, unrelated to this change; `npx tsc --noEmit` 70 errors, confirmed
+byte-identical via the same `git stash` A/B; `npm run build` clean.
+package-lock.json's root version fields had drifted stale to 1.0.452
+again — same recurring class two prior sessions already fixed once each
+(now three); corrected by this session's own `npm install`, then bumped
+1.0.453 → 1.0.454 for this change itself.
+
+BACKTEST: N/A — pure diagnostic-visibility change (no scoring/sizing/
+execution logic touched); this is infrastructure instrumentation, not a
+strategy or threshold change, so PROMOTION RULE 3's Sharpe/drawdown
+comparison doesn't apply.
+
+NEXT STEP (filed in open_questions.md item #18, not duplicated here):
+whichever session catches the next live TIER2-ERROR should read the audit
+line's `active_dispatch_detail` directly. A second `run_full_scan` entry
+with `elapsed_sec` near or above 300 confirms the zombie-pileup cascade
+(fix direction: stop routing an abandoned dispatch's zombie thread through
+the same throttle bucket as fresh calls, or shrink the timeout/backoff so
+zombies clear before the next attempt starts) — a short-lived or absent
+second entry refutes it, and the search returns to the still-open
+`csp_layer2_prefetch` correlation from the prior session.
+
 ## 2026-07-20 [REPAIR]+[RESEARCH] — GEM methane join was silently dead on prod since gate-2(a) (packaging defect, fixed) + first real gate-2(c) base-rate verdict on the re-joined data (v1.0.441, T-DATACORE, scheduled-routine session)
 
 TERRITORY: T-DATACORE (script/build.ts, server/repoFiles.test.ts,

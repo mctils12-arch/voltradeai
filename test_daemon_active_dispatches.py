@@ -26,6 +26,18 @@ This file pins the fix: a dedicated counter that tracks dispatch threads
 actually executing right now (including abandoned ones), surfaced on
 _health() as active_dispatches, so a client hitting a daemon timeout can
 immediately check whether the daemon is piling up abandoned work.
+
+EXTENDED 2026-07-20 (KNOWN BROKEN #18 continuation, scheduled-routine
+session): live TIER2-ERROR catches this session found active_dispatches==2
+on every occurrence, but the bare count can't distinguish "healthy 2x
+concurrency" from "an abandoned run_full_scan zombie thread from the PRIOR
+timed-out cycle still running, competing for the shared alpaca_throttle
+bucket with a fresh run_full_scan that just started" — the
+self-perpetuating-cascade hypothesis three timeouts landing at exactly the
+300s RPC boundary (19:29:20, 19:36:20, 19:57:13Z) suggest. _inc_active_dispatch
+now takes the method name and returns a per-dispatch id; _health() gained
+active_dispatch_detail: [{method, elapsed_sec}, ...] so the next occurrence's
+audit line can answer "what, and for how long" directly.
 """
 import os
 import socket
@@ -41,36 +53,40 @@ class TestActiveDispatchCounter(unittest.TestCase):
     """Pure unit tests on the counter functions — no socket involved."""
 
     def setUp(self):
-        # Counter is module-global; reset around each test so tests don't
-        # bleed into each other regardless of run order.
+        # Counter/detail dict are module-global; reset around each test so
+        # tests don't bleed into each other regardless of run order.
         voltrade_daemon._active_dispatch_count = 0
+        voltrade_daemon._active_dispatch_detail.clear()
 
     def tearDown(self):
         voltrade_daemon._active_dispatch_count = 0
+        voltrade_daemon._active_dispatch_detail.clear()
 
     def test_starts_at_zero(self):
         self.assertEqual(voltrade_daemon._active_dispatch_count, 0)
+        self.assertEqual(voltrade_daemon._active_dispatch_snapshot(), [])
 
     def test_increment_and_decrement(self):
-        voltrade_daemon._inc_active_dispatch()
+        id_a = voltrade_daemon._inc_active_dispatch("run_full_scan")
         self.assertEqual(voltrade_daemon._active_dispatch_count, 1)
-        voltrade_daemon._inc_active_dispatch()
+        id_b = voltrade_daemon._inc_active_dispatch("run_full_scan")
         self.assertEqual(voltrade_daemon._active_dispatch_count, 2)
-        voltrade_daemon._dec_active_dispatch()
+        voltrade_daemon._dec_active_dispatch(id_a)
         self.assertEqual(voltrade_daemon._active_dispatch_count, 1)
-        voltrade_daemon._dec_active_dispatch()
+        voltrade_daemon._dec_active_dispatch(id_b)
         self.assertEqual(voltrade_daemon._active_dispatch_count, 0)
 
     def test_concurrent_increments_are_race_free(self):
         # If the +=1/-=1 weren't guarded by _active_dispatch_lock, this
         # would flake under real thread interleaving on some runs.
-        threads = [threading.Thread(target=voltrade_daemon._inc_active_dispatch)
+        threads = [threading.Thread(target=voltrade_daemon._inc_active_dispatch, args=("run_full_scan",))
                    for _ in range(50)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
         self.assertEqual(voltrade_daemon._active_dispatch_count, 50)
+        self.assertEqual(len(voltrade_daemon._active_dispatch_snapshot()), 50)
 
     def test_health_reports_the_counter(self):
         dispatcher = RPCDispatcher()
@@ -79,6 +95,49 @@ class TestActiveDispatchCounter(unittest.TestCase):
         self.assertEqual(result["active_dispatches"], 3)
         self.assertIn("rss_mb", result)
         self.assertIn("uptime_seconds", result)
+
+    def test_detail_tracks_method_and_elapsed_time(self):
+        """The exact shape a live zombie-pileup catch needs: entries
+        distinguishable by method name and by how long each has run —
+        this is what active_dispatches's bare count could never answer."""
+        dispatch_id = voltrade_daemon._inc_active_dispatch("run_full_scan")
+        snapshot = voltrade_daemon._active_dispatch_snapshot()
+        self.assertEqual(len(snapshot), 1)
+        self.assertEqual(snapshot[0]["method"], "run_full_scan")
+        self.assertGreaterEqual(snapshot[0]["elapsed_sec"], 0)
+        voltrade_daemon._dec_active_dispatch(dispatch_id)
+        self.assertEqual(voltrade_daemon._active_dispatch_snapshot(), [])
+
+    def test_detail_distinguishes_concurrent_dispatches_by_method(self):
+        """A zombie run_full_scan overlapping a fresh one of the SAME method
+        must still show as two distinct entries — the count alone (2) can't
+        tell a healthy pair apart from one abandoned + one live."""
+        id_a = voltrade_daemon._inc_active_dispatch("run_full_scan")
+        id_b = voltrade_daemon._inc_active_dispatch("select_contract")
+        snapshot = voltrade_daemon._active_dispatch_snapshot()
+        self.assertEqual({s["method"] for s in snapshot}, {"run_full_scan", "select_contract"})
+        voltrade_daemon._dec_active_dispatch(id_a)
+        snapshot = voltrade_daemon._active_dispatch_snapshot()
+        self.assertEqual(len(snapshot), 1)
+        self.assertEqual(snapshot[0]["method"], "select_contract")
+        voltrade_daemon._dec_active_dispatch(id_b)
+
+    def test_health_surfaces_active_dispatch_detail(self):
+        dispatcher = RPCDispatcher()
+        dispatch_id = voltrade_daemon._inc_active_dispatch("select_contract")
+        try:
+            result = dispatcher._health({})
+            self.assertIn("active_dispatch_detail", result)
+            self.assertEqual(len(result["active_dispatch_detail"]), 1)
+            self.assertEqual(result["active_dispatch_detail"][0]["method"], "select_contract")
+        finally:
+            voltrade_daemon._dec_active_dispatch(dispatch_id)
+
+    def test_dec_unknown_id_is_a_safe_detail_noop(self):
+        """An id with no matching detail entry (e.g. a double-decrement)
+        must not raise and must leave the detail registry consistent."""
+        voltrade_daemon._dec_active_dispatch(999999)
+        self.assertEqual(voltrade_daemon._active_dispatch_snapshot(), [])
 
 
 class TestActiveDispatchLiveSocket(unittest.TestCase):
@@ -96,6 +155,7 @@ class TestActiveDispatchLiveSocket(unittest.TestCase):
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
         voltrade_daemon._active_dispatch_count = 0
+        voltrade_daemon._active_dispatch_detail.clear()
         self._orig_dispatch = voltrade_daemon._dispatcher.dispatch
         self.server = ThreadingUnixServer(self.socket_path, RPCHandler)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -109,6 +169,7 @@ class TestActiveDispatchLiveSocket(unittest.TestCase):
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
         voltrade_daemon._active_dispatch_count = 0
+        voltrade_daemon._active_dispatch_detail.clear()
 
     def _rpc(self, method, args=None, timeout=5):
         import json
@@ -168,6 +229,8 @@ class TestActiveDispatchLiveSocket(unittest.TestCase):
         # honestly reports 1, not 0. Anything else already tests the
         # decrement-after-completion path above.
         self.assertEqual(response["result"]["active_dispatches"], 1)
+        self.assertEqual(len(response["result"]["active_dispatch_detail"]), 1)
+        self.assertEqual(response["result"]["active_dispatch_detail"][0]["method"], "health")
 
 
 if __name__ == "__main__":
