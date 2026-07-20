@@ -47,8 +47,10 @@ import {
   clampLat,
   clampPitch,
   dialBearing,
+  makeHoldRegistry,
   panDelta,
   stepRig,
+  zoomGoalStep,
   type Rig,
 } from "@/lib/cameraRig";
 
@@ -72,6 +74,10 @@ export interface MapNavClusterProps {
   /** suspended (space-frame) mode: the rig is inert but zoom buttons stay —
    *  each press forwards one seam step to the space camera (out = true). */
   onSuspendedZoom?: (out: boolean) => void;
+  /** suspended mode FLY HOME — a continuous flight back through the seam
+   *  (the space frame's Escape behavior, given a button so the controls
+   *  never "go away when you zoom out" — live report 2026-07-20). */
+  onSuspendedReset?: () => void;
 }
 
 type HoldFn = (dt: number) => void;
@@ -88,13 +94,18 @@ export default function MapNavCluster({
   followTarget,
   onRecenter,
   onSuspendedZoom,
+  onSuspendedReset,
 }: MapNavClusterProps) {
   const ringRef = useRef<SVGGElement | null>(null);
   const rigRef = useRef<Rig>({
     cur: { ...NAV_HOME },
     goal: { ...NAV_HOME },
   } as unknown as Rig);
-  const heldRef = useRef<Set<HoldFn>>(new Set());
+  // held buttons keyed by BUTTON NAME, not closure identity — the page
+  // re-renders every data tick, re-creating the handlers; a release that
+  // removes by function identity misses after a re-render and the camera
+  // spins forever (live latch report 2026-07-20, round 3).
+  const heldRef = useRef(makeHoldRegistry());
   const keysRef = useRef<Set<string>>(new Set());
   const rafRef = useRef<number | null>(null);
   const activeRef = useRef(false);
@@ -140,7 +151,7 @@ export default function MapNavCluster({
 
       const held = heldRef.current;
       const keys = keysRef.current;
-      held.forEach((fn) => fn(dt));
+      held.tick(dt);
       keys.forEach((k) => keyFns[k]?.(dt));
 
       // Follow-aircraft: the center goal tracks the live/replayed craft
@@ -157,7 +168,7 @@ export default function MapNavCluster({
         });
       } catch { /* map torn down mid-frame */ }
 
-      if (moving || held.size > 0 || keys.size > 0 || ft) {
+      if (moving || held.size() > 0 || keys.size > 0 || ft) {
         rafRef.current = requestAnimationFrame(frame);
       } else {
         activeRef.current = false;
@@ -227,7 +238,7 @@ export default function MapNavCluster({
     const fns: Record<string, HoldFn> = {
       q: (dt) => { rig().goal.bearing += RIG_ROTATE_DEG_S * dt; },
       e: (dt) => { rig().goal.bearing -= RIG_ROTATE_DEG_S * dt; },
-      // R = flatter (toward the 88° grazing tilt), F = toward top-down —
+      // R = flatter (toward the grazing tilt), F = toward top-down —
       // probe-verified prototype directions
       r: (dt) => { rig().goal.pitch = clampPitch(rig().goal.pitch + RIG_TILT_DEG_S * dt); },
       f: (dt) => { rig().goal.pitch = clampPitch(rig().goal.pitch - RIG_TILT_DEG_S * dt); },
@@ -235,37 +246,75 @@ export default function MapNavCluster({
       arrowdown: pan(0, 1),
       arrowleft: pan(-1, 0),
       arrowright: pan(1, 0),
-      "=": (dt) => { rig().goal.zoom = clampZoom(rig().goal.zoom + RIG_ZOOM_LEVELS_S * dt); },
-      "+": (dt) => { rig().goal.zoom = clampZoom(rig().goal.zoom + RIG_ZOOM_LEVELS_S * dt); },
-      "-": (dt) => { rig().goal.zoom = clampZoom(rig().goal.zoom - RIG_ZOOM_LEVELS_S * dt); },
-      _: (dt) => { rig().goal.zoom = clampZoom(rig().goal.zoom - RIG_ZOOM_LEVELS_S * dt); },
+      "=": (dt) => { zoomBy(RIG_ZOOM_LEVELS_S * dt); },
+      "+": (dt) => { zoomBy(RIG_ZOOM_LEVELS_S * dt); },
+      "-": (dt) => { zoomBy(-RIG_ZOOM_LEVELS_S * dt); },
+      _: (dt) => { zoomBy(-RIG_ZOOM_LEVELS_S * dt); },
     };
     return fns;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map]);
 
-  const clampZoom = (z: number) => {
-    try {
-      if (!map) return z;
-      return Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), z));
-    } catch { return z; }
+  /** all button/key/wheel zoom goes through the runaway-proof step:
+   *  map bounds + imagery ceiling + goal-ahead cap (live fix 2026-07-20:
+   *  hold-zoom flew uncontrollably into blank placeholder tiles). */
+  const zoomBy = (delta: number) => {
+    const r = rig();
+    let minZ = 0, maxZ = 22;
+    try { if (map) { minZ = map.getMinZoom(); maxZ = map.getMaxZoom(); } } catch {}
+    r.goal.zoom = zoomGoalStep(r.cur.zoom, r.goal.zoom, delta, minZ, maxZ);
   };
 
-  // hold-to-repeat wiring (pointer capture; touch-friendly)
-  const holdProps = (fn: HoldFn, opts: { zoomOut?: boolean } = {}) => ({
+  // hold-to-repeat wiring (pointer capture; touch-friendly). Press/release
+  // are keyed by BUTTON — the page re-renders every data tick, and closure-
+  // identity releases missed after a re-render, latching the camera into a
+  // spin (live report 2026-07-20). Keys survive re-renders by construction.
+  const holdProps = (key: string, fn: HoldFn, opts: { zoomOut?: boolean } = {}) => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.preventDefault();
       // the continuous-zoom seam: a zoom-out step at the floor enters the
       // space frame instead of no-oping (the NavigationControl precedent)
       if (opts.zoomOut && atZoomFloor() && onZoomOutAtFloor?.()) return;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      heldRef.current.add(fn);
+      heldRef.current.press(key, fn);
       wake();
     },
-    onPointerUp: () => heldRef.current.delete(fn),
-    onPointerCancel: () => heldRef.current.delete(fn),
-    onLostPointerCapture: () => heldRef.current.delete(fn),
+    onPointerUp: () => heldRef.current.release(key),
+    onPointerCancel: () => heldRef.current.release(key),
+    onLostPointerCapture: () => heldRef.current.release(key),
   });
+
+  // space-mode hold-repeat (interval-based — the rig loop is off in space;
+  // the space camera takes discrete seam impulses)
+  const spaceIvRef = useRef<number | null>(null);
+  const stopSpaceHold = () => {
+    if (spaceIvRef.current != null) {
+      window.clearInterval(spaceIvRef.current);
+      spaceIvRef.current = null;
+    }
+  };
+  useEffect(() => () => stopSpaceHold(), []);
+
+  // GLOBAL RELEASE FAILSAFES (latch bug, round 3): any pointer release
+  // anywhere, a lost tab, or a window blur stops every held button — a
+  // missed per-button pointerup can never leave the camera spinning. Blur/
+  // hidden also drop held KEYS (their keyup would never arrive).
+  useEffect(() => {
+    const stopAll = () => { heldRef.current.clear(); stopSpaceHold(); };
+    const stopAllAndKeys = () => { stopAll(); keysRef.current.clear(); };
+    const onVis = () => { if (document.hidden) stopAllAndKeys(); };
+    window.addEventListener("pointerup", stopAll, { capture: true });
+    window.addEventListener("pointercancel", stopAll, { capture: true });
+    window.addEventListener("blur", stopAllAndKeys);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pointerup", stopAll, { capture: true } as any);
+      window.removeEventListener("pointercancel", stopAll, { capture: true } as any);
+      window.removeEventListener("blur", stopAllAndKeys);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── canvas mouse scheme (prototype-exact; mouse pointers only) ────────
   useEffect(() => {
@@ -324,9 +373,8 @@ export default function MapNavCluster({
       // zoom-out at the floor belongs to the continuous-zoom seam (it has
       // its own capture listener on this container) — stay out of its way
       if (e.deltaY > 0 && atZoomFloor()) return;
-      const r = rig();
       wake();
-      r.goal.zoom = clampZoom(r.goal.zoom - e.deltaY * RIG_WHEEL_ZOOM_PER_DY);
+      zoomBy(-e.deltaY * RIG_WHEEL_ZOOM_PER_DY);
       e.preventDefault();
       e.stopPropagation();
     };
@@ -429,28 +477,47 @@ export default function MapNavCluster({
   if (suspended) {
     // space frame owns the camera — the rig stays inert, but button zoom
     // survives (the old NavigationControl kept working in space; the seam's
-    // per-press nudge moves with the cluster).
+    // per-press nudge moves with the cluster). HOLD repeats (160ms seam
+    // impulses), and FLY HOME gives the space view a reset — the controls
+    // never "go away when you zoom out" (live report 2026-07-20).
+    const spaceHoldProps = (out: boolean) => ({
+      onPointerDown: (e: React.PointerEvent) => {
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        stopSpaceHold();
+        onSuspendedZoom?.(out);
+        spaceIvRef.current = window.setInterval(() => onSuspendedZoom?.(out), 160);
+      },
+      onPointerUp: stopSpaceHold,
+      onPointerCancel: stopSpaceHold,
+      onLostPointerCapture: stopSpaceHold,
+    });
     return (
-      <div className="vt-nav-cluster vt-nav-open" data-vt-nav role="group" aria-label="Space view zoom">
+      <div className="vt-nav-cluster vt-nav-open" data-vt-nav role="group" aria-label="Space view navigation">
+        <div className="vt-nav-lbl">ZOOM</div>
         <div className="vt-nav-card vt-nav-btncol">
           <div className="vt-nav-row">
-            <button className="vt-nav-btn" data-vt-nav-zoomin title="Zoom in" aria-label="Zoom in"
-                    onClick={() => onSuspendedZoom?.(false)}>
+            <button className="vt-nav-btn" data-vt-nav-zoomin title="Zoom in (hold)" aria-label="Zoom in"
+                    {...spaceHoldProps(false)}>
               <Icon d="M12 5v14M5 12h14" size={15} sw={2.2} />
             </button>
-            <button className="vt-nav-btn" data-vt-nav-zoomout title="Zoom out" aria-label="Zoom out"
-                    onClick={() => onSuspendedZoom?.(true)}>
+            <button className="vt-nav-btn" data-vt-nav-zoomout title="Zoom out (hold)" aria-label="Zoom out"
+                    {...spaceHoldProps(true)}>
               <Icon d="M5 12h14" size={15} sw={2.2} />
             </button>
           </div>
         </div>
+        <button className="vt-nav-btn vt-nav-wide vt-nav-card" data-vt-nav-reset
+                title="Fly home to the live map" onClick={() => onSuspendedReset?.()}>
+          FLY HOME
+        </button>
       </div>
     );
   }
 
   const holdRot = (sign: 1 | -1): HoldFn => (dt) => { rig().goal.bearing += sign * RIG_ROTATE_DEG_S * dt; };
   const holdTilt = (sign: 1 | -1): HoldFn => (dt) => { rig().goal.pitch = clampPitch(rig().goal.pitch + sign * RIG_TILT_DEG_S * dt); };
-  const holdZoom = (sign: 1 | -1): HoldFn => (dt) => { rig().goal.zoom = clampZoom(rig().goal.zoom + sign * RIG_ZOOM_LEVELS_S * dt); };
+  const holdZoom = (sign: 1 | -1): HoldFn => (dt) => { zoomBy(sign * RIG_ZOOM_LEVELS_S * dt); };
   const holdPan = (fx: number, fz: number): HoldFn => (dt) => {
     const r = rig();
     const d = panDelta(r.goal.bearing, fx, fz, r.cur.zoom, r.cur.lat, viewportH(), dt);
@@ -489,37 +556,37 @@ export default function MapNavCluster({
         <div className="vt-nav-card vt-nav-btncol">
           <div className="vt-nav-row">
             <button className="vt-nav-btn" data-vt-nav-rotl title="Rotate left (hold) — Q" aria-label="Rotate left"
-                    {...holdProps(holdRot(1))}><Icon d="M3 12a9 9 0 1 0 3-6.7|M6 2v4h4" /></button>
+                    {...holdProps("rotl", holdRot(1))}><Icon d="M3 12a9 9 0 1 0 3-6.7|M6 2v4h4" /></button>
             <button className="vt-nav-btn" data-vt-nav-rotr title="Rotate right (hold) — E" aria-label="Rotate right"
-                    {...holdProps(holdRot(-1))}><Icon d="M21 12a9 9 0 1 1-3-6.7|M18 2v4h-4" /></button>
+                    {...holdProps("rotr", holdRot(-1))}><Icon d="M21 12a9 9 0 1 1-3-6.7|M18 2v4h-4" /></button>
           </div>
           <div className="vt-nav-row">
             <button className="vt-nav-btn" data-vt-nav-tiltup title="Tilt up / flatter (hold) — R" aria-label="Tilt toward horizon"
-                    {...holdProps(holdTilt(1))}><Icon d="M4 17h16M6 12l6-6 6 6" /></button>
+                    {...holdProps("tiltup", holdTilt(1))}><Icon d="M4 17h16M6 12l6-6 6 6" /></button>
             <button className="vt-nav-btn" data-vt-nav-tiltdn title="Tilt down / top view (hold) — F" aria-label="Tilt toward top-down"
-                    {...holdProps(holdTilt(-1))}><Icon d="M4 7h16M6 12l6 6 6-6" /></button>
+                    {...holdProps("tiltdn", holdTilt(-1))}><Icon d="M4 7h16M6 12l6 6 6-6" /></button>
           </div>
           <div className="vt-nav-row">
             <button className="vt-nav-btn" data-vt-nav-zoomin title="Zoom in (hold)" aria-label="Zoom in"
-                    {...holdProps(holdZoom(1))}><Icon d="M12 5v14M5 12h14" size={15} sw={2.2} /></button>
+                    {...holdProps("zoomin", holdZoom(1))}><Icon d="M12 5v14M5 12h14" size={15} sw={2.2} /></button>
             <button className="vt-nav-btn" data-vt-nav-zoomout title="Zoom out (hold)" aria-label="Zoom out"
-                    {...holdProps(holdZoom(-1), { zoomOut: true })}><Icon d="M5 12h14" size={15} sw={2.2} /></button>
+                    {...holdProps("zoomout", holdZoom(-1), { zoomOut: true })}><Icon d="M5 12h14" size={15} sw={2.2} /></button>
           </div>
         </div>
         <div className="vt-nav-lbl">PAN</div>
         <div className="vt-nav-card vt-nav-dpad">
           <span />
           <button className="vt-nav-btn" data-vt-nav-pann title="Pan forward (hold) — ↑" aria-label="Pan forward"
-                  {...holdProps(holdPan(0, -1))}><Icon d="M12 19V5M5 12l7-7 7 7" size={14} sw={2.4} /></button>
+                  {...holdProps("pann", holdPan(0, -1))}><Icon d="M12 19V5M5 12l7-7 7 7" size={14} sw={2.4} /></button>
           <span />
           <button className="vt-nav-btn" data-vt-nav-panw title="Pan left (hold) — ←" aria-label="Pan left"
-                  {...holdProps(holdPan(-1, 0))}><Icon d="M19 12H5M12 5l-7 7 7 7" size={14} sw={2.4} /></button>
+                  {...holdProps("panw", holdPan(-1, 0))}><Icon d="M19 12H5M12 5l-7 7 7 7" size={14} sw={2.4} /></button>
           <span className="vt-nav-btn vt-nav-ctr" aria-hidden />
           <button className="vt-nav-btn" data-vt-nav-pane title="Pan right (hold) — →" aria-label="Pan right"
-                  {...holdProps(holdPan(1, 0))}><Icon d="M5 12h14M12 5l7 7-7 7" size={14} sw={2.4} /></button>
+                  {...holdProps("pane", holdPan(1, 0))}><Icon d="M5 12h14M12 5l7 7-7 7" size={14} sw={2.4} /></button>
           <span />
           <button className="vt-nav-btn" data-vt-nav-pans title="Pan back (hold) — ↓" aria-label="Pan back"
-                  {...holdProps(holdPan(0, 1))}><Icon d="M12 5v14M5 12l7 7 7-7" size={14} sw={2.4} /></button>
+                  {...holdProps("pans", holdPan(0, 1))}><Icon d="M12 5v14M5 12l7 7 7-7" size={14} sw={2.4} /></button>
           <span />
         </div>
         <button className="vt-nav-btn vt-nav-wide vt-nav-card" data-vt-nav-reset title="Reset view" onClick={resetView}>

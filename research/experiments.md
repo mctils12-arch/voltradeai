@@ -22609,3 +22609,62 @@ died — uptime spanned the whole event). BACKTEST: N/A (pure client).
 VERIFICATION: pick/occlusion/airLayer/flightTrackLayer 50/50;
 cameraRig+ 39/39; build green per commit; the two headless drives
 above are the load-bearing checks. BACKTEST: N/A (pure client).
+
+## 2026-07-20 — [REPAIR] T-CLIENT: port the superseded line's verified control fixes onto the re-landed nav cluster (v1.0.444)
+
+SUPERSESSION SALVAGE (WORKSTREAM PARTITION rule 6): the #561 line was
+closed and re-landed by a concurrent session (#562 components, #564
+mercator picking, #566 cluster re-land "arbitration fixed") — first-
+merged wins, their arbitration/onUserPan design kept intact. This PR
+ports ONLY the unique deltas the re-land did not carry, each one a
+live human-reported bug on production v1.0.443:
+
+1. HOLD-BUTTON LATCH ("clicked rotate left and it started rotating
+   constantly and would not stop"): heldRef was Set<HoldFn> keyed by
+   closure identity; the 1Hz data tick re-renders recreate handlers
+   mid-press, release removes closure B, closure A spins forever.
+   → makeHoldRegistry (cameraRig.ts): press/release keyed by BUTTON
+   NAME + global failsafes (window pointerup/pointercancel capture,
+   blur, visibilitychange → clear; blur/hidden also drop held keys).
+   Regression test pins the re-render race.
+2. RUNAWAY ZOOM ("zooms way in uncontrollably" into blank tiles):
+   held input piled zoom-levels onto the damped goal unbounded, and
+   nothing stopped at the imagery data edge. → zoomGoalStep on every
+   button/key/wheel zoom path: RIG_BUTTON_MAX_ZOOM 17.5 imagery
+   ceiling + RIG_ZOOM_MAX_AHEAD 0.9 goal-ahead cap. Baseline probe on
+   pure main: 3s hold from z15 released at 19.18 and COASTED to
+   19.38; ported build stops at exactly 17.50, zero coast. Regression
+   test pins the caps.
+3. SPACE-VIEW CONTROLS ("they go away when you zoom out"): suspended
+   mode had a bare click-step +/− pair only. → hold-to-repeat zoom
+   (160ms seam impulses) + FLY HOME button (onSuspendedReset →
+   spaceHandle.flyHome). Probe: FLY HOME lands back on the map.
+4. PITCH 88→84 map-wide (maxPitch + RIG_PITCH_MAX + test pin): the
+   freeze root cause from the incident post-mortem — MapLibre marks
+   pitch >~85 experimental; near-horizon tile-cover explosion froze
+   production ("system freezes constantly"). 84 is probe-verified for
+   the curtain. Baseline probe on pure main reached 87.99 via tilt
+   hold.
+5. VECLINES CLICK GUARD (probe-discovered live on main): the
+   aircraft velocity whisker starts AT the plane; queryRenderedFeatures
+   precedence in onAir3dClick/onAir3dMove let it claim every
+   dead-center plane click → card never opened. → filter *-veclines
+   from the precedence list (the superseded line's fix). Baseline
+   probe on pure main: click → no card; ported build: card opens, ALT
+   MSL reads real values.
+6. stepRig snap-settle: exponential damping never arrives; the
+   sub-pixel asymptote kept the rAF loop alive seconds after every
+   input. Channels snap onto the goal inside visible epsilon.
+
+VERIFICATION: cameraRig 12/12 (2 new regression tests) + trackModel +
+flightTrackLayer = 30/30; npm build green; live Playwright probe ALL
+CHECKS PASSED (runaway/latch/tilt-cap/plane-click/space controls, with
+pure-main baselines reproducing every user report); visual harness
+--page data 0 hard failures at 390/768/1440; python suite 822 passed
+3 skipped (test_macro_snapshot_spy_dedup needed yfinance+scipy+openpyxl
+pip-installed in the container — env gap, not a code failure).
+BACKTEST: N/A (pure client). DOWNSTREAM CHAIN (REASONING STANDARD 1):
+zoom ceiling 17.5 → deep-zoom inspection unchanged via pinch/native
+(map maxZoom untouched); pitch 84 → curtain grazing look preserved,
+tile-cover bounded → freeze vector closed; veclines filter → whisker
+loses click priority but has no card of its own (nothing lost).

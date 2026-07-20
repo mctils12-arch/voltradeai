@@ -9,7 +9,8 @@
 //  - pitch: the prototype measures ELEVATION from horizontal (2° = grazing,
 //    88° = top-down); MapLibre pitch measures tilt from vertical. mapPitch
 //    = 90° − elevation, so the prototype's 2°–88° elevation clamp is the
-//    SAME 2°–88° range in MapLibre pitch (map must allow maxPitch 88).
+//    SAME numeric range in MapLibre pitch (upper bound tightened to
+//    RIG_PITCH_MAX below — see the freeze note there).
 //  - distance ↔ zoom: MapLibre keeps the camera→center distance a fixed
 //    pixel count (1.5 × viewport height at the default fov), so distance
 //    in meters = 1.5·h·(mercator meters per pixel). A multiplicative
@@ -47,11 +48,15 @@ export const RIG_DRAG_ROTATE_DEG_PX = 0.005 * R2D;
 /** drag tilt, deg/px (prototype 0.004 rad/px). */
 export const RIG_DRAG_TILT_DEG_PX = 0.004 * R2D;
 
-/** pitch clamp in MapLibre degrees (prototype elevation 2°–88° = the same
- *  numeric range after the 90°−el mapping; 2 = near-top-down here). The
- *  UPPER bound is the extreme grazing tilt the curtain must survive. */
+/** pitch clamp in MapLibre degrees (2 = near-top-down). The UPPER bound is
+ *  the extreme grazing tilt the curtain must survive. The prototype's 88°
+ *  (2° elevation) FROZE production (2026-07-20 live report): MapLibre marks
+ *  pitch >~85° experimental, and near-horizon views explode the visible
+ *  tile cover — every frame queues hundreds of tile loads. 84° stays inside
+ *  the supported envelope and the curtain's double-sided/no-depth-write fix
+ *  is angle-independent (probe-verified at 84°). */
 export const RIG_PITCH_MIN = 2;
-export const RIG_PITCH_MAX = 88;
+export const RIG_PITCH_MAX = 84;
 
 export interface RigState {
   bearing: number;
@@ -72,21 +77,28 @@ export const clampPitch = (p: number): number =>
 export const clampLat = (lat: number): number => Math.min(85, Math.max(-85, lat));
 
 /** One damping step toward the goals (mutates cur; returns true while any
- *  channel is still visibly moving — the caller's rAF keep-alive). */
+ *  channel is still visibly moving — the caller's rAF keep-alive). Channels
+ *  SNAP onto the goal once inside their visible threshold: exponential
+ *  damping never actually arrives, and a sub-pixel asymptote kept the rAF
+ *  loop alive for seconds after every input (settle-flake, 2026-07-20). */
 export function stepRig(rig: Rig, dtSec: number): boolean {
   const k = 1 - Math.exp(-RIG_DAMPING_PER_S * Math.max(0, dtSec));
   const c = rig.cur, g = rig.goal;
-  c.bearing += (g.bearing - c.bearing) * k;
-  c.pitch += (g.pitch - c.pitch) * k;
-  c.zoom += (g.zoom - c.zoom) * k;
-  c.lng += (g.lng - c.lng) * k;
-  c.lat += (g.lat - c.lat) * k;
+  const chase = (cur: number, goal: number, eps: number): number => {
+    const next = cur + (goal - cur) * k;
+    return Math.abs(goal - next) <= eps ? goal : next;
+  };
+  c.bearing = chase(c.bearing, g.bearing, 0.01);
+  c.pitch = chase(c.pitch, g.pitch, 0.01);
+  c.zoom = chase(c.zoom, g.zoom, 0.0005);
+  c.lng = chase(c.lng, g.lng, 1e-7);
+  c.lat = chase(c.lat, g.lat, 1e-7);
   return (
-    Math.abs(g.bearing - c.bearing) > 0.01 ||
-    Math.abs(g.pitch - c.pitch) > 0.01 ||
-    Math.abs(g.zoom - c.zoom) > 0.0005 ||
-    Math.abs(g.lng - c.lng) > 1e-7 ||
-    Math.abs(g.lat - c.lat) > 1e-7
+    c.bearing !== g.bearing ||
+    c.pitch !== g.pitch ||
+    c.zoom !== g.zoom ||
+    c.lng !== g.lng ||
+    c.lat !== g.lat
   );
 }
 
@@ -122,6 +134,62 @@ export function panDelta(
   const north = (-fx * Math.sin(b) - fz * Math.cos(b)) * s;
   const cosLat = Math.max(0.05, Math.cos((latDeg * Math.PI) / 180));
   return { dLng: east / (M_PER_DEG_LAT * cosLat), dLat: north / M_PER_DEG_LAT };
+}
+
+/** Button/wheel zoom ceiling — beyond ~z18 the imagery basemap serves
+ *  "map data not yet available" placeholder tiles (live report 2026-07-20:
+ *  hold-zoom flew uncontrollably into the blank void). The buttons stop
+ *  where real imagery still exists; pinch/native zoom keeps the map's own
+ *  maxZoom for users who deliberately go deeper. */
+export const RIG_BUTTON_MAX_ZOOM = 17.5;
+
+/** Max zoom-levels the GOAL may run ahead of the camera. The prototype
+ *  accumulates held input into the goal and lets damping chase it — over a
+ *  40km demo world that coast was bounded; over a planet a held button (or
+ *  trackpad momentum) piled levels onto the goal and the camera kept flying
+ *  long after release. 0.9 levels keeps the damped feel with an instant,
+ *  controllable stop. */
+export const RIG_ZOOM_MAX_AHEAD = 0.9;
+
+/** One button/wheel zoom-goal step: bounded by the map's own zoom range,
+ *  the button ceiling, and the goal-ahead cap. Pure — the runaway-zoom
+ *  regression test lives on this. */
+export function zoomGoalStep(
+  curZoom: number,
+  goalZoom: number,
+  delta: number,
+  minZoom: number,
+  maxZoom: number,
+): number {
+  const ceiling = Math.min(maxZoom, RIG_BUTTON_MAX_ZOOM);
+  const bounded = Math.min(ceiling, Math.max(minZoom, goalZoom + delta));
+  return Math.min(curZoom + RIG_ZOOM_MAX_AHEAD, Math.max(curZoom - RIG_ZOOM_MAX_AHEAD, bounded));
+}
+
+/** Hold-button registry keyed by BUTTON, not by function identity.
+ *  THE LATCH BUG (live report 2026-07-20 round 3: "clicked rotate left and
+ *  it started rotating constantly and would not stop"): the page re-renders
+ *  every data tick, which re-creates the button handlers — press stored
+ *  closure A, release tried to remove closure B, and A spun forever. Keys
+ *  survive re-renders; release/clear can never miss. */
+export interface HoldRegistry {
+  press(key: string, fn: (dt: number) => void): void;
+  release(key: string): void;
+  /** global failsafe: any pointerup/blur/hidden clears everything. */
+  clear(): void;
+  tick(dt: number): void;
+  size(): number;
+}
+
+export function makeHoldRegistry(): HoldRegistry {
+  const m = new Map<string, (dt: number) => void>();
+  return {
+    press: (key, fn) => m.set(key, fn),
+    release: (key) => m.delete(key),
+    clear: () => m.clear(),
+    tick: (dt) => m.forEach((fn) => fn(dt)),
+    size: () => m.size,
+  };
 }
 
 /** Shortest-way bearing delta that lands on north (compass click). */

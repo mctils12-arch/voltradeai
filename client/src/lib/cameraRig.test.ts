@@ -17,6 +17,8 @@ import {
   panDelta,
   bearingDeltaToNorth,
   dialBearing,
+  zoomGoalStep,
+  makeHoldRegistry,
   RIG_DAMPING_PER_S,
   RIG_ROTATE_DEG_S,
   RIG_TILT_DEG_S,
@@ -24,6 +26,8 @@ import {
   RIG_WHEEL_ZOOM_PER_DY,
   RIG_PITCH_MIN,
   RIG_PITCH_MAX,
+  RIG_BUTTON_MAX_ZOOM,
+  RIG_ZOOM_MAX_AHEAD,
   type Rig,
 } from './cameraRig.js';
 
@@ -60,10 +64,10 @@ test('tuned rates translate the prototype exactly', () => {
   near(RIG_WHEEL_ZOOM_PER_DY, 0.0011 / Math.LN2, 1e-12, 'wheel ×e^(0.0011·ΔY)');
 });
 
-test('pitch clamp is 2°–88° (88 = the extreme grazing tilt the curtain must survive)', () => {
+test('pitch clamp is 2°–84° (grazing tilt inside MapLibre\'s supported envelope — the prototype\'s 88° froze production: tile-cover explosion past ~85°)', () => {
   assert.equal(RIG_PITCH_MIN, 2);
-  assert.equal(RIG_PITCH_MAX, 88);
-  assert.equal(clampPitch(120), 88);
+  assert.equal(RIG_PITCH_MAX, 84);
+  assert.equal(clampPitch(120), 84);
   assert.equal(clampPitch(-5), 2);
 });
 
@@ -93,6 +97,43 @@ test('bearingDeltaToNorth takes the shortest way home', () => {
   near(bearingDeltaToNorth(350), 10, 1e-9, 'wraps the short way');
   near(bearingDeltaToNorth(-190), -170, 1e-9, 'normalizes first');
   near(bearingDeltaToNorth(720), 0, 1e-9, 'already north (mod 360)');
+});
+
+test('zoomGoalStep: runaway-zoom regression (live report 2026-07-20)', () => {
+  // a held button cannot pile the goal more than the ahead-cap past the camera
+  const g1 = zoomGoalStep(10, 12, 0.5, 0, 22);
+  near(g1, 10 + RIG_ZOOM_MAX_AHEAD, 1e-9, 'goal capped just ahead of the camera');
+  // and never past the imagery ceiling, whatever the map allows
+  const g2 = zoomGoalStep(17.4, 17.4, 5, 0, 22);
+  near(g2, RIG_BUTTON_MAX_ZOOM, 1e-9, 'button zoom stops at the imagery ceiling');
+  assert.ok(RIG_BUTTON_MAX_ZOOM <= 18, 'ceiling sits inside real imagery coverage');
+  // zoom-out respects the map floor and the ahead-cap symmetrically
+  const g3 = zoomGoalStep(3.7, 3.7, -9, 3.6, 22);
+  near(g3, 3.6, 1e-9, 'floor respected');
+  const g4 = zoomGoalStep(10, 8, -0.5, 0, 22);
+  near(g4, 10 - RIG_ZOOM_MAX_AHEAD, 1e-9, 'downward coast equally bounded');
+});
+
+test('hold registry: release by KEY survives re-renders (latch regression — "rotate would not stop", live 2026-07-20)', () => {
+  const reg = makeHoldRegistry();
+  let spins = 0;
+  // render 1 creates closure A; the press stores it under the button key
+  const closureA = () => { spins += 1; };
+  reg.press('rotl', closureA);
+  reg.tick(0.016);
+  assert.equal(spins, 1, 'held button ticks');
+  // a data tick re-renders the component → handlers become closure B;
+  // the release still lands because it targets the KEY, not the closure
+  reg.release('rotl');
+  reg.tick(0.016);
+  assert.equal(spins, 1, 'released button NEVER ticks again');
+  assert.equal(reg.size(), 0, 'registry empty after release');
+  // global failsafe: clear() stops everything (window pointerup/blur/hidden)
+  reg.press('zoomin', () => { spins += 10; });
+  reg.press('pann', () => { spins += 100; });
+  reg.clear();
+  reg.tick(0.016);
+  assert.equal(spins, 1, 'failsafe clear stops all holds');
 });
 
 test('dialBearing: clockwise screen drag decreases bearing (prototype-verified)', () => {

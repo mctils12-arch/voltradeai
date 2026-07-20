@@ -2134,10 +2134,13 @@ export default function DataMapPage() {
         const startGlobe = canGlobe && readGlobePref();
         const map = new maplibregl.Map({
           container: mapContainer.current,
-          // flight-track handoff (2026-07-20): 88° = the extreme grazing
-          // tilt the curtain must survive (rig pitch clamp 2°–88°; was 80
-          // from the round-8 realism pass — the handoff supersedes it)
-          maxPitch: 88,
+          // flight-track handoff (2026-07-20): near-grazing tilt for the
+          // curtain (was 80 from the round-8 realism pass). Capped at 84,
+          // NOT the prototype's 88: MapLibre marks pitch >~85 experimental,
+          // and near-horizon views explode the visible tile cover — the
+          // "system freezes constantly" live report. Matches the rig's
+          // RIG_PITCH_MAX so the pitch goal is always reachable.
+          maxPitch: 84,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -6150,6 +6153,10 @@ export default function DataMapPage() {
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
       let atPoint: unknown[] = [];
       try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
+      // the velocity whisker starts AT the plane — it must never claim the
+      // click meant for the silhouette above it (probe-verified 2026-07-20:
+      // the guard swallowed every dead-center plane click)
+      atPoint = atPoint.filter((f: any) => !String(f?.layer?.id || "").endsWith("-veclines"));
       if (atPoint.length > 0) return; // a feature-scoped handler owns this click
       const ll = map.unproject(e.point);
       const idx = pickAir(e, 12);
@@ -6181,6 +6188,8 @@ export default function DataMapPage() {
         if (map.getZoom() < AIR_3D_MIN_ZOOM) { hideHoverTip(); return; }
         let atPoint: unknown[] = [];
         try { atPoint = map.queryRenderedFeatures(e.point) ?? []; } catch {}
+        // same whisker exemption as the click handler above
+        atPoint = atPoint.filter((f: any) => !String(f?.layer?.id || "").endsWith("-veclines"));
         if (atPoint.length > 0) { hideHoverTip(); return; } // a feature-scoped layer owns this pixel
         const idx = pickAir(e, 10);
         const a = idx >= 0 ? airRows[idx] : null;
@@ -9112,6 +9121,11 @@ export default function DataMapPage() {
         }}
         onSuspendedZoom={(out) => {
           try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+        }}
+        onSuspendedReset={() => {
+          // FLY HOME from space — the same continuous flight back through
+          // the seam Escape triggers (never a scene cut)
+          try { spaceHandleRef.current?.flyHome(); } catch {}
         }}
         onUserPan={() => {
           // the drag convention, exactly: aircraft follow releases; a
