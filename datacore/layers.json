@@ -212,6 +212,16 @@
    "description": "All ~9,800 US plants by fuel type; capacity + operator on click. Static reference data (2021 vintage)."
   },
   {
+   "id": "plant_operations",
+   "name": "EPA CAMD plant operations (ground truth, TX pilot)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "U.S. EPA Clean Air Markets Division (CAMD) Continuous Emissions Monitoring, unit-level daily (public domain, 40 CFR Part 75)",
+   "description": "Direct plant-utilization ground truth from EPA's own unit-level Continuous Emissions Monitoring reporting — the ladder gate-1 truth source for the power vertical's satellite/imagery inference roots, not itself a trading signal. v1 pilot scope: Texas only (matches GRID VISION's ERCOT focus); quarterly cadence — a quarter is only queryable once fully closed, so this is NOT live/daily despite per-day granularity inside each record. Marker color is a DATA-DRIVEN utilization tier (operating hours actually reported, as a fraction of every possible unit-hour that quarter) — not fuel type; facilities whose EPA facility/attributes join missed a position are honestly omitted, never guessed. Served via the shared api.data.gov DEMO_KEY unless a dedicated EPA_CAMD_API_KEY is configured (disclosed on click)."
+  },
+  {
    "id": "nukefacilities",
    "name": "Nuclear facilities (fuel cycle)",
    "kind": "raw",

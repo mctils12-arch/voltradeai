@@ -22991,3 +22991,145 @@ AGL reads 17,495 ft (exact: 5,833m − 500m), banner still ticking,
 trail still growing, follow engaged; port probe ALL PASSED; unit
 suites 41/41; harness 0 hard failures at 390/768/1440; python 825
 passed. BACKTEST: N/A (pure client).
+
+## 2026-07-20 (scheduled-routine session) [PRODUCT] — EPA CAMD ground-truth utilization: new `/data` map layer, closing the pipeline's own filed NEXT step (v1.0.452, T-DATACORE+T-CLIENT)
+
+TERRITORY: cross-territory (new `client/src/pages/datamap.tsx` layer +
+`client/src/lib/mapIcons.ts` helpers is T-CLIENT; `datacore/layers.json`
+registry entry is SHARED per the MERGE-ORDER PROTOCOL, added
+last-and-minimal — one entry, nothing else in that file touched). No
+server code changed — `server/epaCamd.ts` and `/api/data/plant-operations`
+already shipped 2026-07-18 (v1.0.385); this session only builds the
+display layer that pipeline's own log named as the concrete next step.
+
+SESSION-START CHECKS: CLAUDE.md read in full. KNOWN BROKEN section read
+(24 items; the 2026-07-20 v1.0.448 RPC-dispatch masking fix — item 24
+— is already merged to main per `git log origin/main`, no unresolved
+critical live break; product work per this routine's own instructions
+does not preempt DAILY repair duty and none was pending). Loop-health
+ratio, last 10 tagged entries: 4 REPAIR / 6 PRODUCT — under the 7/10
+thrash threshold, no meta-problem. Verified this session's branch
+(`claude/lucid-keller-cij6q6`) and `origin/main` point at the identical
+commit (e48b37e, v1.0.451) before starting — a clean base, not a stale
+fork.
+
+WHY THIS ITEM: surveyed `research/wishlist.md` DATACORE MAXIMUS block,
+`research/platform_program.md` (queue clear except human-gated P5), and
+recent `experiments.md`/`open_questions.md` entries for the highest-value
+unclaimed PRODUCT action. The EPA CAMD CEMS pipeline (2026-07-18,
+data_census.md's "★ THE STANDOUT" unbuilt item) had explicitly filed its
+own next step: "(4) a `/data` map layer for this stream (facility markers
+colored by utilization, RAW no predictive claim) is a clean, small
+follow-up PR once (1) [the backfill] gives it something worth showing" —
+and the manifest's own `_note` independently flagged the same follow-up
+("Facility-level geo makes this a /data-registry-layer candidate"). This
+is exactly the RAW-overlay build-ahead case the routine's own instructions
+call out (UI may display raw overlays freely; the `/api/data/plant-
+operations` endpoint already stamps `predictive: false` on every response,
+so no ladder gating applies) — a queued, well-specified, one-PR-sized
+action rather than a fresh hypothesis.
+
+WHAT SHIPPED:
+- `client/src/lib/mapIcons.ts`: `camdQuarterHours(year, quarter)` (real
+  calendar length, not a fixed 91-day assumption — accounts for Feb 28
+  vs 29), `camdUtilizationPct(sumOpTime, unitCount, year, quarter)`
+  (operating-hours actually reported / every possible unit-hour that
+  quarter; null on missing inputs or zero units — never fabricated, never
+  divides by zero), `camdUtilizationColor(pct)` (same low-to-high
+  blue-to-red band convention as the existing `quakeMagnitudeColor`).
+- `client/src/pages/datamap.tsx`: new `plant_operations` layer (facilities
+  group) — fetches `/api/data/plant-operations`, filters to facilities
+  with a real lat/lon (an EPA facility/attributes join miss renders
+  nothing, honestly, rather than guessing a position), one `vt-power`
+  marker per facility (SAME "kind" symbol as the GPPD powerplants layer
+  above it — both are power plants), tinted by the DATA-DRIVEN utilization
+  tier rather than fuel type: this stream's whole point is ground truth,
+  so the map leads with the number that's actually new, not a re-skin of
+  what the GPPD layer already shows. Click card: utilization %, unit
+  count, operating hours, gross load (MW-days), primary fuel/operator
+  when EPA reports them, quarter/year, and the DEMO_KEY-vs-dedicated-key
+  disclosure already carried by the API response — RAW/no-predictive-
+  claim stated explicitly in the body text, matching every other RAW
+  layer's honesty convention. Legend entries render through the shared
+  `iconDataURL` registry (DESIGN.md legend rule), 4 utilization bands +
+  a note that color is utilization, not fuel type. Wired into
+  `LAYER_GROUP`, the panel row icon map, the active-count unit label, and
+  the Detail `kind` union (`camdplant`) — every touchpoint the two ratchet
+  tests below check.
+- `datacore/layers.json`: new `plant_operations` registry entry
+  (`kind: "raw"`, `status: "live"`, `group: "facilities"`) stating the TX
+  pilot scope, quarterly (not live/daily) cadence, and the honest-omission
+  rule for unmatched positions.
+- `research/wishlist.md` / `research/data_census.md`: EPA CAMD entries
+  updated to note the map layer shipped, closing out the pipeline's own
+  filed follow-up.
+
+RATCHET: new `client/src/lib/mapIcons.test.ts` (3 tests) — quarter-hours
+math against real calendar lengths incl. a leap-year Q1, the utilization
+formula's null/zero-guard behavior, and the color-band boundaries incl.
+an out-of-range (>100%) reading still clamping instead of crashing.
+`server/layersRegistry.test.ts` (kind/status/source/description shape)
+and `server/layersWiring.test.ts` (the R15 "no permanent reload to
+enable" ratchet — every live registry id must appear in datamap.tsx's
+`LAYER_GROUP`) both cover the new entry automatically — no test edits
+needed there, and both pass.
+
+GATES: `npx tsx --test client/src/lib/mapIcons.test.ts` 3/3. `npx tsx
+--test server/layersRegistry.test.ts server/layersWiring.test.ts
+server/epaCamd.test.ts server/manifests.test.ts` 41/41. `npx tsx --test
+server/*.test.ts` 754/761 (7 pre-existing failures — aircraftTiling,
+apiKeyAccounts, compression, gdeltEvents, owmTiles, seafloorTiles,
+securityMiddleware — confirmed via `git stash` A/B: identical failures
+on the clean pre-session HEAD, none import or exercise any file this
+session touched). `npx tsx --test client/src/lib/*.test.ts client/src/
+lib/orbital/*.test.ts` 294/296 (2 pre-existing failures — globeAtmosphere,
+oceanBasemap — same A/B confirmation). `npx tsc --noEmit` — the same 3
+pre-existing sandbox/tsconfig errors every recent session has logged
+(node/vite type-entry resolution, deprecated `baseUrl`), zero mention of
+any file this session touched. `npm run build` clean, `dist/datacore/`
+staging unaffected (no new datacore/ file, only the existing
+`epacamd.json` manifest already staged by the 2026-07-18 session).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page data`
+run TWICE. First run: 1 hard failure at 1440px — `perf: p95 frame 600ms
+> 350ms gate (observed ceiling 183ms)`, sampled over only 10 frames.
+Second run (immediate re-run, no code change): 0 hard failures, same
+1440px page reporting p95 283ms — the harness's own labeled
+"upload-hitch spikes" category (a recognized SwiftShader/headless-GPU
+flake, not a named regression class this session introduced). Isolated
+to the render sweep specifically: `plant_operations` is NOT in
+`DEFAULT_ON`, so it was not toggled on during either perf run — the new
+code could not have been the cause by construction, and the non-
+reproduction confirms it wasn't. Both runs: 390/768/1440 all render the
+map correctly (screenshots at `.visual/data-{390,768,1440}.png`); the
+only new-vs-baseline-shaped warning is a `▾Facilities2/3 on` clipped-
+control note at 768px, present IDENTICALLY in both runs (not a
+regression signature — same panel-width clipping class already covered
+by the pre-existing touch-target warnings on every other page run, not
+this session's change). `data-all-off` zero-cost check still PASSED both
+runs (tti ~1.7-1.9s) — confirms the new layer's fetch/mount effect is
+genuinely gated behind `enabled.plant_operations` and fires zero network
+calls when off, matching the harness's own SCALE HARNESS kill-switch
+assertion.
+
+BACKTEST: N/A — client-side RAW display of an already-shipped ground-
+truth archive; no scoring, sizing, or trading logic touched.
+
+MERGE TIMING: prepared at 14:12 ET (mid-market). Per this routine's own
+instructions, PR opened now with a note that merge should wait for the
+4pm ET close — nothing here is a live-break exception.
+
+NEXT (not this session, filed for whoever picks EPA CAMD back up again):
+the module docstring's TX backfill needs a few more days before a gate-1
+comparison (CAMD `sumGrossLoad`/`sumOpTime` trend vs. WRI GPPD capacity
+or a future satellite-thermal estimator) is worth running; a smaller,
+separate finding worth a future session's attention — NOT fixed here
+(scope discipline, one logical change per PR): `getFacilityAttrs` in
+`server/epaCamd.ts` fetches facility attributes keyed to the CURRENT
+calendar year regardless of which historical quarter is being backfilled
+— a unit that retired or was added in a year different from "now" could
+join to a stale or missing attribute row during backfill, honestly
+rendering as an unmatched (null lat/lon, dropped from the map) rather
+than a wrong position, but still a completeness gap worth a dedicated
+look once the 8-quarter backfill is further along and the unmatched
+count can be measured for real.

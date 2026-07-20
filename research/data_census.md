@@ -142,7 +142,10 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
    today (live-verified, 445 facility rows + 9,009 daily unit-rows for
    one TX quarter in one call each) — a dedicated api.data.gov key
    (wishlist 9a, still worth getting) only raises the ceiling past the
-   TX pilot, it was never a hard blocker on building this.
+   TX pilot, it was never a hard blocker on building this. /data map
+   layer SHIPPED 2026-07-20 (`plant_operations`, facilities group) —
+   TX facility markers tinted by ground-truth operating-hours
+   utilization, not fuel type.
 2. **Global Energy Monitor [BUILT v1.0.176, scripts/gem_ingest.py —
    9b resolved, Mike enabled Drive access]** — March 2026 release:
    182,400 facilities, 22,296 GW, 200 countries, unit-level with status
