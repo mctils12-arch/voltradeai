@@ -3589,6 +3589,110 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   --flight-teal: #38d1c1;
 }
 
+/* ── nav cluster (site-wide, every 3D map view) ─────────────────────── */
+.vt-nav-cluster {
+  position: absolute; right: 16px; top: 16px; bottom: 16px; z-index: 12;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; width: 144px; overflow: hidden; pointer-events: none;
+  transition: right 0.2s ease;
+}
+.vt-nav-cluster > * { pointer-events: auto; flex: none; }
+/* desktop layers panel open (width min(320px,100vw-24)) → slide inboard so
+   the panel and the cluster are both fully visible + hit-testable */
+.vt-map-page[data-vt-panel-open="true"] .vt-nav-cluster { right: 348px; }
+.vt-nav-card {
+  background: var(--flight-panel);
+  border: 1px solid var(--flight-panel-border); border-radius: 14px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.vt-nav-compass {
+  width: 92px; height: 92px; border-radius: 50%;
+  background: var(--flight-panel); border: 1px solid var(--flight-panel-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  position: relative; cursor: grab; touch-action: none;
+}
+.vt-nav-compass:active { cursor: grabbing; }
+.vt-nav-compass svg { position: absolute; inset: 0; width: 100%; height: 100%;
+  font-family: var(--font-body); }
+.vt-nav-lbl {
+  font-size: 9px; letter-spacing: 1.2px; color: var(--flight-ink-dim);
+  margin-bottom: -4px; font-family: var(--font-body);
+}
+.vt-nav-btncol { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.vt-nav-row { display: flex; gap: 6px; }
+.vt-nav-btn {
+  width: 38px; height: 38px; border-radius: 10px; border: 1px solid transparent;
+  background: rgba(120, 160, 220, 0.08); color: var(--flight-ink); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  user-select: none; touch-action: none; font-family: var(--font-body);
+}
+.vt-nav-btn:hover { background: var(--flight-accent-soft); border-color: rgba(77, 163, 255, 0.4); }
+.vt-nav-btn:active { background: rgba(77, 163, 255, 0.3); }
+.vt-nav-btn svg { pointer-events: none; }
+.vt-nav-wide {
+  /* handoff: 82px pill — widened to keep RESET VIEW on one line in the
+     site's Geist (the handoff keeps site fonts; the pill adapts) */
+  width: 96px; font-size: 11px; font-weight: 600; letter-spacing: 0.6px;
+  color: var(--flight-ink-dim); white-space: nowrap;
+}
+.vt-nav-wide:hover { color: var(--flight-ink); }
+.vt-nav-dpad {
+  display: grid; grid-template-columns: repeat(3, 38px); grid-template-rows: repeat(3, 38px);
+  gap: 4px; padding: 8px;
+}
+.vt-nav-ctr { background: transparent; border: 1px dashed rgba(130, 170, 230, 0.25); cursor: default; }
+.vt-nav-ctr:hover { background: transparent; border-color: rgba(130, 170, 230, 0.25); }
+/* short viewports: compact variant (handoff @media max-height 640) */
+@media (max-height: 640px) {
+  .vt-nav-cluster { gap: 6px; }
+  .vt-nav-cluster .vt-nav-lbl { display: none; }
+  .vt-nav-compass { width: 72px; height: 72px; }
+}
+/* touch: 44px targets (DESIGN.md floor; handoff 38px stays on fine pointers) */
+@media (pointer: coarse) {
+  .vt-nav-btn { width: 44px; height: 44px; }
+  .vt-nav-dpad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
+  .vt-nav-wide { width: 96px; }
+}
+/* phone: collapsed by default behind the FAB (DESIGN.md rule 2) */
+.vt-nav-fab {
+  display: none; position: absolute; right: 12px; bottom: 96px; z-index: 12;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--flight-panel); color: var(--flight-ink);
+  border: 1px solid var(--flight-panel-border);
+  backdrop-filter: blur(10px); cursor: pointer;
+  align-items: center; justify-content: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.vt-nav-fab[aria-expanded="true"] { color: var(--flight-accent); border-color: rgba(77, 163, 255, 0.4); }
+@media (max-width: 639px) {
+  .vt-nav-fab { display: flex; }
+  .vt-nav-cluster { display: none; }
+  .vt-nav-cluster.vt-nav-open { display: flex; right: 8px; bottom: 148px; top: auto; justify-content: flex-end; }
+  .vt-map-page[data-vt-panel-open="true"] .vt-nav-cluster { right: 8px; } /* phone panel overlays instead */
+}
+/* analyst pane open at mid widths: the left-docked pane and the shifted
+   cluster share the same band (harness-caught at 768: send button covered)
+   — collapse to the FAB like the phone (transient, reopenable on top). */
+@media (max-width: 1279px) {
+  .vt-map-page[data-vt-analyst-open="true"] .vt-nav-fab { display: flex; }
+  .vt-map-page[data-vt-analyst-open="true"] .vt-nav-cluster { display: none; }
+  .vt-map-page[data-vt-analyst-open="true"] .vt-nav-cluster.vt-nav-open {
+    display: flex; right: 8px; bottom: 148px; top: auto; justify-content: flex-end;
+  }
+}
+
+/* ── hint bar (top-center; hidden under 860px per the handoff) ────────── */
+.vt-map-hintbar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
+  font-size: 9px; letter-spacing: 0.6px; color: var(--flight-ink-dim); white-space: nowrap;
+  background: rgba(9, 15, 27, 0.5); padding: 4px 10px; border-radius: 99px;
+  pointer-events: none; font-family: var(--font-body);
+}
+@media (max-width: 860px) { .vt-map-hintbar { display: none; } }
+
 /* ── flight card additions (aircraft detail card, handoff §2) ─────────── */
 .vt-flight-badge {
   margin-left: auto; display: inline-flex; align-items: center; gap: 5px;

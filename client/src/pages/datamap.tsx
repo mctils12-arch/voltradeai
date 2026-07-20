@@ -48,6 +48,7 @@ import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/l
 // ORBITAL O5-2b (human directive: the 3D rendering shows ON THE WORLD MAP,
 // not a side viewer): the followed satellite resolves to a lit, tumbling
 // class-representative form drawn at its live position on the globe.
+import MapNavCluster from "@/components/MapNavCluster";
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { ArcLayer } from "@/lib/orbital/arcLayer";
 // FLIGHT TRACK 3D (design_handoff_flight_track_3d, human-approved,
@@ -2156,16 +2157,17 @@ export default function DataMapPage() {
           center: [-96.77, 37.5],
           zoom: 3.6,
           attributionControl: { compact: true } as any,
-          keyboard: true,
+          // flight-track handoff (2026-07-20): the nav cluster owns the
+          // keyboard (Q/E rotate, R/F tilt, arrows pan, +/− zoom — window-
+          // level, no canvas focus needed); MapLibre's own handler would
+          // double-fire on arrows/+/-.
+          keyboard: false,
         });
-        // v2.4 control occlusion: zoom lives bottom-LEFT — the layers panel
-        // (right side, full-height allowance) can never cover it at any
-        // width. Self-see asserts non-occlusion mechanically.
-        // Compass + pitch indicator (worldview-globe G0b): shows heading, resets
-        // north on click, and the needle tilts to visualize pitch — the
-        // orientation cue the 3D globe/terrain view needs. Clean Google-Earth-
-        // style nav, our styling (index.css .maplibregl-ctrl-compass*).
-        map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "bottom-left");
+        // (2026-07-20) The stock NavigationControl (compass + zoom, bottom-
+        // left since v2.4) is REPLACED by the handoff's right-edge nav
+        // cluster (MapNavCluster: compass dial + rotate/tilt/zoom/pan hold-
+        // buttons + reset) — one navigation system, site-wide on every 3D
+        // map view. The zoom-seam button intercepts moved with it.
         // B1 scale-bar continuity: the bar follows the site-wide units
         // preference (it was hardcoded imperial before), so the space
         // frame's own bar — which continues this instrument past the zoom
@@ -2302,24 +2304,11 @@ export default function DataMapPage() {
     const atFloor = () => {
       try { return map.getZoom() <= map.getMinZoom() + 0.05; } catch { return false; }
     };
-    // MapLibre's NavigationControl DISABLES the zoom-out button at minZoom
-    // (a disabled button swallows clicks entirely) — that is precisely the
-    // "buttons stop at the maplibre floor" behavior B1 removes. At the
-    // floor (and while the frame owns the camera) the button is NOT at the
-    // end of its range any more, so re-enable it whenever the control's
-    // own update disables it; away from the floor the control's normal
-    // enable/disable behavior is untouched.
-    const undisableZoomOut = () => {
-      try {
-        const b = el.querySelector(".maplibregl-ctrl-zoom-out") as HTMLButtonElement | null;
-        if (b && b.disabled && (atFloor() || spaceActiveRef.current)) b.disabled = false;
-      } catch {}
-    };
-    undisableZoomOut();
-    map.on("zoom", undisableZoomOut);
-    map.on("zoomend", undisableZoomOut);
-    map.on("move", undisableZoomOut);
-    map.on("idle", undisableZoomOut);
+    // (2026-07-20) The NavigationControl zoom-button intercepts and the
+    // undisable-at-floor shim moved into the nav cluster's own callbacks:
+    // MapNavCluster's zoom-out hold calls onZoomOutAtFloor (seam entry) and
+    // its suspended (space) mode routes both zoom buttons straight to
+    // spaceHandleRef.nudgeZoom — no DOM interception needed.
     // wheel
     let acc = 0;
     let timer: number | null = null;
@@ -2330,25 +2319,6 @@ export default function DataMapPage() {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => { acc = 0; }, 400);
       if (acc >= SEAM_ENTRY_DELTAY) { const carry = acc; acc = 0; void enterSpace({ nudgeDeltaY: carry }); }
-    };
-    // +/- buttons: capture fires before the NavigationControl's own click
-    // handler, and stopPropagation keeps it (and the frame's body-click
-    // hit test on the container) from double-acting.
-    const onCtrlClick = (e: MouseEvent) => {
-      const btn = (e.target as HTMLElement | null)?.closest?.(
-        ".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-zoom-out",
-      );
-      if (!btn) return;
-      const out = btn.classList.contains("maplibregl-ctrl-zoom-out");
-      if (spaceActiveRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
-      } else if (out && atFloor()) {
-        e.preventDefault();
-        e.stopPropagation();
-        void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
-      }
     };
     // keyboard +/- (the map's own keyboard handler is disabled in space;
     // typing surfaces — inputs, the analyst pane — are never hijacked)
@@ -6078,6 +6048,22 @@ export default function DataMapPage() {
     const onAircraftClickProps = async (p: any, lngLat: any) => {
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
+        // CLICK-TO-FRAME (human 2026-07-20: "when you click on a plane it
+        // should zoom in more to it so you can see its path and it 3d line
+        // and shade area") — from wide views, ease onto the plane at the
+        // 3D-trail zoom with a working tilt so the altitude line + curtain
+        // read immediately. Never zooms OUT (a close view stays put), never
+        // re-pitches a camera the user already tilted past level.
+        try {
+          if (lngLat && map.getZoom() < 8.6) {
+            map.easeTo({
+              center: [lngLat.lng, lngLat.lat],
+              zoom: 9.2,
+              pitch: Math.max(map.getPitch(), 55),
+              duration: 1600,
+            });
+          }
+        } catch {}
         // FLIGHT CARD (handoff §2): the live 2×2 grid (ALT MSL / ALT AGL /
         // GND SPD / VERT SPD, ref-updated every glide tick + poll) replaces
         // the click-time stat chips; the replay marker's class silhouette
@@ -9108,14 +9094,60 @@ export default function DataMapPage() {
         <span>{detail?.kind === "aircraft" ? detail.title : ""}</span>
         <span className="alt">—</span>
       </div>
-      {/* (2026-07-20 salvage: the handoff's MapNavCluster/cameraRig nav
-          overhaul is NOT re-landed — its pan arbitration released the
-          satellite lock on any pan, against the O6-1 focus-until-✕ rule,
-          and it replaced NavigationControl site-wide. The stock control +
-          zoom-seam intercepts are restored; the curtain/track-model/
-          profile-panel components from the same handoff ARE kept.) */}
-      {/* (hint bar removed with the nav rig — it advertised the rig's
-          mouse scheme, which no longer applies to the stock bindings) */}
+      {/* 360° nav cluster RE-LANDED (human 2026-07-20: "I want the
+          implementation of the 360 control that we had before") with the
+          arbitration BUG FIXED per the #561 post-mortem: onUserPan now
+          follows the O6-1 drag convention — the GROUND lock hands the
+          camera back, the SAT lock and the focus itself SURVIVE (focus
+          lives until the card's ✕). The #561 version called
+          stopSatFocus() on any pan, which killed the whole satellite
+          focus — the incident's root symptom. */}
+      <MapNavCluster
+        map={mapReady ? mapRef.current : null}
+        mapReady={mapReady}
+        suspended={spaceActive}
+        onZoomOutAtFloor={() => {
+          void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
+          return true;
+        }}
+        onSuspendedZoom={(out) => {
+          try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+        }}
+        onUserPan={() => {
+          // the drag convention, exactly: aircraft follow releases; a
+          // guided sat approach cancels; the sat GROUND lock hands the
+          // camera back; the SAT lock + focus survive (O6-1).
+          if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
+          camApproachRef.current = null;
+          const f = satFollowRef.current;
+          if (f && f.lockMode === "ground") { f.lockMode = null; setSatLockMode(null); }
+        }}
+        followTarget={() => {
+          // per-frame follow target — the SAME position the marker/tag
+          // shows: glided live fix, or the replay sample under the playhead
+          if (!flightFollowRef.current) return null;
+          const st = trackSamplesRef.current;
+          if (!st || st.samples.length === 0) return null;
+          const clock = flightClockRef.current;
+          if (clock.live) {
+            const lv = airFollowLiveRef.current;
+            if (lv && lv.id === airCrumbsRef.current.id) {
+              const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
+              return { lng: lv.fix.lo + (lv.vel?.dLon ?? 0) * dt, lat: lv.fix.la + (lv.vel?.dLat ?? 0) * dt };
+            }
+            const end = st.samples[st.samples.length - 1];
+            return { lng: end.lon, lat: end.lat };
+          }
+          const s = trackSampleAt(st.samples, clock.t);
+          return s ? { lng: s.lon, lat: s.lat } : null;
+        }}
+      />
+      {/* hint bar (returns with the rig's mouse scheme; hidden <860px) */}
+      {!spaceActive && (
+        <div className="vt-map-hintbar" aria-hidden>
+          DRAG ROTATE · RIGHT-DRAG PAN · DBL-CLICK RECENTER{detail?.kind === "aircraft" && flightProfile ? " · SPACE PLAY" : ""}
+        </div>
+      )}
       {/* ALTITUDE / TIME profile (handoff §3) — mounts with an open flight
           card; the 2D twin of the 3D curtain, sharing its clock with the
           marker and card readouts. */}
