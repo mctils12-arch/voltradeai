@@ -22352,3 +22352,44 @@ issues → five fixes, each its own commit:
 VERIFICATION: satFind 7/7, arcLayer 15/15, build green per commit;
 visual harness run on the final build (result recorded in the PR).
 BACKTEST: N/A — pure client territory.
+
+## 2026-07-20 (human-directed session, round 3) [PRODUCT] — Second live-test pass: follow owns clicks, guided camera approach for Inspect/Orbit/Onboard (v1.0.435–.437, T-CLIENT)
+
+TERRITORY: T-CLIENT. The human re-tested on the deployed #558 build
+(ground spot confirmed FIXED by them — first explicit positive) and
+reported two remaining follow-UX faults, plus one hygiene find of ours:
+
+- v1.0.435 hygiene: v433's cache sentinel had embedded a literal 0x00
+  byte (an edit applied a backslash-u0000 escape literally) — grep saw
+  datamap.tsx as binary. Lesson: scan agent-authored strings for escape
+  sequences before applying verbatim.
+- v1.0.436 follow owns the clicks: the empty-ground Starlink-coverage
+  query fired mid-follow and swapped the sat card for a coverage card
+  (their screenshot: ISS focused, "Starlink coverage" card up). Now
+  inert while a follow is active; resumes on focus end.
+- v1.0.437 GUIDED CAMERA APPROACH (the "inspect and orbit dont work"
+  recurrence — root cause finally structural, not parametric): all
+  three views eased toward the craft's CLICK-TIME position while the
+  per-frame chase paused (isZooming guard) — fast LEO craft drifted
+  off the stale target. The approach now rides the chase itself:
+  zoom+pitch interpolate per frame around the LIVE propagated craft
+  (cubic ease), so the sat stays pinned center through the whole
+  zoom-in, any orbit. Inspect LEO target raised to zoom 9 (model can
+  reach its 1600px ceiling; old 6.5 gave ~440px — the actual "doesn't
+  zoom in more" cause). User input (pointer, wheel, ±) cancels the
+  approach instantly; chase continues.
+
+RECURRENCE NOTE (HEALTH OF THE LOOP rule 4): "inspect doesn't work" is
+now on its THIRD human report. Round 1 removed the overlay (structural),
+round 2 added the in-map views (parametric), round 3 found the actual
+mechanic gap (chase paused during approach). This entry is the required
+root-cause analysis: the recurring failure was never one bug — each
+report exposed the next layer (wrong surface → missing views → stale-
+target camera). The structural fix (approach = chase) removes the class;
+if a FOURTH report arrives on the same feature, the next session treats
+the follow-camera subsystem as an architecture smell per the rule and
+proposes structural work via wishlist.md rather than patching again.
+
+VERIFICATION: build green; satFind/arcLayer/follow 25/25; visual
+harness (verified-clicks version) run on the final build — result in
+the PR. BACKTEST: N/A (pure client).

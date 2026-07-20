@@ -1187,6 +1187,16 @@ export default function DataMapPage() {
   // unpressed (drag never releases it); 'ground' pins the nadir and a drag
   // releases to free camera; null = free camera, focus persists until ✕.
   const satFollowRef = useRef<{ index: number; noradId: number; name: string | null; lockMode: "sat" | "ground" | null } | null>(null);
+  // GUIDED CAMERA APPROACH (human 2026-07-20: "in orbit or inspect it
+  // should zoom in more and keep the sat in view for any sat"): Inspect/
+  // Orbit/Onboard used a one-shot easeTo toward where the craft WAS at
+  // click time — the per-frame chase paused during the ease (isZooming
+  // guard), so a fast LEO craft drifted off the ease's stale target. Now
+  // the approach itself rides the chase: zoom/pitch interpolate per FRAME
+  // while the center stays the LIVE propagated craft — the sat is pinned
+  // through the whole zoom, exactly the reference-demo mechanic. Any user
+  // camera input (wheel, ±, drag) cancels the approach and keeps the chase.
+  const camApproachRef = useRef<{ z0: number; z1: number; p0: number; p1: number; t0: number; dur: number } | null>(null);
   const satArcLayerRef = useRef<ArcLayer | null>(null);
   // O6 aircraft 3D trail (human directive: "see the line from the airport
   // and how it came up to alt") — reuses the generic ArcLayer; fed from the
@@ -1276,16 +1286,23 @@ export default function DataMapPage() {
     if (!map || !f) return;
     const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
     if (!t) return;
-    // ensure the craft-centered lock so the ease orbits the craft, not ground
+    // ensure the craft-centered lock so the approach orbits the craft
     if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
     const altKmNow = t.altKm;
-    // close-orbit framing from altitude (same guarantee as focus framing:
-    // the camera never dives inside the craft's orbit shell)
-    const zoom = altKmNow < 3000 ? 6.5
+    // ZOOM WAY IN (human 2026-07-20): LEO targets zoom 9 — the model climbs
+    // its px curve toward the MODEL_MAX_PIXELS (1600) ceiling and fills the
+    // frame like the reference demo (the old 6.5 reached ~440px). Safe at
+    // any speed because the guided approach keeps the craft pinned center
+    // every frame. Higher orbits park just above their own shell.
+    const zoom = altKmNow < 3000 ? 9
       : zoomForCameraAltitudeKm(altKmNow * 1.8, t.latDeg,
           map.getCanvas()?.height ?? 900,
           (map as any).getVerticalFieldOfView?.(), 65);
-    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
+    camApproachRef.current = {
+      z0: map.getZoom() ?? 0, z1: zoom,
+      p0: map.getPitch() ?? 0, p1: 65,
+      t0: performance.now(), dur: 1600,
+    };
   }, []);
   // ORBIT / ONBOARD as IN-MAP modes (human 2026-07-20: "the other functions
   // of orbit or onboard need to be in the same place as the inspect button
@@ -1303,12 +1320,19 @@ export default function DataMapPage() {
     if (!t) return;
     if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
     const altKmNow = t.altKm;
+    // closer than the old framing (human: "it should zoom in more and keep
+    // the sat in view") — camera parks at 1.6× the craft's altitude with a
+    // working tilt, guided per frame so the craft never leaves center.
     const frameZoom = zoomForCameraAltitudeKm(
-      Math.max(altKmNow * 2.3, 900), t.latDeg,
+      Math.max(altKmNow * 1.6, 500), t.latDeg,
       map.getCanvas()?.height ?? 900,
-      (map as any).getVerticalFieldOfView?.(), map.getPitch?.());
-    const zoom = altKmNow < 3000 ? Math.min(frameZoom, 4.3) : Math.min(frameZoom, 1.0);
-    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
+      (map as any).getVerticalFieldOfView?.(), 45);
+    const zoom = altKmNow < 3000 ? Math.min(frameZoom, 7.5) : Math.min(frameZoom, 1.2);
+    camApproachRef.current = {
+      z0: map.getZoom() ?? 0, z1: zoom,
+      p0: map.getPitch() ?? 0, p1: 45,
+      t0: performance.now(), dur: 1400,
+    };
   }, []);
   const onboardCraft = useCallback(() => {
     const map = mapRef.current;
@@ -1321,7 +1345,11 @@ export default function DataMapPage() {
       Math.max(t.altKm, 120), t.latDeg,
       map.getCanvas()?.height ?? 900,
       (map as any).getVerticalFieldOfView?.(), 0);
-    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 0, duration: 1400 });
+    camApproachRef.current = {
+      z0: map.getZoom() ?? 0, z1: zoom,
+      p0: map.getPitch() ?? 0, p1: 0,
+      t0: performance.now(), dur: 1600,
+    };
   }, []);
   // CONTINUOUS SPACE FRAME (human-approved 2026-07-18 — the third "no
   // separate scenes" directive, same precedent as INSPECT IS THE MAP above):
@@ -2550,7 +2578,7 @@ export default function DataMapPage() {
   const repaintTrail3d = () => {
     try {
       if (!airTrail3dRef.current || airTrail3dRef.current.getVertexCount() === 0) return;
-      groundElevCacheRef.current.cfg = " stale"; // datum changed — force fresh queries
+      groundElevCacheRef.current.cfg = "__DATUM_STALE__"; // datum changed — force fresh queries
       if (airCrumbsRef.current.id) { paintFollowedTrail(); return; }
       const at = archivedTrackRef.current;
       if (at && at.kind === "aircraft") paintTrack("aircraft", at.raw);
@@ -3799,9 +3827,11 @@ export default function DataMapPage() {
       }
       if (!f.lockMode) return;              // camera handed back — the model still glides
       try {
-        // let the click-framing / wheel / ± zoom eases finish (a jumpTo
-        // would abort them mid-flight); the chase resumes next frame
-        if (map.isZooming()) return;
+        const ap = camApproachRef.current;
+        // no approach: let user wheel/± zoom eases finish (a jumpTo would
+        // abort them mid-flight); the chase resumes next frame. During an
+        // APPROACH the jump IS the animation — nothing to yield to.
+        if (!ap && map.isZooming()) return;
         if (f.lockMode === "sat") {
           (map as any).setCenterClampedToGround?.(false);
           (map as any).setCenterElevation?.(p.altKm * 1000);
@@ -3809,7 +3839,19 @@ export default function DataMapPage() {
           (map as any).setCenterClampedToGround?.(true);
           (map as any).setCenterElevation?.(0);
         }
-        map.jumpTo({ center: [p.lonDeg, p.latDeg] });
+        if (ap) {
+          // guided approach: zoom/pitch ease per frame AROUND the live craft
+          const e = Math.min(1, (performance.now() - ap.t0) / ap.dur);
+          const k = e < 0.5 ? 4 * e * e * e : 1 - Math.pow(-2 * e + 2, 3) / 2;
+          map.jumpTo({
+            center: [p.lonDeg, p.latDeg],
+            zoom: ap.z0 + (ap.z1 - ap.z0) * k,
+            pitch: ap.p0 + (ap.p1 - ap.p0) * k,
+          });
+          if (e >= 1) camApproachRef.current = null;
+        } else {
+          map.jumpTo({ center: [p.lonDeg, p.latDeg] });
+        }
       } catch {}
     };
     smoothRaf = requestAnimationFrame(smoothFollowFrame);
@@ -3818,6 +3860,7 @@ export default function DataMapPage() {
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
       satFollowRef.current = null;
+      camApproachRef.current = null; // any guided approach dies with the follow
       satRepushRef.current?.(); // FOLLOW SOLO ends — the whole sky returns this frame
       satModelLayerRef.current?.setAnchor(null); // model + ring vanish with the follow
       satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
@@ -3848,6 +3891,9 @@ export default function DataMapPage() {
     const d3Canvas = map.getCanvas();
     let d3Down: { x: number; y: number } | null = null;
     const d3PointerDown = (e: PointerEvent) => {
+      // ANY pointer press on the map cancels a guided approach — the user's
+      // hands own zoom/pitch from that instant (the chase itself continues)
+      camApproachRef.current = null;
       if (e.button === 0 && !e.ctrlKey) d3Down = { x: e.clientX, y: e.clientY };
     };
     const d3PointerMove = (e: PointerEvent) => {
@@ -3859,10 +3905,15 @@ export default function DataMapPage() {
       }
     };
     const d3PointerUp = () => { d3Down = null; };
+    // wheel = the user takes zoom back mid-approach (passive: never blocks
+    // the map's own wheel zoom — we only stop DRIVING zoom against it)
+    const apCancelWheel = () => { camApproachRef.current = null; };
+    d3Canvas.addEventListener("wheel", apCancelWheel, { passive: true });
     d3Canvas.addEventListener("pointerdown", d3PointerDown);
     d3Canvas.addEventListener("pointermove", d3PointerMove);
     d3Canvas.addEventListener("pointerup", d3PointerUp);
     const d3Detach = () => {
+      d3Canvas.removeEventListener("wheel", apCancelWheel);
       d3Canvas.removeEventListener("pointerdown", d3PointerDown);
       d3Canvas.removeEventListener("pointermove", d3PointerMove);
       d3Canvas.removeEventListener("pointerup", d3PointerUp);
@@ -4344,6 +4395,13 @@ export default function DataMapPage() {
         // O6-1: empty ground NO LONGER releases the focus — the directive is
         // explicit: the focus lives until the card's ✕ (drag already freed
         // the camera). Fall through to the coverage report only.
+        // FOLLOW OWNS THE CLICKS (human 2026-07-20: "I clicked on the ISS
+        // and then I clicked on the screen, and it popped up the Starlink
+        // card"): while locked on a craft, a stray tap/click while
+        // maneuvering must never swap the sat card for a coverage report —
+        // the follow keeps its card until ✕. Coverage clicks resume the
+        // moment the focus ends.
+        if (satFollowRef.current) return;
         // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
         // report on genuinely empty ground. The basemap is raster-only, so any
         // rendered vector feature under the cursor belongs to a data layer
@@ -9224,6 +9282,7 @@ export default function DataMapPage() {
                       onClick={() => {
                         const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
                         const m = mapRef.current;
+                        camApproachRef.current = null; // ± takes zoom back from a guided approach
                         if (t && m) try { m.easeTo({ center: [t.lonDeg, t.latDeg], zoom: Math.min((m.getZoom() ?? 0) + 1, 9), duration: 500 }); } catch {}
                       }}>
                 +
@@ -9232,6 +9291,7 @@ export default function DataMapPage() {
                       onClick={() => {
                         const t = followTarget(satLayerRef.current?.getPositions() ?? null, satFollowRef.current?.index ?? -1);
                         const m = mapRef.current;
+                        camApproachRef.current = null; // ± takes zoom back from a guided approach
                         if (t && m) try { m.easeTo({ center: [t.lonDeg, t.latDeg], zoom: Math.max((m.getZoom() ?? 0) - 1, 1.2), duration: 500 }); } catch {}
                       }}>
                 −
