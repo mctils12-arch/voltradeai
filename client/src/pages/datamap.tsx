@@ -4344,6 +4344,13 @@ export default function DataMapPage() {
         // O6-1: empty ground NO LONGER releases the focus — the directive is
         // explicit: the focus lives until the card's ✕ (drag already freed
         // the camera). Fall through to the coverage report only.
+        // FOLLOW OWNS THE CLICKS (human 2026-07-20: "I clicked on the ISS
+        // and then I clicked on the screen, and it popped up the Starlink
+        // card"): while locked on a craft, a stray tap/click while
+        // maneuvering must never swap the sat card for a coverage report —
+        // the follow keeps its card until ✕. Coverage clicks resume the
+        // moment the focus ends.
+        if (satFollowRef.current) return;
         // FEATURE CLICKS OWN THEIR POPUPS: only fall through to the coverage
         // report on genuinely empty ground. The basemap is raster-only, so any
         // rendered vector feature under the cursor belongs to a data layer
