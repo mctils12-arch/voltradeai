@@ -49,6 +49,10 @@ const PAGES = {
   // Grid-stress descriptive reading overlay (GRID VISION A1 gate-2 FAIL
   // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
   gridstress: { route: "/app#/data/grid-stress", map: false },
+  // Methane repeat-detection hotspots (gate-2(b) of the GEM METHANE-PLUME
+  // × EXTRACTION-REGISTRY PROXIMITY hypothesis, 2026-07-20) — same Phase 5
+  // ratchet rule as streams/gridstress above.
+  methanehotspots: { route: "/app#/data/methane-hotspots", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -407,6 +411,27 @@ const FIXTURES = {
     trend: [
       { date: "2026-07-01", symbols: 12200, agg_short_ratio: 0.4610 },
       { date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633 },
+    ],
+  },
+  // Methane hotspots (gate-2(b), 2026-07-20) — descriptive stat, not a
+  // signal (predictive:false; note states the honest gate-2(c)/(d) gap).
+  "/api/data/methane-plumes/asset-stats": {
+    kind: "raw", predictive: false,
+    source: "Global Energy Monitor — Methane Emitters Tracker (GMET) × Oil & Gas Extraction Tracker / Global Coal Mine Tracker, CC BY 4.0",
+    note: "Repeat satellite methane-plume detections grouped by nearest catalogued GEM asset (within 2km, ambiguous matches excluded). "
+      + "A count/rate of repeat detections is NOT an emissions signal on its own — no base rate or disclosed-intensity comparison exists yet (fixture).",
+    count: 2,
+    assetStats: [
+      {
+        assetId: "A1", kind: "coal_mine", name: "Sample Mine", operator: null, owner: "Sample Coal Co", parent: "Sample Holdings",
+        detectionCount: 5, firstObservedAt: "2025-01-03T00:00:00Z", lastObservedAt: "2026-06-30T00:00:00Z",
+        spanDays: 543, ratePerYear: 3.36, meanEmissionsKgHr: 812.4,
+      },
+      {
+        assetId: "A2", kind: "oil_gas_extraction", name: "Sample Field", operator: "Sample Operator LLC", owner: null, parent: null,
+        detectionCount: 1, firstObservedAt: "2026-04-11T00:00:00Z", lastObservedAt: "2026-04-11T00:00:00Z",
+        spanDays: null, ratePerYear: null, meanEmissionsKgHr: 214.0,
+      },
     ],
   },
   "/api/data/attention": {
