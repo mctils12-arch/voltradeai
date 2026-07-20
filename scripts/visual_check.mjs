@@ -564,20 +564,12 @@ function startServer() {
       // each call returns one MORE point so a live-refreshing trail visibly
       // grows across the popup's 30s interval; a static-snapshot regression
       // shows identical coordinates on every read.
-      // 2026-07-20 (flight-track handoff): points now carry `al` altitudes
-      // (climb profile) so the curtain + altitude line + ALTITUDE/TIME
-      // profile panel actually render under the harness — an altitude-less
-      // fixture exercised none of the 3D track path.
       if (u.startsWith("/api/data/track/")) {
         trackCalls++;
         const nowSec = Math.floor(Date.now() / 1000);
         const points = [];
         for (let k = 0; k <= 2 + trackCalls; k++) {
-          points.push({
-            t: nowSec - (2 + trackCalls - k) * 60,
-            la: 36 + k * 0.05, lo: -97 + k * 0.05,
-            al: 1500 + k * 400, // steady climb — exercises the ramp min→max
-          });
+          points.push({ t: nowSec - (2 + trackCalls - k) * 60, la: 36 + k * 0.05, lo: -97 + k * 0.05 });
         }
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ kind: "aircraft", id: u.split("/").pop(), points, count: points.length }));
@@ -922,7 +914,7 @@ async function main() {
             // (phone is a bottom sheet — transient, closable, same accepted
             // behavior as the detail-card sheet over the zoom cluster)
             if (innerWidth >= 640) {
-              for (const sel of [...(((e) => e && e.getBoundingClientRect().width > 0)(document.querySelector("[data-vt-nav-zoomin]")) ? ["[data-vt-nav-zoomin]", "[data-vt-nav-zoomout]", "[data-vt-nav-compass]"] : ["[data-vt-nav-fab]"]), "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
+              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
                 const el = document.querySelector(sel);
                 if (!el) { fails.push(`analyst: map control ${sel} missing with pane open`); continue; }
                 const b = el.getBoundingClientRect();
@@ -1010,7 +1002,7 @@ async function main() {
               }
             }
             if (innerWidth >= 640) {
-              for (const sel of [...(((e) => e && e.getBoundingClientRect().width > 0)(document.querySelector("[data-vt-nav-zoomin]")) ? ["[data-vt-nav-zoomin]", "[data-vt-nav-zoomout]", "[data-vt-nav-compass]"] : ["[data-vt-nav-fab]"]), "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
+              for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
                 const el = document.querySelector(sel);
                 if (!el) { fails.push(`timescrub: map control ${sel} missing with panel open`); continue; }
                 const b = el.getBoundingClientRect();
@@ -1096,7 +1088,7 @@ async function main() {
           // sit under it (the production defect: zoom buttons covered).
           // [data-vt-globe] added W1, [data-vt-analyst] added W6 (console
           // charter): both are registered map controls like the others.
-          for (const sel of [...(((e) => e && e.getBoundingClientRect().width > 0)(document.querySelector("[data-vt-nav-zoomin]")) ? ["[data-vt-nav-zoomin]", "[data-vt-nav-zoomout]", "[data-vt-nav-compass]"] : ["[data-vt-nav-fab]"]), "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`self-see: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
@@ -1413,7 +1405,7 @@ async function main() {
           // v2.4 occlusion rule re-checked WITH fields on: enabling a layer
           // grows the attribution strip — it may not spread under controls
           // (the 390px defect this caught: 2-line attribution over zoom-out).
-          for (const sel of [...(((e) => e && e.getBoundingClientRect().width > 0)(document.querySelector("[data-vt-nav-zoomin]")) ? ["[data-vt-nav-zoomin]", "[data-vt-nav-zoomout]", "[data-vt-nav-compass]"] : ["[data-vt-nav-fab]"]), "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
+          for (const sel of [".maplibregl-ctrl-zoom-in", ".maplibregl-ctrl-zoom-out", "[data-vt-fullscreen]", "[data-vt-globe]", "[data-vt-analyst]", "[data-vt-timescrub]"]) {
             const el = document.querySelector(sel);
             if (!el) { fails.push(`fields-on: map control ${sel} missing`); continue; }
             const r = el.getBoundingClientRect();
