@@ -22,6 +22,7 @@ import CotView from "./cot";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import GridStressView from "./gridstress";
+import MethaneHotspotsView from "./methaneHotspots";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -1703,6 +1704,10 @@ export default function DataMapPage() {
   // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
   // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
   const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
+  // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
+  // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
+  // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
+  const [methaneHotspotsOpen, setMethaneHotspotsOpen] = useState(() => window.location.hash === "#/data/methane-hotspots");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -1964,6 +1969,7 @@ export default function DataMapPage() {
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
+      setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -8399,6 +8405,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "methane_plumes" && on && (
+          // Same pattern as insider/earnings/shortvol/attention/cot/graph:
+          // a per-asset ranked stat table doesn't belong in a layer-toggle
+          // sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/methane-hotspots"; setMethaneHotspotsOpen(true); }}>
+              Open methane hotspots — repeat detections by asset →
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -8463,6 +8480,9 @@ export default function DataMapPage() {
       )}
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
+      )}
+      {methaneHotspotsOpen && (
+        <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
 
       {/* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge, outside

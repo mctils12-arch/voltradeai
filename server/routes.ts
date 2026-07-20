@@ -2542,6 +2542,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // Gate-2(b) of the same hypothesis (research/open_questions.md):
+  // repeat-detection count/rate per catalogued GEM asset. Grouped from
+  // unambiguous matches only (server/gemMethaneProximity.ts). STILL A
+  // DESCRIPTIVE STAT, NOT A SIGNAL — gate 2(c) (a same-universe base
+  // rate) and 2(d) (matching operators' own disclosed methane intensity)
+  // are unbuilt; this only answers "which assets get flagged repeatedly."
+  app.get("/api/data/methane-plumes/asset-stats", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemMethaneProximity();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Methane Emitters Tracker (GMET)",
+                         warming_up: true, count: 0, assetStats: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Methane Emitters Tracker (GMET) × Oil & Gas Extraction Tracker / "
+        + "Global Coal Mine Tracker, CC BY 4.0",
+      note: "Repeat satellite methane-plume detections grouped by nearest catalogued GEM asset (within "
+        + MATCH_RADIUS_KM + "km, ambiguous matches excluded). A count/rate of repeat detections is NOT "
+        + "an emissions signal on its own — no base rate or disclosed-intensity comparison exists yet "
+        + "(gate 2(c)/(d), research/open_questions.md).",
+      count: hit.assetStats.length,
+      assetStats: hit.assetStats,
+    });
+  });
+
   app.get("/api/data/nukefacilities", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     const d: any = datacoreNuclearFacilities;

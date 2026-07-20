@@ -10,11 +10,12 @@
  * geometrically nearest a plume detection, with the actual distance —
  * a factual proximity measurement, not a claim that the asset caused the
  * plume (flaring, pipeline leaks, and unrelated nearby infrastructure all
- * produce false-positive-looking proximity). Gate 2(b)-(d) — repeat-
- * detection rate per asset, a same-universe base rate, and matching
- * against operators' own disclosed emissions — are NOT built here; see
- * the open_questions.md entry for what's still required before this
- * clears gate 2 as a signal.
+ * produce false-positive-looking proximity). GATE-2(b) — a repeat-
+ * detection count/rate per asset — is `computeAssetPlumeStats()` below
+ * (2026-07-20): still a descriptive stat, not a signal. Gate 2(c)-(d) — a
+ * same-universe base rate and matching against operators' own disclosed
+ * emissions — are NOT built here; see the open_questions.md entry for
+ * what's still required before this clears gate 2 as a tradeable signal.
  *
  * MATCH_RADIUS_KM is a stated, tunable constant, not a tuned parameter —
  * chosen from GEM's own location-accuracy vocabulary (wellpad/mine
@@ -142,10 +143,96 @@ export function joinPlumesToAssets(plumes: MethanePlume[], assets: GemAsset[]): 
   });
 }
 
+export interface AssetPlumeStat {
+  assetId: string;
+  kind: GemAsset["kind"];
+  name: string | null;
+  operator: string | null;
+  owner: string | null;
+  parent: string | null;
+  /** Total unambiguous plume detections matched to this asset. */
+  detectionCount: number;
+  firstObservedAt: string | null;
+  lastObservedAt: string | null;
+  /** Days between the first and last DATED detection; null when fewer than
+   *  two dated detections exist (a single sighting has no span to measure). */
+  spanDays: number | null;
+  /** Dated-detection count / spanDays × 365.25 — null whenever spanDays is
+   *  null, or the two dated detections land on the same day (no honest
+   *  rate from a zero-length span). One detection is noise, not a rate —
+   *  gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-REGISTRY PROXIMITY
+   *  hypothesis (research/open_questions.md); this stat alone is NOT a
+   *  signal (no base rate or disclosed-intensity comparison yet — see (c)/(d)). */
+  ratePerYear: number | null;
+  meanEmissionsKgHr: number | null;
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** GEM's "Observation Date" field (server/gemMethane.ts's `observedAt`) is
+ *  documented as ISO 8601 but ships a bare 2-digit UTC offset ("+00"
+ *  instead of "+00:00"/"Z") — live-verified against the real archive,
+ *  every one of 3,474 rows uses this exact shape. `new Date()` silently
+ *  returns Invalid Date for it (no throw), which would silently zero out
+ *  every spanDays/ratePerYear below without this normalization. Patches
+ *  only that one known shape; anything still unparseable returns NaN so
+ *  its caller treats it as no-date rather than miscounting. */
+export function parseObservedAtMs(iso: string): number {
+  const direct = Date.parse(iso);
+  if (!Number.isNaN(direct)) return direct;
+  return Date.parse(iso.replace(/([+-]\d{2})$/, "$1:00"));
+}
+
+/** Groups matched, unambiguous plumes by nearest asset and computes a
+ *  repeat-detection count/rate per asset. Pure function — no I/O.
+ *  Ambiguous matches are excluded entirely: a plume that could as
+ *  plausibly belong to a different asset shouldn't inflate either
+ *  candidate's count. Assets with zero unambiguous matches don't appear
+ *  (nothing to report). Sorted by detectionCount, most-detected first —
+ *  callers wanting a different order (rate, mean emissions) re-sort
+ *  client-side; this function states one honest default, not a ranking
+ *  claim. */
+export function computeAssetPlumeStats(plumes: PlumeWithAsset[]): AssetPlumeStat[] {
+  const groups = new Map<string, PlumeWithAsset[]>();
+  for (const p of plumes) {
+    if (!p.nearestAsset || p.ambiguousMatch) continue;
+    const key = p.nearestAsset.id;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(p);
+    else groups.set(key, [p]);
+  }
+  const out: AssetPlumeStat[] = [];
+  groups.forEach((group, assetId) => {
+    const asset = group[0].nearestAsset!;
+    const dates = group.map((p) => p.observedAt).filter((d): d is string => d != null).sort();
+    const firstObservedAt = dates[0] ?? null;
+    const lastObservedAt = dates.length > 0 ? dates[dates.length - 1] : null;
+    let spanDays: number | null = null;
+    let ratePerYear: number | null = null;
+    if (dates.length >= 2 && firstObservedAt && lastObservedAt) {
+      const firstMs = parseObservedAtMs(firstObservedAt);
+      const lastMs = parseObservedAtMs(lastObservedAt);
+      if (!Number.isNaN(firstMs) && !Number.isNaN(lastMs)) {
+        const span = (lastMs - firstMs) / MS_PER_DAY;
+        if (span > 0) { spanDays = span; ratePerYear = (dates.length / span) * 365.25; }
+      }
+    }
+    const emissions = group.map((p) => p.emissionsKgHr).filter((e): e is number => e != null);
+    const meanEmissionsKgHr = emissions.length > 0 ? emissions.reduce((a, b) => a + b, 0) / emissions.length : null;
+    out.push({
+      assetId, kind: asset.kind, name: asset.name, operator: asset.operator,
+      owner: asset.owner, parent: asset.parent, detectionCount: group.length,
+      firstObservedAt, lastObservedAt, spanDays, ratePerYear, meanEmissionsKgHr,
+    });
+  });
+  return out.sort((a, b) => b.detectionCount - a.detectionCount);
+}
+
 export interface MethaneProximityResult {
   plumes: PlumeWithAsset[];
   matchedCount: number;
   ambiguousCount: number;
+  assetStats: AssetPlumeStat[];
   plumeProvenance: GemProvenance;
   assetProvenance: GemAssetsProvenance;
 }
@@ -171,6 +258,7 @@ export function cachedGemMethaneProximity(): MethaneProximityResult | null {
     plumes: joined,
     matchedCount: joined.filter((p) => p.nearestAsset !== null).length,
     ambiguousCount: joined.filter((p) => p.ambiguousMatch).length,
+    assetStats: computeAssetPlumeStats(joined),
     plumeProvenance: plumeHit.provenance,
     assetProvenance: assetHit.provenance,
   };

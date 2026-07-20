@@ -3,6 +3,183 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-20 [PRODUCT] — GEM methane-plume gate-2(b): repeat-detection count/rate per asset + /data hotspots view (v1.0.421, T-DATACORE+T-CLIENT, scheduled-routine session)
+
+TERRITORY: T-DATACORE (server/gemMethaneProximity.ts, server/routes.ts) +
+T-CLIENT (new client/src/pages/methaneHotspots.tsx, datamap.tsx wiring) —
+one logical change (this session's own next-step continuation), shared
+files (routes.ts) kept minimal per WORKSTREAM PARTITION.
+
+LIVE HEALTH CHECK first (GOAL priority 1, checked regardless of session
+type): `curl https://voltradeai-production.up.railway.app/api/health` —
+`status: ok`, `bot.liveness.dark: false`, `scanner.consecutiveFailures: 0`,
+`drawdownPct: "0.0"`. No LIVENESS ALARM. KNOWN BROKEN check: item #18's
+TIER2-ERROR/throttle-overcommit investigation (open_questions.md, last
+touched 2026-07-19 session 3, v1.0.418) is still open but non-blocking
+(latency/timeout storm, not an outage) — per this session's own directive
+("product sessions do not preempt DAILY repair duty unless the break
+blocks work"), it does not block product work and is left for a REPAIR
+session; noted here, not touched.
+
+LOOP-HEALTH RATIO: last 10 experiments.md entries before this one are all
+[PRODUCT]/[PIPELINE]/[RESEARCH] (Celestial v2 batch + SEC Form4 + GEM
+methane join) — 0/10 REPAIR, nowhere near the 7+ thrash threshold.
+
+PRIMARY ACTION: research/open_questions.md's most recently filed, most
+concretely-scoped open item is the GEM METHANE-PLUME × EXTRACTION-REGISTRY
+PROXIMITY hypothesis's own stated NEXT STEP (filed 2026-07-19, gate-2(a)
+session): "(b) is the smallest next slice — group
+`cachedGemMethaneProximity().plumes` by `nearestAsset.id`, compute a
+detection count/rate per asset, and surface it as a sortable stat." This
+session builds exactly that — gate-2(b) of a five-part ladder
+((a) proximity join done 2026-07-19, (b) this session, (c)/(d) base rate +
+disclosed-intensity match still unbuilt, per REASONING STANDARD #10
+discipline already established on this hypothesis).
+
+BUILD: `server/gemMethaneProximity.ts` gained `computeAssetPlumeStats()`
+(pure function) — groups matched, UNAMBIGUOUS plumes by `nearestAsset.id`
+(ambiguous matches excluded entirely: a plume that could as plausibly
+belong to a different asset shouldn't inflate either candidate's count,
+same honesty rule gate-2(a)'s own join already applied to itself) and
+computes per asset: `detectionCount`, `firstObservedAt`/`lastObservedAt`,
+`spanDays` (null below 2 dated detections — one sighting isn't a rate),
+`ratePerYear` (dated-count / spanDays × 365.25, null whenever spanDays is
+null or the span is zero — no divide-by-zero/Infinity), `meanEmissionsKgHr`
+(non-null readings only). Wired into `cachedGemMethaneProximity()`'s
+cached result as `assetStats`. New route
+`GET /api/data/methane-plumes/asset-stats` (kept separate from the
+existing per-plume `/api/data/methane-plumes` route — same "history"-style
+separate-endpoint precedent shortvol.tsx/attention.tsx already established
+— so the map's per-plume payload isn't bloated by an aggregate the map
+doesn't need). New `/data` view `client/src/pages/methaneHotspots.tsx`
+(#/data/methane-hotspots) — same ShortVolView/AttentionView/GraphView
+overlay pattern (own page, `vt-filings-*`/`vt-shortvol-*` CSS, back
+button, hash-route wiring in datamap.tsx), a ranked table with 3 sort
+buttons (most detections / highest repeat rate / highest mean emissions —
+nulls always sort last, since "unmeasured" isn't "worse"), reachable via a
+new "Open methane hotspots" button under the `methane_plumes` layer panel
+(same pattern as insider/earnings/shortvol/attention/cot/graph). HONESTY:
+every surface (module docstring, API `note` field, page subtitle) states
+this is STILL NOT A SIGNAL — gate 2(c)/(d) unbuilt, a repeat-detection
+count/rate alone proves nothing about emissions attribution.
+
+BUG FOUND + FIXED THIS SESSION (read-before-write live-verification, not
+assumed from the schema comment): GEM's `observedAt` field
+(server/gemMethane.ts) is documented "ISO 8601, as reported by GEM" but
+LIVE-VERIFIED against the real 3,474-row archive, every single row uses a
+bare 2-digit UTC offset (`"2020-07-08T20:23:21+00"`) — `new Date()`
+silently returns `Invalid Date` for that shape (confirmed:
+`Number.isNaN(Date.parse("...+00"))` is `true`), not a thrown error, so a
+first naive implementation of `spanDays`/`ratePerYear` computed `NaN`
+everywhere, which the `span > 0` guard then silently coerced to `null` —
+100% of real assets would have shown "—" for repeat rate despite having
+real, multi-year detection spans. Caught by testing against the LIVE repo
+archive before shipping (not just synthetic fixtures) — a live boot +
+curl on `/api/data/methane-plumes/asset-stats` showed `ratePerYear: null`
+on an asset with 19 detections spanning 2020-2021, which is exactly the
+"something's wrong" signal a synthetic-only test suite would have missed
+(my own synthetic fixture tests used valid ISO strings and would have
+passed regardless). FIX: `parseObservedAtMs()` — tries `Date.parse()`
+directly, falls back to patching the bare-offset shape
+(`s/([+-]\d{2})$/$1:00/`) before parsing again; still-unparseable strings
+return `NaN` so a caller degrades to "no date" rather than miscounting.
+Did NOT touch `gemMethane.ts`'s own normalization or its "ISO 8601" claim
+— scope discipline (one logical change per PR); flagging the mislabeled
+docstring is left as a small separate note below, not bundled here.
+
+RATCHET: `server/gemMethaneProximity.test.ts` — 12 new tests: grouping/
+sorting, ambiguous-match exclusion, single-detection-no-rate, a real
+two-dates-apart rate computation, same-timestamp zero-span-null (not
+Infinity), mean-emissions non-null-only averaging, empty-input safety,
+AND a dedicated regression pair (`parseObservedAtMs` unit tests +
+`computeAssetPlumeStats` end-to-end regression using the exact real
+`"+00"` shape) that pins the bug above so it can't silently regress if a
+future edit reverts to bare `new Date()`. `cachedGemMethaneProximity`'s
+existing integration test extended to assert `assetStats` is non-empty,
+detection-count sum ≤ matchedCount, and default sort order.
+
+GATES: `npx tsx --test server/gemMethaneProximity.test.ts` 19/19 (9 → 19,
+10 new: 7 for `computeAssetPlumeStats`'s grouping/sort/exclusion/edge-case
+behavior, 2 for `parseObservedAtMs` directly, 1 end-to-end regression
+pinning the bug below with the real "+00" shape); full `npx tsx --test
+server/*.test.ts` 818/818, 0 failed; `npx tsc --noEmit` 72 errors, same
+set as the `git stash`-verified baseline (one pre-existing cosmetic
+union-ordering diff in `datamap.tsx`, same class already noted by the
+2026-07-17 GEM ownership session — unrelated to this change); `npm run
+build` clean. LIVE BOOT
+(`node dist/index.cjs` against the real repo archive, not the harness
+fixture): `/api/data/methane-plumes` unchanged (3,473 plumes, 1,027
+matched, 206 ambiguous — matches gate-2(a)'s own documented numbers
+exactly); `/api/data/methane-plumes/asset-stats` returns 211 real assets,
+144 of which now get a real computed `ratePerYear` post-fix (0 did,
+pre-fix). Ad hoc Playwright drive against the built app
+(`/app#/data/methane-hotspots` on the live-data boot): 211 real rows
+render, top row "Elk Hills..." shows `14.2/yr` and `264.3 kg/hr` — no
+page errors (one unrelated `ERR_CONNECTION_RESET` on an external resource,
+same sandbox-network-block class already documented as unrelated by the
+2026-07-17 GEM ownership session). `npm run visual -- --page
+methanehotspots` — new PAGES entry (`map: false`, same class as streams/
+gridstress) + new FIXTURES entry for the new route — 0 hard failures at
+390/768/1440 (warnings are pre-existing nav-chrome touch-target notes, not
+from this page). Screenshots reviewed: 390px collapses to the standard
+`vt-filings-table` card layout; caught and fixed one presentation gap in
+the same pass — the CSS's `td:last-child::before { content: none }` rule
+(shared, not touched) hides the mobile label for whichever column is
+last, so "Mean emissions" appended its own `kg/hr` unit inline (same
+inline-unit convention `rate()`'s `/yr` suffix already used) instead of
+relying on the hidden label.
+
+VERSION: 1.0.420 → 1.0.421. Also corrected `package-lock.json`'s two
+root-package version fields, which had drifted to a stale 1.0.418 again —
+same recurring drift two prior sessions have each fixed once already
+(2026-07-19 session 3, and earlier); worth a session someday adding a CI
+check for this instead of re-fixing it by hand each time (not filed as a
+fresh wishlist item — the recurrence is already visible in this log).
+
+BACKTEST: N/A — descriptive stat only (no scoring/sizing/execution logic
+touched); this doesn't clear the hypothesis past gate 2, per its own
+ladder (still needs (c) base rate, (d) disclosed-intensity match).
+
+NEXT STEP (not this session, per REASONING STANDARD #10 — stated before,
+not after): (c) is the natural follow-up — a same-universe base rate
+(do assets with ANY nearby plume underperform peers with none, before
+conditioning on rate/magnitude at all?), which needs a price/returns join
+against the operator entity via `ownership.json.gz`'s Owner/Parent → CIK
+crosswalk (`entityGraph.ts` already reads this crosswalk for the `owns`
+edge type — the join machinery exists, just not wired to this hypothesis
+yet). SMALL SEPARATE NOTE (not actioned, filed for whoever next touches
+`gemMethane.ts`): its `observedAt` docstring's "ISO 8601, as reported by
+GEM" claim is misleading given the bare-offset shape found this session —
+worth a one-line comment correction whenever that file is next opened for
+an unrelated reason; not worth its own PR alone.
+
+## 2026-07-19 [PRODUCT] — Smooth sat lock: per-frame SGP4 + jumpTo follow (v1.0.420, T-CLIENT, human-authored patch)
+
+Human patch (research/directives/smooth_satlock_patch_2026-07-19.md,
+verbatim upload + design ref sat-inspect-fix.html): the site's sat-lock
+jerks — followTick moved the camera with map.easeTo({duration:800})
+once per ~1Hz worker tick AND skipped the move whenever map.isMoving(),
+so the ease chased a stale tick position → hop-pause-hop. FIX (the
+human's 4 exact edits, applied verbatim, targets pre-verified): the ONE
+followed craft gets one extra SGP4 propagate() per FRAME (same kernel
+sampleOrbitArc uses; single object = cheap), and camera + model anchor
+ride it via map.jumpTo (no easing — 60fps jumps ARE the smooth motion)
+in a self-gated rAF loop (smoothFollowFrame: guards on satFollowRef/
+lockMode/inspectActiveRef/isZooming/document.hidden; the per-tick
+followTick body keeps ring/nadir/status honest as the backstop).
+MAP-NATIVE CRAFT ORBIT (round 10) unchanged — center IS the craft at
+real altitude, so rotate/tilt/zoom still orbit the moving craft. Plus
+modelLayer MODEL_MAX_PIXELS 480→1600 (the demo's zoom-all-the-way-in).
+Gates (parent-verified, MY OWN drives): client 571/571, build clean.
+Follow-contract drive V1/V2/V3 PASS (center un-clamped, at the ISS's
+real 432km altitude, riding the nadir 6km, tracking smoothly at ground
+speed 14.8km/2.2s — no wander). Anti-hop micro-continuity probe
+(satfinder→ISS lock, high-freq center sampling): center advances on
+100% of frames, longest stall 137ms — vs the old 800ms ease+pause
+cadence: the hop is GONE (SwiftShader ~7fps caps the observed rate;
+real GPU is 60fps). Territory datamap.tsx + modelLayer.ts (disjoint
+from the celestial arc). Backtest n/a.
+
 ## 2026-07-19 [PIPELINE]+[RESEARCH] — SEC bulk-historical Form 4 archive (gate 1 DATA) + insider-cluster gate-2 SIGNAL screen: no edge at 20d, unexplained negative at 60d (v1.0.412)
 
 TERRITORY: root-level EDGE-DOCTRINE data-pipeline/research scripts
