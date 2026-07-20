@@ -2550,7 +2550,7 @@ export default function DataMapPage() {
   const repaintTrail3d = () => {
     try {
       if (!airTrail3dRef.current || airTrail3dRef.current.getVertexCount() === 0) return;
-      groundElevCacheRef.current.cfg = " stale"; // datum changed — force fresh queries
+      groundElevCacheRef.current.cfg = "__DATUM_STALE__"; // datum changed — force fresh queries
       if (airCrumbsRef.current.id) { paintFollowedTrail(); return; }
       const at = archivedTrackRef.current;
       if (at && at.kind === "aircraft") paintTrack("aircraft", at.raw);
