@@ -13,6 +13,7 @@ import {
   normalizeOilGasFields, normalizeCoalMines, loadGemAssets,
   cachedGemAssets, _resetGemAssetsCacheForTests,
 } from "./gemMethaneAssets";
+import { repoDataPath } from "./repoFiles";
 
 function mkGzFixture(name: string, body: any): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gemassets-"));
@@ -102,6 +103,33 @@ test("loadGemAssets: a missing registry drops just that registry's assets, never
   assert.equal(hit.assets.length, 1);
   assert.equal(hit.assets[0].kind, "coal_mine");
   assert.equal(hit.provenance.oilGas, null);
+});
+
+test("RATCHET [REPAIR 2026-07-20]: loadGemAssets resolves BOTH registries under the real " +
+     "production directory shape (dist/ only, no repo-tree datacore/) — the exact layout " +
+     "script/build.ts must stage into and the exact gap that let matchedCount silently go to 0 " +
+     "on prod after gate-2(a) shipped (repoFiles.test.ts's build.ts string-pin didn't catch it " +
+     "because this file was never listed there; this test proves the READ side under that same " +
+     "shape instead of trusting a repo-tree checkout to mask the miss, same class of gap this " +
+     "suite's own cachedGemAssets test above has always had).", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "gemassets-prodlayout-"));
+  const distGemDir = path.join(cwd, "dist", "datacore", "gem");
+  fs.mkdirSync(distGemDir, { recursive: true });
+  fs.writeFileSync(path.join(distGemDir, "oil_gas_extraction.json.gz"), zlib.gzipSync(JSON.stringify({
+    provenance: { attribution: "Global Energy Monitor", license: "CC BY 4.0", release: "OGE_PROD" },
+    fields: [OIL_GAS_ROW],
+  })));
+  fs.writeFileSync(path.join(distGemDir, "coal_mine_tracker.json.gz"), zlib.gzipSync(JSON.stringify({
+    provenance: { attribution: "Global Energy Monitor", license: "CC BY 4.0", release: "CMT_PROD" },
+    non_closed: [COAL_MINE_ROW],
+  })));
+  const hit = loadGemAssets(
+    repoDataPath("datacore/gem/oil_gas_extraction.json.gz", cwd),
+    repoDataPath("datacore/gem/coal_mine_tracker.json.gz", cwd),
+  );
+  assert.equal(hit.assets.length, 2, "both registries must resolve via the dist/ fallback, not degrade to empty");
+  assert.equal(hit.provenance.oilGas?.release, "OGE_PROD");
+  assert.equal(hit.provenance.coalMine?.release, "CMT_PROD");
 });
 
 test("cachedGemAssets: caches across calls (parsed once per process)", () => {

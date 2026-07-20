@@ -5415,6 +5415,68 @@ detection count/rate per asset, and surface it as a sortable stat before
 attempting (c)/(d). Discount stays heavy (REASONING STANDARD #4) — this
 update proves the join works, not that the underlying thesis has edge.
 
+UPDATE 2026-07-20 ([REPAIR]+[RESEARCH], scheduled-routine session) — (b)
+was already shipped (v1.0.421, `computeAssetPlumeStats`, same day). This
+session attempted (c), the queued NEXT STEP, and found the join had been
+SILENTLY DEAD ON PRODUCTION since gate-2(a) shipped: live
+`/api/data/methane-plumes` returned `matchedCount:0, assetStats:[]` —
+`script/build.ts`'s dist/ staging list (the R14 packaging-defect class,
+2026-07-07) was never extended when `gemMethaneAssets.ts` shipped
+2026-07-19, so `oil_gas_extraction.json.gz`/`coal_mine_tracker.json.gz`
+silently resolved to empty on the real dist-only container — the exact
+"verify the POSITIVE case on prod" lesson the 2026-07-20 gate-2(b) session
+itself named but didn't actually apply (its own "LIVE BOOT" check ran
+`node dist/index.cjs` from a directory that STILL had the repo-tree
+`datacore/` present, so `repoDataPath`'s working-tree branch masked the
+miss). FIXED this session: `script/build.ts` now stages both files;
+verified against a from-scratch simulated prod layout (temp dir containing
+ONLY the built `dist/`, no repo tree) that the real join now recovers
+matchedCount=1,027/ambiguousCount=206/assetStats.length=211 — exactly the
+gate-2(a) session's own documented numbers. Ratchets added: `repoFiles.test.ts`
+now scans every real `repoDataPath("datacore/...")` call site across
+server/*.ts and asserts it's staged (generalizes past the old hand-listed
+2-file pin that let this regress) + `gemMethaneAssets.test.ts` gained a
+behavioral test against a simulated dist-only cwd (proves the READ side,
+not just a string-match on build.ts). See experiments.md for the full
+[REPAIR] trace.
+
+With the join actually working again, this session then ran (c) for the
+first time: `scripts/gem_methane_gate2c.py` (ticker resolution — GEM Entity
+ID join for coal mines via `coal_mine_tracker.json.gz`'s own Owner/Parent
+GEM Entity ID columns, exact-normalized-name join for oil/gas via
+`ownership.json.gz`'s entities, CIK->ticker via SEC's company_tickers.json;
+same precision-first, ambiguity-drops-not-guesses discipline as
+`server/usaSpending.ts`'s `normalizeCompanyName`). Result (against the
+locally-rejoined real data, reproducible — see script docstring for the
+full prior/verdict-rule/lookahead-caveat stated before running): only 8 of
+3,473 plumes' operators resolve to a public ticker (ARLP, BTU, CNR, CODQL,
+CRC, CVX, HCC, METC — most GEM extraction/mine operators are private,
+foreign, or state-owned, exactly the discount this hypothesis's own filing
+anticipated), giving N=32 dated detection events — over MIN_SAMPLE=20, so
+this is the first REAL (non-"INSUFFICIENT SAMPLE") verdict on this
+hypothesis: **FAIL at all three horizons (5/20/60 trading days)** — assets
+with nearby plume detections did NOT underperform the same-ticker random-
+baseline-date alpha; if anything the raw means run the other direction
+(detect_mean_alpha 60d = +16.1% vs baseline +7.3%). CRITICAL CAVEAT the
+script itself flags: this result is NOT cross-sectionally robust — one
+ticker (CRC, California Resources Corp, a 2020-vintage bankruptcy-emergence
+recovery story unrelated to methane) accounts for 74-83% of total |alpha|
+at every horizon; the other 7 tickers show no consistent direction (CNR
++1%, BTU -11%, CVX +14%, METC -1%, HCC +16%, CODQL +1%, ARLP -20% at 60d).
+VERDICT: hypothesis NOT supported by this pass, but N is too small and too
+concentrated to treat as a real disconfirmation either — this is a
+DATA-AVAILABILITY-LIMITED gate-2(c), not a clean one. NEXT STEP for a
+future session: (i) gate 2(c) should be re-run once GEM ships a newer
+release (more detection history = more events per already-resolved
+ticker, reducing single-name dominance); (ii) the oil_gas name-match
+(71 resolved via name_operator/name_parent) could likely be widened with a
+fuzzier (but still non-guessing) match against `ownership.json.gz`'s
+`Abbreviation` field where present; (iii) (d) — matching against
+operators' disclosed methane intensity — remains CURRENTLY UNSOURCED,
+unchanged from the original filing. Discount stays heavy either way
+(REASONING STANDARD #4) — a FAIL this concentrated proves less than a
+clean FAIL would.
+
 ## [MEASUREMENT-DEBT · filed 2026-07-20] Visual harness: unverified flip-back clicks leave non-default state for later checks — diagnosed via the terrain auto-tilt saga; fix is harness-side (own PR per MEASUREMENT INTEGRITY)
 
 SYMPTOM: data@1440 trail-freshness check fails ~50% of runs — the aircraft
