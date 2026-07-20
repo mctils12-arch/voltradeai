@@ -54,7 +54,7 @@ import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
 import { selectMiniSats, formsFromSatcat, MINI_MAX_CAM_KM } from "@/lib/orbital/miniSelect";
 import type { FormKind } from "@/lib/orbital/model3d";
 import { raanColor } from "@/lib/orbital/orbitArc";
-import { groupMask, maskCount, applyGroupSentinel, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
+import { groupMask, maskCount, applyGroupSentinel, applyFollowSolo, spreadIndices, SAT_GROUPS, collapseStationComplexes, isStationComplex } from "@/lib/orbital/satFind";
 import { readSatAt } from "@/lib/orbital/satBuffer";
 import { mercatorToSphere } from "@/lib/orbital/occlusion";
 import { nightPolygon } from "@/lib/celestial/ephemeris";
@@ -1287,6 +1287,42 @@ export default function DataMapPage() {
           (map as any).getVerticalFieldOfView?.(), 65);
     map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 65, duration: 1400 });
   }, []);
+  // ORBIT / ONBOARD as IN-MAP modes (human 2026-07-20: "the other functions
+  // of orbit or onboard need to be in the same place as the inspect button
+  // and work") — the old overlay's two views, rebuilt on the live map:
+  // ORBIT re-frames to the standard follow view (craft centered, camera
+  // parked at 2.3× its altitude — drag/tilt then orbit the moving craft);
+  // ONBOARD rides the craft's own viewpoint: ground lock on the nadir,
+  // top-down, camera altitude ≈ the craft's real altitude — you see the
+  // ground the craft sees, gliding with it per frame.
+  const orbitCraft = useCallback(() => {
+    const map = mapRef.current;
+    const f = satFollowRef.current;
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    if (f.lockMode !== "sat") { f.lockMode = "sat"; setSatLockMode("sat"); }
+    const altKmNow = t.altKm;
+    const frameZoom = zoomForCameraAltitudeKm(
+      Math.max(altKmNow * 2.3, 900), t.latDeg,
+      map.getCanvas()?.height ?? 900,
+      (map as any).getVerticalFieldOfView?.(), map.getPitch?.());
+    const zoom = altKmNow < 3000 ? Math.min(frameZoom, 4.3) : Math.min(frameZoom, 1.0);
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, duration: 1200 });
+  }, []);
+  const onboardCraft = useCallback(() => {
+    const map = mapRef.current;
+    const f = satFollowRef.current;
+    if (!map || !f) return;
+    const t = followTarget(satLayerRef.current?.getPositions() ?? null, f.index);
+    if (!t) return;
+    if (f.lockMode !== "ground") { f.lockMode = "ground"; setSatLockMode("ground"); }
+    const zoom = zoomForCameraAltitudeKm(
+      Math.max(t.altKm, 120), t.latDeg,
+      map.getCanvas()?.height ?? 900,
+      (map as any).getVerticalFieldOfView?.(), 0);
+    map.easeTo({ center: [t.lonDeg, t.latDeg], zoom, pitch: 0, duration: 1400 });
+  }, []);
   // CONTINUOUS SPACE FRAME (human-approved 2026-07-18 — the third "no
   // separate scenes" directive, same precedent as INSPECT IS THE MAP above):
   // the O6-7 separate solar-system scene (lib/celestial/solarView) is
@@ -2356,6 +2392,13 @@ export default function DataMapPage() {
   // rate + the receipt anchor — lets the curtain tail meet the plane where
   // it is DRAWN between polls (the same glide the plane renders with).
   const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+  // Ground-elevation memo for the terrain-following curtain base — keyed by
+  // terrain config (source|exaggeration: queryTerrainElevation's result
+  // already includes the exaggeration, so a slider move changes every value).
+  // 25s TTL: DEM tiles that load AFTER a query returned 0 refine the base on
+  // the next cycle instead of freezing flat. Archived points never move, so
+  // the 300ms glide-tick rebuild is Map hits + one query for the moving tail.
+  const groundElevCacheRef = useRef<{ cfg: string; at: number; m: Map<string, number> }>({ cfg: "", at: 0, m: new Map() });
 
   const clearTrail = () => {
     const map = mapRef.current;
@@ -2411,12 +2454,37 @@ export default function DataMapPage() {
           // flew over (the aircraft 3D layer's setAltScale precedent).
           const altScale = map.getTerrain() ? terrainExagRef.current : 1;
           const p3 = new Float32Array(raw.length * 3);
+          // CURTAIN BASE FOLLOWS TERRAIN (2026-07-20 report: flat sea-level
+          // base cut through / floated over relief): per-point ground via
+          // map.queryTerrainElevation — MapLibre returns it ALREADY
+          // multiplied by the exaggeration (Terrain.getElevation ×
+          // this.exaggeration), the same datum as the altScale'd tops, so it
+          // is NOT scaled again here. null (terrain off) → 0 = the old
+          // sea-level base. Memoized per point + terrain config (25s TTL —
+          // late-loading DEM tiles report 0 until ready, so 0s must age out).
+          const terrSpec = map.getTerrain?.() as any;
+          const gcfg = terrSpec ? `${terrSpec.source}|${terrSpec.exaggeration}` : "";
+          const gc = groundElevCacheRef.current;
+          const gnow = Date.now();
+          if (gc.cfg !== gcfg || gnow - gc.at > 25_000 || gc.m.size > 4000) {
+            gc.cfg = gcfg; gc.at = gnow; gc.m.clear();
+          }
+          const bottoms = new Float32Array(raw.length); // 0 = sea-level fallback
           for (let i = 0; i < raw.length; i++) {
             const m = lonLatToMercator(raw[i].lo, raw[i].la);
             const al = (raw[i] as any).al;
             p3[i * 3] = m.x;
             p3[i * 3 + 1] = m.y;
             p3[i * 3 + 2] = al == null ? ARC_GAP : Math.max(0, al) * altScale;
+            if (terrSpec) {
+              const k = `${raw[i].lo},${raw[i].la}`;
+              let g = gc.m.get(k);
+              if (g === undefined) {
+                try { g = map.queryTerrainElevation([raw[i].lo, raw[i].la]) ?? 0; } catch { g = 0; }
+                gc.m.set(k, g);
+              }
+              bottoms[i] = g;
+            }
           }
           // CURTAIN v2 (the human's "plane with the 3d terrain and altitude
           // path" ask): a SOLID VeloViewer-style wall from the ground up to
@@ -2435,7 +2503,7 @@ export default function DataMapPage() {
           arcs.setArcs(raw.length >= 2 ? [
             { pts: p3, color: [0.49, 0.77, 1.0, 0.9] },
           ] : null);
-          arcs.setWalls(raw.length >= 2 ? [{ pts: p3 }] : null,
+          arcs.setWalls(raw.length >= 2 ? [{ pts: p3, bottoms }] : null,
             { ramp: (alt) => defaultWallRamp(alt / altScale) });
         } catch { /* the flat trail still works */ }
       } else {
@@ -2472,6 +2540,21 @@ export default function DataMapPage() {
       }
     }
     paintTrack("aircraft", track);
+  };
+
+  /** Re-derive the 3D trail + curtain from the cached track when the terrain
+   *  DATUM changes (exaggeration slider, terrain/drain toggle): top z AND the
+   *  terrain-following base both depend on it — waiting for the next poll
+   *  left the curtain floating/clipped for up to 30s. No-op unless a 3D
+   *  trail is actually on screen; reads refs only. */
+  const repaintTrail3d = () => {
+    try {
+      if (!airTrail3dRef.current || airTrail3dRef.current.getVertexCount() === 0) return;
+      groundElevCacheRef.current.cfg = " stale"; // datum changed — force fresh queries
+      if (airCrumbsRef.current.id) { paintFollowedTrail(); return; }
+      const at = archivedTrackRef.current;
+      if (at && at.kind === "aircraft") paintTrack("aircraft", at.raw);
+    } catch {}
   };
 
   /** Fetch the archived track, merge the session's live breadcrumbs for the
@@ -2757,6 +2840,11 @@ export default function DataMapPage() {
     } catch {
       if (enabled.terrain) setStatus("terrain", "error");
     }
+    // 3D trail + curtain datum follows the mesh state (altScale + terrain
+    // base) — re-derive now, and once more when DEM tiles finish loading
+    // (queries return 0 until then; the idle handler is cleaned up below).
+    repaintTrail3d();
+    if (meshSource) { try { map.once("idle", repaintTrail3d); } catch {} }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors
@@ -2804,6 +2892,7 @@ export default function DataMapPage() {
     return () => {
       if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
       try { map.off("pitchstart", onUserPitch); } catch {}
+      try { map.off("idle", repaintTrail3d); } catch {}
     };
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
@@ -3697,6 +3786,17 @@ export default function DataMapPage() {
       const m = lonLatToMercator(p.lonDeg, p.latDeg);
       // model + focus ring ride the frame-fresh anchor (worker tick backstops)
       satModelLayerRef.current?.setAnchor({ mercX: m.x, mercY: m.y, altMeters: p.altKm * 1000 });
+      // GROUND SPOT rides the same frame-fresh fix (human 2026-07-20: "the
+      // ground point is laggy still") — one tiny single-point setData per
+      // frame; the tick's version stays as the create/teardown backstop.
+      if (showNadirRef.current) {
+        try {
+          (map.getSource("sat-nadir") as any)?.setData({
+            type: "FeatureCollection",
+            features: [{ type: "Feature", geometry: { type: "Point", coordinates: [p.lonDeg, p.latDeg] }, properties: {} }],
+          });
+        } catch {}
+      }
       if (!f.lockMode) return;              // camera handed back — the model still glides
       try {
         // let the click-framing / wheel / ± zoom eases finish (a jumpTo
@@ -3718,6 +3818,7 @@ export default function DataMapPage() {
       // ticks stop with the follow — restore the ground-clamped camera NOW
       try { (map as any).setCenterClampedToGround?.(true); (map as any).setCenterElevation?.(0); } catch {}
       satFollowRef.current = null;
+      satRepushRef.current?.(); // FOLLOW SOLO ends — the whole sky returns this frame
       satModelLayerRef.current?.setAnchor(null); // model + ring vanish with the follow
       satArcLayerRef.current?.setArcs(null); // the one-object orbit arc goes with it
       setSatFollowing(false); // tools cluster goes with the focus
@@ -3886,7 +3987,11 @@ export default function DataMapPage() {
       const raw = satRawPosRef.current;
       if (!layer || !raw || !lastMeta) return;
       const gmask = satGroupMaskRef.current;
-      layer.updatePositions(gmask ? applyGroupSentinel(raw, gmask) : raw, lastMeta);
+      // follow solo composes AFTER the group mask (both honor the same
+      // sentinel; solo wins — one craft on screen while locked)
+      let buf = gmask ? applyGroupSentinel(raw, gmask) : raw;
+      buf = applyFollowSolo(buf, satFollowRef.current?.index ?? null);
+      layer.updatePositions(buf, lastMeta);
       publishOrbitalStatus();
     };
     satRepushRef.current = repushPositions;
@@ -4022,6 +4127,8 @@ export default function DataMapPage() {
             lastMeta = { shown: m.shown, deepSpaceSkipped: m.deepSpaceSkipped, invalidSkipped: m.invalidSkipped };
             const gmask = satGroupMaskRef.current;
             if (gmask) posBuf = applyGroupSentinel(posBuf, gmask);
+            // follow solo (2026-07-20): only the locked craft renders/picks
+            posBuf = applyFollowSolo(posBuf, satFollowRef.current?.index ?? null);
             // B3: at realtime the stream is the worker's own 1 Hz loop —
             // declare it so tick-repaint skipping works exactly as pre-B3;
             // under sim-clock warp the ticks are main-driven at the
@@ -4314,6 +4421,7 @@ export default function DataMapPage() {
       // position this tick; the focus persists until the card's ✕. ──
       if (t && s) {
         satFollowRef.current = { index, noradId: g.noradId, name: g.name ?? null, lockMode: "sat" };
+        satRepushRef.current?.(); // FOLLOW SOLO takes effect THIS frame — the rest of the sky hides
         setSatFollowing(true); // shows the follow-tools cluster
         setSatLockMode("sat");
         // phone (live report round 9): the layers panel covers ~half the
@@ -4397,7 +4505,14 @@ export default function DataMapPage() {
         sourceTag: "SGP4",
         // Inspect = the in-map close-orbit ease + sat lock (2026-07-19 brief:
         // same viewer, real imagery, layers intact; ✕ releases via stopFollow)
-        actions: t ? [{ label: "Inspect", primary: true, run: () => inspectCraft() }] : undefined,
+        actions: t ? [
+          // one place, three working views (human 2026-07-20): Inspect zooms
+          // onto the locked craft; Orbit re-frames the follow view; Onboard
+          // rides the craft's own viewpoint — all in the live map.
+          { label: "Inspect", primary: true, run: () => inspectCraft() },
+          { label: "Orbit", run: () => orbitCraft() },
+          { label: "Onboard", run: () => onboardCraft() },
+        ] : undefined,
         facts: ([
           aps ? { label: "Apogee", value: fmtKm(aps.apogeeKm) } : null,
           aps ? { label: "Perigee", value: fmtKm(aps.perigeeKm) } : null,
@@ -8174,19 +8289,22 @@ export default function DataMapPage() {
                     const t = map?.getTerrain?.();
                     if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: v } as any);
                     (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? v : 1);
+                    // curtain + 3D trail: the ref updates in an effect AFTER
+                    // this handler — write it now so the immediate repaint
+                    // scales tops (and re-queries bases: cfg includes the
+                    // exaggeration) at the NEW factor, not the previous one.
+                    terrainExagRef.current = v;
+                    repaintTrail3d();
                   } catch {}
                 }}
               />
-              <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: "11.5px", fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>
                 {terrainExag.toFixed(1)}×
               </span>
             </label>
-            <span className="vt-field-note">
-              VERTICAL EXAGGERATION — multiplies terrain height so mountains and
-              valleys read clearly from altitude. Elevation data stays real; only
-              the look changes. 1.0× true scale · 1.3× balanced (default) · 3.0×
-              dramatic relief.
-            </span>
+            {/* design ref (human 2026-07-20): the row is JUST the compact
+                EXAG slider + value — the full approved explainer lives
+                behind the ⓘ (registry description), verbatim */}
           </div>
         )}
         {(l as any).field && on && (

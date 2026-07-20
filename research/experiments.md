@@ -22314,3 +22314,41 @@ is running). Final full-battery run on the finished tree: pending at log
 time; PR will carry the result.
 
 BACKTEST: N/A — zero trading-logic changes (pure client/UX territory).
+
+## 2026-07-20 (human-directed session, round 2) [PRODUCT] — Live-test feedback wave on the Space View/Terrain build (v1.0.429–.433, T-CLIENT): follow solo, per-frame ground spot, in-map Orbit/Onboard, terrain-UI verbatim design match, terrain-draped altitude curtain
+
+TERRITORY: T-CLIENT. Context: the human live-tested production with
+screenshots minutes after #556 merged (their screenshots showed the
+PRE-#556 build — the deleted inspect overlay still on screen; noted to
+them that inspect-is-the-map was already deploying). Five reported
+issues → five fixes, each its own commit:
+
+- v1.0.429 FOLLOW SOLO (applyFollowSolo, pure + tested): locking a sat
+  hides every other slot via the layer's own sentinel — and because the
+  picker honors the same sentinel, dragging around the craft can no
+  longer accidentally re-target a neighbor (the exact complaint).
+  Composed after the group mask at both buffer-apply sites; start/stop
+  repush immediately; search-overrides-filter path verified safe.
+- v1.0.430 GROUND SPOT per-frame: the nadir marker now rides the same
+  frame-fresh SGP4 fix as the craft/camera (was 1Hz — "laggy still").
+- v1.0.431 ORBIT + ONBOARD in-map card actions beside Inspect: Orbit =
+  the standard follow framing (camera parked 2.3× altitude, sat lock);
+  Onboard = ground lock + top-down + camera altitude ≈ craft altitude
+  (the craft's-eye view, gliding per frame). No separate scene.
+- v1.0.432 terrain UI = the design, exactly (human: "if i give you
+  design info you should follow it not grab parts and pieces"): compact
+  EXAG slider + right-aligned value only; the ⓘ explainer restored to
+  the approved copy VERBATIM incl. the previously-trimmed "(Earth looks
+  nearly flat)" line. Lesson recorded: design handoffs are specs, not
+  suggestions — no paraphrasing, no partial application.
+- v1.0.433 CURTAIN DRAPES ON TERRAIN: arcLayer walls hard-coded bottom
+  z=0 → optional per-point Wall.bottoms (clamped to top); datamap feeds
+  map.queryTerrainElevation per point — verified in maplibre 5.24
+  source that the value is ALREADY exaggeration-multiplied (double-
+  apply trap avoided), memoized 25s TTL (unloaded DEM tiles report 0),
+  datum-change rebuilds wired from the terrain effect + EXAG slider +
+  once-idle. Regression test pins per-point base/clamp/fallback.
+
+VERIFICATION: satFind 7/7, arcLayer 15/15, build green per commit;
+visual harness run on the final build (result recorded in the PR).
+BACKTEST: N/A — pure client territory.

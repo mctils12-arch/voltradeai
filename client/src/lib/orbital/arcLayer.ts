@@ -118,7 +118,9 @@ export function buildArcVertices(arcs: Arc[]): Float32Array {
 // colored by altitude. Unlike the ribbons above these are WORLD-SPACE quads
 // (no screen extrusion): for each consecutive good point pair the quad
 // [top_i, bottom_i, top_j, bottom_j] where top = the point at its altitude
-// and bottom = the SAME mercator at 0. Both rows go through projectTileFor3D
+// and bottom = the SAME mercator at its GROUND elevation (optional per-point
+// Wall.bottoms, terrain-following; 0 = sea level when absent). Both rows go
+// through projectTileFor3D
 // exactly like the ribbon path — same vertex layout, same shader, same
 // GLOBE far-side fragment-discard cull (vertices never snapped): a wall
 // vertex sets side = 0 (zeroes the extrusion offset AND v_edge, so no rim
@@ -133,6 +135,12 @@ export function buildArcVertices(arcs: Arc[]): Float32Array {
 export interface Wall {
   /** interleaved [mercX, mercY, altMeters] triplets — same format as Arc.pts. */
   pts: Float32Array;
+  /** optional per-point BOTTOM z (meters, SAME datum as pts z — i.e. already
+   *  exaggeration-scaled when the tops are; map.queryTerrainElevation returns
+   *  exactly this): bottoms[i] = ground under point i, so the curtain base
+   *  follows the terrain. Each entry is clamped to its point's top; absent /
+   *  short arrays fall back to 0 (sea level), the pre-terrain contract. */
+  bottoms?: Float32Array;
 }
 
 /** altitude (meters) → RGBA in 0..1, evaluated CPU-side per point at build. */
@@ -188,6 +196,7 @@ export function buildWallVertices(walls: Wall[], ramp: WallRamp = defaultWallRam
   };
   for (const wall of walls) {
     const p = wall.pts;
+    const bt = wall.bottoms;
     const n = Math.floor(p.length / 3);
     for (let i = 0; i + 1 < n; i++) {
       const a = i * 3, b = a + 3;
@@ -195,10 +204,16 @@ export function buildWallVertices(walls: Wall[], ramp: WallRamp = defaultWallRam
       if (Math.abs(p[a] - p[b]) > 0.5) continue; // antimeridian jump
       const ca = ramp(p[a + 2]);
       const cb = ramp(p[b + 2]);
+      // terrain-following base: bottoms[i] is in the SAME datum as the top z
+      // (already exaggeration-scaled — queryTerrainElevation includes the
+      // factor), clamped to the top so a broadcast altitude below the DEM
+      // can never invert the quad. No bottoms → 0, the pre-terrain contract.
+      const ga = bt ? Math.min(i < bt.length ? bt[i] : 0, p[a + 2]) : 0;
+      const gb = bt ? Math.min(i + 1 < bt.length ? bt[i + 1] : 0, p[b + 2]) : 0;
       put(p[a], p[a + 1], p[a + 2], ca, WALL_ALPHA_TOP);    // top_i at altitude
-      put(p[a], p[a + 1], 0, ca, WALL_ALPHA_BOTTOM);        // bottom_i at ground
+      put(p[a], p[a + 1], ga, ca, WALL_ALPHA_BOTTOM);       // bottom_i at ground
       put(p[b], p[b + 1], p[b + 2], cb, WALL_ALPHA_TOP);    // top_j
-      put(p[b], p[b + 1], 0, cb, WALL_ALPHA_BOTTOM);        // bottom_j
+      put(p[b], p[b + 1], gb, cb, WALL_ALPHA_BOTTOM);       // bottom_j
     }
   }
   return o === out.length ? out : out.slice(0, o);

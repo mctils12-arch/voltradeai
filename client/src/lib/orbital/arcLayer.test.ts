@@ -180,6 +180,26 @@ test('wall contract: top at its altitude, bottom at zero, across a multi-point s
   }
 });
 
+test('wall bottoms: terrain-following base per point, clamped to its top; absent/short → 0', () => {
+  const pts = new Float32Array([0.10, 0.50, 4000, 0.11, 0.52, 8000, 0.12, 0.54, 500]);
+  const bottoms = new Float32Array([1200, 2500, 900]); // 900 > top 500 → clamps
+  const v = buildWallVertices([{ pts, bottoms }]);
+  const z = (i: number) => v[i * ARC_VERT_STRIDE + 2];
+  // quad 0 = [top_i, bottom_i, top_j, bottom_j]
+  assert.equal(z(0), 4000, 'top_i stays at its altitude');
+  assert.equal(z(1), 1200, 'bottom_i sits on the terrain, not sea level');
+  assert.equal(z(2), 8000, 'top_j unchanged');
+  assert.equal(z(3), 2500, 'bottom_j from its OWN point');
+  // quad 1: a ground reading above its own top clamps to the top — a bad
+  // broadcast altitude below the DEM can never invert the quad
+  assert.equal(z(6), 500, 'low top stays');
+  assert.equal(z(7), 500, 'bottom clamped to the top');
+  // short bottoms: uncovered tail points fall back to sea level
+  const vShort = buildWallVertices([{ pts, bottoms: new Float32Array([1200]) }]);
+  assert.equal(vShort[1 * ARC_VERT_STRIDE + 2], 1200, 'covered point uses its base');
+  assert.equal(vShort[3 * ARC_VERT_STRIDE + 2], 0, 'uncovered point falls back to 0');
+});
+
 test('wall gap handling: ARC_GAP breaks the curtain, antimeridian too — no cross-gap quads', () => {
   const pts = new Float32Array([
     0.10, 0.5, 4000,
@@ -258,11 +278,13 @@ test('wall build cost: full rebuild at 2000 points stays trivial (live-tick rebu
     pts[i * 3 + 1] = 0.5;
     pts[i * 3 + 2] = 500 + (i % 100) * 100;
   }
+  const bottoms = new Float32Array(n);
+  for (let i = 0; i < n; i++) bottoms[i] = (i % 50) * 20; // terrain-following path
   const iters = 50;
-  buildWallVertices([{ pts }]); // warm-up
+  buildWallVertices([{ pts, bottoms }]); // warm-up
   const t0 = performance.now();
   let len = 0;
-  for (let it = 0; it < iters; it++) len = buildWallVertices([{ pts }]).length;
+  for (let it = 0; it < iters; it++) len = buildWallVertices([{ pts, bottoms }]).length;
   const perBuild = (performance.now() - t0) / iters;
   assert.equal(len, (n - 1) * ARC_VERTS_PER_SEG * ARC_VERT_STRIDE, '1999 quads built');
   // observed ~0.1–0.5 ms; 10 ms is the generous flake-proof ceiling that

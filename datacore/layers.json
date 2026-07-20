@@ -19,7 +19,7 @@
    "group": "base",
    "costTier": "moderate",
    "source": "Mapterhorn terrain tiles (Copernicus GLO-30 + national open DEMs; \u00a9 Mapterhorn)",
-   "description": "Real 3D elevation relief: the globe mesh is deformed from the DEM so mountains rise and valleys sink (best with pitch/tilt), plus a hillshade accent under all data layers. Off by default \u2014 opt-in premium relief; global elevation from Copernicus GLO-30 + national open DEMs. Vertical exaggeration multiplies terrain height so mountains and valleys read clearly from altitude \u2014 elevation data stays real, only the look changes (1.0\u00d7 true scale \u00b7 1.3\u00d7 balanced default \u00b7 3.0\u00d7 dramatic relief).",
+   "description": "Real 3D elevation relief: the globe mesh is deformed from the DEM so mountains rise and valleys sink (best with pitch/tilt), plus a hillshade accent under all data layers. Off by default \u2014 opt-in premium relief; global elevation from Copernicus GLO-30 + national open DEMs. VERTICAL EXAGGERATION \u2014 multiplies terrain height so mountains and valleys read clearly from altitude. Elevation data stays real; only the look changes. 1.0\u00d7 \u2014 true scale (Earth looks nearly flat) \u00b7 1.3\u00d7 \u2014 balanced \u00b7 default \u00b7 3.0\u00d7 \u2014 dramatic relief.",
    "altitudeRef": "surface",
    "time": {
     "mode": "static"
