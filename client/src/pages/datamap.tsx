@@ -2679,35 +2679,46 @@ export default function DataMapPage() {
     // relief is invisible at zero pitch, so ease to a Google-Earth angle once.
     // 58° stays safely above peaks (steeper landings clip the camera INTO
     // terrain — a smeared wall). Never on exaggeration change, and never when
-    // the user is already tilted. SYMMETRIC RESTORE: terrain off undoes OUR
-    // tilt (ease back to top-down) — but only ours; a user pitch gesture
-    // (pitchstart with an originalEvent) takes ownership and we never fight
-    // it. Keeps auto-actions reversible (no permanent camera side effect —
-    // caught by the visual harness's pitch-0 trail-click baseline).
+    // the user is already tilted. SYMMETRIC RESTORE with OWNERSHIP: once WE
+    // tilt, autoTiltedRef stays true through the whole tilt/restore cycle —
+    // re-enabling terrain mid-restore re-tilts (pitch is ours even at ≥15°),
+    // and ONLY a real user pitch gesture (pitchstart with an originalEvent)
+    // ends our ownership. The v425 flag-cleared-at-restore-start version
+    // lost ownership when the harness preset sweep re-enabled terrain
+    // mid-restore: no re-tilt, no restore, camera stuck mid-ease. The
+    // verification re-arms while the camera is busy and re-checks that
+    // terrain is STILL off before enforcing (terrainWasOnRef mirrors the
+    // live enabled state after every effect run).
     if (enabled.terrain && !terrainWasOnRef.current) {
       try {
-        if (map.getPitch() < 15) { map.easeTo({ pitch: 58, duration: 1400 }); autoTiltedRef.current = true; }
+        if (map.getPitch() < 15 || autoTiltedRef.current) {
+          map.easeTo({ pitch: 58, duration: 1400 });
+          autoTiltedRef.current = true;
+        }
       } catch {}
-    } else if (!enabled.terrain && terrainWasOnRef.current && autoTiltedRef.current) {
-      autoTiltedRef.current = false;
-      // fire AFTER this effect's terrain teardown (setTerrain(null), source
-      // removal) so the mesh swap can't abort the ease mid-flight, and
-      // verify once at idle: the restore is an INVARIANT (terrain off ⇒
-      // back to top-down) unless a real user pitch gesture intervened —
-      // caught flaky in the harness when the 900ms ease raced the teardown.
-      const restoreStarted = performance.now();
-      window.setTimeout(() => {
-        const m = mapRef.current;
-        if (!m || lastUserPitchAtRef.current > restoreStarted) return;
-        try { m.easeTo({ pitch: 0, duration: 900 }); } catch {}
-        window.setTimeout(() => {
-          const m2 = mapRef.current;
-          if (!m2 || lastUserPitchAtRef.current > restoreStarted) return;
-          try { if (m2.getPitch() > 0.5 && !m2.isMoving()) m2.jumpTo({ pitch: 0 }); } catch {}
-        }, 1400);
-      }, 0);
     }
     terrainWasOnRef.current = enabled.terrain;
+    // RESTORE WATCHDOG (replaces v425's one-shot timeout chain, which lost
+    // every race the harness could produce — teardown stop() killing the
+    // ease, a jank-delayed tilt ease landing AFTER the restore, rapid
+    // preset/toggle sweeps re-enabling terrain mid-restore): while terrain
+    // is OFF and WE still own a tilt, a 700ms tick drives pitch home —
+    // ease when the camera is idle, wait when it's animating — until pitch
+    // lands (ownership ends) or a user gesture takes over. Every ordering
+    // collapses into eventual consistency; the interval lives only for the
+    // duration of a pending restore and is torn down with the effect.
+    let restoreIv: number | null = null;
+    if (!enabled.terrain && autoTiltedRef.current) {
+      restoreIv = window.setInterval(() => {
+        const m = mapRef.current;
+        const done = () => { if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; } };
+        if (!m || !autoTiltedRef.current) { done(); return; }
+        try {
+          if (m.getPitch() <= 0.5) { autoTiltedRef.current = false; done(); return; }
+          if (!m.isMoving()) m.easeTo({ pitch: 0, duration: 900 });
+        } catch {}
+      }, 700);
+    }
     const onUserPitch = (e: any) => {
       if (e && e.originalEvent) { autoTiltedRef.current = false; lastUserPitchAtRef.current = performance.now(); }
     };
@@ -2784,7 +2795,10 @@ export default function DataMapPage() {
     // keep the map lean when off (mesh + hillshade already detached above)
     if (!enabled.terrain) { try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {} }
     if (!enabled.seafloor) { try { if (map.getSource("ocean-terrain-dem")) map.removeSource("ocean-terrain-dem"); } catch {} }
-    return () => { try { map.off("pitchstart", onUserPitch); } catch {} };
+    return () => {
+      if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
+      try { map.off("pitchstart", onUserPitch); } catch {}
+    };
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
