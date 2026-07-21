@@ -1318,6 +1318,19 @@ async function main() {
         if (buried.length) {
           checks.failures.push(`drape-order: custom layer(s) buried under draped layers with terrain on: ${buried.join(", ")} — RTT stack split regresses the 2026-07-20 terrain-lag fix (lib/drapeOrder.ts)`);
         }
+        // ── ONE-DATUM RATCHET (live report 2026-07-21 "the curtain stay
+        // above the plane"): with terrain ON, the aircraft silhouettes'
+        // altitude scale MUST equal the terrain exaggeration — the curtain
+        // and marker follow the same value, so a mismatch here is exactly
+        // the floating-curtain bug. Uses the __vtAir harness seam.
+        const datum = await page.evaluate(() => ({
+          exag: window.__vtMap?.getTerrain?.()?.exaggeration ?? null,
+          altScale: window.__vtAir?.getAltScale?.() ?? null,
+        }));
+        checks.info.terrainDatum = `exag=${datum.exag} altScale=${datum.altScale}`;
+        if (datum.exag != null && datum.altScale != null && Math.abs(datum.exag - datum.altScale) > 1e-6) {
+          checks.failures.push(`one-datum: aircraft altScale ${datum.altScale} != terrain exaggeration ${datum.exag} — planes and curtain render at different heights (2026-07-21 regression)`);
+        }
         // flip back off to restore default state for the remaining checks/
         // screenshots — VERIFIED per switch: a missed terrain off-click left
         // the auto-tilted camera pitched for every later check (the trail
@@ -1326,6 +1339,14 @@ async function main() {
           if (!(await clickSwitchVerified(id, false))) {
             checks.failures.push(`cost-budget: '${id}' restore-to-off never landed — page left in non-default state`);
           }
+        }
+        await page.waitForTimeout(400);
+        // one-datum, off side: terrain off must return the planes to 1×
+        // (the stale-exaggeration half of the 2026-07-21 report)
+        const altOff = await page.evaluate(() =>
+          window.__vtMap?.getTerrain?.() ? "terrain-still-on" : (window.__vtAir?.getAltScale?.() ?? null));
+        if (typeof altOff === "number" && Math.abs(altOff - 1) > 1e-6) {
+          checks.failures.push(`one-datum: aircraft altScale stuck at ${altOff} after terrain off (must return to 1)`);
         }
         await page.waitForTimeout(150);
       } catch (e) {

@@ -23548,3 +23548,39 @@ archive to accumulate real history first (the poller has been running
 since 2026-07-05, so a future session could check depth via
 `/api/data/streams`). Wishlist.md/data_census.md updated to note this
 follow-up shipped.
+
+## 2026-07-21 (human-directed session, round 11) [REPAIR] — One vertical datum on terrain toggle + ground-cache hitch fix (v1.0.458, T-CLIENT)
+
+TYPE: [REPAIR] (live report: "the plane disappears at times, the curtain
+stay above the plane and it only came on when i had 3d terrain, it seem
+very glitchy and slow". Timing note: prod had restarted 263s before the
+check — part of the user's test predated the v1.0.456 deploy — but two
+real bugs were live regardless.)
+
+BUG 1 — DATUM SPLIT ON THE TOGGLE PATH: the aircraft silhouettes' altScale
+synced from exactly two places — layer mount and the EXAG slider handler.
+Toggling terrain ON with a saved exaggeration (the user keeps 3.0×)
+re-datumed the curtain (repaintTrail3d) and the marker (per tick) to 3×
+while the silhouettes stayed at 1× — "the curtain stays above the plane",
+and the plane "disappears" because a 1×-altitude silhouette sits far
+below the 3× context (out of frame at most orbit angles). Toggling OFF
+left silhouettes STUCK at the stale exaggeration. FIX: the terrain effect
+now syncs setAltScale (registry instance) on every mesh-state change.
+VERIFIED (verify_datum.mjs, the user's exact path — persisted exag 3.0 +
+toggle, not slider): altScale 3↔exag 3 on, back to 1 off; the floating
+tag lands within 20px of the projected display-altitude position at 3
+orbit bearings/pitches (a 1×/3× split would be hundreds of px); curtain
+census 1493 at 3×. HARNESS RATCHETS: cost-budget battery now fails if
+altScale ≠ exaggeration with terrain on, or ≠ 1 after terrain off.
+
+BUG 2 — PERIODIC HITCH ("glitchy"): the followed-trail ground cache had
+TTL 25s while rebuild triggers arrive every 15-30s → a full ~9k
+queryTerrainElevation main-thread re-sweep on almost every rebuild
+(audit follow-up, now fixed): TTL → 10min. Correctness unchanged — the
+cache is keyed by source|exaggeration (datum changes flush), repaintTrail3d
+flushes explicitly, and late DEM refinement is covered by the once-idle
+re-datum + the chart's bounded retries.
+
+VERIFICATION: client lib battery green (612 incl. #571's FAA tests after
+mid-session fast-forward — #571 took v1.0.457); verify_datum probe as
+above; harness re-run on the MERGED build gating the push. BACKTEST: N/A.

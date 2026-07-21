@@ -2596,8 +2596,16 @@ export default function DataMapPage() {
     const gc = groundElevCacheRef.current;
     const gnow = Date.now();
     // cap raised 4000 → 9000 with the handoff's ~120m densification (up to
-    // TRACK_MAX_SAMPLES points per track need to stay warm for 25s)
-    if (gc.cfg !== gcfg || gnow - gc.at > 25_000 || gc.m.size > 9000) {
+    // TRACK_MAX_SAMPLES points per track need to stay warm across rebuilds).
+    // TTL 25s → 10min (glitch report 2026-07-21): rebuild triggers arrive
+    // every 15-30s (poll + trail refetch), so a 25s TTL guaranteed a full
+    // ~9k queryTerrainElevation main-thread re-sweep on almost every
+    // rebuild — the periodic terrain-mode hitch. Correctness lives in the
+    // cfg key (source|exaggeration — any datum change flushes) and the
+    // explicit repaintTrail3d flush; the TTL only covers late DEM-tile
+    // refinement, which the once-idle re-datum and the chart's bounded
+    // retries already handle.
+    if (gc.cfg !== gcfg || gnow - gc.at > 600_000 || gc.m.size > 9000) {
       gc.cfg = gcfg; gc.at = gnow; gc.m.clear();
     }
     const k = `${lo.toFixed(5)},${la.toFixed(5)}`;
@@ -3245,6 +3253,18 @@ export default function DataMapPage() {
     } catch {
       if (enabled.terrain) setStatus("terrain", "error");
     }
+    // ONE VERTICAL DATUM, EVERY RENDERER (live report 2026-07-21: "the
+    // curtain stay above the plane … only came on when i had 3d terrain"):
+    // the curtain re-datums below via repaintTrail3d and the marker reads
+    // the exaggeration per tick, but the aircraft SILHOUETTES only synced
+    // from the slider handler — toggling terrain on with a saved 3× exag
+    // left the planes at 1× while everything else moved to 3× (and toggling
+    // off left them stuck at the stale exaggeration). Sync here, on every
+    // mesh-state change, through the registry's live instance.
+    try {
+      (customLayerRegistryRef.current.get("aircraft-3d") as any)
+        ?.setAltScale?.(meshSource ? terrainExagRef.current : 1);
+    } catch {}
     // 3D trail + curtain datum follows the mesh state (altScale + terrain
     // base) — re-derive now, and once more when DEM tiles finish loading
     // (queries return 0 until then; the idle handler is cleaned up below).
