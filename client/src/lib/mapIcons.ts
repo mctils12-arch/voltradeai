@@ -385,6 +385,20 @@ const shapes: Record<string, () => ImageData> = {
     ctx.fillRect(-8, -2, 16, 4);
     ctx.restore();
   }),
+  // border checkpoint: raised gate arm + post + two hazard-stripe ticks —
+  // a fixed land-crossing mark, deliberately distinct from vt-airport
+  // (ring + runways) and vt-power (facility glyphs).
+  "vt-bordercrossing": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(9, s - 6); ctx.lineTo(9, 9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9, 11); ctx.lineTo(s - 7, 17); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(16, 12.5); ctx.lineTo(19, 8.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(23, 14); ctx.lineTo(26, 10); ctx.stroke();
+    ctx.beginPath(); ctx.arc(9, s - 6, 2.6, 0, Math.PI * 2); ctx.fill();
+  }),
   // ocean buoy: mast + top ball over a diamond hull, floating on a wave
   // (reuses vt-gauge's wave motif — both are water-observation glyphs)
   "vt-buoy": () => draw(S, (ctx, s) => {
