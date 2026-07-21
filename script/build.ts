@@ -82,6 +82,11 @@ async function buildAll() {
   // this resolver's own docstring warns about).
   await cp("datacore/gem/oil_gas_extraction.json.gz", "dist/datacore/gem/oil_gas_extraction.json.gz");
   await cp("datacore/gem/coal_mine_tracker.json.gz", "dist/datacore/gem/coal_mine_tracker.json.gz");
+  // [PRODUCT 2026-07-21] server/gemCoalMineFeatures.ts reads this via
+  // repoDataPath at runtime (new /api/data/coal-mine-features route) —
+  // added here in the SAME PR this time, per the R14/2026-07-20 lesson
+  // (the ratchet test below caught the miss before it ever reached prod).
+  await cp("datacore/gem/coal_mine_features.geojson.gz", "dist/datacore/gem/coal_mine_features.geojson.gz");
 }
 
 buildAll().catch((err) => {

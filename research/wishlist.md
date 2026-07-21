@@ -345,6 +345,23 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   `geojson.gz` (needs a new server route first — no route exists yet,
   unlike this item and FAA which only needed a coordinate table on
   top of an already-shipped route).
+- **GEM coal-mine geojson.gz server route: SHIPPED 2026-07-21** — the
+  item named directly above: `server/gemCoalMineFeatures.ts` +
+  `GET /api/data/coal-mine-features` (RAW, 2,116 features — 333 mine-
+  boundary polygons, 606 ventilation + 819 degasification points, 358
+  "other"; the bulky per-row citation `notes` text is dropped from the
+  payload, `description` kept; `build_version` read off the first
+  feature since this file — unlike methane_emitters.json.gz — carries
+  no top-level provenance object). script/build.ts staging gap caught
+  in the SAME PR by the existing R14 ratchet test (repoFiles.test.ts)
+  before it ever reached prod — the file is now copied into
+  dist/datacore/gem/ alongside its siblings. Full trace in
+  experiments.md. DATACORE MAXIMUS queue is clear again; the client
+  map layer (boundary polygons + point markers, off by default, same
+  earthquakes/buoys/GMET-plumes precedent) is now the next unclaimed
+  shipped-data-no-layer item — own T-CLIENT PR (needs SYMBOLS NOT DOTS
+  icon(s) for 4 feature categories + a legend entry + visual harness
+  at 390/768/1440, out of scope for a route-only PR).
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

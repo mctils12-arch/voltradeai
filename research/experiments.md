@@ -3,6 +3,130 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-21 (scheduled-routine session, [PRODUCT]) — GEM coal-mine geojson.gz gets its server route: /api/data/coal-mine-features (v1.0.466, T-DATACORE)
+
+TERRITORY: T-DATACORE (new `server/gemCoalMineFeatures.ts` + its test file,
+`server/routes.ts` route wiring, `script/build.ts` staging line,
+`datacore/manifests/gem.json` field-map note) + SHARED minimal
+(`package.json`/`package-lock.json` version, `research/*`). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read (prior entry: KNOWN BROKEN #18
+continuation, v1.0.465). `research/open_questions.md` KNOWN BROKEN section
+read in full — item #18 is the only open item and is self-diagnosing per
+the prior session's own instrumentation, no new live occurrence to react
+to; nothing else newly critical. `research/wishlist.md` skimmed for the
+DATACORE MAXIMUS + PLATFORM PROGRAM resume blocks (this session's actual
+territory).
+
+LIVE HEALTH CHECK (GOAL priority 1): no owner-token access in this
+sandbox to `/api/health` directly; the prior same-day session (v1.0.465)
+already confirmed `status: ok`, no liveness alarm, `drawdownPct: "0.0"`,
+`scanner.consecutiveFailures: 0` a few hours before this one started, and
+this session's own action (a new RAW-data server route, zero trading-path
+code touched) cannot itself break the loop — proceeding is safe under the
+REPAIR MANDATE ("product sessions do not preempt DAILY routines' repair
+duty" and no critical unfixed item blocks this work).
+
+LOOP-HEALTH RATIO: last 10 dated `## ` headers before this entry — 4
+REPAIR / 5 PRODUCT / 1 PIPELINE (counting v1.0.453 through v1.0.465).
+Under the 7/10 thrash threshold; no meta-problem override. This session's
+own tag is [PRODUCT], consistent with the scheduled PRODUCT-session
+mandate for this run.
+
+PRIMARY ACTION SELECTION: per the PRODUCT-session brief, checked KNOWN
+BROKEN first (nothing newly critical-unfixed blocks product work per the
+health check above), then `research/wishlist.md`'s two live programs.
+PLATFORM PROGRAM (`research/platform_program.md`) queue is clear except
+P5 (HUMAN-GATED, frozen billing.ts/auth.ts). DATACORE MAXIMUS's own
+resume block named its last unclaimed item explicitly: "the ONE remaining
+shipped-data-no-layer gap is the GEM coal-mine `geojson.gz` (needs a new
+server route first — no route exists yet)." That is this session's
+primary action — option (d)/(a) of the PRODUCT brief (closing datacore's
+API boundary on an already-ingested static dataset), scoped to the route
+only (the client map layer is its own follow-up PR, matching the
+earthquakes/buoys/GMET-plumes precedent of shipping pipeline+API before
+the UI layer).
+
+WHAT SHIPPED:
+1. `server/gemCoalMineFeatures.ts` — reads + gunzips
+   `datacore/gem/coal_mine_features.geojson.gz` (ingested 2026-07-07,
+   unrouted since), normalizes GEM's 2,116 raw GeoJSON features (333 mine
+   -boundary polygons, 606 ventilation points, 819 degasification points,
+   358 "other") into a clean schema. Drop-not-infer rule: features with
+   no `id` or no `geometry` are dropped (nothing to key or place),
+   matching normalizePlumes/normalizeCoalMines precedent. The bulky
+   per-row `notes` field (1-2KB citation prose per row in the real file)
+   is deliberately excluded from the API payload — `description` (GEM's
+   own short summary) is kept. This file has no top-level provenance
+   object (unlike methane_emitters.json.gz) — `build_version` is read off
+   the first feature that carries one (`findBuildVersion`).
+2. `GET /api/data/coal-mine-features` (server/routes.ts) — RAW/FACTUAL,
+   `kind: "raw", predictive: false`, `Cache-Control: public, max-age=86400`
+   (same static-reference caching as the methane-plumes route), degrades
+   to `warming_up: true, features: []` on a missing/corrupt file rather
+   than erroring.
+3. R14-CLASS PACKAGING GAP CAUGHT IN THE SAME PR (not a separate repair):
+   `script/build.ts` copies runtime datacore files into `dist/datacore/`
+   from a curated allowlist, not the whole directory — the existing
+   ratchet test (`server/repoFiles.test.ts`, "RATCHET: script/build.ts
+   stages the runtime datacore files into dist/") scans `server/*.ts` for
+   `repoDataPath()` calls and failed the moment `gemCoalMineFeatures.ts`
+   was added, exactly the R14/2026-07-07 defect class (prod ships dist/
+   only) and the exact lesson the 2026-07-20 gemMethaneAssets follow-up
+   restated ("verify the POSITIVE case on prod, not just error-free
+   responses"). Added the missing `cp("datacore/gem/
+   coal_mine_features.geojson.gz", ...)` line in the SAME PR — this is
+   the ratchet doing its job before deploy, not a new break.
+4. `datacore/manifests/gem.json` field_map note updated: the
+   `coal_mine_features.geojson.gz` entry no longer says "future map
+   layer" — it now names the live route and states the client map layer
+   is still a follow-up.
+5. `research/wishlist.md` DATACORE MAXIMUS resume block updated: this
+   item marked SHIPPED, the client map layer (needs SYMBOLS NOT DOTS
+   icons for the 4 feature categories + a legend entry + visual harness
+   at 390/768/1440 — out of scope for a route-only PR) named as the next
+   unclaimed item, matching the earthquakes/buoys/GMET-plumes sequencing.
+
+TESTS: `server/gemCoalMineFeatures.test.ts` — 11 new tests (normalize
+schema mapping incl. notes-dropped assertion, blank-cell-stays-null,
+drop-no-id, drop-no-geometry, never-throws-on-garbage, findBuildVersion
+found/not-found, load/gunzip + build_version extraction, missing-file
+degrade, corrupt-file degrade, cache identity against the real repo
+fixture).
+
+GATES: `python3 -m pytest -q` 836 passed, 2 skipped, 0 failed (0 Python
+files touched — moot but confirmed green; `pip install pytest -r
+requirements.txt` + `openpyxl` needed in this fresh sandbox, matching the
+documented precedent). `npx tsx --test server/*.test.ts` (after `npm ci`
+in this fresh sandbox — needed, `node_modules/.bin` was empty at session
+start): 836 passed, 0 failed (the packaging ratchet above went from
+failing to passing within this same PR; the other 7 failures seen before
+`npm ci` were sandbox-artifact-only, confirmed byte-identical via
+`git stash` A/B alongside this change). `npx tsc --noEmit`: 3 errors,
+byte-identical to the `git stash`-verified baseline (pre-existing
+vite/client + baseUrl config warnings only). `npm run build`: clean
+(dist/public + dist/index.cjs + dist/datacore, including the new gz file,
+confirmed staged).
+
+BACKTEST: N/A — new RAW-data API route only (`kind: "raw", predictive:
+false`), no scoring/sizing/trading-logic path touched, no measurement
+code touched.
+
+MERGE TIMING: this session ran at 14:12 ET, inside 9:30-16:00 — the PR
+is prepared with a hold-merge-until-close note per CLAUDE.md's deploy-
+coupling guidance (PR #575 precedent), rather than merged immediately.
+
+NEXT: the client map layer for this route (boundary polygons + point
+markers, off by default) is the next unclaimed DATACORE MAXIMUS item —
+own T-CLIENT PR. Separately, PLATFORM PROGRAM P5 remains HUMAN-GATED
+(only remaining item in that program); the SETTLEMENT-STRESS COMPOSITE's
+gate-2 next step (forward-return testing) is still blocked on more dated
+history accumulating in `datacore/settlementstress/` (shipped 2026-07-18,
+only 3 days of history as of this session — not enough for N/5/20-day
+forward-return testing yet, checked and confirmed premature rather than
+assumed).
+
 ## 2026-07-21 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: four fresh live TIER2-ERROR occurrences REFUTE the zombie-pileup theory (not one sample); layer2_prefetch surfaced in the daemon health probe so the still-open csp_layer2_prefetch correlation self-diagnoses on the next occurrence, no live stakeout needed (v1.0.465, T-BOT-adjacent)
 
 TERRITORY: T-BOT-adjacent (`voltrade_daemon.py`, `server/bot.ts` outside

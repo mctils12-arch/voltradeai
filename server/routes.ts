@@ -40,6 +40,7 @@ import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
+import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -2607,6 +2608,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "(gate 2(c)/(d), research/open_questions.md).",
       count: hit.assetStats.length,
       assetStats: hit.assetStats,
+    });
+  });
+
+  // GEM "Coal Mine Boundaries and Methane Sources" catalogued geometry —
+  // mine boundary polygons, ventilation/degasification points, and other
+  // mapped mine infrastructure, RAW/FACTUAL (server/gemCoalMineFeatures.ts).
+  // STATIC reference dataset (same seeded pattern as methane-plumes above):
+  // re-ingested on GEM's ~2x/year release cadence via scripts/gem_ingest.py,
+  // not a live poll. Closes the wishlist-named "last unclaimed shipped-
+  // data-no-map-layer gap" (2026-07-21) at the API-boundary layer — the
+  // client map layer itself is a separate follow-up (same earthquakes/
+  // buoys/GMET-plumes precedent).
+  app.get("/api/data/coal-mine-features", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemCoalMineFeatures();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Coal Mine Boundaries and Methane Sources",
+                         warming_up: true, count: 0, features: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Coal Mine Boundaries and Methane Sources",
+      attribution: "Global Energy Monitor",
+      license: "CC BY 4.0",
+      release: hit.buildVersion,
+      note: "Mine boundary polygons, ventilation/degasification points, and other catalogued mine "
+        + "infrastructure as researched and mapped by GEM. Locations/geometry as catalogued; no "
+        + "activity, output, or emissions claims.",
+      count: hit.features.length,
+      features: hit.features,
     });
   });
 
