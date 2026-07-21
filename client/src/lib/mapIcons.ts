@@ -367,6 +367,24 @@ const shapes: Record<string, () => ImageData> = {
       ctx.stroke();
     }
   }),
+  // airport ground facility (FAA NAS status): field-boundary ring + two
+  // crossed runway bars — a fixed-facility mark, deliberately distinct from
+  // vt-plane (a moving aircraft track).
+  "vt-airport": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(m, m, 15, 0, Math.PI * 2); ctx.stroke();
+    ctx.save();
+    ctx.translate(m, m);
+    ctx.rotate(-Math.PI / 5);
+    ctx.fillRect(-11, -2.4, 22, 4.8);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(m, m);
+    ctx.rotate(Math.PI / 3.2);
+    ctx.fillRect(-8, -2, 16, 4);
+    ctx.restore();
+  }),
   // ocean buoy: mast + top ball over a diamond hull, floating on a wave
   // (reuses vt-gauge's wave motif — both are water-observation glyphs)
   "vt-buoy": () => draw(S, (ctx, s) => {

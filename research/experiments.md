@@ -23439,3 +23439,112 @@ VERIFICATION: 607 client unit tests (drapeOrder 4 new; sat/arc/model
 self-healing contracts pinned); mechanism + drape + restore probes as
 above; harness + pytest in flight at log time — commit gated on green.
 BACKTEST: N/A (no strategy change). Audit tokens: ~525k (4 agents).
+
+## 2026-07-21 (scheduled-routine session) [PRODUCT] — FAA airport-status /data map layer: the pipeline's own filed follow-up, shipped (v1.0.457, T-CLIENT)
+
+TERRITORY: T-CLIENT (new `client/src/lib/faaAirports.ts` + `mapIcons.ts`
+icon + `datamap.tsx` layer) + one minimal, last SHARED edit
+(`datacore/layers.json` registry entry, EPA-CAMD-precedent style —
+nothing else in that file touched).
+
+SESSION-START CHECKS: CLAUDE.md + all of research/ read this session.
+KNOWN BROKEN section read in full: no unresolved critical trading-loop
+break — item #24 (Tier2 RPC-dispatch masking bug, v1.0.448) is already
+merged to main and confirmed live-clean by the 2026-07-20 EPA CAMD
+session; items since (#18 fourth-mechanism, #22) are closed/monitoring,
+nothing blocking. Loop-health ratio, last 10 tagged entries: 4 REPAIR /
+6 PRODUCT — under the 7/10 thrash threshold. Branch was already at
+`origin/main` tip (ad832f0) before starting — the prior PR on this
+branch name had merged and the remote branch was deleted, so this
+session restarted `claude/quirky-hopper-mf81a8` fresh from main per the
+merged-branch protocol (no stacking on old history).
+
+WHY THIS ITEM: `research/data_census.md`'s CENSUS MASTER RANKING (11
+items) is now fully built or explicitly volume-budget-blocked (DTCC,
+#11). `research/wishlist.md`'s DATACORE MAXIMUS block says "Program
+queue is clear again" (2026-07-20). PLATFORM PROGRAM P1-P4 are all
+shipped, P5 is HUMAN-GATED. A research subagent (read-only) surveyed
+wishlist.md in full, open_questions.md's OPEN RESEARCH QUESTIONS
+section, and every `datacore/manifests/*` stream against
+`datamap.tsx`'s `LAYER_GROUP` to find shipped-data-no-map-layer gaps —
+the exact shape the EPA CAMD /data layer (2026-07-20) and every RAW
+overlay before it followed. Top hit: `server/faaStatus.ts` (RAW,
+`GET /api/data/airport-status`, keyless, poller already booted since
+2026-07-05) carries this literal line in its own docstring: "the map
+layer needs an airport-coordinate table and is deliberately a
+follow-up." Zero UI referenced it anywhere. No blockers, no keys, no
+GPU, no archive-depth wait — a clean, self-documented, one-PR gap.
+
+WHAT SHIPPED:
+- `client/src/lib/faaAirports.ts` (NEW): a curated 180-airport
+  IATA/FAA-LID -> {lat, lon, name, city, state} table (major US
+  commercial hubs, cargo hubs named in the pipeline's own hypothesis —
+  MEM/SDF/CVG/ANC — and GA/business-jet fields that make the feed
+  during mountain/coastal weather, incl. the server test fixture's own
+  ASE/DCA/JFK/LGA sample). An ARPT code outside this table is honestly
+  OMITTED from the map, never guessed or geocoded — same honesty
+  convention as EPA CAMD's unmatched-facility disclosure. Also:
+  `FaaEventType`/`FAA_EVENT_COLOR`/`FAA_EVENT_LABEL` — color encodes
+  the DISCRETE event type the feed itself reports (ground stop /
+  closure / ground-delay program / arrival-departure delay), never a
+  graded severity inferred from the free-text avg/max delay strings
+  ("2 hours and 30 minutes" isn't reliably parseable to a number).
+- `client/src/lib/mapIcons.ts`: new `"vt-airport"` SDF shape (field-
+  boundary ring + two crossed runway bars) — SYMBOLS NOT DOTS: a fixed
+  ground-facility mark, deliberately distinct from `vt-plane` (a moving
+  aircraft track) so the two never read as the same kind of thing at a
+  glance.
+- `client/src/pages/datamap.tsx`: new `faa_airports` layer (facilities
+  group, off by default — same reference-layer precedent as buoys/
+  quakes/plant_operations), fetch+15-min-poll matching the server's own
+  poll cadence, click card (event type, avg/max delay, trend, reason,
+  published end/reopen time, feed update time, explicit "not for
+  safety-of-life use" per the server module's own docstring), legend
+  entries for all 4 event types rendered from the same icon registry
+  (DESIGN.md legend rule), status line discloses the unmatched-airport
+  count honestly rather than silently dropping them. `LAYER_GROUP`,
+  panel-row icon (`TowerControl`, lucide), and the active-count unit
+  label ("events") all wired in the same PR — the R15 lesson (a
+  registry layer with wiring in only some of the touchpoints ships
+  permanently stuck).
+- `datacore/layers.json`: one new `faa_airports` entry (`kind: "raw"`,
+  `group: "facilities"`), added last-and-minimal per the
+  MERGE-ORDER PROTOCOL.
+
+RATCHET: new `client/src/lib/faaAirports.test.ts` (5 tests) — every
+table entry has a plausible US-region lat/lon and no fabricated/zero
+coordinate, no duplicate airport codes (a JS object literal duplicate
+key silently shadows the earlier entry — would have hidden a real
+typo), the server's own test-fixture airports (DCA/JFK/LGA/ASE) all
+resolve, every `FaaEvent` type from `server/faaStatus.ts` has a
+distinct color+label, and unknown/missing types degrade honestly
+instead of throwing or fabricating a known category.
+`server/layersRegistry.test.ts` (shape) and `server/layersWiring.test.ts`
+(the R15 "no permanent reload to enable" ratchet) both pass unmodified
+against the new entry — no test needed changing, only extending, which
+is itself a signal the wiring followed every existing touchpoint.
+
+VERIFICATION: 612 client unit tests (was 607; +5 new, 0 regressions);
+820 server node tests unchanged/passing; `npx tsc --noEmit` 71 errors,
+byte-identical count to the `git stash`-verified baseline (both files
+touched appear in the pre-existing Map-iteration/Buffer-type error
+list, at shifted line numbers only); `npm run build` clean, dist/public
++ dist/datacore staged; `python3 -m pytest -q` 833 passed, 1 skipped (0
+Python files touched by this change — full green regardless). Visual
+harness (`npm run visual` equivalent, `--page data`) at 390/768/1440:
+0 hard failures; only pre-existing touch-target/clipped-control
+warnings on global nav chrome, none attributable to this layer (it's
+off by default, matching every other reference-layer precedent, so it
+doesn't appear in the default screenshot — reviewed against DESIGN.md,
+no regression). BACKTEST: N/A (pure client + one RAW registry entry,
+no strategy/scoring change — PROMOTION RULE 3's Sharpe/drawdown
+comparison doesn't apply).
+
+NEXT: the cargo-hub hypothesis named in `faaStatus.ts`'s own docstring
+("sustained delay-program frequency at cargo hubs — MEM/SDF/CVG/ANC —
+is a QTD cost-pressure indicator for parcel carriers") is now
+map-visible for a human to eyeball, but gate-2 testing needs the
+archive to accumulate real history first (the poller has been running
+since 2026-07-05, so a future session could check depth via
+`/api/data/streams`). Wishlist.md/data_census.md updated to note this
+follow-up shipped.
