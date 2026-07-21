@@ -29,6 +29,12 @@ export function attachLayerInteractions(
   // stand down; unclaimed clicks behave exactly as before.
   const guardedClick = (e: any) => {
     if (e?.originalEvent?.__vtAirClaim) return;
+    // symmetric claim (round 16 "click off the plane … it keeps the
+    // curtain"): a landed feature click marks the event so the deferred
+    // click-off handler clears the plane's trail WITHOUT closing the card
+    // this handler just opened (layer-scoped listeners only fire when the
+    // layer was genuinely hit)
+    try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
     onClick(e);
   };
   const onEnter = () => { map.getCanvas().style.cursor = "pointer"; };

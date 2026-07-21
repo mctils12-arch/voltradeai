@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   classifyDevice, govInit, govStep, median,
   setOverloaded, isOverloaded, overloadFromState,
-  GOV_OVERLOAD_MS, GOV_OVERLOAD_HOLD_MS, GOV_CALM_MS, GOV_CALM_HOLD_MS, GOV_COOLDOWN_MS,
+  GOV_OVERLOAD_MS, GOV_OVERLOAD_HOLD_MS, GOV_CALM_MS, GOV_CALM_HOLD_MS, GOV_COOLDOWN_MS, GOV_STRETCH_GRACE_MS,
 } from "./deviceTier";
+
+const RES_HOLD = GOV_OVERLOAD_HOLD_MS + GOV_STRETCH_GRACE_MS; // resolution waits out the tick-stretch grace
 
 // ── classifyDevice ──────────────────────────────────────────────────────────
 
@@ -59,7 +61,7 @@ test("sustained overload steps the ratio down one ladder notch, with a note", ()
   // overload begins at t=20s (past cooldown), must hold for HOLD_MS
   let d = govStep(st, 200, 20_000);
   assert.equal(d.apply, undefined); // just started
-  d = govStep(d.state, 200, 20_000 + GOV_OVERLOAD_HOLD_MS);
+  d = govStep(d.state, 200, 20_000 + RES_HOLD);
   assert.equal(d.apply, 1.75);
   assert.match(d.note ?? "", /Render resolution lowered/);
   assert.match(d.note ?? "", /all layers and data stay on/);
@@ -70,30 +72,30 @@ test("a momentary spike does NOT step down (hold requirement)", () => {
   let d = govStep(st, 200, 20_000);
   d = govStep(d.state, 20, 21_000); // recovered before the hold elapsed
   d = govStep(d.state, 200, 22_000); // spike again — overload clock restarts
-  d = govStep(d.state, 200, 22_000 + GOV_OVERLOAD_HOLD_MS - 1_000);
+  d = govStep(d.state, 200, 22_000 + RES_HOLD - 1_000);
   assert.equal(d.apply, undefined);
 });
 
 test("steps are rate-limited by the cooldown", () => {
   let st = govInit(2, 0);
   let d = govStep(st, 200, 20_000);
-  d = govStep(d.state, 200, 20_000 + GOV_OVERLOAD_HOLD_MS); // -> 1.75
+  d = govStep(d.state, 200, 20_000 + RES_HOLD); // -> 1.75
   assert.equal(d.apply, 1.75);
-  const stepAt = 20_000 + GOV_OVERLOAD_HOLD_MS;
+  const stepAt = 20_000 + RES_HOLD;
   // still overloaded immediately after: no second step inside the cooldown
   d = govStep(d.state, 200, stepAt + 1_000);
-  d = govStep(d.state, 200, stepAt + GOV_OVERLOAD_HOLD_MS);
+  d = govStep(d.state, 200, stepAt + RES_HOLD);
   assert.equal(d.apply, undefined);
-  // overload persisted through the cooldown: next notch lands as soon as
-  // the cooldown expires (hold was already satisfied)
-  d = govStep(d.state, 200, stepAt + GOV_COOLDOWN_MS + 1);
+  // overload persisted through the cooldown: next notch lands once the
+  // full resolution hold has renewed past the cooldown
+  d = govStep(d.state, 200, stepAt + 1_000 + RES_HOLD);
   assert.equal(d.apply, 1.5);
 });
 
 test("ratio floors at 1 — no step below the ladder", () => {
   let st = govInit(1, 0);
   let d = govStep(st, 500, 20_000);
-  d = govStep(d.state, 500, 20_000 + GOV_OVERLOAD_HOLD_MS);
+  d = govStep(d.state, 500, 20_000 + RES_HOLD);
   assert.equal(d.apply, undefined);
   assert.equal(d.state.ratio, 1);
 });
@@ -102,9 +104,9 @@ test("sustained calm steps back up but never above the device ceiling", () => {
   // classified ceiling 1.5 (reduced tier); driven down to 1, then calm
   let st = govInit(1.5, 0);
   let d = govStep(st, 200, 20_000);
-  d = govStep(d.state, 200, 20_000 + GOV_OVERLOAD_HOLD_MS); // -> 1.25
+  d = govStep(d.state, 200, 20_000 + RES_HOLD); // -> 1.25
   assert.equal(d.apply, 1.25);
-  const t0 = 20_000 + GOV_OVERLOAD_HOLD_MS + GOV_COOLDOWN_MS + 1;
+  const t0 = 20_000 + RES_HOLD + GOV_COOLDOWN_MS + 1;
   d = govStep(d.state, 10, t0);
   d = govStep(d.state, 10, t0 + GOV_CALM_HOLD_MS); // -> back up one notch
   assert.equal(d.apply, 1.5);
@@ -155,4 +157,17 @@ test("setOverloaded/isOverloaded module store round-trips", () => {
   assert.equal(isOverloaded(), true);
   setOverloaded(false);
   assert.equal(isOverloaded(), false);
+});
+
+test("lever order: tick-stretch flag engages before any resolution step (round-16 quality contract)", () => {
+  let st = govInit(2, 0);
+  let d = govStep(st, 200, 20_000);
+  const atFlag = 20_000 + GOV_OVERLOAD_HOLD_MS;
+  d = govStep(d.state, 200, atFlag);
+  assert.equal(overloadFromState(d.state, atFlag, false), true, "smoothness lever on at the hold");
+  assert.equal(d.apply, undefined, "resolution untouched while the stretch grace runs");
+  d = govStep(d.state, 200, atFlag + GOV_STRETCH_GRACE_MS - 1_000);
+  assert.equal(d.apply, undefined, "still untouched just inside the grace");
+  d = govStep(d.state, 200, atFlag + GOV_STRETCH_GRACE_MS);
+  assert.equal(d.apply, 1.75, "pixels sacrificed only after the grace expires");
 });

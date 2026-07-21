@@ -24385,3 +24385,69 @@ numbers recorded here. BACKTEST: N/A (client rendering).
 FILED: if the TTI gate keeps tripping at low load on an idle box, that
 is a real regression hunt (suspect: #574 CBP layer startup work), not
 this diff — the zero-cost page is the control that separates the two.
+
+## 2026-07-21 (human-directed session, round 16) [REPAIR] — True-altitude datum (exag lifts terrain, never planes), unbreakable follow, click-off deselect, governor lever order (v1.0.469, T-CLIENT)
+
+TYPE: [REPAIR] (live testing continues on v1.0.467 — the user's
+screenshots show the governor notice working in the wild. Four asks:
+"the plane shoots way up visually in the sky i dont want that … but it
+also doesn't need to hit terrain"; the curtain "needs to follow the
+terrain in all map modes"; follow "needs to keep it in view regardless
+of what i do with the camera/views"; "i click off the plane … it keeps
+the curtain it should go away the second i click off"; plus "not reduce
+quality … of the terrain" on the governor.)
+
+1. TRUE-ALTITUDE DATUM v2: aircraft altScale is pinned to 1 in EVERY
+   mesh state — the exag slider stretches terrain only. displayAltReal
+   now returns DISPLAY meters: real MSL clamped above the EXAGGERATED
+   mesh (groundDisplayAt), on_ground planes sit ON the displayed mesh.
+   Curtain/line tops stay at true altitude; the curtain BASE rides the
+   displayed terrain with the ridge seal scaled by the exaggeration
+   (drapeBelowM × exag). All consumers converted (silhouette hook,
+   marker, tag projection, tail, follow elevation — no × scale
+   anywhere). Harness terrainDatum ratchet REWRITTEN to the new
+   contract (altScale===1 with terrain on; the old ===exag assertion is
+   the launched-into-the-sky bug now). Old verify_datum expectations
+   superseded by design.
+2. UNBREAKABLE FOLLOW: the two release paths (native dragstart, nav
+   onUserPan) no longer break an ACTIVE flight follow — drags orbit the
+   plane (the rig re-locks center each frame), pans snap back, zoom
+   stays around center. Only the button, card close, selection clear,
+   or the space seam end it. A not-yet-landed click-frame ease still
+   disarms on drag (no ambush recenter later).
+3. CLICK-OFF DESELECT: symmetric claim protocol — the plane pick stamps
+   __vtAirClaim (round 13); landed feature/sat/coverage handlers now
+   stamp __vtFeatClaim; a deferred map-click handler then decides: no
+   claim = empty ground → plane card AND curtain close instantly;
+   feature claim = the new card stays, the plane curtain still clears.
+   Camera drags emit no click — mouse navigation untouched.
+4. GOVERNOR LEVER ORDER (quality preservation): resolution step-down
+   now waits GOV_STRETCH_GRACE_MS (22s) beyond the overload hold — the
+   zero-quality-cost smoothness lever (animation tick-stretch, engages
+   at 8s) gets first shot; pixels are sacrificed only if the machine is
+   still drowning 30s in. Terrain sharpness is the last thing to go.
+
+VERIFICATION: round16 probe (synthetic 500m DEM, exag 3 — mesh display
+1500m): hero renders at TRUE 1981m (was 5943 = ×3), altScale 1; parked
+plane clamped AT 1500 (queryTerrainElevation cross-checked); follow
+center stays on the plane through fire(dragstart) + wheel zoom +
+easeTo(bearing 75); click-off on empty ground closes card + curtain
+(verts 41040 → 0). Probe bug caught during verification: first parked
+read used stride 12 / row 1 — actual stride 8 and rows sort by shape
+(read row-1's mercator velocity −2.2e-6 as "z" — fixed by scanning for
+the GROUND band). New unit test pins the curtain-base contract
+(buildTrackVertices display-space: top 1981 unscaled, base 1500−seal);
+lever-order test pins stretch-before-resolution. Batteries: 632 client
++ 836 node green; build clean. Harness: ALL structural/functional
+ratchets green incl. the rewritten datum ratchet; 3 TTI excursions
+3008-3109ms vs the 3000 gate — the zero-cost control page sat at
+1372ms (= the morning baseline), so my diff adds no startup cost;
+heavy-page TTI crept ~150ms from today's three concurrent layer
+merges (#574 CBP, #576 coal mines, FAA) — REAL follow-up, filed below.
+BACKTEST: N/A (client rendering/UX).
+
+FILED (speed backlog, research/scale_program.md scope): heavy-page TTI
+now straddles the 3000ms gate after today's layer additions — next
+speed-wave session should profile startup work added by the newest
+layers (CBP/coal/FAA module init) before the gate starts failing at
+true idle.

@@ -77,6 +77,12 @@ export const GOV_CALM_MS = 30;
 export const GOV_CALM_HOLD_MS = 60_000;
 /** minimum spacing between any two steps */
 export const GOV_COOLDOWN_MS = 10_000;
+/** LEVER ORDER (human 2026-07-21 round 16: "not reduce quality … of the
+ *  terrain"): the overload FLAG (animation tick-stretch — smoothness
+ *  lever, zero quality cost) engages at GOV_OVERLOAD_HOLD_MS; RESOLUTION
+ *  steps wait this much longer, so pixels are only sacrificed when idle
+ *  gaps alone couldn't save the machine. */
+export const GOV_STRETCH_GRACE_MS = 22_000;
 
 export interface GovState {
   /** current applied ratio */
@@ -126,7 +132,7 @@ export function govStep(st: GovState, medianFrameMs: number, now: number): GovDe
     s.calmSince = null;
   }
   const cooled = now - s.lastStepAt >= GOV_COOLDOWN_MS;
-  if (s.overloadSince != null && now - s.overloadSince >= GOV_OVERLOAD_HOLD_MS && cooled) {
+  if (s.overloadSince != null && now - s.overloadSince >= GOV_OVERLOAD_HOLD_MS + GOV_STRETCH_GRACE_MS && cooled) {
     const down = nextDown(s.ratio);
     if (down != null) {
       const from = s.ratio;

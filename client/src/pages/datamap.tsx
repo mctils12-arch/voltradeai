@@ -2555,8 +2555,13 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map) return;
     const release = () => {
+      // UNBREAKABLE FOLLOW (human 2026-07-21 round 16: "it needs to keep it
+      // in view regardless of what i do with the camera/views"): an ACTIVE
+      // flight follow now survives every gesture — drags orbit the plane
+      // (the rig re-locks center each frame), zoom stays around center.
+      // Only a not-yet-landed click-frame ease still disarms, so a drag
+      // during the initial approach doesn't ambush the camera later.
       pendingFollowRef.current = null;
-      if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
     };
     try { map.on("dragstart", release); } catch {}
     return () => { try { map.off("dragstart", release); } catch {} };
@@ -2735,6 +2740,37 @@ export default function DataMapPage() {
     return () => { cancelAnimationFrame(raf); window.clearInterval(iv); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
+  // ── CLICK-OFF DESELECT (human 2026-07-21 round 16: "i click off the
+  // plane and it keeps the curtain it should go away the second i click
+  // off the plane to something else"). Runs one macrotask after every
+  // other click handler on the same event: the plane pick stamps
+  // __vtAirClaim; landed feature/sat/coverage handlers stamp __vtFeatClaim.
+  // No claim = empty ground → plane card AND curtain close. Feature claim =
+  // something else selected → its new card stays, the plane curtain still
+  // clears. Camera drags never emit 'click', so mouse navigation (the
+  // "other than moving the camera" carve-out) is untouched. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const onClickOff = (e: any) => {
+      window.setTimeout(() => {
+        try {
+          const oe = e?.originalEvent as any;
+          if (oe?.__vtAirClaim) return; // the plane won this click
+          const det = detailRef.current;
+          const planeSelected = det?.trailKind === "aircraft" || !!airCrumbsRef.current.id;
+          if (!planeSelected) return;
+          if (oe?.__vtFeatClaim) { clearTrail(); return; } // curtain goes; the new card stays
+          setDetail(null);
+          setDetailMin(false);
+          clearTrail();
+        } catch {}
+      }, 0);
+    };
+    map.on("click", onClickOff);
+    return () => { try { map.off("click", onClickOff); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
   const flightShapeRef = useRef(0);
   // the selected plane's latest BROADCAST rates (real feed values — the
@@ -2795,10 +2831,17 @@ export default function DataMapPage() {
   const displayAltReal = (map: maplibregl.Map, altM: number, lon: number, lat: number, onGround = false): number => {
     if (!onGround && Number.isNaN(altM)) return altM; // honest gap in every datum
     if (map.getTerrain?.()) {
+      // TRUE-ALTITUDE DATUM (human 2026-07-21 round 16: "the plane shoots
+      // way up visually in the sky i dont want that … but it also doesn't
+      // need to hit terrain"): exaggeration lifts the TERRAIN, never the
+      // aircraft. Return real MSL meters, clamped above the EXAGGERATED
+      // mesh (groundDisplayAt is already in display/exaggerated meters) so
+      // a plane can never render inside a stretched mountain. Every 3D
+      // renderer consumes this value with altScale pinned to 1.
       const scale = terrainExagRef.current > 0 ? terrainExagRef.current : 1;
-      if (!onGround && altM >= 9000) return altM; // clamp provably identity above all terrain
-      const gReal = groundDisplayAt(map, lon, lat) / scale;
-      return onGround ? gReal : Math.max(altM, gReal);
+      if (onGround) return groundDisplayAt(map, lon, lat);
+      if (altM >= 9000 * scale) return altM; // above the tallest possible display mesh — clamp provably identity
+      return Math.max(altM, groundDisplayAt(map, lon, lat));
     }
     if (onGround) return 0;
     const g = groundElevationSync(lon, lat) ?? 0;
@@ -2944,7 +2987,11 @@ export default function DataMapPage() {
         for (let i = 0; i < n; i++) {
           const a = altM[i];
           if (Number.isNaN(a)) { altDisp[i] = NaN; continue; }
-          const v = terrainOn ? Math.max(a, groundM[i]) : Math.max(0, a - groundM[i]);
+          // TRUE-ALTITUDE DATUM (round 16): tops stay at real MSL, clamped
+          // above the EXAGGERATED mesh (groundZ is display meters) — the
+          // curtain top no longer scales with the exag slider; the base
+          // (groundZ inside the geometry) rides the displayed terrain.
+          const v = terrainOn ? Math.max(a, groundZ[i]) : Math.max(0, a - groundM[i]);
           altDisp[i] = v;
           if (v < dMin) dMin = v;
           if (v > dMax) dMax = v;
@@ -2952,11 +2999,13 @@ export default function DataMapPage() {
         if (!Number.isFinite(dMin)) { dMin = 0; dMax = 1; }
         const input: TrackGeomInput | null = n >= 2 ? {
           merc, altM: altDisp, groundZ, altMin: dMin, altMax: dMax,
-          // the 40m drape overlap seals ridges against the DEM; a flat
+          // the drape overlap seals ridges against the DEM — scaled by the
+          // exaggeration so the seal survives stretched relief; a flat
           // sea-level base (terrain off) has nothing to seal against
-          drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
+          drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (altScale > 0 ? altScale : 1) : 0,
         } : null;
-        layer.setTrack(input, altScale);
+        // altScale 1: every input above is ALREADY in display meters
+        layer.setTrack(input, 1);
         layer.setTail(null); // full geometry reaches the newest real fix
         const id = detailRef.current?.trailId || airCrumbsRef.current.id || "";
         // altMin/altMax here = the DISPLAY ramp domain (tail shares it);
@@ -3005,7 +3054,7 @@ export default function DataMapPage() {
         toAltM: lv.fix.al == null ? NaN : displayAltReal(map, lv.fix.al, lo, la),
         toGroundZ: terrainOn ? groundDisplayAt(map, lo, la) : 0,
         altMin: st.altMin, altMax: st.altMax,
-        drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
+        drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
       });
       updateFlightMarker();
     } catch { /* tail continuity must never break the tick */ }
@@ -3073,15 +3122,15 @@ export default function DataMapPage() {
       }
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
-      const altScale = terrainOn ? terrainExagRef.current : 1;
       const gZ = terrainOn ? groundDisplayAt(map, lon, lat) : 0;
-      // floating tag above the craft (screen-projected DOM chip, §4)
+      // floating tag above the craft (screen-projected DOM chip, §4) —
+      // display meters straight through (layer altScale is pinned 1)
       if (tag) {
         const canvas = map.getCanvas();
         const mm = lonLatToMercator(lon, lat);
         const p = layer.projectToScreen(
           mm.x, mm.y,
-          Number.isNaN(alt) ? (altScale > 0 ? gZ / altScale : 0) : displayAltReal(map, alt, lon, lat),
+          Number.isNaN(alt) ? gZ : displayAltReal(map, alt, lon, lat),
           canvas.clientWidth || 1, canvas.clientHeight || 1,
         );
         if (p) {
@@ -3516,8 +3565,10 @@ export default function DataMapPage() {
     // off left them stuck at the stale exaggeration). Sync here, on every
     // mesh-state change, through the registry's live instance.
     try {
-      (customLayerRegistryRef.current.get("aircraft-3d") as any)
-        ?.setAltScale?.(meshSource ? terrainExagRef.current : 1);
+      // TRUE-ALTITUDE DATUM (round 16): altScale stays 1 in every mesh
+      // state — exaggeration lifts the terrain, never the aircraft. The
+      // displayAlt hook clamps against the exaggerated mesh instead.
+      (customLayerRegistryRef.current.get("aircraft-3d") as any)?.setAltScale?.(1);
     } catch {}
     // 3D trail + curtain + silhouette datum follows the mesh state
     // (altScale + terrain base) — re-derive now, and once more when DEM
@@ -5192,6 +5243,8 @@ export default function DataMapPage() {
           covBuf, layer.getStride(), gp, clickLL.lat, clickLL.lng,
         );
         const nearest = visible.slice(0, 5);
+        // feature claim (round 16): the coverage card owns this click
+        try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
         setDetail({
           kind: "coverage",
           title: "Starlink coverage",
@@ -5300,6 +5353,9 @@ export default function DataMapPage() {
         satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
       const realLabel = realModelLabel(g.noradId, g.name ?? sc?.name);
+      // feature claim (round 16): the sat card owns this click — the
+      // deferred click-off handler drops the plane curtain but not the card
+      try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
       // design 1a chip row + 1b details grid: chips are live/derived vitals
       // through the units formatters; period/inclination values moved from
       // the old body prose INTO the chips (still reachable, now glanceable).
@@ -6214,7 +6270,12 @@ export default function DataMapPage() {
       // aircraft click claim (2026-07-21): a picked 3D plane owns the click
       if (e?.originalEvent?.__vtAirClaim) return;
       const f = e.features?.[0];
-      if (f) opts.onClick(f.properties, e.lngLat);
+      if (f) {
+        // feature claim (round 16): a landed live-point click keeps its own
+        // card while the deferred click-off handler drops the plane curtain
+        try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
+        opts.onClick(f.properties, e.lngLat);
+      }
     };
     const onEnter = () => { map.getCanvas().style.cursor = "pointer"; };
     const onLeave = () => { map.getCanvas().style.cursor = ""; };
@@ -6542,9 +6603,11 @@ export default function DataMapPage() {
         airRebuildRef.current = () => { try { rebuild(airPayloadRef.current); } catch {} };
         rebuild(rowsIn);
         airLayer.setTickTime(); // glide anchor: these positions are true NOW
-        // match the terrain mesh's vertical exaggeration so a plane above a
-        // peak stays above the exaggerated peak (never-intersect-mountains)
-        try { airLayer.setAltScale(map.getTerrain() ? terrainExagRef.current : 1); } catch {}
+        // TRUE-ALTITUDE DATUM (round 16): altScale pinned 1 — the hook's
+        // displayAltReal already clamps above the EXAGGERATED mesh, so a
+        // plane above a peak stays above the stretched peak without its own
+        // cruise altitude being stretched into the sky
+        try { airLayer.setAltScale(1); } catch {}
         // SESSION BREADCRUMB: while this plane's card is open, append its
         // fresh REAL fix and repaint the merged trail + curtain so they
         // reach the CURRENT position (the archive lags 1-5 min at cruise).
@@ -9537,7 +9600,11 @@ export default function DataMapPage() {
                       try {
                         const t = map?.getTerrain?.();
                         if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: vv } as any);
-                        (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? vv : 1);
+                        // altScale stays 1 (true-altitude datum) — but the
+                        // clamp heights changed with the mesh, so the fleet
+                        // re-datums against the new exaggeration
+                        (window as any).__vtAir?.setAltScale?.(1);
+                        airRebuildRef.current?.();
                       } catch {}
                     });
                   }
@@ -10105,10 +10172,11 @@ export default function DataMapPage() {
           try { spaceHandleRef.current?.flyHome(); } catch {}
         }}
         onUserPan={() => {
-          // the drag convention, exactly: aircraft follow releases; a
-          // guided sat approach cancels; the sat GROUND lock hands the
-          // camera back; the SAT lock + focus survive (O6-1).
-          if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
+          // UNBREAKABLE FOLLOW (round 16): aircraft follow now SURVIVES
+          // pans — the rig re-locks center to the plane next frame, so a
+          // pan is a no-op instead of a follow-killer. Sat conventions
+          // unchanged: a guided approach cancels; the sat GROUND lock
+          // hands the camera back; the SAT lock + focus survive (O6-1).
           camApproachRef.current = null;
           const f = satFollowRef.current;
           if (f && f.lockMode === "ground") { f.lockMode = null; setSatLockMode(null); }
@@ -10125,14 +10193,13 @@ export default function DataMapPage() {
           if (!st || st.samples.length === 0) return null;
           const clock = flightClockRef.current;
           const m0 = mapRef.current;
-          const scale = m0?.getTerrain?.() ? terrainExagRef.current : 1;
-          // same display datum as the rendered plane (displayAltReal):
-          // camera centers where the plane actually DRAWS, near the
-          // ground included (AGL flat / mesh-clamped MSL under terrain)
+          // same display datum as the rendered plane (displayAltReal is
+          // already in display meters — true altitude clamped above the
+          // exaggerated mesh; altScale everywhere is 1)
           const elevOf = (altM: number | null | undefined, lon: number, lat: number) =>
             altM == null || Number.isNaN(altM) || !m0
               ? undefined
-              : Math.max(0, displayAltReal(m0, altM, lon, lat)) * scale;
+              : Math.max(0, displayAltReal(m0, altM, lon, lat));
           if (clock.live) {
             const lv = airFollowLiveRef.current;
             if (lv && lv.id === airCrumbsRef.current.id) {

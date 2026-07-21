@@ -218,3 +218,21 @@ test('marker colors are the handoff values', () => {
   near(MARKER_GLYPH_RGBA[0], 0x8f / 255, 1e-6, 'glyph #8fd0ff');
   near(MARKER_LINE_RGBA[3], 0.65, 1e-6, 'drop line at 65%');
 });
+
+test('true-altitude datum (round 16): display-space inputs with altScale 1 — curtain base rides the exaggerated mesh, tops stay unscaled', () => {
+  // synthetic: mesh display height 1500 (500m DEM × 3 exag), plane at a
+  // TRUE 1981m — inputs arrive pre-converted to display meters, scale 1
+  const verts = buildTrackVertices({
+    merc: new Float32Array([0.4, 0.4, 0.4001, 0.4]),
+    altM: new Float32Array([1981, 1981]),
+    groundZ: new Float32Array([1500, 1500]),
+    altMin: 1500, altMax: 2000,
+    drapeBelowM: 40 * 3, // seal scaled by the exaggeration at the call site
+  }, 1);
+  const zs: number[] = [];
+  for (let i = 0; i < verts.length; i += FT_VERT_STRIDE) zs.push(verts[i + 2]);
+  const top = Math.max(...zs);
+  const bottom = Math.min(...zs);
+  assert.ok(Math.abs(top - 1981) < 1e-3, `curtain/line top at TRUE altitude (got ${top}) — never × exaggeration`);
+  assert.ok(Math.abs(bottom - (1500 - 120)) < 1e-3, `curtain base seals the DISPLAY mesh (got ${bottom})`);
+});

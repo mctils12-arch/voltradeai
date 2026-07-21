@@ -1318,18 +1318,19 @@ async function main() {
         if (buried.length) {
           checks.failures.push(`drape-order: custom layer(s) buried under draped layers with terrain on: ${buried.join(", ")} — RTT stack split regresses the 2026-07-20 terrain-lag fix (lib/drapeOrder.ts)`);
         }
-        // ── ONE-DATUM RATCHET (live report 2026-07-21 "the curtain stay
-        // above the plane"): with terrain ON, the aircraft silhouettes'
-        // altitude scale MUST equal the terrain exaggeration — the curtain
-        // and marker follow the same value, so a mismatch here is exactly
-        // the floating-curtain bug. Uses the __vtAir harness seam.
+        // ── TRUE-ALTITUDE DATUM RATCHET (human 2026-07-21 round 16: "the
+        // plane shoots way up visually in the sky i dont want that"): the
+        // aircraft altScale is pinned to 1 in EVERY mesh state — the
+        // exaggeration lifts the terrain only; the displayAlt hook clamps
+        // planes/curtain above the exaggerated mesh instead. Any non-1
+        // altScale with terrain on is the planes-launched-into-the-sky bug.
         const datum = await page.evaluate(() => ({
           exag: window.__vtMap?.getTerrain?.()?.exaggeration ?? null,
           altScale: window.__vtAir?.getAltScale?.() ?? null,
         }));
         checks.info.terrainDatum = `exag=${datum.exag} altScale=${datum.altScale}`;
-        if (datum.exag != null && datum.altScale != null && Math.abs(datum.exag - datum.altScale) > 1e-6) {
-          checks.failures.push(`one-datum: aircraft altScale ${datum.altScale} != terrain exaggeration ${datum.exag} — planes and curtain render at different heights (2026-07-21 regression)`);
+        if (datum.altScale != null && Math.abs(datum.altScale - 1) > 1e-6) {
+          checks.failures.push(`true-altitude datum: aircraft altScale ${datum.altScale} must stay 1 with terrain on (exaggeration ${datum.exag} lifts terrain, never aircraft — 2026-07-21 round-16 contract)`);
         }
         // flip back off to restore default state for the remaining checks/
         // screenshots — VERIFIED per switch: a missed terrain off-click left
