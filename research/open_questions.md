@@ -1706,6 +1706,117 @@
     `csp_layer2_prefetch` correlation (still open, unchanged from the
     prior update).
 
+    UPDATE 2026-07-21 (scheduled-routine session), v1.0.465 — ZOMBIE-PILEUP
+    THEORY REFUTED WITH FRESH LIVE EVIDENCE (four independent occurrences,
+    not one); `csp_layer2_prefetch` CORRELATION GAP NOW CLOSED BY
+    INSTRUMENTATION, no live stakeout required going forward. Storm still
+    ACTIVE at session start: `/api/diag/audit?type=TIER2-ERROR` showed 4
+    fresh occurrences in the prior ~2h15m (13:36:55Z, 13:42:55Z, 13:49:12Z,
+    15:48:27Z), every single one now carrying the v1.0.454 dispatch-detail
+    the prior session shipped: `active_dispatches=2 [run_full_scan:300s,
+    health:0s]`. This is exactly the "short-lived or absent second entry"
+    case the prior UPDATE named as the refutation — the second dispatch is
+    the `health` probe call ITSELF (0s old, since it's the one bot.ts just
+    issued to build this very audit line), not a second lingering
+    `run_full_scan`. Four-for-four, not one sample (REASONING STANDARD #4:
+    this is now a real refutation, not a thin-sample guess) — the
+    zombie-thread-pileup mechanism named in this item since 2026-07-20 does
+    NOT explain these four occurrences. Per the prior UPDATE's own stated
+    branch, the search returns to the still-open `csp_layer2_prefetch`
+    correlation.
+    WHY THAT CORRELATION HAS STAYED UNCAUGHT FOR TWO SESSIONS: both prior
+    attempts (v1.0.418 session, v1.0.454 session) tried to catch it by
+    polling `/api/diag/timings` live — but that endpoint only reflects
+    `tier_timings` from the LAST `scan_market()` call that actually
+    RETURNED to bot.ts. A scan that is currently hung past its own 300s RPC
+    timeout has, by definition, not returned — its `tier_timings` (if any
+    were computed before the hang) are invisible to that endpoint,
+    structurally, no matter how tightly the polling window is timed. This
+    session did not attempt another live stakeout (REASONING STANDARD #4:
+    repeating an approach already refuted-by-absence twice without
+    changing it would just produce a third miss) — it fixed the structural
+    gap instead.
+    FIX (v1.0.465, pure visibility, zero behavior change — same class as
+    every prior instrumentation pass on this item): `voltrade_daemon.py`
+    gained `_layer2_prefetch_snapshot()`, called from `_health()` (now
+    returns a new `layer2_prefetch` field). It reads
+    `csp_universe.get_last_layer2_prefetch_stats()` (v1.0.418) directly off
+    `sys.modules` — never triggering an import itself, only reading it if
+    some scan already populated it in this process — plus a computed
+    `age_sec` (seconds since that stats dict's own `checked_at`). The key
+    property this exploits: `_health()` runs as its OWN RPC dispatch, on a
+    separate thread from a hung `run_full_scan` — so calling it (which
+    bot.ts's daemon-timeout catch branch already does, immediately, to get
+    `active_dispatch_detail`) reads csp_universe's module-level dict LIVE,
+    mid-hang, from whatever the CURRENTLY-STUCK scan's own Layer 2 phase
+    last recorded — not a stale value from the last scan that happened to
+    finish. A low `age_sec` at the moment of a TIER2-ERROR means the stuck
+    scan's own Layer 2 prefetch just ran (implicating it or its immediate
+    aftermath); a high `age_sec` means Layer 2 isn't where this particular
+    hang is happening (search moves elsewhere in the pipeline instead).
+    `server/bot.ts`'s daemon-timeout audit line now formats this as
+    `layer2_prefetch={cache_hit=... completed=X/Y elapsed=...s
+    budget_exceeded=... age=...s}` right alongside the existing
+    `active_dispatch_detail` — the NEXT occurrence's audit-log entry alone
+    (no live poll) will show both signals this item has been chasing since
+    2026-07-19 in one place.
+    DELIBERATELY NOT DONE: no threshold/behavior change to
+    `PREFETCH_BUDGET_S`, `deep_score_limit`, `REQUEST_TIMEOUT_SEC`, or the
+    throttle rate — per this item's own 11-day discipline (two blind
+    threshold guesses, tmpCleanup and SQLite-WAL, were both refuted before
+    shadowFleet's direct-measurement fix actually worked), no fix ships
+    until a live occurrence's `layer2_prefetch` reading actually implicates
+    or clears Layer 2.
+    RATCHET: `test_daemon_active_dispatches.py` gained
+    `TestLayer2PrefetchSnapshot` (6 tests: empty when csp_universe never
+    loaded, empty when `_layer2_score` never ran, stats + computed
+    `age_sec` when populated, a genuine exception from csp_universe
+    PROPAGATES rather than being swallowed — `test_silent_except_ratchet.py`
+    forbids adding a new bare `except Exception`, so `_layer2_prefetch_
+    snapshot()` deliberately has none and relies on `dispatch()`'s own
+    existing outer handler, confirmed by asserting the RPC-level `dispatch(
+    "health", {})` call turns that same exception into a visible
+    `{"status": "error"}` response, not a crash or a silent empty result —
+    `_health()` includes the key in both the empty and populated cases).
+    `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+    wiring-pinned test confirming bot.ts reads `hr.layer2_prefetch` and
+    formats `cache_hit`/`budget_exceeded`/`age_sec`.
+    GATES: A/B-verified all 6 new Python tests fail against pre-fix
+    `voltrade_daemon.py` (via `git stash` scoped to just that file +
+    `server/bot.ts`) and pass post-fix. Full `python3 -m pytest -q`: 836
+    passed (830 baseline + 6 new), 2 skipped, 0 failed. `npx tsx --test
+    server/*.test.ts`: 825 passed, 0 failed (a fresh-sandbox `npm ci` was
+    needed first — the 7 failures seen before installing dependencies were
+    `ERR_MODULE_NOT_FOUND`, not real regressions, same gap every recent
+    session in a clean container has logged). `npx tsc --noEmit`: 73
+    errors, confirmed byte-identical to the pre-change baseline via `git
+    stash` A/B. `npm run build`: clean. `package-lock.json`'s root version
+    had drifted stale to 1.0.463 against `package.json`'s 1.0.464 (same
+    recurring class four sessions have now hit) — corrected in the same
+    edit, both bumped to 1.0.465.
+    BACKTEST: N/A — pure diagnostic-visibility change, no scoring/sizing/
+    execution logic touched.
+    NEXT STEP: whichever session catches the next live TIER2-ERROR should
+    read the audit line's `layer2_prefetch` block directly. `cache_hit:
+    false` + `budget_exceeded: true` + a LOW `age_sec` (single-digit
+    seconds — meaning the stuck scan's own Layer 2 phase just ran)
+    confirms Layer 2 as a real contributor to that specific occurrence and
+    justifies moving to an evidence-backed threshold change (reducing
+    `deep_score_limit` or otherwise cutting Layer 2's per-cycle call volume
+    to fit the shared throttle's ~3 req/s real throughput). A HIGH
+    `age_sec` (tens of seconds to minutes — meaning Layer 2 finished long
+    before the timeout, or never ran this cycle) points the hang elsewhere
+    in `run_full_scan`'s pipeline instead, and per RECURRENCE ESCALATES the
+    next session should widen the search past both Layer 2 and the daemon
+    dispatch mechanism (candidates named by this item's own history but
+    not yet checked: the VXX cross-file dedup opportunity named in
+    v1.0.416, or profiling `deep_score`'s own serial `ThreadPoolExecutor`
+    path for the same already-running-futures-block-shutdown pattern this
+    session considered for Layer 2 and found already covered by the
+    existing `elapsed_sec` measurement point — that reasoning would need
+    re-checking against `deep_score`'s own executor usage specifically, not
+    assumed to transfer).
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

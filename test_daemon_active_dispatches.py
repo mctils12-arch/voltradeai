@@ -41,8 +41,10 @@ audit line can answer "what, and for how long" directly.
 """
 import os
 import socket
+import sys
 import threading
 import time
+import types
 import unittest
 
 import voltrade_daemon
@@ -138,6 +140,88 @@ class TestActiveDispatchCounter(unittest.TestCase):
         must not raise and must leave the detail registry consistent."""
         voltrade_daemon._dec_active_dispatch(999999)
         self.assertEqual(voltrade_daemon._active_dispatch_snapshot(), [])
+
+
+class TestLayer2PrefetchSnapshot(unittest.TestCase):
+    """
+    DAEMON-TIMEOUT-VISIBILITY 2026-07-21 (KNOWN BROKEN #18 continuation):
+    _health() now also surfaces csp_universe.py's Layer 2 CSP prefetch
+    diagnostics (cache_hit/completed/total/elapsed_sec/budget_exceeded),
+    read live from sys.modules so a TIER2-ERROR daemon-timeout occurrence's
+    health probe reflects the CURRENTLY-RUNNING (possibly still-hung) scan's
+    own state, not just whatever the last scan that actually returned left
+    in bot.ts's /api/diag/timings.
+    """
+
+    def setUp(self):
+        self._had_csp_universe = "csp_universe" in sys.modules
+        self._orig_csp_universe = sys.modules.get("csp_universe")
+
+    def tearDown(self):
+        if self._had_csp_universe:
+            sys.modules["csp_universe"] = self._orig_csp_universe
+        else:
+            sys.modules.pop("csp_universe", None)
+
+    def test_empty_when_module_never_loaded(self):
+        sys.modules.pop("csp_universe", None)
+        self.assertEqual(voltrade_daemon._layer2_prefetch_snapshot(), {})
+
+    def test_empty_when_layer2_score_never_ran(self):
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=lambda: {})
+        sys.modules["csp_universe"] = fake
+        self.assertEqual(voltrade_daemon._layer2_prefetch_snapshot(), {})
+
+    def test_surfaces_stats_with_computed_age(self):
+        checked_at = time.time() - 12.3
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=lambda: {
+            "cache_hit": False, "completed": 90, "total": 150,
+            "elapsed_sec": 45.0, "budget_exceeded": True,
+            "checked_at": checked_at,
+        })
+        sys.modules["csp_universe"] = fake
+        snap = voltrade_daemon._layer2_prefetch_snapshot()
+        self.assertEqual(snap["completed"], 90)
+        self.assertEqual(snap["total"], 150)
+        self.assertTrue(snap["budget_exceeded"])
+        self.assertAlmostEqual(snap["age_sec"], 12.3, delta=0.5)
+
+    def test_exception_from_csp_universe_propagates_not_swallowed(self):
+        """No new silent broad-except: a genuine failure here must surface
+        as a visible dispatch() error, not disappear into an empty dict —
+        test_silent_except_ratchet.py pins the count of tolerated handlers
+        and would catch a bare `except Exception` added to swallow this."""
+        def _raise():
+            raise RuntimeError("boom")
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=_raise)
+        sys.modules["csp_universe"] = fake
+        with self.assertRaises(RuntimeError):
+            voltrade_daemon._layer2_prefetch_snapshot()
+        # dispatch()'s own outer try/except turns it into a visible error
+        # response rather than a crash or a silently-empty health() result.
+        dispatcher = RPCDispatcher()
+        result = dispatcher.dispatch("health", {})
+        self.assertEqual(result["status"], "error")
+        self.assertIn("boom", result["error_message"])
+
+    def test_health_includes_layer2_prefetch_key(self):
+        sys.modules.pop("csp_universe", None)
+        dispatcher = RPCDispatcher()
+        result = dispatcher._health({})
+        self.assertIn("layer2_prefetch", result)
+        self.assertEqual(result["layer2_prefetch"], {})
+
+    def test_health_surfaces_populated_layer2_prefetch(self):
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=lambda: {
+            "cache_hit": True, "completed": 0, "total": 0,
+            "elapsed_sec": 0.0, "budget_exceeded": False,
+            "checked_at": time.time(),
+        })
+        sys.modules["csp_universe"] = fake
+        dispatcher = RPCDispatcher()
+        result = dispatcher._health({})
+        self.assertTrue(result["layer2_prefetch"]["cache_hit"])
+        self.assertIn("age_sec", result["layer2_prefetch"])
 
 
 class TestActiveDispatchLiveSocket(unittest.TestCase):

@@ -144,6 +144,38 @@ def _active_dispatch_snapshot():
         ]
 
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-21 (KNOWN BROKEN #18 continuation):
+# csp_universe.py's get_last_layer2_prefetch_stats() (v1.0.418) exposes the
+# CSP Layer 2 prefetch cache_hit/completed/total/elapsed_sec/budget_exceeded
+# shape, but two prior sessions (v1.0.418, v1.0.454) both tried and failed
+# to catch a live TIER2-ERROR and this reading in the SAME window by polling
+# /api/diag/timings — that endpoint only reflects the LAST scan_market() call
+# that actually RETURNED, never the state of a call still hung past its own
+# 300s RPC timeout. This process's own health() RPC runs on a separate
+# thread from the (possibly still-zombied) run_full_scan dispatch, so it can
+# read csp_universe's module-level dict live, mid-hang, the moment
+# server/bot.ts's daemon-timeout catch branch calls it — no stakeout needed.
+def _layer2_prefetch_snapshot():
+    """Live read of csp_universe's last-recorded Layer 2 prefetch stats,
+    plus how stale that reading is. {} if csp_universe hasn't loaded yet
+    (no scan has reached Layer 2 in this process) — never triggers an
+    import itself, only reads sys.modules if already populated by whatever
+    scan already ran. Deliberately no broad except here: dispatch()'s own
+    outer try/except already turns any real failure into a visible
+    {"status": "error"} RPC response instead of a silently swallowed one
+    (test_silent_except_ratchet.py's pinned count forbids adding another)."""
+    csp_universe = sys.modules.get("csp_universe")
+    if csp_universe is None:
+        return {}
+    stats = csp_universe.get_last_layer2_prefetch_stats()
+    if not stats:
+        return {}
+    checked_at = stats.get("checked_at")
+    if checked_at:
+        stats["age_sec"] = round(time.time() - checked_at, 1)
+    return stats
+
+
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
 # This is the entire reason the daemon exists. Re-importing numpy/pandas/
 # LightGBM in 27 different subprocess calls per scan cycle costs 12+ seconds.
@@ -371,6 +403,7 @@ class RPCDispatcher:
             "modules_loaded": list(_modules_loaded.keys()),
             "active_dispatches": _active_dispatch_count,
             "active_dispatch_detail": _active_dispatch_snapshot(),
+            "layer2_prefetch": _layer2_prefetch_snapshot(),
             "pid": os.getpid(),
         }
 
