@@ -8,7 +8,7 @@
  "schema_version": 1,
  "field_map": {
   "coal_mines.json mines.<GEM Mine ID>": "name/country/coal_grade/owners/parent/wiki + bbox + centroid (bbox midpoint \u2014 display anchor, NOT a surveyed point, labeled) + per-category feature counts",
-  "coal_mine_features.geojson.gz": "the full master FeatureCollection as released (boundaries, methane sources, prep plants\u2026) \u2014 future map layer + satellite-join geometry",
+  "coal_mine_features.geojson.gz": "the full master FeatureCollection as released (boundaries, methane sources, prep plants\u2026) \u2014 served RAW via server/gemCoalMineFeatures.ts / GET /api/data/coal-mine-features (2026-07-21); client map layer + satellite-join geometry still a follow-up",
   "gas_pipelines.json pipelines[]": "all 53 release fields per segment (status, CapacityBcm/y, LengthMergedKm, start/end locations, Owner/Parent/ParentEntityIDs, FID, costs); nulls dropped per row",
   "gas_finance.json": "lng_terminals[] + gas_power_plants[] with Financier / Type of Financier / FID Status / Project Cost"
  },
