@@ -3872,3 +3872,24 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   color: #061018; background: var(--accent);
 }
 .vt-gl-lost-card button:hover { filter: brightness(1.1); }
+
+/* ── device-governor notice chip (2026-07-21): every render-fidelity
+   adaptation is announced — honesty contract in lib/deviceTier.ts ── */
+.vt-device-notice {
+  position: absolute; left: 50%; bottom: 88px; transform: translateX(-50%);
+  z-index: 30; display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 560px); padding: 9px 12px 9px 14px;
+  background: rgba(11, 19, 34, 0.94); border: 1px solid rgba(120, 168, 255, 0.28);
+  border-radius: 10px; color: var(--text-secondary);
+  font-family: var(--font-body); font-size: 0.78rem; line-height: 1.4;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.vt-device-notice button {
+  appearance: none; border: 0; cursor: pointer; flex: 0 0 auto;
+  width: 22px; height: 22px; border-radius: 6px; font-size: 0.7rem;
+  color: var(--text-secondary); background: rgba(120, 168, 255, 0.12);
+}
+.vt-device-notice button:hover { background: rgba(120, 168, 255, 0.25); }
+@media (max-width: 720px) {
+  .vt-device-notice { bottom: 132px; }
+}

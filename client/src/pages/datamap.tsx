@@ -35,6 +35,7 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
+import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState } from "@/lib/deviceTier";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -2614,7 +2615,25 @@ export default function DataMapPage() {
     const canvas = (() => { try { return map.getCanvas(); } catch { return null; } })();
     const onCtxLost = () => {
       if (lostTimer != null) window.clearTimeout(lostTimer);
-      lostTimer = window.setTimeout(() => setGlLost(true), 8000);
+      lostTimer = window.setTimeout(() => {
+        // AUTO-RECOVERY FIRST (live incident 2026-07-21: the user met this
+        // banner in the wild): one automatic reload per 10-minute window —
+        // layers and view are persisted, so the map heals itself without a
+        // click. A SECOND death inside the window means the machine is
+        // truly failing repeatedly; then the banner asks, instead of
+        // reload-looping a dying GPU.
+        const GUARD = "vt-gl-auto-reload";
+        let recent: number[] = [];
+        try {
+          recent = (JSON.parse(window.sessionStorage.getItem(GUARD) ?? "[]") as number[])
+            .filter((t) => Date.now() - t < 10 * 60_000);
+        } catch {}
+        if (recent.length < 1) {
+          try { window.sessionStorage.setItem(GUARD, JSON.stringify([...recent, Date.now()])); } catch {}
+          try { window.location.reload(); return; } catch {}
+        }
+        setGlLost(true);
+      }, 8000);
     };
     const onCtxBack = () => {
       if (lostTimer != null) { window.clearTimeout(lostTimer); lostTimer = null; }
@@ -2629,6 +2648,91 @@ export default function DataMapPage() {
       canvas?.removeEventListener("webglcontextrestored", onCtxBack);
       try { map.off("webglcontextrestored" as any, onRestore); } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+  // ── DEVICE CAPABILITY + FRAME GOVERNOR (lib/deviceTier — live incident
+  // 2026-07-21: a machine lost its GL context outright with all layers +
+  // terrain on; "can the computer run all the layers at once?" must be
+  // MEASURED, not assumed). Startup: classify the machine (GPU class from
+  // the renderer string, RAM, cores) and cap the canvas pixel ratio.
+  // Runtime: rolling rAF frame-time median with hysteresis steps the ratio
+  // down under sustained overload and back up after sustained calm.
+  // HONESTY: adaptation never drops a layer or a number — only canvas
+  // pixel density trades for smoothness, and every step surfaces in the
+  // notice chip. Harness/probes pin determinism with vt-gov-off=1.
+  const [deviceNotice, setDeviceNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!deviceNotice) return;
+    const t = window.setTimeout(() => setDeviceNotice(null), 12_000);
+    return () => window.clearTimeout(t);
+  }, [deviceNotice]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    try { if (window.sessionStorage.getItem("vt-gov-off") === "1") return; } catch {}
+    let renderer = "";
+    try {
+      const glc: any = map.getCanvas().getContext("webgl2") || map.getCanvas().getContext("webgl");
+      const dbg = glc?.getExtension?.("WEBGL_debug_renderer_info");
+      renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
+    } catch {}
+    const dpr = window.devicePixelRatio || 1;
+    const tier = classifyDevice({
+      renderer,
+      deviceMemoryGB: (navigator as any).deviceMemory,
+      cores: navigator.hardwareConcurrency,
+      devicePixelRatio: dpr,
+    });
+    (window as any).__vtDeviceTier = tier; // probe/diagnostics hook
+    const startRatio = Math.min(dpr, tier.pixelRatioCap);
+    if (startRatio < dpr - 1e-6) {
+      try { (map as any).setPixelRatio?.(startRatio); } catch {}
+      setDeviceNotice(
+        `Render resolution set to ${startRatio}× for this device (${tier.reasons.join("; ")}) — all layers and data stay on`,
+      );
+    } else if (tier.tier === "minimal") {
+      // nothing to cap (already 1×) but the user deserves to know WHY the
+      // 3D map feels slow on this machine — GPU acceleration is off, which
+      // is usually browser settings or corporate policy, not our code
+      setDeviceNotice(
+        "This browser is rendering 3D without GPU acceleration (software renderer) — heavy layers will feel slow here; enabling hardware acceleration in the browser/OS restores full speed",
+      );
+    }
+    let gov = govInit(startRatio, performance.now());
+    // rAF deltas ARE the felt jank (maplibre renders inside rAF)
+    const samples: number[] = [];
+    let last = 0;
+    let raf = requestAnimationFrame(function tick(t) {
+      if (last) { samples.push(t - last); if (samples.length > 150) samples.shift(); }
+      last = t;
+      raf = requestAnimationFrame(tick);
+    });
+    const iv = window.setInterval(() => {
+      if (samples.length < 30) return; // need a real window before judging
+      const now = performance.now();
+      const d = govStep(gov, median(samples), now);
+      gov = d.state;
+      // second lever: even at the 1× pixel floor, a sustained-overloaded
+      // machine gets idle gaps — animation drivers (aircraft glide, vessel/
+      // train steppers) skip alternate ticks while this flag is up
+      const wasOver = isOverloaded();
+      const over = overloadFromState(gov, now, wasOver);
+      if (over !== wasOver) {
+        setOverloaded(over);
+        (window as any).__vtOverloaded = over; // probe hook
+        if (over && d.apply == null && gov.ratio <= 1 + 1e-6) {
+          setDeviceNotice(
+            "This device is at its limit — animation updates halved to keep the map responsive (all layers and data stay on)",
+          );
+        }
+      }
+      if (d.apply != null) {
+        try { (map as any).setPixelRatio?.(d.apply); } catch {}
+        (window as any).__vtGovRatio = d.apply; // probe hook
+        setDeviceNotice(d.note ?? null);
+      }
+    }, 2_000);
+    return () => { cancelAnimationFrame(raf); window.clearInterval(iv); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
@@ -6278,10 +6382,15 @@ export default function DataMapPage() {
     // the delta-poll cursor is untouched (server-time based) and the next
     // real payload rebuilds from truth, snapping the glide to zero.
     let glideIv: number | undefined;
+    let glideParity = false;
     if (opts.glide) {
       const g = opts.glide;
       glideIv = window.setInterval(() => {
         if (stop || document.hidden || glideAnchor == null || !lastPayload) return;
+        // device overloaded (deviceTier governor): halve the glide cadence
+        // — every setData re-tiles the source AND repaints; a drowning
+        // renderer needs the idle gaps more than 3.3Hz motion
+        if (isOverloaded() && (glideParity = !glideParity)) return;
         try { if (map.isMoving()) return; } catch {}
         const z = map.getZoom();
         if (!(z >= g.minZoom)) return;                       // sub-pixel motion — pure cost
@@ -9945,9 +10054,17 @@ export default function DataMapPage() {
         <div className="vt-gl-lost" role="alert">
           <div className="vt-gl-lost-card">
             <strong>3D rendering lost</strong>
-            <p>The browser's graphics context died (GPU reset or driver hiccup) and didn't recover. Reloading rebuilds the map — your layers and view are remembered.</p>
+            <p>The browser's graphics context died twice in a short window (GPU reset or driver failure) — the map already tried one automatic recovery. Reloading rebuilds it; your layers and view are remembered.</p>
             <button onClick={() => window.location.reload()}>Reload the map</button>
           </div>
+        </div>
+      )}
+      {/* DEVICE GOVERNOR notice — every fidelity adaptation is announced,
+          never silent (deviceTier honesty contract, 2026-07-21) */}
+      {deviceNotice && (
+        <div className="vt-device-notice" role="status" aria-live="polite">
+          <span>{deviceNotice}</span>
+          <button aria-label="Dismiss" onClick={() => setDeviceNotice(null)}>✕</button>
         </div>
       )}
       {/* FLIGHT TRACK 3D (handoff 2026-07-20): in-scene floating tag for the

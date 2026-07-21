@@ -24200,3 +24200,73 @@ predating the 13:07Z restart) and/or a machine-side GL death, which the
 new banner + fallback now surface honestly instead of silently. Watch
 for recurrence — if it returns WITH the banner absent, it is a third
 mechanism and becomes a root-cause session (recurrence rule).
+
+## 2026-07-21 (human-directed session, round 15) [REPAIR] — GPU death spiral root-caused: terrain×animation sustained-render overload; device tier + frame governor + overload tick-stretch + GL auto-recovery (v1.0.467, T-CLIENT)
+
+TYPE: [REPAIR] (live escalation of round 14: the user hit the NEW GL-lost
+banner on production — proof their machine's WebGL context genuinely died
+— "they are not fixed both issues"; mid-session directives: "see if its
+the computer and can it handle it? … have some logic for that"; "can the
+computer run all the layers at once and it run smooth or in any case";
+"you model for these issues see if you can replicate them and then fix
+them simulate what the user might occur").
+
+REPLICATION (5 instrumented probes, all layers + terrain + real a9eabc
+track, SwiftShader = worse-than-user machine):
+1. leak_probe (4min, every GL resource create/delete wrapped): NO leak —
+   buffers/programs/framebuffers flat, textures plateau (tile caches),
+   JS heap healthy. But frameMed 33→900ms climb-and-explode. Two prior
+   theories died on this probe (GL-resource leak; JS heap leak).
+2. spiral_probe (CPU profile in the degraded window + rAF/interval
+   accounting): rafPerSec + intervalsLive FLAT (accumulating-loop theory
+   dead too); JS self-time trivial; ~100% of the degraded window in
+   native rasterization. The scene itself got costlier, not the JS.
+3. style_growth: style layers/sources FLAT (no add-add-add bug).
+4. BISECT: all-30-layers-minus-terrain = FLAT 116ms forever; terrain+
+   aircraft only = spiral to 233ms plateau; terrain+aircraft WITHOUT
+   selection = same spiral (curtain machinery innocent); terrain ALONE
+   = FLAT 33ms (idle map renders nothing).
+ROOT CAUSE: terrain's per-frame render cost is ∝ resident DEM tile
+pyramid (which deepens for ~1-3min at pitch) and is only paid while
+frames are being produced. The aircraft glide keeps the renderer awake
+CONTINUOUSLY (per-frame self-repaint at z≥~10, 3.3Hz step tick below),
+so terrain+aircraft = sustained max-cost rendering with zero idle. Weak
+renderers drown (the user's "everything laggy"); fragile GPUs/drivers
+eventually reset → context lost → the blank map + banner. The curtain
+disappearing earlier fits the same arc (layer failStreak exhaustion
+during GPU distress).
+
+FIX (lib/deviceTier.ts, pure + unit-tested; wiring in datamap):
+1. STATIC TIER at startup: classifyDevice(renderer/RAM/cores/DPR) →
+   pixelRatio cap (software GL → 1×; weak iGPU/low-RAM → 1.5×; full →
+   2× even on 3× displays). Honest notice states the reason.
+2. FRAME GOVERNOR: rolling rAF-median with hysteresis steps
+   map.setPixelRatio down the ladder [2,1.75,1.5,1.25,1] under
+   sustained overload (>90ms held 8s), back up after 60s calm; every
+   step announced in a notice chip. HONESTY CONTRACT: adaptation NEVER
+   drops a layer or a number — only canvas pixel density.
+3. OVERLOAD TICK-STRETCH (the floor lever): sustained overload sets a
+   module flag; ALL continuous-repaint drivers yield idle gaps — air
+   glide per-frame chase stops + step tick halves, geojson glide
+   steppers (vessels/trains) halve, satLayer per-frame glide paces to
+   ~3Hz. Positions stay exact per poll; motion cadence is the trade.
+4. GL AUTO-RECOVERY: context lost with no restore in 8s → ONE automatic
+   reload per 10-min window (layers/view persist) before the manual
+   banner (banner text now says the auto-attempt happened).
+VERIFICATION: killer scenario (terrain+aircraft) WITH the fix: frameMed
+33ms FLAT for 3 straight minutes (was 233ms plateau), overload flag up
+at ~15s, notice chip live-caught. DPR-2 probe: canvas renders at 1×
+(1440px not 2880) on the software tier — startup cap applied. 29
+airLayer+deviceTier tests incl. tick-skip parity + governor hysteresis;
+full batteries green (client 614+new, node 824, pytest 835). Visual
+harness ×4: every structural/functional ratchet green every run;
+sole failures were TTI 3047-3236ms vs the 3000ms gate (1.5-8% over,
+different battery each run) while the UNCHANGED zero-cost page drifted
+1343→1960ms and host load sat at 3.3-4.4 on 4 cores from other tenants
+— environmental, not the diff (zero-cost TTI matches this morning's
+passing run at low load). Shipped per the round-13 flake precedent with
+numbers recorded here. BACKTEST: N/A (client rendering).
+
+FILED: if the TTI gate keeps tripping at low load on an idle box, that
+is a real regression hunt (suspect: #574 CBP layer startup work), not
+this diff — the zero-cost page is the control that separates the two.

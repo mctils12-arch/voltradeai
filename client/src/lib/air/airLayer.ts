@@ -37,6 +37,7 @@ import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
+import { isOverloaded } from '../deviceTier.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
  *
@@ -474,6 +475,7 @@ export class AirLayer implements CustomLayerInterface {
   // after the context recovered. Failures drop the GL objects and count a
   // streak; the next poll's setInstances re-arms a clean rebuild.
   private failStreak = 0;
+  private overloadParity = false; // alternate-tick skip while deviceTier reports overload
   private static readonly MAX_FAIL_STREAK = 5;
   private lastMainMatrix: Float32Array | null = null;
   private lastTransition = 0;
@@ -567,6 +569,12 @@ export class AirLayer implements CustomLayerInterface {
     if (!this.map || this.tickAnchorMs == null || this.count === 0) return;
     if (this.map.getZoom() < AIR_3D_MIN_ZOOM) return;
     if (airGlideDtSec(this.now(), this.tickAnchorMs) >= MAX_AIR_GLIDE_SEC) return;
+    // device overloaded (deviceTier governor): halve the step cadence so a
+    // drowning renderer gets idle gaps — motion updates less often, the
+    // positions stay exact (probe finding 2026-07-21: terrain render cost
+    // is paid per frame ∝ loaded tiles; continuous repaints leave weak
+    // machines zero recovery time and fragile GPUs eventually reset)
+    if (isOverloaded() && (this.overloadParity = !this.overloadParity)) return;
     this.map.triggerRepaint();
   }
 
@@ -747,6 +755,10 @@ export class AirLayer implements CustomLayerInterface {
       this.map &&
       this.tickAnchorMs != null &&
       dtSec < MAX_AIR_GLIDE_SEC &&
+      // overloaded devices give up the 60fps chase entirely — the step
+      // tick (itself half-cadence) still refreshes motion, and the
+      // renderer finally gets idle time between frames (deviceTier)
+      !isOverloaded() &&
       shouldGlidePerFrame(this.map.getCenter().lat, this.map.getZoom())
     ) {
       this.map.triggerRepaint();

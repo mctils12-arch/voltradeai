@@ -248,3 +248,30 @@ test('buildAircraftInstances displayAlt hook: caller owns the vertical datum; ba
   );
   assert.equal(i3[2], 0, 'display z clamped at the surface');
 });
+
+test('overload tick-skip: half cadence while deviceTier reports overload, full when calm (2026-07-21 GPU-death work)', async () => {
+  const { setOverloaded } = await import('../deviceTier.js');
+  let t = 1000;
+  let repaints = 0;
+  const layer = new AirLayer({ now: () => t });
+  const { inst } = buildAircraftInstances([
+    { lon: 0, lat: 0, altitude_m: 8000, heading: 90, velocity_ms: 250 },
+  ]);
+  (layer as any).map = { getZoom: () => 10, triggerRepaint: () => { repaints++; }, getCenter: () => ({ lat: 0 }) };
+  layer.setInstances(inst);
+  layer.setTickTime();
+  const base = repaints;
+  for (let i = 0; i < 4; i++) layer.glideRepaintTick();
+  assert.equal(repaints - base, 4, 'calm device: every tick repaints');
+  setOverloaded(true);
+  try {
+    const b2 = repaints;
+    for (let i = 0; i < 4; i++) layer.glideRepaintTick();
+    assert.equal(repaints - b2, 2, 'overloaded device: alternate ticks skipped');
+  } finally {
+    setOverloaded(false);
+  }
+  const b3 = repaints;
+  for (let i = 0; i < 4; i++) layer.glideRepaintTick();
+  assert.equal(repaints - b3, 4, 'flag cleared: full cadence returns');
+});

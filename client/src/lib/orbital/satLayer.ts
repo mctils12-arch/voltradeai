@@ -49,6 +49,7 @@ import { cameraFromClippingPlane, type Vec3 } from './occlusion.js';
 import type { SatPositionsMessage } from './satWorker.js';
 import { metersPerPixel } from '../lod.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
+import { isOverloaded } from '../deviceTier.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -705,7 +706,19 @@ export class SatLayer implements CustomLayerInterface {
         this.lastTickIntervalSec,
       );
       if (delay === 0) {
-        this.map.triggerRepaint();
+        if (isOverloaded()) {
+          // device overloaded (deviceTier governor): give up the per-frame
+          // chase — pace glide repaints at ~3Hz so the renderer gets idle
+          // gaps; positions stay exact per worker tick
+          if (this.glideTimer == null) {
+            this.glideTimer = this.setTimeoutFn(() => {
+              this.glideTimer = null;
+              this.map?.triggerRepaint();
+            }, 300);
+          }
+        } else {
+          this.map.triggerRepaint();
+        }
       } else if (delay != null && this.glideTimer == null) {
         this.glideTimer = this.setTimeoutFn(() => {
           this.glideTimer = null;
