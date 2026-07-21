@@ -23638,3 +23638,119 @@ prioritized 3-wave backlog filed in research/scale_program.md
 (stale-while-revalidate), vessels delta never fires (TTL<poll), layers
 registry 569ms uncached, 2.5MB JS parse per load, 1Hz whole-page React
 ticks. Wave 1 (server) is next session's first work.
+
+## 2026-07-21 (scheduled-routine session) [PRODUCT] — SPEED WAVE 1 S-A1: aircraft route stale-while-revalidate, first slice of the "map is slow" backlog (v1.0.460, SHARED/T-DATACORE-adjacent server work)
+
+TERRITORY: `server/routes.ts` (aircraft route) + `server/routeGuards.ts`
+(the shared route-guard utilities module, not owned by any single
+territory — matches the trains/aircraft precedent already there) +
+their test files + `package.json` version (SHARED, last commit, per
+MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md + experiments.md + open_questions.md +
+wishlist.md all read this session. LIVE HEALTH CHECK first (GOAL
+priority 1): `/api/health` — status ok, bot active, drawdownPct 0.0,
+liveness.dark false, Alpaca ACTIVE, scanner consecutiveFailures 0. No
+LIVENESS ALARM. `/api/diag/audit` (300-entry window) — zero ERROR/
+CRITICAL/HALT/KILL/COMPLIANCE-WARNING entries; T2-FAIL "no options
+contracts" for PATH/T/INHD/GDX is the pre-market pattern already
+documented in open_questions.md item #21's neighbor evidence (11:04 UTC
+= premarket, market opens 13:30 UTC) — not a new break.
+
+LOOP-HEALTH RATIO: last 10 experiments.md-tagged entries (by date) = 4
+REPAIR / 6 PRODUCT — under the 7/10 thrash threshold, consistent with
+the immediately-prior round-12 session's own count.
+
+KNOWN BROKEN section (open_questions.md) read in full: no item has an
+open, actionable, currently-live break. Items #10 (dead SCORE_BAND_MAX
+config) and #20 (master_kill_switch regime-source question) both
+explicitly need accumulated shadow/counterfactual data before a next
+step exists — not blocking, and not yet at their stated readiness bar.
+Item #21's root cause (analyze.py silent failure) needs a live
+`dataSourceErrors.stock_details` capture from a future occurrence — no
+new evidence to chase this session (audit log showed a healthy,
+error-free window).
+
+PRIMARY ACTION SELECTION: with no live break to repair, next per
+SESSION BUDGET is the top queued item from research/. The immediately-
+prior session (round 12, same day) ran a 4-agent full-stack speed audit
+on the human's live "the map as a whole ... very slow" report and filed
+a prioritized 3-wave backlog in `research/scale_program.md`'s
+2026-07-21 section, explicitly naming Wave 1 (server) as "next
+session's first work" and flagging S-A1 (aircraft stale-while-
+revalidate) as "THE top 'data is slow' item." That is exactly the
+queued-item case SESSION BUDGET fall-through rule 1 describes — took it
+as this session's single highest-value action, one slice (S-A1 only,
+not the whole Wave 1 backlog) per the "own PR, never bundled" rule the
+audit's own writeup states.
+
+WHAT SHIPPED: `/api/data/aircraft`'s cache-miss/cache-expired path used
+to synchronously await the upstream fetch (`raceDeadline(slot.p, ...)`)
+inline in the request handler whenever the 30s cache entry aged out —
+measured (round-12 audit) 3.8s TTFB cold vs 0.21s warm, and at the
+client's 15s poll cadence vs 30s TTL, roughly every other poll paid that
+cost. Restructured so ANY existing cache entry (even past its TTL)
+answers immediately; a due-for-refresh entry (age >= 30s) kicks a
+fire-and-forget background fetch via the existing in-flight-dedup slot
+map (`aircraftInflight` — same mechanism concurrent visitors already
+shared, now also shared with the background refresh, so it can never
+double the upstream request rate). Only the genuinely-cold path (no
+cache entry at all for a bbox key) still blocks — same deadline/502
+behavior as before, unchanged.
+
+HONESTY: the existing `stale`/`stale_at` client-side chrome
+(datamap.tsx: `if (dd.stale) note = "stale — data as of ..."`, already
+used by the upstream-failure fallback) is reused rather than a new
+concept — but only fires past `AIRCRAFT_STALE_WARN_MS` (60s, double the
+30s TTL), i.e. a FULLY MISSED refresh cycle. The routine one-cycle
+refresh handoff (the normal 30s-60s window while the background fetch
+is in flight) stays silent — marking every third-or-so poll "stale"
+when the data is 30-45s old and a refresh is already in flight would be
+honesty-chrome noise, not a real problem, and would violate the PREMIUM
+EXPERIENCE STANDARD's "every number visibly carries freshness ... the
+honesty machinery" bar by crying wolf on cue every TTL.
+
+RATCHET: `routeGuards.ts` gained `swrDecision(ageMs, ttlMs,
+staleWarnMs): {refresh, stale}` — the refresh/stale decision extracted
+as a pure function (same testability precedent as `raceDeadline`/
+`slotExpired`/`makeSlot`, all deliberately import-free so route logic
+is unit-testable without booting the whole app + db). 3 new tests in
+`routeGuards.test.ts` pin the three regions (fresh/silent-refresh/
+labeled-stale) exactly at their boundaries. The existing wiring-pin test
+("routes.ts: trains + aircraft use raceDeadline/slot expiry...") had to
+be adjusted — it text-sliced from `app.get("/api/data/aircraft"` +
+3000 chars, but `raceDeadline`/`slotExpired` now live in a shared
+`getOrStartAircraftFetch` helper defined just above the route (called
+from both the cold path and the background refresh) — widened the
+slice's start anchor to that helper's own definition and end to +3500
+chars (measured: the real gap is 3239 chars) and added a `swrDecision(`
+assertion so the new mechanism is pinned too, not just the two it
+replaced.
+
+VERIFICATION: fresh sandbox had no `node_modules` at all — `npm ci`
+run first (487 packages). `npm run test:node`: 823 passed, 0 failed
+(the initial run via bare `npx tsx` showed 7 failures that were
+`ERR_MODULE_NOT_FOUND` from the missing install, not real regressions —
+confirmed by rerunning after `npm ci`). `npx tsc --noEmit`: 71 errors,
+byte-identical to the documented baseline (`grep` confirmed none land
+in `routes.ts`/`routeGuards.ts`). `npm run build`: clean (dist/public +
+dist/index.cjs built; pre-existing chunk-size/CSS warnings unrelated).
+Python: `python3 -m pytest -q` needed `pip install pytest` +
+`-r requirements.txt` in this fresh sandbox (also missing); once
+installed: 833 passed, 1 skipped — matches the documented baseline (0
+Python files touched by this change, so this is a moot but confirmed
+green gate). BACKTEST: N/A — pure server caching/latency change to a
+RAW overlay route, no scoring/sizing/trading-logic path touched.
+
+NEXT: Wave 1's remaining slices (S-A2 vessels delta TTL, S-A3 layers
+registry cache-control, S-A4 logging middleware double-stringify, S-A5
+pre-stringified static datacore JSONs, S-A6 trains delta) are each
+their own PR per the audit's own rule ("each slice = own PR + tests");
+S-A2 (one-constant TTL fix) is the next-cheapest win queued in
+scale_program.md. `research/scale_program.md` not edited this session
+(the backlog document already states the plan accurately; this entry
+is the record that S-A1 shipped).
+
+PR: https://github.com/mctils12-arch/voltradeai/pull/573 (branch
+`claude/busy-fermi-dgu1qu`), subscribed to PR activity per the human's
+standing instruction.
