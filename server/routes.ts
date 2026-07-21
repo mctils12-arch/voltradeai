@@ -96,7 +96,7 @@ import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
-import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
+import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
@@ -808,6 +808,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
   const aircraftInflight: Map<string, InflightSlot<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
+  // [SPEED WAVE 1 S-A1] fresh-serve window before a background refresh is
+  // triggered; staleWarn is the outer bound past which the client is told
+  // the payload may be outdated (a full missed refresh cycle, not routine
+  // handoff) — see swrDecision's doc comment in routeGuards.ts.
+  const AIRCRAFT_TTL_MS = 30_000;
+  const AIRCRAFT_STALE_WARN_MS = 60_000;
 
   const backoffActive = (p: string) => (feedBackoff[p]?.until || 0) > Date.now();
   const backoffBump = (p: string) => {
@@ -853,6 +859,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return { source: sources.join(" + "), kind: "raw", time, ...tilingEnvelope(plan, discsOk, !tiled), count: aircraft.length, aircraft };
   }
 
+  // Shared in-flight-deduped fetch: the route's cold path awaits this via
+  // raceDeadline; the SWR warm path fires it without awaiting (background
+  // refresh) — one slot per bbox key either way, so concurrent visitors
+  // and a background refresh can never double-hit the upstreams.
+  function getOrStartAircraftFetch(key: string, lamin: number, lamax: number, lomin: number, lomax: number, tiled: boolean): Promise<any> {
+    let slot = aircraftInflight.get(key);
+    if (slotExpired(slot, Date.now())) {
+      slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax, tiled), Date.now(), (self) => {
+        if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
+      });
+      aircraftInflight.set(key, slot);
+    }
+    return slot!.p;
+  }
+
+  function setAircraftCache(key: string, data: any) {
+    aircraftCache.set(key, { at: Date.now(), data });
+    if (aircraftCache.size > 20) {
+      const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) aircraftCache.delete(oldest[0]);
+    }
+  }
+
+  // [SPEED WAVE 1 S-A1] Fire-and-forget refresh for an expired-but-present
+  // cache entry — the route already responded from cache by the time this
+  // settles; failures are swallowed (the next poll's swrDecision will just
+  // try again, same as any other missed refresh cycle).
+  function refreshAircraftInBackground(key: string, lamin: number, lamax: number, lomin: number, lomax: number, tiled: boolean) {
+    getOrStartAircraftFetch(key, lamin, lamax, lomin, lomax, tiled)
+      .then((data) => setAircraftCache(key, data))
+      .catch(() => {});
+  }
+
   app.get("/api/data/aircraft", async (req, res) => {
     complianceAuditTick();
     // SCALE S1(b): short shared cache — tabs/users on the same (rounded)
@@ -873,7 +912,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .every((v) => v !== undefined && Number.isFinite(parseFloat(String(v))));
     const key = `${lamin},${lamax},${lomin},${lomax}|${tiled ? "t" : "1"}`;
     const hit = aircraftCache.get(key);
-    if (hit && Date.now() - hit.at < 30_000) {
+    if (hit) {
+      // [SPEED WAVE 1 S-A1] Any existing snapshot — even past its TTL —
+      // answers immediately; never block the response on the upstream
+      // fetch (measured cold-cache TTFB 3.8s vs 0.21s warm). A due-for-
+      // refresh entry kicks a fire-and-forget background fetch so the
+      // NEXT poll finds fresh data waiting; only a fully missed refresh
+      // cycle (staleWarn) tells the client the payload may be outdated.
+      const { refresh, stale } = swrDecision(Date.now() - hit.at, AIRCRAFT_TTL_MS, AIRCRAFT_STALE_WARN_MS);
+      if (refresh) refreshAircraftInBackground(key, lamin, lamax, lomin, lomax, tiled);
       // Delta support: if the client already holds this snapshot, don't
       // re-send the payload.
       if (String(req.query.since || "") === String(hit.data.time)) {
@@ -882,36 +929,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // SCALE S1(a): optional ?bbox= viewport filter (scale_program.md).
       // Absent/invalid bbox = payload unchanged; helper lives in viewport.ts
       // so this handler body (and the raceDeadline guard window) is untouched.
-      return res.json(applyViewport(({ ...hit.data, cached: true }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
+      return res.json(applyViewport(
+        { ...hit.data, cached: true, ...(stale ? { stale: true, stale_at: hit.at } : {}) },
+        req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat],
+      ));
     }
     try {
-      // In-flight dedup: concurrent visitors on the same bbox share ONE
-      // upstream request (rate-limit protection is server-wide, not per-tab).
-      // Same stuck-slot defense as trains ([REPAIR 2026-07-05]): a slot
-      // older than the expiry is abandoned, no request waits past the route
-      // deadline (falls to stale-beats-spinner below), and a late-settling
-      // orphan can't clobber its replacement.
-      let slot = aircraftInflight.get(key);
-      if (slotExpired(slot, Date.now())) {
-        slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax, tiled), Date.now(), (self) => {
-          if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
-        });
-        aircraftInflight.set(key, slot);
-      }
-      const data = await raceDeadline(slot!.p, ROUTE_DEADLINE_MS, "aircraft");
-      aircraftCache.set(key, { at: Date.now(), data });
-      if (aircraftCache.size > 20) {
-        const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
-        if (oldest) aircraftCache.delete(oldest[0]);
-      }
+      // No cache entry at all for this bbox key (first hit, or long since
+      // evicted) — this is the only path that still blocks on the
+      // upstream. In-flight dedup: concurrent visitors on the same bbox
+      // share ONE upstream request (rate-limit protection is server-wide,
+      // not per-tab). Same stuck-slot defense as trains ([REPAIR
+      // 2026-07-05]): a slot older than the expiry is abandoned, no
+      // request waits past the route deadline (falls to the 502 below),
+      // and a late-settling orphan can't clobber its replacement.
+      const data = await raceDeadline(getOrStartAircraftFetch(key, lamin, lamax, lomin, lomax, tiled), ROUTE_DEADLINE_MS, "aircraft");
+      setAircraftCache(key, data);
       if (String(req.query.since || "") === String(data.time)) {
         return res.json({ unchanged: true, time: data.time, count: data.count });
       }
       res.json(applyViewport(data, req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
     } catch (e: any) {
-      // Stale-beats-spinner (DESIGN.md performance budget): serve the last
-      // snapshot with its timestamp rather than an empty error.
-      if (hit) return res.json(applyViewport(({ ...hit.data, cached: true, stale: true, stale_at: hit.at }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
+      // No cache existed to fall back on (the SWR branch above already
+      // handles every case where one does) — an honest outage response.
       res.set("Cache-Control", "no-store"); // never let an edge cache an outage
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }

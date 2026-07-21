@@ -56,6 +56,19 @@ export function slotExpired<T>(slot: InflightSlot<T> | null | undefined, nowMs: 
   return !slot || nowMs - slot.at > maxAgeMs;
 }
 
+/** [SPEED WAVE 1 S-A1, scale_program.md] Stale-while-revalidate decision
+ *  for cache-backed routes (aircraft cold-cache TTFB measured 3.8s vs
+ *  0.21s warm). A cache entry past ttlMs still serves the caller
+ *  IMMEDIATELY — never blocks a response on a slow upstream — but should
+ *  kick a background refresh. Only past staleWarnMs (a full missed
+ *  refresh cycle, not just "due for one") does the entry get labeled
+ *  `stale` for the client's honesty chrome (DESIGN.md) — the routine
+ *  refresh handoff between polls must stay silent, or every route using
+ *  this pattern would flicker a false staleness warning on cue every TTL. */
+export function swrDecision(ageMs: number, ttlMs: number, staleWarnMs: number): { refresh: boolean; stale: boolean } {
+  return { refresh: ageMs >= ttlMs, stale: ageMs >= staleWarnMs };
+}
+
 /** Makes a slot whose cleanup is IDENTITY-GUARDED: when the promise
  *  settles it clears itself via `clear(slot)` only if the holder still
  *  points at THIS slot — an abandoned orphan settling late can never
