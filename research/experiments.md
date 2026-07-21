@@ -23584,3 +23584,57 @@ re-datum + the chart's bounded retries.
 VERIFICATION: client lib battery green (612 incl. #571's FAA tests after
 mid-session fast-forward — #571 took v1.0.457); verify_datum probe as
 above; harness re-run on the MERGED build gating the push. BACKTEST: N/A.
+
+## 2026-07-21 (human-directed session, round 12) [PRODUCT] — Follow camera centers the PLANE, preset popout, speed audit filed (v1.0.459, T-CLIENT)
+
+TYPE: [PRODUCT] (live report + 1.3s screen recording: "the plane needs to
+stay in the middle of the window" when following/zooming; "natural night
+terrain minimal need to be moved … left-hand top corner … pops out to the
+right … when your mouse is not over it it goes away"; "the map as a whole
+… very slow load slow the data is slow"; "the plane when clicked on
+what's moving all over the place — find out the reason why").
+
+VIDEO DIAGNOSIS (frames extracted at 10fps): the follow camera centered
+the plane's GROUND SHADOW, so at pitch+exaggeration the rendered plane
+sat at the top edge/off-screen; and TWO camera writers fought — the rig's
+damped per-frame recenter vs the 300ms marker-tick jumpTo — producing the
+recorded lurch. Root causes fixed:
+
+1. 3D-CENTERED FOLLOW: followTarget now carries elevM (MSL × active
+   vertical scale); the rig centers the camera ON THE PLANE
+   (setCenterClampedToGround(false) + elevation) — the sat-lock
+   precedent. TWO MapLibre traps probe-caught on the way: (a) with
+   terrain enabled, jumpTo re-clamps center elevation to the GROUND
+   before applying options — elevation must ride INSIDE each jumpTo's
+   options (a separate setCenterElevation call is wiped by the next
+   jumpTo); fixed in the rig, the marker-tick fallback, AND the sat
+   smoothFollowFrame (same latent bug under terrain); (b) the fallback
+   tick without elevation bounced the camera plane-center↔ground-center
+   whenever a slow frame let the rig stamp age past 600ms.
+2. SINGLE CAMERA WRITER: the rig stamps __vtRigFollowAt per follow frame;
+   the 300ms tick stands down while fresh — and now carries the same
+   elevation datum when it does run, so a handoff never flips the view.
+3. WAKE ON ENGAGE: nothing woke the rig when a follow engaged — if it
+   was asleep at click time, ONLY the 300ms tick recentered (the
+   recorded lurch cadence). New followActive prop wakes the loop;
+   wheel zoom orbits the center (scrollZoom around:'center') outside
+   plane view; inside plane view the orbit scheme's rig-zoom already
+   zooms around the followed craft.
+4. PRESET POPOUT: Natural/Night/Terrain/Minimal moved from bottom-center
+   to a top-left chip (shows the active preset) that expands right on
+   hover/click and collapses on mouse-leave/selection. Bottom edge freed;
+   nuke timebar takes bottom:16.
+
+VERIFIED (verify_follow.mjs, user path: saved 3.0× exag + terrain toggle
++ click + follow): plane projected EXACTLY at window centre (720,422)
+before AND after wheel zooms (z9.2→11.48), centerElevation holds 32004,
+one-datum checks green; zoom sweep z9.2-11.4 pinned; preset chip at
+(12,68), 1 pill collapsed → 5 on hover → 1 on mouse-away. 374 client lib
+tests, harness + pytest gating the push.
+
+SPEED: 4-agent full-stack audit (load/data/UI/prod-measured) COMPLETE —
+prioritized 3-wave backlog filed in research/scale_program.md
+(2026-07-21 section). Top measured: aircraft cold-cache 3.8s TTFB
+(stale-while-revalidate), vessels delta never fires (TTL<poll), layers
+registry 569ms uncached, 2.5MB JS parse per load, 1Hz whole-page React
+ticks. Wave 1 (server) is next session's first work.

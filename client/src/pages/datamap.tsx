@@ -1902,6 +1902,9 @@ export default function DataMapPage() {
   const [mapPreset, setMapPreset] = useState<string>(() => {
     try { return window.localStorage.getItem("vt-map-preset") || "natural"; } catch { return "natural"; }
   });
+  // preset popout (human 2026-07-21): collapsed chip in the top-left,
+  // expands to the right on hover/click, collapses on mouse-leave
+  const [presetOpen, setPresetOpen] = useState(false);
   useEffect(() => {
     try { window.localStorage.setItem(GLOBE_PREF_KEY, globeOn ? "1" : "0"); } catch {}
     const map = mapRef.current;
@@ -2918,13 +2921,30 @@ export default function DataMapPage() {
         set("vs", vsFpm == null ? "—" : `${vsFpm >= 0 ? "+" : ""}${Math.round(vsFpm)}`,
           vsFpm == null ? null : "fpm");
       }
-      // FOLLOW AIRCRAFT — recenter on the same glided/replay position the
-      // marker shows. NEVER while an ease is in flight (the click-frame
-      // ease and the north-lock rotation both died mid-animation when this
-      // jumpTo stomped them — live report 2026-07-20 round 2); the nav
-      // rig's followTarget covers recentering whenever the rig is awake.
+      // FOLLOW AIRCRAFT — 300ms FALLBACK recenter only. The rig owns
+      // follow recentering (per-frame, damped, 3D-centered); this tick
+      // stands down whenever the rig stamped a follow frame in the last
+      // 600ms — running both was a double-writer fight: the rig glided
+      // while this jumped, the lurching in the 2026-07-21 video. NEVER
+      // while an ease is in flight (click-frame ease / north-lock died
+      // mid-animation when stomped — live report 2026-07-20 round 2).
       if (flightFollowRef.current) {
-        try { if (!(map as any).isEasing?.()) map.jumpTo({ center: [lon, lat] }); } catch {}
+        const rigAt = (window as any).__vtRigFollowAt as number | undefined;
+        const rigDriving = rigAt != null && performance.now() - rigAt < 600;
+        try {
+          if (!rigDriving && !(map as any).isEasing?.()) {
+            // SAME DATUM AS THE RIG (probe-caught 2026-07-21): a jumpTo
+            // without `elevation` under terrain re-clamps the camera to the
+            // GROUND (maplibre camera.ts) — one fallback tick between rig
+            // frames bounced the view plane-center → ground-center → back.
+            const camElev = Number.isNaN(alt) ? null : Math.max(0, alt) * altScale;
+            if (camElev != null) (map as any).setCenterClampedToGround?.(false);
+            map.jumpTo({
+              center: [lon, lat],
+              ...(camElev != null ? { elevation: camElev } : {}),
+            } as any);
+          }
+        } catch {}
       }
     } catch { /* readouts must never break the tick */ }
   };
@@ -4239,12 +4259,16 @@ export default function DataMapPage() {
         // abort them mid-flight); the chase resumes next frame. During an
         // APPROACH the jump IS the animation — nothing to yield to.
         if (!ap && map.isZooming()) return;
+        // ELEVATION RIDES IN THE jumpTo OPTIONS (probe-caught 2026-07-21 on
+        // the aircraft follow, same bug latent here): with terrain enabled,
+        // maplibre's jumpTo re-clamps center elevation to the GROUND first
+        // and only then applies options.elevation — a separate
+        // setCenterElevation call is wiped by the next jumpTo.
+        const camElev = f.lockMode === "sat" ? p.altKm * 1000 : 0;
         if (f.lockMode === "sat") {
           (map as any).setCenterClampedToGround?.(false);
-          (map as any).setCenterElevation?.(p.altKm * 1000);
         } else {
           (map as any).setCenterClampedToGround?.(true);
-          (map as any).setCenterElevation?.(0);
         }
         if (ap) {
           // guided approach: zoom/pitch ease per frame AROUND the live craft
@@ -4254,10 +4278,11 @@ export default function DataMapPage() {
             center: [p.lonDeg, p.latDeg],
             zoom: ap.z0 + (ap.z1 - ap.z0) * k,
             pitch: ap.p0 + (ap.p1 - ap.p0) * k,
-          });
+            elevation: camElev,
+          } as any);
           if (e >= 1) camApproachRef.current = null;
         } else {
-          map.jumpTo({ center: [p.lonDeg, p.latDeg] });
+          map.jumpTo({ center: [p.lonDeg, p.latDeg], elevation: camElev } as any);
         }
       } catch {}
     };
@@ -9518,16 +9543,28 @@ export default function DataMapPage() {
           <span className="vt-nuke-year">{histYear}</span>
         </div>
       )}
-      {/* Style presets (worldview-globe G1) — real-first geographic looks,
-          bottom-center segmented control. No tactical filters. Hidden while
-          the space frame owns the viewport (a style switcher for a
-          shrinking-globe map is meta-noise; returns at the seam). */}
-      {/* also hidden while the inspect follow-camera owns the viewport —
-          a map style switcher under a craft render is meta-noise, and the
-          provenance caption needs the bottom edge clear (design 1e) */}
+      {/* Style presets (worldview-globe G1) — real-first geographic looks.
+          RELOCATED + POPOUT (human 2026-07-21: "natural night terrain
+          minimal need to be moved somewhere else, maybe the left-hand top
+          corner and when you click on it it pops out to the right … when
+          your mouse is not over it it goes away"): a compact chip in the
+          top-left showing the ACTIVE preset; hover/click expands the four
+          pills to the right; mouse-leave (or picking one) collapses.
+          Hidden while the space frame owns the viewport (unchanged). */}
       {!spaceActive && (
-      <div className="vt-preset-switch" role="group" aria-label="Map style preset">
-        {([
+      <div
+        className={`vt-preset-switch${presetOpen ? " vt-preset-open" : ""}`}
+        role="group" aria-label="Map style preset"
+        onMouseEnter={() => setPresetOpen(true)}
+        onMouseLeave={() => setPresetOpen(false)}
+      >
+        <button className="vt-preset-pill vt-preset-chip" aria-expanded={presetOpen}
+                aria-haspopup="true" aria-label="Map style presets"
+                onClick={() => setPresetOpen((v) => !v)}>
+          <Mountain size={12} aria-hidden />
+          {{ natural: "Natural", night: "Night", terrain: "Terrain", minimal: "Minimal" }[mapPreset] ?? mapPreset}
+        </button>
+        {presetOpen && ([
           ["natural", "Natural"],
           ["night", "Night"],
           ["terrain", "Terrain"],
@@ -9537,7 +9574,7 @@ export default function DataMapPage() {
             key={id}
             className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
             aria-pressed={mapPreset === id}
-            onClick={() => setMapPreset(id)}
+            onClick={() => { setMapPreset(id); setPresetOpen(false); }}
           >
             {label}
           </button>
@@ -9594,23 +9631,35 @@ export default function DataMapPage() {
         }}
         followTarget={() => {
           // per-frame follow target — the SAME position the marker/tag
-          // shows: glided live fix, or the replay sample under the playhead
+          // shows: glided live fix, or the replay sample under the playhead.
+          // elevM = display altitude (MSL × active vertical scale): the rig
+          // centers the camera on the PLANE in 3D, so it sits mid-window at
+          // any pitch/exaggeration (live report 2026-07-21 — the ground-
+          // shadow center pushed the rendered plane to the screen edge).
           if (!flightFollowRef.current) return null;
           const st = trackSamplesRef.current;
           if (!st || st.samples.length === 0) return null;
           const clock = flightClockRef.current;
+          const scale = mapRef.current?.getTerrain?.() ? terrainExagRef.current : 1;
+          const elevOf = (altM: number | null | undefined) =>
+            altM == null || Number.isNaN(altM) ? undefined : Math.max(0, altM) * scale;
           if (clock.live) {
             const lv = airFollowLiveRef.current;
             if (lv && lv.id === airCrumbsRef.current.id) {
               const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-              return { lng: lv.fix.lo + (lv.vel?.dLon ?? 0) * dt, lat: lv.fix.la + (lv.vel?.dLat ?? 0) * dt };
+              return {
+                lng: lv.fix.lo + (lv.vel?.dLon ?? 0) * dt,
+                lat: lv.fix.la + (lv.vel?.dLat ?? 0) * dt,
+                elevM: elevOf(lv.fix.al),
+              };
             }
             const end = st.samples[st.samples.length - 1];
-            return { lng: end.lon, lat: end.lat };
+            return { lng: end.lon, lat: end.lat, elevM: elevOf(end.altM) };
           }
           const s = trackSampleAt(st.samples, clock.t);
-          return s ? { lng: s.lon, lat: s.lat } : null;
+          return s ? { lng: s.lon, lat: s.lat, elevM: elevOf(s.altM) } : null;
         }}
+        followActive={flightFollow}
       />
       {/* hint bar — plane view only, where the orbit mouse scheme differs
           from the map's native gestures (base map needs no hint: the mouse
