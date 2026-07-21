@@ -330,6 +330,21 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   (`/api/data/border-waits`, needs a ~83-entry port-coordinate table)
   and the GEM coal-mine `geojson.gz` (needs a new server route first,
   no map layer yet).
+- **CBP border-waits /data map layer: SHIPPED 2026-07-21 (v1.0.463)** —
+  the item named directly above, same day: `client/src/lib/
+  cbpBorderCrossings.ts` (all 84 real `port_number`s from the live
+  feed — not the manifest's estimated ~83 — verified via 5 parallel
+  region-scoped research subagents against independent public sources,
+  never guessed from memory; 8 genuine duplicate CBP port-code pairs
+  for the same physical bridge documented, not silently merged) +
+  `border_waits` layer (facilities group, off by default), `vt-
+  bordercrossing` icon, color = worst published delay across a port's
+  lanes (raw feed field, not a derived signal). Full trace in
+  experiments.md. DATACORE MAXIMUS queue is clear again; the ONE
+  remaining shipped-data-no-layer gap is the GEM coal-mine
+  `geojson.gz` (needs a new server route first — no route exists yet,
+  unlike this item and FAA which only needed a coordinate table on
+  top of an already-shipped route).
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

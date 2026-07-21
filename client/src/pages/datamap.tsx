@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -16,6 +16,7 @@ import {
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
+import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
@@ -393,7 +394,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait";
   title: string;
   subtitle: string;
   body: string;
@@ -537,7 +538,7 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
-  plant_operations: "facilities", faa_airports: "facilities",
+  plant_operations: "facilities", faa_airports: "facilities", border_waits: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -865,7 +866,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports || enabled.border_waits) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -900,6 +901,16 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-airport" color={faaEventColor("ground_delay")} label="Ground Delay Program" />
                     <LegendIcon icon="vt-airport" color={faaEventColor("delay")} label="Arrival/Departure Delay" />
                     <span className="vt-legend-note">FAA National Airspace System status — curated major-airport subset, snapshot only (not an event log)</span>
+                  </>
+                )}
+                {enabled.border_waits && (
+                  <>
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(0)} label="No Delay" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(15)} label="Wait ≤30 min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(45)} label="Wait 31-60 min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(90)} label="Wait 60+ min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(null)} label="Not Published" />
+                    <span className="vt-legend-note">CBP land-border wait times — worst currently published lane per crossing, hourly snapshot</span>
                   </>
                 )}
               </div>
@@ -7086,6 +7097,121 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.faa_airports, mapReady, setStatus]);
 
+  // ── CBP land-border wait times (RAW — server/cbpBorderWait.ts's own
+  // manifest named this map layer "deferred with the FAA one" since
+  // 2026-07-05; both coordinate tables now exist). Position comes from a
+  // CURATED port-of-entry table (client/src/lib/cbpBorderCrossings.ts) —
+  // a port_number we don't have coordinates for is honestly omitted, never
+  // guessed. One marker per port_number (the feed reports up to 3 lane
+  // classes per port); color is the WORST currently published delay across
+  // that port's lanes, a raw numeric field the feed itself reports, never a
+  // derived signal. Off by default (reference layer, same precedent as
+  // buoys/quakes/faa_airports). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.border_waits) {
+      try {
+        if (map?.getLayer("border-waits-sym")) map.removeLayer("border-waits-sym");
+        if (map?.getSource("border-waits")) map.removeSource("border-waits");
+      } catch {}
+      setStatus("border_waits", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("border_waits", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/border-waits");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("border_waits", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const waits: any[] = d.waits || [];
+        const byPort = new Map<string, any[]>();
+        for (const w of waits) {
+          const arr = byPort.get(w.port_number);
+          if (arr) arr.push(w); else byPort.set(w.port_number, [w]);
+        }
+        const matched: { port_number: string; coord: BorderCrossingCoord; lanes: any[] }[] = [];
+        let unmatched = 0;
+        byPort.forEach((lanes, port_number) => {
+          const coord = BORDER_CROSSING_COORDS[port_number];
+          if (!coord) { unmatched++; return; }
+          matched.push({ port_number, coord, lanes });
+        });
+        const fc = {
+          type: "FeatureCollection",
+          features: matched.map(({ port_number, coord, lanes }) => {
+            const delays = lanes.map((l) => l.delay_min).filter((v): v is number => v != null);
+            const worst = delays.length ? Math.max(...delays) : null;
+            return {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [coord.lon, coord.lat] },
+              properties: {
+                port_number, name: coord.name, city: coord.city, state: coord.state,
+                border: lanes[0]?.border || null,
+                worstDelay: worst,
+                color: borderDelayColor(worst),
+                lanes: JSON.stringify(lanes),
+              },
+            };
+          }),
+        };
+        const src: any = map.getSource("border-waits");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("border-waits", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "border-waits-sym", type: "symbol", source: "border-waits",
+            layout: {
+              "icon-image": "vt-bordercrossing",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.4, 8, 0.7],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-halo-color": "rgba(5,10,19,0.95)", "icon-halo-width": 1.3 },
+          });
+          detach = attachLayerInteractions(map, "border-waits-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            let lanes: any[] = [];
+            try { lanes = JSON.parse(p.lanes || "[]"); } catch {}
+            const dossierKey = `borderwait:${p.port_number}:${Date.now()}`;
+            setDetail({
+              kind: "borderwait",
+              title: `${p.name} (${p.city}, ${p.state})`,
+              subtitle: `${p.border || "US Border"} · worst lane: ${borderDelayLabel(p.worstDelay)}`,
+              stats: lanes.slice(0, 4).map((l) => ({
+                label: borderLaneLabel(l.lane), value: borderDelayLabel(l.delay_min),
+              })),
+              sourceTag: "CBP Border Wait Times",
+              body: lanes.map((l) =>
+                `${borderLaneLabel(l.lane)}: ${l.status || "—"}` +
+                (l.lanes_open != null ? ` · ${l.lanes_open} lane(s) open` : "") +
+                (l.update_time ? ` · updated ${l.update_time}` : "")
+              ).join("\n") +
+                `\n\nCBP Border Wait Times — hourly snapshot, published locally by each crossing's serving region. Displayed as-is, not for safety-of-life use.`,
+              dossierKey,
+            });
+            // Border crossings aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        setStatus("border_waits", "active", matched.length,
+          `hourly snapshot${unmatched ? ` · ${unmatched} port(s) outside our coordinate table` : ""}`);
+      } catch {
+        if (!stop) setStatus("border_waits", "error");
+      }
+    };
+    load();
+    // hourly refresh, hidden-tab gated (matches server's hourly poll cadence)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.border_waits, mapReady, setStatus]);
+
   // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
   // domain — first Location Context Engine hazard layer. Points colored by NPL
   // status; every site passed the server-side data-quality gate. Facts only —
@@ -9021,6 +9147,7 @@ export default function DataMapPage() {
     id === "powerplants" ? <Zap size={15} /> :
     id === "plant_operations" ? <Gauge size={15} /> :
     id === "faa_airports" ? <TowerControl size={15} /> :
+    id === "border_waits" ? <Milestone size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -9054,7 +9181,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
