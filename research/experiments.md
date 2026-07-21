@@ -3,6 +3,181 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-21 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: four fresh live TIER2-ERROR occurrences REFUTE the zombie-pileup theory (not one sample); layer2_prefetch surfaced in the daemon health probe so the still-open csp_layer2_prefetch correlation self-diagnoses on the next occurrence, no live stakeout needed (v1.0.465, T-BOT-adjacent)
+
+TERRITORY: T-BOT-adjacent (`voltrade_daemon.py`, `server/bot.ts` outside
+frozen paths — same territory the prior three sessions on this item used)
++ their test files (`test_daemon_active_dispatches.py`,
+`server/tier2DaemonTimeoutVisibility.test.ts`) + SHARED minimal
+(`package.json`/`package-lock.json` version, `research/*`, last commit per
+MERGE-ORDER PROTOCOL). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read (last entries: 2026-07-21 CBP layer,
+2026-07-20 KNOWN BROKEN #18 continuation v1.0.454). `research/
+open_questions.md` KNOWN BROKEN section read in full, item #18 in
+particular (its full history from FOUND 2026-07-10 through the v1.0.454
+dispatch-detail instrumentation). `research/wishlist.md` DATACORE MAXIMUS
+block skimmed (unrelated territory this session).
+
+LOOP-HEALTH RATIO: last 10 dated `## ` headers before this entry — v1.0.451
+PRODUCT, v1.0.452 PRODUCT, v1.0.453 REPAIR, v1.0.455 PRODUCT, v1.0.456
+REPAIR, v1.0.457 PRODUCT, v1.0.458 REPAIR, v1.0.459 PRODUCT, v1.0.460
+PRODUCT, v1.0.461 REPAIR, v1.0.462 PIPELINE, v1.0.464 REPAIR — counting the
+most recent 10: 5 REPAIR / 4 PRODUCT / 1 PIPELINE. Under the 7/10 thrash
+threshold; no meta-problem override.
+
+LIVE HEALTH CHECK (GOAL priority 1, checked first regardless of session
+type): `/api/health` — `status: ok`, `bot.liveness.dark: false` (no
+LIVENESS ALARM), `drawdownPct: "0.0"`, Alpaca account ACTIVE,
+`scanner.consecutiveFailures: 0`. No higher-priority break pre-empting this
+session's own investigation.
+
+PRIMARY ACTION SELECTION: per REPAIR MANDATE, checked `research/
+open_questions.md`'s KNOWN BROKEN section first. Item #18 (TIER2-ERROR
+daemon-timeout storm, open since 2026-07-10, four prior sessions of
+progressively narrowing root-cause work, each shipping a new instrument
+rather than a blind guess) is the only KNOWN BROKEN item with both an open
+status and a concrete, actionable NEXT STEP. Checked `/api/diag/audit`
+live rather than assume: the storm was ACTIVELY RECURRING at session start
+— `type=TIER2-ERROR` showed 4 fresh occurrences in the prior ~2h15m
+(13:36:55Z, 13:42:55Z, 13:49:12Z, 15:48:27Z). This is Priority-1/2 repair
+work on a live, currently-recurring break — SESSION BUDGET's own top-ranked
+action, ahead of new research or judging a matured experiment.
+
+FINDING 1 — ZOMBIE-PILEUP THEORY REFUTED, four independent data points, not
+one: every one of the 4 fresh occurrences carries the v1.0.454
+dispatch-detail the prior session shipped specifically to test this theory:
+`active_dispatches=2 [run_full_scan:300s, health:0s]`. The second dispatch
+is the `health` probe call ITSELF (elapsed 0s — it's the one bot.ts issues
+at the moment it builds this very audit line), not a second lingering
+`run_full_scan` from a prior cycle. Per the prior session's own stated
+branch ("a short-lived or absent second entry refutes it, and the search
+returns to the still-open csp_layer2_prefetch correlation"), this is a real
+refutation (REASONING STANDARD #4 — one sample would be thin, four
+identical readings across 2h15m is not) and the investigation moves to the
+next named candidate rather than re-guessing zombie-pileup a third time.
+
+FINDING 2 — WHY THE csp_layer2_prefetch CORRELATION HAS STAYED UNCAUGHT
+FOR TWO SESSIONS RUNNING, and why a third live-stakeout attempt would
+likely fail the same way: both prior sessions (v1.0.418, v1.0.454) tried
+to catch it by polling `/api/diag/timings` during a live occurrence — but
+that endpoint only ever reflects `tier_timings` from the LAST
+`scan_market()` call that actually RETURNED to bot.ts. A scan hung past
+its own 300s RPC timeout has, by construction, not returned — its
+`tier_timings` are structurally invisible to that endpoint regardless of
+poll timing. REASONING STANDARD #4 applied to the METHOD, not just the
+theory: repeating an approach already missed-by-absence twice, unchanged,
+would just produce a third miss. Fixed the structural gap instead of
+re-attempting the stakeout.
+
+READ BEFORE WRITE before deciding this was safe/correct: read
+`csp_universe.py`'s `_layer2_score()` (the full prefetch block,
+`_LAST_LAYER2_PREFETCH` update points) end to end to confirm exactly when
+the module-level dict is written (after `as_completed`'s wall-clock cutoff
+AND after the enclosing `with ThreadPoolExecutor(...)` block's own
+`__exit__` — verified the `logger.info`/`_LAST_LAYER2_PREFETCH.update`
+calls sit OUTSIDE the `with` block by indentation, so `elapsed_sec` already
+captures any extra time `shutdown(wait=True)` spends blocking on
+still-running (uncancellable) futures — a candidate new hypothesis this
+session considered and found ALREADY COVERED by the existing measurement
+point, not a fresh gap needing its own instrument). Also confirmed
+`voltrade_daemon.py`'s dispatcher never lazy-imports `csp_universe`
+directly (`_modules_loaded` only tracks modules the dispatcher itself
+imports via `_lazy_import`; `csp_universe` enters `sys.modules` via
+`tiered_strategy.py`'s own `import` during `run_full_scan`) — reading
+`sys.modules.get("csp_universe")` directly is the correct, side-effect-free
+way to check without triggering an unwanted cold import from a bare health
+check.
+
+FIX (v1.0.465, pure visibility, zero behavior change — same class as every
+prior instrumentation pass on this item): `voltrade_daemon.py` gained
+`_layer2_prefetch_snapshot()`, wired into `_health()`'s return dict as a
+new `layer2_prefetch` field. It reads
+`csp_universe.get_last_layer2_prefetch_stats()` (the v1.0.418 instrument)
+directly off `sys.modules`, plus a computed `age_sec` (seconds since that
+stats dict's own `checked_at`). The key property this exploits: `_health()`
+runs as its own RPC dispatch on a separate thread from a hung
+`run_full_scan` — so calling it (which bot.ts's daemon-timeout catch
+branch ALREADY does, immediately, for `active_dispatch_detail`) reads
+csp_universe's module-level dict LIVE, mid-hang, showing whatever the
+CURRENTLY-STUCK scan's own Layer 2 phase last recorded — not a stale value
+left over from whichever scan happened to finish most recently.
+`server/bot.ts`'s daemon-timeout audit line now formats this as
+`layer2_prefetch={cache_hit=... completed=X/Y elapsed=...s
+budget_exceeded=... age=...s}` alongside the existing
+`active_dispatch_detail` — both signals this item has chased since
+2026-07-19 now land in one audit-log line automatically.
+
+DELIBERATELY NOT DONE: no threshold/behavior change to
+`PREFETCH_BUDGET_S`, `deep_score_limit`, `REQUEST_TIMEOUT_SEC`, or the
+shared throttle rate. Per this item's own 11-day discipline (two blind
+threshold guesses — tmpCleanup, SQLite-WAL — were both refuted before
+shadowFleet's direct-measurement fix actually worked), no fix ships until
+a live occurrence's `layer2_prefetch` reading actually implicates or
+clears Layer 2 specifically.
+
+RATCHET: `test_daemon_active_dispatches.py` gained `TestLayer2PrefetchSnapshot`
+(6 tests: empty when csp_universe never loaded; empty when `_layer2_score`
+never ran; stats + correctly-computed `age_sec` when populated; a genuine
+exception from csp_universe PROPAGATES rather than being silently
+swallowed — caught by this session's own first pass, which had wrapped the
+call in `try/except Exception: return {}` and was immediately flagged by
+`test_silent_except_ratchet.py`'s pinned-exact-count ratchet refusing a new
+silent broad-except handler; fixed by removing the try/except entirely and
+relying on `dispatch()`'s own pre-existing outer handler, confirmed by
+asserting the RPC-level `dispatch("health", {})` call turns that same
+exception into a visible `{"status": "error"}` response, not a crash or a
+silently-empty result; `_health()` includes the `layer2_prefetch` key in
+both the empty and populated cases). `server/tier2DaemonTimeoutVisibility
+.test.ts` gained one new wiring-pinned test confirming bot.ts reads
+`hr.layer2_prefetch` and formats `cache_hit`/`budget_exceeded`/`age_sec`.
+CAUGHT BY THE HARNESS, not manual review: the silent-except violation above
+— exactly the ratchet doing its job a second time on this codebase.
+
+GATES: A/B-verified all 6 new Python tests fail against pre-fix
+`voltrade_daemon.py` (`git stash push -- voltrade_daemon.py server/bot.ts`,
+confirmed `AttributeError`/`KeyError` failures, then `git stash pop`) and
+pass post-fix. Full `python3 -m pytest -q`: 836 passed (830 baseline + 6
+new), 2 skipped, 0 failed. `npx tsx --test server/*.test.ts`: fresh
+sandbox had only `typescript` in `node_modules` — 7 failures on first run
+were `ERR_MODULE_NOT_FOUND` from the missing install, not real
+regressions; after `npm ci` (487 packages), 825 passed, 0 failed. `npx tsc
+--noEmit`: 73 errors, confirmed byte-identical to the pre-change baseline
+via `git stash` A/B (same technique, whole working tree). `npm run build`:
+clean (pre-existing chunk-size warnings only, no client files touched by
+this change anyway). `package-lock.json`'s root version had drifted stale
+to 1.0.463 against `package.json`'s already-bumped 1.0.464 (same recurring
+class four sessions have now hit) — corrected in the same edit, both
+bumped to 1.0.465.
+
+BACKTEST: N/A — pure diagnostic-visibility change to daemon health/audit
+plumbing; no scoring, sizing, or execution logic touched; PROMOTION RULE
+3's Sharpe/drawdown comparison doesn't apply.
+
+MARKET-HOURS NOTE (this session runs during market hours per its own
+instructions): this is a pure read-only diagnostic addition with no
+trading-path behavior change, so the risk of merging now is low, but
+per the standing instruction this PR should NOT be merged until after
+4:00 PM ET today unless it fixes a critical live break — it doesn't (the
+system has no LIVENESS ALARM; TIER2 scans keep succeeding on most
+cycles, this only sharpens visibility into the intermittent ones that
+fail).
+
+NEXT STEP (filed in open_questions.md item #18, not duplicated here in
+full): whichever session catches the next live TIER2-ERROR should read the
+audit line's `layer2_prefetch` block directly. `cache_hit: false` +
+`budget_exceeded: true` + a LOW `age_sec` confirms Layer 2 as a real
+contributor to that occurrence, justifying an evidence-backed threshold
+change next (reducing `deep_score_limit` or cutting Layer 2's per-cycle
+call volume). A HIGH `age_sec` points the hang elsewhere in
+`run_full_scan`'s pipeline, and per RECURRENCE ESCALATES the next session
+should widen the search past both Layer 2 and the daemon dispatch
+mechanism.
+
+PR: (opened this session, see branch `claude/eloquent-dijkstra-ada3t2` —
+not yet merged per the market-hours note above).
+
 ## 2026-07-21 [PRODUCT] — CBP land-border wait times: the /data map layer (v1.0.463, T-CLIENT, scheduled-routine session)
 
 TERRITORY: T-CLIENT (client/src/lib/cbpBorderCrossings.ts new, client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx) + SHARED minimal (datacore/layers.json layer registry entry, package.json/package-lock.json version — last commit per MERGE-ORDER PROTOCOL).

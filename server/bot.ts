@@ -3653,8 +3653,21 @@ else:
           const dispatchDetail = Array.isArray(hr?.active_dispatch_detail) && hr.active_dispatch_detail.length > 0
             ? ` [${hr.active_dispatch_detail.map((d: any) => `${d.method}:${d.elapsed_sec}s`).join(", ")}]`
             : "";
+          // DAEMON-TIMEOUT-VISIBILITY 2026-07-21 (KNOWN BROKEN #18 continuation):
+          // the item's own prior NEXT STEP asked for csp_layer2_prefetch's
+          // cache_hit/budget_exceeded correlated with a live TIER2-ERROR, but
+          // two sessions' live stakeouts (polling /api/diag/timings, which
+          // only reflects a scan that already returned) both missed the
+          // window. voltrade_daemon.py's health() now reads csp_universe's
+          // module-level stats directly (live, even mid-hang), so the
+          // correlation lands in the audit line itself the next time this
+          // fires — no stakeout required.
+          const l2 = hr?.layer2_prefetch;
+          const layer2Detail = l2 && Object.keys(l2).length > 0
+            ? ` layer2_prefetch={cache_hit=${l2.cache_hit} completed=${l2.completed}/${l2.total} elapsed=${l2.elapsed_sec}s budget_exceeded=${l2.budget_exceeded} age=${l2.age_sec}s}`
+            : "";
           daemonState = hr && hr.alive
-            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s`
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;

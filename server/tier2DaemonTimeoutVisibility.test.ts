@@ -104,6 +104,25 @@ test("KNOWN BROKEN #18 continuation 2026-07-20: the daemon branch surfaces activ
   assert.ok(daemonBranch.includes("d.method") && daemonBranch.includes("d.elapsed_sec"), "must format each active dispatch's method name and elapsed time, not just the count");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-21: the daemon branch surfaces layer2_prefetch (cache_hit/completed/total/elapsed_sec/budget_exceeded/age), not just active_dispatch_detail", () => {
+  // Two prior sessions (v1.0.418, v1.0.454) tried to catch a live
+  // TIER2-ERROR and csp_universe.py's Layer 2 prefetch stats in the SAME
+  // window by polling /api/diag/timings and missed both times — that
+  // endpoint only reflects the last scan_market() call that actually
+  // returned, never a call still hung past its own 300s timeout.
+  // voltrade_daemon.py's _health() now reads csp_universe's module-level
+  // stats live (even mid-hang, from a separate RPC thread); this pins that
+  // bot.ts actually surfaces it in the same audit line instead of needing
+  // a separate live stakeout.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("layer2_prefetch"), "must read hr.layer2_prefetch off the unwrapped health result");
+  assert.ok(daemonBranch.includes("l2.cache_hit") && daemonBranch.includes("l2.budget_exceeded"), "must format cache_hit/budget_exceeded — the exact fields this item's own NEXT STEP asks to correlate against a live TIER2-ERROR");
+  assert.ok(daemonBranch.includes("l2.age_sec"), "must surface how stale the reading is, so a future session can tell a fresh mid-hang reading from a leftover prior-scan one");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
