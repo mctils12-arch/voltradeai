@@ -204,3 +204,10 @@ test("archiveStats discovers new stream directories from disk (no hardcoded kind
   assert.equal(s.kinds.aircraft.files, 0, "position kinds stay loud even before first write");
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+test("cruise cadence is 75s (2026-07-21 3D-trail densification — 5min fixes drew 68-140km curtain slabs)", () => {
+  const cruise = { icao24: "c1", lat: 45, lon: -40, altitude_m: 11000, on_ground: false } as any;
+  assert.equal(aircraftIntervalMs(cruise, []), 75_000);
+  // ordering invariants unchanged: sites and low-altitude still sample faster
+  assert.ok(30_000 < 75_000 && 60_000 < 75_000);
+});
