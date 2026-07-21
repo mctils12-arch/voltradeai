@@ -738,7 +738,19 @@ def deep_score(ticker, quick_result, _diag=None):
             return {}
 
     macro, news_sent, intel, alt, social, finnhub = {}, {}, {}, {}, {}, {}
-    with ThreadPoolExecutor(max_workers=5) as _pool:
+    # REPAIR 2026-07-21 (KNOWN BROKEN #18 investigation): `with
+    # ThreadPoolExecutor(...) as _pool:` calls `pool.shutdown(wait=True)` on
+    # exit — a bare `.join()` with NO timeout on every worker thread,
+    # regardless of whether that thread's own `.result(timeout=15)` call
+    # below already gave up on it. A single slow/hung fetcher (e.g. a
+    # finnhub/pytrends call stalling past its own internal timeout) silently
+    # re-introduced an unbounded wait here, defeating the "parallel: ~3-4s,
+    # limited by the slowest source" contract this block's own comment
+    # documents. Manual shutdown(wait=False) makes that 15s ceiling real:
+    # abandoned threads keep running harmlessly in the background (their
+    # results are discarded) instead of blocking deep_score's return.
+    _pool = ThreadPoolExecutor(max_workers=5)
+    try:
         _f_macro    = _pool.submit(_fetch_macro)
         _f_intel    = _pool.submit(_fetch_intel)
         _f_alt      = _pool.submit(_fetch_alt)
@@ -764,6 +776,8 @@ def deep_score(ticker, quick_result, _diag=None):
             finnhub = _f_finnhub.result(timeout=15)
         except Exception:
             pass
+    finally:
+        _pool.shutdown(wait=False)
 
     # Analyst ratings + valuation multiples (yfinance) — with 5-min cache
     # WRAPPED IN SUBPROCESS with 5s hard kill to prevent yfinance hangs

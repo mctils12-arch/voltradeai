@@ -1817,6 +1817,123 @@
     re-checking against `deep_score`'s own executor usage specifically, not
     assumed to transfer).
 
+    UPDATE 2026-07-21 (scheduled-routine session), v1.0.468 —
+    `csp_layer2_prefetch` CORRELATION REFUTED WITH FRESH LIVE EVIDENCE (12
+    samples, not one), AND a genuinely different, previously-unchecked
+    mechanism found and fixed via `deep_score`'s own `ThreadPoolExecutor`
+    usage — exactly the second branch this item's own prior UPDATE named as
+    unexplored. Storm still active at session start: `/api/diag/audit?
+    type=TIER2-ERROR` showed a fresh occurrence every ~7-15 minutes across
+    2026-07-20T17:56Z through 2026-07-21T19:56Z. Every occurrence carrying
+    the v1.0.465 `layer2_prefetch` field (12 of the ~20 total in that window)
+    read `budget_exceeded=false` and a HIGH `age_sec` (336.9-871.1s, i.e.
+    Layer 2's prefetch had finished 5-14 minutes before the timeout, or
+    hadn't even needed to run that cycle) — the exact "HIGH age_sec... points
+    the hang elsewhere" branch the prior UPDATE named, now actually observed,
+    12-for-12. This refutes Layer 2 as a contributor to any of these
+    occurrences (distinct from the zombie-pileup refutation, which was about
+    the daemon dispatch mechanism, not Layer 2's own cost). Live-catch
+    attempt via `/api/diag/daemon` polling (24 samples over 8 minutes,
+    20:18-20:26Z) caught ZERO `run_full_scan` dispatches in flight at all —
+    the market had closed (~20:00 UTC) and Tier 2's own time-of-day cadence
+    slows sharply after hours, making a fresh live-stakeout unproductive
+    this session; one complete scan captured during this window finished
+    in 76.07s with `tier1_sec=39.93s`/`deep_score=30.18s`, unremarkable.
+    READ-BEFORE-WRITE of the two named-but-unchecked candidates: the VXX
+    cross-file duplicate (`macro_data.py`'s VXX fetch vs.
+    `options_scanner.py`'s `_get_vxx_ratio_raw()`) IS a byte-identical
+    request (symbols=VXX, timeframe=1Day, start=now-45d, limit=40,
+    feed=bars_feed() — verified field-for-field), but is bounded by
+    `options_scanner`'s own 60s in-memory cache and costs at most one extra
+    ~8s Alpaca call per cache-miss — too small to explain a 300s-class
+    stall on its own; not fixed this session (real, but not the priority
+    find below). `deep_score`'s own `ThreadPoolExecutor` usage (bot_engine.py
+    ~line 741, the 5-source parallel enrichment fetch — macro/intel/alt/
+    social/finnhub) WAS the productive lead: `with ThreadPoolExecutor(
+    max_workers=5) as _pool:` calls `pool.shutdown(wait=True)` on exit —
+    Python's own implementation does a bare `t.join()` with NO timeout on
+    every worker thread, REGARDLESS of whether that thread's own
+    `.result(timeout=15)` call (immediately above, in the same block) already
+    gave up on it. This silently defeats the block's own documented "~3-4s,
+    limited by the slowest source" contract: a single slow/hung fetcher
+    (candidates checked: `finnhub_data.py`'s `_finnhub_get` sits behind a
+    process-wide 55-req/min token bucket that calls `time.sleep(wait_time)`
+    while HOLDING no lock on the sleep itself but still serializing all
+    finnhub callers through one shared budget; `social_data.py`'s
+    `get_google_trends` calls the abandoned-upstream `pytrends` library,
+    6h-cached but capable of a live call on any never-before-scored ticker)
+    could block `deep_score`'s return for however long that thread actually
+    takes to finish — not the 15s ceiling the code appears to promise. This
+    is the exact "already-running-futures-block-shutdown pattern" this
+    item's own prior UPDATE flagged for Layer 2 and found already covered
+    there (Layer 2 uses its own `ThreadPoolExecutor` differently, gated by
+    `PREFETCH_BUDGET_S` — see v1.0.418) but had NOT yet checked against
+    `deep_score`'s own, structurally different, per-candidate executor.
+    Structural note: the outer deep-score loop's `35s hard cap
+    preserved` check (bot_engine.py, "MEM FIX 2026-04-21") only fires
+    BETWEEN candidates, not during one — so a single candidate's
+    `deep_score()` call hanging on this defect is invisible to that cap
+    entirely, and (being serial, one candidate at a time, up to 15) could
+    in principle stall the whole scan well past both the intended 35s
+    budget and the outer 300s daemon timeout.
+    FIX (v1.0.468, `bot_engine.py`, mechanical correctness fix — restores
+    documented behavior, no scoring/sizing/threshold value touched, RULE
+    REVIEW's evidence gate does not apply): replaced the context-manager
+    form with `_pool = ThreadPoolExecutor(max_workers=5)` /
+    `try: ... finally: _pool.shutdown(wait=False)`. Abandoned threads keep
+    running harmlessly in the background (their results are simply
+    discarded, matching the existing `except Exception: pass` degrade-to-
+    default behavior on timeout) instead of blocking the caller. Zero
+    change to any value deep_score can return — only removes the accidental
+    extra wait.
+    RATCHET: `test_deep_score_parallel_fetch_timeout.py` (NEW, 3 tests) —
+    (1) a source-shape pin (mirrors `test_deep_score_source_diag.py`'s
+    convention) asserting the context-manager form is gone and
+    `_pool.shutdown(wait=False)` is present; (2)+(3) a real behavioral A/B
+    reproduction of the bug class itself using the identical
+    ThreadPoolExecutor idiom (not deep_score's heavy real dependencies) —
+    proves the OLD pattern blocks ~1.5s past a 0.2s `.result(timeout=...)`
+    give-up, and the FIXED pattern returns promptly instead. A/B-verified
+    via `git stash` that the source-shape test fails against pre-fix
+    `bot_engine.py` and all 3 pass post-fix.
+    GATES: `python3 -m pytest -q` 839 passed (836 baseline + 3 new), 2
+    skipped, 0 failed (a fresh sandbox needed `pip install pytest
+    openpyxl` first — same recurring clean-container gap every recent
+    session has logged, not a real regression). `npx tsx --test
+    server/*.test.ts` 836 passed, 0 failed (zero TS files touched).
+    `npx tsc --noEmit` 71 errors, confirmed byte-identical to the pre-change
+    baseline via `git stash` A/B (drifted from the 73 the last session
+    recorded — untouched by this diff either way, a sandbox/dependency
+    artifact). `npm run build` clean. `package-lock.json`'s root version had
+    drifted stale to 1.0.466 against `package.json`'s 1.0.467 (same
+    recurring class five sessions running now) — corrected in the same
+    edit, both bumped to 1.0.468.
+    BACKTEST: N/A — this is a latency/correctness fix to the enrichment
+    fetch's own timeout handling; it changes no scoring, sizing, or trading
+    decision (every fetcher's returned value on a slow path is still the
+    exact same default `{}`/`({}, {})` it already fell back to before this
+    fix — only how long the caller waits to get there changes).
+    NOT YET LIVE-CONFIRMED (same honest posture as every prior update on
+    this item). NEXT STEP for whichever session checks in once this
+    deploys: re-run this item's own established live-catch procedure
+    (`/api/diag/audit?type=TIER2-ERROR` + `/api/diag/timings` /
+    `/api/diag/daemon`) during MARKET HOURS (this session's own stakeout
+    attempt failed only because it ran after the 20:00 UTC close, when
+    Tier 2's cadence slows and few/no scans were in flight — try again
+    9:30am-4pm ET). If the ~7-15min TIER2-ERROR cadence stops or drops
+    sharply, this fix worked. If it continues unchanged, this refutes THIS
+    hypothesis in turn (a THIRD refutation since the shadowFleet fix, after
+    zombie-pileup and Layer 2) and the VXX cross-file dedup (real but
+    minor, not yet applied) plus a direct profiling pass on `deep_score`'s
+    own candidate loop (e.g. temporarily logging per-candidate wall time)
+    become the next concrete steps — at this point RECURRENCE ESCALATES'
+    "architecture smell" bar is worth taking seriously: consider proposing
+    in wishlist.md the ability to attach a CPU/wall-clock profiler to a live
+    daemon process, since five mechanisms investigated (shadowFleet fixed;
+    rate-limiter dedup partial; zombie-pileup refuted; Layer 2 refuted; this
+    ThreadPoolExecutor fix pending live confirmation) without a second
+    confirmed fix is a lot of session-time against one recurring symptom.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
