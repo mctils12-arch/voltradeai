@@ -222,6 +222,16 @@
    "description": "Direct plant-utilization ground truth from EPA's own unit-level Continuous Emissions Monitoring reporting — the ladder gate-1 truth source for the power vertical's satellite/imagery inference roots, not itself a trading signal. v1 pilot scope: Texas only (matches GRID VISION's ERCOT focus); quarterly cadence — a quarter is only queryable once fully closed, so this is NOT live/daily despite per-day granularity inside each record. Marker color is a DATA-DRIVEN utilization tier (operating hours actually reported, as a fraction of every possible unit-hour that quarter) — not fuel type; facilities whose EPA facility/attributes join missed a position are honestly omitted, never guessed. Served via the shared api.data.gov DEMO_KEY unless a dedicated EPA_CAMD_API_KEY is configured (disclosed on click)."
   },
   {
+   "id": "faa_airports",
+   "name": "FAA airport status (ground stops / delays / closures)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "FAA National Airspace System Status (nasstatus.faa.gov, public domain, keyless)",
+   "description": "Ground stops, ground-delay programs, arrival/departure delays, and closures as currently published by the FAA — a rolling SNAPSHOT, not an event log (no published end-to-end durations; this session's own capture time is the only lower bound on how long an event has been active). Position comes from a curated client-side table of major US commercial + cargo-hub airports (client/src/lib/faaAirports.ts) since the feed itself reports only a 3-letter ARPT code, no coordinates — an event at an airport outside that table is honestly omitted from the map, never guessed, and the count is disclosed in the layer's status line. Marker color is the event TYPE the feed itself reports (ground stop / closure / ground-delay program / arrival-departure delay), never a graded severity inferred from the free-text avg/max delay strings. RAW, no predictive claim; not for safety-of-life use."
+  },
+  {
    "id": "nukefacilities",
    "name": "Nuclear facilities (fuel cycle)",
    "kind": "raw",

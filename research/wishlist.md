@@ -313,6 +313,23 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   facility/attributes join missed a position render nothing, honestly,
   rather than guessed; the click card discloses the unmatched count.
   Full trace in experiments.md. Program queue is clear again.
+- **FAA airport-status /data map layer: SHIPPED 2026-07-21** —
+  `server/faaStatus.ts`'s own docstring named this the deliberate
+  follow-up ("the map layer needs an airport-coordinate table") since
+  2026-07-05; found unclaimed via a shipped-data-no-map-layer sweep of
+  every `datacore/manifests/*` stream against `datamap.tsx`'s
+  `LAYER_GROUP`. New `client/src/lib/faaAirports.ts` (180-airport
+  curated coordinate table; an ARPT code outside it is honestly
+  omitted, never guessed) + `faa_airports` layer (facilities group,
+  off by default) with a new `vt-airport` icon distinct from the
+  aircraft-track mark; color is the feed's own discrete event type
+  (ground stop/closure/GDP/delay), never a graded severity inferred
+  from free-text delay strings. Full trace in experiments.md. DATACORE
+  MAXIMUS queue is clear again; next unclaimed shipped-data-no-layer
+  gaps if any future session wants the same pattern: CBP border-waits
+  (`/api/data/border-waits`, needs a ~83-entry port-coordinate table)
+  and the GEM coal-mine `geojson.gz` (needs a new server route first,
+  no map layer yet).
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

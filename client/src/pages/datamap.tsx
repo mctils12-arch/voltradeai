@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -15,6 +15,7 @@ import {
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
+import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
@@ -392,7 +393,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport";
   title: string;
   subtitle: string;
   body: string;
@@ -536,7 +537,7 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
-  plant_operations: "facilities",
+  plant_operations: "facilities", faa_airports: "facilities",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -864,7 +865,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -890,6 +891,15 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-power" color={camdUtilizationColor(0.35)} label="EPA CAMD Util. 25-50%" />
                     <LegendIcon icon="vt-power" color={camdUtilizationColor(0.1)} label="EPA CAMD Util. <25%" />
                     <span className="vt-legend-note">ground-truth capacity utilization from EPA's own unit-level CEMS reporting (TX pilot, quarterly) — not fuel type</span>
+                  </>
+                )}
+                {enabled.faa_airports && (
+                  <>
+                    <LegendIcon icon="vt-airport" color={faaEventColor("ground_stop")} label="Ground Stop" />
+                    <LegendIcon icon="vt-airport" color={faaEventColor("closure")} label="Airport Closure" />
+                    <LegendIcon icon="vt-airport" color={faaEventColor("ground_delay")} label="Ground Delay Program" />
+                    <LegendIcon icon="vt-airport" color={faaEventColor("delay")} label="Arrival/Departure Delay" />
+                    <span className="vt-legend-note">FAA National Airspace System status — curated major-airport subset, snapshot only (not an event log)</span>
                   </>
                 )}
               </div>
@@ -6817,6 +6827,108 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.plant_operations, mapReady, mapSettled, setStatus]);
 
+  // ── FAA National Airspace System status (RAW; ground stops/GDPs/delays/
+  // closures — a rolling snapshot, not an event log, per server/faaStatus.ts's
+  // own docstring naming this map layer as the deliberate follow-up once a
+  // coordinate table existed). Position comes from a CURATED major-airport
+  // table (client/src/lib/faaAirports.ts) — an ARPT code we don't have
+  // coordinates for is honestly omitted, never guessed. Color is the event
+  // TYPE the feed itself reports (ground stop/closure/GDP/delay), never a
+  // graded severity inferred from the free-text avg/max delay strings. Off
+  // by default (reference layer, same precedent as buoys/quakes). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.faa_airports) {
+      try {
+        if (map?.getLayer("faa-airports-sym")) map.removeLayer("faa-airports-sym");
+        if (map?.getSource("faa-airports")) map.removeSource("faa-airports");
+      } catch {}
+      setStatus("faa_airports", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("faa_airports", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/airport-status");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("faa_airports", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const events: any[] = d.events || [];
+        const matched = events
+          .map((e) => ({ e, coord: AIRPORT_COORDS[e.airport] }))
+          .filter((x): x is { e: any; coord: NonNullable<typeof x.coord> } => !!x.coord);
+        const fc = {
+          type: "FeatureCollection",
+          features: matched.map(({ e, coord }) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [coord.lon, coord.lat] },
+            properties: {
+              airport: e.airport, name: coord.name, city: coord.city, state: coord.state,
+              type: e.type, reason: e.reason, avg: e.avg, max: e.max, min: e.min,
+              trend: e.trend, direction: e.direction, end_time: e.end_time, reopen: e.reopen,
+              update_time: e.update_time, color: faaEventColor(e.type),
+            },
+          })),
+        };
+        const src: any = map.getSource("faa-airports");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("faa-airports", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "faa-airports-sym", type: "symbol", source: "faa-airports",
+            layout: {
+              "icon-image": "vt-airport",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.4, 8, 0.7],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-halo-color": "rgba(5,10,19,0.95)", "icon-halo-width": 1.3 },
+          });
+          detach = attachLayerInteractions(map, "faa-airports-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const dossierKey = `faaairport:${p.airport}:${Date.now()}`;
+            setDetail({
+              kind: "faaairport",
+              title: `${p.name || p.airport} (${p.airport})`,
+              subtitle: `${faaEventLabel(p.type)} · ${p.city || "—"}, ${p.state || "—"}`,
+              stats: [
+                { label: "Event", value: faaEventLabel(p.type) },
+                { label: "Avg delay", value: p.avg || "—" },
+                { label: "Max delay", value: p.max || "—" },
+                { label: "Trend", value: p.trend || "—" },
+              ],
+              sourceTag: "FAA NAS Status",
+              body: `${p.reason ? `Reason: ${p.reason}\n` : ""}` +
+                    `${p.direction ? `Direction: ${p.direction}\n` : ""}` +
+                    `${p.end_time ? `Published end time: ${p.end_time}\n` : ""}` +
+                    `${p.reopen ? `Published reopen time: ${p.reopen}\n` : ""}` +
+                    `Feed update time: ${p.update_time || "unknown"}\n\n` +
+                    `FAA National Airspace System Status — rolling snapshot, not an event log; durations are lower bounds from our own capture time, not published start-to-end durations. Displayed as-is, not for safety-of-life use.`,
+              dossierKey,
+            });
+            // Airport status events aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        const unmatched = events.length - matched.length;
+        setStatus("faa_airports", "active", matched.length,
+          `NAS snapshot${unmatched ? ` · ${unmatched} event(s) at airports outside our coordinate table` : ""}`);
+      } catch {
+        if (!stop) setStatus("faa_airports", "error");
+      }
+    };
+    load();
+    // 15-min refresh, hidden-tab gated (matches server's 15-min poll cadence)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 15 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.faa_airports, mapReady, setStatus]);
+
   // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
   // domain — first Location Context Engine hazard layer. Points colored by NPL
   // status; every site passed the server-side data-quality gate. Facts only —
@@ -8751,6 +8863,7 @@ export default function DataMapPage() {
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
     id === "plant_operations" ? <Gauge size={15} /> :
+    id === "faa_airports" ? <TowerControl size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -8784,7 +8897,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

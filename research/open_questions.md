@@ -4114,6 +4114,13 @@ the ladder before belief.)
    P(gate-2) ~20% — weather dominates delays and is already priced;
    the archive is cheap and the map layer is honest RAW value
    regardless.
+   UPDATE 2026-07-21 (scheduled-routine, [PRODUCT]): the RAW overlay
+   half of this item SHIPPED — `faa_airports` layer in datamap.tsx
+   (client/src/lib/faaAirports.ts's curated 180-airport coordinate
+   table + a new `vt-airport` icon; full trace in experiments.md).
+   The cargo-hub gate-2 hypothesis itself remains UNATTEMPTED — the
+   archive has been accumulating since 2026-07-05 and a future session
+   should check its depth via `/api/data/streams` before running it.
 5. CBP BORDER WAIT TIMES (bwt.cbp.gov API, keyless, probed 200; US
    government work). Commercial-vehicle wait times at land ports of
    entry, hourly. Fills the trucks gap from the N3 freight-proxy
