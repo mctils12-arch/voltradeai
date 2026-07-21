@@ -442,6 +442,16 @@ data); full-state discovery sweeps use the same account later.
     decision first.] Original: ENTSO-E token (free) — register at
     transparency.entsoe.eu → ENTSOE_TOKEN. Unlocks EU hourly
     load/gen/prices.
+    GENERATION-MIX FOLLOW-UP BUILT 2026-07-21 (v1.0.459,
+    server/euGenerationMix.ts, /api/data/eu-generation-mix, same token,
+    documentType A75/processType A16, fuel-type breakdown per zone) —
+    see experiments.md same date. NOT yet live-response-confirmed (no
+    ENTSOE_API_KEY in the build sandbox; cross-checked against entsoe-py
+    instead) — future session should read the route's `issues` field
+    post-deploy. DAY-AHEAD-PRICES remains the one open follow-up
+    (documentType A44, Publication_MarketDocument/price.amount schema —
+    genuinely separate parser, not a copy of the load/generation-mix
+    GL_MarketDocument shape).
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 

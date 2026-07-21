@@ -2306,6 +2306,20 @@
     audit log will now show the real error message instead of the
     phantom one — read that message first, it should localize the
     remaining bug directly.
+    PARTIAL LIVE CONFIRMATION 2026-07-21 (scheduled-routine session,
+    docs-only): queried `/api/diag/audit?type=TIER2-ERROR&limit=200` and
+    `/api/diag/scanner`. The dispatch fix took effect exactly at its
+    deploy — the last "scan_market() takes 0 positional arguments"
+    phantom entry is 2026-07-20T16:17:31Z, zero occurrences in the 200
+    entries after it. Per this item's own prediction, a real underlying
+    error surfaced right after: 11 "Daemon timeout" entries between
+    17:17-19:57Z the same day (active_dispatches=2 throughout) — this
+    matches KNOWN BROKEN #18's already-diagnosed non-blocking event-loop-
+    lag signature, NOT a new defect. Zero TIER2-ERROR entries since
+    19:57:13Z (~6.5h clean at check time); `/api/diag/scanner` reports
+    consecutiveFailures=0, degraded=false. Short of the multi-day bar
+    #18/#22 used before marking fully RESOLVED — a future session should
+    re-check after >=24h clean and close this item if it holds.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

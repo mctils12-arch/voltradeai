@@ -23584,3 +23584,112 @@ re-datum + the chart's bounded retries.
 VERIFICATION: client lib battery green (612 incl. #571's FAA tests after
 mid-session fast-forward — #571 took v1.0.457); verify_datum probe as
 above; harness re-run on the MERGED build gating the push. BACKTEST: N/A.
+
+## 2026-07-21 (scheduled-routine session) [PIPELINE] — ENTSO-E actual generation per production type (fuel mix): the OTHER filed wishlist-9c follow-up, shipped (v1.0.459, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/euGenerationMix.ts + test + datacore/
+manifests/eugenmix.json; routes.ts touched last, minimal, per SHARED-file
+protocol).
+
+REPAIR-MANDATE CHECK FIRST (per this session's own instructions): ran
+`scripts/session_health_check.py --json` against production. No ALARM.
+`/api/diag/scanner`: consecutiveFailures=0, degraded=false. `/api/diag/
+audit?type=TIER2-ERROR&limit=200` shows the last "scan_market() takes 0
+positional arguments" phantom-error entry at 2026-07-20T16:17:31Z — the
+KNOWN BROKEN #24 dispatch fix (v1.0.448) took effect at that exact
+timestamp and the phantom error has not recurred since (0 occurrences in
+200 entries after it). The dispatch fix DID surface a real underlying
+error afterward exactly as its own text predicted ("if a scan still fails
+post-deploy... read that message first") — 11 "Daemon timeout" entries
+2026-07-20T17:17-19:57Z, active_dispatches=2 throughout, matching KNOWN
+BROKEN #18's already-diagnosed non-blocking event-loop-lag signature (NOT
+a new bug). Zero TIER2-ERROR entries since 19:57:13Z (~6.5h clean at time
+of check), scanner healthy. Updated KNOWN BROKEN #24 in open_questions.md
+with this partial live-confirmation (short of the multi-day bar #18/#22
+used before full RESOLVED — a future session should re-check after >=24h
+clean). No critical unfixed item found -> this session proceeds as
+[PIPELINE], not [REPAIR].
+
+DOCTRINE AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code.
+PRIOR STATED BEFORE BUILDING: CLAUDE.md's own named EDGE DOCTRINE #1
+examples (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+FDA calendar, Google Trends) are ALL already built or correctly declined
+(Google Trends/pytrends failed gate-1 stability, upstream archived
+2025-04 — confirmed via grep across open_questions.md/wishlist.md/
+experiments.md, not re-litigated). Cross-checked research/data_census.md's
+CENSUS MASTER RANKING (11 items) against the live repo: 8 of 11 already
+built (OCC, EPA CAMD, JODI, FINRA cluster, GEM, SEC FTD, USGS quakes,
+NDBC buoys, SEC MIDAS — that's actually 9; DTCC and 3 of the regime-
+feature items are the only census gaps, DTCC blocked on a 147MB/day
+volume-budget decision not yet made). Prior: the highest-EV NEW pipeline
+this session, given how thoroughly the census/EDGE-DOCTRINE list has
+already been mined, is a well-scoped FOLLOW-UP to an already-live,
+already-token-activated stream rather than a fresh census item — lower
+build risk (proven host/auth/schema family), immediate activation (no
+BLOCKED-FOR-MIKE key wait), and real incremental signal. Found it in
+wishlist.md 9c: ENTSO-E generation-mix + day-ahead-prices were BOTH
+filed as follow-ups 2026-07-07 when euLoad.ts shipped, neither built
+since. Picked generation-mix (documentType A75) over day-ahead-prices
+(A44) to keep this ONE logical change (day-ahead prices uses a different
+response schema — Publication_MarketDocument/price.amount vs GL_
+MarketDocument/quantity — genuinely separate work, filed as the
+remaining follow-up, not bundled per PROMOTION RULE 5).
+
+BUILD: server/euGenerationMix.ts mirrors server/euLoad.ts's architecture
+(key gate shared: ENTSOE_API_KEY/ENTSOE_TOKEN; same 8 EIC zones reused
+from euLoad.ts's ZONES export; 2h poll, 48h trailing window, 8 spaced
+calls/cycle, same politeness spacing) with the two real deltas: (1) query
+uses `in_Domain` not `outBiddingZone_Domain`, documentType=A75/processType
+=A16; (2) each TimeSeries in the response carries a <MktPSRType><psrType>
+child identifying the fuel/technology (B01-B25 entsoe-py canonical code
+table, included in full) — parseGenMix extracts and tags every point with
+its psrType, skipping (never guessing) series with a missing/unrecognized
+code. Archive dedup key extended to zone|psr|ts|res|value (vintage-aware,
+euload precedent) so same-zone/same-timestamp-different-fuel rows never
+collide. New route `/api/data/eu-generation-mix` mirrors eu-load's
+response shape (kind:"raw", stats array, issues surfaced per zone).
+
+HONESTY NOTE (stated in the module header + manifest, not glossed over):
+this session's sandbox has no ENTSOE_API_KEY (Railway-only secret) so the
+A75 query contract could NOT be probed live end-to-end the way data_
+census.md's other entries were. It IS cross-checked against the
+ecosystem-canonical entsoe-py library's actual query-building code
+(query_generation: documentType=A75, processType=A16, in_Domain) and
+PSRTYPE_MAPPINGS table, fetched and read this session — not fabricated
+from memory. Both A65 (load, already live-verified 2026-07-07) and A75
+share the same GL_MarketDocument schema family per ENTSO-E's XSD, so the
+already-proven parser shape (Period/Point/position/resolution) transfers;
+the one NEW piece (MktPSRType/psrType extraction) is the only truly
+unverified-live surface. NEXT CHECK (filed, mirrors KNOWN BROKEN #24's
+own pattern): once deployed, read `/api/data/eu-generation-mix`'s
+`issues` field after the first sweep — an ack or empty-response for
+every zone would mean the A75 contract needs correction despite the
+cross-check; a future session should verify and close this note.
+
+RATCHET: server/euGenerationMix.test.ts, 9 new tests (key gate, URL
+param contract incl. the in_Domain-not-outBiddingZone_Domain distinction,
+PSRTYPE_MAPPINGS spot-check, ack parsing, multi-series psrType tagging,
+missing/bad-psrType skip, position math, archive dedup incl. same-zone-
+different-fuel non-collision, refresh-sweep stats grouped by zone|psr).
+All 9 pass standalone. Full gates this session: `npx tsx --test
+server/*.test.ts` 771 total, 764 pass / 7 fail — verified via `git
+stash` that the same 7 fail identically with this change stashed out
+(aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware — pre-existing baseline, unrelated to
+this PR, not touched). `npx tsc --noEmit` 71 errors, byte-identical
+count via the same stash comparison (zero new errors from this change).
+`npm run build` clean (client+server bundle, only pre-existing
+third-party warnings). `python3 -m pytest` COULD NOT RUN this session —
+pytest is not installed in this sandbox (`No module named pytest`); not
+a regression from this PR (zero Python files touched — the change is
+entirely server/*.ts + one datacore manifest + package.json version) but
+flagging honestly rather than claiming a gate that didn't execute.
+
+Version bumped 1.0.458 -> 1.0.459 (read-and-increment at commit time).
+BACKTEST: N/A — new raw data-archive pipeline, no trading logic touched,
+no strategy/threshold change (same category as euLoad.ts's own PR).
+
+wishlist.md 9c updated: generation-mix follow-up marked built this
+session; day-ahead-prices (A44) remains the one open follow-up, noted
+as needing its own PR (different response schema, not a quick copy of
+this one).

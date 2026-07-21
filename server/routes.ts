@@ -76,6 +76,7 @@ import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
+import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
@@ -2262,6 +2263,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.stats.length,
       note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution, never resampled; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`; window min/max/mean expose series shape (some TSOs under-report or publish partial leading edges)",
+      zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
+  // ENTSO-E actual generation per production type (fuel mix) by EU bidding
+  // zone (RAW — wishlist 9c follow-up, same token as eu-load, built
+  // 2026-07-21). Serves the poller's cached per-zone-per-fuel stats only
+  // (event-loop rule).
+  bootEuGenerationMixPoll();
+  app.get("/api/data/eu-generation-mix", (_req, res) => {
+    if (!euGenerationMixEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestGenMix();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (actual generation per type, A75/A16)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "realised generation in MW per bidding zone x fuel/technology type (PSRTYPE_MAPPINGS code + name), ~1-2h publication lag; stored at zone-native resolution, never resampled; a fuel type absent from a zone's window means zero generation of that type was published, not necessarily zero output; window min/max/mean expose series shape",
       zones: hit.stats,
       issues: hit.issues,
     });
