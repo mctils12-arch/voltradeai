@@ -23839,3 +23839,65 @@ note: T-DATACORE change shipped from the T-CLIENT session under the
 human's active direction on this exact symptom — one constant + a test
 pin, no datacore module structure touched; logged for the partition
 audit trail. Test: cruise=75s pin + unchanged ordering invariants.
+
+## 2026-07-21 (human-directed session, round 14) [REPAIR] — Blank-page root cause: network-blocked DEM pyramid; fallback + honest failure + GL-lost banner (v1.0.464, T-CLIENT)
+
+TYPE: [REPAIR] (live report: "the curtain is gone in normal sat imagery
+and then i turned on terrain and got the blank page … we have been over
+this issue way to many times"; full-audit demand — the multi-agent
+workflow launch was declined, so the audit ran inline).
+
+ROOT CAUSE, probe-reproduced: a terrain source whose tiles never arrive
+leaves MapLibre with NOTHING to drape — the whole canvas renders one
+uniform color while the DOM stays alive, and queryTerrainElevation
+returns 0 (card shows AGL=MSL). The user's tiles.mapterhorn.com is
+blocked by their corporate web filter (their browser chrome shows the
+corporate bookmarks); every prior probe route-FULFILLED mapterhorn, so
+the failure mode was invisible to the whole harness. Repro probe:
+mapterhorn aborted → terrain on → nonUniformFrac 0.055 (94.5% uniform
+canvas), screenshot matches the user's blank page exactly.
+
+FIX — DEM PYRAMID FALLBACK (datamap.tsx terrain effect):
+1. demSource state mapterhorn → aws → failed. AWS = Terrain Tiles
+   (Mapzen/AWS Open Data, same terrarium encoding, SRTM-class — already
+   trusted by the seafloor drain + altitude chart), so the fallback adds
+   zero new provenance surface.
+2. Detection is an AFFIRMATIVE pre-flight (one 5s fetch of the
+   pyramid's own endpoint — tilejson for mapterhorn, the 0/0/0 tile for
+   AWS — verdict cached per session). Two absence-of-tiles designs were
+   probe-CAUGHT killing healthy terrain first and rejected: (a) map
+   'error' events carry no reliable sourceId; (b) both tile-manager
+   _tiles views (style-level EMPTY, terrain-wrapper stuck 'loading')
+   misreport on a healthy mesh, and slow machines load tiles late.
+   Terrain mounts optimistically — the healthy path pays zero latency.
+3. Both pyramids dead → toggle snaps OFF with an honest error status
+   ("DEM tiles unreachable from this network … toggling again retries
+   fresh") — never a blank map. demEscalated guards the same-pass
+   status overwrite and the teardown "off" write preserves the error
+   (both probe-caught erasing the explanation). Re-toggle resets the
+   pyramid + clears cached verdicts (networks change).
+4. On the fallback, the layer card says so (FALLBACK DEM note) — the
+   provenance machinery IS the product (PREMIUM EXPERIENCE STANDARD c).
+5. GL-LOST BANNER (the OTHER blank-canvas mechanism): webglcontextlost
+   with no restore within 8s → .vt-gl-lost overlay naming the GPU
+   reset with a reload button, instead of a silent dead screen.
+
+VERIFICATION (all on the final merged build): healthy probe — terrain
+stays on Mapterhorn, groundQ 1500, survives all watchdog windows;
+fallback probe (mapterhorn aborted, s3 fulfilled) — terrain ON via AWS,
+FALLBACK note visible, curtain census 2430 ≈ baseline; both-blocked
+probe — toggle off, aria-checked false, UNREACHABLE error persists.
+614 client + 824 node + 829 python; tsc delta vs main = 0 (71
+pre-existing repo errors, untouched); visual harness solo run 0 hard
+failures with buriedCustomLayers + terrainDatum ratchets confirmed in
+results.json. Mid-session FF over #574 (CBP layer, v1.0.463 taken →
+this ships as v1.0.464). BACKTEST: N/A (client-only rendering repair;
+no measurement or trading code touched).
+
+CURTAIN-GONE-IN-SAT-IMAGERY (same report, first symptom): NOT
+reproducible — the user's exact a9eabc track renders (vc 10476, census
+2383 terrain-off) on this build; attributed to version skew (tab
+predating the 13:07Z restart) and/or a machine-side GL death, which the
+new banner + fallback now surface honestly instead of silently. Watch
+for recurrence — if it returns WITH the banner absent, it is a third
+mechanism and becomes a root-cause session (recurrence rule).

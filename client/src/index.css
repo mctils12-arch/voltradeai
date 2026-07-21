@@ -3848,3 +3848,27 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
      no scaling (applyPanelScale no-ops there too) */
   .vt-nav-grip, .vt-lock-btn, [data-vt-scale-up], [data-vt-scale-down] { display: none; }
 }
+
+/* ── GL context-lost recovery banner (2026-07-21 blank-page work): shown
+   only when webglcontextlost fired and no restore arrived within 8s —
+   the canvas is dead until a reload; say so instead of a gray void. ── */
+.vt-gl-lost {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 11, 20, 0.82);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.vt-gl-lost-card {
+  max-width: 380px; padding: 22px 26px; text-align: center;
+  background: rgba(11, 19, 34, 0.97); border: 1px solid rgba(120, 168, 255, 0.25);
+  border-radius: 14px; color: var(--text-primary); font-family: var(--font-body);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.vt-gl-lost-card strong { font-size: 1rem; letter-spacing: 0.02em; }
+.vt-gl-lost-card p { margin: 10px 0 16px; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+.vt-gl-lost-card button {
+  appearance: none; border: 0; cursor: pointer; padding: 9px 22px;
+  border-radius: 9px; font-size: 0.85rem; font-weight: 600;
+  color: #061018; background: var(--accent);
+}
+.vt-gl-lost-card button:hover { filter: brightness(1.1); }

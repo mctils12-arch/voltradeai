@@ -2098,6 +2098,18 @@ export default function DataMapPage() {
   // effect, the trail-curtain builder) read the LIVE value without a re-render.
   const [terrainExag, setTerrainExag] = useState<number>(readTerrainExag);
   const terrainExagRef = useRef<number>(terrainExag);
+  // DEM pyramid selection with automatic fallback (blank-page root cause,
+  // probe-reproduced 2026-07-21: tiles.mapterhorn.com blocked by a network
+  // filter left MapLibre with nothing to drape → whole canvas blank).
+  // mapterhorn → aws (Terrain Tiles, same terrarium encoding) → failed
+  // (toggle snaps off with an honest error). Escalated by the AFFIRMATIVE
+  // pre-flight in the terrain effect (absence-of-tiles heuristics false-
+  // positive on healthy meshes — probe-caught); reset on re-toggle.
+  const [demSource, setDemSource] = useState<"mapterhorn" | "aws" | "failed">("mapterhorn");
+  // per-session pyramid reachability verdicts (undefined = not probed yet)
+  const demPreflightRef = useRef<Record<string, boolean | undefined>>({});
+  // bumped when a pre-flight verdict lands so the terrain effect re-runs
+  const [demNonce, setDemNonce] = useState(0);
   const terrainWasOnRef = useRef<boolean>(false);
   const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
   const exagRafRef = useRef<number | null>(null); // rAF-coalesced slider apply
@@ -2558,6 +2570,11 @@ export default function DataMapPage() {
   // rebuild programs/buffers on the recovered context, and the drape-order
   // guard re-floats them above the draped layers.
   const customLayerRegistryRef = useRef<Map<string, any>>(new Map());
+  // GL context lost and never restored (GPU reset/driver death — the OTHER
+  // blank-canvas mechanism): after 8s without a restore event the map is
+  // gone for good and only a reload brings it back — say so ON the canvas
+  // instead of leaving a silent dead screen (2026-07-21 blank-page work).
+  const [glLost, setGlLost] = useState(false);
   // last aircraft payload + rebuilder — the terrain toggle re-datums the
   // silhouettes immediately (displayAltReal switches AGL↔clamped-MSL)
   // instead of waiting up to 15s for the next poll
@@ -2590,8 +2607,26 @@ export default function DataMapPage() {
       attempt();
     };
     try { map.on("webglcontextrestored" as any, onRestore); } catch {}
+    // dead-context detector: lost with no restore within 8s = the GPU is
+    // not giving the context back (browser only fires restore if it can) —
+    // surface the honest reload banner instead of a silent blank canvas
+    let lostTimer: number | null = null;
+    const canvas = (() => { try { return map.getCanvas(); } catch { return null; } })();
+    const onCtxLost = () => {
+      if (lostTimer != null) window.clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => setGlLost(true), 8000);
+    };
+    const onCtxBack = () => {
+      if (lostTimer != null) { window.clearTimeout(lostTimer); lostTimer = null; }
+      setGlLost(false);
+    };
+    canvas?.addEventListener("webglcontextlost", onCtxLost);
+    canvas?.addEventListener("webglcontextrestored", onCtxBack);
     return () => {
       if (retryTimer != null) window.clearTimeout(retryTimer);
+      if (lostTimer != null) window.clearTimeout(lostTimer);
+      canvas?.removeEventListener("webglcontextlost", onCtxLost);
+      canvas?.removeEventListener("webglcontextrestored", onCtxBack);
       try { map.off("webglcontextrestored" as any, onRestore); } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3268,6 +3303,14 @@ export default function DataMapPage() {
     // verification re-arms while the camera is busy and re-checks that
     // terrain is STILL off before enforcing (terrainWasOnRef mirrors the
     // live enabled state after every effect run).
+    // a re-toggle after a declared DEM failure gets a fresh chance at the
+    // primary pyramid (networks change; the failure is never permanent)
+    if (enabled.terrain && !terrainWasOnRef.current && demSource === "failed") {
+      demPreflightRef.current = {}; // fresh reachability probes too
+      setDemSource("mapterhorn"); // effect re-runs with the reset value
+      terrainWasOnRef.current = enabled.terrain;
+      return;
+    }
     if (enabled.terrain && !terrainWasOnRef.current) {
       try {
         if (map.getPitch() < 15 || autoTiltedRef.current) {
@@ -3305,12 +3348,29 @@ export default function DataMapPage() {
     const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
     const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
-      // only attach the Mapterhorn pyramid when it will BE the mesh — with
-      // the drain on, meshSource is ocean-terrain-dem and a parked
-      // terrain-dem just retains a third DEM tile cache for nothing
-      // (GPU-memory finding, stability audit 2026-07-20)
+      // only attach the DEM pyramid when it will BE the mesh — with the
+      // drain on, meshSource is ocean-terrain-dem and a parked terrain-dem
+      // just retains a third DEM tile cache for nothing (GPU-memory
+      // finding, stability audit 2026-07-20)
       if (meshSource === "terrain-dem" && !map.getSource("terrain-dem")) {
-        map.addSource("terrain-dem", {
+        // BLANK-PAGE ROOT CAUSE (probe-reproduced 2026-07-21): a terrain
+        // source whose tiles never arrive (tiles.mapterhorn.com blocked by
+        // a corporate web filter / unreachable network) leaves MapLibre
+        // with NOTHING to drape — the whole canvas renders blank while the
+        // DOM stays alive, and queryTerrainElevation returns 0 (AGL=MSL).
+        // demSource selects the pyramid: Mapterhorn first; on source
+        // errors the effect re-runs on the AWS Terrain Tiles fallback
+        // (same terrarium encoding, SRTM-class, already used by the
+        // seafloor + the chart); if BOTH fail the toggle snaps off with an
+        // honest error instead of a dead screen.
+        map.addSource("terrain-dem", demSource === "aws" ? ({
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 12, // same perf cap as the primary
+          attribution: "Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any) : ({
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
           encoding: "terrarium",
@@ -3321,7 +3381,7 @@ export default function DataMapPage() {
           // options take precedence over the TileJSON (maplibre
           // loadTileJson), so this cap is authoritative.
           maxzoom: 12,
-        } as any);
+        } as any));
       }
       if (enabled.seafloor && !map.getSource("ocean-terrain-dem")) {
         // own source for the MESH — the seafloor tint keeps its separate
@@ -3378,11 +3438,59 @@ export default function DataMapPage() {
       // once the DEM tiles arrive.
       for (const ms of [2500, 6000, 12000]) redatumTimers.push(window.setTimeout(redatum3d, ms));
     }
+    // PYRAMID PRE-FLIGHT (blank-page root cause, probe-reproduced
+    // 2026-07-21): a terrain pyramid whose tiles never arrive
+    // (tiles.mapterhorn.com blocked by a corporate web filter / outage)
+    // leaves MapLibre with nothing to drape — the canvas goes blank while
+    // the DOM lives. Detection is AFFIRMATIVE reachability (one 5s fetch
+    // of the pyramid's own endpoint, verdict cached per session) — NOT
+    // absence-of-tiles: maplibre's mesh wrappers report 'loading' even on
+    // a healthy mesh, and slow machines load tiles late (both probe-
+    // caught as false positives). Terrain stays added optimistically, so
+    // the healthy path renders with zero added latency; a failed
+    // pre-flight escalates mapterhorn → aws fallback → honest off.
+    let demEscalated = false; // this pass declared its pyramid dead — the
+    // status writes at the bottom of the effect must not overwrite the
+    // escalation's own message (probe-caught: the error was erased by the
+    // same-pass "active" write, since enabled.terrain is still true here)
+    if (meshSource === "terrain-dem" && demSource !== "failed") {
+      const verdict = demPreflightRef.current[demSource];
+      if (verdict === false) {
+        // known-dead pyramid (cached verdict) — escalate immediately
+        try { map.setTerrain(null); } catch {}
+        try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
+        try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {}
+        demEscalated = true;
+        if (demSource === "mapterhorn") {
+          setDemSource("aws");
+        } else {
+          setDemSource("failed");
+          setStatus("terrain", "error", undefined,
+            "DEM tiles unreachable from this network (primary AND fallback) — 3D relief can't render here; toggling again retries fresh");
+          setEnabled((s) => ({ ...s, terrain: false })); // never leave a blank map
+        }
+      } else if (verdict === undefined) {
+        const probing = demSource;
+        const ctl = new AbortController();
+        const tt = window.setTimeout(() => ctl.abort(), 5000);
+        fetch(probing === "aws"
+          ? "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/0/0/0.png"
+          : "https://tiles.mapterhorn.com/tilejson.json",
+        { signal: ctl.signal, mode: "cors", cache: "no-store" })
+          .then((r) => { demPreflightRef.current[probing] = r.ok; })
+          .catch(() => { demPreflightRef.current[probing] = false; })
+          .finally(() => {
+            window.clearTimeout(tt);
+            // re-run the effect only when the verdict demands action
+            if (demPreflightRef.current[probing] === false) setDemNonce((n) => n + 1);
+          });
+      }
+    }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors
     try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
-    if (enabled.terrain && !imageryVisible) {
+    if (enabled.terrain && !imageryVisible && !demEscalated) {
       try {
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
         map.addLayer({
@@ -3413,12 +3521,21 @@ export default function DataMapPage() {
       const renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
       (map as any).setSky?.(skyForRenderer(renderer) as any);
     } catch {}
-    if (!enabled.terrain) setStatus("terrain", "off");
+    // demSource "failed" means the pre-flight escalation snapped the toggle
+    // off WITH an explanation — writing "off" here would erase the one
+    // message that tells the user why the toggle bounced (probe-caught: the
+    // both-blocked scenario showed a bare "off"). A re-toggle resets
+    // demSource and clears this state. demEscalated guards the same-pass
+    // overwrite (enabled.terrain is still true in this closure).
+    if (!enabled.terrain) { if (demSource !== "failed") setStatus("terrain", "off"); }
+    else if (demEscalated) { /* escalation owns the status this pass */ }
     else setStatus("terrain", "active", undefined, enabled.seafloor
       ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"
-      : imageryVisible
-        ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
-        : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+      : demSource === "aws"
+        ? "3D relief on the FALLBACK DEM (Terrain Tiles — Mapzen/AWS Open Data, SRTM-class): the primary Mapterhorn source is unreachable from this network"
+        : imageryVisible
+          ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
+          : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
     // keep the map lean when off (mesh + hillshade already detached above);
     // terrain-dem also goes whenever it is NOT the active mesh (the drain
     // owns the mesh then) — a parked DEM pyramid is pure GPU-memory cost
@@ -3430,7 +3547,7 @@ export default function DataMapPage() {
       try { map.off("idle", redatum3d); } catch {}
       for (const t of redatumTimers) window.clearTimeout(t);
     };
-  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
+  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus, demSource, demNonce]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
   // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
@@ -9822,6 +9939,17 @@ export default function DataMapPage() {
       )}
 
       <div ref={mapContainer} className="vt-map-canvas" />
+      {/* GL context died and never came back — honest recovery path
+          instead of a silent blank canvas (2026-07-21) */}
+      {glLost && (
+        <div className="vt-gl-lost" role="alert">
+          <div className="vt-gl-lost-card">
+            <strong>3D rendering lost</strong>
+            <p>The browser's graphics context died (GPU reset or driver hiccup) and didn't recover. Reloading rebuilds the map — your layers and view are remembered.</p>
+            <button onClick={() => window.location.reload()}>Reload the map</button>
+          </div>
+        </div>
+      )}
       {/* FLIGHT TRACK 3D (handoff 2026-07-20): in-scene floating tag for the
           selected flight — screen-projected DOM chip, imperatively
           positioned every glide tick (the hover-tip ref pattern; hidden when
