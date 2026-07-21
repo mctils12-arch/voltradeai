@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, INFLIGHT_MAX_AGE_MS } from "./routeGuards";
+import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, INFLIGHT_MAX_AGE_MS } from "./routeGuards";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -68,6 +68,23 @@ test("constants sane: route deadline under typical proxy timeouts; expiry over w
   assert.ok(INFLIGHT_MAX_AGE_MS > 2 * ROUTE_DEADLINE_MS);
 });
 
+// ── SPEED WAVE 1 S-A1: stale-while-revalidate decision ──────────────────────
+
+test("swrDecision: fresh entry (under ttl) needs neither refresh nor a stale label", () => {
+  assert.deepEqual(swrDecision(0, 30_000, 60_000), { refresh: false, stale: false });
+  assert.deepEqual(swrDecision(29_999, 30_000, 60_000), { refresh: false, stale: false });
+});
+
+test("swrDecision: past ttl but within one refresh cycle — refresh fires, client sees no staleness label (the routine handoff must stay silent)", () => {
+  assert.deepEqual(swrDecision(30_000, 30_000, 60_000), { refresh: true, stale: false });
+  assert.deepEqual(swrDecision(59_999, 30_000, 60_000), { refresh: true, stale: false });
+});
+
+test("swrDecision: past staleWarn (a fully missed refresh cycle) — labeled stale for the client's honesty chrome", () => {
+  assert.deepEqual(swrDecision(60_000, 30_000, 60_000), { refresh: true, stale: true });
+  assert.deepEqual(swrDecision(600_000, 30_000, 60_000), { refresh: true, stale: true });
+});
+
 // ── wiring pins: both vulnerable routes actually use the guards, and the
 // Digitraffic fetch sends the now-required gzip header ──────────────────────
 
@@ -77,9 +94,17 @@ test("routes.ts: trains + aircraft use raceDeadline/slot expiry; Digitraffic get
   const trainsBlock = routes.slice(routes.indexOf("fetchTrains"), routes.indexOf('app.get("/api/data/trains"') + 2000);
   assert.ok(trainsBlock.includes("raceDeadline("), "trains route missing hard deadline");
   assert.ok(trainsBlock.includes("slotExpired("), "trains route missing slot expiry");
-  const airBlock = routes.slice(routes.indexOf('app.get("/api/data/aircraft"'), routes.indexOf('app.get("/api/data/aircraft"') + 3000);
+  // [SPEED WAVE 1 S-A1] raceDeadline/slotExpired now live in the shared
+  // getOrStartAircraftFetch helper the route calls (cold path awaits it,
+  // the SWR background refresh fires it without awaiting) rather than
+  // inline in app.get's callback — window from that helper's definition
+  // through the route registration so both guards are still pinned.
+  const airHelperStart = routes.indexOf("function getOrStartAircraftFetch");
+  assert.ok(airHelperStart > -1, "getOrStartAircraftFetch helper missing");
+  const airBlock = routes.slice(airHelperStart, routes.indexOf('app.get("/api/data/aircraft"') + 3500);
   assert.ok(airBlock.includes("raceDeadline("), "aircraft route missing hard deadline");
   assert.ok(airBlock.includes("slotExpired("), "aircraft route missing slot expiry");
+  assert.ok(airBlock.includes("swrDecision("), "aircraft route missing SWR stale-while-revalidate decision");
   assert.ok(/rata\.digitraffic\.fi[\s\S]{0,400}Accept-Encoding/.test(routes) || /"Accept-Encoding": "gzip"[\s\S]{0,400}rata\.digitraffic\.fi/.test(routes),
     "Digitraffic fetch must send Accept-Encoding: gzip (406 required since 2026-07)");
 });
