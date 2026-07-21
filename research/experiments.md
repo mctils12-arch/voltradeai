@@ -3,6 +3,121 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-21 (scheduled-routine session, [REPAIR]) — KNOWN BROKEN #18 continuation: Layer2 correlation refuted (12 live samples), deep_score's own ThreadPoolExecutor shutdown hazard found + fixed (v1.0.468, T-BOT)
+
+TERRITORY: T-BOT (`bot_engine.py`) + SHARED minimal (`package.json`/
+`package-lock.json` version, `research/*`). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read (prior entry: GEM coal-mine route,
+v1.0.466). `research/open_questions.md` KNOWN BROKEN section read in full.
+`research/wishlist.md` skimmed (DATACORE MAXIMUS/GRID VISION program
+blocks — not this session's territory). LOOP-HEALTH RATIO: last 10 dated
+`## ` headers before this entry — 5 REPAIR / 4 PRODUCT / 1 PIPELINE
+(v1.0.455 through v1.0.467). Under the 7/10 thrash threshold; no
+meta-problem override.
+
+LIVE HEALTH CHECK (GOAL priority 1): `/api/health` via DIAG_TOKEN — status
+ok, bot active, drawdownPct 0.0, `scanner.consecutiveFailures: 0`,
+`liveness.dark: false`. No liveness alarm. But `/api/diag/audit?
+type=TIER2-ERROR&limit=100&token=$DIAG_TOKEN` showed a "Daemon timeout"
+recurring every ~7-15 minutes continuously from 2026-07-20T17:56Z through
+2026-07-21T19:56Z (this session's start) — this is the live, ongoing
+KNOWN BROKEN #18 storm (open since 2026-07-10, now on at least its 6th
+investigated mechanism). Per the REPAIR MANDATE this is Priority-1/2
+relevant (data flowing — Tier2 scan failures mean fewer candidates
+scanned, poisoned-by-omission learning data) and the item's own history
+already an active, well-instrumented investigation with a clear NEXT STEP
+from the prior session — this was the PRIMARY action, ahead of any new
+research.
+
+WHAT SHIPPED: full trace, evidence, and next-step handoff filed in
+`research/open_questions.md`'s KNOWN BROKEN #18 (2026-07-21 UPDATE) —
+summarized here per this file's own convention.
+1. LIVE EVIDENCE GATHERED: pulled every `TIER2-ERROR` audit line with the
+   v1.0.465 `layer2_prefetch` field (12 samples across today's storm) —
+   100% read `budget_exceeded=false` + high `age_sec` (336.9-871.1s).
+   This REFUTES the `csp_layer2_prefetch` correlation hypothesis the prior
+   two sessions (v1.0.418, v1.0.454-refuted-zombie, v1.0.465-instrumented)
+   built toward — exactly the "HIGH age_sec... points the hang elsewhere"
+   branch that update's own NEXT STEP named as the falsification case.
+2. LIVE-CATCH ATTEMPTED, INCONCLUSIVE (environmental, not a finding): 24x
+   `/api/diag/daemon` polls over 8 min (20:18-20:26Z) caught zero
+   `run_full_scan` dispatches in flight — market had closed (~20:00 UTC)
+   and Tier2's own time-of-day cadence slows sharply after hours. Filed as
+   a NEXT STEP correction: retry the live-catch procedure during market
+   hours specifically.
+3. READ-BEFORE-WRITE on the two previously-named, unchecked candidates:
+   (a) VXX cross-file dedup (`macro_data.py` vs `options_scanner.py`'s
+   `_get_vxx_ratio_raw()`) — confirmed a genuine byte-identical duplicate
+   request, but bounded by options_scanner's own 60s cache to at most one
+   extra ~8s call; too small to be this item's dominant mechanism, not
+   fixed this session (real but minor). (b) `deep_score`'s own
+   `ThreadPoolExecutor` usage (bot_engine.py's 5-source parallel
+   enrichment fetch: macro/intel/alt/social/finnhub) — THIS was the
+   productive lead. `with ThreadPoolExecutor(max_workers=5) as _pool:`
+   calls `pool.shutdown(wait=True)` on `__exit__`, which is Python's own
+   unconditional `t.join()` (no timeout) on every worker thread —
+   regardless of whether that thread's own `.result(timeout=15)` call
+   (same block, lines directly above) already gave up on it. A single slow
+   fetcher (finnhub_data.py's `_finnhub_get` sits behind a shared 55/min
+   process-wide token bucket; social_data.py's `get_google_trends` calls
+   the abandoned-upstream `pytrends` library, 6h-cached but live on any
+   never-before-scored ticker) could silently block deep_score's return
+   for however long that thread actually takes — not the 15s ceiling the
+   code's own comment ("parallel: ~3-4s, limited by the slowest source")
+   promises. Structural note: the outer deep-score loop's own "35s hard
+   cap preserved" check only fires BETWEEN candidates, so one candidate
+   hanging on this defect is invisible to that cap and (serial, up to 15
+   candidates) could stall the whole scan past the 300s daemon timeout.
+4. FIX (mechanical correctness restoration, not a threshold/scoring
+   change — RULE REVIEW's evidence gate does not apply): replaced the
+   context-manager form with explicit `_pool = ThreadPoolExecutor(...)` /
+   `try: ... finally: _pool.shutdown(wait=False)`. Abandoned threads keep
+   running harmlessly in the background (results discarded, matching the
+   existing degrade-to-default `except Exception: pass` behavior) instead
+   of blocking the caller. Zero change to any value deep_score can return.
+
+RATCHET: `test_deep_score_parallel_fetch_timeout.py` (NEW, 3 tests) — a
+source-shape pin (mirrors `test_deep_score_source_diag.py`'s convention)
+plus a real behavioral A/B reproduction of the bug class itself (identical
+ThreadPoolExecutor idiom, not deep_score's heavy real dependencies):
+proves the OLD pattern blocks ~1.5s past a 0.2s `.result(timeout=...)`
+give-up, the FIXED pattern returns promptly. A/B-verified via `git stash`
+that the source-shape test fails pre-fix, all 3 pass post-fix.
+
+GATES: `python3 -m pytest -q` 839 passed (836 baseline + 3 new), 2
+skipped, 0 failed (fresh sandbox needed `pip install pytest openpyxl`
+first — recurring clean-container gap, not a regression). `npx tsx --test
+server/*.test.ts` 836 passed, 0 failed (zero TS files touched). `npx tsc
+--noEmit` 71 errors, confirmed byte-identical to pre-change baseline via
+`git stash` A/B (drifted from the 73 the last session recorded, untouched
+by this diff either way — sandbox/dependency artifact). `npm run build`
+clean. `package-lock.json`'s root version had drifted stale to 1.0.466
+against `package.json`'s 1.0.467 (same recurring class, fifth session
+running now) — corrected in the same edit, both bumped 1.0.467→1.0.468.
+
+BACKTEST: N/A — latency/correctness fix to enrichment-fetch timeout
+handling; changes no scoring, sizing, or trading decision (every fetcher's
+value on a slow path still degrades to the exact same default it already
+used — only how long the caller waits to get there changes).
+
+HYPOTHESIS: if this ThreadPoolExecutor-shutdown hazard was a material
+contributor to the storm, TIER2-ERROR frequency should drop sharply once
+this deploys and is observed during market hours (this session's own
+attempt to live-catch a stall was after the 20:00 UTC close, when Tier2
+scans slow down — inconclusive by timing, not by the fix). NOT YET
+LIVE-CONFIRMED. NEXT STEP filed in open_questions.md: re-run the
+established live-catch procedure during 9:30am-4pm ET; if the cadence
+persists unchanged, that is a third refutation since the shadowFleet fix
+(after zombie-pileup and Layer2) and the item's own RECURRENCE ESCALATES
+"architecture smell" bar becomes worth invoking — proposing profiler
+access to the live daemon process in wishlist.md rather than a sixth
+guessed mechanism.
+
+PR: opened from `claude/funny-fermat-hfwl7e` (this session's assigned
+branch).
+
 ## 2026-07-21 (scheduled-routine session, [PRODUCT]) — GEM coal-mine geojson.gz gets its server route: /api/data/coal-mine-features (v1.0.466, T-DATACORE)
 
 TERRITORY: T-DATACORE (new `server/gemCoalMineFeatures.ts` + its test file,
