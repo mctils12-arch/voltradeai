@@ -36,7 +36,10 @@ test("attaches click+enter+leave per layer, detach removes exactly those (same r
   const detach = attachLayerInteractions(map, "layer-x", onClick);
   assert.equal(on.length, 3, "click + mouseenter + mouseleave attached");
   assert.deepEqual(on.map((x) => x[0]).sort(), ["click", "mouseenter", "mouseleave"]);
-  assert.ok(on.some((x) => x[0] === "click" && x[2] === onClick), "the caller's click handler is used by reference");
+  // since 2026-07-21 the click handler is a claim-guard WRAPPER (aircraft
+  // click precedence), so it is deliberately NOT the caller's raw ref —
+  // what matters is that detach removes the SAME wrapper (net() below)
+  assert.ok(on.some((x) => x[0] === "click" && typeof x[2] === "function"), "a click handler is attached");
   detach();
   assert.equal(off.length, 3, "detach removed all three");
   assert.equal(net(on, off).length, 0, "no live listeners remain after detach (same handler refs)");
@@ -60,4 +63,22 @@ test("simulated toggle cycles do not stack: net live stays 3 per enable", () => 
   const live = net(on, off);
   assert.equal(live.length, 3, "exactly one live click+enter+leave set, never stacked");
   assert.equal(live.filter((x) => x[0] === "click").length, 1, "exactly ONE live click handler");
+});
+
+test("aircraft click claim: a claimed event never reaches the ground handler; unclaimed passes (2026-07-21)", () => {
+  const handlers: Record<string, Array<(e: any) => void>> = {};
+  const map = {
+    on(t: string, id: string, h: (e: any) => void) { (handlers[`${t}:${id}`] ??= []).push(h); },
+    off() {},
+    getCanvas() { return { style: { cursor: "" } }; },
+  };
+  let clicks = 0;
+  attachLayerInteractions(map as any, "sites-layer", () => { clicks++; });
+  const fire = (e: any) => handlers["click:sites-layer"].forEach((h) => h(e));
+  fire({ originalEvent: {} });
+  assert.equal(clicks, 1, "unclaimed click reaches the ground handler");
+  fire({ originalEvent: { __vtAirClaim: true } });
+  assert.equal(clicks, 1, "a plane-claimed click never opens the ground card");
+  fire({}); // no originalEvent (programmatic) — passes through
+  assert.equal(clicks, 2);
 });

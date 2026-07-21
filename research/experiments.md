@@ -23754,3 +23754,68 @@ is the record that S-A1 shipped).
 PR: https://github.com/mctils12-arch/voltradeai/pull/573 (branch
 `claude/busy-fermi-dgu1qu`), subscribed to PR activity per the human's
 standing instruction.
+
+## 2026-07-21 (human-directed session, round 13) [REPAIR] — Click priority, ONE display-altitude datum near the ground, zero-cache fix (v1.0.461, T-CLIENT)
+
+TYPE: [REPAIR] (live report: "the plane get moved where it position is
+when its near the ground … the curtain gets messed up at certain angles
+… if i click on a plane … near a ground object that we have mapped it
+thinks i am clicking on the ground object — with and without terrain").
+
+1. CLICK CLAIM: the 2026-07-20 fix removed the feature-precedence guard
+   so tilted plane clicks land — but left every ground-layer handler
+   firing on the same click, and whichever ran last overwrote the card.
+   A successful plane pick (tolerance 12→14px) now stamps __vtAirClaim
+   on the shared originalEvent; attachLayerInteractions (sites/
+   powerplants/trains/fires/rivergauges/alerts/military), wireLivePoints
+   (vessels/trains) and the satellite picker stand down on a claimed
+   event. Either dispatch order ends with the plane winning (handlers
+   that ran before the claim get overwritten by the plane card).
+   Probe: a plane parked exactly on Cushing Oil Hub wins the click.
+2. ONE DISPLAY-ALTITUDE DATUM (displayAltReal, shared by silhouettes/
+   marker/tag/tail/curtain/follow camera): terrain ON — MSL clamped to
+   the mesh ground (on_ground planes sat at z=0 INSIDE elevated
+   terrain; baro-vs-DEM mismatch rendered landing planes underground);
+   terrain OFF — the vertical axis is height above the FLAT plane, so
+   display = AGL from the DEM decode (MSL floated parked planes ~1.6km
+   over elevated airports, laterally displacing them at pitch — the
+   reported "plane gets moved near the ground"). Altitude BAND colors
+   and every displayed NUMBER stay raw broadcast MSL — presentation
+   moved, meaning didn't. Probe (synthetic 500m DEM): flat map
+   [0, 10500, 20] (parked ON the plane, 20m-AGL hero, cruise); terrain
+   [500, 11000, 520] (parked AT the mesh, clamp preserves MSL).
+3. ZERO-CACHE REGRESSION (own v1.0.458 TTL raise, probe-caught): a
+   queryTerrainElevation 0 — indistinguishable from "DEM tile still
+   loading" — could be memoized for 10 MINUTES, pinning planes/curtain
+   to sea level. 0 readings are never cached now; real sea-level ground
+   just re-queries (a local DEM lookup). Terrain-enable re-datums retry
+   at 2.5/6/12s (the aircraft glide loop can hold the map out of IDLE
+   indefinitely — measured — so the once-idle hook alone was not
+   deterministic).
+4. CURTAIN AT ANGLES: geometry is already ~120m-densified; the "messed
+   up" slab is the honest projection of an 11km wall PLUS the archive
+   lag (curtain ends at the last archived fix, up to 5min behind the
+   live plane at cruise). The real cure is the cruise-cadence change —
+   next commit (T-DATACORE).
+
+VERIFICATION: round13 probe (all values above) + datum/follow probes
+re-run green (visAt now waits for convergence instead of racing the
+SwiftShader-slowed rig — trace proved steady state exact: elev 32004,
+tag at center+20 at every angle); 376 client + 821 node + 829 python;
+harness structural ratchets green, timing gates re-run solo after a
+parallel-load flake. Mid-session FF over #573 (aircraft SWR — speed
+backlog item S-A1 shipped by the data session). BACKTEST: N/A.
+
+## 2026-07-21 (human-directed session, round 13b) [PIPELINE] — Aircraft cruise archive cadence 5min → 75s (v1.0.462, T-DATACORE scope, twice-filed follow-up)
+
+The 3D-trail slab fix at its source: 5-min cruise fixes ⇒ 68-140km
+straight curtain segments between real fixes (filed 2026-07-20, filed
+again in the round-12 audit; the human's screenshots keep hitting it).
+aircraftIntervalMs oceanic/cruise return 5*60_000 → 75_000 (~17-23km
+segments at cruise). Ground/near-site/low-altitude cadences unchanged;
+volume ≤4× cruise rows ≈ a few MB/day gz per the filed build-first
+analysis; measurement-neutral (same raw fixes, only cadence). Territory
+note: T-DATACORE change shipped from the T-CLIENT session under the
+human's active direction on this exact symptom — one constant + a test
+pin, no datacore module structure touched; logged for the partition
+audit trail. Test: cruise=75s pin + unchanged ordering invariants.

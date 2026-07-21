@@ -219,3 +219,32 @@ test('pickNearestAircraftScreen: altitude displacement respected (the 45°-tilt 
   assert.equal(pickNearestAircraftScreen(inst, I, 5, 5, W, H, 2), -1, 'far from both = honest miss');
   assert.equal(pickNearestAircraftScreen(null, I, 0, 0, W, H, 10), -1);
 });
+
+test('buildAircraftInstances displayAlt hook: caller owns the vertical datum; band stays RAW altitude (2026-07-21)', () => {
+  // AGL-style hook (flat map): subtract a fake 1600m ground
+  const { inst } = buildAircraftInstances(
+    [
+      { lon: -104.7, lat: 39.85, altitude_m: 1650, heading: 0, on_ground: false }, // 50m AGL over Denver
+      { lon: -104.7, lat: 39.85, altitude_m: 11000, heading: 0, on_ground: false }, // cruise
+      { lon: -104.7, lat: 39.85, altitude_m: 1600, heading: 0, on_ground: true },  // parked
+    ],
+    { displayAlt: (altM, _lon, _lat, onGround) => (onGround ? 0 : Math.max(0, altM - 1600)) },
+  );
+  assert.equal(inst[2], 50, 'near-ground plane renders 50m above the flat plane, not 1650m MSL');
+  assert.equal(inst[8 + 2], 9400, 'cruise plane at MSL minus ground');
+  assert.equal(inst[16 + 2], 0, 'parked plane sits ON the flat plane');
+  // BAND uses RAW broadcast altitude, not the display value: 11000m stays
+  // CRUISE even though a hostile hook could map it low
+  const { inst: i2 } = buildAircraftInstances(
+    [{ lon: 0, lat: 0, altitude_m: 11000, heading: 0, on_ground: false }],
+    { displayAlt: () => 100 },
+  );
+  assert.equal(i2[2], 100, 'display z from the hook');
+  assert.equal(i2[4], 2, 'band stays CRUISE (raw 11000m) — color meaning never moves with display');
+  // clamp: a hook returning negative display never sinks below the plane
+  const { inst: i3 } = buildAircraftInstances(
+    [{ lon: 0, lat: 0, altitude_m: 500, heading: 0, on_ground: false }],
+    { displayAlt: () => -200 },
+  );
+  assert.equal(i3[2], 0, 'display z clamped at the surface');
+});

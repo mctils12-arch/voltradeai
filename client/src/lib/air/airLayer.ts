@@ -189,6 +189,18 @@ export interface AirShapeGroup { shape: number; start: number; count: number }
  */
 export function buildAircraftInstances<T extends AircraftInstanceInput>(
   aircraft: T[],
+  opts?: {
+    /** DISPLAY-datum altitude hook (REAL meters, pre-exaggeration). The
+     *  caller owns the vertical-datum policy (2026-07-21 "plane gets moved
+     *  near the ground" report): terrain ON wants MSL clamped to the mesh
+     *  ground (never underground); terrain OFF wants height above the flat
+     *  plane (AGL) so parked planes sit AT their map position instead of
+     *  floating at MSL over elevated airports. Without the hook, legacy
+     *  behavior: on_ground → 0, else raw MSL. The altitude BAND (color)
+     *  always uses the RAW broadcast altitude — display moves, meaning
+     *  doesn't. */
+    displayAlt?: (altM: number, lon: number, lat: number, onGround: boolean) => number;
+  },
 ): { inst: Float32Array; rows: T[]; groups: AirShapeGroup[] } {
   const rows: T[] = [];
   for (const a of aircraft) {
@@ -203,14 +215,17 @@ export function buildAircraftInstances<T extends AircraftInstanceInput>(
     const a = rows[i];
     const m = lonLatToMercator(a.lon as number, a.lat as number);
     const ground = !!a.on_ground;
-    const alt = ground ? 0 : Math.max(0, a.altitude_m ?? 0);
+    const rawAlt = ground ? 0 : Math.max(0, a.altitude_m ?? 0);
+    const alt = opts?.displayAlt
+      ? Math.max(0, opts.displayAlt(rawAlt, a.lon as number, a.lat as number, ground))
+      : rawAlt;
     const shape = shapeForCategory(a.category);
     const vel = mercVelPerSec(a.lon, a.lat, a.heading, a.velocity_ms, a.on_ground);
     inst[i * AIR_INST_STRIDE] = m.x;
     inst[i * AIR_INST_STRIDE + 1] = m.y;
     inst[i * AIR_INST_STRIDE + 2] = alt;
     inst[i * AIR_INST_STRIDE + 3] = a.heading ?? 0;
-    inst[i * AIR_INST_STRIDE + 4] = ground ? AIR_BAND.GROUND : alt < 3000 ? AIR_BAND.LOW : AIR_BAND.CRUISE;
+    inst[i * AIR_INST_STRIDE + 4] = ground ? AIR_BAND.GROUND : rawAlt < 3000 ? AIR_BAND.LOW : AIR_BAND.CRUISE;
     inst[i * AIR_INST_STRIDE + 5] = shape;
     inst[i * AIR_INST_STRIDE + 6] = vel.vx;
     inst[i * AIR_INST_STRIDE + 7] = vel.vy;

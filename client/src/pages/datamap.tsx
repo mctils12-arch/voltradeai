@@ -2509,6 +2509,7 @@ export default function DataMapPage() {
     merc: Float32Array;
     groundZ: Float32Array; // display datum (exaggeration-scaled)
     groundM: Float32Array; // REAL meters (for the profile chart / AGL)
+    altDisp: Float32Array; // DISPLAY altitudes (AGL flat / mesh-clamped MSL) — GL consumers
   } | null>(null);
   // ONE playback clock shared by the profile playhead, the 3D marker and
   // the card readouts (they can never disagree). live=true → pinned to the
@@ -2546,6 +2547,11 @@ export default function DataMapPage() {
   // rebuild programs/buffers on the recovered context, and the drape-order
   // guard re-floats them above the draped layers.
   const customLayerRegistryRef = useRef<Map<string, any>>(new Map());
+  // last aircraft payload + rebuilder — the terrain toggle re-datums the
+  // silhouettes immediately (displayAltReal switches AGL↔clamped-MSL)
+  // instead of waiting up to 15s for the next poll
+  const airPayloadRef = useRef<any[]>([]);
+  const airRebuildRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
@@ -2615,9 +2621,38 @@ export default function DataMapPage() {
     let g = gc.m.get(k);
     if (g === undefined) {
       try { g = map.queryTerrainElevation([lo, la]) ?? 0; } catch { g = 0; }
-      gc.m.set(k, g);
+      // NEVER memoize a 0: it is indistinguishable from "DEM tile still
+      // loading", and with the 10-min TTL a pre-load 0 would pin planes/
+      // curtain to sea level for 10 minutes (probe-caught 2026-07-21).
+      // Real sea-level ground just re-queries — a local DEM lookup.
+      if (g !== 0) gc.m.set(k, g);
     }
     return g;
+  };
+
+  /** ONE display-altitude datum (REAL meters, pre-exaggeration) for every
+   *  3D renderer — silhouettes, marker, tag, dead-reckoned tail, curtain
+   *  top, follow camera (2026-07-21 "the plane gets moved … when it's near
+   *  the ground"). Terrain ON: MSL clamped to the mesh ground — the
+   *  baro-vs-DEM mismatch rendered landing planes UNDER the mesh, and
+   *  on_ground planes sat at z=0 inside elevated terrain. Terrain OFF: the
+   *  vertical axis is height above the FLAT plane, so display = AGL from
+   *  the DEM decode — MSL floated parked planes ~1.6km over Denver,
+   *  laterally displacing them at pitch. Cruise appearance barely changes
+   *  (ground ≪ altitude). NaN (honest gap) passes through. The clamp query
+   *  is skipped above 9km — no terrain on Earth reaches it, so max() is
+   *  provably identity there (bounds the per-fleet query cost). */
+  const displayAltReal = (map: maplibregl.Map, altM: number, lon: number, lat: number, onGround = false): number => {
+    if (!onGround && Number.isNaN(altM)) return altM; // honest gap in every datum
+    if (map.getTerrain?.()) {
+      const scale = terrainExagRef.current > 0 ? terrainExagRef.current : 1;
+      if (!onGround && altM >= 9000) return altM; // clamp provably identity above all terrain
+      const gReal = groundDisplayAt(map, lon, lat) / scale;
+      return onGround ? gReal : Math.max(altM, gReal);
+    }
+    if (onGround) return 0;
+    const g = groundElevationSync(lon, lat) ?? 0;
+    return Math.max(0, altM - g);
   };
 
   // DEM-tile fill-in retries for the chart's ground profile (bounded — a
@@ -2747,8 +2782,26 @@ export default function DataMapPage() {
           flightTrackRef.current = layer;
         }
         if (!map.getLayer("flight-track-3d")) map.addLayer(layer);
+        // DISPLAY datum for the 3D geometry (same rule as displayAltReal —
+        // groundM is already the REAL ground in both branches): terrain ON
+        // clamps to the mesh (landing tracks rendered under ridges on
+        // baro-vs-DEM mismatch); terrain OFF is height above the flat
+        // plane (AGL) so a taxiing track hugs the map instead of floating
+        // at MSL. The chart keeps TRUE MSL (flightProfile below). NaN gaps
+        // pass through untouched.
+        const altDisp = new Float32Array(n);
+        let dMin = Infinity, dMax = -Infinity;
+        for (let i = 0; i < n; i++) {
+          const a = altM[i];
+          if (Number.isNaN(a)) { altDisp[i] = NaN; continue; }
+          const v = terrainOn ? Math.max(a, groundM[i]) : Math.max(0, a - groundM[i]);
+          altDisp[i] = v;
+          if (v < dMin) dMin = v;
+          if (v > dMax) dMax = v;
+        }
+        if (!Number.isFinite(dMin)) { dMin = 0; dMax = 1; }
         const input: TrackGeomInput | null = n >= 2 ? {
-          merc, altM, groundZ, altMin, altMax,
+          merc, altM: altDisp, groundZ, altMin: dMin, altMax: dMax,
           // the 40m drape overlap seals ridges against the DEM; a flat
           // sea-level base (terrain off) has nothing to seal against
           drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
@@ -2756,8 +2809,10 @@ export default function DataMapPage() {
         layer.setTrack(input, altScale);
         layer.setTail(null); // full geometry reaches the newest real fix
         const id = detailRef.current?.trailId || airCrumbsRef.current.id || "";
+        // altMin/altMax here = the DISPLAY ramp domain (tail shares it);
+        // the chart's TRUE-MSL domain lives on flightProfile
         trackSamplesRef.current = n >= 2
-          ? { id, samples, altMin, altMax, merc, groundZ, groundM }
+          ? { id, samples, altMin: dMin, altMax: dMax, merc, groundZ, groundM, altDisp }
           : null;
         setFlightProfile(n >= 2 ? { samples, groundM, altMin, altMax } : null);
         updateFlightTail();
@@ -2793,9 +2848,11 @@ export default function DataMapPage() {
       const terrainOn = !!map.getTerrain();
       layer.setTail({
         fromMercX: st.merc[li * 2], fromMercY: st.merc[li * 2 + 1],
-        fromAltM: st.samples[li].altM, fromGroundZ: st.groundZ[li],
+        // DISPLAY datum, same as the curtain's last vertex — a raw-MSL
+        // tail visibly stepped at the seam on the flat map (AGL datum)
+        fromAltM: st.altDisp[li], fromGroundZ: st.groundZ[li],
         toMercX: m.x, toMercY: m.y,
-        toAltM: lv.fix.al == null ? NaN : lv.fix.al,
+        toAltM: lv.fix.al == null ? NaN : displayAltReal(map, lv.fix.al, lo, la),
         toGroundZ: terrainOn ? groundDisplayAt(map, lo, la) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
@@ -2856,7 +2913,9 @@ export default function DataMapPage() {
         const mm = lonLatToMercator(lon, lat);
         const terrOn = !!map.getTerrain();
         layer.setMarker({
-          mercX: mm.x, mercY: mm.y, altM: alt,
+          // ONE display datum with the silhouettes/curtain (displayAltReal)
+          mercX: mm.x, mercY: mm.y,
+          altM: Number.isNaN(alt) ? alt : displayAltReal(map, alt, lon, lat),
           groundZ: terrOn ? groundDisplayAt(map, lon, lat) : 0,
           headingDeg: headingDeg ?? 0,
           shape: flightShapeRef.current,
@@ -2872,7 +2931,7 @@ export default function DataMapPage() {
         const mm = lonLatToMercator(lon, lat);
         const p = layer.projectToScreen(
           mm.x, mm.y,
-          Number.isNaN(alt) ? (altScale > 0 ? gZ / altScale : 0) : alt,
+          Number.isNaN(alt) ? (altScale > 0 ? gZ / altScale : 0) : displayAltReal(map, alt, lon, lat),
           canvas.clientWidth || 1, canvas.clientHeight || 1,
         );
         if (p) {
@@ -3285,11 +3344,29 @@ export default function DataMapPage() {
       (customLayerRegistryRef.current.get("aircraft-3d") as any)
         ?.setAltScale?.(meshSource ? terrainExagRef.current : 1);
     } catch {}
-    // 3D trail + curtain datum follows the mesh state (altScale + terrain
-    // base) — re-derive now, and once more when DEM tiles finish loading
-    // (queries return 0 until then; the idle handler is cleaned up below).
-    repaintTrail3d();
-    if (meshSource) { try { map.once("idle", repaintTrail3d); } catch {} }
+    // 3D trail + curtain + silhouette datum follows the mesh state
+    // (altScale + terrain base) — re-derive now, and once more when DEM
+    // tiles finish loading (ground queries return 0 until then — probe-
+    // caught: an on_ground plane re-datumed pre-idle sat at z=0 inside
+    // the mesh). The idle handler is cleaned up below.
+    const redatum3d = () => {
+      // fresh ground queries first — DEM tiles may have arrived since the
+      // last pass, and the silhouette rebuild reads the same cache
+      groundElevCacheRef.current.cfg = "__DATUM_STALE__";
+      airRebuildRef.current?.(); // silhouettes: AGL ↔ mesh-clamped MSL
+      repaintTrail3d();
+    };
+    redatum3d();
+    const redatumTimers: number[] = [];
+    if (meshSource) {
+      try { map.once("idle", redatum3d); } catch {}
+      // the aircraft glide loop can hold the map out of IDLE indefinitely
+      // (measured 2026-07-20: never-idle with aircraft on), so the idle
+      // hook alone left on_ground planes at z=0 inside the mesh until the
+      // next poll — bounded timer retries land the datum deterministically
+      // once the DEM tiles arrive.
+      for (const ms of [2500, 6000, 12000]) redatumTimers.push(window.setTimeout(redatum3d, ms));
+    }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors
@@ -3339,7 +3416,8 @@ export default function DataMapPage() {
     return () => {
       if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
       try { map.off("pitchstart", onUserPitch); } catch {}
-      try { map.off("idle", repaintTrail3d); } catch {}
+      try { map.off("idle", redatum3d); } catch {}
+      for (const t of redatumTimers) window.clearTimeout(t);
     };
   }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
 
@@ -4803,6 +4881,8 @@ export default function DataMapPage() {
     const ORBIT_CLASS_NAME = ["LEO", "MEO", "GEO"];
 
     const onClick = (e: any) => {
+      // aircraft click claim (2026-07-21): a picked 3D plane owns the click
+      if (e?.originalEvent?.__vtAirClaim) return;
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       if (!layer || !gp || !gp.length) return;
@@ -5899,6 +5979,8 @@ export default function DataMapPage() {
     // toggle cycle stacked another set (N clicks -> N detail cards + N
     // trail fetches). ([REPAIR 2026-07-05] map perf/correctness.)
     const onClickLayer = (e: any) => {
+      // aircraft click claim (2026-07-21): a picked 3D plane owns the click
+      if (e?.originalEvent?.__vtAirClaim) return;
       const f = e.features?.[0];
       if (f) opts.onClick(f.properties, e.lngLat);
     };
@@ -6199,9 +6281,29 @@ export default function DataMapPage() {
       // layer; the note discloses exactly what the filter dropped.
       transformData: (d: any) => applyAirlineFilter(d, airFilter),
       onData: (d: any) => {
-        const built = buildAircraftInstances(d.aircraft || []);
-        airRows = built.rows;
-        airLayer.setInstances(built.inst, built.groups);
+        // ONE display datum with the curtain/marker (displayAltReal):
+        // terrain-off = AGL above the flat plane, terrain-on = MSL clamped
+        // to the mesh (2026-07-21 near-ground displacement report). DEM
+        // tiles for the low fleet prefetch async; until they land the
+        // datum falls back to raw MSL and the next poll corrects — honest.
+        const rowsIn = (d.aircraft || []) as any[];
+        try {
+          if (!map.getTerrain()) {
+            prefetchElevation(rowsIn.filter((a) => a && (a.on_ground || (a.altitude_m ?? 1e9) < 9000))
+              .map((a) => ({ lon: a.lon, lat: a.lat })));
+          }
+        } catch {}
+        const rebuild = (rowsNow: any[]) => {
+          const built = buildAircraftInstances(rowsNow, {
+            displayAlt: (altM, lon, lat, onGround) => displayAltReal(map, altM, lon, lat, onGround),
+          });
+          airRows = built.rows;
+          airLayer.setInstances(built.inst, built.groups);
+          return built;
+        };
+        airPayloadRef.current = rowsIn; // terrain toggles re-datum without waiting a poll
+        airRebuildRef.current = () => { try { rebuild(airPayloadRef.current); } catch {} };
+        rebuild(rowsIn);
         airLayer.setTickTime(); // glide anchor: these positions are true NOW
         // match the terrain mesh's vertical exaggeration so a plane above a
         // peak stays above the exaggerated peak (never-intersect-mountains)
@@ -6417,10 +6519,18 @@ export default function DataMapPage() {
       // plane overlapping a marker goes to the plane — the thing drawn on
       // top is the thing you clicked.
       const ll = map.unproject(e.point);
-      const idx = pickAir(e, 12);
+      const idx = pickAir(e, 14);
       if (idx < 0) return;
       const a = airRows[idx];
       if (!a) return;
+      // CLICK CLAIM (2026-07-21 "near a ground object … it thinks i am
+      // clicking on the ground object"): a successful plane pick stamps
+      // the shared originalEvent so every ground-feature handler on the
+      // same click stands down (attachLayerInteractions, wireLivePoints,
+      // the satellite picker all check it). Handlers that already ran
+      // before this one are simply overwritten by the plane card below —
+      // either dispatch order ends with the plane winning.
+      try { if (e.originalEvent) (e.originalEvent as any).__vtAirClaim = true; } catch {}
       void onAircraftClickProps({
         cls: classifyAircraft(a.type, a.category),
         callsign: a.callsign || a.icao24, icao24: a.icao24,
@@ -6479,6 +6589,8 @@ export default function DataMapPage() {
       if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
       hideHoverTip();
       try { delete (window as any).__vtAir; } catch {}
+      airRebuildRef.current = null;
+      airPayloadRef.current = [];
       customLayerRegistryRef.current.delete("aircraft-3d"); // intentional removal — not a restore case
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
@@ -9640,24 +9752,28 @@ export default function DataMapPage() {
           const st = trackSamplesRef.current;
           if (!st || st.samples.length === 0) return null;
           const clock = flightClockRef.current;
-          const scale = mapRef.current?.getTerrain?.() ? terrainExagRef.current : 1;
-          const elevOf = (altM: number | null | undefined) =>
-            altM == null || Number.isNaN(altM) ? undefined : Math.max(0, altM) * scale;
+          const m0 = mapRef.current;
+          const scale = m0?.getTerrain?.() ? terrainExagRef.current : 1;
+          // same display datum as the rendered plane (displayAltReal):
+          // camera centers where the plane actually DRAWS, near the
+          // ground included (AGL flat / mesh-clamped MSL under terrain)
+          const elevOf = (altM: number | null | undefined, lon: number, lat: number) =>
+            altM == null || Number.isNaN(altM) || !m0
+              ? undefined
+              : Math.max(0, displayAltReal(m0, altM, lon, lat)) * scale;
           if (clock.live) {
             const lv = airFollowLiveRef.current;
             if (lv && lv.id === airCrumbsRef.current.id) {
               const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-              return {
-                lng: lv.fix.lo + (lv.vel?.dLon ?? 0) * dt,
-                lat: lv.fix.la + (lv.vel?.dLat ?? 0) * dt,
-                elevM: elevOf(lv.fix.al),
-              };
+              const lng = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
+              const lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
+              return { lng, lat, elevM: elevOf(lv.fix.al, lng, lat) };
             }
             const end = st.samples[st.samples.length - 1];
-            return { lng: end.lon, lat: end.lat, elevM: elevOf(end.altM) };
+            return { lng: end.lon, lat: end.lat, elevM: elevOf(end.altM, end.lon, end.lat) };
           }
           const s = trackSampleAt(st.samples, clock.t);
-          return s ? { lng: s.lon, lat: s.lat, elevM: elevOf(s.altM) } : null;
+          return s ? { lng: s.lon, lat: s.lat, elevM: elevOf(s.altM, s.lon, s.lat) } : null;
         }}
         followActive={flightFollow}
       />
