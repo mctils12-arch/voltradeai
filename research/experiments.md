@@ -3,6 +3,150 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-22 (scheduled-routine session) [RESEARCH] — Form 4 insider-signal gate 2 KILLED: code-S sales mirror test + full-8-quarter code-P re-run both reverse the stated PRIOR, significantly, at 60d
+
+TERRITORY: root-level EDGE-DOCTRINE research scripts (`sec_form4_bulk.py`,
+`form4_gate2_test.py` — pre-existing, unmodified) + `research/*` (SHARED,
+docs only). No production code touched, no PR/deploy — pure measurement.
+
+SESSION-START CHECKS: CLAUDE.md + all of research/ read this session.
+`scripts/session_health_check.py` run against the live site
+(`https://voltradeai.com`, `DIAG_TOKEN` present in env): liveness OK (not
+dark), all subsystems OK, scanner `consecutiveFailures: 0`. Two WARNs, both
+already-known and non-blocking: `tier2_daemon_timeouts` (19 in-window,
+`active_dispatches=2` signature — the ongoing KNOWN BROKEN #18 pattern,
+already root-caused across 4 mechanisms in prior sessions, self-recovered
+by the time of this check per `/api/diag/scanner` and a clean 69.98s
+`/api/diag/timings` scan_complete) and `ml_feedback` (61/61 records
+orphan_exit, matching KNOWN BROKEN #12(c)'s already-gated open exit-path
+item). Cross-checked KNOWN BROKEN #24 (Tier2 RPC-dispatch masking bug):
+`/api/diag/audit?type=TIER2-ERROR` shows only genuine "Daemon timeout"/
+"Request timed out" messages, zero recurrence of the pre-fix phantom
+"scan_market() takes 0 positional arguments" masking message — independent
+confirmation it's holding live (the 2026-07-21 FAA-layer session had
+already noted this same conclusion via a different route). Neither WARN
+rises to the LIVENESS ALARM bar (Amendment 1) or blocks normal work — no
+critical unfixed item, so this is NOT a [REPAIR] session.
+
+PRIMARY ACTION SELECTION: a read-only research subagent surveyed
+`research/wishlist.md`, `open_questions.md`'s OPEN RESEARCH QUESTIONS
+section, and `data_census.md` for the highest-EV unstarted EDGE-doctrine
+action. Its top finding: the standing EDGE DOCTRINE #1 pipeline examples
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar) are ALL already built; Google Trends already failed its gate-1
+stability probe (07-05, replaced by a Wikimedia pageviews path) — the
+"build a new pipeline" well is dry, matching what the 2026-07-19 Form 4
+session and 2026-07-21 FAA-layer session independently already concluded.
+The concrete, queued, not-yet-run item instead: the 2026-07-19 Form 4
+session's own filed NEXT STEPS (3) "code S sales mirror test... NOT run
+this session, deliberately... filed as the concrete next run" and (4)
+"re-run this exact screen once BACKFILL_QUARTERS reaches its full
+8-quarter window... before drawing any promotion-or-kill conclusion" —
+both queued, self-contained, SESSION BUDGET's top tier ("judge a matured
+experiment"), zero RULE REVIEW exposure (pure measurement, nothing wired
+into deep_score/tier decisions either way).
+
+SANDBOX NOTE: this session's container has no access to the Railway
+volume (fresh clone each session, per the environment's own docs) — the
+prior sessions' archived quarters live only on production. Rebuilt the
+full 8-quarter archive locally via 9 calls to `sec_form4_bulk.run_update
+(force=True)` (one quarter per call by design — 2024q3 through 2026q2,
+all `status: ok`) — identical data source and code path the live daemon's
+own hourly Tier 3 call already uses, just run manually instead of waited
+for. `scipy` was missing from this sandbox's environment (installed via
+pip; not a repo dependency change, `requirements.txt` already lists it).
+
+PRIOR (stated before running, restated from open_questions.md verbatim):
+code S expected to mirror code P as a "predictive shorts" signal — a
+negative forward excess return after clustered/single officer-director
+open-market SALES, over the same-ticker baseline used for the code-P run.
+
+RUN A — `python3 form4_gate2_test.py --trans-code S --max-tickers 300`
+(all 8 archived quarters, Yahoo-fallback bars, no Alpaca key in this
+sandbox): 3,679 tickers in-archive, 300 selected (balanced cluster/single
+split per the 07-19 selection-bug fix), 278/300 fetched OK, 8,172 events
+(4,518 clustered). 20d: no separation (cluster mean_diff -0.075pp
+p=0.79, n=4434; single +0.189pp p=0.57, n=3557; baseline n=48,750). 60d:
+**significant reversal of the stated PRIOR** — sales predict
+OUTPERFORMANCE: cluster +4.551pp (t=6.24, p<0.0001, n=4023), single
++3.044pp (t=4.33, p<0.0001, n=3224); baseline n=14,497, pooled mean
++5.669%.
+
+RUN B — `python3 form4_gate2_test.py --trans-code P --max-tickers 500`
+(full 8-quarter window, the queued NEXT STEP (4) re-run): 3,125 tickers
+in-archive, 500 selected, 466/500 fetched OK, 2,366 events (895
+clustered). 20d: still no separation (cluster -0.495pp p=0.45, n=881;
+single -0.824pp p=0.16, n=1436; baseline n=101,270). 60d: the 6-quarter
+run's negative surprise REPLICATED and STRENGTHENED — cluster -6.793pp
+(t=-3.82, p=0.0001, n=759; was -3.97pp p=0.049 on 6 quarters), single
+-6.019pp (t=-3.85, p=0.0001, n=1228; was -4.68pp p=0.008); baseline
+n=40,612, pooled mean +10.197%. All 8 comparisons across both runs
+reported, none dropped; the two significant cells clear a same-session
+Bonferroni bar of 0.05/8=0.00625 by orders of magnitude, not a marginal
+call.
+
+READING (REASONING STANDARD #5, second-order): buys underperform and
+sales outperform their own ticker's baseline at 60d — opposite signs, but
+NOT the signature a genuine "insiders trade on private information"
+effect would produce (that needs buys ABOVE and sales BELOW baseline).
+It IS the signature a momentum/timing-at-extremes artifact would produce:
+routine, non-informational insider transactions (10b5-1 plans, tax,
+diversification) plausibly cluster near a ticker's recent local price
+extreme — buys near dips, sales near rallies — and if that extreme's
+direction tends to continue for the next 60 trading days (ordinary
+momentum, not insider skill), you get exactly this pattern with zero
+private information required. CORROBORATING, NOT PROVEN: the ticker-own
+60d baseline ran hot in all three versions of this screen to date (this
+session's S run +5.67%, this session's P run +10.20%, the 07-19 P run
++8.55% — all well above a typical ~2-3% broad-market quarter), consistent
+with the fetched-ticker universe skewing toward an insider-active,
+small/mid-cap, momentum-heavy cohort over a 2024q3-2026q2 window that was
+strong for that cohort — exactly the confound the 07-19 session flagged
+as unchecked and this session's evidence makes more plausible, not less.
+Not chased further this session (would need each ticker's own PRE-event
+60d return as a control regressor, a materially larger build than a
+re-run).
+
+EXPLICITLY NOT DONE: no attempt to trade the reversed sign (short on
+buy-clusters / long on sell-clusters) — a strategy proposed only after
+seeing which way the data broke is the multiple-hypothesis-fishing trap
+REASONING STANDARD #4 exists to catch, not a validated finding. Any
+future pursuit of the reversed-sign or momentum-confound angle needs its
+own PRIOR stated before a fresh, held-out test.
+
+LADDER VERDICT: **GATE 2 KILL**, both directions, in their originally-
+stated (naive) form — "officer/director Form 4 buys/sells predict
+forward excess return in the stated direction" does not proceed to gate
+3 (LOGIC/backtest). The DATA gate (`sec_form4_bulk.py`) is unaffected and
+keeps backfilling live via Tier 3 — a killed SIGNAL does not retire a
+working DATA pipeline; the raw feed remains available as a RAW overlay
+and as substrate for a future, differently-shaped hypothesis (e.g. the
+momentum-confound angle above, gated on its own fresh PRIOR).
+
+GATES: no code changed (existing scripts run as-is against a rebuilt
+local archive) — `python3 -m pytest -q` / `npx tsx --test` / `npx tsc
+--noEmit` / `npm run build` not re-run, same precedent as every prior
+pure gate-1/gate-2 measurement session (07-05 pytrends probe, 07-08 COT
+Newey-West re-test, 07-19 Form 4 first run) — none touch a source file.
+No version bump — no trading/scoring/sizing behavior changed for any
+live account. `git status` confirms zero tracked-file changes outside
+`research/*.md` before this commit.
+
+BACKTEST: N/A — pure DATA-LADDER gate 2 SIGNAL measurement, nothing
+wired into `deep_score`/tier decisions in either direction.
+
+FALL-THROUGH: session capacity remained after the primary action;
+KNOWN BROKEN #12(b)/(c) (ML feedback loop still 100% orphan_exit,
+confirmed live by this session's own health check) is a stronger
+candidate for the NEXT session's primary [REPAIR] action than further
+Form 4 work — deliberately not started here: diagnosing whether D2's
+WS-exit path is genuinely underdelivering vs. floor-basket exits being
+orphan-by-design (per the 2026-07-12 finding the research subagent
+surfaced) needs its own read-before-write pass across `bot.ts`'s exit
+call sites and `ml_model_v2.py`'s `track_fill`, not a drive-by fix
+riding on this session's research budget. Logged here so the next
+session doesn't have to re-derive the candidate list.
+
 ## 2026-07-22 (scheduled-routine session, [PRODUCT]) — GEM coal-mine boundaries & infrastructure /data map layer (v1.0.470, T-CLIENT+T-DATACORE-adjacent)
 
 TERRITORY: T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx) + a
