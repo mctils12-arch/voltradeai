@@ -42,10 +42,15 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   capture-date chip on /data (moveend identify at view centre,
   zoom-level-aware, 'unknown' honesty states, harness ratchet pins
   the chip; two occlusion drafts caught in screenshot self-review).
-  Remaining Phase 3: 3b Latest Sentinel-2 cloud-free toggle (CDSE
-  quota mandate: scheduled facility chips ONLY, never per-viewport —
-  10k req + 10k PU/month); 3c S2 utilization review across asset
-  classes; per-layer freshness chips (with Phase 5).
+  3b SHIPPED 2026-07-22 (v1.0.476, scripts/cdse_site_chips.py +
+  server/siteImagery.ts) — latest cloud-free Sentinel-2 true-color
+  chip for all 16 strategic sites, scheduled/session-run per the
+  quota mandate here (10.5 PU spent, 0.1% of the free tier), shown
+  in the existing site detail card (RAW, no ladder gate, no new
+  layer/toggle). Remaining Phase 3: 3c S2 utilization review across
+  asset classes; per-layer freshness chips (with Phase 5); a refresh
+  cadence for 3b beyond "whenever a session re-runs the script" (no
+  Railway cron — CDSE creds are session-only).
 - PHASE 4 (UI): Streams inventory tab SHIPPED v1.0.167 — server
   aggregate /api/data/streams (manifests × archive scan; cache-only
   route; health derived from age vs cadence, raw age always shown;

@@ -1,0 +1,26 @@
+{
+ "stream": "sentinel2sitechips",
+ "storage": "committed static files: client/public/imagery/sites/<site_id>.jpg (one per site, OVERWRITTEN on each refresh — this is a LATEST snapshot, not a growing archive) + datacore/sentinel2/site_latest_index.json (committed, current-state map site_id -> chip metadata) + datacore/sentinel2/site_chips_log.jsonl (committed append-only audit trail of every pull attempt, success or honest skip)",
+ "written_by": "scripts/cdse_site_chips.py (Python, session-run; never on Railway — CDSE_CLIENT_ID/CDSE_CLIENT_SECRET live only in the session environment, same restriction as every other CDSE script in this repo)",
+ "source": "Discovery: Element84 earth-search STAC (anonymous, keyless). Imagery: Copernicus Sentinel-2 L2A true-color render via the Sentinel Hub Process API on Copernicus Data Space Ecosystem (CDSE, free tier 10,000 processing-units/month)",
+ "license": "Copernicus free/open data policy (attribution required, commercial use permitted)",
+ "attribution": "Contains modified Copernicus Sentinel data",
+ "schema_version": 1,
+ "field_map": {
+  "file": "public path under client/public/imagery/sites/ (served as a static asset)",
+  "scene": "Sentinel-2 scene id the chip was rendered from",
+  "date": "scene capture date UTC — the ONLY date shown to users, per the imagery-honesty rule",
+  "cloud_pct": "whole-SCENE eo:cloud_cover from STAC (NOT a per-pixel AOI mask) — a real, honestly-reported number shown next to the image, not a guarantee the facility itself is cloud-free",
+  "bbox": "WGS84 [W,S,E,N] the chip covers, sized per site category (tank_farm 1.8km side, steel_mill 2.4km, port 4km)",
+  "attribution": "verbatim Copernicus attribution string, carried into the UI"
+ },
+ "confidence_model": "RAW OVERLAY — as-is display with source + capture-date + cloud% attribution, no predictive claim, no ladder gating required (per the 2026-07-03 RAW OVERLAYS vs SIGNALS standing rule: unprocessed imagery display is RAW by definition). This is NOT the tank-shadow/tank-fill estimator line (sentinel2/sentinel2v2/sentinel1readings manifests, both gate-1 FAILED and frozen) — no index or measurement is computed here, only a photo.",
+ "geo_fields": [
+  "bbox"
+ ],
+ "entity_key": "site id (datacore/sites/strategic_sites.json)",
+ "sentiment": null,
+ "started": "2026-07-22",
+ "cadence": "session-run, ad hoc (no Railway cron — CDSE credentials are session-only); a chip is considered fresh for --min-age-days (default 7) before a re-run refreshes it",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS Phase 3b (wishlist.md: 'Latest Sentinel-2 cloud-free toggle') — surfaced via an `imagery` field attached to each site record in /api/data/sites and rendered in the site detail card on /data (client/src/pages/datamap.tsx), not a separate map layer/toggle. Live-verified end-to-end 2026-07-22: all 16 strategic sites (datacore/sites/strategic_sites.json) pulled successfully, 10.5 processing-units total spent (0.1% of the monthly free tier)."
+}

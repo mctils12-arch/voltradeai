@@ -2639,6 +2639,17 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(77, 159, 255, 0.12);
 }
 
+/* DATACORE MAXIMUS Phase 3b: latest Sentinel-2 facility chip (RAW overlay,
+   no ladder gate — a photo, not a signal) shown in the site detail card. */
+.vt-site-imagery { margin-top: 8px; }
+.vt-site-imagery-img {
+  display: block; width: 100%; max-width: 100%; height: auto;
+  border-radius: 6px; border: 1px solid rgba(77, 159, 255, 0.18);
+}
+.vt-site-imagery .vt-site-card-trail + .vt-site-card-trail.vt-site-imagery-attr {
+  border-top: none; padding-top: 0; margin-top: 2px;
+}
+
 /* v2.3: the in-panel filings feed was removed (a feed doesn't belong in a
    layer-toggle sidebar) — its styles went with it per the dead-code policy.
    The panel keeps only .vt-filings-openfull; the feed lives in the view

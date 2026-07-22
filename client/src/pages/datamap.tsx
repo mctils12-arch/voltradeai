@@ -426,6 +426,15 @@ interface Detail {
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
+  /** DATACORE MAXIMUS Phase 3b: latest cloud-free Sentinel-2 chip for a
+   *  strategic site (RAW overlay — a photo, not a signal; no ladder gate).
+   *  Arrives inline with the /api/data/sites response (server/siteImagery.ts),
+   *  never fabricated — a site scripts/cdse_site_chips.py hasn't pulled yet
+   *  simply has no `imagery` on its record. */
+  imagery?: {
+    file: string; scene: string; date: string; cloud_pct: number | null;
+    attribution: string;
+  };
   /** Everything Graph R1: 7-day cross-stream events + own-archive traffic
    *  density near a strategic site — arrives async after the card opens. */
   timeline?: {
@@ -7157,6 +7166,15 @@ export default function DataMapPage() {
               operator: s.operator, relevance: s.relevance,
               color: colors[s.category] || "#4d9fff",
               icon: SITE_ICON[s.category] || "vt-tank",
+              // DATACORE MAXIMUS Phase 3b: flat primitives, not a nested
+              // object — geojson sources round-trip properties through the
+              // tiling worker, and a null-vs-absent-key distinction is not
+              // worth the risk there; every site carries the same key set.
+              imagery_file: s.imagery?.file ?? null,
+              imagery_scene: s.imagery?.scene ?? null,
+              imagery_date: s.imagery?.date ?? null,
+              imagery_cloud: s.imagery?.cloud_pct ?? null,
+              imagery_attribution: s.imagery?.attribution ?? null,
             },
           })),
         } as any });
@@ -7187,6 +7205,11 @@ export default function DataMapPage() {
             subtitle: `${f.properties.category} · ${f.properties.operator}`,
             body: f.properties.relevance,
             dossierKey,
+            imagery: f.properties.imagery_file ? {
+              file: f.properties.imagery_file, scene: f.properties.imagery_scene,
+              date: f.properties.imagery_date, cloud_pct: f.properties.imagery_cloud,
+              attribution: f.properties.imagery_attribution,
+            } : undefined,
           });
           // Everything Graph R1: async 7-day cross-stream timeline; any
           // failure just leaves the section absent — the card never degrades
@@ -11170,6 +11193,17 @@ export default function DataMapPage() {
             </div>
           )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.imagery && (
+            <div className="vt-site-imagery" data-testid="site-imagery">
+              <img className="vt-site-imagery-img" src={detail.imagery.file}
+                   alt={`Latest Sentinel-2 imagery of ${detail.title}`} loading="lazy" />
+              <p className="vt-site-card-trail">
+                Sentinel-2 imagery · {detail.imagery.date}
+                {detail.imagery.cloud_pct != null ? ` · ${Math.round(detail.imagery.cloud_pct)}% scene cloud cover` : ""}
+              </p>
+              <p className="vt-site-card-trail vt-site-imagery-attr">{detail.imagery.attribution} — RAW display, not a signal.</p>
+            </div>
+          )}
           {detail.sourceUrl && (
             <a className="vt-site-card-link" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
               Source ↗
