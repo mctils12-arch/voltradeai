@@ -1666,3 +1666,28 @@ PATH; any change needs explicit human approval per CLAUDE.md):
 RECOMMENDATION: (c) for now (lowest risk, already proven to work); (a)
 or (b) only if the human wants the automation to run truly hands-off
 again.
+
+UPDATE 2026-07-22 (same session, the very next PR #582 — a one-file
+docs-only change): a DIFFERENT, more severe symptom appeared — the
+`changes` job itself (the cheap path-detection job every other job
+`needs:`) failed twice in a row (original run + one rerun), each time
+in ~3 seconds with no runner ever assigned (`runner_id: 0`, no steps
+recorded) — i.e. GitHub never actually started the job, as opposed to
+the job running and its script failing. This blocked ALL downstream
+jobs (node-build/python-tests/docker-build/auto-merge all report
+"skipped"), not just the merge step. Given PR #581 immediately before
+it had just run a ~7-minute CI pipeline (docker-build alone ~4.5 min)
+mere minutes earlier, the leading hypothesis is GitHub Actions minutes
+quota/concurrency exhaustion on this (private repo) account, which
+would explain an instant "can't allocate a runner" failure — NOT
+confirmed (no billing/usage-quota tool was available this session to
+check directly). Could not retrieve job logs at all this session
+(every `get_job_logs` call 404'd regardless of which job/PR — possibly
+a tool/environment limitation rather than evidence about the jobs
+themselves). Same workaround applied: verified the change was a
+zero-risk single-file docs edit and merged directly via the API rather
+than continuing to re-trigger a possibly quota-exhausted pipeline.
+FOR THE HUMAN: if this recurs, check Settings → Billing → Actions
+usage (or Settings → Actions → General → concurrency/spending limits)
+for this repo/account — that's the fastest way to confirm or rule out
+the quota hypothesis, which no session tool here can check directly.
