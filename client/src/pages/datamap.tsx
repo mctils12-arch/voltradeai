@@ -108,7 +108,7 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
-import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX } from "@/lib/terrainExag";
+import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX, TERRAIN_EXAG_DEFAULT } from "@/lib/terrainExag";
 import { apsidesKm, orbitalSpeedKmh, periodMinutes } from "@/lib/orbital/satDerived";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
@@ -496,6 +496,12 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 // unaffected. The choice is a lasting preference (localStorage, unlike the
 // per-session fullscreen flag). Read by both the map bootstrap (initial
 // style) and the toggle state so the two can never disagree.
+// WebGL creation failure / Chrome context-loss block (2026-07-22): shown
+// instead of the raw maplibre error JSON when the browser can't (or won't)
+// give the page a WebGL context — the actionable path is a full reload
+// and/or enabling hardware acceleration.
+const WEBGL_BLOCKED_MSG =
+  "The browser blocked 3D graphics for this page (usually after a graphics driver hiccup, or because hardware acceleration is off). Reload the page to recover; if it keeps happening, enable hardware acceleration in your browser settings (chrome://settings → System) and check chrome://gpu.";
 const GLOBE_PREF_KEY = "vt-map-globe";
 const readGlobePref = (): boolean => {
   try {
@@ -2117,6 +2123,13 @@ export default function DataMapPage() {
   // effect, the trail-curtain builder) read the LIVE value without a re-render.
   const [terrainExag, setTerrainExag] = useState<number>(readTerrainExag);
   const terrainExagRef = useRef<number>(terrainExag);
+  // EXAG CEILING BY DEVICE (2026-07-22 live crash: pushing exag to 3.0 on a
+  // software renderer lost the WebGL context — a sudden re-mesh+curtain+
+  // drape spike the GPU couldn't take). On weaker tiers the slider maxes
+  // out lower so the user cannot drive the map into a context loss; capable
+  // GPUs keep the full range. Set from the device tier in the governor
+  // effect; TERRAIN_EXAG_MAX until classified.
+  const [maxExag, setMaxExag] = useState<number>(TERRAIN_EXAG_MAX);
   // DEM pyramid selection with automatic fallback (blank-page root cause,
   // probe-reproduced 2026-07-21: tiles.mapterhorn.com blocked by a network
   // filter left MapLibre with nothing to drape → whole canvas blank).
@@ -2344,11 +2357,18 @@ export default function DataMapPage() {
         // to a usable map with layer-level error states, never a dead page.
         window.setTimeout(ready, 8000);
         map.on("error", (e: any) => {
+          const msg = e?.error?.message || "";
+          // WebGL creation blocked (2026-07-22: Chrome blocks a page's
+          // WebGL after repeated context losses — "context loss and was
+          // blocked" / "Failed to initialize WebGL"). Show a friendly,
+          // actionable message, never the raw error JSON.
+          if (/webgl|context loss|context creation/i.test(msg)) { setMapError(WEBGL_BLOCKED_MSG); return; }
           if (readyFired) return;
-          if (e?.error?.message && /style/i.test(e.error.message)) setMapError(e.error.message);
+          if (/style/i.test(msg)) setMapError(msg);
         });
       } catch (e: any) {
-        setMapError(e?.message || "Map failed to load");
+        const m = String(e?.message || "");
+        setMapError(/webgl|context loss|context creation/i.test(m) ? WEBGL_BLOCKED_MSG : (e?.message || "Map failed to load"));
       }
     })();
     return () => {
@@ -2654,20 +2674,32 @@ export default function DataMapPage() {
     const onCtxLost = () => {
       if (lostTimer != null) window.clearTimeout(lostTimer);
       lostTimer = window.setTimeout(() => {
-        // AUTO-RECOVERY FIRST (live incident 2026-07-21: the user met this
-        // banner in the wild): one automatic reload per 10-minute window —
-        // layers and view are persisted, so the map heals itself without a
-        // click. A SECOND death inside the window means the machine is
-        // truly failing repeatedly; then the banner asks, instead of
-        // reload-looping a dying GPU.
+        // AUTO-RECOVERY, SAFELY (live incident 2026-07-22: pushing exag to
+        // 3.0 on a software renderer lost the context; the old auto-reload
+        // then reloaded straight back INTO exag 3.0, re-crashed, and after
+        // a few such losses Chrome PERMANENTLY BLOCKED WebGL for the page —
+        // "Web page caused context loss and was blocked", a dead map). Two
+        // guards now break that cascade:
+        //  1. SHED LOAD before reloading — force terrain OFF and exag back
+        //     to the safe default in persisted state, so the reloaded page
+        //     comes back in a light configuration that won't re-crash.
+        //  2. ONE reload per 10-min window AND never within 30s of a page
+        //     load (a loss right after load means the reload didn't help →
+        //     go straight to the banner instead of looping).
         const GUARD = "vt-gl-auto-reload";
         let recent: number[] = [];
         try {
           recent = (JSON.parse(window.sessionStorage.getItem(GUARD) ?? "[]") as number[])
             .filter((t) => Date.now() - t < 10 * 60_000);
         } catch {}
-        if (recent.length < 1) {
-          try { window.sessionStorage.setItem(GUARD, JSON.stringify([...recent, Date.now()])); } catch {}
+        const sinceLoad = performance.now();
+        if (recent.length < 1 && sinceLoad > 30_000) {
+          try {
+            window.sessionStorage.setItem(GUARD, JSON.stringify([...recent, Date.now()]));
+            // shed the heaviest GPU load so the reload can't re-crash
+            window.localStorage.setItem(TERRAIN_EXAG_KEY, String(TERRAIN_EXAG_DEFAULT));
+            window.sessionStorage.setItem("vt-gl-safe-mode", "1");
+          } catch {}
           try { window.location.reload(); return; } catch {}
         }
         setGlLost(true);
@@ -2699,6 +2731,17 @@ export default function DataMapPage() {
   // pixel density trades for smoothness, and every step surfaces in the
   // notice chip. Harness/probes pin determinism with vt-gov-off=1.
   const [deviceNotice, setDeviceNotice] = useState<string | null>(null);
+  // one-time recovery notice: the GL-loss handler reloads in "safe mode"
+  // (terrain exaggeration reset to default) after a context crash — tell
+  // the user why their exaggeration setting changed, then clear the flag.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem("vt-gl-safe-mode") === "1") {
+        window.sessionStorage.removeItem("vt-gl-safe-mode");
+        setDeviceNotice("Recovered from a 3D graphics crash — terrain exaggeration was reset to keep the map stable. You can raise it again in the Terrain layer.");
+      }
+    } catch {}
+  }, []);
   useEffect(() => {
     if (!deviceNotice) return;
     const t = window.setTimeout(() => setDeviceNotice(null), 12_000);
@@ -2722,6 +2765,16 @@ export default function DataMapPage() {
       devicePixelRatio: dpr,
     });
     (window as any).__vtDeviceTier = tier; // probe/diagnostics hook
+    // EXAG CEILING (2026-07-22 crash): weaker GPUs can't survive high
+    // exaggeration (the re-mesh spike lost the context at 3.0 on software
+    // GL). Cap the slider so the user can't drive into a loss; clamp any
+    // persisted value that's already above the cap. Full-tier GPUs keep 3×.
+    const exagCap = tier.tier === "full" ? TERRAIN_EXAG_MAX : 2;
+    setMaxExag(exagCap);
+    if (terrainExagRef.current > exagCap) {
+      terrainExagRef.current = exagCap;
+      setTerrainExag(exagCap);
+    }
     const startRatio = Math.min(dpr, tier.pixelRatioCap);
     if (startRatio < dpr - 1e-6) {
       try { (map as any).setPixelRatio?.(startRatio); } catch {}
@@ -9777,12 +9830,13 @@ export default function DataMapPage() {
                 EXAG
               </span>
               <input
-                type="range" min={TERRAIN_EXAG_MIN} max={TERRAIN_EXAG_MAX} step={0.1}
+                type="range" min={TERRAIN_EXAG_MIN} max={maxExag} step={0.1}
                 value={terrainExag}
                 aria-label="Terrain vertical exaggeration — scales terrain and flight-track heights together"
                 data-vt-terrain-exag
                 onChange={(e) => {
-                  const v = Number(e.target.value);
+                  // clamp to the device ceiling (weak GPUs crashed at 3.0)
+                  const v = Math.min(maxExag, Number(e.target.value));
                   setTerrainExag(v);
                   terrainExagRef.current = v; // live value for every reader
                   // rAF-COALESCED APPLY (human 2026-07-20: "when you would
@@ -10480,7 +10534,13 @@ export default function DataMapPage() {
       )}
       {mapError && (
         <div className="vt-map-skeleton">
-          <span style={{ color: "var(--accent-red)" }}>{mapError}</span>
+          <div className="vt-gl-lost-card" role="alert">
+            <strong>{mapError === WEBGL_BLOCKED_MSG ? "3D map unavailable" : "Map error"}</strong>
+            <p>{mapError}</p>
+            {mapError === WEBGL_BLOCKED_MSG && (
+              <button onClick={() => window.location.reload()}>Reload the page</button>
+            )}
+          </div>
         </div>
       )}
 

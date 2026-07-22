@@ -25079,3 +25079,49 @@ spontaneous-loss path.
 CONCLUSION: v1.0.473 is stable under 6-min max-load stress with no drift
 or leak, and self-heals GL context loss cleanly. No fix warranted.
 BACKTEST: N/A.
+
+## 2026-07-22 [REPAIR] — exag=3.0 crash cascade: exag ceiling by device tier + safe (non-looping) GL recovery + friendly WebGL-blocked message (v1.0.475, T-CLIENT)
+
+TYPE: [REPAIR] (live crash: "on the terrain i moved the slider for the
+exag to 3.0 and it crashed"). Two chained failures in the screenshots:
+(1) pushing exaggeration to 3.0 on a software renderer lost the WebGL
+context; (2) the round-15 auto-reload then reloaded straight back into
+the crash-inducing state, and after a few repeated losses Chrome
+PERMANENTLY BLOCKED WebGL for the page ("Web page caused context loss
+and was blocked" → "Failed to initialize WebGL", dumped as raw error
+JSON on the map). The auto-reload made it worse.
+
+THREE FIXES:
+1. EXAG CEILING BY DEVICE TIER: the exag slider max is now
+   tier.tier==="full" ? 3 : 2 — weaker/software GPUs can't be driven
+   past 2× (where the re-mesh+curtain+drape spike lost the context);
+   capable GPUs keep the full 3×. A persisted value above the cap is
+   clamped on classification, and the onChange clamps too. Probe: a
+   pre-seeded exag 3.0 on the minimal (SwiftShader) tier clamps to 2 in
+   localStorage; forcing the slider to 3.0 stays clamped.
+2. SAFE (NON-LOOPING) GL RECOVERY: the dead-context handler no longer
+   reload-loops into the crash. Before its ONE reload it sheds load
+   (terrain exag reset to default + a vt-gl-safe-mode flag), and it now
+   refuses to reload within 30s of a page load (a loss that fast means
+   the reload didn't help → go straight to the banner). enabled layers
+   aren't persisted, so terrain also comes back OFF on the reload —
+   the page returns in a light config that can't re-crash. A one-time
+   recovery notice explains the exag reset, then clears the flag.
+3. FRIENDLY WEBGL-BLOCKED MESSAGE: map 'error' + the constructor catch
+   now detect webgl/context-creation/context-loss failures and show a
+   styled, actionable card (reload button + hardware-acceleration
+   guidance: chrome://settings→System, chrome://gpu) instead of the raw
+   maplibre error JSON the user saw.
+
+VERIFICATION: 641 client + 836 node tests; visual harness 0 hard
+failures at healthy load (datum altScale=1, buried none, control TTI
+1500ms; one p95-frame blip cleared on a clean re-run — environmental).
+The exag-cap conditional (full?3:2) is trivial + covered by the
+deviceTier classification suite; full-tier can't be faked under
+SwiftShader (always minimal), so the live probe verified the
+minimal-tier clamp path. BACKTEST: N/A.
+
+ROOT LESSON: an auto-recovery that restarts into the same failing state
+is an amplifier, not a fix — recovery must shed the load that caused
+the failure before retrying, and must never retry fast enough to trip
+the browser's own abuse guard.
