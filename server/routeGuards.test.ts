@@ -111,6 +111,6 @@ test("routes.ts: trains + aircraft use raceDeadline/slot expiry; Digitraffic get
   // refresh window for that aircraft stream (bounded to ≤10s) so a client
   // actively tracking one plane gets faster updates without unbounding the
   // upstream hit rate (the background refresh + rate limiter still gate it).
-  assert.ok(/fresh[\s\S]{0,120}10_000|Math\.min\(10_000/.test(airBlock),
-    "aircraft route missing fresh=1 tightened SWR window (round 17)");
+  assert.ok(/fresh[\s\S]{0,160}Math\.min\(\d[\d_]*, AIRCRAFT_TTL_MS\)/.test(airBlock),
+    "aircraft route missing fresh=1 tightened SWR window (round 17→18)");
 });

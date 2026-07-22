@@ -138,6 +138,7 @@ export default function MapNavCluster({
   followRef.current = followTarget;
   const followWasRef = useRef(false); // 3D-center engaged last frame — restore ground clamp on release
   const overloadParityRef = useRef(false); // half-rate camera frames while deviceTier reports overload
+  const dragActiveRef = useRef(false); // a mouse orbit/pan drag is in progress — never pace those frames
   // FOLLOW ENGAGE (2026-07-21 video): wake the rig — a follow that starts
   // while the loop sleeps otherwise never recenters (the 300ms fallback
   // tick lurched instead) — and make wheel zoom orbit the CENTER, which
@@ -274,9 +275,14 @@ export default function MapNavCluster({
       // OVERLOAD PACING (round 17: two governor step-downs while following —
       // this loop is itself a 60fps repaint driver, and with terrain every
       // frame pays the full drape bill): while the device is overloaded and
-      // a follow is active, run the camera at half rate. The skipped frame
-      // still re-arms the loop; motion stays visually continuous at ~30fps.
-      if (ft && isOverloaded() && (overloadParityRef.current = !overloadParityRef.current)) {
+      // a follow is active, run the PASSIVE follow-glide at half rate. But
+      // NEVER pace-skip while the user is actively driving the camera (mouse
+      // drag / held nav button / key) — that made mouse-look feel frozen
+      // during follow (round 18: "when i have the follow button pushed, I
+      // want to be able to move around with my mouse; right now it stops
+      // working"). User input always gets a full-rate, immediate frame.
+      const userDriving = dragActiveRef.current || held.size() > 0 || keys.size > 0;
+      if (ft && !userDriving && isOverloaded() && (overloadParityRef.current = !overloadParityRef.current)) {
         rafRef.current = requestAnimationFrame(frame);
         return;
       }
@@ -489,6 +495,7 @@ export default function MapNavCluster({
       if (suspendedRef.current) return;
       if (e.button !== 0 && e.button !== 2) return;
       drag = { x: e.clientX, y: e.clientY, mode: e.button === 2 || e.shiftKey ? "pan" : "rot", moved: false };
+      dragActiveRef.current = true; // frame loop must not pace-skip during a live drag
       wake();
       // MapLibre's own drag handlers never see mouse drags (capture phase);
       // touch events pass through untouched — native gestures keep working.
@@ -522,6 +529,7 @@ export default function MapNavCluster({
       // handlers bypassed for mouse, we swallow the one synthetic click.
       if (drag?.moved) suppressNextClick = true;
       drag = null;
+      dragActiveRef.current = false;
     };
     let suppressNextClick = false;
     const onClickCapture = (e: MouseEvent) => {

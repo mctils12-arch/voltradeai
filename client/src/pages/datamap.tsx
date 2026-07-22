@@ -6654,10 +6654,12 @@ export default function DataMapPage() {
       id: "aircraft",
       intervalMs: 15_000,
       // a followed/selected craft deserves the freshest feed we can get —
-      // 5s polls + fresh=1 (server tightens its SWR TTL for these) while a
-      // plane card is open (round 17 "update speed is slow")
+      // 2s polls + fresh=1 (server tightens its SWR TTL for these) while a
+      // plane card is open (round 18 "every second or less"). Real ADS-B
+      // fixes are provider-rate-bound (~1-5s); the marker dead-reckons
+      // smoothly between them, so 2s polling + glide reads as live.
       fastWhen: () => !!airCrumbsRef.current.id,
-      fastIntervalMs: 5_000,
+      fastIntervalMs: 2_000,
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,

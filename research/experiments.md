@@ -24833,3 +24833,45 @@ timescrub no longer occluded). UI probe: preset 44px non-overlapping,
 scale removed, attribution collapsed, units toggle intact. BACKTEST:
 N/A. NEXT (filed, phase 2): ADS-B ≤1s poll when a plane is selected,
 mouse-look while following, general stability — separate version.
+
+## 2026-07-22 [REPAIR] — Phase 2: mouse-look during follow, ADS-B 2s freshness (v1.0.473, T-CLIENT + shared server)
+
+TYPE: [REPAIR] (second half of the live-testing batch, "then work on the
+rest"). Video (07-21) + report: "the adsb data is laggy … update speed
+is slow … i want to be able to move around with my mouse [while
+following]; right now it stops working."
+
+1. MOUSE-LOOK DURING FOLLOW: the round-17 overload pacing (half-rate
+   camera loop while following on a struggling device) skipped frames
+   even while the user was actively dragging — so a mouse orbit felt
+   frozen. The pacing now NEVER skips a frame while the user is driving
+   the camera (dragActiveRef set on the rig's mousedown/up, plus held
+   nav buttons / pressed keys) — user input always gets a full-rate,
+   immediate frame; only the PASSIVE follow-glide is paced. Follow +
+   left-drag orbit coexist (round-17 unbreakable-follow only pins
+   lng/lat; rotate/tilt change bearing/pitch — no conflict). cameraRig
+   unit tests green (10); rig collision path re-verified (camera stays
+   above the mesh at max tilt).
+2. ADS-B FRESHNESS: selected-plane poll 5s → 2s (client) + the server
+   fresh=1 SWR window 10s → 4s. Real ADS-B fixes are provider-rate-
+   bound (~1-5s from adsb.lol; polling faster than the provider
+   refreshes just re-serves cache), and the marker already dead-reckons
+   smoothly between fixes — so 2s polling + a 4s upstream refresh +
+   glide reads as live without hammering the provider (the rate limiter
+   still guards the ceiling; one background fetch per key per window).
+   HONEST LIMIT stated to the human: sub-provider-rate REAL fixes are
+   impossible; motion is smooth via glide, the "last position Xs ago"
+   age drops to ~2-4s. routeGuards test updated to pin the tightened
+   window generically (Math.min(N, AIRCRAFT_TTL_MS)).
+
+VERIFICATION: 641 client + 836 node tests; visual harness 0 hard
+failures at healthy load (control 1446ms; datum altScale=1, buried
+none). The follow/rotate integration is exercised by the harness rig/
+controls checks; probe selection on synthetic single-plane fixtures is
+flaky under SwiftShader (altitude-displaced pick), so the rig change
+rests on the cameraRig unit suite + the perf-neutral nature of the gate
+(it only REMOVES frame-skips during input). Two perf-timing gate
+excursions on a loaded box (p95 frame 417ms, control TTI 5420ms)
+cleared on a quiet-box re-run (control 1446ms) — environmental, the
+documented pattern; my diff adds no per-frame or startup cost.
+BACKTEST: N/A.
