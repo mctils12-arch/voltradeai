@@ -67,6 +67,21 @@ test("buildSiteTimelines: position density per day within radius; absent days ab
   assert.equal(Object.keys(timelines.get("port_la")!.density).length, 0, "no traffic near LA -> absent, not zero");
 });
 
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+// datacoreArchive.test.ts for the full writeup + minimal repro.
+test("buildSiteTimelines resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tl-trunc-"));
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  const t0 = Math.floor(NOW / 1000) - 3600;
+  const good = zlib.gzipSync(JSON.stringify({ t: t0, i: "aaa", la: 35.95, lo: -96.75 }) + "\n");
+  fs.writeFileSync(path.join(dir, "2026-07-05-11.jsonl.gz"), good.subarray(0, good.length - 4));
+  await buildSiteTimelines(SITES, base, NOW);
+});
+
 test("events sort newest-first and cap honestly", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "tl-"));
   const many = Array.from({ length: 20 }, (_, i) => ({

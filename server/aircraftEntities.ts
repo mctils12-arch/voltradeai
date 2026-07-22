@@ -86,6 +86,11 @@ function foldFile(acc: Map<string, HexSummary>, fp: string): Promise<void> {
       rl.on("line", (l) => { if (l.trim()) foldLine(acc, l); });
       rl.on("close", () => resolve());
       stream.on("error", () => resolve());
+      // readline.Interface re-emits a piped-in stream's error on ITSELF too
+      // (separate from the stream.on("error", ...) above) — unlistened,
+      // that crashes the whole process on a truncated/corrupt .gz. See
+      // datacoreArchive.ts's streamJsonlLines for the full writeup.
+      rl.on("error", () => resolve());
     } catch { resolve(); }
   });
 }

@@ -60,6 +60,23 @@ test("distinctArchivedAircraft reads plain and gzipped day files", async () => {
   assert.equal(hexes[0].i, "abc123");
 });
 
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+// datacoreArchive.test.ts for the full writeup + minimal repro.
+test("distinctArchivedAircraft resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = tmpArchive();
+  const good = zlib.gzipSync(line({ t: 1, i: "abc123" }) + "\n");
+  fs.writeFileSync(path.join(base, "aircraft", "2026-07-01-00.jsonl.gz"), good.subarray(0, good.length - 4));
+  // The point is that the scan RESOLVES at all — if the missing rl.on("error",
+  // ...) guard regresses, this either hangs or throws an unhandled 'error'
+  // event that kills the whole node:test process. Whatever lines the
+  // decompressor got through before the truncation error is incidental
+  // (gzip streams incrementally; a short file may still yield a record).
+  await distinctArchivedAircraft(base);
+});
+
 test("distinctArchivedAircraft: missing dir is empty, never throws", async () => {
   assert.deepEqual(await distinctArchivedAircraft("/nonexistent/base"), []);
 });

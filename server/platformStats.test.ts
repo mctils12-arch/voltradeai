@@ -32,6 +32,15 @@ test("observations: real line counts, gz-aware, operational dirs excluded", asyn
   fs.mkdirSync(path.join(base, "waitlist"));
   fs.writeFileSync(path.join(base, "waitlist", "2026-07-05.jsonl"), '{"email":"x"}\n');
   assert.equal(await countFileLines(path.join(base, "aircraft", "2026-07-05-01.jsonl")), 3);
+  // REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+  // streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+  // on ITSELF too, independent of the stream.on("error", ...) guard here —
+  // unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+  // datacoreArchive.test.ts for the full writeup + minimal repro.
+  const truncFp = path.join(base, "aircraft", "truncated.jsonl.gz");
+  const good = zlib.gzipSync('{"a":1}\n{"a":2}\n');
+  fs.writeFileSync(truncFp, good.subarray(0, good.length - 4));
+  await countFileLines(truncFp); // must resolve, never crash the process
   assert.equal(await countObservations(base), 5, "3 plain + 2 gz; waitlist PII stream excluded");
   _resetPlatformStatsCache();
   const s = await platformStats(

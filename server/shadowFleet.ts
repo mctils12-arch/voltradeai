@@ -287,6 +287,11 @@ export function readVesselTracksAsync(windowHours: number, baseDir?: string, now
       });
       rl.on("close", () => resolve());
       stream.on("error", () => resolve());
+      // readline.Interface re-emits a piped-in stream's error on ITSELF too
+      // (separate from stream.on("error", ...) above) — unlistened, that
+      // crashes the whole process on a truncated/corrupt .gz. See
+      // datacoreArchive.ts's streamJsonlLines for the full writeup.
+      rl.on("error", () => resolve());
     } catch { resolve(); }
   });
   return wanted.reduce((p, f) => p.then(() => readOne(f)), Promise.resolve()).then(() => {
@@ -335,6 +340,11 @@ export function foldVesselArchiveAsync(windowHours: number,
       });
       rl.on("close", () => resolve());
       stream.on("error", () => resolve());
+      // readline.Interface re-emits a piped-in stream's error on ITSELF too
+      // (separate from stream.on("error", ...) above) — unlistened, that
+      // crashes the whole process on a truncated/corrupt .gz. See
+      // datacoreArchive.ts's streamJsonlLines for the full writeup.
+      rl.on("error", () => resolve());
     } catch { resolve(); }
   });
   return wanted.reduce((p, f) => p.then(() => readOne(f)), Promise.resolve()).then(() => undefined);

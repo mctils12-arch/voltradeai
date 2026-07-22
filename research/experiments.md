@@ -25222,3 +25222,103 @@ without a session re-running the script — no Railway cron, since CDSE
 creds are session-only by design; a future session could wire this into
 a periodic scheduled-routine step if the human wants fresher imagery
 than "whenever a session touches it").
+
+## 2026-07-22 (scheduled-routine session, fall-through) [REPAIR] — a truncated/corrupt archive .gz file crashed the WHOLE Node process on every boot (readline.Interface's own error re-emission was never listened for), 8 files (v1.0.477, T-DATACORE)
+
+TYPE: [REPAIR], fall-through from the Phase 3b [PRODUCT] entry above (this
+session's PRIMARY action was already complete; SESSION BUDGET says a
+session with capacity remaining falls through rather than ending — this
+finding surfaced incidentally, during that same session's own live
+`node dist/index.cjs` verification of the Phase 3b feature).
+
+FINDING: booting the real built server locally (no ALPACA_KEY, matching a
+cold Railway deploy) crashed the ENTIRE process within ~2 seconds, 3-for-3
+attempts, on a completely clean stash of main (confirmed unrelated to the
+Phase 3b change): `Emitted 'error' event on Interface instance ... Error:
+unexpected end of file ... code: 'Z_BUF_ERROR'`.
+
+ROOT CAUSE (traced from the stack, not assumed): eight files
+(datacoreArchive.ts/aircraftEntities.ts/fleetUtilization.ts/gridStress.ts/
+platformStats.ts/queryEngine.ts/shadowFleet.ts[x2]/siteTimeline.ts) all
+stream a possibly-gzipped archive file with the identical copy-pasted
+pattern: `stream.pipe(zlib.createGunzip())` -> `readline.createInterface
+({ input: stream, ... })` -> an `.on("error", ...)` guard on `stream`
+(the gunzip stream after reassignment). That guard IS sufficient for the
+gunzip stream's OWN error — but Node's readline.Interface ALSO
+independently re-emits its input stream's "error" on ITSELF (a separate
+EventEmitter emission, internal to node:internal/readline/interface).
+With zero listeners on `rl` for "error", THAT re-emission is what crashes
+the process — the existing `stream.on("error", ...)` guards do nothing to
+prevent it, they only catch the first emission. Minimal repro (no test
+framework, no app code): gzipSync a string, chop the last 4 bytes,
+pipe through createGunzip() into readline.createInterface — Node throws
+even with `input.on("error", ...)` attached, UNLESS `rl.on("error", ...)`
+is also attached. datacoreArchive.ts's streamJsonlLines even carries a
+comment already documenting awareness of a related crash class ("for-await
+is avoided deliberately... would crash the process") — the awareness was
+real but the actual fix shipped there was incomplete; this exact bug
+survived in the very function written to guard against it.
+
+WHY PRODUCTION HASN'T VISIBLY CRASH-LOOPED: this is DATA-DEPENDENT — it
+only fires when an archive .gz file is genuinely truncated/corrupted
+(disk full mid-write, a killed process mid-gzip, etc.), not on every
+boot with healthy archives. Production's `/api/health` this session
+showed status ok / uptime healthy / no crash-loop symptoms, meaning its
+current archives are intact — but the LATENT bug means any future
+truncated write (entirely plausible: OOM kills, disk pressure, a bad
+deploy mid-flush) would crash the whole trading loop instantly on next
+read, a direct GOAL PRIORITY 1 (KEEP THE SYSTEM ALIVE) violation waiting
+to happen. Reproduced 100% (3/3) locally before the fix on a genuinely
+corrupt file; unable to identify which exact on-disk file was corrupt in
+this sandbox (the crash trace loses the originating call site — an
+inherent limitation of "unhandled error event" crashes) and did not need
+to, since the fix is a defensive guard against the CLASS of error, not a
+patch for one file.
+
+FIX: added `rl.on("error", <same resolve/bail as the existing stream
+guard>)` at all 9 call sites across the 8 files (shadowFleet.ts has two
+independent copies of the pattern). Purely additive — no read/parse logic
+changed, no output shape changed for the success path.
+
+VERIFICATION:
+1. Minimal repro script confirmed the crash pre-fix and the fix's
+   effectiveness in isolation (gzipSync + truncate + pipe, with vs.
+   without `rl.on("error", ...)`).
+2. New regression test per file (9 new tests: datacoreArchive.test.ts
+   gained 2 — a crash-repro test AND a valid-file-still-works test
+   proving the fix adds no false-negative; the other 7 files gained 1
+   each) — each writes a genuinely truncated .gz fixture into that
+   file's real directory-naming convention and calls the file's own
+   REAL exported entry point (distinctArchivedAircraft/buildFleetSeries/
+   foldRegionsDailyAsync/countFileLines/queryWindow/
+   readVesselTracksAsync+foldVesselArchiveAsync/buildSiteTimelines),
+   asserting it resolves rather than crashing the test process. RATCHET
+   PROVEN: reverting the datacoreArchive.ts fix line and re-running its
+   test suite reproduces the exact crash as a failing test
+   (`failureType: 'uncaughtException'`, `code: 'Z_BUF_ERROR'`) — the
+   test is a real ratchet, not a tautology.
+3. Full node suite: 850/850 (842 baseline + 8 new test() blocks; the
+   platformStats.ts fix's test is an added assertion inside an existing
+   test, not a new block).
+4. python3 -m pytest -q: 852 passed/1 skipped, unaffected (no Python
+   touched).
+5. npm run check: 77 tsc errors before and after (git-stash A/B diff),
+   zero new.
+6. LIVE BOOT re-verification (the actual finding mechanism): rebuilt
+   dist/index.cjs with the fix, booted twice more (20s each, matching
+   the exact pre-fix crash window) — 0/2 crashes, both runs served
+   /api/data/sites and a static /imagery/sites/*.jpg 200 cleanly through
+   to a clean SIGTERM shutdown. Pre-fix was 0/3 survivals; post-fix is
+   2/2.
+
+BACKTEST: N/A (no trading/measurement logic touched — pure defensive
+error-handling fix on the data-archive read path).
+
+NEXT: none filed — this closes the finding. Worth a future STALENESS/
+CONSTITUTIONAL-style sweep question: are there other readline+gunzip
+call sites elsewhere in the codebase (Python side, `alt_data.py`-style
+modules) with the same "listener on the piped stream but not on any
+higher-level wrapper" shape? Not searched this session (scope
+discipline) — flagging as a pattern worth a grep in a future session,
+not filing a formal open_questions.md entry since it's speculative, not
+a confirmed second instance.

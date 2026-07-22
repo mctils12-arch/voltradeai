@@ -64,6 +64,11 @@ export function countFileLines(fp: string): Promise<number> {
       rl.on("line", (l) => { if (l.trim()) n++; });
       rl.on("close", () => resolve(n));
       stream.on("error", () => resolve(0));
+      // readline.Interface re-emits a piped-in stream's error on ITSELF too
+      // (separate from stream.on("error", ...) above) — unlistened, that
+      // crashes the whole process on a truncated/corrupt .gz. See
+      // datacoreArchive.ts's streamJsonlLines for the full writeup.
+      rl.on("error", () => resolve(0));
     } catch { resolve(0); }
   });
 }

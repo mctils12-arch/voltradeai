@@ -118,6 +118,11 @@ export async function foldRegionsDailyAsync(
         resolve();
       });
       stream.on("error", () => resolve());
+      // readline.Interface re-emits a piped-in stream's error on ITSELF too
+      // (separate from stream.on("error", ...) above) — unlistened, that
+      // crashes the whole process on a truncated/corrupt .gz. See
+      // datacoreArchive.ts's streamJsonlLines for the full writeup.
+      rl.on("error", () => resolve());
     } catch {
       resolve();
     }

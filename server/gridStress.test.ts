@@ -149,6 +149,20 @@ test("foldRegionsDailyAsync: folds many respondents in one pass, each isolated",
   assert.equal(by.has("CISO"), false, "unrequested respondent not folded");
 });
 
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+// datacoreArchive.test.ts for the full writeup + minimal repro.
+test("foldRegionsDailyAsync resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = mkArchive();
+  const dir = path.join(base, "griddemand");
+  fs.mkdirSync(dir, { recursive: true });
+  const good = zlib.gzipSync(JSON.stringify(row("2024-07-01T00", "ERCO", "D", 100)) + "\n");
+  fs.writeFileSync(path.join(dir, "2024-07-01.jsonl.gz"), good.subarray(0, good.length - 4));
+  await foldRegionsDailyAsync(["ERCO"], base);
+});
+
 test("computeAllRegionsStress: per-region readings; non-TX regions have null weather, ERCO has weather", async () => {
   const base = mkArchive();
   // 6 same-month (July) days so percentiles clear MIN_SAMPLE_DAYS for the target

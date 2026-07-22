@@ -129,6 +129,26 @@ test("RATCHET [REPAIR 2026-07-05]: async streaming reader is byte-identical to t
   assert.deepEqual(a, s);
 });
 
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. Both
+// readVesselTracksAsync and foldVesselArchiveAsync carry an independent copy
+// of the same pattern (own PR fix in shadowFleet.ts) — covered together
+// here. See datacoreArchive.test.ts for the full writeup + minimal repro.
+test("readVesselTracksAsync + foldVesselArchiveAsync resolve (never crash the process) on a truncated/corrupt gzip file", async () => {
+  const zlib = await import("node:zlib");
+  const { readVesselTracksAsync, foldVesselArchiveAsync } = await import("./shadowFleet");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-trunc-"));
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  const good = zlib.gzipSync(JSON.stringify({ t: t(5), i: "111000111", la: 35.0, lo: 18.0, v: 5 }) + "\n");
+  const d = new Date(t(5) * 1000).toISOString();
+  fs.writeFileSync(path.join(dir, `${d.slice(0, 10)}-${d.slice(11, 13)}.jsonl.gz`), good.subarray(0, good.length - 4));
+  await readVesselTracksAsync(72, base, NOW);
+  await foldVesselArchiveAsync(72, () => {}, base, NOW);
+});
+
 test("RATCHET [PERF REPAIR 2026-07-13, KNOWN BROKEN #18 root cause]: hull-swap detection stays fast as vessel count grows — was O(vessels^2), the actual cause of the recurring 10-minute EVENTLOOP-LAG stalls", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-perf-"));
   // 8,000 distinct vessels, each with exactly one point, spread evenly
