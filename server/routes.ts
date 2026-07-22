@@ -33,7 +33,7 @@ import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL }
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
-import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
+import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
@@ -1078,7 +1078,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const key = `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}`;
     const now = Date.now();
     let hit = vesselSnapCache.get(key);
-    if (!hit || now - hit.at >= VESSEL_SNAPSHOT_TTL_MS) {
+    if (!hit || shouldRebuildSnapshot(hit, now, VESSEL_SNAPSHOT_TTL_MS)) {
       hit = { at: now, data: buildVesselSnapshot(vesselPositions, vesselStatics, bbox, now) };
       vesselSnapCache.set(key, hit);
       if (vesselSnapCache.size > 20) {
