@@ -37,6 +37,7 @@ const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
 import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState } from "@/lib/deviceTier";
+import { scaleReading, zoomLabel } from "@/lib/mapScale";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -1926,7 +1927,10 @@ export default function DataMapPage() {
   // Style presets (worldview-globe G1): switch the BASE look on the one globe —
   // real-first geographic identities, no tactical FLIR/NVG. Persisted per browser.
   const [mapPreset, setMapPreset] = useState<string>(() => {
-    try { return window.localStorage.getItem("vt-map-preset") || "natural"; } catch { return "natural"; }
+    // "terrain" preset retired 2026-07-22 (it duplicated Natural + the
+    // Layers 3D-relief toggle) — migrate a saved value to "natural"; the
+    // terrain layer keeps its own persisted on/off state independently.
+    try { const p = window.localStorage.getItem("vt-map-preset") || "natural"; return p === "terrain" ? "natural" : p; } catch { return "natural"; }
   });
   // preset popout (human 2026-07-21): collapsed chip in the top-left,
   // expands to the right on hover/click, collapses on mouse-leave
@@ -2291,15 +2295,10 @@ export default function DataMapPage() {
         // cluster (MapNavCluster: compass dial + rotate/tilt/zoom/pan hold-
         // buttons + reset) — one navigation system, site-wide on every 3D
         // map view. The zoom-seam button intercepts moved with it.
-        // B1 scale-bar continuity: the bar follows the site-wide units
-        // preference (it was hardcoded imperial before), so the space
-        // frame's own bar — which continues this instrument past the zoom
-        // floor into AU — never flips unit systems across the seam.
-        const scaleCtl = new maplibregl.ScaleControl({ unit: getUnits() === "imperial" ? "imperial" : "metric" });
-        map.addControl(scaleCtl, "bottom-left");
-        offScaleUnits = subscribeUnits(() => {
-          try { scaleCtl.setUnit(getUnits() === "imperial" ? "imperial" : "metric"); } catch {}
-        });
+        // Scale bar is now our OWN combined bottom status bar (2026-07-22:
+        // "build our own … put that and the capture data in one thing at
+        // the bottom") — see vt-map-statusbar below. MapLibre's
+        // ScaleControl is retired so there is exactly one scale readout.
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
@@ -2316,6 +2315,11 @@ export default function DataMapPage() {
           readyFired = true;
           window.clearInterval(stylePoll);
           try { map.resize(); } catch {}
+          // attribution collapsed by default (2026-07-22: "get rid of toggle
+          // attributions on the page of the map") — MapLibre opens the
+          // compact <details> on a wide map; close it so only the ⓘ shows,
+          // credits one click away (licensing stays reachable).
+          try { map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.removeAttribute("open"); } catch {}
           setMapReady(true);
           // STARTUP TTI (2026-07-22: skeleton-clear crept ~250ms over the
           // gate as symbol layers accumulated — registerIcons is the one
@@ -3403,8 +3407,29 @@ export default function DataMapPage() {
   // never a fabricated or stale-implying value. Esri terms reading
   // (census §3 #9): a recency check displayed on the imagery it
   // describes — client-side only, nothing archived, no API route.
+  // short labels for the combined bottom status bar (2026-07-22 "less
+  // words"): just the ISO date when known, "date n/a" otherwise
   const [imageryDate, setImageryDate] = useState<{ label: string; known: boolean }>(
-    { label: "capture date: checking…", known: false });
+    { label: "…", known: false });
+  // COMBINED BOTTOM STATUS BAR (2026-07-22): our own scale + zoom readout
+  // (lib/mapScale) fused with the capture date into ONE element. Tracks the
+  // camera on move (throttled to a frame) and the site-wide unit toggle.
+  const [scaleView, setScaleView] = useState<{ zoom: number; lat: number }>({ zoom: 3.6, lat: 37.5 });
+  const [unitsTick, setUnitsTick] = useState(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    let raf: number | null = null;
+    const sync = () => {
+      raf = null;
+      try { const c = map.getCenter(); setScaleView({ zoom: map.getZoom(), lat: c.lat }); } catch {}
+    };
+    const onMove = () => { if (raf == null) raf = requestAnimationFrame(sync); };
+    sync();
+    map.on("move", onMove);
+    const offUnits = subscribeUnits(() => setUnitsTick((n) => n + 1));
+    return () => { if (raf != null) cancelAnimationFrame(raf); try { map.off("move", onMove); } catch {} offUnits(); };
+  }, [mapReady]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !enabled.imagery) return;
@@ -3437,14 +3462,13 @@ export default function DataMapPage() {
         if (hit) {
           const raw = String(hit["DATE (YYYYMMDD)"]);
           const iso = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
-          const src = hit.SOURCE ? ` · ${hit.SOURCE}` : "";
-          setImageryDate({ label: `imagery at centre: ${iso}${src}`, known: true });
+          setImageryDate({ label: iso, known: true });
         } else {
-          setImageryDate({ label: "capture date unknown at this zoom", known: false });
+          setImageryDate({ label: "date n/a", known: false });
         }
       } catch {
         // transport/abort: keep a known value; never fabricate one
-        if (!gone) setImageryDate((v) => (v.known ? v : { label: "capture date unknown", known: false }));
+        if (!gone) setImageryDate((v) => (v.known ? v : { label: "date n/a", known: false }));
       }
     };
     const onMove = () => { window.clearTimeout(timer); timer = window.setTimeout(lookup, 1200); };
@@ -10155,16 +10179,34 @@ export default function DataMapPage() {
           pointer-events:none keeps it from stealing map interaction. */}
       <div ref={airHoverTipRef} className="vt-air-hover-tip" style={{ display: "none" }} />
 
-      {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
-          rule: display dates where available; unknown states stay loud).
-          Hidden while the space frame owns the viewport — a capture-date
-          for a shrinking-globe map reads as noise; returns at the seam. */}
-      {enabled.imagery && !spaceActive && (
-        <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
-             title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
-          {imageryDate.label}
-        </div>
-      )}
+      {/* COMBINED BOTTOM STATUS BAR (human 2026-07-22): our own scale bar +
+          zoom + the imagery capture date, fused into ONE compact element at
+          the bottom-left — replaces MapLibre's ScaleControl and the old
+          floating date chip. Hidden while the space frame owns the viewport
+          (a ground-scale readout is meaningless on a shrinking globe). */}
+      {!spaceActive && (() => {
+        void unitsTick; // re-render on unit-system change
+        const sc = scaleReading(scaleView.zoom, scaleView.lat, getUnits() === "imperial" ? "imperial" : "metric");
+        return (
+          <div className="vt-map-statusbar" data-testid="imagery-date" role="status"
+               title="Map scale · zoom level · Esri World Imagery capture date at the view centre (varies within a view and by zoom)">
+            <span className="vt-statusbar-scale" aria-label={`scale ${sc.label}`}>
+              <span className="vt-statusbar-bar" style={{ width: `${Math.round(sc.widthPx)}px` }} />
+              {sc.label}
+            </span>
+            <span className="vt-statusbar-sep">·</span>
+            <span className="vt-statusbar-zoom">{zoomLabel(scaleView.zoom)}</span>
+            {enabled.imagery && (
+              <>
+                <span className="vt-statusbar-sep">·</span>
+                <span className={`vt-statusbar-date${imageryDate.known ? "" : " vt-statusbar-date-unknown"}`}>
+                  {imageryDate.label}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
       <button className="vt-map-fs-btn" data-vt-fullscreen
@@ -10264,27 +10306,36 @@ export default function DataMapPage() {
         onMouseEnter={() => setPresetOpen(true)}
         onMouseLeave={() => setPresetOpen(false)}
       >
-        <button className="vt-preset-pill vt-preset-chip" aria-expanded={presetOpen}
-                aria-haspopup="true" aria-label="Map style presets"
+        {/* Collapsed = a 44px ICON button matching the fullscreen/globe/
+            analyst column (human 2026-07-22: "should look the same as
+            those other icons and not be placed behind them"). Hover/click
+            pops the base-style pills out to the RIGHT. "Terrain" preset
+            dropped 2026-07-22 — it only duplicated Natural + the Layers-tab
+            3D-relief toggle; Natural/Night/Minimal are the distinct bases. */}
+        <button className="vt-preset-chip" aria-expanded={presetOpen}
+                aria-haspopup="true" aria-label={`Map style: ${mapPreset}. Change base style`}
+                title="Base map style"
                 onClick={() => setPresetOpen((v) => !v)}>
-          <Mountain size={12} aria-hidden />
-          {{ natural: "Natural", night: "Night", terrain: "Terrain", minimal: "Minimal" }[mapPreset] ?? mapPreset}
+          <Mountain size={18} aria-hidden />
         </button>
-        {presetOpen && ([
-          ["natural", "Natural"],
-          ["night", "Night"],
-          ["terrain", "Terrain"],
-          ["minimal", "Minimal"],
-        ] as const).map(([id, label]) => (
-          <button
-            key={id}
-            className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
-            aria-pressed={mapPreset === id}
-            onClick={() => { setMapPreset(id); setPresetOpen(false); }}
-          >
-            {label}
-          </button>
-        ))}
+        {presetOpen && (
+          <div className="vt-preset-pills">
+            {([
+              ["natural", "Natural"],
+              ["night", "Night"],
+              ["minimal", "Minimal"],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
+                aria-pressed={mapPreset === id}
+                onClick={() => { setMapPreset(id); setPresetOpen(false); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       )}
 
@@ -10479,8 +10530,7 @@ export default function DataMapPage() {
             {/* Site-wide unit system (human directive 2026-07-13): every
                 measurement in cards/panels renders through lib/units.ts.
                 Open cards keep their units until reopened. */}
-            <div className="vt-preset-switch" role="group" aria-label="Unit system"
-                 style={{ position: "static", transform: "none", margin: "6px 10px 2px", justifyContent: "flex-start", alignItems: "center" }}>
+            <div className="vt-units-toggle" role="group" aria-label="Unit system">
               <span className="vt-streams-launch-sub" style={{ marginRight: 6 }}>Units</span>
               {([["imperial", "mi · °F"], ["metric", "km · °C"]] as const).map(([id, label]) => (
                 <button key={id}

@@ -24786,3 +24786,50 @@ crisp and load AS instantly as flat-2D imagery is a property of
 MapLibre's render-to-texture drape (imagery is resampled through the
 mesh). The tile-cache change removes the re-zoom rebuild; matching flat
 crispness is a deeper RTT investigation, filed rather than overclaimed.
+
+## 2026-07-22 [PRODUCT] — Map UI pass 1: preset icon button (Terrain preset retired), combined bottom scale/zoom/date bar, collapsed attribution, proportional panel re-placement (v1.0.472, T-CLIENT)
+
+TYPE: [PRODUCT] (human live-testing batch, "work on the ui stuff first
+and ship separately, then work on the rest"). UI half of the batch:
+
+1. PRESET SWITCHER — was overlapping the fullscreen button at the same
+   top-left 12/12 slot ("should look the same as those other icons and
+   not be placed behind them"). Now a 44px icon button, 4th in the
+   top-left column (fs/globe/analyst/preset at 12/62/112/162), popping
+   the base-style pills out to the right; the conditional time-scrubber
+   button moved 162→212 below it (harness caught the collision).
+2. "TERRAIN" PRESET RETIRED — answered the human's question ("do they
+   do different things?"): Natural/Night/Minimal are distinct BASES
+   (photographic / NASA Black Marble / clean-dark+borders); "Terrain"
+   was only Natural + auto-toggling the Layers-tab 3D-relief layer —
+   pure duplication (they looked identical until tilt). Dropped; a
+   saved "terrain" preset migrates to "natural" (the 3D-relief layer
+   keeps its own persisted state).
+3. COMBINED BOTTOM STATUS BAR (lib/mapScale, unit-tested) — our OWN
+   scale bar + distance + zoom + capture date fused into ONE element
+   ("build our own … put that and the capture data in one thing at the
+   bottom … less words"). Replaces MapLibre's ScaleControl (retired)
+   and the old floating date chip. Scale label is a nice 1/2/3/5×10ⁿ
+   round number, bar width exact, follows the site units toggle. Date
+   shortened to just the ISO date / "date n/a".
+4. ATTRIBUTION COLLAPSED — MapLibre v5 renders it as a native
+   <details>; forced closed on ready so only the ⓘ shows, credits one
+   click away (licensing stays reachable — "get rid of toggle
+   attributions on the page of the map").
+5. PROPORTIONAL PANEL RE-PLACEMENT (lib/panelLayout) — a saved panel
+   position now records the container size at capture (cw/ch); on
+   restore to a different-sized screen the top-left scales by the size
+   ratio, so a locked panel keeps its RELATIVE spot on a bigger monitor
+   ("its in the same spot but scale to that screen"). Backward-
+   compatible: records without cw/ch restore at absolute px. Position
+   already persisted across sessions via localStorage (unchanged);
+   cross-DEVICE sync would need server-side prefs — noted, not built.
+
+VERIFICATION: mapScale (8) + panelLayout cw/ch (1) + all client unit
+tests 641; node 836; visual harness 0 hard failures at healthy load
+(TTIs 1853-2264ms, control 1402ms; datum/buried/legend ratchets green;
+timescrub no longer occluded). UI probe: preset 44px non-overlapping,
+3 pills no Terrain, statusbar "500 mi · z3.6 · date n/a", maplibre
+scale removed, attribution collapsed, units toggle intact. BACKTEST:
+N/A. NEXT (filed, phase 2): ADS-B ≤1s poll when a plane is selected,
+mouse-look while following, general stability — separate version.

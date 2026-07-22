@@ -2600,15 +2600,23 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-map-page .maplibregl-ctrl-attrib {
   background: rgba(5, 10, 19, 0.75); color: var(--text-tertiary);
   font-size: 10px; font-family: var(--font-body); border-radius: 6px 0 0 0;
-  /* Attribution grows as layers stack (weather adds OWM). Cap its spread so
-     it wraps inside the right column and can NEVER slide under the
-     bottom-left zoom controls (v2.4 occlusion rule; caught at 390px). */
   max-width: min(70vw, 560px);
 }
 .vt-map-page .maplibregl-ctrl-attrib a { color: var(--text-tertiary); }
-.vt-map-page .maplibregl-ctrl-scale {
-  background: rgba(5, 10, 19, 0.6); color: var(--text-tertiary);
-  border-color: rgba(102, 128, 160, 0.5); font-size: 9.5px;
+/* ATTRIBUTION COLLAPSED BY DEFAULT (2026-07-22 human directive: "get rid
+   of toggle attributions on the page of the map"). Attribution is a
+   LICENSING surface and must stay reachable — so it collapses to just the
+   ⓘ summary toggle and the credits reveal only when the user opens it.
+   MapLibre v5 renders it as a native <details>/<summary>, so the credits
+   live in .maplibregl-ctrl-attrib-inner and show only when [open]. */
+.vt-map-page .maplibregl-ctrl-attrib:not([open]) .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+.vt-map-page .maplibregl-ctrl-attrib:not([open]) {
+  background: transparent; box-shadow: none;
+}
+.vt-map-page .maplibregl-ctrl-attrib[open] {
+  background: rgba(5, 10, 19, 0.9);
 }
 .vt-popup .maplibregl-popup-content {
   background: rgba(8, 16, 30, 0.97); color: var(--text-primary);
@@ -2782,14 +2790,30 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-map-globe-btn:active:not(:disabled) { transform: scale(0.96); }
 .vt-map-globe-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Style presets (worldview-globe G1; relocated 2026-07-21 per human
-   directive) — TOP-LEFT collapsed chip that pops the four pills out to the
-   RIGHT on hover/click and collapses when the mouse leaves. Same dark
-   control family. Sits under the movable cards (z 9 < card z 11) so an
-   open card wins the corner; cards are user-movable. */
+/* Style presets (worldview-globe G1) — FOURTH button in the top-left
+   control column (2026-07-22: human "should look the same as those other
+   icons and not be placed behind them" — was overlapping the fullscreen
+   button at the same 12/12 slot). Collapsed = a 44px icon button matching
+   fullscreen/globe/analyst; hover/click pops the base-style pills out to
+   the RIGHT; mouse-leave collapses. */
 .vt-preset-switch {
-  position: absolute; left: 12px; top: 12px;
-  z-index: 9; display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  position: absolute; left: 12px; top: 162px; z-index: 10;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.vt-preset-chip {
+  appearance: none; flex: 0 0 auto;
+  width: 44px; height: 44px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.2); cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: color 0.15s;
+}
+.vt-preset-chip:hover { color: var(--accent-bright); }
+.vt-preset-open .vt-preset-chip { color: var(--accent); border-color: rgba(77, 159, 255, 0.45); }
+/* the pop-out row of base-style pills, to the right of the icon */
+.vt-preset-pills {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
   background: rgba(8, 16, 30, 0.94); border: 1px solid rgba(77, 159, 255, 0.2);
   border-radius: 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -2798,23 +2822,25 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   appearance: none; border: 0; cursor: pointer;
   padding: 7px 14px; border-radius: 9px; font-size: 0.8rem; font-weight: 500;
   letter-spacing: 0.02em; color: var(--text-secondary); background: transparent;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s; white-space: nowrap;
 }
 .vt-preset-pill:hover { color: var(--accent-bright); }
 .vt-preset-pill-on {
   color: #061018; background: var(--accent);
   box-shadow: 0 2px 8px rgba(77, 159, 255, 0.4);
 }
-/* the collapsed chip: shows the ACTIVE preset with a relief glyph; when
-   expanded it stays as the row's anchor label */
-.vt-preset-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  color: var(--text-primary);
-}
-.vt-preset-open .vt-preset-chip { color: var(--accent-bright); }
 @media (max-width: 480px) {
-  .vt-preset-switch { padding: 2px; }
+  .vt-preset-pills { padding: 2px; }
   .vt-preset-pill { padding: 6px 10px; font-size: 0.72rem; }
+}
+/* Units toggle in the layers panel — reuses the .vt-preset-pill visuals but
+   its own container (decoupled 2026-07-22 when the map preset switch became
+   a top-left icon button): a static boxed inline row, never positioned. */
+.vt-units-toggle {
+  display: inline-flex; align-items: center; gap: 2px;
+  margin: 6px 10px 2px; padding: 3px;
+  background: rgba(8, 16, 30, 0.6); border: 1px solid rgba(77, 159, 255, 0.16);
+  border-radius: 12px;
 }
 
 /* Nuclear-tests time machine bar — sits above the style presets, same dark
@@ -3063,7 +3089,11 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
    phone widths — identical layout family to the analyst panel, just a
    fixed short height (no scrolling message list to size around). */
 .vt-map-timescrub-btn {
-  position: absolute; top: 162px; left: 12px; z-index: 10;
+  /* moved 162 → 212 (2026-07-22): the always-visible preset icon button
+     now owns the 4th slot (162); the conditional time-scrubber tacks on
+     below it so the always-on column stays contiguous and nothing
+     overlaps (was colliding with the preset button). */
+  position: absolute; top: 212px; left: 12px; z-index: 10;
   width: 44px; height: 44px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
   background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
@@ -3313,18 +3343,32 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
-.vt-imagery-date-chip {
-  /* left: 52px clears the maplibre zoom column (~40px); bottom: 32px
-     clears the attribution line (a LICENSING surface — © Esri must stay
-     readable). Both offsets exist because the first drafts covered the
-     zoom-out button and then the attribution, caught in the 390px
-     screenshot self-review (the Z3 occlusion class). */
-  position: absolute; left: 52px; bottom: 32px; z-index: 9;
-  background: rgba(10, 15, 26, 0.78); color: var(--text-secondary);
-  border: 1px solid rgba(77, 159, 255, 0.14); border-radius: 6px;
-  padding: 3px 8px; font-family: var(--font-mono); font-size: 10.5px;
-  pointer-events: none; max-width: 70vw;
+/* COMBINED BOTTOM STATUS BAR (2026-07-22 human directive: "build our own
+   [scale] … put that and the capture data in one thing at the bottom …
+   less words"): scale bar + distance · zoom · capture date, one element,
+   bottom-left. Replaces the maplibre ScaleControl and the old date chip. */
+.vt-map-statusbar {
+  position: absolute; left: 12px; bottom: 12px; z-index: 9;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(10, 15, 26, 0.82); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.14); border-radius: 7px;
+  padding: 4px 10px; font-family: var(--font-mono); font-size: 10.5px;
+  pointer-events: none; max-width: calc(100vw - 24px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.vt-statusbar-scale { display: inline-flex; align-items: center; gap: 6px; }
+.vt-statusbar-bar {
+  display: inline-block; height: 3px; min-width: 8px;
+  background: var(--text-secondary); border-radius: 2px;
+  border-left: 1px solid var(--text-secondary); border-right: 1px solid var(--text-secondary);
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.4);
+}
+.vt-statusbar-sep { color: var(--text-tertiary); opacity: 0.6; }
+.vt-statusbar-zoom { color: var(--text-tertiary); }
+.vt-statusbar-date-unknown { color: var(--text-tertiary); font-style: italic; }
+@media (max-width: 480px) {
+  .vt-map-statusbar { font-size: 9.5px; gap: 6px; padding: 3px 8px; }
 }
 
 /* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge — top-center,

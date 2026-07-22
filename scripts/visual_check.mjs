@@ -804,11 +804,14 @@ async function main() {
         try {
           const chip = await page.waitForSelector('[data-testid="imagery-date"]', { timeout: 5000 }).catch(() => null);
           if (!chip) {
-            checks.failures.push("imagery-date: chip absent with imagery base on (data-testid=imagery-date) — DESIGN.md imagery-honesty rule");
+            checks.failures.push("imagery-date: combined status bar absent with imagery base on (data-testid=imagery-date) — DESIGN.md imagery-honesty rule");
           } else {
+            // combined bottom status bar (2026-07-22): "<scale> · z<zoom> ·
+            // <ISO date | date n/a | …>" — must carry a scale unit, a zoom,
+            // and a designed capture-date state (never a fabricated date).
             const txt = (await chip.textContent()) || "";
-            if (!/imagery at centre|capture date/.test(txt)) {
-              checks.failures.push(`imagery-date: chip text not a designed state: '${txt.slice(0, 60)}'`);
+            if (!/\b(mi|km|ft|m)\b/.test(txt) || !/z\d/.test(txt) || !/\d{4}-\d{2}-\d{2}|date n\/a|…/.test(txt)) {
+              checks.failures.push(`imagery-date: status bar not a designed state (scale·zoom·date): '${txt.slice(0, 60)}'`);
             }
           }
         } catch (e) {
