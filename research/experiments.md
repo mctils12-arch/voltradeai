@@ -3,6 +3,119 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-22 (scheduled-routine session) [REPAIR] — SCALE S-A2: vessels-delta TTL was shorter than the client poll interval, so `unchanged` was dead code — full payload re-shipped every single poll (v1.0.474, T-DATACORE-adjacent server work)
+
+TERRITORY: server/liveDelta.ts + server/liveDelta.test.ts + server/routes.ts
+(SHARED file — the routes.ts edit is the minimal 3-line call-site update for
+the changed helper, last and smallest, per MERGE-ORDER PROTOCOL; not a
+second logical change).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then research/experiments.md
+and open_questions.md. Fast-forwarded this branch to origin/main (it was 1
+commit behind — a docs-only research entry, no conflict). `/api/health`:
+status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE,
+scanner 0 consecutiveFailures — no LIVENESS ALARM. Loop-health ratio over
+the last 10 tagged entries: 6 REPAIR / 3 PRODUCT / 1 PIPELINE (recount after
+today's earlier RESEARCH entry shifted the window) — under the 7+ thrash
+trigger, but concentrated enough in T-CLIENT terrain/map rendering (6 of the
+REPAIR entries) that this session deliberately looked outside T-CLIENT for
+its action, per the WORKSTREAM PARTITION's diversification spirit.
+
+PRIMARY ACTION SELECTION: checked KNOWN BROKEN #10 and #20 in
+open_questions.md via live `/api/diag/*` — both remain correctly gated
+pending more live data (thresholds not yet reached; not actionable). #12(b)/
+(c) (ML feedback orphan_exit) was already conclusively closed by the
+2026-07-12 ORBITAL O7 session as expected-by-design (SPY-floor exits are
+structural orphans, correctly excluded from training) — did not reopen it.
+AUDIT REGISTER (experiments.md ~line 4209): staleness due 2026-08-04,
+constitutional due ~2026-08-03 — neither overdue. No matured experiment
+queued for judgment (the earlier 2026-07-22 [RESEARCH] session already
+handled the two ready ones). Fell through to the roadmap tier: a research
+subagent surveyed wishlist.md/open_questions.md/the program charter files
+for a genuinely unblocked, one-PR-scoped, non-T-CLIENT item and surfaced
+SCALE program item S-A2 (research/scale_program.md's 2026-07-21 FULL-STACK
+SPEED AUDIT entry, "S-A2 vessels delta DEAD CODE") — queued immediately
+after S-A1 (aircraft SWR) shipped 2026-07-21, never picked up since.
+
+READ BEFORE WRITE: read server/liveDelta.ts in full, its route call site
+(server/routes.ts ~1057-1100), server/liveDelta.test.ts in full, and the
+client poll site (client/src/pages/datamap.tsx:7004-7006, wireLivePoints
+id:"vessels" intervalMs: 20_000) before touching anything.
+
+ROOT CAUSE (confirmed by reading, not assumed): `VESSEL_SNAPSHOT_TTL_MS`
+was 15_000 while the client polls vessels every 20_000ms. The route
+rebuilds the cached snapshot (and its `time` token) whenever the cache
+entry's age exceeds the TTL. Since 15s < 20s, EVERY poll arrived after the
+cache had already gone stale — a fresh snapshot with a new `time` was built
+on every single request, so `sinceUnchanged()` could never match and the
+`{unchanged:true}` short-circuit was structurally unreachable dead code.
+Full ~2MB raw (~400KB gz) vessel payload re-shipped on every ~20s poll,
+across every open tab/viewport bucket. Cross-checked against the WORKING
+aircraft precedent (AIRCRAFT_TTL_MS=30_000 vs. its 15_000ms client poll,
+server/routes.ts:816+6655) — a consistent 2x TTL:poll ratio, giving
+jitter/backgrounded-tab headroom; vessels had the ratio inverted (0.75x).
+
+FIX (v1.0.474):
+1. `VESSEL_SNAPSHOT_TTL_MS` 15_000 → 30_000 (matches the aircraft 2x-poll
+   ratio; comfortably clears the scale_program.md spec's "≥25s" floor).
+   Comment corrected — the old comment's stated INTENT ("one snapshot
+   serves a poll cycle") was already right, only the number was backwards.
+2. Extracted the inline `!hit || now - hit.at >= TTL` rebuild check into a
+   pure, exported `shouldRebuildSnapshot(hit, now, ttlMs)` in liveDelta.ts
+   — the module's own header already states its purpose ("pure functions
+   so the snapshot/delta logic is testable without express"); the actual
+   staleness decision had never been covered by that promise until now.
+   routes.ts calls it (kept an explicit `!hit ||` guard alongside the call
+   for TS control-flow narrowing on the reassigned `hit` — the pure
+   function already independently handles `hit === undefined`, tested).
+3. server/liveDelta.test.ts: the pre-existing "constants stay in the sane
+   band" test asserted `VESSEL_SNAPSHOT_TTL_MS < 20_000` — i.e. it was
+   PINNING the exact bug this session fixed, backwards reasoning included
+   ("snapshot never outlives one client poll interval"). Corrected to
+   assert TTL > the real 20s client poll interval, with the corrected
+   reasoning in-line. This is not a weakened assertion — MEASUREMENT
+   INTEGRITY / RULE REVIEW note: this is test code pinning app behavior,
+   not the ruler that grades the bot, so it doesn't need a separate
+   [RULE-REVIEW] PR; it changes because the invariant it encoded was
+   itself the bug, evidenced by the live poll-interval read and the
+   scale_program.md spec, not by "this assertion seems wrong."
+4. Two NEW regression tests: `shouldRebuildSnapshot` at the real 20s poll
+   cadence (would have caught the original bug — asserts the cache is
+   still fresh one poll interval later, not just "eventually rebuilds");
+   and a composed `shouldRebuildSnapshot` + `sinceUnchanged` test proving
+   an actual `{unchanged}`-eligible response at that cadence.
+
+VERIFICATION: `npx tsx --test server/liveDelta.test.ts` 7/7 pass (was 5).
+Full `npm run test:node`: 838/838 pass (baseline 836; +3 new, -1 corrected-
+in-place, net +2 files... net +2 tests after removing the one backwards
+assertion body and adding two new test blocks). `npx tsc --noEmit`: 80
+errors, byte-identical count to the `git stash`-verified pre-change
+baseline (the extraction initially introduced 5 new narrowing errors at
+the vesselSnapCache call site — fixed with an explicit `!hit ||` guard,
+confirmed zero net new errors). `npm run build`: clean (pre-existing
+astronomy-engine/chunk-size warnings only, unrelated). No Python files
+touched — `python3 -m pytest` not run for this reason (server-TS-only
+change, matches the precedent PRs #572/#420 already used for TS-only
+diffs); BACKTEST: N/A (server payload-caching perf fix, zero trading/
+scoring/measurement-path code touched — no strategy, sizing, or P&L
+computation logic in this diff).
+
+HYPOTHESIS: this should measurably cut vessels-endpoint bytes-served and
+median response time per poll once deployed (most polls should now return
+the ~100-byte `{unchanged:true}` shape instead of the full snapshot) — a
+future session can confirm via `/api/diag/timings` or server access-log
+sampling once live; stated here BEFORE that live read, per REASONING
+STANDARD #10. Vessel position staleness in the UI increases by at most one
+extra poll interval (≤~10s worst case, TTL 30s vs. previous effective-
+always-fresh-because-always-rebuilt 15s) — acceptable for AIS vessel speeds
+(the existing 20-minute VESSEL_FRESH_MS staleness floor is far looser).
+
+NEXT (unclaimed, from the same S-A2 spec line): zoom-capped vessels payload
+(S2 server-side aggregation alignment) — filed in scale_program.md, not
+built this session (separate logical change, low-zoom payload shaping is
+a different mechanism than the TTL/delta fix here).
+
+
 ## 2026-07-22 (scheduled-routine session) [RESEARCH] — Form 4 insider-signal gate 2 KILLED: code-S sales mirror test + full-8-quarter code-P re-run both reverse the stated PRIOR, significantly, at 60d
 
 TERRITORY: root-level EDGE-DOCTRINE research scripts (`sec_form4_bulk.py`,

@@ -209,10 +209,14 @@ SPEED WAVE 1 (server, ~1.5d total — biggest measured wins):
   recurring every 10s TTL). Serve the expired cache immediately (marked
   cached:true — honesty chrome already shows staleness) + background
   refresh. THE top "data is slow" item.
-- S-A2 vessels delta DEAD CODE (liveDelta.ts:39): snapshot TTL 15s <
-  client poll 20s so `unchanged` NEVER fires — ~2MB raw/~400KB gz re-ships
-  every poll. Raise TTL ≥ 25s (one constant + test); follow-up: zoom-capped
-  payload (S2 alignment).
+- S-A2 vessels delta DEAD CODE: **SHIPPED 2026-07-22 (v1.0.474, scheduled-
+  routine [REPAIR] session)** — TTL raised 15s→30s (2x the 20s client poll,
+  matching AIRCRAFT_TTL_MS's ratio), the inline rebuild check extracted to
+  a tested pure `shouldRebuildSnapshot()` in liveDelta.ts, and the
+  pre-existing test that had pinned the backwards `TTL < poll` invariant
+  corrected + two new regression tests added (server/liveDelta.test.ts).
+  Full trace in experiments.md. Follow-up still open: zoom-capped payload
+  (S2 alignment) — a separate logical change, not built this session.
 - S-A3 /api/data/layers: slowest median TTFB (569ms), no cache-control,
   near-static 69KB registry fetched on every open → memoize + max-age=60.
 - S-A4 logging middleware double-stringify (index.ts:88): full-body
