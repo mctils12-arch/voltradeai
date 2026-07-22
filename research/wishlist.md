@@ -1691,3 +1691,62 @@ FOR THE HUMAN: if this recurs, check Settings → Billing → Actions
 usage (or Settings → Actions → General → concurrency/spending limits)
 for this repo/account — that's the fastest way to confirm or rule out
 the quota hypothesis, which no session tool here can check directly.
+
+## 2026-07-22 — SIX open, unmerged, non-draft Claude PRs found sitting stale (1-2 weeks each); disposition + a session-start-checklist recommendation (found while recovering #420 as this session's REPAIR — no code change here beyond the checklist recommendation)
+
+OBSERVED: the open-PR list (last checked and found clean on 2026-07-09,
+per PR #399's own session log — "only a long-stale unrelated human
+draft, #77, left alone") had grown to SEVEN open non-draft-or-ancient
+PRs by today: #399 (2026-07-09), #415/#420 (2026-07-10), #449
+(2026-07-12), #557 (2026-07-20), #572 (2026-07-21), plus the untouched
+April draft #77. No session in between re-checked this list — each one
+picked new roadmap/repair work without auditing whether prior work had
+actually landed. This is a real gap in the session-start checklist:
+CLAUDE.md's MEMORY PROTOCOL says read experiments.md/open_questions.md/
+wishlist.md, but never says check the open-PR list itself, so "already
+in flight" work can silently stall indefinitely once its automerge step
+happens to fail (see the two entries directly above this one — a
+concrete, confirmed mechanism for exactly this).
+
+DISPOSITION (verified against current main, v1.0.477, via `git
+merge-tree` for conflict-shape and direct file/symbol greps for
+supersession — not assumed from the PR title):
+- **#420 (satellite CSV/res.ok fix)** — RECOVERED this session (new PR,
+  see experiments.md's 2026-07-22 REPAIR entry); #420 itself closed
+  with a pointer to the replacement.
+- **#557 (3D terrain exaggeration slider)** — SUPERSEDED: main already
+  has `client/src/lib/terrainExag.ts` (shipped independently; confirmed
+  via an add/add conflict in a real `git merge-tree` test). Closed with
+  a pointer; no unique delta worth salvaging (the slider/lock-step/
+  persistence behavior it wanted are all present in the shipped
+  version, per the KNOWN STATE v1.0.475 crash-fix entry referencing the
+  same file).
+- **#399 (GIBS floods layer), #415 (gridvision RunPod reap), #449
+  (agent-tools API), #572 (ENTSO-E generation mix)** — STILL MISSING
+  from main, STILL VALID, NOT superseded (verified: no `floods`/
+  `MODIS_Combined_Flood` in datamap.tsx, no `scripts/runpod_reap.py`,
+  no `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`, no
+  `server/euGenerationMix.ts`). Left OPEN. Each has REAL code conflicts
+  against current main (not just docs/package.json) per `git
+  merge-tree`: #399 conflicts in `datamap.tsx`/`layers.json`/
+  `scripts/visual_check.mjs`; #415 conflicts in
+  `datacore/runpod/ledger.jsonl` (a real ledger data file — needs
+  careful append-only-preserving resolution, not a blind merge);
+  #449/#572 conflict mainly in `server/routes.ts`-adjacent docs plus
+  package.json/experiments.md. Each is a same-shape recovery job to
+  this session's #420 fix (re-apply the diff fresh against current
+  files rather than force-merging the stale branch) — right-sized as
+  its own future session's PRIMARY [REPAIR]-or-equivalent action, not
+  bundled here (one logical change per PR/session).
+
+RECOMMENDATION for the human and for future sessions: (1) add "check
+the open-PR list" to the session-start checklist (CLAUDE.md MEMORY
+PROTOCOL currently only names the research/*.md files) — this is the
+cheapest guard against exactly this failure mode recurring; (2) a
+future [REPAIR] session should pick ONE of #399/#415/#449/#572 per
+session, same pattern as #420 this session, until the backlog clears;
+(3) #415's RunPod-reap tool is arguably the most time-sensitive of the
+four — it is a billing-safety tool (orphaned-pod reaper) for the GRID
+VISION GPU spend, currently unimplemented, meaning a repeat of the
+2026-07-10 orphaned-pod incident (PR #415's own body) has no automatic
+safety net today even though the fix was written 12 days ago.
