@@ -24875,3 +24875,51 @@ excursions on a loaded box (p95 frame 417ms, control TTI 5420ms)
 cleared on a quiet-box re-run (control 1446ms) — environmental, the
 documented pattern; my diff adds no per-frame or startup cost.
 BACKTEST: N/A.
+
+## 2026-07-22 [RESEARCH] — Terrain-drape crispness ("less clear than flat 2D"): root-caused to MapLibre RTT architecture + client software-rendering, NOT our config (no code change; filed to prevent re-investigation)
+
+TYPE: [RESEARCH] (human "figure this one out" — the filed round-16/17
+follow-up on why 3D terrain imagery reads softer than flat 2D and shows
+"square tiles building" on zoom).
+
+METHOD: read MapLibre v5 render-to-texture internals + 3 instrumented
+probes (crisp_probe.mjs: proxy/DEM/imagery tile zooms at camera z14.5,
+terrain on).
+
+FINDINGS (probe-verified):
+1. PROXY MESH IS FINE. At camera z14.5 the terrain proxy (RTT-textured
+   mesh) tiles subdivide to z13-14 (proxyZooms [11,13,14]) even though
+   our DEM source caps at maxzoom 12 — MapLibre OVERZOOMS the z12 DEM
+   for elevation (data exhausted at ~z11.5, so no detail lost) while
+   still building fine proxy tiles. So our z12 DEM cap does NOT coarsen
+   the imagery drape. DEM fetches correctly stop at z12 (verified:
+   fetched zooms 0..12, none beyond).
+2. DRAPE RESOLUTION IS 2×. terrain.qualityFactor = 2 (hardcoded in
+   MapLibre's Terrain ctor): each 512px mesh tile drapes into a 1024px
+   RTT texture — imagery is OVERsampled, not under. Not the blur source.
+3. qualityFactor IS NOT SAFELY TUNABLE. setTerrain() bakes qualityFactor
+   into the RenderPool at RTT construction (map.ts: `new RenderToTexture`
+   reads it once); RenderToTexture is not exported, so raising it needs
+   an internal-field mutation + pool recreation — fragile across version
+   bumps, rejected.
+4. RESIDUAL SOFTNESS IS INHERENT to draping imagery THROUGH a 3D mesh:
+   the RTT linear resample + grazing-angle (tilt) foreshortening soften
+   edges vs flat 2D drawing imagery 1:1 to screen. This is drape physics.
+5. CLIENT AMPLIFIER (the user's specific machine): their browser reported
+   "rendering 3D without GPU acceleration (software renderer)" — the
+   device-tier notice (round 15) fired. Software rendering degrades BOTH
+   speed and drape quality; flat 2D stays crisp at pixelRatio 1 (raster
+   1:1) while the drape's resample suffers. This is the dominant factor
+   for THEM.
+
+CONCLUSION: our terrain config is near-optimal (fine mesh, 2× drape,
+correct DEM cap). No config change helps; forcing higher drape fidelity
+is unsafe in MapLibre and would worsen the perf the same user flagged.
+The real levers: (a) USER — enable hardware acceleration (chrome://gpu /
+Settings→System) — the single biggest win for their machine, already
+surfaced by the device notice; (b) OURS — none safe today; a
+qualityFactor bump gated to "full"-tier GPUs is a possible future
+enhancement IF a MapLibre release exposes it. "Square tiles building on
+zoom" is the RTT pool re-rasterizing; the round-17 maxTileCacheZoomLevels
+bump removed the re-fetch half, the re-raster half is RTT-fundamental.
+BACKTEST: N/A.
