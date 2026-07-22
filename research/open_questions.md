@@ -2695,6 +2695,84 @@
   concrete next run; (4) re-run this exact screen once BACKFILL_QUARTERS
   reaches its full 8-quarter window for a still-larger, still-corrected
   sample before drawing any promotion-or-kill conclusion.
+
+  UPDATE 2026-07-22 (scheduled-routine session, [RESEARCH]) — both
+  queued NEXT STEPS (3) and (4) run this session, closing gate 2 for
+  this hypothesis family with a GATE-2 KILL, not a "not yet decided."
+  PRIOR restated before running (per REASONING STANDARD #10): code S
+  (sales) expected to mirror code P as a "predictive shorts" signal —
+  negative forward excess return after clustered/single officer-director
+  sales. Sandbox had no persisted archive from prior sessions (fresh
+  container each session, no access to the Railway volume) so the full
+  8-quarter bulk archive was rebuilt locally from `sec_form4_bulk.py`
+  (all 8 quarters re-fetched from SEC's public TSV dataset, ~free,
+  keyless, no different from the live daemon's own backfill) before
+  either run.
+  RUN A — code S, 8 quarters, 300-ticker balanced cap (278/300 fetched
+  ok via Yahoo fallback, no Alpaca key in this sandbox): 20d NO
+  separation from each ticker's own baseline (cluster mean_diff
+  -0.075pp p=0.79; single +0.189pp p=0.57 — n=4434/3557 vs 48,750
+  baseline obs). 60d: **significant REVERSAL of the stated PRIOR** —
+  sales predict OUTPERFORMANCE, not underperformance (cluster
+  +4.551pp, t=6.24, p<0.0001; single +3.044pp, t=4.33, p<0.0001;
+  n=4023/3224 vs 14,497 baseline obs). The "predictive shorts"
+  hypothesis is REJECTED, not just unsupported — trading it as designed
+  would have gone the wrong way with high confidence.
+  RUN B — code P (buys) re-run at the full 8-quarter window named in
+  NEXT STEP (4), 500-ticker balanced cap (466/500 fetched ok): 20d
+  still NO separation (cluster -0.495pp p=0.45; single -0.824pp
+  p=0.16; n=881/1436 vs 101,270 baseline obs) — same shape as the
+  6-quarter run. 60d: the 6-quarter run's "SURPRISE" negative finding
+  **REPLICATED and STRENGTHENED** with more data — cluster -6.793pp
+  (t=-3.82, p=0.0001), single -6.019pp (t=-3.85, p=0.0001); n=759/1228
+  vs 40,612 baseline obs (was -3.97pp p=0.049 / -4.68pp p=0.008 on the
+  smaller 6-quarter sample). Both P and S 20d/60d cells (8 comparisons
+  across the two runs) are reported, not cherry-picked; the two
+  significant cells (P-60d, S-60d) both clear a same-session Bonferroni
+  bar of 0.05/8=0.00625 by orders of magnitude.
+  READING THE DIRECTION HONESTLY: buys underperform baseline and sales
+  outperform baseline at 60d — opposite signs, but NOT the pattern a
+  real "insiders have private information, trade it, direction matters"
+  signal would produce (that would need buys ABOVE baseline and sales
+  BELOW). This is the pattern a MOMENTUM/TIMING-AT-EXTREMES story would
+  produce instead: if Form-4 events (whichever direction) tend to
+  cluster near a ticker's recent local price extreme (insiders buy
+  dips, sell rallies — routine 10b5-1/tax/diversification behavior with
+  no informational content) and that extreme continues for the next 60
+  trading days (which momentum evidence broadly supports), you'd see
+  exactly this signature: buys near recent lows keep underperforming a
+  calmer unconditional baseline, sales near recent highs keep
+  outperforming it — with zero requirement that the insider knew
+  anything. CORROBORATING, NOT PROVING: the ticker-own 60d baseline
+  itself ran hot in every version of this screen (this session's S run
+  +5.67% pooled, this session's P run +10.20% pooled, the 07-19 6Q run
+  +8.55% pooled) — all well above a typical ~2-3% broad-market quarter,
+  consistent with (not proof of) an insider-active/small-cap-momentum-
+  heavy fetched universe over a 2024q3-2026q2 window that happened to
+  be a strong run for that cohort, which is exactly the confound NEXT
+  STEP (2) flagged and this session's evidence now makes more
+  plausible, not less.
+  EXPLICITLY NOT DONE, NAMED SO THE NEXT SESSION DOESN'T INVENT IT: no
+  attempt was made to trade the reversed sign (short-when-buy /
+  long-when-sell) this session — proposing a flipped strategy off a
+  sign that only appeared AFTER seeing the data is exactly the
+  multiple-hypothesis-fishing trap REASONING STANDARD #4 warns about,
+  not a validated finding. If a future session wants to pursue this, it
+  needs its own fresh PRIOR and a held-out re-test, not a retroactive
+  sign-flip on today's sample.
+  LADDER VERDICT: **GATE 2 KILL** for both "clustered/single officer-
+  director Form 4 buys predict positive forward excess return" and its
+  code-S sales mirror ("predict negative forward excess return") in
+  their originally-stated (naive) direction — this hypothesis family
+  does not proceed to gate 3. The pipeline itself (`sec_form4_bulk.py`,
+  gate 1 DATA) stays live and keeps backfilling — a killed SIGNAL gate
+  does not retire a working DATA gate; the raw feed remains a valid RAW
+  overlay candidate and a substrate for a differently-shaped future
+  hypothesis (e.g., the momentum-confound angle above, stated as its
+  own PRIOR before any run, not a rename of this one). No code changed
+  this session — pure gate-2 measurement via the existing scripts, so
+  no test suite, backtest, or version bump applies (same precedent as
+  the 07-05 pytrends gate-1 probe and the 07-08 COT Newey-West re-test).
 - **CFTC Commitments of Traders (COT) positioning** (gate 1 DATA PASSED
   2026-07-05 — see `cftc_cot.py` / `test_cftc_cot.py`; EDGE DOCTRINE #1
   standing example; recovered this session from a stalled dirty PR
