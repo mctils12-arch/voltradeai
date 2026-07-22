@@ -25322,3 +25322,52 @@ higher-level wrapper" shape? Not searched this session (scope
 discipline) — flagging as a pattern worth a grep in a future session,
 not filing a formal open_questions.md entry since it's speculative, not
 a confirmed second instance.
+
+## 2026-07-22 [REPAIR] — Stale-on-return card refresh, camera-drag no longer clears the curtain, timeline gap greyed, ADS-B badge shows data state (v1.0.478, T-CLIENT)
+
+TYPE: [REPAIR] (two live reports). Four fixes:
+
+1. STALE-ON-RETURN ("i leave the page … come back and the data is stale
+   if i click on a plane"): the open card's 30s track-refresh interval
+   is throttled/suspended while the tab is backgrounded, so it sat stale
+   for up to 30s after returning. Added a visibilitychange listener that
+   refreshes the selected-plane track the instant the tab becomes visible
+   (and skips the fetch while hidden). The fleet marker already had its
+   own on-return refresh; this covers the card's track/curtain/last-fix.
+
+2. CURTAIN VANISHES ON CAMERA MOVE ("i just move the camera and the
+   curtain goes away … all map modes"): the round-16 click-off-deselect
+   assumed "camera drags never emit click" — FALSE in the plane-view
+   orbit scheme, where the nav rig handles mouse drags itself and
+   bypasses MapLibre's click-after-drag suppression, so a rotate/pan drag
+   could surface as a map 'click' and hit the __vtFeatClaim branch →
+   clearTrail() (curtain gone, card stays open — exactly the screenshots).
+   Fix: onClickOff records the pointer-down point and ignores any click
+   whose pointer travelled >6px (a drag/orbit) — provably correct (a
+   moved pointer is navigation, a still one is a tap), mode-independent.
+
+3. TIMELINE GAP GREYED ("within the timeline bar it had missing data …
+   make that area grey"): the altitude chart broke the line at coverage
+   gaps (honest, but read as ambiguous empty space). Now each maximal gap
+   run draws a dashed grey "no data" band (last real fix → first real fix
+   after). WHY gaps happen: ADS-B is receiver-network-dependent — a plane
+   crossing a coverage hole (or between archive writes) genuinely has no
+   fixes for that span; it is not lost-on-click.
+
+4. ADS-B BADGE = DATA STATE ("have the adsb on the card that blinks show
+   the state of the data"): the badge dot was always a green pulse. Now
+   it reads the last-fix age (re-evaluated every 10s): live <90s green
+   pulse; stale <15min amber slow-pulse; lost ≥15min steady grey — the
+   same break the timeline greys, surfaced on the card.
+
+FILED (not built — needs live visual iteration, and the human said "not
+… change color"): making a SELF-OVERLAPPING curtain (a plane flying
+circles) more readable. The camera-move disappearance (#2) is fixed;
+pure edge-on/overlap legibility of the translucent wall is the remaining
+item.
+
+VERIFICATION: 641 client + 838 node tests; visual harness 0 hard
+failures (datum altScale=1, buried none). The curtain drag-guard is
+provably correct by construction (probe plane-selection is unreliable
+under SwiftShader — a known probe limitation this session, not a fix
+defect). BACKTEST: N/A.

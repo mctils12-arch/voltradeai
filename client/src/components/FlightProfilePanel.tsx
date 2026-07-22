@@ -174,7 +174,26 @@ export default function FlightProfilePanel({
       else run.push(i);
     }
     flush();
-    return { ter, alt: alt.trim(), band: band.trim() };
+    // GREY "NO DATA" BANDS (human 2026-07-22: "within the timeline bar it had
+    // missing data … make that area grey"): a gap is a real coverage break —
+    // ADS-B is receiver-network-dependent, so a plane crossing a hole in
+    // coverage (or between archive writes) has no fixes for that span. Draw
+    // each maximal gap run as a grey rect so the break reads as "no data
+    // here", not an ambiguous flat/empty stretch. Span = last real fix
+    // before → first real fix after (clamped to the chart edges).
+    const gaps: { x0: number; x1: number }[] = [];
+    let gapStart = -1;
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].gap) { if (gapStart < 0) gapStart = i; }
+      else if (gapStart >= 0) {
+        const x0 = X(samples[Math.max(0, gapStart - 1)].t);
+        const x1 = X(samples[i].t);
+        if (x1 - x0 > 0.5) gaps.push({ x0, x1 });
+        gapStart = -1;
+      }
+    }
+    if (gapStart >= 0) gaps.push({ x0: X(samples[Math.max(0, gapStart - 1)].t), x1: CW });
+    return { ter, alt: alt.trim(), band: band.trim(), gaps };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, groundM, yMaxM, t0, span]);
 
@@ -429,6 +448,14 @@ export default function FlightProfilePanel({
                   compresses them as the live edge extends the axis to NOW
                   (non-scaling strokes keep line widths true) */}
               <g ref={dataGRef}>
+                {/* grey "no data" bands over coverage gaps (2026-07-22) —
+                    drawn first so the terrain/altitude paths sit on top at
+                    the edges; a hatched grey reads as "missing", not zero */}
+                {paths.gaps.map((gp, i) => (
+                  <rect key={i} x={gp.x0} y={PAD_T} width={Math.max(0, gp.x1 - gp.x0)} height={CH - PAD_T - PAD_B}
+                        fill="rgba(148,163,184,.16)" stroke="rgba(148,163,184,.35)" strokeWidth="0.5"
+                        strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+                ))}
                 <path d={paths.band} fill="rgba(77,163,255,.16)" />
                 <path d={paths.ter} fill="rgba(56,84,52,.55)" stroke="#6b8f5e" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
                 <path d={paths.alt} fill="none" stroke="#4da3ff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
