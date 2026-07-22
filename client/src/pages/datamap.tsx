@@ -13,6 +13,7 @@ import {
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
+  COAL_CATEGORY_ICON, COAL_CATEGORY_LABEL, coalGradeColor, COAL_GRADE_COLOR, COAL_GRADE_UNKNOWN_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
@@ -395,7 +396,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature";
   title: string;
   subtitle: string;
   body: string;
@@ -540,6 +541,7 @@ const LAYER_GROUP: Record<string, string> = {
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   plant_operations: "facilities", faa_airports: "facilities", border_waits: "facilities",
+  coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -917,7 +919,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -934,6 +936,18 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.coal_mine} label={METHANE_MATCH_LABEL.coal_mine} />
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.unmatched} label={METHANE_MATCH_LABEL.unmatched} />
                     <span className="vt-legend-note">nearest catalogued GEM asset within 2km — a proximity fact, not a confirmed emissions attribution</span>
+                  </>
+                )}
+                {enabled.coal_mine_features && (
+                  <>
+                    <LegendIcon icon={COAL_CATEGORY_ICON["mine boundary"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["mine boundary"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON["ventilation system"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["ventilation system"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON["degasification system"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["degasification system"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL.other} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR.Met} label="Coal grade: metallurgical" />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR.Thermal} label="Coal grade: thermal" />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR["Thermal & Met"]} label="Coal grade: thermal & met" />
+                    <span className="vt-legend-note">symbol = mine feature category, colour = catalogued coal grade — Global Energy Monitor, no output/production claim</span>
                   </>
                 )}
                 {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
@@ -8198,6 +8212,117 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.methane_plumes, mapReady, mapSettled, setStatus]);
 
+  // ── GEM coal-mine catalogued infrastructure (RAW; server/
+  // gemCoalMineFeatures.ts) — the underlying GEM asset geometry the Methane
+  // Plumes layer above already matches detections against, shown directly
+  // for the first time (wishlist.md's own named follow-up to the 2026-07-21
+  // route-only PR). Mine-boundary polygons render as fill+outline;
+  // ventilation/degasification/other features render as SYMBOLS keyed to
+  // GEM's own "mine feature category" (symbols-not-dots directive) — icon
+  // shape = category, icon-color = catalogued coal grade (never an output/
+  // production claim). Static reference dataset (GEM releases ~2x/year, a
+  // human re-runs the ingest on delivery), mounts once per toggle-on. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        for (const l of ["coalmine-fill", "coalmine-outline", "coalmine-pt"]) if (map.getLayer(l)) map.removeLayer(l);
+        for (const s of ["coalmine-poly", "coalmine-points"]) if (map.getSource(s)) map.removeSource(s);
+      } catch {}
+    };
+    if (!enabled.coal_mine_features) { clear(); setStatus("coal_mine_features", "off"); return; }
+    if (!mapSettled) { setStatus("coal_mine_features", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("coal_mine_features", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/coal-mine-features", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.features)) throw new Error("no features");
+        if (map.getSource("coalmine-poly") || map.getSource("coalmine-points")) return;
+        const withStyle = (f: any) => ({
+          ...f,
+          tint: coalGradeColor(f.coalGrade),
+          icon: COAL_CATEGORY_ICON[f.category || ""] || "vt-mineinfra",
+        });
+        // GEM's own geometry mix (live-verified): Polygon (mine boundaries)
+        // + a single MultiLineString outlier both go to the poly source (a
+        // fill layer simply ignores non-polygon geometry; the line layer
+        // outlines both) — everything else is a Point.
+        const polys = d.features.filter((f: any) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiLineString");
+        const points = d.features.filter((f: any) => f.geometry?.type === "Point");
+        map.addSource("coalmine-poly", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: polys.map((f: any) => ({
+            type: "Feature", geometry: f.geometry, properties: withStyle(f),
+          })) } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addSource("coalmine-points", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: points.map((f: any) => ({
+            type: "Feature", geometry: f.geometry, properties: withStyle(f),
+          })) } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "coalmine-fill", type: "fill", source: "coalmine-poly",
+          paint: { "fill-color": ["get", "tint"], "fill-opacity": 0.22 },
+        } as any);
+        map.addLayer({
+          id: "coalmine-outline", type: "line", source: "coalmine-poly",
+          paint: { "line-color": ["get", "tint"], "line-width": 1.3, "line-opacity": 0.8 },
+        } as any);
+        map.addLayer({
+          id: "coalmine-pt", type: "symbol", source: "coalmine-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 8, 0.55],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const catLabel = COAL_CATEGORY_LABEL[p.category] || p.category || "Coal mine feature";
+          setDetail({
+            kind: "coalminefeature",
+            title: p.mineName || catLabel,
+            subtitle: `${catLabel}${p.subcategory ? ` · ${p.subcategory}` : ""}`,
+            stats: [
+              { label: "Category", value: catLabel },
+              { label: "Coal grade", value: p.coalGrade || "not stated" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Owner", value: p.owners || "—" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `${p.description || "Catalogued mine feature."}\n\n` +
+                  `Mine: ${p.mineName || "unnamed"}${p.mineId ? ` (GEM Mine ID ${p.mineId})` : ""}\n` +
+                  `Category: ${catLabel}${p.subcategory ? ` — ${p.subcategory}` : ""}\n` +
+                  `${p.parent ? `Parent company: ${p.parent}\n` : ""}` +
+                  `${p.dataSourceDate ? `Catalogued as of: ${p.dataSourceDate}\n` : ""}` +
+                  `\nSource: Global Energy Monitor — Coal Mine Boundaries and Methane Sources (CC BY 4.0). ` +
+                  `Locations/geometry as catalogued; no activity, output, or emissions claims.`,
+            sourceUrl: p.wiki || undefined,
+          });
+        };
+        const d1 = attachLayerInteractions(map, "coalmine-pt", onClick);
+        const d2 = attachLayerInteractions(map, "coalmine-fill", onClick);
+        detach = () => { d1(); d2(); };
+        setStatus("coal_mine_features", "active", d.count,
+          `${polys.length.toLocaleString()} mine boundaries, ${points.length.toLocaleString()} point features — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("coal_mine_features", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.coal_mine_features, mapReady, mapSettled, setStatus]);
+
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
   // named OSM military=base sites (US bases included) + any cited government
@@ -9437,6 +9562,7 @@ export default function DataMapPage() {
     id === "plant_operations" ? <Gauge size={15} /> :
     id === "faa_airports" ? <TowerControl size={15} /> :
     id === "border_waits" ? <Milestone size={15} /> :
+    id === "coal_mine_features" ? <Mountain size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -9470,7 +9596,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

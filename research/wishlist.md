@@ -356,12 +356,18 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   in the SAME PR by the existing R14 ratchet test (repoFiles.test.ts)
   before it ever reached prod — the file is now copied into
   dist/datacore/gem/ alongside its siblings. Full trace in
-  experiments.md. DATACORE MAXIMUS queue is clear again; the client
-  map layer (boundary polygons + point markers, off by default, same
-  earthquakes/buoys/GMET-plumes precedent) is now the next unclaimed
-  shipped-data-no-layer item — own T-CLIENT PR (needs SYMBOLS NOT DOTS
-  icon(s) for 4 feature categories + a legend entry + visual harness
-  at 390/768/1440, out of scope for a route-only PR).
+  experiments.md.
+- **GEM coal-mine /data map layer: SHIPPED 2026-07-22 (v1.0.470)** —
+  the item named directly above: `client/src/pages/datamap.tsx` gained
+  a `coal_mine_features` layer (333 mine-boundary polygons as
+  fill+outline, 1,783 ventilation/degasification/other points as
+  symbols) + 4 new SYMBOLS-NOT-DOTS glyphs in `client/src/lib/
+  mapIcons.ts` keyed to GEM's own "mine feature category" (icon
+  shape) and "Coal Grade" (icon colour) — no output/production claim.
+  `datacore/layers.json` gained the registry entry (group:
+  environmental). Full trace in experiments.md. DATACORE MAXIMUS queue
+  is clear again — no shipped-data-no-map-layer gaps remain as of this
+  session.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

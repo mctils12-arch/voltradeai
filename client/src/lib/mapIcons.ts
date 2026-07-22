@@ -625,6 +625,77 @@ const shapes: Record<string, () => ImageData> = {
     ctx.beginPath(); ctx.moveTo(m - 5, m + 5); ctx.quadraticCurveTo(m, m + 2, m + 5, m + 5); ctx.stroke();
     ctx.restore();
   }),
+  // ── GEM coal-mine catalogued infrastructure (symbols-not-dots directive):
+  // one glyph per GEM "mine feature category" — a boundary/site glyph for
+  // the low-zoom centroid of a mine-boundary polygon, plus three distinct
+  // point-feature marks, so a ventilation shaft never reads as the same dot
+  // as a degasification well or a boundary. icon-color carries catalogued
+  // coal grade (never an output/production claim). ──
+  // mine boundary (also the low-zoom centroid mark for the boundary polygon
+  // layer, same declutter pattern as vt-military): terraced open-pit
+  // cross-section — three narrowing benches down to a flat floor.
+  "vt-minepit": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.6;
+    ctx.lineJoin = "round";
+    const widths = [15, 10.5, 6.5];
+    const ys = [10, 17, 24];
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(m - widths[i], ys[i]); ctx.lineTo(m + widths[i], ys[i]); ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(m - widths[0], ys[0]); ctx.lineTo(m - widths[1], ys[1]); ctx.lineTo(m - widths[2], ys[2]);
+    ctx.moveTo(m + widths[0], ys[0]); ctx.lineTo(m + widths[1], ys[1]); ctx.lineTo(m + widths[2], ys[2]);
+    ctx.stroke();
+  }),
+  // ventilation system: fan housing ring + three curved blades around a hub
+  // — deliberately distinct from vt-radiation's flat trefoil wedges (open
+  // ring + narrow teardrop blades vs. a filled three-sector disc).
+  "vt-minevent": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(m, m, 13, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      ctx.save();
+      ctx.translate(m, m);
+      ctx.rotate(-Math.PI / 2 + i * ((2 * Math.PI) / 3));
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(7, -8, 2, -11);
+      ctx.quadraticCurveTo(-2, -7, 0, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(m, m, 2.4, 0, Math.PI * 2); ctx.fill();
+  }),
+  // degasification system: wellhead (stem + cap valve + side offtake) with a
+  // downward drainage arrow — distinct from vt-plume's rising billow and
+  // vt-fire's flame.
+  "vt-minegas": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(m, 8); ctx.lineTo(m, s - 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m - 8, 8); ctx.lineTo(m + 8, 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m, 14); ctx.lineTo(m + 9, 14); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(m - 4, s - 13); ctx.lineTo(m, s - 6); ctx.lineTo(m + 4, s - 13);
+    ctx.stroke();
+  }),
+  // other catalogued mine infrastructure (prep plants, coal storage, CHP):
+  // pitched-roof shed + chimney — a generic industrial-building glyph,
+  // deliberately roofline-distinct from vt-nukefacility's flat industrial
+  // roof + trefoil.
+  "vt-mineinfra": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(7, m - 2, s - 14, m - 4);
+    ctx.beginPath();
+    ctx.moveTo(7, m - 2); ctx.lineTo(m, m - 10); ctx.lineTo(s - 7, m - 2);
+    ctx.stroke();
+    ctx.fillRect(m + 4, m - 16, 3, 8);
+  }),
 };
 
 /** Register all SDF icons on a maplibre map (idempotent). */
@@ -834,6 +905,36 @@ export const METHANE_MATCH_LABEL: Record<MethaneMatchKind, string> = {
   coal_mine: "Near coal mine",
   unmatched: "No nearby catalogued asset",
 };
+
+// GEM coal-mine features (server/gemCoalMineFeatures.ts): category ->
+// symbol, exactly the four "mine feature category" strings the release
+// itself uses (never inferred beyond them — an unrecognized category falls
+// back to the generic "other" glyph, honestly, rather than guessed).
+export const COAL_CATEGORY_ICON: Record<string, string> = {
+  "mine boundary": "vt-minepit",
+  "ventilation system": "vt-minevent",
+  "degasification system": "vt-minegas",
+  other: "vt-mineinfra",
+};
+export const COAL_CATEGORY_LABEL: Record<string, string> = {
+  "mine boundary": "Mine boundary",
+  "ventilation system": "Ventilation system",
+  "degasification system": "Degasification system",
+  other: "Other mine infrastructure",
+};
+// coal grade -> tint (GEM's own "Coal Grade" column: Met/Thermal/Thermal &
+// Met/"-"). A FACT about the catalogued coal, never an output or
+// production claim.
+export const COAL_GRADE_COLOR: Record<string, string> = {
+  Met: "#78716c",             // stone — metallurgical/coking coal
+  Thermal: "#f59e0b",         // amber — thermal/steam coal
+  "Thermal & Met": "#a78bfa", // violet — dual-market
+};
+export const COAL_GRADE_UNKNOWN_COLOR = "#64748b"; // slate — grade not stated ("-")
+export function coalGradeColor(grade?: string | null): string {
+  if (grade && grade in COAL_GRADE_COLOR) return COAL_GRADE_COLOR[grade];
+  return COAL_GRADE_UNKNOWN_COLOR;
+}
 
 /** USGS-convention magnitude -> marker tint (M2.5 green through M6+ red).
  *  Bucket edges match USGS's own ShakeMap intensity palette; a null/missing
