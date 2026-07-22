@@ -493,6 +493,16 @@ export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: strin
     const bail = () => { try { rl.close(); } catch {} resolve(); };
     src.on("error", bail);
     if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
+    // readline.Interface re-emits its input stream's 'error' on ITSELF too
+    // (a separate EventEmitter emission from the input.on("error", ...)
+    // above) — with no listener here, a corrupt/truncated .gz crashes the
+    // WHOLE PROCESS (verified: this exact file's src/input guards do NOT
+    // prevent it). Found 2026-07-22 while building an unrelated feature;
+    // the same missing-rl-error-listener pattern was copy-pasted into 7
+    // other files (aircraftEntities/fleetUtilization/gridStress/
+    // platformStats/queryEngine/shadowFleet(x2)/siteTimeline) — fixed there
+    // too, same PR.
+    rl.on("error", bail);
     rl.on("line", (line) => { if (line) onLine(line); });
     rl.on("close", () => resolve());
   });

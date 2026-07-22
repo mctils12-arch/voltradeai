@@ -12,6 +12,7 @@ import cookieParser from "cookie-parser";
 // never reaches the image, which made runtime fs reads return {} in prod.
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
+import datacoreSiteChips from "../datacore/sentinel2/site_latest_index.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
@@ -111,6 +112,7 @@ import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
+import { mergeSiteImagery } from "./siteImagery";
 
 const execAsync = promisify(exec);
 
@@ -1331,9 +1333,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Strategic sites (RAW) — static reference data from datacore/sites.
+  // Each site gets an `imagery` field (RAW, no ladder gate — a photo, not a
+  // signal) when scripts/cdse_site_chips.py has pulled a latest cloud-free
+  // Sentinel-2 chip for it (DATACORE MAXIMUS Phase 3b); sites never pulled
+  // yet simply omit the field, never a fabricated placeholder.
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
-    res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
+    const sites = mergeSiteImagery(d.sites || [], datacoreSiteChips as any);
+    res.json({ kind: "raw", categories: d.categories || {}, sites });
   });
 
   // US power plants (RAW) — static reference data compiled from the WRI

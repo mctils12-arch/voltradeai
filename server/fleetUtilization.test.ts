@@ -75,3 +75,20 @@ test("buildFleetSeries: joins corporate spine owners, excludes ground points and
 test("buildFleetSeries: missing archive or spine degrades to empty", async () => {
   assert.deepEqual(await buildFleetSeries("/nonexistent", "/nonexistent/spine.json"), []);
 });
+
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+// datacoreArchive.test.ts for the full writeup + minimal repro.
+test("buildFleetSeries resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-trunc-"));
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  const spineFp = path.join(base, "spine.json");
+  fs.writeFileSync(spineFp, JSON.stringify({
+    entities: { abc123: { n_number: "N1CORP", owner: "ACME JETS INC", registrant_type: "corporation" } },
+  }));
+  const good = zlib.gzipSync(JSON.stringify({ t: MON, i: "abc123" }) + "\n");
+  fs.writeFileSync(path.join(base, "aircraft", "2026-06-29-10.jsonl.gz"), good.subarray(0, good.length - 4));
+  await buildFleetSeries(base, spineFp);
+});

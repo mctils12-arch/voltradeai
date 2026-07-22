@@ -1,0 +1,226 @@
+{
+ "cushing_enbridge": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -96.7759845079088,
+   35.9218581508956,
+   -96.75601549209121,
+   35.9381418491044
+  ],
+  "cloud_pct": 17.117903,
+  "date": "2026-07-07",
+  "file": "/imagery/sites/cushing_enbridge.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_14SPE_20260707_0_L2A"
+ },
+ "cushing_hub": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -96.76868687051302,
+   35.940558150895605,
+   -96.74871312948699,
+   35.9568418491044
+  ],
+  "cloud_pct": 17.117903,
+  "date": "2026-07-07",
+  "file": "/imagery/sites/cushing_hub.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_14SPE_20260707_0_L2A"
+ },
+ "cushing_plains": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -96.76498766696203,
+   35.9468581508956,
+   -96.74501233303796,
+   35.963141849104396
+  ],
+  "cloud_pct": 17.117903,
+  "date": "2026-07-07",
+  "file": "/imagery/sites/cushing_plains.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_14SPE_20260707_0_L2A"
+ },
+ "port_charleston": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -79.9013817636594,
+   32.81440700199023,
+   -79.85861823634059,
+   32.85059299800977
+  ],
+  "cloud_pct": 28.181094,
+  "date": "2026-07-21",
+  "file": "/imagery/sites/port_charleston.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_17SNS_20260721_0_L2A"
+ },
+ "port_houston": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -95.02667863285902,
+   29.65890700199023,
+   -94.98532136714098,
+   29.69509299800977
+  ],
+  "cloud_pct": 13.089147,
+  "date": "2026-07-21",
+  "file": "/imagery/sites/port_houston.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_15RTN_20260721_0_L2A"
+ },
+ "port_la": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -118.29360527401822,
+   33.72190700199023,
+   -118.25039472598179,
+   33.75809299800977
+  ],
+  "cloud_pct": 0.384435,
+  "date": "2026-07-21",
+  "file": "/imagery/sites/port_la.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_11SLT_20260721_0_L2A"
+ },
+ "port_lb": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -118.23460817127476,
+   33.73340700199023,
+   -118.19139182872523,
+   33.76959299800977
+  ],
+  "cloud_pct": 0.384435,
+  "date": "2026-07-21",
+  "file": "/imagery/sites/port_lb.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_11SLT_20260721_0_L2A"
+ },
+ "port_norfolk": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -76.34997120030127,
+   36.89740700199023,
+   -76.30502879969873,
+   36.93359299800977
+  ],
+  "cloud_pct": 32.266477,
+  "date": "2026-07-18",
+  "file": "/imagery/sites/port_norfolk.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_18SUF_20260718_0_L2A"
+ },
+ "port_nynj": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -74.16869225212226,
+   40.66590700199023,
+   -74.12130774787774,
+   40.70209299800977
+  ],
+  "cloud_pct": 18.028571,
+  "date": "2026-07-20",
+  "file": "/imagery/sites/port_nynj.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2A_18TWL_20260720_1_L2A"
+ },
+ "port_oakland": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -122.33723697791355,
+   37.77990700199023,
+   -122.29176302208644,
+   37.81609299800977
+  ],
+  "cloud_pct": 0.010391,
+  "date": "2026-07-14",
+  "file": "/imagery/sites/port_oakland.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2A_10SEG_20260714_0_L2A"
+ },
+ "port_savannah": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -81.165215283794,
+   32.11090700199023,
+   -81.12278471620601,
+   32.14709299800977
+  ],
+  "cloud_pct": 28.245157,
+  "date": "2026-07-01",
+  "file": "/imagery/sites/port_savannah.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_17SMR_20260701_0_L2A"
+ },
+ "port_seattle": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -122.37403500173505,
+   47.56390700199023,
+   -122.32076499826493,
+   47.60009299800977
+  ],
+  "cloud_pct": 0.792185,
+  "date": "2026-07-15",
+  "file": "/imagery/sites/port_seattle.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_10TET_20260715_0_L2A"
+ },
+ "stld_butler": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -84.93136433221423,
+   41.359644201194136,
+   -84.90263566778577,
+   41.38135579880586
+  ],
+  "cloud_pct": 26.672956,
+  "date": "2026-07-15",
+  "file": "/imagery/sites/stld_butler.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_16TFL_20260715_0_L2A"
+ },
+ "stld_columbia_city": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -85.36270934937893,
+   41.10904420119414,
+   -85.33409065062106,
+   41.130755798805865
+  ],
+  "cloud_pct": 26.672956,
+  "date": "2026-07-15",
+  "file": "/imagery/sites/stld_columbia_city.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2B_16TFL_20260715_0_L2A"
+ },
+ "stld_columbus": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -88.58971925071461,
+   33.436444201194135,
+   -88.5638807492854,
+   33.45815579880586
+  ],
+  "cloud_pct": 2.262594,
+  "date": "2026-07-20",
+  "file": "/imagery/sites/stld_columbus.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_16SCC_20260720_0_L2A"
+ },
+ "stld_sinton": {
+  "attribution": "Contains modified Copernicus Sentinel data",
+  "bbox": [
+   -97.46151519194527,
+   28.045444201194137,
+   -97.43708480805472,
+   28.067155798805864
+  ],
+  "cloud_pct": 30.568328,
+  "date": "2026-07-19",
+  "file": "/imagery/sites/stld_sinton.jpg",
+  "pulled_at": "2026-07-22T13:19:34.941815+00:00",
+  "scene": "S2C_14RPS_20260719_0_L2A"
+ }
+}

@@ -25125,3 +25125,200 @@ ROOT LESSON: an auto-recovery that restarts into the same failing state
 is an amplifier, not a fix — recovery must shed the load that caused
 the failure before retrying, and must never retry fast enough to trip
 the browser's own abuse guard.
+
+## 2026-07-22 (scheduled-routine session) [PRODUCT] — DATACORE MAXIMUS Phase 3b: latest cloud-free Sentinel-2 facility chip on the site detail card (v1.0.476, T-DATACORE + small T-CLIENT-adjacent card render)
+
+TERRITORY: T-DATACORE primary (scripts/cdse_site_chips.py, datacore/
+manifests/sentinel2sitechips.json, datacore/sentinel2/site_latest_index.json,
+server/siteImagery.ts). The datamap.tsx/index.css touch is the minimal
+render of an already-server-merged field into the EXISTING site detail
+card — no new map layer/toggle, no new interaction surface.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then research/experiments.md,
+open_questions.md, wishlist.md. `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM, no KNOWN BROKEN item blocking
+product work. Loop-health ratio over the last 10 tagged entries (before
+this session): 6 REPAIR / 1 PIPELINE / 1 PRODUCT / 2 RESEARCH — under the
+7+ thrash trigger.
+
+PRIMARY ACTION SELECTION: this is a [PRODUCT] routine (datacore/ pipelines
++ /data section). Surveyed data_census.md's CENSUS MASTER RANKING — every
+keyless/free-key root is already built except DTCC SBSDR (needs a volume-
+budget decision first, not a build-now item) and the ENTSO-E generation-
+mix/day-ahead-prices follow-up (blocked: ENTSOE_API_KEY is Railway-only,
+not present in this session's environment, so its live contract could not
+be verified per READ-BEFORE-WRITE discipline). Checked wishlist.md's
+DATACORE MAXIMUS resume block instead: Phase 3 (imagery) explicitly names
+"3b Latest Sentinel-2 cloud-free toggle" as the one remaining item, filed
+2026-07-07 and never built. This session's environment DOES carry
+CDSE_CLIENT_ID/CDSE_CLIENT_SECRET (live-verified: token issued, STAC
+search + Process API true-color render all worked against the real
+Cushing tank-farm bbox before any code was written) — a genuinely buildable,
+well-scoped, RAW-OVERLAY item (per the 2026-07-03 standing rule: unprocessed
+imagery display needs no ladder gate) requiring no new human-provisioned
+key. Chose this over KNOWN BROKEN #10/#20 (open_questions.md) — both remain
+correctly gated pending more live data, not actionable this session.
+
+BUILD: scripts/cdse_site_chips.py — for each of the 16 imagery-verified
+strategic sites (datacore/sites/strategic_sites.json), computes a
+category-sized bbox (tank_farm 1.8km side / steel_mill 2.4km / port 4km —
+ports are physically larger facilities), discovers the most recent
+Element84 earth-search STAC scene under a 35%-cloud ceiling within a
+90-day lookback, and renders a true-color JPEG directly via the Sentinel
+Hub Process API (evalscript returns [2.5*B04, 2.5*B03, 2.5*B02] — a
+viewable, not radiometrically precise, photo). Self-budget-guarded
+(refuses a run that would push its own tracked month-spend past 50% of
+the 10,000 PU/month free tier — the same discipline as scripts/
+cdse_chips.py). LIVE-RUN THIS SESSION: all 16 sites pulled successfully,
+10.5 PU total spent (0.1% of the monthly free tier); real imagery
+(Port of LA container terminal, Cushing tank farms, steel mills all
+visually verified — genuinely sharp, cloud-free, on-facility photos, not
+placeholder tiles).
+
+server/siteImagery.ts: pure `mergeSiteImagery(sites, chips)` merge (no
+IO) attaches each site's chip metadata onto its /api/data/sites record
+when scripts/cdse_site_chips.py has pulled one; a site never pulled yet
+simply has no `imagery` field (never a fabricated placeholder). The
+committed datacore/sentinel2/site_latest_index.json is imported
+STATICALLY in routes.ts (same R14-lesson pattern as every other datacore
+JSON there — esbuild bakes it into dist/index.cjs; a runtime fs read
+would return {} in the frozen-Dockerfile prod image).
+
+CLIENT: extends the EXISTING site detail card (no new layer/toggle/
+control — SELF-SEE rule already satisfied by an existing reachable
+surface) with an `imagery` section right after the site's body text: the
+photo, capture date, whole-scene cloud%, and the Copernicus attribution
+line stating "RAW display, not a signal." Feature properties on the
+sites geojson source carry the imagery fields as FLAT primitives (never
+a nested object — geojson sources round-trip properties through
+MapLibre's tiling worker, not worth the serialization risk for this).
+
+GATES: python3 -m pytest -q 852 passed/1 skipped (Python untouched by
+this change, unaffected). npx tsx --test server/*.test.ts 842/842 before
+this batch (siteImagery.test.ts's 4 new tests included). npm run check:
+77 tsc errors both before and after (git-stash A/B diff) — zero new
+errors introduced. npm run build clean. npm run visual --page data: 0
+hard failures at 390/768/1440 (harness uses a hand-written fixture
+server for determinism, so it does not exercise the real merged
+imagery field — separately LIVE-VERIFIED end-to-end against the real
+built dist/index.cjs: GET /api/data/sites returns `imagery` on all 16
+sites, GET /imagery/sites/port_la.jpg returns 200 image/jpeg 103459
+bytes matching the committed file exactly).
+
+BACKTEST: N/A (RAW overlay, no trading logic touched).
+
+FALL-THROUGH FINDING (own commit, see the next entry): while doing the
+local dist/index.cjs live-boot verification above, a completely
+unrelated pre-existing bug reproduced 3/3 times — logged and fixed
+separately below, never bundled with this PR per the one-logical-
+change rule.
+
+NEXT: DATACORE MAXIMUS Phase 3 remaining items — 3c (S2 utilization
+review across asset classes) and per-layer freshness chips (with
+Phase 5) are still open. This item's own natural follow-up: refresh
+cadence (today's `--min-age-days 7` default means chips go stale
+without a session re-running the script — no Railway cron, since CDSE
+creds are session-only by design; a future session could wire this into
+a periodic scheduled-routine step if the human wants fresher imagery
+than "whenever a session touches it").
+
+## 2026-07-22 (scheduled-routine session, fall-through) [REPAIR] — a truncated/corrupt archive .gz file crashed the WHOLE Node process on every boot (readline.Interface's own error re-emission was never listened for), 8 files (v1.0.477, T-DATACORE)
+
+TYPE: [REPAIR], fall-through from the Phase 3b [PRODUCT] entry above (this
+session's PRIMARY action was already complete; SESSION BUDGET says a
+session with capacity remaining falls through rather than ending — this
+finding surfaced incidentally, during that same session's own live
+`node dist/index.cjs` verification of the Phase 3b feature).
+
+FINDING: booting the real built server locally (no ALPACA_KEY, matching a
+cold Railway deploy) crashed the ENTIRE process within ~2 seconds, 3-for-3
+attempts, on a completely clean stash of main (confirmed unrelated to the
+Phase 3b change): `Emitted 'error' event on Interface instance ... Error:
+unexpected end of file ... code: 'Z_BUF_ERROR'`.
+
+ROOT CAUSE (traced from the stack, not assumed): eight files
+(datacoreArchive.ts/aircraftEntities.ts/fleetUtilization.ts/gridStress.ts/
+platformStats.ts/queryEngine.ts/shadowFleet.ts[x2]/siteTimeline.ts) all
+stream a possibly-gzipped archive file with the identical copy-pasted
+pattern: `stream.pipe(zlib.createGunzip())` -> `readline.createInterface
+({ input: stream, ... })` -> an `.on("error", ...)` guard on `stream`
+(the gunzip stream after reassignment). That guard IS sufficient for the
+gunzip stream's OWN error — but Node's readline.Interface ALSO
+independently re-emits its input stream's "error" on ITSELF (a separate
+EventEmitter emission, internal to node:internal/readline/interface).
+With zero listeners on `rl` for "error", THAT re-emission is what crashes
+the process — the existing `stream.on("error", ...)` guards do nothing to
+prevent it, they only catch the first emission. Minimal repro (no test
+framework, no app code): gzipSync a string, chop the last 4 bytes,
+pipe through createGunzip() into readline.createInterface — Node throws
+even with `input.on("error", ...)` attached, UNLESS `rl.on("error", ...)`
+is also attached. datacoreArchive.ts's streamJsonlLines even carries a
+comment already documenting awareness of a related crash class ("for-await
+is avoided deliberately... would crash the process") — the awareness was
+real but the actual fix shipped there was incomplete; this exact bug
+survived in the very function written to guard against it.
+
+WHY PRODUCTION HASN'T VISIBLY CRASH-LOOPED: this is DATA-DEPENDENT — it
+only fires when an archive .gz file is genuinely truncated/corrupted
+(disk full mid-write, a killed process mid-gzip, etc.), not on every
+boot with healthy archives. Production's `/api/health` this session
+showed status ok / uptime healthy / no crash-loop symptoms, meaning its
+current archives are intact — but the LATENT bug means any future
+truncated write (entirely plausible: OOM kills, disk pressure, a bad
+deploy mid-flush) would crash the whole trading loop instantly on next
+read, a direct GOAL PRIORITY 1 (KEEP THE SYSTEM ALIVE) violation waiting
+to happen. Reproduced 100% (3/3) locally before the fix on a genuinely
+corrupt file; unable to identify which exact on-disk file was corrupt in
+this sandbox (the crash trace loses the originating call site — an
+inherent limitation of "unhandled error event" crashes) and did not need
+to, since the fix is a defensive guard against the CLASS of error, not a
+patch for one file.
+
+FIX: added `rl.on("error", <same resolve/bail as the existing stream
+guard>)` at all 9 call sites across the 8 files (shadowFleet.ts has two
+independent copies of the pattern). Purely additive — no read/parse logic
+changed, no output shape changed for the success path.
+
+VERIFICATION:
+1. Minimal repro script confirmed the crash pre-fix and the fix's
+   effectiveness in isolation (gzipSync + truncate + pipe, with vs.
+   without `rl.on("error", ...)`).
+2. New regression test per file (9 new tests: datacoreArchive.test.ts
+   gained 2 — a crash-repro test AND a valid-file-still-works test
+   proving the fix adds no false-negative; the other 7 files gained 1
+   each) — each writes a genuinely truncated .gz fixture into that
+   file's real directory-naming convention and calls the file's own
+   REAL exported entry point (distinctArchivedAircraft/buildFleetSeries/
+   foldRegionsDailyAsync/countFileLines/queryWindow/
+   readVesselTracksAsync+foldVesselArchiveAsync/buildSiteTimelines),
+   asserting it resolves rather than crashing the test process. RATCHET
+   PROVEN: reverting the datacoreArchive.ts fix line and re-running its
+   test suite reproduces the exact crash as a failing test
+   (`failureType: 'uncaughtException'`, `code: 'Z_BUF_ERROR'`) — the
+   test is a real ratchet, not a tautology.
+3. Full node suite: 850/850 (842 baseline + 8 new test() blocks; the
+   platformStats.ts fix's test is an added assertion inside an existing
+   test, not a new block).
+4. python3 -m pytest -q: 852 passed/1 skipped, unaffected (no Python
+   touched).
+5. npm run check: 77 tsc errors before and after (git-stash A/B diff),
+   zero new.
+6. LIVE BOOT re-verification (the actual finding mechanism): rebuilt
+   dist/index.cjs with the fix, booted twice more (20s each, matching
+   the exact pre-fix crash window) — 0/2 crashes, both runs served
+   /api/data/sites and a static /imagery/sites/*.jpg 200 cleanly through
+   to a clean SIGTERM shutdown. Pre-fix was 0/3 survivals; post-fix is
+   2/2.
+
+BACKTEST: N/A (no trading/measurement logic touched — pure defensive
+error-handling fix on the data-archive read path).
+
+NEXT: none filed — this closes the finding. Worth a future STALENESS/
+CONSTITUTIONAL-style sweep question: are there other readline+gunzip
+call sites elsewhere in the codebase (Python side, `alt_data.py`-style
+modules) with the same "listener on the piped stream but not on any
+higher-level wrapper" shape? Not searched this session (scope
+discipline) — flagging as a pattern worth a grep in a future session,
+not filing a formal open_questions.md entry since it's speculative, not
+a confirmed second instance.
