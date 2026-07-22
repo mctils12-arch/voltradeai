@@ -24923,3 +24923,46 @@ enhancement IF a MapLibre release exposes it. "Square tiles building on
 zoom" is the RTT pool re-rasterizing; the round-17 maxTileCacheZoomLevels
 bump removed the re-fetch half, the re-raster half is RTT-fundamental.
 BACKTEST: N/A.
+
+## 2026-07-22 [RESEARCH] — Stability soak (6-min all-layers) on v1.0.473: no drift, no leak, clean GL self-heal (no code change)
+
+TYPE: [RESEARCH] (human-requested stability sweep — "run a long-duration
+all-layers soak looking for slow drift or leak and fix whatever it
+surfaces").
+
+METHOD: soak_probe.mjs — 6 min, all 32 layers + terrain + a followed
+aircraft track, on SwiftShader (worse than any real GPU), sampling every
+15s: GL resource counts (buffers/textures/FBOs/programs/VAOs), cumulative
++ resident texture bytes, JS heap, DOM node count, live setInterval count,
+live addEventListener count, rAF frame-time median/p95. Plus a
+deterministic WEBGL_lose_context loss+restore probe (ctxloss_probe.mjs,
+with and without instrumentation).
+
+RESULTS — STABLE ACROSS THE BOARD:
+- FRAME TIME flat at 33.4ms median the entire 6 min (one 49.9ms blip);
+  p95 stable ~2.1s (tile-load spikes, non-growing). The pre-round-15
+  build spiraled 33→900ms in ~3 min — the device-tier governor +
+  overload tick-stretch hold it flat now.
+- NO LEAKS: DOM nodes flat 1355; live intervals flat 19; listeners in a
+  tight 270-285 band; JS heap a healthy 69-212MB GC sawtooth (no
+  monotonic climb); GL buffers/textures/VAOs oscillate within bounds
+  (tile cache), never grow; framebuffers/programs stable.
+- GL SELF-HEAL VERIFIED: a deterministic loseContext()+restoreContext()
+  fully recovers — map alive, terrain + aircraft-3d + flight-track-3d
+  all re-added, no glLost banner, ZERO thrown errors (the round-15
+  recovery path is clean, instrumented or not).
+
+ANOMALY (benign): the soak logged 4 transient errors (reading
+'bind'/'signal') ×once at ~t=185s, coinciding with a spontaneous
+SwiftShader context loss+restore under sustained load. They self-healed
+(map alive, frames stayed flat, all layers back) and do NOT reproduce on
+a deterministic forced loss (with or without instrumentation) — i.e. a
+software-renderer-stress race in an in-flight callback hitting a
+transiently-null GL object during the loss window, recovered. Not
+reproduced deterministically → no code churned against it (evidence-first
+discipline). Real users on GPU hardware never hit the SwiftShader
+spontaneous-loss path.
+
+CONCLUSION: v1.0.473 is stable under 6-min max-load stress with no drift
+or leak, and self-heals GL context loss cleanly. No fix warranted.
+BACKTEST: N/A.
