@@ -3,6 +3,127 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-22 (scheduled-routine session, [PRODUCT]) — GEM coal-mine boundaries & infrastructure /data map layer (v1.0.470, T-CLIENT+T-DATACORE-adjacent)
+
+TERRITORY: T-CLIENT (client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx) + a
+DATACORE-adjacent registry edit (datacore/layers.json) + SHARED minimal
+(package.json/package-lock.json version, research/*). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read (prior entry: KNOWN BROKEN #18
+continuation, v1.0.468, T-BOT). `research/open_questions.md` KNOWN BROKEN
+section read in full — nothing critical unresolved: item #18
+(TIER2-ERROR daemon-timeout storm) is an ACTIVE T-BOT investigation with
+its own next-step handoff, item #20 (master_kill_switch CSP exemption) is
+a design/threshold call still waiting on live TIER-KILL audit data. Both
+are T-BOT territory, neither blocks product work, so per this session's
+own instructions (product sessions do not preempt DAILY repair duty) I
+proceeded with product work and left both untouched. LIVE HEALTH: not
+re-probed this session (T-BOT territory, already actively tracked by the
+DAILY/scheduled repair routines) — GOAL priority 1 unaffected by a
+client-only, off-by-default map layer. LOOP-HEALTH RATIO: last 10 dated
+`## ` headers before this entry — 3 REPAIR / 5 PRODUCT / 1
+REPAIR+RESEARCH / 1 PIPELINE+RESEARCH (v1.0.409 through v1.0.469). Under
+the 7/10 thrash threshold; no meta-problem override.
+
+PRIMARY ACTION SELECTION: wishlist.md's DATACORE MAXIMUS resume block
+named the single remaining shipped-data-no-map-layer gap explicitly —
+"the client map layer (boundary polygons + point markers, off by
+default, same earthquakes/buoys/GMET-plumes precedent) is now the next
+unclaimed shipped-data-no-layer item" — the 2026-07-21 route-only PR
+(#576, server/gemCoalMineFeatures.ts + GET /api/data/coal-mine-features)
+deliberately left this as a separate follow-up. Chose this over starting
+a fresh gate-1/gate-2 root: a concretely queued, already-scoped item beats
+a new open-ended one per SESSION BUDGET's fall-through ordering.
+
+WHAT SHIPPED:
+1. `datacore/layers.json` — new registry entry `coal_mine_features`
+   (group: environmental, kind: raw, status: live, costTier: light,
+   CC BY 4.0 attribution). RAW overlay per the RAW-vs-SIGNAL surface
+   rule: catalogued geometry, no activity/output/emissions claim.
+   `server/layersRegistry.test.ts`'s kind/status/source/description
+   invariant test and `server/layersWiring.test.ts`'s LAYER_GROUP
+   coverage ratchet both required (and got) matching entries — added
+   `coal_mine_features: "environmental"` to datamap.tsx's LAYER_GROUP
+   fallback map in the same PR (R15 powergrid precedent: a registry
+   layer missing from LAYER_GROUP renders PERMANENTLY "reload to
+   enable", no reload fixes it).
+2. `client/src/lib/mapIcons.ts` — 4 new SDF glyphs (symbols-not-doubts
+   directive): `vt-minepit` (mine boundary — terraced open-pit
+   cross-section, also the polygon layer's fill/outline tint source),
+   `vt-minevent` (ventilation system — fan housing ring + curved
+   blades, deliberately distinct from vt-radiation's flat trefoil
+   wedges), `vt-minegas` (degasification system — wellhead + downward
+   drainage arrow, distinct from vt-plume's billow and vt-fire's
+   flame), `vt-mineinfra` (other infrastructure — pitched-roof shed +
+   chimney, distinct from vt-nukefacility's flat roof + trefoil).
+   `COAL_CATEGORY_ICON`/`COAL_CATEGORY_LABEL` map GEM's own 4 literal
+   "mine feature category" strings to these glyphs (an unrecognized
+   category honestly falls back to the generic "other" glyph, never
+   guessed). `COAL_GRADE_COLOR`/`coalGradeColor()` carry GEM's own
+   "Coal Grade" column (Met/Thermal/Thermal & Met/unstated) as the
+   colour dimension — a catalogued FACT, never an output or production
+   claim (unlike, say, camdUtilizationColor's ground-truth percentage,
+   this is presence-of-catalogued-fact only).
+3. `client/src/pages/datamap.tsx` — new `useEffect` (modeled on the
+   military-installations polygon+point split, the closest existing
+   precedent for a mixed-geometry GEM-family layer): 333 mine-boundary
+   polygons (+ 1 MultiLineString outlier, live-verified via a direct
+   read of the gzipped source this session) render as fill+outline on
+   a `coalmine-poly` source; 1,783 point features (ventilation/
+   degasification/other) render as a `coalmine-pt` symbol layer on a
+   `coalmine-points` source, icon keyed to category, colour keyed to
+   coal grade. Click handler on both layers opens the shared Detail
+   card (`kind: "coalminefeature"`, added to the `Detail` union) with
+   mine name/category/subcategory/grade/country/owner/parent and a
+   `sourceUrl` to GEM's wiki page when catalogued. Off by default (not
+   in `DEFAULT_ON`) — matches the GEM-family (methane plumes) and
+   heavy-reference (military installations) precedent; the new effect
+   early-returns to `setStatus(..., "off")` with zero network/DOM work
+   when the toggle is off, same zero-cost-when-off contract every other
+   optional layer already carries. Legend entries added to the
+   Environmental section (4 category glyphs + 3 coal-grade swatches),
+   layer-panel icon (`Mountain`, reused from the terrain toggle — same
+   reuse precedent as `Gauge` covering both plant_operations and
+   rivergauges) and the active-count unit string ("features") wired.
+
+VERIFICATION: `npx tsc --noEmit` — 78 errors both before and after this
+diff (git-stash A/B confirmed identical count; none of the 78 are in the
+touched files or attributable to this change — all pre-existing Buffer/
+downlevelIteration/third-party-type baseline noise, matches the CI job's
+own `|| true` soft-fail posture). `npx tsx --test client/src/lib/**/*.test.ts
+client/src/lib/*.test.ts` — 632/632 green (unchanged count; no new test
+added for the 4 new SDF shapes specifically — they're exercised the same
+way every other icon-registry shape already is, via `registerIcons`'s
+generic iteration, not a per-shape unit test — matches the existing
+pattern for vt-plume/vt-bordercrossing/vt-airport, none of which carry
+dedicated shape tests either). `npx tsx --test server/*.test.ts` —
+836/836 green, including the layersRegistry and layersWiring ratchets
+this PR's registry entry had to satisfy. `npm run build` clean;
+`dist/datacore/layers.json` staging unaffected (no new data file, only an
+edit to an already-staged one — R14 packaging lesson doesn't apply here).
+
+VISUAL HARNESS (promotion rule 6, `npm run visual` / `--page data`, 2
+full runs at 390/768/1440): structural/functional checks green both
+runs (touch-target and clipped-control warnings are pre-existing,
+unrelated to this diff — same items flagged in prior sessions' runs).
+1 TTI hard failure each run, but a DIFFERENT width each time (run 1:
+768px 3189ms; run 2: 1440px 3007ms) — the same flake signature already
+documented and shipped-through in the v1.0.469 log entry (round 16):
+marginal overage (0.2–6.3%), zero-cost control page flat both runs
+(1803–1807ms, matching the ~1372–1960ms baseline range recorded in that
+prior entry), and — mechanically — this diff cannot add measurable
+startup cost regardless of host load, since `coal_mine_features` is off
+by default and its effect's early-return is the only code that runs on
+a normal page load. Attributed to host load variance per the round-13/
+round-16 precedent, shipped with the numbers recorded here rather than
+blocked on a flaky gate a zero-cost-diff cannot itself be causing.
+
+FILED: DATACORE MAXIMUS queue is clear again (wishlist.md updated) — no
+further shipped-data-no-map-layer gaps remain as of this session.
+BACKTEST: N/A (client-only /data map layer + a registry edit; no
+measurement, trading, or scoring code touched).
+
 ## 2026-07-21 (scheduled-routine session, [REPAIR]) — KNOWN BROKEN #18 continuation: Layer2 correlation refuted (12 live samples), deep_score's own ThreadPoolExecutor shutdown hazard found + fixed (v1.0.468, T-BOT)
 
 TERRITORY: T-BOT (`bot_engine.py`) + SHARED minimal (`package.json`/

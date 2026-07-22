@@ -1326,6 +1326,16 @@
    "description": "3,473 dated satellite methane-plume detections, each shown with the nearest catalogued GEM oil/gas-extraction or coal-mine asset within 2km (server/gemMethaneProximity.ts) \u2014 a geometric proximity fact, not a claimed emissions attribution. As-is display, no predictive claim: the plume\u00d7extraction-registry proximity hypothesis (research/open_questions.md) is gate-2(a) only \u2014 repeat-detection rate, a same-universe base rate, and matching against operators' own disclosed emissions are still unbuilt. Detections with nothing catalogued within 2km render as unmatched, honestly, rather than guessed."
   },
   {
+   "id": "coal_mine_features",
+   "name": "Coal mine boundaries & infrastructure (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "light",
+   "source": "Global Energy Monitor \u2014 Coal Mine Boundaries and Methane Sources, CC BY 4.0 (server/gemCoalMineFeatures.ts)",
+   "description": "2,116 catalogued mine features: 333 mine-boundary polygons plus 1,783 point features \u2014 ventilation shafts, degasification/drainage wells, and other mapped mine infrastructure (preparation plants, coal storage, combined heat and power). This is the underlying GEM asset geometry the Methane Plumes layer above already matches detections against, shown directly for the first time. Symbol = feature category (boundary / ventilation / degasification / other); colour = catalogued coal grade (metallurgical / thermal / thermal & met / unstated) \u2014 never a production or output claim. Locations and boundaries as catalogued by GEM; no activity, output, or emissions claims. Off by default (same GEM-family precedent as Methane Plumes)."
+  },
+  {
    "id": "rivergauges",
    "name": "River gauges (barge corridor)",
    "kind": "raw",
