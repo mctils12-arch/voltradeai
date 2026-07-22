@@ -920,7 +920,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // refresh entry kicks a fire-and-forget background fetch so the
       // NEXT poll finds fresh data waiting; only a fully missed refresh
       // cycle (staleWarn) tells the client the payload may be outdated.
-      const { refresh, stale } = swrDecision(Date.now() - hit.at, AIRCRAFT_TTL_MS, AIRCRAFT_STALE_WARN_MS);
+      // fresh=1 (round 17, followed-craft freshness): a client actively
+      // tracking one aircraft tightens the refresh window to 10s for its
+      // stream — upstream hits stay bounded (one background fetch per
+      // cache key per window; the rate limiter guards the ceiling).
+      const ttlMs = String(req.query.fresh || "") === "1" ? Math.min(10_000, AIRCRAFT_TTL_MS) : AIRCRAFT_TTL_MS;
+      const { refresh, stale } = swrDecision(Date.now() - hit.at, ttlMs, AIRCRAFT_STALE_WARN_MS);
       if (refresh) refreshAircraftInBackground(key, lamin, lamax, lomin, lomax, tiled);
       // Delta support: if the client already holds this snapshot, don't
       // re-send the payload.

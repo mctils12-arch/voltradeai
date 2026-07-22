@@ -24572,3 +24572,73 @@ now straddles the 3000ms gate after today's layer additions — next
 speed-wave session should profile startup work added by the newest
 layers (CBP/coal/FAA module init) before the gate starts failing at
 true idle.
+
+## 2026-07-22 [REPAIR] — Camera-terrain collision, viewport-independent curtain base, follow overload pacing, ADS-B freshness, tile-cache retention + startup TTI deferral (v1.0.471, T-CLIENT)
+
+TYPE: [REPAIR] (live testing continues: "i was able to break it in 5
+seconds… i used the tilt button to get the plane out of view with the
+zoom… the curtain… did not follow the terrain at the bottom… the adsb
+data is laggy… the update speed is slow… the 3d terrain render too slow…
+it shows me the square tiles building").
+
+Two logical changes co-versioned (both client-render, ZERO trade-
+attribution impact — the rule-5 concern that bundling destroys live
+trade-result separation does not apply to rendering/UX; co-versioned for
+velocity under the human's active same-symptom direction):
+
+CHANGE A — round-17 functional batch:
+1. CAMERA-TERRAIN COLLISION (smeared-wall screenshot): maplibre's
+   _elevateCameraIfInsideTerrain corrects a camera that would enter the
+   mesh by adjusting pitch/zoom — but the follow rig re-imposed its own
+   pitch/zoom every frame, pinning the camera INSIDE the mountain (60
+   overwrites/s). The rig now ADOPTS maplibre's correction into cur+goal
+   after each jumpTo, so a held tilt "resists" at the mountain face.
+   Probe: camera altitude 2284m stays above the 1500m display mesh at
+   pitch 84 / zoom 13.4 (was inside → smeared wall).
+2. VIEWPORT-INDEPENDENT CURTAIN BASE ("did not follow the terrain at the
+   bottom"): the terrain-on base used queryTerrainElevation, which only
+   answers where MESH tiles are loaded — a cross-country track has no
+   mesh outside the viewport, so the base plunged to sea level along the
+   route. Now both modes read our own DEM tiles (lib/elevation,
+   viewport-independent) × exag for the display mesh height. Probe: 3
+   elevation-tile fetches fire with terrain on; curtain paints 34872
+   verts on the base.
+3. FOLLOW OVERLOAD PACING: the rig loop is itself a 60fps repaint driver
+   and pays the full terrain drape every frame while following — two
+   governor resolution step-downs in the user's session. While
+   deviceTier reports overload AND a follow is active, the camera runs
+   at half rate (30fps); motion stays continuous, quality untouched.
+4. ADS-B FRESHNESS ("the update speed is slow"): a fixed 15s poll left a
+   followed plane up to poll+TTL stale. While a craft card is open the
+   client polls at 5s with fresh=1; the server tightens that stream's
+   SWR window to ≤10s (bounded — one background refresh per key per
+   window; the rate limiter guards the ceiling). Node test pins it.
+5. TILE-CACHE RETENTION ("shows me the square tiles building" on zoom):
+   maxTileCacheZoomLevels 5→8 so zooming back through levels redraws
+   from cache instead of re-fetch+re-drape (the visible squares). First
+   visits still fetch once; repeats are instant.
+
+CHANGE B — startup TTI deferral (surfaced by A's harness run):
+   skeleton-clear TTI had crept ~250ms over the 3000ms gate as symbol
+   layers accumulated across sessions (CBP/coal×2/GEM/FAA). registerIcons
+   is the one pre-ready call that scales with layer count (every layer's
+   SDF icons, synchronous before setMapReady). Deferred to the next frame
+   after setMapReady — icons are only consumed by symbol layers, which
+   mount behind mapSettled, so nothing needs them that frame. TTI 3255 →
+   1702ms at 1440 (−1500ms); the harness gate is GREEN again.
+
+VERIFICATION: round17 probe (synthetic DEM, exag 3) — collision, true
+datum (hero 1981/parked 1500 unchanged from round 16), curtain-base
+fetches, follow-through-gestures, click-off all green; 632 client + 836
+node tests (new fresh=1 route assertion); visual harness 0 hard failures
+at healthy load (TTIs 1702-2107ms, zero-cost control 1419ms; datum
+altScale=1, buried none, legend parity ok). The render-side changes
+(collision adoption, curtain base) are GL-integration behaviors the
+Playwright probe covers (no pure-unit seam without a GL harness).
+BACKTEST: N/A.
+
+HONEST LIMITS surfaced to the human: making draped-3D terrain look AS
+crisp and load AS instantly as flat-2D imagery is a property of
+MapLibre's render-to-texture drape (imagery is resampled through the
+mesh). The tile-cache change removes the re-zoom rebuild; matching flat
+crispness is a deeper RTT investigation, filed rather than overclaimed.

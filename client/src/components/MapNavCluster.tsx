@@ -40,6 +40,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
 import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { isOverloaded } from "@/lib/deviceTier";
 import {
   RIG_DAMPING_PER_S,
   RIG_DRAG_ROTATE_DEG_PX,
@@ -136,6 +137,7 @@ export default function MapNavCluster({
   const followRef = useRef<MapNavClusterProps["followTarget"]>(followTarget);
   followRef.current = followTarget;
   const followWasRef = useRef(false); // 3D-center engaged last frame — restore ground clamp on release
+  const overloadParityRef = useRef(false); // half-rate camera frames while deviceTier reports overload
   // FOLLOW ENGAGE (2026-07-21 video): wake the rig — a follow that starts
   // while the loop sleeps otherwise never recenters (the 300ms fallback
   // tick lurched instead) — and make wheel zoom orbit the CENTER, which
@@ -269,6 +271,15 @@ export default function MapNavCluster({
       // — the plane stays mid-window at any pitch/exaggeration instead of
       // its ground shadow drifting it to the screen edge (2026-07-21).
       const ft = followRef.current?.();
+      // OVERLOAD PACING (round 17: two governor step-downs while following —
+      // this loop is itself a 60fps repaint driver, and with terrain every
+      // frame pays the full drape bill): while the device is overloaded and
+      // a follow is active, run the camera at half rate. The skipped frame
+      // still re-arms the loop; motion stays visually continuous at ~30fps.
+      if (ft && isOverloaded() && (overloadParityRef.current = !overloadParityRef.current)) {
+        rafRef.current = requestAnimationFrame(frame);
+        return;
+      }
       let followElev: number | null = null;
       if (ft) {
         rig.goal.lng = ft.lng;
@@ -305,6 +316,16 @@ export default function MapNavCluster({
           zoom: rig.cur.zoom,
           ...(followElev != null ? { elevation: followElev } : {}),
         } as any);
+        // TERRAIN CAMERA COLLISION (round-17 smeared-wall screenshot):
+        // maplibre's _applyUpdatedTransform elevates a camera that would
+        // land inside the mesh by CORRECTING pitch/zoom — but this rig
+        // re-imposed its own values on the very next frame, pinning the
+        // camera under the mountain (60 corrections/s, all overwritten).
+        // Adopt any correction into cur AND goal: the collision guard
+        // wins, and a held tilt just "resists" at the mountain face.
+        const lp = map.getPitch(), lz = map.getZoom();
+        if (Math.abs(lp - rig.cur.pitch) > 0.2) { rig.cur.pitch = lp; rig.goal.pitch = lp; }
+        if (Math.abs(lz - rig.cur.zoom) > 0.02) { rig.cur.zoom = lz; rig.goal.zoom = lz; }
       } catch { /* map torn down mid-frame */ }
 
       if (moving || held.size() > 0 || keys.size > 0 || ft) {

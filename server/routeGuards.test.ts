@@ -101,10 +101,16 @@ test("routes.ts: trains + aircraft use raceDeadline/slot expiry; Digitraffic get
   // through the route registration so both guards are still pinned.
   const airHelperStart = routes.indexOf("function getOrStartAircraftFetch");
   assert.ok(airHelperStart > -1, "getOrStartAircraftFetch helper missing");
-  const airBlock = routes.slice(airHelperStart, routes.indexOf('app.get("/api/data/aircraft"') + 3500);
+  const airBlock = routes.slice(airHelperStart, routes.indexOf('app.get("/api/data/aircraft"') + 4200);
   assert.ok(airBlock.includes("raceDeadline("), "aircraft route missing hard deadline");
   assert.ok(airBlock.includes("slotExpired("), "aircraft route missing slot expiry");
   assert.ok(airBlock.includes("swrDecision("), "aircraft route missing SWR stale-while-revalidate decision");
   assert.ok(/rata\.digitraffic\.fi[\s\S]{0,400}Accept-Encoding/.test(routes) || /"Accept-Encoding": "gzip"[\s\S]{0,400}rata\.digitraffic\.fi/.test(routes),
     "Digitraffic fetch must send Accept-Encoding: gzip (406 required since 2026-07)");
+  // round 17 (followed-craft freshness): a fresh=1 request tightens the SWR
+  // refresh window for that aircraft stream (bounded to ≤10s) so a client
+  // actively tracking one plane gets faster updates without unbounding the
+  // upstream hit rate (the background refresh + rate limiter still gate it).
+  assert.ok(/fresh[\s\S]{0,120}10_000|Math\.min\(10_000/.test(airBlock),
+    "aircraft route missing fresh=1 tightened SWR window (round 17)");
 });

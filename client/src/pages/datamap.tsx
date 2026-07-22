@@ -2253,6 +2253,14 @@ export default function DataMapPage() {
           // "system freezes constantly" live report. Matches the rig's
           // RIG_PITCH_MAX so the pitch goal is always reachable.
           maxPitch: 84,
+          // ZOOM RE-RENDER FROM CACHE (round 17: "if i zoom in and out …
+          // it shows me the square tiles building"): retain tiles across
+          // more zoom levels (default 5) so zooming back through levels
+          // redraws from cache instead of re-fetching/re-decoding — with
+          // terrain on, every re-fetched tile also re-drapes, which is
+          // what made the squares so visible there. First visits still
+          // pay the network once; repeats are instant.
+          maxTileCacheZoomLevels: 8,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -2308,8 +2316,15 @@ export default function DataMapPage() {
           readyFired = true;
           window.clearInterval(stylePoll);
           try { map.resize(); } catch {}
-          try { registerIcons(map); } catch {}
           setMapReady(true);
+          // STARTUP TTI (2026-07-22: skeleton-clear crept ~250ms over the
+          // gate as symbol layers accumulated — registerIcons is the one
+          // pre-ready call that scales with layer count, and it adds every
+          // layer's SDF icon synchronously). Defer it to the next frame:
+          // the skeleton clears the instant the BASE map is interactive,
+          // and icons are only consumed by symbol layers, which mount
+          // behind mapSettled below — so nothing needs them this frame.
+          requestAnimationFrame(() => { if (!cancelled) { try { registerIcons(map); } catch {} } });
           // v2.4 deferred mount: heavy default-on layers wait for the first
           // post-ready idle (base map + aircraft win the initial contention);
           // 4s failsafe so tile errors can't starve them forever.
@@ -2961,7 +2976,15 @@ export default function DataMapPage() {
         // (lib/elevation — human 2026-07-20 AGL directive). Tiles still in
         // flight read 0 this paint; the retry below fills them in.
         let elevPending = false;
-        if (!terrainOn) prefetchElevation(samples);
+        // BOTH modes prefetch our own DEM tiles (round 17: "the curtain …
+        // did not follow the terrain at the bottom"): queryTerrainElevation
+        // only answers where MESH tiles are loaded — a cross-country track
+        // has no mesh outside the viewport, so the base plunged to sea
+        // level along the route. lib/elevation decodes tiles we fetch
+        // ourselves, viewport-independent; ×exag = the displayed mesh
+        // height (same SRTM-class data family; the scaled ridge seal
+        // absorbs the small source deltas).
+        prefetchElevation(samples);
         for (let i = 0; i < n; i++) {
           const s = samples[i];
           const m = lonLatToMercator(s.lon, s.lat);
@@ -2969,9 +2992,11 @@ export default function DataMapPage() {
           merc[i * 2 + 1] = m.y;
           altM[i] = s.altM; // NaN = honest gap
           if (terrainOn) {
-            const g = groundDisplayAt(map, s.lon, s.lat);
+            const gDem = groundElevationSync(s.lon, s.lat);
+            if (gDem == null) elevPending = true;
+            const g = gDem != null ? gDem * altScale : groundDisplayAt(map, s.lon, s.lat);
             groundZ[i] = g;
-            groundM[i] = altScale > 0 ? g / altScale : g;
+            groundM[i] = gDem ?? (altScale > 0 ? g / altScale : g);
           } else {
             groundZ[i] = 0;
             const gDem = groundElevationSync(s.lon, s.lat);
@@ -6221,6 +6246,10 @@ export default function DataMapPage() {
   const wireLivePoints = useCallback((opts: {
     id: "aircraft" | "vessels";
     intervalMs: number;
+    /** round 17 freshness: while this returns true, poll at fastIntervalMs
+     *  and send fresh=1 (the server tightens its SWR window per-request) */
+    fastWhen?: () => boolean;
+    fastIntervalMs?: number;
     toFeatures: (d: any) => any[];
     toVectors?: (d: any) => any[];
     onClick: (props: any, lngLat: any) => void;
@@ -6365,7 +6394,8 @@ export default function DataMapPage() {
       try {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
-        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}`;
+        const fresh = opts.fastWhen?.() === true ? "&fresh=1" : "";
+        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}${fresh}`;
         const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
         firstFetch = false;
         if (!r.ok) throw new Error(String(r.status));
@@ -6447,7 +6477,20 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, opts.intervalMs);
+    // ADAPTIVE POLL (round 17 "the adsb data is laggy … the update speed is
+    // slow"): a fixed interval left a followed plane up to pollMs + server
+    // TTL stale. While fastWhen() holds (a craft card open), poll at
+    // fastIntervalMs — each request also carries fresh=1 so the server
+    // tightens its own refresh window for that stream.
+    let pollTimer: number | undefined;
+    const schedulePoll = () => {
+      const fast = opts.fastWhen?.() === true;
+      pollTimer = window.setTimeout(async () => {
+        await load();
+        if (!stop) schedulePoll();
+      }, fast ? (opts.fastIntervalMs ?? opts.intervalMs) : opts.intervalMs);
+    };
+    schedulePoll();
     // GLIDE stepper (~3.3Hz): dead-reckoned setData between polls. Skips
     // whenever it could not be seen (hidden tab, mid-gesture — symbols ride
     // the camera transform anyway, outside the visible-glide zoom band) or
@@ -6537,7 +6580,7 @@ export default function DataMapPage() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       teardown();
-      window.clearInterval(iv);
+      window.clearTimeout(pollTimer);
       if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
@@ -6586,6 +6629,11 @@ export default function DataMapPage() {
     const wire = () => wireLivePoints({
       id: "aircraft",
       intervalMs: 15_000,
+      // a followed/selected craft deserves the freshest feed we can get —
+      // 5s polls + fresh=1 (server tightens its SWR TTL for these) while a
+      // plane card is open (round 17 "update speed is slow")
+      fastWhen: () => !!airCrumbsRef.current.id,
+      fastIntervalMs: 5_000,
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,
