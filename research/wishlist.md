@@ -373,6 +373,19 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   environmental). Full trace in experiments.md. DATACORE MAXIMUS queue
   is clear again — no shipped-data-no-map-layer gaps remain as of this
   session.
+- **FINRA ATS/OTC venue-summary /data view: SHIPPED 2026-07-22
+  (v1.0.479, T-CLIENT)** — `client/src/pages/atsSummary.tsx` (new) +
+  `datamap.tsx` wiring (`#/data/ats-summary`, `ats_summary` filings-group
+  layer, off by default) + `datacore/layers.json` registry entry. Closes
+  the "a FINRA part 2 UI view once weeks of archive accumulate" item this
+  block has carried since v1.0.208 (2026-07-08) — the API route existed,
+  the client view didn't. RAW leaderboards only (weekly ATS/OTC by
+  symbol, monthly OTC by symbol, monthly block-trading venue ranks, all
+  FINRA-precomputed); no ladder gate. Full trace in experiments.md.
+  UNCLAIMED shipped-data-no-UI gap found by the same sweep, not built
+  this session: SEC MIDAS (`/api/data/microstructure`, v1.0.265) has the
+  identical no-client-view gap — same wiring recipe, model on
+  atsSummary.tsx/shortvol.tsx, new `client/src/pages/midas.tsx`.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
