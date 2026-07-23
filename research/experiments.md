@@ -25494,3 +25494,185 @@ vessels layer's own chip and needs its own design pass, not bundled
 here. DATACORE MAXIMUS Phase 5's other remaining item, 3c (S2
 utilization review across asset classes), is still open — a
 [RESEARCH]-shaped task for a future session.
+
+---
+
+## 2026-07-23 (scheduled-routine session) [RULE-REVIEW] — backtest_v2.py's flat 5bps execution cost was simulator fiction for illiquid names; replaced with a liquidity-tiered cost mirroring the live fill-tracking model (v1.0.480, T-BOT/measurement)
+
+TERRITORY: measurement code (backtest_v2.py), closest to T-BOT (no other
+session running concurrently this session). package.json/package-lock.json
+(SHARED) bumped as the final part of this same commit per the merge-order
+protocol — version read-and-incremented at commit time (1.0.479 -> 1.0.480),
+lockfile's own stale 1.0.477 root version corrected alongside it (same
+recurring benign-drift class prior sessions have logged and fixed in-place).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + this session's
+scheduled prompt), then experiments.md tail and open_questions.md KNOWN
+BROKEN. `/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, scanner consecutiveFailures 0 — no LIVENESS ALARM, no repair-mandate
+override. Loop-health ratio over the last 10 tagged entries (PRODUCT/REPAIR/
+REPAIR/PRODUCT/RESEARCH/REPAIR/REPAIR/PIPELINE/PRODUCT/RESEARCH, reading
+back through recent entries) is under the 7/10 thrash threshold. KNOWN
+BROKEN's remaining open items (#10 dead score-band config, #12(b)/(c) gated
+options-exit feedback follow-ups, #20 master_kill_switch threshold judgment,
+#18's ThreadPoolExecutor fix pending live confirmation) are all explicitly
+gated on either accumulating live history or a design decision already
+deferred by a prior session — none are liveness-critical or block new work,
+so this is not a mandatory [REPAIR] session.
+
+ALSO CHECKED (not this session's action, logged for the next session):
+GitHub Actions CI is still in the sustained repo-wide outage the 2026-07-22
+PR #587 entry (see wishlist.md) first flagged — `actions_list` shows every
+run since 2026-07-22T14:09:21Z failing instantly with no runner ever
+allocated (most recent sampled run this session: 2026-07-23T00:49:07Z,
+still failing), now 12+ hours and climbing. Not re-investigated further this
+session (no new tool access, same `get_job_logs` 404 limitation as the prior
+two sessions) — this session's own gates below are 100% local verification,
+same posture as PR #587's precedent.
+
+PRIMARY ACTION SELECTION: this session's prompt named four EDGE DOCTRINE
+axes and asked to state a prior before building. All of axis (a)'s standing
+examples are already built or honestly closed (Sentinel-2 site imagery
+shipped, EDGAR Form4/13F built with Form4 gate 2 KILLED on replication
+failure, USAspending/CFTC-COT/TFF/FDA-calendar/SEC-FTD/FINRA all shipped,
+Google Trends gate-1 FAILED and correctly left unbuilt) — no fresh pipeline
+to build without inventing a new root outside this session's research
+budget. Axis (b) (capacity-constrained/illiquid-universe research) comes
+with its own explicit precondition in this session's own prompt: "requires
+the fill-realism fix first, or results are simulator fiction." Tracing
+that down: `open_questions.md`'s "Options fill realism" entry describes the
+LIVE bot.ts fill-tracking haircut as volume-tiered (good) but flagged
+options as the weak spot — but a full read-before-write trace (grepped
+every `track_fill`/slippage call site in bot.ts, options_execution.py,
+options_manager.py, tiered_strategy.py, shadow_portfolio.py, exitFill.ts)
+found options currently have ZERO fill/slippage simulation anywhere in the
+live pipeline (KNOWN BROKEN #12(c) already documents that options exits
+record no feedback at all yet, gated on #12(b) resolving first) — so
+"replacing" an options model that doesn't exist yet would be premature,
+out-of-order work ahead of an already-queued, already-gated item.
+PRIOR (stated before reading further): if the live fill model has a real
+liquidity gap, the OFFLINE backtest engine — the tool actually used to
+validate strategies before they trade — almost certainly has the identical
+or worse gap, since it was rebuilt from scratch on 2026-07-03 without ever
+importing the live tiering. Reading backtest_v2.py confirmed this: `COST_PCT
+= 0.0005` (a flat 5bps) is applied to EVERY fill regardless of the ticker's
+own trading volume — the exact "simulator fiction for a thin name" failure
+mode the task's own axis (b) note was warning about, just in the equity
+backtest rather than options. Chose this as the fill-realism prerequisite:
+it is a self-contained, well-scoped MEASUREMENT INTEGRITY fix (own PR, per
+CLAUDE.md), and it is the literal blocker axis (b) named — any future
+small/illiquid-universe backtest research is fiction until this is fixed.
+
+FINDING: `backtest_v2.py`'s `simulate()` charges the identical 5bps cost on
+every entry, stop/target/time-stop exit, and end-of-backtest close for
+every ticker — SPY and a 400K-share-a-day microcap pay the same rate. This
+directly violates REASONING STANDARD #6 ("evaluate every strategy net of
+spread, slippage... net of the liquidity you can actually get at your
+size") and would silently make EDGE DOCTRINE #2's target zone (small/
+illiquid names, structurally under-arbitraged because whales can't fit)
+look artificially cheap to trade in any future backtest — exactly the kind
+of result that could not be trusted once axis (b) research actually begins.
+
+FIX: added `liquidity_cost_pct(bars, i)` — per-side cost tiered by the
+trailing 20-day average share volume ending at bar `i` (inclusive; no
+lookahead, since a decision/fill at bar `i` only ever needs data through
+`i`). Tiers mirror the four share-volume breakpoints server/bot.ts's own
+live fill-tracking haircut already uses (>20M/>5M/>1M/else — lines ~4110-
+4114), using the MIDPOINT of each live tier's random range instead of
+live's jitter: 0.00035/0.00075/0.00115/0.00185 (vs. live's 0.02-0.05%/
+0.05-0.10%/0.08-0.15%/0.12-0.25%). Deliberately NOT random: PROMOTION RULE
+3 requires comparing Sharpe/max-drawdown across code changes, which demands
+the backtest return the IDENTICAL result on every run for the same inputs
+— a random per-fill cost would make that comparison meaningless. `COST_PCT`
+is kept as the no-volume-history fallback (empty `bars["volume"]`), not
+removed, so the one existing caller path degrades safely. Replaced all
+three fill sites (stop/target/time-stop exit, next-bar-open entry,
+end-of-backtest close) with calls to the new function — zero other logic
+touched (scoring, regime gating, position sizing, stops/targets all
+byte-identical).
+
+WHY THE LIVE TIER VALUES, NOT NEW ONES: RULE REVIEW requires evidence
+before changing a threshold; inventing a NEW cost schedule from nothing
+would have no evidentiary basis. The live tiers ARE the evidence — they
+are the system's own already-shipped, already-reasoned-about model for
+what a real fill actually costs at each liquidity level (bot.ts's own
+comments cite the same four-tier logic). Reusing them (as fixed midpoints)
+inherits that existing justification instead of fabricating a new one.
+
+MEASUREMENT INTEGRITY DISCLOSURE (before vs. after on identical synthetic
+inputs, git-stash A/B, `momentum` strategy, BULL regime, 420 bars, 1yr):
+  liquid ticker (30M shares/day, mirrors an ETF like SPY):
+    PRE:  total_return_pct=10.35  sharpe=11.777
+    POST: total_return_pct=10.43  sharpe=11.813   (slightly BETTER)
+  illiquid ticker (500K shares/day, mirrors a thin small-cap):
+    PRE:  total_return_pct=10.35  sharpe=11.777   (identical to the liquid
+          run — proof the old model was blind to liquidity entirely)
+    POST: total_return_pct=9.61   sharpe=11.062   (meaningfully WORSE)
+BIAS DIRECTION: this is NOT a uniform "make it look better" change (which
+MEASUREMENT INTEGRITY treats as suspect by default) — it moves liquid-name
+results marginally better (5bps was already a slightly pessimistic flat
+rate for a mega-liquid ETF; 3.5bps is the live-tiering-derived, still
+conservative, replacement) and illiquid-name results substantially worse
+(the actual fix), in exactly the direction EDGE DOCTRINE #2 research needs
+to trust: any future small/illiquid-universe backtest can no longer borrow
+SPY-grade execution costs for free.
+
+RATCHET: new `test_backtest_v2_liquidity_cost.py` (11 tests) — tier-value
+pins against the documented live-midpoint mapping, the >20M boundary's
+strict-inequality semantics, a no-lookahead probe (a volume spike planted
+strictly after bar i must not affect bar i's cost; a spike that has aged
+out of the trailing 20-day window must stop affecting later bars), the
+empty-volume fallback to `COST_PCT`, an internal-consistency check on the
+tier table itself, a determinism proof (byte-identical `run_backtest`
+output — minus the wall-clock `generated_at` field — across two runs of
+the same inputs), and the end-to-end illiquid-underperforms-liquid proof
+above as a real regression test. A/B-verified: the whole new test module
+fails to even IMPORT against pre-fix `backtest_v2.py` (`liquidity_cost_pct`
+doesn't exist there), which is as strong a ratchet proof as a behavioral
+diff for a function this PR introduces. Updated the one existing test that
+hardcoded the flat `COST_PCT` (`test_bull_regime_allows_entries_and_no_
+lookahead` in test_audit_critical.py) to compute its expected next-bar-open
+fills through `liquidity_cost_pct()` instead — the assertion's INTENT (no
+lookahead) is unchanged, only the cost model it checks against.
+
+GATES: `python3 -m pytest -q` 855 passed, 3 skipped (848 baseline + 7 new
+in the ratchet file + the updated existing test still passing; baseline
+established by installing the sandbox's usual missing deps first — numpy/
+pandas/scipy/yfinance/openpyxl/pytest, the same recurring clean-container
+gap prior sessions have logged every time). `npx tsx --test server/*.test.ts`
+791 passed, 7 failed — zero TypeScript files touched by this PR, and the 7
+failures (aircraftTiling/apiKeyAccounts/compression/gdeltEvents/owmTiles/
+seafloorTiles/securityMiddleware) are network-dependent tests unrelated to
+Python backtest logic; 4 of those 7 names match the exact set prior
+sessions have already logged as pre-existing sandbox-network failures.
+`npx tsc --noEmit`: 3 errors, the same pre-existing sandbox-environment
+trio (missing @types/node/vite entry points, deprecated tsconfig option)
+prior sessions have repeatedly confirmed unrelated. `npm run build` not
+re-run (zero TS/client files touched; the last several sessions' build
+gate is unaffected by a Python-only diff).
+
+BACKTEST: this PR IS the backtest engine's own measurement code, so its
+own "backtest" is the before/after disclosure above, not a strategy
+Sharpe/drawdown comparison against main — PROMOTION RULE 3's ordinary
+gate doesn't apply the way it would to a new strategy or threshold; the
+MEASUREMENT INTEGRITY section's own bar (this entry) is what governs
+instead, and is satisfied above.
+
+NEXT: axis (b) capacity-constrained/illiquid research is now unblocked at
+the DATA/backtest layer — a future session can run `backtest.py <ticker>
+momentum <years>` on genuinely thin small-caps and trust the cost isn't
+fiction. Two follow-ups NOT done here (own future PRs): (1) the live
+options fill-tracking gap from `open_questions.md`'s "Options fill
+realism" entry is still real and still gated behind KNOWN BROKEN #12(b)/
+(c) resolving first — do not build it out of order; (2) the live stock
+haircut in bot.ts uses raw SHARE volume, not dollar volume, so a cheap
+high-share-count stock and an expensive low-share-count stock in the same
+tier get treated as equally liquid even though their real dollar liquidity
+differs — carried over unchanged here (kept consistent with the live
+model, one logical change per PR), worth its own RULE-REVIEW session with
+counterfactual evidence if it turns out to matter. Also unresolved and
+worth a human's attention independent of this PR: the GitHub Actions
+outage noted above has now passed 12 hours with zero real CI signal on
+every merge across the whole repo — see wishlist.md's existing entry for
+the quota-exhaustion hypothesis and the Settings > Billing > Actions
+usage check no session tool can perform.

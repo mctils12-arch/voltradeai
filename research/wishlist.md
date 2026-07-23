@@ -1735,3 +1735,19 @@ experiments.md), following the existing precedent's option (c); every
 other session merging during this window should be doing the same and
 should say so explicitly in its own log entry, not silently assume CI
 covered them.
+
+UPDATE 2026-07-23 02:35 UTC (scheduled-routine session): STILL FAILING,
+now 12+ hours continuous. Re-sampled the last 15 workflow runs via
+`actions_list` — 100% failure rate, most recent sampled run
+2026-07-23T00:49:07Z, same instant runner-never-allocated signature as
+every run since 2026-07-22T14:09:21Z. No new tool access this session to
+check billing/quota directly (`get_job_logs` still unusable). This
+session's own PR follows the same option-(c) precedent: full local
+verification only (see experiments.md [RULE-REVIEW] entry), no CI signal.
+FOR THE HUMAN: this has now gone well past "check when convenient" —
+every PR merged by any session in this window (at least 2 full days'
+worth of autonomous sessions) has shipped on local verification alone,
+with the PROMOTION RULES CI gate silently absent the whole time. The
+fastest confirm-or-rule-out step remains unchanged from the prior two
+entries: Settings > Billing > Actions usage (or Settings > Actions >
+General > spending limits) on the mctils12-arch account.
