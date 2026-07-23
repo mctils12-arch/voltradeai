@@ -2900,6 +2900,26 @@
   volume/open interest — Alpaca paper fills unlimited size, which is
   fiction for thin chains. Validate the existing stock slippage tiers
   against recorded bid/ask spreads in the fills tracker.
+  **UPDATE 2026-07-23 (scheduled-routine session, v1.0.480):** re-traced
+  every options fill/track_fill/slippage call site before touching
+  anything (options_execution.py, options_manager.py, tiered_strategy.py,
+  shadow_portfolio.py, exitFill.ts) — options currently have ZERO fill/
+  slippage simulation anywhere in the live pipeline, not a weak one; this
+  item's premise ("good for stocks, weak for options") describes a
+  prospective risk if the stock model were naively extended, not a live
+  bug. Building the quote-based options model now would be out-of-order:
+  KNOWN BROKEN #12(c) already documents that options exits record no
+  trade_feedback at all yet, explicitly gated on #12(b) resolving first
+  ("do not touch until then — one attribution at a time"). Deferred,
+  correctly, not attempted this session. What WAS fixed this session
+  (own PR, see experiments.md [RULE-REVIEW]): the identical liquidity-
+  blindness failure mode existed on the EQUITY side too — backtest_v2.py's
+  flat 5bps `COST_PCT` charged every ticker the same cost regardless of
+  volume, which is exactly this item's "simulator fiction" concern, just
+  in the offline backtest engine rather than live options fills. Now
+  tiered by trailing volume (`liquidity_cost_pct()`), mirroring the same
+  four live bot.ts breakpoints this item references. This item's own
+  options-side ask remains open and gated on #12(b)/(c) as before.
 - **Strategy tournament.** Run strategies as isolated, tagged competitors
   (strategies/ modules are already shaped for this) with buy-and-hold SPY
   as a permanent benchmark entrant. Allocate more to winners, retire
