@@ -48,8 +48,11 @@ codebase precedent, reused here rather than inventing new suffix logic):
   - OIL/GAS EXTRACTION: datacore/gem/oil_gas_extraction.json.gz's fields
     sheet carries ONLY free-text Operator/Owner(s)/Parent(s) — resolved by
     exact match against ownership.json.gz's entities' normalized Full
-    Name/Name (ambiguous normalized-name collisions across different
-    Entity IDs are dropped, never guessed).
+    Name/Name/Abbreviation (ambiguous normalized-name collisions across
+    different Entity IDs are dropped, never guessed; Abbreviation added
+    2026-07-23 gate-2(c) widening — GEM populates it on 1,833/26,250
+    entities, e.g. short-form operator names that never match Full Name/
+    Name verbatim).
   - BOTH: once an Entity ID is in hand (direct or name-matched), if that
     entity itself has no US SEC CIK, its own "Gem parents IDs" field
     (GEM's already-flattened immediate-to-ultimate ownership chain) is
@@ -170,7 +173,7 @@ def build_ownership_index(gem_dir: str) -> dict:
             digits = re.sub(r"\D", "", cik_raw)
             if digits:
                 cik_by_entity[eid] = str(int(digits))
-        for field in ("Full Name", "Name"):
+        for field in ("Full Name", "Name", "Abbreviation"):
             key = normalize_company_name(e.get(field))
             if not key:
                 continue
