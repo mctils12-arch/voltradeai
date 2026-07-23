@@ -63,8 +63,16 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   appear in the inventory; aggregator enumerates the dir at runtime
   so new streams surface mechanically). streams page registered in
   the visual harness PAGES (perf/layout gate at 390/768/1440).
-  Remaining: imagery capture-date requirement (with Phase 3),
-  per-layer freshness chips.
+  Per-layer freshness chips SHIPPED 2026-07-23 (v1.0.479,
+  server/layerFreshness.ts + datamap.tsx layer-row chip) — joins the
+  Phase 4 streams-inventory health onto 16 hand-verified layer ids
+  (see experiments.md for the full trace + why each of a further ~13
+  candidates couldn't be honestly mapped this session: derived joins
+  over another stream's archive, static curated reference data, or
+  the GEM coal/methane manifest ambiguity). Remaining: imagery
+  capture-date requirement (with Phase 3); Phase 5's own
+  freshness-chip coverage could widen later if the gem/portdwell/
+  shadowstats gaps above get their own design pass.
 - CENSUS BUILD #3 JODI: SHIPPED v1.0.169 — scripts/jodi_oil.py +
   datacore/jodi/primary_stocks.json (350 series, 61k closing-stock
   points, full history 2002+; monthly session-run rebuild ~19th).
@@ -1691,3 +1699,39 @@ FOR THE HUMAN: if this recurs, check Settings → Billing → Actions
 usage (or Settings → Actions → General → concurrency/spending limits)
 for this repo/account — that's the fastest way to confirm or rule out
 the quota hypothesis, which no session tool here can check directly.
+
+UPDATE 2026-07-23 (scheduled-routine session, PR #587) — this is now a
+SUSTAINED, REPO-WIDE outage, not two isolated incidents. This session's
+own PR #587 hit the identical `changes`-job instant-failure 3 times in a
+row (rerun_failed_jobs, then a full rerun_workflow_run, both failed in
+~2-3s with zero downstream jobs ever starting). Pulling the last 30
+workflow runs across the WHOLE repo (`actions_list list_workflow_runs`,
+no branch filter) and sorting by timestamp shows every single run has
+failed since **2026-07-22T14:09:21Z** — 6 straight failures on `main`
+alone (14:09, 14:13, 14:14, 14:20, 18:00, 19:42) plus every branch run
+in between (funny-fermat-eb2fi7, lucid-keller-fbi62n,
+eloquent-dijkstra-8vtjae, this session's quirky-hopper-dmaypu), through
+at least 2026-07-23T00:47Z when this was checked — **10+ hours and
+counting**, zero successes anywhere in that window. Before 14:09 the
+same 30-run sample was overwhelmingly green (22/30 success across
+2026-07-20 17:43 through 2026-07-22 12:13) — this is a real state
+change, not baseline flakiness. `get_job_logs` still 404s unconditionally
+regardless of job/PR (same as the prior finding — a tool/environment
+limitation, not new evidence either way). Given the clean before/after
+split at one timestamp and the fact that EVERY run since then fails
+identically regardless of branch or diff content, the leading hypothesis
+from the prior entry (Actions minutes/spending quota exhausted for this
+private-repo account) is now much better supported — a quota reset or
+manual billing fix at GitHub's end is the most likely single explanation
+for an instant, runner-never-allocated failure that is 100% correlated
+with wall-clock time and 0% correlated with what changed in the diff.
+IMPACT: every PR merged in this window (including direct pushes to
+`main`) has shipped with ZERO real CI signal — the PROMOTION RULES
+gate has been silently bypassed for 10+ hours, not just inconvenienced.
+This session merged PR #587 anyway after exhausting the retry options
+here, on the strength of its own full local verification (pytest,
+node test suite, tsc A/B diff, build, visual harness — see
+experiments.md), following the existing precedent's option (c); every
+other session merging during this window should be doing the same and
+should say so explicitly in its own log entry, not silently assume CI
+covered them.

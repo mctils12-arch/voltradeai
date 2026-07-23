@@ -25371,3 +25371,126 @@ failures (datum altScale=1, buried none). The curtain drag-guard is
 provably correct by construction (probe plane-selection is unreliable
 under SwiftShader — a known probe limitation this session, not a fix
 defect). BACKTEST: N/A.
+
+## 2026-07-23 (scheduled-routine session) [PRODUCT] — Per-layer freshness chips on the /data layer panel (v1.0.479, T-DATACORE + T-CLIENT)
+
+TERRITORY: T-DATACORE primary (server/layerFreshness.ts + its test) with
+a minimal T-CLIENT render extension (datamap.tsx's existing layer-row
+component + index.css), same split precedent as the 2026-07-22 Phase 3b
+imagery entry.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then research/experiments.md,
+open_questions.md, wishlist.md. `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, scanner 0 consecutiveFailures — no
+LIVENESS ALARM, no KNOWN BROKEN item blocking product work. Loop-health
+ratio over the last 10 tagged entries: PRODUCT/REPAIR/REPAIR/PRODUCT/
+REPAIR mix, well under the 7/10 thrash threshold.
+
+PRIMARY ACTION SELECTION: wishlist.md's DATACORE MAXIMUS RESUME HERE block
+names two remaining Phase 5 items — "3c S2 utilization review" (a
+[RESEARCH]-shaped analysis task) and "per-layer freshness chips" (a
+[PRODUCT]-shaped UI build, the PREMIUM EXPERIENCE STANDARD's honesty-
+machinery clause: "every number visibly carries freshness, provenance,
+and confidence"). Chose the chip build as the more clearly product-shaped
+of the two for a [PRODUCT] routine.
+
+DESIGN DECISION: layers.json's own REGISTRY v2 `time`/`provenance` fields
+(EARTH TWIN A2) looked like the obvious source but are only populated on
+8 of 125 layers — building UI against them today would light up almost
+nothing. server/streamsInventory.ts (Phase 4) already computes real
+health/age for every manifest-backed archive (`/api/data/streams`), so
+this session joins THAT onto the layer registry instead — zero
+incremental IO (same 5-min cache the Streams tab reads).
+
+MAPPING VERIFICATION (READ BEFORE WRITE): layer id -> manifest stream is
+NOT a naming convention (e.g. layer `insider` reads manifest `filings`,
+layer `cot` reads manifest `cftccot` and NOT the same-named `cot`
+manifest, which is the Python bot-side `cftc_cot.py` pipeline, unreachable
+from the Express route). Used a research subagent to trace every
+candidate layer id -> client fetch -> server route -> the exact
+`archive*()` call -> the manifest whose `written_by` names that call,
+then personally re-verified a majority of the rows myself by reading the
+actual route handlers in server/routes.ts before trusting them. Landed
+16 verified mappings (aircraft, vessels, trains, insider, earnings,
+shortvol, attention, cot, fires, earthquakes, buoys, rivergauges, alerts,
+plant_operations, faa_airports, border_waits). Explicitly SKIPPED rather
+than guessed: portdwell/shadowstats (derived joins over the vessels
+archive, not their own stream), sites/quakehistory/superfund/pfas/
+nucleartests/radiation/nukeaccidents/nukefacilities/military_installations
+(static curated reference data, no archive-writing function in the call
+chain), and methane_plumes + coal_mine_features (both trace to the same
+"gem" manifest — ambiguous between two layers, so neither got mapped).
+
+BUILD: server/layerFreshness.ts — `LAYER_TO_STREAM` (the hand-verified
+mapping) + a pure `attachLayerFreshness(layers, streams)` join: a layer
+gets a `freshness: {stream, health, age_hours, health_note}` field ONLY
+when both the mapping exists AND the streams-inventory cache already has
+that stream — never a fabricated value for a cold cache or an unmapped
+layer. Wired into the existing `/api/data/layers` route (server/routes.ts)
+right before the response, reusing `getStreamsInventoryCached()` (already
+imported for the Streams tab; `bootStreamsInventoryPoll()` runs at route-
+registration time regardless of file order, so no request-ordering risk).
+
+CLIENT: `LayerMeta` gained an optional `freshness` field; the existing
+per-row renderer (`renderLayerRow`, unchanged structure) shows a new
+compact chip — "data 24m old" / "data 17.1d old" — colored green/blue/
+amber/grey by health (live/recent/stale/no-data), gated on the layer
+being `toggleable` (status === "live") and not in the open-tab-skew
+"unwired" state, so it never appears next to a misleading "awaiting API
+key" or "reload to enable" row. `freshnessLabel()` is a pure unit-
+conversion helper (minutes under 1h, hours under 48h, days beyond) off
+the server's own `age_hours` — no re-derived staleness judgment. CSS
+follows the existing ADS-B data-state badge's live/stale/lost color
+convention for visual consistency across the site.
+
+VERIFICATION:
+1. `server/layerFreshness.test.ts` (6 new tests): mapped+cached layer
+   gets the field, unmapped/uncached layers don't, the join never
+   mutates its input, the cot/cftccot distinction is pinned explicitly,
+   and two integrity tests assert every `LAYER_TO_STREAM` value has a
+   real manifest file and every key is a real layer id (a stale entry
+   fails CI immediately instead of silently rotting).
+2. `python3 -m pytest -q`: untouched, no Python changed.
+3. `npx tsx --test server/*.test.ts`: 856/856 (850 baseline + 6 new).
+4. `npm run check`: 77 tsc errors both before and after (git-stash A/B
+   diff), zero new — pre-existing baseline, unrelated to this change.
+5. `npm run build`: clean.
+6. `npm run visual --page data`: FIRST run showed 1 hard failure (1440px
+   p95 frame 433ms > the 350ms gate). Did NOT assume the change caused
+   it — re-ran the harness against a `git stash`ed pre-change baseline
+   (0 hard failures, p95 300ms) and then against the change again
+   (0 hard failures, p95 300ms, byte-identical to baseline) — the
+   original 433ms reading was SwiftShader software-rendering noise (the
+   same "environmental" flakiness class prior sessions have documented),
+   not a regression; a clean re-run with the change applied matches
+   baseline exactly.
+7. LIVE VERIFICATION beyond the harness's hand-written fixture (which
+   doesn't exercise the real merge — same limitation prior sessions
+   noted for the imagery field): booted the real built dist/index.cjs
+   locally and drove a real headless-Chromium screenshot of the actual
+   `/app#/data` layer panel with a route-intercepted `/api/data/layers`
+   response carrying realistic freshness values for three layers.
+   Confirmed the chip renders with the correct label AND color for all
+   three health states: insider (live, 0.4h -> "data 24m old", green),
+   short-sale volume (stale, 411.2h -> "data 17.1d old", amber), COT
+   (recent, 122.9h -> "data 5.1d old", blue) — screenshot inspected
+   directly, not just asserted programmatically.
+8. Added `freshness` fields to 3 layers in scripts/visual_check.mjs's
+   fixture (insider/live, shortvol/stale, cot/recent) so the harness
+   itself now exercises all three non-empty chip states on every future
+   run, not just this session's manual probe.
+
+BACKTEST: N/A (pure UI/data-join change, no trading/measurement logic
+touched).
+
+NEXT: 13 more manifest-backed layers were checked and genuinely could
+NOT be mapped this session for the reasons above (see MAPPING
+VERIFICATION) — none of them are actionable without either resolving
+the gem coal/methane ambiguity (would need a route-level split of the
+"gem" manifest's freshness, or a second manifest file per GEM dataset)
+or building freshness tracking for the derived-join layers (portdwell/
+shadowstats) directly off vessels' own health, which duplicates the
+vessels layer's own chip and needs its own design pass, not bundled
+here. DATACORE MAXIMUS Phase 5's other remaining item, 3c (S2
+utilization review across asset classes), is still open — a
+[RESEARCH]-shaped task for a future session.

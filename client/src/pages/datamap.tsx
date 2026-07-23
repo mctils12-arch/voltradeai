@@ -387,6 +387,16 @@ interface LayerMeta {
   // "light" fallbacks below — additive fields, no breaking migration.
   group?: string;
   costTier?: "light" | "moderate" | "heavy";
+  // Phase 5 per-layer freshness chip (server/layerFreshness.ts): present
+  // only for the layers this session could honestly join to one archived
+  // stream's health — absent, never fabricated, for everything else
+  // (static reference data, derived joins, unmapped layers).
+  freshness?: {
+    stream: string;
+    health: "live" | "recent" | "stale" | "no-data";
+    age_hours: number | null;
+    health_note: string;
+  };
 }
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
@@ -719,6 +729,18 @@ const groupOf = (l: LayerMeta): string =>
 // registry) default to "light" — never overclaims load.
 const COST_WEIGHT: Record<string, number> = { light: 1, moderate: 2, heavy: 4 };
 const costWeightOf = (l: LayerMeta): number => COST_WEIGHT[l.costTier || "light"] ?? 1;
+
+// Phase 5 per-layer freshness chip label: human age off the raw age_hours
+// the server already computed (server/streamsInventory.ts) — never a
+// re-derived "how stale" judgment, just a compact unit conversion.
+function freshnessLabel(f: NonNullable<LayerMeta["freshness"]>): string {
+  if (f.health === "no-data") return "no archive yet";
+  if (f.age_hours == null) return f.health;
+  const h = f.age_hours;
+  if (h < 1) return `data ${Math.round(h * 60)}m old`;
+  if (h < 48) return `data ${h.toFixed(1)}h old`;
+  return `data ${(h / 24).toFixed(1)}d old`;
+}
 // groups shown expanded by default; any group id NOT in this set (including
 // every group a future registry update introduces) defaults COLLAPSED —
 // inverted from the old hardcoded collapsed-list so growth is safe by
@@ -9850,6 +9872,12 @@ export default function DataMapPage() {
             <span className="vt-layer-status">
               <i style={{ background: st.dot }} /> {unwired ? "reload to enable" : st.text}
             </span>
+            {toggleable(l) && !unwired && l.freshness && (
+              <span className={`vt-layer-freshness vt-layer-freshness-${l.freshness.health}`}
+                    data-testid={`layer-freshness-${l.id}`} title={l.freshness.health_note}>
+                <i /> {freshnessLabel(l.freshness)}
+              </span>
+            )}
             {unwired && <span className="vt-layer-covnote">site updated — reload the page to enable this new layer</span>}
             {!unwired && st.note && <span className="vt-layer-covnote">{st.note}</span>}
           </span>
