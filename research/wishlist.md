@@ -63,8 +63,16 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   appear in the inventory; aggregator enumerates the dir at runtime
   so new streams surface mechanically). streams page registered in
   the visual harness PAGES (perf/layout gate at 390/768/1440).
-  Remaining: imagery capture-date requirement (with Phase 3),
-  per-layer freshness chips.
+  Per-layer freshness chips SHIPPED 2026-07-23 (v1.0.479,
+  server/layerFreshness.ts + datamap.tsx layer-row chip) — joins the
+  Phase 4 streams-inventory health onto 16 hand-verified layer ids
+  (see experiments.md for the full trace + why each of a further ~13
+  candidates couldn't be honestly mapped this session: derived joins
+  over another stream's archive, static curated reference data, or
+  the GEM coal/methane manifest ambiguity). Remaining: imagery
+  capture-date requirement (with Phase 3); Phase 5's own
+  freshness-chip coverage could widen later if the gem/portdwell/
+  shadowstats gaps above get their own design pass.
 - CENSUS BUILD #3 JODI: SHIPPED v1.0.169 — scripts/jodi_oil.py +
   datacore/jodi/primary_stocks.json (350 series, 61k closing-stock
   points, full history 2002+; monthly session-run rebuild ~19th).

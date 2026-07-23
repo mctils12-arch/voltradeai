@@ -105,6 +105,7 @@ import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
+import { attachLayerFreshness } from "./layerFreshness";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
@@ -769,13 +770,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           })()
         : l
     );
+    // Per-layer freshness (Phase 5, wishlist.md): joins the already-computed
+    // streams-inventory health (zero incremental IO — same cache the
+    // Streams tab reads) onto every layer this session can honestly map to
+    // one archived stream (server/layerFreshness.ts's hand-verified
+    // LAYER_TO_STREAM). Absent entirely — never a fabricated `freshness` —
+    // for layers backed by static reference data, derived joins, or ones
+    // not yet mapped.
+    const freshLayers = attachLayerFreshness(layers, getStreamsInventoryCached()?.streams || []);
     // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
     // long-lived tab that remounts the /data page re-fetches this registry
     // (new layer rows) while still running an old bundle (no effects for
     // them) — pill flips, label stays "off", nothing renders (the
     // 2026-07-04 production desync). The client compares against its
     // baked-in version and tells the user to reload.
-    res.json({ layers, server_version: pkgVersion });
+    res.json({ layers: freshLayers, server_version: pkgVersion });
   });
 
   // Live aircraft overlay (RAW) — community ADS-B chain, THREE deep
