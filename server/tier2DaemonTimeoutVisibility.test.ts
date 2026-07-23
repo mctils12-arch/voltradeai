@@ -123,6 +123,30 @@ test("KNOWN BROKEN #18 continuation 2026-07-21: the daemon branch surfaces layer
   assert.ok(daemonBranch.includes("l2.age_sec"), "must surface how stale the reading is, so a future session can tell a fresh mid-hang reading from a leftover prior-scan one");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-23: the daemon branch reads the on-disk scan-timings file directly (last_phase_completed/status/age), not just layer2_prefetch", () => {
+  // Three mechanisms (zombie-thread pileup, layer2_prefetch correlation,
+  // deep_score's ThreadPoolExecutor early-return) have each been directly
+  // checked against a live TIER2-ERROR occurrence and the storm still
+  // recurs identically with all three fixes/refutations already live —
+  // layer2_prefetch only instruments ONE phase of run_full_scan's
+  // pipeline. bot_engine.py's TIMING-DISK mechanism already persists
+  // last_phase_completed/status to voltrade_scan_timings.json after every
+  // phase (survives the 300s kill) and /api/diag/timings already exposes
+  // it — but two prior live-poll stakeouts on that endpoint both missed
+  // the window. This reads the same file directly (fs, same paths as the
+  // existing /api/diag/timings probe and the owner-gated /api/system/
+  // snapshot lookup) so the next occurrence's audit line names the phase
+  // without needing a live poll.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("voltrade_scan_timings.json"), "must read the same on-disk timing file /api/diag/timings and /api/system/snapshot already expose");
+  assert.ok(daemonBranch.includes("last_phase_completed"), "must surface which phase the stuck scan last completed");
+  assert.ok(daemonBranch.includes("scan_phase="), "must format the reading into the audit line under a distinct scan_phase= key, not overwrite layer2_prefetch's own detail");
+  assert.ok(/try\s*\{[^}]*voltrade_scan_timings/.test(daemonBranch), "the file read must be wrapped in its own try/catch — a missing/corrupt timing file must never block the TIER2-ERROR audit line itself");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");

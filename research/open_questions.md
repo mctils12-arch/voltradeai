@@ -1934,6 +1934,62 @@
     ThreadPoolExecutor fix pending live confirmation) without a second
     confirmed fix is a lot of session-time against one recurring symptom.
 
+    UPDATE 2026-07-23 (scheduled-routine session, v1.0.481) — THIRD
+    REFUTATION CONFIRMED WITH FRESH LIVE EVIDENCE (11 occurrences, not
+    one), exactly the outcome the 2026-07-21 UPDATE's own NEXT STEP
+    anticipated as the failure case for the ThreadPoolExecutor fix. Storm
+    active during MARKET HOURS at session start (the exact condition the
+    prior update asked a future session to catch): `/api/diag/audit?
+    type=TIER2-ERROR` showed 11 fresh occurrences 17:41:38Z-19:57:39Z
+    today, ~15min cadence. Confirmed v1.0.468's `_pool.shutdown(wait=
+    False)` fix (bot_engine.py:780) is live in the current codebase,
+    deployed 2026-07-21 — two days before this storm. All 11 occurrences
+    read `active_dispatches=2 [run_full_scan:300s, health:0s]` (health
+    probe itself, not a zombie — zombie-pileup stays refuted) and
+    `layer2_prefetch` with HIGH `age_sec` (488.2-892.7s — Layer 2 stays
+    refuted too). The ThreadPoolExecutor fix did not stop the recurrence:
+    THIRD REFUTATION. Per RECURRENCE ESCALATES and the prior session's own
+    explicit self-flag ("a lot of session-time against one recurring
+    symptom"), this session did not guess a sixth theory. Instead: none of
+    the three refuted-or-fixed mechanisms can see any OTHER phase of
+    `run_full_scan`'s pipeline (quick_scan, the main deep_score loop
+    itself, tier1_csp_core outside its own Layer 2 prefetch, correlation/
+    floor/convexity checks) — each instrument only ever covered the one
+    phase it was built for. `bot_engine.py`'s existing TIMING-DISK
+    mechanism (2026-04-23) already persists `last_phase_completed`/
+    `status` to `voltrade_scan_timings.json` incrementally (survives the
+    kill), and `/api/diag/timings` (2026-07-18) already exposes it — but
+    two prior sessions' live-poll stakeouts on that exact endpoint both
+    missed the window (structurally: it only reflects a scan that already
+    RETURNED, same limitation the layer2_prefetch fix solved for Layer 2
+    specifically by reading module state live during the health RPC
+    instead of polling a return value).
+    SHIPPED (v1.0.481, pure visibility, zero behavior change): the
+    TIER2-ERROR daemon-timeout catch branch in `server/bot.ts` now ALSO
+    reads `voltrade_scan_timings.json` directly via `fs` (same paths the
+    `timings` diag probe and `/api/system/snapshot` already use — no new
+    Python/RPC code needed, since Node and the daemon share one container
+    filesystem) at the moment of the timeout, formatting `scan_phase=
+    {last_completed=... status=... age=...s}` into the same audit line
+    `layer2_prefetch`/`active_dispatch_detail` already land in. Wrapped in
+    its own try/catch (never blocks the audit line on a missing/corrupt
+    file). RATCHET: one new wiring-pinned test in
+    `server/tier2DaemonTimeoutVisibility.test.ts` (10/10 pass). Full trace
+    in experiments.md's 2026-07-23 entry.
+    NEXT STEP: whichever session catches the next live TIER2-ERROR should
+    read the audit line's new `scan_phase` field directly (no live poll
+    needed). A LOW age naming a specific, consistent phase across several
+    fresh occurrences is the evidence-backed target for a real fix. A HIGH
+    age, `status: completed` (the last-finished scan, not the hung one),
+    or no clear pattern across several occurrences would mean even this
+    instrument can't localize the hang — at that point RECURRENCE
+    ESCALATES' architecture-smell bar is fully warranted (four visibility
+    instruments plus one confirmed fix on a DIFFERENT symptom pair,
+    against one recurring TIER2-ERROR symptom that hasn't stopped): the
+    next session should stop instrumenting and file the CPU/wall-clock
+    profiler proposal in wishlist.md instead of building a fifth
+    instrument.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

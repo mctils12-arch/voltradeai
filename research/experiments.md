@@ -25815,3 +25815,162 @@ matching against operators' disclosed methane intensity remains
 CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
+
+## 2026-07-23 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.468's ThreadPoolExecutor fix is a THIRD REFUTATION (live, 11 fresh occurrences); shipped the on-disk scan-timings read the search needs next instead of a sixth blind guess (v1.0.481, T-BOT)
+
+TERRITORY: `server/bot.ts` (tier2Intelligence's daemon-timeout catch
+branch) + its own test file `server/tier2DaemonTimeoutVisibility.test.ts`
+— T-BOT (outside frozen paths; `alpaca_rate_limiter.py` and
+`risk_kill_switch.py` untouched). `package.json`/`package-lock.json`
+(SHARED) bumped last, read-and-incremented at commit time (1.0.480 ->
+1.0.481) per the merge-order protocol; package-lock's own nested
+`packages[""].version` field had already drifted stale to 1.0.480 by
+the time of this edit (the exact recurring benign-drift class six
+prior sessions have now logged and fixed in-place) — corrected in the
+same edit.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false — no LIVENESS ALARM.
+Loop-health ratio over the last 10 tagged entries (REPAIR/RESEARCH/
+RESEARCH/REPAIR/PRODUCT/REPAIR/REPAIR/PRODUCT/RULE-REVIEW/RESEARCH): 4
+REPAIR, under the 7/10 thrash threshold. GITHUB ACTIONS CI STILL DOWN
+(re-confirmed, not re-investigated further — `actions_list` shows every
+run since 2026-07-22T14:09:21Z failing instantly with the same
+runner-never-allocated "changes" job signature, now the better part of
+30 hours; already flagged to the human by name in three prior sessions'
+notifications and entries, not repeated as a fresh notification this
+session to avoid redundant paging over an unchanged, non-actionable-by-
+session state — see wishlist.md's existing entry).
+
+PRIMARY ACTION SELECTION: `/api/diag/audit?limit=150&token=$DIAG_TOKEN`
+(this session's own first read of the live audit log, per SESSION
+BUDGET tier 1 — "fix a bug seen in audit logs" outranks starting new
+research) surfaced 15 `TIER2-ERROR` + 15 `TIER2-BACKOFF` entries out of
+150 — a live, ongoing KNOWN BROKEN #18 storm, 11 occurrences from
+17:41:38Z through 19:57:39Z today (2026-07-23), DURING MARKET HOURS
+(1:41pm-3:57pm ET), the exact live-catch condition the 2026-07-21
+session's own NEXT STEP asked a future session to re-run
+("re-run this item's own established live-catch procedure... during
+MARKET HOURS"). Confirmed this is the identical `KNOWN BROKEN #18`
+symptom (open_questions.md), now on its fourth-through-sixth
+investigated mechanism, not a new item.
+
+FINDING — THIRD REFUTATION, CONFIRMED WITH FRESH EVIDENCE (11
+occurrences, not one — REASONING STANDARD #4 satisfied): grepped
+`bot_engine.py` for `ThreadPoolExecutor`/`shutdown(wait` and confirmed
+v1.0.468's fix (`_pool.shutdown(wait=False)`, line 780) is live in the
+current codebase, deployed 2026-07-21 — well before today's storm.
+Read all 11 of today's `TIER2-ERROR` entries in full: every one carries
+`active_dispatches=2 [run_full_scan:300s, health:0s]` (the second
+dispatch is the health probe itself, 0s old — NOT a zombie
+`run_full_scan`, matching the 2026-07-21 zombie-pileup refutation
+exactly) and a `layer2_prefetch` block with HIGH `age_sec` in every
+single occurrence (488.2-892.7s — Layer 2's own prefetch finished
+5-15 minutes before each timeout, or didn't need to run that cycle —
+matching the 2026-07-21 Layer-2 refutation exactly). With v1.0.468
+already live and the storm recurring on the identical ~15min cadence
+regardless, this is the THIRD refutation the 2026-07-21 session's own
+NEXT STEP explicitly anticipated ("If it continues unchanged, this
+refutes THIS hypothesis in turn (a THIRD refutation since the
+shadowFleet fix...)"). Per RECURRENCE ESCALATES and that session's own
+explicit self-flag ("five mechanisms investigated... without a second
+confirmed fix is a lot of session-time against one recurring symptom"),
+this session did NOT attempt a sixth hypothesis-driven fix blind.
+
+WHAT'S ACTUALLY STILL MISSING: all three refuted-or-fixed theories
+(zombie-pileup, Layer 2 prefetch, deep_score's enrichment
+ThreadPoolExecutor) each instrumented ONE specific phase or mechanism
+inside `run_full_scan`'s pipeline. None of them can see the OTHER
+phases (quick_scan, the main per-candidate `deep_score` loop itself,
+tier1_csp_core outside its Layer 2 prefetch, the correlation/floor/
+convexity checks) — so a hang anywhere else in the pipeline is
+completely invisible to every instrument built so far, and would look
+identical to a `TIER2-ERROR` with normal-looking `active_dispatch_
+detail`/`layer2_prefetch` fields either way. READ BEFORE WRITE found
+`bot_engine.py`'s existing `_scan_market_inner()` TIMING-DISK mechanism
+(2026-04-23) already persists a per-phase wall-clock breakdown to
+`voltrade_scan_timings.json` INCREMENTALLY (`_timing_log()` writes
+after every phase boundary, tagging `last_phase_completed`/
+`last_phase_at`/`status: "in_progress"`, so it survives the 300s kill)
+— and `/api/diag/timings` (2026-07-18) already exposes it. Two prior
+sessions' live-poll stakeouts on that exact endpoint both missed the
+window (2026-07-21's own entry: "that endpoint only reflects the last
+`scan_market()` call that actually RETURNED... its `tier_timings` are
+invisible to that endpoint, structurally, no matter how tightly the
+polling window is timed" — true of `/api/diag/timings` too, since it
+reads the identical on-disk file via the identical HTTP round-trip
+timing problem the layer2_prefetch fix solved by reading module state
+DURING the health RPC instead).
+
+FIX (v1.0.481, pure visibility, zero behavior change — same class as
+every prior instrumentation pass on this item): the daemon-timeout
+catch branch in `server/bot.ts` now ALSO reads
+`voltrade_scan_timings.json` directly via `fs` (same two candidate
+paths `/api/diag/timings` and the owner-gated `/api/system/snapshot`
+already use — `/data/voltrade/...` then `/tmp/...` fallback) at the
+exact moment a `TIER2-ERROR` fires, formatting `scan_phase={last_
+completed=... status=... age=...s}` into the SAME audit line
+`layer2_prefetch`/`active_dispatch_detail` already land in. Unlike the
+Layer 2 fix (which needed a NEW daemon-side RPC read of in-process
+module state), this needed no Python change at all: Node and the
+Python daemon share the same container filesystem, and the timing file
+is already written incrementally — reading it directly from Node,
+mirroring the exact fs.existsSync/readFileSync pattern the `timings`
+diag probe already uses, is strictly simpler and carries zero new RPC
+round-trip risk. Wrapped in its own try/catch (never blocks the
+TIER2-ERROR audit line if the file is missing/corrupt/mid-write).
+The NEXT live occurrence's audit-log entry alone (no live stakeout
+required, same principle as every visibility fix on this item since
+2026-07-19) will show which phase of the FULL pipeline — not just
+Layer 2 — the stuck scan last completed, and how long ago: a LOW age
+naming a genuinely slow phase directly; `status: "in_progress"` with a
+HIGH age or `last_phase_completed: "none"` pointing at something before
+the first phase boundary (e.g. the initial universe/snapshot fetch)
+instead.
+
+DELIBERATELY NOT DONE: no threshold change to `REQUEST_TIMEOUT_SEC`,
+`deep_score_limit`, `PREFETCH_BUDGET_S`, or the throttle rate, and no
+seventh hypothesis proposed from the existing evidence — per this
+item's own 11-day discipline, no fix ships until a live occurrence's
+NEW `scan_phase` reading actually names a specific slow phase. If the
+next several occurrences show `scan_phase` sitting on a consistent,
+specific phase name with a low age, that is the evidence-backed target
+for a real fix. If `scan_phase` instead reads `status: "completed"`
+(meaning the LAST scan that finished, not the currently-hung one —
+possible if `run_full_scan`'s dispatch and the file write are somehow
+decoupled in a way not yet understood) or shows no clear pattern across
+several fresh occurrences, that would refute this instrument's
+usefulness itself and is the point at which RECURRENCE ESCALATES'
+architecture-smell bar is fully warranted: propose in wishlist.md the
+ability to attach a CPU/wall-clock profiler to the live daemon process,
+since (with this session) four visibility instruments and one confirmed
+fix (shadowFleet, a DIFFERENT symptom pair — EVENTLOOP-LAG/
+STREAM-DISCONNECT) will have been built against this one recurring
+`TIER2-ERROR` symptom without it stopping.
+
+RATCHET: `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+wiring-pinned test (mirroring the file's own established convention for
+each layer of this item's instrumentation) asserting the daemon branch
+reads `voltrade_scan_timings.json`, surfaces `last_phase_completed`
+under a distinct `scan_phase=` key (not overwriting `layer2_prefetch`'s
+own detail), and wraps the read in its own try/catch. All 10 tests in
+the file pass (9 baseline + 1 new).
+
+GATES: `python3 -m pytest -q` 864 passed, 3 skipped (zero Python files
+touched by this PR — unchanged from the immediately prior session's
+baseline). `npx tsx --test server/*.test.ts` 792 passed, 7 failed — the
+same 7 pre-existing sandbox-network failures prior sessions have
+repeatedly confirmed unrelated (aircraftTiling/apiKeyAccounts/
+compression/gdeltEvents/owmTiles/seafloorTiles/securityMiddleware).
+`npx tsc --noEmit`: 3 errors, the same pre-existing sandbox-environment
+trio (missing @types/node/vite entry points, deprecated `baseUrl`
+option) every recent session has confirmed unrelated. `npm run build`:
+clean (client + server bundle, runtime datacore files staged).
+
+BACKTEST: N/A — pure diagnostic-visibility change to a daemon-timeout
+audit line; zero scoring/sizing/execution logic touched, no threshold
+or trading behavior changed.
+
+NEXT: whichever session catches the next live `TIER2-ERROR` should read
+the audit line's new `scan_phase` field directly (no live poll needed).
+See open_questions.md's KNOWN BROKEN #18 for the full decision tree.
