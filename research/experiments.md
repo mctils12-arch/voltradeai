@@ -25815,3 +25815,139 @@ matching against operators' disclosed methane intensity remains
 CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
+
+
+## 2026-07-23 (scheduled-routine session) [PRODUCT] -- /api/v1/graph: keyed license-marked mirror of Everything Graph v1, closing a filed MAP V2 ROADMAP NEXT STEP (v1.0.481)
+
+TERRITORY: server/apiProduct.ts (LICENSE_MARKS + apiMeta) + server/routes.ts
+(the new v1 route, appended immediately after the existing /api/data/graph
+handler) + server/apiProduct.test.ts. routes.ts and package.json are SHARED
+files -- the version bump was the last, smallest edit before commit per
+MERGE-ORDER PROTOCOL (read-and-increment at commit time: 1.0.480 -> 1.0.481,
+not planned ahead).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/ (the
+GEM methane gate-2(c) session immediately above is the last entry).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark false,
+alpaca ACTIVE, scanner consecutiveFailures 3 (not degraded) -- no LIVENESS
+ALARM. `/api/diag/audit?limit=40`: TIER2-ERROR daemon-timeout pattern
+(active_dispatches=2 signature) still firing and self-recovering, matching
+the already-documented KNOWN BROKEN #18 pattern -- not new, not blocking.
+GITHUB ACTIONS CI: confirmed still down via `actions_list` -- every run
+across every branch back to 2026-07-22T20:28 fails in the same instant
+"changes" job / runner_id 0 / empty runner_name signature the prior 4
+sessions already diagnosed and flagged to the human; not re-flagged again
+this session (no new information, avoids notification fatigue on an
+already-escalated, unchanged condition). Verification in this session
+therefore relies on full local test/tsc/build parity checks (below)
+rather than the CI gate, consistent with the precedent set by the
+immediately preceding several merged PRs during the same outage.
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 1/PRIMARY selection, not fall-through) to survey wishlist.md,
+open_questions.md's roadmap sections, and every program charter file for
+the single best-scoped, genuinely unblocked PRODUCT action per the four
+categories in this session's own instructions (ladder-gate advance /
+UI-UX build / new-feature spec / datacore API-boundary work). Its finding:
+research/open_questions.md's MAP V2 ROADMAP, R5 Everything Graph section
+(~line 3374-3381) explicitly filed an unclaimed NEXT STEP -- "an
+/api/v1/graph keyed mirror (mirrors the existing stats/portdwell /
+stats/shadow pattern)" -- logged when Graph v1's /data panel shipped
+(2026-07-06) and never picked up since. Rejected alternatives: the FINRA
+Part-2 / SEC MIDAS UI views (wishlist.md) are explicitly deferred pending
+"weeks of archive accumulation," not yet scoped; the NDBC buoy signal
+needs estimator design from scratch (a RESEARCH-type session, not a single
+mechanical PR); the GEM pipelines PMTiles layer is BLOCKED-FOR-MIKE
+(source files in Mike's Drive, connector off). Confirmed via
+`grep -n "api/v1" server/routes.ts` and `LICENSE_MARKS` in
+server/apiProduct.ts that no "graph" key/route existed before this
+session -- genuinely unbuilt, not just stale-doc-appearing-built.
+
+READ BEFORE WRITE: read server/apiProduct.ts in full (LICENSE_MARKS,
+apiMeta, v1Envelope contract via routes.ts usage), the existing
+/api/v1/stats/portdwell and /api/v1/stats/shadow handlers (routes.ts
+~3198-3235) as the pattern template, the existing /api/data/graph handler
+(routes.ts ~3297-3314) as the logic to mirror, and server/entityGraph.ts's
+cachedGraphSync/resolveEntityId/neighborhood (all already imported in
+routes.ts line 42 -- no new import needed) before writing anything.
+
+IMPLEMENTATION:
+1. server/apiProduct.ts: new `LICENSE_MARKS["graph"]` entry -- resell
+   "conditional" (the graph's calls_at edges are AIS-derived, same
+   inherited-conditionality reasoning already used for stats/portdwell and
+   stats/shadow). apiMeta(): added the `/api/v1/graph` endpoint entry
+   (preview: /api/data/graph) and REMOVED the stale `coming_gated` line
+   "entity timelines (Everything Graph v1 -- ... in build)" -- Graph v1
+   has been live at /api/data/graph since 2026-07-06; leaving it in
+   coming_gated after shipping a live keyed mirror this session would be
+   the exact API-docs dishonesty the apiMeta() module comment forbids.
+2. server/routes.ts: new `app.get("/api/v1/graph", ...)` immediately after
+   the existing /api/data/graph handler -- identical counts-only /
+   entity+hops-neighborhood branching logic, wrapped in requireApiKey +
+   v1Envelope("graph", ..., graph.built_at) + meterUsage at every exit
+   (200/404/503/500), matching the stats/portdwell 503+Retry-After
+   warming-up pattern rather than /api/data/graph's own 200+warming_up:true
+   shape (v1 endpoints are keyed/metered products, not free public
+   previews -- a 503 is the honest signal to a paying-tier caller that the
+   product isn't ready yet, not a 200 with an empty-ish body to bill
+   against).
+3. server/apiProduct.test.ts: updated the two tests whose assertions
+   pinned the now-corrected staleness -- "meta honesty" now asserts
+   /api/v1/graph IS a live path (not absent) and that coming_gated no
+   longer names Graph v1, with the coming_gated floor corrected from >=2
+   to >=1 (tank-fill is the one remaining gated item; the floor was a
+   sanity check on "at least something is listed as coming," not a
+   mandate that stale content survive). "wiring pinned" now includes
+   /api/v1/graph in the route-presence loop and the key-guarded-count
+   floor from >=4 to >=5. Added a new dedicated test pinning the graph
+   license mark's conditional/aisstream properties, mirroring the existing
+   per-mark tests for tracks/aircraft and tracks/vessels. Did not touch
+   the "honesty: generated_at" test's for-loops -- /api/data/graph (the
+   public preview) uses a pre-existing `built_at` field name rather than
+   `generated_at`, a naming choice that predates this PR and is out of
+   scope for a single-logical-change addition of the v1 mirror; the v1
+   response itself still carries `generated_at` via v1Envelope regardless
+   (it's given `graph.built_at` as the envelope's `generatedAt` source).
+
+VERIFICATION: this session found node_modules effectively empty at start
+(1 entry) -- `npm run build`/`npm run test:node` both failed on
+ERR_MODULE_NOT_FOUND before any code change was even in play. Ran
+`npm install` first (a one-time environment-setup action, not a code
+change) and RE-VERIFIED parity before and after with `git stash`:
+`npx tsx --test server/*.test.ts` 857/857 pass post-install (baseline
+792/799 pass immediately pre-install was a node_modules artifact --
+confirmed by re-running the same 7 "failing" files with this session's
+changes stashed out: identical 7/7 failures, so they were never caused by
+this change); `npx tsc --noEmit` 77 errors, byte-identical between
+`git stash`-verified pre-change and post-change trees (confirmed twice,
+once before and once after `npm install`, same count both times); `npm
+run build` clean (pre-existing astronomy-engine default-export warning +
+chunk-size warnings only, exit 0). No Python files touched -- `python3 -m
+pytest` not run, matching the established TS-only-diff precedent (PRs
+#572/#420/#589). BACKTEST: N/A -- zero scoring/sizing/execution/P&L code
+touched, this is a read-only API-product surface over an already-live RAW
+data source.
+
+HYPOTHESIS: this closes the filed NEXT STEP with no behavior change to
+the free /data graph panel or /api/data/graph (both untouched) -- the
+only new surface is the keyed/metered mirror. Expect the first live
+signal to be `/api/account/api-keys/:id/usage` entries tagged
+`endpoint: "/api/v1/graph"` once any preview key calls it; no live-vs-
+backtest divergence risk since nothing here scores or trades. A future
+session should check the apiusage archive once a preview-key holder (if
+any exist yet) actually calls this endpoint, and should independently
+verify the git-history claim above (`main` does not yet contain this
+branch's history in this shallow clone -- a local `git merge-base`
+against `main` returned nothing, later confirmed to be a shallow-clone
+depth artifact, not evidence of a merged/superseded branch; verified via
+`mcp__github__list_pull_requests` that no PR exists yet for this branch
+head, so this is a fresh, never-opened PR, not a restart-after-merge
+case).
+
+NEXT (unclaimed): MAP V2 ROADMAP R5's remaining item after this one is
+larger-scoped -- a `/developers` docs-explorer live-query widget for the
+graph endpoint (needs a real preview key UX decision, not filed as a
+single-PR NEXT STEP yet). GITHUB ACTIONS CI outage remains open and
+unresolved as of this entry -- still not re-flagged (see SESSION-START
+CHECKS above), but the next session that finds it recovered should note
+the recovery per the BASE BRANCH RECOVERED protocol.

@@ -54,24 +54,30 @@ test("license marks: aircraft-derived endpoints carry ODbL share-alike; OWM is a
     "OWM tiles are a display product — they may not appear on the data API");
 });
 
-test("meta honesty: gated products listed as coming, never as live endpoints", () => {
+test("meta honesty: gated products listed as coming, never as live endpoints; Graph v1 now IS live", () => {
   const meta = apiMeta();
   const paths = meta.endpoints.map((e: any) => e.path).join(" ");
   assert.ok(!paths.includes("tank"), "tank-fill must not be a live endpoint before gate 2");
-  assert.ok(!paths.includes("timeline"), "entity timelines must not be live before Graph v1");
-  assert.ok(meta.coming_gated.length >= 2);
+  assert.ok(paths.includes("/api/v1/graph"), "Everything Graph v1 shipped — its keyed mirror must be a live endpoint");
+  assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
+  assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
 });
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 4, `expected >=4 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 5, `expected >=5 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
+});
+
+test("graph license mark: conditional resell, inherits AIS conditionality like the port stats", () => {
+  assert.equal(LICENSE_MARKS["graph"].resell, "conditional");
+  assert.ok(LICENSE_MARKS["graph"].license.includes("aisstream"));
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
