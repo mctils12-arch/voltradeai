@@ -25815,3 +25815,171 @@ matching against operators' disclosed methane intensity remains
 CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
+
+
+## 2026-07-23 (scheduled-routine session) [PRODUCT] — Recovered stale PR #449 (/api/v1/agent-tools) fresh onto current main, clean re-verification, no functional change from the original design (v1.0.481, SHARED — server/apiProduct.ts + one-line routes.ts wiring)
+
+TERRITORY: SHARED per WORKSTREAM PARTITION (server/apiProduct.ts,
+server/apiProduct.test.ts, one import-line + one route registration in
+server/routes.ts, package.json + package-lock.json version bump,
+research/experiments.md). No T-CLIENT/T-DATACORE/T-BOT file touched.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then all of research/*.
+Branch `claude/beautiful-planck-7jkycp` did not exist on the remote yet
+(created fresh this session, tracking set to origin/main after a shallow
+`--deepen=200` fetch resolved an initial false "unrelated histories" read
+caused by the repo's shallow clone depth — HEAD and origin/main are the
+same commit, 47772d6, confirmed via `merge-base --is-ancestor`).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner consecutiveFailures 0 — no LIVENESS ALARM,
+no critical unfixed KNOWN BROKEN item blocking product work (per this
+session's own scan, #10 and #20 remain the only non-RESOLVED numbered
+items and both are correctly gated pending more live data, matching the
+prior two sessions' same conclusion — not reopened, not actionable).
+
+GITHUB ACTIONS CI OUTAGE — STILL DOWN, now ~24h continuous (5th
+consecutive session confirming it): checked `actions_list` directly
+(not the prior sessions' more limited tooling) — the latest run on
+main's HEAD (47772d6, run 30002515200, triggered 2026-07-23T11:16:38Z)
+completed/failure in under 3 seconds; every job (`changes`, `node-build`,
+`docker-build`, `python-tests`, `Auto-merge Claude PRs`) shows
+`runner_id: 0`/`runner_name: ""` — no runner was ever allocated, and
+`get_job_logs` 404s (no log content exists because the job never
+actually started). This is infra-level (GitHub Actions runner
+provisioning/billing for this repo/org), not a code or workflow-file
+problem — outside what any session can fix from within the repo per
+FROZEN PATHS (`.github/workflows/` is frozen anyway). Flagged again to
+the human via this session's notification, now with the concrete
+"zero runner allocated across 5 consecutive jobs, 404 on logs" evidence
+in case it narrows the human's diagnosis (GitHub Actions billing/spend
+limit or an org-level Actions pause are the two likeliest causes of an
+instant zero-runner failure with no logs).
+
+PRIMARY ACTION SELECTION: with CI down, PROMOTION RULES' autonomous-merge
+gate ("CI is green") cannot be satisfied by ANY PR right now — checked
+the open-PR list directly (`list_pull_requests`) rather than assuming,
+and found SIX open, unmerged, non-draft Claude PRs (#586, #585, #584,
+#572, #449, #415) plus one long-stale unrelated human draft (#77, left
+alone, same precedent as every prior session's check). This is a bigger
+product-throughput problem right now than starting a 7th new PR: real,
+reviewed work is stuck. #584's session (2026-07-22) already audited all
+six against main and found #557 superseded (closed), #420 recoverable
+(shipped as #584 itself), and #399/#415/#449/#572 blocked by real
+(non-doc) conflicts against current main, left for a future session "to
+recover one at a time" — that note lives in #584's own PR body (#584
+is itself unmerged, so its wishlist.md edit isn't on main yet; read via
+`pull_request_read` instead of trusting a stale local copy).
+
+Chose #449 (`/api/v1/agent-tools` — the API rendered as LLM/agent tool
+definitions) over #572 (ENTSO-E generation mix) and #415/#399 (GRID
+VISION RunPod / GIBS floods layer) for three reasons: (1) directly serves
+GOAL priority 3 / Amendment 5's #3 self-proposed-work rank ("data
+products with clean licensing and API surfaces") and the GIP mission's
+external-customer leg — an agent-tool spec is exactly the kind of API
+surface that makes the platform sellable, not just displayable; (2)
+`git merge-tree` against current main showed only append-only doc
+conflicts (package.json version line, experiments.md/wishlist.md
+append points) plus zero-conflict new-file adds for apiProduct.ts/
+apiProduct.test.ts and a clean one-line routes.ts hunk — the cheapest
+of the four to recover correctly in one session; (3) `apiMeta()` on
+current main is byte-identical to the endpoint list #449 was built
+against (still the same 5 entries / 4 real data endpoints since
+2026-07-12) — meaning the recovered code needed literally zero logic
+changes, only a fresh re-apply + re-verification, so there was no risk
+of silently reintroducing an 11-day-stale design decision that no longer
+matches the live API surface. (#572 by contrast touches an unauthenticated-
+in-sandbox external API and #415/#399 touch GPU-cost and GIBS-capability
+questions that need more re-verification than a straight recovery.)
+
+READ BEFORE WRITE: read `server/apiProduct.ts` and `server/apiProduct.test.ts`
+on current main in full before touching anything; confirmed via
+`git diff <merge-base> main -- server/apiProduct.test.ts` that this file
+had zero drift from the PR's base commit (an exact match), so the stale
+branch's test additions could be re-applied as pure appends with no
+manual reconciliation. Confirmed the routes.ts import line and the
+`/api/v1/meta` registration line the new hunk attaches to are still
+present verbatim on main before writing the edit.
+
+WHAT SHIPPED (recovered from origin/claude/palantir-platform-comparison-5wfrov,
+re-applied fresh, not a `git merge`/cherry-pick of the stale branch):
+1. `server/apiProduct.ts`: new `agentToolSpec(baseUrl)` renders the LIVE
+   `/api/v1` endpoint set as JSON-Schema function-calling tool definitions
+   (Anthropic tool use / OpenAI functions / MCP-shaped) — 4 tools
+   (voltrade_get_track, _port_dwell_stats, _shadow_fleet_stats,
+   _archive_stats), each with input_schema and a `returns_provenance`
+   list of `LICENSE_MARKS` keys so license/attribution travel into an
+   agent's context, not just the raw number. `apiMeta()` gains
+   `agent_tools: "/api/v1/agent-tools"` so the existing self-documenting
+   reference points at the new spec.
+2. `server/routes.ts`: one new public route, `GET /api/v1/agent-tools`,
+   registered beside `/api/v1/meta` — docs, not data (no `requireApiKey`;
+   the tool calls themselves still need an x-api-key, same posture as
+   `/meta`).
+3. `server/apiProduct.test.ts`: +3 tests (unchanged from the recovered
+   design, since the endpoint list didn't drift) — tool-count tracks
+   live-data-endpoint-count (drift guard: a future session that adds a
+   live endpoint without a matching tool fails this loudly), every tool
+   is valid JSON-Schema with provenance resolving to real license marks,
+   and the route is wired + confirmed public.
+
+HONESTY / GATED-SIGNAL SAFETY (unchanged from the original design, since
+nothing about gating changed in 11 days): `agentToolSpec()` derives from
+the same live endpoint list `apiMeta()` uses, so gated signals (tank-fill,
+entity timelines) cannot appear as callable tools — they only ever
+surface in `excluded_gated`, tested by scanning the tools blob for
+"tank"/"timeline"/"openweathermap".
+
+VERIFICATION (fully fresh, not trusted from the 11-day-old PR body):
+fresh `npm ci` this session (repo had no `node_modules` at session
+start). `npx tsx --test server/apiProduct.test.ts`: 11/11 pass (8
+pre-existing + 3 new). `npm run test:node`: 859/859 pass — confirmed via
+`git stash`/`stash pop` A/B that main's own baseline is 856 (+3 new,
+zero regressions). `npx tsc --noEmit`: 80 errors both before and after
+via the same stash A/B — byte-identical except one pre-existing,
+unrelated union-type error in `datamap.tsx` printing its members in a
+different (semantically identical) order, not caused by this diff.
+`npm run build`: clean (pre-existing astronomy-engine/chunk-size
+warnings only). Live-executed `agentToolSpec()` via `npx tsx -e` against
+the real module (not just the test mocks) to see the actual JSON shape
+before calling this done. No Python files touched — `python3 -m pytest`
+not re-run (matches the TS-only-diff precedent used by #572/#420/#584).
+
+BACKTEST: N/A — new public documentation/DX route over already-live,
+already-archived data; zero trading/scoring/sizing/execution code
+touched, matches the original #449 PR's own N/A justification.
+
+VERSION: 1.0.480 → 1.0.481 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before bumping, no advance since session
+start). `package-lock.json`'s root `version` field updated in the same
+commit (the KNOWN BROKEN #24 PR's precedent — that file had drifted
+stale by one version before and was called out specifically).
+
+DISPOSITION OF THE OTHER THREE STILL-STUCK PRs: #399 (GIBS floods),
+#415 (GRID VISION RunPod cost/pod-reap), #572 (ENTSO-E generation mix)
+remain open, unmerged, and conflicting against current main — not
+touched this session (one logical change per PR; recovering all three
+in one sitting would bundle unrelated changes). NEXT: a future session
+should recover one of these three the same way, in commit-recency order
+(#572 is newest and likely has the smallest additional drift).
+
+MERGE TIMING: checked before opening the PR — 2026-07-23 09:15 ET,
+before the 9:30 ET open, so this is NOT prepared mid-market; no
+deploy-coupling wait is needed on timing grounds alone. The actual
+blocker is the CI outage above: PROMOTION RULES' autonomous-merge bar
+("CI is green") cannot be satisfied by any PR right now regardless of
+market hours, so this PR is opened but NOT self-merged. The human may
+choose to merge manually given the local verification above (fresh
+npm ci, full test suite A/B, tsc A/B, clean build, live-executed
+`agentToolSpec()`) is complete and equivalent in rigor to what CI would
+have run.
+
+HYPOTHESIS (carried from the original 2026-07-12 filing, restated here
+since this session re-validated rather than re-derived it): exposing the
+API as ready-to-mount agent tools lowers integration cost for AI-agent
+developers needing verified physical-world facts from "read docs, hand-
+write wrappers" to "paste our spec." Positioning/DX bet, not a validated-
+signal claim — no signal is sold here, only already-live RAW/archive
+data. STARVED: no — high-value queued work remains (the other 3 stuck
+PRs above, plus wishlist.md's PRODUCT THESIS next-steps: hosted MCP
+server, /developers "use with your agent" section, per-signal tools as
+gate 2 passes).
