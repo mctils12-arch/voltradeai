@@ -25676,3 +25676,142 @@ outage noted above has now passed 12 hours with zero real CI signal on
 every merge across the whole repo — see wishlist.md's existing entry for
 the quota-exhaustion hypothesis and the Settings > Billing > Actions
 usage check no session tool can perform.
+
+
+## 2026-07-23 (scheduled-routine session) [RESEARCH] -- GEM methane gate-2(c) Abbreviation-widening: implemented the filed NEXT STEP, verified NULL effect on the live dataset, root-caused why (T-DATACORE-adjacent, standalone research script)
+
+TERRITORY: `scripts/gem_methane_gate2c.py` (standalone Python research
+script, no runtime import -- confirmed via its own docstring and a grep
+of every `server/*.ts` for the module name, zero hits) + new
+`test_gem_methane_gate2c.py` (repo-root test, matching the existing
+`test_form4_gate2.py`/`test_grid_stress_gate2.py` convention). No
+production/runtime/client code touched -- no package.json version bump
+(PROMOTION RULE 3/4 apply to strategy/parameter/trading-behavior
+changes; this is pure offline research measurement code with zero
+runtime import, same class as the 2026-07-22 Form4-gate-2 session that
+also shipped no version tag).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 -- no LIVENESS ALARM. `/api/diag/audit?limit=100`:
+only expected mechanism firings (T1-FAIL "no options contracts" per
+ticker, KILL-WARN correlation-cap/free-BP mechanisms operating as
+designed, TIER2/TIERS/MANIPULATION routine entries) -- no new bug to
+repair. Loop-health ratio over the last 10 tagged entries: 4 REPAIR / 3
+PRODUCT / 2 RESEARCH / 1 RULE-REVIEW -- under the 7+ thrash threshold,
+no meta-problem. GITHUB ACTIONS CI STILL DOWN (re-confirmed this
+session): `actions_list` shows the most recent run at
+2026-07-23T08:43:48Z still `completed`/`failure` with the same instant
+runner-never-allocated signature as every run since
+2026-07-22T14:09:21Z -- now 18+ hours continuous, a 4th consecutive
+session confirming the outage with zero human-side fix visible yet.
+Not re-diagnosed further here (same tool limitations as the prior 3
+entries); this session's own gates below are 100% local verification
+only, same posture as the immediately preceding PRs. Flagged directly
+to the human this session via the scheduled-routine notification
+channel, given 3 prior wishlist.md entries have not yet produced a
+visible fix and the PROMOTION RULES CI gate has now been silently
+absent for the better part of a full day across every merging session.
+
+PRIMARY ACTION SELECTION: no new audit-log bug, no matured experiment
+ready for judgment found this session (checked TIER-KILL audit --
+still empty, not yet ready; Form4 gate 2 already closed; GEM methane
+gate-2(c) itself was the last real experiment logged, 2026-07-20,
+FAIL-but-inconclusive on N=32/8-tickers, CRC-dominated). Delegated a
+research subagent to survey open_questions.md/wishlist.md tails plus
+the standing program charters for a genuinely unblocked, concretely-
+scoped, single-PR fall-through item (SESSION BUDGET tier 1). Its
+finding: the 2026-07-20 GEM methane gate-2(c) entry's own filed NEXT
+STEP (ii) -- "the oil_gas name-match... could likely be widened with a
+fuzzier (but still non-guessing) match against ownership.json.gz's
+Abbreviation field" -- had not been picked up by any session since
+filing. Confirmed unblocked: free (no new data/human decision needed),
+avoids the live CI outage entirely (verifiable by direct local script
+run), no FROZEN PATH contact, continues an already-open ladder gate
+rather than starting new work.
+
+READ BEFORE WRITE: read `scripts/gem_methane_gate2c.py` in full this
+session (all ~470 lines) before touching it -- `build_ownership_index()`
+(lines 149-183) indexed only `("Full Name", "Name")` into `name_to_id`;
+`resolve_ticker_for_plume()` (lines 252-281) matches oil/gas
+Operator/Owner/Parent free text against that same index. Verified live
+`datacore/gem/ownership.json.gz` actually has `Abbreviation` populated
+on 1,833/26,250 entities (e.g. `"Full Name": "Aalborg Portland
+(Anqing) Co Ltd", "Abbreviation": "APAQ"`) before writing any code.
+
+FIX: added `"Abbreviation"` as a third field to `build_ownership_index`'s
+existing `for field in (...)` loop, same normalize -> collision-drop
+discipline already applied to Full Name/Name (a colliding Abbreviation
+across two different Entity IDs is dropped from the index entirely,
+never guessed -- verified by a new test). Docstring's TICKER RESOLUTION
+METHOD section updated to name the third field and when it was added.
+
+RESULT -- NULL EFFECT ON THE REAL DATASET, ROOT-CAUSED (not left as an
+unexplained non-result, per REASONING STANDARD #10's "state the prior,
+then update" discipline extended to explaining a surprising null): ran
+`scripts/gem_methane_gate2c.py` against production (`/api/data/
+methane-plumes`, live `datacore/gem/*`) post-change and `git stash`
+pre-change for an A/B. `resolution_counts` ({"none": 3384,
+"name_operator": 55, "name_parent": 16, "coal_owner_id": 18}) and the
+resolved ticker set (ARLP/BTU/CNR/CODQL/CRC/CVX/HCC/METC, N=32 events)
+are BYTE-IDENTICAL before and after -- the widening changed nothing on
+today's data. Traced why rather than assuming "no operator string
+happens to equal an abbreviation": `normalize_company_name`'s own
+pre-existing short-fragment guard (`if len(tokens) < 2 and len(out) <
+5: return ""`, written to stop spurious FULL NAME substring matches)
+also gates Abbreviation keys, and does so hard -- checked the real
+distribution: 1,138 of 1,833 populated Abbreviation values (62%) are
+under 5 characters and are therefore NEVER indexed regardless of this
+fix, median length 4. This is judged CORRECT, not a bug to route
+around: a 2-4 char code matching arbitrary free-text Operator/Owner/
+Parent strings would be a far more likely false positive than a
+genuine identifying match -- the same precision-first reasoning that
+already governs every other collision-drop in this script. Left the
+guard untouched; special-casing Abbreviation to bypass it would trade
+precision for recall in exactly the direction this ladder gate's own
+stated discipline (ambiguous collisions dropped, never guessed) argues
+against, with no evidence basis for the trade.
+
+RATCHET: new `test_gem_methane_gate2c.py` (9 tests, zero coverage
+existed for this script before) -- abbreviation-resolves at >=5 chars,
+Full Name/Name/Abbreviation all indexing the same entity
+simultaneously, colliding-Abbreviation-across-two-entities dropped
+(not guessed), missing-Abbreviation-field skipped cleanly, an
+end-to-end `resolve_ticker_for_plume` proof via Abbreviation, a
+no-match-on-unrelated-text negative case, the sub-5-char guard
+documented as a passing (not a bug) test with the real 1138/1833 ratio
+in its comment, and two `resolve_cik_from_entity_id` sanity checks
+proving the separate ID-chain path is undisturbed. `python3 -m pytest
+-q`: 864 passed, 3 skipped (baseline 855 + 9 new, zero regressions).
+No TypeScript/client files touched -- `npx tsc`/`npm run build` not
+re-run (matches the precedent for Python-only diffs, e.g. the
+2026-07-23 backtest liquidity-cost PR immediately prior).
+
+BACKTEST: N/A -- this changes ticker-RESOLUTION coverage for an
+offline gate-2(c) research script, not any scoring/sizing/execution
+path; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply, and this
+is explicitly NOT a MEASUREMENT INTEGRITY change either (it does not
+touch the backtest engine, fill model, or any live P&L computation --
+it only widens what an already-precision-first name-matcher considers
+a candidate key).
+
+HYPOTHESIS (stated before this session ran anything, carried from the
+2026-07-20 filing): expected a modest increase in the 71-resolved
+oil/gas pool. ACTUAL: zero change -- recorded here as the honest
+result rather than silently dropped, so a future session does not
+re-attempt the identical widening expecting a different outcome on
+this same GEM release. Re-running this specific NEXT STEP only makes
+sense once GEM ships a new release with different name/abbreviation
+coverage, OR if a future session decides (with actual evidence, not
+this session's guess) that the short-abbreviation guard is too
+conservative for THIS specific field and reruns the ladder with that
+threshold change logged as its own RULE-REVIEW-style justified
+decision -- not assumed here.
+
+NEXT (unclaimed): the 2026-07-20 filing's other two NEXT STEPs remain
+open -- (i) re-run gate-2(c) wholesale once GEM ships a newer release
+(more detection history reduces the CRC single-name dominance); (d)
+matching against operators' disclosed methane intensity remains
+CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
+human (see this session's own notification): the GitHub Actions
+outage, 18+ hours and still climbing as of this entry.
