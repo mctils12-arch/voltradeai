@@ -6255,6 +6255,39 @@ audit (all measured under SwiftShader; ratios are the finding):
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
   GeoJSON sources helps terrain perf even for non-draped layers.
 
+## [T-DATACORE] GEM per-layer freshness (coal_mine_features / methane_plumes) — investigated 2026-07-24, correctly NOT built this session
+The per-layer freshness chip (server/layerFreshness.ts, wishlist.md Phase
+5) deliberately leaves `coal_mine_features` and `methane_plumes` unmapped
+because both trace to the single "gem" manifest — ambiguous between the
+two layers. Investigated whether to close that gap by stat'ing
+`datacore/gem/coal_mine_features.geojson.gz` /
+`datacore/gem/methane_emitters.json.gz` directly for a per-file mtime.
+FOUND THIS WOULD BE DISHONEST, not attempted: both files are git-versioned
+WHOLE-FILE-REBUILD artifacts (scripts/gem_ingest.py /
+gem_suite_ingest.py write into the repo tree at `datacore/gem/`, not the
+runtime archive volume `archiveBaseDir()`). A git checkout does not
+preserve original mtimes, so in any deployed container both files' mtime
+is checkout/build time — every deploy would silently reset the freshness
+chip to "just refreshed" regardless of the GEM release's actual age. This
+is the same accepted tradeoff already documented in gem.json's own
+`_note` ("Volume-side shows no-data in the streams inventory — session-
+run writer, expected") and shared by every other git-versioned session-
+run stream (jodi, etc.) — not a bug specific to gem, and special-casing
+gem with a dishonest per-file mtime would be a NEW, narrower dishonesty,
+not a fix.
+HYPOTHESIS for a real fix, if a future session wants this: have
+gem_ingest.py / gem_suite_ingest.py stamp an explicit `last_ingested`
+(or per-output-file) ISO timestamp into gem.json's manifest envelope at
+build time (session-run, so it reflects when the human actually delivered
++ ingested the release, not a deploy artifact of git checkout), then
+layerFreshness.ts reads that field directly for the two layer ids instead
+of any filesystem stat. GATE: gate-1 equivalent — verify the manifest
+field actually updates on a real gem_ingest.py re-run before wiring it
+into the UI (no ladder gate needed otherwise; this is UI honesty
+plumbing, not a trading signal). Not started — filed here per the
+2026-07-24 [PRODUCT] session's investigation (see experiments.md same
+date) so a future session doesn't re-attempt the file-mtime approach
+expecting a different answer.
 
 ## [2026-07-24 — ACTIVE ANGLE-HUNTING / EDGE DOCTRINE #2] Does mean_reversion have a real, exploitable edge specifically in illiquid small-caps, or is the 2026-07-24 probe result a single-sample artifact?
 

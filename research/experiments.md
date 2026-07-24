@@ -3,6 +3,154 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-24 (scheduled-routine session) [PRODUCT] — SYMBOLS NOT DOTS debt closed: superfund + waterviolators hazard layers get real SDF symbols + legend entries (v1.0.481, T-CLIENT)
+
+TERRITORY: client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx, new
+client/src/pages/datamap.symbols.test.ts (T-CLIENT). package.json version
+bump is the SHARED-file edit, last and smallest, per MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+and open_questions.md tails. Live `curl .../api/health` (prod, both
+voltradeai.com and the railway.app origin): status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. uptime_s read 9/16/21/24/28 across
+five polls a few seconds apart — climbing steadily with elapsed wall time,
+so a normal recent restart/deploy, not a crash loop. No DIAG_TOKEN available
+to this session, so /api/diag/audit and other owner-gated diagnostics
+weren't reachable (same limitation prior autonomous sessions have logged).
+GITHUB ACTIONS CI: still down — `actions_list` shows every run since
+2026-07-22T14:09:21Z failing in ~3s with no runner ever allocated,
+including runs as recent as today 2026-07-23T20:31:12Z (PR #593) — now over
+30 hours, a 5th consecutive session confirming the same outage signature.
+Not re-diagnosed further (same tool-access limitation as the prior four
+sessions); this PR's own gates below are 100% local verification, same
+posture as every merge since the outage started. Also noted: 12 open PRs
+(#593/#592/#591/#590/#586/#585/#584/#572/#449/#415/#399/#77) are backed up
+unmerged behind the CI outage, several stale (weeks old) — an ops cleanup
+someone should eventually triage, not touched this session (out of scope
+for a PRODUCT session, and not this session's territory).
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 1/2 fall-through survey) across every standing program charter
+(grid_vision*, earth_twin_program, orbital_program, console_charter,
+celestial_v2_program, worldview_globe, solar_view_spike,
+location_context_engine, scale_program) plus wishlist.md/open_questions.md
+tails for a genuinely unblocked, concretely-scoped, single-PR PRODUCT
+action. Its top-ranked finding: research/location_context_engine.md's
+2026-07-15 PFAS entry filed "REMAINING DEBT: superfund-pts/wv-pts still
+render as plain 'circle' layers, predating the SYMBOLS NOT DOTS directive
+(2026-07-12)" — confirmed via `git log --all --grep` that nothing had
+touched it since, and via direct grep of datamap.tsx that BOTH layers were
+still `type: "circle"` AND had ZERO legend section (a stronger gap than the
+filed note stated — the SYMBOLS NOT DOTS directive requires both a symbol
+AND a legend entry from the same icon registry; these two layers had
+neither). Chose this over the subagent's other three candidates (a
+GEM-freshness-chip split, a dossier radius_km client toggle, a CDC/SEER
+cancer-rate layer) because it's the cleanest constitutional-compliance debt
+with zero design ambiguity and a proven four-times-precedented pattern to
+copy (PFAS's vt-pfas droplet was the template).
+
+READ BEFORE WRITE: read client/src/lib/mapIcons.ts's full shape registry
+(all ~40 existing SDF glyphs, the `draw`/`registerIcons`/`iconDataURL`
+functions) and both layers' full useEffect blocks in datamap.tsx (superfund
+~7719-7793, waterviolators ~8803-8875) before touching either — confirmed
+each layer's existing `circle-color` match/case expression (NPL status;
+CWA violation-kind bucket) so the new icon-color paint could carry it over
+unchanged, byte-for-byte, rather than re-deriving the color logic. Also
+independently investigated (before committing to this fix) whether the
+adjacent GEM-freshness gap noted by the subagent's #1 candidate could be
+fixed by reading datacore/gem/*.gz file mtimes directly — traced it and
+found that would have been DISHONEST: those files are git-versioned
+WHOLE-FILE-REBUILD artifacts (gem_ingest.py writes to the repo tree, not
+the runtime archive volume), so their mtime in any deployed container is
+checkout/build time, not real data-ingestion time — every deploy would
+reset the chip to "just refreshed" regardless of actual GEM data age. This
+matches the gem.json manifest's own already-documented "_note" ("Volume-
+side shows no-data in the streams inventory — session-run writer,
+expected") — confirmed NOT a bug, an accepted tradeoff shared by every
+other git-versioned session-run stream (jodi, etc.), so a naive per-file
+freshness join would have been a new, narrower dishonesty, not a fix. Left
+that gap alone and filed this finding in open_questions.md (below) instead
+of taking the subagent's #1 candidate at face value.
+
+FIX: two new SDF shapes in mapIcons.ts's `shapes` registry — `vt-superfund`
+(a waste drum with two band cutouts, reading as "toxic-waste site",
+deliberately distinct from vt-meltdown's triangle+trefoil and
+vt-nukefacility's building+trefoil) and `vt-outfall` (a pipe with three
+dripping discharge drops, reading as "effluent/discharge", distinct from
+vt-pfas's closed teardrop and vt-plume's rising billow). Both `addLayer`
+calls in datamap.tsx changed from `type: "circle"` + `circle-color`/
+`circle-radius`/`circle-opacity` to `type: "symbol"` + `icon-image`/
+`icon-color` (the exact same match/case color expression, unchanged) /
+`icon-halo-color`, mirroring the vt-pfas symbol layer's paint/layout shape
+exactly. New legend sections for both (`enabled.superfund` /
+`enabled.waterviolators`, placed after the PFAS section) using the existing
+`LegendIcon` component (same registry shape the map draws — DESIGN.md
+legend rule, one source of truth) plus per-color-bucket chips matching each
+layer's existing status/violation-kind legend text already used elsewhere
+in the codebase (dossier card labels). Click-card content, data fetching,
+API routes, and the underlying color LOGIC are completely untouched — this
+is a pure rendering-primitive swap plus two new legend blocks, zero
+behavior change to what data is shown or how it's classified.
+
+RATCHET: new client/src/pages/datamap.symbols.test.ts (4 tests,
+source-inspection style matching server/layersWiring.test.ts's established
+pattern — a real headless map render needing `document.createElement`
+isn't available in this test env, same limitation mapIcons.test.ts already
+works around by only testing pure numeric helpers): (1) both new shapes
+are registered in mapIcons.ts's `shapes` object; (2) superfund-pts is
+`type: "symbol"` using `vt-superfund`, never `type: "circle"`; (3) wv-pts
+is `type: "symbol"` using `vt-outfall`, never `type: "circle"`; (4) both
+layers have a `LegendIcon` entry gated on their own `enabled.*` flag.
+A/B-verified via `git stash` on just the two source files: all 4 tests
+FAIL against the pre-fix code (proving they'd have caught this exact
+regression) and all 4 PASS post-fix.
+
+GATES: `npm install` (fresh sandbox, node_modules absent) then `npx tsc
+--noEmit` — 80 errors, byte-identical (diffed only in line-number shift
+from the added lines; confirmed via git-stash A/B) to the pre-fix baseline
+— zero new errors, none in mapIcons.ts or datamap.tsx. `npx tsx --test
+server/*.test.ts client/src/lib/*.test.ts client/src/pages/*.test.ts` —
+997 passed, 0 failed. `npm run build` clean (dist/public + dist/index.cjs +
+dist/datacore staged). VISUAL HARNESS (promotion rule 6): `node
+scripts/visual_check.mjs --page data` — 0 hard failures at all three
+canonical widths (390/768/1440) plus the data-all-off and data-scale
+batteries; only pre-existing warnings unrelated to this change (touch-
+target sizes on nav buttons, one clipped facilities-group legend label at
+768px — both predate this PR, confirmed by their target names). NOTE: the
+harness's FIXTURES object (scripts/visual_check.mjs) does not mock
+`/api/data/superfund` or `/api/data/waterviolators` (nor pfas, radiation,
+nukefacilities, coal-mine, methane, faa, border — an existing, already-
+accepted gap the 2026-07-15 PFAS PR explicitly logged, not introduced or
+widened here), so the harness's screenshots don't actually exercise these
+two layers' new icon rendering — verified instead by code review against
+the four other symbol-layer precedents (vt-pfas/vt-bordercrossing/
+vt-plume/vt-minepit) plus the new ratchet test above. Widening the harness
+fixture coverage to every hazard layer is a separate, larger task, filed
+below rather than scope-crept into this PR.
+
+BACKTEST: N/A — pure client-side rendering-primitive change (circle to
+symbol) plus new legend markup; no scoring, sizing, execution, or data-
+classification logic touched. PROMOTION RULE 3's Sharpe/drawdown gate
+doesn't apply.
+
+NEXT (filed, unclaimed): (1) scripts/visual_check.mjs's FIXTURES object is
+missing mock responses + registry entries for at least 9 live hazard/
+facility layers (pfas, radiation, nukefacilities, nukeaccidents,
+nucleartests, coal_mine_features, methane_plumes, faa_airports,
+border_waits) beyond superfund/waterviolators — a future T-CLIENT session
+should add them so the toggle-consistency + screenshot batteries actually
+exercise these layers' rendering paths instead of silently skipping them.
+(2) The GEM-freshness-chip split investigated and declined this session
+(see READ BEFORE WRITE above) needs a genuinely different fix if it's ever
+picked up: NOT file-mtime (dishonest for git-versioned WHOLE-FILE-REBUILD
+streams, checkout-time not data-time), but something like a manually-
+maintained ingestion-date field written by gem_ingest.py/gem_suite_
+ingest.py into the manifest itself at build time — filed as its own
+open_questions.md hypothesis, not attempted here. (3) GitHub Actions CI
+outage — now 30+ hours, 5 consecutive sessions confirming — still needs
+human attention (Settings > Billing > Actions usage, no session tool can
+check this) per the wishlist.md entries filed since 2026-07-22.
 ## 2026-07-22 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18: v1.0.468's ThreadPoolExecutor fix live-refuted (third refutation, market-hours evidence), TIMING-DISK wired into the TIER2-ERROR audit line (v1.0.479, T-BOT); PR #586 open, blocked on a CI infra failure
 
 TERRITORY: T-BOT-adjacent (`server/bot.ts` — the daemon-timeout catch
