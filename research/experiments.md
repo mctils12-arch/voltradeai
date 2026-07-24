@@ -27692,3 +27692,167 @@ same-title-collision bug classes almost certainly affect any other
 datacore pipeline that name-matches against `company_tickers.json` —
 worth a grep-wide check in a future session (not done here — one
 logical change per PR).
+
+## 2026-07-24 (scheduled-routine session, [PRODUCT] brief -> [REPAIR] pivot) — CI-outage PR backlog cleared (11 PRs merged, 1 closed as superseded, 1 real code duplicate found+resolved); production-stale-deploy finding confirmed live
+
+TERRITORY: cross-cutting ops/merge-hygiene, not a single WORKSTREAM
+PARTITION territory — every touched file was already scoped to its
+origin PR's own territory declaration; this session only resolved
+merge conflicts (mechanical: version bumps, doc append-order, one real
+code duplicate) and did not design new logic of its own except where
+noted below.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail, open_questions.md KNOWN BROKEN, wishlist.md tail). `/api/health`
+clean, no LIVENESS ALARM (bot active, drawdownPct 0.0). This was assigned
+as a [PRODUCT] session. Before picking a new feature, checked the open PR
+backlog per SESSION BUDGET's repair-mandate precedent (several prior
+sessions already flagged the CI outage; #598, opened by an earlier
+session today, found something materially worse than "no CI signal": the
+live server_version was 1.0.475 while `main` had already reached 1.0.481
+— 9 merged PRs / 6 versions inert in production because Railway's
+"Wait for CI" gate is stuck behind GitHub Actions' still-down runner
+allocation, in continuous outage since 2026-07-22T14:09:21Z).
+
+CONFIRMED LIVE THIS SESSION (before touching anything): curled
+`https://voltradeai.com/api/health` and `/api/data/layers` directly —
+`server_version: "1.0.475"`, matching #598's finding exactly. Sent an
+immediate notification to the human (this session's own scheduled-routine
+push) since this is new, actionable severity information beyond the
+already-5x-flagged "CI gate merge automation is annoying" framing: the
+account is trading on 2-day-stale code right now, and every fix merged
+since (including this morning's KNOWN BROKEN #25 diagnosability fix) is
+inert until the human manually intervenes (Railway dashboard toggle /
+redeploy, or a GitHub Actions billing/quota check — this repo has no
+tool access to either).
+
+PRIMARY ACTION SELECTION (deviating from the [PRODUCT] brief, with
+reasoning): `list_pull_requests` showed **15 open, unmerged, non-draft-or-
+stale PRs** — a backlog that had grown from the 8 a prior session flagged
+to 15 in the hours since, spanning REPAIR/PRODUCT/DATACORE work from
+2026-07-21 through 2026-07-24. Per GOAL priority 1/2 (keep the system
+alive; protect the integrity of learning/attribution), a growing pile of
+already-completed, already-locally-verified work sitting unmerged while
+production runs stale code is a more urgent problem than opening a 16th
+PR: every day it grows, cross-PR conflicts compound, and attribution
+gets harder to reconstruct. Treated backlog triage as this session's
+actual highest-value action; a genuinely new product feature was not
+started this session as a result (explicitly logged per SESSION BUDGET's
+requirement to state the choice, not silently skip queued work).
+
+METHOD: for each open PR, ran `git merge-tree --write-tree origin/main
+<branch>` locally (no network/GitHub mutation) to classify conflict
+severity before touching anything:
+- **#399, #415, #449**: `fatal: refusing to merge unrelated histories` —
+  confirmed via `git rev-list --max-parents=0` that these three branches'
+  root commits do not match main's root commit at all (a real repository-
+  history discontinuity, not just staleness — main's history was
+  rewritten/reinitialized at some point after these branches were cut).
+  #449 was already independently recovered fresh (as #590, see below) by
+  a prior session; #399/#415 are left for a future session's manual
+  line-by-line re-application (same disposition #584's session already
+  reached for these two) — NOT attempted this session, genuinely
+  different/harder problem than the other 10.
+- **#572, #584, #585, #586, #590, #591, #592, #593, #594, #597, #598**:
+  real 3-way conflicts, but confirmed (before resolving) that every
+  conflict outside one exception was in shared bookkeeping files only —
+  `package.json`/`package-lock.json` (version-number collisions) and
+  `research/experiments.md`/`open_questions.md`/`wishlist.md` (append-
+  order collisions from independent sessions appending at the same
+  anchor point). Resolved per this repo's own stated conventions: version
+  = read-and-increment at commit time (WORKSTREAM PARTITION rule 2);
+  research/* = keep-both-sides, append-only spirit (rule 3). Re-verified
+  full gates after EVERY single resolution before merging (never batched):
+  relevant `npx tsx --test` subset + full `server/*.test.ts`, `npx tsc
+  --noEmit` (confirmed 80 errors byte-identical to baseline every time),
+  `npm run build`, `npm run visual -- --page data` for client-touching
+  PRs (twice, to distinguish real regressions from the documented
+  SwiftShader/click-reliability flakes — see below), and `python3 -m
+  pytest -q` for the one PR touching Python-adjacent surface indirectly.
+
+REAL FINDING #1 (not just mechanical): **#592 and #590 individually
+merged clean but together broke #590's own drift-guard test.** #590
+(agent-tools) and #592 (/api/v1/graph) were both built independently
+against an earlier `main` and each added a live API surface; #590's own
+test (`tool count === live endpoint count`) is designed to catch exactly
+this class of drift — and it did, firing `4 !== 5` the moment both
+merged. Fixed for real (not by weakening the guard): added a matching
+`voltrade_get_graph` tool to `agentToolSpec()` with the same input schema
+pattern as `/api/v1/graph`'s actual route params (verified against
+`server/routes.ts`'s real query-string handling, not guessed). This is
+the kind of gap CLAUDE.md's REASONING STANDARD #1 ("variables interact")
+predicts: two isolated-looking additive changes collided exactly at
+their shared invariant.
+
+REAL FINDING #2: **#586 and #593 are an exact independent duplicate.**
+Both PRs (opened a day apart, by different sessions, neither aware of
+the other) wired `bot_engine.py`'s TIMING-DISK scan-timings file into
+the identical `server/bot.ts` TIER2-ERROR daemon-timeout audit branch,
+down to reusing the same new test file name
+(`server/tier2DaemonTimeoutVisibility.test.ts`). Per the WORKSTREAM
+PARTITION supersession precedent (first-merged wins, duplicate salvages
+its unique delta): kept #586's implementation (`scanTimingsDetail`,
+which captures read errors into the audit string and has phases-array/
+scan_started fallbacks) over #593's (`scanPhaseDetail`, which silently
+swallowed read errors) — #586's version is strictly more robust, not
+just earlier. #593's net code delta after resolution was zero; its
+research-log narrative (independently gathered live evidence) was kept.
+This is exactly the collision the WORKSTREAM PARTITION protocol
+anticipates for KNOWN BROKEN items multiple sessions pick up without
+a hand-off note.
+
+VISUAL HARNESS NOTES (honest flake documentation, not swept under the
+rug): three of the client-touching PRs (#585, #591, #594) each hit ONE
+hard failure on their first `--page data` run — a 1440px perf-gate spike
+("upload-hitch spikes", 383-433ms vs the 350ms gate) twice, and a
+'seafloor' toggle-consistency UNCLICKABLE once (an unrelated layer none
+of these three PRs touch). All three reproduced as 0 hard failures on
+an immediate re-run with the same warning class present just under
+threshold. This matches two already-filed flake classes in
+open_questions.md (SwiftShader/software-rendering frame-time variance;
+the MEASUREMENT-DEBT click-reliability item from 2026-07-20) rather than
+a regression — logged per PR rather than silently re-run-until-green.
+
+DISPOSITION SUMMARY:
+- MERGED (11): #572, #584, #585, #586, #590, #591, #592 (+drift-guard
+  fix), #593 (deduplicated against #586), #594, #597, #598.
+- CLOSED as superseded (1): #449 (content shipped fresh via #590).
+- LEFT OPEN, deliberately (2): #399, #415 — unrelated-history orphans,
+  need manual line-by-line re-application by a future session (not a
+  quick conflict resolution).
+- LEFT OPEN, unrelated to this session (1): #77 — long-stale human
+  draft predating the autonomous-session convention, untouched per
+  every prior session's same precedent.
+- Backlog: 15 open PRs -> 3 (all pre-existing exceptions, all
+  documented). Net main version: 1.0.481 -> 1.0.491 (10 version bumps
+  across the 11 merges, one per PR per PROMOTION RULE 4).
+
+VERIFICATION AT THE END (fresh checkout of the final `origin/main`,
+not trusted from any individual merge step): `npx tsx --test
+server/*.test.ts client/src/**/*.test.ts` — **1013/1013 pass**; `npx tsc
+--noEmit` — 80 errors, byte-identical to this morning's baseline; `npm
+run build` — clean. `python3 -m pytest -q` — 886 passed/1 skipped
+(re-confirmed after the one Python-adjacent-surface PR, unchanged from
+this morning's baseline since no `.py` file was actually touched by any
+of the 11 merges).
+
+HONESTY NOTE ON CI: none of this restores the actual CI signal —
+GitHub Actions is still down (same `runner_id: 0` signature, unrelated
+to any diff content) and every merge above shipped on local verification
+only, following the established precedent from every session since
+2026-07-22. Checked live server_version again after all 11 merges:
+still **1.0.475**, uptime_s=207 (the container restarted again during
+this session but redeployed the SAME stale build) — the gap between
+`main` and production has now grown from 6 versions to 16, purely
+because of the still-unresolved Railway/GitHub-Actions gate. This is a
+human-actionable item outside any session's tool access (Railway
+dashboard, GitHub Actions billing) — already flagged via this session's
+own notification; not re-flagged a second time in the same session per
+the "silence when nothing new" principle, but the growing gap is worth
+a future session's attention if it recurs.
+
+NEXT: a future [PRODUCT] session should pick up the normal SESSION
+BUDGET queue (untouched this session) — datacore/ pipeline ladder gates,
+`/data` UI, or a new feature spec — now that the backlog is no longer
+competing for merge-conflict risk. #399/#415's manual re-application
+remains queued, one at a time, per #584's original disposition.
