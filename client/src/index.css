@@ -2281,6 +2281,20 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
 }
 .vt-layer-status i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+/* Phase 5 per-layer freshness chip (2026-07-23): honesty machinery for
+   the layer panel — how old is this layer's underlying archived data,
+   right where a user decides whether to trust it. Colors mirror the
+   ADS-B data-state badge (.vt-flight-badge-*) so "live/recent/stale"
+   reads consistently across the site. */
+.vt-layer-freshness {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+}
+.vt-layer-freshness i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; background: currentColor; }
+.vt-layer-freshness-live { color: var(--accent-green); }
+.vt-layer-freshness-recent { color: var(--accent); }
+.vt-layer-freshness-stale { color: #f5a524; }
+.vt-layer-freshness-no-data { color: var(--text-tertiary); }
 
 /* Toggle switch (44px hit area on touch) */
 .vt-switch {
@@ -3775,6 +3789,15 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   animation: vt-flight-pulse 1.6s infinite;
 }
 @keyframes vt-flight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* DATA-STATE BADGE variants (2026-07-22): the dot's colour + pulse reflect
+   ADS-B freshness — green live, amber lagging, grey lost (steady, no
+   pulse, because there's nothing arriving to pulse for). */
+.vt-flight-badge-stale { color: #f5a524; border-color: rgba(245, 165, 36, 0.4); }
+.vt-flight-badge-stale .dot { background: #f5a524; animation-duration: 2.6s; }
+.vt-flight-badge-lost { color: #94a3b8; border-color: rgba(148, 163, 184, 0.4); }
+.vt-flight-badge-lost .dot { background: #94a3b8; animation: none; }
+.vt-flight-badge-wait { color: #94a3b8; border-color: rgba(148, 163, 184, 0.3); }
+.vt-flight-badge-wait .dot { background: #94a3b8; animation-duration: 2.6s; }
 .vt-flight-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
   padding: 12px 14px 0; flex: 0 0 auto;

@@ -388,6 +388,16 @@ interface LayerMeta {
   // "light" fallbacks below — additive fields, no breaking migration.
   group?: string;
   costTier?: "light" | "moderate" | "heavy";
+  // Phase 5 per-layer freshness chip (server/layerFreshness.ts): present
+  // only for the layers this session could honestly join to one archived
+  // stream's health — absent, never fabricated, for everything else
+  // (static reference data, derived joins, unmapped layers).
+  freshness?: {
+    stream: string;
+    health: "live" | "recent" | "stale" | "no-data";
+    age_hours: number | null;
+    health_note: string;
+  };
 }
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
@@ -720,6 +730,18 @@ const groupOf = (l: LayerMeta): string =>
 // registry) default to "light" — never overclaims load.
 const COST_WEIGHT: Record<string, number> = { light: 1, moderate: 2, heavy: 4 };
 const costWeightOf = (l: LayerMeta): number => COST_WEIGHT[l.costTier || "light"] ?? 1;
+
+// Phase 5 per-layer freshness chip label: human age off the raw age_hours
+// the server already computed (server/streamsInventory.ts) — never a
+// re-derived "how stale" judgment, just a compact unit conversion.
+function freshnessLabel(f: NonNullable<LayerMeta["freshness"]>): string {
+  if (f.health === "no-data") return "no archive yet";
+  if (f.age_hours == null) return f.health;
+  const h = f.age_hours;
+  if (h < 1) return `data ${Math.round(h * 60)}m old`;
+  if (h < 48) return `data ${h.toFixed(1)}h old`;
+  return `data ${(h / 24).toFixed(1)}d old`;
+}
 // groups shown expanded by default; any group id NOT in this set (including
 // every group a future registry update introduces) defaults COLLAPSED —
 // inverted from the old hardcoded collapsed-list so growth is safe by
@@ -2848,10 +2870,26 @@ export default function DataMapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    // DRAG GUARD (2026-07-22 live: "i just move the camera … and the curtain
+    // goes away"): the round-16 assumption "camera drags never emit click"
+    // is FALSE in the plane-view orbit scheme — the nav rig handles mouse
+    // drags itself, bypassing MapLibre's own click-after-drag suppression,
+    // so a rotate/pan drag could surface as a map 'click' and clear the
+    // curtain. Record the pointer-down point; a click that moved more than
+    // a few px from it is a DRAG, never a deselect. Provably correct: a
+    // moved pointer is navigation, a still one is a tap.
+    let downX = 0, downY = 0, downT = 0;
+    const canvasEl = (() => { try { return map.getCanvas(); } catch { return null; } })();
+    const onDown = (ev: PointerEvent) => { downX = ev.clientX; downY = ev.clientY; downT = performance.now(); };
+    canvasEl?.addEventListener("pointerdown", onDown, { capture: true });
     const onClickOff = (e: any) => {
+      const oe = e?.originalEvent as any;
+      // a click whose pointer travelled (a drag/orbit) or lingered is a
+      // camera move, not a deselect — leave the selection + curtain alone
+      const moved = oe && (Math.abs((oe.clientX ?? downX) - downX) + Math.abs((oe.clientY ?? downY) - downY)) > 6;
+      if (moved) return;
       window.setTimeout(() => {
         try {
-          const oe = e?.originalEvent as any;
           if (oe?.__vtAirClaim) return; // the plane won this click
           const det = detailRef.current;
           const planeSelected = det?.trailKind === "aircraft" || !!airCrumbsRef.current.id;
@@ -2864,7 +2902,7 @@ export default function DataMapPage() {
       }, 0);
     };
     map.on("click", onClickOff);
-    return () => { try { map.off("click", onClickOff); } catch {} };
+    return () => { try { map.off("click", onClickOff); } catch {} canvasEl?.removeEventListener("pointerdown", onDown, { capture: true } as any); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
@@ -3422,13 +3460,26 @@ export default function DataMapPage() {
   }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
-    const iv = setInterval(async () => {
+    const refresh = async () => {
+      // skip the fetch while backgrounded (matches the fleet-poll hidden
+      // gate — no point hammering a tiny endpoint no one is looking at)
+      if (document.hidden) return;
       const { note, lastT } = await showTrail(detailTrailKind, detailTrailId);
       setDetail((prev) => prev && prev.trailId === detailTrailId
         ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
         : prev);
-    }, 30_000);
-    return () => clearInterval(iv);
+    };
+    const iv = setInterval(refresh, 30_000);
+    // STALE-ON-RETURN FIX (2026-07-22 "i leave the page … come back and the
+    // data is stale if i click on a plane"): the 30s interval is throttled
+    // or suspended while the tab is backgrounded, so an open card sat stale
+    // for up to 30s after returning. Refresh it the instant the tab becomes
+    // visible again — the freshest archive track + last-position land right
+    // away instead of waiting for the next interval tick. (The fleet poll
+    // has its own visibilitychange refresh for the live marker.)
+    const onVis = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, [detailTrailId, detailTrailKind]);
 
   // 10s ticker so the freshness age in the open card counts up between
@@ -9823,6 +9874,12 @@ export default function DataMapPage() {
             <span className="vt-layer-status">
               <i style={{ background: st.dot }} /> {unwired ? "reload to enable" : st.text}
             </span>
+            {toggleable(l) && !unwired && l.freshness && (
+              <span className={`vt-layer-freshness vt-layer-freshness-${l.freshness.health}`}
+                    data-testid={`layer-freshness-${l.id}`} title={l.freshness.health_note}>
+                <i /> {freshnessLabel(l.freshness)}
+              </span>
+            )}
             {unwired && <span className="vt-layer-covnote">site updated — reload the page to enable this new layer</span>}
             {!unwired && st.note && <span className="vt-layer-covnote">{st.note}</span>}
           </span>
@@ -11084,10 +11141,29 @@ export default function DataMapPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{detail.title}</span>
-                {detail.kind === "aircraft" && (
-                  // live-feed badge (handoff §2: pulsing dot, never wraps)
-                  <span className="vt-flight-badge"><span className="dot" />ADS-B</span>
-                )}
+                {detail.kind === "aircraft" && (() => {
+                  // DATA-STATE BADGE (human 2026-07-22: "have the adsb on the
+                  // card that blinks show the state of the data"): the dot
+                  // was always a green pulse regardless of freshness. Now it
+                  // reads the last-fix age (freshTick re-evaluates every 10s):
+                  //   live  (<90s)   green pulse — receiving fresh positions
+                  //   stale (<15min) amber, shows the age — feed lagging
+                  //   lost  (≥15min) grey, shows the age — coverage gap /
+                  //                  aircraft stopped transmitting (the same
+                  //                  break the timeline greys out)
+                  void freshTick;
+                  const ageS = detail.trailLastT ? Math.floor(Date.now() / 1000 - detail.trailLastT) : null;
+                  const state = ageS == null ? "wait" : ageS < 90 ? "live" : ageS < 900 ? "stale" : "lost";
+                  const title = state === "live" ? "Live ADS-B — receiving fresh positions"
+                    : state === "stale" ? `ADS-B feed lagging — last fix ${formatAge(detail.trailLastT)}`
+                    : state === "lost" ? `No ADS-B fix recently — last ${formatAge(detail.trailLastT)} (a coverage gap, or the aircraft stopped transmitting)`
+                    : "Waiting for the first ADS-B fix";
+                  return (
+                    <span className={`vt-flight-badge vt-flight-badge-${state}`} title={title}>
+                      <span className="dot" />ADS-B
+                    </span>
+                  );
+                })()}
               </div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>

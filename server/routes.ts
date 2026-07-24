@@ -78,6 +78,7 @@ import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
+import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
@@ -105,6 +106,7 @@ import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
+import { attachLayerFreshness } from "./layerFreshness";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
@@ -769,13 +771,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           })()
         : l
     );
+    // Per-layer freshness (Phase 5, wishlist.md): joins the already-computed
+    // streams-inventory health (zero incremental IO — same cache the
+    // Streams tab reads) onto every layer this session can honestly map to
+    // one archived stream (server/layerFreshness.ts's hand-verified
+    // LAYER_TO_STREAM). Absent entirely — never a fabricated `freshness` —
+    // for layers backed by static reference data, derived joins, or ones
+    // not yet mapped.
+    const freshLayers = attachLayerFreshness(layers, getStreamsInventoryCached()?.streams || []);
     // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
     // long-lived tab that remounts the /data page re-fetches this registry
     // (new layer rows) while still running an old bundle (no effects for
     // them) — pill flips, label stays "off", nothing renders (the
     // 2026-07-04 production desync). The client compares against its
     // baked-in version and tells the user to reload.
-    res.json({ layers, server_version: pkgVersion });
+    res.json({ layers: freshLayers, server_version: pkgVersion });
   });
 
   // Live aircraft overlay (RAW) — community ADS-B chain, THREE deep
@@ -2316,6 +2326,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.stats.length,
       note: "realised total load in MW per bidding zone, ~1-2h publication lag; stored at zone-native resolution, never resampled; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`; window min/max/mean expose series shape (some TSOs under-report or publish partial leading edges)",
+      zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
+  // ENTSO-E actual generation per production type (fuel mix) by EU bidding
+  // zone (RAW — wishlist 9c follow-up, same token as eu-load, built
+  // 2026-07-21). Serves the poller's cached per-zone-per-fuel stats only
+  // (event-loop rule).
+  bootEuGenerationMixPoll();
+  app.get("/api/data/eu-generation-mix", (_req, res) => {
+    if (!euGenerationMixEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestGenMix();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (actual generation per type, A75/A16)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "realised generation in MW per bidding zone x fuel/technology type (PSRTYPE_MAPPINGS code + name), ~1-2h publication lag; stored at zone-native resolution, never resampled; a fuel type absent from a zone's window means zero generation of that type was published, not necessarily zero output; window min/max/mean expose series shape",
       zones: hit.stats,
       issues: hit.issues,
     });
