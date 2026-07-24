@@ -3344,6 +3344,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ kind: "raw", built_at: graph.built_at, entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) });
   });
 
+  // Everything Graph v1 keyed mirror (research/open_questions.md MAP V2
+  // ROADMAP R5, filed NEXT STEP) — same cachedGraphSync()/resolveEntityId/
+  // neighborhood() logic as /api/data/graph above, wrapped in the v1
+  // license-mark envelope + key auth + metering, per the established
+  // stats/portdwell and stats/shadow precedent (503+Retry-After while the
+  // graph is warming, never a synchronous rebuild per request).
+  app.get("/api/v1/graph", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const graph = cachedGraphSync();
+      if (!graph) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first graph build in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 503, tier: auth.tier });
+        return;
+      }
+      const entity = typeof req.query.entity === "string" ? req.query.entity : null;
+      if (!entity) {
+        res.json(v1Envelope("graph", { counts: graph.counts, caveat: graph.caveat,
+          note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query" }, graph.built_at));
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 200, tier: auth.tier });
+        return;
+      }
+      const id = resolveEntityId(graph, entity);
+      if (!id) {
+        res.status(404).json({ error: `entity not found: ${entity}` });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 404, tier: auth.tier });
+        return;
+      }
+      const hops = Math.max(0, Math.min(3, parseInt(String(req.query.hops ?? "1"), 10) || 1));
+      res.json(v1Envelope("graph", { entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) }, graph.built_at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

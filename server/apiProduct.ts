@@ -119,6 +119,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "VolTradeAI datacore",
     resell: "ok",
   },
+  graph: {
+    license: "derived from EDGAR Form 4 filings, entity_map, and our own AIS position archive — inherits aisstream conditionality via calls_at edges",
+    attribution: "VolTradeAI datacore (SEC EDGAR, GEM ownership, aisstream.io)",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -132,10 +137,10 @@ export function apiMeta() {
       { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics (completed calls, in-port-now, medians, 3x-median anomaly flags) over the 9 imagery-verified port geofences.", preview: "/api/data/portdwell" },
       { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics: AIS gap events, identity candidates, STS-zone loitering — counts with honest coverage caveats.", preview: "/api/data/shadowstats" },
       { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata (streams, samples, days recorded).", preview: "/api/data/archive/stats" },
+      { path: "/api/v1/graph", params: "?entity=<ticker|MMSI|CIK|facility id>&hops<=3 (omit entity for counts-only)", desc: "Everything Graph v1 — Form 4 insiders, entity_map operator->ticker, and AIS port-call edges, joined into one node/edge graph. RAW (asserts filed relationships with provenance; no predictive claim).", preview: "/api/data/graph" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
-      "entity timelines (Everything Graph v1 — aircraft continuity spine in build)",
       "tank-fill readings (Sentinel-2 — ladder gate 2 not yet passed; experimental readings stay internal)",
     ],
     agent_tools: "/api/v1/agent-tools",
@@ -192,6 +197,20 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/archive",
       returns_provenance: ["stats/archive"],
+    },
+    {
+      name: "voltrade_get_graph",
+      description: "Everything Graph v1 — Form 4 insider filings, entity_map operator->ticker joins, and AIS port-call edges, joined into one node/edge graph. Omit entity for counts-only; pass an entity to get its neighborhood. RAW overlay — asserts filed relationships with provenance, no predictive claim.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", description: "Optional: ticker, MMSI, CIK, or facility id. Omit for graph-wide counts only." },
+          hops: { type: "integer", minimum: 0, maximum: 3, default: 1, description: "Neighborhood radius when entity is given." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/graph?entity={entity}&hops={hops}",
+      returns_provenance: ["graph"],
     },
   ];
   return {
