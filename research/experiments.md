@@ -26281,6 +26281,181 @@ CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
 
+## 2026-07-23 (scheduled-routine session, PR #591) [PRODUCT] -- celestialSky.ts rAF WebGL draw gated by page visibility (v1.0.481, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/lib/celestial/celestialSky.ts` +
+`celestialSky.test.ts` only; also `package.json` version bump, the
+one permitted SHARED touch, last commit, read-and-increment at commit
+time per WORKSTREAM PARTITION merge-order protocol).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status
+ok, bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 -- no LIVENESS ALARM. `/api/diag/audit?limit=150`
+(via DIAG_TOKEN from the session env): 150 entries, breakdown 49
+TIER2 / 46 T1-FAIL (all "no options contracts available for this
+ticker" -- the known, expected mechanism firing) / 32 KILL-WARN
+(correlation-cap/free-BP mechanisms operating as designed) / 15 TIERS
+/ 6 TIER3 / 1 TIER2-BACKOFF / 1 TIER2-ERROR (a single daemon
+`run_full_scan` 300s timeout that self-healed via the existing
+backoff-then-retry mechanism -- not a new or recurring bug; scanner
+consecutiveFailures back to 0 by the time of this check). No
+audit-log bug to repair this session. Loop-health ratio, last 10
+tagged entries before this one: 4 REPAIR / 2 PRODUCT / 3 RESEARCH / 1
+RULE-REVIEW -- under the 7+ thrash threshold, no meta-problem.
+GITHUB ACTIONS CI: re-checked via `actions_list` -- every run since
+2026-07-22T14:09:21Z is STILL failing with the identical instant
+runner-never-allocated signature (`changes` job, runner_id=0,
+~3s to failure, zero downstream jobs ever starting); confirmed on
+this session's own most recent sampled runs through
+2026-07-23T14:29:46Z, now 24+ CONTINUOUS hours with zero successes
+repo-wide. Not re-diagnosed further (same tool limitation as the
+prior four entries -- no billing/quota access from this session).
+This PR follows the same established precedent: full local
+verification only, no CI signal, explicitly disclosed here and in
+the PR description.
+
+PRIMARY ACTION SELECTION: no audit-log bug, no matured experiment
+ready for judgment (TIER-KILL audit still empty). Delegated a
+research subagent (SESSION BUDGET fall-through tier 1) to survey
+open_questions.md (~6000 lines) and wishlist.md (~2000+ lines) in
+full for a concretely-scoped, currently-unblocked, unclaimed
+single-PR item, with an explicit instruction to cross-check every
+candidate against the ACTUAL current source before proposing it
+(several "unclaimed" doc entries turn out to already be shipped --
+e.g. the aircraftIntervalMs 5min-to-75s item from the same
+2026-07-20 audit round is already live in code, confirmed by grep +
+the existing `aircraftIntervalMs(cruise, []), 75_000` test pin).
+Its finding, verified: `open_questions.md` lines ~6015-6027 (the
+2026-07-20 "round 10" terrain-audit follow-up list) still lists
+"celestialSky runs an unconditional rAF WebGL draw on the normal
+map (celestialSky.ts ~995) -- a fixed per-frame tax; gate by
+visibility?" as open. Confirmed genuinely unclaimed by reading the
+current file: `loop()` (then at lines 990-995) called `drawFrame()`
+unconditionally every rAF tick with no `document.hidden`/
+`visibilitychange` check anywhere in the file (grepped), unlike the
+~15 other poll/render loops in `datamap.tsx` that already gate on
+`document.hidden` and refresh once via a `visibilitychange`
+listener on return (e.g. lines 3465/3479-3481, 6716-6717, and the
+`if (!document.hidden) load()` idiom repeated at every
+`setInterval` site in that file).
+
+READ BEFORE WRITE: read `celestialSky.ts` in full this session (all
+~1030 lines) before touching it, plus its test file, plus the
+`document.hidden`/`visibilitychange` call sites in `datamap.tsx`
+this fix needed to match, before writing any code.
+
+FIX: added a `visibilitychange` listener at mount (installed right
+after canvas creation, so it wires up even on a GL-init failure path
+-- harmless no-op there since `drawFrame()` already early-returns
+when `!gl`) that redraws once immediately when the tab returns to
+visible (matching the "catch up on return" half of the datamap.tsx
+idiom exactly). The rAF `loop()` itself now skips the `drawFrame()`
+call while `document.hidden` (but still reschedules itself every
+tick, so no special-casing of the rAF cancel/resume lifecycle is
+needed -- resuming visibility just resumes calling drawFrame() on
+the next already-scheduled tick, and the visibilitychange listener's
+own explicit `drawFrame()` covers the immediate catch-up frame).
+`dispose()` removes the listener alongside the existing
+`ResizeObserver` teardown. Zero other logic touched -- ephemeris
+cadence, interpolation, shader sources, paths toggle all
+byte-identical. No visual change while the tab is foregrounded (the
+gate only affects the backgrounded-tab case), confirmed by the
+VISUAL VERIFICATION run below showing pixel-normal renders.
+
+RATCHET: extended `celestialSky.test.ts` with a genuine behavioral
+test, not a source-inspection pin -- built a full fake WebGL2 context
+(every method the module calls during init/compile/draw stubbed,
+`gl.clear` call count as the "did a draw happen" probe) plus a fake
+`Document`/`HTMLElement` and a mocked global
+`requestAnimationFrame`/`cancelAnimationFrame` that captures the loop
+callback instead of auto-firing it, so the test drives frames by
+hand. Asserts, in order: (1) the listener is registered at mount: (2)
+a visible-tab rAF tick draws; (3) a hidden-tab rAF tick does NOT draw
+(this is the fix under test); (4) a `visibilitychange` fired while
+STILL hidden does not draw either (guards against a sloppy
+"listener fires ⇒ always redraw" implementation); (5) becoming
+visible again draws exactly once via the listener's catch-up; (6)
+the rAF loop resumes drawing every subsequent tick; (7) `dispose()`
+removes the listener. Also had to extend the PRE-EXISTING "WebGL2
+unavailable" test's fake `Document` stub with no-op
+`addEventListener`/`removeEventListener` (that test's fake previously
+had neither, since nothing in the module called them before this
+PR) -- this is completing an old test's fake-DOM surface for a new
+API the fix introduced, not weakening any assertion; its actual
+checks (`getRenderFailed()===true`, never throws) are unchanged.
+
+GATES: `npx tsx --test client/src/lib/celestial/celestialSky.test.ts`
+21 passed, 0 failed (19 pre-existing + 2 new -- the behavioral test
+above and the completed unavailable-GL2 fake-DOM fix). Full node
+suite: `npx tsx --test server/*.test.ts client/src/**/*.test.ts` 993
+passed, 0 failed -- zero regressions anywhere else in the client/
+server test surface. `npx tsc --noEmit`: same pre-existing
+sandbox-environment error set prior sessions have repeatedly
+confirmed unrelated (Buffer.trim/downlevelIteration/pngjs-types
+across files this PR never touched); zero errors in
+`celestialSky.ts`/`celestialSky.test.ts`. `npm run build`: succeeded
+clean (the "default is not exported by astronomy-engine/esm" line is
+the pre-existing, already-documented dual-CJS/ESM-interop warning
+from this same file's own top-of-file comment, not new). `python3 -m
+pytest` NOT re-run: zero Python files touched, symmetric with the
+established precedent of skipping `tsc`/`npm run build` on
+Python-only diffs earlier this same day.
+
+VISUAL VERIFICATION (PROMOTION RULE 6, human-approved 2026-07-03):
+ran the full harness against the built client --
+`node scripts/visual_check.mjs --page data` at 390/768/1440.
+Result: 0 hard failures, all three widths + the globe/flat/analyst/
+fields/legend/timescrub/scale variants PASS. The touch-target-under-
+44px and clipped-control warnings present (Sign in / About the Bot /
+map-control buttons) are pre-existing UI-chrome items unrelated to
+this diff -- confirmed by their identical presence on the
+flat-map screenshot where celestialSky never even mounts (it is a
+globe-view-only layer). Reviewed `data-globe-1440.png` directly:
+renders pixel-normal, no visible change (expected -- the fix only
+changes behavior when `document.hidden`, a state a foregrounded
+headless screenshot never exercises, so an unchanged render at every
+width is exactly the predicted, correct outcome, not an inconclusive
+check).
+
+BACKTEST: N/A -- pure client-side render-loop change, touches no
+scoring/sizing/execution/measurement path; PROMOTION RULE 3's
+Sharpe/drawdown gate does not apply.
+
+HYPOTHESIS (stated before running anything): expected the fix to
+eliminate a fixed per-frame GL draw cost while a tab showing the
+globe view is backgrounded, with zero effect on any foregrounded
+render (no pixel change, since the whole scene is deterministic in
+observer/time/camera, none of which this PR touches). ACTUAL:
+confirmed by the visual harness's pixel-identical renders across all
+tested pages/widths, and by the behavioral test's direct
+gl.clear-call-count proof that hidden ticks stop drawing while
+visible ticks and the resume tick both still do. No live-vs-backtest
+angle applies here (no trading logic touched); this is a pure
+client-perf fix in the PREMIUM EXPERIENCE STANDARD sense (perceived
+performance / battery cost on a backgrounded tab), not a
+correctness change.
+
+MERGE TIMING: this session ran during market hours. Per the
+scheduled-routine instructions, PR #591 is prepared and pushed but
+should NOT be merged until after 4:00 PM ET today unless it fixes a
+critical live break (it does not -- it is a backgrounded-tab
+perf/battery fix with zero live-trading-path contact and zero
+visual-foreground effect, so there is no urgency argument for an
+early merge).
+
+NEXT (unclaimed, from the same 2026-07-20 terrain-audit round-10
+follow-up list, still open after this PR): satLayer/modelLayer/
+arcLayer's NEVER-IDLE GLIDE LOOP (datamap's 300ms glideRepaintIv +
+per-frame glide at z>=9.2 holding the map out of idle permanently),
+the celestialSky.ts item closed by THIS PR was one line in that same
+list -- the glide-loop and TRAIL REBUILD STORM items are separate,
+larger investigations, not attempted here (single-PR scope). Also
+still unresolved and now a full 24+ hours old: the GitHub Actions
+outage -- flagged again via this session's own notification given
+the milestone (crossed 24h with zero human-visible fix yet); the
+fastest confirm-or-rule-out step remains unchanged from every prior
+entry: Settings > Billing > Actions usage on the mctils12-arch
+account.
 
 ## 2026-07-23 (scheduled-routine session) [PRODUCT] — Recovered stale PR #449 (/api/v1/agent-tools) fresh onto current main, clean re-verification, no functional change from the original design (v1.0.481, SHARED — server/apiProduct.ts + one-line routes.ts wiring)
 
