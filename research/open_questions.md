@@ -6033,3 +6033,74 @@ audit (all measured under SwiftShader; ratios are the finding):
 - MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
   GeoJSON sources helps terrain perf even for non-draped layers.
+
+
+## [2026-07-24 — ACTIVE ANGLE-HUNTING / EDGE DOCTRINE #2] Does mean_reversion have a real, exploitable edge specifically in illiquid small-caps, or is the 2026-07-24 probe result a single-sample artifact?
+
+FINDING (full write-up in experiments.md, `[RESEARCH]` entry, same date):
+a systematic 10-name sample of genuinely illiquid Nasdaq Capital Market
+names (<=1M shares/day trailing 252d, screened live via the NASDAQ
+symbol directory — not guessed from memory) showed `mean_reversion.py`
+producing a positive Sharpe in 8/10 tickers (mean +0.246, 147 trades,
+46.0% win rate) using `backtest_v2.py`'s now-honest liquidity-tiered fill
+cost (v1.0.480) — better than both a 7-name "moderate" 1-5M-share/day
+tier (mean -0.222) and a statistically-starved liquid mega-cap reading
+(only 11 total trades). `momentum.py` showed the OPPOSITE pattern
+(illiquid mean Sharpe -0.236 vs. liquid +0.559), matching the prior that
+momentum needs sustained institutional flow illiquid names lack.
+
+WHY THIS MIGHT BE REAL (Reasoning Standard #5, second-order): thin order
+books mean oversold conditions are retail-panic-driven and mechanically
+exhaust once sellers are out, without the sustained institutional
+selling flow that can keep grinding a liquid name down for many
+sessions — a capacity/mandate-constraint story (large funds can't or
+won't trade size in $200K-$4M dollar-volume names), not "nobody
+noticed." Consistent with EDGE DOCTRINE #2's structural framing.
+
+WHY IT MIGHT NOT BE (state the doubt as loudly as the finding, per
+Reasoning Standard #4 + #7): (a) ONE systematic sample, no independent
+re-draw — a different stride through the same NASDAQ directory could
+show a different result; (b) no formal significance test run (Sharpe
+means are descriptive); (c) no out-of-sample time split — the full 4y
+window was used to both find and report the pattern; (d) SURVIVORSHIP —
+the candidate pool is today's live listing; every name that fully
+delisted in the window is invisible, and group buy&hold was still
+-74/-75% even among survivors, so the true population (including
+delistings-to-zero) is worse, direction of bias on the mean_reversion
+result specifically is NOT determined; (e) magnitude is modest (+4.32%
+total return over 4y, ~1%/yr) — a real signal, not a dramatic one.
+
+LADDER PATH (does NOT skip gates, per ROOT VALIDATION LADDER — this is
+existing LOGIC (momentum/mean_reversion already cleared their own LOGIC
+gate on the liquid universe historically) being tested on a NEW universe
+segment, so treat "does illiquid-tuned mean_reversion work" as its own
+SIGNAL-then-LOGIC question, not inheriting the liquid-universe gate):
+  1. INDEPENDENT RE-DRAW — different stride/seed on the NASDAQ symbol
+     directory (or a second venue's small-cap tier, e.g. NYSE American)
+     to check this isn't an artifact of the specific 10 names drawn
+     2026-07-24. `scripts/illiquid_universe_probe.py`'s
+     `fetch_nasdaq_capital_market_candidates()` supports a different
+     `sample_stride` for exactly this.
+  2. TRAIN/TEST SPLIT — fit nothing (the strategy logic is unchanged
+     from the liquid-universe version), but split the illiquid sample's
+     history into an early window (pattern-check) and a later
+     out-of-sample window (confirm) before trusting the direction holds.
+  3. SIGNIFICANCE TEST — bootstrap CI on the mean_reversion Sharpe
+     spread between illiquid and moderate/liquid groups, or a paired
+     per-ticker test, before this could be called a SIGNAL-gate pass.
+  4. If (1)-(3) survive: the natural next step is NOT porting the
+     liquid-tuned mean_reversion thresholds unchanged into a live
+     illiquid-universe strategy — RSI/volume-spike thresholds tuned for
+     mega-cap volatility are unlikely to be the right thresholds for
+     microcap volatility. Re-tuning would be its own RULE-REVIEW-gated
+     effort with counterfactual evidence, not assumed here.
+  5. Only after (1)-(4) would this be eligible for a LOGIC-gate ablation
+     against the live bot's actual candidate-selection path (`deep_score`
+     / `tier1_csp_core`, not the ETF-rotation-style backtest engine) —
+     KNOWN BROKEN #10's note that `backtest_v2.py` doesn't model the
+     full candidate-selection path applies here too.
+
+NOT ACTIONABLE YET: no threshold, config, or strategy change should ship
+from this finding alone. Reproducibility artifact:
+`scripts/illiquid_universe_probe.py` (frozen candidate lists + full
+methodology in its docstring) + `test_illiquid_universe_probe.py`.

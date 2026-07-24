@@ -1751,3 +1751,27 @@ with the PROMOTION RULES CI gate silently absent the whole time. The
 fastest confirm-or-rule-out step remains unchanged from the prior two
 entries: Settings > Billing > Actions usage (or Settings > Actions >
 General > spending limits) on the mctils12-arch account.
+
+UPDATE 2026-07-24 (scheduled-routine session): STILL FAILING, now **36+
+hours continuous** (since 2026-07-22T14:09:21Z), a 5th consecutive
+session confirming the identical instant `runner_id: 0` signature via
+`actions_list`. NEW THIS SESSION — this is no longer just a missing CI
+signal, it is now a real, growing BACKLOG of unmergeable work:
+`list_pull_requests` shows 8 open Claude-session PRs stuck since the
+outage began (#594, #593, #592, #591, #590, #586, #585, #584), spanning
+work across at least 3 different territories (PRODUCT/REPAIR/DATACORE),
+plus 4 older stale PRs predating the outage (#572, #449, #415, #399) that
+are a separate, unrelated backlog. Confirmed PR #594's combined status is
+empty (`total_count: 0` from `get_status`) — its `changes` job never
+received a runner, so every downstream job including `Auto-merge Claude
+PRs` reports skipped, the same signature every prior entry describes.
+This session's own PR followed the same option-(c) precedent (full local
+verification, direct API merge) and is not itself blocked by this — but
+8+ other sessions' work now sits open and unmerged, which is a materially
+worse state than "no CI signal, but merges still happen." FOR THE HUMAN:
+same fastest confirm-or-rule-out step as every prior entry — Settings >
+Billing > Actions usage (or Settings > Actions > General > spending
+limits) on the mctils12-arch account — but the growing PR backlog is new
+information worth weighing into how urgent this now is. Sent as this
+session's own scheduled-routine notification (5th direct flag on this
+issue; see experiments.md for the session log).
