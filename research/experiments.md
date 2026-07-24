@@ -27406,3 +27406,159 @@ candidate universe including names with no listed options at all (a
 different, upstream-universe fix). Also queued: `options_scanner.py`'s
 identical bug shape (scope-noted above, not fixed this session) as a
 smaller separate follow-up PR.
+
+## 2026-07-24 — [PIPELINE] USAspending gate 1: recipient→ticker matcher hand-checked; 2 real bugs found + fixed (v1.0.482) [T-DATACORE, scheduled PRODUCT session]
+
+TERRITORY: T-DATACORE (server/usaSpending.ts + its test file + a new
+reusable script; no client, no bot/strategy files touched).
+
+CONTEXT: this is a scheduled autonomous PRODUCT session. Per the routine's
+brief, checked system health first: `/api/health` all green (bot active,
+Alpaca ACTIVE, no liveness alarm), `/api/diag/audit` showing normal Tier2
+cycles. One live KNOWN BROKEN item (#25, options-chain fetch diagnosability)
+merged by an earlier session this morning (PR #596, v1.0.481) — not
+touched here (not this territory, not blocking). GitHub Actions CI has
+been down since 2026-07-22T14:09 UTC (`runner_id: 0` on every run,
+re-confirmed via `actions_list` this session — still failing at
+2026-07-24T11:15Z, the #596 merge) — already flagged 5x in wishlist.md;
+not re-flagged again here, no new information. A subagent research pass
+(this session) also surveyed the datacore/ pipeline landscape and found
+5 open, fully-built PRODUCT PRs (#572/#585/#590/#592/#594) stuck on the
+same CI outage — real completed work, just unmerged; not duplicated here.
+
+WHY THIS ACTION: `research/open_questions.md`'s DATA STREAM EXPANSION
+build order (item 4, 2026-07-05) explicitly flagged USAspending's gate 1
+("recipient→ticker mapping precision on 50 awards") as RUNNABLE — the
+matcher and 19 days of design were already shipped (v1.0.96) — but NOT
+YET ATTEMPTED. Per CLAUDE.md's session brief, "gate 1 ground-truth
+validation... IS product work." Chose this over starting a brand-new
+pipeline because closing an already-open ladder gate on shipped code
+is higher-value than adding more unvalidated surface area, and because
+running it required no new infrastructure (unlike most other queued
+gate-1/gate-2 items, which need read access to the production archive
+this sandbox doesn't have — this one is checkable by re-querying the
+same live keyless USAspending.gov API this sandbox already has network
+access to, running the ACTUAL production matcher functions unchanged).
+
+METHOD: `scripts/gate1_usaspending_ticker_check.ts` (new, permanent —
+rerunnable against live data anytime) imports `normalizeCompanyName`,
+`buildTickerMap`, `resolveTickers`, `applyParentMatch`, `fetchAwardParent`
+UNCHANGED from `server/usaSpending.ts` (not reimplemented) and pulls two
+live samples (45d/300-row and 90d/500-row, sorted by dollar value to
+surface real public-company recipients rather than the $25k-floor noise
+of tiny vendors) through the real matching pipeline, including the
+award-detail parent-lookup path. Every matched (recipient, ticker) pair
+was hand-verified against known real company identities — ~20 distinct
+identities surfaced across both pulls (Lockheed Martin, Leidos, McKesson,
+Optum/UnitedHealth, Raytheon/RTX, RTX Corp, Savannah River Nuclear
+Solutions/Fluor, SAIC, IBM, Palantir, Boeing, Tutor Perini, Huntington
+Ingalls, SpaceX) — HONESTLY NOTED as fewer independent companies than
+"50 awards" implies (dollar-sorted sampling repeat-hits the same primes),
+not overstated.
+
+FINDING 1 (BUG, fixed): `normalizeCompanyName`'s guard
+`tokens.length < 2 && out.length < 5` rejected every real one-word
+company name under 5 characters. Pulled the REAL live
+`company_tickers.json` (not assumed) and counted: 342 real SEC-listed
+titles normalize to a single token under 5 chars and were being silently
+turned into "" — including RTX Corp, confirmed via a direct
+`/api/v2/awards/{aid}/` query to be the FPDS-reported parent of
+"RAYTHEON COMPANY" (single award ID HQ085120C0002 alone carries
+$2.14B + $2.14B + $761M in this pipeline's 45-day sample), plus 3M, CSX,
+BP, DOW, PPL, EQT, OKTA, LYFT, SNAP, ROKU, ETSY, VISA, NIKE, HSBC, GSK,
+KKR, MSCI, and ~325 more. FIX: guard now only rejects `out.length < 2`
+(truly degenerate — empty, or a bare single character); the existing
+"Co, Inc." -> "" test still passes (all-suffix input still empties out).
+
+FINDING 2 (BUG, fixed): `buildTickerMap` dropped BOTH sides of any
+normalized-name key with more than one distinct ticker, unconditionally.
+Pulled the real `company_tickers.json` and computed every collision:
+1,422 total keys collide; 1,414 of them (99.4%) share the exact same raw
+`title` string and differ ONLY by ticker — e.g. "BOEING CO" -> BA (common)
++ BA-PA (preferred) or "UBS AG" -> 20 separate ETN tickers for the same
+bank. Only 8/1,422 are genuinely different companies sharing an
+accidental normalized name (e.g. "TARGET CORP" vs "Target Group Inc.").
+The blanket drop-on-any-mismatch rule was silently deleting Boeing and
+Oracle (among hundreds of others) from the map for the entire ~19 days
+this pipeline has been live. FIX: same-title collisions now resolve to
+the single shortest ticker containing neither "-" nor "." (share-class/
+preferred suffixes always use one of those); if that shortest candidate
+isn't unique (e.g. Alphabet's GOOG/GOOGL dual-class, or a same-length
+tie) OR the titles genuinely differ, the key still drops exactly as
+before — ambiguity must never guess. Verified: "TARGET" (different
+titles) and a synthetic exact tie both still correctly return
+`undefined`.
+
+CAVEAT LOGGED, NOT FIXED (per Reasoning Standard #4/#7 — state doubts as
+loudly as findings): the live hand-check also surfaced
+"BAE SYSTEMS LAND & ARMAMENTS L.P." resolving to BALL (Ball Corp) via
+the parent path. Traced conclusively via a direct award-detail query —
+this is the government's OWN SAM/FPDS parent-hierarchy field reporting
+"BALL CORPORATION" as the parent, not a bug in this matcher's logic.
+Likely a stale/miskeyed SAM registration artifact from BAE Systems'
+Feb-2024 acquisition of Ball Aerospace (a different BAE division), or a
+genuine but misleading link; either way, attributing BAE Land &
+Armaments' contract dollars to Ball Corp would be wrong. This is a
+coincidental interaction with FINDING 1's fix, not a new failure mode:
+the old <5-char guard accidentally also rejected "BALL" as a side effect
+having nothing to do with protecting against bad parent data, so this
+exact false positive did not exist pre-fix, but the fix did not CAUSE it
+either — a differently-shaped bad parent record of ordinary length would
+have sailed through even before this PR. FILED for a future session:
+`mm==="parent"` matches should probably not be gate-2-trusted without an
+independent plausibility check; not attempted here (would be guessing at
+a fix without evidence on how common this class of error is). Also
+caveated: "SPACE EXPLORATION TECHNOLOGIES CORP" -> SPCX is a correct NAME
+match against SEC's own file, but whether SPCX is an actually-tradeable
+ticker (vs. a dormant legacy registration — SpaceX is privately held) is
+unverified; any gate-2 consumer must check for real price history, not
+assume every resolved ticker has one.
+
+RATCHET: `server/usaSpending.test.ts` gained 2 new tests pinning both
+fixes with the REAL discovered shapes (RTX Corp/3M Co/CSX Corp
+normalize; the real Boeing/Oracle same-title collisions resolve while a
+different-title Target-style collision and a same-length tie both still
+drop). A/B-verified via `git stash push -- server/usaSpending.ts`: 2 of
+the 6 touched assertions fail against the pre-fix code (RTX/3M/CSX
+normalize-to-empty; Boeing/Oracle resolve to `undefined`), the
+pre-existing 8 pass unchanged under both versions — confirms the new
+tests actually exercise the fix, not incidental churn.
+
+GATES: `npx tsc --noEmit` initially added 9 NEW errors (a `for...of` over
+a `Map` needs `--downlevelIteration` under this project's target, same
+class of pre-existing error already present in `shadowFleet.ts`) — fixed
+by switching to `Map.prototype.forEach` before considering this done;
+re-ran and confirmed exactly 80 errors, byte-identical count to the
+`git stash`-verified pre-PR baseline. `npx tsx --test server/*.test.ts`
+858/858 pass. `npm run build` clean (pre-existing unrelated warnings
+only: astronomy-engine ESM interop, chunk-size advisories). `python3 -m
+pytest -q` (after `pip3 install -r requirements.txt -r
+requirements-dev.txt` — bare sandbox) 886 passed, 1 skipped, 0 failed,
+matching this morning's #596 baseline exactly — zero regressions, and
+this PR touches zero Python files so this gate is a pure sanity check.
+
+BACKTEST: N/A — this is a datacore RAW-display stream (not gate-2'd,
+not traded, not part of the bot's candidate-selection or scoring path);
+PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply. Version bumped to
+v1.0.482 per PROMOTION RULE 4 (a live-serving pipeline's matching
+behavior changed, even though nothing here touches trading/ML code).
+
+CI: still down (see CONTEXT above) — ships on full local verification
+only, following the established option-(c) precedent from every session
+since 2026-07-22. Per the routine's own instruction to prefer merging
+outside 9:30-16:00 ET: this session ran during the 13:0X-13:3X UTC
+window (pre-open into the opening bell) — the PR is prepared but should
+NOT be merged until after the 16:00 ET close; noting this explicitly in
+the PR description too.
+
+NEXT: gate 2 itself (award/mcap ratio vs 5-20d forward returns, DoD
+cohorted out per the existing honesty note) remains queued and is NOT
+attempted here — this session closes gate 1 only. A future session
+should also: (a) spot-check whether `mm==="parent"` false-positive rate
+(1 wrong / ~4 parent-matched identities in this session's small sample)
+holds up over a larger pull before deciding whether gate 2 should
+discount or exclude parent-derived matches; (b) the same short-name/
+same-title-collision bug classes almost certainly affect any other
+datacore pipeline that name-matches against `company_tickers.json` —
+worth a grep-wide check in a future session (not done here — one
+logical change per PR).
