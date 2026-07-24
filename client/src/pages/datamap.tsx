@@ -199,11 +199,12 @@ import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 import { SEAFLOOR_V2_REGIONS, tidConfidenceColorRelief, tidConfidenceLegend, GEBCO_ATTRIBUTION, GEBCO_NOT_FOR_NAVIGATION } from "@/lib/seafloorV2";
 
 // Satellite GP element cache (live-tracking stability). CelesTrak's `active`
-// group is ~6.6 MB / ~16k objects and CelesTrak RATE-LIMITS repeated pulls, so
-// re-fetching on every Satellites toggle failed into a "retrying" loop. Elements
-// change only ~every 2h, so cache them for the session and reuse on toggle —
-// one fetch per page load, instant re-enable, no rate-limit. Module-scoped so it
-// survives the effect's mount/unmount cycles (lost only on a full page reload).
+// group is ~16k objects (~2.4 MB as CSV — see fetchGp) and CelesTrak
+// RATE-LIMITS repeated pulls, so re-fetching on every Satellites toggle failed
+// into a "retrying" loop. Elements change only ~every 2h, so cache them for the
+// session and reuse on toggle — one fetch per page load, instant re-enable, no
+// rate-limit. Module-scoped so it survives the effect's mount/unmount cycles
+// (lost only on a full page reload).
 let orbitalGpCache: { at: number; gp: GpRecord[] } | null = null;
 const ORBITAL_GP_TTL_MS = 2 * 60 * 60_000; // 2h — CelesTrak's GP refresh cadence
 // EARTH TWIN A1: fallback camera-altitude envelope for orbital_sats when the
@@ -5211,8 +5212,9 @@ export default function DataMapPage() {
       },
       (failures) => setStatus("orbital_sats", "error", undefined,
         failures === 0 ? "could not reach CelesTrak — retrying automatically…" : "still retrying automatically…"),
-      // The ~6.6 MB `active` fetch needs headroom on slow links (default 15s was
-      // too tight and aborted mid-download → the "retrying" the user reported).
+      // The ~2.4 MB CSV `active` fetch needs headroom on slow links (default 15s
+      // was too tight and aborted mid-download → the "retrying" the user
+      // reported); CSV (vs the old 6.7 MB JSON) also finishes well inside this.
       { timeoutMs: 45_000 },
     );
 

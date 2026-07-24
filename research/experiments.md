@@ -3,6 +3,123 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-22 (scheduled-routine session) [REPAIR] — recovered PR #420's satellite-layer "still retrying automatically…" fix, stranded 12 days by a PR backlog no session had audited; found + logged the wider backlog (v1.0.478, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/tle.ts + tle.test.ts,
+client/src/lib/orbital/gpWorker.ts comment, client/src/pages/datamap.tsx
+comments) + SHARED minimal last (package.json/package-lock.json).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md/
+open_questions.md/wishlist.md (large — read via targeted grep/tail rather
+than whole-file, per their size). `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. Owner-gated audit-log/diag routes
+returned "unauthorized" as usual for a session with no owner token — same
+known limitation prior sessions have hit, not a new break. Loop-health
+ratio over the last 10 tagged entries before this one (SCALE S-A2 REPAIR,
+Form4 RESEARCH, GEM-map PRODUCT, KNOWN-BROKEN-#18 REPAIR, GEM-route
+PRODUCT, KNOWN-BROKEN-#18 REPAIR, CBP-borders PRODUCT, KNOWN-BROKEN-#18
+REPAIR, GEM-methane REPAIR+RESEARCH, GEM-methane-gate2b PRODUCT): 5
+REPAIR / 4 PRODUCT / 1 RESEARCH — under the 7+ thrash trigger, but the
+REPAIR entries are almost entirely one still-open KNOWN BROKEN #18
+investigation (T-BOT TIER2-ERROR timeouts) re-instrumented across three
+sessions without yet reaching a fix, not thrash spread across territories.
+
+PRIMARY ACTION SELECTION: with today's earlier sessions having already
+shipped SCALE S-A2, the GEM map layer, and killed the Form4 hypothesis,
+and with `/api/health` clean (no critical live break to chase), I checked
+GitHub's open-PR list before picking new roadmap work — the same check
+PR #399's session did on 2026-07-09 ("only a long-stale unrelated human
+draft, #77, left alone"). That check now found **six** open, unmerged,
+non-draft Claude PRs dated 2026-07-09 through 2026-07-21 (#399, #415,
+#420, #449, #557, #572) — a real backlog that grew from 1 to 6 while no
+session re-checked it. This connects directly to the two ops findings
+filed a few hours earlier THIS SAME DAY (wishlist.md, "Auto-merge Claude
+PRs" CI job failing + the `changes` job failing with no runner
+allocated): those findings diagnosed why an individual PR's automerge
+step fails, but I don't have evidence they explain 6 PRs surviving
+1–2 weeks apiece — the more likely compounding cause is simply that
+scheduled sessions stopped re-checking the open-PR list once new work
+was always available, so a silent per-PR automerge failure was never
+followed up manually. This is a real STARVATION-adjacent finding (built,
+tested work not landing) even though no single session logged "STARVED."
+
+Rather than open a 7th brand-new PR while 6 sit stale, I audited all six
+against current main (v1.0.477) to find genuinely-recoverable work:
+- **#572 (ENTSO-E generation mix)**, **#449 (agent-tools API)**, **#415
+  (gridvision RunPod reap)**, **#399 (GIBS floods layer)**: all STILL
+  MISSING from main (verified: `server/euGenerationMix.ts`,
+  `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`,
+  `scripts/runpod_reap.py`, and the `floods`/`MODIS_Combined_Flood`
+  layer in `datamap.tsx` all absent) — genuinely unclaimed, still
+  valuable work, not superseded.
+- **#557 (3D terrain exaggeration slider)**: SUPERSEDED — `client/src/
+  lib/terrainExag.ts` already exists on main (shipped independently;
+  KNOWN STATE's v1.0.475 crash-cascade fix references the same file),
+  confirmed via a real `git merge-tree` test producing an add/add
+  conflict on `terrainExag.ts` itself.
+- **#420 (satellite CSV-format + res.ok fix)**: STILL MISSING and STILL
+  A LIVE BUG — confirmed by reading the current `tle.ts`: `gpUrl` still
+  hardcodes `FORMAT=json` (~6.7MB, no `format` param), `fetchGp` still
+  does `res.json()` with no `res.ok` check, so a CelesTrak 403
+  courtesy-rate-limit still parses to `[]` today and the human-reported
+  "still retrying automatically…" loop is still live in production 13
+  days after the fix was written and reviewed. Confirmed the worker path
+  that actually serves the layer (`gpWorker.ts` → `fetchGp`, wired via
+  `fetchGpOffThread` in `datamap.tsx`) calls the exact same `fetchGp`,
+  so this fix reaches the real runtime path, not just a fallback.
+
+PICKED #420 to resurrect this session: it is a REPAIR (SESSION BUDGET
+ranks bug fixes above new pipelines), it is the cleanest to recover
+(`git merge-tree` showed only docs/lockfile conflicts, zero real code
+conflicts, unlike #399/#415/#557), and it fixes a bug still reproducible
+in prod today. Applied the PR's diff fresh (re-typed by hand rather than
+force-merging the stale branch, since `tle.ts` had grown SATCAT-join code
+since 2026-07-09 that the stale branch never saw) onto current main:
+`gpUrl(group, format)` gains the format arg (default unchanged at
+`json`), new `parseGpCsv()` (header-indexed, same `GpRecord` shape/
+honesty rules as `parseGp`), `fetchGp` now requests `FORMAT=csv` (~2.4MB
+vs ~6.7MB) and throws on `res.ok === false` instead of silently parsing
+an error body to `[]`. Updated the now-stale "~6.6 MB" comments in
+`gpWorker.ts` and `datamap.tsx` to match. +5 regression tests in
+`tle.test.ts` (parseGpCsv normalization/blank-null/garbage-safety, fetchGp
+hits the CSV endpoint, and the 403 case now `assert.rejects` — would have
+caught this break, per REPAIRS MUST RATCHET).
+
+READ BEFORE WRITE: read `tle.ts`/`tle.test.ts`/`gpWorker.ts` in full,
+grepped every call site of `gpUrl`/`fetchGp`/`parseGp` across `client/
+src` (4 files) before touching anything — `datamap.tsx:5041` calls
+`parseGp` (JSON) directly against the separate `/api/data/orbital/
+catalog` server-mirror path, untouched and correctly left on JSON since
+that route serves JSON, not CSV.
+
+GATES: `npx tsx --test client/src/lib/orbital/*.test.ts` 214/214 (11
+pre-existing + 5 new in tle.test.ts); `npm run test:node` 850/850 (server
+suite, unaffected but re-run as a sanity check since this is a session
+recovering someone else's stale branch); `npx tsc --noEmit` 8 lines,
+byte-identical to a `git stash`-verified baseline (0 new errors — the 3
+pre-existing warnings are tsconfig/env-config noise, not code errors);
+`npm run build` clean (pre-existing astronomy-engine/mapIcons warnings
+only). Version 1.0.477 → 1.0.478 (read-and-increment at commit time).
+
+BACKLOG DISPOSITION (this session): closed #420 (superseded by this PR)
+and #557 (superseded by main's independent terrainExag.ts) with pointers.
+Left #399/#415/#449/#572 OPEN — still valid, unclaimed, non-superseded
+work; each needs its own rebase-and-recover session (real code conflicts
+in datamap.tsx/layers.json/runpod ledger, not just docs) rather than
+being resolved as a side effect of this PR. Filed the full disposition +
+a recommendation that future sessions check `gh pr list`-equivalent
+(the open-PR list) at session start, not just KNOWN BROKEN and
+`/api/health`, in research/wishlist.md.
+
+Backtest: N/A — client-only RAW-overlay bug fix (satellite live-tracking
+layer), no strategy/measurement/parameter/trading-path code touched.
+
+MERGE NOTE (market hours): this session ran while markets are open.
+Per CLAUDE.md's market-hours guidance, this PR should NOT be merged
+until after 4:00 PM ET today unless a critical live break requires it —
+it does not (client-only RAW overlay, zero effect on the trading loop).
+
 ## 2026-07-22 (scheduled-routine session) [REPAIR] — SCALE S-A2: vessels-delta TTL was shorter than the client poll interval, so `unchanged` was dead code — full payload re-shipped every single poll (v1.0.474, T-DATACORE-adjacent server work)
 
 TERRITORY: server/liveDelta.ts + server/liveDelta.test.ts + server/routes.ts
