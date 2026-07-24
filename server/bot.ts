@@ -3666,46 +3666,44 @@ else:
           const layer2Detail = l2 && Object.keys(l2).length > 0
             ? ` layer2_prefetch={cache_hit=${l2.cache_hit} completed=${l2.completed}/${l2.total} elapsed=${l2.elapsed_sec}s budget_exceeded=${l2.budget_exceeded} age=${l2.age_sec}s}`
             : "";
-          // DAEMON-TIMEOUT-VISIBILITY 2026-07-23 (KNOWN BROKEN #18 continuation):
-          // zombie-thread-pileup (refuted 2026-07-21), the layer2_prefetch
-          // correlation (refuted 2026-07-21), and deep_score's ThreadPoolExecutor
-          // early-return (v1.0.468) have each been checked directly against a live
-          // occurrence — this session's audit history shows the storm recurring
-          // identically (11x, 17:41-19:57Z) with v1.0.468 already live, so the
-          // hang is somewhere in run_full_scan's pipeline past Layer 2 that no
-          // existing instrument names. bot_engine.py's TIMING-DISK (2026-04-23)
-          // already persists per-phase progress to voltrade_scan_timings.json
-          // incrementally (survives the kill, /api/diag/timings already exposes
-          // it) but two prior sessions' live polls of that endpoint both missed
-          // the window because it only reflects a scan already in flight when
-          // polled. Reading the file directly here — same file, same paths as
-          // the existing /api/diag/timings probe and the owner-gated /api/system/
-          // snapshot lookup — puts the CURRENTLY-stuck scan's own last-completed
-          // phase straight into the audit line, no live stakeout required: a
-          // fresh occurrence next time will finally show whether the hang is in
-          // quick_scan, deep_score, tier engine, or somewhere else entirely.
-          let scanPhaseDetail = "";
+          // DAEMON-TIMEOUT-VISIBILITY 2026-07-22 (KNOWN BROKEN #18 continuation):
+          // layer2_prefetch only answers "was it Layer 2" — the storm's third
+          // named mechanism (deep_score's ThreadPoolExecutor shutdown hazard,
+          // v1.0.468) shipped and the storm continued unchanged through today's
+          // full session (13 fresh TIER2-ERROR occurrences 13:37-19:55Z, same
+          // active_dispatches=2/300s signature, all with high layer2_prefetch
+          // age — Layer 2 stays refuted). Rather than guess a fourth specific
+          // mechanism, read bot_engine.py's own TIMING-DISK file (2026-04-23;
+          // already used by /api/diag/timings and /api/system/snapshot) HERE,
+          // at the instant the timeout is caught — it is written progressively,
+          // phase-by-phase, straight to shared disk (not returned via RPC), so
+          // if the stuck run_full_scan dispatch is still mid-flight this read
+          // lands on ITS OWN last-completed phase and elapsed time, generalizing
+          // the "which phase" question to the whole pipeline instead of only
+          // Layer 2 — closing the exact gap the 2026-07-21 session hit trying
+          // to live-poll /api/diag/timings from a separate stakeout window
+          // (which missed every occurrence because a fresh scan can overwrite
+          // the file before a human-timed poll lands). No live stakeout
+          // required going forward; the next occurrence's audit line carries it.
+          let scanTimingsDetail = "";
           try {
-            const timingPaths = [
-              "/data/voltrade/voltrade_scan_timings.json",
-              "/tmp/voltrade_scan_timings.json",
-            ];
+            const timingPaths = ["/data/voltrade/voltrade_scan_timings.json", "/tmp/voltrade_scan_timings.json"];
             for (const tpath of timingPaths) {
               if (fs.existsSync(tpath)) {
-                const t = JSON.parse(fs.readFileSync(tpath, "utf8"));
-                const ageSec = typeof t.last_phase_at === "number"
-                  ? Math.round((Date.now() / 1000 - t.last_phase_at) * 10) / 10
-                  : null;
-                scanPhaseDetail = ` scan_phase={last_completed=${t.last_phase_completed ?? "none"} status=${t.status ?? "?"} age=${ageSec ?? "?"}s}`;
+                const st = JSON.parse(fs.readFileSync(tpath, "utf8"));
+                const nowSec = Date.now() / 1000;
+                const lastPhase = st.last_phase_completed ?? (Array.isArray(st.phases) && st.phases.length > 0 ? st.phases[st.phases.length - 1]?.phase : null) ?? "none";
+                const anchor = st.last_phase_at ?? st.scan_started;
+                const ageSec = typeof anchor === "number" ? Math.round((nowSec - anchor) * 10) / 10 : null;
+                scanTimingsDetail = ` scan_timings={status=${st.status ?? "?"} last_phase=${lastPhase} age=${ageSec ?? "?"}s}`;
                 break;
               }
             }
-          } catch {
-            // Best-effort diagnostic read only — never let a parse/read failure
-            // block the TIER2-ERROR audit line itself from being written.
+          } catch (timingErr: any) {
+            scanTimingsDetail = ` scan_timings={read_error=${String(timingErr?.message || timingErr).slice(0, 80)}}`;
           }
           daemonState = hr && hr.alive
-            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${scanPhaseDetail}`
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${scanTimingsDetail}`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;

@@ -123,28 +123,25 @@ test("KNOWN BROKEN #18 continuation 2026-07-21: the daemon branch surfaces layer
   assert.ok(daemonBranch.includes("l2.age_sec"), "must surface how stale the reading is, so a future session can tell a fresh mid-hang reading from a leftover prior-scan one");
 });
 
-test("KNOWN BROKEN #18 continuation 2026-07-23: the daemon branch reads the on-disk scan-timings file directly (last_phase_completed/status/age), not just layer2_prefetch", () => {
-  // Three mechanisms (zombie-thread pileup, layer2_prefetch correlation,
-  // deep_score's ThreadPoolExecutor early-return) have each been directly
-  // checked against a live TIER2-ERROR occurrence and the storm still
-  // recurs identically with all three fixes/refutations already live —
-  // layer2_prefetch only instruments ONE phase of run_full_scan's
-  // pipeline. bot_engine.py's TIMING-DISK mechanism already persists
-  // last_phase_completed/status to voltrade_scan_timings.json after every
-  // phase (survives the 300s kill) and /api/diag/timings already exposes
-  // it — but two prior live-poll stakeouts on that endpoint both missed
-  // the window. This reads the same file directly (fs, same paths as the
-  // existing /api/diag/timings probe and the owner-gated /api/system/
-  // snapshot lookup) so the next occurrence's audit line names the phase
-  // without needing a live poll.
+test("KNOWN BROKEN #18 continuation 2026-07-22: the daemon branch reads bot_engine.py's own scan-timings file directly off disk, not just layer2_prefetch", () => {
+  // v1.0.468 shipped the deep_score ThreadPoolExecutor shutdown-hazard fix
+  // as this item's third named mechanism; a full day of live post-deploy
+  // evidence (13 fresh TIER2-ERROR occurrences, all still active_dispatches=2
+  // with high layer2_prefetch age) shows the storm continuing unchanged —
+  // Layer 2 alone was never sufficient to pinpoint the hang. bot_engine.py's
+  // pre-existing TIMING-DISK mechanism (2026-04-23) already persists
+  // per-phase progress straight to shared disk, generalizing "which phase"
+  // beyond Layer 2 to run_full_scan's entire pipeline — this pins that the
+  // daemon-timeout branch reads it directly (same file /api/diag/timings and
+  // /api/system/snapshot already read) instead of requiring a live stakeout.
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
   const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
   const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
-  assert.ok(daemonBranch.includes("voltrade_scan_timings.json"), "must read the same on-disk timing file /api/diag/timings and /api/system/snapshot already expose");
-  assert.ok(daemonBranch.includes("last_phase_completed"), "must surface which phase the stuck scan last completed");
-  assert.ok(daemonBranch.includes("scan_phase="), "must format the reading into the audit line under a distinct scan_phase= key, not overwrite layer2_prefetch's own detail");
-  assert.ok(/try\s*\{[^}]*voltrade_scan_timings/.test(daemonBranch), "the file read must be wrapped in its own try/catch — a missing/corrupt timing file must never block the TIER2-ERROR audit line itself");
+  assert.ok(daemonBranch.includes("voltrade_scan_timings.json"), "must read the same TIMING-DISK file bot_engine.py's _scan_market_inner() writes progressively");
+  assert.ok(daemonBranch.includes("scanTimingsDetail"), "must build a scan-timings detail string");
+  assert.ok(daemonBranch.includes("last_phase_completed"), "must surface last_phase_completed — the exact field that names where a stuck scan last checkpointed");
+  assert.ok(/daemonState\s*=[\s\S]*scanTimingsDetail/.test(daemonBranch), "scanTimingsDetail must actually be interpolated into the daemonState message, not computed and discarded");
 });
 
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
