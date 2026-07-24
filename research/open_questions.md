@@ -4934,6 +4934,83 @@ Reasoning Standard #10):
    NTESS->Resideo, Accenture->Novetta both backwards); unmatched =
    skipped, never fuzzy; UEI->ticker cache compounds. LICENSE: US-gov
    free incl. commercial; DUNS is D&B-proprietary — archive UEI ONLY.
+   GATE 1 RUN 2026-07-24 (scheduled PRODUCT session, T-DATACORE) —
+   RUNNABLE-NOT-YET-ATTEMPTED (per v1.0.96's own note) is now RUN:
+   **PASSED, with two bugs found and fixed, plus two logged caveats.**
+   Full methodology + before/after evidence in experiments.md's dated
+   entry; summary here. Ran the actual production matcher
+   (`normalizeCompanyName`/`buildTickerMap`/`resolveTickers`/
+   `applyParentMatch`, unchanged import, not reimplemented) against
+   LIVE USAspending.gov data (two live pulls, 45d/300-row and
+   90d/500-row, sorted by dollar value to surface real public-company
+   recipients) and hand-verified every matched (recipient, ticker)
+   pair against known real company identities — the "50-award
+   hand-check" the ladder called for; the live pulls actually
+   surfaced ~20 distinct recipient/ticker identities (dominated by a
+   few very-frequently-awarded primes like Lockheed at these dollar
+   thresholds) rather than 50 independent companies, which this entry
+   states plainly rather than overstating the sample.
+   BUG 1 (found + fixed): `normalizeCompanyName`'s short-residue guard
+   (`tokens.length<2 && out.length<5`) rejected EVERY real one-word
+   corporate name under 5 chars — silently dropping RTX Corp (the
+   real, FPDS-verified parent of "RAYTHEON COMPANY," billions/year in
+   live contracts) and, confirmed by pulling the real SEC file, ~340
+   other real listed names (3M, CSX, BP, DOW, PPL, EQT, OKTA, LYFT,
+   SNAP, ROKU, ETSY, VISA, NIKE, HSBC, GSK, ...). Fixed: guard now only
+   rejects a truly degenerate residue (<2 chars).
+   BUG 2 (found + fixed): `buildTickerMap` dropped ANY normalized-name
+   key with more than one distinct ticker — but a live pull of the
+   real SEC company_tickers.json found 1,422 such collisions, and
+   1,414 of them (99.4%) share the identical raw title and differ only
+   by a preferred-share/ETN/foreign-OTC-line ticker (e.g. "Boeing Co"
+   -> common BA + preferred BA-PA; "UBS AG" -> 20 ETN tickers) — not a
+   genuine cross-company ambiguity. This is why Boeing and Oracle were
+   silently absent from the map the whole time this pipeline has been
+   live. Fixed: same-title collisions now resolve to the single
+   shortest ticker carrying no "-"/"." (dual-class ties, e.g. Alphabet
+   GOOG/GOOGL, and the 8/1,422 keys that really are different
+   companies, e.g. "Target Corp" vs "Target Group Inc.", correctly
+   stay dropped — verified both still return no match).
+   CAVEAT 1 (parent-path residual risk, NOT fixed, logged honestly):
+   the live hand-check also found `applyParentMatch` accepting
+   "BALL CORPORATION" as the FPDS-reported parent of "BAE SYSTEMS LAND
+   & ARMAMENTS L.P." — traced conclusively (direct `/api/v2/awards/`
+   query) to the government's OWN SAM/FPDS parent-hierarchy field, not
+   a bug in this matcher; Ball Corp divested Ball Aerospace TO BAE
+   Systems in Feb 2024, so this is either a stale/miskeyed SAM
+   registration artifact from that transition or a genuine but
+   misleading ownership link — either way, attributing BAE Land &
+   Armaments contract dollars to Ball Corp (BALL) would be wrong for
+   any gate-2 use. This one instance is a coincidental interaction
+   with BUG 1's fix (the old <5-char guard accidentally also rejected
+   "BALL," a real word, as a side effect unrelated to protecting
+   against wrong parent data) — future gate-2 work should NOT
+   fully trust `mm==="parent"` matches without a plausibility check;
+   this needs its own investigation, not a guess-fix here.
+   CAVEAT 2 (ticker-liquidity, not this matcher's job): "SPACE
+   EXPLORATION TECHNOLOGIES CORP" -> SPCX is a correct NAME match
+   against SEC's own official file, but SpaceX is famously
+   privately held — whether SPCX is an actively tradeable, liquid
+   security (vs. a dormant/legacy registration) is unverified and
+   matters for any gate-2 price join; a downstream consumer must
+   check for tradeable price history, not assume every matched ticker
+   has one.
+   RATCHET: `server/usaSpending.test.ts` gained 2 new tests
+   (`RTX Corp`/`3M Co`/`CSX Corp` normalize correctly; the real
+   Boeing/Oracle same-title-collision shape resolves while the real
+   Target/"Target Group Inc." different-title collision and an
+   equal-length tie both still correctly drop) plus the reusable probe
+   `scripts/gate1_usaspending_ticker_check.ts` (run again anytime
+   against live data — this is the permanent artifact, not a one-off).
+   A/B-verified via `git stash`: 2 of the 6 touched/new assertions fail
+   against pre-fix code, the pre-existing 8 pass unchanged either way.
+   Full gates: `npx tsx --test server/*.test.ts` 858/858 pass; `npx tsc
+   --noEmit` 80 errors, byte-identical to the git-stash baseline;
+   `npm run build` clean; `python3 -m pytest -q` 886 passed/1 skipped,
+   matching the pre-existing baseline exactly. v1.0.482.
+   NOT DONE (still queued, separate future work): gate 2 itself
+   (award/mcap vs 5-20d forward returns, DoD cohorted out) — this
+   entry only closes gate 1.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.

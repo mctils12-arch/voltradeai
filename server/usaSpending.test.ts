@@ -44,6 +44,18 @@ test("normalizeCompanyName: suffix stripping makes filer and SEC names meet; too
   assert.equal(normalizeCompanyName(null), "");
 });
 
+// GATE-1 FINDING 2026-07-24 (research/experiments.md, research/open_questions.md
+// KNOWN BROKEN): a live hand-check against the real SEC company_tickers.json
+// found the prior <5-char guard rejected every real one-word ticker-like
+// corporate name, including RTX Corp — the award-detail FPDS parent
+// USAspending itself reports for "RAYTHEON COMPANY" awards, which is why
+// billions of dollars in live Raytheon/RTX contracts were unmatched.
+test("normalizeCompanyName: real one-word short company names (RTX, 3M) now yield a key, not \"\"", () => {
+  assert.equal(normalizeCompanyName("RTX Corp"), "RTX", "RTX Corp is Raytheon's real SEC-listed parent — must not be rejected as too short");
+  assert.equal(normalizeCompanyName("3M Co"), "3M");
+  assert.equal(normalizeCompanyName("CSX Corp"), "CSX");
+});
+
 test("buildTickerMap: exact keys only; ambiguous normalized names dropped (never guess)", () => {
   const map = buildTickerMap({
     "0": { cik_str: 1, ticker: "BA", title: "Boeing Company" },
@@ -54,6 +66,37 @@ test("buildTickerMap: exact keys only; ambiguous normalized names dropped (never
   assert.equal(map.get("BOEING"), "BA");
   assert.equal(map.get("LEIDOS"), "LDOS");
   assert.equal(map.get("ACME WIDGETS"), undefined, "collision must drop both");
+});
+
+// GATE-1 FINDING 2026-07-24: a live pull of the real SEC company_tickers.json
+// found 1,422 normalized-name collisions; 1,414 (99.4%) share the EXACT SAME
+// title and differ only by a preferred-share/ETN/foreign-OTC ticker suffix
+// (this is what silently deleted "Boeing Co" -> BA and "RTX Corp" (via
+// Oracle/BA-style dupes) from the live map for the ~19 days this pipeline
+// has been running) — only 8/1,422 keys were genuinely different companies.
+test("buildTickerMap: same-title collisions resolve to the shortest clean ticker (real preferred-share/ETN pattern)", () => {
+  const map = buildTickerMap({
+    // Real shape found live: "Boeing Co" -> common (BA) + preferred (BA-PA).
+    "0": { cik_str: 12927, ticker: "BA", title: "BOEING CO" },
+    "1": { cik_str: 12927, ticker: "BA-PA", title: "BOEING CO" },
+    // Real shape found live: "Oracle Corp" -> common (ORCL) + preferred (ORCL-PD).
+    "2": { cik_str: 1341439, ticker: "ORCL", title: "ORACLE CORP" },
+    "3": { cik_str: 1341439, ticker: "ORCL-PD", title: "ORACLE CORP" },
+    // Genuine different-company ambiguity must still drop (unchanged safety)
+    // — real shape found live: "TARGET CORP" (Target, TGT) vs the raw-title-
+    // distinct "Target Group Inc." (an unrelated micro-cap) both normalize
+    // to "TARGET"; DIFFERENT titles is exactly the signal that keeps this
+    // one dropped rather than resolved.
+    "4": { cik_str: 10, ticker: "TGT", title: "TARGET CORP" },
+    "5": { cik_str: 11, ticker: "CBDY", title: "Target Group Inc." },
+    // A same-title tie between two equally-short clean tickers stays ambiguous.
+    "6": { cik_str: 20, ticker: "AAAA", title: "TIE CORP" },
+    "7": { cik_str: 20, ticker: "BBBB", title: "TIE CORP" },
+  });
+  assert.equal(map.get("BOEING"), "BA", "preferred-share ticker (hyphen) must never win over the common ticker");
+  assert.equal(map.get("ORACLE"), "ORCL");
+  assert.equal(map.get("TARGET"), undefined, "same-title-but-different-CIK collision with no clean-ticker tiebreak still drops (never guess)");
+  assert.equal(map.get("TIE"), undefined, "a tie between two equally-short clean tickers stays ambiguous");
 });
 
 test("parseTxnRow maps the real API row, hand-checked", () => {

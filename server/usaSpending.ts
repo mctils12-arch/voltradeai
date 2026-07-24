@@ -73,31 +73,65 @@ const SUFFIX_TOKENS = new Set([
   "GROUP", "INTERNATIONAL", "INTL",
 ]);
 
-/** Uppercase, strip punctuation and corporate suffix tokens. Returns "" when
- *  the residue is too short to match safely (<5 chars and <2 tokens) — a
- *  too-aggressive strip must yield NO match, never a wrong one. */
+/** Uppercase, strip punctuation and corporate suffix tokens. Returns "" only
+ *  for a truly degenerate residue (empty or a single character) — a
+ *  too-aggressive strip must yield NO match, never a wrong one.
+ *  GATE-1 FINDING 2026-07-24 (research/experiments.md): the prior guard
+ *  (`tokens.length < 2 && out.length < 5`) rejected every real one-word
+ *  corporate name under 5 chars, silently dropping RTX Corp (Raytheon's
+ *  publicly-traded parent — RTX has 3 chars, 1 token) and ~340 other real
+ *  S&P/Nasdaq-listed single-token names (3M, BP, CSX, DOW, PPL, EQT, ...)
+ *  from ever entering the ticker map. A single 2-char-minimum floor still
+ *  blocks genuinely empty/degenerate residues (e.g. "Co, Inc." -> "").  */
 export function normalizeCompanyName(s: string | null | undefined): string {
   if (!s) return "";
   const tokens = String(s).toUpperCase().replace(/[^A-Z0-9 ]+/g, " ").split(/\s+/)
     .filter((t) => t && !SUFFIX_TOKENS.has(t));
   const out = tokens.join(" ").trim();
-  if (tokens.length < 2 && out.length < 5) return "";
+  if (out.length < 2) return "";
   return out;
 }
 
 /** Builds normalized-name -> ticker from SEC company_tickers.json
- *  ({"0":{cik_str,ticker,title},...}). Collisions drop BOTH names —
- *  ambiguity must never guess. */
+ *  ({"0":{cik_str,ticker,title},...}).
+ *  GATE-1 FINDING 2026-07-24 (research/experiments.md, live pull of the
+ *  real file): of 1,422 normalized-name collisions, 1,414 (99.4%) share the
+ *  EXACT SAME raw title and differ only by ticker — a company's own
+ *  preferred-share/ETN/foreign-OTC family (e.g. "Boeing Co" -> BA + the
+ *  preferred BA-PA; "UBS AG" -> 20 ETN tickers), never a genuine identity
+ *  ambiguity. The unconditional "any ticker mismatch -> drop both" rule
+ *  was silently deleting Boeing, Oracle, and hundreds of others from the
+ *  map. FIX: same-title collisions resolve to the single shortest ticker
+ *  that carries no "-"/"." (those mark preferred/class-suffixed lines —
+ *  BAC-PB, GOOGL-style class tickers stay excluded from this pool); if
+ *  that shortest candidate isn't unique, or the titles genuinely differ
+ *  (only 8/1,422 keys, e.g. "Target Corp" vs "Target Group Inc." — real
+ *  different companies), the key is dropped exactly as before — ambiguity
+ *  must never guess. */
 export function buildTickerMap(json: any): Map<string, string> {
-  const m = new Map<string, string>();
-  const collided = new Set<string>();
+  const groups = new Map<string, { ticker: string; title: string }[]>();
   for (const row of Object.values(json || {}) as any[]) {
     const key = normalizeCompanyName(row?.title);
     if (!key || !row?.ticker) continue;
-    if (m.has(key) && m.get(key) !== row.ticker) { collided.add(key); continue; }
-    m.set(key, row.ticker);
+    const arr = groups.get(key);
+    if (arr) arr.push({ ticker: row.ticker, title: String(row.title) });
+    else groups.set(key, [{ ticker: row.ticker, title: String(row.title) }]);
   }
-  collided.forEach((k) => m.delete(k));
+  const m = new Map<string, string>();
+  groups.forEach((rows, key) => {
+    const tickers = Array.from(new Set(rows.map((r) => r.ticker)));
+    if (tickers.length === 1) { m.set(key, tickers[0]); return; }
+    const sameTitle = new Set(rows.map((r) => r.title)).size === 1;
+    if (sameTitle) {
+      const clean = tickers.filter((t) => !t.includes("-") && !t.includes("."));
+      if (clean.length) {
+        const minLen = Math.min(...clean.map((t) => t.length));
+        const shortest = clean.filter((t) => t.length === minLen);
+        if (shortest.length === 1) { m.set(key, shortest[0]); return; }
+      }
+    }
+    // genuine ambiguity (different companies, or an unresolvable tie) — never guess.
+  });
   return m;
 }
 
