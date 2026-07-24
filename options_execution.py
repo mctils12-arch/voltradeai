@@ -59,6 +59,16 @@ ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_BASE = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")  # FIX: was hardcoded — broke paper/live switching
 ALPACA_DATA = "https://data.alpaca.markets"
 
+# REPAIR 2026-07-24: diagnosability for _fetch_option_chain's empty-chain
+# case. Before this, a non-200 OPRA response (e.g. entitlement 403) and a
+# genuinely-empty chain were indistinguishable at the call site — both
+# just produced an empty list, surfaced to the audit log as the generic
+# "No options contracts available for this ticker" with no way to tell
+# whether the fix belongs in the fetch (feed/entitlement) or is simply not
+# actionable (name has no listed options). Keyed by ticker so concurrent
+# tickers in the same scan cycle don't clobber each other's last reason.
+_last_chain_error: dict = {}
+
 # Absolute ceilings (safety nets — dynamic sizing targets lower values)
 # FIX (2026-04-10): Capped per-trade from 10% to 8%, total from 20% to 8%.
 # Options straddles were losing $400-500/day to spread. Reducing allocation
@@ -363,13 +373,19 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         contracts = _fetch_option_chain(ticker, price, min_dte=_min_dte,
                                         option_type=_option_type)
         # HOTFIX R2 2026-04-22: surface empty chain issues
+        # REPAIR 2026-07-24: distinguish a real fetch failure (entitlement/
+        # rate-limit/network — actionable) from a genuinely empty chain (not
+        # actionable) using the reason _fetch_option_chain captured.
         if not contracts:
+            _chain_reason = _last_chain_error.get(
+                ticker, "chain fetch succeeded but returned zero contracts in range"
+            )
             import logging
             logging.getLogger("voltrade.options_execution").warning(
-                f"EMPTY CHAIN: {ticker} returned 0 contracts (min_dte={_min_dte}, strategy={strategy})"
+                f"EMPTY CHAIN: {ticker} returned 0 contracts (min_dte={_min_dte}, "
+                f"strategy={strategy}) — {_chain_reason}"
             )
-        if not contracts:
-            return {"error": "No options contracts available for this ticker"}
+            return {"error": f"No options contracts available for this ticker ({_chain_reason})"}
         
         # Filter by liquidity
         liquid = [c for c in contracts if _is_liquid(c)]
@@ -460,6 +476,7 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
                  goes to puts only.
     """
     contracts = []
+    _last_chain_error.pop(ticker, None)
     try:
         # Get contracts expiring min_dte-50 days out
         # v1.0.33: widened from 14-45 to 7-50 to cover all scanner setups:
@@ -566,11 +583,14 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
                         "days_to_expiry": (datetime.strptime(exp_date, "%Y-%m-%d") - now).days,
                     })
         else:
-            logger.warning(f"Options chain fetch failed: {resp.status_code}")
-    
+            _reason = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            _last_chain_error[ticker] = _reason
+            logger.warning(f"Options chain fetch failed for {ticker}: {_reason}")
+
     except Exception as e:
-        logger.error(f"Options chain error: {e}")
-    
+        _last_chain_error[ticker] = f"exception: {str(e)[:200]}"
+        logger.error(f"Options chain error for {ticker}: {e}")
+
     return contracts
 
 
