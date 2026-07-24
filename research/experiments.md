@@ -25815,3 +25815,205 @@ matching against operators' disclosed methane intensity remains
 CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
+
+
+## 2026-07-24 (scheduled-routine session) [RESEARCH] — Axis (b) illiquid-universe probe: momentum degrades in thin small-caps as predicted, but mean_reversion shows a real (if modest) edge specifically in the illiquid tier, now that the fill-cost model isn't fiction
+
+TERRITORY: `scripts/illiquid_universe_probe.py` (new, standalone — nominally
+T-DATACORE by file path, but the content is pure backtest/strategy research
+reading `tiered_strategy.T1_TICKERS_FALLBACK` and `backtest_v2.py`, same
+T-BOT-adjacent-standalone-script class as the 2026-07-23 GEM methane
+session) + `test_illiquid_universe_probe.py` (repo-root, matching the
+existing `test_form4_gate2.py`/`test_gem_methane_gate2c.py` convention).
+No production/runtime/client file modified — `backtest_v2.py` and
+`tiered_strategy.py` were read, not touched. No `package.json` version
+bump: zero runtime import, no strategy/parameter/trading-behavior change
+(matches the 2026-07-23/07-22 precedent for pure offline research scripts).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + this
+session's scheduled prompt naming axes a/b/c/d). `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 — no LIVENESS ALARM, not a mandatory [REPAIR]
+session. KNOWN BROKEN's remaining open items (#10 dead score-band config,
+#12(b)/(c) gated options-exit feedback, #20 master_kill_switch threshold
+judgment, #18 pending live confirmation) are all explicitly gated on
+accumulating live history or an already-deferred design decision — none
+liveness-critical, none block new work. Loop-health ratio over the last
+10 tagged entries (RESEARCH/RULE-REVIEW/RESEARCH/PRODUCT/REPAIR/REPAIR/
+PRODUCT/RESEARCH/REPAIR/REPAIR, reading back) is under the 7/10 thrash
+threshold.
+
+GITHUB ACTIONS CI STILL DOWN, WORSE THAN LAST CHECKED: re-sampled via
+`actions_list` — every run still fails in ~2-3s with `runner_id: 0` (no
+runner ever allocated), continuously since 2026-07-22T14:09:21Z, now
+**36+ hours**. NEW THIS SESSION: the outage has produced a real, growing
+backlog, not just a missing signal — `list_pull_requests` shows 8 open
+Claude-session PRs stuck unmerged since the outage began (#594, #593,
+#592, #591, #590, #586, #585, #584), plus older stale ones (#572, #449,
+#415, #399) predating it. Confirmed PR #594's combined status is empty
+(`total_count: 0`) — its `changes` job never got a runner, so every
+downstream job (including the `Auto-merge Claude PRs` job) reports
+skipped, exactly the signature the 2026-07-22/23 entries describe. This
+is a genuine, worsening, human-actionable finding (not a routine
+re-confirmation) — sent as this session's own scheduled-routine
+notification, given 4 prior wishlist.md entries plus at least one prior
+direct notification have not yet produced a visible fix, and the backlog
+of un-mergeable work is now large enough to matter on its own.
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 0/1 survey) to check which of the scheduled prompt's four EDGE
+DOCTRINE axes was highest-EV given research/'s current state. Its
+finding, independently verified this session: axis (a)'s named standing
+examples (Sentinel-2 tank shadows, EDGAR Form4, USAspending, CFTC COT,
+FDA calendar) are ALL already built; Google Trends/pytrends already
+FAILED gate-1 (upstream archived). Axis (b) — capacity-constrained/
+illiquid-universe research — carries an explicit precondition in this
+session's own prompt ("requires the fill-realism fix first, or results
+are simulator fiction"). That precondition was satisfied ONE session ago
+(2026-07-23, PR #588, v1.0.480: `backtest_v2.py`'s flat 5bps cost
+replaced with `liquidity_cost_pct()`, tiered by trailing volume) and its
+own filed NEXT step said axis (b) is "now unblocked ... a future session
+can run backtest.py on genuinely thin small-caps and trust the cost isn't
+fiction" — nobody had picked this up yet (the very next session went to
+GEM methane gate-2(c) instead). Confirmed unblocked, no FROZEN PATH
+contact, no human-approval blocker.
+
+Also verified before starting: local `git log`/`git branch -a` matched
+`origin/main` exactly (both at 47772d6/#589) — the PR numbers up to #594
+seen in CI runs are OPEN, unmerged PRs (the backlog above), not commits
+this session was missing. No branch collision with this session's chosen
+files.
+
+PRIOR (stated before running, Reasoning Standard #10): EDGE DOCTRINE #2
+predicts illiquid names should show MORE exploitable structure (whale
+capital can't fit). Second-order counter-prior (Reasoning Standard #5):
+`momentum.py`/`mean_reversion.py` were developed and tuned against the
+bot's actual live universe, which skews liquid/mega-cap
+(`T1_TICKERS_FALLBACK`) — so the UNMODIFIED strategy logic was expected
+to transfer poorly to microcap dynamics (dilution, gap risk, thin
+coverage) even if the underlying capacity-constrained opportunity is
+real. Expected: illiquid group underperforms liquid group on BOTH
+strategies.
+
+UNIVERSE CONSTRUCTION (documented in the script's own docstring, not
+guessed from memory/training data — READ BEFORE WRITE discipline extended
+to data selection): candidate pool = `nasdaqtrader.com/dynamic/SymDir/
+nasdaqlisted.txt` (live NASDAQ symbol directory, fetched this session),
+filtered to Market Category "S" (Nasdaq Capital Market — the smallest
+listing tier, a real structural size proxy needing no market-cap field),
+common stock only (ETF/Test-Issue/Warrant/Right/Unit/Acquisition/
+Preferred/Depositary excluded), systematic every-40th-row sample (1,334
+filtered names -> 34 candidates, not cherry-picked). Screened via
+`backtest_v2._yahoo_bars` for >=500 trading days of real history, then
+bucketed into ILLIQUID (n=10, <=1M shares/day trailing 252d) and
+MODERATE (n=7, 1-5M shares/day) using `backtest_v2.py`'s OWN existing
+`liquidity_cost_pct()` tier boundaries — so these labels are literally
+the tiers the cost model already prices, not an invented cut. LIQUID
+comparison group (n=7): AAPL/MSFT/NVDA/AMD/AMZN/CAT/GE, a subset of
+`tiered_strategy.T1_TICKERS_FALLBACK` (the live bot's own liquid anchor
+universe) minus its 3 ETF members.
+
+RESULT (`years=4`, engine=`backtest_v2` post-v1.0.480, `strategy=all` —
+squeeze always returns `data_quality: unavailable`, no short-interest
+data, so only momentum/mean_reversion produced real numbers):
+  - illiquid (n=10): buy&hold mean **-74.7%** (brutal even among
+    SURVIVORS — see limitations). momentum mean_sharpe **-0.236** (3/10
+    positive). mean_reversion mean_sharpe **+0.246** (8/10 positive, 147
+    total trades, mean win rate 46.0%, mean total_return_pct +4.32%).
+  - moderate (n=7): buy&hold mean -74.6%. momentum mean_sharpe +0.025
+    (3/7 positive). mean_reversion mean_sharpe **-0.222** (3/7 positive)
+    — worse than both other groups.
+  - liquid (n=7): buy&hold mean +375.7%. momentum mean_sharpe **+0.559**
+    (6/7 positive). mean_reversion mean_sharpe +0.319 but only **11
+    total trades across all 7 tickers** — mega-caps rarely trigger the
+    oversold+volume-spike setup in a trending bull tape, so this reading
+    has effectively no statistical power and is NOT a fair baseline for
+    mean_reversion specifically.
+
+INTERPRETATION — prior partially confirmed, partially updated (state
+prior, then update, not just conclude): momentum MATCHES the prior —
+illiquid/moderate clearly worse than liquid, consistent with momentum
+depending on sustained institutional/analyst-driven trend continuation
+that thin names structurally lack. mean_reversion did NOT match the
+prior: a modest but consistent positive edge specifically in the
+illiquid tier (best pos_frac of the three groups, comparable-or-better
+mean Sharpe to the power-starved liquid reading, WORSE in the moderate
+tier — not a smooth liquidity gradient, a specifically-illiquid effect).
+Plausible structural story (Reasoning Standard #5, capacity/mandate
+constraint, not "nobody noticed"): thin order books mean oversold
+conditions are retail-panic-driven and mechanically exhaust once sellers
+are out, without the sustained institutional selling flow that can keep
+grinding a liquid name down for many sessions — i.e. exactly the kind of
+dynamic large funds are mandate-constrained out of trading at this
+dollar-volume size. Magnitude is modest (mean total_return_pct +4.32%
+over 4y, ~1%/yr) — a real but unspectacular signal-layer finding.
+
+HONEST LIMITATIONS (stated in the script docstring, repeated here per
+MEASUREMENT INTEGRITY discipline extended to research claims):
+(1) SURVIVORSHIP — the candidate pool is TODAY's live NASDAQ listing;
+any illiquid name that fully delisted inside the 4y window is invisible.
+Group buy&hold was still -74/-75% even among survivors — true population
+reality (including delistings-to-zero) is almost certainly worse, not
+better, and it's unclear which direction this biases the mean_reversion
+result specifically (a name approaching delisting might show
+oversold-and-never-bounces action right before dropping out, which
+would UNDERSTATE the true downside this sample can't see).
+(2) SINGLE SAMPLE DRAW — one systematic sample of 10/7 names, no
+independent re-draw, no formal significance test (t-test/bootstrap) run
+this session. Per Reasoning Standard #4, the Sharpe means above are
+descriptive, not confirmed-significant — discount accordingly.
+(3) NO OUT-OF-SAMPLE SPLIT — the full 4y window was used for both
+"discovering" and reporting the pattern, classic in-sample read.
+(4) NOT a new "data root" — momentum.py/mean_reversion.py already exist
+and already cleared their own LOGIC gate on the liquid universe
+historically; this probe asks whether that logic generalizes to a new
+market-cap segment. It grants no ladder gate on its own.
+
+NOT SHIPPED, deliberately: no strategy/threshold/config change this
+session — this is a SIGNAL-layer-style descriptive finding that hasn't
+cleared the rigor bar (no significance test, no out-of-sample split) RULE
+REVIEW requires before any threshold change, let alone a new
+mean-reversion-tuned-for-illiquid-names strategy variant. Filed as a
+hypothesis in open_questions.md with its ladder path instead (see below).
+
+RATCHET: `test_illiquid_universe_probe.py` (12 tests, zero coverage
+existed before) — buy_and_hold_pct edge cases (positive/wipeout/flat),
+classify_liquidity_tier pinned against backtest_v2's OWN
+`_LIQUIDITY_TIERS`/`_ILLIQUID_COST_PCT` boundaries (a drift in either
+place without updating the other would silently mislabel which cost tier
+this probe's tickers actually price at), summarize()'s aggregation
+(pos_frac, means, error-row handling, empty-group no-crash), and a pin
+that the frozen ILLIQUID/MODERATE/LIQUID candidate lists have no overlap
+and LIQUID is a genuine subset of `T1_TICKERS_FALLBACK` minus ETFs (guards
+against an accidental edit silently changing the study population).
+`python3 -m pytest -q`: 876 passed, 3 skipped (864 baseline + 12 new,
+zero regressions). No TypeScript/client files touched — `npx tsc`/
+`npm run build` not re-run, matching the established precedent for
+Python-only research-script diffs.
+
+BACKTEST: N/A — this is offline research reading the (already-fixed)
+backtest engine, not a scoring/sizing/execution change; PROMOTION RULE
+3's Sharpe/drawdown gate doesn't apply, and MEASUREMENT INTEGRITY doesn't
+either (the cost model itself is untouched — this session only consumed
+it).
+
+CI: still down (see above) — this PR ships on full local verification
+only (pytest gate above), following the established option-(c) precedent
+from the 2026-07-22/23 entries; merged directly via the GitHub API after
+confirming no other check signal was available, same as every session
+merging in this window.
+
+NEXT (filed in open_questions.md as its own hypothesis with a ladder
+path): (i) an independent re-draw (different stride/seed on the NASDAQ
+symbol directory, or a second exchange's small-cap tier) to check the
+mean_reversion-in-illiquid finding isn't an artifact of this one sample;
+(ii) a proper train/test time split before trusting the pattern
+out-of-sample; (iii) a formal significance test (bootstrap CI on the
+Sharpe difference, or a paired test across tickers) before this could
+even be considered for a LOGIC-gate ablation; (iv) if it survives (i)-
+(iii), the natural next step is NOT porting the liquid-tuned
+mean_reversion config unchanged into a new illiquid-universe strategy
+variant, but re-tuning entry/exit thresholds specifically for microcap
+volatility — a separate, larger effort, not assumed here. Also
+unresolved: the GitHub Actions outage and its now-8-PR backlog, flagged
+directly to the human this session (see notification).
