@@ -198,6 +198,20 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       endpoint: "GET /api/v1/stats/archive",
       returns_provenance: ["stats/archive"],
     },
+    {
+      name: "voltrade_get_graph",
+      description: "Everything Graph v1 — Form 4 insider filings, entity_map operator->ticker joins, and AIS port-call edges, joined into one node/edge graph. Omit entity for counts-only; pass an entity to get its neighborhood. RAW overlay — asserts filed relationships with provenance, no predictive claim.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", description: "Optional: ticker, MMSI, CIK, or facility id. Omit for graph-wide counts only." },
+          hops: { type: "integer", minimum: 0, maximum: 3, default: 1, description: "Neighborhood radius when entity is given." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/graph?entity={entity}&hops={hops}",
+      returns_provenance: ["graph"],
+    },
   ];
   return {
     version: "v1",
