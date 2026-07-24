@@ -2535,6 +2535,78 @@
     phantom one — read that message first, it should localize the
     remaining bug directly.
 
+25. **[FOUND + FIXED (diagnosability only) 2026-07-24, v1.0.481,
+    scheduled-routine session] `options_execution.py`'s Tier 1/2 CSP
+    contract-selection path silently equated a non-200 OPRA response
+    (entitlement/rate-limit/network) with a genuinely-empty options
+    chain — every failure surfaced identically as `"No options
+    contracts available for this ticker"`, with zero HTTP status/body
+    captured anywhere.** Found via `/api/diag/audit` this session:
+    STM/DRAM/HYG each hit `T2-FAIL: <ticker>: No options contracts
+    available for this ticker` on every single Tier2 cycle sampled (24
+    of 60 recent entries), on a live trading Friday — not a weekend, so
+    the 2026-07-12/13 "benign weekend OPRA quiet" precedent (this same
+    item's earlier neighbor discussion, see KNOWN BROKEN #3's
+    surrounding notes) does not apply here. HYG in particular is a
+    liquid, listed-options ETF — a 100% per-cycle "no contracts"
+    reading for it is far more consistent with a silent fetch failure
+    (e.g. an OPRA/Algo-Trader-Plus entitlement rejection, mirroring the
+    SIP-403 pattern KNOWN BROKEN #23 already found infecting other
+    hardcoded-feed call sites) than a genuine absence of listed
+    options. NOT ROOT-CAUSED THIS SESSION — `_fetch_option_chain`'s
+    non-200 branch (`options_execution.py`, was: bare
+    `logger.warning(f"Options chain fetch failed: {resp.status_code}")`
+    with no status/body persisted anywhere reachable by `select_contract`
+    or the audit trail) made the actual cause structurally unobservable
+    without shell access to Railway's Python logs, so this session
+    fixed the VISIBILITY gap only (same shape as KNOWN BROKEN #17/#21):
+    a module-level `_last_chain_error` dict now captures `HTTP
+    {status}: {body[:200]}` (or the exception text) per ticker,
+    cleared on the next successful fetch for that ticker so a stale
+    reason can't leak into an unrelated later failure; `select_contract`
+    now threads that reason into both its `logger.warning` and its
+    returned `error` string, which flows automatically into the
+    existing `T2-FAIL` audit line via `server/bot.ts`'s `r.reason`
+    read — no `bot.ts` change needed. A genuinely-empty chain (200,
+    zero snapshots) now reads "chain fetch succeeded but returned zero
+    contracts in range" instead of being indistinguishable from a real
+    fetch failure — this is the same real-cause-vs-benign distinction
+    KNOWN BROKEN #21 established for the alt-data enrichment fetchers.
+    Scope note: `options_scanner.py`'s `_fetch_options_chain` has the
+    identical shape of bug (non-200 → silent `break`, not even a
+    logger.warning) but was NOT touched this session — it's a
+    different call path (scanner candidate screening, not the Tier1/2
+    CSP execution path this session's audit-log finding was actually
+    in), and fixing it is a separate logical change per the one-PR-one-
+    change rule. RATCHET: `test_options_chain_diagnosability.py` (new,
+    6 tests) — non-200 captured with status+body, exception captured,
+    genuinely-empty chain leaves no stale error, a later success clears
+    a prior ticker's error, and both of `select_contract`'s error-string
+    branches (real reason vs. honest "zero contracts" default) —
+    A/B-verified via `git stash` to fail 6/6 against pre-fix
+    `options_execution.py` and pass 6/6 post-fix. Full suite:
+    `python3 -m pytest -q` 886 passed, 1 skipped (zero regressions; the
+    baseline count only differs from the last session's 876/3 because
+    installing `requirements-dev.txt` this session unblocked tests that
+    were previously import-skipped, not because of this change). No
+    TypeScript/client files touched.
+    **NEXT CHECK** (once deployed): query
+    `/api/diag/audit?type=T2-FAIL&token=$DIAG_TOKEN` — any STM/DRAM/HYG
+    (or other) recurrence should now show a specific reason in
+    parentheses (`HTTP 403: ...`, `HTTP 429: ...`, `exception: ...`, or
+    the honest "zero contracts in range" default) instead of the bare
+    generic message. If it comes back `HTTP 403` specifically, that
+    confirms an OPRA/Algo-Trader-Plus entitlement gap on the options
+    snapshot endpoint — the next session's fix would be an
+    entitlement-aware fallback for this endpoint (mirroring
+    `alpaca_feed.py`'s `bars_feed()`/`data_feed()` precedent for the
+    stock-data side), not a threshold change. If it comes back the
+    honest "zero contracts" default consistently for the SAME tickers,
+    that instead points at the CSP tier's candidate universe including
+    tickers with no listed options at all — a different, non-fetch fix
+    (tighten the universe upstream). Either way, this item stays OPEN
+    until a live `T2-FAIL` sample with the new detail is read.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
