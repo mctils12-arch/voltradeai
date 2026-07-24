@@ -25597,6 +25597,113 @@ provably correct by construction (probe plane-selection is unreliable
 under SwiftShader — a known probe limitation this session, not a fix
 defect). BACKTEST: N/A.
 
+## 2026-07-22 (scheduled-routine session) [PRODUCT] — FINRA ATS/OTC venue volume leaderboards get a /data view (client/src/pages/atsSummary.tsx, v1.0.479, T-CLIENT)
+
+TERRITORY: T-CLIENT (new page + datamap.tsx wiring + datacore/layers.json
+registry entry — no server code touched, no frozen paths).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md,
+open_questions.md, wishlist.md. Confirmed branch state: the prior
+designated-branch head (2eb6511) had already become `origin/main` itself
+(a merged-branch situation per the merge-timing instructions — restarted
+cleanly on `origin/main`, no unmerged work lost). `/api/health`:
+status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca
+ACTIVE — no LIVENESS ALARM, no KNOWN BROKEN item blocking product work
+(the two open T-BOT items, #10 dead score-band config and #20 the CSP
+master-kill-switch judgment call, are both correctly gated on more live
+data per their own entries, not actionable this session, and outside
+this session's T-CLIENT territory regardless).
+
+PRIMARY ACTION SELECTION: delegated a research subagent to survey every
+active program's RESUME STATE (DATACORE MAXIMUS, PLATFORM PROGRAM, GRID
+VISION, ORBITAL, EARTH TWIN, ANALYST CONSOLE, SCALE) for the best-scoped
+not-blocked next action, since DATACORE MAXIMUS's own "shipped-data-no-
+map-layer" gaps had all just closed (GEM coal-mine layer, same day) and
+PLATFORM PROGRAM P1-P4 are fully shipped with only P5 (HUMAN-GATED
+billing activation) left. Its top-ranked finding, verified independently
+before building (READ BEFORE WRITE — read server/routes.ts's actual
+`/api/data/ats-summary` handler and server/finraQuery.ts's real response
+shapes myself, did not trust the subagent's claims about them): FINRA's
+ATS/OTC venue-summary API route has served live data since v1.0.208
+(2026-07-08) but has never had a client view — `grep` for
+`ats-summary`/`AtsSummary` across `client/src/` returned nothing, and
+wishlist.md's DATACORE MAXIMUS block has carried "a FINRA part 2 UI view
+once weeks of archive accumulate" as an open NEXT item since that ship
+date. Two weeks of archive have now accumulated; RAW display needs no
+ladder gate (same status as shortvol/attention/cot, its direct
+siblings); no key, no server change, no frozen path.
+
+BUILD: `client/src/pages/atsSummary.tsx` (new, ~215 lines) modeled
+directly on the two closest existing precedents (`shortvol.tsx` for the
+overall page shape, `methaneHotspots.tsx` for the tab-switcher pattern
+since ATS has no time-series/search the way shortvol does) — reuses the
+generic `.vt-filings-*`/`.vt-shortvol-*` CSS, zero new styles. Renders
+`/api/data/ats-summary`'s three FINRA-precomputed leaderboards as
+switchable tabs: weekly ATS-by-symbol, weekly OTC-by-symbol, monthly
+OTC-by-symbol (honestly notes monthly has no ATS/OTC venue split — the
+server's own `AtsSymbolSummary.top_ats_by_symbol` is optional and absent
+for the monthly partition, confirmed by reading `finraQuery.ts`'s header
+comment before assuming), and monthly block-trading venue ranks
+(FINRA's own precomputed rank field, not re-derived). `tiers_covered`
+and record counts are surfaced per the server's own partial-tier
+honesty convention (never implies complete coverage).
+
+Wired into `datamap.tsx` following the exact insider/earnings/shortvol/
+attention/cot/graph/methane_plumes precedent (all non-geospatial RAW
+layers — inline-panel-row-with-open-button + full-view overlay, no map
+markers): import, `#/data/ats-summary` hash-open state + hashchange
+listener entry, `LAYER_GROUP.ats_summary = "filings"`, a `Landmark`
+icon (new lucide-react import — no existing icon fit an
+exchange/venue concept), a 300s polling effect matching the sibling
+filings-layer cadence (mirrors the server's own 6h refresh; the client
+poll only refreshes the panel's record-count badge), a "records" unit
+label, an inline panel row with the open-full-view button, and the
+overlay mount. Left OUT of `DEFAULT_ON` (off by default) — matches the
+more recent filings-layer convention (faa_airports/border_waits/
+coal_mine_features/methane_plumes), not the older always-on set
+(insider/earnings/shortvol/attention/cot) from before that convention
+started.
+
+`datacore/layers.json` gained the `ats_summary` registry entry
+(group: filings, kind: raw, status: live) — required for
+`server/layersWiring.test.ts`'s ratchet (any live registry id missing
+from datamap.tsx's `LAYER_GROUP` renders PERMANENTLY "reload to
+enable", the R15 defect class); verified the ratchet passes with the
+new entry present.
+
+GATES: `npx tsx --test server/*.test.ts` 850/850 (server untouched by
+this PR — unaffected, confirms no regression). `npx tsx --test
+client/src/lib/**/*.test.ts` (all client lib suites) 641/641 — no new
+lib-level logic added (the new page has no pure-logic helper worth its
+own unit test, same as shortvol.tsx/methaneHotspots.tsx, neither of
+which have one either). `npx tsc`: git-stash A/B — 80 errors before,
+80 after (this session's actual baseline; the immediately-prior
+session's cited "77" had already drifted before this session started,
+unrelated to this change) — zero new errors, none touching
+atsSummary.tsx or datamap.tsx's new lines. `npm run build` clean.
+`npm run visual -- --page data`: 0 hard failures at 390/768/1440 (the
+harness's touch-target/clipped-control warnings present both before
+and after are pre-existing, on unrelated controls — About/Sign-in/
+layer-panel chrome, not this feature). LIVE VERIFICATION (R14/R17
+lesson — verify the positive case against the real built server, not
+just error-free responses): booted `node dist/index.cjs` locally;
+`GET /api/data/layers` returns the new `ats_summary` entry with the
+exact registry fields; `GET /api/data/ats-summary` returns
+`{kind:"raw", warming_up:true}` in this sandbox (no live FINRA poll
+has landed here — expected, matches the component's own `warming_up`
+branch, which this exercised for real rather than only in the fixture
+harness).
+
+BACKTEST: N/A (RAW display of an already-archived, already-served
+source; no trading logic, no new predictive claim).
+
+NEXT: wishlist.md's DATACORE MAXIMUS block updated below. Backup
+candidates the research pass also surfaced, not built this session:
+SEC MIDAS `/api/data/microstructure` has the identical no-UI gap (same
+wiring recipe, new `midas.tsx`); a HIFLD-vs-WRI power-plant dedup
+migration (`research/open_questions.md` lines ~5504-5578) is fully
+specified but medium-large multi-file scope, better suited to a
+session with more remaining budget.
 ## 2026-07-23 (scheduled-routine session) [PRODUCT] — Per-layer freshness chips on the /data layer panel (v1.0.479, T-DATACORE + T-CLIENT)
 
 TERRITORY: T-DATACORE primary (server/layerFreshness.ts + its test) with

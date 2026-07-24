@@ -381,6 +381,19 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   environmental). Full trace in experiments.md. DATACORE MAXIMUS queue
   is clear again — no shipped-data-no-map-layer gaps remain as of this
   session.
+- **FINRA ATS/OTC venue-summary /data view: SHIPPED 2026-07-22
+  (v1.0.479, T-CLIENT)** — `client/src/pages/atsSummary.tsx` (new) +
+  `datamap.tsx` wiring (`#/data/ats-summary`, `ats_summary` filings-group
+  layer, off by default) + `datacore/layers.json` registry entry. Closes
+  the "a FINRA part 2 UI view once weeks of archive accumulate" item this
+  block has carried since v1.0.208 (2026-07-08) — the API route existed,
+  the client view didn't. RAW leaderboards only (weekly ATS/OTC by
+  symbol, monthly OTC by symbol, monthly block-trading venue ranks, all
+  FINRA-precomputed); no ladder gate. Full trace in experiments.md.
+  UNCLAIMED shipped-data-no-UI gap found by the same sweep, not built
+  this session: SEC MIDAS (`/api/data/microstructure`, v1.0.265) has the
+  identical no-client-view gap — same wiring recipe, model on
+  atsSummary.tsx/shortvol.tsx, new `client/src/pages/midas.tsx`.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
@@ -1710,6 +1723,31 @@ usage (or Settings → Actions → General → concurrency/spending limits)
 for this repo/account — that's the fastest way to confirm or rule out
 the quota hypothesis, which no session tool here can check directly.
 
+UPDATE 2026-07-22 (later same day, PR #585): RECURRED, now 3 consecutive
+times on one PR — the `changes` job failed identically three times in a
+row (`rerun_failed_jobs` called after each), every attempt completing in
+~3s with `runner_id: 0, runner_name: ""` (no runner ever allocated,
+confirmed via `get_workflow_job`, not inferred). `get_job_logs` 404'd
+again on every attempt. Three failures in immediate succession (not
+spread across separate sessions/days like the first two instances)
+further supports the quota/concurrency-exhaustion hypothesis over a
+one-off transient blip — retrying more would burn further Actions
+minutes into a plausibly-exhausted quota, so this session stopped after
+3 attempts rather than continuing to hammer it. UNLIKE the #582
+precedent, PR #585 is a real code change (new client page +
+datamap.tsx wiring), not a docs-only edit — the session chose NOT to
+bypass CI via a direct manual merge here (that precedent's risk
+calculus doesn't transfer to application code), instead: extensive
+LOCAL verification already run and documented in the PR (server
+850/850, client 641/641, tsc A/B unchanged, build clean, visual harness
+0 hard failures, live-booted dist/index.cjs positive-case check) stands
+as the evidence in place of a green CI run; the PR is left open,
+unmerged, for CI to clear (retry) or the human to merge once confirmed
+safe. Also unresolved regardless of CI: PR #585's own merge-timing note
+says it should wait for market close (prepared ~14:30 ET) — this CI
+issue does not change that. STRENGTHENED ask for the human: this is now
+a 3-strike-same-session pattern, worth checking Settings → Billing →
+Actions usage sooner rather than waiting for another recurrence.
 ## 2026-07-22 — SIX open, unmerged, non-draft Claude PRs found sitting stale (1-2 weeks each); disposition + a session-start-checklist recommendation (found while recovering #420 as this session's REPAIR — no code change here beyond the checklist recommendation)
 
 OBSERVED: the open-PR list (last checked and found clean on 2026-07-09,
