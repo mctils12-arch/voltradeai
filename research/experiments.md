@@ -26017,3 +26017,145 @@ variant, but re-tuning entry/exit thresholds specifically for microcap
 volatility — a separate, larger effort, not assumed here. Also
 unresolved: the GitHub Actions outage and its now-8-PR backlog, flagged
 directly to the human this session (see notification).
+
+## 2026-07-24 (scheduled-routine session, 2nd of the day) [REPAIR] — CSP options-chain fetch failures were indistinguishable from genuine no-options-listed; diagnosability fix + KNOWN BROKEN #25 filed (v1.0.481)
+
+TERRITORY: `options_execution.py` (T-BOT scope) + new root-level
+`test_options_chain_diagnosability.py` (matching the `test_form4_gate2.py`/
+`test_gem_methane_gate2c.py` standalone-test convention) + `research/
+open_questions.md` KNOWN BROKEN #25 (SHARED, minimized to the one new
+numbered item, appended as the last edit before this commit) + `package.json`
+version bump (SHARED, read-and-incremented at commit time per the
+WORKSTREAM PARTITION merge-order protocol — origin/main confirmed at
+5e42491/v1.0.480, no other session had bumped past it).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 — no LIVENESS ALARM. Loop-health ratio over the
+last 10 tagged entries (reading back from the axis-(b) illiquid-universe
+session earlier today): RESEARCH/RESEARCH/REPAIR/PRODUCT/REPAIR/REPAIR/
+PRODUCT/RULE-REVIEW/RESEARCH/RESEARCH — 3/10 REPAIR, nowhere near the
+7+ thrash trigger. GITHUB ACTIONS CI: re-sampled via `actions_list` —
+still every run `completed`/`conclusion:failure` since
+2026-07-22T14:14:38Z (now ~45h); 13 open PRs total, the same 8-PR
+CI-outage backlog the prior session already flagged (#584/#585/#586/
+#590/#591/#592/#593/#594) plus 5 older stale PRs unrelated to the
+outage (#77/#399/#415/#449/#572) — no new PRs appeared since #594
+(2026-07-24T00:24Z), so the backlog is unchanged, not growing further,
+and was already surfaced to the human via the prior session's own
+notification. Per the "silence when nothing changed" principle, this
+session did NOT send a second notification for the same unresolved,
+unchanged, already-reported outage — it's an infra-level GitHub Actions
+problem outside this repo's control (`.github/workflows/` is FROZEN),
+already in wishlist.md multiple times.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, checked `/api/diag/audit`
+(DIAG_TOKEN available in env) for a live, currently-actionable bug
+before falling through to research — this is the top tier of the
+budget and the REPAIR MANDATE's explicit instruction. Found: of the 60
+most recent audit entries, 24 were `T2-FAIL`, all three of a fixed set
+of tickers (STM, DRAM, HYG) recurring on literally every Tier2 cycle
+sampled: `"No options contracts available for this ticker"`. Verified
+today is a live trading Friday (2026-07-24, computed from the known
+2026-01-01=Thursday anchor), not a weekend — so the 2026-07-12/13
+"benign weekend OPRA quiet" precedent this exact symptom was excused
+under twice before (open_questions.md KNOWN BROKEN #3 neighbor note,
+and the 2026-07-12 session's explicit "tempting to chase... but today
+is Sunday, deferred to Monday" call) does not apply this time, and
+nobody had done the deferred Monday-or-later check since. HYG in
+particular is a highly liquid options-listed ETF (iShares iBoxx High
+Yield Corporate Bond) — a 100% per-cycle "no contracts" reading for it
+is structurally implausible as a genuine "no listed options" case and
+far more consistent with a silently-failing fetch.
+
+READ BEFORE WRITE: read `options_execution.py`'s `select_contract` and
+`_fetch_option_chain` in full this session (not from memory/precedent
+text alone, though the 2026-07-12 entry's trace pointed at the right
+function). Confirmed live: `_fetch_option_chain` requests
+`v1beta1/options/snapshots/{ticker}` with a hardcoded `feed: "opra"`
+(the paid Algo Trader Plus real-time feed, per its own comment) and on
+`resp.status_code != 200` just does a bare `logger.warning(f"...:
+{resp.status_code}")` — a Python-log-only line, invisible to
+`/api/diag/audit` and to the caller, which sees only an empty list
+indistinguishable from a genuinely empty chain. `select_contract` then
+returns the same generic `{"error": "No options contracts available
+for this ticker"}` regardless of cause, which `server/bot.ts`'s tier
+dispatcher (`audit("T"+action.tier+"-FAIL", ...r.reason...)`, line
+~3504) puts straight into the audit log verbatim — confirmed by
+tracing `server/bot.ts` end to end, not assumed. Grepped every call
+site of `_fetch_option_chain` (2, both in `options_execution.py`) and
+confirmed `options_scanner.py` has a structurally identical
+`_fetch_options_chain` (note the extra "s") with the SAME bug shape
+(non-200 → silent `break`, not even a logger line) but 8 separate call
+sites on a different execution path (scanner candidate screening, not
+Tier1/2 CSP order placement) — out of scope for a one-change PR, not
+touched, filed as a scope note in KNOWN BROKEN #25 instead of expanding
+this diff.
+
+FIX (diagnosability only — root cause NOT yet confirmed, correctly so
+per REASONING STANDARD #4/#10: don't guess a specific fix before the
+new visibility exists to confirm which cause it actually is):
+`options_execution.py` gained a module-level `_last_chain_error: dict`
+keyed by ticker. `_fetch_option_chain` now clears any prior entry for
+the ticker at the top of each call (so a stale reason can never leak
+into an unrelated later failure), and on a non-200 response captures
+`f"HTTP {status}: {body[:200]}"` (on an exception, `f"exception:
+{str(e)[:200]}"`) instead of only logging it. `select_contract`'s
+empty-chain branch now reads that captured reason (falling back to the
+honest `"chain fetch succeeded but returned zero contracts in range"`
+when there was no HTTP-level failure — i.e. a genuinely empty chain)
+and threads it into both the logger warning and the returned `error`
+string — which reaches the audit log automatically via the existing
+`r.reason` read in `server/bot.ts`, no TypeScript change needed.
+
+RATCHET: `test_options_chain_diagnosability.py` (new, zero coverage
+existed for this function's error path before) — 6 tests: non-200
+captured with status+body, exception captured, a genuinely-empty (200,
+zero snapshots) chain leaves NO stale error, a later successful fetch
+clears a prior ticker's error, and both of `select_contract`'s two
+error-string branches (real captured reason vs. the honest "zero
+contracts" default, so a genuine no-options-listed case is never
+mis-reported as a fabricated HTTP failure). A/B-verified via `git
+stash push -- options_execution.py`: all 6 fail against pre-fix code
+(`AttributeError: module 'options_execution' has no attribute
+'_last_chain_error'` × 4, plus 2 assertion failures on the unchanged
+generic error string), all 6 pass post-fix.
+
+Full suite: this session also had to `pip3 install -r requirements.txt
+-r requirements-dev.txt` (a bare sandbox had neither pytest nor the
+runtime deps installed) before any gate could run — `python3 -m pytest
+-q`: 886 passed, 1 skipped, 0 failed. The count differs from the
+prior session's stated 876 passed/3 skipped baseline: installing
+`requirements-dev.txt` (openpyxl, xlrd, etc.) this session unblocked
+several previously import-skipped test modules that aren't related to
+this change, not a discrepancy in this diff's own tests (6 new tests
+accounted for, zero regressions in either reading). No TypeScript/
+client files touched — `npx tsc`/`npm run build` not re-run, matching
+the established precedent for Python-only diffs.
+
+BACKTEST: N/A — no scoring/sizing/strategy logic changed, purely which
+string reaches a log line and an error-return value on an already-
+failing path; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply.
+Version bumped to v1.0.481 per PROMOTION RULE 4 (this touches the live
+Tier1/2 CSP execution path, so `code_version` attribution in trade
+feedback should separate any live-behavior change from prior code, even
+though this specific change is diagnostics-only and no order-placement
+logic moved).
+
+CI: still down (see SESSION-START CHECKS above) — ships on full local
+verification only (pytest gate above), following the established
+option-(c) precedent from the 2026-07-22/23/24 entries; will merge
+directly via the GitHub API after confirming no other check signal is
+available.
+
+NEXT (filed as KNOWN BROKEN #25 in open_questions.md with its own ladder/
+check path): once deployed, query `/api/diag/audit?type=T2-FAIL` — any
+STM/DRAM/HYG (or other) recurrence should now carry a specific reason.
+An `HTTP 403` reading would confirm an OPRA/Algo-Trader-Plus entitlement
+gap (next fix: an entitlement-aware fallback mirroring `alpaca_feed.py`'s
+`bars_feed()`/`data_feed()` precedent). A consistent honest "zero
+contracts" reading for the SAME tickers would instead point at the CSP
+candidate universe including names with no listed options at all (a
+different, upstream-universe fix). Also queued: `options_scanner.py`'s
+identical bug shape (scope-noted above, not fixed this session) as a
+smaller separate follow-up PR.
