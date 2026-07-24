@@ -983,13 +983,23 @@ export function mountCelestialSky(
     ro.observe(container);
   }
 
+  // page-visibility gate — every other render/poll loop in the codebase
+  // (datamap.tsx) skips its per-tick work while document.hidden and catches
+  // up immediately on return via a visibilitychange listener; this was the
+  // one continuous-rAF loop that never adopted that convention, paying a
+  // fixed per-frame WebGL draw cost even on a backgrounded tab.
+  const onVisibilityChange = (): void => {
+    if (!doc.hidden) drawFrame();
+  };
+  doc.addEventListener("visibilitychange", onVisibilityChange);
+
   // continuous RAF while mounted (the sky MOVES); parent-driven render() also
   // works where there is no RAF (tests/SSR).
   let rafId = 0;
   const hasRaf = typeof requestAnimationFrame !== "undefined";
   const loop = (): void => {
     if (disposed || renderFailed) return;
-    drawFrame();
+    if (!doc.hidden) drawFrame();
     rafId = requestAnimationFrame(loop);
   };
   if (hasRaf && !renderFailed) rafId = requestAnimationFrame(loop);
@@ -1007,6 +1017,7 @@ export function mountCelestialSky(
       disposed = true;
       if (hasRaf && rafId) cancelAnimationFrame(rafId);
       try { ro?.disconnect(); } catch { /* already gone */ }
+      try { doc.removeEventListener("visibilitychange", onVisibilityChange); } catch { /* already gone */ }
       if (gl) {
         try {
           if (bufQuad) gl.deleteBuffer(bufQuad);

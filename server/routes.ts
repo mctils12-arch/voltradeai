@@ -50,7 +50,7 @@ import {
 } from "./owmTiles";
 import { createApiKeyStore, SELF_SERVE_MAX_KEYS, SELF_SERVE_TIER } from "./apiKeyAccounts";
 import {
-  parseApiKeys, makeRateLimiter, meterUsage, apiMeta, LICENSE_MARKS, ApiTier,
+  parseApiKeys, makeRateLimiter, meterUsage, apiMeta, agentToolSpec, LICENSE_MARKS, ApiTier,
 } from "./apiProduct";
 import { addToWaitlist } from "./waitlist";
 import {
@@ -78,6 +78,7 @@ import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
+import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
@@ -2330,6 +2331,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // ENTSO-E actual generation per production type (fuel mix) by EU bidding
+  // zone (RAW — wishlist 9c follow-up, same token as eu-load, built
+  // 2026-07-21). Serves the poller's cached per-zone-per-fuel stats only
+  // (event-loop rule).
+  bootEuGenerationMixPoll();
+  app.get("/api/data/eu-generation-mix", (_req, res) => {
+    if (!euGenerationMixEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestGenMix();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (actual generation per type, A75/A16)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "realised generation in MW per bidding zone x fuel/technology type (PSRTYPE_MAPPINGS code + name), ~1-2h publication lag; stored at zone-native resolution, never resampled; a fuel type absent from a zone's window means zero generation of that type was published, not necessarily zero output; window min/max/mean expose series shape",
+      zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
   // Google Air Quality (RAW — strategic-site AQI/PM2.5/NO2 archive; key-gated
   // on GOOGLE_MAPS_API_KEY, activates on API-enable). Serves the poller's
   // cache only (event-loop rule); never fetches on request. Free-tier budget
@@ -3111,6 +3138,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/v1/meta", (_req, res) => res.json(apiMeta())); // reference is public — docs, not data
+  // The API rendered as LLM/agent tool definitions (Anthropic tool use /
+  // OpenAI functions / MCP). Public like /meta — it's documentation, not
+  // data; the tool calls themselves still require an x-api-key.
+  app.get("/api/v1/agent-tools", (_req, res) => res.json(agentToolSpec()));
 
   // Waitlist capture (/developers) — email only, no billing, "coming soon".
   // The monetization tripwire stays untripped: no pricing enablement here.
@@ -3311,6 +3342,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!id) return res.status(404).json({ kind: "raw", error: `entity not found: ${entity}` });
     const hops = Math.max(0, Math.min(3, parseInt(String(req.query.hops ?? "1"), 10) || 1));
     res.json({ kind: "raw", built_at: graph.built_at, entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) });
+  });
+
+  // Everything Graph v1 keyed mirror (research/open_questions.md MAP V2
+  // ROADMAP R5, filed NEXT STEP) — same cachedGraphSync()/resolveEntityId/
+  // neighborhood() logic as /api/data/graph above, wrapped in the v1
+  // license-mark envelope + key auth + metering, per the established
+  // stats/portdwell and stats/shadow precedent (503+Retry-After while the
+  // graph is warming, never a synchronous rebuild per request).
+  app.get("/api/v1/graph", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const graph = cachedGraphSync();
+      if (!graph) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first graph build in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 503, tier: auth.tier });
+        return;
+      }
+      const entity = typeof req.query.entity === "string" ? req.query.entity : null;
+      if (!entity) {
+        res.json(v1Envelope("graph", { counts: graph.counts, caveat: graph.caveat,
+          note: "pass ?entity=<ticker|MMSI|CIK|facility id>&hops=1 for a neighborhood query" }, graph.built_at));
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 200, tier: auth.tier });
+        return;
+      }
+      const id = resolveEntityId(graph, entity);
+      if (!id) {
+        res.status(404).json({ error: `entity not found: ${entity}` });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 404, tier: auth.tier });
+        return;
+      }
+      const hops = Math.max(0, Math.min(3, parseInt(String(req.query.hops ?? "1"), 10) || 1));
+      res.json(v1Envelope("graph", { entity: id, hops, caveat: graph.caveat, ...neighborhood(graph, id, hops) }, graph.built_at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/graph", status: 500, tier: auth.tier });
+    }
   });
 
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)

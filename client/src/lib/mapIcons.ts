@@ -625,6 +625,58 @@ const shapes: Record<string, () => ImageData> = {
     ctx.beginPath(); ctx.moveTo(m - 5, m + 5); ctx.quadraticCurveTo(m, m + 2, m + 5, m + 5); ctx.stroke();
     ctx.restore();
   }),
+  // EPA Superfund NPL hazard site (symbols-not-dots debt closed —
+  // research/location_context_engine.md's 2026-07-15 REMAINING DEBT note:
+  // superfund/waterviolators predated the 2026-07-12 directive and still
+  // rendered as bare "circle" layers): a waste drum with two band cutouts
+  // — reads as "toxic-waste site", distinct from vt-meltdown's
+  // triangle+trefoil and vt-nukefacility's building+trefoil. icon-color
+  // carries the NPL status (unchanged from the prior circle-color logic).
+  "vt-superfund": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    const bw = 17, bh = 24, bx = m - bw / 2, by = 6, r = 3;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by);
+    ctx.lineTo(bx + bw - r, by);
+    ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+    ctx.lineTo(bx + bw, by + bh - r);
+    ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+    ctx.lineTo(bx + r, by + bh);
+    ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+    ctx.lineTo(bx, by + r);
+    ctx.quadraticCurveTo(bx, by, bx + r, by);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillRect(bx - 1, by + bh * 0.32, bw + 2, 2.4); // barrel bands
+    ctx.fillRect(bx - 1, by + bh * 0.68, bw + 2, 2.4);
+    ctx.restore();
+  }),
+  // EPA ECHO Clean Water Act chronic violator (same symbols-not-dots
+  // debt-closing pass as vt-superfund above): an outfall pipe dripping
+  // discharge — reads as "effluent/discharge", distinct from vt-pfas's
+  // closed teardrop and vt-plume's rising billow. icon-color carries the
+  // violation-kind bucket (effluent/report/schedule/other, unchanged from
+  // the prior circle-color logic).
+  "vt-outfall": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(5, m - 5); ctx.lineTo(m + 3, m - 5); ctx.stroke(); // pipe
+    ctx.beginPath(); ctx.arc(m + 3, m - 5, 3.6, 0, Math.PI * 2); ctx.fill();        // outlet ring
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.arc(m + 3, m - 5, 1.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.beginPath();                                                               // three drip drops
+    for (const [dx, dy0] of [[-4, m + 2], [1, m + 5], [6, m + 2]] as const) {
+      ctx.moveTo(m + dx, dy0 - 2.5);
+      ctx.bezierCurveTo(m + dx + 2, dy0 + 2, m + dx + 2, dy0 + 4.5, m + dx, dy0 + 6);
+      ctx.bezierCurveTo(m + dx - 2, dy0 + 4.5, m + dx - 2, dy0 + 2, m + dx, dy0 - 2.5);
+    }
+    ctx.fill();
+  }),
   // ── GEM coal-mine catalogued infrastructure (symbols-not-dots directive):
   // one glyph per GEM "mine feature category" — a boundary/site glyph for
   // the low-zoom centroid of a mine-boundary polygon, plus three distinct

@@ -3,6 +3,404 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-24 (scheduled-routine session) [PRODUCT] — SYMBOLS NOT DOTS debt closed: superfund + waterviolators hazard layers get real SDF symbols + legend entries (v1.0.481, T-CLIENT)
+
+TERRITORY: client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx, new
+client/src/pages/datamap.symbols.test.ts (T-CLIENT). package.json version
+bump is the SHARED-file edit, last and smallest, per MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+and open_questions.md tails. Live `curl .../api/health` (prod, both
+voltradeai.com and the railway.app origin): status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. uptime_s read 9/16/21/24/28 across
+five polls a few seconds apart — climbing steadily with elapsed wall time,
+so a normal recent restart/deploy, not a crash loop. No DIAG_TOKEN available
+to this session, so /api/diag/audit and other owner-gated diagnostics
+weren't reachable (same limitation prior autonomous sessions have logged).
+GITHUB ACTIONS CI: still down — `actions_list` shows every run since
+2026-07-22T14:09:21Z failing in ~3s with no runner ever allocated,
+including runs as recent as today 2026-07-23T20:31:12Z (PR #593) — now over
+30 hours, a 5th consecutive session confirming the same outage signature.
+Not re-diagnosed further (same tool-access limitation as the prior four
+sessions); this PR's own gates below are 100% local verification, same
+posture as every merge since the outage started. Also noted: 12 open PRs
+(#593/#592/#591/#590/#586/#585/#584/#572/#449/#415/#399/#77) are backed up
+unmerged behind the CI outage, several stale (weeks old) — an ops cleanup
+someone should eventually triage, not touched this session (out of scope
+for a PRODUCT session, and not this session's territory).
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 1/2 fall-through survey) across every standing program charter
+(grid_vision*, earth_twin_program, orbital_program, console_charter,
+celestial_v2_program, worldview_globe, solar_view_spike,
+location_context_engine, scale_program) plus wishlist.md/open_questions.md
+tails for a genuinely unblocked, concretely-scoped, single-PR PRODUCT
+action. Its top-ranked finding: research/location_context_engine.md's
+2026-07-15 PFAS entry filed "REMAINING DEBT: superfund-pts/wv-pts still
+render as plain 'circle' layers, predating the SYMBOLS NOT DOTS directive
+(2026-07-12)" — confirmed via `git log --all --grep` that nothing had
+touched it since, and via direct grep of datamap.tsx that BOTH layers were
+still `type: "circle"` AND had ZERO legend section (a stronger gap than the
+filed note stated — the SYMBOLS NOT DOTS directive requires both a symbol
+AND a legend entry from the same icon registry; these two layers had
+neither). Chose this over the subagent's other three candidates (a
+GEM-freshness-chip split, a dossier radius_km client toggle, a CDC/SEER
+cancer-rate layer) because it's the cleanest constitutional-compliance debt
+with zero design ambiguity and a proven four-times-precedented pattern to
+copy (PFAS's vt-pfas droplet was the template).
+
+READ BEFORE WRITE: read client/src/lib/mapIcons.ts's full shape registry
+(all ~40 existing SDF glyphs, the `draw`/`registerIcons`/`iconDataURL`
+functions) and both layers' full useEffect blocks in datamap.tsx (superfund
+~7719-7793, waterviolators ~8803-8875) before touching either — confirmed
+each layer's existing `circle-color` match/case expression (NPL status;
+CWA violation-kind bucket) so the new icon-color paint could carry it over
+unchanged, byte-for-byte, rather than re-deriving the color logic. Also
+independently investigated (before committing to this fix) whether the
+adjacent GEM-freshness gap noted by the subagent's #1 candidate could be
+fixed by reading datacore/gem/*.gz file mtimes directly — traced it and
+found that would have been DISHONEST: those files are git-versioned
+WHOLE-FILE-REBUILD artifacts (gem_ingest.py writes to the repo tree, not
+the runtime archive volume), so their mtime in any deployed container is
+checkout/build time, not real data-ingestion time — every deploy would
+reset the chip to "just refreshed" regardless of actual GEM data age. This
+matches the gem.json manifest's own already-documented "_note" ("Volume-
+side shows no-data in the streams inventory — session-run writer,
+expected") — confirmed NOT a bug, an accepted tradeoff shared by every
+other git-versioned session-run stream (jodi, etc.), so a naive per-file
+freshness join would have been a new, narrower dishonesty, not a fix. Left
+that gap alone and filed this finding in open_questions.md (below) instead
+of taking the subagent's #1 candidate at face value.
+
+FIX: two new SDF shapes in mapIcons.ts's `shapes` registry — `vt-superfund`
+(a waste drum with two band cutouts, reading as "toxic-waste site",
+deliberately distinct from vt-meltdown's triangle+trefoil and
+vt-nukefacility's building+trefoil) and `vt-outfall` (a pipe with three
+dripping discharge drops, reading as "effluent/discharge", distinct from
+vt-pfas's closed teardrop and vt-plume's rising billow). Both `addLayer`
+calls in datamap.tsx changed from `type: "circle"` + `circle-color`/
+`circle-radius`/`circle-opacity` to `type: "symbol"` + `icon-image`/
+`icon-color` (the exact same match/case color expression, unchanged) /
+`icon-halo-color`, mirroring the vt-pfas symbol layer's paint/layout shape
+exactly. New legend sections for both (`enabled.superfund` /
+`enabled.waterviolators`, placed after the PFAS section) using the existing
+`LegendIcon` component (same registry shape the map draws — DESIGN.md
+legend rule, one source of truth) plus per-color-bucket chips matching each
+layer's existing status/violation-kind legend text already used elsewhere
+in the codebase (dossier card labels). Click-card content, data fetching,
+API routes, and the underlying color LOGIC are completely untouched — this
+is a pure rendering-primitive swap plus two new legend blocks, zero
+behavior change to what data is shown or how it's classified.
+
+RATCHET: new client/src/pages/datamap.symbols.test.ts (4 tests,
+source-inspection style matching server/layersWiring.test.ts's established
+pattern — a real headless map render needing `document.createElement`
+isn't available in this test env, same limitation mapIcons.test.ts already
+works around by only testing pure numeric helpers): (1) both new shapes
+are registered in mapIcons.ts's `shapes` object; (2) superfund-pts is
+`type: "symbol"` using `vt-superfund`, never `type: "circle"`; (3) wv-pts
+is `type: "symbol"` using `vt-outfall`, never `type: "circle"`; (4) both
+layers have a `LegendIcon` entry gated on their own `enabled.*` flag.
+A/B-verified via `git stash` on just the two source files: all 4 tests
+FAIL against the pre-fix code (proving they'd have caught this exact
+regression) and all 4 PASS post-fix.
+
+GATES: `npm install` (fresh sandbox, node_modules absent) then `npx tsc
+--noEmit` — 80 errors, byte-identical (diffed only in line-number shift
+from the added lines; confirmed via git-stash A/B) to the pre-fix baseline
+— zero new errors, none in mapIcons.ts or datamap.tsx. `npx tsx --test
+server/*.test.ts client/src/lib/*.test.ts client/src/pages/*.test.ts` —
+997 passed, 0 failed. `npm run build` clean (dist/public + dist/index.cjs +
+dist/datacore staged). VISUAL HARNESS (promotion rule 6): `node
+scripts/visual_check.mjs --page data` — 0 hard failures at all three
+canonical widths (390/768/1440) plus the data-all-off and data-scale
+batteries; only pre-existing warnings unrelated to this change (touch-
+target sizes on nav buttons, one clipped facilities-group legend label at
+768px — both predate this PR, confirmed by their target names). NOTE: the
+harness's FIXTURES object (scripts/visual_check.mjs) does not mock
+`/api/data/superfund` or `/api/data/waterviolators` (nor pfas, radiation,
+nukefacilities, coal-mine, methane, faa, border — an existing, already-
+accepted gap the 2026-07-15 PFAS PR explicitly logged, not introduced or
+widened here), so the harness's screenshots don't actually exercise these
+two layers' new icon rendering — verified instead by code review against
+the four other symbol-layer precedents (vt-pfas/vt-bordercrossing/
+vt-plume/vt-minepit) plus the new ratchet test above. Widening the harness
+fixture coverage to every hazard layer is a separate, larger task, filed
+below rather than scope-crept into this PR.
+
+BACKTEST: N/A — pure client-side rendering-primitive change (circle to
+symbol) plus new legend markup; no scoring, sizing, execution, or data-
+classification logic touched. PROMOTION RULE 3's Sharpe/drawdown gate
+doesn't apply.
+
+NEXT (filed, unclaimed): (1) scripts/visual_check.mjs's FIXTURES object is
+missing mock responses + registry entries for at least 9 live hazard/
+facility layers (pfas, radiation, nukefacilities, nukeaccidents,
+nucleartests, coal_mine_features, methane_plumes, faa_airports,
+border_waits) beyond superfund/waterviolators — a future T-CLIENT session
+should add them so the toggle-consistency + screenshot batteries actually
+exercise these layers' rendering paths instead of silently skipping them.
+(2) The GEM-freshness-chip split investigated and declined this session
+(see READ BEFORE WRITE above) needs a genuinely different fix if it's ever
+picked up: NOT file-mtime (dishonest for git-versioned WHOLE-FILE-REBUILD
+streams, checkout-time not data-time), but something like a manually-
+maintained ingestion-date field written by gem_ingest.py/gem_suite_
+ingest.py into the manifest itself at build time — filed as its own
+open_questions.md hypothesis, not attempted here. (3) GitHub Actions CI
+outage — now 30+ hours, 5 consecutive sessions confirming — still needs
+human attention (Settings > Billing > Actions usage, no session tool can
+check this) per the wishlist.md entries filed since 2026-07-22.
+## 2026-07-22 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18: v1.0.468's ThreadPoolExecutor fix live-refuted (third refutation, market-hours evidence), TIMING-DISK wired into the TIER2-ERROR audit line (v1.0.479, T-BOT); PR #586 open, blocked on a CI infra failure
+
+TERRITORY: T-BOT-adjacent (`server/bot.ts` — the daemon-timeout catch
+branch, not bot_engine.py itself this session) + its test file +
+SHARED minimal (`package.json`/`package-lock.json` version,
+`research/*`). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read. `research/open_questions.md`
+KNOWN BROKEN section read via targeted grep (full-file Read exceeds
+the tool's size cap — 385KB). `research/wishlist.md` read in pages
+(also oversized) — DATACORE MAXIMUS / GRID VISION program blocks
+skimmed, not this session's territory.
+
+LOOP-HEALTH RATIO: last 10 dated `## ` headers before this entry — 5
+REPAIR / 4 PRODUCT / 1 RESEARCH (counting the 07-20 [REPAIR]+[RESEARCH]
+combo entry as REPAIR). Under the 7/10 thrash threshold; no meta-
+problem override, but concentrated enough (KNOWN BROKEN #18 alone
+accounts for 3 of the 5 REPAIR entries across 07-20/07-21) that this
+was weighed against picking a fresh item — see PRIMARY ACTION
+SELECTION below for why it was still the right call.
+
+LIVE HEALTH CHECK (GOAL priority 1): `/api/health` via DIAG_TOKEN —
+status ok, bot active, drawdownPct 0.0, `scanner.consecutiveFailures:
+0`, `liveness.dark: false`. No liveness alarm. `/api/diag/audit?
+type=TIER2-ERROR&limit=100` showed 13 fresh "Daemon timeout"
+occurrences spanning 2026-07-22T13:37Z-19:55Z (this session's live
+window, squarely market hours) — KNOWN BROKEN #18's storm, open since
+2026-07-10, continuing.
+
+PRIMARY ACTION SELECTION: the prior session (07-21, v1.0.468) shipped
+a real fix (deep_score's ThreadPoolExecutor shutdown hazard) but
+explicitly could not live-confirm it — its own NEXT STEP asked
+whichever session catches the storm live during market hours to check
+whether the cadence dropped. This session's live health check landed
+during market hours with the storm still running, so checking that
+queued NEXT STEP was the PRIMARY action ahead of any new research, per
+SESSION BUDGET's "judge a matured experiment" ranking above starting
+new work.
+
+WHAT SHIPPED:
+1. VERIFIED THE DEPLOY TIMELINE FIRST (git log, not assumed): v1.0.468
+   merged 2026-07-21T20:50:23Z (commit 569dca5, PR #577). The live
+   daemon's `uptime_seconds=27309` at 19:56Z means it started ~12:19Z
+   today — 15.5h after the fix merged, and the deployed
+   `package.json` version (1.0.478) is 10 releases past it. This
+   session's 13-occurrence storm sample is unambiguously running on
+   code that includes the fix.
+2. THIRD REFUTATION, LIVE-CONFIRMED: all 13 occurrences carry the same
+   `active_dispatches=2 [run_full_scan:300s, health:0s]` signature and
+   the same ~7-15min cadence as every pre-fix storm window since
+   2026-07-18 — the fix did not move the needle. `layer2_prefetch.age_
+   sec` stayed high across all 13 (291-871.8s), independently
+   reconfirming Layer 2 stays refuted (not the point of this update,
+   but consistent). Per RECURRENCE ESCALATES, three refutations
+   (zombie-pileup, Layer 2, now ThreadPoolExecutor) crosses the
+   "architecture smell" bar the 07-21 session's own NEXT STEP named as
+   a threshold, not just a possibility to consider.
+3. NO FOURTH GUESS. Per RECURRENCE ESCALATES this session did not pick
+   a fourth specific mechanism to patch blindly. Instead it closed the
+   structural gap that made every mechanism-guess this item has tried
+   expensive to test: `bot_engine.py`'s pre-existing TIMING-DISK
+   instrument (2026-04-23) already persists `_scan_market_inner()`'s
+   per-phase progress straight to shared disk (survives a 300s kill by
+   design), generalizing "which phase is it stuck in" across the WHOLE
+   pipeline instead of only Layer 2 — but the two existing readers
+   (`/api/diag/timings`, `/api/system/snapshot`) both require a
+   separately-timed human poll, which is exactly why two live-stakeout
+   attempts on this item (07-18, 07-21) came up empty. FIX (v1.0.479,
+   `server/bot.ts`, pure visibility, zero behavior change): the
+   TIER2-ERROR daemon-timeout catch branch now reads `voltrade_scan_
+   timings.json` directly off disk (same file, same two paths the
+   existing readers use) at the instant the timeout fires, and formats
+   `scan_timings={status=... last_phase=... age=...s}` into the same
+   audit line, right alongside `active_dispatch_detail`/
+   `layer2_prefetch`. No Python changes needed — Node and the daemon
+   share the container filesystem; the file is written progressively,
+   not returned via RPC, so this read should land on whatever phase
+   the still-in-flight scan last checkpointed. If it instead shows an
+   OLDER completed scan with no fresh write, that's informative too:
+   the stuck dispatch never got far enough to reset the file at its
+   own start, pointing at a block in daemon dispatch/lock acquisition
+   BEFORE `_scan_market_inner()`'s body ever begins — a mechanism
+   nobody has checked yet.
+
+RATCHET: `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+wiring-pinned test — A/B-verified via `git stash` (test file kept,
+`bot.ts` alone reverted) to fail against pre-fix `bot.ts` and pass
+post-fix.
+
+GATES: `npx tsx --test server/*.test.ts` 851/851 pass (a fresh `npm
+ci` was needed first — 7 failures pre-`npm ci` matched the exact
+recurring clean-sandbox baseline named in the 07-21 log, confirmed by
+name: aircraftTiling/apiKeyAccounts/compression/gdeltEvents/owmTiles/
+seafloorTiles/securityMiddleware). `npx tsc --noEmit` 77 errors,
+confirmed byte-identical to the pre-change baseline via `git stash`
+A/B. `npm run build` clean. No Python files touched — `python3 -m
+pytest` not re-run (TS-only diagnostic change, same precedent this
+item's own prior TS-only sessions used). `package-lock.json`'s root
+version had drifted stale to 1.0.477 against `package.json`'s 1.0.478
+(same recurring class, sixth session running now) — corrected in the
+same edit, both bumped to 1.0.479.
+
+BACKTEST: N/A — pure diagnostic-visibility change, no scoring/sizing/
+execution logic touched.
+
+HYPOTHESIS: the next live TIER2-ERROR's audit line will carry a
+`scan_timings={...}` block. `status=in_progress` with a `last_phase`
+deep into or past `deep_score` and a large `age` would finally
+localize the hang to a specific phase with real evidence (a legitimate
+basis for a fourth, evidence-backed fix). `status=completed`/stale or
+`last_phase=none` would point at the daemon's own dispatch/lock layer
+instead — genuinely unexplored territory for this item. NOT YET
+LIVE-CONFIRMED (same honest posture as every prior update). Full trace
+filed in `research/open_questions.md` KNOWN BROKEN #18.
+
+PR: opened #586 from `claude/funny-fermat-eb2fi7` (this session's
+assigned branch) against `main`. CI's `changes` job failed three times
+in a row (original + two reruns, each in 1-3s with no runner
+allocated) — the same standing infra issue already filed in
+wishlist.md from two prior PRs (#582/#583), now hitting a real code PR
+for the first time. Unlike the prior docs-only-PR precedent, this
+session did NOT bypass-merge via the API — a core-orchestrator change
+warrants the actual CI run once runners are available, not a session's
+local gate-running as a substitute. Filed the third occurrence in
+wishlist.md (own commit) with a note to the human about the recurring
+CI/billing issue now blocking real code, not just docs. PR left open
+and subscribed for CI/review events; this is a STARVED-adjacent close
+(the primary action is complete and verified locally, but the loop
+isn't closed — merge is pending on infra outside this session's
+control, not on any further code work).
+
+
+## 2026-07-22 (scheduled-routine session) [REPAIR] — recovered PR #420's satellite-layer "still retrying automatically…" fix, stranded 12 days by a PR backlog no session had audited; found + logged the wider backlog (v1.0.478, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/tle.ts + tle.test.ts,
+client/src/lib/orbital/gpWorker.ts comment, client/src/pages/datamap.tsx
+comments) + SHARED minimal last (package.json/package-lock.json).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md/
+open_questions.md/wishlist.md (large — read via targeted grep/tail rather
+than whole-file, per their size). `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. Owner-gated audit-log/diag routes
+returned "unauthorized" as usual for a session with no owner token — same
+known limitation prior sessions have hit, not a new break. Loop-health
+ratio over the last 10 tagged entries before this one (SCALE S-A2 REPAIR,
+Form4 RESEARCH, GEM-map PRODUCT, KNOWN-BROKEN-#18 REPAIR, GEM-route
+PRODUCT, KNOWN-BROKEN-#18 REPAIR, CBP-borders PRODUCT, KNOWN-BROKEN-#18
+REPAIR, GEM-methane REPAIR+RESEARCH, GEM-methane-gate2b PRODUCT): 5
+REPAIR / 4 PRODUCT / 1 RESEARCH — under the 7+ thrash trigger, but the
+REPAIR entries are almost entirely one still-open KNOWN BROKEN #18
+investigation (T-BOT TIER2-ERROR timeouts) re-instrumented across three
+sessions without yet reaching a fix, not thrash spread across territories.
+
+PRIMARY ACTION SELECTION: with today's earlier sessions having already
+shipped SCALE S-A2, the GEM map layer, and killed the Form4 hypothesis,
+and with `/api/health` clean (no critical live break to chase), I checked
+GitHub's open-PR list before picking new roadmap work — the same check
+PR #399's session did on 2026-07-09 ("only a long-stale unrelated human
+draft, #77, left alone"). That check now found **six** open, unmerged,
+non-draft Claude PRs dated 2026-07-09 through 2026-07-21 (#399, #415,
+#420, #449, #557, #572) — a real backlog that grew from 1 to 6 while no
+session re-checked it. This connects directly to the two ops findings
+filed a few hours earlier THIS SAME DAY (wishlist.md, "Auto-merge Claude
+PRs" CI job failing + the `changes` job failing with no runner
+allocated): those findings diagnosed why an individual PR's automerge
+step fails, but I don't have evidence they explain 6 PRs surviving
+1–2 weeks apiece — the more likely compounding cause is simply that
+scheduled sessions stopped re-checking the open-PR list once new work
+was always available, so a silent per-PR automerge failure was never
+followed up manually. This is a real STARVATION-adjacent finding (built,
+tested work not landing) even though no single session logged "STARVED."
+
+Rather than open a 7th brand-new PR while 6 sit stale, I audited all six
+against current main (v1.0.477) to find genuinely-recoverable work:
+- **#572 (ENTSO-E generation mix)**, **#449 (agent-tools API)**, **#415
+  (gridvision RunPod reap)**, **#399 (GIBS floods layer)**: all STILL
+  MISSING from main (verified: `server/euGenerationMix.ts`,
+  `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`,
+  `scripts/runpod_reap.py`, and the `floods`/`MODIS_Combined_Flood`
+  layer in `datamap.tsx` all absent) — genuinely unclaimed, still
+  valuable work, not superseded.
+- **#557 (3D terrain exaggeration slider)**: SUPERSEDED — `client/src/
+  lib/terrainExag.ts` already exists on main (shipped independently;
+  KNOWN STATE's v1.0.475 crash-cascade fix references the same file),
+  confirmed via a real `git merge-tree` test producing an add/add
+  conflict on `terrainExag.ts` itself.
+- **#420 (satellite CSV-format + res.ok fix)**: STILL MISSING and STILL
+  A LIVE BUG — confirmed by reading the current `tle.ts`: `gpUrl` still
+  hardcodes `FORMAT=json` (~6.7MB, no `format` param), `fetchGp` still
+  does `res.json()` with no `res.ok` check, so a CelesTrak 403
+  courtesy-rate-limit still parses to `[]` today and the human-reported
+  "still retrying automatically…" loop is still live in production 13
+  days after the fix was written and reviewed. Confirmed the worker path
+  that actually serves the layer (`gpWorker.ts` → `fetchGp`, wired via
+  `fetchGpOffThread` in `datamap.tsx`) calls the exact same `fetchGp`,
+  so this fix reaches the real runtime path, not just a fallback.
+
+PICKED #420 to resurrect this session: it is a REPAIR (SESSION BUDGET
+ranks bug fixes above new pipelines), it is the cleanest to recover
+(`git merge-tree` showed only docs/lockfile conflicts, zero real code
+conflicts, unlike #399/#415/#557), and it fixes a bug still reproducible
+in prod today. Applied the PR's diff fresh (re-typed by hand rather than
+force-merging the stale branch, since `tle.ts` had grown SATCAT-join code
+since 2026-07-09 that the stale branch never saw) onto current main:
+`gpUrl(group, format)` gains the format arg (default unchanged at
+`json`), new `parseGpCsv()` (header-indexed, same `GpRecord` shape/
+honesty rules as `parseGp`), `fetchGp` now requests `FORMAT=csv` (~2.4MB
+vs ~6.7MB) and throws on `res.ok === false` instead of silently parsing
+an error body to `[]`. Updated the now-stale "~6.6 MB" comments in
+`gpWorker.ts` and `datamap.tsx` to match. +5 regression tests in
+`tle.test.ts` (parseGpCsv normalization/blank-null/garbage-safety, fetchGp
+hits the CSV endpoint, and the 403 case now `assert.rejects` — would have
+caught this break, per REPAIRS MUST RATCHET).
+
+READ BEFORE WRITE: read `tle.ts`/`tle.test.ts`/`gpWorker.ts` in full,
+grepped every call site of `gpUrl`/`fetchGp`/`parseGp` across `client/
+src` (4 files) before touching anything — `datamap.tsx:5041` calls
+`parseGp` (JSON) directly against the separate `/api/data/orbital/
+catalog` server-mirror path, untouched and correctly left on JSON since
+that route serves JSON, not CSV.
+
+GATES: `npx tsx --test client/src/lib/orbital/*.test.ts` 214/214 (11
+pre-existing + 5 new in tle.test.ts); `npm run test:node` 850/850 (server
+suite, unaffected but re-run as a sanity check since this is a session
+recovering someone else's stale branch); `npx tsc --noEmit` 8 lines,
+byte-identical to a `git stash`-verified baseline (0 new errors — the 3
+pre-existing warnings are tsconfig/env-config noise, not code errors);
+`npm run build` clean (pre-existing astronomy-engine/mapIcons warnings
+only). Version 1.0.477 → 1.0.478 (read-and-increment at commit time).
+
+BACKLOG DISPOSITION (this session): closed #420 (superseded by this PR)
+and #557 (superseded by main's independent terrainExag.ts) with pointers.
+Left #399/#415/#449/#572 OPEN — still valid, unclaimed, non-superseded
+work; each needs its own rebase-and-recover session (real code conflicts
+in datamap.tsx/layers.json/runpod ledger, not just docs) rather than
+being resolved as a side effect of this PR. Filed the full disposition +
+a recommendation that future sessions check `gh pr list`-equivalent
+(the open-PR list) at session start, not just KNOWN BROKEN and
+`/api/health`, in research/wishlist.md.
+
+Backtest: N/A — client-only RAW-overlay bug fix (satellite live-tracking
+layer), no strategy/measurement/parameter/trading-path code touched.
+
+MERGE NOTE (market hours): this session ran while markets are open.
+Per CLAUDE.md's market-hours guidance, this PR should NOT be merged
+until after 4:00 PM ET today unless a critical live break requires it —
+it does not (client-only RAW overlay, zero effect on the trading loop).
+
 ## 2026-07-22 (scheduled-routine session) [REPAIR] — SCALE S-A2: vessels-delta TTL was shorter than the client poll interval, so `unchanged` was dead code — full payload re-shipped every single poll (v1.0.474, T-DATACORE-adjacent server work)
 
 TERRITORY: server/liveDelta.ts + server/liveDelta.test.ts + server/routes.ts
@@ -24397,6 +24795,114 @@ VERIFICATION: client lib battery green (612 incl. #571's FAA tests after
 mid-session fast-forward — #571 took v1.0.457); verify_datum probe as
 above; harness re-run on the MERGED build gating the push. BACKTEST: N/A.
 
+## 2026-07-21 (scheduled-routine session) [PIPELINE] — ENTSO-E actual generation per production type (fuel mix): the OTHER filed wishlist-9c follow-up, shipped (v1.0.459, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/euGenerationMix.ts + test + datacore/
+manifests/eugenmix.json; routes.ts touched last, minimal, per SHARED-file
+protocol).
+
+REPAIR-MANDATE CHECK FIRST (per this session's own instructions): ran
+`scripts/session_health_check.py --json` against production. No ALARM.
+`/api/diag/scanner`: consecutiveFailures=0, degraded=false. `/api/diag/
+audit?type=TIER2-ERROR&limit=200` shows the last "scan_market() takes 0
+positional arguments" phantom-error entry at 2026-07-20T16:17:31Z — the
+KNOWN BROKEN #24 dispatch fix (v1.0.448) took effect at that exact
+timestamp and the phantom error has not recurred since (0 occurrences in
+200 entries after it). The dispatch fix DID surface a real underlying
+error afterward exactly as its own text predicted ("if a scan still fails
+post-deploy... read that message first") — 11 "Daemon timeout" entries
+2026-07-20T17:17-19:57Z, active_dispatches=2 throughout, matching KNOWN
+BROKEN #18's already-diagnosed non-blocking event-loop-lag signature (NOT
+a new bug). Zero TIER2-ERROR entries since 19:57:13Z (~6.5h clean at time
+of check), scanner healthy. Updated KNOWN BROKEN #24 in open_questions.md
+with this partial live-confirmation (short of the multi-day bar #18/#22
+used before full RESOLVED — a future session should re-check after >=24h
+clean). No critical unfixed item found -> this session proceeds as
+[PIPELINE], not [REPAIR].
+
+DOCTRINE AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code.
+PRIOR STATED BEFORE BUILDING: CLAUDE.md's own named EDGE DOCTRINE #1
+examples (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+FDA calendar, Google Trends) are ALL already built or correctly declined
+(Google Trends/pytrends failed gate-1 stability, upstream archived
+2025-04 — confirmed via grep across open_questions.md/wishlist.md/
+experiments.md, not re-litigated). Cross-checked research/data_census.md's
+CENSUS MASTER RANKING (11 items) against the live repo: 8 of 11 already
+built (OCC, EPA CAMD, JODI, FINRA cluster, GEM, SEC FTD, USGS quakes,
+NDBC buoys, SEC MIDAS — that's actually 9; DTCC and 3 of the regime-
+feature items are the only census gaps, DTCC blocked on a 147MB/day
+volume-budget decision not yet made). Prior: the highest-EV NEW pipeline
+this session, given how thoroughly the census/EDGE-DOCTRINE list has
+already been mined, is a well-scoped FOLLOW-UP to an already-live,
+already-token-activated stream rather than a fresh census item — lower
+build risk (proven host/auth/schema family), immediate activation (no
+BLOCKED-FOR-MIKE key wait), and real incremental signal. Found it in
+wishlist.md 9c: ENTSO-E generation-mix + day-ahead-prices were BOTH
+filed as follow-ups 2026-07-07 when euLoad.ts shipped, neither built
+since. Picked generation-mix (documentType A75) over day-ahead-prices
+(A44) to keep this ONE logical change (day-ahead prices uses a different
+response schema — Publication_MarketDocument/price.amount vs GL_
+MarketDocument/quantity — genuinely separate work, filed as the
+remaining follow-up, not bundled per PROMOTION RULE 5).
+
+BUILD: server/euGenerationMix.ts mirrors server/euLoad.ts's architecture
+(key gate shared: ENTSOE_API_KEY/ENTSOE_TOKEN; same 8 EIC zones reused
+from euLoad.ts's ZONES export; 2h poll, 48h trailing window, 8 spaced
+calls/cycle, same politeness spacing) with the two real deltas: (1) query
+uses `in_Domain` not `outBiddingZone_Domain`, documentType=A75/processType
+=A16; (2) each TimeSeries in the response carries a <MktPSRType><psrType>
+child identifying the fuel/technology (B01-B25 entsoe-py canonical code
+table, included in full) — parseGenMix extracts and tags every point with
+its psrType, skipping (never guessing) series with a missing/unrecognized
+code. Archive dedup key extended to zone|psr|ts|res|value (vintage-aware,
+euload precedent) so same-zone/same-timestamp-different-fuel rows never
+collide. New route `/api/data/eu-generation-mix` mirrors eu-load's
+response shape (kind:"raw", stats array, issues surfaced per zone).
+
+HONESTY NOTE (stated in the module header + manifest, not glossed over):
+this session's sandbox has no ENTSOE_API_KEY (Railway-only secret) so the
+A75 query contract could NOT be probed live end-to-end the way data_
+census.md's other entries were. It IS cross-checked against the
+ecosystem-canonical entsoe-py library's actual query-building code
+(query_generation: documentType=A75, processType=A16, in_Domain) and
+PSRTYPE_MAPPINGS table, fetched and read this session — not fabricated
+from memory. Both A65 (load, already live-verified 2026-07-07) and A75
+share the same GL_MarketDocument schema family per ENTSO-E's XSD, so the
+already-proven parser shape (Period/Point/position/resolution) transfers;
+the one NEW piece (MktPSRType/psrType extraction) is the only truly
+unverified-live surface. NEXT CHECK (filed, mirrors KNOWN BROKEN #24's
+own pattern): once deployed, read `/api/data/eu-generation-mix`'s
+`issues` field after the first sweep — an ack or empty-response for
+every zone would mean the A75 contract needs correction despite the
+cross-check; a future session should verify and close this note.
+
+RATCHET: server/euGenerationMix.test.ts, 9 new tests (key gate, URL
+param contract incl. the in_Domain-not-outBiddingZone_Domain distinction,
+PSRTYPE_MAPPINGS spot-check, ack parsing, multi-series psrType tagging,
+missing/bad-psrType skip, position math, archive dedup incl. same-zone-
+different-fuel non-collision, refresh-sweep stats grouped by zone|psr).
+All 9 pass standalone. Full gates this session: `npx tsx --test
+server/*.test.ts` 771 total, 764 pass / 7 fail — verified via `git
+stash` that the same 7 fail identically with this change stashed out
+(aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware — pre-existing baseline, unrelated to
+this PR, not touched). `npx tsc --noEmit` 71 errors, byte-identical
+count via the same stash comparison (zero new errors from this change).
+`npm run build` clean (client+server bundle, only pre-existing
+third-party warnings). `python3 -m pytest` COULD NOT RUN this session —
+pytest is not installed in this sandbox (`No module named pytest`); not
+a regression from this PR (zero Python files touched — the change is
+entirely server/*.ts + one datacore manifest + package.json version) but
+flagging honestly rather than claiming a gate that didn't execute.
+
+Version bumped 1.0.458 -> 1.0.459 (read-and-increment at commit time).
+BACKTEST: N/A — new raw data-archive pipeline, no trading logic touched,
+no strategy/threshold change (same category as euLoad.ts's own PR).
+
+wishlist.md 9c updated: generation-mix follow-up marked built this
+session; day-ahead-prices (A44) remains the one open follow-up, noted
+as needing its own PR (different response schema, not a quick copy of
+this one).
 ## 2026-07-21 (human-directed session, round 12) [PRODUCT] — Follow camera centers the PLANE, preset popout, speed audit filed (v1.0.459, T-CLIENT)
 
 TYPE: [PRODUCT] (live report + 1.3s screen recording: "the plane needs to
@@ -25372,6 +25878,113 @@ provably correct by construction (probe plane-selection is unreliable
 under SwiftShader — a known probe limitation this session, not a fix
 defect). BACKTEST: N/A.
 
+## 2026-07-22 (scheduled-routine session) [PRODUCT] — FINRA ATS/OTC venue volume leaderboards get a /data view (client/src/pages/atsSummary.tsx, v1.0.479, T-CLIENT)
+
+TERRITORY: T-CLIENT (new page + datamap.tsx wiring + datacore/layers.json
+registry entry — no server code touched, no frozen paths).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md,
+open_questions.md, wishlist.md. Confirmed branch state: the prior
+designated-branch head (2eb6511) had already become `origin/main` itself
+(a merged-branch situation per the merge-timing instructions — restarted
+cleanly on `origin/main`, no unmerged work lost). `/api/health`:
+status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca
+ACTIVE — no LIVENESS ALARM, no KNOWN BROKEN item blocking product work
+(the two open T-BOT items, #10 dead score-band config and #20 the CSP
+master-kill-switch judgment call, are both correctly gated on more live
+data per their own entries, not actionable this session, and outside
+this session's T-CLIENT territory regardless).
+
+PRIMARY ACTION SELECTION: delegated a research subagent to survey every
+active program's RESUME STATE (DATACORE MAXIMUS, PLATFORM PROGRAM, GRID
+VISION, ORBITAL, EARTH TWIN, ANALYST CONSOLE, SCALE) for the best-scoped
+not-blocked next action, since DATACORE MAXIMUS's own "shipped-data-no-
+map-layer" gaps had all just closed (GEM coal-mine layer, same day) and
+PLATFORM PROGRAM P1-P4 are fully shipped with only P5 (HUMAN-GATED
+billing activation) left. Its top-ranked finding, verified independently
+before building (READ BEFORE WRITE — read server/routes.ts's actual
+`/api/data/ats-summary` handler and server/finraQuery.ts's real response
+shapes myself, did not trust the subagent's claims about them): FINRA's
+ATS/OTC venue-summary API route has served live data since v1.0.208
+(2026-07-08) but has never had a client view — `grep` for
+`ats-summary`/`AtsSummary` across `client/src/` returned nothing, and
+wishlist.md's DATACORE MAXIMUS block has carried "a FINRA part 2 UI view
+once weeks of archive accumulate" as an open NEXT item since that ship
+date. Two weeks of archive have now accumulated; RAW display needs no
+ladder gate (same status as shortvol/attention/cot, its direct
+siblings); no key, no server change, no frozen path.
+
+BUILD: `client/src/pages/atsSummary.tsx` (new, ~215 lines) modeled
+directly on the two closest existing precedents (`shortvol.tsx` for the
+overall page shape, `methaneHotspots.tsx` for the tab-switcher pattern
+since ATS has no time-series/search the way shortvol does) — reuses the
+generic `.vt-filings-*`/`.vt-shortvol-*` CSS, zero new styles. Renders
+`/api/data/ats-summary`'s three FINRA-precomputed leaderboards as
+switchable tabs: weekly ATS-by-symbol, weekly OTC-by-symbol, monthly
+OTC-by-symbol (honestly notes monthly has no ATS/OTC venue split — the
+server's own `AtsSymbolSummary.top_ats_by_symbol` is optional and absent
+for the monthly partition, confirmed by reading `finraQuery.ts`'s header
+comment before assuming), and monthly block-trading venue ranks
+(FINRA's own precomputed rank field, not re-derived). `tiers_covered`
+and record counts are surfaced per the server's own partial-tier
+honesty convention (never implies complete coverage).
+
+Wired into `datamap.tsx` following the exact insider/earnings/shortvol/
+attention/cot/graph/methane_plumes precedent (all non-geospatial RAW
+layers — inline-panel-row-with-open-button + full-view overlay, no map
+markers): import, `#/data/ats-summary` hash-open state + hashchange
+listener entry, `LAYER_GROUP.ats_summary = "filings"`, a `Landmark`
+icon (new lucide-react import — no existing icon fit an
+exchange/venue concept), a 300s polling effect matching the sibling
+filings-layer cadence (mirrors the server's own 6h refresh; the client
+poll only refreshes the panel's record-count badge), a "records" unit
+label, an inline panel row with the open-full-view button, and the
+overlay mount. Left OUT of `DEFAULT_ON` (off by default) — matches the
+more recent filings-layer convention (faa_airports/border_waits/
+coal_mine_features/methane_plumes), not the older always-on set
+(insider/earnings/shortvol/attention/cot) from before that convention
+started.
+
+`datacore/layers.json` gained the `ats_summary` registry entry
+(group: filings, kind: raw, status: live) — required for
+`server/layersWiring.test.ts`'s ratchet (any live registry id missing
+from datamap.tsx's `LAYER_GROUP` renders PERMANENTLY "reload to
+enable", the R15 defect class); verified the ratchet passes with the
+new entry present.
+
+GATES: `npx tsx --test server/*.test.ts` 850/850 (server untouched by
+this PR — unaffected, confirms no regression). `npx tsx --test
+client/src/lib/**/*.test.ts` (all client lib suites) 641/641 — no new
+lib-level logic added (the new page has no pure-logic helper worth its
+own unit test, same as shortvol.tsx/methaneHotspots.tsx, neither of
+which have one either). `npx tsc`: git-stash A/B — 80 errors before,
+80 after (this session's actual baseline; the immediately-prior
+session's cited "77" had already drifted before this session started,
+unrelated to this change) — zero new errors, none touching
+atsSummary.tsx or datamap.tsx's new lines. `npm run build` clean.
+`npm run visual -- --page data`: 0 hard failures at 390/768/1440 (the
+harness's touch-target/clipped-control warnings present both before
+and after are pre-existing, on unrelated controls — About/Sign-in/
+layer-panel chrome, not this feature). LIVE VERIFICATION (R14/R17
+lesson — verify the positive case against the real built server, not
+just error-free responses): booted `node dist/index.cjs` locally;
+`GET /api/data/layers` returns the new `ats_summary` entry with the
+exact registry fields; `GET /api/data/ats-summary` returns
+`{kind:"raw", warming_up:true}` in this sandbox (no live FINRA poll
+has landed here — expected, matches the component's own `warming_up`
+branch, which this exercised for real rather than only in the fixture
+harness).
+
+BACKTEST: N/A (RAW display of an already-archived, already-served
+source; no trading logic, no new predictive claim).
+
+NEXT: wishlist.md's DATACORE MAXIMUS block updated below. Backup
+candidates the research pass also surfaced, not built this session:
+SEC MIDAS `/api/data/microstructure` has the identical no-UI gap (same
+wiring recipe, new `midas.tsx`); a HIFLD-vs-WRI power-plant dedup
+migration (`research/open_questions.md` lines ~5504-5578) is fully
+specified but medium-large multi-file scope, better suited to a
+session with more remaining budget.
 ## 2026-07-23 (scheduled-routine session) [PRODUCT] — Per-layer freshness chips on the /data layer panel (v1.0.479, T-DATACORE + T-CLIENT)
 
 TERRITORY: T-DATACORE primary (server/layerFreshness.ts + its test) with
@@ -25816,7 +26429,641 @@ CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
 human (see this session's own notification): the GitHub Actions
 outage, 18+ hours and still climbing as of this entry.
 
+## 2026-07-23 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.468's ThreadPoolExecutor fix is a THIRD REFUTATION (live, 11 fresh occurrences); shipped the on-disk scan-timings read the search needs next instead of a sixth blind guess (v1.0.481, T-BOT)
 
+TERRITORY: `server/bot.ts` (tier2Intelligence's daemon-timeout catch
+branch) + its own test file `server/tier2DaemonTimeoutVisibility.test.ts`
+— T-BOT (outside frozen paths; `alpaca_rate_limiter.py` and
+`risk_kill_switch.py` untouched). `package.json`/`package-lock.json`
+(SHARED) bumped last, read-and-incremented at commit time (1.0.480 ->
+1.0.481) per the merge-order protocol; package-lock's own nested
+`packages[""].version` field had already drifted stale to 1.0.480 by
+the time of this edit (the exact recurring benign-drift class six
+prior sessions have now logged and fixed in-place) — corrected in the
+same edit.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false — no LIVENESS ALARM.
+Loop-health ratio over the last 10 tagged entries (REPAIR/RESEARCH/
+RESEARCH/REPAIR/PRODUCT/REPAIR/REPAIR/PRODUCT/RULE-REVIEW/RESEARCH): 4
+REPAIR, under the 7/10 thrash threshold. GITHUB ACTIONS CI STILL DOWN
+(re-confirmed, not re-investigated further — `actions_list` shows every
+run since 2026-07-22T14:09:21Z failing instantly with the same
+runner-never-allocated "changes" job signature, now the better part of
+30 hours; already flagged to the human by name in three prior sessions'
+notifications and entries, not repeated as a fresh notification this
+session to avoid redundant paging over an unchanged, non-actionable-by-
+session state — see wishlist.md's existing entry).
+
+PRIMARY ACTION SELECTION: `/api/diag/audit?limit=150&token=$DIAG_TOKEN`
+(this session's own first read of the live audit log, per SESSION
+BUDGET tier 1 — "fix a bug seen in audit logs" outranks starting new
+research) surfaced 15 `TIER2-ERROR` + 15 `TIER2-BACKOFF` entries out of
+150 — a live, ongoing KNOWN BROKEN #18 storm, 11 occurrences from
+17:41:38Z through 19:57:39Z today (2026-07-23), DURING MARKET HOURS
+(1:41pm-3:57pm ET), the exact live-catch condition the 2026-07-21
+session's own NEXT STEP asked a future session to re-run
+("re-run this item's own established live-catch procedure... during
+MARKET HOURS"). Confirmed this is the identical `KNOWN BROKEN #18`
+symptom (open_questions.md), now on its fourth-through-sixth
+investigated mechanism, not a new item.
+
+FINDING — THIRD REFUTATION, CONFIRMED WITH FRESH EVIDENCE (11
+occurrences, not one — REASONING STANDARD #4 satisfied): grepped
+`bot_engine.py` for `ThreadPoolExecutor`/`shutdown(wait` and confirmed
+v1.0.468's fix (`_pool.shutdown(wait=False)`, line 780) is live in the
+current codebase, deployed 2026-07-21 — well before today's storm.
+Read all 11 of today's `TIER2-ERROR` entries in full: every one carries
+`active_dispatches=2 [run_full_scan:300s, health:0s]` (the second
+dispatch is the health probe itself, 0s old — NOT a zombie
+`run_full_scan`, matching the 2026-07-21 zombie-pileup refutation
+exactly) and a `layer2_prefetch` block with HIGH `age_sec` in every
+single occurrence (488.2-892.7s — Layer 2's own prefetch finished
+5-15 minutes before each timeout, or didn't need to run that cycle —
+matching the 2026-07-21 Layer-2 refutation exactly). With v1.0.468
+already live and the storm recurring on the identical ~15min cadence
+regardless, this is the THIRD refutation the 2026-07-21 session's own
+NEXT STEP explicitly anticipated ("If it continues unchanged, this
+refutes THIS hypothesis in turn (a THIRD refutation since the
+shadowFleet fix...)"). Per RECURRENCE ESCALATES and that session's own
+explicit self-flag ("five mechanisms investigated... without a second
+confirmed fix is a lot of session-time against one recurring symptom"),
+this session did NOT attempt a sixth hypothesis-driven fix blind.
+
+WHAT'S ACTUALLY STILL MISSING: all three refuted-or-fixed theories
+(zombie-pileup, Layer 2 prefetch, deep_score's enrichment
+ThreadPoolExecutor) each instrumented ONE specific phase or mechanism
+inside `run_full_scan`'s pipeline. None of them can see the OTHER
+phases (quick_scan, the main per-candidate `deep_score` loop itself,
+tier1_csp_core outside its Layer 2 prefetch, the correlation/floor/
+convexity checks) — so a hang anywhere else in the pipeline is
+completely invisible to every instrument built so far, and would look
+identical to a `TIER2-ERROR` with normal-looking `active_dispatch_
+detail`/`layer2_prefetch` fields either way. READ BEFORE WRITE found
+`bot_engine.py`'s existing `_scan_market_inner()` TIMING-DISK mechanism
+(2026-04-23) already persists a per-phase wall-clock breakdown to
+`voltrade_scan_timings.json` INCREMENTALLY (`_timing_log()` writes
+after every phase boundary, tagging `last_phase_completed`/
+`last_phase_at`/`status: "in_progress"`, so it survives the 300s kill)
+— and `/api/diag/timings` (2026-07-18) already exposes it. Two prior
+sessions' live-poll stakeouts on that exact endpoint both missed the
+window (2026-07-21's own entry: "that endpoint only reflects the last
+`scan_market()` call that actually RETURNED... its `tier_timings` are
+invisible to that endpoint, structurally, no matter how tightly the
+polling window is timed" — true of `/api/diag/timings` too, since it
+reads the identical on-disk file via the identical HTTP round-trip
+timing problem the layer2_prefetch fix solved by reading module state
+DURING the health RPC instead).
+
+FIX (v1.0.481, pure visibility, zero behavior change — same class as
+every prior instrumentation pass on this item): the daemon-timeout
+catch branch in `server/bot.ts` now ALSO reads
+`voltrade_scan_timings.json` directly via `fs` (same two candidate
+paths `/api/diag/timings` and the owner-gated `/api/system/snapshot`
+already use — `/data/voltrade/...` then `/tmp/...` fallback) at the
+exact moment a `TIER2-ERROR` fires, formatting `scan_phase={last_
+completed=... status=... age=...s}` into the SAME audit line
+`layer2_prefetch`/`active_dispatch_detail` already land in. Unlike the
+Layer 2 fix (which needed a NEW daemon-side RPC read of in-process
+module state), this needed no Python change at all: Node and the
+Python daemon share the same container filesystem, and the timing file
+is already written incrementally — reading it directly from Node,
+mirroring the exact fs.existsSync/readFileSync pattern the `timings`
+diag probe already uses, is strictly simpler and carries zero new RPC
+round-trip risk. Wrapped in its own try/catch (never blocks the
+TIER2-ERROR audit line if the file is missing/corrupt/mid-write).
+The NEXT live occurrence's audit-log entry alone (no live stakeout
+required, same principle as every visibility fix on this item since
+2026-07-19) will show which phase of the FULL pipeline — not just
+Layer 2 — the stuck scan last completed, and how long ago: a LOW age
+naming a genuinely slow phase directly; `status: "in_progress"` with a
+HIGH age or `last_phase_completed: "none"` pointing at something before
+the first phase boundary (e.g. the initial universe/snapshot fetch)
+instead.
+
+DELIBERATELY NOT DONE: no threshold change to `REQUEST_TIMEOUT_SEC`,
+`deep_score_limit`, `PREFETCH_BUDGET_S`, or the throttle rate, and no
+seventh hypothesis proposed from the existing evidence — per this
+item's own 11-day discipline, no fix ships until a live occurrence's
+NEW `scan_phase` reading actually names a specific slow phase. If the
+next several occurrences show `scan_phase` sitting on a consistent,
+specific phase name with a low age, that is the evidence-backed target
+for a real fix. If `scan_phase` instead reads `status: "completed"`
+(meaning the LAST scan that finished, not the currently-hung one —
+possible if `run_full_scan`'s dispatch and the file write are somehow
+decoupled in a way not yet understood) or shows no clear pattern across
+several fresh occurrences, that would refute this instrument's
+usefulness itself and is the point at which RECURRENCE ESCALATES'
+architecture-smell bar is fully warranted: propose in wishlist.md the
+ability to attach a CPU/wall-clock profiler to the live daemon process,
+since (with this session) four visibility instruments and one confirmed
+fix (shadowFleet, a DIFFERENT symptom pair — EVENTLOOP-LAG/
+STREAM-DISCONNECT) will have been built against this one recurring
+`TIER2-ERROR` symptom without it stopping.
+
+RATCHET: `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+wiring-pinned test (mirroring the file's own established convention for
+each layer of this item's instrumentation) asserting the daemon branch
+reads `voltrade_scan_timings.json`, surfaces `last_phase_completed`
+under a distinct `scan_phase=` key (not overwriting `layer2_prefetch`'s
+own detail), and wraps the read in its own try/catch. All 10 tests in
+the file pass (9 baseline + 1 new).
+
+GATES: `python3 -m pytest -q` 864 passed, 3 skipped (zero Python files
+touched by this PR — unchanged from the immediately prior session's
+baseline). `npx tsx --test server/*.test.ts` 792 passed, 7 failed — the
+same 7 pre-existing sandbox-network failures prior sessions have
+repeatedly confirmed unrelated (aircraftTiling/apiKeyAccounts/
+compression/gdeltEvents/owmTiles/seafloorTiles/securityMiddleware).
+`npx tsc --noEmit`: 3 errors, the same pre-existing sandbox-environment
+trio (missing @types/node/vite entry points, deprecated `baseUrl`
+option) every recent session has confirmed unrelated. `npm run build`:
+clean (client + server bundle, runtime datacore files staged).
+
+BACKTEST: N/A — pure diagnostic-visibility change to a daemon-timeout
+audit line; zero scoring/sizing/execution logic touched, no threshold
+or trading behavior changed.
+
+NEXT: whichever session catches the next live `TIER2-ERROR` should read
+the audit line's new `scan_phase` field directly (no live poll needed).
+See open_questions.md's KNOWN BROKEN #18 for the full decision tree.
+
+## 2026-07-23 (scheduled-routine session) [PRODUCT] -- /api/v1/graph: keyed license-marked mirror of Everything Graph v1, closing a filed MAP V2 ROADMAP NEXT STEP (v1.0.481)
+
+TERRITORY: server/apiProduct.ts (LICENSE_MARKS + apiMeta) + server/routes.ts
+(the new v1 route, appended immediately after the existing /api/data/graph
+handler) + server/apiProduct.test.ts. routes.ts and package.json are SHARED
+files -- the version bump was the last, smallest edit before commit per
+MERGE-ORDER PROTOCOL (read-and-increment at commit time: 1.0.480 -> 1.0.481,
+not planned ahead).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/ (the
+GEM methane gate-2(c) session immediately above is the last entry).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark false,
+alpaca ACTIVE, scanner consecutiveFailures 3 (not degraded) -- no LIVENESS
+ALARM. `/api/diag/audit?limit=40`: TIER2-ERROR daemon-timeout pattern
+(active_dispatches=2 signature) still firing and self-recovering, matching
+the already-documented KNOWN BROKEN #18 pattern -- not new, not blocking.
+GITHUB ACTIONS CI: confirmed still down via `actions_list` -- every run
+across every branch back to 2026-07-22T20:28 fails in the same instant
+"changes" job / runner_id 0 / empty runner_name signature the prior 4
+sessions already diagnosed and flagged to the human; not re-flagged again
+this session (no new information, avoids notification fatigue on an
+already-escalated, unchanged condition). Verification in this session
+therefore relies on full local test/tsc/build parity checks (below)
+rather than the CI gate, consistent with the precedent set by the
+immediately preceding several merged PRs during the same outage.
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 1/PRIMARY selection, not fall-through) to survey wishlist.md,
+open_questions.md's roadmap sections, and every program charter file for
+the single best-scoped, genuinely unblocked PRODUCT action per the four
+categories in this session's own instructions (ladder-gate advance /
+UI-UX build / new-feature spec / datacore API-boundary work). Its finding:
+research/open_questions.md's MAP V2 ROADMAP, R5 Everything Graph section
+(~line 3374-3381) explicitly filed an unclaimed NEXT STEP -- "an
+/api/v1/graph keyed mirror (mirrors the existing stats/portdwell /
+stats/shadow pattern)" -- logged when Graph v1's /data panel shipped
+(2026-07-06) and never picked up since. Rejected alternatives: the FINRA
+Part-2 / SEC MIDAS UI views (wishlist.md) are explicitly deferred pending
+"weeks of archive accumulation," not yet scoped; the NDBC buoy signal
+needs estimator design from scratch (a RESEARCH-type session, not a single
+mechanical PR); the GEM pipelines PMTiles layer is BLOCKED-FOR-MIKE
+(source files in Mike's Drive, connector off). Confirmed via
+`grep -n "api/v1" server/routes.ts` and `LICENSE_MARKS` in
+server/apiProduct.ts that no "graph" key/route existed before this
+session -- genuinely unbuilt, not just stale-doc-appearing-built.
+
+READ BEFORE WRITE: read server/apiProduct.ts in full (LICENSE_MARKS,
+apiMeta, v1Envelope contract via routes.ts usage), the existing
+/api/v1/stats/portdwell and /api/v1/stats/shadow handlers (routes.ts
+~3198-3235) as the pattern template, the existing /api/data/graph handler
+(routes.ts ~3297-3314) as the logic to mirror, and server/entityGraph.ts's
+cachedGraphSync/resolveEntityId/neighborhood (all already imported in
+routes.ts line 42 -- no new import needed) before writing anything.
+
+IMPLEMENTATION:
+1. server/apiProduct.ts: new `LICENSE_MARKS["graph"]` entry -- resell
+   "conditional" (the graph's calls_at edges are AIS-derived, same
+   inherited-conditionality reasoning already used for stats/portdwell and
+   stats/shadow). apiMeta(): added the `/api/v1/graph` endpoint entry
+   (preview: /api/data/graph) and REMOVED the stale `coming_gated` line
+   "entity timelines (Everything Graph v1 -- ... in build)" -- Graph v1
+   has been live at /api/data/graph since 2026-07-06; leaving it in
+   coming_gated after shipping a live keyed mirror this session would be
+   the exact API-docs dishonesty the apiMeta() module comment forbids.
+2. server/routes.ts: new `app.get("/api/v1/graph", ...)` immediately after
+   the existing /api/data/graph handler -- identical counts-only /
+   entity+hops-neighborhood branching logic, wrapped in requireApiKey +
+   v1Envelope("graph", ..., graph.built_at) + meterUsage at every exit
+   (200/404/503/500), matching the stats/portdwell 503+Retry-After
+   warming-up pattern rather than /api/data/graph's own 200+warming_up:true
+   shape (v1 endpoints are keyed/metered products, not free public
+   previews -- a 503 is the honest signal to a paying-tier caller that the
+   product isn't ready yet, not a 200 with an empty-ish body to bill
+   against).
+3. server/apiProduct.test.ts: updated the two tests whose assertions
+   pinned the now-corrected staleness -- "meta honesty" now asserts
+   /api/v1/graph IS a live path (not absent) and that coming_gated no
+   longer names Graph v1, with the coming_gated floor corrected from >=2
+   to >=1 (tank-fill is the one remaining gated item; the floor was a
+   sanity check on "at least something is listed as coming," not a
+   mandate that stale content survive). "wiring pinned" now includes
+   /api/v1/graph in the route-presence loop and the key-guarded-count
+   floor from >=4 to >=5. Added a new dedicated test pinning the graph
+   license mark's conditional/aisstream properties, mirroring the existing
+   per-mark tests for tracks/aircraft and tracks/vessels. Did not touch
+   the "honesty: generated_at" test's for-loops -- /api/data/graph (the
+   public preview) uses a pre-existing `built_at` field name rather than
+   `generated_at`, a naming choice that predates this PR and is out of
+   scope for a single-logical-change addition of the v1 mirror; the v1
+   response itself still carries `generated_at` via v1Envelope regardless
+   (it's given `graph.built_at` as the envelope's `generatedAt` source).
+
+VERIFICATION: this session found node_modules effectively empty at start
+(1 entry) -- `npm run build`/`npm run test:node` both failed on
+ERR_MODULE_NOT_FOUND before any code change was even in play. Ran
+`npm install` first (a one-time environment-setup action, not a code
+change) and RE-VERIFIED parity before and after with `git stash`:
+`npx tsx --test server/*.test.ts` 857/857 pass post-install (baseline
+792/799 pass immediately pre-install was a node_modules artifact --
+confirmed by re-running the same 7 "failing" files with this session's
+changes stashed out: identical 7/7 failures, so they were never caused by
+this change); `npx tsc --noEmit` 77 errors, byte-identical between
+`git stash`-verified pre-change and post-change trees (confirmed twice,
+once before and once after `npm install`, same count both times); `npm
+run build` clean (pre-existing astronomy-engine default-export warning +
+chunk-size warnings only, exit 0). No Python files touched -- `python3 -m
+pytest` not run, matching the established TS-only-diff precedent (PRs
+#572/#420/#589). BACKTEST: N/A -- zero scoring/sizing/execution/P&L code
+touched, this is a read-only API-product surface over an already-live RAW
+data source.
+
+HYPOTHESIS: this closes the filed NEXT STEP with no behavior change to
+the free /data graph panel or /api/data/graph (both untouched) -- the
+only new surface is the keyed/metered mirror. Expect the first live
+signal to be `/api/account/api-keys/:id/usage` entries tagged
+`endpoint: "/api/v1/graph"` once any preview key calls it; no live-vs-
+backtest divergence risk since nothing here scores or trades. A future
+session should check the apiusage archive once a preview-key holder (if
+any exist yet) actually calls this endpoint, and should independently
+verify the git-history claim above (`main` does not yet contain this
+branch's history in this shallow clone -- a local `git merge-base`
+against `main` returned nothing, later confirmed to be a shallow-clone
+depth artifact, not evidence of a merged/superseded branch; verified via
+`mcp__github__list_pull_requests` that no PR exists yet for this branch
+head, so this is a fresh, never-opened PR, not a restart-after-merge
+case).
+
+NEXT (unclaimed): MAP V2 ROADMAP R5's remaining item after this one is
+larger-scoped -- a `/developers` docs-explorer live-query widget for the
+graph endpoint (needs a real preview key UX decision, not filed as a
+single-PR NEXT STEP yet). GITHUB ACTIONS CI outage remains open and
+unresolved as of this entry -- still not re-flagged (see SESSION-START
+CHECKS above), but the next session that finds it recovered should note
+the recovery per the BASE BRANCH RECOVERED protocol.
+## 2026-07-23 (scheduled-routine session, PR #591) [PRODUCT] -- celestialSky.ts rAF WebGL draw gated by page visibility (v1.0.481, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/lib/celestial/celestialSky.ts` +
+`celestialSky.test.ts` only; also `package.json` version bump, the
+one permitted SHARED touch, last commit, read-and-increment at commit
+time per WORKSTREAM PARTITION merge-order protocol).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status
+ok, bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 -- no LIVENESS ALARM. `/api/diag/audit?limit=150`
+(via DIAG_TOKEN from the session env): 150 entries, breakdown 49
+TIER2 / 46 T1-FAIL (all "no options contracts available for this
+ticker" -- the known, expected mechanism firing) / 32 KILL-WARN
+(correlation-cap/free-BP mechanisms operating as designed) / 15 TIERS
+/ 6 TIER3 / 1 TIER2-BACKOFF / 1 TIER2-ERROR (a single daemon
+`run_full_scan` 300s timeout that self-healed via the existing
+backoff-then-retry mechanism -- not a new or recurring bug; scanner
+consecutiveFailures back to 0 by the time of this check). No
+audit-log bug to repair this session. Loop-health ratio, last 10
+tagged entries before this one: 4 REPAIR / 2 PRODUCT / 3 RESEARCH / 1
+RULE-REVIEW -- under the 7+ thrash threshold, no meta-problem.
+GITHUB ACTIONS CI: re-checked via `actions_list` -- every run since
+2026-07-22T14:09:21Z is STILL failing with the identical instant
+runner-never-allocated signature (`changes` job, runner_id=0,
+~3s to failure, zero downstream jobs ever starting); confirmed on
+this session's own most recent sampled runs through
+2026-07-23T14:29:46Z, now 24+ CONTINUOUS hours with zero successes
+repo-wide. Not re-diagnosed further (same tool limitation as the
+prior four entries -- no billing/quota access from this session).
+This PR follows the same established precedent: full local
+verification only, no CI signal, explicitly disclosed here and in
+the PR description.
+
+PRIMARY ACTION SELECTION: no audit-log bug, no matured experiment
+ready for judgment (TIER-KILL audit still empty). Delegated a
+research subagent (SESSION BUDGET fall-through tier 1) to survey
+open_questions.md (~6000 lines) and wishlist.md (~2000+ lines) in
+full for a concretely-scoped, currently-unblocked, unclaimed
+single-PR item, with an explicit instruction to cross-check every
+candidate against the ACTUAL current source before proposing it
+(several "unclaimed" doc entries turn out to already be shipped --
+e.g. the aircraftIntervalMs 5min-to-75s item from the same
+2026-07-20 audit round is already live in code, confirmed by grep +
+the existing `aircraftIntervalMs(cruise, []), 75_000` test pin).
+Its finding, verified: `open_questions.md` lines ~6015-6027 (the
+2026-07-20 "round 10" terrain-audit follow-up list) still lists
+"celestialSky runs an unconditional rAF WebGL draw on the normal
+map (celestialSky.ts ~995) -- a fixed per-frame tax; gate by
+visibility?" as open. Confirmed genuinely unclaimed by reading the
+current file: `loop()` (then at lines 990-995) called `drawFrame()`
+unconditionally every rAF tick with no `document.hidden`/
+`visibilitychange` check anywhere in the file (grepped), unlike the
+~15 other poll/render loops in `datamap.tsx` that already gate on
+`document.hidden` and refresh once via a `visibilitychange`
+listener on return (e.g. lines 3465/3479-3481, 6716-6717, and the
+`if (!document.hidden) load()` idiom repeated at every
+`setInterval` site in that file).
+
+READ BEFORE WRITE: read `celestialSky.ts` in full this session (all
+~1030 lines) before touching it, plus its test file, plus the
+`document.hidden`/`visibilitychange` call sites in `datamap.tsx`
+this fix needed to match, before writing any code.
+
+FIX: added a `visibilitychange` listener at mount (installed right
+after canvas creation, so it wires up even on a GL-init failure path
+-- harmless no-op there since `drawFrame()` already early-returns
+when `!gl`) that redraws once immediately when the tab returns to
+visible (matching the "catch up on return" half of the datamap.tsx
+idiom exactly). The rAF `loop()` itself now skips the `drawFrame()`
+call while `document.hidden` (but still reschedules itself every
+tick, so no special-casing of the rAF cancel/resume lifecycle is
+needed -- resuming visibility just resumes calling drawFrame() on
+the next already-scheduled tick, and the visibilitychange listener's
+own explicit `drawFrame()` covers the immediate catch-up frame).
+`dispose()` removes the listener alongside the existing
+`ResizeObserver` teardown. Zero other logic touched -- ephemeris
+cadence, interpolation, shader sources, paths toggle all
+byte-identical. No visual change while the tab is foregrounded (the
+gate only affects the backgrounded-tab case), confirmed by the
+VISUAL VERIFICATION run below showing pixel-normal renders.
+
+RATCHET: extended `celestialSky.test.ts` with a genuine behavioral
+test, not a source-inspection pin -- built a full fake WebGL2 context
+(every method the module calls during init/compile/draw stubbed,
+`gl.clear` call count as the "did a draw happen" probe) plus a fake
+`Document`/`HTMLElement` and a mocked global
+`requestAnimationFrame`/`cancelAnimationFrame` that captures the loop
+callback instead of auto-firing it, so the test drives frames by
+hand. Asserts, in order: (1) the listener is registered at mount: (2)
+a visible-tab rAF tick draws; (3) a hidden-tab rAF tick does NOT draw
+(this is the fix under test); (4) a `visibilitychange` fired while
+STILL hidden does not draw either (guards against a sloppy
+"listener fires ⇒ always redraw" implementation); (5) becoming
+visible again draws exactly once via the listener's catch-up; (6)
+the rAF loop resumes drawing every subsequent tick; (7) `dispose()`
+removes the listener. Also had to extend the PRE-EXISTING "WebGL2
+unavailable" test's fake `Document` stub with no-op
+`addEventListener`/`removeEventListener` (that test's fake previously
+had neither, since nothing in the module called them before this
+PR) -- this is completing an old test's fake-DOM surface for a new
+API the fix introduced, not weakening any assertion; its actual
+checks (`getRenderFailed()===true`, never throws) are unchanged.
+
+GATES: `npx tsx --test client/src/lib/celestial/celestialSky.test.ts`
+21 passed, 0 failed (19 pre-existing + 2 new -- the behavioral test
+above and the completed unavailable-GL2 fake-DOM fix). Full node
+suite: `npx tsx --test server/*.test.ts client/src/**/*.test.ts` 993
+passed, 0 failed -- zero regressions anywhere else in the client/
+server test surface. `npx tsc --noEmit`: same pre-existing
+sandbox-environment error set prior sessions have repeatedly
+confirmed unrelated (Buffer.trim/downlevelIteration/pngjs-types
+across files this PR never touched); zero errors in
+`celestialSky.ts`/`celestialSky.test.ts`. `npm run build`: succeeded
+clean (the "default is not exported by astronomy-engine/esm" line is
+the pre-existing, already-documented dual-CJS/ESM-interop warning
+from this same file's own top-of-file comment, not new). `python3 -m
+pytest` NOT re-run: zero Python files touched, symmetric with the
+established precedent of skipping `tsc`/`npm run build` on
+Python-only diffs earlier this same day.
+
+VISUAL VERIFICATION (PROMOTION RULE 6, human-approved 2026-07-03):
+ran the full harness against the built client --
+`node scripts/visual_check.mjs --page data` at 390/768/1440.
+Result: 0 hard failures, all three widths + the globe/flat/analyst/
+fields/legend/timescrub/scale variants PASS. The touch-target-under-
+44px and clipped-control warnings present (Sign in / About the Bot /
+map-control buttons) are pre-existing UI-chrome items unrelated to
+this diff -- confirmed by their identical presence on the
+flat-map screenshot where celestialSky never even mounts (it is a
+globe-view-only layer). Reviewed `data-globe-1440.png` directly:
+renders pixel-normal, no visible change (expected -- the fix only
+changes behavior when `document.hidden`, a state a foregrounded
+headless screenshot never exercises, so an unchanged render at every
+width is exactly the predicted, correct outcome, not an inconclusive
+check).
+
+BACKTEST: N/A -- pure client-side render-loop change, touches no
+scoring/sizing/execution/measurement path; PROMOTION RULE 3's
+Sharpe/drawdown gate does not apply.
+
+HYPOTHESIS (stated before running anything): expected the fix to
+eliminate a fixed per-frame GL draw cost while a tab showing the
+globe view is backgrounded, with zero effect on any foregrounded
+render (no pixel change, since the whole scene is deterministic in
+observer/time/camera, none of which this PR touches). ACTUAL:
+confirmed by the visual harness's pixel-identical renders across all
+tested pages/widths, and by the behavioral test's direct
+gl.clear-call-count proof that hidden ticks stop drawing while
+visible ticks and the resume tick both still do. No live-vs-backtest
+angle applies here (no trading logic touched); this is a pure
+client-perf fix in the PREMIUM EXPERIENCE STANDARD sense (perceived
+performance / battery cost on a backgrounded tab), not a
+correctness change.
+
+MERGE TIMING: this session ran during market hours. Per the
+scheduled-routine instructions, PR #591 is prepared and pushed but
+should NOT be merged until after 4:00 PM ET today unless it fixes a
+critical live break (it does not -- it is a backgrounded-tab
+perf/battery fix with zero live-trading-path contact and zero
+visual-foreground effect, so there is no urgency argument for an
+early merge).
+
+NEXT (unclaimed, from the same 2026-07-20 terrain-audit round-10
+follow-up list, still open after this PR): satLayer/modelLayer/
+arcLayer's NEVER-IDLE GLIDE LOOP (datamap's 300ms glideRepaintIv +
+per-frame glide at z>=9.2 holding the map out of idle permanently),
+the celestialSky.ts item closed by THIS PR was one line in that same
+list -- the glide-loop and TRAIL REBUILD STORM items are separate,
+larger investigations, not attempted here (single-PR scope). Also
+still unresolved and now a full 24+ hours old: the GitHub Actions
+outage -- flagged again via this session's own notification given
+the milestone (crossed 24h with zero human-visible fix yet); the
+fastest confirm-or-rule-out step remains unchanged from every prior
+entry: Settings > Billing > Actions usage on the mctils12-arch
+account.
+
+## 2026-07-23 (scheduled-routine session) [PRODUCT] — Recovered stale PR #449 (/api/v1/agent-tools) fresh onto current main, clean re-verification, no functional change from the original design (v1.0.481, SHARED — server/apiProduct.ts + one-line routes.ts wiring)
+
+TERRITORY: SHARED per WORKSTREAM PARTITION (server/apiProduct.ts,
+server/apiProduct.test.ts, one import-line + one route registration in
+server/routes.ts, package.json + package-lock.json version bump,
+research/experiments.md). No T-CLIENT/T-DATACORE/T-BOT file touched.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then all of research/*.
+Branch `claude/beautiful-planck-7jkycp` did not exist on the remote yet
+(created fresh this session, tracking set to origin/main after a shallow
+`--deepen=200` fetch resolved an initial false "unrelated histories" read
+caused by the repo's shallow clone depth — HEAD and origin/main are the
+same commit, 47772d6, confirmed via `merge-base --is-ancestor`).
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner consecutiveFailures 0 — no LIVENESS ALARM,
+no critical unfixed KNOWN BROKEN item blocking product work (per this
+session's own scan, #10 and #20 remain the only non-RESOLVED numbered
+items and both are correctly gated pending more live data, matching the
+prior two sessions' same conclusion — not reopened, not actionable).
+
+GITHUB ACTIONS CI OUTAGE — STILL DOWN, now ~24h continuous (5th
+consecutive session confirming it): checked `actions_list` directly
+(not the prior sessions' more limited tooling) — the latest run on
+main's HEAD (47772d6, run 30002515200, triggered 2026-07-23T11:16:38Z)
+completed/failure in under 3 seconds; every job (`changes`, `node-build`,
+`docker-build`, `python-tests`, `Auto-merge Claude PRs`) shows
+`runner_id: 0`/`runner_name: ""` — no runner was ever allocated, and
+`get_job_logs` 404s (no log content exists because the job never
+actually started). This is infra-level (GitHub Actions runner
+provisioning/billing for this repo/org), not a code or workflow-file
+problem — outside what any session can fix from within the repo per
+FROZEN PATHS (`.github/workflows/` is frozen anyway). Flagged again to
+the human via this session's notification, now with the concrete
+"zero runner allocated across 5 consecutive jobs, 404 on logs" evidence
+in case it narrows the human's diagnosis (GitHub Actions billing/spend
+limit or an org-level Actions pause are the two likeliest causes of an
+instant zero-runner failure with no logs).
+
+PRIMARY ACTION SELECTION: with CI down, PROMOTION RULES' autonomous-merge
+gate ("CI is green") cannot be satisfied by ANY PR right now — checked
+the open-PR list directly (`list_pull_requests`) rather than assuming,
+and found SIX open, unmerged, non-draft Claude PRs (#586, #585, #584,
+#572, #449, #415) plus one long-stale unrelated human draft (#77, left
+alone, same precedent as every prior session's check). This is a bigger
+product-throughput problem right now than starting a 7th new PR: real,
+reviewed work is stuck. #584's session (2026-07-22) already audited all
+six against main and found #557 superseded (closed), #420 recoverable
+(shipped as #584 itself), and #399/#415/#449/#572 blocked by real
+(non-doc) conflicts against current main, left for a future session "to
+recover one at a time" — that note lives in #584's own PR body (#584
+is itself unmerged, so its wishlist.md edit isn't on main yet; read via
+`pull_request_read` instead of trusting a stale local copy).
+
+Chose #449 (`/api/v1/agent-tools` — the API rendered as LLM/agent tool
+definitions) over #572 (ENTSO-E generation mix) and #415/#399 (GRID
+VISION RunPod / GIBS floods layer) for three reasons: (1) directly serves
+GOAL priority 3 / Amendment 5's #3 self-proposed-work rank ("data
+products with clean licensing and API surfaces") and the GIP mission's
+external-customer leg — an agent-tool spec is exactly the kind of API
+surface that makes the platform sellable, not just displayable; (2)
+`git merge-tree` against current main showed only append-only doc
+conflicts (package.json version line, experiments.md/wishlist.md
+append points) plus zero-conflict new-file adds for apiProduct.ts/
+apiProduct.test.ts and a clean one-line routes.ts hunk — the cheapest
+of the four to recover correctly in one session; (3) `apiMeta()` on
+current main is byte-identical to the endpoint list #449 was built
+against (still the same 5 entries / 4 real data endpoints since
+2026-07-12) — meaning the recovered code needed literally zero logic
+changes, only a fresh re-apply + re-verification, so there was no risk
+of silently reintroducing an 11-day-stale design decision that no longer
+matches the live API surface. (#572 by contrast touches an unauthenticated-
+in-sandbox external API and #415/#399 touch GPU-cost and GIBS-capability
+questions that need more re-verification than a straight recovery.)
+
+READ BEFORE WRITE: read `server/apiProduct.ts` and `server/apiProduct.test.ts`
+on current main in full before touching anything; confirmed via
+`git diff <merge-base> main -- server/apiProduct.test.ts` that this file
+had zero drift from the PR's base commit (an exact match), so the stale
+branch's test additions could be re-applied as pure appends with no
+manual reconciliation. Confirmed the routes.ts import line and the
+`/api/v1/meta` registration line the new hunk attaches to are still
+present verbatim on main before writing the edit.
+
+WHAT SHIPPED (recovered from origin/claude/palantir-platform-comparison-5wfrov,
+re-applied fresh, not a `git merge`/cherry-pick of the stale branch):
+1. `server/apiProduct.ts`: new `agentToolSpec(baseUrl)` renders the LIVE
+   `/api/v1` endpoint set as JSON-Schema function-calling tool definitions
+   (Anthropic tool use / OpenAI functions / MCP-shaped) — 4 tools
+   (voltrade_get_track, _port_dwell_stats, _shadow_fleet_stats,
+   _archive_stats), each with input_schema and a `returns_provenance`
+   list of `LICENSE_MARKS` keys so license/attribution travel into an
+   agent's context, not just the raw number. `apiMeta()` gains
+   `agent_tools: "/api/v1/agent-tools"` so the existing self-documenting
+   reference points at the new spec.
+2. `server/routes.ts`: one new public route, `GET /api/v1/agent-tools`,
+   registered beside `/api/v1/meta` — docs, not data (no `requireApiKey`;
+   the tool calls themselves still need an x-api-key, same posture as
+   `/meta`).
+3. `server/apiProduct.test.ts`: +3 tests (unchanged from the recovered
+   design, since the endpoint list didn't drift) — tool-count tracks
+   live-data-endpoint-count (drift guard: a future session that adds a
+   live endpoint without a matching tool fails this loudly), every tool
+   is valid JSON-Schema with provenance resolving to real license marks,
+   and the route is wired + confirmed public.
+
+HONESTY / GATED-SIGNAL SAFETY (unchanged from the original design, since
+nothing about gating changed in 11 days): `agentToolSpec()` derives from
+the same live endpoint list `apiMeta()` uses, so gated signals (tank-fill,
+entity timelines) cannot appear as callable tools — they only ever
+surface in `excluded_gated`, tested by scanning the tools blob for
+"tank"/"timeline"/"openweathermap".
+
+VERIFICATION (fully fresh, not trusted from the 11-day-old PR body):
+fresh `npm ci` this session (repo had no `node_modules` at session
+start). `npx tsx --test server/apiProduct.test.ts`: 11/11 pass (8
+pre-existing + 3 new). `npm run test:node`: 859/859 pass — confirmed via
+`git stash`/`stash pop` A/B that main's own baseline is 856 (+3 new,
+zero regressions). `npx tsc --noEmit`: 80 errors both before and after
+via the same stash A/B — byte-identical except one pre-existing,
+unrelated union-type error in `datamap.tsx` printing its members in a
+different (semantically identical) order, not caused by this diff.
+`npm run build`: clean (pre-existing astronomy-engine/chunk-size
+warnings only). Live-executed `agentToolSpec()` via `npx tsx -e` against
+the real module (not just the test mocks) to see the actual JSON shape
+before calling this done. No Python files touched — `python3 -m pytest`
+not re-run (matches the TS-only-diff precedent used by #572/#420/#584).
+
+BACKTEST: N/A — new public documentation/DX route over already-live,
+already-archived data; zero trading/scoring/sizing/execution code
+touched, matches the original #449 PR's own N/A justification.
+
+VERSION: 1.0.480 → 1.0.481 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before bumping, no advance since session
+start). `package-lock.json`'s root `version` field updated in the same
+commit (the KNOWN BROKEN #24 PR's precedent — that file had drifted
+stale by one version before and was called out specifically).
+
+DISPOSITION OF THE OTHER THREE STILL-STUCK PRs: #399 (GIBS floods),
+#415 (GRID VISION RunPod cost/pod-reap), #572 (ENTSO-E generation mix)
+remain open, unmerged, and conflicting against current main — not
+touched this session (one logical change per PR; recovering all three
+in one sitting would bundle unrelated changes). NEXT: a future session
+should recover one of these three the same way, in commit-recency order
+(#572 is newest and likely has the smallest additional drift).
+
+MERGE TIMING: checked before opening the PR — 2026-07-23 09:15 ET,
+before the 9:30 ET open, so this is NOT prepared mid-market; no
+deploy-coupling wait is needed on timing grounds alone. The actual
+blocker is the CI outage above: PROMOTION RULES' autonomous-merge bar
+("CI is green") cannot be satisfied by any PR right now regardless of
+market hours, so this PR is opened but NOT self-merged. The human may
+choose to merge manually given the local verification above (fresh
+npm ci, full test suite A/B, tsc A/B, clean build, live-executed
+`agentToolSpec()`) is complete and equivalent in rigor to what CI would
+have run.
+
+HYPOTHESIS (carried from the original 2026-07-12 filing, restated here
+since this session re-validated rather than re-derived it): exposing the
+API as ready-to-mount agent tools lowers integration cost for AI-agent
+developers needing verified physical-world facts from "read docs, hand-
+write wrappers" to "paste our spec." Positioning/DX bet, not a validated-
+signal claim — no signal is sold here, only already-live RAW/archive
+data. STARVED: no — high-value queued work remains (the other 3 stuck
+PRs above, plus wishlist.md's PRODUCT THESIS next-steps: hosted MCP
+server, /developers "use with your agent" section, per-signal tools as
+gate 2 passes).
 ## 2026-07-24 (scheduled-routine session) [RESEARCH] — Axis (b) illiquid-universe probe: momentum degrades in thin small-caps as predicted, but mean_reversion shows a real (if modest) edge specifically in the illiquid tier, now that the fill-cost model isn't fiction
 
 TERRITORY: `scripts/illiquid_universe_probe.py` (new, standalone — nominally
@@ -26290,3 +27537,158 @@ NO PUSH NOTIFICATION SENT FROM A PRIOR SESSION COVERED THIS: the
 about the PR backlog: that is a DIFFERENT fact (merge automation) from
 this session's finding (deploy automation) — this session sends its
 own notification for the new, higher-severity finding.
+## 2026-07-24 — [PIPELINE] USAspending gate 1: recipient→ticker matcher hand-checked; 2 real bugs found + fixed (v1.0.482) [T-DATACORE, scheduled PRODUCT session]
+
+TERRITORY: T-DATACORE (server/usaSpending.ts + its test file + a new
+reusable script; no client, no bot/strategy files touched).
+
+CONTEXT: this is a scheduled autonomous PRODUCT session. Per the routine's
+brief, checked system health first: `/api/health` all green (bot active,
+Alpaca ACTIVE, no liveness alarm), `/api/diag/audit` showing normal Tier2
+cycles. One live KNOWN BROKEN item (#25, options-chain fetch diagnosability)
+merged by an earlier session this morning (PR #596, v1.0.481) — not
+touched here (not this territory, not blocking). GitHub Actions CI has
+been down since 2026-07-22T14:09 UTC (`runner_id: 0` on every run,
+re-confirmed via `actions_list` this session — still failing at
+2026-07-24T11:15Z, the #596 merge) — already flagged 5x in wishlist.md;
+not re-flagged again here, no new information. A subagent research pass
+(this session) also surveyed the datacore/ pipeline landscape and found
+5 open, fully-built PRODUCT PRs (#572/#585/#590/#592/#594) stuck on the
+same CI outage — real completed work, just unmerged; not duplicated here.
+
+WHY THIS ACTION: `research/open_questions.md`'s DATA STREAM EXPANSION
+build order (item 4, 2026-07-05) explicitly flagged USAspending's gate 1
+("recipient→ticker mapping precision on 50 awards") as RUNNABLE — the
+matcher and 19 days of design were already shipped (v1.0.96) — but NOT
+YET ATTEMPTED. Per CLAUDE.md's session brief, "gate 1 ground-truth
+validation... IS product work." Chose this over starting a brand-new
+pipeline because closing an already-open ladder gate on shipped code
+is higher-value than adding more unvalidated surface area, and because
+running it required no new infrastructure (unlike most other queued
+gate-1/gate-2 items, which need read access to the production archive
+this sandbox doesn't have — this one is checkable by re-querying the
+same live keyless USAspending.gov API this sandbox already has network
+access to, running the ACTUAL production matcher functions unchanged).
+
+METHOD: `scripts/gate1_usaspending_ticker_check.ts` (new, permanent —
+rerunnable against live data anytime) imports `normalizeCompanyName`,
+`buildTickerMap`, `resolveTickers`, `applyParentMatch`, `fetchAwardParent`
+UNCHANGED from `server/usaSpending.ts` (not reimplemented) and pulls two
+live samples (45d/300-row and 90d/500-row, sorted by dollar value to
+surface real public-company recipients rather than the $25k-floor noise
+of tiny vendors) through the real matching pipeline, including the
+award-detail parent-lookup path. Every matched (recipient, ticker) pair
+was hand-verified against known real company identities — ~20 distinct
+identities surfaced across both pulls (Lockheed Martin, Leidos, McKesson,
+Optum/UnitedHealth, Raytheon/RTX, RTX Corp, Savannah River Nuclear
+Solutions/Fluor, SAIC, IBM, Palantir, Boeing, Tutor Perini, Huntington
+Ingalls, SpaceX) — HONESTLY NOTED as fewer independent companies than
+"50 awards" implies (dollar-sorted sampling repeat-hits the same primes),
+not overstated.
+
+FINDING 1 (BUG, fixed): `normalizeCompanyName`'s guard
+`tokens.length < 2 && out.length < 5` rejected every real one-word
+company name under 5 characters. Pulled the REAL live
+`company_tickers.json` (not assumed) and counted: 342 real SEC-listed
+titles normalize to a single token under 5 chars and were being silently
+turned into "" — including RTX Corp, confirmed via a direct
+`/api/v2/awards/{aid}/` query to be the FPDS-reported parent of
+"RAYTHEON COMPANY" (single award ID HQ085120C0002 alone carries
+$2.14B + $2.14B + $761M in this pipeline's 45-day sample), plus 3M, CSX,
+BP, DOW, PPL, EQT, OKTA, LYFT, SNAP, ROKU, ETSY, VISA, NIKE, HSBC, GSK,
+KKR, MSCI, and ~325 more. FIX: guard now only rejects `out.length < 2`
+(truly degenerate — empty, or a bare single character); the existing
+"Co, Inc." -> "" test still passes (all-suffix input still empties out).
+
+FINDING 2 (BUG, fixed): `buildTickerMap` dropped BOTH sides of any
+normalized-name key with more than one distinct ticker, unconditionally.
+Pulled the real `company_tickers.json` and computed every collision:
+1,422 total keys collide; 1,414 of them (99.4%) share the exact same raw
+`title` string and differ ONLY by ticker — e.g. "BOEING CO" -> BA (common)
++ BA-PA (preferred) or "UBS AG" -> 20 separate ETN tickers for the same
+bank. Only 8/1,422 are genuinely different companies sharing an
+accidental normalized name (e.g. "TARGET CORP" vs "Target Group Inc.").
+The blanket drop-on-any-mismatch rule was silently deleting Boeing and
+Oracle (among hundreds of others) from the map for the entire ~19 days
+this pipeline has been live. FIX: same-title collisions now resolve to
+the single shortest ticker containing neither "-" nor "." (share-class/
+preferred suffixes always use one of those); if that shortest candidate
+isn't unique (e.g. Alphabet's GOOG/GOOGL dual-class, or a same-length
+tie) OR the titles genuinely differ, the key still drops exactly as
+before — ambiguity must never guess. Verified: "TARGET" (different
+titles) and a synthetic exact tie both still correctly return
+`undefined`.
+
+CAVEAT LOGGED, NOT FIXED (per Reasoning Standard #4/#7 — state doubts as
+loudly as findings): the live hand-check also surfaced
+"BAE SYSTEMS LAND & ARMAMENTS L.P." resolving to BALL (Ball Corp) via
+the parent path. Traced conclusively via a direct award-detail query —
+this is the government's OWN SAM/FPDS parent-hierarchy field reporting
+"BALL CORPORATION" as the parent, not a bug in this matcher's logic.
+Likely a stale/miskeyed SAM registration artifact from BAE Systems'
+Feb-2024 acquisition of Ball Aerospace (a different BAE division), or a
+genuine but misleading link; either way, attributing BAE Land &
+Armaments' contract dollars to Ball Corp would be wrong. This is a
+coincidental interaction with FINDING 1's fix, not a new failure mode:
+the old <5-char guard accidentally also rejected "BALL" as a side effect
+having nothing to do with protecting against bad parent data, so this
+exact false positive did not exist pre-fix, but the fix did not CAUSE it
+either — a differently-shaped bad parent record of ordinary length would
+have sailed through even before this PR. FILED for a future session:
+`mm==="parent"` matches should probably not be gate-2-trusted without an
+independent plausibility check; not attempted here (would be guessing at
+a fix without evidence on how common this class of error is). Also
+caveated: "SPACE EXPLORATION TECHNOLOGIES CORP" -> SPCX is a correct NAME
+match against SEC's own file, but whether SPCX is an actually-tradeable
+ticker (vs. a dormant legacy registration — SpaceX is privately held) is
+unverified; any gate-2 consumer must check for real price history, not
+assume every resolved ticker has one.
+
+RATCHET: `server/usaSpending.test.ts` gained 2 new tests pinning both
+fixes with the REAL discovered shapes (RTX Corp/3M Co/CSX Corp
+normalize; the real Boeing/Oracle same-title collisions resolve while a
+different-title Target-style collision and a same-length tie both still
+drop). A/B-verified via `git stash push -- server/usaSpending.ts`: 2 of
+the 6 touched assertions fail against the pre-fix code (RTX/3M/CSX
+normalize-to-empty; Boeing/Oracle resolve to `undefined`), the
+pre-existing 8 pass unchanged under both versions — confirms the new
+tests actually exercise the fix, not incidental churn.
+
+GATES: `npx tsc --noEmit` initially added 9 NEW errors (a `for...of` over
+a `Map` needs `--downlevelIteration` under this project's target, same
+class of pre-existing error already present in `shadowFleet.ts`) — fixed
+by switching to `Map.prototype.forEach` before considering this done;
+re-ran and confirmed exactly 80 errors, byte-identical count to the
+`git stash`-verified pre-PR baseline. `npx tsx --test server/*.test.ts`
+858/858 pass. `npm run build` clean (pre-existing unrelated warnings
+only: astronomy-engine ESM interop, chunk-size advisories). `python3 -m
+pytest -q` (after `pip3 install -r requirements.txt -r
+requirements-dev.txt` — bare sandbox) 886 passed, 1 skipped, 0 failed,
+matching this morning's #596 baseline exactly — zero regressions, and
+this PR touches zero Python files so this gate is a pure sanity check.
+
+BACKTEST: N/A — this is a datacore RAW-display stream (not gate-2'd,
+not traded, not part of the bot's candidate-selection or scoring path);
+PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply. Version bumped to
+v1.0.482 per PROMOTION RULE 4 (a live-serving pipeline's matching
+behavior changed, even though nothing here touches trading/ML code).
+
+CI: still down (see CONTEXT above) — ships on full local verification
+only, following the established option-(c) precedent from every session
+since 2026-07-22. Per the routine's own instruction to prefer merging
+outside 9:30-16:00 ET: this session ran during the 13:0X-13:3X UTC
+window (pre-open into the opening bell) — the PR is prepared but should
+NOT be merged until after the 16:00 ET close; noting this explicitly in
+the PR description too.
+
+NEXT: gate 2 itself (award/mcap ratio vs 5-20d forward returns, DoD
+cohorted out per the existing honesty note) remains queued and is NOT
+attempted here — this session closes gate 1 only. A future session
+should also: (a) spot-check whether `mm==="parent"` false-positive rate
+(1 wrong / ~4 parent-matched identities in this session's small sample)
+holds up over a larger pull before deciding whether gate 2 should
+discount or exclude parent-derived matches; (b) the same short-name/
+same-title-collision bug classes almost certainly affect any other
+datacore pipeline that name-matches against `company_tickers.json` —
+worth a grep-wide check in a future session (not done here — one
+logical change per PR).

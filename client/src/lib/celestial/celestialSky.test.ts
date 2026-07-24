@@ -348,7 +348,11 @@ test("mountCelestialSky latches when WebGL2 is unavailable (getContext ⇒ null)
     getContext: () => null,
     remove() { /* noop */ },
   };
-  const fakeDoc = { createElement: () => canvasStub } as unknown as Document;
+  const fakeDoc = {
+    createElement: () => canvasStub,
+    addEventListener() { /* noop — visibility gate wiring is independent of GL success */ },
+    removeEventListener() { /* noop */ },
+  } as unknown as Document;
   const container = {
     ownerDocument: fakeDoc, clientWidth: 800, clientHeight: 600,
     appendChild() { /* noop */ },
@@ -362,4 +366,112 @@ test("mountCelestialSky latches when WebGL2 is unavailable (getContext ⇒ null)
   assert.equal(handle.getRenderFailed(), true, "WebGL2 unavailable ⇒ renderFailed latched");
   assert.doesNotThrow(() => handle.render());
   assert.doesNotThrow(() => handle.dispose());
+});
+
+// ── 8. page-visibility gate: skip the per-frame WebGL draw while hidden ─────
+// (round-10 terrain audit follow-up, open_questions.md: "celestialSky runs an
+// unconditional rAF WebGL draw on the normal map — a fixed per-frame tax;
+// gate by visibility?"). A full fake WebGL2 context lets this exercise the
+// REAL rAF loop end-to-end (gl.clear call count as the "did it draw" probe)
+// rather than only pinning the source text.
+function makeFakeGl() {
+  let clearCalls = 0;
+  const noop = () => {};
+  const gl: Record<string, unknown> = {
+    // constants — arbitrary distinct values, only identity matters to this fake
+    VERTEX_SHADER: 1, FRAGMENT_SHADER: 2, COMPILE_STATUS: 3, LINK_STATUS: 4,
+    ARRAY_BUFFER: 5, STATIC_DRAW: 6, DYNAMIC_DRAW: 7, FLOAT: 8,
+    COLOR_BUFFER_BIT: 9, DEPTH_TEST: 10, BLEND: 11,
+    SRC_ALPHA: 12, ONE: 13, ONE_MINUS_SRC_ALPHA: 14, TRIANGLES: 15, LINE_STRIP: 16,
+    createShader: () => ({}), shaderSource: noop, compileShader: noop,
+    getShaderParameter: () => true, getShaderInfoLog: () => "", deleteShader: noop,
+    createProgram: () => ({}), attachShader: noop, linkProgram: noop,
+    getProgramParameter: () => true, getProgramInfoLog: () => "", deleteProgram: noop,
+    getAttribLocation: () => 0, getUniformLocation: () => ({}),
+    createBuffer: () => ({}), bindBuffer: noop, bufferData: noop, deleteBuffer: noop,
+    viewport: noop, clearColor: noop,
+    clear: () => { clearCalls++; },
+    disable: noop, enable: noop, blendFunc: noop, useProgram: noop,
+    uniformMatrix4fv: noop, uniform3f: noop, uniform1f: noop,
+    vertexAttribPointer: noop, enableVertexAttribArray: noop, drawArrays: noop,
+  };
+  return { gl, clearCalls: () => clearCalls };
+}
+
+test("celestialSky rAF loop skips the WebGL draw while document.hidden, catches up on return", () => {
+  const fake = makeFakeGl();
+  const canvasStub = {
+    style: {} as Record<string, string>, className: "",
+    width: 0, height: 0, clientWidth: 800, clientHeight: 600,
+    getContext: () => fake.gl,
+    remove() { /* noop */ },
+  };
+  const visListeners = new Map<string, () => void>();
+  const fakeDoc = {
+    hidden: false,
+    createElement: () => canvasStub,
+    addEventListener: (type: string, cb: () => void) => { visListeners.set(type, cb); },
+    removeEventListener: (type: string) => { visListeners.delete(type); },
+  } as unknown as Document;
+  const container = {
+    ownerDocument: fakeDoc, clientWidth: 800, clientHeight: 600,
+    appendChild() { /* noop */ },
+  } as unknown as HTMLElement;
+
+  // capture the rAF loop callback without auto-firing it (this test drives frames manually)
+  let rafCb: (() => void) | null = null;
+  let rafIdSeq = 0;
+  const origRaf = (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+  const origCancel = (globalThis as { cancelAnimationFrame?: unknown }).cancelAnimationFrame;
+  (globalThis as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame =
+    (cb: () => void) => { rafCb = cb; return ++rafIdSeq; };
+  (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
+
+  try {
+    const handle = mountCelestialSky(container, {
+      getView: () => ({
+        timeMs: Date.parse("2026-01-01T00:00:00Z"),
+        observerLatDeg: 40.7, observerLonDeg: -74,
+        lookAzDeg: 180, lookElDeg: 30, fovDeg: 45,
+      }),
+    });
+    assert.equal(handle.getRenderFailed(), false, "fake GL2 context accepted");
+    assert.ok(visListeners.has("visibilitychange"), "registers a visibilitychange listener");
+    const afterMount = fake.clearCalls();
+    assert.ok(afterMount >= 1, "the initial mount-time drawFrame() ran");
+    assert.ok(rafCb, "rAF loop scheduled");
+
+    // visible frame ⇒ draws
+    rafCb!();
+    assert.equal(fake.clearCalls(), afterMount + 1, "visible frame drew");
+
+    // hidden ⇒ the rAF tick must NOT draw (this is the fix under test)
+    fakeDoc.hidden = true;
+    const beforeHidden = fake.clearCalls();
+    assert.ok(rafCb, "loop still reschedules itself while hidden");
+    rafCb!();
+    assert.equal(fake.clearCalls(), beforeHidden, "hidden rAF tick skipped the draw");
+
+    // a visibilitychange fired WHILE still hidden must not draw either
+    visListeners.get("visibilitychange")!();
+    assert.equal(fake.clearCalls(), beforeHidden, "visibilitychange while still hidden ⇒ no draw");
+
+    // becoming visible again ⇒ the listener catches up with one immediate draw
+    fakeDoc.hidden = false;
+    visListeners.get("visibilitychange")!();
+    assert.equal(fake.clearCalls(), beforeHidden + 1, "return-to-visible draws once immediately");
+
+    // and the rAF loop resumes drawing every tick again
+    const beforeResume = fake.clearCalls();
+    rafCb!();
+    assert.equal(fake.clearCalls(), beforeResume + 1, "rAF resumes drawing once visible again");
+
+    handle.dispose();
+    assert.ok(!visListeners.has("visibilitychange"), "dispose removes the visibilitychange listener");
+  } finally {
+    if (origRaf === undefined) delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    else (globalThis as { requestAnimationFrame: unknown }).requestAnimationFrame = origRaf;
+    if (origCancel === undefined) delete (globalThis as { cancelAnimationFrame?: unknown }).cancelAnimationFrame;
+    else (globalThis as { cancelAnimationFrame: unknown }).cancelAnimationFrame = origCancel;
+  }
 });
