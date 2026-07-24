@@ -1775,3 +1775,85 @@ limits) on the mctils12-arch account — but the growing PR backlog is new
 information worth weighing into how urgent this now is. Sent as this
 session's own scheduled-routine notification (5th direct flag on this
 issue; see experiments.md for the session log).
+
+UPDATE 2026-07-24 (scheduled-routine session, 2nd today) - SEVERITY
+RAISED: this is not just a missing CI signal or a PR-merge backlog, it
+is a CONFIRMED PRODUCTION DEPLOY FREEZE. Prior updates above all framed
+the impact as "PROMOTION RULES gate bypassed" / "PRs pile up unmerged" -
+both true, but every prior session assumed that PRs merged straight to
+`main` (via the documented local-verification workaround) were still
+reaching Railway normally, since Railway's GitHub integration usually
+deploys on push independent of Actions. That assumption is WRONG for
+this repo, and this session found the proof:
+
+- `GET /api/data/layers` on the live site returns `server_version`
+  (baked from `package.json` at build time) = **`1.0.475`**.
+- `package.json` on `main` (HEAD `c21f679`, this morning's merged
+  KNOWN BROKEN #25 fix, PR #596) = **`1.0.481`** - 6 versions / 9
+  merged PRs ahead.
+- `.github/workflows/ci.yml`'s own header comment states the design
+  intent explicitly: "Railway should deploy only after this passes
+  (enable 'Wait for CI' in Railway service settings -> GitHub -> Check
+  Suites)." That setting is exactly what turns a CI-runner-allocation
+  outage into a deploy freeze, not just a merge-automation nuisance.
+- Timing lines up precisely: commit `d1966b2` (v1.0.475, the version
+  currently live) merged **2026-07-22T12:13:46Z**; the Actions outage's
+  own first confirmed failure is **2026-07-22T14:09:21Z**, ~2 hours
+  later. Every commit since - v1.0.476 through v1.0.481, 9 PRs,
+  including today's KNOWN BROKEN #25 REPAIR fix (the options-chain
+  fetch-failure diagnosability patch) - has been sitting merged on
+  `main` for up to 2 days without ever reaching the live trading bot.
+  `/api/diag/audit?type=T2-FAIL` was checked this session specifically
+  to verify #25's NEXT CHECK (whether the new detailed error reason is
+  now appearing on live T2-FAIL lines) - it is NOT: 200 sampled entries
+  from 2026-07-24T14:56-15:55Z all still show the bare pre-fix generic
+  message with zero HTTP status/body detail, because the server
+  running in production has never received that patch.
+- Separately, that same live T2-FAIL sample is itself worth a flag:
+  26 distinct, mostly liquid, definitely-listed-options tickers (PYPL,
+  VZ, UBER, XLF, CSX, T, HYG, HIMS, AAL, GEHC, NEE, BMY, MCHP, STM,
+  QQQI, IJH, VCIT, VTEB, SCHD, DRAM, IREN, SNDQ, MUU, SOFI, ASTS, SPYM)
+  ALL fail options-chain fetch on 100% of sampled cycles - this reads
+  far more like a systemic OPRA/entitlement fetch failure than genuine
+  no-options-listed for all 26 names, exactly the KNOWN BROKEN #25
+  hypothesis. But the diagnosability fix that would disambiguate it
+  is stuck undeployed, so this can't be root-caused further until a
+  deploy actually happens - filed here rather than reopening #25 with
+  a guess.
+
+WHY THIS OUTRANKS THE PRIOR FRAMING: CLAUDE.md GOAL priority 1 (KEEP
+THE SYSTEM ALIVE) says a dead system learns nothing - a system quietly
+running 2-day-stale code is a softer version of the same failure mode:
+every autonomous session since 2026-07-22T14:09Z that reasoned "this
+should be observable live once deployed" has been reasoning about a
+deploy that never happened, and any bug that v1.0.476-481 fixed is
+still live-broken in production right now. This also means the CSP/
+options-tier repair work happening across the last several sessions
+(#3, #20, #25) cannot be verified live no matter how many more
+diagnostic PRs ship, until either GitHub Actions recovers or Railway's
+"Wait for CI" gate is bypassed some other way.
+
+RECOMMENDED HUMAN ACTIONS (fastest first):
+1. Railway dashboard -> service -> Settings -> GitHub -> turn OFF "Wait
+   for CI" (Check Suites) temporarily, and/or manually trigger a
+   redeploy of the current `main` HEAD from the Railway dashboard
+   directly (bypasses the gate for one deploy without changing the
+   setting permanently).
+2. GitHub -> Settings -> Billing -> Actions usage (or Settings ->
+   Actions -> General -> spending limits) on the `mctils12-arch`
+   account - the leading hypothesis for the runner-allocation failure,
+   unconfirmed for 3 sessions running because no tool here can read
+   billing data.
+3. Once either is resolved, the next scheduled session should re-check
+   `server_version` via `/api/data/layers` to confirm the freeze has
+   actually cleared before trusting any "should be live now" note in
+   past PRs.
+
+No code or workflow file changed this session (`.github/workflows/` and
+`railway.json`/`railway.toml` are FROZEN PATHS and none of them contain
+an actual bug - the design as documented in `ci.yml`'s own comment is
+working exactly as configured; the outage is external, in GitHub's
+runner allocation). This update is filed here rather than as a 6th
+near-duplicate CI-outage note specifically because the new evidence
+(the version-endpoint mismatch) changes the severity assessment, not
+just the duration count.

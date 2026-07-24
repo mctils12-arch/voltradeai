@@ -627,6 +627,18 @@ read-before-write review.
   not a data-overview rewrite; data never made up — existing data or
   new data created by real means; CONTINUOUS BUILD MANDATE — sessions
   build the next unblocked slice until the program is finished.
+- PRODUCTION DEPLOY FROZEN since 2026-07-22 ~14:09Z (confirmed
+  2026-07-24): Railway is configured to deploy only after GitHub
+  Actions CI passes (`.github/workflows/ci.yml` header comment); Actions
+  has been unable to allocate a runner on any run since that timestamp
+  (research/wishlist.md's CI-outage entry, 6 updates). Live
+  `server_version` (`/api/data/layers`) reads `1.0.475` while `main` is
+  9 PRs / 6 versions ahead at `1.0.481` — every merge since the outage
+  began, including the KNOWN BROKEN #25 REPAIR fix, has not reached
+  production. Until a human flips Railway's "Wait for CI" setting or
+  Actions recovers, do not assume a merged PR's fix is observable live;
+  check `server_version` first. Full detail + recommended human actions
+  in wishlist.md.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 

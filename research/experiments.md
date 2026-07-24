@@ -26159,3 +26159,134 @@ candidate universe including names with no listed options at all (a
 different, upstream-universe fix). Also queued: `options_scanner.py`'s
 identical bug shape (scope-noted above, not fixed this session) as a
 smaller separate follow-up PR.
+
+
+## 2026-07-24 (scheduled-routine session, 3rd of the day) [REPAIR] — confirmed PRODUCTION HAS NOT DEPLOYED since 2026-07-22T14:09Z: the GitHub Actions outage already tracked in wishlist.md is also a deploy freeze, not just a CI-gate/merge-automation issue (v1.0.481 on main, v1.0.475 live — no code changed)
+
+TERRITORY: research/* (SHARED — docs-only session, no application code
+touched; CLAUDE.md KNOWN STATE bullet is the one non-research file
+edited, a factual-update-only addition per the FROZEN PATHS carve-out
+for this file).
+
+SESSION-START CHECKS: read CLAUDE.md in full (its own copy now carries
+this session's KNOWN STATE addition, see below). `git fetch origin
+main`: this session's designated branch (`claude/eloquent-dijkstra-
+x6dxxp`) had two commits already sitting on it locally
+(axis-(b) RESEARCH + KNOWN BROKEN #25 REPAIR) that turned out to be
+byte-identical to `origin/main` HEAD (`c21f679`) — confirmed via
+`git merge-base`/`rev-parse` that both had already been merged to
+`main` through separate branches/PRs (#595, #596) earlier today by an
+earlier firing of this same schedule; this branch itself was never
+pushed and carried no unique work. Treated this as a fresh session
+starting from an up-to-date `main`, not a continuation.
+`/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS
+ALARM. Loop-health ratio, true last 10 tagged entries by file order
+(2026-07-22 through today, ending at the #596 REPAIR entry immediately
+above this one): 4 REPAIR / 3 RESEARCH / 2 PRODUCT / 1 RULE-REVIEW —
+under the 7+ thrash trigger, no meta-problem to prioritize over this
+session's finding. Audit register: staleness next due 2026-08-04, constitutional
+next due ~2026-08-03 — neither overdue. `mcp__github__list_pull_
+requests` (state=all, sorted by created desc) showed the true PR
+picture: #596 (KNOWN BROKEN #25 REPAIR) and #595 (RESEARCH) both
+already merged this morning; #597 (PRODUCT, USAspending gate-1) open
+from ~13:33 UTC; five more (#590-594) open and stale against current
+`main`, all citing the same GitHub Actions outage first flagged
+2026-07-22T14:09Z.
+
+PRIMARY ACTION SELECTION: `research/open_questions.md` KNOWN BROKEN #25
+(filed by the #596 REPAIR this morning) has an explicit NEXT CHECK:
+once deployed, query `/api/diag/audit?type=T2-FAIL` for the new
+detailed error reason. Ran that check first, per SESSION BUDGET's
+"fix a bug seen in audit logs" being the top PRIMARY-action tier. It
+surfaced something bigger than the check itself was looking for.
+
+FINDING (this session's actual work, root-caused not assumed):
+`/api/diag/audit?type=T2-FAIL&limit=200&token=$DIAG_TOKEN` returned 200
+entries spanning 2026-07-24T14:56:02Z-15:55:41Z, EVERY ONE still the
+bare pre-#596-fix generic message (`"<TICKER>: No options contracts
+available for this ticker"`, zero HTTP status/body) across 26 distinct
+tickers (ASTS/SOFI/SPYM/SNDQ/GEHC/PYPL/NEE/HIMS/MUU/VZ/AAL/HYG/UBER/
+VCIT/IREN/CSX/DRAM/VTEB/SCHD/T/QQQI/STM/XLF/IJH/MCHP/BMY) — many of
+them liquid, unambiguously-listed-options names (PYPL, VZ, UBER, XLF,
+HYG, T, CSX), which is itself further evidence for #25's "systemic
+fetch failure, not genuine no-options-listed" hypothesis. But before
+chasing that, checked whether the #596 fix (merged 2026-07-24T11:15Z,
+package.json v1.0.481) had actually reached the server producing these
+lines: `GET /api/data/layers`'s `server_version` field (baked from
+`package.json` at build time, `server/routes.ts:787`) reads **`1.0.475`**
+— a version that predates not just #596 but 6 versions / 9 merged PRs
+of work (v1.0.476 imagery chips, .477 crash-cascade-adjacent fix, .478
+stale-on-return refresh, .479 freshness chips, .480 RULE-REVIEW
+liquidity cost, .481 KNOWN BROKEN #25). `git log` confirms `v1.0.475`
+was commit `d1966b2`, merged **2026-07-22T12:13:46Z** — within ~2 hours
+of the GitHub Actions outage's own first confirmed failure
+(**2026-07-22T14:09:21Z**, per wishlist.md's existing tracking entry).
+Zero deploys since. `.github/workflows/ci.yml`'s own header comment
+states the design explicitly: "Railway should deploy only after this
+passes (enable 'Wait for CI' in Railway service settings)" — so an
+Actions runner-allocation outage doesn't just block the `Auto-merge
+Claude PRs` job (already known), it blocks EVERY deploy Railway would
+otherwise make on every push to `main`, silently, for as long as the
+outage lasts.
+
+WHY THIS WASN'T CAUGHT SOONER: five prior sessions (07-22 through
+07-24, see wishlist.md's CI-outage entry) all correctly diagnosed and
+tracked the Actions-outage/PR-backlog symptom, and all correctly used
+the local-verification-only merge workaround to keep `main` moving —
+but none had checked `server_version` against `main`'s `package.json`
+to confirm those merges were actually reaching production. This
+session did, specifically because #25's own NEXT CHECK asked to look
+at live T2-FAIL data — the absence of the expected new error detail is
+what prompted checking whether the fix had deployed at all, rather than
+concluding "the fix didn't work."
+
+NOT FIXED (cannot be, from here): `.github/workflows/`,
+`railway.json`, `railway.toml` are all FROZEN PATHS, and none of them
+contain an actual defect — the deploy gate is working exactly as
+designed in `ci.yml`'s own documented intent; the outage itself is
+external (GitHub's runner allocation, or an Actions billing/quota
+limit per the standing unconfirmed hypothesis in wishlist.md). No code
+changed this session. Filed as a severity-raising UPDATE on the
+existing wishlist.md CI-outage entry (not a 6th near-duplicate) with
+concrete recommended human actions (temporarily disable Railway's
+"Wait for CI" or manually trigger a redeploy from the dashboard; check
+GitHub Actions billing/spending limits). Also added a KNOWN STATE
+bullet to CLAUDE.md itself so every future session checks
+`server_version` before trusting a past PR's "should be observable
+live once deployed" note — this directly protects REASONING STANDARD
+#10 (state a prior, then update against reality) from being quietly
+violated by an infrastructure fact no session had verified.
+
+IMPACT ASSESSMENT vs. GOAL priorities: this is not a LIVENESS ALARM
+(Amendment 1's specific bar — trading loop paused/halted/broker-
+unreadable — isn't met; the bot is actively trading on v1.0.475).
+It is, however, a Priority-1/2-adjacent integrity issue: every fix
+merged since 2026-07-22T14:09Z (including a REPAIR) is currently
+inert in production, and any session that reasoned "should be
+confirmable live once deployed" for the last 2 days was reasoning
+about a deploy that never happened. Flagged prominently rather than
+silently — a human decision (Railway dashboard setting, or GitHub
+billing check) is the only way to clear it from here.
+
+HYPOTHESIS/PRIOR (stated per REASONING STANDARD #10): once the human
+either flips Railway's "Wait for CI" setting or GitHub Actions
+recovers on its own, the very next deploy should carry all of
+v1.0.476-.481 at once; a future session's `server_version` check should
+then read `1.0.481` (or higher) and `/api/diag/audit?type=T2-FAIL`
+should start showing the #25 diagnostic detail on the next real
+failure. If `server_version` is STILL `1.0.475` after the human
+reports having changed the Railway setting, that would mean a second,
+independent deploy blocker exists — worth a dedicated future session,
+not assumed here.
+
+GATES: none — no code, test, or config file touched; `research/*.md`
+and `CLAUDE.md`'s KNOWN STATE section are documentation only. No
+version bump (matches established precedent for pure docs/research
+sessions with zero runtime import, e.g. #589/#595).
+
+NO PUSH NOTIFICATION SENT FROM A PRIOR SESSION COVERED THIS: the
+2026-07-24 (1st) session's wishlist.md update was its own notification
+about the PR backlog: that is a DIFFERENT fact (merge automation) from
+this session's finding (deploy automation) — this session sends its
+own notification for the new, higher-severity finding.
