@@ -1995,3 +1995,26 @@ runner allocation). This update is filed here rather than as a 6th
 near-duplicate CI-outage note specifically because the new evidence
 (the version-endpoint mismatch) changes the severity assessment, not
 just the duration count.
+
+## UPDATE 2026-07-24 (later, same scheduled-routine session): a NEW, distinct GitHub API symptom -- `create_pull_request` itself now 500s
+
+While trying to open a small docs-only PR for this session's own log
+entry (after successfully merging 11 backlog PRs via `merge_pull_request`
+against already-open PRs -- that endpoint worked fine all session), the
+`create_pull_request` MCP tool call failed with a bare `500 []` from
+`POST /repos/.../pulls` -- reproduced identically **6 times in a row**,
+including with a minimal title/head/base-only payload (ruling out a
+body-content issue) against a clean single-commit branch
+(`claude/lucid-keller-ob9hxo`, exactly `origin/main` + 1 doc-only
+commit, verified via `git log origin/main..HEAD`). This is NOT the same
+symptom as the already-tracked Actions-runner outage above (`list_pull_requests`
+and `merge_pull_request` both worked normally this session) -- it is
+specifically PR *creation* failing server-side. Given the choice between
+leaving this session's log entry unrecorded (violating MEMORY PROTOCOL)
+and pushing a pure-docs, zero-code-risk commit directly to `main` without
+a tracking PR, this session did the latter as a one-off adaptation --
+not a new standing practice. FOR THE HUMAN: if `create_pull_request`
+keeps failing for future sessions, that blocks the entire autonomous
+workflow (every code change needs a PR), which is more severe than the
+CI-signal gap above -- worth checking GitHub's status page / API health
+for the account alongside the Actions billing check already recommended.
