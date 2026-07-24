@@ -27856,3 +27856,152 @@ BUDGET queue (untouched this session) — datacore/ pipeline ladder gates,
 `/data` UI, or a new feature spec — now that the backlog is no longer
 competing for merge-conflict risk. #399/#415's manual re-application
 remains queued, one at a time, per #584's original disposition.
+
+## 2026-07-24 (scheduled-routine session, 4th of the day) [PRODUCT] — Manually re-applied stale PR #399 (G2f MODIS flood/water-extent GIBS layer) onto current main; closed the unrelated-history orphan (v1.0.492, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx, datacore/layers.json,
+scripts/visual_check.mjs) + SHARED research/* (minimal, own session's own
+entries only, per merge-order protocol).
+
+SESSION-START CHECKS (MEMORY PROTOCOL): read CLAUDE.md in full, then
+experiments.md tail, open_questions.md KNOWN BROKEN, wishlist.md tail.
+LOOP-HEALTH RATIO: last 10 tagged entries (2026-07-23 through this
+session) = 4 [REPAIR] ([REPAIR] KNOWN BROKEN #18 continuation, [REPAIR]
+CSP options-chain diagnosability, [REPAIR] confirmed production deploy
+freeze, [REPAIR->pivot] CI-outage backlog clear) / 4 [PRODUCT] (/api/v1/
+graph, celestialSky visibility gating, recovered PR #449, this session) /
+2 [RESEARCH] (GEM methane, illiquid-universe axis) / 1 [PIPELINE]
+(USAspending gate 1) — no thrash (well under the 7+ REPAIR threshold).
+`/api/health` clean: status ok, drawdownPct 0.0, liveness.dark false,
+alpaca ACTIVE, scanner 0 consecutiveFailures — no LIVENESS ALARM.
+
+CONFIRMED STILL LIVE THIS SESSION (re-checked, no new notification sent —
+already flagged 6 times across the prior 5 sessions, nothing new to add):
+`/api/data/layers`'s `server_version` still reads `1.0.475` against
+`main`'s `1.0.491` at session start (now `1.0.492` after this PR) — the
+PRODUCTION DEPLOY FREEZE from the GitHub Actions runner-allocation outage
+(tracked since 2026-07-22T14:09:21Z in wishlist.md) is unresolved. GitHub
+Actions confirmed still failing this session too (last 30 workflow runs,
+100% failure, ~3-5s each — the same "runner never allocated" signature).
+Checked `/api/diag/audit?token=$DIAG_TOKEN` (200 entries, ~3h window,
+17:22-20:18 UTC) for anything newly actionable in live audit data: KNOWN
+BROKEN #18's `TIER2-ERROR` "Daemon timeout" recurred on essentially every
+Tier 2 cycle (15/15 in-window occurrences, `active_dispatches=2` every
+single time) — but the diagnostic instrument the 2026-07-23 session shipped
+to localize it (`scan_timings` read into the same audit line, v1.0.481) is
+itself one of the 16 versions stuck behind the deploy freeze and absent
+from every live message this session read. Per that item's own RECURRENCE
+ESCALATES posture (already crossed the architecture-smell bar as of
+2026-07-22), the correct move is NOT a sixth blind instrument — it is
+waiting for the deploy freeze to clear so the already-shipped instrument
+can actually be read. Not actionable this session; not re-flagged as a
+new notification since nothing has changed since the last 6 flags.
+
+PRIMARY ACTION SELECTION: with #18 blocked on a human-actionable external
+outage and no other audit-log finding immediately actionable, fell through
+to the SESSION BUDGET queue's explicit next item: `open PRs #399 and #415`
+were left deliberately unresolved by this morning's backlog-clearing
+session (`git merge-tree` had confirmed both are "unrelated histories" —
+their branch root commits predate a `main` history rewrite, not a normal
+mergeable conflict) with the explicit note "manual re-application... one
+at a time." Picked #399 (G2f MODIS flood/water-extent GIBS layer,
++266/-6 across 7 files, client-only, self-contained, already fully
+verified when originally opened 2026-07-09) over #415 (GRID VISION RunPod
+repair/tooling, +554/-8 across 12 files, touches live GPU-cost-cap
+infrastructure) as the more tractable single-session pick; #415 remains
+queued for a future session.
+
+METHOD: re-read #399's full diff via `pull_request_read` (not trusted
+from memory) and manually re-applied its content onto current `main`
+(NOT `git apply`/`git am` — the file has grown enormously since
+2026-07-09 due to unrelated feature work, so line-based patching would
+either fail outright or silently land in the wrong context). READ BEFORE
+WRITE on every touched region of `datamap.tsx` before editing, which
+surfaced three real drift points the original PR's diff didn't anticipate
+and had to be adapted for, not just copied:
+1. **EARTH TWIN E1's global time axis** (shipped after 2026-07-09) now
+   drives every dated GIBS layer's default date via a `subscribeTimeAxis`
+   callback — `floodsDate` had to be wired into that `apply()` function
+   alongside `no2Date`/`aerosolDate`/etc., or the new layer would silently
+   ignore the Time Machine panel's historical mode while every sibling
+   layer obeyed it.
+2. **A same-named-domain but different-source layer now exists**:
+   `floodzones` (FEMA's static regulatory flood-hazard-zone designation,
+   `group: "hazards"`) shipped between 2026-07-09 and now. This is NOT a
+   duplicate of MODIS `floods` (observed current water extent) — verified
+   both the id and the `hazards` vs `environmental` group are distinct —
+   but it meant `Waves` (the icon #399 originally chose) was already
+   claimed by the `buoys` layer by the time of re-application, and the new
+   layer's description had to explicitly disambiguate "observed water,
+   not designated risk" so a user doesn't conflate the two. Used `Droplet`
+   (singular, lucide-react) instead — distinct from `Droplets` (soil
+   moisture) and `Waves` (buoys).
+3. **`LegendPanel` is now a separate `memo()`-wrapped component** (a
+   perf optimization shipped after 2026-07-09, isolating the legend's
+   re-render from the parent's high-frequency state) with its own
+   `LegendPanelProps` interface — `floodsDate` needed to be threaded
+   through as an explicit prop (interface field + destructure + call-site
+   prop), not just read as a closure variable the way #399's original
+   single-component version could.
+- All 8 other wiring points mirrored the no2/aerosol/vegetation pattern
+  exactly, unchanged in spirit from #399's original design: `LAYER_GROUP`
+  entry, `FIELD_MAP_LAYER` opacity wiring, the layer-effect `useEffect`
+  (gibsTileUrl → addSource/addLayer, RAW no-predictive-claim status
+  message), the panel icon ternary, the date-scrubber JSX block, the
+  legend condition list + chip, `datacore/layers.json` registry entry
+  (schema-matched to the current `no2` entry, no `altitudeRef` — optional,
+  peers don't carry it either), and `scripts/visual_check.mjs` FIXTURES
+  (R15 sync requirement).
+- Filed the flood-exposure hypothesis fresh in open_questions.md (Pillar
+  6) — same weak-prior framing as #399's original (flood risk already
+  heavily modeled by P&C/cat-bond pricing), PLUS a new cross-tie #399
+  couldn't have written since `floodzones` didn't exist yet: comparing
+  OBSERVED flood extent against the DESIGNATED FEMA zone as an
+  "unexpected location" signal — a cheaper-to-justify hypothesis than raw
+  extent-as-signal, since it's asking "is this surprising" rather than
+  "is this bad," and reuses both layers' existing archives with no new
+  ingest.
+- Updated worldview_globe.md's G2f roadmap entry ([SHIPPED], not the
+  original stale placeholder) and STATUS LOG with an honest account of
+  the re-application (stale PR provenance, drift adaptations, #415 still
+  queued).
+- Closed PR #399 on GitHub as superseded by this fresh PR (same
+  disposition precedent this morning's session used for #449).
+
+GATES: `npm ci` (fresh sandbox, no node_modules present) then `npx tsc
+--noEmit` — 80 errors, confirmed byte-identical to the pre-change
+baseline via `git stash` A/B (none of the 8 pre-existing datamap.tsx
+errors are on any line this PR touches — verified by inspection, not
+assumed). `npx tsx --test server/*.test.ts client/src/**/*.test.ts` —
+1013/1013 pass, matching this morning's confirmed baseline exactly
+(includes `server/layersWiring.test.ts`'s RATCHET, which would fail loud
+if `floods` were missing from `LAYER_GROUP`). `npm run build` clean (only
+the same pre-existing astronomy-engine ESM/chunk-size advisories).
+`npm run visual -- --page data` at 390/768/1440 (+ the data-globe/-flat/
+-fields/-legend/-timescrub/-analyst/-scale variants the harness also
+exercises for this page) — **0 hard failures across all 5 result
+entries**; warnings are exclusively pre-existing documented classes
+(sub-44px touch targets, one clipped-control note, one 283ms p95
+"upload-hitch" perf-gate warning under the hard-fail threshold — the same
+flake class 3 PRs already logged this morning); `toggleConsistency:
+"31 layers toggled clean"` at 1440px confirms `floods` toggles without
+desync. `python3 -m pytest -q` (fresh sandbox, `pip install` first) — 886
+passed, 1 skipped, matching the documented baseline exactly (zero Python
+files touched by this PR — pure informational sanity check).
+
+BACKTEST: N/A — client-only RAW display layer, off by default, zero cost
+when off, no server/trading-path code touched (same downstream-chain
+reasoning #399's original PR stated, still true after re-application).
+
+Version 1.0.491 -> 1.0.492 (read-and-increment at commit time; re-fetched
+origin/main immediately before, confirmed no advance since session start).
+
+NEXT: #415 (GRID VISION RunPod repair, also an unrelated-history orphan)
+remains queued for a future session's manual re-application, one at a
+time per this session's own precedent. KNOWN BROKEN #18 and the
+PRODUCTION DEPLOY FREEZE both remain blocked on the same external
+GitHub Actions outage — a future session should re-check
+`server_version` via `/api/data/layers` before trusting any "should be
+live now" note in past PRs, and should treat a #18 live-catch as
+actionable again only once `server_version` actually advances past
+`1.0.481` (the version that shipped the `scan_timings` read).

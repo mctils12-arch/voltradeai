@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -580,6 +580,7 @@ const LAYER_GROUP: Record<string, string> = {
   soilmoisture: "environmental",
   no2: "environmental",
   firetemp: "environmental",
+  floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
   earthquakes: "environmental",
@@ -827,6 +828,7 @@ interface LegendPanelProps {
   vegetationDate: string;
   soilmoistureDate: string;
   no2Date: string;
+  floodsDate: string;
   firetempScanTime: string | null;
   tempUnitF: boolean;
   windArrows: boolean;
@@ -847,6 +849,7 @@ interface LegendPanelProps {
 const LegendPanel = memo(function LegendPanel({
   legendOpen, setLegendOpen, enabled, airFilter, setAirFilter,
   nightlightsDate, aerosolDate, vegetationDate, soilmoistureDate, no2Date,
+  floodsDate,
   firetempScanTime, tempUnitF, windArrows, orbitalGpRef, gpVersion,
   satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
   setSatGroupOrbits, onFindSat,
@@ -960,7 +963,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -1052,6 +1055,12 @@ const LegendPanel = memo(function LegendPanel({
                   <>
                     <span className="vt-legend-chip"><i style={{ background: "#e53e3e" }} /> NO₂ (TROPOMI)</span>
                     <span className="vt-legend-note">(daily, NASA GIBS/Sentinel-5P — {no2Date})</span>
+                  </>
+                )}
+                {enabled.floods && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "#1a4fa0" }} /> Flood/Water Extent</span>
+                    <span className="vt-legend-note">(3-day, NASA GIBS/MODIS — {floodsDate})</span>
                   </>
                 )}
                 {enabled.firetemp && (
@@ -2084,6 +2093,13 @@ export default function DataMapPage() {
   // lag like the other daily layers — the charter's "genuinely differentiated"
   // layer (industrial/traffic combustion throughput nowcast).
   const [no2Date, setNo2Date] = useState<string>(() => gibsDefaultDate(Date.now()));
+  // worldview_globe.md G2f: MODIS 3-day flood/water-extent composite. Daily
+  // P1D like the other daily layers — GIBS's own Default for this layer is
+  // actually "today" (rolling 3-day window), but the shared factory floors
+  // latencyDays at 1 (yesterday) for consistency; verified live 2026-07-09
+  // that yesterday still carries real, non-blank data (61-82% land coverage
+  // sampled across 3 continents), so the standard default is safe here too.
+  const [floodsDate, setFloodsDate] = useState<string>(() => gibsDefaultDate(Date.now()));
   // ── EARTH TWIN E1: GLOBAL TIME AXIS — one clock moves the whole world.
   // The Time Machine panel publishes the axis (lib/timeAxis); every dated
   // GIBS layer above follows it to ITS OWN honest ceiling (latency-aware —
@@ -2100,6 +2116,7 @@ export default function DataMapPage() {
       setAerosolDate(gibsDateForAxis(axis, now).dateISO);
       setVegetationDate(gibsDateForAxis(axis, now).dateISO);
       setNo2Date(gibsDateForAxis(axis, now).dateISO);
+      setFloodsDate(gibsDateForAxis(axis, now).dateISO);
       setSoilmoistureDate(gibsDateForAxis(axis, now, SOIL_LATENCY_DAYS).dateISO);
     };
     return subscribeTimeAxis(apply);
@@ -2141,6 +2158,7 @@ export default function DataMapPage() {
     vegetation: "gibs-vegetation",
     soilmoisture: "gibs-soilmoisture",
     no2: "gibs-no2",
+    floods: "gibs-floods",
     firetemp: "gibs-firetemp",
     biomass: "gibs-biomass",
     floodzones: "fema-floodzones",
@@ -4448,6 +4466,49 @@ export default function DataMapPage() {
       setStatus("no2", "error");
     }
   }, [enabled.no2, no2Date, mapReady, setStatus]);
+
+  // ── flood / water extent (RAW; worldview_globe.md Phase G2f — NASA GIBS
+  // MODIS Terra+Aqua 3-day combined flood composite via the shared gibs.ts
+  // factory. Daily, PNG at GoogleMapsCompatible_Level9; access + non-blank
+  // field verified live 2026-07-09 across multiple continents. The field
+  // shows ALL standing water — normal rivers/lakes/reservoirs as well as
+  // flood anomalies — the honest reading of a water-extent composite, not
+  // a defect; distinct from the "floodzones" layer (FEMA's static regulatory
+  // hazard-zone designation) — this is observed current water, not risk. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.floods) {
+      try {
+        if (map.getLayer("gibs-floods")) map.removeLayer("gibs-floods");
+        if (map.getSource("gibs-floods")) map.removeSource("gibs-floods");
+      } catch {}
+      setStatus("floods", "off");
+      return;
+    }
+    try {
+      if (map.getLayer("gibs-floods")) map.removeLayer("gibs-floods");
+      if (map.getSource("gibs-floods")) map.removeSource("gibs-floods");
+      const url = gibsTileUrl(
+        { layer: "MODIS_Combined_Flood_3-Day", tileMatrixSet: "GoogleMapsCompatible_Level9", ext: "png" },
+        floodsDate,
+      );
+      map.addSource("gibs-floods", {
+        type: "raster", tiles: [url], tileSize: 256, maxzoom: 9,
+        attribution: "Flood/water extent (3-day) · MODIS Terra+Aqua · NASA GIBS/ESDIS (public domain)",
+      } as any);
+      const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+      map.addLayer({
+        id: "gibs-floods", type: "raster", source: "gibs-floods",
+        paint: { "raster-opacity": opacityOf("floods") / 100 },
+      } as any, firstMarker?.id);
+      setStatus("floods", "active", undefined,
+        `MODIS 3-day flood/water extent for ${floodsDate} (UTC) · NASA GIBS/ESDIS — ` +
+        `shows standing water incl. normal rivers/lakes, not only flood anomalies; cloud cover can leave gaps`);
+    } catch {
+      setStatus("floods", "error");
+    }
+  }, [enabled.floods, floodsDate, mapReady, setStatus]);
 
   // ── fire/hotspot brightness temperature (RAW; worldview_globe.md Phase
   // G2b — NASA GIBS GOES-East ABI via the shared gibs.ts factory. Access +
@@ -9840,6 +9901,7 @@ export default function DataMapPage() {
     id === "vegetation" ? <Leaf size={15} /> :
     id === "soilmoisture" ? <Droplets size={15} /> :
     id === "no2" ? <Factory size={15} /> :
+    id === "floods" ? <Droplet size={15} /> :
     id === "firetemp" ? <ThermometerSun size={15} /> :
     id === "biomass" ? <TreePine size={15} /> :
     id === "earthquakes" ? <Activity size={15} /> :
@@ -10153,6 +10215,24 @@ export default function DataMapPage() {
                   aria-label="Next day"
                   disabled={gibsIsLatestAvailable(no2Date, Date.now())}
                   onClick={() => setNo2Date((d) => gibsStepDate(d, 1))}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+            {l.id === "floods" && (
+              <div className="vt-gibs-scrubber" role="group" aria-label="Flood/water extent date">
+                <button
+                  aria-label="Previous day"
+                  onClick={() => setFloodsDate((d) => gibsStepDate(d, -1))}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="vt-gibs-scrubber-date">{floodsDate} UTC</span>
+                <button
+                  aria-label="Next day"
+                  disabled={gibsIsLatestAvailable(floodsDate, Date.now())}
+                  onClick={() => setFloodsDate((d) => gibsStepDate(d, 1))}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -11050,7 +11130,7 @@ export default function DataMapPage() {
               enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
               nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
               vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
-              no2Date={no2Date} firetempScanTime={firetempScanTime}
+              no2Date={no2Date} floodsDate={floodsDate} firetempScanTime={firetempScanTime}
               tempUnitF={tempUnitF} windArrows={windArrows}
               orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
               satGroup={satGroup} satGroupCount={satGroupCount}
