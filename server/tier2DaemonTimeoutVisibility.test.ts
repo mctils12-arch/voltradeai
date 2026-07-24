@@ -123,6 +123,27 @@ test("KNOWN BROKEN #18 continuation 2026-07-21: the daemon branch surfaces layer
   assert.ok(daemonBranch.includes("l2.age_sec"), "must surface how stale the reading is, so a future session can tell a fresh mid-hang reading from a leftover prior-scan one");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-22: the daemon branch reads bot_engine.py's own scan-timings file directly off disk, not just layer2_prefetch", () => {
+  // v1.0.468 shipped the deep_score ThreadPoolExecutor shutdown-hazard fix
+  // as this item's third named mechanism; a full day of live post-deploy
+  // evidence (13 fresh TIER2-ERROR occurrences, all still active_dispatches=2
+  // with high layer2_prefetch age) shows the storm continuing unchanged —
+  // Layer 2 alone was never sufficient to pinpoint the hang. bot_engine.py's
+  // pre-existing TIMING-DISK mechanism (2026-04-23) already persists
+  // per-phase progress straight to shared disk, generalizing "which phase"
+  // beyond Layer 2 to run_full_scan's entire pipeline — this pins that the
+  // daemon-timeout branch reads it directly (same file /api/diag/timings and
+  // /api/system/snapshot already read) instead of requiring a live stakeout.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("voltrade_scan_timings.json"), "must read the same TIMING-DISK file bot_engine.py's _scan_market_inner() writes progressively");
+  assert.ok(daemonBranch.includes("scanTimingsDetail"), "must build a scan-timings detail string");
+  assert.ok(daemonBranch.includes("last_phase_completed"), "must surface last_phase_completed — the exact field that names where a stuck scan last checkpointed");
+  assert.ok(/daemonState\s*=[\s\S]*scanTimingsDetail/.test(daemonBranch), "scanTimingsDetail must actually be interpolated into the daemonState message, not computed and discarded");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");

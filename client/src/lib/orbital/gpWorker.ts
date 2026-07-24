@@ -1,7 +1,7 @@
 // One-shot GP fetch+parse worker — PERF session #2 (SCALE queue item 3).
 //
-// WHY: fetchGp on the main thread does res.json() over the ~6.6 MB
-// CelesTrak `active` payload + parseGp of ~16k records — a 150-500 ms
+// WHY: fetchGp on the main thread does res.text() over the ~2.4 MB
+// CelesTrak `active` CSV payload + parseGpCsv of ~16k records — a 150-500 ms
 // freeze exactly when the user toggles the satellites layer on. Same fix
 // shape as ./satcatWorker (E4-2, v1.0.324): fetch + parse in a worker,
 // the main thread receives already-parsed records via structured clone
