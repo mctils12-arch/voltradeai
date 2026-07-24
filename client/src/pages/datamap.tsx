@@ -1092,6 +1092,32 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
+          {enabled.superfund && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">EPA Superfund (NPL) Sites</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-superfund" color="#eef3fb" label="Superfund Site" />
+                <span className="vt-legend-chip"><i style={{ background: "#ef4444" }} /> NPL Site</span>
+                <span className="vt-legend-chip"><i style={{ background: "#fb923c" }} /> Proposed NPL Site</span>
+                <span className="vt-legend-chip"><i style={{ background: "#fbbf24" }} /> Partial NPL Deletion</span>
+                <span className="vt-legend-chip"><i style={{ background: "#94a3b8" }} /> Deleted NPL Site</span>
+                <span className="vt-legend-note">(EPA SEMS/NPL, public domain — location + status + Hazard Ranking System score as published; not a risk claim about any specific property)</span>
+              </div>
+            </div>
+          )}
+          {enabled.waterviolators && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">CWA Water Violators</div>
+              <div className="vt-legend-items">
+                <LegendIcon icon="vt-outfall" color="#eef3fb" label="Facility (NPDES permit)" />
+                <span className="vt-legend-chip"><i style={{ background: "#ef4444" }} /> Effluent Violation</span>
+                <span className="vt-legend-chip"><i style={{ background: "#f59e0b" }} /> Reporting Violation</span>
+                <span className="vt-legend-chip"><i style={{ background: "#a78bfa" }} /> Schedule/Other Violation</span>
+                <span className="vt-legend-chip"><i style={{ background: "#64748b" }} /> Not Currently in SNC</span>
+                <span className="vt-legend-note">(EPA ECHO, public domain — facilities &gt;8/12 quarters in Clean Water Act noncompliance as EPA publishes them; not a water-safety claim about any location)</span>
+              </div>
+            </div>
+          )}
           {enabled.nukefacilities && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Nuclear Facilities</div>
@@ -7756,18 +7782,21 @@ export default function DataMapPage() {
           attribution: "U.S. EPA Superfund (SEMS/NPL), public domain",
         } as any);
         map.addLayer({
-          id: "superfund-pts", type: "circle", source: "superfund", minzoom: 3,
+          id: "superfund-pts", type: "symbol", source: "superfund", minzoom: 3,
+          layout: {
+            "icon-image": "vt-superfund",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.28, 8, 0.45, 13, 0.65],
+            "icon-allow-overlap": false,
+          },
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 5, 13, 8],
             // color by NPL status: active red, proposed orange, deleted gray
-            "circle-color": ["match", ["get", "status"],
+            "icon-color": ["match", ["get", "status"],
               "NPL Site", "#ef4444",
               "Proposed NPL Site", "#fb923c",
               "Deleted NPL Site", "#94a3b8",
               "Partial NPL Deletion", "#fbbf24",
               "#a78bfa"],
-            "circle-opacity": 0.85,
-            "circle-stroke-color": "rgba(8,12,20,0.9)", "circle-stroke-width": 0.6,
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1,
           },
         } as any);
         detach = attachLayerInteractions(map, "superfund-pts", (e: any) => {
@@ -8838,18 +8867,21 @@ export default function DataMapPage() {
           attribution: "U.S. EPA ECHO / NPDES (public domain)",
         } as any);
         map.addLayer({
-          id: "wv-pts", type: "circle", source: "waterviolators", minzoom: 4,
+          id: "wv-pts", type: "symbol", source: "waterviolators", minzoom: 4,
+          layout: {
+            "icon-image": "vt-outfall",
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.25, 9, 0.42, 13, 0.6],
+            "icon-allow-overlap": false,
+          },
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 1.6, 9, 4.5, 13, 7],
             // effluent (actual discharge) violations red; reporting failures
             // amber; schedule/other violet; none-current slate
-            "circle-color": ["case",
+            "icon-color": ["case",
               ["in", "Effluent", ["coalesce", ["get", "snc"], ""]], "#ef4444",
               ["in", "Report", ["coalesce", ["get", "snc"], ""]], "#f59e0b",
               ["in", "Schedule", ["coalesce", ["get", "snc"], ""]], "#a78bfa",
               "#64748b"],
-            "circle-opacity": 0.75,
-            "circle-stroke-color": "rgba(8,12,20,0.85)", "circle-stroke-width": 0.5,
+            "icon-halo-color": "rgba(8,12,20,0.85)", "icon-halo-width": 0.9,
           },
         } as any);
         detach = attachLayerInteractions(map, "wv-pts", (e: any) => {
