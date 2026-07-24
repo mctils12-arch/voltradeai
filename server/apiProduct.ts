@@ -119,6 +119,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "VolTradeAI datacore",
     resell: "ok",
   },
+  graph: {
+    license: "derived from EDGAR Form 4 filings, entity_map, and our own AIS position archive — inherits aisstream conditionality via calls_at edges",
+    attribution: "VolTradeAI datacore (SEC EDGAR, GEM ownership, aisstream.io)",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -132,14 +137,91 @@ export function apiMeta() {
       { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics (completed calls, in-port-now, medians, 3x-median anomaly flags) over the 9 imagery-verified port geofences.", preview: "/api/data/portdwell" },
       { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics: AIS gap events, identity candidates, STS-zone loitering — counts with honest coverage caveats.", preview: "/api/data/shadowstats" },
       { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata (streams, samples, days recorded).", preview: "/api/data/archive/stats" },
+      { path: "/api/v1/graph", params: "?entity=<ticker|MMSI|CIK|facility id>&hops<=3 (omit entity for counts-only)", desc: "Everything Graph v1 — Form 4 insiders, entity_map operator->ticker, and AIS port-call edges, joined into one node/edge graph. RAW (asserts filed relationships with provenance; no predictive claim).", preview: "/api/data/graph" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
-      "entity timelines (Everything Graph v1 — aircraft continuity spine in build)",
       "tank-fill readings (Sentinel-2 — ladder gate 2 not yet passed; experimental readings stay internal)",
     ],
+    agent_tools: "/api/v1/agent-tools",
     limits: TIER_LIMITS,
     license_marks: LICENSE_MARKS,
     disclaimer: "Data as-is; not for safety-of-life use; attribution and share-alike marks travel with each response.",
+  };
+}
+
+/** Agent tool spec — the LIVE API rendered as function-calling tool
+ *  definitions so a developer can hand VolTradeAI's verified physical-world
+ *  data straight to an AI agent (Anthropic tool use, OpenAI functions, or an
+ *  MCP server). Derived from the SAME live endpoint set as apiMeta(), so
+ *  gated signals can never leak in; each tool names the license_marks key(s)
+ *  of what it returns, so provenance and freshness travel into the agent's
+ *  context, not just the raw number. Public — it is documentation, not data;
+ *  the calls themselves still require an x-api-key. This is the "ground-truth
+ *  layer for AI agents" surface: an agent grounded here answers from observed,
+ *  archived measurement instead of model-generated plausibility. */
+export function agentToolSpec(baseUrl = "https://voltradeai.com") {
+  const tools = [
+    {
+      name: "voltrade_get_track",
+      description: "Recent position track for one aircraft, vessel, or train from VolTradeAI's own continuously-recorded archive. Returns observed, timestamped positions — ground truth, not a prediction.",
+      input_schema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["aircraft", "vessels", "trains"], description: "Asset class." },
+          id: { type: "string", description: "icao24 (aircraft), MMSI (vessel), or train id." },
+          hours: { type: "integer", minimum: 1, maximum: 168, default: 24, description: "Lookback window in hours (max 168)." },
+        },
+        required: ["kind", "id"],
+      },
+      endpoint: "GET /api/v1/tracks/{kind}/{id}?hours={hours}",
+      returns_provenance: ["tracks/aircraft", "tracks/vessels", "tracks/trains"],
+    },
+    {
+      name: "voltrade_port_dwell_stats",
+      description: "Per-port dwell statistics over 9 imagery-verified port geofences: completed calls, ships in-port now, median dwell, and 3x-median anomaly flags. RAW overlay — descriptive, not a trading signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/portdwell",
+      returns_provenance: ["stats/portdwell"],
+    },
+    {
+      name: "voltrade_shadow_fleet_stats",
+      description: "Dark-ship RAW statistics: AIS gap events, identity candidates, and STS-zone loitering counts, with honest coverage caveats. RAW overlay — not a signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/shadow",
+      returns_provenance: ["stats/shadow"],
+    },
+    {
+      name: "voltrade_archive_stats",
+      description: "Archive growth metadata: streams recorded, sample counts, and days of history — how much verified physical-economy data the platform holds.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/archive",
+      returns_provenance: ["stats/archive"],
+    },
+    {
+      name: "voltrade_get_graph",
+      description: "Everything Graph v1 — Form 4 insider filings, entity_map operator->ticker joins, and AIS port-call edges, joined into one node/edge graph. Omit entity for counts-only; pass an entity to get its neighborhood. RAW overlay — asserts filed relationships with provenance, no predictive claim.",
+      input_schema: {
+        type: "object",
+        properties: {
+          entity: { type: "string", description: "Optional: ticker, MMSI, CIK, or facility id. Omit for graph-wide counts only." },
+          hops: { type: "integer", minimum: 0, maximum: 3, default: 1, description: "Neighborhood radius when entity is given." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/graph?entity={entity}&hops={hops}",
+      returns_provenance: ["graph"],
+    },
+  ];
+  return {
+    version: "v1",
+    format: "JSON-Schema tool definitions — drop-in for Anthropic tool use, OpenAI function calling, or an MCP server.",
+    base_url: baseUrl,
+    auth: "Send x-api-key on every call (invite-only during the preview — join the waitlist on /developers). This spec is public; the data behind each tool requires a key.",
+    ground_truth_note: "Every tool returns observed, archived measurements carrying provenance and a generated_at timestamp — built to ground AI agents in what is physically true rather than model-generated plausibility.",
+    tools,
+    license_marks: LICENSE_MARKS,
+    excluded_gated: apiMeta().coming_gated,
+    disclaimer: apiMeta().disclaimer,
   };
 }

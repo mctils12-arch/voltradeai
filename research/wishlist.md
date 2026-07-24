@@ -381,6 +381,19 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   environmental). Full trace in experiments.md. DATACORE MAXIMUS queue
   is clear again — no shipped-data-no-map-layer gaps remain as of this
   session.
+- **FINRA ATS/OTC venue-summary /data view: SHIPPED 2026-07-22
+  (v1.0.479, T-CLIENT)** — `client/src/pages/atsSummary.tsx` (new) +
+  `datamap.tsx` wiring (`#/data/ats-summary`, `ats_summary` filings-group
+  layer, off by default) + `datacore/layers.json` registry entry. Closes
+  the "a FINRA part 2 UI view once weeks of archive accumulate" item this
+  block has carried since v1.0.208 (2026-07-08) — the API route existed,
+  the client view didn't. RAW leaderboards only (weekly ATS/OTC by
+  symbol, monthly OTC by symbol, monthly block-trading venue ranks, all
+  FINRA-precomputed); no ladder gate. Full trace in experiments.md.
+  UNCLAIMED shipped-data-no-UI gap found by the same sweep, not built
+  this session: SEC MIDAS (`/api/data/microstructure`, v1.0.265) has the
+  identical no-client-view gap — same wiring recipe, model on
+  atsSummary.tsx/shortvol.tsx, new `client/src/pages/midas.tsx`.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
@@ -493,6 +506,16 @@ data); full-state discovery sweeps use the same account later.
     decision first.] Original: ENTSO-E token (free) — register at
     transparency.entsoe.eu → ENTSOE_TOKEN. Unlocks EU hourly
     load/gen/prices.
+    GENERATION-MIX FOLLOW-UP BUILT 2026-07-21 (v1.0.459,
+    server/euGenerationMix.ts, /api/data/eu-generation-mix, same token,
+    documentType A75/processType A16, fuel-type breakdown per zone) —
+    see experiments.md same date. NOT yet live-response-confirmed (no
+    ENTSOE_API_KEY in the build sandbox; cross-checked against entsoe-py
+    instead) — future session should read the route's `issues` field
+    post-deploy. DAY-AHEAD-PRICES remains the one open follow-up
+    (documentType A44, Publication_MarketDocument/price.amount schema —
+    genuinely separate parser, not a copy of the load/generation-mix
+    GL_MarketDocument shape).
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
@@ -1700,6 +1723,121 @@ usage (or Settings → Actions → General → concurrency/spending limits)
 for this repo/account — that's the fastest way to confirm or rule out
 the quota hypothesis, which no session tool here can check directly.
 
+UPDATE 2026-07-22 (scheduled-routine session, PR #586) — THIRD
+OCCURRENCE, NOW ON A REAL CODE PR (not a docs-only change): the
+`changes` job failed identically three times in a row on this PR —
+original run + two reruns via `rerun_failed_jobs`, each completing in
+1-3 seconds (`20:28:38→20:28:40`, `20:29:21→20:29:23`,
+`20:29:57→20:29:58`), every one blocking all four downstream jobs
+(node-build/python-tests/docker-build/Auto-merge, all "skipped") the
+same way as the two prior incidents. `get_job_logs` still 404s
+unconditionally (same as the 07-22 morning session — this looks like a
+standing tool/environment gap, not evidence specific to these jobs).
+Persistence across three attempts ~40s apart (not one flaky blip) is
+new evidence AGAINST the original "quota exhaustion right after a
+heavy pipeline" hypothesis and weakly FOR something more sustained
+(account-level Actions spending/concurrency limit reached and staying
+reached, not a transient burst) — still not confirmed, same billing-
+tool gap as before. DIFFERENT DECISION THIS TIME: PR #586 changes
+`server/bot.ts` (a core orchestrator file, not a single docs file) —
+this session did NOT apply the #582 precedent of a direct API merge
+bypassing CI. All the equivalent gates (tsx --test full suite 851/851,
+tsc byte-identical A/B, npm run build clean) were run and verified
+locally before opening the PR, but AUTONOMY AUTHORIZATION's self-merge
+condition is "CI is green," and a real code change deserves the actual
+CI run once runners are available again, not a session's local
+substitute for it, given the file's own history of exactly this kind
+of change causing silent runtime breaks CI would have caught. PR left
+open and subscribed; no further reruns attempted this session (three
+identical-signature failures ~40s apart is not a "try again" situation
+per the "don't retry failing commands in a sleep loop" discipline).
+FOR THE HUMAN: this is now blocking real code from merging, not just
+docs housekeeping — worth checking Settings → Billing → Actions usage
+soon; if it's a spending cap, either raising it or waiting for the
+billing cycle to reset would unblock every open Claude PR at once.
+UPDATE 2026-07-22 (later same day, PR #585): RECURRED, now 3 consecutive
+times on one PR — the `changes` job failed identically three times in a
+row (`rerun_failed_jobs` called after each), every attempt completing in
+~3s with `runner_id: 0, runner_name: ""` (no runner ever allocated,
+confirmed via `get_workflow_job`, not inferred). `get_job_logs` 404'd
+again on every attempt. Three failures in immediate succession (not
+spread across separate sessions/days like the first two instances)
+further supports the quota/concurrency-exhaustion hypothesis over a
+one-off transient blip — retrying more would burn further Actions
+minutes into a plausibly-exhausted quota, so this session stopped after
+3 attempts rather than continuing to hammer it. UNLIKE the #582
+precedent, PR #585 is a real code change (new client page +
+datamap.tsx wiring), not a docs-only edit — the session chose NOT to
+bypass CI via a direct manual merge here (that precedent's risk
+calculus doesn't transfer to application code), instead: extensive
+LOCAL verification already run and documented in the PR (server
+850/850, client 641/641, tsc A/B unchanged, build clean, visual harness
+0 hard failures, live-booted dist/index.cjs positive-case check) stands
+as the evidence in place of a green CI run; the PR is left open,
+unmerged, for CI to clear (retry) or the human to merge once confirmed
+safe. Also unresolved regardless of CI: PR #585's own merge-timing note
+says it should wait for market close (prepared ~14:30 ET) — this CI
+issue does not change that. STRENGTHENED ask for the human: this is now
+a 3-strike-same-session pattern, worth checking Settings → Billing →
+Actions usage sooner rather than waiting for another recurrence.
+## 2026-07-22 — SIX open, unmerged, non-draft Claude PRs found sitting stale (1-2 weeks each); disposition + a session-start-checklist recommendation (found while recovering #420 as this session's REPAIR — no code change here beyond the checklist recommendation)
+
+OBSERVED: the open-PR list (last checked and found clean on 2026-07-09,
+per PR #399's own session log — "only a long-stale unrelated human
+draft, #77, left alone") had grown to SEVEN open non-draft-or-ancient
+PRs by today: #399 (2026-07-09), #415/#420 (2026-07-10), #449
+(2026-07-12), #557 (2026-07-20), #572 (2026-07-21), plus the untouched
+April draft #77. No session in between re-checked this list — each one
+picked new roadmap/repair work without auditing whether prior work had
+actually landed. This is a real gap in the session-start checklist:
+CLAUDE.md's MEMORY PROTOCOL says read experiments.md/open_questions.md/
+wishlist.md, but never says check the open-PR list itself, so "already
+in flight" work can silently stall indefinitely once its automerge step
+happens to fail (see the two entries directly above this one — a
+concrete, confirmed mechanism for exactly this).
+
+DISPOSITION (verified against current main, v1.0.477, via `git
+merge-tree` for conflict-shape and direct file/symbol greps for
+supersession — not assumed from the PR title):
+- **#420 (satellite CSV/res.ok fix)** — RECOVERED this session (new PR,
+  see experiments.md's 2026-07-22 REPAIR entry); #420 itself closed
+  with a pointer to the replacement.
+- **#557 (3D terrain exaggeration slider)** — SUPERSEDED: main already
+  has `client/src/lib/terrainExag.ts` (shipped independently; confirmed
+  via an add/add conflict in a real `git merge-tree` test). Closed with
+  a pointer; no unique delta worth salvaging (the slider/lock-step/
+  persistence behavior it wanted are all present in the shipped
+  version, per the KNOWN STATE v1.0.475 crash-fix entry referencing the
+  same file).
+- **#399 (GIBS floods layer), #415 (gridvision RunPod reap), #449
+  (agent-tools API), #572 (ENTSO-E generation mix)** — STILL MISSING
+  from main, STILL VALID, NOT superseded (verified: no `floods`/
+  `MODIS_Combined_Flood` in datamap.tsx, no `scripts/runpod_reap.py`,
+  no `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`, no
+  `server/euGenerationMix.ts`). Left OPEN. Each has REAL code conflicts
+  against current main (not just docs/package.json) per `git
+  merge-tree`: #399 conflicts in `datamap.tsx`/`layers.json`/
+  `scripts/visual_check.mjs`; #415 conflicts in
+  `datacore/runpod/ledger.jsonl` (a real ledger data file — needs
+  careful append-only-preserving resolution, not a blind merge);
+  #449/#572 conflict mainly in `server/routes.ts`-adjacent docs plus
+  package.json/experiments.md. Each is a same-shape recovery job to
+  this session's #420 fix (re-apply the diff fresh against current
+  files rather than force-merging the stale branch) — right-sized as
+  its own future session's PRIMARY [REPAIR]-or-equivalent action, not
+  bundled here (one logical change per PR/session).
+
+RECOMMENDATION for the human and for future sessions: (1) add "check
+the open-PR list" to the session-start checklist (CLAUDE.md MEMORY
+PROTOCOL currently only names the research/*.md files) — this is the
+cheapest guard against exactly this failure mode recurring; (2) a
+future [REPAIR] session should pick ONE of #399/#415/#449/#572 per
+session, same pattern as #420 this session, until the backlog clears;
+(3) #415's RunPod-reap tool is arguably the most time-sensitive of the
+four — it is a billing-safety tool (orphaned-pod reaper) for the GRID
+VISION GPU spend, currently unimplemented, meaning a repeat of the
+2026-07-10 orphaned-pod incident (PR #415's own body) has no automatic
+safety net today even though the fix was written 12 days ago.
 UPDATE 2026-07-23 (scheduled-routine session, PR #587) — this is now a
 SUSTAINED, REPO-WIDE outage, not two isolated incidents. This session's
 own PR #587 hit the identical `changes`-job instant-failure 3 times in a

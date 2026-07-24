@@ -1934,6 +1934,141 @@
     ThreadPoolExecutor fix pending live confirmation) without a second
     confirmed fix is a lot of session-time against one recurring symptom.
 
+    UPDATE 2026-07-23 (scheduled-routine session, v1.0.481) — THIRD
+    REFUTATION CONFIRMED WITH FRESH LIVE EVIDENCE (11 occurrences, not
+    one), exactly the outcome the 2026-07-21 UPDATE's own NEXT STEP
+    anticipated as the failure case for the ThreadPoolExecutor fix. Storm
+    active during MARKET HOURS at session start (the exact condition the
+    prior update asked a future session to catch): `/api/diag/audit?
+    type=TIER2-ERROR` showed 11 fresh occurrences 17:41:38Z-19:57:39Z
+    today, ~15min cadence. Confirmed v1.0.468's `_pool.shutdown(wait=
+    False)` fix (bot_engine.py:780) is live in the current codebase,
+    deployed 2026-07-21 — two days before this storm. All 11 occurrences
+    read `active_dispatches=2 [run_full_scan:300s, health:0s]` (health
+    probe itself, not a zombie — zombie-pileup stays refuted) and
+    `layer2_prefetch` with HIGH `age_sec` (488.2-892.7s — Layer 2 stays
+    refuted too). The ThreadPoolExecutor fix did not stop the recurrence:
+    THIRD REFUTATION. Per RECURRENCE ESCALATES and the prior session's own
+    explicit self-flag ("a lot of session-time against one recurring
+    symptom"), this session did not guess a sixth theory. Instead: none of
+    the three refuted-or-fixed mechanisms can see any OTHER phase of
+    `run_full_scan`'s pipeline (quick_scan, the main deep_score loop
+    itself, tier1_csp_core outside its own Layer 2 prefetch, correlation/
+    floor/convexity checks) — each instrument only ever covered the one
+    phase it was built for. `bot_engine.py`'s existing TIMING-DISK
+    mechanism (2026-04-23) already persists `last_phase_completed`/
+    `status` to `voltrade_scan_timings.json` incrementally (survives the
+    kill), and `/api/diag/timings` (2026-07-18) already exposes it — but
+    two prior sessions' live-poll stakeouts on that exact endpoint both
+    missed the window (structurally: it only reflects a scan that already
+    RETURNED, same limitation the layer2_prefetch fix solved for Layer 2
+    specifically by reading module state live during the health RPC
+    instead of polling a return value).
+    SHIPPED (v1.0.481, pure visibility, zero behavior change): the
+    TIER2-ERROR daemon-timeout catch branch in `server/bot.ts` now ALSO
+    reads `voltrade_scan_timings.json` directly via `fs` (same paths the
+    `timings` diag probe and `/api/system/snapshot` already use — no new
+    Python/RPC code needed, since Node and the daemon share one container
+    filesystem) at the moment of the timeout, formatting `scan_phase=
+    {last_completed=... status=... age=...s}` into the same audit line
+    `layer2_prefetch`/`active_dispatch_detail` already land in. Wrapped in
+    its own try/catch (never blocks the audit line on a missing/corrupt
+    file). RATCHET: one new wiring-pinned test in
+    `server/tier2DaemonTimeoutVisibility.test.ts` (10/10 pass). Full trace
+    in experiments.md's 2026-07-23 entry.
+    NEXT STEP: whichever session catches the next live TIER2-ERROR should
+    read the audit line's new `scan_phase` field directly (no live poll
+    needed). A LOW age naming a specific, consistent phase across several
+    fresh occurrences is the evidence-backed target for a real fix. A HIGH
+    age, `status: completed` (the last-finished scan, not the hung one),
+    or no clear pattern across several occurrences would mean even this
+    instrument can't localize the hang — at that point RECURRENCE
+    ESCALATES' architecture-smell bar is fully warranted (four visibility
+    instruments plus one confirmed fix on a DIFFERENT symptom pair,
+    against one recurring TIER2-ERROR symptom that hasn't stopped): the
+    next session should stop instrumenting and file the CPU/wall-clock
+    profiler proposal in wishlist.md instead of building a fifth
+    instrument.
+    UPDATE 2026-07-22 (scheduled-routine session), v1.0.479 — LIVE-CONFIRMED
+    DURING MARKET HOURS: THE v1.0.468 THREADPOOLEXECUTOR FIX DID NOT STOP
+    THE STORM. THIRD REFUTATION, AS THE PRIOR UPDATE'S OWN NEXT STEP
+    ANTICIPATED. Verified the deploy timeline first (git log, not assumed):
+    v1.0.468 merged 2026-07-21T20:50:23Z (commit `569dca5`, PR #577); the
+    daemon instance live at this session's start had `uptime_seconds=27309`
+    at 19:56Z, i.e. it started ~12:19Z 2026-07-22 — 15.5h after the fix
+    merged, and the deployed `package.json` version (1.0.478) is 10 releases
+    past it. Read `/api/diag/audit?type=TIER2-ERROR&limit=100`: 13 fresh
+    occurrences spanning 2026-07-22T13:37Z-19:55Z (this session's live
+    window, squarely market hours — NYSE closes 20:00Z), same
+    `active_dispatches=2 [run_full_scan:300s, health:0s]` signature, same
+    ~7-15min cadence as every pre-fix storm window this item has logged
+    since 2026-07-18. `layer2_prefetch.age_sec` stayed high across all of
+    them (291-871.8s) — Layer 2 stays refuted, independently reconfirmed,
+    not the point of this update. CONCLUSION: the ThreadPoolExecutor
+    shutdown-hazard fix was real (the A/B-verified bug it fixed genuinely
+    existed) but is NOT the storm's dominant mechanism — a real, mechanically
+    correct fix that doesn't move the needle is still a refutation of "this
+    was the cause," not a false fix. This is the third refutation the prior
+    UPDATE named (after zombie-pileup and Layer 2) — RECURRENCE ESCALATES'
+    "architecture smell" bar is now crossed, not just "worth considering."
+    Per that rule this session did NOT guess a fourth specific mechanism.
+    Instead it closed the structural gap that made every mechanism-guess so
+    expensive to test: `bot_engine.py`'s own TIMING-DISK instrument
+    (2026-04-23) already persists `_scan_market_inner()`'s per-phase
+    progress straight to shared disk, generalizing "which phase is it stuck
+    in" across the WHOLE pipeline, not just Layer 2 — but nothing read it at
+    the moment a timeout was actually caught; the two existing readers
+    (`/api/diag/timings`, `/api/system/snapshot`) both require a separately-
+    timed human poll, which is exactly why two live-stakeout attempts (this
+    item's 2026-07-18 and 2026-07-21 sessions) came up empty. FIX (v1.0.479,
+    `server/bot.ts`, pure visibility, zero behavior change — same class as
+    every prior instrumentation pass on this item): the TIER2-ERROR
+    daemon-timeout catch branch now reads `voltrade_scan_timings.json`
+    directly off shared disk (same file, same two paths the existing readers
+    use) at the instant the timeout fires, alongside the existing
+    `active_dispatch_detail`/`layer2_prefetch` reads, and formats
+    `scan_timings={status=... last_phase=... age=...s}` into the same audit
+    line. No Python changes needed — Node and the daemon share the
+    container's filesystem, and the file is written progressively (not
+    returned via RPC), so a read at the exact moment of the Node-side 300s
+    timeout should land on whatever phase the still-in-flight scan last
+    checkpointed (or, if the file shows an OLDER `status=completed` scan
+    with no fresh write, that itself is informative: it means the stuck
+    dispatch never got far enough to even reset the file at its own start —
+    pointing at a block in daemon dispatch/lock acquisition before
+    `_scan_market_inner()`'s body ever begins, a mechanism nobody has
+    checked yet). RATCHET: `server/tier2DaemonTimeoutVisibility.test.ts`
+    gained one new wiring-pinned test (A/B-verified to fail against pre-fix
+    bot.ts, pass post-fix) asserting the daemon branch reads the TIMING-DISK
+    file and interpolates `scanTimingsDetail` into `daemonState`.
+    GATES: `npx tsx --test server/*.test.ts` 851/851 pass after a fresh
+    `npm ci` (0 tsx-file changes to Python, `python3 -m pytest` not re-run
+    for this reason — same TS-only precedent this item's own prior sessions
+    used). `npx tsc --noEmit` 77 errors, confirmed byte-identical to the
+    pre-change baseline via `git stash` A/B. `npm run build` clean.
+    `package-lock.json`'s root version had drifted stale to 1.0.477 against
+    `package.json`'s 1.0.478 (same recurring class, sixth session running
+    now) — corrected in the same edit, both bumped to 1.0.479. BACKTEST:
+    N/A — pure diagnostic-visibility change, no scoring/sizing/execution
+    logic touched.
+    NEXT STEP: whichever session catches the next live TIER2-ERROR should
+    read the audit line's new `scan_timings` block directly — no stakeout
+    needed. `status=in_progress` with a `last_phase` deep into or past
+    `deep_score` and a large `age` narrows the hang to a specific phase for
+    the first time with real evidence (a legitimate basis for a fourth,
+    evidence-backed mechanism fix, not a guess). `status=completed` (i.e.
+    the file is stale, from a scan that already returned, not the hung one)
+    or `phases=[]`/`last_phase=none` points at the dispatch/lock layer
+    instead — a genuinely different investigation (the daemon's own request
+    queuing/threading model, not `_scan_market_inner()`'s body) that no
+    prior session on this item has looked at. Per RECURRENCE ESCALATES, if
+    THIS read also fails to localize the hang (e.g. the timing file
+    consistently shows a fresh in-progress write with no single phase
+    dominating, or the read itself errors), the next session should stop
+    adding instrumentation and file the profiler-access proposal in
+    wishlist.md instead, per the architecture-smell bar this update already
+    crossed.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
@@ -2534,6 +2669,20 @@
     audit log will now show the real error message instead of the
     phantom one — read that message first, it should localize the
     remaining bug directly.
+    PARTIAL LIVE CONFIRMATION 2026-07-21 (scheduled-routine session,
+    docs-only): queried `/api/diag/audit?type=TIER2-ERROR&limit=200` and
+    `/api/diag/scanner`. The dispatch fix took effect exactly at its
+    deploy — the last "scan_market() takes 0 positional arguments"
+    phantom entry is 2026-07-20T16:17:31Z, zero occurrences in the 200
+    entries after it. Per this item's own prediction, a real underlying
+    error surfaced right after: 11 "Daemon timeout" entries between
+    17:17-19:57Z the same day (active_dispatches=2 throughout) — this
+    matches KNOWN BROKEN #18's already-diagnosed non-blocking event-loop-
+    lag signature, NOT a new defect. Zero TIER2-ERROR entries since
+    19:57:13Z (~6.5h clean at check time); `/api/diag/scanner` reports
+    consecutiveFailures=0, degraded=false. Short of the multi-day bar
+    #18/#22 used before marking fully RESOLVED — a future session should
+    re-check after >=24h clean and close this item if it holds.
 
 25. **[FOUND + FIXED (diagnosability only) 2026-07-24, v1.0.481,
     scheduled-routine session] `options_execution.py`'s Tier 1/2 CSP
@@ -6183,6 +6332,39 @@ audit (all measured under SwiftShader; ratios are the finding):
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
   GeoJSON sources helps terrain perf even for non-draped layers.
 
+## [T-DATACORE] GEM per-layer freshness (coal_mine_features / methane_plumes) — investigated 2026-07-24, correctly NOT built this session
+The per-layer freshness chip (server/layerFreshness.ts, wishlist.md Phase
+5) deliberately leaves `coal_mine_features` and `methane_plumes` unmapped
+because both trace to the single "gem" manifest — ambiguous between the
+two layers. Investigated whether to close that gap by stat'ing
+`datacore/gem/coal_mine_features.geojson.gz` /
+`datacore/gem/methane_emitters.json.gz` directly for a per-file mtime.
+FOUND THIS WOULD BE DISHONEST, not attempted: both files are git-versioned
+WHOLE-FILE-REBUILD artifacts (scripts/gem_ingest.py /
+gem_suite_ingest.py write into the repo tree at `datacore/gem/`, not the
+runtime archive volume `archiveBaseDir()`). A git checkout does not
+preserve original mtimes, so in any deployed container both files' mtime
+is checkout/build time — every deploy would silently reset the freshness
+chip to "just refreshed" regardless of the GEM release's actual age. This
+is the same accepted tradeoff already documented in gem.json's own
+`_note` ("Volume-side shows no-data in the streams inventory — session-
+run writer, expected") and shared by every other git-versioned session-
+run stream (jodi, etc.) — not a bug specific to gem, and special-casing
+gem with a dishonest per-file mtime would be a NEW, narrower dishonesty,
+not a fix.
+HYPOTHESIS for a real fix, if a future session wants this: have
+gem_ingest.py / gem_suite_ingest.py stamp an explicit `last_ingested`
+(or per-output-file) ISO timestamp into gem.json's manifest envelope at
+build time (session-run, so it reflects when the human actually delivered
++ ingested the release, not a deploy artifact of git checkout), then
+layerFreshness.ts reads that field directly for the two layer ids instead
+of any filesystem stat. GATE: gate-1 equivalent — verify the manifest
+field actually updates on a real gem_ingest.py re-run before wiring it
+into the UI (no ladder gate needed otherwise; this is UI honesty
+plumbing, not a trading signal). Not started — filed here per the
+2026-07-24 [PRODUCT] session's investigation (see experiments.md same
+date) so a future session doesn't re-attempt the file-mtime approach
+expecting a different answer.
 
 ## [2026-07-24 — ACTIVE ANGLE-HUNTING / EDGE DOCTRINE #2] Does mean_reversion have a real, exploitable edge specifically in illiquid small-caps, or is the 2026-07-24 probe result a single-sample artifact?
 
