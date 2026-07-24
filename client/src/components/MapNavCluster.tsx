@@ -40,6 +40,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
 import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { isOverloaded } from "@/lib/deviceTier";
 import {
   RIG_DAMPING_PER_S,
   RIG_DRAG_ROTATE_DEG_PX,
@@ -72,10 +73,18 @@ export interface MapNavClusterProps {
   onZoomOutAtFloor?: () => boolean;
   /** any user pan/recenter — the flight Follow toggle auto-disables. */
   onUserPan?: () => void;
-  /** per-frame follow target (lng, lat) or null — the Follow-aircraft
-   *  camera lock: the rig's center goal tracks it while set; heading/
-   *  tilt/zoom stay free (handoff flight-card spec). */
-  followTarget?: () => { lng: number; lat: number } | null;
+  /** per-frame follow target or null — the Follow-aircraft camera lock:
+   *  the rig's center goal tracks it while set; heading/tilt/zoom stay
+   *  free (handoff flight-card spec). elevM (optional) is the craft's
+   *  DISPLAY altitude: when present the camera centers on the craft IN 3D
+   *  (setCenterElevation, the sat-lock precedent) so the plane sits mid-
+   *  window instead of its ground shadow (live report 2026-07-21). */
+  followTarget?: () => { lng: number; lat: number; elevM?: number } | null;
+  /** true while a follow is engaged — WAKES the rig (a follow that starts
+   *  while the rig sleeps otherwise never recenters until the next user
+   *  input; the 300ms fallback tick lurched instead — the 2026-07-21
+   *  'moving all over the place' video). */
+  followActive?: boolean;
   /** double-click recenter fires this with the clicked point. */
   onRecenter?: (lngLat: { lng: number; lat: number }) => void;
   /** true = the prototype ORBIT mouse scheme owns the canvas (left-drag
@@ -104,6 +113,7 @@ export default function MapNavCluster({
   onZoomOutAtFloor,
   onUserPan,
   followTarget,
+  followActive = false,
   onRecenter,
   onSuspendedZoom,
   onSuspendedReset,
@@ -126,6 +136,31 @@ export default function MapNavCluster({
   suspendedRef.current = !!suspended;
   const followRef = useRef<MapNavClusterProps["followTarget"]>(followTarget);
   followRef.current = followTarget;
+  const followWasRef = useRef(false); // 3D-center engaged last frame — restore ground clamp on release
+  const overloadParityRef = useRef(false); // half-rate camera frames while deviceTier reports overload
+  const dragActiveRef = useRef(false); // a mouse orbit/pan drag is in progress — never pace those frames
+  // FOLLOW ENGAGE (2026-07-21 video): wake the rig — a follow that starts
+  // while the loop sleeps otherwise never recenters (the 300ms fallback
+  // tick lurched instead) — and make wheel zoom orbit the CENTER, which
+  // the rig pins to the craft, so zooming keeps the plane mid-window.
+  useEffect(() => {
+    if (!map || !mapReady) return;
+    try {
+      if (followActive) {
+        wakeRef.current?.();
+        (map.scrollZoom as any)?.enable?.({ around: "center" });
+      } else {
+        (map.scrollZoom as any)?.enable?.();
+        // if the rig was suspended (space entry) before its frame could
+        // restore the clamp, hand the ground-clamped camera back here
+        if (followWasRef.current) {
+          followWasRef.current = false;
+          (map as any).setCenterClampedToGround?.(true);
+          (map as any).setCenterElevation?.(0);
+        }
+      }
+    } catch { /* handler unavailable mid-teardown */ }
+  }, [followActive, map, mapReady]);
   // phone: NO cluster at all (human 2026-07-20: "mobile does not need the
   // new controls just the north lock … it just too much for mobile") — CSS
   // hides the cluster <640px and shows one compass button instead.
@@ -231,18 +266,72 @@ export default function MapNavCluster({
       held.tick(dt);
       keys.forEach((k) => keyFns[k]?.(dt));
 
-      // Follow-aircraft: the center goal tracks the live/replayed craft
+      // Follow-aircraft: the center goal tracks the live/replayed craft.
+      // With elevM the camera centers on the craft IN 3D (sat-lock
+      // precedent: setCenterClampedToGround(false) + setCenterElevation)
+      // — the plane stays mid-window at any pitch/exaggeration instead of
+      // its ground shadow drifting it to the screen edge (2026-07-21).
       const ft = followRef.current?.();
-      if (ft) { rig.goal.lng = ft.lng; rig.goal.lat = clampLat(ft.lat); }
+      // OVERLOAD PACING (round 17: two governor step-downs while following —
+      // this loop is itself a 60fps repaint driver, and with terrain every
+      // frame pays the full drape bill): while the device is overloaded and
+      // a follow is active, run the PASSIVE follow-glide at half rate. But
+      // NEVER pace-skip while the user is actively driving the camera (mouse
+      // drag / held nav button / key) — that made mouse-look feel frozen
+      // during follow (round 18: "when i have the follow button pushed, I
+      // want to be able to move around with my mouse; right now it stops
+      // working"). User input always gets a full-rate, immediate frame.
+      const userDriving = dragActiveRef.current || held.size() > 0 || keys.size > 0;
+      if (ft && !userDriving && isOverloaded() && (overloadParityRef.current = !overloadParityRef.current)) {
+        rafRef.current = requestAnimationFrame(frame);
+        return;
+      }
+      let followElev: number | null = null;
+      if (ft) {
+        rig.goal.lng = ft.lng;
+        rig.goal.lat = clampLat(ft.lat);
+        followElev = ft.elevM ?? null;
+        try {
+          if (followElev != null) (map as any).setCenterClampedToGround?.(false);
+          // single camera writer: stamp so the 300ms marker-tick fallback
+          // stands down while the rig is driving (the double-writer fight
+          // was the 'moving all over the place' lurch)
+          (window as any).__vtRigFollowAt = performance.now();
+        } catch { /* map torn down mid-frame */ }
+        followWasRef.current = true;
+      } else if (followWasRef.current) {
+        // follow just ended — hand the ground-clamped camera back
+        followWasRef.current = false;
+        try {
+          (map as any).setCenterClampedToGround?.(true);
+          (map as any).setCenterElevation?.(0);
+        } catch {}
+      }
 
       const moving = stepRig(rig, dt);
       try {
+        // elevation rides INSIDE the jumpTo options: with terrain enabled
+        // maplibre's jumpTo unconditionally re-clamps center elevation to
+        // the ground FIRST and only then applies options.elevation
+        // (camera.ts jumpTo) — a separate setCenterElevation call is wiped
+        // by the very next jumpTo (probe-caught 2026-07-21).
         map.jumpTo({
           center: [rig.cur.lng, rig.cur.lat],
           bearing: rig.cur.bearing,
           pitch: rig.cur.pitch,
           zoom: rig.cur.zoom,
-        });
+          ...(followElev != null ? { elevation: followElev } : {}),
+        } as any);
+        // TERRAIN CAMERA COLLISION (round-17 smeared-wall screenshot):
+        // maplibre's _applyUpdatedTransform elevates a camera that would
+        // land inside the mesh by CORRECTING pitch/zoom — but this rig
+        // re-imposed its own values on the very next frame, pinning the
+        // camera under the mountain (60 corrections/s, all overwritten).
+        // Adopt any correction into cur AND goal: the collision guard
+        // wins, and a held tilt just "resists" at the mountain face.
+        const lp = map.getPitch(), lz = map.getZoom();
+        if (Math.abs(lp - rig.cur.pitch) > 0.2) { rig.cur.pitch = lp; rig.goal.pitch = lp; }
+        if (Math.abs(lz - rig.cur.zoom) > 0.02) { rig.cur.zoom = lz; rig.goal.zoom = lz; }
       } catch { /* map torn down mid-frame */ }
 
       if (moving || held.size() > 0 || keys.size > 0 || ft) {
@@ -406,6 +495,7 @@ export default function MapNavCluster({
       if (suspendedRef.current) return;
       if (e.button !== 0 && e.button !== 2) return;
       drag = { x: e.clientX, y: e.clientY, mode: e.button === 2 || e.shiftKey ? "pan" : "rot", moved: false };
+      dragActiveRef.current = true; // frame loop must not pace-skip during a live drag
       wake();
       // MapLibre's own drag handlers never see mouse drags (capture phase);
       // touch events pass through untouched — native gestures keep working.
@@ -439,6 +529,7 @@ export default function MapNavCluster({
       // handlers bypassed for mouse, we swallow the one synthetic click.
       if (drag?.moved) suppressNextClick = true;
       drag = null;
+      dragActiveRef.current = false;
     };
     let suppressNextClick = false;
     const onClickCapture = (e: MouseEvent) => {

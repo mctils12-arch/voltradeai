@@ -22,17 +22,32 @@ export function attachLayerInteractions(
   onClick: (e: any) => void,
 ): () => void {
   const ids = Array.isArray(layerIds) ? layerIds : [layerIds];
+  // AIRCRAFT CLICK CLAIM (2026-07-21): the 3D plane picker stamps
+  // __vtAirClaim on the shared originalEvent when a plane is genuinely
+  // under the cursor — a plane parked next to a mapped site must win the
+  // click over the site marker. Ground handlers on the same click event
+  // stand down; unclaimed clicks behave exactly as before.
+  const guardedClick = (e: any) => {
+    if (e?.originalEvent?.__vtAirClaim) return;
+    // symmetric claim (round 16 "click off the plane … it keeps the
+    // curtain"): a landed feature click marks the event so the deferred
+    // click-off handler clears the plane's trail WITHOUT closing the card
+    // this handler just opened (layer-scoped listeners only fire when the
+    // layer was genuinely hit)
+    try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
+    onClick(e);
+  };
   const onEnter = () => { map.getCanvas().style.cursor = "pointer"; };
   const onLeave = () => { map.getCanvas().style.cursor = ""; };
   for (const id of ids) {
-    map.on("click", id, onClick);
+    map.on("click", id, guardedClick);
     map.on("mouseenter", id, onEnter);
     map.on("mouseleave", id, onLeave);
   }
   return () => {
     for (const id of ids) {
       try {
-        map.off("click", id, onClick);
+        map.off("click", id, guardedClick);
         map.off("mouseenter", id, onEnter);
         map.off("mouseleave", id, onLeave);
       } catch { /* layer already gone */ }

@@ -34,9 +34,27 @@ export interface VesselBbox {
 /** Positions older than this are dropped from snapshots (matches the
  *  handler's long-standing 20-minute freshness rule). */
 export const VESSEL_FRESH_MS = 20 * 60_000;
-/** Snapshot cache TTL — polls land every ~20s, so one snapshot serves a
- *  poll cycle across all tabs without going stale past one interval. */
-export const VESSEL_SNAPSHOT_TTL_MS = 15_000;
+/** Snapshot cache TTL. MUST exceed the client's vessels poll interval
+ *  (20s, datamap.tsx wireLivePoints) — the `unchanged` short-circuit can
+ *  only fire when a poll lands on a still-live cache entry with the same
+ *  `time`. SCALE S-A2 (research/scale_program.md): this was 15_000, i.e.
+ *  SHORTER than the 20s poll, so every single poll missed the cache and
+ *  rebuilt a fresh snapshot with a new `time` — `unchanged` was dead code,
+ *  and the full ~2MB raw payload re-shipped on every poll. Raised to 30s
+ *  (2x poll interval, matching AIRCRAFT_TTL_MS's ratio to its 15s poll in
+ *  server/routes.ts) for headroom against timer jitter/backgrounded tabs. */
+export const VESSEL_SNAPSHOT_TTL_MS = 30_000;
+
+/** Whether a cached snapshot entry is stale and must be rebuilt. Pure/
+ *  exported so the TTL-vs-poll-interval invariant is unit-testable
+ *  without express (S-A2: the bug was invisible without this). */
+export function shouldRebuildSnapshot(
+  hit: { at: number } | undefined,
+  now: number,
+  ttlMs: number = VESSEL_SNAPSHOT_TTL_MS,
+): boolean {
+  return !hit || now - hit.at >= ttlMs;
+}
 /** Max vessels per payload (raised 5000→15000 in the WebGL-symbol era —
  *  the cap discloses itself via coverage_note when it bites). */
 export const VESSEL_CAP = 15000;

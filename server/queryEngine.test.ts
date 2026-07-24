@@ -67,6 +67,20 @@ test("counts points inside radius+window only; outside radius or window excluded
   assert.equal(r.layers.aircraft.provenance.includes("archive"), true);
 });
 
+// REPAIR (found 2026-07-22, same root cause + fix as datacoreArchive.ts's
+// streamJsonlLines): readline.Interface re-emits a piped-in stream's error
+// on ITSELF too, independent of the stream.on("error", ...) guard here —
+// unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
+// datacoreArchive.test.ts for the full writeup + minimal repro.
+test("queryWindow resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = tmpBase();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  const good = zlib.gzipSync(JSON.stringify({ t: T0, i: "aaa", la: 35.95, lo: -96.75 }) + "\n");
+  fs.writeFileSync(path.join(dir, "2026-07-05-11.jsonl.gz"), good.subarray(0, good.length - 4));
+  await queryWindow({ lat: LAT, lon: LON, layers: ["aircraft"] }, base, NOW);
+});
+
 test("byDay has absent days absent, never zero-filled", async () => {
   const base = tmpBase();
   writeHour(base, "aircraft", "2026-07-05-11", [

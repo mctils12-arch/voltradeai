@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -13,9 +13,11 @@ import {
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
+  COAL_CATEGORY_ICON, COAL_CATEGORY_LABEL, coalGradeColor, COAL_GRADE_COLOR, COAL_GRADE_UNKNOWN_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
+import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
@@ -34,6 +36,8 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
+import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState } from "@/lib/deviceTier";
+import { scaleReading, zoomLabel } from "@/lib/mapScale";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -104,7 +108,7 @@ import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
-import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX } from "@/lib/terrainExag";
+import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX, TERRAIN_EXAG_DEFAULT } from "@/lib/terrainExag";
 import { apsidesKm, orbitalSpeedKmh, periodMinutes } from "@/lib/orbital/satDerived";
 import { siteCoverageReport, coverageQueryAllowed } from "@/lib/orbital/siteQuery";
 import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
@@ -383,6 +387,16 @@ interface LayerMeta {
   // "light" fallbacks below — additive fields, no breaking migration.
   group?: string;
   costTier?: "light" | "moderate" | "heavy";
+  // Phase 5 per-layer freshness chip (server/layerFreshness.ts): present
+  // only for the layers this session could honestly join to one archived
+  // stream's health — absent, never fabricated, for everything else
+  // (static reference data, derived joins, unmapped layers).
+  freshness?: {
+    stream: string;
+    health: "live" | "recent" | "stale" | "no-data";
+    age_hours: number | null;
+    health_note: string;
+  };
 }
 
 type RuntimeStatus = "off" | "loading" | "active" | "error" | "awaiting_key";
@@ -393,7 +407,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature";
   title: string;
   subtitle: string;
   body: string;
@@ -422,6 +436,15 @@ interface Detail {
   /** FAA-registry identity line (entity spine, exact Mode S hex match) —
    *  arrives async after the card opens; absent for non-US hexes. */
   owner?: string;
+  /** DATACORE MAXIMUS Phase 3b: latest cloud-free Sentinel-2 chip for a
+   *  strategic site (RAW overlay — a photo, not a signal; no ladder gate).
+   *  Arrives inline with the /api/data/sites response (server/siteImagery.ts),
+   *  never fabricated — a site scripts/cdse_site_chips.py hasn't pulled yet
+   *  simply has no `imagery` on its record. */
+  imagery?: {
+    file: string; scene: string; date: string; cloud_pct: number | null;
+    attribution: string;
+  };
   /** Everything Graph R1: 7-day cross-stream events + own-archive traffic
    *  density near a strategic site — arrives async after the card opens. */
   timeline?: {
@@ -492,6 +515,12 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 // unaffected. The choice is a lasting preference (localStorage, unlike the
 // per-session fullscreen flag). Read by both the map bootstrap (initial
 // style) and the toggle state so the two can never disagree.
+// WebGL creation failure / Chrome context-loss block (2026-07-22): shown
+// instead of the raw maplibre error JSON when the browser can't (or won't)
+// give the page a WebGL context — the actionable path is a full reload
+// and/or enabling hardware acceleration.
+const WEBGL_BLOCKED_MSG =
+  "The browser blocked 3D graphics for this page (usually after a graphics driver hiccup, or because hardware acceleration is off). Reload the page to recover; if it keeps happening, enable hardware acceleration in your browser settings (chrome://settings → System) and check chrome://gpu.";
 const GLOBE_PREF_KEY = "vt-map-globe";
 const readGlobePref = (): boolean => {
   try {
@@ -537,7 +566,8 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
-  plant_operations: "facilities", faa_airports: "facilities",
+  plant_operations: "facilities", faa_airports: "facilities", border_waits: "facilities",
+  coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
@@ -699,6 +729,18 @@ const groupOf = (l: LayerMeta): string =>
 // registry) default to "light" — never overclaims load.
 const COST_WEIGHT: Record<string, number> = { light: 1, moderate: 2, heavy: 4 };
 const costWeightOf = (l: LayerMeta): number => COST_WEIGHT[l.costTier || "light"] ?? 1;
+
+// Phase 5 per-layer freshness chip label: human age off the raw age_hours
+// the server already computed (server/streamsInventory.ts) — never a
+// re-derived "how stale" judgment, just a compact unit conversion.
+function freshnessLabel(f: NonNullable<LayerMeta["freshness"]>): string {
+  if (f.health === "no-data") return "no archive yet";
+  if (f.age_hours == null) return f.health;
+  const h = f.age_hours;
+  if (h < 1) return `data ${Math.round(h * 60)}m old`;
+  if (h < 48) return `data ${h.toFixed(1)}h old`;
+  return `data ${(h / 24).toFixed(1)}d old`;
+}
 // groups shown expanded by default; any group id NOT in this set (including
 // every group a future registry update introduces) defaults COLLAPSED —
 // inverted from the old hardcoded collapsed-list so growth is safe by
@@ -865,7 +907,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports || enabled.border_waits) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -902,10 +944,20 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-note">FAA National Airspace System status — curated major-airport subset, snapshot only (not an event log)</span>
                   </>
                 )}
+                {enabled.border_waits && (
+                  <>
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(0)} label="No Delay" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(15)} label="Wait ≤30 min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(45)} label="Wait 31-60 min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(90)} label="Wait 60+ min" />
+                    <LegendIcon icon="vt-bordercrossing" color={borderDelayColor(null)} label="Not Published" />
+                    <span className="vt-legend-note">CBP land-border wait times — worst currently published lane per crossing, hourly snapshot</span>
+                  </>
+                )}
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -922,6 +974,18 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.coal_mine} label={METHANE_MATCH_LABEL.coal_mine} />
                     <LegendIcon icon="vt-plume" color={METHANE_MATCH_COLOR.unmatched} label={METHANE_MATCH_LABEL.unmatched} />
                     <span className="vt-legend-note">nearest catalogued GEM asset within 2km — a proximity fact, not a confirmed emissions attribution</span>
+                  </>
+                )}
+                {enabled.coal_mine_features && (
+                  <>
+                    <LegendIcon icon={COAL_CATEGORY_ICON["mine boundary"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["mine boundary"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON["ventilation system"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["ventilation system"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON["degasification system"]} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL["degasification system"]} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_UNKNOWN_COLOR} label={COAL_CATEGORY_LABEL.other} />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR.Met} label="Coal grade: metallurgical" />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR.Thermal} label="Coal grade: thermal" />
+                    <LegendIcon icon={COAL_CATEGORY_ICON.other} color={COAL_GRADE_COLOR["Thermal & Met"]} label="Coal grade: thermal & met" />
+                    <span className="vt-legend-note">symbol = mine feature category, colour = catalogued coal grade — Global Energy Monitor, no output/production claim</span>
                   </>
                 )}
                 {enabled.rivergauges && <LegendIcon icon="vt-gauge" color="#4d9fff" label="River Gauge (USGS)" />}
@@ -1900,8 +1964,14 @@ export default function DataMapPage() {
   // Style presets (worldview-globe G1): switch the BASE look on the one globe —
   // real-first geographic identities, no tactical FLIR/NVG. Persisted per browser.
   const [mapPreset, setMapPreset] = useState<string>(() => {
-    try { return window.localStorage.getItem("vt-map-preset") || "natural"; } catch { return "natural"; }
+    // "terrain" preset retired 2026-07-22 (it duplicated Natural + the
+    // Layers 3D-relief toggle) — migrate a saved value to "natural"; the
+    // terrain layer keeps its own persisted on/off state independently.
+    try { const p = window.localStorage.getItem("vt-map-preset") || "natural"; return p === "terrain" ? "natural" : p; } catch { return "natural"; }
   });
+  // preset popout (human 2026-07-21): collapsed chip in the top-left,
+  // expands to the right on hover/click, collapses on mouse-leave
+  const [presetOpen, setPresetOpen] = useState(false);
   useEffect(() => {
     try { window.localStorage.setItem(GLOBE_PREF_KEY, globeOn ? "1" : "0"); } catch {}
     const map = mapRef.current;
@@ -2084,6 +2154,25 @@ export default function DataMapPage() {
   // effect, the trail-curtain builder) read the LIVE value without a re-render.
   const [terrainExag, setTerrainExag] = useState<number>(readTerrainExag);
   const terrainExagRef = useRef<number>(terrainExag);
+  // EXAG CEILING BY DEVICE (2026-07-22 live crash: pushing exag to 3.0 on a
+  // software renderer lost the WebGL context — a sudden re-mesh+curtain+
+  // drape spike the GPU couldn't take). On weaker tiers the slider maxes
+  // out lower so the user cannot drive the map into a context loss; capable
+  // GPUs keep the full range. Set from the device tier in the governor
+  // effect; TERRAIN_EXAG_MAX until classified.
+  const [maxExag, setMaxExag] = useState<number>(TERRAIN_EXAG_MAX);
+  // DEM pyramid selection with automatic fallback (blank-page root cause,
+  // probe-reproduced 2026-07-21: tiles.mapterhorn.com blocked by a network
+  // filter left MapLibre with nothing to drape → whole canvas blank).
+  // mapterhorn → aws (Terrain Tiles, same terrarium encoding) → failed
+  // (toggle snaps off with an honest error). Escalated by the AFFIRMATIVE
+  // pre-flight in the terrain effect (absence-of-tiles heuristics false-
+  // positive on healthy meshes — probe-caught); reset on re-toggle.
+  const [demSource, setDemSource] = useState<"mapterhorn" | "aws" | "failed">("mapterhorn");
+  // per-session pyramid reachability verdicts (undefined = not probed yet)
+  const demPreflightRef = useRef<Record<string, boolean | undefined>>({});
+  // bumped when a pre-flight verdict lands so the terrain effect re-runs
+  const [demNonce, setDemNonce] = useState(0);
   const terrainWasOnRef = useRef<boolean>(false);
   const autoTiltedRef = useRef<boolean>(false); // WE tilted the camera — terrain-off undoes it
   const exagRafRef = useRef<number | null>(null); // rAF-coalesced slider apply
@@ -2212,6 +2301,14 @@ export default function DataMapPage() {
           // "system freezes constantly" live report. Matches the rig's
           // RIG_PITCH_MAX so the pitch goal is always reachable.
           maxPitch: 84,
+          // ZOOM RE-RENDER FROM CACHE (round 17: "if i zoom in and out …
+          // it shows me the square tiles building"): retain tiles across
+          // more zoom levels (default 5) so zooming back through levels
+          // redraws from cache instead of re-fetching/re-decoding — with
+          // terrain on, every re-fetched tile also re-drapes, which is
+          // what made the squares so visible there. First visits still
+          // pay the network once; repeats are instant.
+          maxTileCacheZoomLevels: 8,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -2242,15 +2339,10 @@ export default function DataMapPage() {
         // cluster (MapNavCluster: compass dial + rotate/tilt/zoom/pan hold-
         // buttons + reset) — one navigation system, site-wide on every 3D
         // map view. The zoom-seam button intercepts moved with it.
-        // B1 scale-bar continuity: the bar follows the site-wide units
-        // preference (it was hardcoded imperial before), so the space
-        // frame's own bar — which continues this instrument past the zoom
-        // floor into AU — never flips unit systems across the seam.
-        const scaleCtl = new maplibregl.ScaleControl({ unit: getUnits() === "imperial" ? "imperial" : "metric" });
-        map.addControl(scaleCtl, "bottom-left");
-        offScaleUnits = subscribeUnits(() => {
-          try { scaleCtl.setUnit(getUnits() === "imperial" ? "imperial" : "metric"); } catch {}
-        });
+        // Scale bar is now our OWN combined bottom status bar (2026-07-22:
+        // "build our own … put that and the capture data in one thing at
+        // the bottom") — see vt-map-statusbar below. MapLibre's
+        // ScaleControl is retired so there is exactly one scale readout.
         mapRef.current = map;
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
@@ -2267,8 +2359,20 @@ export default function DataMapPage() {
           readyFired = true;
           window.clearInterval(stylePoll);
           try { map.resize(); } catch {}
-          try { registerIcons(map); } catch {}
+          // attribution collapsed by default (2026-07-22: "get rid of toggle
+          // attributions on the page of the map") — MapLibre opens the
+          // compact <details> on a wide map; close it so only the ⓘ shows,
+          // credits one click away (licensing stays reachable).
+          try { map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.removeAttribute("open"); } catch {}
           setMapReady(true);
+          // STARTUP TTI (2026-07-22: skeleton-clear crept ~250ms over the
+          // gate as symbol layers accumulated — registerIcons is the one
+          // pre-ready call that scales with layer count, and it adds every
+          // layer's SDF icon synchronously). Defer it to the next frame:
+          // the skeleton clears the instant the BASE map is interactive,
+          // and icons are only consumed by symbol layers, which mount
+          // behind mapSettled below — so nothing needs them this frame.
+          requestAnimationFrame(() => { if (!cancelled) { try { registerIcons(map); } catch {} } });
           // v2.4 deferred mount: heavy default-on layers wait for the first
           // post-ready idle (base map + aircraft win the initial contention);
           // 4s failsafe so tile errors can't starve them forever.
@@ -2284,11 +2388,18 @@ export default function DataMapPage() {
         // to a usable map with layer-level error states, never a dead page.
         window.setTimeout(ready, 8000);
         map.on("error", (e: any) => {
+          const msg = e?.error?.message || "";
+          // WebGL creation blocked (2026-07-22: Chrome blocks a page's
+          // WebGL after repeated context losses — "context loss and was
+          // blocked" / "Failed to initialize WebGL"). Show a friendly,
+          // actionable message, never the raw error JSON.
+          if (/webgl|context loss|context creation/i.test(msg)) { setMapError(WEBGL_BLOCKED_MSG); return; }
           if (readyFired) return;
-          if (e?.error?.message && /style/i.test(e.error.message)) setMapError(e.error.message);
+          if (/style/i.test(msg)) setMapError(msg);
         });
       } catch (e: any) {
-        setMapError(e?.message || "Map failed to load");
+        const m = String(e?.message || "");
+        setMapError(/webgl|context loss|context creation/i.test(m) ? WEBGL_BLOCKED_MSG : (e?.message || "Map failed to load"));
       }
     })();
     return () => {
@@ -2506,6 +2617,7 @@ export default function DataMapPage() {
     merc: Float32Array;
     groundZ: Float32Array; // display datum (exaggeration-scaled)
     groundM: Float32Array; // REAL meters (for the profile chart / AGL)
+    altDisp: Float32Array; // DISPLAY altitudes (AGL flat / mesh-clamped MSL) — GL consumers
   } | null>(null);
   // ONE playback clock shared by the profile playhead, the 3D marker and
   // the card readouts (they can never disagree). live=true → pinned to the
@@ -2527,8 +2639,13 @@ export default function DataMapPage() {
     const map = mapRef.current;
     if (!map) return;
     const release = () => {
+      // UNBREAKABLE FOLLOW (human 2026-07-21 round 16: "it needs to keep it
+      // in view regardless of what i do with the camera/views"): an ACTIVE
+      // flight follow now survives every gesture — drags orbit the plane
+      // (the rig re-locks center each frame), zoom stays around center.
+      // Only a not-yet-landed click-frame ease still disarms, so a drag
+      // during the initial approach doesn't ambush the camera later.
       pendingFollowRef.current = null;
-      if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
     };
     try { map.on("dragstart", release); } catch {}
     return () => { try { map.off("dragstart", release); } catch {} };
@@ -2543,6 +2660,16 @@ export default function DataMapPage() {
   // rebuild programs/buffers on the recovered context, and the drape-order
   // guard re-floats them above the draped layers.
   const customLayerRegistryRef = useRef<Map<string, any>>(new Map());
+  // GL context lost and never restored (GPU reset/driver death — the OTHER
+  // blank-canvas mechanism): after 8s without a restore event the map is
+  // gone for good and only a reload brings it back — say so ON the canvas
+  // instead of leaving a silent dead screen (2026-07-21 blank-page work).
+  const [glLost, setGlLost] = useState(false);
+  // last aircraft payload + rebuilder — the terrain toggle re-datums the
+  // silhouettes immediately (displayAltReal switches AGL↔clamped-MSL)
+  // instead of waiting up to 15s for the next poll
+  const airPayloadRef = useRef<any[]>([]);
+  const airRebuildRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!mapReady) return;
     const map = mapRef.current;
@@ -2570,10 +2697,211 @@ export default function DataMapPage() {
       attempt();
     };
     try { map.on("webglcontextrestored" as any, onRestore); } catch {}
+    // dead-context detector: lost with no restore within 8s = the GPU is
+    // not giving the context back (browser only fires restore if it can) —
+    // surface the honest reload banner instead of a silent blank canvas
+    let lostTimer: number | null = null;
+    const canvas = (() => { try { return map.getCanvas(); } catch { return null; } })();
+    const onCtxLost = () => {
+      if (lostTimer != null) window.clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => {
+        // AUTO-RECOVERY, SAFELY (live incident 2026-07-22: pushing exag to
+        // 3.0 on a software renderer lost the context; the old auto-reload
+        // then reloaded straight back INTO exag 3.0, re-crashed, and after
+        // a few such losses Chrome PERMANENTLY BLOCKED WebGL for the page —
+        // "Web page caused context loss and was blocked", a dead map). Two
+        // guards now break that cascade:
+        //  1. SHED LOAD before reloading — force terrain OFF and exag back
+        //     to the safe default in persisted state, so the reloaded page
+        //     comes back in a light configuration that won't re-crash.
+        //  2. ONE reload per 10-min window AND never within 30s of a page
+        //     load (a loss right after load means the reload didn't help →
+        //     go straight to the banner instead of looping).
+        const GUARD = "vt-gl-auto-reload";
+        let recent: number[] = [];
+        try {
+          recent = (JSON.parse(window.sessionStorage.getItem(GUARD) ?? "[]") as number[])
+            .filter((t) => Date.now() - t < 10 * 60_000);
+        } catch {}
+        const sinceLoad = performance.now();
+        if (recent.length < 1 && sinceLoad > 30_000) {
+          try {
+            window.sessionStorage.setItem(GUARD, JSON.stringify([...recent, Date.now()]));
+            // shed the heaviest GPU load so the reload can't re-crash
+            window.localStorage.setItem(TERRAIN_EXAG_KEY, String(TERRAIN_EXAG_DEFAULT));
+            window.sessionStorage.setItem("vt-gl-safe-mode", "1");
+          } catch {}
+          try { window.location.reload(); return; } catch {}
+        }
+        setGlLost(true);
+      }, 8000);
+    };
+    const onCtxBack = () => {
+      if (lostTimer != null) { window.clearTimeout(lostTimer); lostTimer = null; }
+      setGlLost(false);
+    };
+    canvas?.addEventListener("webglcontextlost", onCtxLost);
+    canvas?.addEventListener("webglcontextrestored", onCtxBack);
     return () => {
       if (retryTimer != null) window.clearTimeout(retryTimer);
+      if (lostTimer != null) window.clearTimeout(lostTimer);
+      canvas?.removeEventListener("webglcontextlost", onCtxLost);
+      canvas?.removeEventListener("webglcontextrestored", onCtxBack);
       try { map.off("webglcontextrestored" as any, onRestore); } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+  // ── DEVICE CAPABILITY + FRAME GOVERNOR (lib/deviceTier — live incident
+  // 2026-07-21: a machine lost its GL context outright with all layers +
+  // terrain on; "can the computer run all the layers at once?" must be
+  // MEASURED, not assumed). Startup: classify the machine (GPU class from
+  // the renderer string, RAM, cores) and cap the canvas pixel ratio.
+  // Runtime: rolling rAF frame-time median with hysteresis steps the ratio
+  // down under sustained overload and back up after sustained calm.
+  // HONESTY: adaptation never drops a layer or a number — only canvas
+  // pixel density trades for smoothness, and every step surfaces in the
+  // notice chip. Harness/probes pin determinism with vt-gov-off=1.
+  const [deviceNotice, setDeviceNotice] = useState<string | null>(null);
+  // one-time recovery notice: the GL-loss handler reloads in "safe mode"
+  // (terrain exaggeration reset to default) after a context crash — tell
+  // the user why their exaggeration setting changed, then clear the flag.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem("vt-gl-safe-mode") === "1") {
+        window.sessionStorage.removeItem("vt-gl-safe-mode");
+        setDeviceNotice("Recovered from a 3D graphics crash — terrain exaggeration was reset to keep the map stable. You can raise it again in the Terrain layer.");
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!deviceNotice) return;
+    const t = window.setTimeout(() => setDeviceNotice(null), 12_000);
+    return () => window.clearTimeout(t);
+  }, [deviceNotice]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    try { if (window.sessionStorage.getItem("vt-gov-off") === "1") return; } catch {}
+    let renderer = "";
+    try {
+      const glc: any = map.getCanvas().getContext("webgl2") || map.getCanvas().getContext("webgl");
+      const dbg = glc?.getExtension?.("WEBGL_debug_renderer_info");
+      renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
+    } catch {}
+    const dpr = window.devicePixelRatio || 1;
+    const tier = classifyDevice({
+      renderer,
+      deviceMemoryGB: (navigator as any).deviceMemory,
+      cores: navigator.hardwareConcurrency,
+      devicePixelRatio: dpr,
+    });
+    (window as any).__vtDeviceTier = tier; // probe/diagnostics hook
+    // EXAG CEILING (2026-07-22 crash): weaker GPUs can't survive high
+    // exaggeration (the re-mesh spike lost the context at 3.0 on software
+    // GL). Cap the slider so the user can't drive into a loss; clamp any
+    // persisted value that's already above the cap. Full-tier GPUs keep 3×.
+    const exagCap = tier.tier === "full" ? TERRAIN_EXAG_MAX : 2;
+    setMaxExag(exagCap);
+    if (terrainExagRef.current > exagCap) {
+      terrainExagRef.current = exagCap;
+      setTerrainExag(exagCap);
+    }
+    const startRatio = Math.min(dpr, tier.pixelRatioCap);
+    if (startRatio < dpr - 1e-6) {
+      try { (map as any).setPixelRatio?.(startRatio); } catch {}
+      setDeviceNotice(
+        `Render resolution set to ${startRatio}× for this device (${tier.reasons.join("; ")}) — all layers and data stay on`,
+      );
+    } else if (tier.tier === "minimal") {
+      // nothing to cap (already 1×) but the user deserves to know WHY the
+      // 3D map feels slow on this machine — GPU acceleration is off, which
+      // is usually browser settings or corporate policy, not our code
+      setDeviceNotice(
+        "This browser is rendering 3D without GPU acceleration (software renderer) — heavy layers will feel slow here; enabling hardware acceleration in the browser/OS restores full speed",
+      );
+    }
+    let gov = govInit(startRatio, performance.now());
+    // rAF deltas ARE the felt jank (maplibre renders inside rAF)
+    const samples: number[] = [];
+    let last = 0;
+    let raf = requestAnimationFrame(function tick(t) {
+      if (last) { samples.push(t - last); if (samples.length > 150) samples.shift(); }
+      last = t;
+      raf = requestAnimationFrame(tick);
+    });
+    const iv = window.setInterval(() => {
+      if (samples.length < 30) return; // need a real window before judging
+      const now = performance.now();
+      const d = govStep(gov, median(samples), now);
+      gov = d.state;
+      // second lever: even at the 1× pixel floor, a sustained-overloaded
+      // machine gets idle gaps — animation drivers (aircraft glide, vessel/
+      // train steppers) skip alternate ticks while this flag is up
+      const wasOver = isOverloaded();
+      const over = overloadFromState(gov, now, wasOver);
+      if (over !== wasOver) {
+        setOverloaded(over);
+        (window as any).__vtOverloaded = over; // probe hook
+        if (over && d.apply == null && gov.ratio <= 1 + 1e-6) {
+          setDeviceNotice(
+            "This device is at its limit — animation updates halved to keep the map responsive (all layers and data stay on)",
+          );
+        }
+      }
+      if (d.apply != null) {
+        try { (map as any).setPixelRatio?.(d.apply); } catch {}
+        (window as any).__vtGovRatio = d.apply; // probe hook
+        setDeviceNotice(d.note ?? null);
+      }
+    }, 2_000);
+    return () => { cancelAnimationFrame(raf); window.clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady]);
+  // ── CLICK-OFF DESELECT (human 2026-07-21 round 16: "i click off the
+  // plane and it keeps the curtain it should go away the second i click
+  // off the plane to something else"). Runs one macrotask after every
+  // other click handler on the same event: the plane pick stamps
+  // __vtAirClaim; landed feature/sat/coverage handlers stamp __vtFeatClaim.
+  // No claim = empty ground → plane card AND curtain close. Feature claim =
+  // something else selected → its new card stays, the plane curtain still
+  // clears. Camera drags never emit 'click', so mouse navigation (the
+  // "other than moving the camera" carve-out) is untouched. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    // DRAG GUARD (2026-07-22 live: "i just move the camera … and the curtain
+    // goes away"): the round-16 assumption "camera drags never emit click"
+    // is FALSE in the plane-view orbit scheme — the nav rig handles mouse
+    // drags itself, bypassing MapLibre's own click-after-drag suppression,
+    // so a rotate/pan drag could surface as a map 'click' and clear the
+    // curtain. Record the pointer-down point; a click that moved more than
+    // a few px from it is a DRAG, never a deselect. Provably correct: a
+    // moved pointer is navigation, a still one is a tap.
+    let downX = 0, downY = 0, downT = 0;
+    const canvasEl = (() => { try { return map.getCanvas(); } catch { return null; } })();
+    const onDown = (ev: PointerEvent) => { downX = ev.clientX; downY = ev.clientY; downT = performance.now(); };
+    canvasEl?.addEventListener("pointerdown", onDown, { capture: true });
+    const onClickOff = (e: any) => {
+      const oe = e?.originalEvent as any;
+      // a click whose pointer travelled (a drag/orbit) or lingered is a
+      // camera move, not a deselect — leave the selection + curtain alone
+      const moved = oe && (Math.abs((oe.clientX ?? downX) - downX) + Math.abs((oe.clientY ?? downY) - downY)) > 6;
+      if (moved) return;
+      window.setTimeout(() => {
+        try {
+          if (oe?.__vtAirClaim) return; // the plane won this click
+          const det = detailRef.current;
+          const planeSelected = det?.trailKind === "aircraft" || !!airCrumbsRef.current.id;
+          if (!planeSelected) return;
+          if (oe?.__vtFeatClaim) { clearTrail(); return; } // curtain goes; the new card stays
+          setDetail(null);
+          setDetailMin(false);
+          clearTrail();
+        } catch {}
+      }, 0);
+    };
+    map.on("click", onClickOff);
+    return () => { try { map.off("click", onClickOff); } catch {} canvasEl?.removeEventListener("pointerdown", onDown, { capture: true } as any); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
   const flightMarkerPosRef = useRef<{ lng: number; lat: number } | null>(null);
@@ -2612,9 +2940,45 @@ export default function DataMapPage() {
     let g = gc.m.get(k);
     if (g === undefined) {
       try { g = map.queryTerrainElevation([lo, la]) ?? 0; } catch { g = 0; }
-      gc.m.set(k, g);
+      // NEVER memoize a 0: it is indistinguishable from "DEM tile still
+      // loading", and with the 10-min TTL a pre-load 0 would pin planes/
+      // curtain to sea level for 10 minutes (probe-caught 2026-07-21).
+      // Real sea-level ground just re-queries — a local DEM lookup.
+      if (g !== 0) gc.m.set(k, g);
     }
     return g;
+  };
+
+  /** ONE display-altitude datum (REAL meters, pre-exaggeration) for every
+   *  3D renderer — silhouettes, marker, tag, dead-reckoned tail, curtain
+   *  top, follow camera (2026-07-21 "the plane gets moved … when it's near
+   *  the ground"). Terrain ON: MSL clamped to the mesh ground — the
+   *  baro-vs-DEM mismatch rendered landing planes UNDER the mesh, and
+   *  on_ground planes sat at z=0 inside elevated terrain. Terrain OFF: the
+   *  vertical axis is height above the FLAT plane, so display = AGL from
+   *  the DEM decode — MSL floated parked planes ~1.6km over Denver,
+   *  laterally displacing them at pitch. Cruise appearance barely changes
+   *  (ground ≪ altitude). NaN (honest gap) passes through. The clamp query
+   *  is skipped above 9km — no terrain on Earth reaches it, so max() is
+   *  provably identity there (bounds the per-fleet query cost). */
+  const displayAltReal = (map: maplibregl.Map, altM: number, lon: number, lat: number, onGround = false): number => {
+    if (!onGround && Number.isNaN(altM)) return altM; // honest gap in every datum
+    if (map.getTerrain?.()) {
+      // TRUE-ALTITUDE DATUM (human 2026-07-21 round 16: "the plane shoots
+      // way up visually in the sky i dont want that … but it also doesn't
+      // need to hit terrain"): exaggeration lifts the TERRAIN, never the
+      // aircraft. Return real MSL meters, clamped above the EXAGGERATED
+      // mesh (groundDisplayAt is already in display/exaggerated meters) so
+      // a plane can never render inside a stretched mountain. Every 3D
+      // renderer consumes this value with altScale pinned to 1.
+      const scale = terrainExagRef.current > 0 ? terrainExagRef.current : 1;
+      if (onGround) return groundDisplayAt(map, lon, lat);
+      if (altM >= 9000 * scale) return altM; // above the tallest possible display mesh — clamp provably identity
+      return Math.max(altM, groundDisplayAt(map, lon, lat));
+    }
+    if (onGround) return 0;
+    const g = groundElevationSync(lon, lat) ?? 0;
+    return Math.max(0, altM - g);
   };
 
   // DEM-tile fill-in retries for the chart's ground profile (bounded — a
@@ -2716,7 +3080,15 @@ export default function DataMapPage() {
         // (lib/elevation — human 2026-07-20 AGL directive). Tiles still in
         // flight read 0 this paint; the retry below fills them in.
         let elevPending = false;
-        if (!terrainOn) prefetchElevation(samples);
+        // BOTH modes prefetch our own DEM tiles (round 17: "the curtain …
+        // did not follow the terrain at the bottom"): queryTerrainElevation
+        // only answers where MESH tiles are loaded — a cross-country track
+        // has no mesh outside the viewport, so the base plunged to sea
+        // level along the route. lib/elevation decodes tiles we fetch
+        // ourselves, viewport-independent; ×exag = the displayed mesh
+        // height (same SRTM-class data family; the scaled ridge seal
+        // absorbs the small source deltas).
+        prefetchElevation(samples);
         for (let i = 0; i < n; i++) {
           const s = samples[i];
           const m = lonLatToMercator(s.lon, s.lat);
@@ -2724,9 +3096,11 @@ export default function DataMapPage() {
           merc[i * 2 + 1] = m.y;
           altM[i] = s.altM; // NaN = honest gap
           if (terrainOn) {
-            const g = groundDisplayAt(map, s.lon, s.lat);
+            const gDem = groundElevationSync(s.lon, s.lat);
+            if (gDem == null) elevPending = true;
+            const g = gDem != null ? gDem * altScale : groundDisplayAt(map, s.lon, s.lat);
             groundZ[i] = g;
-            groundM[i] = altScale > 0 ? g / altScale : g;
+            groundM[i] = gDem ?? (altScale > 0 ? g / altScale : g);
           } else {
             groundZ[i] = 0;
             const gDem = groundElevationSync(s.lon, s.lat);
@@ -2744,17 +3118,43 @@ export default function DataMapPage() {
           flightTrackRef.current = layer;
         }
         if (!map.getLayer("flight-track-3d")) map.addLayer(layer);
+        // DISPLAY datum for the 3D geometry (same rule as displayAltReal —
+        // groundM is already the REAL ground in both branches): terrain ON
+        // clamps to the mesh (landing tracks rendered under ridges on
+        // baro-vs-DEM mismatch); terrain OFF is height above the flat
+        // plane (AGL) so a taxiing track hugs the map instead of floating
+        // at MSL. The chart keeps TRUE MSL (flightProfile below). NaN gaps
+        // pass through untouched.
+        const altDisp = new Float32Array(n);
+        let dMin = Infinity, dMax = -Infinity;
+        for (let i = 0; i < n; i++) {
+          const a = altM[i];
+          if (Number.isNaN(a)) { altDisp[i] = NaN; continue; }
+          // TRUE-ALTITUDE DATUM (round 16): tops stay at real MSL, clamped
+          // above the EXAGGERATED mesh (groundZ is display meters) — the
+          // curtain top no longer scales with the exag slider; the base
+          // (groundZ inside the geometry) rides the displayed terrain.
+          const v = terrainOn ? Math.max(a, groundZ[i]) : Math.max(0, a - groundM[i]);
+          altDisp[i] = v;
+          if (v < dMin) dMin = v;
+          if (v > dMax) dMax = v;
+        }
+        if (!Number.isFinite(dMin)) { dMin = 0; dMax = 1; }
         const input: TrackGeomInput | null = n >= 2 ? {
-          merc, altM, groundZ, altMin, altMax,
-          // the 40m drape overlap seals ridges against the DEM; a flat
+          merc, altM: altDisp, groundZ, altMin: dMin, altMax: dMax,
+          // the drape overlap seals ridges against the DEM — scaled by the
+          // exaggeration so the seal survives stretched relief; a flat
           // sea-level base (terrain off) has nothing to seal against
-          drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
+          drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (altScale > 0 ? altScale : 1) : 0,
         } : null;
-        layer.setTrack(input, altScale);
+        // altScale 1: every input above is ALREADY in display meters
+        layer.setTrack(input, 1);
         layer.setTail(null); // full geometry reaches the newest real fix
         const id = detailRef.current?.trailId || airCrumbsRef.current.id || "";
+        // altMin/altMax here = the DISPLAY ramp domain (tail shares it);
+        // the chart's TRUE-MSL domain lives on flightProfile
         trackSamplesRef.current = n >= 2
-          ? { id, samples, altMin, altMax, merc, groundZ, groundM }
+          ? { id, samples, altMin: dMin, altMax: dMax, merc, groundZ, groundM, altDisp }
           : null;
         setFlightProfile(n >= 2 ? { samples, groundM, altMin, altMax } : null);
         updateFlightTail();
@@ -2790,12 +3190,14 @@ export default function DataMapPage() {
       const terrainOn = !!map.getTerrain();
       layer.setTail({
         fromMercX: st.merc[li * 2], fromMercY: st.merc[li * 2 + 1],
-        fromAltM: st.samples[li].altM, fromGroundZ: st.groundZ[li],
+        // DISPLAY datum, same as the curtain's last vertex — a raw-MSL
+        // tail visibly stepped at the seam on the flat map (AGL datum)
+        fromAltM: st.altDisp[li], fromGroundZ: st.groundZ[li],
         toMercX: m.x, toMercY: m.y,
-        toAltM: lv.fix.al == null ? NaN : lv.fix.al,
+        toAltM: lv.fix.al == null ? NaN : displayAltReal(map, lv.fix.al, lo, la),
         toGroundZ: terrainOn ? groundDisplayAt(map, lo, la) : 0,
         altMin: st.altMin, altMax: st.altMax,
-        drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M : 0,
+        drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
       });
       updateFlightMarker();
     } catch { /* tail continuity must never break the tick */ }
@@ -2853,7 +3255,9 @@ export default function DataMapPage() {
         const mm = lonLatToMercator(lon, lat);
         const terrOn = !!map.getTerrain();
         layer.setMarker({
-          mercX: mm.x, mercY: mm.y, altM: alt,
+          // ONE display datum with the silhouettes/curtain (displayAltReal)
+          mercX: mm.x, mercY: mm.y,
+          altM: Number.isNaN(alt) ? alt : displayAltReal(map, alt, lon, lat),
           groundZ: terrOn ? groundDisplayAt(map, lon, lat) : 0,
           headingDeg: headingDeg ?? 0,
           shape: flightShapeRef.current,
@@ -2861,15 +3265,15 @@ export default function DataMapPage() {
       }
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
-      const altScale = terrainOn ? terrainExagRef.current : 1;
       const gZ = terrainOn ? groundDisplayAt(map, lon, lat) : 0;
-      // floating tag above the craft (screen-projected DOM chip, §4)
+      // floating tag above the craft (screen-projected DOM chip, §4) —
+      // display meters straight through (layer altScale is pinned 1)
       if (tag) {
         const canvas = map.getCanvas();
         const mm = lonLatToMercator(lon, lat);
         const p = layer.projectToScreen(
           mm.x, mm.y,
-          Number.isNaN(alt) ? (altScale > 0 ? gZ / altScale : 0) : alt,
+          Number.isNaN(alt) ? gZ : displayAltReal(map, alt, lon, lat),
           canvas.clientWidth || 1, canvas.clientHeight || 1,
         );
         if (p) {
@@ -2918,13 +3322,30 @@ export default function DataMapPage() {
         set("vs", vsFpm == null ? "—" : `${vsFpm >= 0 ? "+" : ""}${Math.round(vsFpm)}`,
           vsFpm == null ? null : "fpm");
       }
-      // FOLLOW AIRCRAFT — recenter on the same glided/replay position the
-      // marker shows. NEVER while an ease is in flight (the click-frame
-      // ease and the north-lock rotation both died mid-animation when this
-      // jumpTo stomped them — live report 2026-07-20 round 2); the nav
-      // rig's followTarget covers recentering whenever the rig is awake.
+      // FOLLOW AIRCRAFT — 300ms FALLBACK recenter only. The rig owns
+      // follow recentering (per-frame, damped, 3D-centered); this tick
+      // stands down whenever the rig stamped a follow frame in the last
+      // 600ms — running both was a double-writer fight: the rig glided
+      // while this jumped, the lurching in the 2026-07-21 video. NEVER
+      // while an ease is in flight (click-frame ease / north-lock died
+      // mid-animation when stomped — live report 2026-07-20 round 2).
       if (flightFollowRef.current) {
-        try { if (!(map as any).isEasing?.()) map.jumpTo({ center: [lon, lat] }); } catch {}
+        const rigAt = (window as any).__vtRigFollowAt as number | undefined;
+        const rigDriving = rigAt != null && performance.now() - rigAt < 600;
+        try {
+          if (!rigDriving && !(map as any).isEasing?.()) {
+            // SAME DATUM AS THE RIG (probe-caught 2026-07-21): a jumpTo
+            // without `elevation` under terrain re-clamps the camera to the
+            // GROUND (maplibre camera.ts) — one fallback tick between rig
+            // frames bounced the view plane-center → ground-center → back.
+            const camElev = Number.isNaN(alt) ? null : Math.max(0, alt) * altScale;
+            if (camElev != null) (map as any).setCenterClampedToGround?.(false);
+            map.jumpTo({
+              center: [lon, lat],
+              ...(camElev != null ? { elevation: camElev } : {}),
+            } as any);
+          }
+        } catch {}
       }
     } catch { /* readouts must never break the tick */ }
   };
@@ -3038,13 +3459,26 @@ export default function DataMapPage() {
   }, [detailTrailId, detailTrailKind]);
   useEffect(() => {
     if (!detailTrailId || !detailTrailKind) return;
-    const iv = setInterval(async () => {
+    const refresh = async () => {
+      // skip the fetch while backgrounded (matches the fleet-poll hidden
+      // gate — no point hammering a tiny endpoint no one is looking at)
+      if (document.hidden) return;
       const { note, lastT } = await showTrail(detailTrailKind, detailTrailId);
       setDetail((prev) => prev && prev.trailId === detailTrailId
         ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
         : prev);
-    }, 30_000);
-    return () => clearInterval(iv);
+    };
+    const iv = setInterval(refresh, 30_000);
+    // STALE-ON-RETURN FIX (2026-07-22 "i leave the page … come back and the
+    // data is stale if i click on a plane"): the 30s interval is throttled
+    // or suspended while the tab is backgrounded, so an open card sat stale
+    // for up to 30s after returning. Refresh it the instant the tab becomes
+    // visible again — the freshest archive track + last-position land right
+    // away instead of waiting for the next interval tick. (The fleet poll
+    // has its own visibilitychange refresh for the live marker.)
+    const onVis = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, [detailTrailId, detailTrailKind]);
 
   // 10s ticker so the freshness age in the open card counts up between
@@ -3086,8 +3520,29 @@ export default function DataMapPage() {
   // never a fabricated or stale-implying value. Esri terms reading
   // (census §3 #9): a recency check displayed on the imagery it
   // describes — client-side only, nothing archived, no API route.
+  // short labels for the combined bottom status bar (2026-07-22 "less
+  // words"): just the ISO date when known, "date n/a" otherwise
   const [imageryDate, setImageryDate] = useState<{ label: string; known: boolean }>(
-    { label: "capture date: checking…", known: false });
+    { label: "…", known: false });
+  // COMBINED BOTTOM STATUS BAR (2026-07-22): our own scale + zoom readout
+  // (lib/mapScale) fused with the capture date into ONE element. Tracks the
+  // camera on move (throttled to a frame) and the site-wide unit toggle.
+  const [scaleView, setScaleView] = useState<{ zoom: number; lat: number }>({ zoom: 3.6, lat: 37.5 });
+  const [unitsTick, setUnitsTick] = useState(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    let raf: number | null = null;
+    const sync = () => {
+      raf = null;
+      try { const c = map.getCenter(); setScaleView({ zoom: map.getZoom(), lat: c.lat }); } catch {}
+    };
+    const onMove = () => { if (raf == null) raf = requestAnimationFrame(sync); };
+    sync();
+    map.on("move", onMove);
+    const offUnits = subscribeUnits(() => setUnitsTick((n) => n + 1));
+    return () => { if (raf != null) cancelAnimationFrame(raf); try { map.off("move", onMove); } catch {} offUnits(); };
+  }, [mapReady]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !enabled.imagery) return;
@@ -3120,14 +3575,13 @@ export default function DataMapPage() {
         if (hit) {
           const raw = String(hit["DATE (YYYYMMDD)"]);
           const iso = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
-          const src = hit.SOURCE ? ` · ${hit.SOURCE}` : "";
-          setImageryDate({ label: `imagery at centre: ${iso}${src}`, known: true });
+          setImageryDate({ label: iso, known: true });
         } else {
-          setImageryDate({ label: "capture date unknown at this zoom", known: false });
+          setImageryDate({ label: "date n/a", known: false });
         }
       } catch {
         // transport/abort: keep a known value; never fabricate one
-        if (!gone) setImageryDate((v) => (v.known ? v : { label: "capture date unknown", known: false }));
+        if (!gone) setImageryDate((v) => (v.known ? v : { label: "date n/a", known: false }));
       }
     };
     const onMove = () => { window.clearTimeout(timer); timer = window.setTimeout(lookup, 1200); };
@@ -3178,6 +3632,14 @@ export default function DataMapPage() {
     // verification re-arms while the camera is busy and re-checks that
     // terrain is STILL off before enforcing (terrainWasOnRef mirrors the
     // live enabled state after every effect run).
+    // a re-toggle after a declared DEM failure gets a fresh chance at the
+    // primary pyramid (networks change; the failure is never permanent)
+    if (enabled.terrain && !terrainWasOnRef.current && demSource === "failed") {
+      demPreflightRef.current = {}; // fresh reachability probes too
+      setDemSource("mapterhorn"); // effect re-runs with the reset value
+      terrainWasOnRef.current = enabled.terrain;
+      return;
+    }
     if (enabled.terrain && !terrainWasOnRef.current) {
       try {
         if (map.getPitch() < 15 || autoTiltedRef.current) {
@@ -3215,12 +3677,29 @@ export default function DataMapPage() {
     const imageryVisible = mapPreset === "natural" || mapPreset === "terrain";
     const meshSource = enabled.seafloor ? "ocean-terrain-dem" : enabled.terrain ? "terrain-dem" : null;
     try {
-      // only attach the Mapterhorn pyramid when it will BE the mesh — with
-      // the drain on, meshSource is ocean-terrain-dem and a parked
-      // terrain-dem just retains a third DEM tile cache for nothing
-      // (GPU-memory finding, stability audit 2026-07-20)
+      // only attach the DEM pyramid when it will BE the mesh — with the
+      // drain on, meshSource is ocean-terrain-dem and a parked terrain-dem
+      // just retains a third DEM tile cache for nothing (GPU-memory
+      // finding, stability audit 2026-07-20)
       if (meshSource === "terrain-dem" && !map.getSource("terrain-dem")) {
-        map.addSource("terrain-dem", {
+        // BLANK-PAGE ROOT CAUSE (probe-reproduced 2026-07-21): a terrain
+        // source whose tiles never arrive (tiles.mapterhorn.com blocked by
+        // a corporate web filter / unreachable network) leaves MapLibre
+        // with NOTHING to drape — the whole canvas renders blank while the
+        // DOM stays alive, and queryTerrainElevation returns 0 (AGL=MSL).
+        // demSource selects the pyramid: Mapterhorn first; on source
+        // errors the effect re-runs on the AWS Terrain Tiles fallback
+        // (same terrarium encoding, SRTM-class, already used by the
+        // seafloor + the chart); if BOTH fail the toggle snaps off with an
+        // honest error instead of a dead screen.
+        map.addSource("terrain-dem", demSource === "aws" ? ({
+          type: "raster-dem",
+          tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+          encoding: "terrarium",
+          tileSize: 256,
+          maxzoom: 12, // same perf cap as the primary
+          attribution: "Terrain Tiles (Mapzen, AWS Open Data)",
+        } as any) : ({
           type: "raster-dem",
           url: "https://tiles.mapterhorn.com/tilejson.json",
           encoding: "terrarium",
@@ -3231,7 +3710,7 @@ export default function DataMapPage() {
           // options take precedence over the TileJSON (maplibre
           // loadTileJson), so this cap is authoritative.
           maxzoom: 12,
-        } as any);
+        } as any));
       }
       if (enabled.seafloor && !map.getSource("ocean-terrain-dem")) {
         // own source for the MESH — the seafloor tint keeps its separate
@@ -3262,19 +3741,87 @@ export default function DataMapPage() {
     // off left them stuck at the stale exaggeration). Sync here, on every
     // mesh-state change, through the registry's live instance.
     try {
-      (customLayerRegistryRef.current.get("aircraft-3d") as any)
-        ?.setAltScale?.(meshSource ? terrainExagRef.current : 1);
+      // TRUE-ALTITUDE DATUM (round 16): altScale stays 1 in every mesh
+      // state — exaggeration lifts the terrain, never the aircraft. The
+      // displayAlt hook clamps against the exaggerated mesh instead.
+      (customLayerRegistryRef.current.get("aircraft-3d") as any)?.setAltScale?.(1);
     } catch {}
-    // 3D trail + curtain datum follows the mesh state (altScale + terrain
-    // base) — re-derive now, and once more when DEM tiles finish loading
-    // (queries return 0 until then; the idle handler is cleaned up below).
-    repaintTrail3d();
-    if (meshSource) { try { map.once("idle", repaintTrail3d); } catch {} }
+    // 3D trail + curtain + silhouette datum follows the mesh state
+    // (altScale + terrain base) — re-derive now, and once more when DEM
+    // tiles finish loading (ground queries return 0 until then — probe-
+    // caught: an on_ground plane re-datumed pre-idle sat at z=0 inside
+    // the mesh). The idle handler is cleaned up below.
+    const redatum3d = () => {
+      // fresh ground queries first — DEM tiles may have arrived since the
+      // last pass, and the silhouette rebuild reads the same cache
+      groundElevCacheRef.current.cfg = "__DATUM_STALE__";
+      airRebuildRef.current?.(); // silhouettes: AGL ↔ mesh-clamped MSL
+      repaintTrail3d();
+    };
+    redatum3d();
+    const redatumTimers: number[] = [];
+    if (meshSource) {
+      try { map.once("idle", redatum3d); } catch {}
+      // the aircraft glide loop can hold the map out of IDLE indefinitely
+      // (measured 2026-07-20: never-idle with aircraft on), so the idle
+      // hook alone left on_ground planes at z=0 inside the mesh until the
+      // next poll — bounded timer retries land the datum deterministically
+      // once the DEM tiles arrive.
+      for (const ms of [2500, 6000, 12000]) redatumTimers.push(window.setTimeout(redatum3d, ms));
+    }
+    // PYRAMID PRE-FLIGHT (blank-page root cause, probe-reproduced
+    // 2026-07-21): a terrain pyramid whose tiles never arrive
+    // (tiles.mapterhorn.com blocked by a corporate web filter / outage)
+    // leaves MapLibre with nothing to drape — the canvas goes blank while
+    // the DOM lives. Detection is AFFIRMATIVE reachability (one 5s fetch
+    // of the pyramid's own endpoint, verdict cached per session) — NOT
+    // absence-of-tiles: maplibre's mesh wrappers report 'loading' even on
+    // a healthy mesh, and slow machines load tiles late (both probe-
+    // caught as false positives). Terrain stays added optimistically, so
+    // the healthy path renders with zero added latency; a failed
+    // pre-flight escalates mapterhorn → aws fallback → honest off.
+    let demEscalated = false; // this pass declared its pyramid dead — the
+    // status writes at the bottom of the effect must not overwrite the
+    // escalation's own message (probe-caught: the error was erased by the
+    // same-pass "active" write, since enabled.terrain is still true here)
+    if (meshSource === "terrain-dem" && demSource !== "failed") {
+      const verdict = demPreflightRef.current[demSource];
+      if (verdict === false) {
+        // known-dead pyramid (cached verdict) — escalate immediately
+        try { map.setTerrain(null); } catch {}
+        try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
+        try { if (map.getSource("terrain-dem")) map.removeSource("terrain-dem"); } catch {}
+        demEscalated = true;
+        if (demSource === "mapterhorn") {
+          setDemSource("aws");
+        } else {
+          setDemSource("failed");
+          setStatus("terrain", "error", undefined,
+            "DEM tiles unreachable from this network (primary AND fallback) — 3D relief can't render here; toggling again retries fresh");
+          setEnabled((s) => ({ ...s, terrain: false })); // never leave a blank map
+        }
+      } else if (verdict === undefined) {
+        const probing = demSource;
+        const ctl = new AbortController();
+        const tt = window.setTimeout(() => ctl.abort(), 5000);
+        fetch(probing === "aws"
+          ? "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/0/0/0.png"
+          : "https://tiles.mapterhorn.com/tilejson.json",
+        { signal: ctl.signal, mode: "cors", cache: "no-store" })
+          .then((r) => { demPreflightRef.current[probing] = r.ok; })
+          .catch(() => { demPreflightRef.current[probing] = false; })
+          .finally(() => {
+            window.clearTimeout(tt);
+            // re-run the effect only when the verdict demands action
+            if (demPreflightRef.current[probing] === false) setDemNonce((n) => n + 1);
+          });
+      }
+    }
     // hillshade: rebuild each pass (source may swap with the drain) — dark
     // bases only; inserted beneath the lowest data layer so shading never
     // covers markers or velocity vectors
     try { if (map.getLayer("terrain-hillshade")) map.removeLayer("terrain-hillshade"); } catch {}
-    if (enabled.terrain && !imageryVisible) {
+    if (enabled.terrain && !imageryVisible && !demEscalated) {
       try {
         const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
         map.addLayer({
@@ -3305,12 +3852,21 @@ export default function DataMapPage() {
       const renderer = glc ? String(glc.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glc.RENDERER) ?? "") : "";
       (map as any).setSky?.(skyForRenderer(renderer) as any);
     } catch {}
-    if (!enabled.terrain) setStatus("terrain", "off");
+    // demSource "failed" means the pre-flight escalation snapped the toggle
+    // off WITH an explanation — writing "off" here would erase the one
+    // message that tells the user why the toggle bounced (probe-caught: the
+    // both-blocked scenario showed a bare "off"). A re-toggle resets
+    // demSource and clears this state. demEscalated guards the same-pass
+    // overwrite (enabled.terrain is still true in this closure).
+    if (!enabled.terrain) { if (demSource !== "failed") setStatus("terrain", "off"); }
+    else if (demEscalated) { /* escalation owns the status this pass */ }
     else setStatus("terrain", "active", undefined, enabled.seafloor
       ? "3D relief from the drained-ocean DEM — basins sink for real; land is SRTM-class while the drain is on (© Mapterhorn set resumes when it's off)"
-      : imageryVisible
-        ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
-        : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
+      : demSource === "aws"
+        ? "3D relief on the FALLBACK DEM (Terrain Tiles — Mapzen/AWS Open Data, SRTM-class): the primary Mapterhorn source is unreachable from this network"
+        : imageryVisible
+          ? "true 3D relief — imagery draped on the Copernicus GLO-30 mesh + sky horizon (© Mapterhorn); tilt the map to see it"
+          : "3D relief + hillshade — Copernicus GLO-30 + national DEMs (© Mapterhorn)");
     // keep the map lean when off (mesh + hillshade already detached above);
     // terrain-dem also goes whenever it is NOT the active mesh (the drain
     // owns the mesh then) — a parked DEM pyramid is pure GPU-memory cost
@@ -3319,9 +3875,10 @@ export default function DataMapPage() {
     return () => {
       if (restoreIv != null) { window.clearInterval(restoreIv); restoreIv = null; }
       try { map.off("pitchstart", onUserPitch); } catch {}
-      try { map.off("idle", repaintTrail3d); } catch {}
+      try { map.off("idle", redatum3d); } catch {}
+      for (const t of redatumTimers) window.clearTimeout(t);
     };
-  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus]);
+  }, [enabled.terrain, enabled.seafloor, mapPreset, mapReady, setStatus, demSource, demNonce]);
 
   // ── seafloor bathymetry (RAW; EARTH TWIN E2-1 — "drain the ocean" v1,
   // research/earth_twin_program.md V4). NOAA ETOPO1 ocean depths via the open
@@ -4239,12 +4796,16 @@ export default function DataMapPage() {
         // abort them mid-flight); the chase resumes next frame. During an
         // APPROACH the jump IS the animation — nothing to yield to.
         if (!ap && map.isZooming()) return;
+        // ELEVATION RIDES IN THE jumpTo OPTIONS (probe-caught 2026-07-21 on
+        // the aircraft follow, same bug latent here): with terrain enabled,
+        // maplibre's jumpTo re-clamps center elevation to the GROUND first
+        // and only then applies options.elevation — a separate
+        // setCenterElevation call is wiped by the next jumpTo.
+        const camElev = f.lockMode === "sat" ? p.altKm * 1000 : 0;
         if (f.lockMode === "sat") {
           (map as any).setCenterClampedToGround?.(false);
-          (map as any).setCenterElevation?.(p.altKm * 1000);
         } else {
           (map as any).setCenterClampedToGround?.(true);
-          (map as any).setCenterElevation?.(0);
         }
         if (ap) {
           // guided approach: zoom/pitch ease per frame AROUND the live craft
@@ -4254,10 +4815,11 @@ export default function DataMapPage() {
             center: [p.lonDeg, p.latDeg],
             zoom: ap.z0 + (ap.z1 - ap.z0) * k,
             pitch: ap.p0 + (ap.p1 - ap.p0) * k,
-          });
+            elevation: camElev,
+          } as any);
           if (e >= 1) camApproachRef.current = null;
         } else {
-          map.jumpTo({ center: [p.lonDeg, p.latDeg] });
+          map.jumpTo({ center: [p.lonDeg, p.latDeg], elevation: camElev } as any);
         }
       } catch {}
     };
@@ -4778,6 +5340,8 @@ export default function DataMapPage() {
     const ORBIT_CLASS_NAME = ["LEO", "MEO", "GEO"];
 
     const onClick = (e: any) => {
+      // aircraft click claim (2026-07-21): a picked 3D plane owns the click
+      if (e?.originalEvent?.__vtAirClaim) return;
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       if (!layer || !gp || !gp.length) return;
@@ -4855,6 +5419,8 @@ export default function DataMapPage() {
           covBuf, layer.getStride(), gp, clickLL.lat, clickLL.lng,
         );
         const nearest = visible.slice(0, 5);
+        // feature claim (round 16): the coverage card owns this click
+        try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
         setDetail({
           kind: "coverage",
           title: "Starlink coverage",
@@ -4963,6 +5529,9 @@ export default function DataMapPage() {
         satModelLayerRef.current?.setAnchor({ mercX: t.mercX, mercY: t.mercY, altMeters: s.altMeters });
       }
       const realLabel = realModelLabel(g.noradId, g.name ?? sc?.name);
+      // feature claim (round 16): the sat card owns this click — the
+      // deferred click-off handler drops the plane curtain but not the card
+      try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
       // design 1a chip row + 1b details grid: chips are live/derived vitals
       // through the units formatters; period/inclination values moved from
       // the old body prose INTO the chips (still reachable, now glanceable).
@@ -5814,6 +6383,10 @@ export default function DataMapPage() {
   const wireLivePoints = useCallback((opts: {
     id: "aircraft" | "vessels";
     intervalMs: number;
+    /** round 17 freshness: while this returns true, poll at fastIntervalMs
+     *  and send fresh=1 (the server tightens its SWR window per-request) */
+    fastWhen?: () => boolean;
+    fastIntervalMs?: number;
     toFeatures: (d: any) => any[];
     toVectors?: (d: any) => any[];
     onClick: (props: any, lngLat: any) => void;
@@ -5874,8 +6447,15 @@ export default function DataMapPage() {
     // toggle cycle stacked another set (N clicks -> N detail cards + N
     // trail fetches). ([REPAIR 2026-07-05] map perf/correctness.)
     const onClickLayer = (e: any) => {
+      // aircraft click claim (2026-07-21): a picked 3D plane owns the click
+      if (e?.originalEvent?.__vtAirClaim) return;
       const f = e.features?.[0];
-      if (f) opts.onClick(f.properties, e.lngLat);
+      if (f) {
+        // feature claim (round 16): a landed live-point click keeps its own
+        // card while the deferred click-off handler drops the plane curtain
+        try { if (e?.originalEvent) e.originalEvent.__vtFeatClaim = true; } catch {}
+        opts.onClick(f.properties, e.lngLat);
+      }
     };
     const onEnter = () => { map.getCanvas().style.cursor = "pointer"; };
     const onLeave = () => { map.getCanvas().style.cursor = ""; };
@@ -5951,7 +6531,8 @@ export default function DataMapPage() {
       try {
         const b = map.getBounds();
         const since = sinceRef.current[id] || "";
-        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}`;
+        const fresh = opts.fastWhen?.() === true ? "&fresh=1" : "";
+        const q = `lamin=${b.getSouth().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lomax=${b.getEast().toFixed(2)}${since ? `&since=${since}` : ""}${fresh}`;
         const r = await fetch(`/api/data/${id}?${q}`, firstFetch ? { cache: "reload" } : undefined);
         firstFetch = false;
         if (!r.ok) throw new Error(String(r.status));
@@ -6033,7 +6614,20 @@ export default function DataMapPage() {
       }
     };
     load();
-    const iv = window.setInterval(load, opts.intervalMs);
+    // ADAPTIVE POLL (round 17 "the adsb data is laggy … the update speed is
+    // slow"): a fixed interval left a followed plane up to pollMs + server
+    // TTL stale. While fastWhen() holds (a craft card open), poll at
+    // fastIntervalMs — each request also carries fresh=1 so the server
+    // tightens its own refresh window for that stream.
+    let pollTimer: number | undefined;
+    const schedulePoll = () => {
+      const fast = opts.fastWhen?.() === true;
+      pollTimer = window.setTimeout(async () => {
+        await load();
+        if (!stop) schedulePoll();
+      }, fast ? (opts.fastIntervalMs ?? opts.intervalMs) : opts.intervalMs);
+    };
+    schedulePoll();
     // GLIDE stepper (~3.3Hz): dead-reckoned setData between polls. Skips
     // whenever it could not be seen (hidden tab, mid-gesture — symbols ride
     // the camera transform anyway, outside the visible-glide zoom band) or
@@ -6043,10 +6637,15 @@ export default function DataMapPage() {
     // the delta-poll cursor is untouched (server-time based) and the next
     // real payload rebuilds from truth, snapping the glide to zero.
     let glideIv: number | undefined;
+    let glideParity = false;
     if (opts.glide) {
       const g = opts.glide;
       glideIv = window.setInterval(() => {
         if (stop || document.hidden || glideAnchor == null || !lastPayload) return;
+        // device overloaded (deviceTier governor): halve the glide cadence
+        // — every setData re-tiles the source AND repaints; a drowning
+        // renderer needs the idle gaps more than 3.3Hz motion
+        if (isOverloaded() && (glideParity = !glideParity)) return;
         try { if (map.isMoving()) return; } catch {}
         const z = map.getZoom();
         if (!(z >= g.minZoom)) return;                       // sub-pixel motion — pure cost
@@ -6118,7 +6717,7 @@ export default function DataMapPage() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       teardown();
-      window.clearInterval(iv);
+      window.clearTimeout(pollTimer);
       if (glideIv != null) window.clearInterval(glideIv);
       window.clearTimeout(moveDebounce);
       document.removeEventListener("visibilitychange", onVisible);
@@ -6167,6 +6766,13 @@ export default function DataMapPage() {
     const wire = () => wireLivePoints({
       id: "aircraft",
       intervalMs: 15_000,
+      // a followed/selected craft deserves the freshest feed we can get —
+      // 2s polls + fresh=1 (server tightens its SWR TTL for these) while a
+      // plane card is open (round 18 "every second or less"). Real ADS-B
+      // fixes are provider-rate-bound (~1-5s); the marker dead-reckons
+      // smoothly between them, so 2s polling + glide reads as live.
+      fastWhen: () => !!airCrumbsRef.current.id,
+      fastIntervalMs: 2_000,
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,
@@ -6174,13 +6780,35 @@ export default function DataMapPage() {
       // layer; the note discloses exactly what the filter dropped.
       transformData: (d: any) => applyAirlineFilter(d, airFilter),
       onData: (d: any) => {
-        const built = buildAircraftInstances(d.aircraft || []);
-        airRows = built.rows;
-        airLayer.setInstances(built.inst, built.groups);
+        // ONE display datum with the curtain/marker (displayAltReal):
+        // terrain-off = AGL above the flat plane, terrain-on = MSL clamped
+        // to the mesh (2026-07-21 near-ground displacement report). DEM
+        // tiles for the low fleet prefetch async; until they land the
+        // datum falls back to raw MSL and the next poll corrects — honest.
+        const rowsIn = (d.aircraft || []) as any[];
+        try {
+          if (!map.getTerrain()) {
+            prefetchElevation(rowsIn.filter((a) => a && (a.on_ground || (a.altitude_m ?? 1e9) < 9000))
+              .map((a) => ({ lon: a.lon, lat: a.lat })));
+          }
+        } catch {}
+        const rebuild = (rowsNow: any[]) => {
+          const built = buildAircraftInstances(rowsNow, {
+            displayAlt: (altM, lon, lat, onGround) => displayAltReal(map, altM, lon, lat, onGround),
+          });
+          airRows = built.rows;
+          airLayer.setInstances(built.inst, built.groups);
+          return built;
+        };
+        airPayloadRef.current = rowsIn; // terrain toggles re-datum without waiting a poll
+        airRebuildRef.current = () => { try { rebuild(airPayloadRef.current); } catch {} };
+        rebuild(rowsIn);
         airLayer.setTickTime(); // glide anchor: these positions are true NOW
-        // match the terrain mesh's vertical exaggeration so a plane above a
-        // peak stays above the exaggerated peak (never-intersect-mountains)
-        try { airLayer.setAltScale(map.getTerrain() ? terrainExagRef.current : 1); } catch {}
+        // TRUE-ALTITUDE DATUM (round 16): altScale pinned 1 — the hook's
+        // displayAltReal already clamps above the EXAGGERATED mesh, so a
+        // plane above a peak stays above the stretched peak without its own
+        // cruise altitude being stretched into the sky
+        try { airLayer.setAltScale(1); } catch {}
         // SESSION BREADCRUMB: while this plane's card is open, append its
         // fresh REAL fix and repaint the merged trail + curtain so they
         // reach the CURRENT position (the archive lags 1-5 min at cruise).
@@ -6392,10 +7020,18 @@ export default function DataMapPage() {
       // plane overlapping a marker goes to the plane — the thing drawn on
       // top is the thing you clicked.
       const ll = map.unproject(e.point);
-      const idx = pickAir(e, 12);
+      const idx = pickAir(e, 14);
       if (idx < 0) return;
       const a = airRows[idx];
       if (!a) return;
+      // CLICK CLAIM (2026-07-21 "near a ground object … it thinks i am
+      // clicking on the ground object"): a successful plane pick stamps
+      // the shared originalEvent so every ground-feature handler on the
+      // same click stands down (attachLayerInteractions, wireLivePoints,
+      // the satellite picker all check it). Handlers that already ran
+      // before this one are simply overwritten by the plane card below —
+      // either dispatch order ends with the plane winning.
+      try { if (e.originalEvent) (e.originalEvent as any).__vtAirClaim = true; } catch {}
       void onAircraftClickProps({
         cls: classifyAircraft(a.type, a.category),
         callsign: a.callsign || a.icao24, icao24: a.icao24,
@@ -6454,6 +7090,8 @@ export default function DataMapPage() {
       if (hoverFrame != null) cancelAnimationFrame(hoverFrame);
       hideHoverTip();
       try { delete (window as any).__vtAir; } catch {}
+      airRebuildRef.current = null;
+      airPayloadRef.current = [];
       customLayerRegistryRef.current.delete("aircraft-3d"); // intentional removal — not a restore case
       try { if (map.getLayer("aircraft-3d")) map.removeLayer("aircraft-3d"); } catch {}
     };
@@ -6579,6 +7217,15 @@ export default function DataMapPage() {
               operator: s.operator, relevance: s.relevance,
               color: colors[s.category] || "#4d9fff",
               icon: SITE_ICON[s.category] || "vt-tank",
+              // DATACORE MAXIMUS Phase 3b: flat primitives, not a nested
+              // object — geojson sources round-trip properties through the
+              // tiling worker, and a null-vs-absent-key distinction is not
+              // worth the risk there; every site carries the same key set.
+              imagery_file: s.imagery?.file ?? null,
+              imagery_scene: s.imagery?.scene ?? null,
+              imagery_date: s.imagery?.date ?? null,
+              imagery_cloud: s.imagery?.cloud_pct ?? null,
+              imagery_attribution: s.imagery?.attribution ?? null,
             },
           })),
         } as any });
@@ -6609,6 +7256,11 @@ export default function DataMapPage() {
             subtitle: `${f.properties.category} · ${f.properties.operator}`,
             body: f.properties.relevance,
             dossierKey,
+            imagery: f.properties.imagery_file ? {
+              file: f.properties.imagery_file, scene: f.properties.imagery_scene,
+              date: f.properties.imagery_date, cloud_pct: f.properties.imagery_cloud,
+              attribution: f.properties.imagery_attribution,
+            } : undefined,
           });
           // Everything Graph R1: async 7-day cross-stream timeline; any
           // failure just leaves the section absent — the card never degrades
@@ -6948,6 +7600,121 @@ export default function DataMapPage() {
     const iv = window.setInterval(() => { if (!document.hidden) load(); }, 15 * 60_000);
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.faa_airports, mapReady, setStatus]);
+
+  // ── CBP land-border wait times (RAW — server/cbpBorderWait.ts's own
+  // manifest named this map layer "deferred with the FAA one" since
+  // 2026-07-05; both coordinate tables now exist). Position comes from a
+  // CURATED port-of-entry table (client/src/lib/cbpBorderCrossings.ts) —
+  // a port_number we don't have coordinates for is honestly omitted, never
+  // guessed. One marker per port_number (the feed reports up to 3 lane
+  // classes per port); color is the WORST currently published delay across
+  // that port's lanes, a raw numeric field the feed itself reports, never a
+  // derived signal. Off by default (reference layer, same precedent as
+  // buoys/quakes/faa_airports). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.border_waits) {
+      try {
+        if (map?.getLayer("border-waits-sym")) map.removeLayer("border-waits-sym");
+        if (map?.getSource("border-waits")) map.removeSource("border-waits");
+      } catch {}
+      setStatus("border_waits", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("border_waits", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/border-waits");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("border_waits", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const waits: any[] = d.waits || [];
+        const byPort = new Map<string, any[]>();
+        for (const w of waits) {
+          const arr = byPort.get(w.port_number);
+          if (arr) arr.push(w); else byPort.set(w.port_number, [w]);
+        }
+        const matched: { port_number: string; coord: BorderCrossingCoord; lanes: any[] }[] = [];
+        let unmatched = 0;
+        byPort.forEach((lanes, port_number) => {
+          const coord = BORDER_CROSSING_COORDS[port_number];
+          if (!coord) { unmatched++; return; }
+          matched.push({ port_number, coord, lanes });
+        });
+        const fc = {
+          type: "FeatureCollection",
+          features: matched.map(({ port_number, coord, lanes }) => {
+            const delays = lanes.map((l) => l.delay_min).filter((v): v is number => v != null);
+            const worst = delays.length ? Math.max(...delays) : null;
+            return {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [coord.lon, coord.lat] },
+              properties: {
+                port_number, name: coord.name, city: coord.city, state: coord.state,
+                border: lanes[0]?.border || null,
+                worstDelay: worst,
+                color: borderDelayColor(worst),
+                lanes: JSON.stringify(lanes),
+              },
+            };
+          }),
+        };
+        const src: any = map.getSource("border-waits");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("border-waits", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "border-waits-sym", type: "symbol", source: "border-waits",
+            layout: {
+              "icon-image": "vt-bordercrossing",
+              "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.4, 8, 0.7],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-halo-color": "rgba(5,10,19,0.95)", "icon-halo-width": 1.3 },
+          });
+          detach = attachLayerInteractions(map, "border-waits-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            let lanes: any[] = [];
+            try { lanes = JSON.parse(p.lanes || "[]"); } catch {}
+            const dossierKey = `borderwait:${p.port_number}:${Date.now()}`;
+            setDetail({
+              kind: "borderwait",
+              title: `${p.name} (${p.city}, ${p.state})`,
+              subtitle: `${p.border || "US Border"} · worst lane: ${borderDelayLabel(p.worstDelay)}`,
+              stats: lanes.slice(0, 4).map((l) => ({
+                label: borderLaneLabel(l.lane), value: borderDelayLabel(l.delay_min),
+              })),
+              sourceTag: "CBP Border Wait Times",
+              body: lanes.map((l) =>
+                `${borderLaneLabel(l.lane)}: ${l.status || "—"}` +
+                (l.lanes_open != null ? ` · ${l.lanes_open} lane(s) open` : "") +
+                (l.update_time ? ` · updated ${l.update_time}` : "")
+              ).join("\n") +
+                `\n\nCBP Border Wait Times — hourly snapshot, published locally by each crossing's serving region. Displayed as-is, not for safety-of-life use.`,
+              dossierKey,
+            });
+            // Border crossings aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        setStatus("border_waits", "active", matched.length,
+          `hourly snapshot${unmatched ? ` · ${unmatched} port(s) outside our coordinate table` : ""}`);
+      } catch {
+        if (!stop) setStatus("border_waits", "error");
+      }
+    };
+    load();
+    // hourly refresh, hidden-tab gated (matches server's hourly poll cadence)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 60 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.border_waits, mapReady, setStatus]);
 
   // ── EPA Superfund NPL sites (RAW/FACTUAL hazard layer; U.S. EPA SEMS, public
   // domain — first Location Context Engine hazard layer. Points colored by NPL
@@ -7645,6 +8412,117 @@ export default function DataMapPage() {
     );
     return () => { stopLoad(); detach(); };
   }, [enabled.methane_plumes, mapReady, mapSettled, setStatus]);
+
+  // ── GEM coal-mine catalogued infrastructure (RAW; server/
+  // gemCoalMineFeatures.ts) — the underlying GEM asset geometry the Methane
+  // Plumes layer above already matches detections against, shown directly
+  // for the first time (wishlist.md's own named follow-up to the 2026-07-21
+  // route-only PR). Mine-boundary polygons render as fill+outline;
+  // ventilation/degasification/other features render as SYMBOLS keyed to
+  // GEM's own "mine feature category" (symbols-not-dots directive) — icon
+  // shape = category, icon-color = catalogued coal grade (never an output/
+  // production claim). Static reference dataset (GEM releases ~2x/year, a
+  // human re-runs the ingest on delivery), mounts once per toggle-on. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        for (const l of ["coalmine-fill", "coalmine-outline", "coalmine-pt"]) if (map.getLayer(l)) map.removeLayer(l);
+        for (const s of ["coalmine-poly", "coalmine-points"]) if (map.getSource(s)) map.removeSource(s);
+      } catch {}
+    };
+    if (!enabled.coal_mine_features) { clear(); setStatus("coal_mine_features", "off"); return; }
+    if (!mapSettled) { setStatus("coal_mine_features", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("coal_mine_features", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/coal-mine-features", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.features)) throw new Error("no features");
+        if (map.getSource("coalmine-poly") || map.getSource("coalmine-points")) return;
+        const withStyle = (f: any) => ({
+          ...f,
+          tint: coalGradeColor(f.coalGrade),
+          icon: COAL_CATEGORY_ICON[f.category || ""] || "vt-mineinfra",
+        });
+        // GEM's own geometry mix (live-verified): Polygon (mine boundaries)
+        // + a single MultiLineString outlier both go to the poly source (a
+        // fill layer simply ignores non-polygon geometry; the line layer
+        // outlines both) — everything else is a Point.
+        const polys = d.features.filter((f: any) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiLineString");
+        const points = d.features.filter((f: any) => f.geometry?.type === "Point");
+        map.addSource("coalmine-poly", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: polys.map((f: any) => ({
+            type: "Feature", geometry: f.geometry, properties: withStyle(f),
+          })) } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addSource("coalmine-points", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: points.map((f: any) => ({
+            type: "Feature", geometry: f.geometry, properties: withStyle(f),
+          })) } as any,
+          attribution: "Global Energy Monitor (CC BY 4.0)",
+        } as any);
+        map.addLayer({
+          id: "coalmine-fill", type: "fill", source: "coalmine-poly",
+          paint: { "fill-color": ["get", "tint"], "fill-opacity": 0.22 },
+        } as any);
+        map.addLayer({
+          id: "coalmine-outline", type: "line", source: "coalmine-poly",
+          paint: { "line-color": ["get", "tint"], "line-width": 1.3, "line-opacity": 0.8 },
+        } as any);
+        map.addLayer({
+          id: "coalmine-pt", type: "symbol", source: "coalmine-points",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 8, 0.55],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "tint"],
+            "icon-halo-color": "rgba(8,12,20,0.9)", "icon-halo-width": 1.1,
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const catLabel = COAL_CATEGORY_LABEL[p.category] || p.category || "Coal mine feature";
+          setDetail({
+            kind: "coalminefeature",
+            title: p.mineName || catLabel,
+            subtitle: `${catLabel}${p.subcategory ? ` · ${p.subcategory}` : ""}`,
+            stats: [
+              { label: "Category", value: catLabel },
+              { label: "Coal grade", value: p.coalGrade || "not stated" },
+              { label: "Country", value: p.country || "—" },
+              { label: "Owner", value: p.owners || "—" },
+            ],
+            sourceTag: "GEM CC BY 4.0",
+            body: `${p.description || "Catalogued mine feature."}\n\n` +
+                  `Mine: ${p.mineName || "unnamed"}${p.mineId ? ` (GEM Mine ID ${p.mineId})` : ""}\n` +
+                  `Category: ${catLabel}${p.subcategory ? ` — ${p.subcategory}` : ""}\n` +
+                  `${p.parent ? `Parent company: ${p.parent}\n` : ""}` +
+                  `${p.dataSourceDate ? `Catalogued as of: ${p.dataSourceDate}\n` : ""}` +
+                  `\nSource: Global Energy Monitor — Coal Mine Boundaries and Methane Sources (CC BY 4.0). ` +
+                  `Locations/geometry as catalogued; no activity, output, or emissions claims.`,
+            sourceUrl: p.wiki || undefined,
+          });
+        };
+        const d1 = attachLayerInteractions(map, "coalmine-pt", onClick);
+        const d2 = attachLayerInteractions(map, "coalmine-fill", onClick);
+        detach = () => { d1(); d2(); };
+        setStatus("coal_mine_features", "active", d.count,
+          `${polys.length.toLocaleString()} mine boundaries, ${points.length.toLocaleString()} point features — Global Energy Monitor CC BY 4.0${d.release ? `, release ${d.release}` : ""}`);
+      },
+      (failures) => setStatus("coal_mine_features", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.coal_mine_features, mapReady, mapSettled, setStatus]);
 
   // ── Military installations (RAW; STATIC REFERENCE GEOGRAPHY, human-specced
   // 2026-07-17). Officially published installation locations only — ~3,024
@@ -8884,6 +9762,8 @@ export default function DataMapPage() {
     id === "powerplants" ? <Zap size={15} /> :
     id === "plant_operations" ? <Gauge size={15} /> :
     id === "faa_airports" ? <TowerControl size={15} /> :
+    id === "border_waits" ? <Milestone size={15} /> :
+    id === "coal_mine_features" ? <Mountain size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
@@ -8917,7 +9797,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -8992,6 +9872,12 @@ export default function DataMapPage() {
             <span className="vt-layer-status">
               <i style={{ background: st.dot }} /> {unwired ? "reload to enable" : st.text}
             </span>
+            {toggleable(l) && !unwired && l.freshness && (
+              <span className={`vt-layer-freshness vt-layer-freshness-${l.freshness.health}`}
+                    data-testid={`layer-freshness-${l.id}`} title={l.freshness.health_note}>
+                <i /> {freshnessLabel(l.freshness)}
+              </span>
+            )}
             {unwired && <span className="vt-layer-covnote">site updated — reload the page to enable this new layer</span>}
             {!unwired && st.note && <span className="vt-layer-covnote">{st.note}</span>}
           </span>
@@ -9024,12 +9910,13 @@ export default function DataMapPage() {
                 EXAG
               </span>
               <input
-                type="range" min={TERRAIN_EXAG_MIN} max={TERRAIN_EXAG_MAX} step={0.1}
+                type="range" min={TERRAIN_EXAG_MIN} max={maxExag} step={0.1}
                 value={terrainExag}
                 aria-label="Terrain vertical exaggeration — scales terrain and flight-track heights together"
                 data-vt-terrain-exag
                 onChange={(e) => {
-                  const v = Number(e.target.value);
+                  // clamp to the device ceiling (weak GPUs crashed at 3.0)
+                  const v = Math.min(maxExag, Number(e.target.value));
                   setTerrainExag(v);
                   terrainExagRef.current = v; // live value for every reader
                   // rAF-COALESCED APPLY (human 2026-07-20: "when you would
@@ -9047,7 +9934,11 @@ export default function DataMapPage() {
                       try {
                         const t = map?.getTerrain?.();
                         if (map && t) map.setTerrain({ source: (t as any).source, exaggeration: vv } as any);
-                        (window as any).__vtAir?.setAltScale?.(map?.getTerrain?.() ? vv : 1);
+                        // altScale stays 1 (true-altitude datum) — but the
+                        // clamp heights changed with the mesh, so the fleet
+                        // re-datums against the new exaggeration
+                        (window as any).__vtAir?.setAltScale?.(1);
+                        airRebuildRef.current?.();
                       } catch {}
                     });
                   }
@@ -9424,16 +10315,34 @@ export default function DataMapPage() {
           pointer-events:none keeps it from stealing map interaction. */}
       <div ref={airHoverTipRef} className="vt-air-hover-tip" style={{ display: "none" }} />
 
-      {/* Phase 3a imagery capture-date chip (DESIGN.md imagery-honesty
-          rule: display dates where available; unknown states stay loud).
-          Hidden while the space frame owns the viewport — a capture-date
-          for a shrinking-globe map reads as noise; returns at the seam. */}
-      {enabled.imagery && !spaceActive && (
-        <div className="vt-imagery-date-chip" data-testid="imagery-date" role="status"
-             title="Capture date of the Esri World Imagery at the view centre — dates vary within a view and by zoom level">
-          {imageryDate.label}
-        </div>
-      )}
+      {/* COMBINED BOTTOM STATUS BAR (human 2026-07-22): our own scale bar +
+          zoom + the imagery capture date, fused into ONE compact element at
+          the bottom-left — replaces MapLibre's ScaleControl and the old
+          floating date chip. Hidden while the space frame owns the viewport
+          (a ground-scale readout is meaningless on a shrinking globe). */}
+      {!spaceActive && (() => {
+        void unitsTick; // re-render on unit-system change
+        const sc = scaleReading(scaleView.zoom, scaleView.lat, getUnits() === "imperial" ? "imperial" : "metric");
+        return (
+          <div className="vt-map-statusbar" data-testid="imagery-date" role="status"
+               title="Map scale · zoom level · Esri World Imagery capture date at the view centre (varies within a view and by zoom)">
+            <span className="vt-statusbar-scale" aria-label={`scale ${sc.label}`}>
+              <span className="vt-statusbar-bar" style={{ width: `${Math.round(sc.widthPx)}px` }} />
+              {sc.label}
+            </span>
+            <span className="vt-statusbar-sep">·</span>
+            <span className="vt-statusbar-zoom">{zoomLabel(scaleView.zoom)}</span>
+            {enabled.imagery && (
+              <>
+                <span className="vt-statusbar-sep">·</span>
+                <span className={`vt-statusbar-date${imageryDate.known ? "" : " vt-statusbar-date-unknown"}`}>
+                  {imageryDate.label}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
       <button className="vt-map-fs-btn" data-vt-fullscreen
@@ -9518,34 +10427,74 @@ export default function DataMapPage() {
           <span className="vt-nuke-year">{histYear}</span>
         </div>
       )}
-      {/* Style presets (worldview-globe G1) — real-first geographic looks,
-          bottom-center segmented control. No tactical filters. Hidden while
-          the space frame owns the viewport (a style switcher for a
-          shrinking-globe map is meta-noise; returns at the seam). */}
-      {/* also hidden while the inspect follow-camera owns the viewport —
-          a map style switcher under a craft render is meta-noise, and the
-          provenance caption needs the bottom edge clear (design 1e) */}
+      {/* Style presets (worldview-globe G1) — real-first geographic looks.
+          RELOCATED + POPOUT (human 2026-07-21: "natural night terrain
+          minimal need to be moved somewhere else, maybe the left-hand top
+          corner and when you click on it it pops out to the right … when
+          your mouse is not over it it goes away"): a compact chip in the
+          top-left showing the ACTIVE preset; hover/click expands the four
+          pills to the right; mouse-leave (or picking one) collapses.
+          Hidden while the space frame owns the viewport (unchanged). */}
       {!spaceActive && (
-      <div className="vt-preset-switch" role="group" aria-label="Map style preset">
-        {([
-          ["natural", "Natural"],
-          ["night", "Night"],
-          ["terrain", "Terrain"],
-          ["minimal", "Minimal"],
-        ] as const).map(([id, label]) => (
-          <button
-            key={id}
-            className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
-            aria-pressed={mapPreset === id}
-            onClick={() => setMapPreset(id)}
-          >
-            {label}
-          </button>
-        ))}
+      <div
+        className={`vt-preset-switch${presetOpen ? " vt-preset-open" : ""}`}
+        role="group" aria-label="Map style preset"
+        onMouseEnter={() => setPresetOpen(true)}
+        onMouseLeave={() => setPresetOpen(false)}
+      >
+        {/* Collapsed = a 44px ICON button matching the fullscreen/globe/
+            analyst column (human 2026-07-22: "should look the same as
+            those other icons and not be placed behind them"). Hover/click
+            pops the base-style pills out to the RIGHT. "Terrain" preset
+            dropped 2026-07-22 — it only duplicated Natural + the Layers-tab
+            3D-relief toggle; Natural/Night/Minimal are the distinct bases. */}
+        <button className="vt-preset-chip" aria-expanded={presetOpen}
+                aria-haspopup="true" aria-label={`Map style: ${mapPreset}. Change base style`}
+                title="Base map style"
+                onClick={() => setPresetOpen((v) => !v)}>
+          <Mountain size={18} aria-hidden />
+        </button>
+        {presetOpen && (
+          <div className="vt-preset-pills">
+            {([
+              ["natural", "Natural"],
+              ["night", "Night"],
+              ["minimal", "Minimal"],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                className={`vt-preset-pill${mapPreset === id ? " vt-preset-pill-on" : ""}`}
+                aria-pressed={mapPreset === id}
+                onClick={() => { setMapPreset(id); setPresetOpen(false); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       )}
 
       <div ref={mapContainer} className="vt-map-canvas" />
+      {/* GL context died and never came back — honest recovery path
+          instead of a silent blank canvas (2026-07-21) */}
+      {glLost && (
+        <div className="vt-gl-lost" role="alert">
+          <div className="vt-gl-lost-card">
+            <strong>3D rendering lost</strong>
+            <p>The browser's graphics context died twice in a short window (GPU reset or driver failure) — the map already tried one automatic recovery. Reloading rebuilds it; your layers and view are remembered.</p>
+            <button onClick={() => window.location.reload()}>Reload the map</button>
+          </div>
+        </div>
+      )}
+      {/* DEVICE GOVERNOR notice — every fidelity adaptation is announced,
+          never silent (deviceTier honesty contract, 2026-07-21) */}
+      {deviceNotice && (
+        <div className="vt-device-notice" role="status" aria-live="polite">
+          <span>{deviceNotice}</span>
+          <button aria-label="Dismiss" onClick={() => setDeviceNotice(null)}>✕</button>
+        </div>
+      )}
       {/* FLIGHT TRACK 3D (handoff 2026-07-20): in-scene floating tag for the
           selected flight — screen-projected DOM chip, imperatively
           positioned every glide tick (the hover-tip ref pattern; hidden when
@@ -9584,33 +10533,49 @@ export default function DataMapPage() {
           try { spaceHandleRef.current?.flyHome(); } catch {}
         }}
         onUserPan={() => {
-          // the drag convention, exactly: aircraft follow releases; a
-          // guided sat approach cancels; the sat GROUND lock hands the
-          // camera back; the SAT lock + focus survive (O6-1).
-          if (flightFollowRef.current) { flightFollowRef.current = false; setFlightFollow(false); }
+          // UNBREAKABLE FOLLOW (round 16): aircraft follow now SURVIVES
+          // pans — the rig re-locks center to the plane next frame, so a
+          // pan is a no-op instead of a follow-killer. Sat conventions
+          // unchanged: a guided approach cancels; the sat GROUND lock
+          // hands the camera back; the SAT lock + focus survive (O6-1).
           camApproachRef.current = null;
           const f = satFollowRef.current;
           if (f && f.lockMode === "ground") { f.lockMode = null; setSatLockMode(null); }
         }}
         followTarget={() => {
           // per-frame follow target — the SAME position the marker/tag
-          // shows: glided live fix, or the replay sample under the playhead
+          // shows: glided live fix, or the replay sample under the playhead.
+          // elevM = display altitude (MSL × active vertical scale): the rig
+          // centers the camera on the PLANE in 3D, so it sits mid-window at
+          // any pitch/exaggeration (live report 2026-07-21 — the ground-
+          // shadow center pushed the rendered plane to the screen edge).
           if (!flightFollowRef.current) return null;
           const st = trackSamplesRef.current;
           if (!st || st.samples.length === 0) return null;
           const clock = flightClockRef.current;
+          const m0 = mapRef.current;
+          // same display datum as the rendered plane (displayAltReal is
+          // already in display meters — true altitude clamped above the
+          // exaggerated mesh; altScale everywhere is 1)
+          const elevOf = (altM: number | null | undefined, lon: number, lat: number) =>
+            altM == null || Number.isNaN(altM) || !m0
+              ? undefined
+              : Math.max(0, displayAltReal(m0, altM, lon, lat));
           if (clock.live) {
             const lv = airFollowLiveRef.current;
             if (lv && lv.id === airCrumbsRef.current.id) {
               const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-              return { lng: lv.fix.lo + (lv.vel?.dLon ?? 0) * dt, lat: lv.fix.la + (lv.vel?.dLat ?? 0) * dt };
+              const lng = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
+              const lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
+              return { lng, lat, elevM: elevOf(lv.fix.al, lng, lat) };
             }
             const end = st.samples[st.samples.length - 1];
-            return { lng: end.lon, lat: end.lat };
+            return { lng: end.lon, lat: end.lat, elevM: elevOf(end.altM, end.lon, end.lat) };
           }
           const s = trackSampleAt(st.samples, clock.t);
-          return s ? { lng: s.lon, lat: s.lat } : null;
+          return s ? { lng: s.lon, lat: s.lat, elevM: elevOf(s.altM, s.lon, s.lat) } : null;
         }}
+        followActive={flightFollow}
       />
       {/* hint bar — plane view only, where the orbit mouse scheme differs
           from the map's native gestures (base map needs no hint: the mouse
@@ -9649,7 +10614,13 @@ export default function DataMapPage() {
       )}
       {mapError && (
         <div className="vt-map-skeleton">
-          <span style={{ color: "var(--accent-red)" }}>{mapError}</span>
+          <div className="vt-gl-lost-card" role="alert">
+            <strong>{mapError === WEBGL_BLOCKED_MSG ? "3D map unavailable" : "Map error"}</strong>
+            <p>{mapError}</p>
+            {mapError === WEBGL_BLOCKED_MSG && (
+              <button onClick={() => window.location.reload()}>Reload the page</button>
+            )}
+          </div>
         </div>
       )}
 
@@ -9701,8 +10672,7 @@ export default function DataMapPage() {
             {/* Site-wide unit system (human directive 2026-07-13): every
                 measurement in cards/panels renders through lib/units.ts.
                 Open cards keep their units until reopened. */}
-            <div className="vt-preset-switch" role="group" aria-label="Unit system"
-                 style={{ position: "static", transform: "none", margin: "6px 10px 2px", justifyContent: "flex-start", alignItems: "center" }}>
+            <div className="vt-units-toggle" role="group" aria-label="Unit system">
               <span className="vt-streams-launch-sub" style={{ marginRight: 6 }}>Units</span>
               {([["imperial", "mi · °F"], ["metric", "km · °C"]] as const).map(([id, label]) => (
                 <button key={id}
@@ -10169,10 +11139,29 @@ export default function DataMapPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="vt-site-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{detail.title}</span>
-                {detail.kind === "aircraft" && (
-                  // live-feed badge (handoff §2: pulsing dot, never wraps)
-                  <span className="vt-flight-badge"><span className="dot" />ADS-B</span>
-                )}
+                {detail.kind === "aircraft" && (() => {
+                  // DATA-STATE BADGE (human 2026-07-22: "have the adsb on the
+                  // card that blinks show the state of the data"): the dot
+                  // was always a green pulse regardless of freshness. Now it
+                  // reads the last-fix age (freshTick re-evaluates every 10s):
+                  //   live  (<90s)   green pulse — receiving fresh positions
+                  //   stale (<15min) amber, shows the age — feed lagging
+                  //   lost  (≥15min) grey, shows the age — coverage gap /
+                  //                  aircraft stopped transmitting (the same
+                  //                  break the timeline greys out)
+                  void freshTick;
+                  const ageS = detail.trailLastT ? Math.floor(Date.now() / 1000 - detail.trailLastT) : null;
+                  const state = ageS == null ? "wait" : ageS < 90 ? "live" : ageS < 900 ? "stale" : "lost";
+                  const title = state === "live" ? "Live ADS-B — receiving fresh positions"
+                    : state === "stale" ? `ADS-B feed lagging — last fix ${formatAge(detail.trailLastT)}`
+                    : state === "lost" ? `No ADS-B fix recently — last ${formatAge(detail.trailLastT)} (a coverage gap, or the aircraft stopped transmitting)`
+                    : "Waiting for the first ADS-B fix";
+                  return (
+                    <span className={`vt-flight-badge vt-flight-badge-${state}`} title={title}>
+                      <span className="dot" />ADS-B
+                    </span>
+                  );
+                })()}
               </div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
@@ -10280,6 +11269,17 @@ export default function DataMapPage() {
             </div>
           )}
           <p className="vt-site-card-body" style={{ whiteSpace: "pre-line" }}>{detail.body}</p>
+          {detail.imagery && (
+            <div className="vt-site-imagery" data-testid="site-imagery">
+              <img className="vt-site-imagery-img" src={detail.imagery.file}
+                   alt={`Latest Sentinel-2 imagery of ${detail.title}`} loading="lazy" />
+              <p className="vt-site-card-trail">
+                Sentinel-2 imagery · {detail.imagery.date}
+                {detail.imagery.cloud_pct != null ? ` · ${Math.round(detail.imagery.cloud_pct)}% scene cloud cover` : ""}
+              </p>
+              <p className="vt-site-card-trail vt-site-imagery-attr">{detail.imagery.attribution} — RAW display, not a signal.</p>
+            </div>
+          )}
           {detail.sourceUrl && (
             <a className="vt-site-card-link" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
               Source ↗

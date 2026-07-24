@@ -2281,6 +2281,20 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
 }
 .vt-layer-status i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+/* Phase 5 per-layer freshness chip (2026-07-23): honesty machinery for
+   the layer panel — how old is this layer's underlying archived data,
+   right where a user decides whether to trust it. Colors mirror the
+   ADS-B data-state badge (.vt-flight-badge-*) so "live/recent/stale"
+   reads consistently across the site. */
+.vt-layer-freshness {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+}
+.vt-layer-freshness i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; background: currentColor; }
+.vt-layer-freshness-live { color: var(--accent-green); }
+.vt-layer-freshness-recent { color: var(--accent); }
+.vt-layer-freshness-stale { color: #f5a524; }
+.vt-layer-freshness-no-data { color: var(--text-tertiary); }
 
 /* Toggle switch (44px hit area on touch) */
 .vt-switch {
@@ -2600,15 +2614,23 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-map-page .maplibregl-ctrl-attrib {
   background: rgba(5, 10, 19, 0.75); color: var(--text-tertiary);
   font-size: 10px; font-family: var(--font-body); border-radius: 6px 0 0 0;
-  /* Attribution grows as layers stack (weather adds OWM). Cap its spread so
-     it wraps inside the right column and can NEVER slide under the
-     bottom-left zoom controls (v2.4 occlusion rule; caught at 390px). */
   max-width: min(70vw, 560px);
 }
 .vt-map-page .maplibregl-ctrl-attrib a { color: var(--text-tertiary); }
-.vt-map-page .maplibregl-ctrl-scale {
-  background: rgba(5, 10, 19, 0.6); color: var(--text-tertiary);
-  border-color: rgba(102, 128, 160, 0.5); font-size: 9.5px;
+/* ATTRIBUTION COLLAPSED BY DEFAULT (2026-07-22 human directive: "get rid
+   of toggle attributions on the page of the map"). Attribution is a
+   LICENSING surface and must stay reachable — so it collapses to just the
+   ⓘ summary toggle and the credits reveal only when the user opens it.
+   MapLibre v5 renders it as a native <details>/<summary>, so the credits
+   live in .maplibregl-ctrl-attrib-inner and show only when [open]. */
+.vt-map-page .maplibregl-ctrl-attrib:not([open]) .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+.vt-map-page .maplibregl-ctrl-attrib:not([open]) {
+  background: transparent; box-shadow: none;
+}
+.vt-map-page .maplibregl-ctrl-attrib[open] {
+  background: rgba(5, 10, 19, 0.9);
 }
 .vt-popup .maplibregl-popup-content {
   background: rgba(8, 16, 30, 0.97); color: var(--text-primary);
@@ -2629,6 +2651,17 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-site-card-trail {
   font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono);
   margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(77, 159, 255, 0.12);
+}
+
+/* DATACORE MAXIMUS Phase 3b: latest Sentinel-2 facility chip (RAW overlay,
+   no ladder gate — a photo, not a signal) shown in the site detail card. */
+.vt-site-imagery { margin-top: 8px; }
+.vt-site-imagery-img {
+  display: block; width: 100%; max-width: 100%; height: auto;
+  border-radius: 6px; border: 1px solid rgba(77, 159, 255, 0.18);
+}
+.vt-site-imagery .vt-site-card-trail + .vt-site-card-trail.vt-site-imagery-attr {
+  border-top: none; padding-top: 0; margin-top: 2px;
 }
 
 /* v2.3: the in-panel filings feed was removed (a feed doesn't belong in a
@@ -2782,11 +2815,30 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-map-globe-btn:active:not(:disabled) { transform: scale(0.96); }
 .vt-map-globe-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Style presets (worldview-globe G1) — bottom-center segmented control, real-
-   first geographic looks. Edge-framed, premium, same dark control family. */
+/* Style presets (worldview-globe G1) — FOURTH button in the top-left
+   control column (2026-07-22: human "should look the same as those other
+   icons and not be placed behind them" — was overlapping the fullscreen
+   button at the same 12/12 slot). Collapsed = a 44px icon button matching
+   fullscreen/globe/analyst; hover/click pops the base-style pills out to
+   the RIGHT; mouse-leave collapses. */
 .vt-preset-switch {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  z-index: 10; display: inline-flex; gap: 2px; padding: 3px;
+  position: absolute; left: 12px; top: 162px; z-index: 10;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.vt-preset-chip {
+  appearance: none; flex: 0 0 auto;
+  width: 44px; height: 44px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.2); cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: color 0.15s;
+}
+.vt-preset-chip:hover { color: var(--accent-bright); }
+.vt-preset-open .vt-preset-chip { color: var(--accent); border-color: rgba(77, 159, 255, 0.45); }
+/* the pop-out row of base-style pills, to the right of the icon */
+.vt-preset-pills {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
   background: rgba(8, 16, 30, 0.94); border: 1px solid rgba(77, 159, 255, 0.2);
   border-radius: 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -2795,7 +2847,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   appearance: none; border: 0; cursor: pointer;
   padding: 7px 14px; border-radius: 9px; font-size: 0.8rem; font-weight: 500;
   letter-spacing: 0.02em; color: var(--text-secondary); background: transparent;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s; white-space: nowrap;
 }
 .vt-preset-pill:hover { color: var(--accent-bright); }
 .vt-preset-pill-on {
@@ -2803,14 +2855,25 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   box-shadow: 0 2px 8px rgba(77, 159, 255, 0.4);
 }
 @media (max-width: 480px) {
-  .vt-preset-switch { bottom: 74px; padding: 2px; }  /* clear the phone bottom nav */
+  .vt-preset-pills { padding: 2px; }
   .vt-preset-pill { padding: 6px 10px; font-size: 0.72rem; }
+}
+/* Units toggle in the layers panel — reuses the .vt-preset-pill visuals but
+   its own container (decoupled 2026-07-22 when the map preset switch became
+   a top-left icon button): a static boxed inline row, never positioned. */
+.vt-units-toggle {
+  display: inline-flex; align-items: center; gap: 2px;
+  margin: 6px 10px 2px; padding: 3px;
+  background: rgba(8, 16, 30, 0.6); border: 1px solid rgba(77, 159, 255, 0.16);
+  border-radius: 12px;
 }
 
 /* Nuclear-tests time machine bar — sits above the style presets, same dark
    family. The range input is the "Lucy" scrub; thumb sized for touch (S24). */
 .vt-nuke-timebar {
-  position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%);
+  /* bottom 62px → 16px 2026-07-21: the preset switch it used to clear
+     moved to the top-left, so the timebar takes the bottom edge */
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
   z-index: 10; display: inline-flex; align-items: center; gap: 10px;
   padding: 6px 12px; width: min(440px, calc(100vw - 32px));
   background: rgba(8, 16, 30, 0.94); border: 1px solid rgba(253, 224, 71, 0.35);
@@ -2823,7 +2886,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   color: #fde047; min-width: 3.2em; text-align: center;
 }
 @media (max-width: 480px) {
-  .vt-nuke-timebar { bottom: 120px; }  /* clear the phone bottom nav + presets */
+  .vt-nuke-timebar { bottom: 74px; }  /* clear the phone bottom nav (presets moved top-left) */
 }
 
 /* Compass + zoom nav (worldview-globe G0b) — themed into the dark control
@@ -3051,7 +3114,11 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
    phone widths — identical layout family to the analyst panel, just a
    fixed short height (no scrolling message list to size around). */
 .vt-map-timescrub-btn {
-  position: absolute; top: 162px; left: 12px; z-index: 10;
+  /* moved 162 → 212 (2026-07-22): the always-visible preset icon button
+     now owns the 4th slot (162); the conditional time-scrubber tacks on
+     below it so the always-on column stays contiguous and nothing
+     overlaps (was colliding with the preset button). */
+  position: absolute; top: 212px; left: 12px; z-index: 10;
   width: 44px; height: 44px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
   background: rgba(8, 16, 30, 0.94); color: var(--text-secondary);
@@ -3301,18 +3368,32 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
-.vt-imagery-date-chip {
-  /* left: 52px clears the maplibre zoom column (~40px); bottom: 32px
-     clears the attribution line (a LICENSING surface — © Esri must stay
-     readable). Both offsets exist because the first drafts covered the
-     zoom-out button and then the attribution, caught in the 390px
-     screenshot self-review (the Z3 occlusion class). */
-  position: absolute; left: 52px; bottom: 32px; z-index: 9;
-  background: rgba(10, 15, 26, 0.78); color: var(--text-secondary);
-  border: 1px solid rgba(77, 159, 255, 0.14); border-radius: 6px;
-  padding: 3px 8px; font-family: var(--font-mono); font-size: 10.5px;
-  pointer-events: none; max-width: 70vw;
+/* COMBINED BOTTOM STATUS BAR (2026-07-22 human directive: "build our own
+   [scale] … put that and the capture data in one thing at the bottom …
+   less words"): scale bar + distance · zoom · capture date, one element,
+   bottom-left. Replaces the maplibre ScaleControl and the old date chip. */
+.vt-map-statusbar {
+  position: absolute; left: 12px; bottom: 12px; z-index: 9;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(10, 15, 26, 0.82); color: var(--text-secondary);
+  border: 1px solid rgba(77, 159, 255, 0.14); border-radius: 7px;
+  padding: 4px 10px; font-family: var(--font-mono); font-size: 10.5px;
+  pointer-events: none; max-width: calc(100vw - 24px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.vt-statusbar-scale { display: inline-flex; align-items: center; gap: 6px; }
+.vt-statusbar-bar {
+  display: inline-block; height: 3px; min-width: 8px;
+  background: var(--text-secondary); border-radius: 2px;
+  border-left: 1px solid var(--text-secondary); border-right: 1px solid var(--text-secondary);
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.4);
+}
+.vt-statusbar-sep { color: var(--text-tertiary); opacity: 0.6; }
+.vt-statusbar-zoom { color: var(--text-tertiary); }
+.vt-statusbar-date-unknown { color: var(--text-tertiary); font-style: italic; }
+@media (max-width: 480px) {
+  .vt-map-statusbar { font-size: 9.5px; gap: 6px; padding: 3px 8px; }
 }
 
 /* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge — top-center,
@@ -3708,6 +3789,15 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   animation: vt-flight-pulse 1.6s infinite;
 }
 @keyframes vt-flight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* DATA-STATE BADGE variants (2026-07-22): the dot's colour + pulse reflect
+   ADS-B freshness — green live, amber lagging, grey lost (steady, no
+   pulse, because there's nothing arriving to pulse for). */
+.vt-flight-badge-stale { color: #f5a524; border-color: rgba(245, 165, 36, 0.4); }
+.vt-flight-badge-stale .dot { background: #f5a524; animation-duration: 2.6s; }
+.vt-flight-badge-lost { color: #94a3b8; border-color: rgba(148, 163, 184, 0.4); }
+.vt-flight-badge-lost .dot { background: #94a3b8; animation: none; }
+.vt-flight-badge-wait { color: #94a3b8; border-color: rgba(148, 163, 184, 0.3); }
+.vt-flight-badge-wait .dot { background: #94a3b8; animation-duration: 2.6s; }
 .vt-flight-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
   padding: 12px 14px 0; flex: 0 0 auto;
@@ -3800,14 +3890,13 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   display: flex; justify-content: space-between; font-size: 9px;
   color: var(--flight-ink-dim); margin-top: 4px; font-family: var(--font-mono);
 }
-/* the profile owns the bottom edge while open — bottom-center controls lift */
-.vt-map-page.vt-profile-open .vt-preset-switch { bottom: 208px; }
+/* the profile owns the bottom edge while open — bottom-center controls lift
+   (the preset switch moved to the top-left 2026-07-21 and no longer lifts) */
 .vt-map-page.vt-profile-open .vt-nuke-timebar { bottom: 252px; }
 @media (max-width: 767px) {
   .vt-flight-profile { left: 8px; right: 8px; bottom: 8px; }
   .vt-flight-legend { display: none; }
   .vt-flight-chart { height: 84px; }
-  .vt-map-page.vt-profile-open .vt-preset-switch { bottom: 170px; }
 }
 
 /* ── MOVABLE PANELS: grip / lock / mini chrome (layout memory, human
@@ -3836,4 +3925,49 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   /* phones keep the bottom-sheet / FAB patterns — no custom placement,
      no scaling (applyPanelScale no-ops there too) */
   .vt-nav-grip, .vt-lock-btn, [data-vt-scale-up], [data-vt-scale-down] { display: none; }
+}
+
+/* ── GL context-lost recovery banner (2026-07-21 blank-page work): shown
+   only when webglcontextlost fired and no restore arrived within 8s —
+   the canvas is dead until a reload; say so instead of a gray void. ── */
+.vt-gl-lost {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 11, 20, 0.82);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.vt-gl-lost-card {
+  max-width: 380px; padding: 22px 26px; text-align: center;
+  background: rgba(11, 19, 34, 0.97); border: 1px solid rgba(120, 168, 255, 0.25);
+  border-radius: 14px; color: var(--text-primary); font-family: var(--font-body);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.vt-gl-lost-card strong { font-size: 1rem; letter-spacing: 0.02em; }
+.vt-gl-lost-card p { margin: 10px 0 16px; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+.vt-gl-lost-card button {
+  appearance: none; border: 0; cursor: pointer; padding: 9px 22px;
+  border-radius: 9px; font-size: 0.85rem; font-weight: 600;
+  color: #061018; background: var(--accent);
+}
+.vt-gl-lost-card button:hover { filter: brightness(1.1); }
+
+/* ── device-governor notice chip (2026-07-21): every render-fidelity
+   adaptation is announced — honesty contract in lib/deviceTier.ts ── */
+.vt-device-notice {
+  position: absolute; left: 50%; bottom: 88px; transform: translateX(-50%);
+  z-index: 30; display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 560px); padding: 9px 12px 9px 14px;
+  background: rgba(11, 19, 34, 0.94); border: 1px solid rgba(120, 168, 255, 0.28);
+  border-radius: 10px; color: var(--text-secondary);
+  font-family: var(--font-body); font-size: 0.78rem; line-height: 1.4;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.vt-device-notice button {
+  appearance: none; border: 0; cursor: pointer; flex: 0 0 auto;
+  width: 22px; height: 22px; border-radius: 6px; font-size: 0.7rem;
+  color: var(--text-secondary); background: rgba(120, 168, 255, 0.12);
+}
+.vt-device-notice button:hover { background: rgba(120, 168, 255, 0.25); }
+@media (max-width: 720px) {
+  .vt-device-notice { bottom: 132px; }
 }

@@ -192,3 +192,70 @@ what keeps "no added latency" true when the archive is 10x bigger.
   prior 33/83/117ms baseline, within normal run-to-run noise). REMAINING
   QUEUE: (d) React memo boundaries, (e) median lever (human input),
   (f) S2 server aggregation.
+
+## 2026-07-21 — FULL-STACK SPEED AUDIT (human: "the map as a whole with any
+## layer on or all on is very slow load slow the data is slow … fix all over
+## for speed of the ui") — measured backlog, execute top-down
+
+4-agent audit (load path / data path / UI render / production measurement);
+raw timings in the session scratchpad (perf_audit/speed/prod_timings.txt),
+full findings in experiments.md round-12 entry's audit reference. Local
+baseline is healthy (map visible ~760ms, first layer ~1.5s under software
+GL) — the cost is network/payload/server-stall/React-render, not GL.
+
+SPEED WAVE 1 (server, ~1.5d total — biggest measured wins):
+- S-A1 aircraft STALE-WHILE-REVALIDATE (routes.ts ~876): cold-cache poll
+  waits 1-15s on the upstream inline (measured 3.8s TTFB vs 0.21s warm,
+  recurring every 10s TTL). Serve the expired cache immediately (marked
+  cached:true — honesty chrome already shows staleness) + background
+  refresh. THE top "data is slow" item.
+- S-A2 vessels delta DEAD CODE: **SHIPPED 2026-07-22 (v1.0.474, scheduled-
+  routine [REPAIR] session)** — TTL raised 15s→30s (2x the 20s client poll,
+  matching AIRCRAFT_TTL_MS's ratio), the inline rebuild check extracted to
+  a tested pure `shouldRebuildSnapshot()` in liveDelta.ts, and the
+  pre-existing test that had pinned the backwards `TTL < poll` invariant
+  corrected + two new regression tests added (server/liveDelta.test.ts).
+  Full trace in experiments.md. Follow-up still open: zoom-capped payload
+  (S2 alignment) — a separate logical change, not built this session.
+- S-A3 /api/data/layers: slowest median TTFB (569ms), no cache-control,
+  near-static 69KB registry fetched on every open → memoize + max-age=60.
+- S-A4 logging middleware double-stringify (index.ts:88): full-body
+  re-serialize per /api response → cap capture for large bodies.
+- S-A5 static datacore JSONs (powerplants et al) → pre-stringified,
+  pre-gzipped buffers at module init + cache-control on layers/sites/
+  streams/fires (currently none).
+- S-A6 trains since=/unchanged delta (client already speaks it).
+
+SPEED WAVE 2 (client load, ~2d):
+- S-B1 maplibre import hoist to module scope (fetch starts during main-
+  chunk eval instead of after React mount; today fully serialized after
+  400KB gz + parse) + modulepreload injection at build.
+- S-B2 Google Fonts render-blocking CSS → self-host woff2 (removes 2
+  third-party origins from the first-paint path).
+- S-B3 mapSettled fetch burst split: map-visible layers first; the 5
+  panel-count-only feeds (insider/earnings/shortvol/attention/cot) +
+  graph/shadowstats behind requestIdleCallback/panel-open.
+- S-B4 brotli precompress at build (+123KB saved on the two critical
+  chunks) via .br siblings + static middleware.
+- S-B5 tab-level code splitting (home.tsx eager-imports all 9 tabs incl.
+  bot+lightweight-charts; datamap eager-imports 9 overlay views) — the
+  1.36MB index chunk is mostly non-/data code.
+- S-B6 celestialSky chunk gated behind the globe branch (49KB gz wasted
+  on flat map).
+
+SPEED WAVE 3 (UI responsiveness, ~2d):
+- S-C1 ticker colocation (1Hz sim-clock chip + space card + 10s freshness
+  re-render the whole 10.5k-line DataMapPage; ~90 useState/102 useEffect)
+  → leaf components (FpsChip precedent).
+- S-C2 extract memoized <LayersPanel> + colocate its interaction state
+  (123 registry rows re-diffed on every parent tick; LegendPanel
+  precedent).
+- S-C3 backdrop-filter blur off the always-visible panel surfaces (per-
+  frame GPU re-blur over the animating map; keep on transient popovers).
+- S-C4 applyMarkerLod early-out on unchanged quantized camera altitude
+  (runs per move event, 60fps during follows).
+
+Rules: each slice = own PR + tests per promotion ladder; measurement
+changes (S-A4) separate from behavior changes; the harness perf section
+gates regressions. Server slices touch routes.ts (SHARED territory —
+serialize, smallest-last-commit).

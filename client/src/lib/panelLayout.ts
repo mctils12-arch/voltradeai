@@ -26,7 +26,14 @@
 // Pure core (parse/clamp/merge) is unit-tested with `npx tsx --test`;
 // the storage + DOM wrappers are thin and no-throw.
 
-export interface PanelPos { left: number; top: number }
+// PROPORTIONAL RE-PLACEMENT (human 2026-07-22: "if my screen changes it
+// should scale to that size so … its in the same spot but scale to that
+// screen"): a saved position optionally records the container size it was
+// captured at (cw/ch). On restore to a DIFFERENT-sized container the
+// top-left is scaled by the size ratio, so the panel keeps its RELATIVE
+// spot on a bigger monitor instead of hugging the corner. Records without
+// cw/ch (pre-2026-07-22) restore at absolute px — fully backward-compatible.
+export interface PanelPos { left: number; top: number; cw?: number; ch?: number }
 export interface PanelPrefs { pos?: PanelPos; min?: boolean; locked?: boolean; scale?: number }
 export type PanelLayout = Record<string, PanelPrefs>;
 
@@ -67,6 +74,8 @@ export function parseLayout(raw: string | null | undefined): PanelLayout {
       if (pos && typeof pos === "object" &&
           Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
         prefs.pos = { left: pos.left as number, top: pos.top as number };
+        if (Number.isFinite(pos.cw) && (pos.cw as number) > 0) prefs.pos.cw = pos.cw as number;
+        if (Number.isFinite(pos.ch) && (pos.ch as number) > 0) prefs.pos.ch = pos.ch as number;
       }
       if (typeof p.min === "boolean") prefs.min = p.min;
       if (typeof p.locked === "boolean") prefs.locked = p.locked;
@@ -145,7 +154,14 @@ export function applyPanelPos(el: HTMLElement | null, id: string): boolean {
   const prefs = getPanelPrefs(id);
   if (!prefs.pos) return false;
   const box = containerOf(el).getBoundingClientRect();
-  const p = clampPos(prefs.pos, box.width, box.height);
+  // proportional re-placement when the container size changed since save
+  // (bigger monitor → same relative spot); absolute px for legacy records
+  let src = prefs.pos;
+  if (src.cw && src.ch && box.width > 0 && box.height > 0 &&
+      (Math.abs(box.width - src.cw) > 1 || Math.abs(box.height - src.ch) > 1)) {
+    src = { left: src.left * (box.width / src.cw), top: src.top * (box.height / src.ch) };
+  }
+  const p = clampPos(src, box.width, box.height);
   freezeWidth(el);
   el.style.left = `${p.left}px`;
   el.style.top = `${p.top}px`;
@@ -225,7 +241,9 @@ export function panelDragProps(
     if (drag?.moved && el) {
       const box = containerOf(el).getBoundingClientRect();
       const r = el.getBoundingClientRect();
-      savePanelPrefs(id, { pos: { left: r.left - box.left, top: r.top - box.top } });
+      // record the container size at capture so a later restore on a
+      // different-sized screen re-places proportionally (round 16→17 UI)
+      savePanelPrefs(id, { pos: { left: r.left - box.left, top: r.top - box.top, cw: box.width, ch: box.height } });
       opts?.onMoved?.();
     }
     drag = null;

@@ -232,6 +232,16 @@
    "description": "Ground stops, ground-delay programs, arrival/departure delays, and closures as currently published by the FAA — a rolling SNAPSHOT, not an event log (no published end-to-end durations; this session's own capture time is the only lower bound on how long an event has been active). Position comes from a curated client-side table of major US commercial + cargo-hub airports (client/src/lib/faaAirports.ts) since the feed itself reports only a 3-letter ARPT code, no coordinates — an event at an airport outside that table is honestly omitted from the map, never guessed, and the count is disclosed in the layer's status line. Marker color is the event TYPE the feed itself reports (ground stop / closure / ground-delay program / arrival-departure delay), never a graded severity inferred from the free-text avg/max delay strings. RAW, no predictive claim; not for safety-of-life use."
   },
   {
+   "id": "border_waits",
+   "name": "CBP land-border wait times",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "CBP Border Wait Times (bwt.cbp.gov, public domain, keyless)",
+   "description": "Hourly commercial and passenger vehicle wait times at all 84 US land ports of entry the CBP feed currently reports (Canadian + Mexican borders), flattened per lane class (commercial standard / commercial FAST / passenger standard). Position comes from a curated client-side coordinate table (client/src/lib/cbpBorderCrossings.ts) verified per-crossing against independent public sources — a port_number outside that table is honestly omitted, never guessed. Marker color is the worst (max) currently published delay across a port's lanes — a RAW numeric field the feed itself reports, never a derived signal; a lane with no published reading shows as no-data, never coerced to zero. RAW, no predictive claim; fills the ROAD leg of the freight-proxy set (sea=AIS, rail=STB, air=ADS-B)."
+  },
+  {
    "id": "nukefacilities",
    "name": "Nuclear facilities (fuel cycle)",
    "kind": "raw",
@@ -1314,6 +1324,16 @@
    "costTier": "moderate",
    "source": "Global Energy Monitor \u2014 Methane Emitters Tracker (GMET), CarbonMapper/GHGSat-class satellite detections, CC BY 4.0",
    "description": "3,473 dated satellite methane-plume detections, each shown with the nearest catalogued GEM oil/gas-extraction or coal-mine asset within 2km (server/gemMethaneProximity.ts) \u2014 a geometric proximity fact, not a claimed emissions attribution. As-is display, no predictive claim: the plume\u00d7extraction-registry proximity hypothesis (research/open_questions.md) is gate-2(a) only \u2014 repeat-detection rate, a same-universe base rate, and matching against operators' own disclosed emissions are still unbuilt. Detections with nothing catalogued within 2km render as unmatched, honestly, rather than guessed."
+  },
+  {
+   "id": "coal_mine_features",
+   "name": "Coal mine boundaries & infrastructure (GEM)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "light",
+   "source": "Global Energy Monitor \u2014 Coal Mine Boundaries and Methane Sources, CC BY 4.0 (server/gemCoalMineFeatures.ts)",
+   "description": "2,116 catalogued mine features: 333 mine-boundary polygons plus 1,783 point features \u2014 ventilation shafts, degasification/drainage wells, and other mapped mine infrastructure (preparation plants, coal storage, combined heat and power). This is the underlying GEM asset geometry the Methane Plumes layer above already matches detections against, shown directly for the first time. Symbol = feature category (boundary / ventilation / degasification / other); colour = catalogued coal grade (metallurgical / thermal / thermal & met / unstated) \u2014 never a production or output claim. Locations and boundaries as catalogued by GEM; no activity, output, or emissions claims. Off by default (same GEM-family precedent as Methane Plumes)."
   },
   {
    "id": "rivergauges",

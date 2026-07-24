@@ -99,3 +99,16 @@ test('scale: parse validates, merge round-trips, clamp bounds the range', () => 
   assert.deepEqual(l['site-card'], { pos: { left: 5, top: 6 }, locked: true },
     'back-to-1 forgets the field (record stays minimal)');
 });
+
+test('parseLayout: container dims (cw/ch) survive round-trip; absent stays absent (backward compat)', () => {
+  const withDims = parseLayout(JSON.stringify({
+    p: { pos: { left: 100, top: 50, cw: 1440, ch: 800 } },
+  }));
+  assert.deepEqual(withDims.p, { pos: { left: 100, top: 50, cw: 1440, ch: 800 } });
+  // legacy record (no cw/ch) parses without them
+  const legacy = parseLayout(JSON.stringify({ p: { pos: { left: 100, top: 50 } } }));
+  assert.deepEqual(legacy.p, { pos: { left: 100, top: 50 } });
+  // garbage cw/ch dropped, position kept
+  const bad = parseLayout(JSON.stringify({ p: { pos: { left: 100, top: 50, cw: -5, ch: "x" } } }));
+  assert.deepEqual(bad.p, { pos: { left: 100, top: 50 } });
+});

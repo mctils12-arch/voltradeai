@@ -96,11 +96,13 @@ const FIXTURES = {
       // Every toggleable registry layer must appear in this fixture;
       // the wiring ratchet (layersWiring.test.ts) pins the source side.
       { id: "powergrid", name: "Power grid (TX pilot)", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "OpenStreetMap power features (© OpenStreetMap contributors, ODbL)", description: "TX pilot vector tiles." },
-      { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed." },
+      // freshness (Phase 5, three of the five fixture health states so the
+      // visual harness actually exercises the chip's color/label variants):
+      { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed.", freshness: { stream: "filings", health: "live", age_hours: 0.4, health_note: "newest file 0.4h old" } },
       { id: "earnings", name: "Earnings language (8-K)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "As-filed 8-K Item 2.02 results/guidance releases." },
-      { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest." },
+      { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest.", freshness: { stream: "finrashortvol", health: "stale", age_hours: 411.2, health_note: "newest file 411.2h old — exceeds cadence-derived threshold" } },
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
-      { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal." },
+      { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
@@ -804,11 +806,14 @@ async function main() {
         try {
           const chip = await page.waitForSelector('[data-testid="imagery-date"]', { timeout: 5000 }).catch(() => null);
           if (!chip) {
-            checks.failures.push("imagery-date: chip absent with imagery base on (data-testid=imagery-date) — DESIGN.md imagery-honesty rule");
+            checks.failures.push("imagery-date: combined status bar absent with imagery base on (data-testid=imagery-date) — DESIGN.md imagery-honesty rule");
           } else {
+            // combined bottom status bar (2026-07-22): "<scale> · z<zoom> ·
+            // <ISO date | date n/a | …>" — must carry a scale unit, a zoom,
+            // and a designed capture-date state (never a fabricated date).
             const txt = (await chip.textContent()) || "";
-            if (!/imagery at centre|capture date/.test(txt)) {
-              checks.failures.push(`imagery-date: chip text not a designed state: '${txt.slice(0, 60)}'`);
+            if (!/\b(mi|km|ft|m)\b/.test(txt) || !/z\d/.test(txt) || !/\d{4}-\d{2}-\d{2}|date n\/a|…/.test(txt)) {
+              checks.failures.push(`imagery-date: status bar not a designed state (scale·zoom·date): '${txt.slice(0, 60)}'`);
             }
           }
         } catch (e) {
@@ -1318,18 +1323,19 @@ async function main() {
         if (buried.length) {
           checks.failures.push(`drape-order: custom layer(s) buried under draped layers with terrain on: ${buried.join(", ")} — RTT stack split regresses the 2026-07-20 terrain-lag fix (lib/drapeOrder.ts)`);
         }
-        // ── ONE-DATUM RATCHET (live report 2026-07-21 "the curtain stay
-        // above the plane"): with terrain ON, the aircraft silhouettes'
-        // altitude scale MUST equal the terrain exaggeration — the curtain
-        // and marker follow the same value, so a mismatch here is exactly
-        // the floating-curtain bug. Uses the __vtAir harness seam.
+        // ── TRUE-ALTITUDE DATUM RATCHET (human 2026-07-21 round 16: "the
+        // plane shoots way up visually in the sky i dont want that"): the
+        // aircraft altScale is pinned to 1 in EVERY mesh state — the
+        // exaggeration lifts the terrain only; the displayAlt hook clamps
+        // planes/curtain above the exaggerated mesh instead. Any non-1
+        // altScale with terrain on is the planes-launched-into-the-sky bug.
         const datum = await page.evaluate(() => ({
           exag: window.__vtMap?.getTerrain?.()?.exaggeration ?? null,
           altScale: window.__vtAir?.getAltScale?.() ?? null,
         }));
         checks.info.terrainDatum = `exag=${datum.exag} altScale=${datum.altScale}`;
-        if (datum.exag != null && datum.altScale != null && Math.abs(datum.exag - datum.altScale) > 1e-6) {
-          checks.failures.push(`one-datum: aircraft altScale ${datum.altScale} != terrain exaggeration ${datum.exag} — planes and curtain render at different heights (2026-07-21 regression)`);
+        if (datum.altScale != null && Math.abs(datum.altScale - 1) > 1e-6) {
+          checks.failures.push(`true-altitude datum: aircraft altScale ${datum.altScale} must stay 1 with terrain on (exaggeration ${datum.exag} lifts terrain, never aircraft — 2026-07-21 round-16 contract)`);
         }
         // flip back off to restore default state for the remaining checks/
         // screenshots — VERIFIED per switch: a missed terrain off-click left

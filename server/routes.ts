@@ -12,6 +12,7 @@ import cookieParser from "cookie-parser";
 // never reaches the image, which made runtime fs reads return {} in prod.
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
+import datacoreSiteChips from "../datacore/sentinel2/site_latest_index.json";
 import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
@@ -33,13 +34,14 @@ import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL }
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
-import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
+import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
+import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -97,13 +99,14 @@ import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
-import { raceDeadline, slotExpired, makeSlot, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
+import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
+import { attachLayerFreshness } from "./layerFreshness";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
@@ -111,6 +114,7 @@ import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
+import { mergeSiteImagery } from "./siteImagery";
 
 const execAsync = promisify(exec);
 
@@ -767,13 +771,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           })()
         : l
     );
+    // Per-layer freshness (Phase 5, wishlist.md): joins the already-computed
+    // streams-inventory health (zero incremental IO — same cache the
+    // Streams tab reads) onto every layer this session can honestly map to
+    // one archived stream (server/layerFreshness.ts's hand-verified
+    // LAYER_TO_STREAM). Absent entirely — never a fabricated `freshness` —
+    // for layers backed by static reference data, derived joins, or ones
+    // not yet mapped.
+    const freshLayers = attachLayerFreshness(layers, getStreamsInventoryCached()?.streams || []);
     // server_version lets the client detect an OPEN-TAB VERSION SKEW: a
     // long-lived tab that remounts the /data page re-fetches this registry
     // (new layer rows) while still running an old bundle (no effects for
     // them) — pill flips, label stays "off", nothing renders (the
     // 2026-07-04 production desync). The client compares against its
     // baked-in version and tells the user to reload.
-    res.json({ layers, server_version: pkgVersion });
+    res.json({ layers: freshLayers, server_version: pkgVersion });
   });
 
   // Live aircraft overlay (RAW) — community ADS-B chain, THREE deep
@@ -809,6 +821,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const aircraftCache: Map<string, { at: number; data: any }> = new Map();
   const aircraftInflight: Map<string, InflightSlot<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
+  // [SPEED WAVE 1 S-A1] fresh-serve window before a background refresh is
+  // triggered; staleWarn is the outer bound past which the client is told
+  // the payload may be outdated (a full missed refresh cycle, not routine
+  // handoff) — see swrDecision's doc comment in routeGuards.ts.
+  const AIRCRAFT_TTL_MS = 30_000;
+  const AIRCRAFT_STALE_WARN_MS = 60_000;
 
   const backoffActive = (p: string) => (feedBackoff[p]?.until || 0) > Date.now();
   const backoffBump = (p: string) => {
@@ -854,6 +872,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return { source: sources.join(" + "), kind: "raw", time, ...tilingEnvelope(plan, discsOk, !tiled), count: aircraft.length, aircraft };
   }
 
+  // Shared in-flight-deduped fetch: the route's cold path awaits this via
+  // raceDeadline; the SWR warm path fires it without awaiting (background
+  // refresh) — one slot per bbox key either way, so concurrent visitors
+  // and a background refresh can never double-hit the upstreams.
+  function getOrStartAircraftFetch(key: string, lamin: number, lamax: number, lomin: number, lomax: number, tiled: boolean): Promise<any> {
+    let slot = aircraftInflight.get(key);
+    if (slotExpired(slot, Date.now())) {
+      slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax, tiled), Date.now(), (self) => {
+        if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
+      });
+      aircraftInflight.set(key, slot);
+    }
+    return slot!.p;
+  }
+
+  function setAircraftCache(key: string, data: any) {
+    aircraftCache.set(key, { at: Date.now(), data });
+    if (aircraftCache.size > 20) {
+      const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) aircraftCache.delete(oldest[0]);
+    }
+  }
+
+  // [SPEED WAVE 1 S-A1] Fire-and-forget refresh for an expired-but-present
+  // cache entry — the route already responded from cache by the time this
+  // settles; failures are swallowed (the next poll's swrDecision will just
+  // try again, same as any other missed refresh cycle).
+  function refreshAircraftInBackground(key: string, lamin: number, lamax: number, lomin: number, lomax: number, tiled: boolean) {
+    getOrStartAircraftFetch(key, lamin, lamax, lomin, lomax, tiled)
+      .then((data) => setAircraftCache(key, data))
+      .catch(() => {});
+  }
+
   app.get("/api/data/aircraft", async (req, res) => {
     complianceAuditTick();
     // SCALE S1(b): short shared cache — tabs/users on the same (rounded)
@@ -874,7 +925,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .every((v) => v !== undefined && Number.isFinite(parseFloat(String(v))));
     const key = `${lamin},${lamax},${lomin},${lomax}|${tiled ? "t" : "1"}`;
     const hit = aircraftCache.get(key);
-    if (hit && Date.now() - hit.at < 30_000) {
+    if (hit) {
+      // [SPEED WAVE 1 S-A1] Any existing snapshot — even past its TTL —
+      // answers immediately; never block the response on the upstream
+      // fetch (measured cold-cache TTFB 3.8s vs 0.21s warm). A due-for-
+      // refresh entry kicks a fire-and-forget background fetch so the
+      // NEXT poll finds fresh data waiting; only a fully missed refresh
+      // cycle (staleWarn) tells the client the payload may be outdated.
+      // fresh=1 (round 17→18, followed-craft freshness): a client actively
+      // tracking one aircraft tightens the refresh window to 4s for its
+      // stream — upstream hits stay bounded (one background fetch per
+      // cache key per window; the rate limiter guards the ceiling, and
+      // adsb.lol's own cadence caps how fresh real fixes can be anyway).
+      const ttlMs = String(req.query.fresh || "") === "1" ? Math.min(4_000, AIRCRAFT_TTL_MS) : AIRCRAFT_TTL_MS;
+      const { refresh, stale } = swrDecision(Date.now() - hit.at, ttlMs, AIRCRAFT_STALE_WARN_MS);
+      if (refresh) refreshAircraftInBackground(key, lamin, lamax, lomin, lomax, tiled);
       // Delta support: if the client already holds this snapshot, don't
       // re-send the payload.
       if (String(req.query.since || "") === String(hit.data.time)) {
@@ -883,36 +948,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // SCALE S1(a): optional ?bbox= viewport filter (scale_program.md).
       // Absent/invalid bbox = payload unchanged; helper lives in viewport.ts
       // so this handler body (and the raceDeadline guard window) is untouched.
-      return res.json(applyViewport(({ ...hit.data, cached: true }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
+      return res.json(applyViewport(
+        { ...hit.data, cached: true, ...(stale ? { stale: true, stale_at: hit.at } : {}) },
+        req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat],
+      ));
     }
     try {
-      // In-flight dedup: concurrent visitors on the same bbox share ONE
-      // upstream request (rate-limit protection is server-wide, not per-tab).
-      // Same stuck-slot defense as trains ([REPAIR 2026-07-05]): a slot
-      // older than the expiry is abandoned, no request waits past the route
-      // deadline (falls to stale-beats-spinner below), and a late-settling
-      // orphan can't clobber its replacement.
-      let slot = aircraftInflight.get(key);
-      if (slotExpired(slot, Date.now())) {
-        slot = makeSlot(() => fetchAircraft(lamin, lamax, lomin, lomax, tiled), Date.now(), (self) => {
-          if (aircraftInflight.get(key) === self) aircraftInflight.delete(key);
-        });
-        aircraftInflight.set(key, slot);
-      }
-      const data = await raceDeadline(slot!.p, ROUTE_DEADLINE_MS, "aircraft");
-      aircraftCache.set(key, { at: Date.now(), data });
-      if (aircraftCache.size > 20) {
-        const oldest = Array.from(aircraftCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
-        if (oldest) aircraftCache.delete(oldest[0]);
-      }
+      // No cache entry at all for this bbox key (first hit, or long since
+      // evicted) — this is the only path that still blocks on the
+      // upstream. In-flight dedup: concurrent visitors on the same bbox
+      // share ONE upstream request (rate-limit protection is server-wide,
+      // not per-tab). Same stuck-slot defense as trains ([REPAIR
+      // 2026-07-05]): a slot older than the expiry is abandoned, no
+      // request waits past the route deadline (falls to the 502 below),
+      // and a late-settling orphan can't clobber its replacement.
+      const data = await raceDeadline(getOrStartAircraftFetch(key, lamin, lamax, lomin, lomax, tiled), ROUTE_DEADLINE_MS, "aircraft");
+      setAircraftCache(key, data);
       if (String(req.query.since || "") === String(data.time)) {
         return res.json({ unchanged: true, time: data.time, count: data.count });
       }
       res.json(applyViewport(data, req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
     } catch (e: any) {
-      // Stale-beats-spinner (DESIGN.md performance budget): serve the last
-      // snapshot with its timestamp rather than an empty error.
-      if (hit) return res.json(applyViewport(({ ...hit.data, cached: true, stale: true, stale_at: hit.at }), req.query.bbox, "aircraft", (a: any) => [a.lon, a.lat]));
+      // No cache existed to fall back on (the SWR branch above already
+      // handles every case where one does) — an honest outage response.
       res.set("Cache-Control", "no-store"); // never let an edge cache an outage
       res.status(502).json({ error: `aircraft feed unavailable: ${e?.message || e}`, aircraft: [] });
     }
@@ -1032,7 +1090,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const key = `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}`;
     const now = Date.now();
     let hit = vesselSnapCache.get(key);
-    if (!hit || now - hit.at >= VESSEL_SNAPSHOT_TTL_MS) {
+    if (!hit || shouldRebuildSnapshot(hit, now, VESSEL_SNAPSHOT_TTL_MS)) {
       hit = { at: now, data: buildVesselSnapshot(vesselPositions, vesselStatics, bbox, now) };
       vesselSnapCache.set(key, hit);
       if (vesselSnapCache.size > 20) {
@@ -1285,9 +1343,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Strategic sites (RAW) — static reference data from datacore/sites.
+  // Each site gets an `imagery` field (RAW, no ladder gate — a photo, not a
+  // signal) when scripts/cdse_site_chips.py has pulled a latest cloud-free
+  // Sentinel-2 chip for it (DATACORE MAXIMUS Phase 3b); sites never pulled
+  // yet simply omit the field, never a fabricated placeholder.
   app.get("/api/data/sites", (_req, res) => {
     const d = datacoreSites as any;
-    res.json({ kind: "raw", categories: d.categories || {}, sites: d.sites || [] });
+    const sites = mergeSiteImagery(d.sites || [], datacoreSiteChips as any);
+    res.json({ kind: "raw", categories: d.categories || {}, sites });
   });
 
   // US power plants (RAW) — static reference data compiled from the WRI
@@ -2594,6 +2657,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         + "(gate 2(c)/(d), research/open_questions.md).",
       count: hit.assetStats.length,
       assetStats: hit.assetStats,
+    });
+  });
+
+  // GEM "Coal Mine Boundaries and Methane Sources" catalogued geometry —
+  // mine boundary polygons, ventilation/degasification points, and other
+  // mapped mine infrastructure, RAW/FACTUAL (server/gemCoalMineFeatures.ts).
+  // STATIC reference dataset (same seeded pattern as methane-plumes above):
+  // re-ingested on GEM's ~2x/year release cadence via scripts/gem_ingest.py,
+  // not a live poll. Closes the wishlist-named "last unclaimed shipped-
+  // data-no-map-layer gap" (2026-07-21) at the API-boundary layer — the
+  // client map layer itself is a separate follow-up (same earthquakes/
+  // buoys/GMET-plumes precedent).
+  app.get("/api/data/coal-mine-features", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const hit = cachedGemCoalMineFeatures();
+    if (!hit) {
+      return res.json({ kind: "raw", predictive: false,
+                         source: "Global Energy Monitor — Coal Mine Boundaries and Methane Sources",
+                         warming_up: true, count: 0, features: [] });
+    }
+    res.json({
+      kind: "raw",
+      predictive: false,
+      source: "Global Energy Monitor — Coal Mine Boundaries and Methane Sources",
+      attribution: "Global Energy Monitor",
+      license: "CC BY 4.0",
+      release: hit.buildVersion,
+      note: "Mine boundary polygons, ventilation/degasification points, and other catalogued mine "
+        + "infrastructure as researched and mapped by GEM. Locations/geometry as catalogued; no "
+        + "activity, output, or emissions claims.",
+      count: hit.features.length,
+      features: hit.features,
     });
   });
 

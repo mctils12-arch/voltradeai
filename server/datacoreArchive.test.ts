@@ -13,7 +13,7 @@ import {
   compressOldHoursAsync, rollupOldDaysAsync,
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
-  nearAnySite, RAW_RETENTION_DAYS,
+  nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -202,5 +202,56 @@ test("archiveStats discovers new stream directories from disk (no hardcoded kind
   assert.equal(s.kinds.fredmacro.files, 1, "disk-discovered kind must be reported");
   assert.ok(s.kinds.somefuturestream, "never-before-seen dirs appear without a code change");
   assert.equal(s.kinds.aircraft.files, 0, "position kinds stay loud even before first write");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("cruise cadence is 75s (2026-07-21 3D-trail densification — 5min fixes drew 68-140km curtain slabs)", () => {
+  const cruise = { icao24: "c1", lat: 45, lon: -40, altitude_m: 11000, on_ground: false } as any;
+  assert.equal(aircraftIntervalMs(cruise, []), 75_000);
+  // ordering invariants unchanged: sites and low-altitude still sample faster
+  assert.ok(30_000 < 75_000 && 60_000 < 75_000);
+});
+
+// REPAIR (found 2026-07-22 while building an unrelated /data feature, doing
+// a local `node dist/index.cjs` smoke test): a truncated/corrupted .gz
+// archive file crashed the ENTIRE PROCESS on every boot, even though
+// streamJsonlLines already listened for "error" on both the raw file stream
+// AND the gunzip stream. Root cause: readline.Interface ALSO independently
+// re-emits its input stream's "error" on ITSELF (a separate EventEmitter
+// emission, per Node's own readline internals) — with no listener on `rl`,
+// that unhandled emission crashes the process regardless of the other two
+// listeners. Minimal repro (outside this test, confirmed both on this branch
+// and on a clean stash of main before this fix): gzipSync a string, truncate
+// the last 4 bytes, pipe through zlib.createGunzip() into
+// readline.createInterface — Node throws "Unexpected end of file" (Z_BUF_ERROR)
+// and exits the process. The same missing-rl-error-listener pattern was
+// copy-pasted into 7 other files (aircraftEntities/fleetUtilization/
+// gridStress/platformStats/queryEngine/shadowFleet x2/siteTimeline) — each
+// gained the identical `rl.on("error", ...)` guard, same PR; datacoreArchive
+// gets the fullest test here since streamJsonlLines is the one of the eight
+// with a directly exported, standalone unit.
+test("streamJsonlLines resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
+  const base = tmp();
+  const good = zlib.gzipSync(Buffer.from('{"a":1}\n{"a":2}\n{"a":3}\n'));
+  const truncated = good.subarray(0, good.length - 4); // chop the gzip trailer -> Z_BUF_ERROR
+  const fp = path.join(base, "truncated.jsonl.gz");
+  fs.writeFileSync(fp, truncated);
+  const lines: string[] = [];
+  // If the missing rl.on("error", ...) guard regresses, this either hangs
+  // (never resolves) or throws an unhandled 'error' event that kills the
+  // whole node:test process — either way the test run itself fails loudly,
+  // it does not silently pass.
+  await streamJsonlLines(fp, true, (line) => lines.push(line));
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("streamJsonlLines still yields every line of a genuinely valid gzip file (the fix adds no false-negative)", async () => {
+  const base = tmp();
+  const good = zlib.gzipSync(Buffer.from('{"a":1}\n{"a":2}\n{"a":3}\n'));
+  const fp = path.join(base, "valid.jsonl.gz");
+  fs.writeFileSync(fp, good);
+  const lines: string[] = [];
+  await streamJsonlLines(fp, true, (line) => lines.push(line));
+  assert.deepEqual(lines, ['{"a":1}', '{"a":2}', '{"a":3}']);
   fs.rmSync(base, { recursive: true, force: true });
 });

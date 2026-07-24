@@ -87,7 +87,13 @@ export function aircraftIntervalMs(p: AircraftPoint, sites: SitePoint[]): number
   if (p.on_ground) return 5 * 60_000;                       // ground: 5 min
   if (nearAnySite(p.lat, p.lon, sites)) return 30_000;      // near strategic sites: 30s
   if (p.altitude_m != null && p.altitude_m < 3000) return 60_000;   // low altitude: 1 min
-  return 5 * 60_000;                                        // oceanic/cruise: 5 min
+  // oceanic/cruise 5min → 75s (2026-07-21, the twice-filed 3D-trail fix):
+  // 5-min fixes at cruise ≈ 68-140km straight slabs in the curtain —
+  // geometrically honest but visually broken at grazing angles (live
+  // report). 75s ≈ 17-23km segments. Volume: ≤4× cruise rows, ≈ a few
+  // MB/day gz per the filed build-first analysis; measurement-neutral
+  // (raw fixes archived either way, only cadence changes).
+  return 75_000;
 }
 
 /** Sampling interval (ms) for a vessel point under adaptive thinning. */
@@ -487,6 +493,16 @@ export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: strin
     const bail = () => { try { rl.close(); } catch {} resolve(); };
     src.on("error", bail);
     if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
+    // readline.Interface re-emits its input stream's 'error' on ITSELF too
+    // (a separate EventEmitter emission from the input.on("error", ...)
+    // above) — with no listener here, a corrupt/truncated .gz crashes the
+    // WHOLE PROCESS (verified: this exact file's src/input guards do NOT
+    // prevent it). Found 2026-07-22 while building an unrelated feature;
+    // the same missing-rl-error-listener pattern was copy-pasted into 7
+    // other files (aircraftEntities/fleetUtilization/gridStress/
+    // platformStats/queryEngine/shadowFleet(x2)/siteTimeline) — fixed there
+    // too, same PR.
+    rl.on("error", bail);
     rl.on("line", (line) => { if (line) onLine(line); });
     rl.on("close", () => resolve());
   });

@@ -1706,6 +1706,234 @@
     `csp_layer2_prefetch` correlation (still open, unchanged from the
     prior update).
 
+    UPDATE 2026-07-21 (scheduled-routine session), v1.0.465 — ZOMBIE-PILEUP
+    THEORY REFUTED WITH FRESH LIVE EVIDENCE (four independent occurrences,
+    not one); `csp_layer2_prefetch` CORRELATION GAP NOW CLOSED BY
+    INSTRUMENTATION, no live stakeout required going forward. Storm still
+    ACTIVE at session start: `/api/diag/audit?type=TIER2-ERROR` showed 4
+    fresh occurrences in the prior ~2h15m (13:36:55Z, 13:42:55Z, 13:49:12Z,
+    15:48:27Z), every single one now carrying the v1.0.454 dispatch-detail
+    the prior session shipped: `active_dispatches=2 [run_full_scan:300s,
+    health:0s]`. This is exactly the "short-lived or absent second entry"
+    case the prior UPDATE named as the refutation — the second dispatch is
+    the `health` probe call ITSELF (0s old, since it's the one bot.ts just
+    issued to build this very audit line), not a second lingering
+    `run_full_scan`. Four-for-four, not one sample (REASONING STANDARD #4:
+    this is now a real refutation, not a thin-sample guess) — the
+    zombie-thread-pileup mechanism named in this item since 2026-07-20 does
+    NOT explain these four occurrences. Per the prior UPDATE's own stated
+    branch, the search returns to the still-open `csp_layer2_prefetch`
+    correlation.
+    WHY THAT CORRELATION HAS STAYED UNCAUGHT FOR TWO SESSIONS: both prior
+    attempts (v1.0.418 session, v1.0.454 session) tried to catch it by
+    polling `/api/diag/timings` live — but that endpoint only reflects
+    `tier_timings` from the LAST `scan_market()` call that actually
+    RETURNED to bot.ts. A scan that is currently hung past its own 300s RPC
+    timeout has, by definition, not returned — its `tier_timings` (if any
+    were computed before the hang) are invisible to that endpoint,
+    structurally, no matter how tightly the polling window is timed. This
+    session did not attempt another live stakeout (REASONING STANDARD #4:
+    repeating an approach already refuted-by-absence twice without
+    changing it would just produce a third miss) — it fixed the structural
+    gap instead.
+    FIX (v1.0.465, pure visibility, zero behavior change — same class as
+    every prior instrumentation pass on this item): `voltrade_daemon.py`
+    gained `_layer2_prefetch_snapshot()`, called from `_health()` (now
+    returns a new `layer2_prefetch` field). It reads
+    `csp_universe.get_last_layer2_prefetch_stats()` (v1.0.418) directly off
+    `sys.modules` — never triggering an import itself, only reading it if
+    some scan already populated it in this process — plus a computed
+    `age_sec` (seconds since that stats dict's own `checked_at`). The key
+    property this exploits: `_health()` runs as its OWN RPC dispatch, on a
+    separate thread from a hung `run_full_scan` — so calling it (which
+    bot.ts's daemon-timeout catch branch already does, immediately, to get
+    `active_dispatch_detail`) reads csp_universe's module-level dict LIVE,
+    mid-hang, from whatever the CURRENTLY-STUCK scan's own Layer 2 phase
+    last recorded — not a stale value from the last scan that happened to
+    finish. A low `age_sec` at the moment of a TIER2-ERROR means the stuck
+    scan's own Layer 2 prefetch just ran (implicating it or its immediate
+    aftermath); a high `age_sec` means Layer 2 isn't where this particular
+    hang is happening (search moves elsewhere in the pipeline instead).
+    `server/bot.ts`'s daemon-timeout audit line now formats this as
+    `layer2_prefetch={cache_hit=... completed=X/Y elapsed=...s
+    budget_exceeded=... age=...s}` right alongside the existing
+    `active_dispatch_detail` — the NEXT occurrence's audit-log entry alone
+    (no live poll) will show both signals this item has been chasing since
+    2026-07-19 in one place.
+    DELIBERATELY NOT DONE: no threshold/behavior change to
+    `PREFETCH_BUDGET_S`, `deep_score_limit`, `REQUEST_TIMEOUT_SEC`, or the
+    throttle rate — per this item's own 11-day discipline (two blind
+    threshold guesses, tmpCleanup and SQLite-WAL, were both refuted before
+    shadowFleet's direct-measurement fix actually worked), no fix ships
+    until a live occurrence's `layer2_prefetch` reading actually implicates
+    or clears Layer 2.
+    RATCHET: `test_daemon_active_dispatches.py` gained
+    `TestLayer2PrefetchSnapshot` (6 tests: empty when csp_universe never
+    loaded, empty when `_layer2_score` never ran, stats + computed
+    `age_sec` when populated, a genuine exception from csp_universe
+    PROPAGATES rather than being swallowed — `test_silent_except_ratchet.py`
+    forbids adding a new bare `except Exception`, so `_layer2_prefetch_
+    snapshot()` deliberately has none and relies on `dispatch()`'s own
+    existing outer handler, confirmed by asserting the RPC-level `dispatch(
+    "health", {})` call turns that same exception into a visible
+    `{"status": "error"}` response, not a crash or a silent empty result —
+    `_health()` includes the key in both the empty and populated cases).
+    `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+    wiring-pinned test confirming bot.ts reads `hr.layer2_prefetch` and
+    formats `cache_hit`/`budget_exceeded`/`age_sec`.
+    GATES: A/B-verified all 6 new Python tests fail against pre-fix
+    `voltrade_daemon.py` (via `git stash` scoped to just that file +
+    `server/bot.ts`) and pass post-fix. Full `python3 -m pytest -q`: 836
+    passed (830 baseline + 6 new), 2 skipped, 0 failed. `npx tsx --test
+    server/*.test.ts`: 825 passed, 0 failed (a fresh-sandbox `npm ci` was
+    needed first — the 7 failures seen before installing dependencies were
+    `ERR_MODULE_NOT_FOUND`, not real regressions, same gap every recent
+    session in a clean container has logged). `npx tsc --noEmit`: 73
+    errors, confirmed byte-identical to the pre-change baseline via `git
+    stash` A/B. `npm run build`: clean. `package-lock.json`'s root version
+    had drifted stale to 1.0.463 against `package.json`'s 1.0.464 (same
+    recurring class four sessions have now hit) — corrected in the same
+    edit, both bumped to 1.0.465.
+    BACKTEST: N/A — pure diagnostic-visibility change, no scoring/sizing/
+    execution logic touched.
+    NEXT STEP: whichever session catches the next live TIER2-ERROR should
+    read the audit line's `layer2_prefetch` block directly. `cache_hit:
+    false` + `budget_exceeded: true` + a LOW `age_sec` (single-digit
+    seconds — meaning the stuck scan's own Layer 2 phase just ran)
+    confirms Layer 2 as a real contributor to that specific occurrence and
+    justifies moving to an evidence-backed threshold change (reducing
+    `deep_score_limit` or otherwise cutting Layer 2's per-cycle call volume
+    to fit the shared throttle's ~3 req/s real throughput). A HIGH
+    `age_sec` (tens of seconds to minutes — meaning Layer 2 finished long
+    before the timeout, or never ran this cycle) points the hang elsewhere
+    in `run_full_scan`'s pipeline instead, and per RECURRENCE ESCALATES the
+    next session should widen the search past both Layer 2 and the daemon
+    dispatch mechanism (candidates named by this item's own history but
+    not yet checked: the VXX cross-file dedup opportunity named in
+    v1.0.416, or profiling `deep_score`'s own serial `ThreadPoolExecutor`
+    path for the same already-running-futures-block-shutdown pattern this
+    session considered for Layer 2 and found already covered by the
+    existing `elapsed_sec` measurement point — that reasoning would need
+    re-checking against `deep_score`'s own executor usage specifically, not
+    assumed to transfer).
+
+    UPDATE 2026-07-21 (scheduled-routine session), v1.0.468 —
+    `csp_layer2_prefetch` CORRELATION REFUTED WITH FRESH LIVE EVIDENCE (12
+    samples, not one), AND a genuinely different, previously-unchecked
+    mechanism found and fixed via `deep_score`'s own `ThreadPoolExecutor`
+    usage — exactly the second branch this item's own prior UPDATE named as
+    unexplored. Storm still active at session start: `/api/diag/audit?
+    type=TIER2-ERROR` showed a fresh occurrence every ~7-15 minutes across
+    2026-07-20T17:56Z through 2026-07-21T19:56Z. Every occurrence carrying
+    the v1.0.465 `layer2_prefetch` field (12 of the ~20 total in that window)
+    read `budget_exceeded=false` and a HIGH `age_sec` (336.9-871.1s, i.e.
+    Layer 2's prefetch had finished 5-14 minutes before the timeout, or
+    hadn't even needed to run that cycle) — the exact "HIGH age_sec... points
+    the hang elsewhere" branch the prior UPDATE named, now actually observed,
+    12-for-12. This refutes Layer 2 as a contributor to any of these
+    occurrences (distinct from the zombie-pileup refutation, which was about
+    the daemon dispatch mechanism, not Layer 2's own cost). Live-catch
+    attempt via `/api/diag/daemon` polling (24 samples over 8 minutes,
+    20:18-20:26Z) caught ZERO `run_full_scan` dispatches in flight at all —
+    the market had closed (~20:00 UTC) and Tier 2's own time-of-day cadence
+    slows sharply after hours, making a fresh live-stakeout unproductive
+    this session; one complete scan captured during this window finished
+    in 76.07s with `tier1_sec=39.93s`/`deep_score=30.18s`, unremarkable.
+    READ-BEFORE-WRITE of the two named-but-unchecked candidates: the VXX
+    cross-file duplicate (`macro_data.py`'s VXX fetch vs.
+    `options_scanner.py`'s `_get_vxx_ratio_raw()`) IS a byte-identical
+    request (symbols=VXX, timeframe=1Day, start=now-45d, limit=40,
+    feed=bars_feed() — verified field-for-field), but is bounded by
+    `options_scanner`'s own 60s in-memory cache and costs at most one extra
+    ~8s Alpaca call per cache-miss — too small to explain a 300s-class
+    stall on its own; not fixed this session (real, but not the priority
+    find below). `deep_score`'s own `ThreadPoolExecutor` usage (bot_engine.py
+    ~line 741, the 5-source parallel enrichment fetch — macro/intel/alt/
+    social/finnhub) WAS the productive lead: `with ThreadPoolExecutor(
+    max_workers=5) as _pool:` calls `pool.shutdown(wait=True)` on exit —
+    Python's own implementation does a bare `t.join()` with NO timeout on
+    every worker thread, REGARDLESS of whether that thread's own
+    `.result(timeout=15)` call (immediately above, in the same block) already
+    gave up on it. This silently defeats the block's own documented "~3-4s,
+    limited by the slowest source" contract: a single slow/hung fetcher
+    (candidates checked: `finnhub_data.py`'s `_finnhub_get` sits behind a
+    process-wide 55-req/min token bucket that calls `time.sleep(wait_time)`
+    while HOLDING no lock on the sleep itself but still serializing all
+    finnhub callers through one shared budget; `social_data.py`'s
+    `get_google_trends` calls the abandoned-upstream `pytrends` library,
+    6h-cached but capable of a live call on any never-before-scored ticker)
+    could block `deep_score`'s return for however long that thread actually
+    takes to finish — not the 15s ceiling the code appears to promise. This
+    is the exact "already-running-futures-block-shutdown pattern" this
+    item's own prior UPDATE flagged for Layer 2 and found already covered
+    there (Layer 2 uses its own `ThreadPoolExecutor` differently, gated by
+    `PREFETCH_BUDGET_S` — see v1.0.418) but had NOT yet checked against
+    `deep_score`'s own, structurally different, per-candidate executor.
+    Structural note: the outer deep-score loop's `35s hard cap
+    preserved` check (bot_engine.py, "MEM FIX 2026-04-21") only fires
+    BETWEEN candidates, not during one — so a single candidate's
+    `deep_score()` call hanging on this defect is invisible to that cap
+    entirely, and (being serial, one candidate at a time, up to 15) could
+    in principle stall the whole scan well past both the intended 35s
+    budget and the outer 300s daemon timeout.
+    FIX (v1.0.468, `bot_engine.py`, mechanical correctness fix — restores
+    documented behavior, no scoring/sizing/threshold value touched, RULE
+    REVIEW's evidence gate does not apply): replaced the context-manager
+    form with `_pool = ThreadPoolExecutor(max_workers=5)` /
+    `try: ... finally: _pool.shutdown(wait=False)`. Abandoned threads keep
+    running harmlessly in the background (their results are simply
+    discarded, matching the existing `except Exception: pass` degrade-to-
+    default behavior on timeout) instead of blocking the caller. Zero
+    change to any value deep_score can return — only removes the accidental
+    extra wait.
+    RATCHET: `test_deep_score_parallel_fetch_timeout.py` (NEW, 3 tests) —
+    (1) a source-shape pin (mirrors `test_deep_score_source_diag.py`'s
+    convention) asserting the context-manager form is gone and
+    `_pool.shutdown(wait=False)` is present; (2)+(3) a real behavioral A/B
+    reproduction of the bug class itself using the identical
+    ThreadPoolExecutor idiom (not deep_score's heavy real dependencies) —
+    proves the OLD pattern blocks ~1.5s past a 0.2s `.result(timeout=...)`
+    give-up, and the FIXED pattern returns promptly instead. A/B-verified
+    via `git stash` that the source-shape test fails against pre-fix
+    `bot_engine.py` and all 3 pass post-fix.
+    GATES: `python3 -m pytest -q` 839 passed (836 baseline + 3 new), 2
+    skipped, 0 failed (a fresh sandbox needed `pip install pytest
+    openpyxl` first — same recurring clean-container gap every recent
+    session has logged, not a real regression). `npx tsx --test
+    server/*.test.ts` 836 passed, 0 failed (zero TS files touched).
+    `npx tsc --noEmit` 71 errors, confirmed byte-identical to the pre-change
+    baseline via `git stash` A/B (drifted from the 73 the last session
+    recorded — untouched by this diff either way, a sandbox/dependency
+    artifact). `npm run build` clean. `package-lock.json`'s root version had
+    drifted stale to 1.0.466 against `package.json`'s 1.0.467 (same
+    recurring class five sessions running now) — corrected in the same
+    edit, both bumped to 1.0.468.
+    BACKTEST: N/A — this is a latency/correctness fix to the enrichment
+    fetch's own timeout handling; it changes no scoring, sizing, or trading
+    decision (every fetcher's returned value on a slow path is still the
+    exact same default `{}`/`({}, {})` it already fell back to before this
+    fix — only how long the caller waits to get there changes).
+    NOT YET LIVE-CONFIRMED (same honest posture as every prior update on
+    this item). NEXT STEP for whichever session checks in once this
+    deploys: re-run this item's own established live-catch procedure
+    (`/api/diag/audit?type=TIER2-ERROR` + `/api/diag/timings` /
+    `/api/diag/daemon`) during MARKET HOURS (this session's own stakeout
+    attempt failed only because it ran after the 20:00 UTC close, when
+    Tier 2's cadence slows and few/no scans were in flight — try again
+    9:30am-4pm ET). If the ~7-15min TIER2-ERROR cadence stops or drops
+    sharply, this fix worked. If it continues unchanged, this refutes THIS
+    hypothesis in turn (a THIRD refutation since the shadowFleet fix, after
+    zombie-pileup and Layer 2) and the VXX cross-file dedup (real but
+    minor, not yet applied) plus a direct profiling pass on `deep_score`'s
+    own candidate loop (e.g. temporarily logging per-candidate wall time)
+    become the next concrete steps — at this point RECURRENCE ESCALATES'
+    "architecture smell" bar is worth taking seriously: consider proposing
+    in wishlist.md the ability to attach a CPU/wall-clock profiler to a live
+    daemon process, since five mechanisms investigated (shadowFleet fixed;
+    rate-limiter dedup partial; zombie-pileup refuted; Layer 2 refuted; this
+    ThreadPoolExecutor fix pending live confirmation) without a second
+    confirmed fix is a lot of session-time against one recurring symptom.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
@@ -2321,6 +2549,78 @@
     #18/#22 used before marking fully RESOLVED — a future session should
     re-check after >=24h clean and close this item if it holds.
 
+25. **[FOUND + FIXED (diagnosability only) 2026-07-24, v1.0.481,
+    scheduled-routine session] `options_execution.py`'s Tier 1/2 CSP
+    contract-selection path silently equated a non-200 OPRA response
+    (entitlement/rate-limit/network) with a genuinely-empty options
+    chain — every failure surfaced identically as `"No options
+    contracts available for this ticker"`, with zero HTTP status/body
+    captured anywhere.** Found via `/api/diag/audit` this session:
+    STM/DRAM/HYG each hit `T2-FAIL: <ticker>: No options contracts
+    available for this ticker` on every single Tier2 cycle sampled (24
+    of 60 recent entries), on a live trading Friday — not a weekend, so
+    the 2026-07-12/13 "benign weekend OPRA quiet" precedent (this same
+    item's earlier neighbor discussion, see KNOWN BROKEN #3's
+    surrounding notes) does not apply here. HYG in particular is a
+    liquid, listed-options ETF — a 100% per-cycle "no contracts"
+    reading for it is far more consistent with a silent fetch failure
+    (e.g. an OPRA/Algo-Trader-Plus entitlement rejection, mirroring the
+    SIP-403 pattern KNOWN BROKEN #23 already found infecting other
+    hardcoded-feed call sites) than a genuine absence of listed
+    options. NOT ROOT-CAUSED THIS SESSION — `_fetch_option_chain`'s
+    non-200 branch (`options_execution.py`, was: bare
+    `logger.warning(f"Options chain fetch failed: {resp.status_code}")`
+    with no status/body persisted anywhere reachable by `select_contract`
+    or the audit trail) made the actual cause structurally unobservable
+    without shell access to Railway's Python logs, so this session
+    fixed the VISIBILITY gap only (same shape as KNOWN BROKEN #17/#21):
+    a module-level `_last_chain_error` dict now captures `HTTP
+    {status}: {body[:200]}` (or the exception text) per ticker,
+    cleared on the next successful fetch for that ticker so a stale
+    reason can't leak into an unrelated later failure; `select_contract`
+    now threads that reason into both its `logger.warning` and its
+    returned `error` string, which flows automatically into the
+    existing `T2-FAIL` audit line via `server/bot.ts`'s `r.reason`
+    read — no `bot.ts` change needed. A genuinely-empty chain (200,
+    zero snapshots) now reads "chain fetch succeeded but returned zero
+    contracts in range" instead of being indistinguishable from a real
+    fetch failure — this is the same real-cause-vs-benign distinction
+    KNOWN BROKEN #21 established for the alt-data enrichment fetchers.
+    Scope note: `options_scanner.py`'s `_fetch_options_chain` has the
+    identical shape of bug (non-200 → silent `break`, not even a
+    logger.warning) but was NOT touched this session — it's a
+    different call path (scanner candidate screening, not the Tier1/2
+    CSP execution path this session's audit-log finding was actually
+    in), and fixing it is a separate logical change per the one-PR-one-
+    change rule. RATCHET: `test_options_chain_diagnosability.py` (new,
+    6 tests) — non-200 captured with status+body, exception captured,
+    genuinely-empty chain leaves no stale error, a later success clears
+    a prior ticker's error, and both of `select_contract`'s error-string
+    branches (real reason vs. honest "zero contracts" default) —
+    A/B-verified via `git stash` to fail 6/6 against pre-fix
+    `options_execution.py` and pass 6/6 post-fix. Full suite:
+    `python3 -m pytest -q` 886 passed, 1 skipped (zero regressions; the
+    baseline count only differs from the last session's 876/3 because
+    installing `requirements-dev.txt` this session unblocked tests that
+    were previously import-skipped, not because of this change). No
+    TypeScript/client files touched.
+    **NEXT CHECK** (once deployed): query
+    `/api/diag/audit?type=T2-FAIL&token=$DIAG_TOKEN` — any STM/DRAM/HYG
+    (or other) recurrence should now show a specific reason in
+    parentheses (`HTTP 403: ...`, `HTTP 429: ...`, `exception: ...`, or
+    the honest "zero contracts in range" default) instead of the bare
+    generic message. If it comes back `HTTP 403` specifically, that
+    confirms an OPRA/Algo-Trader-Plus entitlement gap on the options
+    snapshot endpoint — the next session's fix would be an
+    entitlement-aware fallback for this endpoint (mirroring
+    `alpaca_feed.py`'s `bars_feed()`/`data_feed()` precedent for the
+    stock-data side), not a threshold change. If it comes back the
+    honest "zero contracts" default consistently for the SAME tickers,
+    that instead points at the CSP tier's candidate universe including
+    tickers with no listed options at all — a different, non-fetch fix
+    (tighten the universe upstream). Either way, this item stays OPEN
+    until a live `T2-FAIL` sample with the new detail is read.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -2481,6 +2781,84 @@
   concrete next run; (4) re-run this exact screen once BACKFILL_QUARTERS
   reaches its full 8-quarter window for a still-larger, still-corrected
   sample before drawing any promotion-or-kill conclusion.
+
+  UPDATE 2026-07-22 (scheduled-routine session, [RESEARCH]) — both
+  queued NEXT STEPS (3) and (4) run this session, closing gate 2 for
+  this hypothesis family with a GATE-2 KILL, not a "not yet decided."
+  PRIOR restated before running (per REASONING STANDARD #10): code S
+  (sales) expected to mirror code P as a "predictive shorts" signal —
+  negative forward excess return after clustered/single officer-director
+  sales. Sandbox had no persisted archive from prior sessions (fresh
+  container each session, no access to the Railway volume) so the full
+  8-quarter bulk archive was rebuilt locally from `sec_form4_bulk.py`
+  (all 8 quarters re-fetched from SEC's public TSV dataset, ~free,
+  keyless, no different from the live daemon's own backfill) before
+  either run.
+  RUN A — code S, 8 quarters, 300-ticker balanced cap (278/300 fetched
+  ok via Yahoo fallback, no Alpaca key in this sandbox): 20d NO
+  separation from each ticker's own baseline (cluster mean_diff
+  -0.075pp p=0.79; single +0.189pp p=0.57 — n=4434/3557 vs 48,750
+  baseline obs). 60d: **significant REVERSAL of the stated PRIOR** —
+  sales predict OUTPERFORMANCE, not underperformance (cluster
+  +4.551pp, t=6.24, p<0.0001; single +3.044pp, t=4.33, p<0.0001;
+  n=4023/3224 vs 14,497 baseline obs). The "predictive shorts"
+  hypothesis is REJECTED, not just unsupported — trading it as designed
+  would have gone the wrong way with high confidence.
+  RUN B — code P (buys) re-run at the full 8-quarter window named in
+  NEXT STEP (4), 500-ticker balanced cap (466/500 fetched ok): 20d
+  still NO separation (cluster -0.495pp p=0.45; single -0.824pp
+  p=0.16; n=881/1436 vs 101,270 baseline obs) — same shape as the
+  6-quarter run. 60d: the 6-quarter run's "SURPRISE" negative finding
+  **REPLICATED and STRENGTHENED** with more data — cluster -6.793pp
+  (t=-3.82, p=0.0001), single -6.019pp (t=-3.85, p=0.0001); n=759/1228
+  vs 40,612 baseline obs (was -3.97pp p=0.049 / -4.68pp p=0.008 on the
+  smaller 6-quarter sample). Both P and S 20d/60d cells (8 comparisons
+  across the two runs) are reported, not cherry-picked; the two
+  significant cells (P-60d, S-60d) both clear a same-session Bonferroni
+  bar of 0.05/8=0.00625 by orders of magnitude.
+  READING THE DIRECTION HONESTLY: buys underperform baseline and sales
+  outperform baseline at 60d — opposite signs, but NOT the pattern a
+  real "insiders have private information, trade it, direction matters"
+  signal would produce (that would need buys ABOVE baseline and sales
+  BELOW). This is the pattern a MOMENTUM/TIMING-AT-EXTREMES story would
+  produce instead: if Form-4 events (whichever direction) tend to
+  cluster near a ticker's recent local price extreme (insiders buy
+  dips, sell rallies — routine 10b5-1/tax/diversification behavior with
+  no informational content) and that extreme continues for the next 60
+  trading days (which momentum evidence broadly supports), you'd see
+  exactly this signature: buys near recent lows keep underperforming a
+  calmer unconditional baseline, sales near recent highs keep
+  outperforming it — with zero requirement that the insider knew
+  anything. CORROBORATING, NOT PROVING: the ticker-own 60d baseline
+  itself ran hot in every version of this screen (this session's S run
+  +5.67% pooled, this session's P run +10.20% pooled, the 07-19 6Q run
+  +8.55% pooled) — all well above a typical ~2-3% broad-market quarter,
+  consistent with (not proof of) an insider-active/small-cap-momentum-
+  heavy fetched universe over a 2024q3-2026q2 window that happened to
+  be a strong run for that cohort, which is exactly the confound NEXT
+  STEP (2) flagged and this session's evidence now makes more
+  plausible, not less.
+  EXPLICITLY NOT DONE, NAMED SO THE NEXT SESSION DOESN'T INVENT IT: no
+  attempt was made to trade the reversed sign (short-when-buy /
+  long-when-sell) this session — proposing a flipped strategy off a
+  sign that only appeared AFTER seeing the data is exactly the
+  multiple-hypothesis-fishing trap REASONING STANDARD #4 warns about,
+  not a validated finding. If a future session wants to pursue this, it
+  needs its own fresh PRIOR and a held-out re-test, not a retroactive
+  sign-flip on today's sample.
+  LADDER VERDICT: **GATE 2 KILL** for both "clustered/single officer-
+  director Form 4 buys predict positive forward excess return" and its
+  code-S sales mirror ("predict negative forward excess return") in
+  their originally-stated (naive) direction — this hypothesis family
+  does not proceed to gate 3. The pipeline itself (`sec_form4_bulk.py`,
+  gate 1 DATA) stays live and keeps backfilling — a killed SIGNAL gate
+  does not retire a working DATA gate; the raw feed remains a valid RAW
+  overlay candidate and a substrate for a differently-shaped future
+  hypothesis (e.g., the momentum-confound angle above, stated as its
+  own PRIOR before any run, not a rename of this one). No code changed
+  this session — pure gate-2 measurement via the existing scripts, so
+  no test suite, backtest, or version bump applies (same precedent as
+  the 07-05 pytrends gate-1 probe and the 07-08 COT Newey-West re-test).
 - **CFTC Commitments of Traders (COT) positioning** (gate 1 DATA PASSED
   2026-07-05 — see `cftc_cot.py` / `test_cftc_cot.py`; EDGE DOCTRINE #1
   standing example; recovered this session from a stalled dirty PR
@@ -2608,6 +2986,26 @@
   volume/open interest — Alpaca paper fills unlimited size, which is
   fiction for thin chains. Validate the existing stock slippage tiers
   against recorded bid/ask spreads in the fills tracker.
+  **UPDATE 2026-07-23 (scheduled-routine session, v1.0.480):** re-traced
+  every options fill/track_fill/slippage call site before touching
+  anything (options_execution.py, options_manager.py, tiered_strategy.py,
+  shadow_portfolio.py, exitFill.ts) — options currently have ZERO fill/
+  slippage simulation anywhere in the live pipeline, not a weak one; this
+  item's premise ("good for stocks, weak for options") describes a
+  prospective risk if the stock model were naively extended, not a live
+  bug. Building the quote-based options model now would be out-of-order:
+  KNOWN BROKEN #12(c) already documents that options exits record no
+  trade_feedback at all yet, explicitly gated on #12(b) resolving first
+  ("do not touch until then — one attribution at a time"). Deferred,
+  correctly, not attempted this session. What WAS fixed this session
+  (own PR, see experiments.md [RULE-REVIEW]): the identical liquidity-
+  blindness failure mode existed on the EQUITY side too — backtest_v2.py's
+  flat 5bps `COST_PCT` charged every ticker the same cost regardless of
+  volume, which is exactly this item's "simulator fiction" concern, just
+  in the offline backtest engine rather than live options fills. Now
+  tiered by trailing volume (`liquidity_cost_pct()`), mirroring the same
+  four live bot.ts breakpoints this item references. This item's own
+  options-side ask remains open and gated on #12(b)/(c) as before.
 - **Strategy tournament.** Run strategies as isolated, tagged competitors
   (strategies/ modules are already shaped for this) with buy-and-hold SPY
   as a permanent benchmark entrant. Allocate more to winners, retire
@@ -5721,3 +6119,74 @@ audit (all measured under SwiftShader; ratios are the finding):
 - MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
   GeoJSON sources helps terrain perf even for non-draped layers.
+
+
+## [2026-07-24 — ACTIVE ANGLE-HUNTING / EDGE DOCTRINE #2] Does mean_reversion have a real, exploitable edge specifically in illiquid small-caps, or is the 2026-07-24 probe result a single-sample artifact?
+
+FINDING (full write-up in experiments.md, `[RESEARCH]` entry, same date):
+a systematic 10-name sample of genuinely illiquid Nasdaq Capital Market
+names (<=1M shares/day trailing 252d, screened live via the NASDAQ
+symbol directory — not guessed from memory) showed `mean_reversion.py`
+producing a positive Sharpe in 8/10 tickers (mean +0.246, 147 trades,
+46.0% win rate) using `backtest_v2.py`'s now-honest liquidity-tiered fill
+cost (v1.0.480) — better than both a 7-name "moderate" 1-5M-share/day
+tier (mean -0.222) and a statistically-starved liquid mega-cap reading
+(only 11 total trades). `momentum.py` showed the OPPOSITE pattern
+(illiquid mean Sharpe -0.236 vs. liquid +0.559), matching the prior that
+momentum needs sustained institutional flow illiquid names lack.
+
+WHY THIS MIGHT BE REAL (Reasoning Standard #5, second-order): thin order
+books mean oversold conditions are retail-panic-driven and mechanically
+exhaust once sellers are out, without the sustained institutional
+selling flow that can keep grinding a liquid name down for many
+sessions — a capacity/mandate-constraint story (large funds can't or
+won't trade size in $200K-$4M dollar-volume names), not "nobody
+noticed." Consistent with EDGE DOCTRINE #2's structural framing.
+
+WHY IT MIGHT NOT BE (state the doubt as loudly as the finding, per
+Reasoning Standard #4 + #7): (a) ONE systematic sample, no independent
+re-draw — a different stride through the same NASDAQ directory could
+show a different result; (b) no formal significance test run (Sharpe
+means are descriptive); (c) no out-of-sample time split — the full 4y
+window was used to both find and report the pattern; (d) SURVIVORSHIP —
+the candidate pool is today's live listing; every name that fully
+delisted in the window is invisible, and group buy&hold was still
+-74/-75% even among survivors, so the true population (including
+delistings-to-zero) is worse, direction of bias on the mean_reversion
+result specifically is NOT determined; (e) magnitude is modest (+4.32%
+total return over 4y, ~1%/yr) — a real signal, not a dramatic one.
+
+LADDER PATH (does NOT skip gates, per ROOT VALIDATION LADDER — this is
+existing LOGIC (momentum/mean_reversion already cleared their own LOGIC
+gate on the liquid universe historically) being tested on a NEW universe
+segment, so treat "does illiquid-tuned mean_reversion work" as its own
+SIGNAL-then-LOGIC question, not inheriting the liquid-universe gate):
+  1. INDEPENDENT RE-DRAW — different stride/seed on the NASDAQ symbol
+     directory (or a second venue's small-cap tier, e.g. NYSE American)
+     to check this isn't an artifact of the specific 10 names drawn
+     2026-07-24. `scripts/illiquid_universe_probe.py`'s
+     `fetch_nasdaq_capital_market_candidates()` supports a different
+     `sample_stride` for exactly this.
+  2. TRAIN/TEST SPLIT — fit nothing (the strategy logic is unchanged
+     from the liquid-universe version), but split the illiquid sample's
+     history into an early window (pattern-check) and a later
+     out-of-sample window (confirm) before trusting the direction holds.
+  3. SIGNIFICANCE TEST — bootstrap CI on the mean_reversion Sharpe
+     spread between illiquid and moderate/liquid groups, or a paired
+     per-ticker test, before this could be called a SIGNAL-gate pass.
+  4. If (1)-(3) survive: the natural next step is NOT porting the
+     liquid-tuned mean_reversion thresholds unchanged into a live
+     illiquid-universe strategy — RSI/volume-spike thresholds tuned for
+     mega-cap volatility are unlikely to be the right thresholds for
+     microcap volatility. Re-tuning would be its own RULE-REVIEW-gated
+     effort with counterfactual evidence, not assumed here.
+  5. Only after (1)-(4) would this be eligible for a LOGIC-gate ablation
+     against the live bot's actual candidate-selection path (`deep_score`
+     / `tier1_csp_core`, not the ETF-rotation-style backtest engine) —
+     KNOWN BROKEN #10's note that `backtest_v2.py` doesn't model the
+     full candidate-selection path applies here too.
+
+NOT ACTIONABLE YET: no threshold, config, or strategy change should ship
+from this finding alone. Reproducibility artifact:
+`scripts/illiquid_universe_probe.py` (frozen candidate lists + full
+methodology in its docstring) + `test_illiquid_universe_probe.py`.
