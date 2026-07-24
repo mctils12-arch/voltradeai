@@ -3,6 +3,139 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-22 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18: v1.0.468's ThreadPoolExecutor fix live-refuted (third refutation, market-hours evidence), TIMING-DISK wired into the TIER2-ERROR audit line (v1.0.479, T-BOT); PR #586 open, blocked on a CI infra failure
+
+TERRITORY: T-BOT-adjacent (`server/bot.ts` — the daemon-timeout catch
+branch, not bot_engine.py itself this session) + its test file +
+SHARED minimal (`package.json`/`package-lock.json` version,
+`research/*`). Solo session.
+
+MEMORY PROTOCOL (session-start, in order): CLAUDE.md read in full.
+`research/experiments.md` tail read. `research/open_questions.md`
+KNOWN BROKEN section read via targeted grep (full-file Read exceeds
+the tool's size cap — 385KB). `research/wishlist.md` read in pages
+(also oversized) — DATACORE MAXIMUS / GRID VISION program blocks
+skimmed, not this session's territory.
+
+LOOP-HEALTH RATIO: last 10 dated `## ` headers before this entry — 5
+REPAIR / 4 PRODUCT / 1 RESEARCH (counting the 07-20 [REPAIR]+[RESEARCH]
+combo entry as REPAIR). Under the 7/10 thrash threshold; no meta-
+problem override, but concentrated enough (KNOWN BROKEN #18 alone
+accounts for 3 of the 5 REPAIR entries across 07-20/07-21) that this
+was weighed against picking a fresh item — see PRIMARY ACTION
+SELECTION below for why it was still the right call.
+
+LIVE HEALTH CHECK (GOAL priority 1): `/api/health` via DIAG_TOKEN —
+status ok, bot active, drawdownPct 0.0, `scanner.consecutiveFailures:
+0`, `liveness.dark: false`. No liveness alarm. `/api/diag/audit?
+type=TIER2-ERROR&limit=100` showed 13 fresh "Daemon timeout"
+occurrences spanning 2026-07-22T13:37Z-19:55Z (this session's live
+window, squarely market hours) — KNOWN BROKEN #18's storm, open since
+2026-07-10, continuing.
+
+PRIMARY ACTION SELECTION: the prior session (07-21, v1.0.468) shipped
+a real fix (deep_score's ThreadPoolExecutor shutdown hazard) but
+explicitly could not live-confirm it — its own NEXT STEP asked
+whichever session catches the storm live during market hours to check
+whether the cadence dropped. This session's live health check landed
+during market hours with the storm still running, so checking that
+queued NEXT STEP was the PRIMARY action ahead of any new research, per
+SESSION BUDGET's "judge a matured experiment" ranking above starting
+new work.
+
+WHAT SHIPPED:
+1. VERIFIED THE DEPLOY TIMELINE FIRST (git log, not assumed): v1.0.468
+   merged 2026-07-21T20:50:23Z (commit 569dca5, PR #577). The live
+   daemon's `uptime_seconds=27309` at 19:56Z means it started ~12:19Z
+   today — 15.5h after the fix merged, and the deployed
+   `package.json` version (1.0.478) is 10 releases past it. This
+   session's 13-occurrence storm sample is unambiguously running on
+   code that includes the fix.
+2. THIRD REFUTATION, LIVE-CONFIRMED: all 13 occurrences carry the same
+   `active_dispatches=2 [run_full_scan:300s, health:0s]` signature and
+   the same ~7-15min cadence as every pre-fix storm window since
+   2026-07-18 — the fix did not move the needle. `layer2_prefetch.age_
+   sec` stayed high across all 13 (291-871.8s), independently
+   reconfirming Layer 2 stays refuted (not the point of this update,
+   but consistent). Per RECURRENCE ESCALATES, three refutations
+   (zombie-pileup, Layer 2, now ThreadPoolExecutor) crosses the
+   "architecture smell" bar the 07-21 session's own NEXT STEP named as
+   a threshold, not just a possibility to consider.
+3. NO FOURTH GUESS. Per RECURRENCE ESCALATES this session did not pick
+   a fourth specific mechanism to patch blindly. Instead it closed the
+   structural gap that made every mechanism-guess this item has tried
+   expensive to test: `bot_engine.py`'s pre-existing TIMING-DISK
+   instrument (2026-04-23) already persists `_scan_market_inner()`'s
+   per-phase progress straight to shared disk (survives a 300s kill by
+   design), generalizing "which phase is it stuck in" across the WHOLE
+   pipeline instead of only Layer 2 — but the two existing readers
+   (`/api/diag/timings`, `/api/system/snapshot`) both require a
+   separately-timed human poll, which is exactly why two live-stakeout
+   attempts on this item (07-18, 07-21) came up empty. FIX (v1.0.479,
+   `server/bot.ts`, pure visibility, zero behavior change): the
+   TIER2-ERROR daemon-timeout catch branch now reads `voltrade_scan_
+   timings.json` directly off disk (same file, same two paths the
+   existing readers use) at the instant the timeout fires, and formats
+   `scan_timings={status=... last_phase=... age=...s}` into the same
+   audit line, right alongside `active_dispatch_detail`/
+   `layer2_prefetch`. No Python changes needed — Node and the daemon
+   share the container filesystem; the file is written progressively,
+   not returned via RPC, so this read should land on whatever phase
+   the still-in-flight scan last checkpointed. If it instead shows an
+   OLDER completed scan with no fresh write, that's informative too:
+   the stuck dispatch never got far enough to reset the file at its
+   own start, pointing at a block in daemon dispatch/lock acquisition
+   BEFORE `_scan_market_inner()`'s body ever begins — a mechanism
+   nobody has checked yet.
+
+RATCHET: `server/tier2DaemonTimeoutVisibility.test.ts` gained one new
+wiring-pinned test — A/B-verified via `git stash` (test file kept,
+`bot.ts` alone reverted) to fail against pre-fix `bot.ts` and pass
+post-fix.
+
+GATES: `npx tsx --test server/*.test.ts` 851/851 pass (a fresh `npm
+ci` was needed first — 7 failures pre-`npm ci` matched the exact
+recurring clean-sandbox baseline named in the 07-21 log, confirmed by
+name: aircraftTiling/apiKeyAccounts/compression/gdeltEvents/owmTiles/
+seafloorTiles/securityMiddleware). `npx tsc --noEmit` 77 errors,
+confirmed byte-identical to the pre-change baseline via `git stash`
+A/B. `npm run build` clean. No Python files touched — `python3 -m
+pytest` not re-run (TS-only diagnostic change, same precedent this
+item's own prior TS-only sessions used). `package-lock.json`'s root
+version had drifted stale to 1.0.477 against `package.json`'s 1.0.478
+(same recurring class, sixth session running now) — corrected in the
+same edit, both bumped to 1.0.479.
+
+BACKTEST: N/A — pure diagnostic-visibility change, no scoring/sizing/
+execution logic touched.
+
+HYPOTHESIS: the next live TIER2-ERROR's audit line will carry a
+`scan_timings={...}` block. `status=in_progress` with a `last_phase`
+deep into or past `deep_score` and a large `age` would finally
+localize the hang to a specific phase with real evidence (a legitimate
+basis for a fourth, evidence-backed fix). `status=completed`/stale or
+`last_phase=none` would point at the daemon's own dispatch/lock layer
+instead — genuinely unexplored territory for this item. NOT YET
+LIVE-CONFIRMED (same honest posture as every prior update). Full trace
+filed in `research/open_questions.md` KNOWN BROKEN #18.
+
+PR: opened #586 from `claude/funny-fermat-eb2fi7` (this session's
+assigned branch) against `main`. CI's `changes` job failed three times
+in a row (original + two reruns, each in 1-3s with no runner
+allocated) — the same standing infra issue already filed in
+wishlist.md from two prior PRs (#582/#583), now hitting a real code PR
+for the first time. Unlike the prior docs-only-PR precedent, this
+session did NOT bypass-merge via the API — a core-orchestrator change
+warrants the actual CI run once runners are available, not a session's
+local gate-running as a substitute. Filed the third occurrence in
+wishlist.md (own commit) with a note to the human about the recurring
+CI/billing issue now blocking real code, not just docs. PR left open
+and subscribed for CI/review events; this is a STARVED-adjacent close
+(the primary action is complete and verified locally, but the loop
+isn't closed — merge is pending on infra outside this session's
+control, not on any further code work).
+
+
 ## 2026-07-22 (scheduled-routine session) [REPAIR] — recovered PR #420's satellite-layer "still retrying automatically…" fix, stranded 12 days by a PR backlog no session had audited; found + logged the wider backlog (v1.0.478, T-CLIENT)
 
 TERRITORY: T-CLIENT (client/src/lib/orbital/tle.ts + tle.test.ts,

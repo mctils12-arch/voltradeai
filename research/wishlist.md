@@ -1723,6 +1723,38 @@ usage (or Settings → Actions → General → concurrency/spending limits)
 for this repo/account — that's the fastest way to confirm or rule out
 the quota hypothesis, which no session tool here can check directly.
 
+UPDATE 2026-07-22 (scheduled-routine session, PR #586) — THIRD
+OCCURRENCE, NOW ON A REAL CODE PR (not a docs-only change): the
+`changes` job failed identically three times in a row on this PR —
+original run + two reruns via `rerun_failed_jobs`, each completing in
+1-3 seconds (`20:28:38→20:28:40`, `20:29:21→20:29:23`,
+`20:29:57→20:29:58`), every one blocking all four downstream jobs
+(node-build/python-tests/docker-build/Auto-merge, all "skipped") the
+same way as the two prior incidents. `get_job_logs` still 404s
+unconditionally (same as the 07-22 morning session — this looks like a
+standing tool/environment gap, not evidence specific to these jobs).
+Persistence across three attempts ~40s apart (not one flaky blip) is
+new evidence AGAINST the original "quota exhaustion right after a
+heavy pipeline" hypothesis and weakly FOR something more sustained
+(account-level Actions spending/concurrency limit reached and staying
+reached, not a transient burst) — still not confirmed, same billing-
+tool gap as before. DIFFERENT DECISION THIS TIME: PR #586 changes
+`server/bot.ts` (a core orchestrator file, not a single docs file) —
+this session did NOT apply the #582 precedent of a direct API merge
+bypassing CI. All the equivalent gates (tsx --test full suite 851/851,
+tsc byte-identical A/B, npm run build clean) were run and verified
+locally before opening the PR, but AUTONOMY AUTHORIZATION's self-merge
+condition is "CI is green," and a real code change deserves the actual
+CI run once runners are available again, not a session's local
+substitute for it, given the file's own history of exactly this kind
+of change causing silent runtime breaks CI would have caught. PR left
+open and subscribed; no further reruns attempted this session (three
+identical-signature failures ~40s apart is not a "try again" situation
+per the "don't retry failing commands in a sleep loop" discipline).
+FOR THE HUMAN: this is now blocking real code from merging, not just
+docs housekeeping — worth checking Settings → Billing → Actions usage
+soon; if it's a spending cap, either raising it or waiting for the
+billing cycle to reset would unblock every open Claude PR at once.
 UPDATE 2026-07-22 (later same day, PR #585): RECURRED, now 3 consecutive
 times on one PR — the `changes` job failed identically three times in a
 row (`rerun_failed_jobs` called after each), every attempt completing in
