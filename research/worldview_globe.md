@@ -173,9 +173,22 @@ shared GIBS raster-layer factory + a time-scrubber, then add layers by value:
   planting-calendar baseline). Still-open: `MODIS_Terra_L3_NDVI_16Day` variant
   and disturbance `OPERA_L3_DIST-ALERT-HLS_Color_Index` (palm/pulp/miner
   concessions) as future adds.
-- G2f Floods `OPERA_L3_Dynamic_Surface_Water_Extent-HLS`, `MODIS_Combined_Flood_3-Day`.
-  Hypothesis: flood over industrial parks/ports/farmland → insurers, auto/semi
-  plants, acreage loss.
+- [SHIPPED v1.0.492] G2f Floods `MODIS_Combined_Flood_3-Day` (PNG,
+  `GoogleMapsCompatible_Level9`, daily P1D — access re-verified LIVE against
+  GetCapabilities; GIBS's own `Default` for this layer is actually TODAY, not
+  T-1 like the other daily layers, since it's a rolling 3-day composite, but
+  the shared `gibs.ts` factory floors `latencyDays` at 1 for consistency —
+  yesterday still carries real non-blank data). Registry `floods` (RAW,
+  field:true, environmental); same dated-scrubber mirror as G2c/d/e/g
+  (Droplet icon — Waves was already taken by the buoys layer). HONESTY NOTE
+  stated in-layer: the field shows ALL standing water (normal rivers/lakes/
+  reservoirs), not only flood anomalies, and is distinct from the separate
+  `floodzones` layer (FEMA's static regulatory hazard-zone designation —
+  this layer is observed current water, not designated risk). Hypothesis
+  (Pillar 6, weak prior — flood risk is already heavily modeled by P&C/
+  cat-bond pricing) filed in open_questions.md.
+  `OPERA_L3_Dynamic_Surface_Water_Extent-HLS` (Level12, ~3-day lag, higher
+  spatial resolution) remains a still-open future variant.
 - [SHIPPED v1.0.231] G2g NO2 throughput `TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column`
   (PNG, `GoogleMapsCompatible_Level6`, DAILY — access + continuous non-blank field
   verified live 2026-07-08: yesterday tile 100% over N.America; ocean legitimately
@@ -288,3 +301,17 @@ version = read-and-increment at commit time; rebase on collision.
   deep-zoom policy, G2f floods, G2h (sea ice/snowpack/chlorophyll/biomass —
   static, no slider), or Phase G4 unified object interaction — pick per the
   next session's own judgment; none block on each other.
+- 2026-07-24 (scheduled-routine session): manually re-applied stale PR #399
+  (G2f floods, opened 2026-07-09 against a `main` root commit that no longer
+  shares history with current `main` — `git merge-tree` confirmed "unrelated
+  histories", not a normal conflict) fresh onto current `main`. Content
+  unchanged from the original design; adapted for drift since 2026-07-09
+  (EARTH TWIN E1 global time axis now wires every dated GIBS layer's default
+  date, `floodzones` — a different, FEMA-sourced layer — now exists so the
+  icon+description explicitly disambiguate, `Waves` was already claimed by
+  `buoys` so this layer uses `Droplet` instead, and `LegendPanel` is now a
+  separate memoized component requiring `floodsDate` as an explicit prop, not
+  a closure variable). Closed PR #399 as superseded by the fresh PR. NEXT:
+  #415 (gridvision RunPod repair, also orphaned by the same history
+  discontinuity) remains queued for a future session's manual re-application,
+  one at a time per this session's own precedent.

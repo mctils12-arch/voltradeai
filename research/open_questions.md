@@ -3953,6 +3953,49 @@ R6. **Dashboards from monitoring we already emit (charter directive
   drought event can actually affect (dense old-growth vs. sparse scrub react
   differently).
 
+## FLOOD-EXPOSURE HYPOTHESIS (RAW layer shipped 2026-07-24, v1.0.492 —
+   client/src/pages/datamap.tsx "floods" + client/src/lib/gibs.ts,
+   worldview_globe.md Phase G2f — NASA GIBS MODIS 3-day flood composite;
+   manual re-application of stale PR #399, unrelated-history orphan)
+
+- **Flood extent over a NAMED industrial park / port / farmland cluster as a
+  physical-loss/exposure signal (Pillar 6).** PRIOR before any test: this is
+  a WEAK-prior G2 hypothesis by REASONING STANDARD #4/#5 — flood risk is one
+  of the most heavily modeled perils in P&C insurance and cat-bond pricing
+  already (FEMA flood maps, private cat models — see the separate
+  `floodzones` layer, which already surfaces FEMA's own regulatory
+  designation), so a raw 3-day MODIS composite is unlikely to reveal
+  anything a reinsurer doesn't already price faster and better; the
+  plausible residual edge, if any, is NOWCASTING an active event's areal
+  extent against a specific SMALL-CAP facility (per EDGE DOCTRINE #2) days
+  before an insurer's loss estimate or a 10-Q disclosure states it, not
+  predicting flood risk itself.
+- Ladder: gate 1 DATA — verified live (multiple continents, 61-82% land
+  coverage sampled, real non-blank field; the field legitimately includes
+  ALL standing water — normal rivers/lakes/reservoirs, not just flood
+  anomalies — so gate-2 sampling MUST diff against a baseline "normal water
+  extent" mask, never read raw coverage as "flooding," or the signal would
+  be pure noise from permanent hydrology). Gate 2 SIGNAL blocked on (a) a
+  daily-water-extent archive sampled over facility/farmland polygons
+  (raster→point sampling, a real build — same primitive the NO₂ gate-2
+  needs, reusable), (b) the normal-water baseline diff above, (c) a
+  facility→ticker join (industrial parks/ports/farmland → insurers, auto/
+  semiconductor plants, timber/ag). Discounted going in given the weak
+  prior; only worth gate-2 investment if the NO₂/AOD sampling infrastructure
+  gets built anyway for a stronger hypothesis and flood rides along cheaply.
+- CROSS-TIE: shares the facility/powerplant archive join point with the NO₂
+  and AOD hypotheses above — a future gate-2 sampling pipeline built for one
+  should sample all three raster fields at the same facility coordinates in
+  one pass, not three separate builds. Also complements the already-live
+  `floodzones` (FEMA static designated-risk) layer: `floods` is OBSERVED
+  current water, `floodzones` is DESIGNATED risk — a future signal could
+  check whether observed flooding this cycle falls inside or outside the
+  officially-designated zone (an "unexpected location" flag) as a distinct,
+  cheaper-to-justify hypothesis than raw flood-extent-as-signal.
+  `OPERA_L3_DSWx-HLS` (Level12, ~3-day lag, higher spatial resolution than
+  the shipped MODIS composite) is a still-open future variant if the
+  coarser MODIS field proves too noisy at facility scale.
+
 ## LOW-WATER / GENERATION-EXPOSURE HYPOTHESIS (RAW cross-tie shipped 2026-07-08,
    v1.0.232 — server/riverPlants.ts + /api/data/plants-near-rivergauges,
    worldview-globe Pillar 6 backend inference)
