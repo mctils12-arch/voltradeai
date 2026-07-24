@@ -2614,6 +2614,92 @@
     audit log will now show the real error message instead of the
     phantom one — read that message first, it should localize the
     remaining bug directly.
+    PARTIAL LIVE CONFIRMATION 2026-07-21 (scheduled-routine session,
+    docs-only): queried `/api/diag/audit?type=TIER2-ERROR&limit=200` and
+    `/api/diag/scanner`. The dispatch fix took effect exactly at its
+    deploy — the last "scan_market() takes 0 positional arguments"
+    phantom entry is 2026-07-20T16:17:31Z, zero occurrences in the 200
+    entries after it. Per this item's own prediction, a real underlying
+    error surfaced right after: 11 "Daemon timeout" entries between
+    17:17-19:57Z the same day (active_dispatches=2 throughout) — this
+    matches KNOWN BROKEN #18's already-diagnosed non-blocking event-loop-
+    lag signature, NOT a new defect. Zero TIER2-ERROR entries since
+    19:57:13Z (~6.5h clean at check time); `/api/diag/scanner` reports
+    consecutiveFailures=0, degraded=false. Short of the multi-day bar
+    #18/#22 used before marking fully RESOLVED — a future session should
+    re-check after >=24h clean and close this item if it holds.
+
+25. **[FOUND + FIXED (diagnosability only) 2026-07-24, v1.0.481,
+    scheduled-routine session] `options_execution.py`'s Tier 1/2 CSP
+    contract-selection path silently equated a non-200 OPRA response
+    (entitlement/rate-limit/network) with a genuinely-empty options
+    chain — every failure surfaced identically as `"No options
+    contracts available for this ticker"`, with zero HTTP status/body
+    captured anywhere.** Found via `/api/diag/audit` this session:
+    STM/DRAM/HYG each hit `T2-FAIL: <ticker>: No options contracts
+    available for this ticker` on every single Tier2 cycle sampled (24
+    of 60 recent entries), on a live trading Friday — not a weekend, so
+    the 2026-07-12/13 "benign weekend OPRA quiet" precedent (this same
+    item's earlier neighbor discussion, see KNOWN BROKEN #3's
+    surrounding notes) does not apply here. HYG in particular is a
+    liquid, listed-options ETF — a 100% per-cycle "no contracts"
+    reading for it is far more consistent with a silent fetch failure
+    (e.g. an OPRA/Algo-Trader-Plus entitlement rejection, mirroring the
+    SIP-403 pattern KNOWN BROKEN #23 already found infecting other
+    hardcoded-feed call sites) than a genuine absence of listed
+    options. NOT ROOT-CAUSED THIS SESSION — `_fetch_option_chain`'s
+    non-200 branch (`options_execution.py`, was: bare
+    `logger.warning(f"Options chain fetch failed: {resp.status_code}")`
+    with no status/body persisted anywhere reachable by `select_contract`
+    or the audit trail) made the actual cause structurally unobservable
+    without shell access to Railway's Python logs, so this session
+    fixed the VISIBILITY gap only (same shape as KNOWN BROKEN #17/#21):
+    a module-level `_last_chain_error` dict now captures `HTTP
+    {status}: {body[:200]}` (or the exception text) per ticker,
+    cleared on the next successful fetch for that ticker so a stale
+    reason can't leak into an unrelated later failure; `select_contract`
+    now threads that reason into both its `logger.warning` and its
+    returned `error` string, which flows automatically into the
+    existing `T2-FAIL` audit line via `server/bot.ts`'s `r.reason`
+    read — no `bot.ts` change needed. A genuinely-empty chain (200,
+    zero snapshots) now reads "chain fetch succeeded but returned zero
+    contracts in range" instead of being indistinguishable from a real
+    fetch failure — this is the same real-cause-vs-benign distinction
+    KNOWN BROKEN #21 established for the alt-data enrichment fetchers.
+    Scope note: `options_scanner.py`'s `_fetch_options_chain` has the
+    identical shape of bug (non-200 → silent `break`, not even a
+    logger.warning) but was NOT touched this session — it's a
+    different call path (scanner candidate screening, not the Tier1/2
+    CSP execution path this session's audit-log finding was actually
+    in), and fixing it is a separate logical change per the one-PR-one-
+    change rule. RATCHET: `test_options_chain_diagnosability.py` (new,
+    6 tests) — non-200 captured with status+body, exception captured,
+    genuinely-empty chain leaves no stale error, a later success clears
+    a prior ticker's error, and both of `select_contract`'s error-string
+    branches (real reason vs. honest "zero contracts" default) —
+    A/B-verified via `git stash` to fail 6/6 against pre-fix
+    `options_execution.py` and pass 6/6 post-fix. Full suite:
+    `python3 -m pytest -q` 886 passed, 1 skipped (zero regressions; the
+    baseline count only differs from the last session's 876/3 because
+    installing `requirements-dev.txt` this session unblocked tests that
+    were previously import-skipped, not because of this change). No
+    TypeScript/client files touched.
+    **NEXT CHECK** (once deployed): query
+    `/api/diag/audit?type=T2-FAIL&token=$DIAG_TOKEN` — any STM/DRAM/HYG
+    (or other) recurrence should now show a specific reason in
+    parentheses (`HTTP 403: ...`, `HTTP 429: ...`, `exception: ...`, or
+    the honest "zero contracts in range" default) instead of the bare
+    generic message. If it comes back `HTTP 403` specifically, that
+    confirms an OPRA/Algo-Trader-Plus entitlement gap on the options
+    snapshot endpoint — the next session's fix would be an
+    entitlement-aware fallback for this endpoint (mirroring
+    `alpaca_feed.py`'s `bars_feed()`/`data_feed()` precedent for the
+    stock-data side), not a threshold change. If it comes back the
+    honest "zero contracts" default consistently for the SAME tickers,
+    that instead points at the CSP tier's candidate universe including
+    tickers with no listed options at all — a different, non-fetch fix
+    (tighten the universe upstream). Either way, this item stays OPEN
+    until a live `T2-FAIL` sample with the new detail is read.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
@@ -2980,6 +3066,26 @@
   volume/open interest — Alpaca paper fills unlimited size, which is
   fiction for thin chains. Validate the existing stock slippage tiers
   against recorded bid/ask spreads in the fills tracker.
+  **UPDATE 2026-07-23 (scheduled-routine session, v1.0.480):** re-traced
+  every options fill/track_fill/slippage call site before touching
+  anything (options_execution.py, options_manager.py, tiered_strategy.py,
+  shadow_portfolio.py, exitFill.ts) — options currently have ZERO fill/
+  slippage simulation anywhere in the live pipeline, not a weak one; this
+  item's premise ("good for stocks, weak for options") describes a
+  prospective risk if the stock model were naively extended, not a live
+  bug. Building the quote-based options model now would be out-of-order:
+  KNOWN BROKEN #12(c) already documents that options exits record no
+  trade_feedback at all yet, explicitly gated on #12(b) resolving first
+  ("do not touch until then — one attribution at a time"). Deferred,
+  correctly, not attempted this session. What WAS fixed this session
+  (own PR, see experiments.md [RULE-REVIEW]): the identical liquidity-
+  blindness failure mode existed on the EQUITY side too — backtest_v2.py's
+  flat 5bps `COST_PCT` charged every ticker the same cost regardless of
+  volume, which is exactly this item's "simulator fiction" concern, just
+  in the offline backtest engine rather than live options fills. Now
+  tiered by trailing volume (`liquidity_cost_pct()`), mirroring the same
+  four live bot.ts breakpoints this item references. This item's own
+  options-side ask remains open and gated on #12(b)/(c) as before.
 - **Strategy tournament.** Run strategies as isolated, tagged competitors
   (strategies/ modules are already shaped for this) with buy-and-hold SPY
   as a permanent benchmark entrant. Allocate more to winners, retire
@@ -6093,3 +6199,74 @@ audit (all measured under SwiftShader; ratios are the finding):
 - MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
   GeoJSON sources helps terrain perf even for non-draped layers.
+
+
+## [2026-07-24 — ACTIVE ANGLE-HUNTING / EDGE DOCTRINE #2] Does mean_reversion have a real, exploitable edge specifically in illiquid small-caps, or is the 2026-07-24 probe result a single-sample artifact?
+
+FINDING (full write-up in experiments.md, `[RESEARCH]` entry, same date):
+a systematic 10-name sample of genuinely illiquid Nasdaq Capital Market
+names (<=1M shares/day trailing 252d, screened live via the NASDAQ
+symbol directory — not guessed from memory) showed `mean_reversion.py`
+producing a positive Sharpe in 8/10 tickers (mean +0.246, 147 trades,
+46.0% win rate) using `backtest_v2.py`'s now-honest liquidity-tiered fill
+cost (v1.0.480) — better than both a 7-name "moderate" 1-5M-share/day
+tier (mean -0.222) and a statistically-starved liquid mega-cap reading
+(only 11 total trades). `momentum.py` showed the OPPOSITE pattern
+(illiquid mean Sharpe -0.236 vs. liquid +0.559), matching the prior that
+momentum needs sustained institutional flow illiquid names lack.
+
+WHY THIS MIGHT BE REAL (Reasoning Standard #5, second-order): thin order
+books mean oversold conditions are retail-panic-driven and mechanically
+exhaust once sellers are out, without the sustained institutional
+selling flow that can keep grinding a liquid name down for many
+sessions — a capacity/mandate-constraint story (large funds can't or
+won't trade size in $200K-$4M dollar-volume names), not "nobody
+noticed." Consistent with EDGE DOCTRINE #2's structural framing.
+
+WHY IT MIGHT NOT BE (state the doubt as loudly as the finding, per
+Reasoning Standard #4 + #7): (a) ONE systematic sample, no independent
+re-draw — a different stride through the same NASDAQ directory could
+show a different result; (b) no formal significance test run (Sharpe
+means are descriptive); (c) no out-of-sample time split — the full 4y
+window was used to both find and report the pattern; (d) SURVIVORSHIP —
+the candidate pool is today's live listing; every name that fully
+delisted in the window is invisible, and group buy&hold was still
+-74/-75% even among survivors, so the true population (including
+delistings-to-zero) is worse, direction of bias on the mean_reversion
+result specifically is NOT determined; (e) magnitude is modest (+4.32%
+total return over 4y, ~1%/yr) — a real signal, not a dramatic one.
+
+LADDER PATH (does NOT skip gates, per ROOT VALIDATION LADDER — this is
+existing LOGIC (momentum/mean_reversion already cleared their own LOGIC
+gate on the liquid universe historically) being tested on a NEW universe
+segment, so treat "does illiquid-tuned mean_reversion work" as its own
+SIGNAL-then-LOGIC question, not inheriting the liquid-universe gate):
+  1. INDEPENDENT RE-DRAW — different stride/seed on the NASDAQ symbol
+     directory (or a second venue's small-cap tier, e.g. NYSE American)
+     to check this isn't an artifact of the specific 10 names drawn
+     2026-07-24. `scripts/illiquid_universe_probe.py`'s
+     `fetch_nasdaq_capital_market_candidates()` supports a different
+     `sample_stride` for exactly this.
+  2. TRAIN/TEST SPLIT — fit nothing (the strategy logic is unchanged
+     from the liquid-universe version), but split the illiquid sample's
+     history into an early window (pattern-check) and a later
+     out-of-sample window (confirm) before trusting the direction holds.
+  3. SIGNIFICANCE TEST — bootstrap CI on the mean_reversion Sharpe
+     spread between illiquid and moderate/liquid groups, or a paired
+     per-ticker test, before this could be called a SIGNAL-gate pass.
+  4. If (1)-(3) survive: the natural next step is NOT porting the
+     liquid-tuned mean_reversion thresholds unchanged into a live
+     illiquid-universe strategy — RSI/volume-spike thresholds tuned for
+     mega-cap volatility are unlikely to be the right thresholds for
+     microcap volatility. Re-tuning would be its own RULE-REVIEW-gated
+     effort with counterfactual evidence, not assumed here.
+  5. Only after (1)-(4) would this be eligible for a LOGIC-gate ablation
+     against the live bot's actual candidate-selection path (`deep_score`
+     / `tier1_csp_core`, not the ETF-rotation-style backtest engine) —
+     KNOWN BROKEN #10's note that `backtest_v2.py` doesn't model the
+     full candidate-selection path applies here too.
+
+NOT ACTIONABLE YET: no threshold, config, or strategy change should ship
+from this finding alone. Reproducibility artifact:
+`scripts/illiquid_universe_probe.py` (frozen candidate lists + full
+methodology in its docstring) + `test_illiquid_universe_probe.py`.

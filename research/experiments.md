@@ -136,6 +136,124 @@ isn't closed — merge is pending on infra outside this session's
 control, not on any further code work).
 
 
+## 2026-07-22 (scheduled-routine session) [REPAIR] — recovered PR #420's satellite-layer "still retrying automatically…" fix, stranded 12 days by a PR backlog no session had audited; found + logged the wider backlog (v1.0.478, T-CLIENT)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/tle.ts + tle.test.ts,
+client/src/lib/orbital/gpWorker.ts comment, client/src/pages/datamap.tsx
+comments) + SHARED minimal last (package.json/package-lock.json).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md/
+open_questions.md/wishlist.md (large — read via targeted grep/tail rather
+than whole-file, per their size). `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. Owner-gated audit-log/diag routes
+returned "unauthorized" as usual for a session with no owner token — same
+known limitation prior sessions have hit, not a new break. Loop-health
+ratio over the last 10 tagged entries before this one (SCALE S-A2 REPAIR,
+Form4 RESEARCH, GEM-map PRODUCT, KNOWN-BROKEN-#18 REPAIR, GEM-route
+PRODUCT, KNOWN-BROKEN-#18 REPAIR, CBP-borders PRODUCT, KNOWN-BROKEN-#18
+REPAIR, GEM-methane REPAIR+RESEARCH, GEM-methane-gate2b PRODUCT): 5
+REPAIR / 4 PRODUCT / 1 RESEARCH — under the 7+ thrash trigger, but the
+REPAIR entries are almost entirely one still-open KNOWN BROKEN #18
+investigation (T-BOT TIER2-ERROR timeouts) re-instrumented across three
+sessions without yet reaching a fix, not thrash spread across territories.
+
+PRIMARY ACTION SELECTION: with today's earlier sessions having already
+shipped SCALE S-A2, the GEM map layer, and killed the Form4 hypothesis,
+and with `/api/health` clean (no critical live break to chase), I checked
+GitHub's open-PR list before picking new roadmap work — the same check
+PR #399's session did on 2026-07-09 ("only a long-stale unrelated human
+draft, #77, left alone"). That check now found **six** open, unmerged,
+non-draft Claude PRs dated 2026-07-09 through 2026-07-21 (#399, #415,
+#420, #449, #557, #572) — a real backlog that grew from 1 to 6 while no
+session re-checked it. This connects directly to the two ops findings
+filed a few hours earlier THIS SAME DAY (wishlist.md, "Auto-merge Claude
+PRs" CI job failing + the `changes` job failing with no runner
+allocated): those findings diagnosed why an individual PR's automerge
+step fails, but I don't have evidence they explain 6 PRs surviving
+1–2 weeks apiece — the more likely compounding cause is simply that
+scheduled sessions stopped re-checking the open-PR list once new work
+was always available, so a silent per-PR automerge failure was never
+followed up manually. This is a real STARVATION-adjacent finding (built,
+tested work not landing) even though no single session logged "STARVED."
+
+Rather than open a 7th brand-new PR while 6 sit stale, I audited all six
+against current main (v1.0.477) to find genuinely-recoverable work:
+- **#572 (ENTSO-E generation mix)**, **#449 (agent-tools API)**, **#415
+  (gridvision RunPod reap)**, **#399 (GIBS floods layer)**: all STILL
+  MISSING from main (verified: `server/euGenerationMix.ts`,
+  `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`,
+  `scripts/runpod_reap.py`, and the `floods`/`MODIS_Combined_Flood`
+  layer in `datamap.tsx` all absent) — genuinely unclaimed, still
+  valuable work, not superseded.
+- **#557 (3D terrain exaggeration slider)**: SUPERSEDED — `client/src/
+  lib/terrainExag.ts` already exists on main (shipped independently;
+  KNOWN STATE's v1.0.475 crash-cascade fix references the same file),
+  confirmed via a real `git merge-tree` test producing an add/add
+  conflict on `terrainExag.ts` itself.
+- **#420 (satellite CSV-format + res.ok fix)**: STILL MISSING and STILL
+  A LIVE BUG — confirmed by reading the current `tle.ts`: `gpUrl` still
+  hardcodes `FORMAT=json` (~6.7MB, no `format` param), `fetchGp` still
+  does `res.json()` with no `res.ok` check, so a CelesTrak 403
+  courtesy-rate-limit still parses to `[]` today and the human-reported
+  "still retrying automatically…" loop is still live in production 13
+  days after the fix was written and reviewed. Confirmed the worker path
+  that actually serves the layer (`gpWorker.ts` → `fetchGp`, wired via
+  `fetchGpOffThread` in `datamap.tsx`) calls the exact same `fetchGp`,
+  so this fix reaches the real runtime path, not just a fallback.
+
+PICKED #420 to resurrect this session: it is a REPAIR (SESSION BUDGET
+ranks bug fixes above new pipelines), it is the cleanest to recover
+(`git merge-tree` showed only docs/lockfile conflicts, zero real code
+conflicts, unlike #399/#415/#557), and it fixes a bug still reproducible
+in prod today. Applied the PR's diff fresh (re-typed by hand rather than
+force-merging the stale branch, since `tle.ts` had grown SATCAT-join code
+since 2026-07-09 that the stale branch never saw) onto current main:
+`gpUrl(group, format)` gains the format arg (default unchanged at
+`json`), new `parseGpCsv()` (header-indexed, same `GpRecord` shape/
+honesty rules as `parseGp`), `fetchGp` now requests `FORMAT=csv` (~2.4MB
+vs ~6.7MB) and throws on `res.ok === false` instead of silently parsing
+an error body to `[]`. Updated the now-stale "~6.6 MB" comments in
+`gpWorker.ts` and `datamap.tsx` to match. +5 regression tests in
+`tle.test.ts` (parseGpCsv normalization/blank-null/garbage-safety, fetchGp
+hits the CSV endpoint, and the 403 case now `assert.rejects` — would have
+caught this break, per REPAIRS MUST RATCHET).
+
+READ BEFORE WRITE: read `tle.ts`/`tle.test.ts`/`gpWorker.ts` in full,
+grepped every call site of `gpUrl`/`fetchGp`/`parseGp` across `client/
+src` (4 files) before touching anything — `datamap.tsx:5041` calls
+`parseGp` (JSON) directly against the separate `/api/data/orbital/
+catalog` server-mirror path, untouched and correctly left on JSON since
+that route serves JSON, not CSV.
+
+GATES: `npx tsx --test client/src/lib/orbital/*.test.ts` 214/214 (11
+pre-existing + 5 new in tle.test.ts); `npm run test:node` 850/850 (server
+suite, unaffected but re-run as a sanity check since this is a session
+recovering someone else's stale branch); `npx tsc --noEmit` 8 lines,
+byte-identical to a `git stash`-verified baseline (0 new errors — the 3
+pre-existing warnings are tsconfig/env-config noise, not code errors);
+`npm run build` clean (pre-existing astronomy-engine/mapIcons warnings
+only). Version 1.0.477 → 1.0.478 (read-and-increment at commit time).
+
+BACKLOG DISPOSITION (this session): closed #420 (superseded by this PR)
+and #557 (superseded by main's independent terrainExag.ts) with pointers.
+Left #399/#415/#449/#572 OPEN — still valid, unclaimed, non-superseded
+work; each needs its own rebase-and-recover session (real code conflicts
+in datamap.tsx/layers.json/runpod ledger, not just docs) rather than
+being resolved as a side effect of this PR. Filed the full disposition +
+a recommendation that future sessions check `gh pr list`-equivalent
+(the open-PR list) at session start, not just KNOWN BROKEN and
+`/api/health`, in research/wishlist.md.
+
+Backtest: N/A — client-only RAW-overlay bug fix (satellite live-tracking
+layer), no strategy/measurement/parameter/trading-path code touched.
+
+MERGE NOTE (market hours): this session ran while markets are open.
+Per CLAUDE.md's market-hours guidance, this PR should NOT be merged
+until after 4:00 PM ET today unless a critical live break requires it —
+it does not (client-only RAW overlay, zero effect on the trading loop).
+
+## 2026-07-22 (scheduled-routine session) [REPAIR] — SCALE S-A2: vessels-delta TTL was shorter than the client poll interval, so `unchanged` was dead code — full payload re-shipped every single poll (v1.0.474, T-DATACORE-adjacent server work)
 
 TERRITORY: server/liveDelta.ts + server/liveDelta.test.ts + server/routes.ts
 (SHARED file — the routes.ts edit is the minimal 3-line call-site update for
@@ -24529,6 +24647,114 @@ VERIFICATION: client lib battery green (612 incl. #571's FAA tests after
 mid-session fast-forward — #571 took v1.0.457); verify_datum probe as
 above; harness re-run on the MERGED build gating the push. BACKTEST: N/A.
 
+## 2026-07-21 (scheduled-routine session) [PIPELINE] — ENTSO-E actual generation per production type (fuel mix): the OTHER filed wishlist-9c follow-up, shipped (v1.0.459, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/euGenerationMix.ts + test + datacore/
+manifests/eugenmix.json; routes.ts touched last, minimal, per SHARED-file
+protocol).
+
+REPAIR-MANDATE CHECK FIRST (per this session's own instructions): ran
+`scripts/session_health_check.py --json` against production. No ALARM.
+`/api/diag/scanner`: consecutiveFailures=0, degraded=false. `/api/diag/
+audit?type=TIER2-ERROR&limit=200` shows the last "scan_market() takes 0
+positional arguments" phantom-error entry at 2026-07-20T16:17:31Z — the
+KNOWN BROKEN #24 dispatch fix (v1.0.448) took effect at that exact
+timestamp and the phantom error has not recurred since (0 occurrences in
+200 entries after it). The dispatch fix DID surface a real underlying
+error afterward exactly as its own text predicted ("if a scan still fails
+post-deploy... read that message first") — 11 "Daemon timeout" entries
+2026-07-20T17:17-19:57Z, active_dispatches=2 throughout, matching KNOWN
+BROKEN #18's already-diagnosed non-blocking event-loop-lag signature (NOT
+a new bug). Zero TIER2-ERROR entries since 19:57:13Z (~6.5h clean at time
+of check), scanner healthy. Updated KNOWN BROKEN #24 in open_questions.md
+with this partial live-confirmation (short of the multi-day bar #18/#22
+used before full RESOLVED — a future session should re-check after >=24h
+clean). No critical unfixed item found -> this session proceeds as
+[PIPELINE], not [REPAIR].
+
+DOCTRINE AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code.
+PRIOR STATED BEFORE BUILDING: CLAUDE.md's own named EDGE DOCTRINE #1
+examples (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+FDA calendar, Google Trends) are ALL already built or correctly declined
+(Google Trends/pytrends failed gate-1 stability, upstream archived
+2025-04 — confirmed via grep across open_questions.md/wishlist.md/
+experiments.md, not re-litigated). Cross-checked research/data_census.md's
+CENSUS MASTER RANKING (11 items) against the live repo: 8 of 11 already
+built (OCC, EPA CAMD, JODI, FINRA cluster, GEM, SEC FTD, USGS quakes,
+NDBC buoys, SEC MIDAS — that's actually 9; DTCC and 3 of the regime-
+feature items are the only census gaps, DTCC blocked on a 147MB/day
+volume-budget decision not yet made). Prior: the highest-EV NEW pipeline
+this session, given how thoroughly the census/EDGE-DOCTRINE list has
+already been mined, is a well-scoped FOLLOW-UP to an already-live,
+already-token-activated stream rather than a fresh census item — lower
+build risk (proven host/auth/schema family), immediate activation (no
+BLOCKED-FOR-MIKE key wait), and real incremental signal. Found it in
+wishlist.md 9c: ENTSO-E generation-mix + day-ahead-prices were BOTH
+filed as follow-ups 2026-07-07 when euLoad.ts shipped, neither built
+since. Picked generation-mix (documentType A75) over day-ahead-prices
+(A44) to keep this ONE logical change (day-ahead prices uses a different
+response schema — Publication_MarketDocument/price.amount vs GL_
+MarketDocument/quantity — genuinely separate work, filed as the
+remaining follow-up, not bundled per PROMOTION RULE 5).
+
+BUILD: server/euGenerationMix.ts mirrors server/euLoad.ts's architecture
+(key gate shared: ENTSOE_API_KEY/ENTSOE_TOKEN; same 8 EIC zones reused
+from euLoad.ts's ZONES export; 2h poll, 48h trailing window, 8 spaced
+calls/cycle, same politeness spacing) with the two real deltas: (1) query
+uses `in_Domain` not `outBiddingZone_Domain`, documentType=A75/processType
+=A16; (2) each TimeSeries in the response carries a <MktPSRType><psrType>
+child identifying the fuel/technology (B01-B25 entsoe-py canonical code
+table, included in full) — parseGenMix extracts and tags every point with
+its psrType, skipping (never guessing) series with a missing/unrecognized
+code. Archive dedup key extended to zone|psr|ts|res|value (vintage-aware,
+euload precedent) so same-zone/same-timestamp-different-fuel rows never
+collide. New route `/api/data/eu-generation-mix` mirrors eu-load's
+response shape (kind:"raw", stats array, issues surfaced per zone).
+
+HONESTY NOTE (stated in the module header + manifest, not glossed over):
+this session's sandbox has no ENTSOE_API_KEY (Railway-only secret) so the
+A75 query contract could NOT be probed live end-to-end the way data_
+census.md's other entries were. It IS cross-checked against the
+ecosystem-canonical entsoe-py library's actual query-building code
+(query_generation: documentType=A75, processType=A16, in_Domain) and
+PSRTYPE_MAPPINGS table, fetched and read this session — not fabricated
+from memory. Both A65 (load, already live-verified 2026-07-07) and A75
+share the same GL_MarketDocument schema family per ENTSO-E's XSD, so the
+already-proven parser shape (Period/Point/position/resolution) transfers;
+the one NEW piece (MktPSRType/psrType extraction) is the only truly
+unverified-live surface. NEXT CHECK (filed, mirrors KNOWN BROKEN #24's
+own pattern): once deployed, read `/api/data/eu-generation-mix`'s
+`issues` field after the first sweep — an ack or empty-response for
+every zone would mean the A75 contract needs correction despite the
+cross-check; a future session should verify and close this note.
+
+RATCHET: server/euGenerationMix.test.ts, 9 new tests (key gate, URL
+param contract incl. the in_Domain-not-outBiddingZone_Domain distinction,
+PSRTYPE_MAPPINGS spot-check, ack parsing, multi-series psrType tagging,
+missing/bad-psrType skip, position math, archive dedup incl. same-zone-
+different-fuel non-collision, refresh-sweep stats grouped by zone|psr).
+All 9 pass standalone. Full gates this session: `npx tsx --test
+server/*.test.ts` 771 total, 764 pass / 7 fail — verified via `git
+stash` that the same 7 fail identically with this change stashed out
+(aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware — pre-existing baseline, unrelated to
+this PR, not touched). `npx tsc --noEmit` 71 errors, byte-identical
+count via the same stash comparison (zero new errors from this change).
+`npm run build` clean (client+server bundle, only pre-existing
+third-party warnings). `python3 -m pytest` COULD NOT RUN this session —
+pytest is not installed in this sandbox (`No module named pytest`); not
+a regression from this PR (zero Python files touched — the change is
+entirely server/*.ts + one datacore manifest + package.json version) but
+flagging honestly rather than claiming a gate that didn't execute.
+
+Version bumped 1.0.458 -> 1.0.459 (read-and-increment at commit time).
+BACKTEST: N/A — new raw data-archive pipeline, no trading logic touched,
+no strategy/threshold change (same category as euLoad.ts's own PR).
+
+wishlist.md 9c updated: generation-mix follow-up marked built this
+session; day-ahead-prices (A44) remains the one open follow-up, noted
+as needing its own PR (different response schema, not a quick copy of
+this one).
 ## 2026-07-21 (human-directed session, round 12) [PRODUCT] — Follow camera centers the PLANE, preset popout, speed audit filed (v1.0.459, T-CLIENT)
 
 TYPE: [PRODUCT] (live report + 1.3s screen recording: "the plane needs to
@@ -25503,3 +25729,898 @@ failures (datum altScale=1, buried none). The curtain drag-guard is
 provably correct by construction (probe plane-selection is unreliable
 under SwiftShader — a known probe limitation this session, not a fix
 defect). BACKTEST: N/A.
+
+## 2026-07-22 (scheduled-routine session) [PRODUCT] — FINRA ATS/OTC venue volume leaderboards get a /data view (client/src/pages/atsSummary.tsx, v1.0.479, T-CLIENT)
+
+TERRITORY: T-CLIENT (new page + datamap.tsx wiring + datacore/layers.json
+registry entry — no server code touched, no frozen paths).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md,
+open_questions.md, wishlist.md. Confirmed branch state: the prior
+designated-branch head (2eb6511) had already become `origin/main` itself
+(a merged-branch situation per the merge-timing instructions — restarted
+cleanly on `origin/main`, no unmerged work lost). `/api/health`:
+status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca
+ACTIVE — no LIVENESS ALARM, no KNOWN BROKEN item blocking product work
+(the two open T-BOT items, #10 dead score-band config and #20 the CSP
+master-kill-switch judgment call, are both correctly gated on more live
+data per their own entries, not actionable this session, and outside
+this session's T-CLIENT territory regardless).
+
+PRIMARY ACTION SELECTION: delegated a research subagent to survey every
+active program's RESUME STATE (DATACORE MAXIMUS, PLATFORM PROGRAM, GRID
+VISION, ORBITAL, EARTH TWIN, ANALYST CONSOLE, SCALE) for the best-scoped
+not-blocked next action, since DATACORE MAXIMUS's own "shipped-data-no-
+map-layer" gaps had all just closed (GEM coal-mine layer, same day) and
+PLATFORM PROGRAM P1-P4 are fully shipped with only P5 (HUMAN-GATED
+billing activation) left. Its top-ranked finding, verified independently
+before building (READ BEFORE WRITE — read server/routes.ts's actual
+`/api/data/ats-summary` handler and server/finraQuery.ts's real response
+shapes myself, did not trust the subagent's claims about them): FINRA's
+ATS/OTC venue-summary API route has served live data since v1.0.208
+(2026-07-08) but has never had a client view — `grep` for
+`ats-summary`/`AtsSummary` across `client/src/` returned nothing, and
+wishlist.md's DATACORE MAXIMUS block has carried "a FINRA part 2 UI view
+once weeks of archive accumulate" as an open NEXT item since that ship
+date. Two weeks of archive have now accumulated; RAW display needs no
+ladder gate (same status as shortvol/attention/cot, its direct
+siblings); no key, no server change, no frozen path.
+
+BUILD: `client/src/pages/atsSummary.tsx` (new, ~215 lines) modeled
+directly on the two closest existing precedents (`shortvol.tsx` for the
+overall page shape, `methaneHotspots.tsx` for the tab-switcher pattern
+since ATS has no time-series/search the way shortvol does) — reuses the
+generic `.vt-filings-*`/`.vt-shortvol-*` CSS, zero new styles. Renders
+`/api/data/ats-summary`'s three FINRA-precomputed leaderboards as
+switchable tabs: weekly ATS-by-symbol, weekly OTC-by-symbol, monthly
+OTC-by-symbol (honestly notes monthly has no ATS/OTC venue split — the
+server's own `AtsSymbolSummary.top_ats_by_symbol` is optional and absent
+for the monthly partition, confirmed by reading `finraQuery.ts`'s header
+comment before assuming), and monthly block-trading venue ranks
+(FINRA's own precomputed rank field, not re-derived). `tiers_covered`
+and record counts are surfaced per the server's own partial-tier
+honesty convention (never implies complete coverage).
+
+Wired into `datamap.tsx` following the exact insider/earnings/shortvol/
+attention/cot/graph/methane_plumes precedent (all non-geospatial RAW
+layers — inline-panel-row-with-open-button + full-view overlay, no map
+markers): import, `#/data/ats-summary` hash-open state + hashchange
+listener entry, `LAYER_GROUP.ats_summary = "filings"`, a `Landmark`
+icon (new lucide-react import — no existing icon fit an
+exchange/venue concept), a 300s polling effect matching the sibling
+filings-layer cadence (mirrors the server's own 6h refresh; the client
+poll only refreshes the panel's record-count badge), a "records" unit
+label, an inline panel row with the open-full-view button, and the
+overlay mount. Left OUT of `DEFAULT_ON` (off by default) — matches the
+more recent filings-layer convention (faa_airports/border_waits/
+coal_mine_features/methane_plumes), not the older always-on set
+(insider/earnings/shortvol/attention/cot) from before that convention
+started.
+
+`datacore/layers.json` gained the `ats_summary` registry entry
+(group: filings, kind: raw, status: live) — required for
+`server/layersWiring.test.ts`'s ratchet (any live registry id missing
+from datamap.tsx's `LAYER_GROUP` renders PERMANENTLY "reload to
+enable", the R15 defect class); verified the ratchet passes with the
+new entry present.
+
+GATES: `npx tsx --test server/*.test.ts` 850/850 (server untouched by
+this PR — unaffected, confirms no regression). `npx tsx --test
+client/src/lib/**/*.test.ts` (all client lib suites) 641/641 — no new
+lib-level logic added (the new page has no pure-logic helper worth its
+own unit test, same as shortvol.tsx/methaneHotspots.tsx, neither of
+which have one either). `npx tsc`: git-stash A/B — 80 errors before,
+80 after (this session's actual baseline; the immediately-prior
+session's cited "77" had already drifted before this session started,
+unrelated to this change) — zero new errors, none touching
+atsSummary.tsx or datamap.tsx's new lines. `npm run build` clean.
+`npm run visual -- --page data`: 0 hard failures at 390/768/1440 (the
+harness's touch-target/clipped-control warnings present both before
+and after are pre-existing, on unrelated controls — About/Sign-in/
+layer-panel chrome, not this feature). LIVE VERIFICATION (R14/R17
+lesson — verify the positive case against the real built server, not
+just error-free responses): booted `node dist/index.cjs` locally;
+`GET /api/data/layers` returns the new `ats_summary` entry with the
+exact registry fields; `GET /api/data/ats-summary` returns
+`{kind:"raw", warming_up:true}` in this sandbox (no live FINRA poll
+has landed here — expected, matches the component's own `warming_up`
+branch, which this exercised for real rather than only in the fixture
+harness).
+
+BACKTEST: N/A (RAW display of an already-archived, already-served
+source; no trading logic, no new predictive claim).
+
+NEXT: wishlist.md's DATACORE MAXIMUS block updated below. Backup
+candidates the research pass also surfaced, not built this session:
+SEC MIDAS `/api/data/microstructure` has the identical no-UI gap (same
+wiring recipe, new `midas.tsx`); a HIFLD-vs-WRI power-plant dedup
+migration (`research/open_questions.md` lines ~5504-5578) is fully
+specified but medium-large multi-file scope, better suited to a
+session with more remaining budget.
+## 2026-07-23 (scheduled-routine session) [PRODUCT] — Per-layer freshness chips on the /data layer panel (v1.0.479, T-DATACORE + T-CLIENT)
+
+TERRITORY: T-DATACORE primary (server/layerFreshness.ts + its test) with
+a minimal T-CLIENT render extension (datamap.tsx's existing layer-row
+component + index.css), same split precedent as the 2026-07-22 Phase 3b
+imagery entry.
+
+SESSION-START CHECKS: read CLAUDE.md in full, then research/experiments.md,
+open_questions.md, wishlist.md. `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, scanner 0 consecutiveFailures — no
+LIVENESS ALARM, no KNOWN BROKEN item blocking product work. Loop-health
+ratio over the last 10 tagged entries: PRODUCT/REPAIR/REPAIR/PRODUCT/
+REPAIR mix, well under the 7/10 thrash threshold.
+
+PRIMARY ACTION SELECTION: wishlist.md's DATACORE MAXIMUS RESUME HERE block
+names two remaining Phase 5 items — "3c S2 utilization review" (a
+[RESEARCH]-shaped analysis task) and "per-layer freshness chips" (a
+[PRODUCT]-shaped UI build, the PREMIUM EXPERIENCE STANDARD's honesty-
+machinery clause: "every number visibly carries freshness, provenance,
+and confidence"). Chose the chip build as the more clearly product-shaped
+of the two for a [PRODUCT] routine.
+
+DESIGN DECISION: layers.json's own REGISTRY v2 `time`/`provenance` fields
+(EARTH TWIN A2) looked like the obvious source but are only populated on
+8 of 125 layers — building UI against them today would light up almost
+nothing. server/streamsInventory.ts (Phase 4) already computes real
+health/age for every manifest-backed archive (`/api/data/streams`), so
+this session joins THAT onto the layer registry instead — zero
+incremental IO (same 5-min cache the Streams tab reads).
+
+MAPPING VERIFICATION (READ BEFORE WRITE): layer id -> manifest stream is
+NOT a naming convention (e.g. layer `insider` reads manifest `filings`,
+layer `cot` reads manifest `cftccot` and NOT the same-named `cot`
+manifest, which is the Python bot-side `cftc_cot.py` pipeline, unreachable
+from the Express route). Used a research subagent to trace every
+candidate layer id -> client fetch -> server route -> the exact
+`archive*()` call -> the manifest whose `written_by` names that call,
+then personally re-verified a majority of the rows myself by reading the
+actual route handlers in server/routes.ts before trusting them. Landed
+16 verified mappings (aircraft, vessels, trains, insider, earnings,
+shortvol, attention, cot, fires, earthquakes, buoys, rivergauges, alerts,
+plant_operations, faa_airports, border_waits). Explicitly SKIPPED rather
+than guessed: portdwell/shadowstats (derived joins over the vessels
+archive, not their own stream), sites/quakehistory/superfund/pfas/
+nucleartests/radiation/nukeaccidents/nukefacilities/military_installations
+(static curated reference data, no archive-writing function in the call
+chain), and methane_plumes + coal_mine_features (both trace to the same
+"gem" manifest — ambiguous between two layers, so neither got mapped).
+
+BUILD: server/layerFreshness.ts — `LAYER_TO_STREAM` (the hand-verified
+mapping) + a pure `attachLayerFreshness(layers, streams)` join: a layer
+gets a `freshness: {stream, health, age_hours, health_note}` field ONLY
+when both the mapping exists AND the streams-inventory cache already has
+that stream — never a fabricated value for a cold cache or an unmapped
+layer. Wired into the existing `/api/data/layers` route (server/routes.ts)
+right before the response, reusing `getStreamsInventoryCached()` (already
+imported for the Streams tab; `bootStreamsInventoryPoll()` runs at route-
+registration time regardless of file order, so no request-ordering risk).
+
+CLIENT: `LayerMeta` gained an optional `freshness` field; the existing
+per-row renderer (`renderLayerRow`, unchanged structure) shows a new
+compact chip — "data 24m old" / "data 17.1d old" — colored green/blue/
+amber/grey by health (live/recent/stale/no-data), gated on the layer
+being `toggleable` (status === "live") and not in the open-tab-skew
+"unwired" state, so it never appears next to a misleading "awaiting API
+key" or "reload to enable" row. `freshnessLabel()` is a pure unit-
+conversion helper (minutes under 1h, hours under 48h, days beyond) off
+the server's own `age_hours` — no re-derived staleness judgment. CSS
+follows the existing ADS-B data-state badge's live/stale/lost color
+convention for visual consistency across the site.
+
+VERIFICATION:
+1. `server/layerFreshness.test.ts` (6 new tests): mapped+cached layer
+   gets the field, unmapped/uncached layers don't, the join never
+   mutates its input, the cot/cftccot distinction is pinned explicitly,
+   and two integrity tests assert every `LAYER_TO_STREAM` value has a
+   real manifest file and every key is a real layer id (a stale entry
+   fails CI immediately instead of silently rotting).
+2. `python3 -m pytest -q`: untouched, no Python changed.
+3. `npx tsx --test server/*.test.ts`: 856/856 (850 baseline + 6 new).
+4. `npm run check`: 77 tsc errors both before and after (git-stash A/B
+   diff), zero new — pre-existing baseline, unrelated to this change.
+5. `npm run build`: clean.
+6. `npm run visual --page data`: FIRST run showed 1 hard failure (1440px
+   p95 frame 433ms > the 350ms gate). Did NOT assume the change caused
+   it — re-ran the harness against a `git stash`ed pre-change baseline
+   (0 hard failures, p95 300ms) and then against the change again
+   (0 hard failures, p95 300ms, byte-identical to baseline) — the
+   original 433ms reading was SwiftShader software-rendering noise (the
+   same "environmental" flakiness class prior sessions have documented),
+   not a regression; a clean re-run with the change applied matches
+   baseline exactly.
+7. LIVE VERIFICATION beyond the harness's hand-written fixture (which
+   doesn't exercise the real merge — same limitation prior sessions
+   noted for the imagery field): booted the real built dist/index.cjs
+   locally and drove a real headless-Chromium screenshot of the actual
+   `/app#/data` layer panel with a route-intercepted `/api/data/layers`
+   response carrying realistic freshness values for three layers.
+   Confirmed the chip renders with the correct label AND color for all
+   three health states: insider (live, 0.4h -> "data 24m old", green),
+   short-sale volume (stale, 411.2h -> "data 17.1d old", amber), COT
+   (recent, 122.9h -> "data 5.1d old", blue) — screenshot inspected
+   directly, not just asserted programmatically.
+8. Added `freshness` fields to 3 layers in scripts/visual_check.mjs's
+   fixture (insider/live, shortvol/stale, cot/recent) so the harness
+   itself now exercises all three non-empty chip states on every future
+   run, not just this session's manual probe.
+
+BACKTEST: N/A (pure UI/data-join change, no trading/measurement logic
+touched).
+
+NEXT: 13 more manifest-backed layers were checked and genuinely could
+NOT be mapped this session for the reasons above (see MAPPING
+VERIFICATION) — none of them are actionable without either resolving
+the gem coal/methane ambiguity (would need a route-level split of the
+"gem" manifest's freshness, or a second manifest file per GEM dataset)
+or building freshness tracking for the derived-join layers (portdwell/
+shadowstats) directly off vessels' own health, which duplicates the
+vessels layer's own chip and needs its own design pass, not bundled
+here. DATACORE MAXIMUS Phase 5's other remaining item, 3c (S2
+utilization review across asset classes), is still open — a
+[RESEARCH]-shaped task for a future session.
+
+---
+
+## 2026-07-23 (scheduled-routine session) [RULE-REVIEW] — backtest_v2.py's flat 5bps execution cost was simulator fiction for illiquid names; replaced with a liquidity-tiered cost mirroring the live fill-tracking model (v1.0.480, T-BOT/measurement)
+
+TERRITORY: measurement code (backtest_v2.py), closest to T-BOT (no other
+session running concurrently this session). package.json/package-lock.json
+(SHARED) bumped as the final part of this same commit per the merge-order
+protocol — version read-and-incremented at commit time (1.0.479 -> 1.0.480),
+lockfile's own stale 1.0.477 root version corrected alongside it (same
+recurring benign-drift class prior sessions have logged and fixed in-place).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + this session's
+scheduled prompt), then experiments.md tail and open_questions.md KNOWN
+BROKEN. `/api/health`: status ok, bot active, drawdownPct 0.0, liveness.dark
+false, scanner consecutiveFailures 0 — no LIVENESS ALARM, no repair-mandate
+override. Loop-health ratio over the last 10 tagged entries (PRODUCT/REPAIR/
+REPAIR/PRODUCT/RESEARCH/REPAIR/REPAIR/PIPELINE/PRODUCT/RESEARCH, reading
+back through recent entries) is under the 7/10 thrash threshold. KNOWN
+BROKEN's remaining open items (#10 dead score-band config, #12(b)/(c) gated
+options-exit feedback follow-ups, #20 master_kill_switch threshold judgment,
+#18's ThreadPoolExecutor fix pending live confirmation) are all explicitly
+gated on either accumulating live history or a design decision already
+deferred by a prior session — none are liveness-critical or block new work,
+so this is not a mandatory [REPAIR] session.
+
+ALSO CHECKED (not this session's action, logged for the next session):
+GitHub Actions CI is still in the sustained repo-wide outage the 2026-07-22
+PR #587 entry (see wishlist.md) first flagged — `actions_list` shows every
+run since 2026-07-22T14:09:21Z failing instantly with no runner ever
+allocated (most recent sampled run this session: 2026-07-23T00:49:07Z,
+still failing), now 12+ hours and climbing. Not re-investigated further this
+session (no new tool access, same `get_job_logs` 404 limitation as the prior
+two sessions) — this session's own gates below are 100% local verification,
+same posture as PR #587's precedent.
+
+PRIMARY ACTION SELECTION: this session's prompt named four EDGE DOCTRINE
+axes and asked to state a prior before building. All of axis (a)'s standing
+examples are already built or honestly closed (Sentinel-2 site imagery
+shipped, EDGAR Form4/13F built with Form4 gate 2 KILLED on replication
+failure, USAspending/CFTC-COT/TFF/FDA-calendar/SEC-FTD/FINRA all shipped,
+Google Trends gate-1 FAILED and correctly left unbuilt) — no fresh pipeline
+to build without inventing a new root outside this session's research
+budget. Axis (b) (capacity-constrained/illiquid-universe research) comes
+with its own explicit precondition in this session's own prompt: "requires
+the fill-realism fix first, or results are simulator fiction." Tracing
+that down: `open_questions.md`'s "Options fill realism" entry describes the
+LIVE bot.ts fill-tracking haircut as volume-tiered (good) but flagged
+options as the weak spot — but a full read-before-write trace (grepped
+every `track_fill`/slippage call site in bot.ts, options_execution.py,
+options_manager.py, tiered_strategy.py, shadow_portfolio.py, exitFill.ts)
+found options currently have ZERO fill/slippage simulation anywhere in the
+live pipeline (KNOWN BROKEN #12(c) already documents that options exits
+record no feedback at all yet, gated on #12(b) resolving first) — so
+"replacing" an options model that doesn't exist yet would be premature,
+out-of-order work ahead of an already-queued, already-gated item.
+PRIOR (stated before reading further): if the live fill model has a real
+liquidity gap, the OFFLINE backtest engine — the tool actually used to
+validate strategies before they trade — almost certainly has the identical
+or worse gap, since it was rebuilt from scratch on 2026-07-03 without ever
+importing the live tiering. Reading backtest_v2.py confirmed this: `COST_PCT
+= 0.0005` (a flat 5bps) is applied to EVERY fill regardless of the ticker's
+own trading volume — the exact "simulator fiction for a thin name" failure
+mode the task's own axis (b) note was warning about, just in the equity
+backtest rather than options. Chose this as the fill-realism prerequisite:
+it is a self-contained, well-scoped MEASUREMENT INTEGRITY fix (own PR, per
+CLAUDE.md), and it is the literal blocker axis (b) named — any future
+small/illiquid-universe backtest research is fiction until this is fixed.
+
+FINDING: `backtest_v2.py`'s `simulate()` charges the identical 5bps cost on
+every entry, stop/target/time-stop exit, and end-of-backtest close for
+every ticker — SPY and a 400K-share-a-day microcap pay the same rate. This
+directly violates REASONING STANDARD #6 ("evaluate every strategy net of
+spread, slippage... net of the liquidity you can actually get at your
+size") and would silently make EDGE DOCTRINE #2's target zone (small/
+illiquid names, structurally under-arbitraged because whales can't fit)
+look artificially cheap to trade in any future backtest — exactly the kind
+of result that could not be trusted once axis (b) research actually begins.
+
+FIX: added `liquidity_cost_pct(bars, i)` — per-side cost tiered by the
+trailing 20-day average share volume ending at bar `i` (inclusive; no
+lookahead, since a decision/fill at bar `i` only ever needs data through
+`i`). Tiers mirror the four share-volume breakpoints server/bot.ts's own
+live fill-tracking haircut already uses (>20M/>5M/>1M/else — lines ~4110-
+4114), using the MIDPOINT of each live tier's random range instead of
+live's jitter: 0.00035/0.00075/0.00115/0.00185 (vs. live's 0.02-0.05%/
+0.05-0.10%/0.08-0.15%/0.12-0.25%). Deliberately NOT random: PROMOTION RULE
+3 requires comparing Sharpe/max-drawdown across code changes, which demands
+the backtest return the IDENTICAL result on every run for the same inputs
+— a random per-fill cost would make that comparison meaningless. `COST_PCT`
+is kept as the no-volume-history fallback (empty `bars["volume"]`), not
+removed, so the one existing caller path degrades safely. Replaced all
+three fill sites (stop/target/time-stop exit, next-bar-open entry,
+end-of-backtest close) with calls to the new function — zero other logic
+touched (scoring, regime gating, position sizing, stops/targets all
+byte-identical).
+
+WHY THE LIVE TIER VALUES, NOT NEW ONES: RULE REVIEW requires evidence
+before changing a threshold; inventing a NEW cost schedule from nothing
+would have no evidentiary basis. The live tiers ARE the evidence — they
+are the system's own already-shipped, already-reasoned-about model for
+what a real fill actually costs at each liquidity level (bot.ts's own
+comments cite the same four-tier logic). Reusing them (as fixed midpoints)
+inherits that existing justification instead of fabricating a new one.
+
+MEASUREMENT INTEGRITY DISCLOSURE (before vs. after on identical synthetic
+inputs, git-stash A/B, `momentum` strategy, BULL regime, 420 bars, 1yr):
+  liquid ticker (30M shares/day, mirrors an ETF like SPY):
+    PRE:  total_return_pct=10.35  sharpe=11.777
+    POST: total_return_pct=10.43  sharpe=11.813   (slightly BETTER)
+  illiquid ticker (500K shares/day, mirrors a thin small-cap):
+    PRE:  total_return_pct=10.35  sharpe=11.777   (identical to the liquid
+          run — proof the old model was blind to liquidity entirely)
+    POST: total_return_pct=9.61   sharpe=11.062   (meaningfully WORSE)
+BIAS DIRECTION: this is NOT a uniform "make it look better" change (which
+MEASUREMENT INTEGRITY treats as suspect by default) — it moves liquid-name
+results marginally better (5bps was already a slightly pessimistic flat
+rate for a mega-liquid ETF; 3.5bps is the live-tiering-derived, still
+conservative, replacement) and illiquid-name results substantially worse
+(the actual fix), in exactly the direction EDGE DOCTRINE #2 research needs
+to trust: any future small/illiquid-universe backtest can no longer borrow
+SPY-grade execution costs for free.
+
+RATCHET: new `test_backtest_v2_liquidity_cost.py` (11 tests) — tier-value
+pins against the documented live-midpoint mapping, the >20M boundary's
+strict-inequality semantics, a no-lookahead probe (a volume spike planted
+strictly after bar i must not affect bar i's cost; a spike that has aged
+out of the trailing 20-day window must stop affecting later bars), the
+empty-volume fallback to `COST_PCT`, an internal-consistency check on the
+tier table itself, a determinism proof (byte-identical `run_backtest`
+output — minus the wall-clock `generated_at` field — across two runs of
+the same inputs), and the end-to-end illiquid-underperforms-liquid proof
+above as a real regression test. A/B-verified: the whole new test module
+fails to even IMPORT against pre-fix `backtest_v2.py` (`liquidity_cost_pct`
+doesn't exist there), which is as strong a ratchet proof as a behavioral
+diff for a function this PR introduces. Updated the one existing test that
+hardcoded the flat `COST_PCT` (`test_bull_regime_allows_entries_and_no_
+lookahead` in test_audit_critical.py) to compute its expected next-bar-open
+fills through `liquidity_cost_pct()` instead — the assertion's INTENT (no
+lookahead) is unchanged, only the cost model it checks against.
+
+GATES: `python3 -m pytest -q` 855 passed, 3 skipped (848 baseline + 7 new
+in the ratchet file + the updated existing test still passing; baseline
+established by installing the sandbox's usual missing deps first — numpy/
+pandas/scipy/yfinance/openpyxl/pytest, the same recurring clean-container
+gap prior sessions have logged every time). `npx tsx --test server/*.test.ts`
+791 passed, 7 failed — zero TypeScript files touched by this PR, and the 7
+failures (aircraftTiling/apiKeyAccounts/compression/gdeltEvents/owmTiles/
+seafloorTiles/securityMiddleware) are network-dependent tests unrelated to
+Python backtest logic; 4 of those 7 names match the exact set prior
+sessions have already logged as pre-existing sandbox-network failures.
+`npx tsc --noEmit`: 3 errors, the same pre-existing sandbox-environment
+trio (missing @types/node/vite entry points, deprecated tsconfig option)
+prior sessions have repeatedly confirmed unrelated. `npm run build` not
+re-run (zero TS/client files touched; the last several sessions' build
+gate is unaffected by a Python-only diff).
+
+BACKTEST: this PR IS the backtest engine's own measurement code, so its
+own "backtest" is the before/after disclosure above, not a strategy
+Sharpe/drawdown comparison against main — PROMOTION RULE 3's ordinary
+gate doesn't apply the way it would to a new strategy or threshold; the
+MEASUREMENT INTEGRITY section's own bar (this entry) is what governs
+instead, and is satisfied above.
+
+NEXT: axis (b) capacity-constrained/illiquid research is now unblocked at
+the DATA/backtest layer — a future session can run `backtest.py <ticker>
+momentum <years>` on genuinely thin small-caps and trust the cost isn't
+fiction. Two follow-ups NOT done here (own future PRs): (1) the live
+options fill-tracking gap from `open_questions.md`'s "Options fill
+realism" entry is still real and still gated behind KNOWN BROKEN #12(b)/
+(c) resolving first — do not build it out of order; (2) the live stock
+haircut in bot.ts uses raw SHARE volume, not dollar volume, so a cheap
+high-share-count stock and an expensive low-share-count stock in the same
+tier get treated as equally liquid even though their real dollar liquidity
+differs — carried over unchanged here (kept consistent with the live
+model, one logical change per PR), worth its own RULE-REVIEW session with
+counterfactual evidence if it turns out to matter. Also unresolved and
+worth a human's attention independent of this PR: the GitHub Actions
+outage noted above has now passed 12 hours with zero real CI signal on
+every merge across the whole repo — see wishlist.md's existing entry for
+the quota-exhaustion hypothesis and the Settings > Billing > Actions
+usage check no session tool can perform.
+
+
+## 2026-07-23 (scheduled-routine session) [RESEARCH] -- GEM methane gate-2(c) Abbreviation-widening: implemented the filed NEXT STEP, verified NULL effect on the live dataset, root-caused why (T-DATACORE-adjacent, standalone research script)
+
+TERRITORY: `scripts/gem_methane_gate2c.py` (standalone Python research
+script, no runtime import -- confirmed via its own docstring and a grep
+of every `server/*.ts` for the module name, zero hits) + new
+`test_gem_methane_gate2c.py` (repo-root test, matching the existing
+`test_form4_gate2.py`/`test_grid_stress_gate2.py` convention). No
+production/runtime/client code touched -- no package.json version bump
+(PROMOTION RULE 3/4 apply to strategy/parameter/trading-behavior
+changes; this is pure offline research measurement code with zero
+runtime import, same class as the 2026-07-22 Form4-gate-2 session that
+also shipped no version tag).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 -- no LIVENESS ALARM. `/api/diag/audit?limit=100`:
+only expected mechanism firings (T1-FAIL "no options contracts" per
+ticker, KILL-WARN correlation-cap/free-BP mechanisms operating as
+designed, TIER2/TIERS/MANIPULATION routine entries) -- no new bug to
+repair. Loop-health ratio over the last 10 tagged entries: 4 REPAIR / 3
+PRODUCT / 2 RESEARCH / 1 RULE-REVIEW -- under the 7+ thrash threshold,
+no meta-problem. GITHUB ACTIONS CI STILL DOWN (re-confirmed this
+session): `actions_list` shows the most recent run at
+2026-07-23T08:43:48Z still `completed`/`failure` with the same instant
+runner-never-allocated signature as every run since
+2026-07-22T14:09:21Z -- now 18+ hours continuous, a 4th consecutive
+session confirming the outage with zero human-side fix visible yet.
+Not re-diagnosed further here (same tool limitations as the prior 3
+entries); this session's own gates below are 100% local verification
+only, same posture as the immediately preceding PRs. Flagged directly
+to the human this session via the scheduled-routine notification
+channel, given 3 prior wishlist.md entries have not yet produced a
+visible fix and the PROMOTION RULES CI gate has now been silently
+absent for the better part of a full day across every merging session.
+
+PRIMARY ACTION SELECTION: no new audit-log bug, no matured experiment
+ready for judgment found this session (checked TIER-KILL audit --
+still empty, not yet ready; Form4 gate 2 already closed; GEM methane
+gate-2(c) itself was the last real experiment logged, 2026-07-20,
+FAIL-but-inconclusive on N=32/8-tickers, CRC-dominated). Delegated a
+research subagent to survey open_questions.md/wishlist.md tails plus
+the standing program charters for a genuinely unblocked, concretely-
+scoped, single-PR fall-through item (SESSION BUDGET tier 1). Its
+finding: the 2026-07-20 GEM methane gate-2(c) entry's own filed NEXT
+STEP (ii) -- "the oil_gas name-match... could likely be widened with a
+fuzzier (but still non-guessing) match against ownership.json.gz's
+Abbreviation field" -- had not been picked up by any session since
+filing. Confirmed unblocked: free (no new data/human decision needed),
+avoids the live CI outage entirely (verifiable by direct local script
+run), no FROZEN PATH contact, continues an already-open ladder gate
+rather than starting new work.
+
+READ BEFORE WRITE: read `scripts/gem_methane_gate2c.py` in full this
+session (all ~470 lines) before touching it -- `build_ownership_index()`
+(lines 149-183) indexed only `("Full Name", "Name")` into `name_to_id`;
+`resolve_ticker_for_plume()` (lines 252-281) matches oil/gas
+Operator/Owner/Parent free text against that same index. Verified live
+`datacore/gem/ownership.json.gz` actually has `Abbreviation` populated
+on 1,833/26,250 entities (e.g. `"Full Name": "Aalborg Portland
+(Anqing) Co Ltd", "Abbreviation": "APAQ"`) before writing any code.
+
+FIX: added `"Abbreviation"` as a third field to `build_ownership_index`'s
+existing `for field in (...)` loop, same normalize -> collision-drop
+discipline already applied to Full Name/Name (a colliding Abbreviation
+across two different Entity IDs is dropped from the index entirely,
+never guessed -- verified by a new test). Docstring's TICKER RESOLUTION
+METHOD section updated to name the third field and when it was added.
+
+RESULT -- NULL EFFECT ON THE REAL DATASET, ROOT-CAUSED (not left as an
+unexplained non-result, per REASONING STANDARD #10's "state the prior,
+then update" discipline extended to explaining a surprising null): ran
+`scripts/gem_methane_gate2c.py` against production (`/api/data/
+methane-plumes`, live `datacore/gem/*`) post-change and `git stash`
+pre-change for an A/B. `resolution_counts` ({"none": 3384,
+"name_operator": 55, "name_parent": 16, "coal_owner_id": 18}) and the
+resolved ticker set (ARLP/BTU/CNR/CODQL/CRC/CVX/HCC/METC, N=32 events)
+are BYTE-IDENTICAL before and after -- the widening changed nothing on
+today's data. Traced why rather than assuming "no operator string
+happens to equal an abbreviation": `normalize_company_name`'s own
+pre-existing short-fragment guard (`if len(tokens) < 2 and len(out) <
+5: return ""`, written to stop spurious FULL NAME substring matches)
+also gates Abbreviation keys, and does so hard -- checked the real
+distribution: 1,138 of 1,833 populated Abbreviation values (62%) are
+under 5 characters and are therefore NEVER indexed regardless of this
+fix, median length 4. This is judged CORRECT, not a bug to route
+around: a 2-4 char code matching arbitrary free-text Operator/Owner/
+Parent strings would be a far more likely false positive than a
+genuine identifying match -- the same precision-first reasoning that
+already governs every other collision-drop in this script. Left the
+guard untouched; special-casing Abbreviation to bypass it would trade
+precision for recall in exactly the direction this ladder gate's own
+stated discipline (ambiguous collisions dropped, never guessed) argues
+against, with no evidence basis for the trade.
+
+RATCHET: new `test_gem_methane_gate2c.py` (9 tests, zero coverage
+existed for this script before) -- abbreviation-resolves at >=5 chars,
+Full Name/Name/Abbreviation all indexing the same entity
+simultaneously, colliding-Abbreviation-across-two-entities dropped
+(not guessed), missing-Abbreviation-field skipped cleanly, an
+end-to-end `resolve_ticker_for_plume` proof via Abbreviation, a
+no-match-on-unrelated-text negative case, the sub-5-char guard
+documented as a passing (not a bug) test with the real 1138/1833 ratio
+in its comment, and two `resolve_cik_from_entity_id` sanity checks
+proving the separate ID-chain path is undisturbed. `python3 -m pytest
+-q`: 864 passed, 3 skipped (baseline 855 + 9 new, zero regressions).
+No TypeScript/client files touched -- `npx tsc`/`npm run build` not
+re-run (matches the precedent for Python-only diffs, e.g. the
+2026-07-23 backtest liquidity-cost PR immediately prior).
+
+BACKTEST: N/A -- this changes ticker-RESOLUTION coverage for an
+offline gate-2(c) research script, not any scoring/sizing/execution
+path; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply, and this
+is explicitly NOT a MEASUREMENT INTEGRITY change either (it does not
+touch the backtest engine, fill model, or any live P&L computation --
+it only widens what an already-precision-first name-matcher considers
+a candidate key).
+
+HYPOTHESIS (stated before this session ran anything, carried from the
+2026-07-20 filing): expected a modest increase in the 71-resolved
+oil/gas pool. ACTUAL: zero change -- recorded here as the honest
+result rather than silently dropped, so a future session does not
+re-attempt the identical widening expecting a different outcome on
+this same GEM release. Re-running this specific NEXT STEP only makes
+sense once GEM ships a new release with different name/abbreviation
+coverage, OR if a future session decides (with actual evidence, not
+this session's guess) that the short-abbreviation guard is too
+conservative for THIS specific field and reruns the ladder with that
+threshold change logged as its own RULE-REVIEW-style justified
+decision -- not assumed here.
+
+NEXT (unclaimed): the 2026-07-20 filing's other two NEXT STEPs remain
+open -- (i) re-run gate-2(c) wholesale once GEM ships a newer release
+(more detection history reduces the CRC single-name dominance); (d)
+matching against operators' disclosed methane intensity remains
+CURRENTLY UNSOURCED. Also unresolved, now flagged directly to the
+human (see this session's own notification): the GitHub Actions
+outage, 18+ hours and still climbing as of this entry.
+
+
+## 2026-07-24 (scheduled-routine session) [RESEARCH] — Axis (b) illiquid-universe probe: momentum degrades in thin small-caps as predicted, but mean_reversion shows a real (if modest) edge specifically in the illiquid tier, now that the fill-cost model isn't fiction
+
+TERRITORY: `scripts/illiquid_universe_probe.py` (new, standalone — nominally
+T-DATACORE by file path, but the content is pure backtest/strategy research
+reading `tiered_strategy.T1_TICKERS_FALLBACK` and `backtest_v2.py`, same
+T-BOT-adjacent-standalone-script class as the 2026-07-23 GEM methane
+session) + `test_illiquid_universe_probe.py` (repo-root, matching the
+existing `test_form4_gate2.py`/`test_gem_methane_gate2c.py` convention).
+No production/runtime/client file modified — `backtest_v2.py` and
+`tiered_strategy.py` were read, not touched. No `package.json` version
+bump: zero runtime import, no strategy/parameter/trading-behavior change
+(matches the 2026-07-23/07-22 precedent for pure offline research scripts).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + this
+session's scheduled prompt naming axes a/b/c/d). `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 — no LIVENESS ALARM, not a mandatory [REPAIR]
+session. KNOWN BROKEN's remaining open items (#10 dead score-band config,
+#12(b)/(c) gated options-exit feedback, #20 master_kill_switch threshold
+judgment, #18 pending live confirmation) are all explicitly gated on
+accumulating live history or an already-deferred design decision — none
+liveness-critical, none block new work. Loop-health ratio over the last
+10 tagged entries (RESEARCH/RULE-REVIEW/RESEARCH/PRODUCT/REPAIR/REPAIR/
+PRODUCT/RESEARCH/REPAIR/REPAIR, reading back) is under the 7/10 thrash
+threshold.
+
+GITHUB ACTIONS CI STILL DOWN, WORSE THAN LAST CHECKED: re-sampled via
+`actions_list` — every run still fails in ~2-3s with `runner_id: 0` (no
+runner ever allocated), continuously since 2026-07-22T14:09:21Z, now
+**36+ hours**. NEW THIS SESSION: the outage has produced a real, growing
+backlog, not just a missing signal — `list_pull_requests` shows 8 open
+Claude-session PRs stuck unmerged since the outage began (#594, #593,
+#592, #591, #590, #586, #585, #584), plus older stale ones (#572, #449,
+#415, #399) predating it. Confirmed PR #594's combined status is empty
+(`total_count: 0`) — its `changes` job never got a runner, so every
+downstream job (including the `Auto-merge Claude PRs` job) reports
+skipped, exactly the signature the 2026-07-22/23 entries describe. This
+is a genuine, worsening, human-actionable finding (not a routine
+re-confirmation) — sent as this session's own scheduled-routine
+notification, given 4 prior wishlist.md entries plus at least one prior
+direct notification have not yet produced a visible fix, and the backlog
+of un-mergeable work is now large enough to matter on its own.
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier 0/1 survey) to check which of the scheduled prompt's four EDGE
+DOCTRINE axes was highest-EV given research/'s current state. Its
+finding, independently verified this session: axis (a)'s named standing
+examples (Sentinel-2 tank shadows, EDGAR Form4, USAspending, CFTC COT,
+FDA calendar) are ALL already built; Google Trends/pytrends already
+FAILED gate-1 (upstream archived). Axis (b) — capacity-constrained/
+illiquid-universe research — carries an explicit precondition in this
+session's own prompt ("requires the fill-realism fix first, or results
+are simulator fiction"). That precondition was satisfied ONE session ago
+(2026-07-23, PR #588, v1.0.480: `backtest_v2.py`'s flat 5bps cost
+replaced with `liquidity_cost_pct()`, tiered by trailing volume) and its
+own filed NEXT step said axis (b) is "now unblocked ... a future session
+can run backtest.py on genuinely thin small-caps and trust the cost isn't
+fiction" — nobody had picked this up yet (the very next session went to
+GEM methane gate-2(c) instead). Confirmed unblocked, no FROZEN PATH
+contact, no human-approval blocker.
+
+Also verified before starting: local `git log`/`git branch -a` matched
+`origin/main` exactly (both at 47772d6/#589) — the PR numbers up to #594
+seen in CI runs are OPEN, unmerged PRs (the backlog above), not commits
+this session was missing. No branch collision with this session's chosen
+files.
+
+PRIOR (stated before running, Reasoning Standard #10): EDGE DOCTRINE #2
+predicts illiquid names should show MORE exploitable structure (whale
+capital can't fit). Second-order counter-prior (Reasoning Standard #5):
+`momentum.py`/`mean_reversion.py` were developed and tuned against the
+bot's actual live universe, which skews liquid/mega-cap
+(`T1_TICKERS_FALLBACK`) — so the UNMODIFIED strategy logic was expected
+to transfer poorly to microcap dynamics (dilution, gap risk, thin
+coverage) even if the underlying capacity-constrained opportunity is
+real. Expected: illiquid group underperforms liquid group on BOTH
+strategies.
+
+UNIVERSE CONSTRUCTION (documented in the script's own docstring, not
+guessed from memory/training data — READ BEFORE WRITE discipline extended
+to data selection): candidate pool = `nasdaqtrader.com/dynamic/SymDir/
+nasdaqlisted.txt` (live NASDAQ symbol directory, fetched this session),
+filtered to Market Category "S" (Nasdaq Capital Market — the smallest
+listing tier, a real structural size proxy needing no market-cap field),
+common stock only (ETF/Test-Issue/Warrant/Right/Unit/Acquisition/
+Preferred/Depositary excluded), systematic every-40th-row sample (1,334
+filtered names -> 34 candidates, not cherry-picked). Screened via
+`backtest_v2._yahoo_bars` for >=500 trading days of real history, then
+bucketed into ILLIQUID (n=10, <=1M shares/day trailing 252d) and
+MODERATE (n=7, 1-5M shares/day) using `backtest_v2.py`'s OWN existing
+`liquidity_cost_pct()` tier boundaries — so these labels are literally
+the tiers the cost model already prices, not an invented cut. LIQUID
+comparison group (n=7): AAPL/MSFT/NVDA/AMD/AMZN/CAT/GE, a subset of
+`tiered_strategy.T1_TICKERS_FALLBACK` (the live bot's own liquid anchor
+universe) minus its 3 ETF members.
+
+RESULT (`years=4`, engine=`backtest_v2` post-v1.0.480, `strategy=all` —
+squeeze always returns `data_quality: unavailable`, no short-interest
+data, so only momentum/mean_reversion produced real numbers):
+  - illiquid (n=10): buy&hold mean **-74.7%** (brutal even among
+    SURVIVORS — see limitations). momentum mean_sharpe **-0.236** (3/10
+    positive). mean_reversion mean_sharpe **+0.246** (8/10 positive, 147
+    total trades, mean win rate 46.0%, mean total_return_pct +4.32%).
+  - moderate (n=7): buy&hold mean -74.6%. momentum mean_sharpe +0.025
+    (3/7 positive). mean_reversion mean_sharpe **-0.222** (3/7 positive)
+    — worse than both other groups.
+  - liquid (n=7): buy&hold mean +375.7%. momentum mean_sharpe **+0.559**
+    (6/7 positive). mean_reversion mean_sharpe +0.319 but only **11
+    total trades across all 7 tickers** — mega-caps rarely trigger the
+    oversold+volume-spike setup in a trending bull tape, so this reading
+    has effectively no statistical power and is NOT a fair baseline for
+    mean_reversion specifically.
+
+INTERPRETATION — prior partially confirmed, partially updated (state
+prior, then update, not just conclude): momentum MATCHES the prior —
+illiquid/moderate clearly worse than liquid, consistent with momentum
+depending on sustained institutional/analyst-driven trend continuation
+that thin names structurally lack. mean_reversion did NOT match the
+prior: a modest but consistent positive edge specifically in the
+illiquid tier (best pos_frac of the three groups, comparable-or-better
+mean Sharpe to the power-starved liquid reading, WORSE in the moderate
+tier — not a smooth liquidity gradient, a specifically-illiquid effect).
+Plausible structural story (Reasoning Standard #5, capacity/mandate
+constraint, not "nobody noticed"): thin order books mean oversold
+conditions are retail-panic-driven and mechanically exhaust once sellers
+are out, without the sustained institutional selling flow that can keep
+grinding a liquid name down for many sessions — i.e. exactly the kind of
+dynamic large funds are mandate-constrained out of trading at this
+dollar-volume size. Magnitude is modest (mean total_return_pct +4.32%
+over 4y, ~1%/yr) — a real but unspectacular signal-layer finding.
+
+HONEST LIMITATIONS (stated in the script docstring, repeated here per
+MEASUREMENT INTEGRITY discipline extended to research claims):
+(1) SURVIVORSHIP — the candidate pool is TODAY's live NASDAQ listing;
+any illiquid name that fully delisted inside the 4y window is invisible.
+Group buy&hold was still -74/-75% even among survivors — true population
+reality (including delistings-to-zero) is almost certainly worse, not
+better, and it's unclear which direction this biases the mean_reversion
+result specifically (a name approaching delisting might show
+oversold-and-never-bounces action right before dropping out, which
+would UNDERSTATE the true downside this sample can't see).
+(2) SINGLE SAMPLE DRAW — one systematic sample of 10/7 names, no
+independent re-draw, no formal significance test (t-test/bootstrap) run
+this session. Per Reasoning Standard #4, the Sharpe means above are
+descriptive, not confirmed-significant — discount accordingly.
+(3) NO OUT-OF-SAMPLE SPLIT — the full 4y window was used for both
+"discovering" and reporting the pattern, classic in-sample read.
+(4) NOT a new "data root" — momentum.py/mean_reversion.py already exist
+and already cleared their own LOGIC gate on the liquid universe
+historically; this probe asks whether that logic generalizes to a new
+market-cap segment. It grants no ladder gate on its own.
+
+NOT SHIPPED, deliberately: no strategy/threshold/config change this
+session — this is a SIGNAL-layer-style descriptive finding that hasn't
+cleared the rigor bar (no significance test, no out-of-sample split) RULE
+REVIEW requires before any threshold change, let alone a new
+mean-reversion-tuned-for-illiquid-names strategy variant. Filed as a
+hypothesis in open_questions.md with its ladder path instead (see below).
+
+RATCHET: `test_illiquid_universe_probe.py` (12 tests, zero coverage
+existed before) — buy_and_hold_pct edge cases (positive/wipeout/flat),
+classify_liquidity_tier pinned against backtest_v2's OWN
+`_LIQUIDITY_TIERS`/`_ILLIQUID_COST_PCT` boundaries (a drift in either
+place without updating the other would silently mislabel which cost tier
+this probe's tickers actually price at), summarize()'s aggregation
+(pos_frac, means, error-row handling, empty-group no-crash), and a pin
+that the frozen ILLIQUID/MODERATE/LIQUID candidate lists have no overlap
+and LIQUID is a genuine subset of `T1_TICKERS_FALLBACK` minus ETFs (guards
+against an accidental edit silently changing the study population).
+`python3 -m pytest -q`: 876 passed, 3 skipped (864 baseline + 12 new,
+zero regressions). No TypeScript/client files touched — `npx tsc`/
+`npm run build` not re-run, matching the established precedent for
+Python-only research-script diffs.
+
+BACKTEST: N/A — this is offline research reading the (already-fixed)
+backtest engine, not a scoring/sizing/execution change; PROMOTION RULE
+3's Sharpe/drawdown gate doesn't apply, and MEASUREMENT INTEGRITY doesn't
+either (the cost model itself is untouched — this session only consumed
+it).
+
+CI: still down (see above) — this PR ships on full local verification
+only (pytest gate above), following the established option-(c) precedent
+from the 2026-07-22/23 entries; merged directly via the GitHub API after
+confirming no other check signal was available, same as every session
+merging in this window.
+
+NEXT (filed in open_questions.md as its own hypothesis with a ladder
+path): (i) an independent re-draw (different stride/seed on the NASDAQ
+symbol directory, or a second exchange's small-cap tier) to check the
+mean_reversion-in-illiquid finding isn't an artifact of this one sample;
+(ii) a proper train/test time split before trusting the pattern
+out-of-sample; (iii) a formal significance test (bootstrap CI on the
+Sharpe difference, or a paired test across tickers) before this could
+even be considered for a LOGIC-gate ablation; (iv) if it survives (i)-
+(iii), the natural next step is NOT porting the liquid-tuned
+mean_reversion config unchanged into a new illiquid-universe strategy
+variant, but re-tuning entry/exit thresholds specifically for microcap
+volatility — a separate, larger effort, not assumed here. Also
+unresolved: the GitHub Actions outage and its now-8-PR backlog, flagged
+directly to the human this session (see notification).
+
+## 2026-07-24 (scheduled-routine session, 2nd of the day) [REPAIR] — CSP options-chain fetch failures were indistinguishable from genuine no-options-listed; diagnosability fix + KNOWN BROKEN #25 filed (v1.0.481)
+
+TERRITORY: `options_execution.py` (T-BOT scope) + new root-level
+`test_options_chain_diagnosability.py` (matching the `test_form4_gate2.py`/
+`test_gem_methane_gate2c.py` standalone-test convention) + `research/
+open_questions.md` KNOWN BROKEN #25 (SHARED, minimized to the one new
+numbered item, appended as the last edit before this commit) + `package.json`
+version bump (SHARED, read-and-incremented at commit time per the
+WORKSTREAM PARTITION merge-order protocol — origin/main confirmed at
+5e42491/v1.0.480, no other session had bumped past it).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: status ok,
+bot active, drawdownPct 0.0, liveness.dark false, scanner
+consecutiveFailures 0 — no LIVENESS ALARM. Loop-health ratio over the
+last 10 tagged entries (reading back from the axis-(b) illiquid-universe
+session earlier today): RESEARCH/RESEARCH/REPAIR/PRODUCT/REPAIR/REPAIR/
+PRODUCT/RULE-REVIEW/RESEARCH/RESEARCH — 3/10 REPAIR, nowhere near the
+7+ thrash trigger. GITHUB ACTIONS CI: re-sampled via `actions_list` —
+still every run `completed`/`conclusion:failure` since
+2026-07-22T14:14:38Z (now ~45h); 13 open PRs total, the same 8-PR
+CI-outage backlog the prior session already flagged (#584/#585/#586/
+#590/#591/#592/#593/#594) plus 5 older stale PRs unrelated to the
+outage (#77/#399/#415/#449/#572) — no new PRs appeared since #594
+(2026-07-24T00:24Z), so the backlog is unchanged, not growing further,
+and was already surfaced to the human via the prior session's own
+notification. Per the "silence when nothing changed" principle, this
+session did NOT send a second notification for the same unresolved,
+unchanged, already-reported outage — it's an infra-level GitHub Actions
+problem outside this repo's control (`.github/workflows/` is FROZEN),
+already in wishlist.md multiple times.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, checked `/api/diag/audit`
+(DIAG_TOKEN available in env) for a live, currently-actionable bug
+before falling through to research — this is the top tier of the
+budget and the REPAIR MANDATE's explicit instruction. Found: of the 60
+most recent audit entries, 24 were `T2-FAIL`, all three of a fixed set
+of tickers (STM, DRAM, HYG) recurring on literally every Tier2 cycle
+sampled: `"No options contracts available for this ticker"`. Verified
+today is a live trading Friday (2026-07-24, computed from the known
+2026-01-01=Thursday anchor), not a weekend — so the 2026-07-12/13
+"benign weekend OPRA quiet" precedent this exact symptom was excused
+under twice before (open_questions.md KNOWN BROKEN #3 neighbor note,
+and the 2026-07-12 session's explicit "tempting to chase... but today
+is Sunday, deferred to Monday" call) does not apply this time, and
+nobody had done the deferred Monday-or-later check since. HYG in
+particular is a highly liquid options-listed ETF (iShares iBoxx High
+Yield Corporate Bond) — a 100% per-cycle "no contracts" reading for it
+is structurally implausible as a genuine "no listed options" case and
+far more consistent with a silently-failing fetch.
+
+READ BEFORE WRITE: read `options_execution.py`'s `select_contract` and
+`_fetch_option_chain` in full this session (not from memory/precedent
+text alone, though the 2026-07-12 entry's trace pointed at the right
+function). Confirmed live: `_fetch_option_chain` requests
+`v1beta1/options/snapshots/{ticker}` with a hardcoded `feed: "opra"`
+(the paid Algo Trader Plus real-time feed, per its own comment) and on
+`resp.status_code != 200` just does a bare `logger.warning(f"...:
+{resp.status_code}")` — a Python-log-only line, invisible to
+`/api/diag/audit` and to the caller, which sees only an empty list
+indistinguishable from a genuinely empty chain. `select_contract` then
+returns the same generic `{"error": "No options contracts available
+for this ticker"}` regardless of cause, which `server/bot.ts`'s tier
+dispatcher (`audit("T"+action.tier+"-FAIL", ...r.reason...)`, line
+~3504) puts straight into the audit log verbatim — confirmed by
+tracing `server/bot.ts` end to end, not assumed. Grepped every call
+site of `_fetch_option_chain` (2, both in `options_execution.py`) and
+confirmed `options_scanner.py` has a structurally identical
+`_fetch_options_chain` (note the extra "s") with the SAME bug shape
+(non-200 → silent `break`, not even a logger line) but 8 separate call
+sites on a different execution path (scanner candidate screening, not
+Tier1/2 CSP order placement) — out of scope for a one-change PR, not
+touched, filed as a scope note in KNOWN BROKEN #25 instead of expanding
+this diff.
+
+FIX (diagnosability only — root cause NOT yet confirmed, correctly so
+per REASONING STANDARD #4/#10: don't guess a specific fix before the
+new visibility exists to confirm which cause it actually is):
+`options_execution.py` gained a module-level `_last_chain_error: dict`
+keyed by ticker. `_fetch_option_chain` now clears any prior entry for
+the ticker at the top of each call (so a stale reason can never leak
+into an unrelated later failure), and on a non-200 response captures
+`f"HTTP {status}: {body[:200]}"` (on an exception, `f"exception:
+{str(e)[:200]}"`) instead of only logging it. `select_contract`'s
+empty-chain branch now reads that captured reason (falling back to the
+honest `"chain fetch succeeded but returned zero contracts in range"`
+when there was no HTTP-level failure — i.e. a genuinely empty chain)
+and threads it into both the logger warning and the returned `error`
+string — which reaches the audit log automatically via the existing
+`r.reason` read in `server/bot.ts`, no TypeScript change needed.
+
+RATCHET: `test_options_chain_diagnosability.py` (new, zero coverage
+existed for this function's error path before) — 6 tests: non-200
+captured with status+body, exception captured, a genuinely-empty (200,
+zero snapshots) chain leaves NO stale error, a later successful fetch
+clears a prior ticker's error, and both of `select_contract`'s two
+error-string branches (real captured reason vs. the honest "zero
+contracts" default, so a genuine no-options-listed case is never
+mis-reported as a fabricated HTTP failure). A/B-verified via `git
+stash push -- options_execution.py`: all 6 fail against pre-fix code
+(`AttributeError: module 'options_execution' has no attribute
+'_last_chain_error'` × 4, plus 2 assertion failures on the unchanged
+generic error string), all 6 pass post-fix.
+
+Full suite: this session also had to `pip3 install -r requirements.txt
+-r requirements-dev.txt` (a bare sandbox had neither pytest nor the
+runtime deps installed) before any gate could run — `python3 -m pytest
+-q`: 886 passed, 1 skipped, 0 failed. The count differs from the
+prior session's stated 876 passed/3 skipped baseline: installing
+`requirements-dev.txt` (openpyxl, xlrd, etc.) this session unblocked
+several previously import-skipped test modules that aren't related to
+this change, not a discrepancy in this diff's own tests (6 new tests
+accounted for, zero regressions in either reading). No TypeScript/
+client files touched — `npx tsc`/`npm run build` not re-run, matching
+the established precedent for Python-only diffs.
+
+BACKTEST: N/A — no scoring/sizing/strategy logic changed, purely which
+string reaches a log line and an error-return value on an already-
+failing path; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply.
+Version bumped to v1.0.481 per PROMOTION RULE 4 (this touches the live
+Tier1/2 CSP execution path, so `code_version` attribution in trade
+feedback should separate any live-behavior change from prior code, even
+though this specific change is diagnostics-only and no order-placement
+logic moved).
+
+CI: still down (see SESSION-START CHECKS above) — ships on full local
+verification only (pytest gate above), following the established
+option-(c) precedent from the 2026-07-22/23/24 entries; will merge
+directly via the GitHub API after confirming no other check signal is
+available.
+
+NEXT (filed as KNOWN BROKEN #25 in open_questions.md with its own ladder/
+check path): once deployed, query `/api/diag/audit?type=T2-FAIL` — any
+STM/DRAM/HYG (or other) recurrence should now carry a specific reason.
+An `HTTP 403` reading would confirm an OPRA/Algo-Trader-Plus entitlement
+gap (next fix: an entitlement-aware fallback mirroring `alpaca_feed.py`'s
+`bars_feed()`/`data_feed()` precedent). A consistent honest "zero
+contracts" reading for the SAME tickers would instead point at the CSP
+candidate universe including names with no listed options at all (a
+different, upstream-universe fix). Also queued: `options_scanner.py`'s
+identical bug shape (scope-noted above, not fixed this session) as a
+smaller separate follow-up PR.

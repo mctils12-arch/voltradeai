@@ -395,15 +395,21 @@ class TestBacktestV2Engine(unittest.TestCase):
         self.assertEqual(mom["data_quality"], "degraded")
 
     def test_bull_regime_allows_entries_and_no_lookahead(self):
-        from backtest_v2 import run_backtest, COST_PCT
+        from backtest_v2 import run_backtest, liquidity_cost_pct
         bars = self._synth_bars(420, daily=0.004)
         vxx = self._bull_vxx(bars)
         out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars, vxx=vxx)
         mom = out["results"][0]
         self.assertGreater(mom["n_trades"], 0, "BULL regime should permit entries")
-        # No-lookahead: every entry price must equal some bar's OPEN (+cost),
-        # never the signal bar's close.
-        opens = {round(op * (1 + COST_PCT), 2) for op in bars["open"]}
+        # No-lookahead: every entry price must equal some bar's OPEN (+cost,
+        # tiered by that signal bar's own trailing volume), never the signal
+        # bar's close. _synth_bars' constant 5M volume puts every bar in the
+        # same liquidity tier, so this reduces to one cost value — but reads
+        # it from the real per-bar function rather than a flat constant, so
+        # this test tracks liquidity_cost_pct() instead of re-diverging from
+        # it the way the old COST_PCT-based version would have.
+        opens = {round(bars["open"][j] * (1 + liquidity_cost_pct(bars, j - 1)), 2)
+                 for j in range(1, len(bars["open"]))}
         for t in out["all_trades"]["momentum"]:
             self.assertIn(round(t["entry_price"], 2), opens,
                           f"entry {t['entry_price']} is not a next-bar open fill")
