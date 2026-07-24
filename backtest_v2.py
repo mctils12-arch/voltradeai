@@ -10,7 +10,10 @@ backtest_10yr_results.json trade/metrics schema.
 
 Design rules (CLAUDE.md REASONING STANDARD):
   - No lookahead: signals computed on close[i], entries at open[i+1].
-  - Costs first: COST_PCT applied per side on every fill.
+  - Costs first: liquidity_cost_pct() applied per side on every fill, tiered
+    by trailing volume — see REASONING STANDARD #6 (costs/frictions must
+    reflect the liquidity actually available, not a flat number that is
+    fiction for a thin name).
   - Regime-conditioned: classify_regime_5level from regime_util (same code
     path as live); when VXX history is unavailable the engine degrades to
     vxx_ratio=1.0 exactly like macro_data.py and flags data_quality.
@@ -40,9 +43,48 @@ except Exception:  # pragma: no cover - regime_util is in-repo
     classify_regime_5level = None
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bt_cache")
-COST_PCT = 0.0005          # per-side slippage+fees (5 bps)
+# MEASUREMENT INTEGRITY (2026-07-23): COST_PCT used to be applied flat to
+# EVERY ticker regardless of trading volume — realistic for a liquid
+# mega-cap/ETF like SPY, fiction for a thin small/micro-cap (open_questions.md
+# "Options fill realism" entry named the same failure mode for options; this
+# is its equity-side sibling, and the live system's own EDGE DOCTRINE #2
+# explicitly points research at small/illiquid names, which this flat cost
+# would silently under-charge). liquidity_cost_pct() below tiers the per-side
+# cost by trailing volume, mirroring the four share-volume breakpoints
+# server/bot.ts's live fill-tracking haircut already uses (>20M/>5M/>1M/else)
+# — but with the MIDPOINT of each live tier's range instead of live's random
+# jitter, because a backtest must return the identical result on every run
+# for PROMOTION RULE 3's Sharpe/max-drawdown comparison across code changes;
+# a random cost would make that comparison meaningless.
+COST_PCT = 0.0005          # fallback only (no volume history) — see below
 STARTING_CAPITAL = 100_000.0
 TRADING_DAYS = 252
+
+# Share-volume breakpoint -> per-side cost (mirrors server/bot.ts's
+# fill-tracking tiers: >20M shares/day 0.02-0.05%, >5M 0.05-0.10%,
+# >1M 0.08-0.15%, else 0.12-0.25% — values here are each range's midpoint).
+_LIQUIDITY_TIERS = (
+    (20_000_000, 0.00035),
+    (5_000_000, 0.00075),
+    (1_000_000, 0.00115),
+)
+_ILLIQUID_COST_PCT = 0.00185  # <=1M shares/day trailing average
+
+
+def liquidity_cost_pct(bars: dict, i: int) -> float:
+    """Per-side slippage+fee cost at bar i, tiered by the trailing 20-day
+    average share volume ending at bar i (inclusive) — no lookahead, since
+    the window never reaches past the bar the decision/fill is keyed on.
+    Falls back to COST_PCT when there is no volume history at all."""
+    vols = bars["volume"]
+    window = vols[max(0, i - 19):i + 1]
+    if not window:
+        return COST_PCT
+    avg_vol = sum(window) / len(window)
+    for threshold, cost in _LIQUIDITY_TIERS:
+        if avg_vol > threshold:
+            return cost
+    return _ILLIQUID_COST_PCT
 
 # ── Regime → backtest params ─────────────────────────────────────────────────
 # Mirrors system_config.get_adaptive_params regime overrides (MAX_POSITIONS /
@@ -288,7 +330,7 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
             elif held >= pos["time_stop"]:
                 reason = "time_stop"
             if reason:
-                fill = px * (1 - COST_PCT)
+                fill = px * (1 - liquidity_cost_pct(bars, i))
                 cash += pos["shares"] * fill
                 pnl = pos["shares"] * (fill - pos["entry"])
                 trades.append({
@@ -310,7 +352,7 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
         if pos is None and params["max_pos"] > 0:
             score = score_candidate(strategy, bars, i)
             if score >= params["min_score"]:
-                entry = bars["open"][i + 1] * (1 + COST_PCT)
+                entry = bars["open"][i + 1] * (1 + liquidity_cost_pct(bars, i))
                 atr = atr14(bars, i) or (entry * 0.02)
                 stop_pct = min(max(ATR_STOP_MULT * atr / entry * 100,
                                    MIN_STOP_PCT), MAX_STOP_PCT)
@@ -335,7 +377,7 @@ def simulate(ticker: str, strategy: str, bars: dict, spy: dict,
 
     # close any open position at the last bar (end_of_backtest)
     if pos:
-        fill = bars["close"][n - 1] * (1 - COST_PCT)
+        fill = bars["close"][n - 1] * (1 - liquidity_cost_pct(bars, n - 1))
         cash += pos["shares"] * fill
         trades.append({
             "date_entry": bars["date"][pos["entry_i"]],

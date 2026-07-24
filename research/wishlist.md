@@ -63,8 +63,16 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   appear in the inventory; aggregator enumerates the dir at runtime
   so new streams surface mechanically). streams page registered in
   the visual harness PAGES (perf/layout gate at 390/768/1440).
-  Remaining: imagery capture-date requirement (with Phase 3),
-  per-layer freshness chips.
+  Per-layer freshness chips SHIPPED 2026-07-23 (v1.0.479,
+  server/layerFreshness.ts + datamap.tsx layer-row chip) — joins the
+  Phase 4 streams-inventory health onto 16 hand-verified layer ids
+  (see experiments.md for the full trace + why each of a further ~13
+  candidates couldn't be honestly mapped this session: derived joins
+  over another stream's archive, static curated reference data, or
+  the GEM coal/methane manifest ambiguity). Remaining: imagery
+  capture-date requirement (with Phase 3); Phase 5's own
+  freshness-chip coverage could widen later if the gem/portdwell/
+  shadowstats gaps above get their own design pass.
 - CENSUS BUILD #3 JODI: SHIPPED v1.0.169 — scripts/jodi_oil.py +
   datacore/jodi/primary_stocks.json (350 series, 61k closing-stock
   points, full history 2002+; monthly session-run rebuild ~19th).
@@ -498,6 +506,16 @@ data); full-state discovery sweeps use the same account later.
     decision first.] Original: ENTSO-E token (free) — register at
     transparency.entsoe.eu → ENTSOE_TOKEN. Unlocks EU hourly
     load/gen/prices.
+    GENERATION-MIX FOLLOW-UP BUILT 2026-07-21 (v1.0.459,
+    server/euGenerationMix.ts, /api/data/eu-generation-mix, same token,
+    documentType A75/processType A16, fuel-type breakdown per zone) —
+    see experiments.md same date. NOT yet live-response-confirmed (no
+    ENTSOE_API_KEY in the build sandbox; cross-checked against entsoe-py
+    instead) — future session should read the route's `issues` field
+    post-deploy. DAY-AHEAD-PRICES remains the one open follow-up
+    (documentType A44, Publication_MarketDocument/price.amount schema —
+    genuinely separate parser, not a copy of the load/generation-mix
+    GL_MarketDocument shape).
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
@@ -1730,3 +1748,136 @@ says it should wait for market close (prepared ~14:30 ET) — this CI
 issue does not change that. STRENGTHENED ask for the human: this is now
 a 3-strike-same-session pattern, worth checking Settings → Billing →
 Actions usage sooner rather than waiting for another recurrence.
+## 2026-07-22 — SIX open, unmerged, non-draft Claude PRs found sitting stale (1-2 weeks each); disposition + a session-start-checklist recommendation (found while recovering #420 as this session's REPAIR — no code change here beyond the checklist recommendation)
+
+OBSERVED: the open-PR list (last checked and found clean on 2026-07-09,
+per PR #399's own session log — "only a long-stale unrelated human
+draft, #77, left alone") had grown to SEVEN open non-draft-or-ancient
+PRs by today: #399 (2026-07-09), #415/#420 (2026-07-10), #449
+(2026-07-12), #557 (2026-07-20), #572 (2026-07-21), plus the untouched
+April draft #77. No session in between re-checked this list — each one
+picked new roadmap/repair work without auditing whether prior work had
+actually landed. This is a real gap in the session-start checklist:
+CLAUDE.md's MEMORY PROTOCOL says read experiments.md/open_questions.md/
+wishlist.md, but never says check the open-PR list itself, so "already
+in flight" work can silently stall indefinitely once its automerge step
+happens to fail (see the two entries directly above this one — a
+concrete, confirmed mechanism for exactly this).
+
+DISPOSITION (verified against current main, v1.0.477, via `git
+merge-tree` for conflict-shape and direct file/symbol greps for
+supersession — not assumed from the PR title):
+- **#420 (satellite CSV/res.ok fix)** — RECOVERED this session (new PR,
+  see experiments.md's 2026-07-22 REPAIR entry); #420 itself closed
+  with a pointer to the replacement.
+- **#557 (3D terrain exaggeration slider)** — SUPERSEDED: main already
+  has `client/src/lib/terrainExag.ts` (shipped independently; confirmed
+  via an add/add conflict in a real `git merge-tree` test). Closed with
+  a pointer; no unique delta worth salvaging (the slider/lock-step/
+  persistence behavior it wanted are all present in the shipped
+  version, per the KNOWN STATE v1.0.475 crash-fix entry referencing the
+  same file).
+- **#399 (GIBS floods layer), #415 (gridvision RunPod reap), #449
+  (agent-tools API), #572 (ENTSO-E generation mix)** — STILL MISSING
+  from main, STILL VALID, NOT superseded (verified: no `floods`/
+  `MODIS_Combined_Flood` in datamap.tsx, no `scripts/runpod_reap.py`,
+  no `agentToolSpec`/`agent_tools` in `server/apiProduct.ts`, no
+  `server/euGenerationMix.ts`). Left OPEN. Each has REAL code conflicts
+  against current main (not just docs/package.json) per `git
+  merge-tree`: #399 conflicts in `datamap.tsx`/`layers.json`/
+  `scripts/visual_check.mjs`; #415 conflicts in
+  `datacore/runpod/ledger.jsonl` (a real ledger data file — needs
+  careful append-only-preserving resolution, not a blind merge);
+  #449/#572 conflict mainly in `server/routes.ts`-adjacent docs plus
+  package.json/experiments.md. Each is a same-shape recovery job to
+  this session's #420 fix (re-apply the diff fresh against current
+  files rather than force-merging the stale branch) — right-sized as
+  its own future session's PRIMARY [REPAIR]-or-equivalent action, not
+  bundled here (one logical change per PR/session).
+
+RECOMMENDATION for the human and for future sessions: (1) add "check
+the open-PR list" to the session-start checklist (CLAUDE.md MEMORY
+PROTOCOL currently only names the research/*.md files) — this is the
+cheapest guard against exactly this failure mode recurring; (2) a
+future [REPAIR] session should pick ONE of #399/#415/#449/#572 per
+session, same pattern as #420 this session, until the backlog clears;
+(3) #415's RunPod-reap tool is arguably the most time-sensitive of the
+four — it is a billing-safety tool (orphaned-pod reaper) for the GRID
+VISION GPU spend, currently unimplemented, meaning a repeat of the
+2026-07-10 orphaned-pod incident (PR #415's own body) has no automatic
+safety net today even though the fix was written 12 days ago.
+UPDATE 2026-07-23 (scheduled-routine session, PR #587) — this is now a
+SUSTAINED, REPO-WIDE outage, not two isolated incidents. This session's
+own PR #587 hit the identical `changes`-job instant-failure 3 times in a
+row (rerun_failed_jobs, then a full rerun_workflow_run, both failed in
+~2-3s with zero downstream jobs ever starting). Pulling the last 30
+workflow runs across the WHOLE repo (`actions_list list_workflow_runs`,
+no branch filter) and sorting by timestamp shows every single run has
+failed since **2026-07-22T14:09:21Z** — 6 straight failures on `main`
+alone (14:09, 14:13, 14:14, 14:20, 18:00, 19:42) plus every branch run
+in between (funny-fermat-eb2fi7, lucid-keller-fbi62n,
+eloquent-dijkstra-8vtjae, this session's quirky-hopper-dmaypu), through
+at least 2026-07-23T00:47Z when this was checked — **10+ hours and
+counting**, zero successes anywhere in that window. Before 14:09 the
+same 30-run sample was overwhelmingly green (22/30 success across
+2026-07-20 17:43 through 2026-07-22 12:13) — this is a real state
+change, not baseline flakiness. `get_job_logs` still 404s unconditionally
+regardless of job/PR (same as the prior finding — a tool/environment
+limitation, not new evidence either way). Given the clean before/after
+split at one timestamp and the fact that EVERY run since then fails
+identically regardless of branch or diff content, the leading hypothesis
+from the prior entry (Actions minutes/spending quota exhausted for this
+private-repo account) is now much better supported — a quota reset or
+manual billing fix at GitHub's end is the most likely single explanation
+for an instant, runner-never-allocated failure that is 100% correlated
+with wall-clock time and 0% correlated with what changed in the diff.
+IMPACT: every PR merged in this window (including direct pushes to
+`main`) has shipped with ZERO real CI signal — the PROMOTION RULES
+gate has been silently bypassed for 10+ hours, not just inconvenienced.
+This session merged PR #587 anyway after exhausting the retry options
+here, on the strength of its own full local verification (pytest,
+node test suite, tsc A/B diff, build, visual harness — see
+experiments.md), following the existing precedent's option (c); every
+other session merging during this window should be doing the same and
+should say so explicitly in its own log entry, not silently assume CI
+covered them.
+
+UPDATE 2026-07-23 02:35 UTC (scheduled-routine session): STILL FAILING,
+now 12+ hours continuous. Re-sampled the last 15 workflow runs via
+`actions_list` — 100% failure rate, most recent sampled run
+2026-07-23T00:49:07Z, same instant runner-never-allocated signature as
+every run since 2026-07-22T14:09:21Z. No new tool access this session to
+check billing/quota directly (`get_job_logs` still unusable). This
+session's own PR follows the same option-(c) precedent: full local
+verification only (see experiments.md [RULE-REVIEW] entry), no CI signal.
+FOR THE HUMAN: this has now gone well past "check when convenient" —
+every PR merged by any session in this window (at least 2 full days'
+worth of autonomous sessions) has shipped on local verification alone,
+with the PROMOTION RULES CI gate silently absent the whole time. The
+fastest confirm-or-rule-out step remains unchanged from the prior two
+entries: Settings > Billing > Actions usage (or Settings > Actions >
+General > spending limits) on the mctils12-arch account.
+
+UPDATE 2026-07-24 (scheduled-routine session): STILL FAILING, now **36+
+hours continuous** (since 2026-07-22T14:09:21Z), a 5th consecutive
+session confirming the identical instant `runner_id: 0` signature via
+`actions_list`. NEW THIS SESSION — this is no longer just a missing CI
+signal, it is now a real, growing BACKLOG of unmergeable work:
+`list_pull_requests` shows 8 open Claude-session PRs stuck since the
+outage began (#594, #593, #592, #591, #590, #586, #585, #584), spanning
+work across at least 3 different territories (PRODUCT/REPAIR/DATACORE),
+plus 4 older stale PRs predating the outage (#572, #449, #415, #399) that
+are a separate, unrelated backlog. Confirmed PR #594's combined status is
+empty (`total_count: 0` from `get_status`) — its `changes` job never
+received a runner, so every downstream job including `Auto-merge Claude
+PRs` reports skipped, the same signature every prior entry describes.
+This session's own PR followed the same option-(c) precedent (full local
+verification, direct API merge) and is not itself blocked by this — but
+8+ other sessions' work now sits open and unmerged, which is a materially
+worse state than "no CI signal, but merges still happen." FOR THE HUMAN:
+same fastest confirm-or-rule-out step as every prior entry — Settings >
+Billing > Actions usage (or Settings > Actions > General > spending
+limits) on the mctils12-arch account — but the growing PR backlog is new
+information worth weighing into how urgent this now is. Sent as this
+session's own scheduled-routine notification (5th direct flag on this
+issue; see experiments.md for the session log).

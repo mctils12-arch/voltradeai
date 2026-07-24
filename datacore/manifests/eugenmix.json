@@ -1,0 +1,24 @@
+{
+ "stream": "eugenmix",
+ "storage": "append-only JSONL day-files under <archive>/eugenmix/, keyed by OBSERVATION day (point timestamp date) with VALUE-AWARE event-identity dedup (zone|psr|ts|resolution|mw) across restarts — revisions APPEND as new vintage rows (euload precedent); seed window 120d (heap bound); gz after 3 days with merge-not-overwrite for late revisions",
+ "written_by": "server/euGenerationMix.ts archiveGenMix (2h poll, 8 politeness-spaced calls/cycle, separate from euLoad's own 8 calls — far under the 400/min limit; eager boot; key-gated on ENTSOE_API_KEY or ENTSOE_TOKEN, shared with euload)",
+ "source": "ENTSO-E Transparency Platform RESTful API (web-api.tp.entsoe.eu) — actual generation per production type, documentType A75 / processType A16 (realised), in_Domain=<EIC> per bidding zone. Query contract cross-checked against the ecosystem-canonical entsoe-py library (query_generation) this session; NOT yet confirmed against a live authenticated response (built and key-gated same-day, no ENTSOE_API_KEY in the build sandbox — only Railway has it). Scope v1: DE_LU, FR, ES, IT, NL, PL, BE, SE. Each TimeSeries in a response carries its own MktPSRType/psrType (fuel/technology code); unrecognized/missing psrType is skipped, never guessed.",
+ "license": "ENTSO-E Transparency Platform data — free re-use with source attribution per the platform's terms; attribution carried on every surface",
+ "attribution": "ENTSO-E Transparency Platform",
+ "sentiment": null,
+ "schema_version": 1,
+ "field_map": {
+  "zone|psr|ts|resolution|mw — event-identity dedup key": "bidding zone + PSRTYPE_MAPPINGS fuel code + UTC point timestamp + publication resolution + VALUE — a revised value is a new vintage (appended), an exact re-publication is a duplicate (dropped)",
+  "psr": "entsoe-py canonical PSRTYPE_MAPPINGS code (B01-B25 etc) identifying the fuel/generation technology; see server/euGenerationMix.ts for the full table",
+  "ts": "UTC YYYY-MM-DDTHH:MM computed as period start + (position-1) x resolution — points stored as PUBLISHED; absent positions stay absent, never interpolated",
+  "mw": "actual generation for that fuel type in MW; empty quantities are null, never zero",
+  "res": "publication resolution (PT15M/PT30M/PT60M)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official TSO-reported realised generation-by-fuel-type. HYPOTHESIS (gate-locked): zonal fuel-mix share (renewables vs fossil gas/coal, hourly) is a gas-burn/carbon-price demand proxy and a ground-truth cross-check against GEM's announced/under-construction capacity mix — the EU analog of EPA CAMD's US unit-level utilization truth (census section 3 #1). Nothing traded or sold until ladder gates.",
+ "geo_fields": ["zone (bidding-zone code; EIC in euLoad.ts's shared ZONES map)"],
+ "entity_key": "zone + psr + ts + resolution",
+ "started": "2026-07-21",
+ "cadence": "realised generation publishes with ~1-2h lag at zone-native resolution; 2h poll with a 48h trailing window per zone",
+ "_note": "Universal archive envelope (approved 2026-07-04). Wishlist 9c follow-up (filed 2026-07-07 alongside euload, same ENTSOE_API_KEY/ENTSOE_TOKEN) — built this session as its own PR per one-logical-change-per-PR; day-ahead prices (documentType A44) is the OTHER filed follow-up, still not built (separate PR, different response schema — Publication_MarketDocument with price.amount, not GL_MarketDocument with quantity)."
+}

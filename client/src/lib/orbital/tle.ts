@@ -24,18 +24,24 @@
 export const CELESTRAK_ORIGIN = 'https://celestrak.org';
 
 /**
- * CelesTrak GP (General Perturbations) element query URL, JSON format.
+ * CelesTrak GP (General Perturbations) element query URL.
  * `group` is a CelesTrak GROUP name; `active` is the full active catalog
  * (~10k+ objects) and the default. Other useful groups: `starlink`,
  * `gps-ops`, `geo`, `oneweb`, `galileo`, `science`, `stations`.
  *
+ * `format` selects the wire encoding. Both `json` (OMM) and `csv` carry the
+ * SAME OMM keywords/fields; CSV is ~2.4 MB vs JSON's ~6.7 MB for the full
+ * active catalog (identical data, no repeated keys), so the browser layer
+ * fetches CSV — a 64% smaller transfer that loads far faster on mobile and
+ * is much less likely to trip CelesTrak's courtesy rate limit mid-download.
+ *
  * NOTE (charter): CelesTrak has exhausted 5-digit catalog numbers
- * (~2026-07-12), so JSON/OMM — NOT legacy TLE text — is the mandated format.
+ * (~2026-07-12), so OMM (json OR csv) — NOT legacy TLE text — is mandated.
  */
-export function gpUrl(group: string = 'active'): string {
+export function gpUrl(group: string = 'active', format: 'json' | 'csv' = 'json'): string {
   return `${CELESTRAK_ORIGIN}/NORAD/elements/gp.php?GROUP=${encodeURIComponent(
     group,
-  )}&FORMAT=json`;
+  )}&FORMAT=${format}`;
 }
 
 /** CelesTrak full SATCAT metadata catalog, CSV format (~6 MB). */
@@ -208,6 +214,65 @@ export function parseGp(json: unknown): GpRecord[] {
       meanAnomaly: numOrNull(o.MEAN_ANOMALY),
       meanMotion: numOrNull(o.MEAN_MOTION),
       bstar: numOrNull(o.BSTAR),
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// parseGpCsv
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize CelesTrak GP CSV (gp.php?FORMAT=csv) into GpRecord[]. Same OMM
+ * fields as parseGp, just CSV-encoded (~64% smaller on the wire). Columns are
+ * located by HEADER NAME (robust to reordering); rows with no usable
+ * NORAD_CAT_ID are dropped, every other missing/blank field becomes null.
+ * Garbage or a non-GP CSV yields [] and never throws — the fetch layer turns
+ * a rate-limit/error body (which is not GP CSV) into a proper thrown error via
+ * res.ok, so an empty parse here means "genuinely no elements", not "HTTP error".
+ */
+export function parseGpCsv(csv: string): GpRecord[] {
+  if (typeof csv !== 'string' || csv.trim() === '') return [];
+  const lines = csv.split(/\r?\n/);
+  let headerIdx = 0;
+  while (headerIdx < lines.length && lines[headerIdx].trim() === '') headerIdx++;
+  if (headerIdx >= lines.length) return [];
+
+  const header = parseCsvLine(lines[headerIdx]).map((h) => h.trim());
+  const col = (name: string): number => header.indexOf(name);
+  const iNorad = col('NORAD_CAT_ID');
+  if (iNorad < 0) return []; // not a GP CSV (e.g. an error/HTML body)
+  const iName = col('OBJECT_NAME');
+  const iEpoch = col('EPOCH');
+  const iIncl = col('INCLINATION');
+  const iRaan = col('RA_OF_ASC_NODE');
+  const iEcc = col('ECCENTRICITY');
+  const iArgp = col('ARG_OF_PERICENTER');
+  const iMeanAnom = col('MEAN_ANOMALY');
+  const iMeanMotion = col('MEAN_MOTION');
+  const iBstar = col('BSTAR');
+
+  const at = (fields: string[], idx: number): string | null =>
+    idx >= 0 && idx < fields.length ? strOrNull(fields[idx]) : null;
+
+  const out: GpRecord[] = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (lines[i].trim() === '') continue;
+    const f = parseCsvLine(lines[i]);
+    const noradId = numOrNull(at(f, iNorad));
+    if (noradId == null) continue; // no join key => unusable
+    out.push({
+      noradId,
+      name: at(f, iName),
+      epoch: at(f, iEpoch),
+      inclination: numOrNull(at(f, iIncl)),
+      raan: numOrNull(at(f, iRaan)),
+      ecc: numOrNull(at(f, iEcc)),
+      argp: numOrNull(at(f, iArgp)),
+      meanAnomaly: numOrNull(at(f, iMeanAnom)),
+      meanMotion: numOrNull(at(f, iMeanMotion)),
+      bstar: numOrNull(at(f, iBstar)),
     });
   }
   return out;
@@ -427,16 +492,31 @@ export function joinGpSatcat(
 // Thin browser fetch helpers (NOT exercised by the hermetic test path)
 // ---------------------------------------------------------------------------
 
-type FetchLike = (url: string) => Promise<{ json(): Promise<unknown>; text(): Promise<string> }>;
+type FetchLike = (
+  url: string,
+) => Promise<{ ok?: boolean; status?: number; json(): Promise<unknown>; text(): Promise<string> }>;
 
-/** Fetch + parse a GP group in the browser. `fetchImpl` is injectable for tests. */
+/**
+ * Fetch + parse a GP group in the browser. `fetchImpl` is injectable for tests.
+ *
+ * Uses CSV (see gpUrl): ~64% smaller than JSON, so the ~16k-object active
+ * catalog downloads far faster on mobile. Crucially, a non-2xx response (e.g.
+ * CelesTrak's HTTP 403 courtesy rate-limit, whose body is NOT GP data) now
+ * THROWS with its status instead of being silently parsed to [] — that empty
+ * parse used to read as "no elements returned", trapping the layer in an
+ * endless "still retrying automatically…" loop. A real error surfaces to the
+ * resilient-load backoff, which is what the retry ladder is for.
+ */
 export async function fetchGp(
   group: string = 'active',
   fetchImpl?: FetchLike,
 ): Promise<GpRecord[]> {
   const f = fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
-  const res = await f(gpUrl(group));
-  return parseGp(await res.json());
+  const res = await f(gpUrl(group, 'csv'));
+  if (res.ok === false) {
+    throw new Error(`CelesTrak GP fetch failed: HTTP ${res.status ?? 'error'}`);
+  }
+  return parseGpCsv(await res.text());
 }
 
 /** Fetch + parse the SATCAT CSV in the browser. `fetchImpl` is injectable for tests. */

@@ -2281,6 +2281,20 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
 }
 .vt-layer-status i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+/* Phase 5 per-layer freshness chip (2026-07-23): honesty machinery for
+   the layer panel — how old is this layer's underlying archived data,
+   right where a user decides whether to trust it. Colors mirror the
+   ADS-B data-state badge (.vt-flight-badge-*) so "live/recent/stale"
+   reads consistently across the site. */
+.vt-layer-freshness {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+}
+.vt-layer-freshness i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; background: currentColor; }
+.vt-layer-freshness-live { color: var(--accent-green); }
+.vt-layer-freshness-recent { color: var(--accent); }
+.vt-layer-freshness-stale { color: #f5a524; }
+.vt-layer-freshness-no-data { color: var(--text-tertiary); }
 
 /* Toggle switch (44px hit area on touch) */
 .vt-switch {
