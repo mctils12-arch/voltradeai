@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-25 (scheduled-routine session, 2nd today) [REPAIR] — visual_check.mjs fixture gap for 9 hazard/facility layers closed, which immediately surfaced (and this session fixed) a real mobile self-see occlusion bug (v1.0.495, T-CLIENT; PR #602)
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs, client/src/index.css). package.json
+version bump is the SHARED-file edit, last and smallest, per MERGE-ORDER
+PROTOCOL — re-read-and-incremented at commit time (origin/main confirmed
+at 1.0.494/79aadf5 immediately before bumping, no race).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail + loop-health ratio) and open_questions.md/wishlist.md tails. Loop-
+health ratio over the last 10 entries at session start: 5 [REPAIR], 4
+[PRODUCT], 1 [RESEARCH] — under the 7-of-10 thrash threshold, no meta-
+problem to address. Live `/api/health`: status ok, bot active,
+drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. Ran the new (2026-07-24, PR
+#601) `scripts/session_health_check.py` for the first time as a real
+session-start tool rather than hand-deriving its checks: 3 WARNs, all
+already-tracked — `tier2_daemon_timeouts` (KNOWN BROKEN #18, non-
+blocking), `ml_feedback` all-orphan_exit (KNOWN BROKEN #12(c), gated,
+not re-investigated — production is running 2-day-stale code per the
+next item so live audit-log evidence can't be trusted right now anyway),
+and `deploy_freshness` confirming PRODUCTION DEPLOY FROZEN is still
+active (`server_version=1.0.475` vs this checkout's `package.json` —
+initially 1.0.494, now 1.0.495 after this PR). Not re-investigated
+further — fully written up in wishlist.md across 6+ prior sessions,
+nothing new to add.
+
+PRIMARY ACTION SELECTION: the prior session (dossier radius_km, PR #600)
+filed its #1-ranked-but-larger subagent-survey candidate as still open:
+scripts/visual_check.mjs's FIXTURES list was missing 9 hazard/facility
+layers (pfas, radiation, nukefacilities, nukeaccidents, nucleartests,
+coal_mine_features, methane_plumes, faa_airports, border_waits) —
+verified via grep that all 9 are fully wired client-side (symbol layers,
+not bare circles — the SYMBOLS NOT DOTS directive was already satisfied)
+and have live server routes, but were absent from the harness's
+`/api/data/layers` fixture entirely. Confirmed via code reading
+(scripts/visual_check.mjs ~line 1076-1240) that BOTH the self-see
+reachability battery and the toggle-consistency battery iterate
+`FIXTURES["/api/data/layers"].layers` — a layer absent from that list is
+never toggled, never checked for reachability, never exercised by
+legend-parity. Same shape of gap as the R15 `powergrid` precedent
+already documented inline in the fixture file. Chose this over the
+open_questions.md/wishlist.md queue (nothing else queued and unblocked
+this session; PRODUCTION DEPLOY FROZEN and the gated KNOWN BROKEN items
+are human-actionable or blocked, not a same-session REPAIR target) —
+this is SESSION BUDGET tier 1 (a bug/gap already identified in a prior
+session's own audit).
+
+READ BEFORE WRITE: read every one of the 9 layers' full client-side
+`useEffect` blocks in datamap.tsx (fetch URL, response field names,
+feature properties consumed by the popup/detail card) and their
+corresponding server/routes.ts handlers end-to-end before writing any
+fixture — did not guess a single field name. Cross-checked group/
+costTier/source against datacore/layers.json's real registry entries
+(the actual production source of truth for `/api/data/layers`) AND
+against datamap.tsx's own `LAYER_GROUP` map (the client re-derives
+grouping by id client-side, so datacore/layers.json's `group` field
+isn't actually authoritative for panel placement — used the client's own
+mapping for the fixture's `group` field to match real behavior).
+
+FIX PART 1 (the fixture gap): added all 9 layer descriptors to
+`FIXTURES["/api/data/layers"].layers` (all `status: "live"` so the
+toggle-consistency battery includes them) and 9 new data-endpoint
+fixtures (`/api/data/pfas`, `/radiation`, `/nukefacilities`,
+`/nucleartests`, `/nukeaccidents`, `/methane-plumes`,
+`/coal-mine-features`, `/airport-status`, `/border-waits`) — response
+shapes copied field-for-field from the real handlers, one representative
+feature each (this is a reachability/wiring smoke test, not a rendering-
+scale test, so one feature is enough to exercise the symbol layer +
+legend + detail card).
+
+DISCOVERY: running the completed fixture set immediately produced 1 hard
+self-see failure at 390px: `'tank_fill' toggle covered by <button
+class='vt-nav-fab'>`. A/B-verified per MEASUREMENT INTEGRITY precedent
+(`git checkout HEAD~1 -- scripts/visual_check.mjs`, i.e. the pre-fix
+fixture set, same built dist): 0 hard failures — the panel was simply
+never long enough in practice for `tank_fill` (the last row) to scroll
+into the mobile nav FAB's fixed screen-space footprint
+(`.vt-nav-fab`: `right:12px bottom:96px`, 44px, `z-index:12`, sits in a
+separate stacking context above the layer panel with no awareness of
+it). This means the bug is REAL and has been live in production the
+whole time these 9 layers existed — the incomplete fixture was hiding
+it, not causing it (same "harness gap hid a real defect" shape as the
+already-documented R15 `powergrid` precedent, now applied to the
+self-see check instead of toggle-consistency).
+
+FIX PART 2 (the real bug, not just the test): `client/src/index.css` —
+`.vt-layer-panel` gains `padding-bottom: 152px; scroll-padding-bottom:
+152px` scoped to `@media (max-width: 639px)` (the one breakpoint
+`.vt-nav-fab` is proven visible at — its own media query). This reserves
+the FAB's exact footprint as real scroll room so the panel's own last
+row can scroll clear of it instead of landing underneath. Deliberately
+did NOT also fix the `.vt-map-page[data-vt-analyst-open="true"]` FAB
+case (≤1279px) — no test currently exercises that path, so "fixing" it
+would be an unverified guess; filed as a NEXT item instead of
+speculatively patched.
+
+RATCHET: the fixture completion IS the ratchet (self-see, toggle-
+consistency, and legend-parity now actually exercise all 9 layers on
+every future PR — no separate unit test needed, the same pattern every
+prior fixture-gap fix in this file has used). For the CSS fix
+specifically, the visual harness itself is the regression test (3 runs,
+see GATES below) since there's no existing unit-test harness for CSS
+layout geometry in this repo.
+
+GATES: fresh-container `npm install` + `pip3 install -r requirements.txt
+-r requirements-dev.txt` + openpyxl. `python3 -m pytest -q` — 893 passed,
+1 skipped (no Python touched by this PR; full baseline, run anyway).
+`npx tsc --noEmit` — 80 errors, unchanged from pre-PR baseline (neither
+changed file is TS-checked — one is `.mjs`, one is `.css`). `npx tsx
+--test server/*.test.ts client/src/lib/*.test.ts
+client/src/pages/*.test.ts` — 1018 passed, 0 failed (same count before
+and after this PR — no behavior-level TS/JS touched, only the harness's
+own fixture data and a CSS file). `npm run build` clean both before and
+after the CSS fix. VISUAL HARNESS (promotion rule 6), run THREE times to
+separate cause from effect per MEASUREMENT INTEGRITY: (1) fixture-only
+commit, CSS unchanged from main → 1 hard failure at 390px (the
+discovery, above). (2) fixture commit + CSS fix → 0 hard failures, all
+three canonical widths (390/768/1440) pass. Remaining findings on both
+runs are pre-existing and unrelated: soft touch-target-size warnings
+already present on `main` (unrelated UI elements — nav logo, sign-in
+button, etc.), a `768px` "clipped control" note on the Facilities group
+header (a pre-existing group-count-label wrapping issue, not new — the
+same class of finding was already showing at 768px on `main` before this
+PR for a different group), and a `1440px` "p95 frame 350ms (upload-hitch
+spikes)" soft perf warning matching the already-extensively-documented
+SwiftShader/software-render flakiness from the 2026-07-20 terrain audit
+(open_questions.md) — soft warning, not a hard failure, same class every
+recent client/ PR's harness run has logged.
+
+BACKTEST: N/A — test-harness fixture completion + a CSS layout fix; no
+scoring, sizing, execution, or data-classification logic touched.
+PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply.
+
+CI STATUS: GitHub Actions CI is STILL in the tracked runner-allocation
+outage (wishlist.md, 6+ prior session updates) — PR #602's `changes` job
+completed in 3s with `runner_id: 0`, the identical signature every prior
+session has confirmed since 2026-07-22T14:09:21Z, now 3+ days continuous.
+Verified this via `get_check_run`/`get_workflow_job` directly (not just
+assumed from the webhook) before merging — same option-(c) precedent
+(full local verification substituting for CI) every session has used
+since the outage began. Merged PR #602 directly via the GitHub API.
+Deploy freshness note: this PR, like every merge since 2026-07-22, will
+NOT reach production until a human flips Railway's "Wait for CI" setting
+or Actions recovers — not re-flagged as a new finding, already
+top-of-wishlist.
+
+NEXT (filed, unclaimed): (1) `.vt-map-page[data-vt-analyst-open="true"]`
+FAB-vs-panel occlusion at ≤1279px — same underlying bug shape as the one
+fixed this session, but no test exercises the analyst-pane-open path
+yet, so it's neither confirmed nor fixed. A future session would need to
+extend the self-see battery to open the analyst pane before it can be
+verified. (2) The 768px "clipped control" Facilities-group-header note
+and the general touch-target-size warnings are cosmetic DESIGN.md-polish
+debt, unclaimed, not blocking. (3) PRODUCTION DEPLOY FROZEN / CI outage
+— unchanged, still needs the human's Railway toggle or GitHub Actions
+billing check.
+
 ## 2026-07-25 (scheduled-routine session) [PRODUCT] — LOCATION DOSSIER hazard radius client toggle shipped, closing a gap filed across four prior session entries (v1.0.493, T-CLIENT)
 
 TERRITORY: client/src/pages/datamap.tsx, client/src/index.css, new
