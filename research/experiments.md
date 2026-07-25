@@ -28163,3 +28163,122 @@ GitHub Actions outage — a future session should re-check
 live now" note in past PRs, and should treat a #18 live-catch as
 actionable again only once `server_version` actually advances past
 `1.0.481` (the version that shipped the `scan_timings` read).
+
+## 2026-07-25 (scheduled-routine session) [PIPELINE] — session_health_check.py gains a deploy_freshness check, compiling the hand-run server_version-vs-package.json comparison (v1.0.494, T-DATACORE)
+
+TERRITORY: T-DATACORE (scripts/session_health_check.py + its root-level
+test file, mirroring the original v1.0.316 PR's own territory
+declaration; no client/bot/strategy files touched).
+
+CONTEXT: routine brief said check system health + KNOWN BROKEN first,
+[REPAIR] only if a critical item is unfixed. Ran the checks: `/api/health`
+green (bot active, Alpaca ACTIVE, `liveness.dark=false`, no drawdown).
+Walked every KNOWN BROKEN entry in open_questions.md — none are an
+unfixed critical blocker: items are RESOLVED, awaiting live data
+accumulation before a threshold change can be evidence-justified (#10,
+#20's RULE COST AUDIT), or diagnosability-only fixes already shipped and
+now waiting on a live recurrence to read (#21, #25). The one standing
+break — the GitHub Actions CI outage / PRODUCTION DEPLOY FREEZE — is
+external (GitHub's runner allocation), already flagged to the human 5+
+times in wishlist.md with the same recommended actions, and confirmed
+via `mcp__github__actions_list` this session to be unchanged since
+2026-07-22T14:09Z (run #529 onward: every `changes` job on `main`
+completes with `conclusion: failure` in ~2s, `runner_id: 0`, and the
+job's log-download URL 404s immediately — no execution ever happened,
+consistent with every prior session's characterization, not a new
+symptom). Re-confirmed live via `curl https://voltradeai.com/api/data/
+layers`: `server_version: "1.0.475"` while `main`'s `package.json` is
+`1.0.493` — the freeze persists, now 18 versions behind. NOT re-flagged
+as a 6th duplicate push notification: no new information changes the
+human's action item, and the routine's own instructions say a repeated,
+already-escalated, unchanged state should not spend the human's
+attention again. This is a NO-ACTION-worthy repair item (nothing in
+this sandbox can fix GitHub's runner allocation or Railway's gate), so
+the session fell through to the doctrine-axis choice per the brief.
+
+WHY THIS ACTION (axis (d), COMPRESS THE SYSTEM'S OWN COST): confirming
+the CI outage this session required manually pulling and diffing
+`actions_list` JSON against `package.json`'s version — the exact
+reasoning at least 4 prior sessions (2026-07-23/24 entries, wishlist.md's
+CI-outage thread) already did BY HAND, each one re-deriving the same
+`server_version` vs local-checkout comparison from scratch. EDGE
+DOCTRINE #3 (COMPILE KNOWLEDGE INTO CODE): "never analyze the same thing
+twice with reasoning — the second occurrence becomes a script." This is
+well past the second occurrence. `scripts/session_health_check.py`
+(v1.0.316, 2026-07-15) already exists as exactly this pattern for the
+KNOWN BROKEN #12/#18/#21 hand-diagnoses — the natural, minimal-scope
+place to add a 7th pure classifier rather than inventing a new tool.
+Chose this over starting a brand-new data pipeline (axis a) because
+every EDGE-DOCTRINE example pipeline named in the routine's own brief
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends/pytrends) is already built and live (verified by
+grep: `scripts/sentinel2_tankfill.py`, `sec_form4_bulk.py`,
+`server/usaSpending.ts`, `server/cftcCot.ts`, `server/fdaEvents.ts`,
+`social_data.py`'s gtrends integration) — the routine's listed examples
+are not fresh territory this session, and inventing a net-new pipeline
+without checking research/data_census.md's actual unbuilt-item ranking
+first would risk exactly the kind of low-context guessing CLAUDE.md
+warns against. Axis (b) (illiquid-universe) was run just yesterday
+(2026-07-24 entry) with the fill-realism fix now shipped — re-running it
+again today without new data would be low marginal value. Axis (d) was
+the highest-EV pick: small, safe, zero trading-path risk, and it
+permanently lowers the token/labor cost every future CI-outage-recheck
+session pays, which is the entire point of EDGE DOCTRINE #3.
+
+METHOD: added `check_deploy_freshness(local_version, server_version)` —
+a pure classifier (no network) following the file's existing pattern
+exactly: OK if versions match, WARN (not ALARM — the loop is still
+running, just possibly on stale code, distinct from the Amendment 1
+LIVENESS ALARM) on any mismatch or a missing value. Added
+`read_local_package_version(repo_root=None)` to read this checkout's
+`package.json`. Wired both into `run_all_checks` (new optional
+`local_version`/`server_version` kwargs, defaulting to `None` so
+existing call sites keep working unchanged) and `gather()` (now also
+fetches the keyless `/api/data/layers` for `server_version`) and `main()`.
+
+RATCHET: `test_session_health_check.py` gained 8 new tests (match/
+mismatch/missing-server/missing-local cases for the classifier, a
+real-repo-path read test, a missing-file-path read test, and 2 new
+end-to-end `run_all_checks` snapshots — one mirroring today's live
+KNOWN-BROKEN-21 snapshot with matching versions added, one mirroring
+today's live deploy-freeze reading) plus updated the existing
+`test_run_all_checks_returns_six_findings` (renamed `_seven_findings`,
+count 6→7, this is a correct pin update for deliberately added behavior,
+not a weakened assertion per PROMOTION RULES — same class of update as
+the `test_silent_except_ratchet.py` pin-lowering precedent). A/B-verified
+via `git stash push -- scripts/session_health_check.py`: exactly the 9
+new/updated tests fail against pre-fix code (`TypeError: run_all_checks()
+got an unexpected keyword argument 'local_version'` for the kwarg-using
+tests, `AttributeError` for the new functions), the pre-existing 28 pass
+unchanged under both versions.
+
+GATES: `python3 -m pytest -q` (fresh sandbox, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first) — 893 passed, 1 skipped
+(886 baseline + 7 net-new test functions = 893, zero regressions). No
+TypeScript/client/server files touched — `npx tsc --noEmit`/`npm run
+build`/`npm run visual` gates don't apply (pure Python script + its
+test file). Manual smoke test: ran `python3 scripts/
+session_health_check.py --json` against the live site — correctly
+reported `deploy_freshness: WARN` with `server_version=1.0.475` vs
+`package.json=1.0.494` (this PR's own bump), alongside the
+already-known `tier2_daemon_timeouts` WARN (KNOWN BROKEN #18,
+non-blocking) and `ml_feedback` WARN (KNOWN BROKEN #12(c), open). No new
+ALARM, no liveness dark — confirms nothing about this session's own
+findings needed a push notification either.
+
+BACKTEST: N/A — read-only diagnostic tooling, never called from the
+trading loop, zero trading-path or measurement-code change.
+
+Version bumped 1.0.493 -> 1.0.494 per PROMOTION RULE 4 and the
+`session_health_check.py` v1.0.316 precedent (bumped on its own original
+PR despite also being pure off-path tooling, for `code_version`
+attribution hygiene consistency).
+
+NEXT: the underlying PRODUCTION DEPLOY FREEZE itself remains
+BLOCKED-FOR-MIKE (Railway "Wait for CI" toggle or GitHub Actions billing
+check, per wishlist.md's existing recommended actions) — this PR does
+not and cannot fix it, only makes re-checking it cheaper. A future
+session should run `python3 scripts/session_health_check.py` at the top
+of its health check instead of hand-deriving the `server_version`
+comparison, and should treat `deploy_freshness` flipping to OK as the
+signal the freeze has cleared.

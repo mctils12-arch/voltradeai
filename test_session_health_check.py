@@ -208,6 +208,47 @@ def test_ml_feedback_warn_on_missing_response():
     assert hc.check_ml_feedback(None)["severity"] == hc.WARN
 
 
+# ── check_deploy_freshness (PRODUCTION DEPLOY FREEZE, wishlist.md) ───────
+
+def test_deploy_freshness_ok_when_versions_match():
+    f = hc.check_deploy_freshness("1.0.493", "1.0.493")
+    assert f["severity"] == hc.OK
+
+
+def test_deploy_freshness_warn_on_mismatch():
+    f = hc.check_deploy_freshness("1.0.493", "1.0.475")
+    assert f["severity"] == hc.WARN
+    assert "1.0.493" in f["detail"] and "1.0.475" in f["detail"]
+    assert "PRODUCTION DEPLOY FREEZE" in f["detail"]
+
+
+def test_deploy_freshness_warn_when_server_version_missing():
+    f = hc.check_deploy_freshness("1.0.493", None)
+    assert f["severity"] == hc.WARN
+    assert "server_version" in f["detail"]
+
+
+def test_deploy_freshness_warn_when_local_version_missing():
+    f = hc.check_deploy_freshness(None, "1.0.475")
+    assert f["severity"] == hc.WARN
+    assert "package.json" in f["detail"]
+
+
+def test_read_local_package_version_reads_real_repo_version():
+    # Integration-shaped on purpose: proves the relative path from
+    # scripts/session_health_check.py to the repo root's package.json is
+    # correct, not just that the parsing logic works on a fixture.
+    import json as _json
+    repo_root = os.path.join(os.path.dirname(__file__))
+    with open(os.path.join(repo_root, "package.json"), encoding="utf-8") as fh:
+        expected = _json.load(fh)["version"]
+    assert hc.read_local_package_version() == expected
+
+
+def test_read_local_package_version_missing_file_returns_none():
+    assert hc.read_local_package_version(repo_root="/nonexistent/path") is None
+
+
 # ── run_all_checks / overall_exit_code ───────────────────────────────────
 
 def test_overall_exit_code_ok():
@@ -229,10 +270,11 @@ def test_overall_exit_code_empty_is_ok():
     assert hc.overall_exit_code([]) == 0
 
 
-def test_run_all_checks_returns_six_findings():
+def test_run_all_checks_returns_seven_findings():
     findings = hc.run_all_checks(_health(), {"alive": True, "rss_mb": 100}, [], [], {})
-    assert len(findings) == 6
+    assert len(findings) == 7
     assert all("severity" in f and "label" in f and "detail" in f for f in findings)
+    assert {f["label"] for f in findings} >= {"deploy_freshness"}
 
 
 def test_run_all_checks_end_to_end_reproduces_live_known_broken_21_snapshot():
@@ -244,8 +286,24 @@ def test_run_all_checks_end_to_end_reproduces_live_known_broken_21_snapshot():
     entries = [_diag_entry(DOWN_MSG) for _ in range(8)]
     findings = hc.run_all_checks(
         _health(), {"alive": True, "rss_mb": 165.6}, entries, [], {"feedback_live_count": 0},
+        local_version="1.0.493", server_version="1.0.493",
     )
     by_label = {f["label"]: f for f in findings}
     assert by_label["alt_data_enrichment"]["severity"] == hc.WARN
     assert by_label["daemon_memory"]["severity"] == hc.OK
+    assert by_label["deploy_freshness"]["severity"] == hc.OK
+    assert hc.overall_exit_code(findings) == 1
+
+
+def test_run_all_checks_end_to_end_reproduces_live_deploy_freeze_snapshot():
+    # Mirrors this session's live read (2026-07-25): main package.json at
+    # 1.0.493, live server_version at 1.0.475 — the PRODUCTION DEPLOY
+    # FREEZE tracked in wishlist.md. Everything else healthy, so this
+    # finding alone should be the thing that trips exit code 1.
+    findings = hc.run_all_checks(
+        _health(), {"alive": True, "rss_mb": 165.6}, [], [], {"feedback_live_count": 0},
+        local_version="1.0.493", server_version="1.0.475",
+    )
+    by_label = {f["label"]: f for f in findings}
+    assert by_label["deploy_freshness"]["severity"] == hc.WARN
     assert hc.overall_exit_code(findings) == 1
