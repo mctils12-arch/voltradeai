@@ -2018,3 +2018,18 @@ keeps failing for future sessions, that blocks the entire autonomous
 workflow (every code change needs a PR), which is more severe than the
 CI-signal gap above -- worth checking GitHub's status page / API health
 for the account alongside the Actions billing check already recommended.
+
+## NOTE 2026-07-25 (scheduled-routine session): the manual `server_version`-vs-`package.json` comparison above is now scripted
+
+`scripts/session_health_check.py` (v1.0.494) gained a `deploy_freshness`
+check — fetches `/api/data/layers`'s `server_version`, compares it
+against this checkout's `package.json` version, and WARNs with the exact
+"matches the PRODUCTION DEPLOY FREEZE" language if they differ. Any
+future session re-verifying this outage (or checking whether it has
+finally cleared) can run `python3 scripts/session_health_check.py` once
+instead of re-deriving the comparison by hand — same EDGE DOCTRINE #3
+"second occurrence becomes code" precedent the rest of that script
+already follows. Live-run this session: still stale
+(`server_version=1.0.475` vs `package.json=1.0.493` at run time) — no
+change in the underlying outage, this is tooling only, not a new
+finding.

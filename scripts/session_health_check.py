@@ -9,8 +9,11 @@ and then hand-running a handful of `curl .../api/diag/*?token=$DIAG_TOKEN`
 one-liners to check: is the loop dark (LIVENESS ALARM)? is deep_score's
 alt-data enrichment blind (KNOWN BROKEN #21)? are daemon timeouts clustering
 (KNOWN BROKEN #18)? is the ML feedback loop recording real outcomes (KNOWN
-BROKEN #12)? That reasoning has now been done by hand across several
-sessions (see research/open_questions.md's #21 update chain, 2026-07-13/14)
+BROKEN #12)? is the live site actually running this checkout's code, or is
+it stuck behind the PRODUCTION DEPLOY FREEZE (research/wishlist.md, since
+2026-07-22)? That reasoning has now been done by hand across several
+sessions (see research/open_questions.md's #21 update chain, 2026-07-13/14,
+and wishlist.md's CI-outage entries for the deploy-freshness comparison)
 — this script is the second occurrence becoming code.
 
 This is READ-ONLY: it fetches from the deployed site's token-gated
@@ -195,7 +198,36 @@ def check_ml_feedback(ml):
     return finding(OK, "ml_feedback", f"model_age_hours={ml.get('model_age_hours')}, no known-broken signature")
 
 
-def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml):
+def check_deploy_freshness(local_version, server_version):
+    """PRODUCTION DEPLOY FREEZE (research/wishlist.md, tracked since the
+    2026-07-22T14:09Z GitHub Actions outage): Railway's 'Wait for CI' gate
+    means a merged main HEAD does not reach the live site while Actions
+    can't allocate runners. At least 4 separate sessions since then have
+    hand-diagnosed this the same way — compare this checkout's
+    package.json version against the live /api/data/layers server_version
+    — before trusting any "should be live now" note in past PRs. That
+    repeated manual comparison is exactly EDGE DOCTRINE #3's "second
+    occurrence becomes a script": this is the second-plus occurrence.
+    NOT the LIVENESS ALARM (the loop is still running — just possibly
+    stale code), so a mismatch is WARN, not ALARM, matching this script's
+    existing severity scheme."""
+    if not server_version:
+        return finding(WARN, "deploy_freshness", "no server_version returned by /api/data/layers")
+    if not local_version:
+        return finding(WARN, "deploy_freshness", "could not read this checkout's package.json version")
+    if server_version != local_version:
+        return finding(
+            WARN, "deploy_freshness",
+            f"LIVE SITE IS STALE: server_version={server_version} vs this checkout's "
+            f"package.json={local_version} — if this checkout is at/near main HEAD, this "
+            "matches the PRODUCTION DEPLOY FREEZE tracked in research/wishlist.md "
+            "(Railway's 'Wait for CI' gate stuck behind the GitHub Actions outage)",
+        )
+    return finding(OK, "deploy_freshness", f"server_version={server_version} matches this checkout's package.json")
+
+
+def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
+                    local_version=None, server_version=None):
     return [
         check_liveness(health),
         check_health_subsystems(health),
@@ -203,6 +235,7 @@ def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml):
         check_daemon_memory(daemon),
         check_tier2_daemon_timeouts(tier2_error_entries),
         check_ml_feedback(ml),
+        check_deploy_freshness(local_version, server_version),
     ]
 
 
@@ -222,8 +255,24 @@ def _fetch_json(url, timeout=DEFAULT_TIMEOUT_S):
         return None
 
 
+def read_local_package_version(repo_root=None):
+    """The version this checkout would deploy if merged/built right now —
+    package.json's `version` field (PROMOTION RULE 4's read-and-increment
+    field), the same value server/routes.ts echoes back as `server_version`
+    on /api/data/layers once a deploy has actually happened."""
+    root = repo_root or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    path = os.path.join(root, "package.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get("version")
+    except (OSError, ValueError):
+        return None
+
+
 def gather(base_url, diag_token):
     health = _fetch_json(f"{base_url}/api/health")
+    layers = _fetch_json(f"{base_url}/api/data/layers")
+    server_version = (layers or {}).get("server_version")
     daemon = diagnostic_entries = tier2_error_entries = ml = None
     if diag_token:
         daemon = _fetch_json(f"{base_url}/api/diag/daemon?token={diag_token}")
@@ -232,7 +281,7 @@ def gather(base_url, diag_token):
         audit_t2 = _fetch_json(f"{base_url}/api/diag/audit?type=TIER2-ERROR&limit=50&token={diag_token}")
         tier2_error_entries = (audit_t2 or {}).get("entries", [])
         ml = _fetch_json(f"{base_url}/api/diag/ml?token={diag_token}")
-    return health, daemon, diagnostic_entries, tier2_error_entries, ml
+    return health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version
 
 
 def main():
@@ -242,8 +291,12 @@ def main():
     args = ap.parse_args()
 
     diag_token = os.environ.get("DIAG_TOKEN", "")
-    health, daemon, diagnostic_entries, tier2_error_entries, ml = gather(args.base_url, diag_token)
-    findings = run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml)
+    health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version = gather(args.base_url, diag_token)
+    local_version = read_local_package_version()
+    findings = run_all_checks(
+        health, daemon, diagnostic_entries, tier2_error_entries, ml,
+        local_version=local_version, server_version=server_version,
+    )
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))
