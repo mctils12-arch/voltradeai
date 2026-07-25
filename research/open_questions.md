@@ -2756,6 +2756,39 @@
     (tighten the universe upstream). Either way, this item stays OPEN
     until a live `T2-FAIL` sample with the new detail is read.
 
+    **RESOLVED (root cause + fix) 2026-07-25, scheduled-routine session,
+    v1.0.498:** the NEXT CHECK ran the moment the CI/deploy freeze
+    cleared this session (`server_version` finally matched `main`) —
+    live `T2-FAIL` audit read at 2026-07-25T20:06:53Z showed exactly the
+    predicted `HTTP 403: {"message":"subscription does not permit
+    querying OPRA data"}` for SPYM/UBER/HYG, confirming the OPRA/Algo
+    Trader Plus entitlement gap (same shape as the 2026-07-06 SIP-403
+    incident `alpaca_feed.py` was built for). Fix shipped per this
+    item's own NEXT-CHECK recommendation: new `alpaca_feed.options_feed()`
+    mirrors `data_feed()`'s probe/cache/downgrade design exactly —
+    probes a tiny SPY options snapshot with `feed=opra`, downgrades to
+    the free `"indicative"` feed on 403 (already used successfully
+    elsewhere in this codebase for the same tier: `options_scanner.py`'s
+    HV/IV-rank estimator, `bot_engine.py`'s ATM-IV lookup — not a
+    fabricated fallback), restores automatically when the subscription
+    comes back. Wired into `options_execution.py`'s `_fetch_option_chain`
+    (the exact Tier1/2 CSP path this item diagnosed) only.
+    `options_scanner.py`/`options_manager.py`/`vol_surface.py` still
+    hardcode `feed=opra` — same bug shape, deliberately NOT touched here
+    (separate call paths, one-logical-change rule, matches this item's
+    own 2026-07-24 scoping decision) — each is its own follow-up PR.
+    RATCHET: `test_alpaca_feed.py` gained `TestOptionsFeedResolution` (7
+    tests, mirrors `TestFeedResolution`'s SIP battery) +
+    `TestOptionsExecutionNoHardcodedOpra` (regex ratchet scoped to
+    `options_execution.py` only, since the other 3 files still legitimately
+    hardcode `opra` until their own fix lands). A/B-verified via
+    `git stash`: all 8 new/changed tests fail against pre-fix code
+    (`AttributeError: module 'alpaca_feed' has no attribute
+    'options_feed'` / hardcode-still-present), pass post-fix; full
+    pre-existing suite unaffected. This item now stays open only for the
+    3 remaining call sites — see wishlist/experiments for the follow-up
+    pointer.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

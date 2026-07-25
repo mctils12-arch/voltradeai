@@ -28590,3 +28590,153 @@ session's scope was the recovery + doc-hygiene action only. Separately:
 but not investigated (T-BOT territory, out of this [PIPELINE]/T-DATACORE
 session's scope) — worth a DAILY/T-BOT session's attention if it
 persists.
+
+## 2026-07-25 (scheduled-routine session #3) [REPAIR] — KNOWN BROKEN #25 root-caused and fixed: OPRA options-data entitlement is being rejected (HTTP 403); alpaca_feed.options_feed() adds the same probe/downgrade fallback data_feed() has had since the 2026-07-06 SIP incident (v1.0.498, T-BOT)
+
+TERRITORY: `options_execution.py` + `alpaca_feed.py` (T-BOT scope) +
+`test_alpaca_feed.py` (existing shared-territory test file for this
+module) + `research/open_questions.md` KNOWN BROKEN #25 update +
+`research/wishlist.md` informational note (SHARED, minimized, appended
+as the last edits before this commit) + `package.json` version bump
+(SHARED, read-and-incremented at commit time — `origin/main` re-fetched
+immediately before bumping, confirmed still at 8fa7e55/v1.0.497, no
+other session had advanced past it).
+
+SESSION-START CHECKS: CLAUDE.md, experiments.md (tail), open_questions.md,
+wishlist.md (head) all read. Loop-health ratio over the last 10 tagged
+entries (reading back from the RunPod-recovery session earlier today):
+PRODUCT/PRODUCT/RESEARCH/REPAIR/REPAIR/PIPELINE/PRODUCT(->REPAIR pivot)/
+PRODUCT/PIPELINE/PIPELINE — 3/10 REPAIR (counting the pivot), nowhere
+near the 7+ thrash trigger; no meta-intervention needed. `/api/health`:
+status ok, bot active, drawdownPct 0.0, `liveness.dark: false` — no
+LIVENESS ALARM. `scanner.consecutiveFailures: 0` — the `degraded`/
+`consecutiveFailures: 20` reading the prior RunPod-recovery session
+flagged as a T-BOT concern has since cleared on its own; not a lingering
+break. **PRODUCTION DEPLOY FREEZE HAS CLEARED**: `/api/data/layers`
+`server_version` now reads `1.0.497`, exactly matching `main`'s
+`package.json` at session start — confirmed via the
+`session_health_check.py` `deploy_freshness` check this session's
+predecessor built yesterday specifically for this comparison (used it
+for its intended purpose on its first opportunity). This unblocked KNOWN
+BROKEN #25's own stated NEXT CHECK, which had been sitting un-runnable
+for a day behind the freeze.
+
+PRIMARY ACTION: KNOWN BROKEN #25 (open_questions.md) was left OPEN
+2026-07-24 with an explicit NEXT CHECK — "once deployed, query
+`/api/diag/audit?type=T2-FAIL`; an `HTTP 403` reason confirms an
+OPRA/Algo-Trader-Plus entitlement gap, next fix is an entitlement-aware
+fallback mirroring `alpaca_feed.py`'s `bars_feed()`/`data_feed()`
+precedent." Ran that exact check the moment the freeze cleared (DIAG_TOKEN
+present in session env): live entries at 2026-07-25T20:06:53Z (after
+the deploy landed) showed `SPYM/UBER/HYG: No options contracts available
+for this ticker (HTTP 403: {"message":"subscription does not permit
+querying OPRA data"}\n)` — confirming the predicted entitlement gap
+exactly. Earlier same-day entries (12:57-13:26Z, pre-deploy, running
+v1.0.475) still showed the old generic message with no HTTP detail —
+direct before/after confirmation that the v1.0.481 diagnosability fix
+itself is now live and working as designed, one extra data point beyond
+this session's own primary finding.
+
+FIX (per the NEXT CHECK's own recommendation): added
+`alpaca_feed.options_feed()` — a second probe/cache/downgrade state
+machine in the same module as `data_feed()`, independent state (verified
+by a new test: a SIP downgrade must never leak into options-feed state
+or vice versa, since the two entitlements are billed and can be
+rejected separately). Probes a tiny SPY options snapshot with
+`feed=opra` (SPY: always listed, deep chain, never delisted) on the
+existing `PROBE_TTL_S` (600s) cadence; a 403 downgrades to `"indicative"`
+— Alpaca's free options quote feed, NOT invented for this fix: it's
+already used successfully elsewhere in this codebase for exactly this
+entitlement tier (`options_scanner.py`'s HV/IV-rank ATM-IV lookup,
+`bot_engine.py`'s ATM-IV lookup), so the fallback's data shape is a
+known-good path, not a guess. A restored subscription upgrades back
+automatically at the next probe, same as SIP. `ALPACA_OPTIONS_FEED` env
+override mirrors `ALPACA_DATA_FEED`'s escape hatch. Wired into
+`options_execution.py`'s `_fetch_option_chain` — the exact Tier1/2 CSP
+contract-selection path KNOWN BROKEN #25 diagnosed — replacing the
+hardcoded `"feed": "opra"` literal.
+
+SCOPE DISCIPLINE (matches KNOWN BROKEN #25's own 2026-07-24 precedent):
+`options_scanner.py`, `options_manager.py`, and `vol_surface.py` all
+still hardcode `feed="opra"` for their own separate call paths (IV-rank
+estimation, contract lookups, vol-surface fitting) — same entitlement
+exposure, NOT touched this session. Each is a separate logical change
+per the one-PR-one-change rule; noted as a follow-up in both
+open_questions.md and here. Only `options_execution.py`'s path had
+live, audit-log-confirmed production impact this session — widening
+scope on a guess would be exactly the kind of un-derived reasoning
+CLAUDE.md's READ BEFORE WRITE section warns against.
+
+RATCHET SNAG + FIX: the new `_default_options_probe`'s `except Exception:
+return 0` initially tripped `test_silent_except_ratchet.py` — it's the
+identical silent-broad-except shape the ratchet exists to catch, and
+`alpaca_feed.py`'s pin (1, for `_default_probe`'s pre-existing matching
+handler) may never be raised without shrinking debt elsewhere, per
+CLAUDE.md's explicit "never weaken a test" rule. Fixed by narrowing:
+the probe's exception path now logs to stderr (matching the file's own
+transition-logging convention, never stdout — same JSON.parse(subprocess
+stdout) hazard `data_feed()`'s docstring already documents) before
+returning 0, which exits the AST checker's "body is ONLY pass/return-
+constant" pattern. Full suite re-run confirmed the ratchet passes
+unchanged at its existing pin.
+
+RATCHET (new tests): `test_alpaca_feed.py` gained `TestOptionsFeedResolution`
+(7 tests, directly mirrors `TestFeedResolution`'s existing SIP battery:
+entitled-passthrough, 403-downgrade, TTL-cached probe + automatic
+recovery, inconclusive-keeps-current, stdout-untouched, env-override,
+plus the new SIP/options-independence test) + `TestOptionsExecutionNoHardcodedOpra`
+(a `test_alpaca_feed.py`-scoped ratchet, deliberately NOT the blanket
+`TestNoHardcodedFeeds` pattern since the other 3 files legitimately still
+hardcode `opra` until their own fix lands — this ratchet checks
+`options_execution.py` specifically). A/B-verified via `git stash push --
+alpaca_feed.py options_execution.py` (test file kept): all 8 new/changed
+tests fail against pre-fix code (`AttributeError: module 'alpaca_feed'
+has no attribute 'options_feed'` for 7; the literal hardcode assertion
+for 1), confirming they test real behavior, not tautologies.
+
+GATES: `python3 -m pytest -q` (fresh sandbox, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first) — **916 passed, 1
+skipped** (908 baseline from this morning's runpod-recovery session + 8
+net-new test functions, zero regressions). Targeted:
+`test_alpaca_feed.py test_options_chain_diagnosability.py
+test_silent_except_ratchet.py` — 28 passed. No TypeScript/client/server
+files touched — `tsc`/`build`/`visual` gates don't apply.
+
+BACKTEST: N/A — this changes which HTTP feed value an options-chain
+fetch requests on 403, not any scoring/sizing/entry-exit logic; the
+contract data SHAPE returned by Alpaca's snapshot endpoint is identical
+regardless of feed value (same fields, same parsing code path in
+`_fetch_option_chain` — only the underlying quote source's real-time-
+ness changes, exactly the SIP/delayed_sip precedent). No measurement-code
+paths touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `options_feed()`'s output only
+changes which upstream data source populates `bid`/`ask`/`iv`/`greeks`
+in the contracts list `_fetch_option_chain` already returns — it does
+not change `_is_liquid`'s thresholds, `select_contract`'s scoring, or
+position sizing. The one real behavior change: contracts that were
+previously invisible (403 -> empty list -> "no options contracts
+available", CSP tier silently skips the ticker) now become visible again
+via `indicative` quotes — this WIDENS the live CSP candidate pool back
+toward its pre-403 size, which is the intended repair, not a side effect
+to flag as risk. `indicative` quotes lack real open interest (same
+quote-size proxy `_fetch_option_chain` already falls back to when
+`openInterest` is 0 — no new code path, existing fallback logic just
+fires more often now) and are less fresh than true OPRA prints;
+`_is_liquid`'s existing bid/ask-size floors are the safety net against
+acting on stale/thin indicative quotes, unchanged by this fix.
+
+NEXT: (1) the 3 other `feed="opra"` call sites (`options_scanner.py`,
+`options_manager.py`, `vol_surface.py`) are each a same-shaped, separate
+follow-up PR — same `options_feed()` resolver already exists, this is
+now pure wiring, not new design. (2) Watch `/api/diag/audit?type=T2-FAIL`
+over the next few live sessions for confirmation the 403-tickers (SPYM/
+UBER/HYG and whichever others recur) now produce non-empty chains
+instead of a repeated failure — this session's fix is unverified against
+a real post-deploy live cycle (self-repair pattern, same as the SIP fix
+which self-verified within its own probe TTL once deployed). (3) Per the
+`wishlist.md` informational note added this session: if real-time OPRA
+pricing (tighter spreads, true open interest) matters more than the
+self-heal, the human may want to check whether the Alpaca subscription
+covering SIP (Algo Trader Plus) still covers OPRA specifically — not
+urgent, no action required for the bot to keep functioning.
