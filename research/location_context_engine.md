@@ -239,3 +239,21 @@ real SDF symbol + legend entry for full consistency with every hazard
 layer shipped since. CDC/SEER cancer rates remains the one queued
 hazard layer left (needs the county-polygon display guard). radius_km
 client-side toggle still not built.
+
+STATUS 2026-07-25: RADIUS_KM CLIENT TOGGLE SHIPPED (v1.0.493, T-CLIENT)
+— closing the one item from the line above that had gone unclaimed across
+four session entries (07-12, 07-13, 07-15 x2). `HAZARD_RADIUS_PRESETS_KM`
+(10/25/50/100/200, pinned to server/dossier.ts's own
+HAZARD_RADIUS_KM_DEFAULT/_MAX by a new ratchet test) renders as a preset
+button row inside the dossier card's hazard section; `fetchDossier` now
+sends `radius_km` and stashes the click anchor so a preset change re-fetches
+the same point at the new radius without threading a parameter through
+every one of its ~14 call sites. Also widened the render gate from
+"only show this section if something was found" to "show it once the
+cross-join is ready, found or not" — a genuine zero-hazards-within-50km
+result now surfaces the radius control (with an explicit "try a larger
+radius" note) instead of rendering nothing, which had been silently
+hiding the exact case the toggle is for. Full trace + A/B perf-harness
+verification in experiments.md, same date. Superfund-pts/wv-pts symbols
+were already closed 2026-07-24 (separate entry above). Only CDC/SEER
+cancer rates remains queued from this file's hazard-layer list.

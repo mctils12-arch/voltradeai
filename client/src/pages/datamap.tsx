@@ -462,6 +462,11 @@ interface Detail {
    *  land on the wrong card. */
   dossierKey?: string;
   dossier?: DossierPayload;
+  /** The (entityId, lat, lon) fetchDossier was last called with for this
+   *  card — stashed so the radius toggle can re-fetch the SAME anchor at
+   *  a new radius_km without every one of fetchDossier's ~14 call sites
+   *  needing to thread a mutable radius through their own click handlers. */
+  dossierAnchor?: { entityId: string | null; lat: number; lon: number };
 }
 
 /** Mirrors server/dossier.ts's DossierResult (loosely typed — this is a
@@ -538,6 +543,13 @@ const readGlobePref = (): boolean => {
 // asserts NO layer-data API calls fire and measures interactive time.
 const HIST_MIN_YEAR = 1900;
 const HIST_MAX_YEAR = 2026;
+// LOCATION DOSSIER radius toggle (research/location_context_engine.md's
+// "radius_km client toggle still not built" gap, filed across the
+// 2026-07-12/13/15 entries) — mirrors server/dossier.ts's own
+// HAZARD_RADIUS_KM_DEFAULT (50) and HAZARD_RADIUS_KM_MAX (200); presets
+// only, no free-form input, since the server clamps to [1, 200] anyway.
+const HAZARD_RADIUS_PRESETS_KM = [10, 25, 50, 100, 200];
+const HAZARD_RADIUS_KM_DEFAULT = 50;
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
@@ -1785,6 +1797,11 @@ export default function DataMapPage() {
   const [celOpen, setCelOpen] = useState(false);
   const [showRawInfo, setShowRawInfo] = useState(false);
   const [detail, setDetailState] = useState<Detail | null>(null);
+  // LOCATION DOSSIER hazard radius (client toggle — see HAZARD_RADIUS_PRESETS_KM
+  // above). One shared setting across cards, like unitSystem, not per-card:
+  // switching radius mid-session is a search-breadth preference, not a
+  // per-entity fact worth resetting on every new click.
+  const [dossierRadiusKm, setDossierRadiusKm] = useState(HAZARD_RADIUS_KM_DEFAULT);
   // TAP-AWAY DISMISS (2026-07-18 directive §1: "Dismiss via ✕, tap-away, and
   // Esc"): every setDetail bumps a sequence counter, so a map-click listener
   // can tell "some layer handler claimed this click" (seq moved — MapLibre
@@ -3478,9 +3495,16 @@ export default function DataMapPage() {
    *  `dossierKey`, not trailId/title (see the Detail interface note). Fails
    *  silently like every other async card enrichment (owner/timeline above) —
    *  a dossier that never arrives just leaves that section absent. */
-  const fetchDossier = async (dossierKey: string, entityId: string | null, lat: number, lon: number) => {
+  const fetchDossier = async (
+    dossierKey: string, entityId: string | null, lat: number, lon: number, radiusKm?: number,
+  ) => {
+    const r_km = radiusKm ?? dossierRadiusKm;
+    // Stash the anchor immediately (not after the response) so the radius
+    // toggle can re-fetch this exact card even if the user changes radius
+    // before the first response lands.
+    setDetail((prev) => (prev && prev.dossierKey === dossierKey ? { ...prev, dossierAnchor: { entityId, lat, lon } } : prev));
     try {
-      const qs = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+      const qs = new URLSearchParams({ lat: String(lat), lon: String(lon), radius_km: String(r_km) });
       if (entityId) qs.set("entity", entityId);
       const r = await fetch(`/api/data/dossier?${qs.toString()}`);
       if (!r.ok) return;
@@ -11490,13 +11514,19 @@ export default function DataMapPage() {
             // LOCATION DOSSIER hazard cross-join (research/location_context_engine.md) —
             // only categories whose layer cache was actually warm (`ready`) render, so
             // a cold cache shows nothing rather than a false "0 nearby" all-clear.
-            const hazardCats: Array<{ key: string; label: string; section: DossierHazardSection | undefined }> = [
+            const hazardSections: Array<{ key: string; label: string; section: DossierHazardSection | undefined }> = [
               { key: "superfund", label: "EPA Superfund (NPL) site", section: dos.hazards?.superfund },
               { key: "water_violators", label: "EPA Clean Water Act chronic violator", section: dos.hazards?.water_violators },
               { key: "pfas", label: "PFAS-detecting water system (EPA UCMR 5)", section: dos.hazards?.pfas },
               { key: "quakes", label: "historical M6+ earthquake", section: dos.hazards?.quakes },
               { key: "nuclear_tests", label: "historical nuclear test", section: dos.hazards?.nuclear_tests },
-            ].filter((c) => c.section?.ready && c.section.total_within > 0);
+            ];
+            const hazardCats = hazardSections.filter((c) => c.section?.ready && c.section.total_within > 0);
+            // The radius toggle (and the "nothing within Xkm" note) only makes
+            // sense once the cross-join actually loaded for at least one
+            // category — same "cold cache shows nothing" honesty as hazardCats
+            // itself, just not collapsed down to zero-hits-only.
+            const hazardsReady = hazardSections.some((c) => c.section?.ready);
             // flood_zone is a POINT lookup, not a radius list — render only
             // once ready (mirrors the hazardCats ready-gate above); a
             // ready:true zone:null result (outside NFHL's footprint) is
@@ -11505,7 +11535,7 @@ export default function DataMapPage() {
             const floodZone = dos.hazards?.flood_zone;
             const showFloodZone = Boolean(floodZone?.ready);
             const hasContent = Boolean(companyNode) || insiderEdges.length > 0 || callsAtEdges.length > 0
-              || contracts.length > 0 || nearestSites.length > 0 || hazardCats.length > 0 || showFloodZone;
+              || contracts.length > 0 || nearestSites.length > 0 || hazardsReady || showFloodZone;
             if (!hasContent) return null;
             return (
               <div>
@@ -11550,11 +11580,33 @@ export default function DataMapPage() {
                     ))}
                   </div>
                 )}
-                {hazardCats.length > 0 && (
+                {hazardsReady && (
                   <div>
                     <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
                       Nearby hazard records ({fmtKm(dos.hazards!.radius_km)} radius — facts only, no risk claim):
                     </p>
+                    {detail.dossierAnchor && (
+                      <div className="vt-radius-row" role="group" aria-label="Hazard search radius">
+                        {HAZARD_RADIUS_PRESETS_KM.map((km) => (
+                          <button
+                            key={km}
+                            type="button"
+                            className={`vt-radius-btn${dossierRadiusKm === km ? " active" : ""}`}
+                            aria-pressed={dossierRadiusKm === km}
+                            onClick={() => {
+                              setDossierRadiusKm(km);
+                              const a = detail.dossierAnchor!;
+                              fetchDossier(detail.dossierKey!, a.entityId, a.lat, a.lon, km);
+                            }}
+                          >
+                            {fmtKm(km)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {hazardCats.length === 0 && (
+                      <p className="vt-site-card-trail">None on file within this radius — try a larger one above.</p>
+                    )}
                     {hazardCats.map((c) => (
                       <div key={c.key}>
                         <p className="vt-site-card-trail">

@@ -3,7 +3,165 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-07-24 (scheduled-routine session) [PRODUCT] — SYMBOLS NOT DOTS debt closed: superfund + waterviolators hazard layers get real SDF symbols + legend entries (v1.0.481, T-CLIENT)
+## 2026-07-25 (scheduled-routine session) [PRODUCT] — LOCATION DOSSIER hazard radius client toggle shipped, closing a gap filed across four prior session entries (v1.0.493, T-CLIENT)
+
+TERRITORY: client/src/pages/datamap.tsx, client/src/index.css, new
+client/src/pages/datamap.dossierRadius.test.ts (T-CLIENT). package.json
+version bump is the SHARED-file edit, last and smallest, per MERGE-ORDER
+PROTOCOL — re-read-and-incremented at commit time (origin/main confirmed
+at 1.0.492/92ebe27 immediately before bumping, no race).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+and open_questions.md/wishlist.md tails. Live `/api/health` (voltradeai.com):
+status ok, bot active, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE,
+scanner 0 consecutiveFailures — no LIVENESS ALARM, no KNOWN BROKEN item
+blocking this session. PRODUCTION DEPLOY FROZEN (filed 2026-07-22, 5+ prior
+session updates in wishlist.md) is STILL ACTIVE: live `server_version` via
+`/api/data/layers` reads 1.0.475 while `main` HEAD (92ebe27) is at
+package.json 1.0.492 — 17 versions / many PRs behind, growing. Re-confirmed
+GitHub Actions CI is still failing with the same instant runner-never-
+allocated signature (`actions_list` on `ci.yml`, most recent run
+2026-07-24T20:47:15Z, 3s duration) — now ~34+ hours continuous, a 6th
+session confirming the identical outage. Not re-investigated further (no
+new tool access to billing/quota; same limitation every prior session
+logged) — this is a human-actionable item already fully written up in
+wishlist.md, not re-duplicated here. Neither item blocks PRODUCT work
+(this PR merges the same local-verification way every PR has since the
+outage began) so this session proceeded per the routine's own instruction
+("product sessions do not preempt the DAILY routines' repair duty").
+Environment note: this sandbox had neither `pytest` nor `node_modules`
+installed at session start (`pip3 install -r requirements.txt` + openpyxl,
+`npm install` — both clean); worth any future session knowing this isn't
+a repo problem, just a fresh-container gate.
+
+PRIMARY ACTION SELECTION: delegated a research subagent (SESSION BUDGET
+tier survey) across every standing program charter file plus wishlist.md/
+open_questions.md tails, cross-checked against `git log` to rule out
+already-shipped candidates. Its #3-ranked (but cleanest/smallest, chosen
+over its #1 harness-fixtures pick for size and zero design ambiguity)
+finding: research/location_context_engine.md's own status log had flagged
+"radius_km client toggle still not built" across FOUR separate session
+entries (2026-07-12, -13, -15 twice) without anyone claiming it — the
+server (`server/routes.ts` / `server/dossier.ts`) has accepted and clamped
+`?radius_km=` (default 50, max 200 via `HAZARD_RADIUS_KM_DEFAULT`/
+`_MAX`) since the dossier endpoint shipped, entirely unused by the client.
+Chose this over the subagent's #1 pick (widening scripts/visual_check.mjs's
+FIXTURES coverage to 9 more hazard layers — a real, larger, still-unclaimed
+gap, filed again below for a future T-CLIENT session) because it's a
+complete, self-contained, zero-license-dependency product feature with an
+already-proven server contract, not just harness plumbing.
+
+READ BEFORE WRITE: read `fetchDossier`'s full definition and all ~14 of
+its call sites (aircraft/vessel/site/powerplant/etc. click handlers) before
+touching it — confirmed it's a plain (non-memoized) `const` redefined every
+render, so it always closes over current component state with no staleness
+risk; confirmed `setDetail` bumps a `detailSeqRef` used ONLY by the
+map-canvas tap-away-dismiss listener (`map.on("click", ...)`), so calling
+it from a DOM button inside the open card (not a MapLibre canvas click)
+cannot false-trigger that dismiss logic. Read the full `Detail`/
+`DossierPayload`/`DossierHazardSection` interfaces and the entire hazard-
+rendering block (~11500-11600) before deciding the render gate. Read
+`server/dossier.ts` end to end to confirm `HAZARD_RADIUS_KM_DEFAULT` (50)
+and `_MAX` (200) — the client presets and default are pinned to these
+exact constants (test below), not re-guessed.
+
+FIX: (1) `HAZARD_RADIUS_PRESETS_KM = [10, 25, 50, 100, 200]` + a
+`dossierRadiusKm` component state (default = server's own
+`HAZARD_RADIUS_KM_DEFAULT`). (2) `fetchDossier` gained an optional
+`radiusKm` param (falls back to `dossierRadiusKm` state), sends
+`radius_km` in the querystring, and stashes `{entityId, lat, lon}` onto
+the open card as `detail.dossierAnchor` — done SYNCHRONOUSLY before the
+fetch (not after the response), so a radius change fired before the first
+response lands still has a valid anchor to reuse. This one small addition
+lets a NEW radius-preset button re-fetch the SAME anchor without threading
+a radius parameter through all ~14 existing click-handler call sites — a
+much smaller diff than the alternative. (3) A `vt-radius-row` of
+`vt-radius-btn` preset buttons (new CSS, mirrors the existing
+`.vt-field-unit`/`.vt-site-card-link` pill styles) renders inside the
+hazard section, labels run through `fmtKm()` per the UNITS PREFERENCE
+standing behavior (never a hardcoded "km" string) so they auto-switch
+with the site-wide mi/km setting. (4) Widened the render gate from
+`hazardCats.length > 0` to a new `hazardsReady` flag (true once the
+cross-join loaded for ANY category, hit or not) — the old gate collapsed
+a genuine "load succeeded, zero hazards within 50km" result to total
+silence, hiding the exact case where widening the radius is most useful;
+a zero-hit ready result now shows the radius row plus an explicit "None on
+file within this radius — try a larger one above" line instead of nothing.
+Zero server changes — this is a pure client read of an already-existing,
+already-tested, already-clamped parameter.
+
+RATCHET: new `client/src/pages/datamap.dossierRadius.test.ts` (5 tests,
+source-inspection style matching `datamap.symbols.test.ts`'s established
+pattern — a real headless map/click render isn't available in this test
+env). Checks: (1) client presets stay within server's own
+`HAZARD_RADIUS_KM_MAX` and include its `HAZARD_RADIUS_KM_DEFAULT`, and the
+client's own default constant matches the server's byte-for-byte (catches
+future drift between the two files); (2) `fetchDossier` actually sends
+`radius_km` and honors an explicit override over the state; (3)
+`fetchDossier` stashes `dossierAnchor`; (4) the radius button row is wired
+to `setDossierRadiusKm` + a re-fetch using the stashed anchor, not just
+cosmetic; (5) the row is gated on `hazardsReady`, not the narrower
+`hazardCats.length > 0`, and the empty-radius note exists. A/B-verified via
+`git stash` on just the two source files: all 5 tests FAIL against the
+pre-fix code (proving they'd catch this exact regression) and all 5 PASS
+post-fix.
+
+GATES: fresh-container `pip3 install -r requirements.txt` + openpyxl, then
+`python3 -m pytest -q` — 883 passed, 2 skipped (no Python touched by this
+PR; ran anyway as the full baseline gate). `npm install` (fresh, no
+node_modules), `npx tsc --noEmit` — 80 errors, byte-identical (diffed with
+line numbers normalized) to the pre-fix `git stash` baseline — zero new
+errors. `npx tsx --test server/*.test.ts client/src/lib/*.test.ts
+client/src/pages/*.test.ts` — 1013 passed, 0 failed (1008 baseline + 5
+new). `npm run build` clean. VISUAL HARNESS (promotion rule 6): `node
+scripts/visual_check.mjs --page data`, run TWICE — once with this PR's
+changes, once on the `git stash`-restored pre-fix baseline, specifically
+BECAUSE the first pass showed a hard failure and MEASUREMENT INTEGRITY
+demands ruling out "did my change cause this" before shipping past a red
+gate. Result: the SAME perf-gate failure class (768px median-frame /
+1440px p95-frame "upload-hitch spikes") fires on BOTH — the untouched
+baseline actually failed WORSE (2 hard failures: 768px AND 1440px) than
+this PR's run (1 hard failure: 1440px only) — confirming this is the
+pre-existing, extensively-documented SwiftShader/software-render perf
+harness flakiness (open_questions.md's "NEVER-IDLE GLIDE LOOP" / "TRAIL
+REBUILD STORM" / upload-hitch entries from the 2026-07-20 terrain audit),
+not a regression from this change. Consistent with expectation: this PR
+never touches the aircraft layer, the map render loop, or anything on the
+default-view hot path — the new UI only mounts inside an already-open
+dossier card's hazard section. NOT re-attempted as a fix here (own
+[RULE-REVIEW]/measurement-code PR per MEASUREMENT INTEGRITY, already
+partially filed in open_questions.md). Screenshot caveat (same limitation
+four prior hazard-layer sessions logged): the harness can't drive a live
+map click, so the new radius row never actually renders in the
+`data-390`/`-768`/`-1440` screenshots (no card is open) — verified instead
+by code review + the ratchet test above, not visually confirmed with real
+dossier data in frame.
+
+BACKTEST: N/A — pure client-side UI addition over an already-existing,
+already-server-clamped RAW parameter; no scoring, sizing, execution, or
+data-classification logic touched. PROMOTION RULE 3's Sharpe/drawdown gate
+doesn't apply.
+
+NEXT (filed, unclaimed): (1) scripts/visual_check.mjs's FIXTURES gap for 9
+hazard/facility layers (pfas, radiation, nukefacilities, nukeaccidents,
+nucleartests, coal_mine_features, methane_plumes, faa_airports,
+border_waits) — the subagent survey's #1 candidate this session, still
+open, still the largest remaining harness-coverage debt. (2) The two perf-
+gate failures reproduced on baseline (768px median-frame, 1440px p95-
+frame) are themselves worth a dedicated [RULE-REVIEW]/measurement PR:
+either harden the gate against SwiftShader-specific jank (raise the
+threshold with a documented rationale, or detect+skip under software
+rendering) or find the actual root cause per the open_questions.md
+"upload-hitch" entries — right now every PR touching client/ is merging
+past a red perf gate by A/B-proving non-regression each time, which is a
+correct but repeated workaround, not a fix. (3) PRODUCTION DEPLOY FROZEN /
+CI outage: unchanged from 2026-07-24's entry, still needs the human's
+Railway "Wait for CI" toggle or GitHub Actions billing check — not
+re-actioned here beyond re-confirming the same signature, per the
+routine's own "note it but proceed" instruction for non-blocking KNOWN
+BROKEN items.
+
+
 
 TERRITORY: client/src/lib/mapIcons.ts, client/src/pages/datamap.tsx, new
 client/src/pages/datamap.symbols.test.ts (T-CLIENT). package.json version
