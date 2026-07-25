@@ -248,6 +248,20 @@ export function applyDistanceCompression(
  * Rendered disc diameter (px) from the TRUE disc diameter (px, computed by
  * the frame's projection at the body's LAYOUT distance). Pure screen-space:
  *  · map-anchor bodies: always the true disc (see header — seam integrity);
+ *  · bodies that RIDE the anchor (parentIsMapAnchor — the Moon, whose
+ *    parentId is Earth): also always the true disc. Two payoffs, one rule:
+ *    (1) the one body pair with a fixed true-scale reference (Earth, which
+ *    is never scaled) keeps its REAL size ratio — Moon = 0.27 R⊕, never the
+ *    ~200× that the size boost would give a 1737 km body at s=647+, which is
+ *    why the Moon rendered bigger than Earth; (2) the far impostor sprite
+ *    (this function) and the close true-geometry sphere (drawBodyPatch, which
+ *    is already decoupled from the slider) then agree at every distance — a
+ *    boosted sprite pinned at SIZE_APPARENT_CAP_PX while the close sphere is
+ *    true is exactly what made zooming the Moon feel stuck (apparent size
+ *    frozen at the cap across a huge range) and then snap ("zooms all the way
+ *    in") when the true disc finally overtook the cap. Consistent with the
+ *    header's rule that local satellite systems are already human-viewable at
+ *    true scale, so compression/exaggeration buys nothing there;
  *  · s = 1: the exact identity (TRUE preset renders bit-identically);
  *  · true disc ≥ SIZE_APPARENT_CAP_PX: true disc (close range stays real);
  *  · else: min(mEff · trueDisc, cap) with the REFERENCE response curve
@@ -261,9 +275,10 @@ export function renderedDiscPx(
   relEarthRadii: number,
   isMapAnchor: boolean,
   isEmissive: boolean,
+  parentIsMapAnchor = false,
 ): number {
   if (!(trueDiscPx > 0)) return 0;
-  if (isMapAnchor) return trueDiscPx;
+  if (isMapAnchor || parentIsMapAnchor) return trueDiscPx;
   let m = Math.min(SIZE_MULT_MAX, Math.max(SIZE_MULT_MIN, sizeMult));
   if (isEmissive) m = Math.min(m, SUN_SIZE_MULT_CAP);
   if (m === 1) return trueDiscPx; // exact identity

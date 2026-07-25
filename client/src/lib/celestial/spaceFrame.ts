@@ -1531,6 +1531,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       (defById.get(id)?.radiusKm ?? SIZE_REL_EARTH_KM) / SIZE_REL_EARTH_KM,
       defById.get(id)?.mapAnchor === "maplibre",
       !!defById.get(id)?.emissive,
+      // the Moon rides Earth (the anchor): render it TRUE like Earth so the
+      // Earth/Moon size ratio stays real AND the far sprite matches the close
+      // true-geometry sphere (no cap-pinned "stuck then snap" zoom).
+      defById.get(id)?.parentId === anchorDef.id,
     );
 
   // ── B3 orbit-ellipse polylines: sampled ONCE per body from the real
@@ -3242,12 +3246,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       capLines.push(
         { text: "distances/sizes compressed for visibility", color: amberHi },
         { text: "— labels always show real values", color: amberHi },
-        { text: `compression ${Math.round(scaleSt.c * 100)}% · size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth (live map) true`, color: amberLo },
+        { text: `compression ${Math.round(scaleSt.c * 100)}% · size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth + Moon true`, color: amberLo },
       );
     } else {
       capLines.push(
         { text: "distances/sizes compressed for visibility — labels always show real values", color: amberHi },
-        { text: `compression ${Math.round(scaleSt.c * 100)}% · body size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth (live map) always true · Schlyter/van Flandern (~arcmin)`, color: amberLo },
+        { text: `compression ${Math.round(scaleSt.c * 100)}% · body size ×${Math.round(scaleSt.s)} · Sun cap ×${SUN_SIZE_MULT_CAP} · time ${rateStr} · Earth + Moon always true · Schlyter/van Flandern (~arcmin)`, color: amberLo },
       );
     }
     capLines.forEach((line, i) => {
