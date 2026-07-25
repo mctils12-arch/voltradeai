@@ -2228,6 +2228,22 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   max-height: 100%; overflow-y: auto;
 }
+/* phone: the round nav FAB (right:12px bottom:96px, 44px, z-index:12 —
+   see .vt-nav-fab below) floats ABOVE this panel's own stacking context,
+   so it can sit directly on top of whichever row happens to scroll into
+   its footprint — the panel itself has no way to know the FAB is there.
+   Reserve that footprint as real scroll room so the panel's OWN last row
+   can never land under it. Surfaced 2026-07-25 once the visual harness's
+   self-see check finally covered the full layer registry (previously the
+   panel was never long enough to reach the FAB's y-range in practice) —
+   same shape of "harness gap hid a real defect" as the R15 powergrid
+   precedent above. Scoped to the one breakpoint the FAB is proven visible
+   at (max-width:639px, .vt-nav-fab's own media query); the analyst-pane-
+   open FAB case (≤1279px) isn't covered by any test yet, so it's not
+   speculatively "fixed" here — filed as a next step instead. */
+@media (max-width: 639px) {
+  .vt-layer-panel { padding-bottom: 152px; scroll-padding-bottom: 152px; }
+}
 .vt-layer-panel-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 10px 8px 14px;
