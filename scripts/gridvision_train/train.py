@@ -205,6 +205,49 @@ def _index_zip_images(names):
     return idx
 
 
+def validate_holdout_in_regions(holdout_region, regions):
+    """Pure pre-flight check (no I/O): if a holdout region is given AND an
+    explicit --regions list is given, the holdout region must be IN that list
+    (it's still excluded from training via the holdout split -- it just also
+    needs its images fetched to populate val). `regions=None` means "use the
+    default fetch set", which already includes both default US regions, so
+    nothing to check. Returns an error string, or None if ok."""
+    if holdout_region and regions is not None and holdout_region not in regions:
+        return (f"--holdout-region {holdout_region!r} is not in --regions {regions} "
+                f"-- its images would never be fetched, guaranteeing 0 val images. "
+                f"Add it to --regions too.")
+    return None
+
+
+def compute_holdout_split(stems, holdout_region, val_frac):
+    """train/val id split. Pure (no I/O) so it's independently testable without a
+    real zip/PIL fixture.
+
+    BUG FOUND 2026-07-10 (gv-div4-ks, live): the launch command's --regions list
+    (what actually gets FETCHED) did not include --holdout-region
+    ('USA_KS_Colwich_Maize') — nothing fetched for that region means val_ids ends
+    up empty, and the run silently proceeded 9+ minutes into pip-install/model-
+    download before ultralytics itself raised a deep, generic
+    'FileNotFoundError: No images found in .../images/val' with no mention of the
+    actual cause. FAIL FAST here instead, before any GPU time is spent, with a
+    message that names the fix (add holdout_region to --regions too — it is still
+    excluded from TRAINING via this split, but its images must be present in the
+    fetched pool to serve as val)."""
+    if holdout_region:
+        val_ids = [s for s in stems if e2y.region_of(s) == holdout_region]
+        train_ids = [s for s in stems if e2y.region_of(s) != holdout_region]
+        if not val_ids:
+            raise ValueError(
+                f"holdout_region={holdout_region!r} matched ZERO fetched images "
+                f"(0 of {len(stems)} stems) -- its raster images were never fetched. "
+                f"Add {holdout_region!r} to --regions too (it stays excluded from "
+                f"training via this holdout split; it just also needs to be in the "
+                f"fetched pool to populate val)."
+            )
+        return train_ids, val_ids
+    return e2y.train_val_split(stems, val_frac)
+
+
 def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",),
                        tile=640, stride=512, holdout_region=None):
     """Unzip ETDII US, downsample each image 0.30->0.60 m, then TILE it into
@@ -264,11 +307,7 @@ def build_yolo_dataset(zip_paths, out_root, val_frac=0.2, keep_classes=("tower",
     # to train — a true cross-region generalization test (train regions never
     # include the eval region). Otherwise the deterministic hash split.
     stems = list(per_image.keys())
-    if holdout_region:
-        val_ids = [s for s in stems if e2y.region_of(s) == holdout_region]
-        train_ids = [s for s in stems if e2y.region_of(s) != holdout_region]
-    else:
-        train_ids, val_ids = e2y.train_val_split(stems, val_frac)
+    train_ids, val_ids = compute_holdout_split(stems, holdout_region, val_frac)
     split_of = {i: "train" for i in train_ids}
     split_of.update({i: "val" for i in val_ids})
 
@@ -572,6 +611,14 @@ def run_full(args):
     else:
         regions = None  # default: 2 US regions
     print(f"[train] training regions: {regions or list(ETDII_US_FILE_IDS.keys())}", flush=True)
+    # PRE-FLIGHT (BUG FOUND 2026-07-10, gv-div4-ks): catch BEFORE any network fetch
+    # — cheapest possible place to catch an explicit --regions list that forgot to
+    # include --holdout-region, which otherwise silently produces 0 val images and
+    # only surfaces as a deep, generic ultralytics FileNotFoundError after
+    # pip-install + model download have already run.
+    preflight_err = validate_holdout_in_regions(args.holdout_region, regions)
+    if preflight_err:
+        raise SystemExit(f"[train] FATAL: {preflight_err}")
     zips = fetch_etdii_us(os.path.join(work, "etdii"), regions=regions)
     ds = build_yolo_dataset(zips, os.path.join(work, "dataset"), args.val_frac,
                             tile=args.tile, stride=args.stride,

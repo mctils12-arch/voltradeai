@@ -2033,3 +2033,41 @@ already follows. Live-run this session: still stale
 (`server_version=1.0.475` vs `package.json=1.0.493` at run time) — no
 change in the underlying outage, this is tooling only, not a new
 finding.
+
+## RUNPOD OPTION B — server-side pod watchdog (proposed 2026-07-10 by
+## orphaned PR #415, recovered into this file 2026-07-25; still not
+## built, NOT blocking — GRID VISION RunPod work is fully usable today
+## via Option A + the now-shipped `scripts/runpod_reap.py` stopgap)
+
+WHAT: `research/runpod_ledger.md`'s Option A CAVEAT (accepted 2026-07-08:
+the cost-cap watchdog lives in the launching Claude Code session) means a
+session ending before its watchdog reaches the terminate step can leave a
+pod billing unattended. `scripts/runpod_reap.py` (this session, recovered
+from the orphaned #415) closes that gap MANUALLY — a future session has
+to remember to run it at the start of any GRID VISION RunPod work. GPU
+launches (div1-div5, 2026-07-08/10) have already happened 5+ times.
+
+OPTION B: a small always-on watcher in the existing Node server
+(server/bot.ts territory or a sibling module) that reads
+`RUNPOD_API_KEY` from Railway env (never the session) and periodically
+(e.g. every 5 min) reconciles `datacore/runpod/ledger.jsonl`'s open jobs
+against `GET /pods`, terminating + closing any that exceed their own
+`max_hours`. Removes the CAVEAT entirely — no session needs to stay
+attached for a launch to be safe.
+
+WHY NOT BUILT: (a) it's a new persistent server capability, not a quick
+script — deserves its own PR + its own research; (b) it moves
+`RUNPOD_API_KEY` into the always-on deployed process (a broader exposure
+surface than the current session-only placement) — a security-relevant
+tradeoff a human should weigh in on, not a unilateral call; (c) the
+stopgap (`runpod_reap.py`, now shipped) already closes the practical gap
+at zero new attack surface as long as sessions remember to run it first.
+BUILD-FIRST note: no paid alternative considered — this is pure
+engineering effort, not a data-access purchase.
+
+DECISION NEEDED: does Mike want `RUNPOD_API_KEY` added to Railway (it may
+already be there for other reasons — verify) and a small always-on
+watchdog built, or is the session-start `runpod_reap.py` check sufficient
+given GPU launches are still occasional, not continuous? If the latter,
+this entry can be closed as "accepted stopgap, revisit if incidents
+recur."
