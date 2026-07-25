@@ -229,6 +229,52 @@ def test_duke_factor_is_4x_not_2x():
     assert cog.downsample_factor(az_gsd, train.TARGET_GSD) == pytest.approx(2.0)
 
 
+def test_validate_holdout_in_regions_catches_the_gv_div4_ks_bug():
+    # THE ACTUAL BUG (gv-div4-ks, live, 2026-07-10): --regions omitted the
+    # holdout region entirely, so it was never fetched -> 0 val images,
+    # surfacing 9+ minutes later as a deep ultralytics FileNotFoundError.
+    err = train.validate_holdout_in_regions(
+        "USA_KS_Colwich_Maize",
+        ["USA_AZ_Tucson", "USA_CT_Hartford", "USA_NC_Clyde", "USA_NC_Wilmington"])
+    assert err is not None
+    assert "USA_KS_Colwich_Maize" in err
+
+
+def test_validate_holdout_in_regions_ok_when_included_or_default():
+    # holdout region present in an explicit --regions list -> ok
+    assert train.validate_holdout_in_regions(
+        "USA_KS_Colwich_Maize", ["USA_AZ_Tucson", "USA_KS_Colwich_Maize"]) is None
+    # regions=None (default fetch set) always includes both default US regions
+    assert train.validate_holdout_in_regions("USA_KS_Colwich_Maize", None) is None
+    # no holdout region requested -> nothing to check regardless of regions
+    assert train.validate_holdout_in_regions(None, ["USA_AZ_Tucson"]) is None
+
+
+def test_compute_holdout_split_raises_on_zero_val_match():
+    # same bug, at the build_yolo_dataset layer: if the holdout region's stems
+    # were never fetched, val_ids is empty -- fail fast with a clear message
+    # instead of silently proceeding into ultralytics' generic crash.
+    stems = ["USA_AZ_Tucson_1", "USA_CT_Hartford_1"]  # no KS stems present
+    with pytest.raises(ValueError, match="USA_KS_Colwich_Maize"):
+        train.compute_holdout_split(stems, "USA_KS_Colwich_Maize", 0.2)
+
+
+def test_compute_holdout_split_partitions_cleanly_when_present():
+    stems = ["USA_AZ_Tucson_1", "USA_AZ_Tucson_2", "USA_KS_Colwich_Maize_1"]
+    tr, va = train.compute_holdout_split(stems, "USA_KS_Colwich_Maize", 0.2)
+    assert set(va) == {"USA_KS_Colwich_Maize_1"}
+    assert set(tr) == {"USA_AZ_Tucson_1", "USA_AZ_Tucson_2"}
+    assert set(tr) & set(va) == set()
+
+
+def test_compute_holdout_split_falls_back_to_hash_split_without_holdout():
+    stems = [f"img_{i}" for i in range(20)]
+    tr, va = train.compute_holdout_split(stems, None, 0.2)
+    assert set(tr) | set(va) == set(stems)
+    assert set(tr) & set(va) == set()
+    assert len(va) > 0
+
+
 def test_region_of_longest_prefix():
     assert e2y.region_of("USA_AZ_Tucson_12") == "USA_AZ_Tucson"
     assert e2y.region_of("USA_KS_Colwich_Maize_3") == "USA_KS_Colwich_Maize"

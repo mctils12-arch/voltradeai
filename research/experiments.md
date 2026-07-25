@@ -28439,3 +28439,154 @@ session should run `python3 scripts/session_health_check.py` at the top
 of its health check instead of hand-deriving the `server_version`
 comparison, and should treat `deploy_freshness` flipping to OK as the
 signal the freeze has cleared.
+
+## 2026-07-25 (scheduled-routine session #2) [PIPELINE] — recovers orphaned PR #415 (gv-div4-ks train_rc=1 fail-fast fix + runpod_reap.py orphan-pod stopgap), corrects a 2-week-stale "RUNPOD BLOCKED-FOR-MIKE" claim in CLAUDE.md + grid_vision.md (v1.0.497, T-DATACORE)
+
+TERRITORY: T-DATACORE (scripts/gridvision_train/train.py, scripts/runpod_reap.py,
+scripts/runpod_launch.py, their tests, + research/*.md docs). No client/bot/
+strategy files touched.
+
+CONTEXT: this is a [PRODUCT] routine (datacore/ + /data). Checked KNOWN
+BROKEN first (open_questions.md — nothing newly critical-unfixed) and
+`/api/health` (`degraded`: `scanner.consecutiveFailures: 20` — a T-BOT
+matter, out of this session's territory, not investigated further here;
+flagging for a T-BOT/DAILY session). Also noticed the PRODUCTION DEPLOY
+FREEZE (frozen since 2026-07-22, `server_version` stuck at 1.0.475) appears
+to be actively clearing THIS session: `main`'s HEAD commit (8f85fb8,
+"Deploy trigger: re-arm Railway after CI un-froze") states the repo was
+made public, removing the GitHub Actions free-minute cap; `mcp__github__
+actions_list` confirmed CI now runs green on `main` (run on ad3b1b3
+completed `success`) after ~18 versions frozen. Did not touch this further
+— it is external infra recovering on its own, not a product action, and
+`/api/data/layers` still reported `server_version: "1.0.475"` at check
+time (deploy lag, not a new problem). A future session should re-run
+`scripts/session_health_check.py` to confirm `deploy_freshness` has
+flipped to OK.
+
+PRIMARY ACTION (product axis (d) — datacore/ spinout-readiness/hygiene,
+choosing to recover known-good already-reviewed work over starting fresh
+research): `research/wishlist.md`'s 2026-07-22 entry explicitly named PR
+#415 (gv-div4-ks fix + RunPod-reap tool) as "arguably the most
+time-sensitive" of four orphaned PRs — a billing-safety tool sitting
+unshipped 12 days at that point (now 15), unmerged only because of the
+same repo-history-rewrite that orphaned PR #399 (recovered 2026-07-24).
+Verified orphan status myself rather than trusting the prior note:
+`git merge-tree` between `origin/main` and PR #415's branch
+(`claude/dazzling-planck-g1d293`) still refuses "unrelated histories"
+(different root commits: `4dad299` for `main` vs `d1ba62f` for the PR
+branch) — confirmed still true today, not stale.
+
+RECOVERED (diff extracted via `git diff <PR-branch-parent>..<PR-branch-tip>`
+on the PR's own self-consistent history, then hand-applied — same method
+as #399's recovery):
+1. `scripts/gridvision_train/train.py` — `validate_holdout_in_regions()`
+   (pre-flight, no I/O: an explicit `--regions` list that omits
+   `--holdout-region` guarantees 0 val images) and `compute_holdout_split()`
+   (extracted from `build_yolo_dataset`, now raises `ValueError` if it ever
+   produces 0 val images regardless of caller) — turns the gv-div4-ks class
+   of mistake (a human/session launch-arg omission) into a <1s fail-fast
+   instead of a 9-minute pip-install+model-download before a deep, generic
+   ultralytics `FileNotFoundError`. 5 new tests in test_gridvision_train.py,
+   applied clean (`git apply --check` passed with zero drift against
+   current `train.py`).
+2. `scripts/runpod_reap.py` (new) + `test_runpod_reap.py` (new, 10 tests) —
+   finds ledger job_ids with no close row, matches them against `GET /pods`
+   (pod `name == job_id`), dry-run by default, `--apply` terminates any
+   still-live match and closes the ledger (capped at the job's own reserved
+   cost if the pod is already gone). Stopgap for the Option A caveat
+   (research/runpod_ledger.md, human-accepted 2026-07-08): the cost-cap
+   watchdog lives IN the launching session, so a session ending mid-watchdog
+   can leave a pod billing unattended.
+3. `scripts/runpod_launch.py` gained `list_pods(key)` (thin `GET /pods`
+   wrapper) — the dependency `runpod_reap.py` needs and didn't have.
+
+DELIBERATELY NOT RECOVERED (verified against current reality first, not
+blindly reapplied):
+- `datacore/runpod/ledger.jsonl` — PR #415's diff wanted to append a
+  manual-close row for `gv-div4-ks` (`actual_cost: 1.5389`, closed
+  `02:37:57Z`, note "manual close... 2h13m idle billing"). The CURRENT
+  ledger already has a DIFFERENT close row for the same `job_id`
+  (`actual_cost: 3.450966`, closed `05:23:56Z`, note "closed: elapsed
+  18005s" — exactly the 5h reserved cap). These are two different,
+  mutually exclusive accounts of how the same pod actually got closed.
+  Cross-checked `research/experiments.md`'s own 2026-07-10 entries (a
+  DIFFERENT, non-orphaned concurrent session, PR #416, which DID merge):
+  its account says the pod was "idle-billed to cap" — consistent with the
+  ledger's real row, NOT with #415's "found orphaned, manually terminated
+  at 2h13m" narrative. Two sessions diagnosed the same incident
+  differently in real time; only #416's landed. Appending #415's
+  contradictory row would corrupt the ledger's append-only truth record,
+  so it was skipped — this exact caveat was already flagged in
+  wishlist.md's 2026-07-22 entry ("needs careful append-only-preserving
+  resolution, not a blind merge"). `runpod_reap.py`'s own docstring now
+  carries an HONESTY NOTE stating this discrepancy plainly rather than
+  silently asserting the disputed figure.
+- `research/grid_vision_phaseb.md` — PR #415's diff wanted to add its own
+  "gv-div4-ks outcome" narrative section. The file already has an
+  accurate, complete, self-consistent account of the real merged timeline
+  (div4 crashed on a launch-arg mistake, div5 corrected and ran, AP50
+  plateaued at 0.197) from PR #416. Adding #415's superseded/incorrect
+  version on top would contradict it. Skipped entirely.
+- `research/experiments.md`'s own 2026-07-10 entries from #415 — not
+  re-inserted (this file is chronological; inserting a stale dated entry
+  today would misrepresent when the recovery actually happened, the same
+  reasoning #399's recovery session already applied).
+
+DOC CORRECTIONS (own small addition, factual KNOWN-STATE-class updates,
+not new rules): found that CLAUDE.md's KNOWN STATE line ("RUNPOD_API_KEY
+is in Railway not the session → launch is a server-routine step
+(BLOCKED-FOR-MIKE)") and grid_vision.md's matching NEXT bullet have BOTH
+been factually wrong since 2026-07-08 — re-verified live this session via
+`env | grep RUNPOD_API_KEY` (present, 50 chars). PR #415 itself made this
+exact correction on 2026-07-10 but never merged; the stale text has
+therefore been sitting in CLAUDE.md for the full ~2.5 weeks since,
+telling every session that reads it that GRID VISION GPU work is blocked
+when it demonstrably is not (5 GPU jobs already ran 07-08/10). Corrected
+both files with today's date and re-verification, not a blind reapply of
+the old (now itself 15-days-stale) PR text. Also appended
+`research/wishlist.md`'s still-unbuilt "RUNPOD OPTION B" (server-side
+watchdog) proposal from the same orphaned PR — genuinely still an open
+decision for the human, not superseded by anything since.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): all three recovered code files
+sit strictly on the offline GPU-training/cost-tooling path — zero import
+from or call into `scan_market`/`deep_score`/order execution/the trading
+loop. `runpod_reap.py`'s `--apply` path is the only one that mutates
+external state (RunPod DELETE + ledger append), gated behind an explicit
+flag and never invoked automatically by anything in this PR.
+
+GATES: `python3 -m pytest -q test_gridvision_train.py test_runpod_reap.py
+test_runpod_budget.py` — 65 passed (targeted). Full bare-repo
+`python3 -m pytest -q` (fresh sandbox, `pip3 install -r requirements.txt
+-r requirements-dev.txt` first) — **908 passed, 1 skipped** (893 baseline
++ 15 net-new: 5 in test_gridvision_train.py, 10 in test_runpod_reap.py;
+zero regressions). Manual smoke: `python3 scripts/runpod_reap.py`
+(dry-run, no `--apply`) against the live ledger — "no open ledger jobs --
+nothing to reap," confirming the current ledger is clean (no live
+incident to act on right now; this PR is pure defense-in-depth for the
+NEXT GPU launch, not an emergency response to an active one). No
+TypeScript/client files touched — `tsc`/`build`/`visual` gates don't
+apply.
+
+BACKTEST: N/A — offline GPU-training infra + docs corrections; no
+trading/measurement/parameter path touched.
+
+Version 1.0.496 -> 1.0.497 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed no advance since session
+start).
+
+NEXT: #399 and #415 are now both recovered (2026-07-24 and today,
+respectively). Two orphaned PRs remain per wishlist.md's 2026-07-22 list:
+**#449** (agent-tools API) and **#572** (ENTSO-E generation mix) — same
+recovery pattern, one per future session. Also worth a fresh open-PR-list
+check (`mcp__github__list_pull_requests`) since it's been 3 days since
+the last one and the CI outage recovering may itself surface more stale
+state. GRID VISION's actual next research question (now that the launch
+question is corrected) is the ALREADY-DOCUMENTED one in
+grid_vision_phaseb.md/grid_vision.md's own NEXT lists (3c Duke-US
+substation zips, V3 gate-2 ERCOT event list) — not re-derived here, this
+session's scope was the recovery + doc-hygiene action only. Separately:
+`/api/health` scanner `degraded` (`consecutiveFailures: 20`) was observed
+but not investigated (T-BOT territory, out of this [PIPELINE]/T-DATACORE
+session's scope) — worth a DAILY/T-BOT session's attention if it
+persists.
