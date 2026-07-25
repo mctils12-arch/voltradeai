@@ -28439,3 +28439,88 @@ session should run `python3 scripts/session_health_check.py` at the top
 of its health check instead of hand-deriving the `server_version`
 comparison, and should treat `deploy_freshness` flipping to OK as the
 signal the freeze has cleared.
+
+## 2026-07-25 (scheduled-routine [PRODUCT] session) [REPAIR] — designated branch `claude/beautiful-planck-odhs6x` has 48 unmerged commits stranded since 2026-07-21; `create_pull_request` reproducibly 422s on this specific branch head (new, branch-scoped symptom, distinct from the tracked outage)
+
+TERRITORY: SHARED (research/* only this session — no code territory
+claimed; diagnostic/documentation session).
+
+CONTEXT: routine brief was a [PRODUCT] session (advance datacore/,
+build /data UI, propose a data root, or improve datacore's API
+boundary). Checked `/api/health` (green, no liveness alarm) and KNOWN
+BROKEN (nothing newly critical-unfixed) first per the brief. Before
+picking a product action, ran the standard `git status`/`git fetch`
+pre-flight on the designated branch and found it was 48 commits ahead
+of `origin/main` with a genuinely large, non-trivial diff (+6068/-85
+across 38 files) — surprising for what should be a routinely-cleared
+branch, so this became the session's actual investigation.
+
+FINDING: confirmed via `git log origin/main..HEAD`, `git diff --stat
+origin/main HEAD`, and spot-checking specific files
+(`server/euGenerationMix.ts` doesn't exist in `origin/main` at all;
+`server/apiProduct.ts`/`server/usaSpending.ts` exist in both but with
+real content deltas) that this is genuine unmerged work, not
+already-superseded duplicate history. `origin/main` is a strict git
+ancestor of HEAD (clean fast-forward possible — no conflicts), and the
+commit dates (2026-07-21 through 2026-07-25, one cluster per session)
+line up with the already-tracked PRODUCTION DEPLOY FREEZE /
+`create_pull_request` 500 symptom in wishlist.md: the working
+hypothesis is every session since the outage began tried to PR its
+work, failed, and correctly left it pushed-but-unmerged rather than
+bypassing review for substantive code changes.
+
+NEW SYMPTOM THIS SESSION FOUND: `create_pull_request` for THIS branch's
+head fails 4-for-4 with a reproducible `422 Validation Failed
+[{Resource:PullRequest Field:head Code:invalid Message:}]` — tried
+varying the `head` param format (bare branch name vs `owner:branch`),
+`draft` true/false, and body length/content, all identical result. This
+is a DIFFERENT symptom from the already-tracked general outage: a
+control test creating a PR against a different, already-open PR's head
+(`claude/dazzling-planck-g1d293`, PR #415) got the *correct, specific*
+error ("A pull request already exists for..."), proving
+`create_pull_request` is generally functional right now and the
+failure is isolated to this one branch. Root cause not determined from
+this sandbox (possibly a GitHub-side edge case in PR-head validation
+given the branch's unusual shape — 48 commits including several merges
+of `origin/main` back into itself); filed for the human with a
+recommended web-UI fallback in wishlist.md.
+
+WHY THIS WAS THE SESSION'S PRIMARY ACTION: this blocks the entire
+PRODUCT workstream at its root — any new work committed to the
+designated branch today would extend an already-49-commits-deep
+unreviewable backlog rather than ship, worse than doing nothing. Per
+SESSION BUDGET rule 3 ("if a decision blocks all remaining work, write
+it to wishlist.md and THEN fall through") and REASONING STANDARD #9
+("when live diverges from expectation, believe live, chase the
+divergence") — a routine assumption ("push to the designated branch,
+it'll get PR'd") was live-disproven this session, and root-causing +
+documenting that outranked starting yet another commit that would land
+in the same stuck pile. Did not attempt to force-fix by resetting the
+branch (would destroy 48 commits of real, unique, unmerged work — the
+git-safety default is investigate and preserve, not discard unfamiliar
+state) or merge it wholesale (would violate PROMOTION RULE 5, bundles
+~15 distinct logical changes).
+
+ACTION TAKEN: filed a full writeup in `research/wishlist.md` (finding,
+repro steps, the control test proving it's branch-scoped not systemic,
+the ~15 bundled logical changes so nothing is lost track of, and 5
+recommended human actions led by "try the GitHub web UI, which may
+succeed where the API doesn't"). No code changed. No PR opened (the
+subject of the finding). Sent a push notification — this is exactly
+the "routine couldn't complete its intended action, needs human
+decision" case, not routine status.
+
+GATES: N/A — docs-only, no code touched, no test suite run required.
+
+BACKTEST: N/A.
+
+NEXT: a future session should check whether the human tried the GitHub
+web UI path — if a PR is now open for this branch, split it into the
+~15 logical changes listed in wishlist.md before considering any
+merge. If no PR is possible even via the web UI, the human's decision
+on how to unstick this (support ticket, or an explicit one-time
+approval to bypass the one-PR-per-change rule for this specific
+backlog) gates everything else on this branch. Until resolved, new
+PRODUCT sessions should default to documenting/researching
+(open_questions.md, wishlist.md entries) rather than committing more
+code to this branch, per the same reasoning above.
