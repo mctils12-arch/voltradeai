@@ -2238,9 +2238,18 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    panel was never long enough to reach the FAB's y-range in practice) —
    same shape of "harness gap hid a real defect" as the R15 powergrid
    precedent above. Scoped to the one breakpoint the FAB is proven visible
-   at (max-width:639px, .vt-nav-fab's own media query); the analyst-pane-
-   open FAB case (≤1279px) isn't covered by any test yet, so it's not
-   speculatively "fixed" here — filed as a next step instead. */
+   at (max-width:639px, .vt-nav-fab's own media query). The analyst-pane-
+   open FAB case (<=1279px, same .vt-nav-fab reappearing via
+   `.vt-map-page[data-vt-analyst-open="true"] .vt-nav-fab`) was TESTED,
+   not assumed, same day: the visual harness's self-see battery now also
+   opens the analyst pane with the layer panel open at the 768px canonical
+   width (scripts/visual_check.mjs's self-see x analyst combo check) and
+   found NO occlusion — the panel's own last reachable row never lands in
+   the FAB's footprint at that width, so no CSS change is needed here.
+   Left unfixed deliberately per READ-BEFORE-WRITE: a fix with no failing
+   test to justify it is a guess, not a repair. The combo check stays as
+   a permanent ratchet in case content growth or a layout change ever
+   makes this reproduce. */
 @media (max-width: 639px) {
   .vt-layer-panel { padding-bottom: 152px; scroll-padding-bottom: 152px; }
 }

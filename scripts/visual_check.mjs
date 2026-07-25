@@ -1199,6 +1199,53 @@ async function main() {
           return fails;
         }, layerIds);
         checks.failures.push(...selfSee);
+        // ── SELF-SEE × ANALYST COMBO (2026-07-25 follow-up to the phone-width
+        // FAB/panel occlusion fix above, filed as NEXT item (1) in that same
+        // session's log): index.css collapses the nav cluster down to the
+        // same round `.vt-nav-fab` the phone uses whenever the analyst pane
+        // is open, at ANY width <=1279px (`.vt-map-page[data-vt-analyst-
+        // open="true"] .vt-nav-fab`) — not just the phone breakpoint the CSS
+        // fix above was scoped to. If the layer panel is ALSO open at a mid
+        // width (640-1279px, i.e. our 768 canonical width), the FAB COULD sit
+        // over the panel's own last row exactly like the already-fixed phone
+        // case — no test opened both panels together until now, so this is
+        // now a permanent ratchet against that regressing (verified this
+        // session with a manual geometry probe that the FAB and panel really
+        // do share the same screen rectangle at 768px; the check below found
+        // no ACTUAL row occluded — see index.css's updated comment on the
+        // 639px rule for the full finding — but it stays wired so a future
+        // content/layout change that does cause an overlap gets caught).
+        if (vp.w > 639 && vp.w <= 1279) {
+          const aBtnCombo = page.locator("[data-vt-analyst]");
+          if (await aBtnCombo.count()) {
+            await aBtnCombo.click().catch(() => {});
+            const aPanelCombo = await page.waitForSelector("[data-vt-analyst-panel]", { timeout: 4000 }).catch(() => null);
+            if (aPanelCombo) {
+              await page.waitForTimeout(300);
+              const comboFails = await page.evaluate((ids) => {
+                const fails = [];
+                const panel = document.querySelector(".vt-layer-panel");
+                if (!panel) return fails;
+                for (const id of ids) {
+                  const row = panel.querySelector(`[data-vt-layer="${id}"]`);
+                  if (!row) continue;
+                  row.scrollIntoView({ block: "center" });
+                  const toggle = row.querySelector('[role="switch"]');
+                  if (!toggle) continue;
+                  const tr = toggle.getBoundingClientRect();
+                  const hit = document.elementFromPoint(tr.left + tr.width / 2, tr.top + tr.height / 2);
+                  if (hit && !toggle.contains(hit) && hit !== toggle && !hit.contains(toggle)) {
+                    fails.push(`self-see: '${id}' toggle covered by <${hit.tagName.toLowerCase()} class='${String(hit.className).slice(0, 30)}'> with the analyst pane also open`);
+                  }
+                }
+                return fails;
+              }, layerIds);
+              checks.failures.push(...comboFails);
+              await page.click('[data-vt-analyst-panel] [aria-label="Close analyst"]', { timeout: 2000 }).catch(() => {});
+              await page.waitForTimeout(200);
+            }
+          }
+        }
         // ── LEGEND PARITY (DESIGN.md legend rule, human-approved 2026-07-04):
         // every icon the live style draws must have a legend entry, and every
         // legend entry must name an icon registered on the map. Both

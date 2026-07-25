@@ -3,6 +3,157 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-25 (scheduled-routine session, 4th today) [REPAIR] — self-see × analyst-pane-open combo check closes the exact gap the prior session filed as NEXT (v1.0.496, T-CLIENT); finding: the hypothesized FAB/panel occlusion does NOT reproduce at 768px, so no CSS change shipped
+
+TERRITORY: T-CLIENT (scripts/visual_check.mjs, client/src/index.css comment
+only). package.json version bump is the SHARED-file edit, last and
+smallest, per MERGE-ORDER PROTOCOL — re-read-and-incremented at commit
+time (origin/main confirmed at 1.0.495/ad3b1b3 immediately before
+bumping, no race).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+tail (loop-health ratio over the last 10 tagged entries: 4 [REPAIR], 2
+[PIPELINE], 3 [PRODUCT], 1 [RESEARCH] — under the 7-of-10 thrash
+threshold), open_questions.md's KNOWN BROKEN section, and wishlist.md's
+head/CI-outage thread. Live `/api/health`: status degraded — but the
+only degraded check is `scanner` (consecutiveFailures: 12), the
+already-tracked KNOWN BROKEN #18 TIER2-daemon-timeout signature (bot
+itself `active`, `liveness.dark: false`, `drawdownPct: 0.0`, alpaca
+ACTIVE — no LIVENESS ALARM). Confirmed via `mcp__github__actions_list`
+that GitHub Actions is STILL in the tracked runner-allocation outage (all
+~30 most recent runs across the last ~19h are `completed`/`failure` with
+`runner_id: 0` on the `changes` job, identical signature every session
+has confirmed since 2026-07-22T14:09Z) and PRODUCTION DEPLOY FROZEN is
+therefore still active (`/api/data/layers` server_version 1.0.475 vs this
+checkout's 1.0.495 pre-bump, 20 versions behind) — not re-flagged as a
+new finding, already extensively documented (6+ prior wishlist.md
+updates); nothing new to add.
+
+PRIMARY ACTION SELECTION: the prior session (PR #602/#603, v1.0.495)
+filed NEXT item (1) as its own unclaimed follow-up: the phone-width
+(<=639px) FAB-vs-layer-panel occlusion fix it shipped was deliberately
+NOT extended to the analyst-pane-open case at <=1279px because "no test
+exercises the analyst-pane-open path yet, so it's neither confirmed nor
+fixed." This is exactly a SESSION BUDGET tier-1 item — a gap a prior
+session's own audit already identified and left queued, in the same
+territory, no larger-context research needed. Chose this over
+KNOWN BROKEN #18 (production is 3+ days stale so live audit evidence
+from any new instrumentation can't be trusted right now anyway — the
+v1.0.481 scan_timings read that would answer it has never reached
+production) and over starting new DATACORE MAXIMUS work (queue is
+clear per the 2026-07-22 entries, nothing unclaimed).
+
+READ BEFORE WRITE: read the full self-see battery (scripts/
+visual_check.mjs ~1124-1258) and the W6 analyst-pane battery
+(~947-1047) before writing anything — confirmed the two never run
+together: the analyst battery opens then CLOSES the pane (its own
+close-button click, ~1033) before self-see later reopens the layer
+panel fresh, so no code path had ever exercised "both panels open at
+once." Read index.css's `.vt-nav-fab` rules (~3767-3795): the FAB is
+`display:none` by default and flips to `display:flex` two ways — always
+at <=639px, OR at <=1279px specifically when `.vt-map-page[data-vt-
+analyst-open="true"]` — confirming the hypothesis that mid-width
+(640-1279px) sessions with the analyst pane open get the exact same
+floating-FAB layout the phone-only CSS fix was written for.
+
+METHOD: added a combo check inside the self-see battery, gated to
+`vp.w > 639 && vp.w <= 1279` (only the 768px canonical width matches),
+which opens the analyst pane via its own control (`[data-vt-analyst]`)
+while the layer panel is already open+fully expanded, then re-runs the
+per-row toggle-occlusion scan (scroll each registered layer's toggle
+into view, `elementFromPoint` hit-test) and restores state by closing
+the pane via its own close control. Zero speculative code: this only
+ADDS test coverage using the identical occlusion-detection logic the
+existing self-see check already uses for other controls.
+
+FINDING (verified with a manual geometry probe before trusting the
+zero-failure result, not just accepted silence at face value — a
+"combo check passes because it never actually ran" bug would look
+identical to "no occlusion exists"): instrumented the check temporarily
+to print `data-vt-analyst-open`, the FAB's live `getBoundingClientRect()`,
+and the panel's, confirming the battery genuinely opened the analyst
+pane (`analystOpenAttr: "true"`) and the FAB really did render at
+`display:flex` inside the panel's own bounding rectangle (FAB
+712,884-756,928 vs panel 448,56-768,1024 — the two rectangles DO
+overlap in screen space). Despite that overlap, the per-row scan found
+NO toggle actually rendered under the FAB at 768px — the panel's
+content, once every group and "show more" is expanded, doesn't have
+enough scrollable height past its own last row for `scrollIntoView`'s
+centering to clamp that row down into the FAB's narrow 44px band near
+the very bottom of a 1024px-tall viewport (unlike the phone's 844px-tall
+viewport, where the same relative FAB position eats a much larger
+fraction of the available scroll room). REMOVED the debug instrumentation
+before committing — it served only to verify the check itself works,
+not to ship as permanent output.
+
+DECISION: did NOT add the CSS padding-bottom reservation to
+`.vt-layer-panel` for the analyst-open <=1279px case. Per READ-BEFORE-
+WRITE and the anti-speculative-fix rule, a CSS change with no failing
+test to justify it is a guess, not a repair — and this session now HAS
+the test, and it passes clean. Instead: (1) the combo check ships as a
+permanent ratchet (T-CLIENT territory, same as the fixture-completion
+precedent) so if content growth or a future layout change ever DOES
+cause this overlap, it will be caught immediately; (2) index.css's
+existing comment on the 639px rule is updated to record the tested,
+not merely assumed, finding — a future session reading that comment
+will see this was checked, not skipped.
+
+RATCHET: the combo check itself is the ratchet — it runs on every
+future `npm run visual` invocation at the 768px canonical width,
+covering the one gap NEXT item (1) from the prior session named.
+
+GATES: fresh install (`npm install`, `pip3 install -r requirements.txt
+-r requirements-dev.txt`). `python3 -m pytest -q` — 893 passed, 1
+skipped (no Python touched; baseline, run anyway). `npx tsc --noEmit`
+— 77 errors, confirmed identical before/after via `git stash`
+A/B (neither changed file is TS-checked — one is `.mjs`, one is
+`.css`). `npx tsx --test server/*.test.ts client/src/lib/*.test.ts
+client/src/pages/*.test.ts` — 1018 passed, 0 failed (no behavior-level
+TS/JS touched). `npm run build` clean. VISUAL HARNESS (promotion rule
+6), run at all three canonical widths (390/768/1440) on the `data`
+page: 390 PASS; 768 and 1440 show a HARD perf-gate failure (p95 frame
+450ms/617ms > the 350ms gate) — this is the SAME pre-existing
+SwiftShader/software-render sandbox flake every recent client/ PR has
+logged (open_questions.md's 2026-07-20 terrain audit; PR #602's own
+run hit a SOFT 333ms/533ms version of the identical warning one run
+earlier in this same session, with zero code difference between the
+two runs at those widths) — not caused by this change, which touches
+no rendering path. Zero self-see, analyst, or legend-parity failures
+across all three widths, both before and after the CSS comment update.
+
+BACKTEST: N/A — test-harness coverage + a doc-comment update; no
+scoring, sizing, execution, or data-classification logic touched.
+
+CI STATUS: GitHub Actions CI is STILL in the tracked runner-allocation
+outage (wishlist.md, 6+ prior session updates) — same signature
+confirmed again this session via `actions_list`/`get_job_logs`
+(`changes` job completes in ~3s with `runner_id: 0`, log content 404s
+since nothing ever ran). Verified full local gates in place of CI per
+the standing option-(c) precedent every session has used since the
+outage began. Deploy freshness note: like every merge since
+2026-07-22, this PR will NOT reach production until a human flips
+Railway's "Wait for CI" setting or Actions recovers.
+
+MARKET HOURS NOTE: this session ran during market hours — PR opened
+but flagged not to merge until after 4:00 PM ET, per the scheduled-
+routine instruction (this change carries zero trading-path risk either
+way, but the instruction applies regardless of risk level).
+
+NEXT (filed, unclaimed): (1) the 768px "clipped control" Facilities-
+group-header note and the general touch-target-size warnings remain
+cosmetic DESIGN.md-polish debt from the prior session's log, still
+unclaimed, still not blocking. (2) PRODUCTION DEPLOY FROZEN / CI outage
+— unchanged, still needs the human's Railway toggle or GitHub Actions
+billing check. (3) If a future content addition to the layer registry
+ever grows the panel's scrollable height further at 768px, re-run this
+combo check specifically — it is now the fast way to re-verify rather
+than re-deriving the geometry probe from scratch.
+
+STARVED: no — this session's scope (extend test coverage for a
+narrowly-filed, already-scoped gap; verify the negative result rather
+than assume it) was appropriately sized to the queue; nothing
+higher-value sat unclaimed.
+
 ## 2026-07-25 (scheduled-routine session, 2nd today) [REPAIR] — visual_check.mjs fixture gap for 9 hazard/facility layers closed, which immediately surfaced (and this session fixed) a real mobile self-see occlusion bug (v1.0.495, T-CLIENT; PR #602)
 
 TERRITORY: T-CLIENT (scripts/visual_check.mjs, client/src/index.css). package.json
