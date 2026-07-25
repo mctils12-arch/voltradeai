@@ -6478,3 +6478,49 @@ NOT ACTIONABLE YET: no threshold, config, or strategy change should ship
 from this finding alone. Reproducibility artifact:
 `scripts/illiquid_universe_probe.py` (frozen candidate lists + full
 methodology in its docstring) + `test_illiquid_universe_probe.py`.
+
+## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
+
+SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
+`git stash`-restored pre-change tree (no code changes at all vs. `main`
+HEAD 92ebe27) fails TWO hard gates: `768px median frame 217ms > 200ms`
+and `1440px p95 frame 483ms > 350ms`, both annotated "upload-hitch
+spikes" by the harness itself. Confirmed this session (2026-07-25,
+research/experiments.md same-date entry) while A/B-verifying an unrelated
+client PR (the dossier radius toggle) — that PR's own run showed only
+ONE of the two failures (1440px only), i.e. run-to-run variance on the
+SAME untouched code, not a real regression signal either direction.
+
+WHY THIS MATTERS: every client/ PR since at least the 2026-07-20 terrain
+audit (open_questions.md's NEVER-IDLE GLIDE LOOP / TRAIL REBUILD STORM /
+celestialSky unconditional rAF entries, filed same week) has had to do a
+manual A/B re-run to prove non-regression past a red perf gate — a correct
+but repeated workaround, not a fix, and MEASUREMENT INTEGRITY says a gate
+that's already red on `main` gives zero signal about a new change until
+someone does exactly that manual A/B. The 2026-07-20 audit already named
+plausible root causes (glide-repaint tick holding the map out of idle,
+celestialSky's unconditional per-frame WebGL draw, terrain trail-rebuild
+query storms) but none were fixed — this entry is the concrete "the gate
+itself is currently failing on main, unconditionally" confirmation those
+findings predicted.
+
+LADDER PATH (this is harness/measurement code, not app logic — no ladder
+gate applies the way it would to a trading signal, but MEASUREMENT
+INTEGRITY's own rule applies: a measurement-code change is its own PR,
+never bundled with a feature): (1) reproduce cleanly on `main` HEAD with
+zero other tabs/processes competing for the sandbox's CPU, to rule out
+this specific container being noisy rather than the app; (2) if it
+reproduces clean, decide whether the fix is APP-side (chase the 2026-07-20
+audit's named root causes) or HARNESS-side (the gate threshold assumes a
+GPU-backed renderer; this sandbox runs SwiftShader software rendering —
+document whether the 350ms/200ms thresholds were ever calibrated against
+software rendering, and if not, whether the harness should detect
+software-rendering and either skip the perf assertion or use a documented
+looser threshold class, same spirit as the terrain flip-back-click fix's
+"fail-louder, not fail-silently" principle); (3) either fix ships with a
+before/after reading on identical inputs per MEASUREMENT INTEGRITY, its
+own PR, tagged [RULE-REVIEW].
+
+NOT FIXED HERE: out of scope for the PRODUCT session that found it (one
+logical change per PR); filed so a future REPAIR/RULE-REVIEW session has
+a concrete, dated reproduction instead of re-discovering it from scratch.

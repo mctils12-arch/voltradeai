@@ -2750,6 +2750,16 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 }
 .vt-site-card-link:hover { background: rgba(77, 159, 255, 0.16); }
 
+/* LOCATION DOSSIER hazard radius toggle (research/location_context_engine.md) */
+.vt-radius-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.vt-radius-btn {
+  min-width: 40px; min-height: 30px; padding: 0 8px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(77, 159, 255, 0.2); background: rgba(77, 159, 255, 0.08);
+  color: var(--accent-bright); font-family: var(--font-mono); font-size: 11.5px;
+}
+.vt-radius-btn:hover { background: rgba(77, 159, 255, 0.16); }
+.vt-radius-btn.active { background: var(--accent, #4d9fff); border-color: var(--accent, #4d9fff); color: #fff; }
+
 /* Layer panel v2: collapsible groups + per-layer descriptions */
 .vt-layer-group { border-top: 1px solid rgba(77, 159, 255, 0.08); }
 .vt-layer-group-head {
