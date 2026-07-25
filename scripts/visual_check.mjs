@@ -96,6 +96,22 @@ const FIXTURES = {
       // Every toggleable registry layer must appear in this fixture;
       // the wiring ratchet (layersWiring.test.ts) pins the source side.
       { id: "powergrid", name: "Power grid (TX pilot)", kind: "raw", status: "live", group: "facilities", costTier: "moderate", source: "OpenStreetMap power features (© OpenStreetMap contributors, ODbL)", description: "TX pilot vector tiles." },
+      // [REPAIR 2026-07-25] These 9 were shipped end-to-end (client symbol
+      // layer + server route) across several prior sessions but never added
+      // here — so the self-see/toggle-consistency/legend-parity batteries
+      // above have never actually exercised them (filed as open debt across
+      // four session log entries before this fix). Every toggleable
+      // registry layer must appear in this fixture; see the powergrid note
+      // above for the precedent this repeats.
+      { id: "nukefacilities", name: "Nuclear facilities (fuel cycle)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "67 fuel-cycle/production facilities, building-trefoil symbols by category." },
+      { id: "faa_airports", name: "FAA airport status", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "FAA National Airspace System Status (public domain)", description: "Ground stops/delays/closures, rolling snapshot." },
+      { id: "border_waits", name: "CBP land-border wait times", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "CBP Border Wait Times (public domain)", description: "Hourly wait times at US land ports of entry." },
+      { id: "nucleartests", name: "Nuclear tests 1945–1998 (time machine)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "SIPRI / Johnston archive nuclear explosions catalog", description: "2,027 located tests, emplacement symbols, year-slider scrub." },
+      { id: "radiation", name: "Ambient radiation (gamma)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "BfS · Health Canada · STUK/FMI · EPA RadNet", description: "Observed gamma dose-rate monitors, four national networks." },
+      { id: "nukeaccidents", name: "Nuclear accidents & incidents", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "46 accident/incident sites 1949–2024, INES-tinted." },
+      { id: "pfas", name: "PFAS drinking-water detections (EPA UCMR 5)", kind: "raw", status: "live", group: "hazards", costTier: "moderate", source: "U.S. EPA UCMR 5, public domain", description: "3,417 water systems with a detected PFAS compound." },
+      { id: "methane_plumes", name: "Methane plumes (GEM GMET)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "Global Energy Monitor GMET (CC BY 4.0)", description: "Satellite methane-plume detections, nearest-asset match." },
+      { id: "coal_mine_features", name: "Coal mine boundaries & infrastructure (GEM)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "Global Energy Monitor (CC BY 4.0)", description: "Mine boundary polygons + point infrastructure features." },
       // freshness (Phase 5, three of the five fixture health states so the
       // visual harness actually exercises the chip's color/label variants):
       { id: "insider", name: "Insider transactions (Form 4)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC EDGAR", description: "Recent Form 4 filings as filed.", freshness: { stream: "filings", health: "live", age_hours: 0.4, health_note: "newest file 0.4h old" } },
@@ -415,6 +431,66 @@ const FIXTURES = {
       { date: "2026-07-01", symbols: 12200, agg_short_ratio: 0.4610 },
       { date: "2026-07-02", symbols: 12240, agg_short_ratio: 0.4633 },
     ],
+  },
+  // [REPAIR 2026-07-25] the 9 endpoint fixtures below back the 9 layer
+  // descriptors added above — real response shapes copied from server/
+  // routes.ts's actual handlers, one point each (enough to exercise the
+  // symbol layer + legend-parity + detail card, not a rendering-scale test).
+  "/api/data/pfas": {
+    kind: "raw", predictive: false, source: "U.S. EPA UCMR 5 (fixture)",
+    note: "fixture", geocode_source: "EPA service-area centroid", built_at: "2026-07-01T00:00:00Z",
+    totals: { systems: 1 }, health: { suspect: 0, freshness: "public domain" },
+    systems: [
+      { pwsid: "FX0000001", name: "Fixture Water System", lat: 39.1, lon: -94.6, n_analytes_detected: 2,
+        population_served: 12000, detections: [{ contaminant: "PFOA", max_value: 12.4, units: "ng/L", n_detections: 3, last_detected: "2024-11-01" }] },
+    ],
+  },
+  "/api/data/radiation": {
+    kind: "raw", predictive: false, source: "BfS · Health Canada · STUK/FMI · EPA RadNet (fixture)",
+    time: 1, networks: { "bfs-de": 1, "radnet-us": 1 },
+    health: { source: "fixture" },
+    stations: [
+      { name: "Fixture DE Station", network: "bfs-de", lat: 50.1, lon: 8.7, value: 0.12, unit: "uSv/h", time: "2026-07-25T00:00:00Z", approx: false },
+      { name: "Fixture City, KS", network: "radnet-us", lat: 39.0, lon: -95.7, value: 14.2, unit: "cpm", time: "2026-07-25T00:00:00Z", approx: true, rkm: 6 },
+    ],
+  },
+  "/api/data/nukefacilities": {
+    kind: "raw", predictive: false, source: "Wikidata (CC0 1.0), curated (fixture)", count: 1,
+    facilities: [{ n: "Fixture Enrichment Plant", cat: "Enrichment plant", country: "United States", qid: "Q0", lat: 43.5, lon: -112.0 }],
+  },
+  "/api/data/nucleartests": {
+    kind: "raw", predictive: false, source: "SIPRI / Johnston archive (fixture)", count: 1, quarantined: 0,
+    tests: [{ n: "FIXTURE SHOT", c: "USA", y: 1962, d: "1962-07-09", kt: 1.4, t: "AIRDROP", p: "WE", r: "Fixture Test Site", lat: 37.2, lon: -116.0 }],
+  },
+  "/api/data/nukeaccidents": {
+    kind: "raw", predictive: false, source: "Wikidata (CC0 1.0), curated (fixture)", count: 1,
+    events: [{ n: "Fixture Reactor Incident", d: "1979-03-28", loc: "Fixture, PA", ines: 5, qid: "Q0", lat: 40.2, lon: -76.7 }],
+  },
+  "/api/data/methane-plumes": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor GMET (fixture)",
+    count: 1, matchedCount: 1, ambiguousCount: 0,
+    plumes: [{
+      name: "Fixture plume detection", infrastructureType: "Oil and gas", country: "United States",
+      observedAt: "2026-06-01T00:00:00Z", provider: "GHGSat", instrument: "GHGSat-C", emissionsKgHr: 340.5,
+      lat: 31.9, lon: -102.1,
+      nearestAsset: { kind: "oil_gas_extraction", id: "A1", name: "Fixture Field", distanceKm: 0.4, operator: "Fixture Operator LLC" },
+    }],
+  },
+  "/api/data/coal-mine-features": {
+    kind: "raw", predictive: false, source: "Global Energy Monitor (fixture)", count: 1, release: "fixture",
+    features: [{
+      mineName: "Fixture Mine", category: "ventilation", coalGrade: "thermal", country: "United States",
+      owners: "Fixture Coal Co", mineId: "FX1", dataSourceDate: "2025-01-01",
+      geometry: { type: "Point", coordinates: [-81.5, 37.8] },
+    }],
+  },
+  "/api/data/airport-status": {
+    kind: "raw", source: "FAA National Airspace System Status (fixture)", time: 1, update_time: "2026-07-25T00:00:00Z", count: 1,
+    events: [{ airport: "ATL", type: "Ground Delay Program", reason: "Volume", avg: "31 minutes", max: "1 hour 5 minutes", min: "16 minutes", trend: "Increasing", direction: "Arrival", end_time: "18:00 UTC", reopen: null, update_time: "2026-07-25T00:00:00Z" }],
+  },
+  "/api/data/border-waits": {
+    kind: "raw", source: "CBP Border Wait Times (fixture)", time: 1, count: 1,
+    waits: [{ port_number: "010401", border: "Canada", lane: "POV", status: "Open", delay_min: 15, lanes_open: 2, update_time: "2026-07-25T00:00:00Z" }],
   },
   // Methane hotspots (gate-2(b), 2026-07-20) — descriptive stat, not a
   // signal (predictive:false; note states the honest gate-2(c)/(d) gap).
