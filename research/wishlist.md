@@ -1,5 +1,138 @@
 # Data / Access Wishlist — human reviews weekly
 
+## URGENT 2026-07-25 (scheduled [PRODUCT] session): the designated branch `claude/beautiful-planck-odhs6x` has 48 commits / 6,068 lines of REAL, UNIQUE, unmerged work stranded since 2026-07-21, and `create_pull_request` reproducibly 422s on this specific branch (a NEW, branch-scoped symptom, distinct from the already-tracked outage)
+
+FOR THE HUMAN — READ THIS BEFORE THE NEXT PRODUCT SESSION RUNS.
+
+**What was found:** this session's designated branch (fixed per the
+routine's own config, reused across every PRODUCT scheduled session) is
+48 commits ahead of `origin/main` with zero commits behind (`origin/main`
+is a strict git ancestor — a clean fast-forward is possible, no merge
+conflicts). `git log` shows commits dated 2026-07-21 through 2026-07-25,
+one per scheduled session, each one merging `origin/main` back into
+itself (`Merge remote-tracking branch 'origin/main' into resolve-NNN`)
+but — as far as this session can tell from `list_pull_requests`,
+`search_pull_requests` (`head:claude/beautiful-planck-odhs6x`, 0
+results, both before and after this session's own attempts), and the
+absence of any PR referencing this exact head in the last several
+sessions' logs — **no session ever got a PR opened for this branch's
+own head.** `git diff origin/main HEAD` confirms this isn't
+duplicated/superseded-elsewhere content: `server/euGenerationMix.ts`
+(the ENTSO-E fuel-mix pipeline, ~350 lines) genuinely does not exist
+anywhere in `main`; same for the `open_questions.md`/`wishlist.md`
+research-log deltas (+491/+282 lines) and the other ~15 distinct
+logical changes listed below. This is real work that has never reached
+`main`, invisible until this session went looking.
+
+**Why it's been accumulating:** timing lines up exactly with the
+already-tracked PRODUCTION DEPLOY FREEZE (GitHub Actions runner
+allocation failing since 2026-07-22T14:09Z) and the `create_pull_request`
+500 symptom logged 2026-07-24 — the working hypothesis is that every
+session since ~2026-07-21 tried to open a PR for its work, failed, and
+(correctly, per CLAUDE.md's no-bypass-review norm for substantive code)
+left the commits pushed rather than merging directly to `main` without
+review.
+
+**This session's own attempt, and what's NEW here:** this session tried
+`create_pull_request` for this branch 4 times (varying `head` format
+—with/without `owner:` prefix—, `draft` true/false, minimal vs full
+body) and got the *same* reproducible error every time:
+
+```
+422 Validation Failed [{Resource:PullRequest Field:head Code:invalid Message:}]
+```
+
+Critically, this is **not** the already-tracked general outage: a
+control test against a *different*, already-open PR's head branch
+(`claude/dazzling-planck-g1d293`, PR #415) succeeded in reaching
+GitHub's validation logic and returned the *correct, specific* error
+("A pull request already exists for..."). So `create_pull_request`
+itself is working right now — the failure is isolated to this one
+branch. Leading (unconfirmed) hypothesis: the branch's unusual shape
+(48 commits, many of them merges of `origin/main` back into itself,
+some possibly from resolved-conflict `resolve-NNN` intermediate
+branches) is hitting some GitHub-side PR-head validation edge case;
+this could not be root-caused further without a GitHub support channel
+or trying the same operation from the GitHub web UI (which uses a
+different code path and may succeed where the API doesn't).
+
+**Distinct logical changes bundled in this branch (non-exhaustive, so
+none of this is lost if the branch needs surgery):**
+- ENTSO-E EU generation-mix (fuel mix) `/data` pipeline (`server/euGenerationMix.ts`, new)
+- USAspending gate-1 hand-check: 2 real ticker-matcher bug fixes
+- FINRA ATS/OTC venue volume leaderboards `/data` view
+- `/api/v1/graph` — keyed, license-marked mirror of the Everything Graph
+- Superfund + water-violators hazard layers: real SDF symbols + legend entries
+- `/api/v1` exposed as agent-consumable tool definitions (recovered stale PR #449)
+- celestialSky WebGL draw gated by page visibility (perf)
+- KNOWN BROKEN #18 diagnosability work (TIMING-DISK wiring, scan_phase instrument)
+- satellite-layer "still retrying" fix (recovered stale PR #420)
+- `scripts/session_health_check.py` gains a `deploy_freshness` check
+- visual harness fixture gap fix + a real occlusion bug it surfaced
+- dossier hazard `radius_km` client toggle
+- MODIS flood/water-extent GIBS globe layer
+- illiquid-universe axis-(b) research probe + fill-cost fix
+- options-chain fetch-failure diagnosability (KNOWN BROKEN #25)
+
+**Deliberately NOT done this session:** did not force-reset the branch
+(would destroy the unique work above — the git-safety default is
+investigate, never discard unfamiliar state), did not merge it wholesale
+(would violate PROMOTION RULE 5, "one logical change per PR" — this
+bundles ~15), and did not push new session work on top (would make a
+future untangling harder, not easier).
+
+**RECOMMENDED HUMAN ACTIONS:**
+1. Try creating the PR manually from the GitHub web UI
+   (`compare/main...claude/beautiful-planck-odhs6x`) — it may succeed
+   where the API 422s, since the UI doesn't always share the same
+   validation path.
+2. If the web UI also rejects it, this may need a GitHub support
+   ticket — "PR creation between two valid branches with a real diff
+   fails with a blank-message 422 on `head`" isn't self-serviceable
+   from here.
+3. Once a PR is open (by either path), it should be split into the
+   ~15 logical changes above before merging — or, if the human decides
+   the bundled backlog is an acceptable one-time exception given the
+   documented 4-day external outage, approved as a single bundled
+   merge with that exception noted explicitly in the PR.
+4. Either way, after this backlog is resolved, the designated branch
+   should be reset to `main` so future scheduled sessions start clean
+   instead of continuing to stack commits on an ever-growing branch.
+5. Until this is resolved, treat every "should reach main soon"
+   assumption in this branch's own commit messages as unverified —
+   consistent with the standing PRODUCTION DEPLOY FREEZE guidance
+   above.
+
+**UPDATE, same session, minutes later: root cause found, PR now open
+as #604.** After filing the above, this session pushed one more
+(docs-only) commit to the branch to log this very finding — which
+advanced the branch tip — and retried `create_pull_request`. It
+**succeeded** on the first attempt after the push, where 4 attempts at
+the old tip all failed identically. This strongly suggests the failure
+was a stale ref/cache on GitHub's side tied to the specific commit SHA
+that had sat at the tip for a while, not anything about the branch
+name, size, or shape. **Actionable takeaway for future sessions:** if
+`create_pull_request` 422s with a blank-message `head: invalid` error
+on a branch that clearly exists and has a real diff against base,
+try pushing any new commit to advance the tip and retry — cheaper
+than escalating to the human first.
+
+PR #604 is open (draft, do-not-merge-as-is, full context in its
+description) — its `changes` CI job failed with the exact same
+already-tracked signature (`runner_id: 0`, ~3s, no real execution),
+confirming the general Actions outage is still ongoing as of this
+session's timestamp and is unrelated to the branch-scoped symptom
+above (both are real, both are already filed, this is not a
+duplicate). Commented once on the PR per the drive-to-green protocol
+noting it's a draft backlog holder, not a merge-blocked change,
+and will act on a CI-recovery notice if one arrives.
+
+Recommended human actions above are now slightly revised: action 1-2
+(try creating manually) are moot — a PR exists. Actions 3-5 stand:
+split #604 into its ~15 logical changes before merging (or explicitly
+approve a one-time bundled exception), then reset this designated
+branch to `main` once cleared so future sessions start fresh.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
