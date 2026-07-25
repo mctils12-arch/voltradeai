@@ -140,6 +140,102 @@ class TestBarsFeedResolution(unittest.TestCase):
             os.environ.pop("ALPACA_DATA_FEED", None)
 
 
+class TestOptionsFeedResolution(unittest.TestCase):
+    """[REPAIR 2026-07-25] KNOWN BROKEN #25's diagnosability fix (v1.0.481)
+    surfaced the real cause of the Tier1/2 CSP "no options contracts"
+    failures: options_execution.py hardcoded feed=opra (Algo Trader Plus),
+    and live audit trail confirmed HTTP 403 "subscription does not permit
+    querying OPRA data" for SPYM/UBER/HYG on 2026-07-25. options_feed()
+    mirrors data_feed()'s probe/cache/downgrade design for the options
+    snapshot endpoint, falling back to the free "indicative" feed."""
+
+    def setUp(self):
+        alpaca_feed._reset_for_tests()
+        os.environ.pop("ALPACA_OPTIONS_FEED", None)
+
+    def test_opra_when_entitled(self):
+        self.assertEqual(alpaca_feed.options_feed(now=1000, probe=lambda: 200), "opra")
+        self.assertFalse(alpaca_feed.options_feed_status()["degraded"])
+
+    def test_403_downgrades_to_indicative(self):
+        feed = alpaca_feed.options_feed(now=1000, probe=lambda: 403)
+        self.assertEqual(feed, "indicative")
+        st = alpaca_feed.options_feed_status()
+        self.assertTrue(st["degraded"])
+        self.assertIsNotNone(st["downgraded_since"])
+
+    def test_probe_cached_within_ttl_and_recovery_after(self):
+        calls = []
+        def probe403():
+            calls.append(1)
+            return 403
+        alpaca_feed.options_feed(now=1000, probe=probe403)
+        alpaca_feed.options_feed(now=1000 + alpaca_feed.PROBE_TTL_S - 1, probe=probe403)
+        self.assertEqual(len(calls), 1, "within TTL the probe never re-fires")
+        feed = alpaca_feed.options_feed(now=1000 + alpaca_feed.PROBE_TTL_S + 1, probe=lambda: 200)
+        self.assertEqual(feed, "opra")
+        self.assertFalse(alpaca_feed.options_feed_status()["degraded"])
+
+    def test_inconclusive_probe_keeps_current_feed(self):
+        self.assertEqual(alpaca_feed.options_feed(now=1000, probe=lambda: 0), "opra")
+        alpaca_feed.options_feed(now=1000 + alpaca_feed.PROBE_TTL_S + 1, probe=lambda: 403)
+        self.assertEqual(alpaca_feed.options_feed(now=1000 + 2 * (alpaca_feed.PROBE_TTL_S + 1),
+                                                   probe=lambda: 500), "indicative",
+                         "5xx while degraded keeps indicative, no flapping")
+
+    def test_state_transition_logs_never_touch_stdout(self):
+        """Same JSON.parse(subprocess_stdout) hazard as data_feed() — see
+        TestFeedResolution.test_state_transition_logs_never_touch_stdout."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            feed = alpaca_feed.options_feed(now=1000, probe=lambda: 403)
+        self.assertEqual(feed, "indicative")
+        self.assertEqual(out.getvalue(), "",
+            "a 403 downgrade transition wrote to stdout")
+
+    def test_env_override_forces_and_skips_probe(self):
+        os.environ["ALPACA_OPTIONS_FEED"] = "opra"
+        try:
+            def boom():
+                raise AssertionError("probe must not fire under an env override")
+            self.assertEqual(alpaca_feed.options_feed(now=1, probe=boom), "opra")
+        finally:
+            os.environ.pop("ALPACA_OPTIONS_FEED", None)
+
+    def test_data_feed_and_options_feed_state_are_independent(self):
+        """The two entitlements (SIP market data vs. OPRA options data) are
+        billed and can be rejected independently — a downgrade in one must
+        never bleed into the other's cached state."""
+        alpaca_feed.data_feed(now=1000, probe=lambda: 403)
+        alpaca_feed.options_feed(now=1000, probe=lambda: 200)
+        self.assertEqual(alpaca_feed.data_feed(now=1000), "delayed_sip")
+        self.assertEqual(alpaca_feed.options_feed(now=1000), "opra")
+
+
+class TestOptionsExecutionNoHardcodedOpra(unittest.TestCase):
+    """RATCHET: options_execution.py's CSP contract-selection path (the one
+    KNOWN BROKEN #25 diagnosed and this session fixed) must resolve its
+    options feed via alpaca_feed.options_feed(), never a hardcoded "opra"
+    literal — that hardcode is exactly what made the OPRA-403 entitlement
+    rejection silent in the first place. Scoped to this one file only:
+    options_scanner.py/options_manager.py/vol_surface.py still hardcode
+    feed=opra deliberately (separate follow-up PRs, one-logical-change
+    rule; see open_questions.md KNOWN BROKEN #25)."""
+
+    HARDCODED = re.compile(r'''["']feed["']\s*:\s*["']opra["']''')
+
+    def test_fetch_option_chain_uses_the_resolver(self):
+        path = os.path.join(REPO, "options_execution.py")
+        src = open(path, encoding="utf-8").read()
+        offenders = self.HARDCODED.findall(src)
+        self.assertEqual(offenders, [],
+            f"options_execution.py hardcodes feed=opra — use "
+            f"alpaca_feed.options_feed(): {offenders}")
+        self.assertIn("alpaca_feed.options_feed()", src,
+            "options_execution.py must call alpaca_feed.options_feed() "
+            "for its options chain fetch")
+
+
 class TestNoHardcodedFeeds(unittest.TestCase):
     HARDCODED = re.compile(r'''feed=sip|["']feed["']\s*:\s*["'](?:sip|iex|delayed_sip)["']''')
 

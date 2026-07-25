@@ -519,6 +519,25 @@ data); full-state discovery sweeps use the same account later.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
+## INFORMATIONAL — no action required (2026-07-25, scheduled-routine
+## session; self-repaired same session, v1.0.498)
+
+**OPRA options data entitlement is also being rejected (HTTP 403
+"subscription does not permit querying OPRA data"), same shape as the
+#9 SIP incident below but for the options-chain endpoint specifically
+(CSP contract selection).** Confirmed live via `/api/diag/audit?type=
+T2-FAIL` for SPYM/UBER/HYG at 2026-07-25T20:06:53Z — this is what KNOWN
+BROKEN #25 (open_questions.md) had been silently causing "no options
+contracts available" failures since 2026-07-24. **Self-repaired this
+session:** `alpaca_feed.options_feed()` now probes the OPRA entitlement
+the same way `data_feed()` already does for SIP, and falls back to the
+free "indicative" options feed on 403 — CSP contract selection keeps
+working, just off computed/delayed quotes instead of real-time OPRA
+ticks. If you want real-time OPRA pricing back (tighter bid/ask, real
+open interest instead of the quote-size proxy), check whether the same
+Alpaca subscription that covers SIP (Algo Trader Plus) also still
+covers OPRA — no urgent action needed, the bot self-heals either way.
+
 ## ⚠️ URGENT — READ FIRST (2026-07-06 ~15:45Z, push-notified)
 
 **#9. ALPACA SIP DATA ENTITLEMENT REJECTED — check the Alpaca

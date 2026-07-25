@@ -30,6 +30,8 @@ import json
 import time
 import logging
 import requests
+
+import alpaca_feed
 # Alpaca rate limiter (OPT 2026-04-20): prevents silent 429s during busy scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -509,7 +511,13 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
         alpaca_throttle.acquire()
         
         params = {
-            "feed": "opra",  # Real-time OPRA feed (Algo Trader Plus)
+            # REPAIR 2026-07-25 (KNOWN BROKEN #25): was a hardcoded "opra"
+            # (Algo Trader Plus real-time feed) — live audit trail confirmed
+            # HTTP 403 "subscription does not permit querying OPRA data" for
+            # SPYM/UBER/HYG. alpaca_feed.options_feed() probes the
+            # entitlement and falls back to the free "indicative" feed,
+            # mirroring data_feed()'s SIP-403 fallback design.
+            "feed": alpaca_feed.options_feed(),
             "limit": 100,
             "expiration_date_gte": min_exp,
             "expiration_date_lte": max_exp,
