@@ -103,6 +103,36 @@ future untangling harder, not easier).
    consistent with the standing PRODUCTION DEPLOY FREEZE guidance
    above.
 
+**UPDATE, same session, minutes later: root cause found, PR now open
+as #604.** After filing the above, this session pushed one more
+(docs-only) commit to the branch to log this very finding — which
+advanced the branch tip — and retried `create_pull_request`. It
+**succeeded** on the first attempt after the push, where 4 attempts at
+the old tip all failed identically. This strongly suggests the failure
+was a stale ref/cache on GitHub's side tied to the specific commit SHA
+that had sat at the tip for a while, not anything about the branch
+name, size, or shape. **Actionable takeaway for future sessions:** if
+`create_pull_request` 422s with a blank-message `head: invalid` error
+on a branch that clearly exists and has a real diff against base,
+try pushing any new commit to advance the tip and retry — cheaper
+than escalating to the human first.
+
+PR #604 is open (draft, do-not-merge-as-is, full context in its
+description) — its `changes` CI job failed with the exact same
+already-tracked signature (`runner_id: 0`, ~3s, no real execution),
+confirming the general Actions outage is still ongoing as of this
+session's timestamp and is unrelated to the branch-scoped symptom
+above (both are real, both are already filed, this is not a
+duplicate). Commented once on the PR per the drive-to-green protocol
+noting it's a draft backlog holder, not a merge-blocked change,
+and will act on a CI-recovery notice if one arrives.
+
+Recommended human actions above are now slightly revised: action 1-2
+(try creating manually) are moot — a PR exists. Actions 3-5 stand:
+split #604 into its ~15 logical changes before merging (or explicitly
+approve a one-time bundled exception), then reset this designated
+branch to `main` once cleared so future sessions start fresh.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
