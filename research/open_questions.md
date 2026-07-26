@@ -2157,6 +2157,51 @@
     `options_scanner.get_options_trades()` — its full-market OPRA-chain
     scan stage, per the 2026-05-04 comment's original suspicion. Either
     reading is now directly actionable without a fifth blind guess.
+    UPDATE 2026-07-26 (scheduled-routine session) — ROOT CAUSE FOUND +
+    FIXED, v1.0.503, T-BOT: the "next occurrence" landed same-day, during
+    market hours. Live `/api/diag/scanner` + `/api/diag/audit?type=
+    TIER2-ERROR` (DIAG_TOKEN) showed 12 CONSECUTIVE Tier2 scan failures
+    (14:43Z-15:58Z), every one reading `last_phase=
+    step6a_trade_loop_and_covered_calls age=255-275s` — the trade
+    loop/covered-call sweep completes fine; the hang is entirely inside
+    `options_scanner.get_options_trades()`, confirming the second branch
+    of last session's own decision tree. Traced further: `scan_options()`'s
+    `_check_ticker` ran Setup 3 (high_iv_premium_sale, tradeable) AND
+    Setup 4 (low_iv_breakout_buy) AND Setup 5 (gamma_pin) for every
+    candidate — but neither Setup 4 nor Setup 5 has EVER been in
+    `HIGH_EDGE_SETUPS` (disabled since v1.0.34, same commit that disabled
+    CSP/Setup 6 for negative backtest/live P&L) — `get_options_trades()`'s
+    HIGH-EDGE GATE discards every result they produce. Each one is still
+    its own live OPRA network fetch though (`_fetch_options_chain` keyed
+    by ticker+min_days+max_days — Setup 3/4/5 each use different windows,
+    so nothing is cache-shared), and ALL fetches — regardless of
+    ThreadPoolExecutor worker count — share ONE process-wide token bucket
+    (`alpaca_throttle`, 180/min = 3 req/sec, `alpaca_rate_limiter.py`,
+    FROZEN). The existing code comments' math ("16 workers, 700 candidates
+    / 16 workers = ~9s") never accounted for that shared bucket at all:
+    real wall time is candidates/3s, not candidates/workers. With
+    ~700-800 candidates (400 high-IV + up to 400 low-IV, each low-IV name
+    additionally paying a second dead fetch for gamma_pin) the true
+    floor is ~230-270s — matching the observed 255-275s almost exactly.
+    FIX (options_scanner.py): Setup 4 and Setup 5 calls removed from
+    `_check_ticker` (functions kept defined, not deleted — STALENESS
+    AUDIT disabled-adapter exception, same precedent as CSP/Setup 6,
+    review-by 2026-08-26, logged here); `_get_options_candidates()` no
+    longer returns the low-IV tier at all (its only two consumers are now
+    both disabled, so returning it only bought ~400 wasted fetches/scan
+    for zero possible trading value — classification is kept, just not
+    surfaced, so a future re-enable doesn't have to rebuild it). ZERO
+    trade-output behavior change: nothing Setup 4/5 ever produced could
+    reach execution regardless (proven by the pre-existing HIGH_EDGE_SETUPS
+    gate, not a new judgment call) — this is pure dead-compute removal,
+    not a RULE-REVIEW threshold change. `MAX_PER_TIER=400` for the
+    remaining high-IV tier is UNCHANGED this PR (one logical change per
+    PR) — even after this fix, ~400 high-IV + 21 anchor candidates is
+    still ~140s at the 3/sec floor, real but smaller headroom; NEXT
+    session catching a fresh TIER2-ERROR should check whether `last_phase`
+    now clears `step6a` before further tuning `MAX_PER_TIER` (evidence
+    first, per RULE REVIEW). Full trace + regression tests (A/B-verified
+    against pre-fix code) in experiments.md's 2026-07-26 entry.
 
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
