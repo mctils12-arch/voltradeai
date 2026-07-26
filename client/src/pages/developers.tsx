@@ -32,7 +32,10 @@ const TIER_LABEL: Record<string, string> = { dev: "Developer", pro: "Pro", enter
 const TIER_PRICE: Record<string, string> = { dev: "Free", pro: "TBA", enterprise: "Contact" };
 
 function freshnessLabel(iso: unknown): string {
-  const t = typeof iso === "string" ? Date.parse(iso) : NaN;
+  // built_at (the graph endpoint's own timestamp field) is an epoch-ms
+  // number, not an ISO string like the other endpoints' generated_at —
+  // accept both rather than showing a false "unknown" for a value we do have.
+  const t = typeof iso === "string" ? Date.parse(iso) : typeof iso === "number" ? iso : NaN;
   if (!Number.isFinite(t)) return "freshness unknown";
   const ms = Date.now() - t;
   if (ms < 0) return "just now";
@@ -46,9 +49,32 @@ function freshnessLabel(iso: unknown): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function curlFor(e: MetaEndpoint): string {
+// The Everything Graph endpoint is the one live endpoint whose real value
+// (a neighborhood around a SPECIFIC entity) can't be shown by a static
+// preview fetch — every other endpoint's "Run live example" is meaningful
+// with no input. Detected off the live meta doc's own params string rather
+// than hardcoded to "/api/v1/graph" so a future query-param endpoint gets
+// the same treatment automatically.
+const ENTITY_PARAM_RE = /\bentity=/;
+const hasEntityParam = (e: MetaEndpoint) => ENTITY_PARAM_RE.test(e.params);
+const DEFAULT_ENTITY = "STLD"; // Steel Dynamics — hand-verified to resolve (facility + insider edges)
+const DEFAULT_HOPS = "1";
+
+interface GraphQuery { entity: string; hops: string }
+
+function graphPreviewUrl(preview: string, q: GraphQuery): string {
+  const entity = q.entity.trim() || DEFAULT_ENTITY;
+  const hops = q.hops || DEFAULT_HOPS;
+  return `${preview}?entity=${encodeURIComponent(entity)}&hops=${encodeURIComponent(hops)}`;
+}
+
+function curlFor(e: MetaEndpoint, query?: GraphQuery): string {
   let examplePath = e.path;
   if (e.path.includes(":kind")) examplePath = examplePath.replace(":kind", "aircraft").replace(":id", "a1b2c3") + "?hours=24";
+  if (hasEntityParam(e)) {
+    const q = query ?? { entity: DEFAULT_ENTITY, hops: DEFAULT_HOPS };
+    examplePath += `?entity=${encodeURIComponent(q.entity.trim() || DEFAULT_ENTITY)}&hops=${encodeURIComponent(q.hops || DEFAULT_HOPS)}`;
+  }
   if (e.path === "/api/v1/meta") return `curl https://voltradeai.com${examplePath}`;
   return `curl -H "x-api-key: YOUR_KEY" \\\n  https://voltradeai.com${examplePath}`;
 }
@@ -57,6 +83,7 @@ export default function DevelopersPage() {
   const [meta, setMeta] = useState<ApiMetaDoc | null>(null);
   const [metaErr, setMetaErr] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, RunState>>({});
+  const [graphQueries, setGraphQueries] = useState<Record<string, GraphQuery>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [wlState, setWlState] = useState<"idle" | "sending" | "done" | "dup" | "error">("idle");
@@ -77,14 +104,17 @@ export default function DevelopersPage() {
 
   const runEndpoint = async (e: MetaEndpoint) => {
     if (!e.preview) return;
+    const url = hasEntityParam(e)
+      ? graphPreviewUrl(e.preview, graphQueries[e.path] ?? { entity: DEFAULT_ENTITY, hops: DEFAULT_HOPS })
+      : e.preview;
     setRuns((r) => ({ ...r, [e.path]: { status: "loading" } }));
     try {
-      const res = await fetch(e.preview);
+      const res = await fetch(url);
       if (!res.ok) throw new Error(String(res.status)); // an error body is not a sample
       const data = await res.json();
       setRuns((r) => ({ ...r, [e.path]: { status: "done", data } }));
     } catch {
-      setRuns((r) => ({ ...r, [e.path]: { status: "error", err: "request failed — the preview route may be warming up" } }));
+      setRuns((r) => ({ ...r, [e.path]: { status: "error", err: "request failed — the preview route may be warming up, or that entity isn't in the graph yet" } }));
     }
   };
 
@@ -143,7 +173,9 @@ export default function DevelopersPage() {
             <div className="vt-dev-endpoints">
               {meta.endpoints.map((e) => {
                 const run = runs[e.path] || { status: "idle" as const };
-                const curl = curlFor(e);
+                const queryable = hasEntityParam(e);
+                const query = graphQueries[e.path] ?? { entity: "", hops: DEFAULT_HOPS };
+                const curl = curlFor(e, queryable ? { entity: query.entity || DEFAULT_ENTITY, hops: query.hops } : undefined);
                 return (
                   <div className="vt-dev-endpoint" key={e.path}>
                     <div className="vt-dev-endpoint-head">
@@ -160,6 +192,26 @@ export default function DevelopersPage() {
                     </div>
                     {e.preview ? (
                       <div className="vt-dev-try">
+                        {queryable && (
+                          <div className="vt-dev-query-row">
+                            <input
+                              type="text"
+                              className="vt-dev-query-input"
+                              placeholder={`entity — ticker, MMSI, CIK, or facility id (try ${DEFAULT_ENTITY})`}
+                              aria-label="Entity to query"
+                              value={query.entity}
+                              onChange={(ev) => setGraphQueries((qs) => ({ ...qs, [e.path]: { entity: ev.target.value, hops: query.hops } }))}
+                            />
+                            <select
+                              className="vt-dev-query-hops"
+                              aria-label="Hops"
+                              value={query.hops}
+                              onChange={(ev) => setGraphQueries((qs) => ({ ...qs, [e.path]: { entity: query.entity, hops: ev.target.value } }))}
+                            >
+                              {["0", "1", "2", "3"].map((h) => <option key={h} value={h}>{h} hop{h === "1" ? "" : "s"}</option>)}
+                            </select>
+                          </div>
+                        )}
                         <button
                           type="button"
                           className="vt-dev-try-btn"
@@ -170,7 +222,7 @@ export default function DevelopersPage() {
                         </button>
                         {run.status === "done" && (
                           <>
-                            <span className="vt-dev-freshness">{freshnessLabel(run.data?.generated_at)}</span>
+                            <span className="vt-dev-freshness">{freshnessLabel(run.data?.generated_at ?? run.data?.built_at)}</span>
                             <pre className="vt-dev-code vt-dev-sample">{JSON.stringify(run.data, null, 2).slice(0, 900)}</pre>
                           </>
                         )}

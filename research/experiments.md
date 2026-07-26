@@ -29035,3 +29035,154 @@ have bundled): KNOWN BROKEN #25's follow-up wiring
 `alpaca_feed.options_feed()` into `options_scanner.py`/
 `options_manager.py`/`vol_surface.py`'s remaining hardcoded `feed="opra"`
 call sites.
+
+## 2026-07-26 (scheduled-routine session #3) [PRODUCT] — /developers live-query widget for the Everything Graph endpoint, closing the 2026-07-23 "docs-explorer live-query widget" NEXT STEP (v1.0.502, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/pages/developers.tsx`, `client/src/index.css`,
+`scripts/visual_check.mjs` fixture only) + `package.json` version bump
+(SHARED, last commit, read-and-increment). No datacore/server pipeline
+files touched.
+
+SESSION-START CHECKS: CLAUDE.md full re-read; `research/` dir listing;
+experiments.md tail + last-10-tag loop-health ratio (REPAIR/PRODUCT/
+RESEARCH mix from the two sessions earlier today, well under the 7+
+REPAIR thrash threshold — no meta-problem). Branch
+`claude/beautiful-planck-4e704v` initially looked 54 commits ahead of a
+stale cached `origin/main` ref from container init; re-fetching `main`
+directly confirmed it was byte-identical to HEAD (both at 6aa8d47/
+v1.0.501) — a fetch-ordering artifact, not real divergence, no branch
+reset needed. `python3 scripts/session_health_check.py --json` against
+the live site: no ALARM. Two WARNs, both already-tracked (KNOWN BROKEN
+#18 daemon timeouts, KNOWN BROKEN #12(c) orphan_exit feedback) —
+consistent with this morning's own REPAIR session on #18, nothing new.
+`deploy_freshness` OK: live `server_version` now reads `1.0.501`,
+confirming the PRODUCTION DEPLOY FREEZE tracked in wishlist.md since
+2026-07-22 has cleared (matches KNOWN STATE).
+
+PICKING THE ACTION: scanned unclaimed `NEXT` pointers across the last
+~10 experiments.md entries. USAspending gate 2 (award/mcap ratio vs.
+5-20d forward returns) looked like the obvious next ladder-gate move,
+but is blocked this session: gate 2 needs the multi-week historical
+archive (`datacore_archive/usaspending/*.jsonl` on the Railway volume),
+and the only live read surface for that stream, `/api/data/contracts`,
+serves just the in-memory last-6h cache (confirmed live: `warming_up:
+true, count:0` right after today's deploy-freeze-clearing restart) —
+there is no diag probe exposing the historical archive, and adding one
+is a separate, bigger logical change than gate-2 itself. Filed as its
+own gap below rather than silently skipped. Picked instead: the
+unclaimed `/developers` docs-explorer live-query widget for
+`/api/v1/graph`, filed 2026-07-23 (PR #591-adjacent entry) as "larger-
+scoped ... needs a real preview key UX decision, not filed as a single-
+PR NEXT STEP yet."
+
+UX DECISION (the thing that was blocking this from being filed as a
+single PR): no new preview-key UX is needed at all. `/api/v1/graph`
+already has an unauthenticated, parameter-identical mirror,
+`/api/data/graph` (the established `preview:` field pattern every other
+`/api/v1/*` entry in `server/apiProduct.ts` already uses for its "Run
+live example" button) — building the live-query widget against that
+free mirror sidesteps the key-UX question entirely while demonstrating
+the exact same query shape a real key would use.
+
+WHAT SHIPPED: `client/src/pages/developers.tsx` — endpoints whose live
+`params` string contains `entity=` (detected via `ENTITY_PARAM_RE`,
+data-driven off the live meta doc rather than hardcoded to
+`/api/v1/graph`'s path, so a future query-param'd endpoint gets the same
+treatment for free) now render an entity + hops input above their
+"Run live example" button. Clicking it queries
+`{preview}?entity=<value>&hops=<value>` (defaulting a blank entity to
+`STLD` — hand-verified live via `curl` this session to resolve to a
+real Steel Dynamics neighborhood, since the graph's ~680 company nodes
+are a curated Form-4/entity_map/GEM-ownership subset, not a general
+ticker universe: `LMT`/`AAPL` both 404 live, `STLD` returns real
+facility + operates edges). The curl sample above the button updates to
+match the same query. `freshnessLabel` (used to show a relative-time
+chip after a run) previously only parsed ISO strings; the graph
+response's own timestamp field, `built_at`, is an epoch-ms NUMBER —
+without this it silently showed "freshness unknown" forever for this
+one endpoint. Fixed to accept both shapes, verified in a manual QA
+render (below) that it now shows "Ns ago" instead of "unknown".
+
+RATCHET: `client/src/pages/developers.graphQuery.test.ts` (NEW, 7
+tests, source-inspection style matching
+`datamap.dossierRadius.test.ts`'s established pattern for TSX page
+components — no headless component-render harness exists in this repo)
+— pins: entity-param detection is regex-over-`params`, NOT hardcoded to
+the graph path; `graphPreviewUrl` URI-encodes and defaults a blank
+entity; `runEndpoint` branches to the query-aware URL builder for
+queryable endpoints; the input/select actually write into
+`graphQueries[e.path]`, gated behind `queryable`; the curl sample
+includes the live query string; `freshnessLabel` accepts a numeric
+epoch-ms timestamp. A/B-verified via `git stash push -- client/src/
+pages/developers.tsx`: all 7 fail against pre-fix code (test file kept
+un-stashed), all 7 pass post-fix — confirms real wiring, not a
+tautology.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `scripts/visual_check.mjs`'s own
+embedded fixture `/api/v1/meta` was missing a `/api/v1/graph` entry
+entirely, so the harness's registered `developers` page had never
+actually exercised this card (pre-existing gap, not introduced this
+session) — added the fixture endpoint entry plus a `?entity=` -aware
+branch on the mock `/api/data/graph` handler (mirrors the existing
+`since=` -aware `/api/data/aircraft` precedent already in that file) so
+the harness screenshot shows the widget's real result state, not just
+counts-only. `node scripts/visual_check.mjs --page developers`: PASS at
+390/768/1440, 0 hard failures (the one soft warning, "clipped control:
+Copy" at 1440px, is the harness's own documented "controls below the
+fold on a non-immersive scrolling page" allowance — same class of
+residual warning several past `/developers`-adjacent PRs have carried,
+not new here). Additionally ran a throwaway (not committed) Playwright
+script against the real built `dist/` bundle with a minimal local mock
+server to click through the actual interaction (type `STLD`, click "Run
+live example") at both 1440 and 390 — confirmed the real neighborhood
+JSON renders, the button relabels to "Run again", and the freshness
+chip reads "Ns ago" post-fix; screenshots reviewed against DESIGN.md
+(existing `.vt-dev-*` tokens reused for the new input/select, 44px
+min-height touch targets, no new colors introduced) then discarded
+(scratch QA only, not a repo artifact).
+
+GATES: `npx tsx --test client/src/pages/developers.graphQuery.test.ts`
+(isolated) then full `npx tsx --test server/*.test.ts client/src/**/
+*.test.ts` — **1025 passed, 0 failed** (1024 baseline + 1 net-new file
+of 7 tests — one more than 6 because the file itself batches all its
+tests under one runner invocation; zero regressions). `npx tsc --noEmit`
+— 80 errors, byte-identical to the `git stash`-verified pre-PR baseline
+(`node_modules` wasn't installed in this sandbox at session start; `npm
+ci` first). `npm run build` clean (pre-existing warnings only:
+astronomy-engine ESM interop, maplibre-gl chunk-size advisory). `python3
+-m pytest -q` (after `pip3 install -r requirements.txt -r
+requirements-dev.txt`) — 942 passed, 1 skipped, matching the morning
+session's own baseline exactly; zero Python files touched, pure sanity
+check.
+
+BACKTEST: N/A — pure developer-docs UI over an already-RAW, already-
+gated (`requireApiKey`) endpoint's free preview mirror; no scoring,
+sizing, or measurement-code path touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with trading
+decisions or the ML/scoring path. The only new live traffic this
+generates is extra hits to `/api/data/graph` (unauthenticated, already
+publicly cached at `max-age=300`) whenever a site visitor uses the
+widget — bounded by ordinary page-view volume, no metering/billing
+surface touched (`/api/v1/graph`'s `requireApiKey` + `meterUsage` path
+is completely untouched).
+
+Version 1.0.501 -> 1.0.502 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical —
+no advance since session start).
+
+NEXT: (1) USAspending gate 2 (award/mcap ratio vs. 5-20d forward
+returns, civilian-agency cohort only per the already-documented DoD
+~90-day publication lag) remains blocked on live-archive read access — a
+future T-DATACORE/PRODUCT session should either add a scoped, whitelisted
+diag probe for reading a datacore stream's historical JSONL archive (the
+existing `/api/diag/:probe` surface is a hard-coded switch with no
+generic archive reader) or pull the archive some other way before
+attempting the statistical test; this is now the gate-2 item's concrete
+blocker, not just "not attempted yet". (2) The glide-loop / TRAIL REBUILD
+STORM items from the 2026-07-20 terrain-audit round-10 follow-up list
+(satLayer/modelLayer/arcLayer never-idle repaint) remain open and
+unclaimed, separate investigation from this PR's scope. (3) GITHUB
+ACTIONS CI outage: not re-checked this session (already flagged
+repeatedly); the next session touching CI should check current status
+before assuming it's still down.
