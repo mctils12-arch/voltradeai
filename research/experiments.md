@@ -28913,3 +28913,125 @@ above). Separately: KNOWN BROKEN #25's own follow-up (wiring
 call sites) remains queued and is a good, low-risk pick for a future
 T-BOT session — not done here (different territory, would have been a
 second logical change bundled into this PR).
+
+## 2026-07-26 (scheduled-routine session #2) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.481's scan_phase field finally landed live (post deploy-freeze) with a LOW/consistent `last_phase=deep_score age=255-275s` reading; split the previously-unsplit 2026-05-04 "instrument each step" gap in two (v1.0.501, T-BOT)
+
+TERRITORY: T-BOT (`bot_engine.py`, `test_step6a_timing_checkpoint.py`,
+`research/open_questions.md` item 18 update + this entry, `package.json`
+version bump only). No client files touched.
+
+SESSION-START CHECKS: CLAUDE.md (full re-read), experiments.md tail,
+open_questions.md KNOWN BROKEN walked in full. Loop-health ratio over the
+last 10 tagged entries (5 RESEARCH/REPAIR/REPAIR/PIPELINE/REPAIR-pivot/
+PRODUCT/PIPELINE/PIPELINE/REPAIR/RESEARCH): 4/10 REPAIR — well under the
+7+ thrash trigger, no meta-problem to address. Branch `claude/busy-fermi-
+jj54as` confirmed in sync with `origin/main` at session start
+(`git merge-base --is-ancestor` clean). `session_health_check.py --json`
+against the live site: no ALARM. Two WARNs, both already-tracked: (a)
+`ml_feedback` — 61 live records all orphan_exit, matches KNOWN BROKEN
+#12(c)'s known open exit-path gap, not a fresh finding; (b)
+`tier2_daemon_timeouts` — 45 daemon timeouts in the audit window, KNOWN
+BROKEN #18. Picked #18 as the primary action: it is the item whose own
+NEXT STEP (filed 2026-07-23) explicitly asks the next session to read a
+specific diagnostic field the moment it becomes available, and this
+session confirmed that field had in fact just started producing real
+data.
+
+WHAT WAS FOUND: `/api/diag/audit?type=TIER2-ERROR&limit=200&token=
+$DIAG_TOKEN` returned all 45 entries the buffer holds (2026-07-24T17:27Z
+through 2026-07-25T19:55Z — nothing today, 2026-07-26, a Saturday with
+markets closed, consistent with the health check's own "market closed"
+read on a separate DIAGNOSTIC-window check). Cross-referencing against
+KNOWN STATE's PRODUCTION DEPLOY FROZEN entry: the `scan_phase` field
+v1.0.481 added (2026-07-23) does NOT appear in any entry before
+2026-07-25T18:34:40Z, and appears in ALL 8 entries from that timestamp
+onward — direct, in-band confirmation (not assumed from the deploy-freeze
+timeline alone) that the freeze silently swallowed this instrument for
+~2 days, and that it only started actually running once the freeze
+cleared (matching the 2026-07-25 session #3/#4 deploy_freshness checks).
+All 8 live-code entries read `status=in_progress last_phase=deep_score
+age=X` with X clustered 255.9-275.0s — a LOW age (well under the 300s
+daemon timeout) naming the SAME phase every single time. Per the
+2026-07-23 UPDATE's own explicit decision tree, this is the branch that
+does NOT re-cross RECURRENCE ESCALATES' architecture-smell bar (that bar
+was conditioned on a HIGH/unclear age or a stale `status=completed`
+read) — this is "a legitimate basis for a fourth, evidence-backed
+mechanism fix, not a guess," in the prior session's own words.
+
+ROOT-CAUSE TRACE (READ BEFORE WRITE, this session): `last_phase=
+deep_score` names the last-passed checkpoint, not a phase still running —
+`deep_score`'s own internal loop is separately hard-capped at 35s
+(bot_engine.py:2888), so the 255-275s of unaccounted time lives entirely
+in the ~700-line span between `_timing_log("deep_score")` and the next
+existing checkpoint, `_timing_log("step6_trade_loop_and_options")` — the
+per-candidate trade-sizing loop (instrument_selector.select_instrument +
+a throttled per-ticker Alpaca quote fetch), the covered-call sweep, and
+`options_scanner.get_options_trades()`'s full-market options scan
+(earnings-calendar check + per-ticker OPRA chain fetches), all
+UNINSTRUMENTED as one block. Grep of that exact span turned up a comment
+that had sat there, unacted on, since 2026-05-04: "ALPHA AUDIT 2026-05-04
+batch 6: granular timing between deep_score and tier_engine_start.
+Production snapshots show this gap eats 507s but the tier engine itself
+is only 66s. Instrumenting each step so the next snapshot pinpoints the
+actual slow caller." — the comment's own stated intent to instrument was
+never followed by actual code; only the one checkpoint at the very end
+of the span existed. This is a genuinely new, previously-unactioned lead
+(a stale-intent gap), not a fourth guess at an already-refuted mechanism.
+
+FIX SHIPPED (v1.0.501, pure visibility, zero behavior change): added
+`_timing_log("step6a_trade_loop_and_covered_calls")` immediately after
+the covered-call-sweep except block and before
+`options_scanner.get_options_trades()` is called, splitting the
+previously-unsplit gap in two. The pre-existing
+`step6_trade_loop_and_options` checkpoint is untouched.
+
+RATCHET: new `test_step6a_timing_checkpoint.py` (3 tests, source-text pin
+via `inspect.getsource(bot_engine._scan_market_inner)`, matching
+`test_deep_score_source_diag.py`'s and
+`server/tier2DaemonTimeoutVisibility.test.ts`'s convention) — asserts the
+new checkpoint is logged, sits between the covered-call sweep and the
+options-scanner import, and that the existing downstream checkpoint is
+unchanged/still present. A/B-verified via `git stash push -- bot_engine.py`
+(test file kept): all 3 fail on pre-fix code (`AssertionError`, string not
+found), pass post-fix, confirming they test real wiring, not a tautology.
+Also confirmed (read, not assumed) that
+`server/tier2DaemonTimeoutVisibility.test.ts`'s existing
+`last_phase_completed` assertion is a generic field-presence check, not a
+hardcoded phase-name list — the new phase string cannot break it.
+
+GATES: `python3 -m pytest -q` (fresh sandbox, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first) — **942 passed, 1
+skipped** (939 baseline from the prior session + 3 net-new, zero
+regressions). No TypeScript/client/server files touched — `tsc`/`build`/
+`visual`/`npx tsx --test server/*.test.ts` gates don't apply.
+
+BACKTEST: N/A — this only changes where a diagnostic timestamp is
+written to a JSON file; no scoring, sizing, entry/exit, or measurement
+(P&L/backtest) code path touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with trading
+decisions — `_timing_log` writes a timestamp/duration to
+`voltrade_scan_timings.json` and nothing else; no return value, control
+flow, or scored output is touched. The only consumer is
+`server/bot.ts`'s TIER2-ERROR catch branch, which already reads this file
+generically (confirmed above) — no new wiring needed on the Node side.
+
+Version 1.0.500 -> 1.0.501 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed no advance since session
+start).
+
+NEXT: whichever session catches the next live TIER2-ERROR during market
+hours (none landed today — Saturday, markets closed) should read whether
+`last_phase` stays at `deep_score` (points at the trade loop / covered-
+call sweep, specifically `instrument_selector.select_instrument` and the
+per-candidate throttled Alpaca quote fetch) or advances to
+`step6a_trade_loop_and_covered_calls` (points at
+`options_scanner.get_options_trades()`'s full-market OPRA-chain scan, the
+2026-05-04 comment's original suspicion). Either reading is now directly
+actionable — this item finally has a real, narrow target for its first
+genuine behavior fix instead of a fifth visibility instrument. Separately
+still queued, untouched this session (different logical change, would
+have bundled): KNOWN BROKEN #25's follow-up wiring
+`alpaca_feed.options_feed()` into `options_scanner.py`/
+`options_manager.py`/`vol_surface.py`'s remaining hardcoded `feed="opra"`
+call sites.
