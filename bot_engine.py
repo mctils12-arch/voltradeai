@@ -3550,6 +3550,26 @@ def _scan_market_inner():
         import logging as _cc_log
         _cc_log.getLogger("bot_engine").warning(f"Covered call sweep error: {_cc_sweep_err}")
 
+    # KNOWN BROKEN #18 (open_questions.md item 18) FOURTH INSTRUMENT,
+    # 2026-07-26: the 2026-05-04 comment below this block already named
+    # "deep_score -> tier_engine_start" as a 507s gap with only a 66s tier
+    # engine inside it, but no checkpoint was ever added between the two —
+    # step6_trade_loop_and_options silently covered BOTH the per-candidate
+    # trade loop above (instrument quotes, select_instrument, covered-call
+    # sweep) AND options_scanner.get_options_trades()'s full-market options
+    # scan (earnings calendar + per-ticker OPRA chain fetches) below.
+    # Live TIER2-ERROR occurrences since v1.0.481's scan_phase field went
+    # live (2026-07-25 18:34Z onward) show last_phase=deep_score at a
+    # consistent age of 256-275s — nearly the entire 300s daemon budget —
+    # with zero visibility into which of those two blocks is spending it.
+    # This checkpoint splits them so the next occurrence's scan_timings
+    # read (last_phase_completed) tells us directly: step6a age high means
+    # the trade loop / covered-call sweep is slow; step6a age low but the
+    # timeout still lands before step6_trade_loop_and_options logs means
+    # get_options_trades() (scan_options()'s per-ticker OPRA chain fetch
+    # stage) is the actual slow caller. Pure visibility — no behavior change.
+    _timing_log("step6a_trade_loop_and_covered_calls")
+
     # Step 6b: Run options scanner synchronously with real portfolio equity.
     # Options have their OWN slot allocation (MAX_OPTIONS_POSITIONS), separate
     # from stock slots. This lets options trade even when stock positions are full.

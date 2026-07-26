@@ -2069,6 +2069,95 @@
     wishlist.md instead, per the architecture-smell bar this update already
     crossed.
 
+    UPDATE 2026-07-26 (scheduled-routine session, v1.0.501) — THE
+    scan_timings READ FINALLY LANDED, WITH A LOW/CONSISTENT ANSWER: THIS IS
+    THE EVIDENCE-BACKED CASE, NOT THE ARCHITECTURE-SMELL CASE. Per this
+    item's own 2026-07-23 NEXT STEP, checked `/api/diag/audit?
+    type=TIER2-ERROR&limit=200&token=$DIAG_TOKEN` this session. The audit
+    buffer holds 45 TIER2-ERROR entries spanning 2026-07-24T17:27Z through
+    2026-07-25T19:55Z. The scan_phase field (v1.0.481) only started
+    actually appearing at 2026-07-25T18:34:40Z — confirming, via direct
+    before/after evidence in this same probe, that the KNOWN STATE deploy
+    freeze (frozen ~2026-07-22T14:09Z, cleared per the 2026-07-25 session
+    #3/#4 deploy_freshness checks) had silently swallowed this instrument
+    for the first ~day of its life; every entry before that timestamp
+    predictably lacks the field, and EVERY SINGLE entry from that timestamp
+    onward (8/8, the only ones running the actually-deployed code) carries
+    it. All 8 read `status=in_progress last_phase=deep_score age=X` with X
+    in a tight band: 255.9-275.0s — a LOW age (well under the 300s daemon
+    budget) naming the SAME phase every time. Per the 2026-07-23 update's
+    own decision tree, this is explicitly the branch that does NOT
+    re-trigger the architecture-smell bar ("a legitimate basis for a
+    fourth, evidence-backed mechanism fix, not a guess") — the smell bar
+    was conditioned on a HIGH/unclear age or `status=completed`, neither of
+    which happened.
+    ROOT-CAUSE TRACE (READ BEFORE WRITE, this session, not assumed): the
+    phase named `deep_score` is `last_phase_completed`, i.e. the CHECKPOINT
+    the process passed most recently before it stalled — `deep_score`'s own
+    internal loop is hard-capped at 35s (bot_engine.py:2888, unrelated to
+    this hang), so the 255-275s of unaccounted time is NOT inside deep_score
+    itself; it's everything AFTER `_timing_log("deep_score")` (bot_engine.py
+    line 2909, at the time) and BEFORE the next existing checkpoint,
+    `_timing_log("step6_trade_loop_and_options")` — a ~700-line, entirely
+    uninstrumented span covering: the per-candidate trade-sizing loop
+    (instrument_selector.select_instrument, a per-ticker Alpaca quote fetch,
+    options-eligibility checks), the covered-call sweep, AND
+    `options_scanner.get_options_trades()` (a full-market options scan:
+    earnings-calendar per-ticker checks via a 3-worker ThreadPoolExecutor,
+    then `_get_options_candidates()` + per-ticker OPRA chain fetches for
+    setups 3/4/5/7). Grepping this exact span found a comment already
+    sitting there UNACTED ON since 2026-05-04 ("ALPHA AUDIT 2026-05-04 batch
+    6: granular timing between deep_score and tier_engine_start. Production
+    snapshots show this gap eats 507s but the tier engine itself is only
+    66s. Instrumenting each step so the next snapshot pinpoints the actual
+    slow caller.") — the comment's own stated intent to instrument was never
+    followed by code; only the ONE checkpoint at the very end of the span
+    existed, so no session before this one could have distinguished "the
+    trade loop is slow" from "the options scanner is slow." This is a
+    stale-intent gap (STALENESS AUDIT-adjacent), not a mechanism this item
+    tried and failed before — a genuinely new, previously-unactioned lead,
+    not a fourth guess.
+    FIX SHIPPED (v1.0.501, bot_engine.py, pure visibility, zero behavior
+    change): added `_timing_log("step6a_trade_loop_and_covered_calls")`
+    immediately after the covered-call-sweep block and before
+    `options_scanner.get_options_trades()` is called — splitting the
+    previously-unsplit gap in two. The pre-existing
+    `step6_trade_loop_and_options` checkpoint is untouched, still firing
+    after the options scanner. RATCHET: new `test_step6a_timing_checkpoint.py`
+    (3 tests, source-text pin matching test_deep_score_source_diag.py's and
+    server/tier2DaemonTimeoutVisibility.test.ts's convention) — A/B-verified
+    via `git stash` that all 3 fail on pre-fix bot_engine.py
+    (`_scan_market_inner` has no such call) and pass post-fix.
+    GATES: `python3 -m pytest -q` (fresh sandbox, pip installed both
+    requirements files first) — **942 passed, 1 skipped** (939 baseline + 3
+    net-new, zero regressions). No TypeScript/client/server files touched —
+    `tsc`/`build`/`visual`/`npx tsx --test server/*.test.ts` gates don't
+    apply; `server/tier2DaemonTimeoutVisibility.test.ts`'s existing
+    `last_phase_completed` assertion is a generic field check (verified by
+    reading it this session), not a hardcoded phase-name list, so the new
+    phase string is safe by construction — confirmed, not assumed.
+    BACKTEST: N/A — no scoring/sizing/execution logic touched, only where a
+    diagnostic timestamp is written.
+    NEXT STEP for whichever session catches the next live TIER2-ERROR
+    (market hours; today, 2026-07-26, produced zero fresh occurrences per
+    this session's own health check — Saturday, market closed, consistent
+    with the empty DIAGNOSTIC-window read): read the new
+    `step6a_trade_loop_and_covered_calls` duration in `scan_timings`'s
+    `phases` array (or infer from `last_phase` advancing past `deep_score`
+    to `step6a_trade_loop_and_covered_calls` before the timeout, vs. still
+    reading `deep_score`). If `last_phase` STAYS at `deep_score` with the
+    same ~255-275s age (meaning the process never even reaches the new
+    checkpoint), the per-candidate trade loop and/or covered-call sweep
+    (before step6a fires) is where the time goes — target
+    `instrument_selector.select_instrument` and the per-candidate throttled
+    Alpaca quote fetch next. If `last_phase` ADVANCES to
+    `step6a_trade_loop_and_covered_calls` (meaning the trade loop/sweep
+    itself completed quickly and the hang is AFTER it, before
+    `step6_trade_loop_and_options` logs), the target is
+    `options_scanner.get_options_trades()` — its full-market OPRA-chain
+    scan stage, per the 2026-05-04 comment's original suspicion. Either
+    reading is now directly actionable without a fifth blind guess.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
