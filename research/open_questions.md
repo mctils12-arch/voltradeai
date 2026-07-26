@@ -5432,6 +5432,58 @@ Reasoning Standard #10):
    NOT DONE (still queued, separate future work): gate 2 itself
    (award/mcap vs 5-20d forward returns, DoD cohorted out) — this
    entry only closes gate 1.
+   GATE 2 RUN 2026-07-26 (scheduled-routine session, T-DATACORE/RESEARCH,
+   v1.0.505) — INFRASTRUCTURE PROVEN, RESULT INCONCLUSIVE (sample-starved,
+   not a kill): `scripts/usaspending_gate2.py` built and run end-to-end
+   against the live archive for the first time via the new
+   `/api/diag/archive` probe (v1.0.504, same day). Pipeline: civilian-
+   agency-only (`ag != "Department of Defense"`, per this item's own
+   confidence_model note on DoD's ~90-day publication lag) + ticker-matched
+   via `mm in (name, cache)` only (excludes `mm=="parent"` per gate 1's
+   CAVEAT 1 residual BALL/BAE mismatch risk) + deduped by (aid,mod,amt) +
+   same-ticker-same-day awards summed into one event; market cap
+   approximated as (SEC EDGAR's most recent reported
+   dei:EntityCommonStockSharesOutstanding / us-gaap:CommonStockSharesOutstanding,
+   keyless) x (the same no-lookahead entry price used for the return calc);
+   small-cap universe = mcap < $2B; bucket = above/below this run's own
+   median award/mcap ratio; forward returns via `backtest_v2.fetch_bars`
+   (Yahoo path — ALPACA_KEY/SECRET absent this session, Alpaca-first logic
+   untouched); baseline = each ticker's own unconditional forward-return
+   distribution, contamination-guarded, same design as
+   `form4_gate2_test.py`'s gate-2 precedent.
+   RESULT: of 286 civilian+ticker-matched events across 103 tickers (the
+   full archive since it started 2026-07-05), 220 were excluded as
+   large-cap (>= $2B) and 6 had no resolvable EDGAR share count, leaving 30
+   small-cap events. Only 11 of those 30 are old enough for even the
+   5-TRADING-DAY horizon (4 high-ratio / 7 low-ratio) — NEITHER bucket
+   reaches the n>=5 significance floor cleanly (high-ratio n=4, below the
+   floor; low-ratio n=7 but p=0.96, indistinguishable from its baseline).
+   The 20-TRADING-DAY horizon has ZERO events with a computable forward
+   return: the archive is only 21 calendar days old (~15 trading days) as
+   of this run, so no award has had 20 trading days elapse yet — this was
+   predicted before running (REASONING STANDARD #10: stated as a live risk
+   in the script's own module docstring before execution) and is a
+   structural fact about archive age, not a pipeline bug.
+   VERDICT: NOT YET DECIDABLE, not killed. The gate-2 machinery is now a
+   real, tested, reusable tool (16 new tests in `test_usaspending_gate2.py`,
+   all pure-function/no-network per the form4_gate2_test.py precedent) —
+   the blocker that stopped this test for three prior sessions is fully
+   closed. What remains is calendar time: the archive accrues new civilian
+   ticker-matched awards every day the bot's Tier 3 hourly poll runs, and
+   this session's own count (286 events in 21 days, ~30/small-cap) implies
+   a 20-day-horizon-eligible sample of comparable size will exist by
+   roughly late August 2026, growing every day after.
+   NEXT: re-run `python3 scripts/usaspending_gate2.py` unmodified no
+   earlier than ~2026-08-15 (gives the earliest archived awards a full
+   20-trading-day forward window plus a buffer) and prefer waiting longer
+   if session cadence allows — more archive days directly raises both
+   n_small_cap and the DoD-agency 90-day-lag question could be revisited
+   as its own cohort once the archive itself is 90+ days old. Do NOT
+   interpret this run's high_ratio/low_ratio point estimates (-11.4% vs
+   -0.4% at 5d) as a finding either direction — n=4 and n=7 are display
+   noise, stated here only so a future session doesn't have to re-derive
+   them from the (uncommitted, session-local) `usaspending_gate2_results.json`
+   output.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
