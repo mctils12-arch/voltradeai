@@ -535,6 +535,55 @@ export function clearTrackCache(): void {
   trackCache.clear();
 }
 
+/**
+ * List the archive files for one stream/day, covering BOTH file-naming
+ * conventions already live in datacore/ (per each stream's manifest
+ * "storage" field): day-granularity streams like usaspending write
+ * `<dir>/YYYY-MM-DD.jsonl(.gz)` directly; position streams (aircraft/
+ * vessels/trains) write hour files `<dir>/YYYY-MM-DD-HH.jsonl(.gz)`.
+ * Detecting by what's actually on disk (rather than hardcoding a
+ * per-stream naming table here) means a new stream needs zero changes
+ * to this reader to become readable.
+ */
+function archiveDayFiles(dir: string, day: string): string[] {
+  const exact = [`${day}.jsonl`, `${day}.jsonl.gz`]
+    .map((f) => path.join(dir, f)).filter((fp) => fs.existsSync(fp));
+  if (exact.length) return exact;
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  return names.filter((f) => f.startsWith(day)).sort().map((f) => path.join(dir, f));
+}
+
+/**
+ * Generic one-day archive read for ANY datacore stream (wishlist item
+ * filed 2026-07-26: the USAspending gate-2 statistical test — award/mcap
+ * ratio vs. 5-20d forward returns — has no way to read the multi-week
+ * historical archive from outside the Railway volume; /api/diag/archive
+ * in server/bot.ts is the read-only, token-gated surface this backs).
+ * `stream` must already exist as a real archive directory (see the
+ * caller's whitelist check) — this function itself does no path
+ * validation beyond a plain path.join, so callers MUST reject anything
+ * that isn't `^[a-z0-9_]+$` before reaching here.
+ */
+export async function readArchiveDay(
+  stream: string, day: string, baseDir?: string, limit = 1000,
+): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, stream);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
+  const files = archiveDayFiles(dir, day);
+  const rows: any[] = [];
+  let truncated = false;
+  for (const fp of files) {
+    if (rows.length >= limit) { truncated = true; break; }
+    await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
+      if (rows.length >= limit) { truncated = true; return; }
+      try { rows.push(JSON.parse(line)); } catch {}
+    });
+  }
+  return { dir, files: files.map((f) => path.basename(f)), rows, truncated };
+}
+
 export function archiveStats(baseDir?: string): any {
   const base = baseDir || archiveBaseDir();
   const out: any = { base, kinds: {} };

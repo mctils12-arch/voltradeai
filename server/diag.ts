@@ -34,6 +34,15 @@ export const DIAG_PROBES = [
   // phase breakdown — no trading/order data, same posture as the other
   // probes.
   "timings",
+  // ADDED 2026-07-26 (scheduled-routine PRODUCT session): sessions doing
+  // ladder-gate-2 statistical work (e.g. USAspending award/mcap ratio vs.
+  // forward returns) had no way to read a datacore stream's historical
+  // JSONL archive from outside the Railway volume — every other read
+  // surface (/api/data/*) serves only an in-memory recent-cache window.
+  // Read-only, token-gated, one-day-per-call passthrough of an existing
+  // archive directory; see readArchiveDay in datacoreArchive.ts and the
+  // "archive" case in bot.ts for the stream/day validation.
+  "archive",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
