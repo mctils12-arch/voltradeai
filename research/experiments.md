@@ -3,7 +3,165 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-07-26 (scheduled-routine session #5) [PRODUCT] — generic `/api/diag/archive` probe: read-only, token-gated one-day archive passthrough for ANY datacore stream, unblocking the USAspending gate-2 statistical test's concrete blocker (v1.0.504, T-DATACORE)
+## 2026-07-26 (scheduled-routine session #6) [RESEARCH] — USAspending gate 2 actually run for the first time: infrastructure proven end-to-end, result honestly INCONCLUSIVE (archive too young for the 20d horizon), not killed (v1.0.505, T-DATACORE)
+
+TERRITORY: T-DATACORE (new script `scripts/usaspending_gate2.py` + its test
+`test_usaspending_gate2.py`, both new files, no existing T-DATACORE file
+touched other than reading `server/usaSpending.ts` for the archive schema).
+`package.json` version bump is the SHARED-file edit, last and smallest, per
+MERGE-ORDER PROTOCOL. Only one active session this run.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+confirmed this checkout (`claude/funny-fermat-r2gl07`) was byte-identical
+to `origin/main` (fd2c40d, v1.0.504 — this morning's session #5, the
+`/api/diag/archive` probe PR #612) at session start; re-fetched again
+immediately before committing, still byte-identical, no reset needed. Per
+the follow-up-work rule for an already-merged designated branch: this
+branch's prior PR (#612) had already merged, so this session's work is
+fresh commits on top of current main under the same branch name, not a
+continuation of unmerged history. `/api/health` via WebFetch: `status:
+"ok"`, daemon `active`, `liveness.dark: false`, equity $109,967.44,
+drawdown 0.0% — no LIVENESS ALARM. `/api/data/layers`: `server_version:
+"1.0.504"` matches this checkout — the PRODUCTION DEPLOY FREEZE tracked
+since 2026-07-22 remains clear (confirmed clear as of the 07-25 session,
+re-confirmed here).
+
+LOOP-HEALTH RATIO: last 10 dated entries by version (505 this session,
+504 PRODUCT, 503 REPAIR, 502 PRODUCT, 501 REPAIR, 500 RESEARCH, 495
+REPAIR, 493 PRODUCT, 479 REPAIR, 478 REPAIR) = 4 REPAIR / 4 PRODUCT / 2
+RESEARCH (counting this session as RESEARCH) — under the 7-of-10 thrash
+threshold, no meta-problem.
+
+PICKING THE ACTION: session #5 (this morning, same day) built the generic
+`/api/diag/archive` probe specifically, and explicitly, to unblock "gate 2
+itself (award/mcap ratio vs. 5-20d forward returns)" — its own NEXT
+pointer named this as the direct follow-up, and two sessions before that
+(both today) had independently converged on the same blocker. Running the
+now-unblocked gate 2 is squarely this item's next ladder step (ROOT
+VALIDATION LADDER — SIGNAL gate) and was picked over starting new research
+from scratch, per SESSION BUDGET's "take the next queued item" priority.
+
+READ BEFORE WRITE: read `research/open_questions.md` item 4's full
+USAspending history (gate 1 pass, the two matcher bugs found+fixed
+2026-07-24, CAVEAT 1's `mm=="parent"` residual mismatch risk, CAVEAT 2's
+illiquid-ticker risk) before writing anything — this determined the
+`mm in (name, cache)` filter (excludes `parent`) and the civilian-only
+filter (`ag != "Department of Defense"`, per the archive's own
+`confidence_model` field, read directly off `datacore/manifests/
+usaspending.json`, not assumed). Read `server/usaSpending.ts` in full for
+the archived record schema (`tkr`/`mm`/`ag`/`amt`/`rt` field meanings) and
+`server/datacoreArchive.ts`'s `readArchiveDay` (this session's actual
+consumer of session #5's new probe) before writing the HTTP fetch layer.
+Read `form4_gate2_test.py` in full (the only prior gate-2 script with a
+comparable "ticker events -> forward returns -> ticker-baseline ->
+Welch t-test" shape) to reuse its design rather than inventing a new one.
+
+WHAT SHIPPED: `scripts/usaspending_gate2.py`. Pulls the full archive
+(2026-07-05 through yesterday) via the diag probe day-by-day; filters to
+civilian-agency, `mm in (name, cache)` ticker-matched rows; dedupes by
+(aid, mod, amt) keeping first-sighting (chronological, since days are
+fetched in order); aggregates same-ticker-same-day awards into one event.
+Market cap = SEC EDGAR's most recently reported shares-outstanding
+(`dei:EntityCommonStockSharesOutstanding`, falling back to
+`us-gaap:CommonStockSharesOutstanding`; keyless `data.sec.gov`, ticker->CIK
+via SEC's own public `company_tickers.json`, the same reference file
+`server/usaSpending.ts` already trusts for the reverse direction) times
+the no-lookahead entry price. Small-cap universe = mcap < $2B (documented
+choice, not silently assumed). Bucket = above/below this run's own median
+award/mcap ratio (data-adaptive split, not a guessed absolute threshold —
+REASONING STANDARD #4). Forward returns/baseline: `find_entry_index`
+reused unmodified from `form4_gate2_test.py` (no HORIZONS dependency);
+`compute_forward_returns`/`compute_ticker_baseline` were NOT reused —
+found live, this session, that both close over `form4_gate2_test`'s own
+module-level `HORIZONS=(20,60)` rather than taking horizons as a
+parameter, so importing them unmodified silently computed the wrong
+horizons for this script's `HORIZONS=(5,20)` (caught by the script's own
+first live run erroring on a missing dict key, not by a test — a
+regression test for exactly this now exists, see RATCHET). Rewrote both
+locally, parametrized on this module's own `HORIZONS`.
+
+DATA CAVEATS STATED UP FRONT, before running (REASONING STANDARD #10):
+(a) no market-cap API key available this session (Polygon/Finnhub keys
+absent) and yfinance's `.info`/`.fast_info` fail in this sandbox (verified
+live — curl_cffi TLS reset through the proxy) — the EDGAR-shares x
+entry-price approximation is a deliberate substitute, stated as an
+approximation in the script's own module docstring, never presented as
+exact; (b) the archive is only 21 calendar days old, so the 20-trading-day
+horizon was flagged, before running, as likely to return zero usable
+samples — this is exactly what happened (see RESULT).
+
+LIVE RUN RESULT (full detail filed in `research/open_questions.md` item
+4's GATE 2 RUN 2026-07-26 entry, summary here): 286 civilian+ticker-matched
+events across 103 tickers found in the full archive; 220 excluded as
+large-cap, 6 had no resolvable EDGAR share count, leaving 30 small-cap
+events; only 11 old enough for the 5d horizon (4 high-ratio / 7 low-ratio,
+neither reaching a trustworthy significance read — high-ratio n=4 is below
+the n>=5 floor the significance function itself enforces; low-ratio n=7
+p=0.96); the 20d horizon has ZERO computable events — no award in the
+archive is old enough yet. VERDICT: NOT YET DECIDABLE (sample-starved),
+explicitly NOT a kill and NOT a pass — this is the correct, honest gate-2
+outcome for an archive this young, not a defect in the pipeline. The
+`usaspending_gate2_results.json` output file is intentionally NOT
+committed (no other gate2 script's JSON output is committed in this repo;
+`scripts/usaspending_gate2.py` is the permanent, reproducible artifact,
+matching the form4/cot gate-2 precedent) — its key numbers are recorded in
+prose above and in open_questions.md so a future session doesn't need to
+regenerate it just to know what this run found.
+
+RATCHET: `test_usaspending_gate2.py` (new, 16 tests, zero network calls) —
+`build_events`: DoD-agency exclusion, unmatched-ticker exclusion,
+`mm=="parent"` exclusion, name/cache methods kept, dedup by (aid,mod,amt)
+without double-counting the amount, distinct-mod awards NOT treated as
+duplicates, same-ticker-same-day amounts summed, chronological ordering,
+missing amt/rt excluded. `summarize_by_bucket`/`significance_by_bucket`:
+bucket separation, thin-sample None guard, adequate-sample computation,
+cross-bucket non-contamination. Plus two regression tests pinning the
+HORIZONS bug found live this session (`compute_forward_returns` populates
+keys 5 and 20, never 60; `compute_ticker_baseline`'s returned dict is
+keyed `{5, 20}` with the right per-horizon lengths) — this is the kind of
+live-caught bug the REPAIR MANDATE's "repairs must ratchet" rule exists
+for, applied here to a same-session bug rather than a prior one.
+
+GATES: `python3 -m pytest -q` (full suite, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first — sandbox had neither
+scipy nor yfinance installed at session start) — 960 passed, 1 skipped
+(944 pre-existing + 16 new, zero regressions). No `server/*.ts` or
+`client/` files touched this session, so `npx tsx --test`/`npx
+tsc --noEmit`/`npm run build`/`npm run visual` were not re-run — this is a
+pure-Python addition with no TypeScript/client surface.
+
+BACKTEST: N/A — this is a SIGNAL-gate statistical screen over historical
+archive data, not a change to any live scoring, sizing, or trading rule;
+PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply. No
+`bot_engine.py`/`system_config.py`/strategy file was touched, so nothing
+in the live trading path changed as a result of this session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or scoring path — this script reads the archive via the
+already-existing read-only `/api/diag/archive` probe (rate-limited only by
+this script's own day-by-day loop, ~21 GET requests) and writes nothing
+back to production. The only "downstream" effect is informational: this
+item's ladder status in open_questions.md moved from "blocked" to "run,
+inconclusive, re-run date set."
+
+Version 1.0.504 -> 1.0.505 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+NEXT: (1) re-run `scripts/usaspending_gate2.py` unmodified no earlier than
+~2026-08-15 per the dated NEXT note in open_questions.md item 4 — do not
+re-attempt sooner, the blocker is calendar time, not code. (2) The
+glide-loop / TRAIL REBUILD STORM items from the 2026-07-20 terrain-audit
+round-10 follow-up list (satLayer/modelLayer/arcLayer never-idle repaint)
+remain open and unclaimed. (3) The 2026-07-25 MEASUREMENT-DEBT entry
+(visual harness /data perf gate fails on an untouched baseline,
+768px/1440px) remains open and unclaimed — a future REPAIR/RULE-REVIEW
+session should reproduce it cleanly per its own filed reproduction steps
+before attempting a fix. (4) GITHUB ACTIONS CI outage: not re-checked this
+session (out of this session's scope — no client/server files touched, no
+CI run to observe); the next session touching CI or a client/server PR
+should check current status before assuming either way.
+
 
 TERRITORY: T-DATACORE primary (`server/datacoreArchive.ts` — a module explicitly
 listed under T-DATACORE in the WORKSTREAM PARTITION — plus its test file).
