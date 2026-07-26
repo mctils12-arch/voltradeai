@@ -4232,6 +4232,68 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    freeze-detection (abnormal deletion rates), role-mix shifts vs
    forward returns/restructuring announcements vs base rate. Archive
    starts with the resolver — collect-everything, diff-based.
+
+   **GATE 0 RUN 2026-07-26 (scheduled-routine session) — KILLED at gate
+   0 for the broad-panel form; a narrower hand-verified form remains
+   possible, unbuilt.** `scripts/ats_resolver_gate0.py` (new, 22 pure-
+   function tests in `test_ats_resolver_gate0.py`) drew a reproducible
+   25-ticker NASDAQ Capital Market panel (same live-symbol-directory
+   filter as `illiquid_universe_probe.py`), derived board-token guesses
+   from each company's own SEC-listed security name (no guessing from
+   training-data memory of who uses which ATS), and probed all four
+   platforms live. Sanity-checked the harness itself first against two
+   KNOWN real users (AFRM->Greenhouse `affirm`, PLTR->Lever `palantir`)
+   to confirm it can find a true positive before trusting a null/low
+   result on the actual panel.
+   RAW RUN 1 found 0/25 schema-level hits. Investigating why led to
+   catching a real bug before trusting it: SmartRecruiters 200s
+   `{"content": []}` for ANY identifier, real or fake (verified live
+   via a garbage-string probe) — unlike the other three platforms,
+   which correctly 404 unknown slugs — so `classify_response()` was
+   fixed to require non-empty `content` there.
+   RUN 2 (after also fixing a slot-capping bug that was silently
+   dropping the single most useful guess — see experiments.md) found
+   4/25 schema-level hits (FWDI->greenhouse:'forward',
+   NUCL->ashby:'eagle', PPSI->greenhouse:'pioneer',
+   UPC->ashby:'universe'). **Before counting these as coverage, manually
+   inspected each hit's own content** (Greenhouse's job-level
+   `company_name` field; Ashby's job description "About {X}" text) —
+   **all 4 were false matches**: 'forward' is a real fintech startup at
+   getfwd.com (unrelated to ticker FWDI, "Forward Industries, Inc.");
+   'eagle' is a real AI/engineering-acquisition startup backed by
+   Lightspeed (unrelated to NUCL, "Eagle Nuclear Energy Corp."); the
+   ashby 'universe' board is a mobile-ads/growth-marketing company
+   (unrelated to UPC, "Universe Pharmaceuticals Inc"); 'pioneer' on
+   greenhouse is a real board with zero current postings, unverifiable
+   by content but a plausible fourth collision on the same generic-word
+   pattern. **VERIFIED coverage on this panel: 0/25 (0%).**
+   ROOT CAUSE OF THE FALSE-POSITIVE MODE (not just this panel's bad
+   luck — structural): Greenhouse/Ashby/Lever are disproportionately
+   used by VC-backed private startups that gravitate toward exactly the
+   kind of short, generic, single dictionary-word brand names
+   ("Forward", "Eagle", "Universe", "Pioneer") that a first-word slug
+   guess also produces for an SEC-listed small-cap with a similarly
+   generic first word in its legal name. A same-token-overlap identity
+   check does NOT fix this: the colliding company's real declared name
+   literally IS "Forward" (or "Eagle"/"Universe"), so overlap against
+   the ticker's own normalized name would still pass — verified by
+   hand-tracing that exact case before deciding not to ship an
+   automated identity filter that wouldn't have worked anyway.
+   VERDICT (per this item's own pre-stated GATE 0 rule, "if coverage
+   <~10%... downgrade to covered-universe-only and log it"): 0% is
+   below the bar. **The broad, name-guessed, sweep-the-whole-panel form
+   of this data root is KILLED at gate 0** — it cannot be trusted
+   without per-hit human content verification, which defeats the point
+   of an autonomous nightly resolver. NOT killed entirely: a NARROWER
+   variant — a small, hand-verified ticker-to-board-token watchlist,
+   built the same way the GitHub-org-activity item (#5 below) already
+   proposes its own "~15-org->ticker watchlist" — remains a legitimate,
+   much smaller-scope future path (a human or a session manually
+   confirms each board via the company's own investor-relations/careers
+   page before adding it, not by guessing). That variant is NOT built
+   this session — a different, more labor-intensive task, logged here
+   rather than rushed. Full trace, both raw runs, and the harness
+   sanity-check in `research/experiments.md`'s 2026-07-26 entry.
 3. **App-store rankings + review velocity (DUOL/BMBL/MTCH/HOOD/COIN/
    RBLX class).** LICENSING: Apple RSS/marketingtools top-chart JSON +
    iTunes Lookup rating counts CONDITIONAL (existing public feeds,

@@ -28740,3 +28740,176 @@ pricing (tighter spreads, true open interest) matters more than the
 self-heal, the human may want to check whether the Alpaca subscription
 covering SIP (Algo Trader Plus) still covers OPRA specifically — not
 urgent, no action required for the bot to keep functioning.
+
+## 2026-07-26 (scheduled-routine session) [RESEARCH] — ATS job-postings data root: GATE 0 run, killed at gate 0 for the broad-panel form after catching two real bugs in the probe itself (v1.0.500, T-DATACORE)
+
+TERRITORY: T-DATACORE (`scripts/ats_resolver_gate0.py`,
+`test_ats_resolver_gate0.py`, `research/open_questions.md` item 2 update
++ this entry). No client/bot/strategy files touched.
+
+SESSION-START CHECKS: CLAUDE.md (full, EDGE DOCTRINE re-read per the
+routine brief), experiments.md tail, open_questions.md KNOWN BROKEN —
+walked every numbered item; the only recently-open one (#25, OPRA
+options-feed entitlement) was root-caused and fixed the prior session
+(v1.0.498) with a single documented follow-up (wiring the same fix into
+3 more hardcoded-`opra` call sites) that is NOT itself a critical
+unfixed break — it's a scoped, low-risk follow-up PR, not a standing
+break. `/api/health`: `status: ok`, `bot.active`, `drawdownPct: 0.0`,
+`liveness.dark: false`, `scanner.consecutiveFailures: 0` — no LIVENESS
+ALARM, nothing newly critical. Loop-health ratio over the last 10 tagged
+entries: 4/10 REPAIR (well under the 7+ thrash trigger). Confirmed the
+designated branch (`claude/dazzling-planck-gjm2wv`) is exactly in sync
+with `origin/main` at session start (an initial stale-proxy-cache read
+made it look 52 commits behind/ahead until an explicit
+`git fetch origin +refs/heads/main:refs/remotes/origin/main` resolved
+it — recorded here so a future session doesn't re-diagnose the same
+proxy quirk from scratch).
+
+AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code. Checked
+first whether this was already saturated: every EDGE-DOCTRINE example
+pipeline named in the routine's own brief (Sentinel-2 tank shadows,
+EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google Trends) is
+already built and live per prior sessions' own notes. Checked
+`research/open_questions.md`'s NEW DATA ROOTS list instead: item 2 (job
+postings via ATS public JSON) has a fully-specified ladder with GATE 0
+explicitly unstarted ("ATS resolver probes the four endpoints per
+ticker, outputs a measured coverage table" — never built; verified via
+`grep -rl "greenhouse\|lever.co\|ashbyhq\|smartrecruiters"` across the
+repo, zero hits, and `ls datacore/manifests/` has no job-postings
+entry). PRIOR (stated before running, Reasoning Standard #10): expected
+low-but-nonzero coverage on a small-cap panel via name-transform
+guessing, since ATS board tokens are often chosen independently of the
+SEC-listed legal name (a pre-stated limitation in the script itself)
+— did NOT expect the actual failure mode found (below), which is a
+different, more interesting result than "low coverage."
+
+WHAT SHIPPED: `scripts/ats_resolver_gate0.py` — fetches a live NASDAQ
+Capital Market panel (same Market-Category-S / non-ETF / non-test /
+common-stock filter as `illiquid_universe_probe.py`, so the panel is
+reproducible, not cherry-picked), derives 2-3 board-token guesses per
+company from its OWN SEC-listed security name (no guessing from
+training-data memory of who uses which ATS — that would be exactly the
+fabrication READ BEFORE WRITE forbids), and probes Greenhouse/Lever/
+Ashby/SmartRecruiters live. 23 pure-function tests in
+`test_ats_resolver_gate0.py` (slug derivation, response classification,
+aggregation) — no network in the test suite, matching the
+`test_illiquid_universe_probe.py` / `test_gtrends_probe.py` convention
+for research probe scripts.
+
+TWO REAL BUGS CAUGHT BY VERIFYING RESULTS BEFORE TRUSTING THEM
+(Reasoning Standard #4 — distrust results in proportion to surprise):
+
+1. **SmartRecruiters false-positive schema match.** RUN 1 (first
+   version of the script) reported ~90%+ "coverage," which was
+   immediately suspicious (far above any sober prior for name-guessed
+   ATS coverage). Manually probed a deliberately fabricated garbage
+   slug against all four platforms: Greenhouse/Lever/Ashby correctly
+   404 it; SmartRecruiters 200s `{"offset":0,"limit":100,"totalFound":0,
+   "content":[]}` for ANY identifier, real or fake. Fixed
+   `classify_response()` to require non-empty `content` for that
+   platform only, with the finding recorded directly in the module
+   docstring so a future session doesn't rediscover it. Re-ran: 0/25.
+
+2. **Slot-capping bug dropping the single most useful guess.** Sanity-
+   checked the harness against two KNOWN real ATS users before trusting
+   a 0% result on the actual panel (AFRM->Greenhouse, PLTR->Lever) —
+   AFRM resolved correctly (`affirm`, 174 jobs) but PLTR did not, even
+   though `https://api.lever.co/v0/postings/palantir?mode=json` is
+   verifiably live. Root cause: the slug-candidate list capped at 2
+   company-derived guesses by taking the FIRST 2 of
+   [no_space_full, hyphenated_full, first_word] — for a 2-word name
+   like "Palantir Technologies" this kept both encodings of the full
+   name and dropped `first_word` ("palantir"), which was the actual
+   real slug. Fixed by dropping the low-value hyphenated variant
+   entirely (highly correlated with the no-space one — if a board
+   doesn't exist at the full name it essentially never exists at the
+   same name hyphenated) and prioritizing
+   [no_space_full, first_word] instead. Re-verified PLTR resolves
+   post-fix. New regression test pins this exact case
+   (`test_firstword_not_crowded_out_by_full_name`).
+
+RUN 2 (post-fixes) found 4/25 schema-level hits: FWDI->greenhouse:
+'forward', NUCL->ashby:'eagle', PPSI->greenhouse:'pioneer',
+UPC->ashby:'universe'. **Manually content-verified each one before
+counting it as coverage** (Greenhouse's job-level `company_name` field;
+Ashby's job-description "About {X}" text) — **all 4 are false matches**:
+'forward' resolves to a real fintech startup at getfwd.com (job
+`company_name: "Forward"`), unrelated to ticker FWDI ("Forward
+Industries, Inc.", a NASDAQ-listed medical-device/eyewear-case
+company); 'eagle' resolves to a real Lightspeed-backed AI/engineering-
+acquisition startup ("About Eagle... acquires and transforms civil,
+structural, and MEP engineering firms with applied AI"), unrelated to
+NUCL ("Eagle Nuclear Energy Corp."); the ashby 'universe' board's job
+titles (Performance Marketing Specialist, User Acquisition Manager)
+describe a mobile-ads/growth-marketing company, unrelated to UPC
+("Universe Pharmaceuticals Inc", a Chinese pharma company); 'pioneer'
+on greenhouse has zero current postings (unverifiable by content, but
+the same generic-word pattern as the other three). **VERIFIED coverage:
+0/25 (0%).**
+
+SECOND-ORDER FINDING (Reasoning Standard #5 — the actual value of this
+session): the false-positive mode is structural, not this panel's bad
+luck. Greenhouse/Ashby/Lever skew toward VC-backed private startups that
+disproportionately choose short, generic, single-dictionary-word brand
+names — exactly the same names a first-word slug guess produces for an
+SEC-listed small-cap whose legal name happens to start with a common
+word. Considered and rejected building an automated identity filter
+(token-overlap between the platform's declared company name and the
+ticker's SEC name): hand-traced that it would NOT have caught this
+session's actual failures, because the colliding company's REAL declared
+name literally IS "Forward" (or "Eagle"/"Universe") — a token-overlap
+check would pass, not fail, on the exact cases found. Shipping a filter
+that doesn't solve the problem it's built for would be worse than
+shipping none and documenting the limitation honestly, so none was
+built. This is recorded as HONEST LIMITATION #5 in the script's own
+docstring for the next session that reaches for this file.
+
+VERDICT (applying this item's own pre-stated GATE 0 rule verbatim: "if
+coverage <~10%... downgrade to covered-universe-only and log it"): 0%
+verified coverage is below the bar. **The broad, name-guessed,
+sweep-the-whole-panel form of this data root is KILLED at gate 0** — an
+autonomous nightly resolver cannot be trusted to run this without a
+human or a session manually content-verifying every hit, which defeats
+the purpose of an unattended pipeline. NOT killed entirely: a narrower,
+explicitly hand-verified ticker->board-token watchlist (each entry
+confirmed via the company's own investor-relations/careers page before
+being added, the same shape the GitHub-org-activity item already
+proposes for itself) remains a legitimate, much smaller-scope future
+path — not built this session, logged as a separate, more
+labor-intensive task rather than rushed through. `open_questions.md`
+item 2 updated with the full verdict.
+
+DOWNSTREAM CHAIN (Reasoning Standard #1): zero interaction with the
+trading loop, scoring, or sizing — this is an offline research probe
+script with no server route, no manifest, no daemon wiring (per the
+`gtrends_probe.py` precedent: "no dead code for a stream likely dead at
+gate 1/0"). Nothing in `bot_engine.py`/`ml_model_v2.py`/`system_config.py`
+touched.
+
+GATES: `python3 -m pytest -q test_ats_resolver_gate0.py` — 23 passed
+(targeted, pure-function only, no network). Full suite:
+`python3 -m pytest -q` — **939 passed, 1 skipped** (916 baseline + 23
+net-new, zero regressions). No TypeScript/client/server files touched —
+`tsc`/`build`/`visual` gates don't apply.
+
+BACKTEST: N/A — pure research probe script, no scoring/sizing/execution
+path touched, no measurement-code path touched.
+
+Version 1.0.499 -> 1.0.500 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed no advance since
+session start).
+
+NEXT: the hand-verified-watchlist variant (per-ticker manual board-token
+confirmation via the company's own careers/IR page, same shape as the
+GitHub-org-activity item's own proposed ~15-org panel) is the item's
+only remaining live path — a future session should pick a small,
+deliberately curated set of tickers already known (from other
+open_questions.md hypotheses or the illiquid-universe panel) to be
+small/thinly-covered, and manually verify each one's real board before
+adding it, rather than re-attempting broad name-guessing (killed
+above). Separately: KNOWN BROKEN #25's own follow-up (wiring
+`alpaca_feed.options_feed()` into `options_scanner.py`/
+`options_manager.py`/`vol_surface.py`'s still-hardcoded `feed="opra"`
+call sites) remains queued and is a good, low-risk pick for a future
+T-BOT session — not done here (different territory, would have been a
+second logical change bundled into this PR).
