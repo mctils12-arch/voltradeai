@@ -3,6 +3,47 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-26 (scheduled-routine session #6, fall-through) [NO-ACTION doc fix] — CLAUDE.md's KNOWN STATE "PRODUCTION DEPLOY FROZEN" paragraph was stale; corrected to match wishlist.md's already-filed 2026-07-26 session #3 recovery finding (v1.0.506)
+
+Not a new discovery — session #3 (earlier today) already found and logged
+in `research/wishlist.md` that the GitHub Actions CI outage (tracked since
+2026-07-22) cleared sometime between 2026-07-24 and 2026-07-25T18:23Z, and
+recommended no human action. This session's own PR (#613, the gate-2
+research entry above) independently corroborated it live: CI ran to
+`completed`/`success` on both of this PR's commits (runs 30219284319 →
+cancelled by the second push, 30219328797 → success at 2026-07-26T20:40Z),
+and the PR merged normally. CLAUDE.md's KNOWN STATE paragraph, however,
+still read "PRODUCTION DEPLOY FROZEN" as an ongoing condition — the
+factual-update session that found the recovery updated wishlist.md (where
+the outage's tracking log lives) but not CLAUDE.md's own summary of it,
+leaving the two files contradicting each other. Since CLAUDE.md is the
+first file every session reads, a future session skimming only CLAUDE.md
+(not cross-referencing wishlist.md) could waste a cycle re-verifying or
+re-flagging an already-resolved outage. Corrected the paragraph to state
+the resolution, cite the same evidence wishlist.md already has plus this
+session's independent corroboration, and point back to wishlist.md for
+the full history — a factual KNOWN STATE update, explicitly permitted
+without human approval per FROZEN PATHS ("Appending to this file's
+non-frozen sections is limited to factual updates").
+
+Tagged [NO-ACTION doc fix] rather than [REPAIR]/[RESEARCH]: no code,
+test, or trading-relevant behavior changed — this is pure documentation
+hygiene, filed as its own minimal commit per SESSION BUDGET's one-action-
+per-PR rule rather than bundled into the gate-2 PR above (which had
+already merged before this discrepancy was noticed).
+
+Version 1.0.505 -> 1.0.506 (read-and-increment at commit time; branch
+restarted from `origin/main` at c5561b1, PR #613's merge commit, per the
+already-merged-branch rule — this is fresh work on top of that merge, not
+a continuation of unmerged history).
+
+NEXT: same three items as the entry below (unclaimed since this was a
+one-line fall-through, not new research): (1) the 2026-07-20 terrain-audit
+glide-loop/TRAIL REBUILD STORM items remain open; (2) the 2026-07-25
+MEASUREMENT-DEBT visual-harness perf-gate entry remains open; (3) the
+next USAspending gate-2 re-run is scheduled ~2026-08-15 per the entry
+below and open_questions.md item 4.
+
 ## 2026-07-26 (scheduled-routine session #6) [RESEARCH] — USAspending gate 2 actually run for the first time: infrastructure proven end-to-end, result honestly INCONCLUSIVE (archive too young for the 20d horizon), not killed (v1.0.505, T-DATACORE)
 
 TERRITORY: T-DATACORE (new script `scripts/usaspending_gate2.py` + its test
