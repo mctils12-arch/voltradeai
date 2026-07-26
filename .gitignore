@@ -24,3 +24,10 @@ datacore/sentinel2/chips_s1/
 
 # Claude Code session worktrees (background agent isolation copies)
 .claude/worktrees/
+
+# ROOT VALIDATION LADDER gate-2 script outputs (session-local re-run
+# artifacts; the script is the permanent, reproducible artifact, not its
+# JSON output -- results are recorded in prose in research/experiments.md
+# and research/open_questions.md, same convention already followed for
+# form4_gate2_results.json/cot_gate2 outputs before this file existed)
+*_gate2_results.json
