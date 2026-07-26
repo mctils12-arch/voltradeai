@@ -386,6 +386,56 @@ class TestFix5_NoStraddleScalpsOrCSP(unittest.TestCase):
             if "_setup_csp_normal_market" in stripped and not stripped.startswith("#"):
                 self.fail(f"_setup_csp_normal_market still called (uncommented): {stripped}")
 
+    def test_low_iv_and_gamma_pin_disabled_in_scan_options(self):
+        """2026-07-26 (KNOWN BROKEN #18): _setup_low_iv_breakout_buy and
+        _setup_gamma_pin must NOT be live-called in the scanner loop.
+
+        Neither setup name is in HIGH_EDGE_SETUPS (both already filtered
+        out of every real trade), but both were still being computed for
+        every candidate — each is its own live OPRA network fetch (not
+        cache-shared with Setup 3), riding the single process-wide
+        alpaca_throttle token bucket (3 req/sec). That was the dominant
+        driver of the daemon timing out mid-scan on live production. Same
+        "disabled but kept for reference" pattern as CSP above.
+        """
+        import inspect
+        from options_scanner import scan_options
+        source = inspect.getsource(scan_options)
+        lines = source.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if "_setup_low_iv_breakout_buy(" in stripped and not stripped.startswith("#"):
+                self.fail(f"_setup_low_iv_breakout_buy still called (uncommented): {stripped}")
+            if "_setup_gamma_pin(" in stripped and not stripped.startswith("#"):
+                self.fail(f"_setup_gamma_pin still called (uncommented): {stripped}")
+        # Setup 3 must still be live (this isn't a blanket per-ticker gate removal)
+        self.assertIn("_setup_high_iv_premium_sale(tkr", source)
+
+    def test_get_options_candidates_excludes_low_iv_tier(self):
+        """2026-07-26 (KNOWN BROKEN #18): the low-IV tier must not be
+        returned by _get_options_candidates — its only two consumers are
+        disabled (see test above), so returning it only bought wasted
+        live OPRA fetches per scan with zero possible trading value."""
+        from options_scanner import _get_options_candidates
+        import options_scanner as os_mod
+
+        fake_snap = {
+            "QUIET": {"dailyBar": {"c": 50.0, "v": 5_000_000},
+                      "prevDailyBar": {"c": 50.0}},  # 0% move -> low_iv
+            "MOVER": {"dailyBar": {"c": 50.0, "v": 5_000_000},
+                      "prevDailyBar": {"c": 40.0}},   # 25% move -> high_iv
+        }
+        os_mod._options_candidates_cache = []
+        os_mod._options_candidates_time = 0.0
+        with patch("bot_engine._get_full_universe", return_value=["QUIET", "MOVER"]):
+            candidates = _get_options_candidates(snap_data=fake_snap)
+        setup_types = {t for _, _, t in candidates}
+        self.assertNotIn("low_iv", setup_types,
+            "low_iv candidates should not be returned (dead consumers)")
+        symbols = [sym for sym, _, _ in candidates]
+        self.assertNotIn("QUIET", symbols, "low_iv-classified ticker should be dropped, not returned")
+        self.assertIn("MOVER", symbols, "high_iv-classified ticker should still be returned")
+
     def test_delta_selection_always_20(self):
         """Iron condor should select 20-delta contracts (not 50-delta straddle)."""
         import inspect

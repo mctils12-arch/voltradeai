@@ -29036,6 +29036,166 @@ have bundled): KNOWN BROKEN #25's follow-up wiring
 `options_manager.py`/`vol_surface.py`'s remaining hardcoded `feed="opra"`
 call sites.
 
+## 2026-07-26 (scheduled-routine session #4) [REPAIR] — KNOWN BROKEN #18 ROOT-CAUSED AND FIXED: options_scanner.py was burning most of the 300s daemon budget fetching OPRA chains for two setups that have been structurally untradeable since v1.0.34 (v1.0.503, T-BOT)
+
+TERRITORY: T-BOT (`options_scanner.py`, `test_options_v134_fixes.py`,
+`research/open_questions.md` item 18) + `package.json` version bump
+(SHARED, last commit, read-and-increment — re-fetched `origin/main`
+immediately before, confirmed byte-identical to HEAD at 7a1a77e/v1.0.502,
+no race).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Loop-health ratio: the
+file's append position has drifted (two 07-25 entries sit near the TOP
+of the file — lines 6/163 — while the true newest entries, v1.0.494
+through v1.0.502, are appended at the BOTTOM near line 29188; a future
+session should treat this as a MEASUREMENT-DEBT-adjacent finding, filed
+below, not assume line position ⇒ recency). Reconstructed the true last-10
+tags by version number instead: 502 PRODUCT, 501 REPAIR, 500 RESEARCH,
+498 REPAIR, 497 PIPELINE, 495 REPAIR, 494 PIPELINE, 493 PRODUCT, 492
+PRODUCT — well under the 7-of-10 REPAIR thrash threshold, no meta-problem.
+`/api/health`: `status: "degraded"` — `bot.status: "active"`,
+`drawdownPct: "0.0"`, `liveness.dark: false` (no LIVENESS ALARM), but
+`scanner: {"status":"degraded","consecutiveFailures":12}`. This is a live,
+market-hours bug already surfacing in the audit log — SESSION BUDGET's
+"fix a bug seen in audit logs" ranks above judging experiments or
+starting new research, so this became the primary action over the
+open_questions.md/wishlist.md queue.
+
+DIAGNOSIS: `/api/diag/scanner` + `/api/diag/audit?type=TIER2-ERROR`
+(DIAG_TOKEN, present in this session's env) showed 12 CONSECUTIVE Tier2
+scan failures today (14:43Z-15:58Z, one every ~10-15min backoff cycle),
+every single one reading `last_phase=step6a_trade_loop_and_covered_calls
+age=255-275s` — the checkpoint this morning's session (v1.0.501) added
+specifically to answer "is it the trade loop or the options scanner?" The
+answer: the trade loop/covered-call sweep completes fine; the daemon
+times out entirely inside `options_scanner.get_options_trades()`, exactly
+matching that session's own stated decision tree (their NEXT STEP,
+followed to its conclusion same day).
+
+Traced into `get_options_trades()` → `scan_options()` → `_check_ticker()`:
+every one of ~700-800 per-scan candidates ran Setup 3
+(`high_iv_premium_sale`) AND Setup 4 (`low_iv_breakout_buy`) AND Setup 5
+(`gamma_pin`) — each a SEPARATE live OPRA chain fetch (`_fetch_options_chain`
+is cache-keyed by `ticker_min_days_max_days`; Setup 3/4/5 each use
+different day windows, so nothing is cache-shared). But `HIGH_EDGE_SETUPS`
+(`options_scanner.py`, set since v1.0.34) contains only
+`{earnings_iv_crush, vxx_panic_put_sale, high_iv_premium_sale}` —
+`get_options_trades()`'s own HIGH-EDGE GATE (`if setup not in
+HIGH_EDGE_SETUPS: continue`) has ALWAYS discarded every Setup 4/5 result,
+confirmed by reading both the v1.0.34 docstring ("CSP fillers, straddle
+scalps, low-IV buys, and gamma pins are disabled — they were net negative
+in both backtesting and live trading") and the gate code itself, plus
+grepping every `"setup": "..."` string in the file to verify only 3 of 6
+setup names ever match the whitelist. Also confirmed via grep that
+`analyze.py`/`insights.py`'s unrelated `compute_gamma_pin` (single-ticker
+/analyze page feature) shares no code path with this — safe to touch.
+ROOT CAUSE: the module's own comments ("16 workers, 700 candidates / 16
+workers = ~9 seconds total") never accounted for `alpaca_rate_limiter.py`
+(FROZEN): ALL fetches share ONE process-wide token bucket (180/min = 3
+req/sec) that serializes regardless of thread-pool size — wall time is
+candidates/3s, not candidates/workers. ~700-800 candidates / 3 per sec ≈
+230-270s, matching the observed 255-275s almost exactly. Setup 4/5 were
+never free: every low-IV candidate paid for 2 dead fetches (Setup 4 +
+Setup 5), every high-IV/anchor candidate paid for 1 dead fetch (Setup 5).
+
+FIX (options_scanner.py, pure dead-compute removal, zero trade-output
+behavior change — confirmed by the HIGH_EDGE_SETUPS gate proof above, not
+a RULE-REVIEW judgment call): removed the Setup 4 and Setup 5 calls from
+`_check_ticker` (functions kept defined, not deleted, matching the
+existing CSP/Setup 6 "kept commented for reference" precedent exactly —
+STALENESS AUDIT disabled-adapter exception, review-by 2026-08-26, logged
+in open_questions.md item 18's update). `_get_options_candidates()` no
+longer returns the low-IV tier at all — its only two consumers are now
+both disabled, so returning it only bought ~400 wasted live fetches per
+scan for zero possible trading value; the classification loop itself is
+kept (free, no network calls) so a future re-enable doesn't rebuild it.
+Corrected three stale/wrong comments in the same file that documented the
+false "16 workers ⇒ ~9s" assumption (the docstring's "WHY TWO STAGES",
+the `SETUPS 3,4,5` section header, and the ThreadPoolExecutor comment) so
+the next session doesn't re-derive this from scratch. `MAX_PER_TIER=400`
+for the remaining high-IV tier is UNCHANGED this PR (one logical change
+per PR — even post-fix, ~400 high-IV + 21 anchors is still ~140s at the
+3/sec floor, real remaining headroom cost but smaller); filed as the
+explicit NEXT step below rather than bundled.
+
+RATCHET: two new tests in `test_options_v134_fixes.py`
+(`TestFix5_NoStraddleScalpsOrCSP`, matching the file's existing
+`test_csp_disabled_in_scan_options` source-inspection pattern exactly):
+(1) `test_low_iv_and_gamma_pin_disabled_in_scan_options` — greps
+`scan_options`'s source for uncommented `_setup_low_iv_breakout_buy(`/
+`_setup_gamma_pin(` calls, asserts neither exists, asserts Setup 3 is
+still live; (2) `test_get_options_candidates_excludes_low_iv_tier` — calls
+the real function with a mocked `snap_data` (one low-IV-classified
+ticker, one high-IV-classified ticker) and a patched
+`bot_engine._get_full_universe` (avoids a live network call in the unit
+test), asserts the low-IV ticker is dropped and the high-IV ticker is
+kept. A/B-verified via `git stash push -- options_scanner.py`: both fail
+against pre-fix code with the exact expected assertion messages (`r4 =
+_setup_low_iv_breakout_buy(tkr, ...)` still found; `'low_iv' unexpectedly
+found`), both pass post-fix — confirms real wiring, not a tautology.
+
+GATES: `pip3 install -r requirements.txt -r requirements-dev.txt` (fresh
+sandbox) then `python3 -m pytest -q` — **944 passed, 1 skipped** (942
+baseline + 2 net-new, zero regressions). Ran the full options suite
+(`test_options_v134_fixes.py test_options_fixes.py`) in isolation first —
+119 passed. No TypeScript/client/server files touched — `tsc`/`build`/
+`visual`/`npx tsx --test` gates don't apply. Grepped `server/bot.ts` for
+`get_options_trades`/`scan_options`/`low_iv`/`gamma_pin` — zero matches,
+confirming no Node-side RPC method name or subprocess one-liner assumes
+anything about these setups (bot_engine.py imports options_scanner.py
+directly in-process; no cross-language call site to update).
+
+BACKTEST: N/A — this removes two setups that could never reach execution
+(proven by the pre-existing HIGH_EDGE_SETUPS gate, not a new filter this
+session invented), so there is no scoring/sizing/execution behavior
+change to backtest. PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply,
+same as every other pure-visibility/pure-performance PR in this log.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero change to which
+opportunities `get_options_trades()` can return (Setup 4/5 outputs were
+always filtered before this PR and are simply never computed now) →
+zero change to position sizing, slot allocation, or which trades execute.
+The only downstream effect is TIME: `scan_options()` now issues
+substantially fewer live OPRA fetches per cycle, which is the entire
+point — restoring Tier2's ability to complete within the 300s daemon
+budget so candidate discovery (stocks AND options) resumes during market
+hours. Two steps out: fewer Tier2-scan failures ⇒ fewer 10-min TIER2-BACKOFF
+windows ⇒ more scan cycles per trading day ⇒ more chances for the
+`earnings_iv_crush`/`vxx_panic_put_sale`/`high_iv_premium_sale` setups
+(the ones that actually trade) to fire — a reliability fix with a
+plausible, not fabricated, secondary effect on opportunity count.
+
+Version 1.0.502 -> 1.0.503 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical to HEAD, no
+race).
+
+MARKET-HOURS NOTE: this session ran while the market is open (per the
+scheduling instruction). This is a REPAIR fixing a live, currently-active
+100%-Tier2-failure-rate bug (12/12 consecutive failures today, zero
+successful scans since 14:43Z) — the CLAUDE.md liveness/repair-mandate
+language treats an actively-degraded scanner as exactly the kind of thing
+that should not wait, but per this run's explicit instruction the PR
+description states merge should wait until after 4:00 PM ET unless a
+human reviewing it judges the active-failure condition itself to qualify
+as the "critical live break" exception — leaving that call to the human
+rather than self-invoking the exception.
+
+NEXT: (1) whichever session catches the next live TIER2-ERROR (or
+confirms a clean run) should check `/api/diag/scanner` for
+`last_phase` — if it now clears `step6a` and scans succeed, this fix
+worked; if `step6a` is still the last phase but ages are meaningfully
+lower (should drop from ~260s toward ~140s per the MAX_PER_TIER=400
+high-IV-only math), the remaining high-IV tier itself may need its own
+`MAX_PER_TIER` reduction, evidence first per RULE REVIEW. (2) the
+experiments.md file-ordering drift noted in SESSION-START CHECKS above
+(two 07-25 entries prepended near the top while the surrounding sessions
+append at the bottom) — not fixed this session (reordering past entries
+risks violating "never rewrite history"; flagging for a human/audit
+decision on whether to append a redirect note or leave as-is) — filed
+here rather than silently worked around again. (3) USAspending gate 2 /
+GITHUB ACTIONS CI status: unchanged from the 2026-07-26 #3 entry, not
+re-checked this session (out of scope, would have bundled).
+
 ## 2026-07-26 (scheduled-routine session #3) [PRODUCT] — /developers live-query widget for the Everything Graph endpoint, closing the 2026-07-23 "docs-explorer live-query widget" NEXT STEP (v1.0.502, T-CLIENT)
 
 TERRITORY: T-CLIENT (`client/src/pages/developers.tsx`, `client/src/index.css`,

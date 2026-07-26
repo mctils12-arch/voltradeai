@@ -1451,11 +1451,21 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     Two-stage filter to get all options-eligible stocks from the full 11,635 universe.
 
     WHY TWO STAGES:
-      Fetching an OPRA options chain costs ~0.2s per ticker.
-      Doing that for all 11,635 stocks = 38 minutes. Not acceptable.
-      But snapshot data (price, volume, daily change) is fast — all 11,635 in ~4s.
-      We use snapshot data to pre-filter down to ~600-800 REAL candidates,
-      then only fetch chains for those. Total time: ~10-15 seconds.
+      Fetching an OPRA options chain is a live network call gated by the
+      process-wide alpaca_throttle token bucket (180/min = 3 req/sec
+      shared across the ENTIRE scan, not per-ticker/per-worker —
+      alpaca_rate_limiter.py). Doing that for all 11,635 stocks would
+      take ~65 minutes serialized. Snapshot data (price, volume, daily
+      change) is cheap/batched (all 11,635 in ~4s), so we pre-filter to
+      a much smaller REAL candidate set before ever fetching a chain.
+      CORRECTED 2026-07-26 (KNOWN BROKEN #18): an older version of this
+      comment claimed "~10-15 seconds" for ~600-800 candidates, assuming
+      16 independent workers each got their own throughput. They don't —
+      every fetch shares the one token bucket, so 600-800 sequential-
+      effective fetches is ~200-270s, which is what was actually timing
+      out the 300s daemon budget on live production. See _check_ticker's
+      dated comment for the fix (dropped the low-IV tier entirely — its
+      only two consumers were already dead per HIGH_EDGE_SETUPS).
 
     STAGE 1 — Snapshot pre-filter (runs on all 11,635, already done by stock scanner):
       PASS criteria (stock is options-eligible):
@@ -1467,8 +1477,9 @@ def _get_options_candidates(snap_data: dict = None) -> list:
         - Always include:     anchor tickers regardless of today's move
 
     STAGE 2 — Return the candidate list (caller fetches OPRA chains):
-      Only these ~600-800 tickers get their options chain fetched.
-      That's the same number as before (was fixed at 33), just actually correct.
+      Only the anchor + high-IV tickers (capped at MAX_PER_TIER) are
+      returned — the low-IV tier is classified but NOT returned (2026-07-26,
+      see WHY TWO STAGES above): its only consumers are disabled.
 
     Args:
         snap_data: Optional pre-fetched snapshot dict {symbol: snap}. If provided,
@@ -1561,14 +1572,25 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     # Sort by movement magnitude (biggest movers first = highest IV)
     high_iv_candidates.sort(key=lambda x: x[0], reverse=False)
 
-    # Cap each tier to keep total OPRA calls manageable
-    # Even with 16 workers, 700+ chain fetches takes ~10s — acceptable.
-    # 1000+ starts adding latency. Cap at 400 per tier.
+    # Cap the tier to keep total OPRA calls manageable.
+    # ORIGINAL comment here ("even with 16 workers, 700+ chain fetches
+    # takes ~10s") was wrong — it assumed per-worker independent
+    # throughput, but every fetch shares ONE process-wide token bucket
+    # (alpaca_throttle, 180/min = 3 req/sec, alpaca_rate_limiter.py) that
+    # serializes regardless of worker count. 400+ candidates alone is
+    # ~130s+ at 3/sec. See _check_ticker's 2026-07-26 comment (KNOWN
+    # BROKEN #18) for the full trace.
     MAX_PER_TIER = 400
     high_iv_top = high_iv_candidates[:MAX_PER_TIER]
-    low_iv_top  = low_iv_candidates[:MAX_PER_TIER]
 
-    # ── Combine: anchor + high_iv + low_iv (deduplicated) ────────────────────
+    # low_iv_candidates is NOT included in the returned result (as of
+    # 2026-07-26, KNOWN BROKEN #18): its only two consumers, Setup 4
+    # (low_iv_breakout_buy) and Setup 5 (gamma_pin), are both disabled in
+    # _check_ticker (neither is in HIGH_EDGE_SETUPS, so neither could ever
+    # produce a real trade) — returning this tier only bought ~400 wasted
+    # live OPRA fetches per scan for zero possible trading value. The
+    # classification above is kept (free, no network calls) so a future
+    # session re-enabling Setup 4 doesn't have to rebuild it.
     seen: set = set()
     result: list = []
 
@@ -1584,7 +1606,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
                 p   = float(bar.get("c", 0) or 0)
             result.append((sym, p, "anchor"))
 
-    for sym, price, setup_type in high_iv_top + low_iv_top:
+    for sym, price, setup_type in high_iv_top:
         if sym not in seen:
             seen.add(sym)
             result.append((sym, price, setup_type))
@@ -1593,7 +1615,8 @@ def _get_options_candidates(snap_data: dict = None) -> list:
     _options_candidates_time  = now
     logger.info(
         f"Options candidates: {len(result)} total "
-        f"({len(high_iv_top)} high-IV, {len(low_iv_top)} low-IV, {len(_OPTIONS_ANCHOR)} anchors) "
+        f"({len(high_iv_top)} high-IV, {len(low_iv_candidates)} low-IV classified but "
+        f"not scanned [KNOWN BROKEN #18], {len(_OPTIONS_ANCHOR)} anchors) "
         f"from {len(full_universe):,} universe"
     )
     return result
@@ -1696,11 +1719,15 @@ def scan_options() -> dict:
             if result:
                 opportunities.append(result)
 
-    # ── SETUPS 3, 4, 5: Per-ticker scans ─────────────────────────────────
+    # ── SETUP 3 (+7): Per-ticker scans ─────────────────────────────────
     # Two-stage approach — same as the stock scanner:
     #   Stage 1: Snapshot all 11,635 stocks (~4s, 16 workers) → pre-filter to
-    #            ~600-800 options candidates (price>$10, vol>1M, moved today OR quiet)
-    #   Stage 2: Fetch OPRA chain only for those candidates (~10s, 16 workers)
+    #            high-IV candidates + anchors (price>$10, vol>1M, moved today)
+    #   Stage 2: Fetch OPRA chain only for those candidates, rate-limited to
+    #            3 req/sec process-wide (see _get_options_candidates and
+    #            _check_ticker's 2026-07-26 KNOWN BROKEN #18 comments — the
+    #            low-IV tier used to double this stage's cost for zero
+    #            tradeable output and is no longer scanned here).
     #
     # This covers the FULL market — not just 33 or 50 or 100 hardcoded tickers.
     # Any stock with IV rank 92 and earnings in 3 days will be found regardless
@@ -1717,15 +1744,31 @@ def scan_options() -> dict:
             r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
             if r3:
                 found.append(r3)
-        # Setup 4: Low-IV breakout buy
-        if setup_hint in ("low_iv", "anchor", "any"):
-            r4 = _setup_low_iv_breakout_buy(tkr, price, vxx_ratio)
-            if r4:
-                found.append(r4)
-        # Setup 5: Gamma pin (only on Fridays after noon — checked inside)
-        r5 = _setup_gamma_pin(tkr, price)
-        if r5:
-            found.append(r5)
+        # Setup 4 (low-IV breakout buy) and Setup 5 (gamma pin) — DISABLED
+        # 2026-07-26 (KNOWN BROKEN #18 root-caused): neither setup name is
+        # in HIGH_EDGE_SETUPS (v1.0.34 disabled both — negative backtest/live
+        # P&L, same commit that disabled Setup 6/CSP below), so every result
+        # they produce was ALREADY discarded by get_options_trades()'s
+        # HIGH-EDGE GATE before it could ever become a trade. But both were
+        # still being COMPUTED for every candidate — and each one calls
+        # _fetch_options_chain() with its own (min_days,max_days), which is
+        # its own live OPRA network fetch (not cache-shared with Setup 3,
+        # different cache key). Setup 5 ran for every one of ~700-800
+        # candidates (high_iv + low_iv + anchor); Setup 4 added a SECOND
+        # fetch for every low_iv candidate (~400). All of that rode the
+        # single process-wide alpaca_throttle token bucket (180/min = 3
+        # req/sec, shared with the rest of the scan, see
+        # alpaca_rate_limiter.py) — ~700-1200 wasted serialized fetches at
+        # 3/sec is 230-400s, which is exactly the 255-275s
+        # last_phase=step6a_trade_loop_and_covered_calls age this session
+        # found on 12 consecutive live TIER2-ERROR daemon timeouts today
+        # (2026-07-26, /api/diag/scanner + /api/diag/audit). Removing both
+        # dead branches is a pure no-op on trade output (nothing they found
+        # was ever tradeable) and removes the dominant cost driver.
+        # _setup_low_iv_breakout_buy/_setup_gamma_pin are kept defined
+        # (not deleted) as a STALENESS AUDIT disabled-adapter exception,
+        # same precedent as Setup 6/CSP directly below — logged in
+        # open_questions.md, review-by 2026-08-26.
         # Setup 7 (REAL-ALPHA-TUNE 2026-04-22): VRP-driven iron condor
         # on high-IV names without earnings. Uses vol_surface VRP/skew
         # to identify chronically overpriced options. Defined-risk condor
@@ -1763,8 +1806,13 @@ def scan_options() -> dict:
         #         found.append(r6)
         return found
 
-    # 16 workers — each candidate needs 1-2 OPRA chain fetches (~0.2s each)
-    # 700 candidates / 16 workers = ~9 seconds total
+    # CORRECTED 2026-07-26 (KNOWN BROKEN #18): worker count barely matters
+    # here — every fetch shares the single process-wide alpaca_throttle
+    # token bucket (3 req/sec, alpaca_rate_limiter.py), which serializes
+    # regardless of pool size. Wall time is ~candidates/3s, not
+    # candidates/workers. Now that the low-IV tier is gone (see
+    # _get_options_candidates), `candidates` is anchors + high-IV only
+    # (<= MAX_PER_TIER + len(_OPTIONS_ANCHOR)).
     with ThreadPoolExecutor(max_workers=4) as pool:  # MEM FIX: was 16 — Railway 512MB OOM
         for results in pool.map(_check_ticker, candidates):
             opportunities.extend(results)
