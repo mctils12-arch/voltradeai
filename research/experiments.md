@@ -3,6 +3,218 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-26 (scheduled-routine session #5) [PRODUCT] — generic `/api/diag/archive` probe: read-only, token-gated one-day archive passthrough for ANY datacore stream, unblocking the USAspending gate-2 statistical test's concrete blocker (v1.0.504, T-DATACORE)
+
+TERRITORY: T-DATACORE primary (`server/datacoreArchive.ts` — a module explicitly
+listed under T-DATACORE in the WORKSTREAM PARTITION — plus its test file).
+Touches two files outside that list: `server/diag.ts` (whitelist-only probe
+name registration, not itself territory-assigned) and `server/bot.ts` (the
+`/api/diag/:probe` switch statement lives there, same as every prior probe
+addition — "timings"/"orders"/"positions-detail" were added directly to
+bot.ts by non-T-BOT sessions too, same precedent). `package.json` version
+bump is the SHARED-file edit, last and smallest, per MERGE-ORDER PROTOCOL.
+Only one active session this run (scheduled routine, not concurrent
+multi-session work), so the disjoint-territory collision risk the
+partition exists to prevent doesn't apply here regardless.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main` +
+`git rev-parse origin/main HEAD` confirmed this checkout was already
+byte-identical to origin/main (6fa5848, v1.0.503 — this morning's KNOWN
+BROKEN #18 fix) at session start, no reset needed. `python3
+scripts/session_health_check.py --json` against the live site: no
+ALARM. Two WARNs, both already-tracked and non-blocking per this
+morning's own repair (`tier2_daemon_timeouts` KNOWN BROKEN #18 — the
+warning reflects the trailing measurement window from before today's
+fix landed, not a new recurrence; `ml_feedback` orphan_exit KNOWN
+BROKEN #12(c), gated). `deploy_freshness` OK: `server_version=1.0.503`
+matches this checkout — PRODUCTION DEPLOY FREEZE (tracked since
+2026-07-22) has been clear since the 07-25 session; not re-flagged.
+Per the session instructions, product work does not preempt DAILY
+repair duty and no unfixed critical trading-loop item was found, so
+proceeding with product work was correct.
+
+LOOP-HEALTH RATIO: experiments.md has a known, already-flagged
+file-ordering drift (session #2 today logged it: some sessions prepend
+newest-at-top per spec, others append at the bottom, so the physically-
+top entries are not reliably the chronologically newest — not
+re-investigated or fixed this session, per that prior flag, since
+reordering past entries risks violating "never rewrite history"
+without a human/audit decision). Reconstructing the last 10 entries by
+version number instead of file position: 503(REPAIR)/502(PRODUCT)/
+501(REPAIR)/500(RESEARCH)/495(REPAIR)/493(PRODUCT)/479(REPAIR)/
+478(REPAIR)/474(REPAIR)/~472(RESEARCH, Form4 gate-2 kill) = 6 REPAIR,
+2 PRODUCT, 2 RESEARCH — under the 7-of-10 thrash threshold, no
+meta-problem to address.
+
+PICKING THE ACTION: the two most recent NEXT-pointer lists (session #2
+and session #3, both today) independently named the same concrete,
+unclaimed blocker: USAspending gate-2 (award/mcap ratio vs. 5-20d
+forward returns) cannot run because the only live read surface for
+that archive, `/api/data/contracts`, serves just the in-memory last-6h
+cache — there is no way for a session running outside the Railway
+container to read the multi-week historical JSONL archive
+(`datacore_archive/usaspending/*.jsonl`) that gate-2 statistically
+needs. Session #3 named the fix directly: "add a scoped, whitelisted
+diag probe for reading a datacore stream's historical JSONL archive
+(the existing `/api/diag/:probe` surface is a hard-coded switch with no
+generic archive reader)". This is squarely item (a)/(d) of this
+session's mission (advancing a pipeline toward its next ladder gate /
+improving datacore's API boundary toward spinout-readiness) and was
+already scoped to single-PR size by the prior session, so it was
+picked over starting fresh research or new UI work.
+
+READ BEFORE WRITE: read `server/diag.ts` in full (the whitelist +
+sanitizer module) and the entire `/api/diag/:probe` switch in
+`server/bot.ts` (every existing case: audit/ml/daemon/positions/
+positions-detail/orders/scanner/timings) before writing anything, to
+match the established security posture (closed-by-default on missing/
+short DIAG_TOKEN, timing-safe token compare, sanitizeDiag on every
+response) instead of guessing it. Read `server/datacoreArchive.ts` in
+full (570 lines) — this is where `archiveBaseDir()`, the aircraft/
+vessels/trains position archive, and the streamed line-reader
+`streamJsonlLines` already live, all T-DATACORE. Read `server/
+usaSpending.ts`'s archive functions (`usaDir`, `archiveContractTxns`,
+`seedSeen`) to confirm the day-file naming convention
+(`<archive>/usaspending/YYYY-MM-DD.jsonl(.gz)`) independently before
+assuming it from the manifest text. Cross-checked against
+`datacore/manifests/aircraft.json`'s different convention
+(`YYYY-MM-DD-HH.jsonl(.gz)`, hour-granularity) to confirm the reader
+needed to handle BOTH shapes, not just usaspending's.
+
+WHAT SHIPPED: `readArchiveDay(stream, day, baseDir?, limit?)` (new
+export, `server/datacoreArchive.ts`) — generic one-day archive read for
+any stream directory under `archiveBaseDir()`. Detects file-naming
+convention from what's actually on disk (`archiveDayFiles`: tries the
+exact `${day}.jsonl(.gz)` file first — the ~50-stream day-granularity
+convention; falls back to globbing every file whose name starts with
+`day` — the aircraft/vessels/trains hour-granularity convention) rather
+than hardcoding a per-stream naming table, so a brand-new future stream
+needs zero changes here to become readable, mirroring the existing
+`archiveStats()` disk-discovery precedent (2026-07-05 audit defect #3)
+in the same file. Reuses the already-hardened `streamJsonlLines`
+streamed reader (event-loop-breathing, corrupt-gzip-safe per the
+2026-07-22 `rl.on("error")` fix) rather than a synchronous read —
+required per KEEP THE SYSTEM ALIVE: this is one Node process shared
+with the trading loop, and a blocking multi-MB read on every diag call
+would stall Tier 1/2 exactly like the PERF fixes already documented
+above `recentTrackAsync` in this same file warn against.
+
+New `/api/diag/archive?stream=<s>&day=YYYY-MM-DD&limit=<n>` probe case
+in `server/bot.ts` (added to `DIAG_PROBES` in `diag.ts`). Validation:
+`stream` must match `^[a-z0-9_]+$` (blocks path traversal — no `.`/`/`
+possible) AND `readArchiveDay` returns `null` unless a real directory
+already exists at `archiveBaseDir()/<stream>` — so the whitelist is
+"a datacore writer already created this directory," not a second
+hardcoded stream list. This is deliberately looser than
+`DIAG_PROBES`'s own probe-name whitelist, and the PR states why: every
+archived stream is either public/licensed source data (each has its
+own `datacore/manifests/*.json` licensing entry) or position data
+already rendered live and unauthenticated on `/data` — there is no
+distinct secret surface a new stream directory could introduce that
+the existing probes don't already risk. `day` must match
+`^\d{4}-\d{2}-\d{2}$`.
+
+DELIBERATE DIVERGENCE FROM THE 200-ROW CONVENTION: every existing
+probe (see the `diag.test.ts` pin on the `orders` probe) caps its
+result at 200 items to match `sanitizeDiag`'s blanket array-truncation
+default — the existing convention silently drops rows past 200 with no
+signal to the caller. A real gate-2 sample (a multi-week window,
+`n=6,691` observed at the $25k/award-type cap over some measurement
+period per the usaspending manifest) needs more than 200 rows/day to
+be useful, and archive rows are federal contract/economic/tracking
+records with no secrets by construction — so this probe sanitizes PER
+ROW (`rows.map((r) => sanitizeDiag(r))`, still scrubbing key-like
+strings/hex/base64/emails and truncating long strings per row) instead
+of passing the whole `rows` array through `sanitizeDiag`'s 200-item
+cap, and reports an explicit `truncated: boolean` instead of silently
+dropping rows — arguably more honest than the existing convention it
+diverges from, not a weakening of it (HONESTY METRIC: a caller doing
+statistics on a set that's silently short of what it asked for is
+exactly the kind of measurement blind spot this file elsewhere warns
+against).
+
+RATCHET: `server/datacoreArchive.test.ts` (+6 tests) — day-named stream
+reads the exact-day file and only that day; hour-named stream
+concatenates every hour file for the requested day; gzipped day files
+read transparently; unknown stream (no directory) returns `null`
+without throwing; a real directory with no file for the day returns an
+empty non-null result (distinguishes "stream doesn't exist" from
+"stream exists, no data that day"); `limit` caps rows and sets
+`truncated` honestly rather than silently dropping. `server/
+diag.test.ts` (+1 test) — pins the probe is registered in `DIAG_PROBES`,
+imports/calls the shared `readArchiveDay` (not a re-implementation),
+validates both the stream charset and the day format, and sanitizes
+per-row with the `truncated` flag present — matching the existing
+per-probe wiring-pin pattern already used for `timings`/`orders`/
+`positions-detail`.
+
+GATES: fresh-container `npm ci` (node_modules was absent at session
+start) + `pip3 install -r requirements.txt -r requirements-dev.txt`.
+`npx tsx --test server/datacoreArchive.test.ts server/diag.test.ts` —
+32 passed, 0 failed (20 baseline + 12 new) in isolation first. Full
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts` — **1032
+passed, 0 failed** (zero regressions; the pre-`npm ci` run in this same
+session showed 10 failures, all `Cannot find package 'maplibre-gl'`/
+missing-module errors from node_modules being absent, not from this
+PR — resolved by `npm ci`, unrelated to any file this PR touches).
+`npx tsc --noEmit` — 80 errors; A/B-verified via `git stash` against
+the pre-PR baseline: also 80, byte-identical list, none in any file
+this PR touches (all pre-existing `Buffer.trim()`/downlevel-iteration
+errors elsewhere in bot.ts and shadowFleet.ts). `npm run build` clean
+(pre-existing chunk-size warnings only). `python3 -m pytest -q` — 944
+passed, 1 skipped (no Python file touched by this PR; full baseline
+sanity check, consistent with the 942-passed baseline session #3 logged
+earlier today — the +2 is unrelated Python test growth, not this PR's
+doing since zero .py files changed).
+
+BACKTEST: N/A — a read-only diagnostic probe over already-archived,
+already-public data. No scoring, sizing, execution, or trading-decision
+code touched; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply.
+Not a MEASUREMENT INTEGRITY item either — this reads archived source
+data for a not-yet-built statistical test, it does not compute or
+alter any existing P&L/backtest/slippage metric.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the probe is additive and
+read-only — it cannot be reached without `DIAG_TOKEN` (closed by
+default, same posture as the six probes that already exist), makes no
+writes, and touches no code path the trading loop or scanner calls.
+Two steps out: this doesn't itself validate anything — it only makes
+the USAspending gate-2 statistical test *runnable* from outside the
+container. The next session attempting that test still has to prove
+the actual result (award/mcap ratio's correlation with 5-20d forward
+returns, civilian-agency cohort only per the already-documented ~90-day
+DoD publication lag) before gate 2 can be marked passed or killed — no
+signal has been validated or promoted by this PR itself.
+
+Version 1.0.503 -> 1.0.504 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical
+to HEAD — no advance since session start, no race).
+
+MARKET-HOURS NOTE: 2026-07-26 is a Sunday (market closed) — no
+merge-timing deferral needed; safe to merge immediately.
+
+NEXT: (1) USAspending gate-2 itself is now unblocked but NOT run this
+session (scope discipline — the probe and the statistical test are two
+separate logical changes; bundling them would violate PROMOTION RULE 5
+and make attribution of a probe bug vs. a gate-2 result ambiguous). A
+future T-DATACORE/RESEARCH session should call `/api/diag/archive?
+stream=usaspending&day=YYYY-MM-DD` across the available date range
+(archive starts 2026-07-05 per the manifest's `started` field),
+exclude/cohort DoD+USACE awards per the already-documented ~90-day
+lag, and run the award/mcap-ratio-vs-forward-returns test per the
+already-stated prior. (2) The generic probe also unblocks similar
+gate-1/gate-2 work for any OTHER datacore stream with a day-based
+archive (JODI, FRED macro, CFTC COT/TFF, FINRA short-interest/blocks/
+threshold, SEC 8-K earnings, Form 4, EDGAR 13F, GEM coal/methane, ...)
+— a future session picking a queued gate-1/gate-2 item should check
+whether this probe already removes its own "no archive read access"
+blocker before assuming it needs new infrastructure. (3) The
+experiments.md file-ordering drift (flagged again this session, not
+fixed) still awaits a human/audit decision. (4) GITHUB ACTIONS CI
+outage / glide-loop TRAIL REBUILD STORM items: unchanged from today's
+earlier sessions, not re-checked here (out of scope, would have
+bundled).
+
 ## 2026-07-25 (scheduled-routine session, 2nd today) [REPAIR] — visual_check.mjs fixture gap for 9 hazard/facility layers closed, which immediately surfaced (and this session fixed) a real mobile self-see occlusion bug (v1.0.495, T-CLIENT; PR #602)
 
 TERRITORY: T-CLIENT (scripts/visual_check.mjs, client/src/index.css). package.json

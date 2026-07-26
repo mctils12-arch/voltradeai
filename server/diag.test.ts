@@ -155,3 +155,20 @@ test("2026-07-07 widening is wired: orders + positions-detail probes exist, whit
   const posCase = bot.slice(bot.indexOf('case "positions"'), bot.indexOf('case "positions-detail"'));
   assert.ok(!posCase.includes("positionRow"), "plain positions probe stays aggregate-only");
 });
+
+test("archive probe (2026-07-26): wired, validates stream/day, reads via readArchiveDay, sanitizes rows without the 200-item array cap", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("archive"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./datacoreArchive"') && bot.includes("readArchiveDay"),
+    "archive probe must reuse the shared readArchiveDay reader, not re-implement archive parsing");
+  const start = bot.indexOf('case "archive"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "archive probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("[a-z0-9_]+"), "stream param must be validated against a strict charset (path-traversal defense)");
+  assert.ok(block.includes("YYYY-MM-DD") || /\\d\{4\}-\\d\{2\}-\\d\{2\}/.test(block), "day param must be validated as YYYY-MM-DD");
+  assert.ok(block.includes("readArchiveDay("), "must call the shared reader");
+  assert.ok(block.includes("rows.map((r) => sanitizeDiag(r))") || block.includes("rows.map((r) => sanitizeDiag(r)"),
+    "rows must be sanitized per-row (deliberately bypassing the whole-array 200-item cap other probes rely on)");
+  assert.ok(block.includes("truncated"), "response must report whether the limit cut off real rows, never silently drop them");
+});

@@ -10,6 +10,7 @@ import { evaluateDrawdown } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
+import { readArchiveDay } from "./datacoreArchive";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
@@ -2265,6 +2266,50 @@ print(json.dumps(s))
           } catch (e: any) {
             return res.json({ probe: "timings", found: false, error: sanitizeDiag(String(e?.message || e)) });
           }
+        }
+        case "archive": {
+          // ADDED 2026-07-26 (scheduled-routine PRODUCT session): generic,
+          // read-only, one-day-per-call passthrough of a datacore archive
+          // directory (see readArchiveDay in datacoreArchive.ts and the
+          // DIAG_PROBES comment in diag.ts). Filed to unblock the
+          // USAspending gate-2 statistical test, which needs the
+          // multi-week historical archive — /api/data/contracts only
+          // ever serves the in-memory recent-cache window, not history.
+          //
+          // Whitelist is "the directory already exists under
+          // archiveBaseDir()" (stream regex blocks path traversal; a
+          // directory only exists if some datacore writer already
+          // created it) rather than a second hardcoded stream list —
+          // every archived stream is either public/licensed source data
+          // (see each stream's datacore/manifests/*.json) or already
+          // displayed live on /data, so there is no additional secret
+          // surface a new stream could introduce here.
+          //
+          // Row cap diverges from the other probes' 200-item convention
+          // (matching sanitizeDiag's blanket array truncation): archive
+          // rows are federal/economic/tracking records with no secrets
+          // by construction, and a real gate-2 sample needs more than
+          // 200 rows/day, so this probe sanitizes PER ROW (still scrubs
+          // key-like strings/hex/base64/emails, still truncates long
+          // strings) rather than passing the whole `rows` array through
+          // sanitizeDiag's 200-item cap — and reports an explicit
+          // `truncated` flag instead of silently dropping rows past 200.
+          const stream = String(req.query.stream || "").trim();
+          const day = String(req.query.day || "").trim();
+          if (!/^[a-z0-9_]+$/.test(stream)) {
+            return res.status(400).json({ error: "invalid stream (expected [a-z0-9_]+)" });
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+            return res.status(400).json({ error: "invalid day (expected YYYY-MM-DD)" });
+          }
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "1000"), 10) || 1000, 1), 5000);
+          const result = await readArchiveDay(stream, day, undefined, limit);
+          if (!result) return res.status(404).json({ error: "unknown stream (no archive directory on this instance)" });
+          return res.json({
+            probe: "archive", stream, day,
+            files: result.files, count: result.rows.length, truncated: result.truncated,
+            rows: result.rows.map((r) => sanitizeDiag(r)),
+          });
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

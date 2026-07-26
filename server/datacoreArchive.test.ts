@@ -13,7 +13,7 @@ import {
   compressOldHoursAsync, rollupOldDaysAsync,
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
-  nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines,
+  nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -253,5 +253,80 @@ test("streamJsonlLines still yields every line of a genuinely valid gzip file (t
   const lines: string[] = [];
   await streamJsonlLines(fp, true, (line) => lines.push(line));
   assert.deepEqual(lines, ['{"a":1}', '{"a":2}', '{"a":3}']);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// readArchiveDay (2026-07-26, backs /api/diag/archive — filed to unblock the
+// USAspending gate-2 statistical test, which needs the multi-week historical
+// archive that no other read surface exposes outside the Railway volume).
+test("readArchiveDay: day-named stream (usaspending-style) reads the exact-day file", async () => {
+  const base = tmp();
+  const dir = path.join(base, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl"), '{"aid":"a1","amt":50000}\n{"aid":"a2","amt":75000}\n');
+  fs.writeFileSync(path.join(dir, "2026-07-06.jsonl"), '{"aid":"a3","amt":99000}\n'); // different day, must not leak in
+  const r = await readArchiveDay("usaspending", "2026-07-05", base);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 2);
+  assert.deepEqual(r!.rows.map((x: any) => x.aid).sort(), ["a1", "a2"]);
+  assert.equal(r!.truncated, false);
+  assert.deepEqual(r!.files, ["2026-07-05.jsonl"]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDay: hour-named stream (aircraft/vessels/trains-style) concatenates every hour file for the day", async () => {
+  const base = tmp();
+  const t0 = Date.parse("2026-07-05T00:00:00Z");
+  assert.equal(archiveAircraft([cruise("h1")], SITES, base, t0), 1);
+  assert.equal(archiveAircraft([cruise("h2", 46, -29)], SITES, base, t0 + 3 * 3600_000), 1);
+  const r = await readArchiveDay("aircraft", "2026-07-05", base);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 2, "both hour files for the day must be read");
+  assert.deepEqual(r!.rows.map((x: any) => x.i).sort(), ["h1", "h2"]);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDay: reads gzipped day files transparently", async () => {
+  const base = tmp();
+  const dir = path.join(base, "fredmacro");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl.gz"), zlib.gzipSync(Buffer.from('{"s":"DGS10","v":4.2}\n')));
+  const r = await readArchiveDay("fredmacro", "2026-07-05", base);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 1);
+  assert.equal(r!.rows[0].s, "DGS10");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDay: unknown stream (no archive directory) returns null, never throws", async () => {
+  const base = tmp();
+  const r = await readArchiveDay("neverexistedstream", "2026-07-05", base);
+  assert.equal(r, null);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDay: no file for the requested day returns an empty, non-null result (directory exists, day doesn't)", async () => {
+  const base = tmp();
+  fs.mkdirSync(path.join(base, "usaspending"), { recursive: true });
+  const r = await readArchiveDay("usaspending", "2026-01-01", base);
+  assert.ok(r);
+  assert.deepEqual(r!.rows, []);
+  assert.equal(r!.truncated, false);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDay: limit caps rows and sets truncated honestly rather than silently dropping", async () => {
+  const base = tmp();
+  const dir = path.join(base, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = Array.from({ length: 10 }, (_, i) => JSON.stringify({ aid: `a${i}` })).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl"), lines);
+  const r = await readArchiveDay("usaspending", "2026-07-05", base, 3);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 3);
+  assert.equal(r!.truncated, true);
+  const full = await readArchiveDay("usaspending", "2026-07-05", base, 100);
+  assert.equal(full!.rows.length, 10);
+  assert.equal(full!.truncated, false);
   fs.rmSync(base, { recursive: true, force: true });
 });
