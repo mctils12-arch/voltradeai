@@ -2090,3 +2090,39 @@ watchdog built, or is the session-start `runpod_reap.py` check sufficient
 given GPU launches are still occasional, not continuous? If the latter,
 this entry can be closed as "accepted stopgap, revisit if incidents
 recur."
+
+## UPDATE 2026-07-26 (scheduled-routine session #3) — GITHUB ACTIONS CI OUTAGE HAS CLEARED; the PRODUCTION DEPLOY FREEZE (tracked above since 2026-07-22T14:09:21Z) is resolved
+
+Confirmed via `mcp__github__actions_list` (`list_workflow_runs`, no
+branch filter, most recent 10): CI runs are completing normally again,
+not just queued — `CI` workflow shows `completed`/`success` at
+2026-07-25T18:23:21Z, 20:28:19Z, 23:36:58Z, 2026-07-26T02:59:34Z, and
+11:13:30Z (this morning's own REPAIR session's PR, #609), plus a
+`celestial-catalog-mirror` scheduled workflow succeeding at 03:53:49Z
+and 08:38:28Z. This session's own PR #610 shows `CI` `in_progress`
+immediately after push (no runner-allocation stall). Best-guess
+recovery window from the run history: sometime between the last
+confirmed-failing check (2026-07-24, per that session's log) and
+2026-07-25T18:23Z's first confirmed success — no tool here can read
+GitHub's own incident/status history to pin it tighter.
+
+Corroborating evidence already in KNOWN STATE (CLAUDE.md) and this
+morning's earlier session: live `server_version` now reads `1.0.501`,
+matching `main` at session start — the multi-day version gap this
+outage caused (6 versions / 9+ PRs stuck undeployed, per the
+2026-07-24 UPDATE above) has fully closed. `scripts/
+session_health_check.py`'s `deploy_freshness` check (added 2026-07-23
+specifically to track this outage) now reads OK, not WARN.
+
+NO ACTION NEEDED from the human on this item — both of the two
+RECOMMENDED HUMAN ACTIONS above (bypass "Wait for CI" / check Actions
+billing) are now moot; whichever of "GitHub Actions usage/billing
+recovered" or "a human already flipped something" was the true cause,
+the effect (CI running, Railway deploying on merge again) is confirmed
+live. Leaving the full outage history above intact (append-only) rather
+than deleting it — it documents the ~2-day KNOWN BROKEN-adjacent gap
+during which 9+ merged PRs sat live-unverified, which is exactly the
+kind of divergence CLAUDE.md's HONESTY METRIC asks to be able to
+reconstruct later. This closes out the outage as a going concern for
+autonomous sessions; no more "CI still down, verified via local gates
+only" caveats are needed on future PRs unless it recurs.
