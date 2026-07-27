@@ -30217,3 +30217,146 @@ assuming this is fully explained by "market hours have more candidates."
 GITHUB ACTIONS CI: not re-checked this session; assumed still recovered
 per KNOWN STATE, verify if a PR this session opens fails to get CI
 signal.
+
+## 2026-07-27 (scheduled-routine session #2, [PRODUCT]) — ENTSO-E day-ahead price pipeline: closes wishlist 9c's last open follow-up (load 07-07, generation-mix 07-21, day-ahead prices 07-27), v1.0.510
+
+TERRITORY: T-DATACORE (`server/euDayAheadPrices.ts` + test, new
+manifest) + `server/routes.ts` (SHARED, last commit, small/minimal) +
+`package.json` version bump (SHARED, read-and-increment at commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/` directory
+listing read. Branch `claude/beautiful-planck-anq9n1` was byte-identical
+to `origin/main` at 46dda80 (v1.0.509) at session start — no reset
+needed. `python3 scripts/session_health_check.py --json` against the
+live site: no ALARM. Two pre-existing WARNs (KNOWN BROKEN #18 daemon
+timeouts, KNOWN BROKEN #12(c) orphan_exit feedback), both already
+tracked and non-blocking per the routine's own instruction ("product
+sessions do not preempt the DAILY routines' repair duty" unless a
+break blocks the session — neither does).
+
+WHAT AND WHY: `research/wishlist.md` item 9c (ENTSO-E) explicitly named
+day-ahead prices (documentType A44) as its one still-open follow-up
+after `server/euLoad.ts` (actual load, 2026-07-07) and
+`server/euGenerationMix.ts` (fuel mix, 2026-07-21) shipped — flagged
+"genuinely separate parser, not a copy of the load/generation-mix
+GL_MarketDocument shape." This is priority-1 work under Amendment 5's
+self-proposed-work ordering (deepening an existing irreplaceable
+archive on an already-resolved token, not a new speculative root) and
+`platform_program.md`'s own queue was otherwise clear except the
+human-gated P5, so this ranked above starting a fresh hypothesis.
+
+READ BEFORE WRITE: read `server/euLoad.ts` and `server/euGenerationMix.ts`
+in full (this session) before writing anything — the fetch/parse/
+archive/cache/poll/route five-layer pattern, the value-aware vintage-
+dedup archive discipline, the R14 dist-staging lesson (moot here: the
+manifest dir is already staged wholesale, confirmed via
+`repoFiles.test.ts`'s existing generic `cp("datacore/manifests", ...)`
+assertion, and the runtime archive itself is written to the volume, not
+shipped from git — no build.ts change needed). Cross-checked the actual
+A44 query contract and `Publication_MarketDocument`/`price.amount`/
+`currency_Unit.name`/`price_Measure_Unit.name` schema against the
+ecosystem-canonical `entsoe-py` library's source (parsers.py,
+entsoe.py) via WebFetch this session, the same cross-check discipline
+euGenerationMix's own build session used for A75 — NOT yet confirmed
+against a live authenticated response (no `ENTSOE_API_KEY` in this
+sandbox, only Railway has it; same honesty caveat euGenerationMix's
+entry carries, inherited verbatim as this stream's own NEXT CHECK).
+
+WHAT'S GENUINELY DIFFERENT FROM THE SIBLING MODULES (not just a
+renamed copy): (1) no `processType` parameter — the ENTSO-E API guide
+and entsoe-py agree A44 doesn't take one, unlike A65/A75's `A16`;
+(2) `in_Domain` AND `out_Domain` both required and identical (load uses
+only `outBiddingZone_Domain`, generation only `in_Domain`); (3) document
+root is `Publication_MarketDocument`, not `GL_MarketDocument` — parser
+rejects the wrong root rather than guessing; (4) value tag is
+`price.amount` (dot-containing, needed escaping in the shared
+`tagText`/`tagBlocks` regex helpers — the two literal-dot tags,
+`currency_Unit.name`/`price_Measure_Unit.name`, needed the same fix);
+(5) prices can be NEGATIVE (renewables oversupply routinely clears
+below zero) — explicitly never clamped, and a `negative_price_points`
+stat surfaces the count per zone per window, since that count is itself
+a first-order signal candidate for a future gate-2 pass; (6) currency/
+unit are read per-TimeSeries and stored per-observation, never assumed
+EUR/MWh (SE's day-ahead settlement has not always cleared in EUR); (7)
+FETCH WINDOW is forward-looking (`now-24h .. now+48h`), not
+trailing-only like the two REALISED siblings — day-ahead prices publish
+FOR tomorrow, so a trailing-only window would miss a same-day
+publication until the next UTC-day boundary; the archive's
+`gzipOldPriceDays` was adjusted so a future/near-term day-file (e.g.
+tomorrow's just-published result) is never eligible for the 3-day gz
+cutoff before its own day has actually aged.
+
+GATES: `npm install` was needed first — this sandbox's `node_modules`
+was essentially empty (72KB, missing `express`/`@types/node`/etc.) at
+session start, an environment gap unrelated to this change; installed
+cleanly, no lockfile drift. `npx tsx --test server/*.test.ts` — 895
+passed, 0 failed post-install (pre-install, 7 files failed with
+`ERR_MODULE_NOT_FOUND: express`, confirmed via `git stash` A/B against
+untouched `main` that this was pre-existing sandbox state, not caused
+by this change). `npm run check` (tsc) shows pre-existing repo-wide
+errors (`bot.ts` Buffer/`trim`, several `--downlevelIteration` Map-
+iteration errors, a missing `pngjs` type decl) in files this session
+never touched — confirmed via `grep` that zero errors reference
+`euDayAheadPrices` or `routes.ts`. `python3 -m pytest -q` needed
+`pip3 install -r requirements.txt` + `openpyxl` (also missing, not in
+requirements.txt, surfaced via `test_grid_county_ba.py`'s import) —
+**961 passed, 2 skipped, 0 failed** (pure-Python engine untouched by
+this PR; ran the full suite anyway per PROMOTION RULES #1's blanket
+requirement rather than assuming a TS-only change is exempt).
+
+NEW TESTS: `server/euDayAheadPrices.test.ts`, 10 cases mirroring
+euLoad.test.ts/euGenerationMix.test.ts's battery shape plus the
+genuinely-new behavior: A44/no-processType/both-domains URL contract,
+`Publication_MarketDocument`-required rejection of a
+`GL_MarketDocument` (proves the module can't silently misparse the
+wrong sibling's response shape), negative-price preservation, missing-
+currency/unit honesty, forward-window gz-eligibility (tomorrow's file
+must NOT gz early). `server/manifests.test.ts`'s FORWARD ENFORCEMENT
+test and `server/repoFiles.test.ts` both pass against the new
+`eudayaheadprices` archive dir + manifest without any test-file edits
+— confirms the existing generic ratchets (dir-name scrape,
+whole-directory dist staging) already cover a correctly-named new
+stream, no manual registration needed.
+
+BACKTEST: N/A — new RAW archive-only data pipeline, gate-locked
+hypothesis (stated in the manifest's `confidence_model`), no scoring/
+sizing/execution logic touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the route is additive
+(`/api/data/eu-day-ahead-prices`, new path, nothing else reads it yet);
+`bootEuDayAheadPricesPoll()` only fires when `ENTSOE_API_KEY`/
+`ENTSOE_TOKEN` is present (same key already gating euLoad/
+euGenerationMix's live polls in Railway — this adds a THIRD independent
+8-call/2h sweep on the same token, still ~24 calls/2h total across all
+three EU modules, nowhere near the 400/min limit). No existing route,
+poller, or archive is modified. RAW-vs-SIGNAL: labeled `kind: "raw"` in
+the route response per the 2026-07-03 standing rule — no predictive
+claim, gate-locked hypothesis stated honestly in the manifest only.
+
+NOT DONE THIS SESSION (deliberately, one-logical-change-per-PR): no
+`/data` client UI or analyst-tool wiring — confirmed via grep that
+neither euLoad nor euGenerationMix have ANY client-side or
+`server/analyst.ts` tool wiring either (both are archive+API-only,
+RAW-hypothesis streams), so day-ahead prices following the identical
+scope is consistency, not a shortfall. Wishlist 9c's three-part
+ENTSO-E follow-up list is now fully closed.
+
+MARKET-HOURS MERGE COUPLING: session started 09:05 ET, gates finished
+~09:20 ET — inside the 9:30-16:00 ET window by the time of PR open.
+Per the scheduled-routine prompt's own instruction, this PR is prepared
+and pushed but its merge should wait for the close (or a session that
+starts before 9:30/after 16:00 ET) rather than self-merging mid-market.
+
+Version 1.0.509 -> 1.0.510 (read-and-increment at commit time,
+re-fetched `origin/main` immediately before — byte-identical, no
+advance since session start).
+
+NEXT: once merged and deployed, read `/api/data/eu-day-ahead-prices`'s
+`issues` field on the first live sweep — same NEXT CHECK discipline as
+euGenerationMix's own entry, now resolved-or-not for all three ENTSO-E
+streams at once. If issues surface a contract mismatch (e.g. an ack for
+a param this session couldn't live-verify), the fix is scoped to
+`priceUrl()`/`parsePrices()` only. Separately, once the three ENTSO-E
+archives have enough live history, the natural gate-1/2 next step is a
+same-zone join across all three (load residual + fuel mix + price) that
+none of the three individual build sessions attempted alone.

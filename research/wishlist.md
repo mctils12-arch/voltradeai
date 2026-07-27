@@ -528,10 +528,21 @@ data); full-state discovery sweeps use the same account later.
     see experiments.md same date. NOT yet live-response-confirmed (no
     ENTSOE_API_KEY in the build sandbox; cross-checked against entsoe-py
     instead) — future session should read the route's `issues` field
-    post-deploy. DAY-AHEAD-PRICES remains the one open follow-up
-    (documentType A44, Publication_MarketDocument/price.amount schema —
-    genuinely separate parser, not a copy of the load/generation-mix
-    GL_MarketDocument shape).
+    post-deploy.
+    DAY-AHEAD-PRICES FOLLOW-UP BUILT 2026-07-27 (v1.0.510,
+    server/euDayAheadPrices.ts, /api/data/eu-day-ahead-prices, same
+    token, documentType A44, no processType, in_Domain=out_Domain,
+    Publication_MarketDocument/price.amount schema — genuinely separate
+    parser, not a copy of the load/generation-mix GL_MarketDocument
+    shape; forward-looking 24h-before/48h-after fetch window since
+    day-ahead prices publish FOR tomorrow, unlike the two REALISED
+    siblings' trailing-only window; negative prices preserved, never
+    clamped; currency/unit read per-series, never assumed EUR/MWh) —
+    see experiments.md same date. Also NOT yet live-response-confirmed
+    (same no-key-in-sandbox caveat) — future session should read the
+    route's `issues` field post-deploy. **Wishlist 9c's three-part
+    ENTSO-E follow-up list (load/generation-mix/day-ahead-prices) is
+    now fully closed** — no more open items under 9c.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
