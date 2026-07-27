@@ -2203,6 +2203,94 @@
     first, per RULE REVIEW). Full trace + regression tests (A/B-verified
     against pre-fix code) in experiments.md's 2026-07-26 entry.
 
+    UPDATE 2026-07-27 (scheduled-routine session) — v1.0.503's own NEXT
+    STEP ANSWERED YES: last_phase DOES clear step6a. Live
+    `/api/diag/audit?type=TIER2-ERROR&limit=50&token=$DIAG_TOKEN` this
+    session shows 12 occurrences from 2026-07-26 16:33Z through 19:47Z
+    (the afternoon AFTER v1.0.503 deployed) with a signature never seen
+    before on this item: `last_phase=tier_engine_start age=~30s` (17.3-
+    35.4s across the 7 most recent) — NOT `step6a` and NOT `deep_score`.
+    Per `server/bot.ts`'s own `scanTimingsDetail` computation (age =
+    `now - last_phase_at`, i.e. time stuck SINCE that checkpoint fired,
+    confirmed by reading the code, not assumed), this means: (1) the
+    step6a options-scanner fix genuinely worked — the ~255-275s span that
+    used to sit between `step6a` and `step6` (options_scanner.
+    get_options_trades()) is gone from these occurrences; (2) the entire
+    preamble (`universe_load` through logging the `tier_engine_start`
+    checkpoint, 12 already-instrumented phases) now consumes ~270s during
+    these market-hours failures — a live idle-hours `/api/diag/timings`
+    read this session showed the SAME 12 phases completing in 26.84s on a
+    clean run, a ~10x gap between busy and idle that has no explanation
+    yet; (3) run_tiers() itself (`tiered_strategy.py`) was then killed
+    only ~30s into its own execution — WHICH internal tier (1/2/3/4/
+    allocator) was running at that moment was completely unrecorded,
+    because `tier_engine_breakdown` only gets appended to the TIMING-DISK
+    file on a clean return (bot_engine.py, the `ts.run_tiers(ctx)`
+    callsite) — the exact same "one synchronous span, invisible if
+    killed mid-flight" shape this item's `step6a` split fixed one
+    checkpoint earlier, just one boundary further out. NOT GUESSING which
+    tier is slow (RULE REVIEW / RECURRENCE ESCALATES: evidence before a
+    mechanism claim) — closed the structural gap instead, matching this
+    item's own established repeated pattern: `TieredStrategy.run_tiers()`
+    gained an optional `on_phase` callback (tiered_strategy.py), invoked
+    after each of tier1/tier2/tier3/tier4/allocator with the tier's own
+    label; `bot_engine.py`'s callsite now passes
+    `on_phase=lambda p: _timing_log(f"tier_engine_{p}")`, writing a
+    progressive checkpoint to the SAME on-disk file every other phase
+    boundary already uses. A future `tier_engine_start` occurrence will
+    now show `last_phase=tier_engine_tier1` (or `tier2`/`tier3`/`tier4`/
+    `allocator`) if it got that far, localizing the hang inside
+    `run_tiers()` for the first time — or, if `last_phase` stays at
+    `tier_engine_start` with the callback wired, that itself is new
+    evidence: tier1 (`tier1_csp_core`, whose own CSP Layer 2 prefetch
+    comment already documents "up to 150 tickers x 2 Alpaca-bound calls
+    in a 45s wall budget") never even finished within its slice of the
+    30s remaining budget.
+    PURE VISIBILITY, ZERO BEHAVIOR CHANGE — no RULE REVIEW gate applies:
+    `on_phase` defaults to `None` (backward compatible with the one other
+    call site, `test_csp_universe_layer2_prefetch.py`'s wiring-pin test,
+    which omits it and still passes); the callback is wrapped so an
+    exception inside it can never propagate into the tier engine
+    (`test_run_tiers_on_phase_exception_never_propagates`), same
+    discipline `log_masterkill_csp_shadow`'s own tests already hold this
+    file to. RATCHET: 4 new tests in `test_tiered_strategy.py`
+    (fires-in-order, not-called-when-killed, exception-swallowed,
+    default-omitted-still-works) — A/B-verified via `git stash` that the
+    first 3 fail against pre-fix code (`TypeError: unexpected keyword
+    argument 'on_phase'`) and all 4 pass post-fix.
+    SILENT-EXCEPT RATCHET CAUGHT ITS OWN CLASS WORKING AS DESIGNED: the
+    first draft of the exception-swallow above used a bare
+    `except Exception: pass`, which `test_silent_except_ratchet.py`
+    correctly failed (`tiered_strategy.py`'s pinned count would have gone
+    3 -> 4, and raising a pin is forbidden). Fixed to log via
+    `logger.debug` instead — captures the same "never propagate"
+    behavior without adding a new silent handler; pin stays at 3, exactly
+    the outcome the ratchet test exists to force.
+    GATES: `python3 -m pytest -q` — 964 passed, 1 skipped (963 baseline +
+    4 net-new -3 pre-existing unrelated flake retried clean, zero
+    regressions once the silent-except pin fix landed). No TypeScript/
+    client/server files touched — `tsc`/`build`/`visual`/
+    `npx tsx --test server/*.test.ts` gates don't apply, same precedent
+    this item's own prior Python-only sessions used.
+    BACKTEST: N/A — pure diagnostic-visibility change to the tier-engine
+    call site, no scoring/sizing/execution logic touched.
+    NEXT STEP: whichever session catches the next `TIER2-ERROR` with
+    `active_dispatches` staying flat and a `tier_engine_*` last_phase
+    should read it directly — no further instrumentation should be
+    needed for THIS specific span. If the localized tier turns out to be
+    `tier1` specifically, cross-reference `csp_universe.
+    get_last_layer2_prefetch_stats()`'s reading in the same audit line
+    (already surfaced via `layer2_prefetch=...`) before proposing any
+    threshold change to Tier 1's own internal budget. Separately, the
+    ~10x idle-vs-busy gap in the ALREADY-instrumented preamble (26.84s vs
+    ~270s) noted above is itself a new, unexplained data point — a
+    future session should NOT assume it's fully explained by "market
+    hours have more candidates" without checking the per-phase
+    `duration_sec` breakdown (not just the summary `last_phase`) on a
+    fresh busy-hours capture; that breakdown already exists in
+    `/api/diag/timings`'s `phases` array today, just never yet read
+    during an actual in-progress (not completed) busy-hours scan.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

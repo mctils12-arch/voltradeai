@@ -3758,7 +3758,21 @@ def _scan_market_inner():
                     spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
                 )
                 ts = TieredStrategy()
-                tier_result = ts.run_tiers(ctx)
+                # KNOWN BROKEN #18 continuation (2026-07-27): run_tiers() is
+                # one synchronous call — if it hangs past the daemon's 300s
+                # budget, the killed dispatch left zero trace of WHICH
+                # internal tier was still running (tier_engine_breakdown
+                # below only gets appended on a clean return). Progressively
+                # checkpoint each sub-phase to the same TIMING-DISK file the
+                # rest of the pipeline already uses, so a future stuck run
+                # reading last_phase=tier_engine_start in the TIER2-ERROR
+                # audit line (as several 2026-07-26 occurrences did, after
+                # v1.0.503 fixed the options-scanner stall this item was
+                # previously stuck on) can be localized to a specific tier
+                # instead of staying a single opaque span.
+                tier_result = ts.run_tiers(
+                    ctx, on_phase=lambda p: _timing_log(f"tier_engine_{p}")
+                )
                 tiered_actions = tier_result["actions"]
                 tier_stats = tier_result.get("tier_stats", {})
                 # VISIBILITY FIX 2026-07-11: run_tiers() has its own internal

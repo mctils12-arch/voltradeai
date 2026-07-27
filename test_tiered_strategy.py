@@ -109,6 +109,71 @@ def test_run_tiers_exposes_killed_and_kill_reason_contract():
     assert "tier_stats" in result
 
 
+# ── on_phase progress callback — KNOWN BROKEN #18 continuation (2026-07-27) ─
+#
+# run_tiers() is one synchronous call from bot_engine.py's perspective; the
+# 2026-07-26 TIER2-ERROR occurrences that landed AFTER the step6a/options-
+# scanner fix (v1.0.503) shipped read last_phase=tier_engine_start in the
+# daemon-timeout audit line — i.e. run_tiers() itself was still in flight
+# when the daemon killed it, and nothing recorded which of tier1/2/3/4/
+# allocator was running. on_phase closes that gap: bot_engine.py passes a
+# callback that writes a checkpoint to the same TIMING-DISK file after each
+# internal tier finishes, so the NEXT such occurrence can be localized.
+
+def test_run_tiers_on_phase_fires_for_each_tier_in_order():
+    """Wiring pin: a non-killed run must call on_phase exactly once per
+    internal tier, in execution order, with run_tiers()'s own return shape
+    unchanged (visibility bolted on, not a behavior change)."""
+    ctx = _ctx(vxx_ratio=1.0, positions=[])  # NEUTRAL, not killed
+    seen = []
+    with patch("tiered_strategy._get_t1_universe", return_value=FALLBACK_UNIVERSE):
+        result = TieredStrategy().run_tiers(ctx, on_phase=seen.append)
+
+    assert seen == ["tier1", "tier2", "tier3", "tier4", "allocator"]
+    assert result["killed"] is False
+    assert "actions" in result and "tier_stats" in result
+
+
+def test_run_tiers_on_phase_not_called_when_master_kill_switch_fires():
+    """The kill branch returns before any tier runs — on_phase must never
+    fire for a killed cycle, matching log_masterkill_csp_shadow's own
+    early-return contract just above it in run_tiers()."""
+    ctx = _ctx(vxx_ratio=1.0, positions=[], equity=80_000.0, peak_equity=100_000.0)
+    seen = []
+    result = TieredStrategy().run_tiers(ctx, on_phase=seen.append)
+
+    assert result["killed"] is True
+    assert seen == []
+
+
+def test_run_tiers_on_phase_exception_never_propagates():
+    """A visibility hook must not be able to break the tier engine it's
+    observing — same discipline CLAUDE.md's measurement-integrity rules and
+    log_masterkill_csp_shadow's own never-raises test already hold the rest
+    of this file's diagnostics to."""
+    ctx = _ctx(vxx_ratio=1.0, positions=[])  # NEUTRAL, not killed
+
+    def _boom(phase):
+        raise RuntimeError(f"disk full writing {phase}")
+
+    with patch("tiered_strategy._get_t1_universe", return_value=FALLBACK_UNIVERSE):
+        result = TieredStrategy().run_tiers(ctx, on_phase=_boom)  # must not raise
+
+    assert result["killed"] is False
+
+
+def test_run_tiers_default_on_phase_is_none_and_still_works():
+    """Backward compatibility: the only production caller (bot_engine.py)
+    always passes on_phase now, but run_tiers() must still work for any
+    caller (including this file's own pre-existing tests above) that omits
+    it entirely."""
+    ctx = _ctx(vxx_ratio=1.0, positions=[])
+    with patch("tiered_strategy._get_t1_universe", return_value=FALLBACK_UNIVERSE):
+        result = TieredStrategy().run_tiers(ctx)
+
+    assert result["killed"] is False
+
+
 # ── log_masterkill_csp_shadow — RULE REVIEW evidence gate (item #20) ────────
 #
 # master_kill_switch blocks Tier 1 CSP along with T2-4 even though CSP holds
