@@ -3,6 +3,184 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-27 (scheduled-routine session, 5th today) [REPAIR] — KNOWN BROKEN #18 continuation: 11/11 fresh tier_engine_start occurrences localize the hang inside tier1_csp_core; Layer 1's invisible cache-miss cost instrumented (v1.0.521, T-BOT); PR #621 open, market-hours hold noted
+
+TERRITORY: T-BOT (`csp_universe.py`, `voltrade_daemon.py`, `server/bot.ts`
+outside frozen paths) + test files + `package.json` version bump (SHARED,
+last, per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+confirmed this checkout already byte-identical to `origin/main` at `07826b7`
+(v1.0.520) — no reset needed. `python3 scripts/session_health_check.py
+--json` against the live site: no LIVENESS ALARM, `status: ok`. Three WARNs:
+`tier2_daemon_timeouts` (24 in-window, KNOWN BROKEN #18, non-blocking),
+`ml_feedback` (61 orphan_exit, KNOWN BROKEN #12(c), already-gated), and
+`deploy_freshness` (`server_version=1.0.519` vs local `1.0.520`) — the third
+looked alarming at a glance (this checkout's own KNOWN STATE paragraph
+mentions a past PRODUCTION DEPLOY FREEZE) but `mcp__github__actions_list`
+showed CI running clean on `main` HEAD (run `30282359810`, completed/success
+at 15:59:47Z, ~4 min before this session's health check) — ordinary deploy
+lag, one version, not a freeze. Loop-health ratio, last 10 real PR-tagged
+entries: RESEARCH, REPAIR, PRODUCT, REPAIR, RESEARCH, RESEARCH, REPAIR,
+REPAIR, PRODUCT, RESEARCH — 4/10 REPAIR, under the 7+ thrash trigger, no
+meta-problem.
+
+SIDE FINDING (investigated, not this session's primary action): PR #605
+(T-CLIENT, opened 2026-07-25T16:48Z, a fully-tested visual-harness finding
+with zero code change) has sat stranded 2 days — its one CI run failed in
+~3s with `runner_id: 0`, the exact signature every session since
+2026-07-22 attributed to the (since-resolved) GitHub Actions runner-
+allocation outage. Retriggered it via `mcp__github__actions_run_trigger`
+(`rerun_failed_jobs`) to test the theory now that CI is confirmed healthy —
+it moved to a genuine `in_progress` run (no longer instant-failing),
+corroborating that the original failure really was the outage, not a real
+code problem. However `pull_request_read` now shows `mergeable_state:
+"dirty"` — main has advanced ~25 versions since this PR's base commit, so
+it needs a rebase before it can merge, not just a CI retry. Did not attempt
+the rebase this session (a different PR's stale branch, out of scope for
+this session's primary action) — filed as a NEXT item below rather than
+silently dropped.
+
+PRIMARY ACTION SELECTION: no matured experiment reached judgment today
+beyond what four earlier sessions already handled. This morning's REPAIR
+session (v1.0.503, PR referenced in open_questions.md item 18) shipped
+`on_phase` instrumentation on `TieredStrategy.run_tiers()` with an explicit
+NEXT STEP: "whichever session catches the next TIER2-ERROR with
+active_dispatches staying flat and a tier_engine_* last_phase should read
+it directly." That is a live, checkable prediction sitting in the queue —
+per SESSION BUDGET's priority order ("fix a bug seen in audit logs" is
+above "start a new experiment"), checked it before picking anything else.
+
+WHAT WAS FOUND: `curl .../api/diag/audit?type=TIER2-ERROR&limit=50&token=
+$DIAG_TOKEN` (DIAG_TOKEN + GITHUB_TOKEN both available as session env vars)
+returned 24 entries; 11 of them carry the new `tier_engine_*` tag (the rest
+predate it, showing `step6a_trade_loop_and_covered_calls` or plain
+`tier_engine_start` boundary artifacts from before/after the v1.0.503
+deploy). ALL 11 tier_engine_*-tagged entries — spanning 2026-07-26 16:33Z
+through 2026-07-27 13:44Z (today), `age` 17.3–35.4s — read `last_phase=
+tier_engine_start`. None advanced to `tier_engine_tier1`/`tier2`/`tier3`/
+`tier4`/`allocator`. Per `on_phase`'s own design (fires AFTER each tier
+completes), 11/11 stuck at the pre-tier1 checkpoint is direct, non-guessed
+evidence that Tier 1 (`tier1_csp_core`) is the tier still running at kill
+time in every one of these occurrences — the first time this item has
+localized the hang to a specific tier rather than "somewhere in
+`run_tiers()`."
+
+All 11 of the same entries ALSO read `layer2_prefetch cache_hit=true
+completed=0/0 elapsed=0s` — Layer 2 scoring was a fast cache hit every
+time, ruling it out as the mechanism for THIS signature (consistent with,
+not contradicting, the 2026-07-19/2026-07-21 sessions that found and fixed
+Layer 2's own throttle-overcommit and prefetch-timeout mechanisms for a
+DIFFERENT prior signature).
+
+READ BEFORE WRITE: read `tier1_csp_core` (`tiered_strategy.py:384-501`) in
+full — no network I/O directly, cheap in-memory scoring/filtering only.
+Traced its one non-trivial call, `_get_t1_universe()` (`tiered_strategy.py:
+148-176`) → `get_top_csp_candidates()` (`csp_universe.py:766-791`) → reads
+`_layer1_hard_gates()` (`csp_universe.py:198-303`) and `_layer2_score()`
+directly — NOT via `_load_layer2_cache()`'s read-only accessor. Confirmed
+`_layer2_score()` IS the same function whose prefetch stats populate
+`_LAST_LAYER2_PREFETCH` (so `layer2_prefetch` in the audit line already
+covers it). But `_layer1_hard_gates()` has its OWN, INDEPENDENT 15-minute
+cache (`UNIVERSE_CACHE_PATH`, separate file from Layer 2's
+`SCORES_CACHE_PATH`) — on a cache miss it calls `_fetch_snap_data_for_
+universe()` (batched Alpaca `/v2/stocks/snapshots` calls, 2 concurrent
+workers, 15s timeout/batch) and `_fetch_account_equity()` (its own separate
+15-min-TTL cache). NONE of Layer 1's cache-hit/miss state or timing has
+ever been surfaced anywhere — a genuine, previously-undiscovered blind spot
+structurally identical to the one Layer 2 already had before v1.0.418.
+
+FIX (PURE VISIBILITY, ZERO BEHAVIOR CHANGE — no RULE REVIEW gate applies,
+same precedent as every prior `on_phase`/`layer2_prefetch` visibility PR on
+this item): mirrored the existing Layer 2 pattern exactly.
+- `csp_universe.py`: new `_LAST_LAYER1_STATS` module dict, `build_layer1_
+  stats()` (pure shape function) and `get_last_layer1_stats()` accessor;
+  `_layer1_hard_gates()` now records `{cache_hit, universe_size,
+  elapsed_sec, checked_at}` on all four of its return paths (cache hit,
+  snap_data-fetch exception, empty-snap_data anchor-fallback, full live
+  compute) via a small `_record()` closure timed from function entry.
+- `voltrade_daemon.py`: new `_layer1_stats_snapshot()` (mirrors
+  `_layer2_prefetch_snapshot()` exactly, including the deliberate lack of
+  a broad except — a real failure here must surface as a visible
+  `{"status": "error"}` RPC response, not vanish, per
+  `test_silent_except_ratchet.py`'s pinned count); wired into `_health()`'s
+  return dict as `"layer1_stats"`.
+- `server/bot.ts`: TIER2-ERROR daemon branch reads `hr?.layer1_stats` and
+  formats `layer1_stats={cache_hit=... universe_size=... elapsed=...s
+  age=...s}`, interpolated into `daemonState` next to the existing
+  `layer2Detail`.
+
+RATCHET: `test_csp_universe_layer1_stats.py` (new, 7 tests) —
+`build_layer1_stats()`'s pure shape, `get_last_layer1_stats()` empty-before-
+any-call, and all four `_layer1_hard_gates()` return paths (cache hit with
+real universe_size; snap_data-fetch exception → cache_hit=False,
+universe_size=0; empty snap_data → anchor-fallback size; full live compute
+with mocked equity fetch → real candidate count). `test_daemon_active_
+dispatches.py` gains `TestLayer1StatsSnapshot` (6 tests, byte-for-byte
+mirror of `TestLayer2PrefetchSnapshot`'s structure, including the
+exception-propagates-not-swallowed test) — fixing two of the existing
+Layer2 tests' fakes in the same file, since `_health()` now calls BOTH
+snapshot functions and a `types.SimpleNamespace` fake missing one method
+raised `AttributeError` on the other snapshot call (caught by running the
+new suite once before assuming it would pass). `server/
+tier2DaemonTimeoutVisibility.test.ts` gains one wiring-pin test. A/B-
+verified via `git stash` on each changed source file (test files kept
+un-stashed): all 14 new/changed tests fail against pre-fix code
+(`ImportError`, `AttributeError`, or assertion failures) and all pass
+post-fix.
+
+GATES: `npm ci` first (sandbox had no `node_modules`/`esbuild` at session
+start — `npm run build` failed with `ERR_MODULE_NOT_FOUND` until this ran).
+`python3 -m pytest -q` — 983 passed, 1 skipped (969 baseline + 14 new, zero
+regressions). `npx tsx --test server/*.test.ts client/src/**/*.test.ts
+client/src/pages/*.test.ts` — 977 passed, 10 failed; A/B-verified via `git
+stash` that the identical 10 fail on unmodified `main` too (globeAtmosphere,
+oceanBasemap, aircraftTiling, apiKeyAccounts, compression, gdeltEvents,
+owmTiles, seafloorTiles, securityMiddleware, MercatorCoordinate — none touch
+this PR's files). `npx tsc --noEmit` — 8 errors, byte-identical count
+before/after via `git stash` A/B. `npm run build` — clean, same pre-existing
+astronomy-engine/chunk-size warnings as documented baseline.
+
+BACKTEST: N/A — pure diagnostic-visibility change to a cache accessor and
+an error-path audit line; no scoring/sizing/execution logic touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop's decision logic — `_layer1_hard_gates()`'s return value,
+caching behavior, and every filter it applies are completely unchanged;
+the only new code path is a stats dict write (in-memory, non-blocking) on
+each of its four existing returns, plus a new RPC-response key and a new
+audit-string fragment. The only downstream effect is diagnostic: the next
+`tier_engine_start` occurrence's audit line will show whether Layer 1 was
+a cache hit (ruling it out too, same as Layer 2) or a live compute with a
+real `elapsed_sec` (confirming it as the localized cause) — either reading
+is new, actionable evidence for KNOWN BROKEN #18's next session.
+
+Version 1.0.520 -> 1.0.521 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+MARKET HOURS: this session ran during market hours (~12:00 ET at session
+start). Noted the wait-for-4pm guidance in the PR body per instruction, and
+per the 2026-07-27 OPS GOTCHA already on file (open_questions.md), also
+noted honestly that the note has no real enforcement power against the
+repo's CI-driven auto-merge job — this PR is diagnostics-only (zero
+trading-path risk) so an accidental mid-market auto-merge has no real blast
+radius beyond a slightly richer log line, unlike a scoring/sizing change
+would.
+
+NEXT: (1) whichever session catches the next `tier_engine_start` occurrence
+with `layer1_stats` populated should read `cache_hit`/`elapsed_sec`
+directly — a cache miss with real elapsed time confirms Layer 1 as the
+localized cause; a cache hit here too would mean BOTH known expensive calls
+inside `tier1_csp_core` are ruled out, and the remaining ~100 lines of pure
+in-memory filtering/sizing logic would need line-level profiling instead
+of another cache-boundary instrument. (2) PR #605 (T-CLIENT, stranded since
+2026-07-25) needs a rebase onto current `main` before it can merge — CI
+itself now runs clean on it (retriggered this session), the blocker is
+purely the stale branch tip. (3) The 2026-07-20 terrain-audit glide-loop/
+`prepareForRender` items and the 2026-07-25 MEASUREMENT-DEBT visual-harness
+perf-gate item remain open and unclaimed, untouched this session.
+
 ## 2026-07-27 (scheduled-routine session, 4th today) [RESEARCH] — re-ran the 2026-07-25 MEASUREMENT-DEBT `/data` perf-gate repro 3x clean on untouched `main`; caught + closed two stale-but-already-fixed sub-findings in the same open_questions.md section while there (v1.0.509, T-CLIENT docs-only)
 
 TERRITORY: T-CLIENT (`research/open_questions.md` only — no app code
