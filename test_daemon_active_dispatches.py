@@ -216,12 +216,87 @@ class TestLayer2PrefetchSnapshot(unittest.TestCase):
             "cache_hit": True, "completed": 0, "total": 0,
             "elapsed_sec": 0.0, "budget_exceeded": False,
             "checked_at": time.time(),
-        })
+        }, get_last_layer1_stats=lambda: {})
         sys.modules["csp_universe"] = fake
         dispatcher = RPCDispatcher()
         result = dispatcher._health({})
         self.assertTrue(result["layer2_prefetch"]["cache_hit"])
         self.assertIn("age_sec", result["layer2_prefetch"])
+
+
+class TestLayer1StatsSnapshot(unittest.TestCase):
+    """DAEMON-TIMEOUT-VISIBILITY 2026-07-27 (KNOWN BROKEN #18 continuation):
+    same live-mid-hang read as _layer2_prefetch_snapshot, mirrored for Layer
+    1's own independent cache (csp_universe.get_last_layer1_stats(),
+    v1.0.521) — every tier_engine_start-stuck occurrence checked this session
+    read layer2_prefetch cache_hit=true, which never explained the hang;
+    Layer 1 was invisible until now and could be the thing still running."""
+
+    def setUp(self):
+        self._had_csp_universe = "csp_universe" in sys.modules
+        self._orig_csp_universe = sys.modules.get("csp_universe")
+
+    def tearDown(self):
+        if self._had_csp_universe:
+            sys.modules["csp_universe"] = self._orig_csp_universe
+        else:
+            sys.modules.pop("csp_universe", None)
+
+    def test_empty_when_module_never_loaded(self):
+        sys.modules.pop("csp_universe", None)
+        self.assertEqual(voltrade_daemon._layer1_stats_snapshot(), {})
+
+    def test_empty_when_layer1_hard_gates_never_ran(self):
+        fake = types.SimpleNamespace(get_last_layer1_stats=lambda: {})
+        sys.modules["csp_universe"] = fake
+        self.assertEqual(voltrade_daemon._layer1_stats_snapshot(), {})
+
+    def test_surfaces_stats_with_computed_age(self):
+        checked_at = time.time() - 8.7
+        fake = types.SimpleNamespace(get_last_layer1_stats=lambda: {
+            "cache_hit": False, "universe_size": 380, "elapsed_sec": 18.4,
+            "checked_at": checked_at,
+        })
+        sys.modules["csp_universe"] = fake
+        snap = voltrade_daemon._layer1_stats_snapshot()
+        self.assertEqual(snap["universe_size"], 380)
+        self.assertFalse(snap["cache_hit"])
+        self.assertAlmostEqual(snap["age_sec"], 8.7, delta=0.5)
+
+    def test_exception_from_csp_universe_propagates_not_swallowed(self):
+        """No new silent broad-except — mirrors the layer2 snapshot's own
+        pin: test_silent_except_ratchet.py would catch a bare
+        `except Exception` added here to swallow this."""
+        def _raise():
+            raise RuntimeError("boom")
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=lambda: {},
+                                      get_last_layer1_stats=_raise)
+        sys.modules["csp_universe"] = fake
+        with self.assertRaises(RuntimeError):
+            voltrade_daemon._layer1_stats_snapshot()
+        dispatcher = RPCDispatcher()
+        result = dispatcher.dispatch("health", {})
+        self.assertEqual(result["status"], "error")
+        self.assertIn("boom", result["error_message"])
+
+    def test_health_includes_layer1_stats_key(self):
+        sys.modules.pop("csp_universe", None)
+        dispatcher = RPCDispatcher()
+        result = dispatcher._health({})
+        self.assertIn("layer1_stats", result)
+        self.assertEqual(result["layer1_stats"], {})
+
+    def test_health_surfaces_populated_layer1_stats(self):
+        fake = types.SimpleNamespace(get_last_layer2_prefetch_stats=lambda: {},
+                                      get_last_layer1_stats=lambda: {
+            "cache_hit": True, "universe_size": 412, "elapsed_sec": 0.0,
+            "checked_at": time.time(),
+        })
+        sys.modules["csp_universe"] = fake
+        dispatcher = RPCDispatcher()
+        result = dispatcher._health({})
+        self.assertTrue(result["layer1_stats"]["cache_hit"])
+        self.assertIn("age_sec", result["layer1_stats"])
 
 
 class TestActiveDispatchLiveSocket(unittest.TestCase):

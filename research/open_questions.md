@@ -2291,6 +2291,45 @@
     `/api/diag/timings`'s `phases` array today, just never yet read
     during an actual in-progress (not completed) busy-hours scan.
 
+    UPDATE 2026-07-27 (scheduled-routine session) — 11/11 tier_engine_*
+    occurrences localize the hang to TIER 1; Layer 1's invisible cache
+    instrumented, v1.0.521. Live `/api/diag/audit?type=TIER2-ERROR&
+    limit=50&token=$DIAG_TOKEN` this session: ALL 11 tier_engine_*-tagged
+    entries so far (2026-07-26 16:33Z through 2026-07-27 13:44Z, spanning
+    both prior-session and this-session windows) read `last_phase=
+    tier_engine_start`, never advancing to `tier_engine_tier1`. Per
+    `on_phase`'s own design (fires AFTER each tier completes), this is
+    direct evidence Tier 1 (`tier1_csp_core`) is the tier still running at
+    kill time in every occurrence checked so far — the first localization
+    to a specific tier. All 11 also read `layer2_prefetch cache_hit=true
+    elapsed=0s` (Layer 2 ruled out for this signature). READ BEFORE WRITE
+    traced `tier1_csp_core`'s one non-trivial call
+    (`_get_t1_universe -> get_top_csp_candidates -> _layer1_hard_gates`):
+    `_layer1_hard_gates` has its OWN independent 15-min cache
+    (`UNIVERSE_CACHE_PATH`, separate from Layer 2's `SCORES_CACHE_PATH`)
+    whose cache-miss path does a full-universe live snapshot fetch
+    (`_fetch_snap_data_for_universe`) plus an account-equity fetch — none
+    of that cost was ever visible, a blind spot structurally identical to
+    Layer 2's pre-v1.0.418 gap. FIXED (pure visibility, mirrors the Layer 2
+    pattern exactly, no RULE REVIEW gate applies): `csp_universe.py` gained
+    `build_layer1_stats()`/`get_last_layer1_stats()`, instrumenting all
+    four `_layer1_hard_gates()` return paths; `voltrade_daemon.py`'s
+    `_health()` gained `layer1_stats` (live, mid-hang read, same mechanism
+    as `layer2_prefetch`); `server/bot.ts`'s TIER2-ERROR daemon branch now
+    surfaces `layer1_stats={cache_hit=... universe_size=... elapsed=...s
+    age=...s}`. 14 new/changed tests (7 pure-function/wiring tests in new
+    `test_csp_universe_layer1_stats.py`, 6 in a new `TestLayer1StatsSnapshot`
+    class in `test_daemon_active_dispatches.py`, 1 wiring-pin test in
+    `server/tier2DaemonTimeoutVisibility.test.ts`), all A/B-verified to
+    fail pre-fix and pass post-fix. PR #621, v1.0.521. NEXT STEP: whichever
+    session catches the next `tier_engine_start` occurrence with
+    `layer1_stats` populated should read `cache_hit`/`elapsed_sec` directly
+    — a cache miss with real elapsed time confirms Layer 1; a cache hit
+    here too would mean BOTH known expensive calls inside `tier1_csp_core`
+    are ruled out, and the remaining pure in-memory filtering/sizing logic
+    would need line-level profiling instead of another cache-boundary
+    instrument.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's

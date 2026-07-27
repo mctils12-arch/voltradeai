@@ -106,6 +106,42 @@ def get_last_layer2_prefetch_stats() -> Dict[str, Any]:
     return dict(_LAST_LAYER2_PREFETCH)
 
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-27 (KNOWN BROKEN #18 continuation):
+# every tier_engine_*-tagged TIER2-ERROR occurrence since the on_phase
+# instrumentation shipped this morning (v1.0.503, 11/11 live occurrences
+# checked this session) shows last_phase stuck at tier_engine_start —
+# never advancing to tier_engine_tier1 — while layer2_prefetch reads
+# cache_hit=true (Layer 2 fast) for every single one of them. Layer 1
+# (_layer1_hard_gates, called from inside tier1_csp_core via
+# _get_t1_universe -> get_top_csp_candidates) has its OWN independent
+# 15-min cache (UNIVERSE_CACHE_PATH) that can be stale while Layer 2's
+# cache is fresh — its cache-miss path does a full-universe live snapshot
+# fetch (_fetch_snap_data_for_universe) plus an account-equity fetch, and
+# none of that cost has ever been visible in the audit line. Mirrors
+# build_prefetch_stats/get_last_layer2_prefetch_stats exactly so the next
+# tier_engine_start occurrence can show whether Layer 1 (not Layer 2) is
+# the thing still running when tier1_csp_core gets killed.
+_LAST_LAYER1_STATS: Dict[str, Any] = {}
+
+
+def build_layer1_stats(cache_hit: bool, universe_size: int = 0,
+                        elapsed_sec: float = 0.0) -> Dict[str, Any]:
+    """Pure function: shape the diagnostics dict for one _layer1_hard_gates()
+    call. Separated from _layer1_hard_gates so it's unit-testable without a
+    real network fetch — same split build_prefetch_stats already uses."""
+    return {
+        "cache_hit": cache_hit,
+        "universe_size": universe_size,
+        "elapsed_sec": round(elapsed_sec, 2),
+    }
+
+
+def get_last_layer1_stats() -> Dict[str, Any]:
+    """Diagnostics only — stats from the most recent _layer1_hard_gates()
+    call in this process. Empty dict if _layer1_hard_gates has never run."""
+    return dict(_LAST_LAYER1_STATS)
+
+
 def _is_likely_etf_leveraged(ticker: str) -> bool:
     """Heuristic: avoid tickers matching known leveraged ETF patterns."""
     if ticker in CSP_BLOCKED_TICKERS:
@@ -166,14 +202,26 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
 
     Cached 15 min in SCORES_CACHE_PATH for layer_2 to consume.
     """
+    _t0 = time.time()
+
+    def _record(cache_hit: bool, universe_size: int) -> None:
+        _LAST_LAYER1_STATS.clear()
+        _LAST_LAYER1_STATS.update(build_layer1_stats(
+            cache_hit=cache_hit, universe_size=universe_size,
+            elapsed_sec=time.time() - _t0,
+        ))
+        _LAST_LAYER1_STATS["checked_at"] = time.time()
+
     # Check cache
     if os.path.exists(UNIVERSE_CACHE_PATH):
         try:
             with open(UNIVERSE_CACHE_PATH) as f:
                 cached = json.load(f)
             if time.time() - cached.get("_cached_at", 0) < LAYER1_CACHE_TTL:
-                logger.debug(f"Layer 1 cache hit: {len(cached.get('candidates', []))} tickers")
-                return [tuple(c) for c in cached.get("candidates", [])]
+                cached_candidates = cached.get("candidates", [])
+                logger.debug(f"Layer 1 cache hit: {len(cached_candidates)} tickers")
+                _record(cache_hit=True, universe_size=len(cached_candidates))
+                return [tuple(c) for c in cached_candidates]
         except Exception as e:
             logger.debug(f"Layer 1 cache read failed: {e}")
 
@@ -187,10 +235,12 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
             snap_data = _fetch_snap_data_for_universe()
         except Exception as e:
             logger.warning(f"Could not fetch snap_data: {e}")
+            _record(cache_hit=False, universe_size=0)
             return []
 
     if not snap_data:
         logger.warning("Layer 1: empty snap_data, returning anchors only")
+        _record(cache_hit=False, universe_size=len(CSP_ANCHOR_TICKERS))
         return [(t, 0.0, 0, 0.0) for t in CSP_ANCHOR_TICKERS]
 
     candidates = []
@@ -266,6 +316,7 @@ def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, floa
         logger.debug(f"Layer 1 cache write failed: {e}")
 
     logger.info(f"Layer 1: {len(candidates)} candidates passed hard gates")
+    _record(cache_hit=False, universe_size=len(candidates))
     return candidates
 
 

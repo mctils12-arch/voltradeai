@@ -176,6 +176,28 @@ def _layer2_prefetch_snapshot():
     return stats
 
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-27 (KNOWN BROKEN #18 continuation):
+# same live-mid-hang read as _layer2_prefetch_snapshot above, for
+# csp_universe.py's Layer 1 hard-gate stats (get_last_layer1_stats(),
+# v1.0.521) — every tier_engine_start-stuck occurrence checked this
+# session showed Layer 2 as a cache hit (0s), which never explained the
+# hang; Layer 1 has its own independent 15-min cache and was never
+# surfaced, so it could be the thing actually still running.
+def _layer1_stats_snapshot():
+    """Live read of csp_universe's last-recorded Layer 1 hard-gate stats,
+    plus how stale that reading is. {} if csp_universe hasn't loaded yet."""
+    csp_universe = sys.modules.get("csp_universe")
+    if csp_universe is None:
+        return {}
+    stats = csp_universe.get_last_layer1_stats()
+    if not stats:
+        return {}
+    checked_at = stats.get("checked_at")
+    if checked_at:
+        stats["age_sec"] = round(time.time() - checked_at, 1)
+    return stats
+
+
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
 # This is the entire reason the daemon exists. Re-importing numpy/pandas/
 # LightGBM in 27 different subprocess calls per scan cycle costs 12+ seconds.
@@ -404,6 +426,7 @@ class RPCDispatcher:
             "active_dispatches": _active_dispatch_count,
             "active_dispatch_detail": _active_dispatch_snapshot(),
             "layer2_prefetch": _layer2_prefetch_snapshot(),
+            "layer1_stats": _layer1_stats_snapshot(),
             "pid": os.getpid(),
         }
 
