@@ -30465,3 +30465,29 @@ FROZEN PATHS: none touched. No route added, no server change, no
 package.json dependency (three installed with --no-save and vendored, so
 CI's npm ci is unaffected). client/public/** is excluded from CI's
 path-filtered heavy jobs by design.
+
+CORRECTION (same session, after live header inspection): the moon-viewer
+entry above justified vendoring three with "CSP allows script-src 'self'
+but no ESM CDN host." That is WRONG and is corrected in moon.html's
+header. Live `curl -D -` on https://voltradeai.com/moon.html shows
+script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:
+https://cdnjs.cloudflare.com https://cdn.jsdelivr.net — so a jsdelivr ESM
+import would survive SECURITY_CSP_ENFORCE; only unpkg/esm.sh would have
+been blocked. The vendoring decision stands on its real merits (pinned
+bytes, no third-party runtime dependency on a page whose job is to keep
+rendering, offline capable), not on a CSP hazard that doesn't exist for
+jsdelivr. Logged because a future session reading the original claim
+would have mis-scoped what this CSP actually permits.
+
+ALSO CONFIRMED LIVE at v1.0.511: /moon.html 200 text/html,
+/vendor/three.module.min.js and /vendor/three.core.min.js both 200
+text/javascript (the MIME matters — had express's SPA fallback caught
+them they'd be text/html and the browser would refuse the ESM import),
+/space/moon_8k.jpg 200 image/jpeg. CSP ships report-only in production,
+so nothing is enforced against the page today either way.
+UNVERIFIED: a real browser boot against the production URL. Playwright's
+chromium is not routed through this container's egress proxy
+(ERR_CONNECTION_RESET) and the honest options were disabling TLS
+verification (forbidden) or accepting the gap — gap accepted, since the
+byte-identical file passed all 8 probe groups locally and every asset is
+confirmed served with the right type.

@@ -7,10 +7,13 @@
   MOON VIEWER — Google-Maps-style 3D moon, Three.js / WebGL2, one file.
 
   WHAT IS AND ISN'T LOCAL
-  · three r0.185.1 is vendored at ./vendor/ (MIT). NOT a CDN: this site's CSP
-    (server/securityHeaders.ts) allows script-src 'self' but no ESM CDN host, so
-    a CDN import would work today (CSP ships report-only) and break the moment
-    SECURITY_CSP_ENFORCE is turned on. Vendored also means it renders offline.
+  · three r0.185.1 is vendored at ./vendor/ (MIT), not loaded from a CDN.
+    ACCURACY NOTE: script-src does allow cdn.jsdelivr.net (and cdnjs), so a
+    jsdelivr ESM import WOULD survive SECURITY_CSP_ENFORCE — the reason to
+    vendor is not CSP. It is that vendoring pins the exact bytes, adds no
+    third-party runtime dependency to a page whose whole job is to keep
+    rendering, and works offline. An unpkg/esm.sh import would have been the
+    CSP hazard; jsdelivr would not.
   · Imagery is the repo's existing NASA LRO mosaics in ./space/ — no network.
 
   ALTITUDE-DRIVEN LIGHTING (the core feature)
