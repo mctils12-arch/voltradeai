@@ -3763,7 +3763,35 @@ else:
                 const lastPhase = st.last_phase_completed ?? (Array.isArray(st.phases) && st.phases.length > 0 ? st.phases[st.phases.length - 1]?.phase : null) ?? "none";
                 const anchor = st.last_phase_at ?? st.scan_started;
                 const ageSec = typeof anchor === "number" ? Math.round((nowSec - anchor) * 10) / 10 : null;
-                scanTimingsDetail = ` scan_timings={status=${st.status ?? "?"} last_phase=${lastPhase} age=${ageSec ?? "?"}s}`;
+                // DAEMON-TIMEOUT-VISIBILITY 2026-07-27 #2 (KNOWN BROKEN #18
+                // continuation): last_phase+age only says WHERE the kill
+                // landed, not why it took 300s to get there. Today's busy-hours
+                // occurrences all show last_phase=tier_engine_start with a
+                // small age (~20-40s) — i.e. tier1 itself only ran briefly
+                // before the outer daemon timeout fired, so the PREAMBLE
+                // (universe_load..step10b_defensive_floor) must already have
+                // consumed the other ~260-280s. st.phases is written
+                // progressively (survives the kill) and already holds each
+                // preamble phase's own duration_sec — surface the preamble
+                // total and its single slowest phase directly here instead of
+                // requiring a future session to catch a live in-progress scan
+                // (the last two sessions' stakeouts both missed the window).
+                let preambleDetail = "";
+                const phases = Array.isArray(st.phases)
+                  ? st.phases.filter((p: any) => typeof p?.duration_sec === "number")
+                  : [];
+                if (phases.length > 0) {
+                  const preamblePhases = phases.filter((p: any) => !String(p.phase).startsWith("tier_engine"));
+                  const preambleTotal = Math.round(
+                    preamblePhases.reduce((sum: number, p: any) => sum + p.duration_sec, 0) * 100
+                  ) / 100;
+                  const slowest = phases.reduce(
+                    (max: any, p: any) => (p.duration_sec > (max?.duration_sec ?? -1) ? p : max),
+                    null
+                  );
+                  preambleDetail = ` preamble={total=${preambleTotal}s slowest=${slowest?.phase}:${slowest?.duration_sec}s}`;
+                }
+                scanTimingsDetail = ` scan_timings={status=${st.status ?? "?"} last_phase=${lastPhase} age=${ageSec ?? "?"}s}${preambleDetail}`;
                 break;
               }
             }

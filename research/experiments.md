@@ -31037,3 +31037,128 @@ round-trip, monotonic) and the unit formatters (483 km -> "300 mi",
 NOT CLAIMED: real-hardware 60fps or real-device touch (SwiftShader is
 software GL, 11-30 fps here), and no real-browser boot against the
 production URL for the same proxy reason. FROZEN PATHS: none touched.
+
+## 2026-07-27 (scheduled-routine session #3) [REPAIR] — KNOWN BROKEN #18 continuation: TIER2-ERROR audit line now surfaces the preamble's total duration and slowest phase, not just last_phase+age (v1.0.522, T-BOT)
+
+TERRITORY: T-BOT (`server/bot.ts`'s daemon-timeout branch,
+`server/tier2DaemonTimeoutVisibility.test.ts`, `research/open_questions.md`
+item #18) + `package.json` version bump (SHARED, last commit,
+read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+tail, `research/open_questions.md` KNOWN BROKEN section, `research/
+wishlist.md` tail all read. Loop-health ratio over the last 10 tagged
+entries (29600 PIPELINE, 29751 REPAIR, 29901 RESEARCH, 30074 REPAIR,
+30196 REPAIR, 30356 PRODUCT, 30507 REPAIR, 30646 PRODUCT, 30790 PRODUCT,
+30921 PRODUCT) — 4/10 REPAIR-class, under the 7+ thrash threshold, no
+meta-problem. `git status` clean on `claude/funny-fermat-jivotq` at
+session start, byte-identical to `origin/main` HEAD (37c3db5, v1.0.521) —
+no reset needed. `/api/health` live: status ok, bot active, liveness not
+dark, scanner 0 consecutive failures — no LIVENESS ALARM.
+`scripts/session_health_check.py --json` live: no ALARM, two already-
+tracked WARNs (KNOWN BROKEN #18 daemon timeouts; KNOWN BROKEN #12(c)
+orphan_exit feedback).
+
+WHAT I FOUND: per SESSION BUDGET's own ranking ("fix a bug seen in audit
+logs" outranks judging a matured experiment or starting new research),
+pulled `/api/diag/audit?type=TIER2-ERROR&limit=50` live and found 6 fresh
+occurrences today (18:09Z-19:49Z, all before market close at 20:00Z), all
+reading `last_phase=tier_engine_start` with a SMALL age (20.0-38.5s) —
+the exact signature the prior session's (v1.0.508, same date) own NEXT
+STEP flagged as unexplained: "if last_phase stays at tier_engine_start
+even with the [on_phase] callback wired, that is itself new evidence that
+tier1 never finished within its slice of the remaining budget." Cross-
+referenced against a live `/api/diag/timings` read of the most recent
+CLEAN completed scan (idle-hours, off-market): full preamble
+(universe_load through step10b_defensive_floor) = 29.49s, tier1 alone =
+40.41s (150/150 CSP layer2 prefetch, cache miss, 31.22s). Since every
+busy occurrence's `tier_engine_start` age is only 20-40s before the
+outer 300s daemon kill, and `tier_engine_start` only fires AFTER the
+preamble completes, tier1 was killed only 20-40s into a task that takes
+~40s cold — a narrow miss, not tier1 itself being pathologically slow.
+Arithmetic: 300s total - (20 to 40)s of tier1 = ~260-280s already spent
+in the preamble alone during busy hours, vs. 29.49s idle — a ~9x
+blowup this session's own prior explicitly flagged as "NOT yet
+investigated" (same v1.0.508 entry).
+
+PRIOR: expected that reading `/api/diag/timings` for a live busy-hours
+occurrence would require another stakeout (the exact trap two 2026-07-21
+and 2026-07-22 sessions already fell into and that led those sessions to
+switch to file-based reads instead of live polling). Updating: it turned
+out NOT to require a stakeout at all — `bot_engine.py`'s TIMING-DISK file
+(2026-04-23) already persists each preamble phase's own `duration_sec`
+progressively, surviving the kill, and `server/bot.ts`'s daemon-timeout
+branch already reads that exact file at the instant the timeout is
+caught (2026-07-22 continuation) — it was just discarding everything
+except `last_phase_completed`/`last_phase_at` and never summing or
+ranking the `phases` array it already had in hand. This was a smaller
+fix than the pattern of the prior 3 continuations (each of which added
+NEW instrumentation to bot_engine.py); this one only needed to read more
+of data bot.ts was already sitting on.
+
+FIX (NOT a threshold change, no RULE REVIEW gate applies — same class as
+this item's prior continuations, a pure diagnostics change to the
+already-existing file read): `server/bot.ts`'s daemon-timeout branch now
+computes, from the same `st.phases` array it already parses, (a) the
+summed `duration_sec` of every phase NOT prefixed `tier_engine` (the
+preamble total) and (b) the single slowest recorded phase by
+`duration_sec` — both appended to the `scan_timings` audit-line segment
+as `preamble={total=Xs slowest=<phase>:Xs}`. A future busy-hours
+`TIER2-ERROR` occurrence now names its own bottleneck phase directly in
+the audit log — no live stakeout, no further instrumentation needed for
+this specific question.
+
+RATCHET: 1 new test in `server/tier2DaemonTimeoutVisibility.test.ts`
+("KNOWN BROKEN #18 continuation 2026-07-27 #2") pinning that the daemon
+branch computes `preambleTotal`, identifies the `slowest` phase,
+excludes `tier_engine_*` phases from the preamble sum, and interpolates
+`preambleDetail` into `scanTimingsDetail` (not computed and discarded).
+A/B-verified via `git stash push -- server/bot.ts`: this new test is the
+only failure against pre-fix code (11/12 -> 12/12), matching this file's
+existing per-continuation pinning pattern exactly.
+
+GATES: this session's sandbox had an incomplete Python/Node environment
+at start (`pytest`, `numpy`/`pandas`/`requests`/`scipy`/`openpyxl` all
+missing; `node_modules` had 1 entry) — installed `requirements.txt` +
+`openpyxl` + ran `npm ci` before any gate could run; noting this since a
+future session hitting the same bare-container start shouldn't re-derive
+it from scratch. `python3 -m pytest -q` — 980 passed, 2 skipped, 0
+failed (no Python file touched this session; run for PROMOTION RULE 1
+completeness). `npx tsx --test server/*.test.ts` — 845 passed (838+7,
+was 844 before this session's 1 new test), 7 pre-existing failures
+(aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware) — confirmed via the SAME `git stash`
+A/B that these 7 fail identically on baseline (837/844 pass, 7 fail),
+unrelated to this change. `npx tsc --noEmit` — 3 errors, byte-identical
+via `git stash` A/B before/after (baseline environment/config errors,
+not code errors — `vite/client` type lib + deprecated `baseUrl`, neither
+touched this session). `npm run build` — clean, `dist/index.cjs` 13.0mb,
+one pre-existing unrelated warning (`astronomy-engine` default-export,
+not touched this session).
+
+BACKTEST: N/A — pure diagnostics change to an existing audit-log read,
+no scoring/sizing/execution logic touched, no threshold changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new preamble/slowest-phase
+computation runs entirely inside the `catch` block's daemon-timeout
+branch, after the daemon call has already failed — it can never affect
+which scan runs, what it does, or its outcome; it only changes what gets
+written to the `TIER2-ERROR` audit-log string. No new file, no new disk
+write, same read path `/api/diag/timings` already uses.
+
+Version 1.0.521 -> 1.0.522 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+NEXT: whichever session catches the next busy-hours `TIER2-ERROR` should
+read the new `preamble={total=... slowest=...}` segment directly. If
+`slowest` is consistently `deep_score` (24.25s idle, the single largest
+preamble phase in the clean-run baseline), the next step per RULE REVIEW
+(evidence first, one change at a time) is to instrument deep_score's OWN
+internal sub-phases (not guess a threshold) before touching
+`MAX_PER_TIER` or any scan-budget constant — deep_score's cost is a
+function of candidate count from `quick_scan`, which itself may be what
+inflates 9x between idle and busy hours, not deep_score's per-candidate
+cost. GITHUB ACTIONS CI: not re-checked this session; assumed still
+recovered per KNOWN STATE (last confirmed 2026-07-26), verify if this
+session's PR fails to get CI signal.

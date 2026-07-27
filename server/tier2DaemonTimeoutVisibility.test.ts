@@ -163,6 +163,32 @@ test("KNOWN BROKEN #18 continuation 2026-07-22: the daemon branch reads bot_engi
   assert.ok(/daemonState\s*=[\s\S]*scanTimingsDetail/.test(daemonBranch), "scanTimingsDetail must actually be interpolated into the daemonState message, not computed and discarded");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-27 #2: the daemon branch surfaces the preamble's total duration and slowest phase, not just last_phase+age", () => {
+  // Live evidence this session: every busy-hours TIER2-ERROR occurrence
+  // today (18:09Z-19:49Z, 6/6) read last_phase=tier_engine_start with a
+  // SMALL age (20-40s) — meaning tier1 itself was only running briefly
+  // before the outer 300s daemon timeout fired, so the preamble
+  // (universe_load..step10b_defensive_floor) must have already consumed
+  // the other ~260-280s. bot_engine.py's TIMING-DISK file already persists
+  // each preamble phase's own duration_sec progressively (survives the
+  // kill) — this pins that bot.ts sums it and names the slowest phase
+  // directly in the audit line, so the next occurrence answers "which
+  // preamble phase" without a future session needing to catch a live
+  // in-progress scan (the two prior stakeouts for tier1/layer1/layer2 both
+  // missed their window before landing on file-based reads instead).
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("preambleTotal"), "must sum duration_sec across the non-tier_engine phases into a preamble total");
+  assert.ok(daemonBranch.includes("slowest"), "must identify the single slowest recorded phase, not just the total");
+  assert.ok(
+    /startsWith\(["']tier_engine["']\)/.test(daemonBranch),
+    "the preamble total must exclude tier_engine_* phases (those are the tier engine itself, not the preamble that precedes it)",
+  );
+  assert.ok(/scanTimingsDetail\s*=[\s\S]*preambleDetail/.test(daemonBranch), "preambleDetail must actually be interpolated into scanTimingsDetail, not computed and discarded");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
