@@ -3,6 +3,111 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-27 (scheduled-routine session, 6th today) [PRODUCT] — SEC MIDAS market-microstructure /data client view, closing the last unclaimed shipped-data-no-UI gap named in wishlist.md (v1.0.522, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/pages/midas.tsx` new, `client/src/pages/datamap.tsx`
+wiring, `datacore/layers.json` registry entry, `scripts/visual_check.mjs` fixtures)
++ `package.json` version bump (SHARED, last, per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/` directory listed.
+Designated branch `claude/lucid-keller-7a31gv` had no open PR and its tip commit
+(v1.0.521, "KNOWN BROKEN #18 continuation") was confirmed ALREADY MERGED to
+`main` today via PR #621 from a different session's branch
+(`claude/eloquent-dijkstra-bkxl2n`) — per the already-merged-branch rule,
+restarted the branch from `origin/main` (37c3db5) rather than stacking on top
+of fully-redundant history. Live `/api/health`: `status: ok`, bot `active`,
+`drawdownPct: 0.0`, `liveness.dark: false` — no LIVENESS ALARM, no critical
+KNOWN BROKEN item blocking product work (KNOWN BROKEN #18 remains open per
+`open_questions.md` item 18 but is diagnostics-only at this point, not a
+system-down condition).
+
+PICKING THE ACTION: surveyed the DATACORE MAXIMUS resume block in wishlist.md
+for unclaimed items. The block's newest entry (FINRA ATS/OTC venue-summary
+view, shipped 2026-07-22) named ONE remaining "shipped-data-no-UI" gap
+explicitly, with the exact recipe to close it: "SEC MIDAS
+(`/api/data/microstructure`, v1.0.265) has the identical no-client-view gap —
+same wiring recipe, model on atsSummary.tsx/shortvol.tsx, new
+`client/src/pages/midas.tsx`." This is squarely option (b) from this session's
+own instructions (build product UI for an already-shipped RAW overlay).
+
+Before building, verified the earlier-today settlement-stress REPAIR's own
+NEXT step (1) live, since it was cheap and directly relevant to product
+health: `/api/data/archive/stats` shows `finrashortvolotc` now accumulating
+real bytes (5 files, 169,718 bytes, through 2026-07-24) — the ORF ingestion
+fix is working. `settlementstress` itself is still stuck at its original 4
+zero-byte files (06-25..06-30) with nothing newer — traced this to `secftd`'s
+newest archived period still being `202606b`, and confirmed by direct curl
+against `sec.gov` that `cnsfails202607a.zip` genuinely 404s today (`202606b`
+returns 200) — SEC has simply not published the covering half-month yet
+("~EOM" per the module's own verified-contract comment, and today is
+2026-07-27). This is NOT a bug: the settlement-stress composite is correctly
+waiting on real external data, exactly as designed. No code changed for this
+finding; recorded here so a future session doesn't re-diagnose it once
+`202607a` finally publishes (should be within days) and can instead go
+straight to checking whether `settlementstress` starts producing nonzero
+rows from 07-01 onward.
+
+BUILD: `client/src/pages/midas.tsx` (new) — models `atsSummary.tsx` almost
+exactly (same `.vt-filings-*`/`.vt-shortvol-*` CSS classes, same head/error/
+warming_up states, no new styles). Reads `/api/data/microstructure`'s
+existing `MidasSummary` shape verbatim (`period`, `kind_counts`, `newest_date`,
+`rows`, `smallcap_watch[]`, `smallcap_max_rank`, `min_trades_for_hidden`,
+`top_cap`) — zero server-side change, this PR is pure client wiring onto an
+already-shipped, already-tested route. Table shows the smallest-decile Stock
+watchlist (ticker, McapRank, cancel-to-trade, hidden rate, odd-lot rate),
+sorted exactly as the server already ranks it — no re-derivation, no model
+applied client-side (RAW display of SEC's own numbers, per the module's own
+gate-1-only framing; the HFT-colonization filter hypothesis stays a separate
+gated [RESEARCH] item, explicitly not claimed here).
+
+`datamap.tsx` wiring mirrors the `ats_summary` precedent exactly: new
+`midasOpen` overlay state + hashchange handler (`#/data/microstructure`),
+`LAYER_GROUP.midas = "filings"` (required by the R15 `layersWiring.test.ts`
+ratchet — every live registry id must be wired or it renders permanently
+"reload to enable"), a 300s status-polling effect for the panel's row-count
+badge (server itself only refreshes ~daily; polling exists purely to surface
+the count, same convention as every sibling filings layer), an icon case
+(`Activity`, already imported), a unit case (`"rows"`), the inline
+"open full view" panel-row button, and the overlay render block.
+
+`datacore/layers.json` gained the `midas` registry entry (kind: raw, status:
+live, group: filings) — satisfies `layersRegistry.test.ts`'s per-layer
+invariants (kind/status/source/description) directly.
+
+`scripts/visual_check.mjs`: added `midas` to `FIXTURES.layers` (so the data
+page's self-see/toggle-consistency batteries actually exercise its toggle —
+NOTE for a future session: `ats_summary` and `shadowstats` are BOTH missing
+from this fixture list today, a pre-existing gap from before this session,
+not touched here to keep this PR one logical change) + a fixture response
+for `/api/data/microstructure` shaped like the real route's output.
+
+GATES: `npm ci` (fresh sandbox). `npx tsc --noEmit` — 77 errors, byte-identical
+count via `git stash` A/B (pre-existing `--downlevelIteration`/pngjs-types
+baseline, confirmed unrelated to any file this PR touches). `npx tsx --test
+server/*.test.ts client/src/**/*.test.ts client/src/pages/*.test.ts` — 1055
+passed, 0 failed (includes `layersWiring.test.ts` and `layersRegistry.test.ts`,
+both green against the new `midas` entries). `npm run build` — clean, same
+pre-existing astronomy-engine/chunk-size warnings as documented baseline.
+`node scripts/visual_check.mjs --soft --page data` at 390/768/1440 — see
+below.
+
+Backtest: N/A — pure client UI onto an already-shipped, already-gated RAW
+route; no scoring/sizing/execution logic touched, no new signal claimed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the trading
+loop or any order path — this is a read-only client view over an existing
+cache-only server route with its own independent poll cadence. The only new
+runtime cost is one client-side 300s poll while the layer toggle is on,
+identical in shape to every sibling filings-group layer.
+
+NEXT: (1) once `202607a` publishes, verify `settlementstress` resumes
+producing nonzero-row dates from 07-01 onward (per the finding above). (2)
+the pre-existing `ats_summary`/`shadowstats` visual-fixture gap noted above
+is a small, separate REPAIR-sized item for a future session. (3) the 2026-
+07-20 terrain-audit glide-loop items and the 2026-07-25 MEASUREMENT-DEBT
+visual-harness perf-gate entry remain open and unclaimed, unrelated to this
+PR.
+
 ## 2026-07-27 (scheduled-routine session, 5th today) [REPAIR] — KNOWN BROKEN #18 continuation: 11/11 fresh tier_engine_start occurrences localize the hang inside tier1_csp_core; Layer 1's invisible cache-miss cost instrumented (v1.0.521, T-BOT); PR #621 open, market-hours hold noted
 
 TERRITORY: T-BOT (`csp_universe.py`, `voltrade_daemon.py`, `server/bot.ts`

@@ -28,6 +28,7 @@ import StreamsView from "./streams";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
+import MidasView from "./midas";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -600,6 +601,7 @@ const LAYER_GROUP: Record<string, string> = {
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
   ats_summary: "filings",
+  midas: "filings",
   graph: "graph",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
@@ -1977,6 +1979,10 @@ export default function DataMapPage() {
   // overlay pattern (DATACORE MAXIMUS census build #4 part 2's own filed
   // UI follow-up, /api/data/ats-summary, shipped API-only v1.0.208).
   const [atsSummaryOpen, setAtsSummaryOpen] = useState(() => window.location.hash === "#/data/ats-summary");
+  // SEC MIDAS market-microstructure metrics (#/data/microstructure) — same
+  // overlay pattern (DATACORE MAXIMUS census build #10's own filed UI
+  // follow-up, /api/data/microstructure, shipped API-only v1.0.265).
+  const [midasOpen, setMidasOpen] = useState(() => window.location.hash === "#/data/microstructure");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -2281,6 +2287,7 @@ export default function DataMapPage() {
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
+      setMidasOpen(window.location.hash === "#/data/microstructure");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -9819,6 +9826,32 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.ats_summary, mapSettled, setStatus]);
 
+  // ── SEC MIDAS market-microstructure metrics (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as ats_summary/shortvol). The
+  // server refreshes at most once per day (quarterly-cadence source), so
+  // this poll exists only to refresh the panel's row-count badge, same
+  // 300s convention as the sibling filings layers. ──
+  useEffect(() => {
+    if (!enabled.midas) { setStatus("midas", "off"); return; }
+    if (!mapSettled) { setStatus("midas", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("midas", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/microstructure");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("midas", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("midas", "active", d.summary?.rows);
+      } catch {
+        if (!stop) setStatus("midas", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.midas, mapSettled, setStatus]);
+
   // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as insider/earnings/shortvol).
   // BUILD ORDER 5 #3 pipeline shipped API-only 2026-07-05; this is its
@@ -9935,6 +9968,7 @@ export default function DataMapPage() {
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "ats_summary" ? <Landmark size={15} /> :
+    id === "midas" ? <Activity size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -9951,7 +9985,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "rows" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -10331,6 +10365,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "midas" && on && (
+          // Same pattern as insider/earnings/shortvol/ats_summary: a
+          // per-ticker microstructure ranking doesn't belong in a
+          // layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/microstructure"; setMidasOpen(true); }}>
+              Open market microstructure view — smallest-decile watch →
+            </button>
+          </div>
+        )}
         {l.id === "attention" && on && (
           // Same pattern as insider/earnings/shortvol: a ticker search +
           // trend table doesn't belong in a layer-toggle sidebar.
@@ -10429,6 +10474,9 @@ export default function DataMapPage() {
       )}
       {atsSummaryOpen && (
         <AtsSummaryView onBack={() => { window.location.hash = "#/data"; setAtsSummaryOpen(false); }} />
+      )}
+      {midasOpen && (
+        <MidasView onBack={() => { window.location.hash = "#/data"; setMidasOpen(false); }} />
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />

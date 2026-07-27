@@ -120,6 +120,7 @@ const FIXTURES = {
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
+      { id: "midas", name: "Market microstructure (SEC MIDAS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC MIDAS individual-security market-structure metrics", description: "Cross-sectional lit/hidden/odd-lot/cancel metrics per (date, ticker) — a candidate HFT-colonization filter, not a signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "nightlights", name: "Night lights radiance (GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band", description: "Daily radiance imagery, dated (defaults to yesterday)." },
@@ -513,6 +514,17 @@ const FIXTURES = {
         spanDays: null, ratePerYear: null, meanEmissionsKgHr: 214.0,
       },
     ],
+  },
+  "/api/data/microstructure": {
+    kind: "raw", source: "U.S. Securities and Exchange Commission (MIDAS)", time: 1,
+    note: "fixture — cross-sectional lit/hidden/odd-lot/cancel metrics per (date, ticker); gate-2 unattempted",
+    summary: {
+      period: "2025q4", kind_counts: { stock: 235165, etf: 297911 }, newest_date: "2025-12-31", rows: 533077,
+      smallcap_watch: [
+        { ticker: "FXSM", mcapRank: 1, cancelToTrade: 3.42, hiddenRatePct: 18.7, oddLotRatePct: 22.1 },
+      ],
+      smallcap_max_rank: 2, min_trades_for_hidden: 20, top_cap: 20,
+    },
   },
   "/api/data/attention": {
     kind: "raw", source: "Wikimedia pageviews API (en.wikipedia, all-access, agent=user)", time: 1,
