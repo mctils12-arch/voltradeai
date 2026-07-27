@@ -12,6 +12,7 @@ import {
   readArchivedDay, deepBackfillIfSparse, countArchivedDays,
   TOP_CAP, FLOOR_TOTAL_VOL, DEEP_BACKFILL_DAYS,
   appendSummaryHistoryEntry, readSummaryHistory, listArchivedDates, lookupSymbolHistory,
+  fetchOrfShortVolDay, archiveOrfShortVolDay, readOrfArchivedDay, refreshOrfShortVol,
 } from "./finraShortVolume";
 
 // Mirrors the live file verified 2026-07-05: pipe header, fractional
@@ -187,4 +188,72 @@ test("refresh: restart with the newest day already archived rebuilds cache from 
   assert.ok(hit, "cache rebuilt from the archived day");
   assert.equal(hit!.summary.date, "2026-07-05");
   assert.ok(!fetched.some((u) => u.includes("20260705")), "archived day was not refetched");
+});
+
+// ── ORF (OTC facility) — added 2026-07-27 to fix settlementStress.ts's
+// permanent-zero-overlap bug (finrathreshold is OTC-only; CNMS is
+// exchange-listed-only). Same format as CNMS (parseShortVol handles
+// both); this battery covers the ORF-specific wiring only. Same dedup
+// caveat as CNMS above: orfArchivedDates has no reset export, so every
+// date used across THIS WHOLE FILE for archiveOrfShortVolDay/
+// refreshOrfShortVol must be globally unique regardless of baseDir. ────
+
+const ORF_FILE = [
+  "Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market",
+  "20260624|CHLSY|27404|0|60932|O", // real values, live-verified 2026-07-27
+  "1",
+].join("\n");
+
+test("fetchOrfShortVolDay: same 403/404/500 contract as CNMS, reuses parseShortVol", async () => {
+  const mk = (status: number, body = "") => async () =>
+    ({ ok: status === 200, status, text: async () => body });
+  assert.deepEqual(await fetchOrfShortVolDay("20260628", mk(403) as any), []);
+  assert.equal(await fetchOrfShortVolDay("20260624", mk(500) as any), null);
+  const rows = await fetchOrfShortVolDay("20260624", mk(200, ORF_FILE) as any);
+  assert.equal(rows!.length, 1);
+  assert.equal(rows![0].symbol, "CHLSY");
+  assert.equal(rows![0].market, "O");
+});
+
+test("archiveOrfShortVolDay + readOrfArchivedDay: date-level dedup, separate namespace from CNMS", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-orf-"));
+  const rows = parseShortVol(ORF_FILE, "2026-07-27");
+  assert.equal(archiveOrfShortVolDay(rows, base), 1);
+  assert.equal(archiveOrfShortVolDay(rows, base), 0, "same trade date never re-archives");
+  assert.deepEqual(readOrfArchivedDay("2026-06-24", base).map((r) => r.symbol), ["CHLSY"]);
+
+  // Same trade date can be archived independently in CNMS's own dir —
+  // the two facilities must never collide (this is the whole point of
+  // the fix: they cover disjoint symbol populations, stored separately).
+  assert.equal(archiveShortVolDay(
+    [{ date: "2026-06-24", symbol: "AA", short_vol: 100, short_exempt_vol: 0, total_vol: 200, market: "Q", rt: "r" }] as ShortVolRow[],
+    base,
+  ), 1);
+  assert.deepEqual(readArchivedDay("2026-06-24", base).map((r) => r.symbol), ["AA"]);
+  assert.deepEqual(readOrfArchivedDay("2026-06-24", base).map((r) => r.symbol), ["CHLSY"], "CNMS write did not touch the ORF archive");
+});
+
+test("refreshOrfShortVol: fetches only unarchived days in the lookback window, archives newest-first", async () => {
+  // Date must be globally unique across this whole file — orfArchivedDates
+  // has no reset export, same documented constraint as CNMS's archivedDates
+  // (see finraShortVolume.test.ts's own precedent in settlementStress.test.ts).
+  const day = "2026-05-11";
+  const orfFileForDay = ORF_FILE.replace(/20260624/, day.replace(/-/g, ""));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-orf-refresh-"));
+  const fetched: string[] = [];
+  const fake = async (url: string) => {
+    fetched.push(url);
+    const m = url.match(/FORFshvol(\d{8})\.txt/);
+    if (m && m[1] === day.replace(/-/g, "")) return { ok: true, status: 200, text: async () => orfFileForDay };
+    return { ok: false, status: 403, text: async () => "" };
+  };
+  await refreshOrfShortVol(fake as any, Date.parse(`${day}T23:00:00Z`), 2, base);
+  assert.deepEqual(readOrfArchivedDay(day, base).map((r) => r.symbol), ["CHLSY"]);
+  assert.ok(fetched.some((u) => u.includes(`FORFshvol${day.replace(/-/g, "")}.txt`)), "hit the ORF URL, not CNMS");
+
+  // A second pass over the same window must not refetch the already-archived day.
+  const fetched2: string[] = [];
+  await refreshOrfShortVol(async (url: string) => { fetched2.push(url); return { ok: false, status: 403, text: async () => "" }; },
+    Date.parse(`${day}T23:30:00Z`), 2, base);
+  assert.ok(!fetched2.some((u) => u.includes(day.replace(/-/g, ""))), "already-archived day is skipped, not refetched");
 });

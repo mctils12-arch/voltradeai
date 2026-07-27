@@ -3,7 +3,190 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-07-26 (scheduled-routine session #6, fall-through) [NO-ACTION doc fix] — CLAUDE.md's KNOWN STATE "PRODUCTION DEPLOY FROZEN" paragraph was stale; corrected to match wishlist.md's already-filed 2026-07-26 session #3 recovery finding (v1.0.506)
+## 2026-07-27 (scheduled-routine PRODUCT session) [REPAIR] — root-caused + fixed the settlement-stress composite's permanent zero-output bug: it joined an OTC-only threshold list against an NMS-only short-volume file (v1.0.507, T-DATACORE)
+
+TERRITORY: T-DATACORE (`server/finraShortVolume.ts`, `server/settlementStress.ts`,
+new `datacore/manifests/finrashortvolotc.json`) + `server/routes.ts` (boot-poll
+wiring, same non-territory-assigned precedent every other boot-poll addition
+has used) + `package.json` version bump (SHARED, last, per MERGE-ORDER
+PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/` directory listed.
+`git fetch origin main` confirmed this checkout was already byte-identical to
+`origin/main` (e75125c, v1.0.506). `python3 scripts/session_health_check.py
+--json` against the live site: no LIVENESS ALARM, `status: ok`. Two WARNs,
+both already-tracked and non-blocking (KNOWN BROKEN #18 `tier2_daemon_timeouts`
+— a trailing window from before the morning-of-2026-07-26 fix; KNOWN BROKEN
+#12(c) `ml_feedback` orphan_exit). `deploy_freshness` OK (`server_version`
+matches). Per this session's own instructions (a [PRODUCT] session), no
+unfixed critical trading-loop item blocked product work, so proceeded.
+
+PICKING THE ACTION: surveyed unclaimed NEXT-pointer items across the last
+several sessions (USAspending gate-2 re-run is calendar-blocked until
+~2026-08-15; the terrain-perf/glide-loop items are client-perf debt better
+suited to a dedicated REPAIR/RULE-REVIEW session per their own filing notes)
+and the DATACORE MAXIMUS / data_census.md build queues (essentially fully
+built — only DTCC SBSDR remains, gated on a volume-budget decision, not
+autonomous). Rather than pick from an empty queue, checked the health of an
+already-shipped GATE-1 pipeline per this session's option (a) ("advance a
+datacore pipeline through its next ladder gate") — the settlement-stress
+composite (`server/settlementStress.ts`, shipped 2026-07-18 v1.0.392), whose
+own docstring names its next step as GATE 2 once "enough dated history has
+accumulated."
+
+DIAGNOSIS (READ BEFORE WRITE — read settlementStress.ts, finraQuery.ts,
+finraShortVolume.ts, and secFtd.ts in full before touching anything): before
+attempting gate 2, checked whether the composite had accumulated any usable
+history at all. `python3 scripts/session_health_check.py`-style live probing
+via `/api/diag/archive?stream=settlementstress&day=...&token=$DIAG_TOKEN`
+across five spot dates (07-18, 07-20, 07-22, 07-24, 07-26) returned `files:
+[]` for every single one. `/api/data/archive/stats` (public, no token)
+confirmed why: the `settlementstress` archive has exactly 4 files,
+2026-06-25 through 2026-06-30, **0 bytes each** — the composite has archived
+zero-row outcomes for its first 4 candidate dates and then gone silent for a
+full month (no new dates since 06-30), even though `finrathreshold`'s own
+archive has 21 files running through 2026-07-24 in the same window.
+
+ROOT CAUSE (traced via live data, not assumed): `refreshSettlementStress`
+requires BOTH `finrashortvol` (short-vol) AND `secftd` (FTD) data for a
+threshold date's covering half-month before it will compute+archive that
+date. Dates 2026-07-01 onward map to FTD period `202607a`, which the live
+`secftd` archive stats show as not yet present (`secftd`'s newest period is
+`202606b`) — CORRECTLY not a bug: `secFtd.ts`'s own verified-contract
+comment states "'a' publishes ~EOM of the same month" and today is
+2026-07-27, so `202607a` (covering July 1-14) is not yet due. That explains
+the July gap but not why the 4 dates that DID get processed (2026-06-25
+through 06-30, whose covering period `202606b` IS archived) all produced
+**zero** composite rows — the docstring's own stated self-check ("if the
+intersection turns out empty for weeks running, that is itself a finding:
+either genuinely rare overlap, or a join-key mismatch").
+
+Pulled real archived rows for 2026-06-25 via the archive probe:
+`finrathreshold` returned 15 rows, ALL with `marketCategoryDescription:
+"Other OTC"` (tickers like CHLSY, DSFIY, KRKNF — foreign unsponsored ADRs).
+`finrashortvol` (CNMS) for the same date returned symbols like A, AA,
+AAAA — zero overlap with the threshold symbols in either the first 5,000
+rows or a targeted per-symbol check. Checked FINRA's own live documentation
+(developer.finra.org's catalog + the live `otcMarket/thresholdList` metadata
+endpoint, and FINRA's own daily-short-sale-volume-files catalog page) to
+settle this by SOURCE, not guesswork: `thresholdList`'s own schema
+description confirms it is "OTC Regulation SHO and Rule 4320 Threshold
+Securities" — genuinely OTC-only by design, every row IS a real threshold
+security (the `thresholdListFlag` R/NR values distinguish Reg-SHO-criteria
+vs. Rule-4320-criteria, not "on the list" vs. "not"). Separately, FINRA's
+short-sale-volume file catalog confirms `CNMSshvol` ("Consolidated NMS")
+covers exchange-LISTED securities only, and lists a SEPARATE file,
+`FORFshvol{YYYYMMDD}.txt` (ORF = Over-the-Counter Reporting Facility), for
+non-exchange-listed OTC equities. Live-verified by fetching real
+`FORFshvol20260624.txt`/`FORFshvol20260625.txt` (same UA etiquette as the
+existing CNMS fetcher): both contain CHLSY, DSFIY, KRKNF — exactly the
+symbols missing from CNMS.
+
+CONCLUSION: this was never "rare overlap" or a join-KEY mismatch — it was a
+join-POPULATION mismatch, baked into the composite's design from the start.
+`finraShortVolume.ts` only ever ingested CNMS (exchange-listed), while its
+join partner (`finrathreshold`) is exclusively OTC. The composite was
+therefore STRUCTURALLY GUARANTEED to find zero overlap forever, regardless
+of how much calendar time passed — no amount of "waiting for more history"
+would ever have produced a nonzero row. This is exactly the kind of silent,
+permanently-broken GATE-1 pipeline the ROOT VALIDATION LADDER and HONESTY
+METRIC exist to catch before a future session wastes a gate-2 attempt (or
+worse, concludes "gate 2 killed it — no signal") on a composite that was
+never actually testing anything.
+
+FIX: added ORF ingestion to `finraShortVolume.ts` (`ORF_FILE_URL`,
+`fetchOrfShortVolDay`, `archiveOrfShortVolDay`, `readOrfArchivedDay`,
+`refreshOrfShortVol`, `bootOrfShortVolPoll`) — reuses the existing
+`parseShortVol` unmodified (byte-identical schema, live-verified), separate
+archive dir (`finrashortvolotc`) and dedup set so CNMS's existing consumers
+(squeeze-screen hypothesis, symbol lookback, market-wide trend) are
+untouched. Deliberately NO deep-backfill path yet for ORF — ships thin
+first, same conservative posture CNMS's own deep backfill only got as a
+LATER, separate PR after its 2026-07-05 emergency-off volume-fill incident
+(this module's own history); filed as a NEXT step below, not built here.
+`settlementStress.ts`'s `shortVolPercentiles` now reads BOTH facilities and
+combines them into one ranked pool (the two are disjoint populations by
+regulatory construction — a security is exchange-listed OR OTC, never
+both — so concatenation cannot double-count; a defensive first-seen-wins
+dedup guards the case anyway, tested explicitly). Updated the module's own
+docstring to record the resolved root cause, superseding the original
+"either rare overlap or join-key mismatch" open self-check. Added
+`datacore/manifests/finrashortvolotc.json` (universal envelope). Wired
+`bootOrfShortVolPoll()` into `server/routes.ts` alongside the existing
+`bootShortVolPoll()`.
+
+RATCHET: `server/finraShortVolume.test.ts` — 3 new tests: ORF fetch 403/
+404/500 contract (mirrors CNMS's own test), archive+read round-trip
+proving the ORF archive is a genuinely separate namespace from CNMS (same
+trade date, same base dir, both readable independently), and a refresh
+test proving newest-first fetch + no-refetch-once-archived (mirrors CNMS's
+own refresh test shape). `server/settlementStress.test.ts` — 3 new tests:
+(1) a symbol present ONLY in the ORF archive (absent from CNMS) is now
+found and ranked by `shortVolPercentiles` — the direct regression for the
+bug; (2) a symbol present in both facilities is not double-counted
+(defensive; asserts the ORF write itself succeeded before asserting the
+dedup, so the test can't pass via a silent no-op); (3) `computeComposite`
+end-to-end with a real OTC-only threshold symbol (CHLSY) now clears the
+full 3-way join via the ORF path — before this fix, this scenario would
+have returned an empty array (verified below). A/B-verified via `git
+stash push -- server/finraShortVolume.ts server/settlementStress.ts
+server/routes.ts` (test files kept un-stashed): all 6 new tests fail
+against pre-fix code (import errors — the new exports don't exist yet,
+confirming these aren't tautologies), all pass post-fix.
+
+GATES: `npm ci` first (sandbox had no node_modules at session start).
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts
+client/src/pages/*.test.ts` — **1038 passed, 0 failed** (1032 baseline + 6
+new, zero regressions; a pre-`npm ci` run showed 10 unrelated failures —
+confirmed via a second A/B stash that all 10 fail identically on unmodified
+code too, a missing-node_modules artifact, not a regression). `npx tsc
+--noEmit` — 8 errors, byte-identical count before/after via `git stash`
+A/B. `npm run build` — clean (pre-existing astronomy-engine ESM-interop and
+chunk-size warnings only). `python3 -m pytest -q` (after `pip3 install -r
+requirements.txt -r requirements-dev.txt`) — 960 passed, 1 skipped, matching
+the prior session's own baseline exactly; zero Python files touched, pure
+sanity check.
+
+BACKTEST: N/A — `settlementStress.ts` is explicitly GATE-1 feature
+construction, not wired into `deep_score`/any order path, and not surfaced
+on `/data` (per its own docstring and the RAW OVERLAYS vs SIGNALS rule) —
+this PR does not change that posture, it fixes GATE-1 so the composite can
+eventually be tested at gate 2 with real data instead of permanent silence.
+No `bot_engine.py`/`system_config.py`/strategy file touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or any order path. The only downstream effect is that
+`refreshSettlementStress` (already running on its existing 6h boot-poll
+cadence) will, from today forward, actually find nonzero composite rows on
+dates where an OTC threshold symbol's short-vol data is now available via
+ORF — this is new archive volume only (~3-4K rows/day, same order of
+magnitude as `finrashortvol`'s own footprint), still gate-1-internal, still
+not surfaced anywhere user-facing.
+
+KNOWN GAP, NOT FIXED HERE (deliberately, to avoid scope creep): the 4
+already-archived zero-row composite dates (2026-06-25 through 06-30)
+predate this fix and `isCompositeArchived` treats a processed date as
+permanently done — those 4 dates will keep their (now known to be
+incomplete) zero-row history rather than being recomputed. This is a small,
+honestly-documented data-quality footnote (4 days out of what will now be a
+continuously growing correct archive), not touched this session because
+retroactively clearing/recomputing already-archived production dates is a
+data-mutation decision bigger than this PR's scope — noted as a NEXT item.
+
+NEXT: (1) a future session should verify live (via `/api/data/archive/
+stats`) that `finrashortvolotc` and `settlementstress` are both
+accumulating nonzero-byte files day over day — the concrete falsifiable
+prediction this fix makes. (2) ORF deep-backfill (matching CNMS's own,
+env-gated) is a separate future PR once the thin version is confirmed
+stable in production. (3) Whether to retroactively clear the 4 stale
+zero-row `settlementstress` dates (2026-06-25..06-30) so they get
+recomputed under the fix — a data-mutation call, filed here rather than
+self-applied. (4) USAspending gate-2 re-run remains calendar-blocked until
+~2026-08-15 per the 2026-07-26 entries below. (5) The 2026-07-20
+glide-loop/TRAIL REBUILD STORM and 2026-07-25 MEASUREMENT-DEBT visual-
+harness perf-gate items remain open and unclaimed, unrelated to this PR.
+
+
 
 Not a new discovery — session #3 (earlier today) already found and logged
 in `research/wishlist.md` that the GitHub Actions CI outage (tracked since

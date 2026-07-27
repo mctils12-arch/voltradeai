@@ -149,6 +149,22 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   datacore/settlementstress/, test composite_score (or its rank) vs.
   forward N/5/20-day returns against a same-universe random-entry base
   rate (REASONING STANDARD #3) before this is ever considered a signal.
+  UPDATE 2026-07-27 (scheduled-routine PRODUCT session, v1.0.507,
+  [REPAIR]) — GATE 2 was actually attempted first-order (checking
+  whether enough history had accumulated) and found the composite had
+  archived ZERO rows across every date since shipping — root cause:
+  finrathreshold is OTC-only (FINRA's own schema) but finrashortvol only
+  ever ingested CNMS (exchange-listed-only), a structural population
+  mismatch that guaranteed permanent zero overlap regardless of elapsed
+  time, not "insufficient history." Fixed by adding FINRA's ORF (OTC
+  facility) short-volume file as a second ingestion source
+  (finraShortVolume.ts, datacore/manifests/finrashortvolotc.json);
+  shortVolPercentiles now ranks across both facilities. Full trace in
+  experiments.md same date. GATE 2 remains not-yet-run — this session
+  fixed gate-1 plumbing so gate 2 has a chance of ever seeing real
+  overlap; a future session should check /api/data/archive/stats for
+  nonzero-byte settlementstress files accumulating before attempting the
+  correlation test.
 - CENSUS BUILD #7 EU MACRO: SHIPPED v1.0.175 — server/euMacro.ts +
   /api/data/eu-macro (ECB EXR/EST/ILM + Eurostat sts_inpr_m + BBK
   Bund 10y; keyless, per-series attribution verified, vintage-honest;

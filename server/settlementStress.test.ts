@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { archivePartition, _resetFinraQueryForTests } from "./finraQuery";
-import { archiveShortVolDay, type ShortVolRow } from "./finraShortVolume";
+import { archiveShortVolDay, archiveOrfShortVolDay, type ShortVolRow } from "./finraShortVolume";
 import { archiveFtdPeriod, _resetFtdForTests, type FtdRow } from "./secFtd";
 import {
   thresholdPersistence, periodForDate, prevPeriod, ftdDeltas,
@@ -98,6 +98,58 @@ test("shortVolPercentiles: liquidity floor excludes illiquid rows, ranks ascendi
   assert.equal(pct.get("BBB")?.percentile, 100, "highest ratio = 100th percentile");
   assert.equal(pct.get("AAA")?.percentile, 0, "lowest ratio = 0th percentile");
   assert.ok(!pct.has("TINY"));
+});
+
+test("shortVolPercentiles: ROOT-CAUSE FIX regression — a symbol present only in the ORF (OTC) archive, absent from CNMS, is still found and ranked", () => {
+  const base = tmpBase();
+  const rows: ShortVolRow[] = [
+    { date: "2026-07-04", symbol: "AAA", short_vol: 100_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "Q", rt: "r" },
+  ];
+  const orfRows: ShortVolRow[] = [
+    // real OTC threshold-list symbol (CHLSY); volumes scaled above
+    // FLOOR_TOTAL_VOL (500K) so eligibility isn't what's under test here —
+    // the live figures (total_vol ~60,932) are below that floor and
+    // correctly excluded, exercised separately if a floor test is needed.
+    { date: "2026-07-04", symbol: "CHLSY", short_vol: 550_000, short_exempt_vol: 0, total_vol: 1_100_000, market: "O", rt: "r" },
+  ];
+  archiveShortVolDay(rows, base);
+  archiveOrfShortVolDay(orfRows, base);
+  const pct = shortVolPercentiles("2026-07-04", base);
+  assert.equal(pct.size, 2, "CNMS-only reading before this fix would have missed CHLSY entirely");
+  assert.ok(pct.has("CHLSY"), "OTC symbol found via the ORF archive, not just CNMS");
+  assert.equal(Math.round((550_000 / 1_100_000) * 10000) / 10000, pct.get("CHLSY")?.short_ratio);
+});
+
+test("shortVolPercentiles: a symbol present in BOTH facilities is not double-counted (defensive; never occurs in practice)", () => {
+  const base = tmpBase();
+  // proves the ORF write itself succeeded (distinct from a silent no-op)
+  // before asserting the dedup behavior: readOrfArchivedDay must see it.
+  const orfRows = [{ date: "2026-07-06", symbol: "DUAL", short_vol: 999_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "O", rt: "r" }] as ShortVolRow[];
+  archiveShortVolDay([{ date: "2026-07-06", symbol: "DUAL", short_vol: 100_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "Q", rt: "r" }] as ShortVolRow[], base);
+  assert.equal(archiveOrfShortVolDay(orfRows, base), 1, "ORF write actually landed");
+  const pct = shortVolPercentiles("2026-07-06", base);
+  assert.equal(pct.size, 1, "one entry per symbol, not two");
+  assert.equal(pct.get("DUAL")?.short_ratio, 0.1, "first-seen (CNMS) row wins over the later ORF duplicate, not averaged/overwritten");
+});
+
+test("computeComposite: ROOT-CAUSE FIX end-to-end — an OTC threshold symbol (never in CNMS) now clears the 3-way join via ORF", () => {
+  const base = tmpBase();
+  const date = "2026-07-11";
+  archivePartition("finrathreshold", date, [
+    thresholdRow("CHLSY", "Chocoladefabriken Lindt ADR", date), // real OTC-only threshold-list symbol
+  ], date, base);
+  archiveOrfShortVolDay([
+    // volumes scaled above the shortVolPercentiles eligibility floor
+    // (500K) — see the shortVolPercentiles test above for that detail
+    { date, symbol: "CHLSY", short_vol: 550_000, short_exempt_vol: 0, total_vol: 1_100_000, market: "O", rt: date },
+  ] as ShortVolRow[], base);
+  archiveFtdPeriod(periodForDate(date), [
+    { date, cusip: "X9", symbol: "CHLSY", qty: 50_000, name: "Chocoladefabriken Lindt ADR", price: 30, rt: date },
+  ] as FtdRow[], base);
+
+  const rows = computeComposite(date, base);
+  assert.equal(rows.length, 1, "before the ORF fix this would be empty — CHLSY never appears in CNMS");
+  assert.equal(rows[0].symbol, "CHLSY");
 });
 
 test("computeComposite: gate-1 join keeps only the 3-way intersection; empty when any ingredient missing", () => {
