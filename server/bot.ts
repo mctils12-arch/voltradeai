@@ -2409,10 +2409,13 @@ print(json.dumps(s))
     const tf = tfMap[timeframe] || "1Day";
 
     try {
-      // 2026-07-20 [REPAIR]: the sip feed param is rejected by this account's data
-      // subscription (see server/alpacaFeed.ts); delayed_sip keeps full
-      // consolidated bars at a 15-minute delay.
-      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=delayed_sip`;
+      // 2026-07-20/27 [REPAIR]: the sip feed param is rejected by this
+      // account's data subscription. BARS specifically also reject
+      // delayed_sip — HTTP 400 "invalid feed: delayed_sip" (live evidence
+      // 2026-07-18, compiled in alpaca_feed.py bars_feed(): delayed_sip is
+      // a real-time-tape delay concept, not a bars-endpoint feed value).
+      // iex is the always-accepted value for bars, per that precedent.
+      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=iex`;
       const r = await fetch(url, {
         headers: {
           "APCA-API-KEY-ID": ALPACA_KEY,

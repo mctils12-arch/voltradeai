@@ -2389,6 +2389,8 @@ second entry refutes it, and the search returns to the still-open
 `csp_layer2_prefetch` correlation from the prior session.
 ## 2026-07-20 [REPAIR] — Full-site UI audit (human-directed): dead Alpaca feed killed scanner/heatmap/watchlist + bot gap-guard; bad-print IV shipped as signal; 5 more findings fixed (v1.0.444–451, cross-territory audit session)
 
+(2026-07-27 ship note: main advanced v1.0.443->510 while this branch waited; rebased and renumbered v1.0.511-518 at ship time. One correction from the pre-ship gap-check: the bot.ts BARS fetch now uses iex, not delayed_sip — alpaca_feed.py bars_feed() had already compiled live evidence (2026-07-18) that the bars endpoint 400-rejects delayed_sip; snapshots keep delayed_sip. The 2026-07-06 Python-side feed repair (alpaca_feed.py, 44 call sites) never covered these Node call sites — this PR is its Node-side completion, which also dates the scanner/heatmap/watchlist breakage to ~2026-07-06.)
+
 TERRITORY: audit session (human-directed "open the site and find what's
 wrong"), cross-cutting by nature — server data proxy (routes.ts SHARED,
 minimal), client (T-CLIENT), analyze.py + bot.ts data fetches (T-BOT).
