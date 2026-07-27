@@ -3594,6 +3594,25 @@ for any future "known endpoint moved" case in this repo.
   wave-unique asset/route and checking its BYTES (magic numbers,
   byte-compare against the committed file), not by a hash-pinned URL.
 
+- A PR BODY NOTE ASKING TO "WAIT FOR MARKET CLOSE" DOES NOT PREVENT
+  AUTO-MERGE (found 2026-07-27, PR #618): this repo has a CI-driven
+  auto-merge job ("Auto-merge Claude PRs", per the 2026-07-24 wishlist
+  finding) that merges any Claude-authored PR the moment its required
+  checks go green — it does not read the PR body, so a session's own
+  "merge should wait for close" note (CLAUDE.md's market-hours deploy-
+  coupling guidance) has ZERO enforcement effect once the PR is pushed
+  and CI passes. PR #618 (a pure-archive-pipeline change, zero trading-
+  logic risk) was merged by `github-actions[bot]` ~3 minutes after
+  opening, at 09:23 ET — 7 minutes before the open, effectively inside
+  the avoid-window. CORRECT PRACTICE going forward: the market-hours
+  guidance must be honored by NOT OPENING THE PR (or not pushing the
+  final commit) until outside 9:30-16:00 ET, not by opening it early
+  with a note — the note is decorative once auto-merge is in the loop.
+  For risk-bearing changes this matters; for a RAW-archive-only,
+  zero-trading-logic-touched PR like #618 the actual blast radius of
+  an accidental mid-market deploy is near zero, so this is filed as a
+  process correction, not an incident.
+
 - STOP-HOOK FALSE POSITIVE after every post-merge branch reset: the
   git-check hook flags the branch tip as "Unverified (committer
   noreply@github.com)" — that commit is GitHub's OWN squash-merge
