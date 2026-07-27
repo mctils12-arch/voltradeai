@@ -123,6 +123,25 @@ test("KNOWN BROKEN #18 continuation 2026-07-21: the daemon branch surfaces layer
   assert.ok(daemonBranch.includes("l2.age_sec"), "must surface how stale the reading is, so a future session can tell a fresh mid-hang reading from a leftover prior-scan one");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-27: the daemon branch surfaces layer1_stats (cache_hit/universe_size/elapsed_sec/age), not just layer2_prefetch", () => {
+  // Live evidence this session: every tier_engine_start-stuck TIER2-ERROR
+  // occurrence since v1.0.503's on_phase instrumentation shipped (11/11
+  // checked, 2026-07-26 16:33Z through 2026-07-27 13:44Z) read
+  // layer2_prefetch cache_hit=true (elapsed=0s) — Layer 2 was never the
+  // explanation for THESE hangs. csp_universe._layer1_hard_gates has its
+  // own independent 15-min cache and was never instrumented at all; this
+  // pins that bot.ts surfaces it in the same audit line so the next
+  // occurrence can show whether Layer 1, not Layer 2, is what's hanging.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("layer1_stats"), "must read hr.layer1_stats off the unwrapped health result");
+  assert.ok(daemonBranch.includes("l1.cache_hit") && daemonBranch.includes("l1.universe_size"), "must format cache_hit/universe_size — the fields that distinguish a fast cache hit from a live full-universe fetch");
+  assert.ok(daemonBranch.includes("l1.age_sec"), "must surface how stale the reading is, same discipline layer2_prefetch's age_sec already holds");
+  assert.ok(/daemonState\s*=[\s\S]*layer1Detail/.test(daemonBranch), "layer1Detail must actually be interpolated into the daemonState message, not computed and discarded");
+});
+
 test("KNOWN BROKEN #18 continuation 2026-07-22: the daemon branch reads bot_engine.py's own scan-timings file directly off disk, not just layer2_prefetch", () => {
   // v1.0.468 shipped the deep_score ThreadPoolExecutor shutdown-hazard fix
   // as this item's third named mechanism; a full day of live post-deploy

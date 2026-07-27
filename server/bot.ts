@@ -3721,6 +3721,19 @@ else:
           const layer2Detail = l2 && Object.keys(l2).length > 0
             ? ` layer2_prefetch={cache_hit=${l2.cache_hit} completed=${l2.completed}/${l2.total} elapsed=${l2.elapsed_sec}s budget_exceeded=${l2.budget_exceeded} age=${l2.age_sec}s}`
             : "";
+          // DAEMON-TIMEOUT-VISIBILITY 2026-07-27 (KNOWN BROKEN #18 continuation):
+          // every tier_engine_start-stuck occurrence checked this session (11/11
+          // since v1.0.503's on_phase instrumentation shipped) read layer2_prefetch
+          // cache_hit=true (Layer 2 fast) — Layer 2 was never the explanation for
+          // THESE occurrences. Layer 1 (csp_universe._layer1_hard_gates) has its
+          // own independent 15-min cache and its cache-miss path (full-universe
+          // live snapshot fetch + account-equity fetch) has never been visible
+          // here — surface it the same way so the next occurrence can show
+          // whether Layer 1, not Layer 2, is what's still running.
+          const l1 = hr?.layer1_stats;
+          const layer1Detail = l1 && Object.keys(l1).length > 0
+            ? ` layer1_stats={cache_hit=${l1.cache_hit} universe_size=${l1.universe_size} elapsed=${l1.elapsed_sec}s age=${l1.age_sec}s}`
+            : "";
           // DAEMON-TIMEOUT-VISIBILITY 2026-07-22 (KNOWN BROKEN #18 continuation):
           // layer2_prefetch only answers "was it Layer 2" — the storm's third
           // named mechanism (deep_score's ThreadPoolExecutor shutdown hazard,
@@ -3758,7 +3771,7 @@ else:
             scanTimingsDetail = ` scan_timings={read_error=${String(timingErr?.message || timingErr).slice(0, 80)}}`;
           }
           daemonState = hr && hr.alive
-            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${scanTimingsDetail}`
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${layer1Detail}${scanTimingsDetail}`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;
