@@ -1,0 +1,753 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Moon — 3D viewer</title>
+
+<!--
+  MOON VIEWER — Google-Maps-style 3D moon, Three.js / WebGL2, one file.
+
+  WHAT IS AND ISN'T LOCAL
+  · three r0.185.1 is vendored at ./vendor/ (MIT). NOT a CDN: this site's CSP
+    (server/securityHeaders.ts) allows script-src 'self' but no ESM CDN host, so
+    a CDN import would work today (CSP ships report-only) and break the moment
+    SECURITY_CSP_ENFORCE is turned on. Vendored also means it renders offline.
+  · Imagery is the repo's existing NASA LRO mosaics in ./space/ — no network.
+
+  ALTITUDE-DRIVEN LIGHTING (the core feature)
+    altitude = |camera - center| - MOON_RADIUS_KM
+    t = smoothstep(TERM_LOW=800, TERM_HIGH=8000, altitude)
+    t -> 1 zoomed OUT  = hard terminator, real night side on the limb
+    t -> 0 zoomed IN   = surface lit everywhere, Google-Maps style
+  ONE ShaderMaterial owns this via the uTerminator uniform. No material swap,
+  no light toggling, nothing conditional -> the transition is continuous by
+  construction: t is a pure function of altitude, evaluated every frame.
+
+  A NOTE ON THE "NORMAL MAP": the only relief asset here (moonbump1k.jpg) is a
+  grayscale HEIGHT map, not a tangent-space normal map. Rather than mislabel it,
+  the shader derives a normal from its gradient (finite differences over the
+  east/north tangents of the sphere). Relief strength is therefore artistic, not
+  metric -- and it is 1000x500, so it reads as broad relief near the terminator,
+  not crater-sharp detail.
+
+  COLOR MANAGEMENT: outputColorSpace is left LINEAR (pass-through) on purpose.
+  A custom ShaderMaterial does not get three's automatic sRGB decode chunks, so
+  texels arrive raw; pass-through output keeps what you compute == what you see
+  and keeps the spec's lighting math readable. No double gamma.
+-->
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #05070c; overflow: hidden; }
+  body {
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #cbd5e1; -webkit-font-smoothing: antialiased;
+    /* Pointer Events do the gesture work; stop the browser from also panning,
+       pinch-zooming or firing synthetic double-tap-zoom over the canvas. */
+    touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage > canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+
+  .panel {
+    position: fixed; z-index: 5; padding: 9px 11px;
+    background: rgba(8, 12, 20, .72); border: 1px solid rgba(148, 163, 184, .18);
+    border-radius: 10px; backdrop-filter: blur(8px);
+  }
+  #hud { top: max(10px, env(safe-area-inset-top)); left: 10px; min-width: 178px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 14px; }
+  #hud .k { color: #64748b; }
+  #hud .v { color: #e2e8f0; font-variant-numeric: tabular-nums; }
+  #hud .bar { height: 3px; margin-top: 7px; border-radius: 2px; background: rgba(148,163,184,.2); overflow: hidden; }
+  #hud .bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg,#38bdf8,#facc15); }
+
+  #help { bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; max-width: min(62vw, 430px); color: #94a3b8; }
+  #help b { color: #cbd5e1; font-weight: 600; }
+  #credit {
+    bottom: max(10px, env(safe-area-inset-bottom)); right: 10px; font-size: 11px; color: #64748b;
+    background: rgba(8,12,20,.6); border: 1px solid rgba(148,163,184,.12); border-radius: 8px; padding: 6px 9px;
+    position: fixed; z-index: 5;
+  }
+  @media (max-width: 560px) {
+    body { font-size: 12px; }
+    #help { display: none; }         /* gestures are discoverable; screen is precious */
+    #hud { min-width: 154px; }
+  }
+
+  /* Context-loss / fatal overlay — deliberately cheap: no WebGL, no textures. */
+  #overlay {
+    position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+    background: rgba(4, 6, 11, .88); backdrop-filter: blur(3px); padding: 24px; text-align: center;
+  }
+  #overlay.on { display: grid; }
+  #overlay .card { max-width: 380px; }
+  #overlay h2 { margin: 0 0 8px; font-size: 15px; color: #f1f5f9; font-weight: 600; }
+  #overlay p { margin: 0 0 16px; color: #94a3b8; }
+  #overlay button {
+    font: inherit; color: #06202e; background: #38bdf8; border: 0; border-radius: 8px;
+    padding: 10px 20px; cursor: pointer; min-height: 44px; min-width: 112px;   /* 44px touch target */
+  }
+  #overlay button:hover { background: #7dd3fc; }
+  #overlay button:focus-visible { outline: 2px solid #f1f5f9; outline-offset: 2px; }
+</style>
+
+<div id="stage"></div>
+
+<div id="hud" class="panel" aria-live="off">
+  <div class="row"><span class="k">altitude</span><span class="v" id="hAlt">—</span></div>
+  <div class="row"><span class="k">terminator&nbsp;t</span><span class="v" id="hTerm">—</span></div>
+  <div class="row"><span class="k">texture</span><span class="v" id="hTex">—</span></div>
+  <div class="row"><span class="k">fps</span><span class="v" id="hFps">—</span></div>
+  <div class="bar"><i id="hBar"></i></div>
+</div>
+
+<div id="help" class="panel">
+  <b>drag</b> rotate · <b>right-drag / two fingers</b> pan · <b>wheel / pinch</b> zoom ·
+  <b>double-click or double-tap</b> zoom in · <b>long-press or Home</b> reset
+</div>
+
+<div id="credit">Imagery: NASA/LRO LROC WAC · public domain</div>
+
+<div id="overlay" role="alertdialog" aria-modal="true" aria-labelledby="ovTitle">
+  <div class="card">
+    <h2 id="ovTitle">Graphics context lost</h2>
+    <p id="ovMsg">The GPU dropped this page's WebGL context. Nothing is broken — press retry to rebuild the view.</p>
+    <button id="ovBtn" type="button">Retry</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "./vendor/three.module.min.js";
+
+/* ─────────────────────────── constants ─────────────────────────── */
+
+const MOON_RADIUS_KM = 1737.4;      // IAU mean radius. World units ARE km.
+const ALT_MIN = 20;                 // km — camera altitude clamp
+const ALT_MAX = 30000;              // km
+const TERM_LOW = 800;               // km — t=0 at/below (fully lit, map-like)
+const TERM_HIGH = 8000;             // km — t=1 at/above (hard terminator)
+
+// One notch of wheel (~100px) and a pinch both feed the SAME log-altitude
+// accumulator, so the zoom rate per gesture "unit" is identical on every device.
+const WHEEL_LOG_PER_PX = Math.log(1.25) / 100;
+const DAMP_ROTATE = 0.90;           // per 1/60 s — rotate inertia
+const ZOOM_SMOOTH = 0.86;           // per 1/60 s — fraction of the REMAINING
+                                    // zoom distance kept each frame
+const ROTATE_DEG_PER_PX = 0.22;
+const DOUBLE_MS = 300, DOUBLE_SLOP_PX = 24;
+const LONGPRESS_MS = 550, LONGPRESS_SLOP_PX = 10;
+const PAN_MAX_KM = MOON_RADIUS_KM * 0.9;   // keep the body on screen
+const RESET_MS = 620;
+
+const DEFAULT_VIEW = { theta: 0.6, phi: 1.32, alt: 12000 };
+const DEFAULT_SUN = new THREE.Vector3(1, 0.22, 0.55).normalize();
+// Warm white, scaled: at t=0 the spec's math is albedo*(1*sun + 0.9), so a
+// full-intensity sun would clip the mosaic's bright highlands. 0.6 lands the
+// lit case just under 1.0. setSunColor() can override for a blown-out look.
+const DEFAULT_SUN_COLOR = new THREE.Color(1.0, 0.97, 0.92).multiplyScalar(0.6);
+
+const TEX_DIR = "./space/";
+const BUMP_TEX = { file: "moonbump1k.jpg", w: 1000, h: 500 };
+// Real, measured sizes of the assets already in this repo.
+const TIERS = [
+  { id: "1k", file: "moonmap1k.jpg", px: 1000, mb: 0.40 },
+  { id: "2k", file: "2k_moon.jpg",   px: 2048, mb: 1.05 },
+  { id: "8k", file: "moon_8k.jpg",   px: 8192, mb: 5.13 },
+];
+
+/* ────────────────── view state (survives a GL rebuild) ────────────────── */
+
+const view = {
+  theta: DEFAULT_VIEW.theta,        // azimuth, rad
+  phi: DEFAULT_VIEW.phi,            // polar from +Y, rad, clamped off the poles
+  logAlt: Math.log(DEFAULT_VIEW.alt),
+  logAltTarget: Math.log(DEFAULT_VIEW.alt),  // zoom eases toward this
+  target: new THREE.Vector3(0, 0, 0),   // pan offset of the orbit centre
+  vTheta: 0, vPhi: 0,
+};
+const sunDir = DEFAULT_SUN.clone();
+const sunColor = DEFAULT_SUN_COLOR.clone();
+
+const clampAlt = (a) => Math.min(ALT_MAX, Math.max(ALT_MIN, a));
+const clampLog = (l) => Math.log(clampAlt(Math.exp(l)));
+const altitude = () => clampAlt(Math.exp(view.logAlt));
+const smoothstep = (e0, e1, x) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+const terminator = () => smoothstep(TERM_LOW, TERM_HIGH, altitude());
+
+/* ───────────────────────────── shaders ───────────────────────────── */
+
+const VERT = /* glsl */`
+  varying vec2 vUv;
+  varying vec3 vN;
+  void main() {
+    vUv = uv;
+    // Uniform scale only -> the normal matrix is a rotation; normalize is enough.
+    vN = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+  }
+`;
+
+const FRAG = /* glsl */`
+  precision highp float;
+
+  uniform sampler2D uAlbedo;
+  uniform sampler2D uHeight;
+  uniform vec2  uHeightTexel;   // 1/width, 1/height of the height map
+  uniform vec3  uSunDir;        // unit vector pointing TOWARD the sun
+  uniform vec3  uSunColor;
+  uniform float uTerminator;    // t: 0 = zoomed in (flat lit), 1 = zoomed out
+  uniform float uBumpScale;
+
+  varying vec2 vUv;
+  varying vec3 vN;
+
+  void main() {
+    vec3 albedo = texture2D(uAlbedo, vUv).rgb;
+
+    // ── normal from the HEIGHT map's gradient (see file header: this asset is
+    // a height map, not a tangent-space normal map). East/north tangents come
+    // from the equirectangular parameterisation; the cos(lat) guard stops the
+    // u-gradient exploding where longitude lines converge at the poles.
+    vec3 N = normalize(vN);
+    float hL = texture2D(uHeight, vUv - vec2(uHeightTexel.x, 0.0)).r;
+    float hR = texture2D(uHeight, vUv + vec2(uHeightTexel.x, 0.0)).r;
+    float hD = texture2D(uHeight, vUv - vec2(0.0, uHeightTexel.y)).r;
+    float hU = texture2D(uHeight, vUv + vec2(0.0, uHeightTexel.y)).r;
+    float cosLat = max(cos((vUv.y - 0.5) * 3.141592653589793), 0.25);
+    vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), N));
+    vec3 north = cross(N, east);
+    N = normalize(N
+      - east  * ((hR - hL) / cosLat) * uBumpScale
+      - north * (hU - hD) * uBumpScale);
+
+    // ── THE ALTITUDE-DRIVEN TERMINATOR (spec math, verbatim) ──
+    float lambert = smoothstep(-0.05, 0.15, dot(N, normalize(uSunDir)));
+    float shade   = mix(1.0, lambert, uTerminator);
+    vec3  final   = albedo * (shade * uSunColor + mix(0.9, 0.03, uTerminator));
+
+    gl_FragColor = vec4(final, 1.0);
+  }
+`;
+
+/* ──────────────────────── capability-driven texture tier ──────────────────────── */
+
+/** Chosen from what the GPU/renderer reports — never from a user-agent string. */
+function pickTier(renderer) {
+  const caps = renderer.capabilities;
+  const maxTex = caps.maxTextureSize || 2048;
+  const ramGiB = typeof navigator.deviceMemory === "number" ? navigator.deviceMemory : null;
+  const cores = navigator.hardwareConcurrency || 4;
+  // An 8192px mosaic needs the hardware limit to actually allow it, plus enough
+  // memory to hold ~134 MB of decoded RGBA + mips. deviceMemory when present is
+  // the real signal; core count is the fallback proxy.
+  const roomyEnough = ramGiB === null ? cores >= 8 : ramGiB >= 6;
+  let tier = TIERS[0];
+  if (maxTex >= 2048) tier = TIERS[1];
+  if (maxTex >= 8192 && roomyEnough) tier = TIERS[2];
+  return { tier, maxTex, ramGiB, cores };
+}
+
+/* ─────────────────────────── GL lifecycle ─────────────────────────── */
+
+const stage = document.getElementById("stage");
+const overlay = document.getElementById("overlay");
+const ovTitle = document.getElementById("ovTitle");
+const ovMsg = document.getElementById("ovMsg");
+const ovBtn = document.getElementById("ovBtn");
+const hAlt = document.getElementById("hAlt"), hTerm = document.getElementById("hTerm");
+const hTex = document.getElementById("hTex"), hFps = document.getElementById("hFps"), hBar = document.getElementById("hBar");
+
+let gl = null;        // { canvas, renderer, scene, camera, mesh, geo, mat, textures[] }
+let rafId = 0;
+let running = false;
+let contextLost = false;
+let texLabel = "—";
+
+function showOverlay(title, msg, btn) {
+  ovTitle.textContent = title;
+  ovMsg.textContent = msg;
+  ovBtn.style.display = btn ? "" : "none";
+  overlay.classList.add("on");
+}
+function hideOverlay() { overlay.classList.remove("on"); }
+
+function loadTexture(loader, file, { srgbLinear = true } = {}) {
+  return new Promise((resolve) => {
+    loader.load(TEX_DIR + file,
+      (tex) => {
+        tex.colorSpace = THREE.NoColorSpace;   // pass-through; see header note
+        tex.wrapS = THREE.RepeatWrapping;      // longitude wraps
+        tex.wrapT = THREE.ClampToEdgeWrapping; // latitude does not
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.anisotropy = Math.min(8, gl?.renderer?.capabilities?.getMaxAnisotropy?.() ?? 1);
+        tex.needsUpdate = true;
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(null),                     // never throw on a missing asset
+    );
+    void srgbLinear;
+  });
+}
+
+function buildGL() {
+  const canvas = document.createElement("canvas");
+  stage.appendChild(canvas);
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: "high-performance",
+      alpha: false,
+      stencil: false,
+      depth: true,
+      failIfMajorPerformanceCaveat: false,
+    });
+  } catch (err) {
+    canvas.remove();
+    showOverlay("WebGL unavailable",
+      "This browser or GPU refused a WebGL2 context, so the moon can't be drawn. " +
+      "Hardware acceleration may be disabled.", true);
+    return false;
+  }
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));   // cap at 2
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;              // pass-through
+  renderer.setClearColor(0x05070c, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(48, 1, 1, 1e6);
+
+  const geo = new THREE.SphereGeometry(MOON_RADIUS_KM, 128, 96);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: VERT,
+    fragmentShader: FRAG,
+    uniforms: {
+      uAlbedo: { value: null },
+      uHeight: { value: null },
+      uHeightTexel: { value: new THREE.Vector2(1 / BUMP_TEX.w, 1 / BUMP_TEX.h) },
+      uSunDir: { value: sunDir.clone() },
+      uSunColor: { value: sunColor.clone() },
+      uTerminator: { value: terminator() },
+      uBumpScale: { value: 1.15 },
+    },
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+
+  gl = { canvas, renderer, scene, camera, mesh, geo, mat, textures: [] };
+
+  canvas.addEventListener("webglcontextlost", onContextLost, false);
+  canvas.addEventListener("webglcontextrestored", onContextRestored, false);
+  attachInput(canvas);
+
+  // ── textures: show something immediately (1k, 0.4 MB), then upgrade to the
+  // capability-chosen tier in the background. Uniform assignment only — the
+  // material is never swapped.
+  const loader = new THREE.TextureLoader();
+  const chosen = pickTier(renderer);
+  texLabel = `${chosen.tier.id} · max ${chosen.maxTex}`;
+
+  Promise.all([
+    loadTexture(loader, TIERS[0].file),
+    loadTexture(loader, BUMP_TEX.file),
+  ]).then(([albedo, height]) => {
+    if (!gl) return;
+    if (albedo) { gl.mat.uniforms.uAlbedo.value = albedo; gl.textures.push(albedo); }
+    if (height) { gl.mat.uniforms.uHeight.value = height; gl.textures.push(height); }
+    gl.mat.uniforms.uBumpScale.value = height ? 1.15 : 0.0;
+    if (chosen.tier.id !== TIERS[0].id) {
+      loadTexture(loader, chosen.tier.file).then((hi) => {
+        if (!gl || !hi) return;
+        const prev = gl.mat.uniforms.uAlbedo.value;
+        gl.mat.uniforms.uAlbedo.value = hi;
+        gl.textures.push(hi);
+        if (prev) { gl.textures = gl.textures.filter((t) => t !== prev); prev.dispose(); }
+      });
+    }
+  });
+
+  resize();
+  return true;
+}
+
+function teardownGL() {
+  if (!gl) return;
+  stopLoop();
+  const { canvas, renderer, geo, mat, textures, mesh, scene } = gl;
+  canvas.removeEventListener("webglcontextlost", onContextLost);
+  canvas.removeEventListener("webglcontextrestored", onContextRestored);
+  detachInput(canvas);
+  try { scene.remove(mesh); } catch {}
+  for (const t of textures) { try { t.dispose(); } catch {} }
+  try { geo.dispose(); } catch {}
+  try { mat.dispose(); } catch {}
+  try { renderer.dispose(); } catch {}
+  try { canvas.remove(); } catch {}
+  gl = null;
+}
+
+/** Full rebuild: the only reliable recovery after a lost context is a fresh
+ *  canvas + renderer. View state lives outside GL, so the pose is preserved. */
+function rebuild() {
+  contextLost = false;
+  hideOverlay();
+  teardownGL();
+  if (buildGL()) startLoop();
+}
+
+function onContextLost(e) {
+  // Without preventDefault the context is never restorable.
+  e.preventDefault();
+  contextLost = true;
+  stopLoop();
+  showOverlay("Graphics context lost",
+    "The GPU dropped this page's WebGL context. Nothing is broken — press retry to rebuild the view.", true);
+}
+
+function onContextRestored() {
+  if (!contextLost) return;
+  rebuild();
+}
+
+/* ───────────────────────────── camera ───────────────────────────── */
+
+const PHI_EPS = 0.02;
+let resetAt = 0, resetFrom = null;
+
+function applyCamera() {
+  const { camera } = gl;
+  const alt = altitude();
+  view.logAlt = Math.log(alt);            // keep the accumulator clamped too
+  const r = MOON_RADIUS_KM + alt;
+
+  const sp = Math.sin(view.phi), cp = Math.cos(view.phi);
+  camera.position.set(
+    view.target.x + r * sp * Math.sin(view.theta),
+    view.target.y + r * cp,
+    view.target.z + r * sp * Math.cos(view.theta),
+  );
+  camera.lookAt(view.target);
+
+  // Depth range tracked to altitude: at 20 km a 1 km near plane would z-fight
+  // the surface; at 30,000 km the far plane must clear the whole body.
+  camera.near = Math.max(0.05, alt * 0.02);
+  camera.far = r + MOON_RADIUS_KM * 3 + 1000;
+  camera.updateProjectionMatrix();
+}
+
+function resetView() {
+  resetFrom = { theta: view.theta, phi: view.phi, logAlt: view.logAlt, target: view.target.clone() };
+  resetAt = performance.now();
+  view.vTheta = view.vPhi = 0;
+}
+
+function stepReset(now) {
+  if (!resetFrom) return;
+  const k = Math.min(1, (now - resetAt) / RESET_MS);
+  const e = 1 - Math.pow(1 - k, 3);                 // ease-out cubic
+  view.theta = resetFrom.theta + (DEFAULT_VIEW.theta - resetFrom.theta) * e;
+  view.phi = resetFrom.phi + (DEFAULT_VIEW.phi - resetFrom.phi) * e;
+  view.logAlt = resetFrom.logAlt + (Math.log(DEFAULT_VIEW.alt) - resetFrom.logAlt) * e;
+  view.logAltTarget = view.logAlt;   // the ease must not fight the reset tween
+  view.target.lerpVectors(resetFrom.target, new THREE.Vector3(0, 0, 0), e);
+  if (k >= 1) resetFrom = null;
+}
+
+/* ───────────────────────────── input ─────────────────────────────
+   Pointer Events ONLY. There is no touch/mouse branch and no UA sniffing
+   anywhere below: "one pointer" is a finger or LMB, "two pointers or button 2"
+   is two fingers or RMB, and wheel/pinch are folded into the same log-altitude
+   step. That is the whole reason the feel is identical across devices.        */
+
+const pointers = new Map();          // pointerId -> {x, y}
+let gestureMode = "none";            // none | rotate | pan
+let pinchPrev = 0;
+let panPrev = null;
+let lastTapAt = 0, lastTapX = 0, lastTapY = 0;
+let pressTimer = 0, pressStart = null;
+
+function centroid() {
+  let x = 0, y = 0;
+  for (const p of pointers.values()) { x += p.x; y += p.y; }
+  const n = pointers.size || 1;
+  return { x: x / n, y: y / n };
+}
+function spread() {
+  if (pointers.size < 2) return 0;
+  const [a, b] = [...pointers.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function cancelLongPress() {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = 0; }
+  pressStart = null;
+}
+
+function onPointerDown(e) {
+  if (!gl) return;
+  // A capture request CAN be refused (the pointer already went away, or the id
+  // isn't an active pointer). It threw here and aborted this whole handler, so
+  // the second finger was never registered and pinch silently did nothing.
+  try { gl.canvas.setPointerCapture?.(e.pointerId); } catch { /* track it anyway */ }
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  resetFrom = null;                                   // any input cancels a reset tween
+
+  // secondary = RMB (button 2) or a second finger; primary = anything else
+  const secondary = e.button === 2 || pointers.size >= 2;
+  gestureMode = secondary ? "pan" : "rotate";
+  pinchPrev = spread();
+  panPrev = centroid();
+  view.vTheta = view.vPhi = 0;                        // grab kills rotate inertia
+
+  if (pointers.size === 1) {
+    pressStart = { x: e.clientX, y: e.clientY };
+    pressTimer = setTimeout(() => { if (pressStart) { resetView(); cancelLongPress(); } }, LONGPRESS_MS);
+  } else {
+    cancelLongPress();                                // multi-touch is never a long-press
+  }
+}
+
+function onPointerMove(e) {
+  if (!gl || !pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > LONGPRESS_SLOP_PX) {
+    cancelLongPress();
+  }
+
+  if (pointers.size >= 2) {
+    // pinch -> the SAME log-altitude accumulator the wheel uses
+    const s = spread();
+    if (pinchPrev > 0 && s > 0) {
+      // Fingers track 1:1 (no easing lag while they're down), but this is the
+      // SAME additive log-altitude step the wheel and double-tap use.
+      view.logAlt = clampLog(view.logAlt + Math.log(pinchPrev / s));
+      view.logAltTarget = view.logAlt;
+    }
+    pinchPrev = s;
+    // two-finger drag also pans (centroid translation)
+    const c = centroid();
+    if (panPrev) panBy(c.x - panPrev.x, c.y - panPrev.y);
+    panPrev = c;
+    return;
+  }
+
+  if (gestureMode === "pan") { panBy(dx, dy); return; }
+
+  // rotate — velocity is kept for post-release inertia
+  const kRot = ROTATE_DEG_PER_PX * Math.PI / 180;
+  view.vTheta = -dx * kRot;
+  view.vPhi = -dy * kRot;
+  view.theta += view.vTheta;
+  view.phi = Math.min(Math.PI - PHI_EPS, Math.max(PHI_EPS, view.phi + view.vPhi));
+}
+
+/** Pan translates the orbit centre in the camera's screen plane (the
+ *  OrbitControls-pan analogue), scaled so a pixel of drag moves the same
+ *  apparent distance at any altitude. Clamped so the body stays on screen. */
+function panBy(dxPx, dyPx) {
+  if (!gl) return;
+  const { camera } = gl;
+  const h = gl.canvas.clientHeight || 1;
+  const worldPerPx = (2 * Math.tan((camera.fov * Math.PI / 180) / 2) * (MOON_RADIUS_KM + altitude())) / h;
+  const right = new THREE.Vector3(), up = new THREE.Vector3();
+  camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
+  view.target
+    .addScaledVector(right, -dxPx * worldPerPx)
+    .addScaledVector(up, dyPx * worldPerPx)
+    .clampLength(0, PAN_MAX_KM);
+}
+
+function onPointerUp(e) {
+  if (!gl) return;
+  try { gl.canvas.releasePointerCapture?.(e.pointerId); } catch { /* already gone */ }
+  const had = pointers.delete(e.pointerId);
+  cancelLongPress();
+
+  // double-tap / double-click — one implementation, both devices
+  if (had && pointers.size === 0) {
+    const now = performance.now();
+    const near = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < DOUBLE_SLOP_PX;
+    if (now - lastTapAt < DOUBLE_MS && near) {
+      zoomBy(-Math.log(2));                           // one step in
+      lastTapAt = 0;
+    } else {
+      lastTapAt = now; lastTapX = e.clientX; lastTapY = e.clientY;
+    }
+  }
+  if (pointers.size < 2) { pinchPrev = 0; panPrev = pointers.size ? centroid() : null; }
+  if (pointers.size === 0) gestureMode = "none";
+}
+
+/** Every zoom input — wheel notch, pinch, double-tap — is one additive step in
+ *  LOG altitude applied to the eased TARGET. Targeting rather than firing a
+ *  velocity impulse is what makes a step exact at any frame rate: a velocity
+ *  impulse has to be sized against the damping decay, so on a device running at
+ *  15 fps instead of 60 the same impulse delivers a fraction of the intended
+ *  travel (measured: a double-tap landed 8210 km instead of 5000 km). With a
+ *  target, the frame rate only affects how fast the ease arrives, never where. */
+function zoomBy(logDelta) {
+  // Input always wins: a reset tween owns logAlt (and syncs the target to it)
+  // while it runs, so without this cancel a wheel notch or double-tap during
+  // the ~600ms after a reset was silently erased on the next frame.
+  resetFrom = null;
+  view.logAltTarget = clampLog(view.logAltTarget + logDelta);
+}
+
+function onWheel(e) {
+  e.preventDefault();
+  // normalize the three deltaMode units to CSS pixels, then to a log step
+  const px = e.deltaMode === 1 ? e.deltaY * 16
+    : e.deltaMode === 2 ? e.deltaY * (gl?.canvas.clientHeight || 800)
+    : e.deltaY;
+  zoomBy(px * WHEEL_LOG_PER_PX);
+}
+
+const onContextMenu = (e) => e.preventDefault();      // RMB is the pan gesture
+
+function onKeyDown(e) {
+  if (e.key === "Home") { e.preventDefault(); resetView(); }
+}
+
+function attachInput(canvas) {
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  canvas.addEventListener("lostpointercapture", onPointerUp);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  canvas.addEventListener("contextmenu", onContextMenu);
+}
+function detachInput(canvas) {
+  canvas.removeEventListener("pointerdown", onPointerDown);
+  canvas.removeEventListener("pointermove", onPointerMove);
+  canvas.removeEventListener("pointerup", onPointerUp);
+  canvas.removeEventListener("pointercancel", onPointerUp);
+  canvas.removeEventListener("lostpointercapture", onPointerUp);
+  canvas.removeEventListener("wheel", onWheel);
+  canvas.removeEventListener("contextmenu", onContextMenu);
+  pointers.clear();
+}
+
+/* ───────────────────────────── loop ───────────────────────────── */
+
+let lastT = 0, fpsAcc = 0, fpsN = 0, hudAt = 0;
+
+function frame(now) {
+  if (!running || !gl) return;
+  rafId = requestAnimationFrame(frame);
+
+  const dt = lastT ? Math.min(0.1, (now - lastT) / 1000) : 1 / 60;
+  lastT = now;
+  const decay = (d) => Math.pow(d, dt * 60);          // frame-rate independent
+
+  stepReset(now);
+
+  // inertia
+  if (!pointers.size) {
+    view.theta += view.vTheta;
+    view.phi = Math.min(Math.PI - PHI_EPS, Math.max(PHI_EPS, view.phi + view.vPhi));
+    view.vTheta *= decay(DAMP_ROTATE);
+    view.vPhi *= decay(DAMP_ROTATE);
+  }
+  // zoom: exponential ease toward the target, frame-rate corrected so the felt
+  // damping is the same at 30, 60 or 120 fps — and the destination is exact.
+  const dLog = view.logAltTarget - view.logAlt;
+  if (Math.abs(dLog) > 1e-5) view.logAlt += dLog * (1 - decay(ZOOM_SMOOTH));
+  else view.logAlt = view.logAltTarget;
+
+  applyCamera();
+
+  // THE core feature: one uniform, recomputed from altitude every frame.
+  const t = terminator();
+  gl.mat.uniforms.uTerminator.value = t;
+  gl.mat.uniforms.uSunDir.value.copy(sunDir);
+  gl.mat.uniforms.uSunColor.value.copy(sunColor);
+
+  gl.renderer.render(gl.scene, gl.camera);
+
+  fpsAcc += dt; fpsN++;
+  if (now - hudAt > 250) {
+    hudAt = now;
+    const alt = altitude();
+    hAlt.textContent = alt >= 1000 ? `${(alt / 1000).toFixed(2)} Mm` : `${alt.toFixed(0)} km`;
+    hTerm.textContent = t.toFixed(3);
+    hTex.textContent = texLabel;
+    hFps.textContent = fpsN ? Math.round(fpsN / fpsAcc).toString() : "—";
+    hBar.style.width = `${(t * 100).toFixed(1)}%`;
+    fpsAcc = 0; fpsN = 0;
+  }
+}
+
+function startLoop() {
+  if (running) return;
+  running = true; lastT = 0;
+  rafId = requestAnimationFrame(frame);
+}
+function stopLoop() {
+  running = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = 0;
+}
+
+/* ───────────────────────── resize / lifecycle ───────────────────────── */
+
+function resize() {
+  if (!gl) return;
+  const w = stage.clientWidth || window.innerWidth;
+  const h = stage.clientHeight || window.innerHeight;
+  gl.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  gl.renderer.setSize(w, h, false);
+  gl.camera.aspect = w / Math.max(1, h);
+  gl.camera.updateProjectionMatrix();
+}
+
+addEventListener("resize", resize);
+addEventListener("orientationchange", () => setTimeout(resize, 120));
+if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+addEventListener("keydown", onKeyDown);
+ovBtn.addEventListener("click", rebuild);
+
+// Pause when hidden: a background tab burning GPU is a context-loss risk.
+addEventListener("visibilitychange", () => {
+  if (document.hidden) stopLoop();
+  else if (gl && !contextLost) startLoop();
+});
+addEventListener("pagehide", teardownGL);
+
+/* ───────────────────────── public API ───────────────────────── */
+
+window.moonViewer = {
+  /** Sun direction as a vec3 pointing TOWARD the sun. Wire real ephemeris here. */
+  setSunDirection(x, y, z) { sunDir.set(x, y, z).normalize(); },
+  setSunColor(r, g, b) { sunColor.setRGB(r, g, b); },
+  setAltitude(km) {
+    resetFrom = null;                  // same reason as zoomBy: don't be overwritten
+    view.logAlt = view.logAltTarget = Math.log(clampAlt(km));
+  },
+  reset: resetView,
+  getState: () => ({
+    altitude: altitude(), altitudeTarget: Math.exp(view.logAltTarget), terminator: terminator(),
+    theta: view.theta, phi: view.phi,
+    target: view.target.toArray(),
+    sunDir: sunDir.toArray(), texture: texLabel,
+    running, contextLost,
+    pointers: pointers.size, gesture: gestureMode,
+  }),
+  /** Test hook: drive the real WEBGL_lose_context path. */
+  loseContext() { gl?.renderer.forceContextLoss(); },
+  rebuild,
+};
+
+if (buildGL()) startLoop();
+</script>

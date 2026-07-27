@@ -30360,3 +30360,108 @@ a param this session couldn't live-verify), the fix is scoped to
 archives have enough live history, the natural gate-1/2 next step is a
 same-zone join across all three (load residual + fuel mix + price) that
 none of the three individual build sessions attempted alone.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · [PRODUCT] · T-CLIENT
+Standalone Three.js/WebGL2 moon viewer at /moon.html (v1.0.511)
+
+HUMAN-DIRECTED BUILD (verbatim spec: Google-Maps-style 3D moon viewer,
+single self-contained file, one build for desktop + mobile). Delivered as
+client/public/moon.html — no bundler, no build step, no route in the SPA.
+
+WHY VENDORED, NOT CDN: server/securityHeaders.ts's CSP allows script-src
+'self' plus two named CDNs; an ESM CDN import for three would work today
+(CSP ships report-only) and silently break the day SECURITY_CSP_ENFORCE
+is switched on. three r0.185.1 (MIT) therefore sits in
+client/public/vendor/ (module + core — the r160+ split build imports
+./three.core.min.js as a sibling, both required). Vite copies publicDir
+verbatim, verified in dist/public/. Also means it renders offline.
+
+IMAGERY: the repo's existing NASA/LRO mosaics in client/public/space/ —
+nothing new fetched. Capability-driven tier (NOT device type, per spec):
+MAX_TEXTURE_SIZE >= 8192 plus navigator.deviceMemory >= 6 GiB (fallback
+hardwareConcurrency >= 8) -> moon_8k.jpg; >= 2048 -> 2k_moon.jpg; else
+moonmap1k.jpg. 1k paints first, the chosen tier swaps in behind it
+(uniform assignment — the material itself is never swapped).
+
+HONESTY NOTE — "normal map": the only relief asset (moonbump1k.jpg) is a
+grayscale HEIGHT map, not a tangent-space normal map. Rather than
+mislabel it, the shader derives a normal from its gradient (finite
+differences over the sphere's east/north tangents, cos(lat) guard at the
+poles). Relief strength is artistic, not metric, and at 1000x500 it
+reads as broad relief near the terminator — not crater-sharp.
+
+RESOLUTION CEILING (stated, not hidden): an 8k GLOBAL mosaic is ~4.7
+km/px at the equator, so below roughly 500 km altitude the surface goes
+soft. That is a data limit, not a renderer bug. The upgrade path already
+exists in-repo: stream LROC WAC WMTS tiles the way
+client/src/lib/celestial/moonTiles.ts + lroc.ts do for the space frame's
+focused-close Moon.
+
+CORE FEATURE — one ShaderMaterial, one uniform:
+  t = smoothstep(800, 8000, altitudeKm)      // 0 zoomed in, 1 zoomed out
+  lambert = smoothstep(-0.05, 0.15, dot(N,L))
+  shade   = mix(1.0, lambert, t)
+  final   = albedo * (shade * sunColor + mix(0.9, 0.03, t))
+Implemented verbatim. t is a pure function of altitude recomputed every
+frame, so the transition is continuous BY CONSTRUCTION — no material
+swap, no light toggle, nothing conditional. Measured: t=0 at 20/800 km,
+t=1 at 8000/30000 km, 0.223 at 3000 km, monotonic across the sweep.
+CALIBRATION CAVEAT: at t=0 the spec's math is albedo*(1*sun + 0.9), so a
+full-intensity sun clips the mosaic's bright highlands; uSunColor
+defaults to warm white x0.6 to land just under 1.0. setSunColor() undoes
+it. setSunDirection(x,y,z) is the documented ephemeris hook.
+
+TWO REAL BUGS THE PROBE CAUGHT (both were mine, both fixed):
+1. FRAME-RATE-DEPENDENT ZOOM STEP. Discrete zoom was a velocity impulse
+   sized as logDelta*(1-DAMP) — i.e. assuming 60fps — while the decay was
+   frame-rate corrected. The two disagree, so on a slow device a
+   double-tap under-travelled: measured 10000 -> 8210 km where a factor
+   of two wants 5000. Replaced with an EASED TARGET (logAltTarget):
+   frame rate now affects only how fast the ease arrives, never where.
+   Re-measured exactly 10000 -> 5000 km. Wheel, pinch and double-tap all
+   feed that one additive log-altitude step, which is what makes the feel
+   identical across devices.
+2. A REFUSED setPointerCapture ABORTED GESTURE TRACKING. The call throws
+   ("No active pointer with the given id") and it sat before
+   pointers.set(), so the second finger was never registered and pinch
+   silently did nothing at all. Now try/catch'd: capture is an
+   optimisation, tracking is the contract.
+3. (third, found in the same loop) An in-flight reset tween swallowed
+   zoom input for ~600ms, because stepReset re-synced logAltTarget to
+   logAlt every frame — so long-press-to-reset followed by a scroll ate
+   the scroll. zoomBy()/setAltitude() now cancel the tween: input always
+   wins.
+
+CONTROLS are Pointer Events only — no touch/mouse branch, no UA sniffing
+anywhere. Verified BOTH paths hit the same handlers: mouse drag and a
+synthetic one-finger drag both rotate; RMB drag and two-finger both pan;
+wheel and pinch both zoom.
+PROBE FOOTNOTE: two first-round "failures" were the probe's fault, not
+the page's — offsetParent is null by spec for position:fixed (so the HUD
+check was invalid), and synthetic pointerId 1 collides with Chrome's real
+mouse pointer (so the "two-finger" test was really one finger). Fixed in
+the probe; recorded because the same two traps will bite the next
+session that hand-rolls a pointer probe.
+
+VERIFICATION (headless chromium, real WebGL2 via SwiftShader — 8 groups,
+ALL PASSED): zero console errors; no shader compile/link errors; altitude
+clamps at 20 and 30000 km; the terminator law above; pixel census proving
+the night side is strictly a zoomed-out phenomenon (8.9% dark pixels at
+30000 km vs 0.5% at 120 km); every gesture; forced context loss via
+forceContextLoss() -> loop stops, retry overlay shows, nothing throws,
+rebuild reloads textures and leaves exactly ONE canvas (no leak); canvas
+fills 390/768/1440 with no horizontal scroll; 226 frames of continuous
+input with median 37.5ms under software GL and no leaked pointers.
+Screenshots captured at all three widths x three altitudes.
+
+NOT CLAIMED: 60fps on real hardware. SwiftShader is software rasterisation
+(11-23 fps here) and cannot measure it; the geometry is ~12k tris with one
+texture fetch pair per fragment, which is trivial for a Galaxy S24, but
+that is an argument, not a measurement. Untested on real iOS/Android
+Safari — the honest gap.
+
+FROZEN PATHS: none touched. No route added, no server change, no
+package.json dependency (three installed with --no-save and vendored, so
+CI's npm ci is unaffected). client/public/** is excluded from CI's
+path-filtered heavy jobs by design.
