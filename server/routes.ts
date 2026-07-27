@@ -64,7 +64,7 @@ import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
-import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
+import { bootShortVolPoll, bootOrfShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
 import { bootCotPoll, latestCot, searchMarkets as searchCotMarkets,
          lookupMarketHistory, readAggregateHistory as readCotAggregateHistory } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
@@ -1987,6 +1987,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // This is short-marked EXECUTION volume (a flow proxy), NOT short
   // interest — the label matters (manifest confidence_model).
   bootShortVolPoll();
+  // ORF (OTC facility) counterpart — feeds settlementStress.ts's
+  // shortVolPercentiles only (CNMS is exchange-listed only and can never
+  // see the OTC-only finrathreshold universe; see settlementStress.ts's
+  // 2026-07-27 root-cause note). No route of its own yet — RAW archive
+  // ingestion only, same posture CNMS started with.
+  bootOrfShortVolPoll();
   app.get("/api/data/short-volume", (_req, res) => {
     const hit = latestShortVol();
     if (!hit) {

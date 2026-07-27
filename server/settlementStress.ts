@@ -21,6 +21,23 @@
  * weeks running, that is itself a finding (either genuinely rare overlap,
  * or a join-key mismatch worth re-checking).
  *
+ * RESOLVED 2026-07-27: it was neither "rare overlap" nor a join-KEY
+ * mismatch — it was a join-POPULATION mismatch, and the composite's
+ * archive (datacore/settlementstress/) had produced exactly zero rows
+ * across every date it processed since shipping. finrathreshold's
+ * `thresholdList` dataset is OTC-only by FINRA's own schema ("OTC
+ * Regulation SHO and Rule 4320 Threshold Securities" — confirmed via
+ * FINRA's live metadata endpoint this session), while finrashortvol's
+ * CNMS file is exchange-LISTED-only ("Consolidated NMS... exchange-
+ * listed securities", per FINRA's own file catalog) — two disjoint
+ * populations, so the join could never overlap regardless of how much
+ * calendar time passed. FIXED by ingesting FINRA's ORF (Over-the-Counter
+ * Reporting Facility) file, the OTC counterpart to CNMS, alongside it
+ * (see finraShortVolume.ts's `fetchOrfShortVolDay`/`readOrfArchivedDay`);
+ * `shortVolPercentiles` below now ranks across both facilities combined.
+ * Full trace (live curl evidence against both FINRA's file catalog and
+ * real FORFshvol files) in experiments.md, 2026-07-27 [REPAIR] entry.
+ *
  * ROOT VALIDATION LADDER: this module is GATE-1 feature construction only.
  * composite_score is a ranking aid for the eventual gate-2 correlation
  * test (composite vs. forward N-day returns, vs. a same-universe random-
@@ -40,7 +57,7 @@ import fs from "fs";
 import path from "path";
 import { archiveBaseDir } from "./datacoreArchive";
 import { readPartition } from "./finraQuery";
-import { readArchivedDay, FLOOR_TOTAL_VOL } from "./finraShortVolume";
+import { readArchivedDay, readOrfArchivedDay, FLOOR_TOTAL_VOL } from "./finraShortVolume";
 import { readFtdPeriod, type FtdRow } from "./secFtd";
 
 const THRESHOLD_DIR = "finrathreshold";
@@ -166,12 +183,28 @@ export function ftdDeltas(asOf: string, baseDir?: string): Map<string, { qty: nu
 
 /** Short-vol ratio + cross-sectional percentile (0-100, 100=highest ratio)
  *  among eligible symbols on `date` — reuses finrashortvol's own
- *  liquidity floor so "eligible" means the same thing in both streams. */
+ *  liquidity floor so "eligible" means the same thing in both streams.
+ *  ROOT-CAUSE FIX 2026-07-27: reads BOTH the CNMS (exchange-listed) and
+ *  ORF (OTC-facility) short-volume archives and combines them into one
+ *  ranked pool. finrathreshold (the threshold-persistence ingredient) is
+ *  OTC-only by FINRA's own schema — CNMS alone can never contain those
+ *  symbols, which is why the composite found zero overlap since it
+ *  shipped (see module docstring + experiments.md 2026-07-27). The two
+ *  facilities cover disjoint populations (a security is exchange-listed
+ *  OR OTC, never both), so concatenating rows before ranking cannot
+ *  double-count a symbol in practice; a defensive de-dup (first-seen
+ *  wins) guards the case anyway. */
 export function shortVolPercentiles(
   date: string,
   baseDir?: string,
 ): Map<string, { short_ratio: number; percentile: number }> {
-  const rows = readArchivedDay(date, baseDir);
+  const seen = new Set<string>();
+  const rows = [...readArchivedDay(date, baseDir), ...readOrfArchivedDay(date, baseDir)]
+    .filter((r) => {
+      if (seen.has(r.symbol)) return false;
+      seen.add(r.symbol);
+      return true;
+    });
   const eligible = rows.filter((r) => r.total_vol >= FLOOR_TOTAL_VOL && r.total_vol > 0);
   const ratios = eligible.map((r) => ({ symbol: r.symbol, ratio: r.short_vol / r.total_vol }));
   ratios.sort((a, b) => a.ratio - b.ratio);

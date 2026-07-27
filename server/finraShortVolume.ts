@@ -21,6 +21,28 @@
  * and per-row keys (12K/day x 40d seed) would waste ~50MB in the
  * RSS-capped process. If FINRA ever reposts a corrected file we keep
  * the first version; noted in the manifest.
+ *
+ * OTC/ORF FACILITY ADDED 2026-07-27 (scheduled-routine PRODUCT session):
+ * CNMS ("Consolidated NMS") covers exchange-LISTED securities only —
+ * FINRA's own file catalog (developer.finra.org, live-fetched this
+ * session) confirms CNMS "combines exchange-listed securities reported
+ * to TRFs and the ADF," and lists a SEPARATE file, FORFshvol{YYYYMMDD}.txt
+ * ("ORF" = Over-the-Counter Reporting Facility), for non-exchange-listed
+ * OTC equities. Root-caused this session: server/settlementStress.ts's
+ * composite joins finrathreshold (server/finraQuery.ts's `thresholdList`
+ * dataset — OTC-only by FINRA's own schema: "OTC Regulation SHO and Rule
+ * 4320 Threshold Securities", confirmed via the live FINRA metadata
+ * endpoint) against CNMS-only short volume — two DISJOINT populations by
+ * regulatory design (OTC threshold names vs. NMS-exchange-listed short
+ * volume), so the composite's 3-way join was structurally guaranteed to
+ * find zero overlap forever, not "rare" or gate-2-blocked-on-time. Live-
+ * verified: FORFshvol20260625.txt (same header/format, `Market` field
+ * value "O") contains every one of that day's finrathreshold symbols
+ * (CHLSY, DSFIY, KRKNF, ...) that CNMS was missing. `readOrfArchivedDay`/
+ * `fetchOrfShortVolDay`/`archiveOrfShortVolDay` below are the fix: same
+ * parser (format is identical), separate archive dir + separate boot
+ * poll, so CNMS's existing consumers (squeeze-screen, symbol lookback,
+ * market-wide trend) are untouched. Full trace in experiments.md.
  */
 
 import fs from "fs";
@@ -40,6 +62,14 @@ export interface ShortVolRow {
 
 const FILE_URL = (yyyymmdd: string) =>
   `https://cdn.finra.org/equity/regsho/daily/CNMSshvol${yyyymmdd}.txt`;
+
+// ORF = FINRA's Over-the-Counter Reporting Facility file — the OTC/
+// non-exchange-listed counterpart to CNMS (see the OTC/ORF module
+// comment above). Same pipe-delimited schema; `parseShortVol` handles
+// both — verified live against FORFshvol20260624/20260625.txt this
+// session (header byte-identical to CNMS's).
+const ORF_FILE_URL = (yyyymmdd: string) =>
+  `https://cdn.finra.org/equity/regsho/daily/FORFshvol${yyyymmdd}.txt`;
 
 const num = (v: string): number | null => {
   if (v == null || v === "") return null;
@@ -117,22 +147,57 @@ export async function fetchShortVolDay(
   }
 }
 
+/** ORF (OTC facility) counterpart to fetchShortVolDay — same contract
+ *  (403/404 = valid non-trading-day, null = transport error). */
+export async function fetchOrfShortVolDay(
+  yyyymmdd: string,
+  fetchImpl: FetchFn = fetch as any,
+  nowMs?: number,
+): Promise<ShortVolRow[] | null> {
+  const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
+  try {
+    const r = await fetchImpl(ORF_FILE_URL(yyyymmdd), {
+      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+      signal: AbortSignal.timeout(30000) as any,
+    });
+    if (r.status === 403 || r.status === 404) return [];
+    if (!r.ok) {
+      console.error(`[datacore] finrashortvolotc ${yyyymmdd} -> ${r.status}`);
+      return null;
+    }
+    return parseShortVol(await r.text(), rt);
+  } catch (e: any) {
+    console.error(`[datacore] finrashortvolotc ${yyyymmdd}:`, e?.message || e);
+    return null;
+  }
+}
+
 // ── Archive (date-level dedup; one JSONL day-file per TRADE date) ───────────
 
 const archivedDates = new Set<string>();
 let seeded = false;
+const orfArchivedDates = new Set<string>();
+let orfSeeded = false;
 
 function svDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "finrashortvol");
 }
 
-function seedSeen(dir: string): void {
+function otcDir(baseDir?: string): string {
+  return path.join(baseDir || archiveBaseDir(), "finrashortvolotc");
+}
+
+function seedSeenInto(set: Set<string>, dir: string): void {
   try {
     for (const f of fs.readdirSync(dir)) {
       const m = f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/);
-      if (m) archivedDates.add(m[1]);
+      if (m) set.add(m[1]);
     }
   } catch {}
+}
+
+function seedSeen(dir: string): void {
+  seedSeenInto(archivedDates, dir);
 }
 
 /** Archive one day's rows under the TRADE date. Returns rows written
@@ -153,6 +218,93 @@ export function archiveShortVolDay(rows: ShortVolRow[], baseDir?: string): numbe
     console.error("[datacore] finrashortvol archive:", e?.message || e);
     return 0;
   }
+}
+
+/** ORF counterpart to archiveShortVolDay — separate dir/dedup set so a
+ *  symbol appearing in neither, either, or (never in practice — the two
+ *  facilities cover disjoint listed/OTC populations) both files never
+ *  collides with CNMS's own archive. */
+export function archiveOrfShortVolDay(rows: ShortVolRow[], baseDir?: string): number {
+  if (!rows.length) return 0;
+  const dir = otcDir(baseDir);
+  if (!orfSeeded) { seedSeenInto(orfArchivedDates, dir); orfSeeded = true; }
+  const date = rows[0].date;
+  if (orfArchivedDates.has(date)) return 0;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${date}.jsonl`),
+                     rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    orfArchivedDates.add(date);
+    return rows.length;
+  } catch (e: any) {
+    console.error("[datacore] finrashortvolotc archive:", e?.message || e);
+    return 0;
+  }
+}
+
+/** Read one ORF-archived day back (plain or gz). Poller-context only,
+ *  same shape as readArchivedDay. */
+export function readOrfArchivedDay(iso: string, baseDir?: string): ShortVolRow[] {
+  const dir = otcDir(baseDir);
+  for (const fp of [path.join(dir, `${iso}.jsonl`), path.join(dir, `${iso}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    const out: ShortVolRow[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try { out.push(JSON.parse(line)); } catch {}
+    }
+    return out;
+  }
+  return [];
+}
+
+/** One shallow-lookback refresh pass for the ORF/OTC facility — mirrors
+ *  refreshShortVol's newest-first loop, deliberately WITHOUT a deep-
+ *  backfill path (that stays a follow-up per the 2026-07-05 CNMS
+ *  emergency-off volume-fill incident this module's own history
+ *  documents — ship thin first, backfill is its own future PR/decision,
+ *  same precedent as every other census stream in this codebase). */
+export async function refreshOrfShortVol(fetchImpl: FetchFn = fetch as any, nowMs?: number,
+                                         lookbackDays = 10, baseDir?: string): Promise<void> {
+  const now = nowMs ?? Date.now();
+  try {
+    if (!orfSeeded) { seedSeenInto(orfArchivedDates, otcDir(baseDir)); orfSeeded = true; }
+    for (let i = 0; i < lookbackDays; i++) {
+      const iso = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+      if (orfArchivedDates.has(iso)) continue;
+      const yyyymmdd = iso.replace(/-/g, "");
+      const rows = await fetchOrfShortVolDay(yyyymmdd, fetchImpl, now);
+      if (rows === null || rows.length === 0) continue;
+      archiveOrfShortVolDay(rows, baseDir);
+      if (now - Date.parse(iso) >= 2 * 86400_000) {
+        try {
+          const fp = path.join(otcDir(baseDir), `${iso}.jsonl`);
+          if (fs.existsSync(fp)) {
+            fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
+            fs.unlinkSync(fp);
+          }
+        } catch {}
+      }
+      await new Promise((res) => setTimeout(res, 300)); // polite spacing
+    }
+  } catch (e: any) {
+    console.error("[datacore] finrashortvolotc refresh:", e?.message || e);
+  }
+}
+
+let orfPolling = false;
+
+/** Same 6h cadence as bootShortVolPoll (files publish evenings ET). */
+export function bootOrfShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
+  if (orfPolling) return;
+  orfPolling = true;
+  refreshOrfShortVol().catch((e) => console.error("[datacore] finrashortvolotc boot:", e?.message || e));
+  setInterval(() => { refreshOrfShortVol(); }, intervalMs).unref?.();
 }
 
 function gzTargets(dir: string, now: number): string[] {
