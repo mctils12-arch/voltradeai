@@ -6732,17 +6732,31 @@ audit (all measured under SwiftShader; ratios are the finding):
   of idle permanently (10.6-10.9 renders/s terrain-off). Post-fix each
   frame is cheap (1.04× terrain baseline), but an idle-when-static
   scheme (skip tick when no aircraft moved a pixel) would cut battery/
-  GPU duty. Measure first: renders/s vs pixels moved.
-- celestialSky runs an unconditional rAF WebGL draw on the normal map
-  (celestialSky.ts ~995) — a fixed per-frame tax; gate by visibility?
-- TRAIL REBUILD STORM: paintTrack re-queries up to ~9k
-  queryTerrainElevation samples with a 25s cache TTL while rebuild
-  triggers arrive every 15-30s — periodic main-thread stalls with a
-  followed plane + terrain. Options: raise TTL (datum-keyed), or move
-  ground sampling to the DEM decoder (lib/elevation) off the query path.
+  GPU duty. Measure first: renders/s vs pixels moved. STILL OPEN as of
+  2026-07-27 — not fixed, not disproven.
+- **[CLOSED — fixed 2026-07-23, v1.0.481]** ~~celestialSky runs an
+  unconditional rAF WebGL draw on the normal map (celestialSky.ts ~995)
+  — a fixed per-frame tax; gate by visibility?~~ `mountCelestialSky`'s
+  render loop now checks `!doc.hidden` before every `drawFrame()` call
+  (celestialSky.ts:1000-1005) and re-renders once on `visibilitychange`
+  — commit e78c393, "Gate celestialSky's rAF WebGL draw by page
+  visibility". Confirmed live in this checkout 2026-07-27 (not just from
+  the commit message — read the current file). This item had gone
+  unmarked here for 4 days after shipping; caught while investigating
+  the MEASUREMENT-DEBT perf-gate entry below.
+- **[CLOSED — fixed 2026-07-21, v1.0.461]** ~~TRAIL REBUILD STORM:
+  paintTrack re-queries up to ~9k queryTerrainElevation samples with a
+  25s cache TTL while rebuild triggers arrive every 15-30s — periodic
+  main-thread stalls with a followed plane + terrain.~~ `groundDisplayAt`
+  (datamap.tsx:2989-3019) raised the cache TTL 25s→10min and the entry
+  cap 4000→9000, with the correctness case handled by an explicit
+  cfg-key flush (source|exaggeration) and repaintTrail3d, not the TTL —
+  commit bd55175. Confirmed live in this checkout 2026-07-27. Same
+  unmarked-for-days pattern as the celestialSky item above.
 - MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
-  GeoJSON sources helps terrain perf even for non-draped layers.
+  GeoJSON sources helps terrain perf even for non-draped layers. STILL
+  OPEN as of 2026-07-27 — not fixed, not disproven.
 
 ## [T-DATACORE] GEM per-layer freshness (coal_mine_features / methane_plumes) — investigated 2026-07-24, correctly NOT built this session
 The per-layer freshness chip (server/layerFreshness.ts, wishlist.md Phase
@@ -6893,3 +6907,40 @@ own PR, tagged [RULE-REVIEW].
 NOT FIXED HERE: out of scope for the PRODUCT session that found it (one
 logical change per PR); filed so a future REPAIR/RULE-REVIEW session has
 a concrete, dated reproduction instead of re-discovering it from scratch.
+
+UPDATE 2026-07-27 (scheduled-routine session) — step (1) of the LADDER
+PATH run: does NOT reproduce today, 3/3 clean runs on an untouched `main`
+HEAD (v1.0.508, this checkout's own build, zero code changes)
+
+Ran `node scripts/visual_check.mjs --page data` three times in a row in
+this session's own sandbox (same class of environment — Chromium/
+SwiftShader software rendering — as the sessions that found this red).
+All three runs: 0 hard failures. 768px median frame 117/133/133ms (gate
+200ms); 1440px p95 frame 233/233/250ms (gate 350ms) — comfortably under
+both thresholds every time, not a near-miss. This does NOT reproduce the
+2026-07-25 finding of two failing gates on an untouched tree.
+
+NOT CLOSING THIS ITEM: three clean runs in one container on one day is
+not proof the flakiness is gone — the original finding's own note ("one
+PR's A/B run showed only ONE of the two failures") already established
+this as noisy across containers/runs, so a clean streak here is
+consistent with either "genuinely fixed" or "this container happened to
+be quiet." Two of the four root causes the 2026-07-20 audit originally
+named ARE independently confirmed fixed since (see the amended entry
+below — TRAIL REBUILD STORM's TTL raise, v1.0.461, and celestialSky's
+visibility gate, v1.0.481) but both shipped BEFORE the 2026-07-25 red
+reading, so they cannot be the reason today's runs are clean if 07-25's
+reading is trusted at face value — the more honest read is that this
+gate's pass/fail is dominated by container noise, not by app-side frame
+cost, at least at the current margins. The two THEORETICALLY still-live
+causes (NEVER-IDLE GLIDE LOOP idle-when-static, MapLibre
+`prepareForRender` per-source cost) remain unfixed and unmeasured.
+
+PRACTICAL EFFECT: downgrading the "every client/ PR needs a manual A/B
+re-run past an assumed-red gate" framing — that assumption no longer
+matches live evidence in this environment. A future PR's own harness run
+failing this gate should now be treated as a real signal worth a quick
+A/B check, not pre-judged red-on-main. If a future session sees this gate
+fail again on an untouched tree, that re-establishes the flakiness and
+this item should stay open; if the gate stays clean across several more
+sessions' worth of independent runs, it can be closed outright.

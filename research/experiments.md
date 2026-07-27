@@ -3,6 +3,144 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-27 (scheduled-routine session, 4th today) [RESEARCH] — re-ran the 2026-07-25 MEASUREMENT-DEBT `/data` perf-gate repro 3x clean on untouched `main`; caught + closed two stale-but-already-fixed sub-findings in the same open_questions.md section while there (v1.0.509, T-CLIENT docs-only)
+
+TERRITORY: T-CLIENT (`research/open_questions.md` only — no app code
+touched) + `package.json` version bump (SHARED, last commit, minimal,
+per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full (this is the 4th scheduled-
+routine firing of the day — two prior REPAIR sessions already landed
+today: settlement-stress, PR #615, and the run_tiers() `on_phase`
+instrumentation, PR #616). `git fetch origin main` confirmed this
+checkout (`claude/busy-fermi-rv4nvv`) was already byte-identical to
+`origin/main` at `91ba78b` (v1.0.508) before any local edit — no reset
+needed. `python3 scripts/session_health_check.py --json` against the
+live site: no LIVENESS ALARM, `status: ok`. Two WARNs, both already-
+tracked and non-blocking: `tier2_daemon_timeouts` (31 in-window, KNOWN
+BROKEN #18 — this morning's PR #616 just closed the one remaining
+un-instrumented span; the next actionable step needs a fresh
+`tier_engine_*`-tagged occurrence that hasn't happened yet) and
+`ml_feedback` (61 live records, all `orphan_exit`, KNOWN BROKEN #12(c) —
+already-gated open exit-path item, not newly actionable). `deploy_freshness`
+OK (`server_version` matches). Loop-health ratio, last 10 real PR-tagged
+entries by git history (616 REPAIR, 615 REPAIR, 614 docs/no-tag, 613
+RESEARCH, 612 PRODUCT, 611 REPAIR, 610 PRODUCT, 609 REPAIR, 608 RESEARCH,
+607 REPAIR): 5/10 REPAIR — under the 7+ thrash trigger, no meta-problem,
+but a real concentration in T-BOT specifically (616/615/611/609/607 are
+all T-BOT or T-DATACORE-boundary REPAIR) — per the 2026-07-22 vessels-TTL
+session's own precedent ("deliberately looked outside T-CLIENT... per the
+WORKSTREAM PARTITION's diversification spirit"), the inverse applied here:
+deliberately looked in T-CLIENT for this session's action.
+
+PRIMARY ACTION SELECTION: KNOWN BROKEN #18's remaining NEXT STEP (read a
+fresh `tier_engine_*` `last_phase` occurrence) has no new data yet since
+this morning's fix — not actionable. KNOWN BROKEN #10 (SCORE_BAND_MAX
+dead config) is gated on `shadow_portfolio` reaching >=90 days of
+backfilled history; filed 2026-07-04, only 23 days elapsed — not ready.
+KNOWN BROKEN #12(c) is the already-accepted "wire path-by-path" gated
+item, re-confirmed non-blocking by this session's own health check, not
+re-opened (RECURRENCE ESCALATES: don't re-patch a settled item without
+new evidence). No matured experiment reached a judgment date today beyond
+what the two earlier sessions already handled. Fell through to the
+research/roadmap tier and picked the concrete, dated, unclaimed
+MEASUREMENT-DEBT entry filed 2026-07-25 (`open_questions.md`, "/data perf
+gate fails on an untouched baseline") — it names an exact repro command
+and is squarely a REPAIR-adjacent measurement-integrity question, not
+blocked on market hours or human input.
+
+WHAT WAS FOUND: per the entry's own LADDER PATH step (1) — "reproduce
+cleanly on `main` HEAD... to rule out this specific container being
+noisy" — ran `npm ci`, `npm run build` (clean; pre-existing
+astronomy-engine/chunk-size warnings only, byte-identical to documented
+baseline), then `node scripts/visual_check.mjs --page data` THREE times
+in a row on the untouched `v1.0.508` checkout, no code changes. All three
+runs: **0 hard failures**. 768px median frame 117ms/133ms/133ms (gate:
+200ms); 1440px p95 frame 233ms/233ms/250ms (gate: 350ms) — comfortably
+under both thresholds every time, not a near-miss. This does NOT
+reproduce the 2026-07-25 finding of two failing perf gates on an
+untouched tree.
+
+READ BEFORE WRITE, while investigating why: read `celestialSky.ts` (the
+"unconditional rAF WebGL draw" the 2026-07-20 terrain audit named as a
+suspect) and found it is ALREADY gated by `!doc.hidden` before every
+`drawFrame()` call, plus a `visibilitychange` catch-up render — confirmed
+via `git log` this shipped in commit `e78c393` (v1.0.481, 2026-07-23,
+"Gate celestialSky's rAF WebGL draw by page visibility"). Read
+`groundDisplayAt` in `datamap.tsx` (the "TRAIL REBUILD STORM" suspect,
+~9k `queryTerrainElevation` re-sweeps on a 25s TTL) and found the TTL was
+ALREADY raised to 10 minutes (with the entry cap raised 4000→9000),
+correctness handled by an explicit cfg-key flush rather than the TTL —
+shipped in commit `bd55175` (v1.0.461, 2026-07-21). BOTH fixes had gone
+unmarked in `open_questions.md`'s 2026-07-20 audit-findings list for 4-6
+days after shipping — the list still read as if all four named causes
+were open, which is exactly the kind of stale record MEMORY PROTOCOL
+exists to prevent (a future session re-diagnosing these two would have
+wasted a full investigation reaching a conclusion this session already
+has direct commit evidence for).
+
+HONEST CAVEAT, not glossed over: both fixes shipped BEFORE the 2026-07-25
+red reading (07-21 and 07-23 vs. 07-25), so they cannot be the reason
+today's three runs are clean if the 07-25 reading is taken at face
+value — either the 07-25 session's own container was unusually loaded
+that one time (consistent with that entry's own already-noted run-to-run
+variance), or some other factor changed since. Did NOT overclaim "fixed"
+for the perf-gate item itself — filed as "not reproducing today, still
+flaky/environment-dependent by its own prior evidence," left open with a
+concrete re-close/re-open condition for the next session that hits it
+either way. The two THEORETICALLY still-live causes from the 07-20 audit
+(NEVER-IDLE GLIDE LOOP idle-when-static, MapLibre `prepareForRender`
+per-source cost) remain unfixed and unmeasured — flagged as still open,
+not touched this session (each is its own scoped fix, not verifiable
+without first building the "renders/s vs pixels moved" measurement the
+audit itself called for).
+
+WHAT SHIPPED: `research/open_questions.md` only — (1) the MEASUREMENT-
+DEBT entry gained an UPDATE 2026-07-27 block with the 3-run reproduction
+result, the honest caveat above, and a concrete re-close/re-open
+condition (downgrades the "every client/ PR needs a manual A/B past an
+assumed-red gate" framing, since that assumption no longer matches live
+evidence in this environment); (2) the 2026-07-20 terrain-audit follow-
+ups list marked the celestialSky and TRAIL REBUILD STORM sub-findings
+`[CLOSED — fixed ...]` with their real commit hashes/dates, using the
+same `~~strikethrough~~` convention KNOWN BROKEN items already use, and
+explicitly marked the two still-open ones ("STILL OPEN as of 2026-07-27")
+so the section no longer reads as uniformly-open. Zero app code changed.
+
+GATES: `python3 -m pytest -q` — 964 passed, 1 skipped (matches this
+morning's PR #616 baseline exactly; zero Python files touched, pure
+sanity check per MEASUREMENT INTEGRITY discipline even for a docs PR).
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts` — 1038 passed,
+0 failed (zero TS/client files touched). `npm run build` — clean, same
+warnings as documented baseline. `npx tsc --noEmit` / `npm run visual`
+not re-run beyond the 3 perf-repro runs already reported above (no
+component code changed, nothing new to visually regress).
+
+BACKTEST: N/A — pure documentation correction + a measurement-repro
+research finding; zero scoring, sizing, execution, or app-rendering code
+touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or any live data path. The only "downstream" effect is on
+future sessions' own behavior: a future client/ PR's harness run is no
+longer pre-judged against an assumed-red gate, and a future session
+investigating the 2026-07-20 audit's follow-up list won't re-diagnose the
+two already-fixed items.
+
+Version 1.0.508 -> 1.0.509 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical to this
+morning's PR #616 — no advance since session start).
+
+NEXT: the two still-open 2026-07-20 audit causes (NEVER-IDLE GLIDE LOOP,
+MapLibre `prepareForRender`) are both real, scoped, unclaimed T-CLIENT
+perf work for a future session — the audit's own text already states
+what to measure first for the glide-loop one ("renders/s vs pixels
+moved"). Separately: if a future session's own client/ PR hits a red
+perf gate on `/data`, that is now real signal per this session's
+downgrade above — worth a quick A/B before assuming it's baseline noise,
+not before. GITHUB ACTIONS CI: not re-checked this session; assumed still
+recovered per KNOWN STATE.
+
 ## 2026-07-27 (scheduled-routine PRODUCT session) [REPAIR] — root-caused + fixed the settlement-stress composite's permanent zero-output bug: it joined an OTC-only threshold list against an NMS-only short-volume file (v1.0.507, T-DATACORE)
 
 TERRITORY: T-DATACORE (`server/finraShortVolume.ts`, `server/settlementStress.ts`,
