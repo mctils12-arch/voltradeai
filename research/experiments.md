@@ -30588,3 +30588,124 @@ chromium is not routed through this container's egress proxy
 verification (forbidden) or accepting the gap — gap accepted, since the
 byte-identical file passed all 8 probe groups locally and every asset is
 confirmed served with the right type.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · [PRODUCT] · T-CLIENT
+/moon.html round 2: zoom tool, imperial units, streamed LROC WAC detail (v1.0.520)
+
+HUMAN REPORT: "hard to zoom in to the moon at 300 miles on the phone …
+it needs to be like google maps or a sat view of the moon what it is
+really like — and how low can we go, what do we have?"
+
+ANSWERED THE DATA QUESTION FIRST (all arithmetic re-derived, and it
+CORRECTED a number this session had already shipped). Moon circumference
+10,916 km => 30,323 m per degree of longitude:
+  moonmap1k   1000px  =  10,916 m/px
+  2k_moon     2048px  =   5,330 m/px
+  moon_8k     8192px  =   1,333 m/px   <- the shipped base
+  WAC z7    32768px  =     167 m/px
+  WAC z8    65536px  =      83 m/px   (source is 303 ppd = 100 m/px)
+CORRECTION: v1.0.511's file header and log said the 8k base was
+"~4.7 km/px". It is 1,333 m/px — the earlier figure was wrong by 3.5x and
+matched no asset on disk. Corrected in the file header this round.
+
+WHY 300 MILES LOOKED BAD (the actual diagnosis): at 483 km on an 844px-tall
+phone one screen pixel covers 509 m, but the base mosaic only carries a
+pixel every 1,333 m — a 2.6x magnification. The blur was real and no
+renderer setting could fix it; it needed more imagery.
+
+HOW LOW CAN WE GO (honest ceiling, now in the file header too): WAC is
+sharp to ~50 mi altitude and softens below. Lower needs a different
+source: Kaguya TC ~10 m/px (~6 mi, on Trek, unprobed) or LROC NAC
+0.5-2 m/px (~1000 ft) which is NOT global — select sites only. So
+"anywhere on the Moon" has a hard floor near 6 mi, and that is a data
+limit, not a code one.
+
+BUILT
+1. STREAMED WAC DETAIL. Scheme reused from lroc.ts (itself probed from
+   WMTSCapabilities.xml), re-confirmed live this session: z8 tile -> 200
+   image/jpeg ~32 KB, z9 -> 404, Access-Control-Allow-Origin: * so the
+   browser fetches tiles directly with NO server relay. The patch is
+   addressed in the same equirect UV space as the base mosaic, so
+   alignment is inherited rather than re-derived, and fract() on the u
+   difference makes the 0/1 seam wrap-safe for free. Level is chosen to
+   match SCREEN resolution (not the deepest available — z8 at 300 mi
+   would be 6x oversampled for 64x the tiles), tile-budget bounded,
+   rebuilt only after the camera settles 140 ms, cross-faded in, and
+   released entirely when zoomed out.
+   MEASURED AT EXACTLY 300 MILES: z6 / 333 m/px against a 509 m/px
+   screen, and mean |laplacian| of the centre 260px went 1.29 -> 5.12,
+   i.e. 3.95x more high-frequency detail. That is the whole ask, verified
+   as a number rather than an impression.
+2. ZOOM TOOL. −/+ buttons (48px) that REPEAT while held (20,000 km ->
+   514 km in a 2s hold), a logarithmic altitude slider spanning
+   12 mi–18,600 mi in one drag (300 mi lands at slider 565, mid-track),
+   and a reset button, since long-press was never discoverable.
+3. IMPERIAL UNITS. v1.0.511 violated the standing UNITS PREFERENCE
+   directive by printing km/Mm. Now miles/feet by default, one-tap
+   toggle, persisted to the SAME `vt-units` localStorage key
+   client/src/lib/units.ts uses, so this page and /data agree. Storage
+   and maths stay in km; only display converts.
+4. HONESTY READOUT. The HUD prints the imagery's true resolution and
+   labels the view "sharp" or "N x soft" — so at 25 mi it says
+   "31.6x soft" instead of flattering itself.
+
+FIVE REAL BUGS THE PROBE CAUGHT (all mine, all fixed)
+a. kick() was called three times and never defined — a ReferenceError
+   that would fire on the first zoom-button press.
+b. hRes was used in the HUD updater and never declared — would have
+   thrown every 250 ms.
+c. disposeDetail() existed but was never called, leaking the mosaic
+   CanvasTexture across every context-loss rebuild.
+d. THE GLOBAL-VIEW GUARD WAS BACKWARDS IN EFFECT. It bailed on span
+   size, but when zoomed out only the CENTRE ray hits the sphere, so the
+   measured span stayed tiny and it cheerfully streamed z0 tiles at
+   30,000 km. Correct criterion: if ANY sampled ray misses, the limb is
+   in frame, we are looking at the whole disc, and the base mosaic is
+   already finer than a screen pixel — so stream nothing.
+e. A STUCK SLIDER FLAG. slideDragging was cleared on pointerup, so
+   driving the slider with ARROW KEYS (input fires, pointerup never
+   does) left it true forever and the slider stopped following the
+   camera. Replaced with a recency stamp that covers pointer, touch,
+   keyboard and programmatic input alike.
+Plus a layout collision the screenshots exposed: the HUD's widest row
+("8k · max 8192" + "4,372 ft/px · 2.6x soft") grew into the top-right
+credit and overlapped it at 390px. Below the phone breakpoint the credit
+now sits in the empty strip above the zoom bar.
+
+ALSO FIXED: the tile budget (28) was the binding constraint and forced
+z5 (666 m/px) at 300 mi — COARSER than the 509 m/px screen, i.e. mildly
+soft while the HUD still said "sharp". Raised to 64 (a ~2048px-square
+mosaic) so the screen-matched level is always reachable.
+
+KNOWN SOFT BAND, MEASURED NOT HIDDEN: streaming only runs while the disc
+does NOT fit on screen (covering the visible cap once the limb is in
+frame would need ~300 tiles). Phone and tablet have NO gap — streaming
+stops at ~2,200 / ~1,835 km, past which the base is already finer than a
+screen pixel. A WIDE desktop's frame corners clear the limb sooner, so
+1920x1080 has a band (~847-1616 km / 526-1004 mi) where the base is
+magnified up to 1.9x; the HUD says so. Fix path if it ever matters:
+stream a centre-weighted patch instead of the full visible cap.
+
+PROBE NOTES FOR THE NEXT SESSION: two of this round's "failures" were
+wrong ASSERTIONS, not wrong code — "must pick z8" (no: screen-matched is
+correct and cheaper) and "slider at 300 mi should read 700-950" (no:
+565, confirmed independently in pure math). A tile <img> 404 also logs a
+console line JS cannot suppress, so assert on exceptions, not on console
+noise. Chromium here has no egress (the proxy is curl-only), so the probe
+intercepts trek.nasa.gov and fulfils with REAL bytes fetched via curl —
+the true path (URL math, decode, mosaic, upload, shader) runs on genuine
+WAC pixels; only browser egress is stubbed, and CORS was confirmed by
+curl separately.
+
+VERIFIED: full probe ALL CHECKS PASSED (8 groups: boot, units incl.
+persistence, zoom tool incl. hold-repeat and slider extremes, WAC
+streaming with the sharpness delta, honesty readout, zoomed-out release,
+context loss WITH a patch resident rebuilding to exactly one canvas, and
+layout); a separate layout sweep clear at 360/390/768/1440 with the
+widest HUD text; pure-math checks on the slider mapping (exact
+round-trip, monotonic) and the unit formatters (483 km -> "300 mi",
+83 m/px -> "272 ft/px"). Screenshots at 390 and 1440, base vs WAC.
+NOT CLAIMED: real-hardware 60fps or real-device touch (SwiftShader is
+software GL, 11-30 fps here), and no real-browser boot against the
+production URL for the same proxy reason. FROZEN PATHS: none touched.

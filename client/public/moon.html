@@ -14,7 +14,26 @@
     third-party runtime dependency to a page whose whole job is to keep
     rendering, and works offline. An unpkg/esm.sh import would have been the
     CSP hazard; jsdelivr would not.
-  · Imagery is the repo's existing NASA LRO mosaics in ./space/ — no network.
+  · BASE imagery is the repo's existing NASA LRO mosaics in ./space/ (offline).
+  · DETAIL imagery streams LROC WAC tiles from NASA Moon Trek on demand. The
+    base 8k mosaic is 1,333 m/px, so at 300 miles up one screen pixel is ~509 m
+    and the base is being magnified ~2.6x — visibly soft, which is exactly what
+    prompted this. WAC z8 is ~83 m/px (source 303 ppd = 100 m/px), i.e. ~6x
+    oversampled at that altitude, so it is genuinely sharp. 16x finer than base.
+    KNOWN SOFT BAND (measured, not hidden): a patch is only streamed while the
+    whole disc does NOT fit on screen, because once the limb is in frame the
+    visible cap spans ~100 deg of latitude and covering it would need ~300 tiles.
+    On a phone or tablet that costs nothing — streaming stops at ~2,200 km / ~1,835
+    km, by which point the base 8k is already finer than a screen pixel. On a WIDE
+    desktop the frame corners clear the limb sooner, so 1920x1080 has a band
+    (~847-1616 km, 526-1004 mi) where the base is magnified up to 1.9x. The HUD
+    says "1.9x soft" there rather than pretending. Fix path if it matters: stream
+    a centre-weighted patch instead of the full visible cap.
+    HOW LOW: sharp to roughly 50 mi altitude. Below that WAC is magnified too.
+    Going lower needs a different source (Kaguya TC ~10 m/px, or LROC NAC
+    0.5-2 m/px which is NOT global — select sites only). Nothing here pretends
+    to detail it does not have: the HUD prints the imagery's true m/px and
+    labels the view "sharp" or "N x soft".
 
   ALTITUDE-DRIVEN LIGHTING (the core feature)
     altitude = |camera - center| - MOON_RADIUS_KM
@@ -57,25 +76,82 @@
     background: rgba(8, 12, 20, .72); border: 1px solid rgba(148, 163, 184, .18);
     border-radius: 10px; backdrop-filter: blur(8px);
   }
-  #hud { top: max(10px, env(safe-area-inset-top)); left: 10px; min-width: 178px; }
+  #hud { top: max(10px, env(safe-area-inset-top)); left: 10px; min-width: 178px; max-width: min(64vw, 268px); }
   #hud .row { display: flex; justify-content: space-between; gap: 14px; }
   #hud .k { color: #64748b; }
   #hud .v { color: #e2e8f0; font-variant-numeric: tabular-nums; }
   #hud .bar { height: 3px; margin-top: 7px; border-radius: 2px; background: rgba(148,163,184,.2); overflow: hidden; }
   #hud .bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg,#38bdf8,#facc15); }
 
-  #help { bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; max-width: min(62vw, 430px); color: #94a3b8; }
+  #hud .u {
+    margin-top: 7px; width: 100%; font: inherit; font-size: 11px; color: #94a3b8; cursor: pointer;
+    background: rgba(148,163,184,.12); border: 1px solid rgba(148,163,184,.18);
+    border-radius: 6px; padding: 4px 0; min-height: 26px;
+  }
+  #hud .u:hover { color: #e2e8f0; background: rgba(148,163,184,.2); }
+
+  #help { bottom: 70px; left: 10px; max-width: min(46vw, 400px); color: #94a3b8; }
   #help b { color: #cbd5e1; font-weight: 600; }
   #credit {
-    bottom: max(10px, env(safe-area-inset-bottom)); right: 10px; font-size: 11px; color: #64748b;
+    position: fixed; z-index: 5; top: max(10px, env(safe-area-inset-top)); right: 10px;
+    font-size: 11px; color: #64748b; max-width: 45vw; text-align: right;
     background: rgba(8,12,20,.6); border: 1px solid rgba(148,163,184,.12); border-radius: 8px; padding: 6px 9px;
-    position: fixed; z-index: 5;
   }
+
+  /* ── ZOOM BAR — the phone-first zoom tool. Horizontal (no rotated-range
+     hacks), thumb-reachable, 48px targets, and it flanks a log-altitude
+     slider so three decades of altitude are one drag apart. ── */
+  #zoomui {
+    position: fixed; z-index: 6; left: 50%; transform: translateX(-50%);
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 8px;
+    width: min(440px, calc(100vw - 24px));
+    padding: 8px 10px; border-radius: 12px;
+    background: rgba(8, 12, 20, .78); border: 1px solid rgba(148, 163, 184, .2);
+    backdrop-filter: blur(8px);
+  }
+  #zoomui button {
+    flex: 0 0 auto; width: 48px; height: 48px; border-radius: 10px; cursor: pointer;
+    font: 600 20px/1 ui-monospace, monospace; color: #e2e8f0;
+    background: rgba(148, 163, 184, .16); border: 1px solid rgba(148, 163, 184, .22);
+    display: grid; place-items: center; touch-action: none; user-select: none;
+  }
+  #zoomui button:hover { background: rgba(148, 163, 184, .28); }
+  #zoomui button:active { background: #38bdf8; color: #06202e; }
+  #zoomui button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+  #zoomui #zHome { font-size: 15px; }
+  #zSlide {
+    flex: 1 1 auto; min-width: 0; height: 48px; margin: 0; background: transparent;
+    -webkit-appearance: none; appearance: none; touch-action: pan-x;
+  }
+  #zSlide::-webkit-slider-runnable-track {
+    height: 5px; border-radius: 3px;
+    background: linear-gradient(90deg, #475569, #38bdf8);
+  }
+  #zSlide::-moz-range-track { height: 5px; border-radius: 3px; background: #475569; }
+  #zSlide::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 26px; height: 26px; margin-top: -11px;
+    border-radius: 50%; background: #e2e8f0; border: 3px solid #0f172a; cursor: grab;
+  }
+  #zSlide::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0; border: 3px solid #0f172a;
+  }
+  #zSlide:focus-visible { outline: 2px solid #38bdf8; outline-offset: 4px; border-radius: 8px; }
+
   @media (max-width: 560px) {
     body { font-size: 12px; }
     #help { display: none; }         /* gestures are discoverable; screen is precious */
-    #hud { min-width: 154px; }
+    #hud { min-width: 150px; max-width: 72vw; padding: 7px 9px; }
+    /* The HUD's widest row ("8k · max 8192" + "4,372 ft/px · 2.6x soft") grew
+       into the top-right credit and overlapped it at 390px. Below the phone
+       breakpoint the credit moves to the empty strip above the zoom bar, where
+       nothing else lives, instead of fighting the HUD for the top row. */
+    #credit {
+      top: auto; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 76px);
+      right: 10px; font-size: 10px; max-width: 74vw; padding: 5px 7px;
+    }
   }
+  @media (max-width: 900px) and (min-width: 561px) { #help { display: none; } }
 
   /* Context-loss / fatal overlay — deliberately cheap: no WebGL, no textures. */
   #overlay {
@@ -99,9 +175,11 @@
 <div id="hud" class="panel" aria-live="off">
   <div class="row"><span class="k">altitude</span><span class="v" id="hAlt">—</span></div>
   <div class="row"><span class="k">terminator&nbsp;t</span><span class="v" id="hTerm">—</span></div>
-  <div class="row"><span class="k">texture</span><span class="v" id="hTex">—</span></div>
+  <div class="row"><span class="k">imagery</span><span class="v" id="hTex">—</span></div>
+  <div class="row"><span class="k">detail</span><span class="v" id="hRes">—</span></div>
   <div class="row"><span class="k">fps</span><span class="v" id="hFps">—</span></div>
   <div class="bar"><i id="hBar"></i></div>
+  <button class="u" id="hUnits" type="button" title="Switch units (remembered)">miles</button>
 </div>
 
 <div id="help" class="panel">
@@ -109,7 +187,17 @@
   <b>double-click or double-tap</b> zoom in · <b>long-press or Home</b> reset
 </div>
 
-<div id="credit">Imagery: NASA/LRO LROC WAC · public domain</div>
+<div id="credit">NASA/LRO LROC WAC 303 ppd · trek.nasa.gov · public domain</div>
+
+<!-- The zoom tool. Buttons repeat while held, so crossing three decades of
+     altitude does not need a dozen pinches on a phone. -->
+<div id="zoomui" role="group" aria-label="Zoom">
+  <button id="zOut" type="button" aria-label="Zoom out (hold to keep zooming)" title="Zoom out — hold to keep going">−</button>
+  <input id="zSlide" type="range" min="0" max="1000" step="1" value="0"
+         aria-label="Altitude" title="Drag to change altitude">
+  <button id="zIn" type="button" aria-label="Zoom in (hold to keep zooming)" title="Zoom in — hold to keep going">+</button>
+  <button id="zHome" type="button" aria-label="Reset view" title="Reset view">⌂</button>
+</div>
 
 <div id="overlay" role="alertdialog" aria-modal="true" aria-labelledby="ovTitle">
   <div class="card">
@@ -149,6 +237,37 @@ const DEFAULT_SUN = new THREE.Vector3(1, 0.22, 0.55).normalize();
 // lit case just under 1.0. setSunColor() can override for a blown-out look.
 const DEFAULT_SUN_COLOR = new THREE.Color(1.0, 0.97, 0.92).multiplyScalar(0.6);
 
+// ── LROC WAC streamed detail (NASA Moon Trek WMTS) ──────────────────────────
+// Scheme is NOT guessed: it matches client/src/lib/celestial/lroc.ts, which was
+// probed from the service's own WMTSCapabilities.xml, and was re-confirmed live
+// this session (z8 tile -> 200 image/jpeg ~32 KB, z9 -> 404, and
+// Access-Control-Allow-Origin: * so the browser fetches tiles directly with no
+// server relay). Level z has 2^(z+1) columns x 2^z rows of 256px tiles, each
+// spanning 180/2^z degrees square, TopLeftCorner (-180, +90).
+const WAC = {
+  base: "https://trek.nasa.gov/tiles/Moon/EQ/LRO_WAC_Mosaic_Global_303ppd_v02/1.0.0/default/default028mm",
+  tilePx: 256,
+  maxZ: 8,                   // z9 404s — verified
+  credit: "NASA/LRO LROC WAC 303 ppd · trek.nasa.gov · public domain",
+};
+const MOON_CIRC_M = 2 * Math.PI * MOON_RADIUS_KM * 1000;
+const M_PER_DEG = MOON_CIRC_M / 360;                       // 30,323 m
+const wacDegPerTile = (z) => 180 / Math.pow(2, z);
+const wacCols = (z) => Math.pow(2, z + 1);
+const wacRows = (z) => Math.pow(2, z);
+/** metres per texel of level z at the equator (z8 ≈ 83 m; source is 303 ppd
+ *  ≈ 100 m/px, so z8 slightly oversamples the real imagery). */
+const wacMetresPerPx = (z) => M_PER_DEG / ((wacCols(z) * WAC.tilePx) / 360);
+const BASE_TEX_M_PER_PX = M_PER_DEG / (8192 / 360);        // 1,333 m for moon_8k
+// Fetch budget per mosaic. 64 x 256px tiles is at most a ~2048px-square
+// mosaic (~16 MB as RGBA) — enough that the level which MATCHES screen
+// resolution is always reachable. At 28 the budget was the binding constraint
+// and forced z5 (666 m/px) at 300 mi, i.e. COARSER than the screen's 509 m/px:
+// mildly soft while the HUD still said "sharp".
+const MAX_PATCH_TILES = 64;
+const DETAIL_SETTLE_MS = 140;       // rebuild only once the camera stops moving
+const DETAIL_FADE_PER_S = 3.2;
+
 const TEX_DIR = "./space/";
 const BUMP_TEX = { file: "moonbump1k.jpg", w: 1000, h: 500 };
 // Real, measured sizes of the assets already in this repo.
@@ -174,6 +293,39 @@ const sunColor = DEFAULT_SUN_COLOR.clone();
 const clampAlt = (a) => Math.min(ALT_MAX, Math.max(ALT_MIN, a));
 const clampLog = (l) => Math.log(clampAlt(Math.exp(l)));
 const altitude = () => clampAlt(Math.exp(view.logAlt));
+
+/* ── units ──────────────────────────────────────────────────────────────────
+   The site has ONE user-facing unit preference (imperial default), persisted
+   under the `vt-units` localStorage key by client/src/lib/units.ts. This page
+   is a standalone static file with no bundler, so it cannot import that module
+   — but it reads and writes the SAME key, so flipping units here or in /data
+   agrees. Every distance shown below goes through these formatters; state and
+   maths stay in km/metres and only display converts. */
+const UNITS_KEY = "vt-units";
+let units = "imperial";
+try {
+  const u = globalThis.localStorage?.getItem(UNITS_KEY);
+  if (u === "metric" || u === "imperial") units = u;
+} catch { /* no storage — imperial default stands */ }
+
+const KM_PER_MI = 1.609344, FT_PER_M = 3.280839895;
+/** altitude, given km */
+function fmtAlt(km) {
+  if (units === "metric") return km >= 1000 ? `${(km / 1000).toFixed(2)} Mm` : `${km.toFixed(km < 100 ? 1 : 0)} km`;
+  const mi = km / KM_PER_MI;
+  return mi >= 1000 ? `${Math.round(mi).toLocaleString()} mi` : `${mi.toFixed(mi < 100 ? 1 : 0)} mi`;
+}
+/** ground resolution, given metres per pixel */
+function fmtRes(m) {
+  if (units === "metric") return m >= 1000 ? `${(m / 1000).toFixed(2)} km/px` : `${Math.round(m)} m/px`;
+  const ft = m * FT_PER_M;
+  return ft >= 5280 ? `${(ft / 5280).toFixed(2)} mi/px` : `${Math.round(ft).toLocaleString()} ft/px`;
+}
+function setUnits(u) {
+  units = u === "metric" ? "metric" : "imperial";
+  try { globalThis.localStorage?.setItem(UNITS_KEY, units); } catch { /* best effort */ }
+  hudAt = 0;   // force an immediate HUD repaint in the new units
+}
 const smoothstep = (e0, e1, x) => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
@@ -204,11 +356,33 @@ const FRAG = /* glsl */`
   uniform float uTerminator;    // t: 0 = zoomed in (flat lit), 1 = zoomed out
   uniform float uBumpScale;
 
+  // ── streamed LROC WAC detail patch ──
+  // The patch is addressed in the SAME equirect UV space as the base mosaic
+  // (WMTS bbox lon[-180,180] lat[-90,90] maps 1:1 onto u,v), so alignment is
+  // inherited by construction rather than re-derived. uDetailOrigin/Span are
+  // the patch's UV rect; fract() on the u difference makes the 0/1 seam
+  // wrap-safe for free.
+  uniform sampler2D uDetail;
+  uniform vec2  uDetailOrigin;  // u0, v0
+  uniform vec2  uDetailSpan;    // uSpan, vSpan
+  uniform float uDetailMix;     // 0 = no patch resident, 1 = fully faded in
+
   varying vec2 vUv;
   varying vec3 vN;
 
   void main() {
     vec3 albedo = texture2D(uAlbedo, vUv).rgb;
+
+    if (uDetailMix > 0.0) {
+      vec2 d = vec2(fract(vUv.x - uDetailOrigin.x), vUv.y - uDetailOrigin.y) / uDetailSpan;
+      if (d.x >= 0.0 && d.x <= 1.0 && d.y >= 0.0 && d.y <= 1.0) {
+        // Feather the rim so a patch smaller than the screen never shows a hard
+        // rectangle while the next mosaic is still loading.
+        vec2 e = min(d, 1.0 - d);
+        float edge = smoothstep(0.0, 0.06, min(e.x, e.y));
+        albedo = mix(albedo, texture2D(uDetail, d).rgb, uDetailMix * edge);
+      }
+    }
 
     // ── normal from the HEIGHT map's gradient (see file header: this asset is
     // a height map, not a tangent-space normal map). East/north tangents come
@@ -253,6 +427,191 @@ function pickTier(renderer) {
   return { tier, maxTex, ramGiB, cores };
 }
 
+/* ──────────────── streamed LROC WAC detail patch ────────────────
+   Why this exists: moon_8k.jpg is 1,333 m/px, so at 300 miles up one screen
+   pixel is ~509 m and the base mosaic is being magnified ~2.6x — visibly soft.
+   WAC z8 is ~83 m/px, which is 6x oversampled at that altitude, i.e. actually
+   sharp. Everything below streams the smallest tile set that covers what is on
+   screen at the resolution the screen can show, and never blocks a frame.     */
+
+const detail = {
+  tex: null,            // THREE.CanvasTexture of the current mosaic
+  origin: [0, 0], span: [1, 1],
+  mix: 0,               // eased 0..1 (uDetailMix)
+  level: -1, tiles: 0, mPerPx: BASE_TEX_M_PER_PX,
+  wantKey: "", haveKey: "", inflight: false, lastMoveAt: 0, failed: 0,
+};
+let detailEnabled = true;             // setDetailEnabled() flips this for A/B checks
+const tileCache = new Map();          // "z/y/x" -> HTMLImageElement (decoded)
+const TILE_CACHE_MAX = 400;
+
+/** metres of moon surface per screen pixel at the current pose. */
+function screenMetresPerPx() {
+  const h = (gl?.canvas.clientHeight) || 800;
+  const fov = (gl?.camera.fov ?? 48) * Math.PI / 180;
+  return (2 * Math.tan(fov / 2) * altitude() * 1000) / h;
+}
+
+/** Direction (unit, mesh-local == world here) -> equirect UV, using exactly
+ *  THREE.SphereGeometry's own mapping so the patch lands where the base
+ *  texture's texels land: theta = v*PI from +Y, phi = u*2PI, and the geometry
+ *  writes x = -cos(phi)sin(theta), z = sin(phi)sin(theta), uv = (u, 1-v). */
+function dirToUv(d) {
+  const theta = Math.acos(Math.min(1, Math.max(-1, d.y)));
+  const phi = Math.atan2(d.z, -d.x);
+  return [((phi / (2 * Math.PI)) % 1 + 1) % 1, 1 - theta / Math.PI];
+}
+
+/** The UV rect the viewport actually shows, by raycasting a screen cross/corner
+ *  set against the sphere. Returns null when the view is too wide to be worth
+ *  streaming (zoomed out — the base mosaic is already at or beyond 1:1 there),
+ *  or when the patch would straddle a pole, where an equirect rect degenerates. */
+function visibleUvRect() {
+  const { camera } = gl;
+  camera.updateMatrixWorld();       // raycasts below read matrixWorld
+  const camPos = camera.position, R = MOON_RADIUS_KM;
+  const sub = camPos.clone().normalize();
+  const [su, sv] = dirToUv(sub);
+  const inv = new THREE.Matrix4().copy(camera.projectionMatrix).invert();
+  let duMax = 0, dvMax = 0, hits = 0;
+  const P = new THREE.Vector3(), ray = new THREE.Vector3();
+  for (const [nx, ny] of [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]) {
+    P.set(nx, ny, -1).applyMatrix4(inv).applyMatrix4(camera.matrixWorld);
+    ray.copy(P).sub(camPos).normalize();
+    // ray-sphere against the moon at the origin
+    const b = ray.dot(camPos), c = camPos.lengthSq() - R * R;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    const t = -b - Math.sqrt(disc);
+    if (t <= 0) continue;
+    hits++;
+    const hit = camPos.clone().addScaledVector(ray, t).normalize();
+    const [u, v] = dirToUv(hit);
+    let du = u - su; if (du > 0.5) du -= 1; else if (du < -0.5) du += 1;  // wrap-aware
+    duMax = Math.max(duMax, Math.abs(du));
+    dvMax = Math.max(dvMax, Math.abs(v - sv));
+  }
+  if (!hits) return null;
+  // A MISSED ray means the limb is inside the frame, i.e. we are looking at
+  // (nearly) the whole disc — which happens above ~2,500 km, where the base 8k
+  // mosaic is already finer than a screen pixel. Streaming a patch there buys
+  // nothing, and the old span-only guard never caught it: when zoomed out only
+  // the centre ray hits, so duMax stayed tiny and it happily fetched z0 tiles.
+  if (hits < 9) return null;
+  // pad slightly so a small camera nudge doesn't immediately invalidate (duMax
+  // is a HALF-span, so 2.16 = full span + 8% margin)
+  const uSpan = Math.min(0.5, duMax * 2.16 + 0.004);
+  const vSpan = Math.min(0.5, dvMax * 2.16 + 0.004);
+  if (uSpan >= 0.42 || vSpan >= 0.42) return null;         // belt and braces
+  if (sv + vSpan / 2 > 0.995 || sv - vSpan / 2 < 0.005) return null;  // pole
+  return { su, sv, uSpan, vSpan };
+}
+
+function loadTile(z, y, x) {
+  const key = `${z}/${y}/${x}`;
+  const hit = tileCache.get(key);
+  if (hit) return Promise.resolve(hit);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";          // CORS is * — see the WAC note
+    img.decoding = "async";
+    img.onload = () => {
+      if (tileCache.size >= TILE_CACHE_MAX) tileCache.delete(tileCache.keys().next().value);
+      tileCache.set(key, img);
+      resolve(img);
+    };
+    img.onerror = () => resolve(null);      // a hole stays base imagery, never a throw
+    img.src = `${WAC.base}/${z}/${y}/${x}.jpg`;
+  });
+}
+
+/** Build (or rebuild) the detail mosaic for the current pose. Fire-and-forget:
+ *  it only ever assigns uniforms when it finishes, so frames never wait on it. */
+async function refreshDetail() {
+  if (!gl || !detailEnabled || detail.inflight || detail.failed >= 3) return;
+  const rect = visibleUvRect();
+  if (!rect) {                       // zoomed out: drop back to the base mosaic
+    detail.wantKey = "";
+    detail.level = -1;
+    detail.mPerPx = BASE_TEX_M_PER_PX;
+    return;
+  }
+  // deepest level whose texels are at least as fine as a screen pixel, capped
+  const target = screenMetresPerPx();
+  let z = WAC.maxZ;
+  while (z > 0 && wacMetresPerPx(z - 1) <= target) z--;
+  // ...then back off if the tile budget would be blown at that level
+  let cols, rows, x0, y0, dpt;
+  for (;;) {
+    dpt = wacDegPerTile(z);
+    const uPerTile = dpt / 360, vPerTile = dpt / 180;
+    x0 = Math.floor(((rect.su - rect.uSpan / 2) % 1 + 1) % 1 / uPerTile);
+    const x1 = Math.floor(((rect.su + rect.uSpan / 2) % 1 + 1) % 1 / uPerTile);
+    const vTop = Math.min(1, rect.sv + rect.vSpan / 2), vBot = Math.max(0, rect.sv - rect.vSpan / 2);
+    y0 = Math.floor((1 - vTop) / vPerTile);
+    const y1 = Math.floor((1 - vBot) / vPerTile);
+    cols = ((x1 - x0) % wacCols(z) + wacCols(z)) % wacCols(z) + 1;
+    rows = Math.max(1, y1 - y0 + 1);
+    if (cols * rows <= MAX_PATCH_TILES || z <= 1) break;
+    z--;
+  }
+  const key = `${z}:${x0}:${y0}:${cols}:${rows}`;
+  if (key === detail.haveKey) return;
+  detail.wantKey = key;
+  detail.inflight = true;
+  try {
+    const imgs = await Promise.all(
+      Array.from({ length: cols * rows }, (_, i) => {
+        const cx = (x0 + (i % cols)) % wacCols(z);
+        const cy = Math.min(wacRows(z) - 1, y0 + Math.floor(i / cols));
+        return loadTile(z, cy, cx);
+      }),
+    );
+    if (!gl || detail.wantKey !== key) return;           // a newer pose won
+    const got = imgs.filter(Boolean).length;
+    if (!got) { detail.failed++; return; }
+    detail.failed = 0;
+    const cv = document.createElement("canvas");
+    cv.width = cols * WAC.tilePx; cv.height = rows * WAC.tilePx;
+    const cx2 = cv.getContext("2d", { alpha: false });
+    cx2.fillStyle = "#3a3a3a"; cx2.fillRect(0, 0, cv.width, cv.height);
+    imgs.forEach((im, i) => {
+      if (im) cx2.drawImage(im, (i % cols) * WAC.tilePx, Math.floor(i / cols) * WAC.tilePx,
+                            WAC.tilePx, WAC.tilePx);
+    });
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearFilter;                  // no mips: patch is ~1:1
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+
+    const uPerTile = wacDegPerTile(z) / 360, vPerTile = wacDegPerTile(z) / 180;
+    const prev = detail.tex;
+    detail.tex = tex;
+    detail.origin = [(x0 * uPerTile) % 1, 1 - (y0 + rows) * vPerTile];
+    detail.span = [cols * uPerTile, rows * vPerTile];
+    detail.level = z; detail.tiles = cols * rows;
+    detail.mPerPx = wacMetresPerPx(z);
+    detail.haveKey = key;
+    gl.mat.uniforms.uDetail.value = tex;
+    gl.mat.uniforms.uDetailOrigin.value.set(detail.origin[0], detail.origin[1]);
+    gl.mat.uniforms.uDetailSpan.value.set(detail.span[0], detail.span[1]);
+    if (prev) prev.dispose();
+    kick();
+  } finally {
+    detail.inflight = false;
+  }
+}
+
+function disposeDetail() {
+  if (detail.tex) { try { detail.tex.dispose(); } catch {} }
+  detail.tex = null; detail.mix = 0; detail.level = -1;
+  detail.haveKey = ""; detail.wantKey = ""; detail.failed = 0;
+  detail.mPerPx = BASE_TEX_M_PER_PX;
+}
+
 /* ─────────────────────────── GL lifecycle ─────────────────────────── */
 
 const stage = document.getElementById("stage");
@@ -262,6 +621,7 @@ const ovMsg = document.getElementById("ovMsg");
 const ovBtn = document.getElementById("ovBtn");
 const hAlt = document.getElementById("hAlt"), hTerm = document.getElementById("hTerm");
 const hTex = document.getElementById("hTex"), hFps = document.getElementById("hFps"), hBar = document.getElementById("hBar");
+const hRes = document.getElementById("hRes");
 
 let gl = null;        // { canvas, renderer, scene, camera, mesh, geo, mat, textures[] }
 let rafId = 0;
@@ -340,6 +700,10 @@ function buildGL() {
       uSunColor: { value: sunColor.clone() },
       uTerminator: { value: terminator() },
       uBumpScale: { value: 1.15 },
+      uDetail: { value: null },
+      uDetailOrigin: { value: new THREE.Vector2(0, 0) },
+      uDetailSpan: { value: new THREE.Vector2(1, 1) },
+      uDetailMix: { value: 0 },
     },
   });
   const mesh = new THREE.Mesh(geo, mat);
@@ -388,6 +752,7 @@ function teardownGL() {
   canvas.removeEventListener("webglcontextlost", onContextLost);
   canvas.removeEventListener("webglcontextrestored", onContextRestored);
   detachInput(canvas);
+  disposeDetail();          // the streamed mosaic is not in gl.textures
   try { scene.remove(mesh); } catch {}
   for (const t of textures) { try { t.dispose(); } catch {} }
   try { geo.dispose(); } catch {}
@@ -677,19 +1042,48 @@ function frame(now) {
   gl.mat.uniforms.uSunDir.value.copy(sunDir);
   gl.mat.uniforms.uSunColor.value.copy(sunColor);
 
+  // ── detail patch: rebuild only once the camera has settled (fetching on every
+  // frame of a drag would thrash the network for mosaics nobody sees), then
+  // cross-fade in so it never pops.
+  const moving = pointers.size > 0 || resetFrom ||
+    Math.abs(view.logAltTarget - view.logAlt) > 1e-4 ||
+    Math.abs(view.vTheta) > 1e-4 || Math.abs(view.vPhi) > 1e-4;
+  if (moving) detail.lastMoveAt = now;
+  else if (now - detail.lastMoveAt > DETAIL_SETTLE_MS) refreshDetail();
+  const wantMix = detail.tex && detail.level >= 0 ? 1 : 0;
+  if (detail.mix !== wantMix) {
+    const s = DETAIL_FADE_PER_S * dt;
+    detail.mix = wantMix > detail.mix ? Math.min(1, detail.mix + s) : Math.max(0, detail.mix - s);
+  }
+  gl.mat.uniforms.uDetailMix.value = detail.mix;
+
   gl.renderer.render(gl.scene, gl.camera);
 
   fpsAcc += dt; fpsN++;
   if (now - hudAt > 250) {
     hudAt = now;
     const alt = altitude();
-    hAlt.textContent = alt >= 1000 ? `${(alt / 1000).toFixed(2)} Mm` : `${alt.toFixed(0)} km`;
+    hAlt.textContent = fmtAlt(alt);
     hTerm.textContent = t.toFixed(3);
-    hTex.textContent = texLabel;
+    hTex.textContent = detail.level >= 0 ? `WAC z${detail.level} · ${detail.tiles} tiles` : texLabel;
+    // Honest sharpness readout: the imagery's own resolution, and whether the
+    // screen is currently magnifying it (soft) or oversampling it (sharp).
+    const shown = detail.level >= 0 ? detail.mPerPx : BASE_TEX_M_PER_PX;
+    const ratio = shown / screenMetresPerPx();
+    hRes.textContent = `${fmtRes(shown)} ${ratio > 1.35 ? `· ${ratio.toFixed(1)}× soft` : "· sharp"}`;
     hFps.textContent = fpsN ? Math.round(fpsN / fpsAcc).toString() : "—";
     hBar.style.width = `${(t * 100).toFixed(1)}%`;
+    hUnits.textContent = units === "imperial" ? "miles" : "kilometres";
+    if (!slideBusy()) zSlide.value = String(Math.round(altToSlider(alt)));
     fpsAcc = 0; fpsN = 0;
   }
+}
+
+/** Ensure a frame lands soon. The loop runs continuously while the page is
+ *  visible, so this only matters when something paused it (hidden tab, a
+ *  context-loss stop) and fresh state has just arrived. */
+function kick() {
+  if (!running && gl && !contextLost && !document.hidden) startLoop();
 }
 
 function startLoop() {
@@ -714,6 +1108,61 @@ function resize() {
   gl.camera.aspect = w / Math.max(1, h);
   gl.camera.updateProjectionMatrix();
 }
+
+/* ─────────────────── zoom tool (buttons + altitude slider) ───────────────────
+   The phone answer to "it's hard to pinch down to 300 miles": discrete steps
+   that REPEAT while held, plus a slider that spans the whole 12 mi – 18,600 mi
+   range in one drag. Slider is logarithmic, because altitude is. */
+
+const zIn = document.getElementById("zIn"), zOut = document.getElementById("zOut");
+const zHome = document.getElementById("zHome"), zSlide = document.getElementById("zSlide");
+const hUnits = document.getElementById("hUnits");
+const SLIDER_MAX = 1000;
+const LOG_MIN = Math.log(ALT_MIN), LOG_MAX = Math.log(ALT_MAX);
+/** slider 0 = furthest out, SLIDER_MAX = closest in (left→right = zoom in). */
+const altToSlider = (km) =>
+  (1 - (Math.log(clampAlt(km)) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * SLIDER_MAX;
+const sliderToAlt = (v) =>
+  Math.exp(LOG_MAX - (v / SLIDER_MAX) * (LOG_MAX - LOG_MIN));
+
+// "The user is working the slider right now" has to be true for pointer, touch
+// AND keyboard. A flag cleared on pointerup gets stuck forever when the slider
+// is driven by arrow keys (input fires, pointerup never does), after which the
+// slider stops following the camera. A recency stamp covers every input source.
+let slideTouchedAt = -1e9;
+const slideBusy = () => performance.now() - slideTouchedAt < 350;
+const onSlide = () => {
+  slideTouchedAt = performance.now();
+  resetFrom = null;
+  const km = sliderToAlt(Number(zSlide.value));
+  view.logAltTarget = clampLog(Math.log(km));
+  view.logAlt = view.logAltTarget;      // slider is direct, like a pinch
+  kick();
+};
+zSlide.addEventListener("input", onSlide);
+zSlide.addEventListener("change", onSlide);
+
+/** One press = a factor of 2 (same step as a double-tap). Holding keeps going
+ *  in smaller increments, which is what makes deep zoom bearable on a phone. */
+function holdZoom(btn, sign) {
+  let timer = 0;
+  const stop = () => { if (timer) { clearInterval(timer); timer = 0; } };
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { btn.setPointerCapture?.(e.pointerId); } catch { /* optional */ }
+    zoomBy(sign * Math.log(2));
+    stop();
+    timer = setInterval(() => zoomBy(sign * Math.log(1.16)), 80);
+    kick();
+  });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"]) {
+    btn.addEventListener(ev, stop);
+  }
+}
+holdZoom(zIn, -1);      // zooming IN lowers altitude
+holdZoom(zOut, +1);
+zHome.addEventListener("click", resetView);
+hUnits.addEventListener("click", () => setUnits(units === "imperial" ? "metric" : "imperial"));
 
 addEventListener("resize", resize);
 addEventListener("orientationchange", () => setTimeout(resize, 120));
@@ -743,10 +1192,20 @@ window.moonViewer = {
     altitude: altitude(), altitudeTarget: Math.exp(view.logAltTarget), terminator: terminator(),
     theta: view.theta, phi: view.phi,
     target: view.target.toArray(),
-    sunDir: sunDir.toArray(), texture: texLabel,
+    sunDir: sunDir.toArray(), texture: texLabel, units,
+    detail: { level: detail.level, tiles: detail.tiles, mix: detail.mix,
+              mPerPx: detail.mPerPx, enabled: detailEnabled, failed: detail.failed },
+    screenMetresPerPx: screenMetresPerPx(),
     running, contextLost,
     pointers: pointers.size, gesture: gestureMode,
   }),
+  /** Test/diagnostic hook: force the streamed detail layer off, so the base
+   *  mosaic's sharpness can be compared against the streamed one. */
+  setDetailEnabled(on) {
+    detailEnabled = !!on;
+    if (!detailEnabled) { disposeDetail(); if (gl) gl.mat.uniforms.uDetailMix.value = 0; }
+    kick();
+  },
   /** Test hook: drive the real WEBGL_lose_context path. */
   loseContext() { gl?.renderer.forceContextLoss(); },
   rebuild,
