@@ -79,6 +79,7 @@ import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
+import { bootEuDayAheadPricesPoll, latestPrices as latestEuPrices, euDayAheadPricesEnabled } from "./euDayAheadPrices";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
@@ -2358,6 +2359,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.stats.length,
       note: "realised generation in MW per bidding zone x fuel/technology type (PSRTYPE_MAPPINGS code + name), ~1-2h publication lag; stored at zone-native resolution, never resampled; a fuel type absent from a zone's window means zero generation of that type was published, not necessarily zero output; window min/max/mean expose series shape",
+      zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
+  // ENTSO-E day-ahead auction clearing price by EU bidding zone (RAW —
+  // wishlist 9c's last open follow-up, same token as eu-load/
+  // eu-generation-mix, built 2026-07-27). Serves the poller's cached
+  // per-zone stats only (event-loop rule).
+  bootEuDayAheadPricesPoll();
+  app.get("/api/data/eu-day-ahead-prices", (_req, res) => {
+    if (!euDayAheadPricesEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestEuPrices();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (day-ahead auction clearing price, A44)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "day-ahead auction clearing price per bidding zone, currency/unit as published (never assumed EUR/MWh); window spans 24h before to 48h after the poll, so tomorrow's auction result appears the day it publishes (~11:00-13:00 CET) rather than waiting for the next UTC day; negative prices are real (renewables oversupply) and reported as published, never clamped; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`",
       zones: hit.stats,
       issues: hit.issues,
     });
