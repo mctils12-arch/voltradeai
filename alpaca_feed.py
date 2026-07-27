@@ -44,6 +44,12 @@ _PREFERRED = "sip"
 _lock = threading.Lock()
 _state = {"feed": _PREFERRED, "probed_at": 0.0, "downgraded_since": None}
 
+_OPTIONS_DELAYED = "indicative"
+_OPTIONS_PREFERRED = "opra"
+
+_options_lock = threading.Lock()
+_options_state = {"feed": _OPTIONS_PREFERRED, "probed_at": 0.0, "downgraded_since": None}
+
 
 def _default_probe(timeout: float = 6.0) -> int:
     """One tiny snapshots request with feed=sip; returns the HTTP status
@@ -140,8 +146,100 @@ def feed_status() -> dict:
         }
 
 
+def _default_options_probe(timeout: float = 6.0) -> int:
+    """One tiny options snapshot request for SPY (always listed, deep
+    chain, never delisted) with feed=opra; returns the HTTP status (0 on
+    transport error — inconclusive, never a downgrade)."""
+    try:
+        import requests
+        r = requests.get(
+            "https://data.alpaca.markets/v1beta1/options/snapshots/SPY",
+            params={"feed": _OPTIONS_PREFERRED, "limit": 1},
+            headers={
+                "APCA-API-KEY-ID": os.environ.get("ALPACA_KEY", ""),
+                "APCA-API-SECRET-KEY": os.environ.get("ALPACA_SECRET", ""),
+            },
+            timeout=timeout,
+        )
+        return r.status_code
+    except Exception as e:
+        # Narrowly logged, not silently swallowed (test_silent_except_ratchet.py
+        # pins alpaca_feed.py at exactly 1 silent handler — _default_probe's
+        # above; this one must stay out of that class). 0 is still returned
+        # so the caller treats a transport failure as inconclusive.
+        print(f"[FEED] options entitlement probe failed (inconclusive, no "
+              f"downgrade): {e}", file=sys.stderr, flush=True)
+        return 0
+
+
+def options_feed(now: float | None = None, probe=None) -> str:
+    """The Alpaca OPTIONS feed every options-chain call site should
+    request. [REPAIR 2026-07-25]: KNOWN BROKEN #25's diagnosability fix
+    (v1.0.481) surfaced the actual cause of options_execution.py's
+    Tier1/2 CSP "no options contracts" failures — live audit trail
+    (T2-FAIL, 2026-07-25T20:06:53Z) showed HTTP 403 "subscription does
+    not permit querying OPRA data" for SPYM/UBER/HYG, the same
+    entitlement-rejection shape as the 2026-07-06 SIP incident this
+    module was built for (see the module docstring above). Mirrors
+    data_feed()'s probe/cache/downgrade design exactly: "indicative" is
+    Alpaca's free (no Algo Trader Plus needed) options quote feed,
+    already used successfully elsewhere in this codebase for the same
+    entitlement tier (options_scanner.py's HV/IV-rank estimator,
+    bot_engine.py's ATM-IV lookup) — not a fabricated fallback. Only an
+    explicit 403 downgrades; a restored subscription upgrades back
+    automatically at the next probe (PROBE_TTL_S, shared with
+    data_feed()). ALPACA_OPTIONS_FEED env forces a value and disables
+    probing, same escape hatch shape as ALPACA_DATA_FEED. Scope: this
+    resolver is currently wired into options_execution.py's
+    _fetch_option_chain (the Tier1/2 CSP execution path KNOWN BROKEN #25
+    diagnosed) only — options_scanner.py/options_manager.py/vol_surface.py
+    still hardcode feed=opra and are each a separate follow-up PR per the
+    one-logical-change rule (see open_questions.md KNOWN BROKEN #25).
+    """
+    forced = os.environ.get("ALPACA_OPTIONS_FEED", "").strip()
+    if forced:
+        return forced
+    t = now if now is not None else time.time()
+    with _options_lock:
+        if t - _options_state["probed_at"] < PROBE_TTL_S:
+            return _options_state["feed"]
+        _options_state["probed_at"] = t
+    status = (probe or _default_options_probe)()
+    with _options_lock:
+        if status == 403 and _options_state["feed"] != _OPTIONS_DELAYED:
+            _options_state["feed"] = _OPTIONS_DELAYED
+            _options_state["downgraded_since"] = t
+            print(f"[FEED] OPRA entitlement rejected (HTTP 403) — downgrading "
+                  f"options chain fetches to {_OPTIONS_DELAYED} (free delayed/"
+                  f"computed options quotes). Restore the Algo Trader Plus "
+                  f"options subscription to return to real-time automatically.",
+                  file=sys.stderr, flush=True)
+        elif status == 200 and _options_state["feed"] != _OPTIONS_PREFERRED:
+            _options_state["feed"] = _OPTIONS_PREFERRED
+            _options_state["downgraded_since"] = None
+            print("[FEED] OPRA entitlement restored — back to real-time opra.",
+                  file=sys.stderr, flush=True)
+        # 0 / 5xx / 429: inconclusive — keep the current feed
+        return _options_state["feed"]
+
+
+def options_feed_status() -> dict:
+    """For diagnostics/scan meta: current options feed + downgrade info."""
+    with _options_lock:
+        return {
+            "feed": os.environ.get("ALPACA_OPTIONS_FEED", "").strip()
+                    or _options_state["feed"],
+            "degraded": _options_state["feed"] == _OPTIONS_DELAYED,
+            "downgraded_since": _options_state["downgraded_since"],
+        }
+
+
 def _reset_for_tests() -> None:
     with _lock:
         _state["feed"] = _PREFERRED
         _state["probed_at"] = 0.0
         _state["downgraded_since"] = None
+    with _options_lock:
+        _options_state["feed"] = _OPTIONS_PREFERRED
+        _options_state["probed_at"] = 0.0
+        _options_state["downgraded_since"] = None

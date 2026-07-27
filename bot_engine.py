@@ -3550,6 +3550,26 @@ def _scan_market_inner():
         import logging as _cc_log
         _cc_log.getLogger("bot_engine").warning(f"Covered call sweep error: {_cc_sweep_err}")
 
+    # KNOWN BROKEN #18 (open_questions.md item 18) FOURTH INSTRUMENT,
+    # 2026-07-26: the 2026-05-04 comment below this block already named
+    # "deep_score -> tier_engine_start" as a 507s gap with only a 66s tier
+    # engine inside it, but no checkpoint was ever added between the two —
+    # step6_trade_loop_and_options silently covered BOTH the per-candidate
+    # trade loop above (instrument quotes, select_instrument, covered-call
+    # sweep) AND options_scanner.get_options_trades()'s full-market options
+    # scan (earnings calendar + per-ticker OPRA chain fetches) below.
+    # Live TIER2-ERROR occurrences since v1.0.481's scan_phase field went
+    # live (2026-07-25 18:34Z onward) show last_phase=deep_score at a
+    # consistent age of 256-275s — nearly the entire 300s daemon budget —
+    # with zero visibility into which of those two blocks is spending it.
+    # This checkpoint splits them so the next occurrence's scan_timings
+    # read (last_phase_completed) tells us directly: step6a age high means
+    # the trade loop / covered-call sweep is slow; step6a age low but the
+    # timeout still lands before step6_trade_loop_and_options logs means
+    # get_options_trades() (scan_options()'s per-ticker OPRA chain fetch
+    # stage) is the actual slow caller. Pure visibility — no behavior change.
+    _timing_log("step6a_trade_loop_and_covered_calls")
+
     # Step 6b: Run options scanner synchronously with real portfolio equity.
     # Options have their OWN slot allocation (MAX_OPTIONS_POSITIONS), separate
     # from stock slots. This lets options trade even when stock positions are full.
@@ -3738,7 +3758,21 @@ def _scan_market_inner():
                     spy_vs_ma50=float(_macro.get("spy_vs_ma50", 1.0) or 1.0) if '_macro' in locals() else 1.0,
                 )
                 ts = TieredStrategy()
-                tier_result = ts.run_tiers(ctx)
+                # KNOWN BROKEN #18 continuation (2026-07-27): run_tiers() is
+                # one synchronous call — if it hangs past the daemon's 300s
+                # budget, the killed dispatch left zero trace of WHICH
+                # internal tier was still running (tier_engine_breakdown
+                # below only gets appended on a clean return). Progressively
+                # checkpoint each sub-phase to the same TIMING-DISK file the
+                # rest of the pipeline already uses, so a future stuck run
+                # reading last_phase=tier_engine_start in the TIER2-ERROR
+                # audit line (as several 2026-07-26 occurrences did, after
+                # v1.0.503 fixed the options-scanner stall this item was
+                # previously stuck on) can be localized to a specific tier
+                # instead of staying a single opaque span.
+                tier_result = ts.run_tiers(
+                    ctx, on_phase=lambda p: _timing_log(f"tier_engine_{p}")
+                )
                 tiered_actions = tier_result["actions"]
                 tier_stats = tier_result.get("tier_stats", {})
                 # VISIBILITY FIX 2026-07-11: run_tiers() has its own internal

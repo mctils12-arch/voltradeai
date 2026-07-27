@@ -216,6 +216,28 @@ test("map-anchor body is NEVER size-scaled — the seam contract survives any s"
   }
 });
 
+test("a body that RIDES the anchor (the Moon) is true-scale like Earth — fixes Moon>Earth AND the cap-pinned zoom", () => {
+  // parentIsMapAnchor = true (6th arg): render TRUE at any s, exactly like the
+  // anchor. Identical true disc far and near means the far impostor sprite
+  // tracks the close true-geometry sphere — no cap-pinned "stuck then snap".
+  for (const s of [1, 648, SIZE_MULT_MAX]) {
+    assert.equal(renderedDiscPx(2.5, s, 0.273, false, false, true), 2.5, `anchor-rider true at s=${s}`);
+    assert.equal(renderedDiscPx(38, s, 0.273, false, false, true), 38, `anchor-rider true near cap at s=${s}`);
+  }
+  // Earth (anchor) and its Moon (anchor-rider) at the SAME range keep their
+  // REAL size ratio: Moon = 0.273 × Earth, not the boost's ~200×.
+  const earthTrue = 10;
+  const moonTrue = earthTrue * 0.273;
+  const earth = renderedDiscPx(earthTrue, 648, 1, true, false); // anchor
+  const moon = renderedDiscPx(moonTrue, 648, 0.273, false, false, true); // rider
+  assert.ok(moon < earth, `Moon (${moon}) smaller than Earth (${earth})`);
+  close(moon / earth, 0.273, 1e-9, "Earth/Moon ratio stays real");
+  // guard against silent regression: WITHOUT the exemption the same Moon
+  // balloons to the cap and dwarfs the never-scaled Earth — the reported bug.
+  const moonBoosted = renderedDiscPx(moonTrue, 648, 0.273, false, false, false);
+  assert.ok(moonBoosted > earth, `un-exempt Moon (${moonBoosted}) WOULD dwarf Earth (${earth})`);
+});
+
 test("SUN CAP: max exaggeration never swallows the inner system", () => {
   // world-space: 20 R☉ stays under a third of Mercury's TRUE perihelion —
   // the smallest compressed perihelion over all c (sub-AU distances only
@@ -243,9 +265,10 @@ test("SUN CAP: max exaggeration never swallows the inner system", () => {
     `sun radius ${(sunRendered / 2).toFixed(1)}px < half Mercury's ${mercSepPx.toFixed(1)}px separation`);
 });
 
-test("moon-class bodies still enlarge (the slider is not anchor-neutered for satellites)", () => {
-  // Moon's true disc at whole-system range is sub-pixel; s enlarges toward
-  // the cap like any non-anchor body (rel 0.273 boosts its mEff)
+test("satellites of NON-anchor parents still enlarge (Jovian moons etc.; Earth's Moon is exempt, tested above)", () => {
+  // A rel-0.273 satellite whose parent is NOT the map anchor (parentIsMapAnchor
+  // defaults false) still rides the slider toward the cap like any body — only
+  // the anchor's own satellite (Earth's Moon) is true-scaled.
   const mEff = Math.pow(SIZE_MULT_MAX, 0.78) * Math.pow(0.273, -0.22);
   const d = renderedDiscPx(0.001, SIZE_MULT_MAX, 0.273, false, false);
   close(d, Math.min(0.001 * mEff, SIZE_APPARENT_CAP_PX), 1e-9, "moon follows the response curve");

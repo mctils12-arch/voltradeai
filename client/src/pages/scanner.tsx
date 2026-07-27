@@ -23,6 +23,7 @@ type MarketTicker = StockData;
 interface MarketSnapshotResponse {
   results: StockData[];
   date: string;
+  feed?: string; // which Alpaca feed served this (sip | delayed_sip | iex)
 }
 
 type SortKey = "ticker" | "close" | "change_pct" | "volume" | "vwap";
@@ -433,9 +434,36 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
                 TRY AGAIN
               </button>
             </div>
+          ) : tickers.length === 0 ? (
+            // No data AT ALL is a feed/state problem, not the user's filter —
+            // saying "no tickers match filter" here blamed the user for a dead
+            // feed (2026-07-20 audit finding).
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '0.35rem', fontFamily: "'JetBrains Mono', monospace" }}>
+                SCANNER FEED RETURNED NO ROWS
+              </p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem', marginBottom: '0.75rem', fontFamily: "'JetBrains Mono', monospace" }}>
+                Usual before the first snapshots of the session — retry in a minute.
+              </p>
+              <button
+                onClick={() => refetch()}
+                style={{
+                  padding: '0.4rem 1rem',
+                  background: 'rgba(0, 8, 20, 0.8)',
+                  border: '1px solid rgba(77, 159, 255, 0.2)',
+                  borderRadius: '6px',
+                  color: '#4d9fff',
+                  fontSize: '0.82rem',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  cursor: 'pointer',
+                }}
+              >
+                RETRY
+              </button>
+            </div>
           ) : sorted.length === 0 ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.88rem', fontFamily: "'JetBrains Mono', monospace" }}>
-              NO TICKERS MATCH FILTER
+              NO TICKERS MATCH FILTER — {tickers.length} LOADED, FILTER OR SEARCH EXCLUDES ALL
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -601,7 +629,9 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
         fontFamily: "'JetBrains Mono', monospace",
         letterSpacing: "0.04em",
       }}>
-        DATA: ALPACA MARKETS · REAL-TIME SNAPSHOTS · US STOCKS $1+ · 50K+ DAILY VOL · CLICK ROW TO ANALYZE
+        {/* Honesty: the served feed decides the freshness claim — never say
+            "real-time" for the delayed consolidated feed (v1.0.444 repair). */}
+        DATA: ALPACA MARKETS · {data?.feed === "sip" ? "REAL-TIME" : "15-MIN DELAYED"} SNAPSHOTS · US STOCKS $1+ · 50K+ DAILY VOL · CLICK ROW TO ANALYZE
       </p>
     </div>
   );

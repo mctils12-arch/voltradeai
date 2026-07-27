@@ -1,0 +1,25 @@
+{
+ "stream": "eudayaheadprices",
+ "storage": "append-only JSONL day-files under <archive>/eudayaheadprices/, keyed by OBSERVATION day (point timestamp date — can be a FUTURE UTC day relative to fetch time, since day-ahead prices publish in advance) with VALUE-AWARE event-identity dedup (zone|ts|resolution|price) across restarts — a corrected republication appends as a new vintage row rather than overwriting (euload/eugenmix precedent, applied here even though ENTSO-E day-ahead prices are not normally revised); seed window 120d (heap bound); gz after 3 days (measured from the file's own day, not fetch day) with merge-not-overwrite for late revisions",
+ "written_by": "server/euDayAheadPrices.ts archivePrices (2h poll, 8 politeness-spaced calls/cycle, separate from euLoad's and euGenerationMix's own 8 calls each; far under the 400/min limit; eager boot; key-gated on ENTSOE_API_KEY or ENTSOE_TOKEN, shared with euload/eugenmix)",
+ "source": "ENTSO-E Transparency Platform RESTful API (web-api.tp.entsoe.eu) — day-ahead auction clearing price, documentType A44 (Price Document), in_Domain=out_Domain=<EIC> per bidding zone (no processType — a genuinely different query contract than load's A65/A16 or generation's A75/A16). Root element is Publication_MarketDocument, not GL_MarketDocument. Query contract cross-checked against the ecosystem-canonical entsoe-py library (query_day_ahead_prices) this session; NOT yet confirmed against a live authenticated response (built and key-gated same-day, no ENTSOE_API_KEY in the build sandbox — only Railway has it). Scope v1: DE_LU, FR, ES, IT, NL, PL, BE, SE. Fetch window is 24h before to 48h after the poll (forward-looking, unlike load/generation's trailing-only window) so a newly-published tomorrow auction is captured the day it clears.",
+ "license": "ENTSO-E Transparency Platform data — free re-use with source attribution per the platform's terms; attribution carried on every surface",
+ "attribution": "ENTSO-E Transparency Platform",
+ "sentiment": null,
+ "schema_version": 1,
+ "field_map": {
+  "zone|ts|resolution|price — event-identity dedup key": "bidding zone + UTC point timestamp + publication resolution + VALUE — a corrected value is a new vintage (appended), an exact re-publication is a duplicate (dropped)",
+  "ts": "UTC YYYY-MM-DDTHH:MM computed as period start + (position-1) x resolution — points stored as PUBLISHED; absent positions stay absent, never interpolated",
+  "price": "day-ahead auction clearing price in `currency` per `unit`, as published; can be NEGATIVE (renewables oversupply) — never clamped to zero; empty published amounts are null, never zero",
+  "currency": "read from currency_Unit.name per TimeSeries; empty string if the series omitted it, never assumed EUR",
+  "unit": "read from price_Measure_Unit.name per TimeSeries; empty string if the series omitted it, never assumed MWH",
+  "res": "publication resolution (PT15M/PT30M/PT60M)",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official TSO/exchange-published day-ahead auction clearing price. HYPOTHESIS (gate-locked): zonal price level and volatility (incl. negative-price frequency as a direct renewables-oversupply signal) is a demand/supply-balance proxy for EU power/gas/carbon-adjacent tickers, the price side of the euload (demand) + eugenmix (fuel mix) pair. Nothing traded or sold until ladder gates.",
+ "geo_fields": ["zone (bidding-zone code; EIC in euLoad.ts's shared ZONES map)"],
+ "entity_key": "zone + ts + resolution",
+ "started": "2026-07-27",
+ "cadence": "day-ahead auction clears and publishes once daily (~11:00-13:00 CET) for the following day; 2h poll with a 24h-before/48h-after window per zone",
+ "_note": "Universal archive envelope (approved 2026-07-04). Wishlist 9c's LAST open ENTSO-E follow-up (load 2026-07-07, generation-mix 2026-07-21, day-ahead prices 2026-07-27) — closes the load/generation/price trio on the same token. Own PR per one-logical-change-per-PR, [PRODUCT]-tagged."
+}

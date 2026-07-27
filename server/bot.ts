@@ -10,6 +10,7 @@ import { evaluateDrawdown } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
+import { readArchiveDay } from "./datacoreArchive";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
@@ -2266,6 +2267,50 @@ print(json.dumps(s))
             return res.json({ probe: "timings", found: false, error: sanitizeDiag(String(e?.message || e)) });
           }
         }
+        case "archive": {
+          // ADDED 2026-07-26 (scheduled-routine PRODUCT session): generic,
+          // read-only, one-day-per-call passthrough of a datacore archive
+          // directory (see readArchiveDay in datacoreArchive.ts and the
+          // DIAG_PROBES comment in diag.ts). Filed to unblock the
+          // USAspending gate-2 statistical test, which needs the
+          // multi-week historical archive — /api/data/contracts only
+          // ever serves the in-memory recent-cache window, not history.
+          //
+          // Whitelist is "the directory already exists under
+          // archiveBaseDir()" (stream regex blocks path traversal; a
+          // directory only exists if some datacore writer already
+          // created it) rather than a second hardcoded stream list —
+          // every archived stream is either public/licensed source data
+          // (see each stream's datacore/manifests/*.json) or already
+          // displayed live on /data, so there is no additional secret
+          // surface a new stream could introduce here.
+          //
+          // Row cap diverges from the other probes' 200-item convention
+          // (matching sanitizeDiag's blanket array truncation): archive
+          // rows are federal/economic/tracking records with no secrets
+          // by construction, and a real gate-2 sample needs more than
+          // 200 rows/day, so this probe sanitizes PER ROW (still scrubs
+          // key-like strings/hex/base64/emails, still truncates long
+          // strings) rather than passing the whole `rows` array through
+          // sanitizeDiag's 200-item cap — and reports an explicit
+          // `truncated` flag instead of silently dropping rows past 200.
+          const stream = String(req.query.stream || "").trim();
+          const day = String(req.query.day || "").trim();
+          if (!/^[a-z0-9_]+$/.test(stream)) {
+            return res.status(400).json({ error: "invalid stream (expected [a-z0-9_]+)" });
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+            return res.status(400).json({ error: "invalid day (expected YYYY-MM-DD)" });
+          }
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "1000"), 10) || 1000, 1), 5000);
+          const result = await readArchiveDay(stream, day, undefined, limit);
+          if (!result) return res.status(404).json({ error: "unknown stream (no archive directory on this instance)" });
+          return res.json({
+            probe: "archive", stream, day,
+            files: result.files, count: result.rows.length, truncated: result.truncated,
+            rows: result.rows.map((r) => sanitizeDiag(r)),
+          });
+        }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
@@ -2364,7 +2409,13 @@ print(json.dumps(s))
     const tf = tfMap[timeframe] || "1Day";
 
     try {
-      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=sip`;
+      // 2026-07-20/27 [REPAIR]: the sip feed param is rejected by this
+      // account's data subscription. BARS specifically also reject
+      // delayed_sip — HTTP 400 "invalid feed: delayed_sip" (live evidence
+      // 2026-07-18, compiled in alpaca_feed.py bars_feed(): delayed_sip is
+      // a real-time-tape delay concept, not a bars-endpoint feed value).
+      // iex is the always-accepted value for bars, per that precedent.
+      const url = `https://data.alpaca.markets/v2/stocks/${String(ticker).toUpperCase()}/bars?timeframe=${tf}&limit=${limit}&adjustment=split&feed=iex`;
       const r = await fetch(url, {
         headers: {
           "APCA-API-KEY-ID": ALPACA_KEY,
@@ -2990,7 +3041,11 @@ print(json.dumps(result[:20]))
       // ── Pre-market price check: verify price hasn't gapped more than 5% ──
       try {
         const { stdout: priceCheck } = await execPythonSerialized(
-          `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
+          // 2026-07-20 [REPAIR]: the sip feed param returned {message:...} on this
+          // subscription, so this parsed 0 and the 5% overnight-gap guard
+          // silently never fired. delayed_sip restores a real price (15-min
+          // delayed — fine for detecting an overnight gap).
+          `python3 -c "import requests,json,os; r=requests.get('https://data.alpaca.markets/v2/stocks/${trade.ticker}/snapshot?feed=delayed_sip', headers={'APCA-API-KEY-ID':os.environ.get('ALPACA_KEY',''),'APCA-API-SECRET-KEY':os.environ.get('ALPACA_SECRET','')}, timeout=5); d=r.json(); print(d.get('dailyBar',{}).get('c',0) or d.get('latestTrade',{}).get('p',0))"` ,
           { timeout: 8000 }
         );
         const currentPrice = parseFloat(priceCheck.trim());

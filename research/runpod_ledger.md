@@ -108,6 +108,25 @@ during a run; the in-pod `timeout` still bounds the training process if it dies.
 Option B (server-side watchdog, key stays in Railway) removes the caveat and is
 the better long-term home if GPU jobs become recurring/automated — not built.
 
+STOPGAP FOR THE CAVEAT — `scripts/runpod_reap.py` (recovered 2026-07-25 from
+orphaned PR #415, opened 2026-07-10 during the gv-div4/div5 GPU work, never
+merged due to the same history-rewrite orphaning that hit PR #399): finds
+ledger job_ids with no close row and matches them against `GET /pods` (pod
+`name == job_id`, since `build_create_body` always names the pod after the
+job); dry-run by default, `--apply` terminates any still-live match and closes
+the ledger (capped at the job's own reserved cost if the pod is already gone).
+**Any session about to launch or check on a GRID VISION RunPod job should run
+`python3 scripts/runpod_reap.py` FIRST** — the cheapest guard against a
+session ending mid-watchdog and leaving a pod to bill unattended. Still just a
+stopgap: Option B above remains the real fix and is still unbuilt (see
+wishlist.md's RUNPOD OPTION B entry for the open decision). HONESTY NOTE: the
+tool's own motivating incident (gv-div4-ks) is disputed between two concurrent
+2026-07-10 sessions' accounts — the ledger's actual surviving record shows
+that pod was closed by its own watchdog at the 5h cap, not by a manual reap —
+but the underlying Option A risk this script defends against is real and
+undisputed regardless of which run first exposed it (see the tool's own
+docstring for the full note).
+
 STILL NEEDED before the REAL fine-tune (independent of the launch path): the
 training container/script that runs ON the pod (pulls ETDII US + builds NAIP
 chips, runs the tower-detector fine-tune, writes weights back), plus the two

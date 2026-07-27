@@ -3,6 +3,737 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-27 (scheduled-routine session, 4th today) [RESEARCH] — re-ran the 2026-07-25 MEASUREMENT-DEBT `/data` perf-gate repro 3x clean on untouched `main`; caught + closed two stale-but-already-fixed sub-findings in the same open_questions.md section while there (v1.0.509, T-CLIENT docs-only)
+
+TERRITORY: T-CLIENT (`research/open_questions.md` only — no app code
+touched) + `package.json` version bump (SHARED, last commit, minimal,
+per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full (this is the 4th scheduled-
+routine firing of the day — two prior REPAIR sessions already landed
+today: settlement-stress, PR #615, and the run_tiers() `on_phase`
+instrumentation, PR #616). `git fetch origin main` confirmed this
+checkout (`claude/busy-fermi-rv4nvv`) was already byte-identical to
+`origin/main` at `91ba78b` (v1.0.508) before any local edit — no reset
+needed. `python3 scripts/session_health_check.py --json` against the
+live site: no LIVENESS ALARM, `status: ok`. Two WARNs, both already-
+tracked and non-blocking: `tier2_daemon_timeouts` (31 in-window, KNOWN
+BROKEN #18 — this morning's PR #616 just closed the one remaining
+un-instrumented span; the next actionable step needs a fresh
+`tier_engine_*`-tagged occurrence that hasn't happened yet) and
+`ml_feedback` (61 live records, all `orphan_exit`, KNOWN BROKEN #12(c) —
+already-gated open exit-path item, not newly actionable). `deploy_freshness`
+OK (`server_version` matches). Loop-health ratio, last 10 real PR-tagged
+entries by git history (616 REPAIR, 615 REPAIR, 614 docs/no-tag, 613
+RESEARCH, 612 PRODUCT, 611 REPAIR, 610 PRODUCT, 609 REPAIR, 608 RESEARCH,
+607 REPAIR): 5/10 REPAIR — under the 7+ thrash trigger, no meta-problem,
+but a real concentration in T-BOT specifically (616/615/611/609/607 are
+all T-BOT or T-DATACORE-boundary REPAIR) — per the 2026-07-22 vessels-TTL
+session's own precedent ("deliberately looked outside T-CLIENT... per the
+WORKSTREAM PARTITION's diversification spirit"), the inverse applied here:
+deliberately looked in T-CLIENT for this session's action.
+
+PRIMARY ACTION SELECTION: KNOWN BROKEN #18's remaining NEXT STEP (read a
+fresh `tier_engine_*` `last_phase` occurrence) has no new data yet since
+this morning's fix — not actionable. KNOWN BROKEN #10 (SCORE_BAND_MAX
+dead config) is gated on `shadow_portfolio` reaching >=90 days of
+backfilled history; filed 2026-07-04, only 23 days elapsed — not ready.
+KNOWN BROKEN #12(c) is the already-accepted "wire path-by-path" gated
+item, re-confirmed non-blocking by this session's own health check, not
+re-opened (RECURRENCE ESCALATES: don't re-patch a settled item without
+new evidence). No matured experiment reached a judgment date today beyond
+what the two earlier sessions already handled. Fell through to the
+research/roadmap tier and picked the concrete, dated, unclaimed
+MEASUREMENT-DEBT entry filed 2026-07-25 (`open_questions.md`, "/data perf
+gate fails on an untouched baseline") — it names an exact repro command
+and is squarely a REPAIR-adjacent measurement-integrity question, not
+blocked on market hours or human input.
+
+WHAT WAS FOUND: per the entry's own LADDER PATH step (1) — "reproduce
+cleanly on `main` HEAD... to rule out this specific container being
+noisy" — ran `npm ci`, `npm run build` (clean; pre-existing
+astronomy-engine/chunk-size warnings only, byte-identical to documented
+baseline), then `node scripts/visual_check.mjs --page data` THREE times
+in a row on the untouched `v1.0.508` checkout, no code changes. All three
+runs: **0 hard failures**. 768px median frame 117ms/133ms/133ms (gate:
+200ms); 1440px p95 frame 233ms/233ms/250ms (gate: 350ms) — comfortably
+under both thresholds every time, not a near-miss. This does NOT
+reproduce the 2026-07-25 finding of two failing perf gates on an
+untouched tree.
+
+READ BEFORE WRITE, while investigating why: read `celestialSky.ts` (the
+"unconditional rAF WebGL draw" the 2026-07-20 terrain audit named as a
+suspect) and found it is ALREADY gated by `!doc.hidden` before every
+`drawFrame()` call, plus a `visibilitychange` catch-up render — confirmed
+via `git log` this shipped in commit `e78c393` (v1.0.481, 2026-07-23,
+"Gate celestialSky's rAF WebGL draw by page visibility"). Read
+`groundDisplayAt` in `datamap.tsx` (the "TRAIL REBUILD STORM" suspect,
+~9k `queryTerrainElevation` re-sweeps on a 25s TTL) and found the TTL was
+ALREADY raised to 10 minutes (with the entry cap raised 4000→9000),
+correctness handled by an explicit cfg-key flush rather than the TTL —
+shipped in commit `bd55175` (v1.0.461, 2026-07-21). BOTH fixes had gone
+unmarked in `open_questions.md`'s 2026-07-20 audit-findings list for 4-6
+days after shipping — the list still read as if all four named causes
+were open, which is exactly the kind of stale record MEMORY PROTOCOL
+exists to prevent (a future session re-diagnosing these two would have
+wasted a full investigation reaching a conclusion this session already
+has direct commit evidence for).
+
+HONEST CAVEAT, not glossed over: both fixes shipped BEFORE the 2026-07-25
+red reading (07-21 and 07-23 vs. 07-25), so they cannot be the reason
+today's three runs are clean if the 07-25 reading is taken at face
+value — either the 07-25 session's own container was unusually loaded
+that one time (consistent with that entry's own already-noted run-to-run
+variance), or some other factor changed since. Did NOT overclaim "fixed"
+for the perf-gate item itself — filed as "not reproducing today, still
+flaky/environment-dependent by its own prior evidence," left open with a
+concrete re-close/re-open condition for the next session that hits it
+either way. The two THEORETICALLY still-live causes from the 07-20 audit
+(NEVER-IDLE GLIDE LOOP idle-when-static, MapLibre `prepareForRender`
+per-source cost) remain unfixed and unmeasured — flagged as still open,
+not touched this session (each is its own scoped fix, not verifiable
+without first building the "renders/s vs pixels moved" measurement the
+audit itself called for).
+
+WHAT SHIPPED: `research/open_questions.md` only — (1) the MEASUREMENT-
+DEBT entry gained an UPDATE 2026-07-27 block with the 3-run reproduction
+result, the honest caveat above, and a concrete re-close/re-open
+condition (downgrades the "every client/ PR needs a manual A/B past an
+assumed-red gate" framing, since that assumption no longer matches live
+evidence in this environment); (2) the 2026-07-20 terrain-audit follow-
+ups list marked the celestialSky and TRAIL REBUILD STORM sub-findings
+`[CLOSED — fixed ...]` with their real commit hashes/dates, using the
+same `~~strikethrough~~` convention KNOWN BROKEN items already use, and
+explicitly marked the two still-open ones ("STILL OPEN as of 2026-07-27")
+so the section no longer reads as uniformly-open. Zero app code changed.
+
+GATES: `python3 -m pytest -q` — 964 passed, 1 skipped (matches this
+morning's PR #616 baseline exactly; zero Python files touched, pure
+sanity check per MEASUREMENT INTEGRITY discipline even for a docs PR).
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts` — 1038 passed,
+0 failed (zero TS/client files touched). `npm run build` — clean, same
+warnings as documented baseline. `npx tsc --noEmit` / `npm run visual`
+not re-run beyond the 3 perf-repro runs already reported above (no
+component code changed, nothing new to visually regress).
+
+BACKTEST: N/A — pure documentation correction + a measurement-repro
+research finding; zero scoring, sizing, execution, or app-rendering code
+touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or any live data path. The only "downstream" effect is on
+future sessions' own behavior: a future client/ PR's harness run is no
+longer pre-judged against an assumed-red gate, and a future session
+investigating the 2026-07-20 audit's follow-up list won't re-diagnose the
+two already-fixed items.
+
+Version 1.0.508 -> 1.0.509 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical to this
+morning's PR #616 — no advance since session start).
+
+NEXT: the two still-open 2026-07-20 audit causes (NEVER-IDLE GLIDE LOOP,
+MapLibre `prepareForRender`) are both real, scoped, unclaimed T-CLIENT
+perf work for a future session — the audit's own text already states
+what to measure first for the glide-loop one ("renders/s vs pixels
+moved"). Separately: if a future session's own client/ PR hits a red
+perf gate on `/data`, that is now real signal per this session's
+downgrade above — worth a quick A/B before assuming it's baseline noise,
+not before. GITHUB ACTIONS CI: not re-checked this session; assumed still
+recovered per KNOWN STATE.
+
+## 2026-07-27 (scheduled-routine PRODUCT session) [REPAIR] — root-caused + fixed the settlement-stress composite's permanent zero-output bug: it joined an OTC-only threshold list against an NMS-only short-volume file (v1.0.507, T-DATACORE)
+
+TERRITORY: T-DATACORE (`server/finraShortVolume.ts`, `server/settlementStress.ts`,
+new `datacore/manifests/finrashortvolotc.json`) + `server/routes.ts` (boot-poll
+wiring, same non-territory-assigned precedent every other boot-poll addition
+has used) + `package.json` version bump (SHARED, last, per MERGE-ORDER
+PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/` directory listed.
+`git fetch origin main` confirmed this checkout was already byte-identical to
+`origin/main` (e75125c, v1.0.506). `python3 scripts/session_health_check.py
+--json` against the live site: no LIVENESS ALARM, `status: ok`. Two WARNs,
+both already-tracked and non-blocking (KNOWN BROKEN #18 `tier2_daemon_timeouts`
+— a trailing window from before the morning-of-2026-07-26 fix; KNOWN BROKEN
+#12(c) `ml_feedback` orphan_exit). `deploy_freshness` OK (`server_version`
+matches). Per this session's own instructions (a [PRODUCT] session), no
+unfixed critical trading-loop item blocked product work, so proceeded.
+
+PICKING THE ACTION: surveyed unclaimed NEXT-pointer items across the last
+several sessions (USAspending gate-2 re-run is calendar-blocked until
+~2026-08-15; the terrain-perf/glide-loop items are client-perf debt better
+suited to a dedicated REPAIR/RULE-REVIEW session per their own filing notes)
+and the DATACORE MAXIMUS / data_census.md build queues (essentially fully
+built — only DTCC SBSDR remains, gated on a volume-budget decision, not
+autonomous). Rather than pick from an empty queue, checked the health of an
+already-shipped GATE-1 pipeline per this session's option (a) ("advance a
+datacore pipeline through its next ladder gate") — the settlement-stress
+composite (`server/settlementStress.ts`, shipped 2026-07-18 v1.0.392), whose
+own docstring names its next step as GATE 2 once "enough dated history has
+accumulated."
+
+DIAGNOSIS (READ BEFORE WRITE — read settlementStress.ts, finraQuery.ts,
+finraShortVolume.ts, and secFtd.ts in full before touching anything): before
+attempting gate 2, checked whether the composite had accumulated any usable
+history at all. `python3 scripts/session_health_check.py`-style live probing
+via `/api/diag/archive?stream=settlementstress&day=...&token=$DIAG_TOKEN`
+across five spot dates (07-18, 07-20, 07-22, 07-24, 07-26) returned `files:
+[]` for every single one. `/api/data/archive/stats` (public, no token)
+confirmed why: the `settlementstress` archive has exactly 4 files,
+2026-06-25 through 2026-06-30, **0 bytes each** — the composite has archived
+zero-row outcomes for its first 4 candidate dates and then gone silent for a
+full month (no new dates since 06-30), even though `finrathreshold`'s own
+archive has 21 files running through 2026-07-24 in the same window.
+
+ROOT CAUSE (traced via live data, not assumed): `refreshSettlementStress`
+requires BOTH `finrashortvol` (short-vol) AND `secftd` (FTD) data for a
+threshold date's covering half-month before it will compute+archive that
+date. Dates 2026-07-01 onward map to FTD period `202607a`, which the live
+`secftd` archive stats show as not yet present (`secftd`'s newest period is
+`202606b`) — CORRECTLY not a bug: `secFtd.ts`'s own verified-contract
+comment states "'a' publishes ~EOM of the same month" and today is
+2026-07-27, so `202607a` (covering July 1-14) is not yet due. That explains
+the July gap but not why the 4 dates that DID get processed (2026-06-25
+through 06-30, whose covering period `202606b` IS archived) all produced
+**zero** composite rows — the docstring's own stated self-check ("if the
+intersection turns out empty for weeks running, that is itself a finding:
+either genuinely rare overlap, or a join-key mismatch").
+
+Pulled real archived rows for 2026-06-25 via the archive probe:
+`finrathreshold` returned 15 rows, ALL with `marketCategoryDescription:
+"Other OTC"` (tickers like CHLSY, DSFIY, KRKNF — foreign unsponsored ADRs).
+`finrashortvol` (CNMS) for the same date returned symbols like A, AA,
+AAAA — zero overlap with the threshold symbols in either the first 5,000
+rows or a targeted per-symbol check. Checked FINRA's own live documentation
+(developer.finra.org's catalog + the live `otcMarket/thresholdList` metadata
+endpoint, and FINRA's own daily-short-sale-volume-files catalog page) to
+settle this by SOURCE, not guesswork: `thresholdList`'s own schema
+description confirms it is "OTC Regulation SHO and Rule 4320 Threshold
+Securities" — genuinely OTC-only by design, every row IS a real threshold
+security (the `thresholdListFlag` R/NR values distinguish Reg-SHO-criteria
+vs. Rule-4320-criteria, not "on the list" vs. "not"). Separately, FINRA's
+short-sale-volume file catalog confirms `CNMSshvol` ("Consolidated NMS")
+covers exchange-LISTED securities only, and lists a SEPARATE file,
+`FORFshvol{YYYYMMDD}.txt` (ORF = Over-the-Counter Reporting Facility), for
+non-exchange-listed OTC equities. Live-verified by fetching real
+`FORFshvol20260624.txt`/`FORFshvol20260625.txt` (same UA etiquette as the
+existing CNMS fetcher): both contain CHLSY, DSFIY, KRKNF — exactly the
+symbols missing from CNMS.
+
+CONCLUSION: this was never "rare overlap" or a join-KEY mismatch — it was a
+join-POPULATION mismatch, baked into the composite's design from the start.
+`finraShortVolume.ts` only ever ingested CNMS (exchange-listed), while its
+join partner (`finrathreshold`) is exclusively OTC. The composite was
+therefore STRUCTURALLY GUARANTEED to find zero overlap forever, regardless
+of how much calendar time passed — no amount of "waiting for more history"
+would ever have produced a nonzero row. This is exactly the kind of silent,
+permanently-broken GATE-1 pipeline the ROOT VALIDATION LADDER and HONESTY
+METRIC exist to catch before a future session wastes a gate-2 attempt (or
+worse, concludes "gate 2 killed it — no signal") on a composite that was
+never actually testing anything.
+
+FIX: added ORF ingestion to `finraShortVolume.ts` (`ORF_FILE_URL`,
+`fetchOrfShortVolDay`, `archiveOrfShortVolDay`, `readOrfArchivedDay`,
+`refreshOrfShortVol`, `bootOrfShortVolPoll`) — reuses the existing
+`parseShortVol` unmodified (byte-identical schema, live-verified), separate
+archive dir (`finrashortvolotc`) and dedup set so CNMS's existing consumers
+(squeeze-screen hypothesis, symbol lookback, market-wide trend) are
+untouched. Deliberately NO deep-backfill path yet for ORF — ships thin
+first, same conservative posture CNMS's own deep backfill only got as a
+LATER, separate PR after its 2026-07-05 emergency-off volume-fill incident
+(this module's own history); filed as a NEXT step below, not built here.
+`settlementStress.ts`'s `shortVolPercentiles` now reads BOTH facilities and
+combines them into one ranked pool (the two are disjoint populations by
+regulatory construction — a security is exchange-listed OR OTC, never
+both — so concatenation cannot double-count; a defensive first-seen-wins
+dedup guards the case anyway, tested explicitly). Updated the module's own
+docstring to record the resolved root cause, superseding the original
+"either rare overlap or join-key mismatch" open self-check. Added
+`datacore/manifests/finrashortvolotc.json` (universal envelope). Wired
+`bootOrfShortVolPoll()` into `server/routes.ts` alongside the existing
+`bootShortVolPoll()`.
+
+RATCHET: `server/finraShortVolume.test.ts` — 3 new tests: ORF fetch 403/
+404/500 contract (mirrors CNMS's own test), archive+read round-trip
+proving the ORF archive is a genuinely separate namespace from CNMS (same
+trade date, same base dir, both readable independently), and a refresh
+test proving newest-first fetch + no-refetch-once-archived (mirrors CNMS's
+own refresh test shape). `server/settlementStress.test.ts` — 3 new tests:
+(1) a symbol present ONLY in the ORF archive (absent from CNMS) is now
+found and ranked by `shortVolPercentiles` — the direct regression for the
+bug; (2) a symbol present in both facilities is not double-counted
+(defensive; asserts the ORF write itself succeeded before asserting the
+dedup, so the test can't pass via a silent no-op); (3) `computeComposite`
+end-to-end with a real OTC-only threshold symbol (CHLSY) now clears the
+full 3-way join via the ORF path — before this fix, this scenario would
+have returned an empty array (verified below). A/B-verified via `git
+stash push -- server/finraShortVolume.ts server/settlementStress.ts
+server/routes.ts` (test files kept un-stashed): all 6 new tests fail
+against pre-fix code (import errors — the new exports don't exist yet,
+confirming these aren't tautologies), all pass post-fix.
+
+GATES: `npm ci` first (sandbox had no node_modules at session start).
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts
+client/src/pages/*.test.ts` — **1038 passed, 0 failed** (1032 baseline + 6
+new, zero regressions; a pre-`npm ci` run showed 10 unrelated failures —
+confirmed via a second A/B stash that all 10 fail identically on unmodified
+code too, a missing-node_modules artifact, not a regression). `npx tsc
+--noEmit` — 8 errors, byte-identical count before/after via `git stash`
+A/B. `npm run build` — clean (pre-existing astronomy-engine ESM-interop and
+chunk-size warnings only). `python3 -m pytest -q` (after `pip3 install -r
+requirements.txt -r requirements-dev.txt`) — 960 passed, 1 skipped, matching
+the prior session's own baseline exactly; zero Python files touched, pure
+sanity check.
+
+BACKTEST: N/A — `settlementStress.ts` is explicitly GATE-1 feature
+construction, not wired into `deep_score`/any order path, and not surfaced
+on `/data` (per its own docstring and the RAW OVERLAYS vs SIGNALS rule) —
+this PR does not change that posture, it fixes GATE-1 so the composite can
+eventually be tested at gate 2 with real data instead of permanent silence.
+No `bot_engine.py`/`system_config.py`/strategy file touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or any order path. The only downstream effect is that
+`refreshSettlementStress` (already running on its existing 6h boot-poll
+cadence) will, from today forward, actually find nonzero composite rows on
+dates where an OTC threshold symbol's short-vol data is now available via
+ORF — this is new archive volume only (~3-4K rows/day, same order of
+magnitude as `finrashortvol`'s own footprint), still gate-1-internal, still
+not surfaced anywhere user-facing.
+
+KNOWN GAP, NOT FIXED HERE (deliberately, to avoid scope creep): the 4
+already-archived zero-row composite dates (2026-06-25 through 06-30)
+predate this fix and `isCompositeArchived` treats a processed date as
+permanently done — those 4 dates will keep their (now known to be
+incomplete) zero-row history rather than being recomputed. This is a small,
+honestly-documented data-quality footnote (4 days out of what will now be a
+continuously growing correct archive), not touched this session because
+retroactively clearing/recomputing already-archived production dates is a
+data-mutation decision bigger than this PR's scope — noted as a NEXT item.
+
+NEXT: (1) a future session should verify live (via `/api/data/archive/
+stats`) that `finrashortvolotc` and `settlementstress` are both
+accumulating nonzero-byte files day over day — the concrete falsifiable
+prediction this fix makes. (2) ORF deep-backfill (matching CNMS's own,
+env-gated) is a separate future PR once the thin version is confirmed
+stable in production. (3) Whether to retroactively clear the 4 stale
+zero-row `settlementstress` dates (2026-06-25..06-30) so they get
+recomputed under the fix — a data-mutation call, filed here rather than
+self-applied. (4) USAspending gate-2 re-run remains calendar-blocked until
+~2026-08-15 per the 2026-07-26 entries below. (5) The 2026-07-20
+glide-loop/TRAIL REBUILD STORM and 2026-07-25 MEASUREMENT-DEBT visual-
+harness perf-gate items remain open and unclaimed, unrelated to this PR.
+
+
+
+Not a new discovery — session #3 (earlier today) already found and logged
+in `research/wishlist.md` that the GitHub Actions CI outage (tracked since
+2026-07-22) cleared sometime between 2026-07-24 and 2026-07-25T18:23Z, and
+recommended no human action. This session's own PR (#613, the gate-2
+research entry above) independently corroborated it live: CI ran to
+`completed`/`success` on both of this PR's commits (runs 30219284319 →
+cancelled by the second push, 30219328797 → success at 2026-07-26T20:40Z),
+and the PR merged normally. CLAUDE.md's KNOWN STATE paragraph, however,
+still read "PRODUCTION DEPLOY FROZEN" as an ongoing condition — the
+factual-update session that found the recovery updated wishlist.md (where
+the outage's tracking log lives) but not CLAUDE.md's own summary of it,
+leaving the two files contradicting each other. Since CLAUDE.md is the
+first file every session reads, a future session skimming only CLAUDE.md
+(not cross-referencing wishlist.md) could waste a cycle re-verifying or
+re-flagging an already-resolved outage. Corrected the paragraph to state
+the resolution, cite the same evidence wishlist.md already has plus this
+session's independent corroboration, and point back to wishlist.md for
+the full history — a factual KNOWN STATE update, explicitly permitted
+without human approval per FROZEN PATHS ("Appending to this file's
+non-frozen sections is limited to factual updates").
+
+Tagged [NO-ACTION doc fix] rather than [REPAIR]/[RESEARCH]: no code,
+test, or trading-relevant behavior changed — this is pure documentation
+hygiene, filed as its own minimal commit per SESSION BUDGET's one-action-
+per-PR rule rather than bundled into the gate-2 PR above (which had
+already merged before this discrepancy was noticed).
+
+Version 1.0.505 -> 1.0.506 (read-and-increment at commit time; branch
+restarted from `origin/main` at c5561b1, PR #613's merge commit, per the
+already-merged-branch rule — this is fresh work on top of that merge, not
+a continuation of unmerged history).
+
+NEXT: same three items as the entry below (unclaimed since this was a
+one-line fall-through, not new research): (1) the 2026-07-20 terrain-audit
+glide-loop/TRAIL REBUILD STORM items remain open; (2) the 2026-07-25
+MEASUREMENT-DEBT visual-harness perf-gate entry remains open; (3) the
+next USAspending gate-2 re-run is scheduled ~2026-08-15 per the entry
+below and open_questions.md item 4.
+
+## 2026-07-26 (scheduled-routine session #6) [RESEARCH] — USAspending gate 2 actually run for the first time: infrastructure proven end-to-end, result honestly INCONCLUSIVE (archive too young for the 20d horizon), not killed (v1.0.505, T-DATACORE)
+
+TERRITORY: T-DATACORE (new script `scripts/usaspending_gate2.py` + its test
+`test_usaspending_gate2.py`, both new files, no existing T-DATACORE file
+touched other than reading `server/usaSpending.ts` for the archive schema).
+`package.json` version bump is the SHARED-file edit, last and smallest, per
+MERGE-ORDER PROTOCOL. Only one active session this run.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+confirmed this checkout (`claude/funny-fermat-r2gl07`) was byte-identical
+to `origin/main` (fd2c40d, v1.0.504 — this morning's session #5, the
+`/api/diag/archive` probe PR #612) at session start; re-fetched again
+immediately before committing, still byte-identical, no reset needed. Per
+the follow-up-work rule for an already-merged designated branch: this
+branch's prior PR (#612) had already merged, so this session's work is
+fresh commits on top of current main under the same branch name, not a
+continuation of unmerged history. `/api/health` via WebFetch: `status:
+"ok"`, daemon `active`, `liveness.dark: false`, equity $109,967.44,
+drawdown 0.0% — no LIVENESS ALARM. `/api/data/layers`: `server_version:
+"1.0.504"` matches this checkout — the PRODUCTION DEPLOY FREEZE tracked
+since 2026-07-22 remains clear (confirmed clear as of the 07-25 session,
+re-confirmed here).
+
+LOOP-HEALTH RATIO: last 10 dated entries by version (505 this session,
+504 PRODUCT, 503 REPAIR, 502 PRODUCT, 501 REPAIR, 500 RESEARCH, 495
+REPAIR, 493 PRODUCT, 479 REPAIR, 478 REPAIR) = 4 REPAIR / 4 PRODUCT / 2
+RESEARCH (counting this session as RESEARCH) — under the 7-of-10 thrash
+threshold, no meta-problem.
+
+PICKING THE ACTION: session #5 (this morning, same day) built the generic
+`/api/diag/archive` probe specifically, and explicitly, to unblock "gate 2
+itself (award/mcap ratio vs. 5-20d forward returns)" — its own NEXT
+pointer named this as the direct follow-up, and two sessions before that
+(both today) had independently converged on the same blocker. Running the
+now-unblocked gate 2 is squarely this item's next ladder step (ROOT
+VALIDATION LADDER — SIGNAL gate) and was picked over starting new research
+from scratch, per SESSION BUDGET's "take the next queued item" priority.
+
+READ BEFORE WRITE: read `research/open_questions.md` item 4's full
+USAspending history (gate 1 pass, the two matcher bugs found+fixed
+2026-07-24, CAVEAT 1's `mm=="parent"` residual mismatch risk, CAVEAT 2's
+illiquid-ticker risk) before writing anything — this determined the
+`mm in (name, cache)` filter (excludes `parent`) and the civilian-only
+filter (`ag != "Department of Defense"`, per the archive's own
+`confidence_model` field, read directly off `datacore/manifests/
+usaspending.json`, not assumed). Read `server/usaSpending.ts` in full for
+the archived record schema (`tkr`/`mm`/`ag`/`amt`/`rt` field meanings) and
+`server/datacoreArchive.ts`'s `readArchiveDay` (this session's actual
+consumer of session #5's new probe) before writing the HTTP fetch layer.
+Read `form4_gate2_test.py` in full (the only prior gate-2 script with a
+comparable "ticker events -> forward returns -> ticker-baseline ->
+Welch t-test" shape) to reuse its design rather than inventing a new one.
+
+WHAT SHIPPED: `scripts/usaspending_gate2.py`. Pulls the full archive
+(2026-07-05 through yesterday) via the diag probe day-by-day; filters to
+civilian-agency, `mm in (name, cache)` ticker-matched rows; dedupes by
+(aid, mod, amt) keeping first-sighting (chronological, since days are
+fetched in order); aggregates same-ticker-same-day awards into one event.
+Market cap = SEC EDGAR's most recently reported shares-outstanding
+(`dei:EntityCommonStockSharesOutstanding`, falling back to
+`us-gaap:CommonStockSharesOutstanding`; keyless `data.sec.gov`, ticker->CIK
+via SEC's own public `company_tickers.json`, the same reference file
+`server/usaSpending.ts` already trusts for the reverse direction) times
+the no-lookahead entry price. Small-cap universe = mcap < $2B (documented
+choice, not silently assumed). Bucket = above/below this run's own median
+award/mcap ratio (data-adaptive split, not a guessed absolute threshold —
+REASONING STANDARD #4). Forward returns/baseline: `find_entry_index`
+reused unmodified from `form4_gate2_test.py` (no HORIZONS dependency);
+`compute_forward_returns`/`compute_ticker_baseline` were NOT reused —
+found live, this session, that both close over `form4_gate2_test`'s own
+module-level `HORIZONS=(20,60)` rather than taking horizons as a
+parameter, so importing them unmodified silently computed the wrong
+horizons for this script's `HORIZONS=(5,20)` (caught by the script's own
+first live run erroring on a missing dict key, not by a test — a
+regression test for exactly this now exists, see RATCHET). Rewrote both
+locally, parametrized on this module's own `HORIZONS`.
+
+DATA CAVEATS STATED UP FRONT, before running (REASONING STANDARD #10):
+(a) no market-cap API key available this session (Polygon/Finnhub keys
+absent) and yfinance's `.info`/`.fast_info` fail in this sandbox (verified
+live — curl_cffi TLS reset through the proxy) — the EDGAR-shares x
+entry-price approximation is a deliberate substitute, stated as an
+approximation in the script's own module docstring, never presented as
+exact; (b) the archive is only 21 calendar days old, so the 20-trading-day
+horizon was flagged, before running, as likely to return zero usable
+samples — this is exactly what happened (see RESULT).
+
+LIVE RUN RESULT (full detail filed in `research/open_questions.md` item
+4's GATE 2 RUN 2026-07-26 entry, summary here): 286 civilian+ticker-matched
+events across 103 tickers found in the full archive; 220 excluded as
+large-cap, 6 had no resolvable EDGAR share count, leaving 30 small-cap
+events; only 11 old enough for the 5d horizon (4 high-ratio / 7 low-ratio,
+neither reaching a trustworthy significance read — high-ratio n=4 is below
+the n>=5 floor the significance function itself enforces; low-ratio n=7
+p=0.96); the 20d horizon has ZERO computable events — no award in the
+archive is old enough yet. VERDICT: NOT YET DECIDABLE (sample-starved),
+explicitly NOT a kill and NOT a pass — this is the correct, honest gate-2
+outcome for an archive this young, not a defect in the pipeline. The
+`usaspending_gate2_results.json` output file is intentionally NOT
+committed (no other gate2 script's JSON output is committed in this repo;
+`scripts/usaspending_gate2.py` is the permanent, reproducible artifact,
+matching the form4/cot gate-2 precedent) — its key numbers are recorded in
+prose above and in open_questions.md so a future session doesn't need to
+regenerate it just to know what this run found.
+
+RATCHET: `test_usaspending_gate2.py` (new, 16 tests, zero network calls) —
+`build_events`: DoD-agency exclusion, unmatched-ticker exclusion,
+`mm=="parent"` exclusion, name/cache methods kept, dedup by (aid,mod,amt)
+without double-counting the amount, distinct-mod awards NOT treated as
+duplicates, same-ticker-same-day amounts summed, chronological ordering,
+missing amt/rt excluded. `summarize_by_bucket`/`significance_by_bucket`:
+bucket separation, thin-sample None guard, adequate-sample computation,
+cross-bucket non-contamination. Plus two regression tests pinning the
+HORIZONS bug found live this session (`compute_forward_returns` populates
+keys 5 and 20, never 60; `compute_ticker_baseline`'s returned dict is
+keyed `{5, 20}` with the right per-horizon lengths) — this is the kind of
+live-caught bug the REPAIR MANDATE's "repairs must ratchet" rule exists
+for, applied here to a same-session bug rather than a prior one.
+
+GATES: `python3 -m pytest -q` (full suite, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first — sandbox had neither
+scipy nor yfinance installed at session start) — 960 passed, 1 skipped
+(944 pre-existing + 16 new, zero regressions). No `server/*.ts` or
+`client/` files touched this session, so `npx tsx --test`/`npx
+tsc --noEmit`/`npm run build`/`npm run visual` were not re-run — this is a
+pure-Python addition with no TypeScript/client surface.
+
+BACKTEST: N/A — this is a SIGNAL-gate statistical screen over historical
+archive data, not a change to any live scoring, sizing, or trading rule;
+PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply. No
+`bot_engine.py`/`system_config.py`/strategy file was touched, so nothing
+in the live trading path changed as a result of this session.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or scoring path — this script reads the archive via the
+already-existing read-only `/api/diag/archive` probe (rate-limited only by
+this script's own day-by-day loop, ~21 GET requests) and writes nothing
+back to production. The only "downstream" effect is informational: this
+item's ladder status in open_questions.md moved from "blocked" to "run,
+inconclusive, re-run date set."
+
+Version 1.0.504 -> 1.0.505 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+NEXT: (1) re-run `scripts/usaspending_gate2.py` unmodified no earlier than
+~2026-08-15 per the dated NEXT note in open_questions.md item 4 — do not
+re-attempt sooner, the blocker is calendar time, not code. (2) The
+glide-loop / TRAIL REBUILD STORM items from the 2026-07-20 terrain-audit
+round-10 follow-up list (satLayer/modelLayer/arcLayer never-idle repaint)
+remain open and unclaimed. (3) The 2026-07-25 MEASUREMENT-DEBT entry
+(visual harness /data perf gate fails on an untouched baseline,
+768px/1440px) remains open and unclaimed — a future REPAIR/RULE-REVIEW
+session should reproduce it cleanly per its own filed reproduction steps
+before attempting a fix. (4) GITHUB ACTIONS CI outage: not re-checked this
+session (out of this session's scope — no client/server files touched, no
+CI run to observe); the next session touching CI or a client/server PR
+should check current status before assuming either way.
+
+
+TERRITORY: T-DATACORE primary (`server/datacoreArchive.ts` — a module explicitly
+listed under T-DATACORE in the WORKSTREAM PARTITION — plus its test file).
+Touches two files outside that list: `server/diag.ts` (whitelist-only probe
+name registration, not itself territory-assigned) and `server/bot.ts` (the
+`/api/diag/:probe` switch statement lives there, same as every prior probe
+addition — "timings"/"orders"/"positions-detail" were added directly to
+bot.ts by non-T-BOT sessions too, same precedent). `package.json` version
+bump is the SHARED-file edit, last and smallest, per MERGE-ORDER PROTOCOL.
+Only one active session this run (scheduled routine, not concurrent
+multi-session work), so the disjoint-territory collision risk the
+partition exists to prevent doesn't apply here regardless.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main` +
+`git rev-parse origin/main HEAD` confirmed this checkout was already
+byte-identical to origin/main (6fa5848, v1.0.503 — this morning's KNOWN
+BROKEN #18 fix) at session start, no reset needed. `python3
+scripts/session_health_check.py --json` against the live site: no
+ALARM. Two WARNs, both already-tracked and non-blocking per this
+morning's own repair (`tier2_daemon_timeouts` KNOWN BROKEN #18 — the
+warning reflects the trailing measurement window from before today's
+fix landed, not a new recurrence; `ml_feedback` orphan_exit KNOWN
+BROKEN #12(c), gated). `deploy_freshness` OK: `server_version=1.0.503`
+matches this checkout — PRODUCTION DEPLOY FREEZE (tracked since
+2026-07-22) has been clear since the 07-25 session; not re-flagged.
+Per the session instructions, product work does not preempt DAILY
+repair duty and no unfixed critical trading-loop item was found, so
+proceeding with product work was correct.
+
+LOOP-HEALTH RATIO: experiments.md has a known, already-flagged
+file-ordering drift (session #2 today logged it: some sessions prepend
+newest-at-top per spec, others append at the bottom, so the physically-
+top entries are not reliably the chronologically newest — not
+re-investigated or fixed this session, per that prior flag, since
+reordering past entries risks violating "never rewrite history"
+without a human/audit decision). Reconstructing the last 10 entries by
+version number instead of file position: 503(REPAIR)/502(PRODUCT)/
+501(REPAIR)/500(RESEARCH)/495(REPAIR)/493(PRODUCT)/479(REPAIR)/
+478(REPAIR)/474(REPAIR)/~472(RESEARCH, Form4 gate-2 kill) = 6 REPAIR,
+2 PRODUCT, 2 RESEARCH — under the 7-of-10 thrash threshold, no
+meta-problem to address.
+
+PICKING THE ACTION: the two most recent NEXT-pointer lists (session #2
+and session #3, both today) independently named the same concrete,
+unclaimed blocker: USAspending gate-2 (award/mcap ratio vs. 5-20d
+forward returns) cannot run because the only live read surface for
+that archive, `/api/data/contracts`, serves just the in-memory last-6h
+cache — there is no way for a session running outside the Railway
+container to read the multi-week historical JSONL archive
+(`datacore_archive/usaspending/*.jsonl`) that gate-2 statistically
+needs. Session #3 named the fix directly: "add a scoped, whitelisted
+diag probe for reading a datacore stream's historical JSONL archive
+(the existing `/api/diag/:probe` surface is a hard-coded switch with no
+generic archive reader)". This is squarely item (a)/(d) of this
+session's mission (advancing a pipeline toward its next ladder gate /
+improving datacore's API boundary toward spinout-readiness) and was
+already scoped to single-PR size by the prior session, so it was
+picked over starting fresh research or new UI work.
+
+READ BEFORE WRITE: read `server/diag.ts` in full (the whitelist +
+sanitizer module) and the entire `/api/diag/:probe` switch in
+`server/bot.ts` (every existing case: audit/ml/daemon/positions/
+positions-detail/orders/scanner/timings) before writing anything, to
+match the established security posture (closed-by-default on missing/
+short DIAG_TOKEN, timing-safe token compare, sanitizeDiag on every
+response) instead of guessing it. Read `server/datacoreArchive.ts` in
+full (570 lines) — this is where `archiveBaseDir()`, the aircraft/
+vessels/trains position archive, and the streamed line-reader
+`streamJsonlLines` already live, all T-DATACORE. Read `server/
+usaSpending.ts`'s archive functions (`usaDir`, `archiveContractTxns`,
+`seedSeen`) to confirm the day-file naming convention
+(`<archive>/usaspending/YYYY-MM-DD.jsonl(.gz)`) independently before
+assuming it from the manifest text. Cross-checked against
+`datacore/manifests/aircraft.json`'s different convention
+(`YYYY-MM-DD-HH.jsonl(.gz)`, hour-granularity) to confirm the reader
+needed to handle BOTH shapes, not just usaspending's.
+
+WHAT SHIPPED: `readArchiveDay(stream, day, baseDir?, limit?)` (new
+export, `server/datacoreArchive.ts`) — generic one-day archive read for
+any stream directory under `archiveBaseDir()`. Detects file-naming
+convention from what's actually on disk (`archiveDayFiles`: tries the
+exact `${day}.jsonl(.gz)` file first — the ~50-stream day-granularity
+convention; falls back to globbing every file whose name starts with
+`day` — the aircraft/vessels/trains hour-granularity convention) rather
+than hardcoding a per-stream naming table, so a brand-new future stream
+needs zero changes here to become readable, mirroring the existing
+`archiveStats()` disk-discovery precedent (2026-07-05 audit defect #3)
+in the same file. Reuses the already-hardened `streamJsonlLines`
+streamed reader (event-loop-breathing, corrupt-gzip-safe per the
+2026-07-22 `rl.on("error")` fix) rather than a synchronous read —
+required per KEEP THE SYSTEM ALIVE: this is one Node process shared
+with the trading loop, and a blocking multi-MB read on every diag call
+would stall Tier 1/2 exactly like the PERF fixes already documented
+above `recentTrackAsync` in this same file warn against.
+
+New `/api/diag/archive?stream=<s>&day=YYYY-MM-DD&limit=<n>` probe case
+in `server/bot.ts` (added to `DIAG_PROBES` in `diag.ts`). Validation:
+`stream` must match `^[a-z0-9_]+$` (blocks path traversal — no `.`/`/`
+possible) AND `readArchiveDay` returns `null` unless a real directory
+already exists at `archiveBaseDir()/<stream>` — so the whitelist is
+"a datacore writer already created this directory," not a second
+hardcoded stream list. This is deliberately looser than
+`DIAG_PROBES`'s own probe-name whitelist, and the PR states why: every
+archived stream is either public/licensed source data (each has its
+own `datacore/manifests/*.json` licensing entry) or position data
+already rendered live and unauthenticated on `/data` — there is no
+distinct secret surface a new stream directory could introduce that
+the existing probes don't already risk. `day` must match
+`^\d{4}-\d{2}-\d{2}$`.
+
+DELIBERATE DIVERGENCE FROM THE 200-ROW CONVENTION: every existing
+probe (see the `diag.test.ts` pin on the `orders` probe) caps its
+result at 200 items to match `sanitizeDiag`'s blanket array-truncation
+default — the existing convention silently drops rows past 200 with no
+signal to the caller. A real gate-2 sample (a multi-week window,
+`n=6,691` observed at the $25k/award-type cap over some measurement
+period per the usaspending manifest) needs more than 200 rows/day to
+be useful, and archive rows are federal contract/economic/tracking
+records with no secrets by construction — so this probe sanitizes PER
+ROW (`rows.map((r) => sanitizeDiag(r))`, still scrubbing key-like
+strings/hex/base64/emails and truncating long strings per row) instead
+of passing the whole `rows` array through `sanitizeDiag`'s 200-item
+cap, and reports an explicit `truncated: boolean` instead of silently
+dropping rows — arguably more honest than the existing convention it
+diverges from, not a weakening of it (HONESTY METRIC: a caller doing
+statistics on a set that's silently short of what it asked for is
+exactly the kind of measurement blind spot this file elsewhere warns
+against).
+
+RATCHET: `server/datacoreArchive.test.ts` (+6 tests) — day-named stream
+reads the exact-day file and only that day; hour-named stream
+concatenates every hour file for the requested day; gzipped day files
+read transparently; unknown stream (no directory) returns `null`
+without throwing; a real directory with no file for the day returns an
+empty non-null result (distinguishes "stream doesn't exist" from
+"stream exists, no data that day"); `limit` caps rows and sets
+`truncated` honestly rather than silently dropping. `server/
+diag.test.ts` (+1 test) — pins the probe is registered in `DIAG_PROBES`,
+imports/calls the shared `readArchiveDay` (not a re-implementation),
+validates both the stream charset and the day format, and sanitizes
+per-row with the `truncated` flag present — matching the existing
+per-probe wiring-pin pattern already used for `timings`/`orders`/
+`positions-detail`.
+
+GATES: fresh-container `npm ci` (node_modules was absent at session
+start) + `pip3 install -r requirements.txt -r requirements-dev.txt`.
+`npx tsx --test server/datacoreArchive.test.ts server/diag.test.ts` —
+32 passed, 0 failed (20 baseline + 12 new) in isolation first. Full
+`npx tsx --test server/*.test.ts client/src/**/*.test.ts` — **1032
+passed, 0 failed** (zero regressions; the pre-`npm ci` run in this same
+session showed 10 failures, all `Cannot find package 'maplibre-gl'`/
+missing-module errors from node_modules being absent, not from this
+PR — resolved by `npm ci`, unrelated to any file this PR touches).
+`npx tsc --noEmit` — 80 errors; A/B-verified via `git stash` against
+the pre-PR baseline: also 80, byte-identical list, none in any file
+this PR touches (all pre-existing `Buffer.trim()`/downlevel-iteration
+errors elsewhere in bot.ts and shadowFleet.ts). `npm run build` clean
+(pre-existing chunk-size warnings only). `python3 -m pytest -q` — 944
+passed, 1 skipped (no Python file touched by this PR; full baseline
+sanity check, consistent with the 942-passed baseline session #3 logged
+earlier today — the +2 is unrelated Python test growth, not this PR's
+doing since zero .py files changed).
+
+BACKTEST: N/A — a read-only diagnostic probe over already-archived,
+already-public data. No scoring, sizing, execution, or trading-decision
+code touched; PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply.
+Not a MEASUREMENT INTEGRITY item either — this reads archived source
+data for a not-yet-built statistical test, it does not compute or
+alter any existing P&L/backtest/slippage metric.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the probe is additive and
+read-only — it cannot be reached without `DIAG_TOKEN` (closed by
+default, same posture as the six probes that already exist), makes no
+writes, and touches no code path the trading loop or scanner calls.
+Two steps out: this doesn't itself validate anything — it only makes
+the USAspending gate-2 statistical test *runnable* from outside the
+container. The next session attempting that test still has to prove
+the actual result (award/mcap ratio's correlation with 5-20d forward
+returns, civilian-agency cohort only per the already-documented ~90-day
+DoD publication lag) before gate 2 can be marked passed or killed — no
+signal has been validated or promoted by this PR itself.
+
+Version 1.0.503 -> 1.0.504 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical
+to HEAD — no advance since session start, no race).
+
+MARKET-HOURS NOTE: 2026-07-26 is a Sunday (market closed) — no
+merge-timing deferral needed; safe to merge immediately.
+
+NEXT: (1) USAspending gate-2 itself is now unblocked but NOT run this
+session (scope discipline — the probe and the statistical test are two
+separate logical changes; bundling them would violate PROMOTION RULE 5
+and make attribution of a probe bug vs. a gate-2 result ambiguous). A
+future T-DATACORE/RESEARCH session should call `/api/diag/archive?
+stream=usaspending&day=YYYY-MM-DD` across the available date range
+(archive starts 2026-07-05 per the manifest's `started` field),
+exclude/cohort DoD+USACE awards per the already-documented ~90-day
+lag, and run the award/mcap-ratio-vs-forward-returns test per the
+already-stated prior. (2) The generic probe also unblocks similar
+gate-1/gate-2 work for any OTHER datacore stream with a day-based
+archive (JODI, FRED macro, CFTC COT/TFF, FINRA short-interest/blocks/
+threshold, SEC 8-K earnings, Form 4, EDGAR 13F, GEM coal/methane, ...)
+— a future session picking a queued gate-1/gate-2 item should check
+whether this probe already removes its own "no archive read access"
+blocker before assuming it needs new infrastructure. (3) The
+experiments.md file-ordering drift (flagged again this session, not
+fixed) still awaits a human/audit decision. (4) GITHUB ACTIONS CI
+outage / glide-loop TRAIL REBUILD STORM items: unchanged from today's
+earlier sessions, not re-checked here (out of scope, would have
+bundled).
 ## 2026-07-25 (scheduled-routine session, 4th today) [REPAIR] — self-see × analyst-pane-open combo check closes the exact gap the prior session filed as NEXT (v1.0.496, T-CLIENT); finding: the hypothesized FAB/panel occlusion does NOT reproduce at 768px, so no CSS change shipped
 
 TERRITORY: T-CLIENT (scripts/visual_check.mjs, client/src/index.css comment
@@ -1806,6 +2537,103 @@ the same throttle bucket as fresh calls, or shrink the timeout/backoff so
 zombies clear before the next attempt starts) — a short-lived or absent
 second entry refutes it, and the search returns to the still-open
 `csp_layer2_prefetch` correlation from the prior session.
+## 2026-07-20 [REPAIR] — Full-site UI audit (human-directed): dead Alpaca feed killed scanner/heatmap/watchlist + bot gap-guard; bad-print IV shipped as signal; 5 more findings fixed (v1.0.444–451, cross-territory audit session)
+
+(2026-07-27 ship note: main advanced v1.0.443->510 while this branch waited; rebased and renumbered v1.0.511-518 at ship time. One correction from the pre-ship gap-check: the bot.ts BARS fetch now uses iex, not delayed_sip — alpaca_feed.py bars_feed() had already compiled live evidence (2026-07-18) that the bars endpoint 400-rejects delayed_sip; snapshots keep delayed_sip. The 2026-07-06 Python-side feed repair (alpaca_feed.py, 44 call sites) never covered these Node call sites — this PR is its Node-side completion, which also dates the scanner/heatmap/watchlist breakage to ~2026-07-06.)
+
+TERRITORY: audit session (human-directed "open the site and find what's
+wrong"), cross-cutting by nature — server data proxy (routes.ts SHARED,
+minimal), client (T-CLIENT), analyze.py + bot.ts data fetches (T-BOT).
+One logical change per commit throughout; version read-and-increment per
+commit. Branch claude/full-site-ui-audit-9biltz.
+
+METHOD (compiled for reuse): the egress proxy TLS-resets browser
+fingerprints, so production browsing ran as real Chromium + Playwright
+route-interception relaying every request through Node fetch (which the
+proxy accepts). Sweep = 24 routes x {1440, 390} with video recording,
+full network log (status/timing/pending), console + pageerrors; then
+Slow-3G (relay-paced 50KB/s + 400ms) + 4x CPU pass; then interaction
+pass (forms valid+empty — write-forms empty-only against prod, rapid
+clicks, click-before-data races, Back/Forward, mobile tabs). Videos
+frame-stepped via Playwright's bundled ffmpeg. Scripts in session
+scratchpad (not committed — pattern documented here).
+
+FINDINGS -> FIXES (each verified in-browser against a local build before
+commit; ranked by severity at time of finding):
+- v1.0.444 [breaks-feature] /api/market/* hardcoded a sip feed param the
+  account's data subscription REJECTS ("subscription does not permit
+  querying recent SIP data"); Alpaca's {message} error body parsed as an
+  empty snapshot map -> scanner ALWAYS zero rows ("NO TICKERS MATCH
+  FILTER" while market open), sector heatmap an empty box, watchlist
+  prices never loading — for every visitor, HTTP 200, invisible to
+  monitoring. Unknown how long dead (predates audit; no console error
+  ever fired). Fix: delayed_sip default (full consolidated-tape volumes,
+  15-min delay — iex would gut the volume ranking + bar.v floors),
+  ALPACA_DATA_FEED override, upstream error bodies now 502 {error} via
+  server/alpacaFeed.ts (+5 regression tests incl. the exact prod body).
+- v1.0.445 client honesty for the same: designed no-data states
+  (feed-dead vs filter-excludes-all now distinct), heatmap zero-rows
+  state, footer freshness label derives from served feed ("15-MIN
+  DELAYED" — the old hardcoded "REAL-TIME SNAPSHOTS" claim was false
+  under any non-sip feed).
+- v1.0.446 [breaks-feature/honesty] analyze.py trusted yfinance
+  impliedVolatility raw: live at 13:41 UTC (11 min after open) TSLA
+  showed ATM IV 389.7% vs rv20 59.3 -> UI derived VRP +330.4%, skew
+  -389.7%, and a confident sell-vol rec from one bad market-open print
+  (same endpoint returned 65.4% minutes later). plausible_atm_iv gate:
+  [1%, max(150%, 4x rv20)] (250% absolute if no rv20); rejected chains
+  fall to next expiry, excluded from vol surface; all-rejected falls to
+  the existing rv20-proxy path. 6 offline-safe tests pin it; CI-suite
+  127 passed.
+- v1.0.447 [looks-broken] Back/Forward never switched app tabs: the
+  state->hash sync pushed history entries but nothing read the hash
+  back. hashchange listener -> handleTabClick (auth gating kept),
+  analyze subpath restores section, #/data/* stays datamap's. Verified:
+  back/forward drives Scanner/Watchlist/Analyze correctly.
+- v1.0.448 [looks-broken] Slow-3G = pure black void 20-40s until the
+  bundle ran (no boot indication at all). Inline splash inside #root
+  (wordmark + loading bar, theme tokens, zero requests), replaced at
+  React mount; visual_check.mjs dead-page ratchet extended (splash
+  still present at check time = failed build, else the splash would
+  have defeated the '#root has no children' check).
+- v1.0.449 [cosmetic] landing nav Docs was href="#" -> /developers.
+- v1.0.450 [cosmetic] .vt-filings-table mobile card label crushed to
+  2-char wraps by long values ("AS SE T" on methane at 390px) —
+  flex-shrink:0 + nowrap on the ::before, fixes all filings tables.
+- v1.0.451 [SAFETY] bot.ts morning-queue overnight-gap guard (skip
+  entries gapped >5%) was SILENTLY DISABLED by the same rejected sip
+  feed — snapshot returned {message}, one-liner printed 0, currentPrice
+  >0 guard never fired. delayed_sip restores it (15-min delay fine for
+  overnight-gap detection). Order-transmission paths untouched. Ratchet
+  test: no server file may hardcode a sip feed param again.
+
+VERIFIED NOT BUGS (evidence in session): aircraft layer renders fine
+(490 rendered at z3.6 — sweep screenshots were just pre-mount under
+SwiftShader); /newsletter 301->/newsletter/ works in real browsers
+(relay artifact); login invalid-email uses native browser validation;
+analyze double-click + click-chip-mid-flight races resolve correctly
+(TSLA won as clicked); throttled passes: zero console errors, zero
+undefined crashes on all six key pages.
+
+FILED, NOT FIXED (below fix bar this session): aircraft endpoint 8-9s
+on cache-miss (cached 0.3s — stale-while-revalidate candidate, server);
+/api/data/platform/stats hung >30s once then 0.2-0.6s (transient, watch);
+basemap switch has no in-progress indication and main-thread jank makes
+nearby controls unresponsive during style rebuild on slow hardware
+(SwiftShader-amplified in harness; needs on-device confirm); one 503
+console error under the frozen billing checkout path (flow behaves
+correctly — login gate); analyze map-decoration city labels collide with
+ticker chips at 1440 (cosmetic); newsletter/marketing touch-target soft
+warnings pre-existing in harness.
+
+VERIFICATION: full CI-equivalent pytest 127+6 passed; node
+alpacaFeed.test.ts 6/6; npm run build green every commit; full visual
+harness 0 hard failures (screenshots reviewed at 390/768/1440).
+BACKTEST: N/A — no strategy/parameter/scoring change (IV gate touches
+the display analyzer only; bot scoring paths untouched).
+
+LIVE HEALTH at session start (priority 1): /api/health ok, bot active,
+liveness.dark:false, drawdown 0.0, scanner.consecutiveFailures 0.
 
 ## 2026-07-20 [REPAIR]+[RESEARCH] — GEM methane join was silently dead on prod since gate-2(a) (packaging defect, fixed) + first real gate-2(c) base-rate verdict on the re-joined data (v1.0.441, T-DATACORE, scheduled-routine session)
 
@@ -28590,3 +29418,1444 @@ session should run `python3 scripts/session_health_check.py` at the top
 of its health check instead of hand-deriving the `server_version`
 comparison, and should treat `deploy_freshness` flipping to OK as the
 signal the freeze has cleared.
+
+## 2026-07-25 (scheduled-routine session #2) [PIPELINE] — recovers orphaned PR #415 (gv-div4-ks train_rc=1 fail-fast fix + runpod_reap.py orphan-pod stopgap), corrects a 2-week-stale "RUNPOD BLOCKED-FOR-MIKE" claim in CLAUDE.md + grid_vision.md (v1.0.497, T-DATACORE)
+
+TERRITORY: T-DATACORE (scripts/gridvision_train/train.py, scripts/runpod_reap.py,
+scripts/runpod_launch.py, their tests, + research/*.md docs). No client/bot/
+strategy files touched.
+
+CONTEXT: this is a [PRODUCT] routine (datacore/ + /data). Checked KNOWN
+BROKEN first (open_questions.md — nothing newly critical-unfixed) and
+`/api/health` (`degraded`: `scanner.consecutiveFailures: 20` — a T-BOT
+matter, out of this session's territory, not investigated further here;
+flagging for a T-BOT/DAILY session). Also noticed the PRODUCTION DEPLOY
+FREEZE (frozen since 2026-07-22, `server_version` stuck at 1.0.475) appears
+to be actively clearing THIS session: `main`'s HEAD commit (8f85fb8,
+"Deploy trigger: re-arm Railway after CI un-froze") states the repo was
+made public, removing the GitHub Actions free-minute cap; `mcp__github__
+actions_list` confirmed CI now runs green on `main` (run on ad3b1b3
+completed `success`) after ~18 versions frozen. Did not touch this further
+— it is external infra recovering on its own, not a product action, and
+`/api/data/layers` still reported `server_version: "1.0.475"` at check
+time (deploy lag, not a new problem). A future session should re-run
+`scripts/session_health_check.py` to confirm `deploy_freshness` has
+flipped to OK.
+
+PRIMARY ACTION (product axis (d) — datacore/ spinout-readiness/hygiene,
+choosing to recover known-good already-reviewed work over starting fresh
+research): `research/wishlist.md`'s 2026-07-22 entry explicitly named PR
+#415 (gv-div4-ks fix + RunPod-reap tool) as "arguably the most
+time-sensitive" of four orphaned PRs — a billing-safety tool sitting
+unshipped 12 days at that point (now 15), unmerged only because of the
+same repo-history-rewrite that orphaned PR #399 (recovered 2026-07-24).
+Verified orphan status myself rather than trusting the prior note:
+`git merge-tree` between `origin/main` and PR #415's branch
+(`claude/dazzling-planck-g1d293`) still refuses "unrelated histories"
+(different root commits: `4dad299` for `main` vs `d1ba62f` for the PR
+branch) — confirmed still true today, not stale.
+
+RECOVERED (diff extracted via `git diff <PR-branch-parent>..<PR-branch-tip>`
+on the PR's own self-consistent history, then hand-applied — same method
+as #399's recovery):
+1. `scripts/gridvision_train/train.py` — `validate_holdout_in_regions()`
+   (pre-flight, no I/O: an explicit `--regions` list that omits
+   `--holdout-region` guarantees 0 val images) and `compute_holdout_split()`
+   (extracted from `build_yolo_dataset`, now raises `ValueError` if it ever
+   produces 0 val images regardless of caller) — turns the gv-div4-ks class
+   of mistake (a human/session launch-arg omission) into a <1s fail-fast
+   instead of a 9-minute pip-install+model-download before a deep, generic
+   ultralytics `FileNotFoundError`. 5 new tests in test_gridvision_train.py,
+   applied clean (`git apply --check` passed with zero drift against
+   current `train.py`).
+2. `scripts/runpod_reap.py` (new) + `test_runpod_reap.py` (new, 10 tests) —
+   finds ledger job_ids with no close row, matches them against `GET /pods`
+   (pod `name == job_id`), dry-run by default, `--apply` terminates any
+   still-live match and closes the ledger (capped at the job's own reserved
+   cost if the pod is already gone). Stopgap for the Option A caveat
+   (research/runpod_ledger.md, human-accepted 2026-07-08): the cost-cap
+   watchdog lives IN the launching session, so a session ending mid-watchdog
+   can leave a pod billing unattended.
+3. `scripts/runpod_launch.py` gained `list_pods(key)` (thin `GET /pods`
+   wrapper) — the dependency `runpod_reap.py` needs and didn't have.
+
+DELIBERATELY NOT RECOVERED (verified against current reality first, not
+blindly reapplied):
+- `datacore/runpod/ledger.jsonl` — PR #415's diff wanted to append a
+  manual-close row for `gv-div4-ks` (`actual_cost: 1.5389`, closed
+  `02:37:57Z`, note "manual close... 2h13m idle billing"). The CURRENT
+  ledger already has a DIFFERENT close row for the same `job_id`
+  (`actual_cost: 3.450966`, closed `05:23:56Z`, note "closed: elapsed
+  18005s" — exactly the 5h reserved cap). These are two different,
+  mutually exclusive accounts of how the same pod actually got closed.
+  Cross-checked `research/experiments.md`'s own 2026-07-10 entries (a
+  DIFFERENT, non-orphaned concurrent session, PR #416, which DID merge):
+  its account says the pod was "idle-billed to cap" — consistent with the
+  ledger's real row, NOT with #415's "found orphaned, manually terminated
+  at 2h13m" narrative. Two sessions diagnosed the same incident
+  differently in real time; only #416's landed. Appending #415's
+  contradictory row would corrupt the ledger's append-only truth record,
+  so it was skipped — this exact caveat was already flagged in
+  wishlist.md's 2026-07-22 entry ("needs careful append-only-preserving
+  resolution, not a blind merge"). `runpod_reap.py`'s own docstring now
+  carries an HONESTY NOTE stating this discrepancy plainly rather than
+  silently asserting the disputed figure.
+- `research/grid_vision_phaseb.md` — PR #415's diff wanted to add its own
+  "gv-div4-ks outcome" narrative section. The file already has an
+  accurate, complete, self-consistent account of the real merged timeline
+  (div4 crashed on a launch-arg mistake, div5 corrected and ran, AP50
+  plateaued at 0.197) from PR #416. Adding #415's superseded/incorrect
+  version on top would contradict it. Skipped entirely.
+- `research/experiments.md`'s own 2026-07-10 entries from #415 — not
+  re-inserted (this file is chronological; inserting a stale dated entry
+  today would misrepresent when the recovery actually happened, the same
+  reasoning #399's recovery session already applied).
+
+DOC CORRECTIONS (own small addition, factual KNOWN-STATE-class updates,
+not new rules): found that CLAUDE.md's KNOWN STATE line ("RUNPOD_API_KEY
+is in Railway not the session → launch is a server-routine step
+(BLOCKED-FOR-MIKE)") and grid_vision.md's matching NEXT bullet have BOTH
+been factually wrong since 2026-07-08 — re-verified live this session via
+`env | grep RUNPOD_API_KEY` (present, 50 chars). PR #415 itself made this
+exact correction on 2026-07-10 but never merged; the stale text has
+therefore been sitting in CLAUDE.md for the full ~2.5 weeks since,
+telling every session that reads it that GRID VISION GPU work is blocked
+when it demonstrably is not (5 GPU jobs already ran 07-08/10). Corrected
+both files with today's date and re-verification, not a blind reapply of
+the old (now itself 15-days-stale) PR text. Also appended
+`research/wishlist.md`'s still-unbuilt "RUNPOD OPTION B" (server-side
+watchdog) proposal from the same orphaned PR — genuinely still an open
+decision for the human, not superseded by anything since.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): all three recovered code files
+sit strictly on the offline GPU-training/cost-tooling path — zero import
+from or call into `scan_market`/`deep_score`/order execution/the trading
+loop. `runpod_reap.py`'s `--apply` path is the only one that mutates
+external state (RunPod DELETE + ledger append), gated behind an explicit
+flag and never invoked automatically by anything in this PR.
+
+GATES: `python3 -m pytest -q test_gridvision_train.py test_runpod_reap.py
+test_runpod_budget.py` — 65 passed (targeted). Full bare-repo
+`python3 -m pytest -q` (fresh sandbox, `pip3 install -r requirements.txt
+-r requirements-dev.txt` first) — **908 passed, 1 skipped** (893 baseline
++ 15 net-new: 5 in test_gridvision_train.py, 10 in test_runpod_reap.py;
+zero regressions). Manual smoke: `python3 scripts/runpod_reap.py`
+(dry-run, no `--apply`) against the live ledger — "no open ledger jobs --
+nothing to reap," confirming the current ledger is clean (no live
+incident to act on right now; this PR is pure defense-in-depth for the
+NEXT GPU launch, not an emergency response to an active one). No
+TypeScript/client files touched — `tsc`/`build`/`visual` gates don't
+apply.
+
+BACKTEST: N/A — offline GPU-training infra + docs corrections; no
+trading/measurement/parameter path touched.
+
+Version 1.0.496 -> 1.0.497 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed no advance since session
+start).
+
+NEXT: #399 and #415 are now both recovered (2026-07-24 and today,
+respectively). Two orphaned PRs remain per wishlist.md's 2026-07-22 list:
+**#449** (agent-tools API) and **#572** (ENTSO-E generation mix) — same
+recovery pattern, one per future session. Also worth a fresh open-PR-list
+check (`mcp__github__list_pull_requests`) since it's been 3 days since
+the last one and the CI outage recovering may itself surface more stale
+state. GRID VISION's actual next research question (now that the launch
+question is corrected) is the ALREADY-DOCUMENTED one in
+grid_vision_phaseb.md/grid_vision.md's own NEXT lists (3c Duke-US
+substation zips, V3 gate-2 ERCOT event list) — not re-derived here, this
+session's scope was the recovery + doc-hygiene action only. Separately:
+`/api/health` scanner `degraded` (`consecutiveFailures: 20`) was observed
+but not investigated (T-BOT territory, out of this [PIPELINE]/T-DATACORE
+session's scope) — worth a DAILY/T-BOT session's attention if it
+persists.
+
+## 2026-07-25 (scheduled-routine session #3) [REPAIR] — KNOWN BROKEN #25 root-caused and fixed: OPRA options-data entitlement is being rejected (HTTP 403); alpaca_feed.options_feed() adds the same probe/downgrade fallback data_feed() has had since the 2026-07-06 SIP incident (v1.0.498, T-BOT)
+
+TERRITORY: `options_execution.py` + `alpaca_feed.py` (T-BOT scope) +
+`test_alpaca_feed.py` (existing shared-territory test file for this
+module) + `research/open_questions.md` KNOWN BROKEN #25 update +
+`research/wishlist.md` informational note (SHARED, minimized, appended
+as the last edits before this commit) + `package.json` version bump
+(SHARED, read-and-incremented at commit time — `origin/main` re-fetched
+immediately before bumping, confirmed still at 8fa7e55/v1.0.497, no
+other session had advanced past it).
+
+SESSION-START CHECKS: CLAUDE.md, experiments.md (tail), open_questions.md,
+wishlist.md (head) all read. Loop-health ratio over the last 10 tagged
+entries (reading back from the RunPod-recovery session earlier today):
+PRODUCT/PRODUCT/RESEARCH/REPAIR/REPAIR/PIPELINE/PRODUCT(->REPAIR pivot)/
+PRODUCT/PIPELINE/PIPELINE — 3/10 REPAIR (counting the pivot), nowhere
+near the 7+ thrash trigger; no meta-intervention needed. `/api/health`:
+status ok, bot active, drawdownPct 0.0, `liveness.dark: false` — no
+LIVENESS ALARM. `scanner.consecutiveFailures: 0` — the `degraded`/
+`consecutiveFailures: 20` reading the prior RunPod-recovery session
+flagged as a T-BOT concern has since cleared on its own; not a lingering
+break. **PRODUCTION DEPLOY FREEZE HAS CLEARED**: `/api/data/layers`
+`server_version` now reads `1.0.497`, exactly matching `main`'s
+`package.json` at session start — confirmed via the
+`session_health_check.py` `deploy_freshness` check this session's
+predecessor built yesterday specifically for this comparison (used it
+for its intended purpose on its first opportunity). This unblocked KNOWN
+BROKEN #25's own stated NEXT CHECK, which had been sitting un-runnable
+for a day behind the freeze.
+
+PRIMARY ACTION: KNOWN BROKEN #25 (open_questions.md) was left OPEN
+2026-07-24 with an explicit NEXT CHECK — "once deployed, query
+`/api/diag/audit?type=T2-FAIL`; an `HTTP 403` reason confirms an
+OPRA/Algo-Trader-Plus entitlement gap, next fix is an entitlement-aware
+fallback mirroring `alpaca_feed.py`'s `bars_feed()`/`data_feed()`
+precedent." Ran that exact check the moment the freeze cleared (DIAG_TOKEN
+present in session env): live entries at 2026-07-25T20:06:53Z (after
+the deploy landed) showed `SPYM/UBER/HYG: No options contracts available
+for this ticker (HTTP 403: {"message":"subscription does not permit
+querying OPRA data"}\n)` — confirming the predicted entitlement gap
+exactly. Earlier same-day entries (12:57-13:26Z, pre-deploy, running
+v1.0.475) still showed the old generic message with no HTTP detail —
+direct before/after confirmation that the v1.0.481 diagnosability fix
+itself is now live and working as designed, one extra data point beyond
+this session's own primary finding.
+
+FIX (per the NEXT CHECK's own recommendation): added
+`alpaca_feed.options_feed()` — a second probe/cache/downgrade state
+machine in the same module as `data_feed()`, independent state (verified
+by a new test: a SIP downgrade must never leak into options-feed state
+or vice versa, since the two entitlements are billed and can be
+rejected separately). Probes a tiny SPY options snapshot with
+`feed=opra` (SPY: always listed, deep chain, never delisted) on the
+existing `PROBE_TTL_S` (600s) cadence; a 403 downgrades to `"indicative"`
+— Alpaca's free options quote feed, NOT invented for this fix: it's
+already used successfully elsewhere in this codebase for exactly this
+entitlement tier (`options_scanner.py`'s HV/IV-rank ATM-IV lookup,
+`bot_engine.py`'s ATM-IV lookup), so the fallback's data shape is a
+known-good path, not a guess. A restored subscription upgrades back
+automatically at the next probe, same as SIP. `ALPACA_OPTIONS_FEED` env
+override mirrors `ALPACA_DATA_FEED`'s escape hatch. Wired into
+`options_execution.py`'s `_fetch_option_chain` — the exact Tier1/2 CSP
+contract-selection path KNOWN BROKEN #25 diagnosed — replacing the
+hardcoded `"feed": "opra"` literal.
+
+SCOPE DISCIPLINE (matches KNOWN BROKEN #25's own 2026-07-24 precedent):
+`options_scanner.py`, `options_manager.py`, and `vol_surface.py` all
+still hardcode `feed="opra"` for their own separate call paths (IV-rank
+estimation, contract lookups, vol-surface fitting) — same entitlement
+exposure, NOT touched this session. Each is a separate logical change
+per the one-PR-one-change rule; noted as a follow-up in both
+open_questions.md and here. Only `options_execution.py`'s path had
+live, audit-log-confirmed production impact this session — widening
+scope on a guess would be exactly the kind of un-derived reasoning
+CLAUDE.md's READ BEFORE WRITE section warns against.
+
+RATCHET SNAG + FIX: the new `_default_options_probe`'s `except Exception:
+return 0` initially tripped `test_silent_except_ratchet.py` — it's the
+identical silent-broad-except shape the ratchet exists to catch, and
+`alpaca_feed.py`'s pin (1, for `_default_probe`'s pre-existing matching
+handler) may never be raised without shrinking debt elsewhere, per
+CLAUDE.md's explicit "never weaken a test" rule. Fixed by narrowing:
+the probe's exception path now logs to stderr (matching the file's own
+transition-logging convention, never stdout — same JSON.parse(subprocess
+stdout) hazard `data_feed()`'s docstring already documents) before
+returning 0, which exits the AST checker's "body is ONLY pass/return-
+constant" pattern. Full suite re-run confirmed the ratchet passes
+unchanged at its existing pin.
+
+RATCHET (new tests): `test_alpaca_feed.py` gained `TestOptionsFeedResolution`
+(7 tests, directly mirrors `TestFeedResolution`'s existing SIP battery:
+entitled-passthrough, 403-downgrade, TTL-cached probe + automatic
+recovery, inconclusive-keeps-current, stdout-untouched, env-override,
+plus the new SIP/options-independence test) + `TestOptionsExecutionNoHardcodedOpra`
+(a `test_alpaca_feed.py`-scoped ratchet, deliberately NOT the blanket
+`TestNoHardcodedFeeds` pattern since the other 3 files legitimately still
+hardcode `opra` until their own fix lands — this ratchet checks
+`options_execution.py` specifically). A/B-verified via `git stash push --
+alpaca_feed.py options_execution.py` (test file kept): all 8 new/changed
+tests fail against pre-fix code (`AttributeError: module 'alpaca_feed'
+has no attribute 'options_feed'` for 7; the literal hardcode assertion
+for 1), confirming they test real behavior, not tautologies.
+
+GATES: `python3 -m pytest -q` (fresh sandbox, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first) — **916 passed, 1
+skipped** (908 baseline from this morning's runpod-recovery session + 8
+net-new test functions, zero regressions). Targeted:
+`test_alpaca_feed.py test_options_chain_diagnosability.py
+test_silent_except_ratchet.py` — 28 passed. No TypeScript/client/server
+files touched — `tsc`/`build`/`visual` gates don't apply.
+
+BACKTEST: N/A — this changes which HTTP feed value an options-chain
+fetch requests on 403, not any scoring/sizing/entry-exit logic; the
+contract data SHAPE returned by Alpaca's snapshot endpoint is identical
+regardless of feed value (same fields, same parsing code path in
+`_fetch_option_chain` — only the underlying quote source's real-time-
+ness changes, exactly the SIP/delayed_sip precedent). No measurement-code
+paths touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `options_feed()`'s output only
+changes which upstream data source populates `bid`/`ask`/`iv`/`greeks`
+in the contracts list `_fetch_option_chain` already returns — it does
+not change `_is_liquid`'s thresholds, `select_contract`'s scoring, or
+position sizing. The one real behavior change: contracts that were
+previously invisible (403 -> empty list -> "no options contracts
+available", CSP tier silently skips the ticker) now become visible again
+via `indicative` quotes — this WIDENS the live CSP candidate pool back
+toward its pre-403 size, which is the intended repair, not a side effect
+to flag as risk. `indicative` quotes lack real open interest (same
+quote-size proxy `_fetch_option_chain` already falls back to when
+`openInterest` is 0 — no new code path, existing fallback logic just
+fires more often now) and are less fresh than true OPRA prints;
+`_is_liquid`'s existing bid/ask-size floors are the safety net against
+acting on stale/thin indicative quotes, unchanged by this fix.
+
+NEXT: (1) the 3 other `feed="opra"` call sites (`options_scanner.py`,
+`options_manager.py`, `vol_surface.py`) are each a same-shaped, separate
+follow-up PR — same `options_feed()` resolver already exists, this is
+now pure wiring, not new design. (2) Watch `/api/diag/audit?type=T2-FAIL`
+over the next few live sessions for confirmation the 403-tickers (SPYM/
+UBER/HYG and whichever others recur) now produce non-empty chains
+instead of a repeated failure — this session's fix is unverified against
+a real post-deploy live cycle (self-repair pattern, same as the SIP fix
+which self-verified within its own probe TTL once deployed). (3) Per the
+`wishlist.md` informational note added this session: if real-time OPRA
+pricing (tighter spreads, true open interest) matters more than the
+self-heal, the human may want to check whether the Alpaca subscription
+covering SIP (Algo Trader Plus) still covers OPRA specifically — not
+urgent, no action required for the bot to keep functioning.
+
+## 2026-07-26 (scheduled-routine session) [RESEARCH] — ATS job-postings data root: GATE 0 run, killed at gate 0 for the broad-panel form after catching two real bugs in the probe itself (v1.0.500, T-DATACORE)
+
+TERRITORY: T-DATACORE (`scripts/ats_resolver_gate0.py`,
+`test_ats_resolver_gate0.py`, `research/open_questions.md` item 2 update
++ this entry). No client/bot/strategy files touched.
+
+SESSION-START CHECKS: CLAUDE.md (full, EDGE DOCTRINE re-read per the
+routine brief), experiments.md tail, open_questions.md KNOWN BROKEN —
+walked every numbered item; the only recently-open one (#25, OPRA
+options-feed entitlement) was root-caused and fixed the prior session
+(v1.0.498) with a single documented follow-up (wiring the same fix into
+3 more hardcoded-`opra` call sites) that is NOT itself a critical
+unfixed break — it's a scoped, low-risk follow-up PR, not a standing
+break. `/api/health`: `status: ok`, `bot.active`, `drawdownPct: 0.0`,
+`liveness.dark: false`, `scanner.consecutiveFailures: 0` — no LIVENESS
+ALARM, nothing newly critical. Loop-health ratio over the last 10 tagged
+entries: 4/10 REPAIR (well under the 7+ thrash trigger). Confirmed the
+designated branch (`claude/dazzling-planck-gjm2wv`) is exactly in sync
+with `origin/main` at session start (an initial stale-proxy-cache read
+made it look 52 commits behind/ahead until an explicit
+`git fetch origin +refs/heads/main:refs/remotes/origin/main` resolved
+it — recorded here so a future session doesn't re-diagnose the same
+proxy quirk from scratch).
+
+AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code. Checked
+first whether this was already saturated: every EDGE-DOCTRINE example
+pipeline named in the routine's own brief (Sentinel-2 tank shadows,
+EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google Trends) is
+already built and live per prior sessions' own notes. Checked
+`research/open_questions.md`'s NEW DATA ROOTS list instead: item 2 (job
+postings via ATS public JSON) has a fully-specified ladder with GATE 0
+explicitly unstarted ("ATS resolver probes the four endpoints per
+ticker, outputs a measured coverage table" — never built; verified via
+`grep -rl "greenhouse\|lever.co\|ashbyhq\|smartrecruiters"` across the
+repo, zero hits, and `ls datacore/manifests/` has no job-postings
+entry). PRIOR (stated before running, Reasoning Standard #10): expected
+low-but-nonzero coverage on a small-cap panel via name-transform
+guessing, since ATS board tokens are often chosen independently of the
+SEC-listed legal name (a pre-stated limitation in the script itself)
+— did NOT expect the actual failure mode found (below), which is a
+different, more interesting result than "low coverage."
+
+WHAT SHIPPED: `scripts/ats_resolver_gate0.py` — fetches a live NASDAQ
+Capital Market panel (same Market-Category-S / non-ETF / non-test /
+common-stock filter as `illiquid_universe_probe.py`, so the panel is
+reproducible, not cherry-picked), derives 2-3 board-token guesses per
+company from its OWN SEC-listed security name (no guessing from
+training-data memory of who uses which ATS — that would be exactly the
+fabrication READ BEFORE WRITE forbids), and probes Greenhouse/Lever/
+Ashby/SmartRecruiters live. 23 pure-function tests in
+`test_ats_resolver_gate0.py` (slug derivation, response classification,
+aggregation) — no network in the test suite, matching the
+`test_illiquid_universe_probe.py` / `test_gtrends_probe.py` convention
+for research probe scripts.
+
+TWO REAL BUGS CAUGHT BY VERIFYING RESULTS BEFORE TRUSTING THEM
+(Reasoning Standard #4 — distrust results in proportion to surprise):
+
+1. **SmartRecruiters false-positive schema match.** RUN 1 (first
+   version of the script) reported ~90%+ "coverage," which was
+   immediately suspicious (far above any sober prior for name-guessed
+   ATS coverage). Manually probed a deliberately fabricated garbage
+   slug against all four platforms: Greenhouse/Lever/Ashby correctly
+   404 it; SmartRecruiters 200s `{"offset":0,"limit":100,"totalFound":0,
+   "content":[]}` for ANY identifier, real or fake. Fixed
+   `classify_response()` to require non-empty `content` for that
+   platform only, with the finding recorded directly in the module
+   docstring so a future session doesn't rediscover it. Re-ran: 0/25.
+
+2. **Slot-capping bug dropping the single most useful guess.** Sanity-
+   checked the harness against two KNOWN real ATS users before trusting
+   a 0% result on the actual panel (AFRM->Greenhouse, PLTR->Lever) —
+   AFRM resolved correctly (`affirm`, 174 jobs) but PLTR did not, even
+   though `https://api.lever.co/v0/postings/palantir?mode=json` is
+   verifiably live. Root cause: the slug-candidate list capped at 2
+   company-derived guesses by taking the FIRST 2 of
+   [no_space_full, hyphenated_full, first_word] — for a 2-word name
+   like "Palantir Technologies" this kept both encodings of the full
+   name and dropped `first_word` ("palantir"), which was the actual
+   real slug. Fixed by dropping the low-value hyphenated variant
+   entirely (highly correlated with the no-space one — if a board
+   doesn't exist at the full name it essentially never exists at the
+   same name hyphenated) and prioritizing
+   [no_space_full, first_word] instead. Re-verified PLTR resolves
+   post-fix. New regression test pins this exact case
+   (`test_firstword_not_crowded_out_by_full_name`).
+
+RUN 2 (post-fixes) found 4/25 schema-level hits: FWDI->greenhouse:
+'forward', NUCL->ashby:'eagle', PPSI->greenhouse:'pioneer',
+UPC->ashby:'universe'. **Manually content-verified each one before
+counting it as coverage** (Greenhouse's job-level `company_name` field;
+Ashby's job-description "About {X}" text) — **all 4 are false matches**:
+'forward' resolves to a real fintech startup at getfwd.com (job
+`company_name: "Forward"`), unrelated to ticker FWDI ("Forward
+Industries, Inc.", a NASDAQ-listed medical-device/eyewear-case
+company); 'eagle' resolves to a real Lightspeed-backed AI/engineering-
+acquisition startup ("About Eagle... acquires and transforms civil,
+structural, and MEP engineering firms with applied AI"), unrelated to
+NUCL ("Eagle Nuclear Energy Corp."); the ashby 'universe' board's job
+titles (Performance Marketing Specialist, User Acquisition Manager)
+describe a mobile-ads/growth-marketing company, unrelated to UPC
+("Universe Pharmaceuticals Inc", a Chinese pharma company); 'pioneer'
+on greenhouse has zero current postings (unverifiable by content, but
+the same generic-word pattern as the other three). **VERIFIED coverage:
+0/25 (0%).**
+
+SECOND-ORDER FINDING (Reasoning Standard #5 — the actual value of this
+session): the false-positive mode is structural, not this panel's bad
+luck. Greenhouse/Ashby/Lever skew toward VC-backed private startups that
+disproportionately choose short, generic, single-dictionary-word brand
+names — exactly the same names a first-word slug guess produces for an
+SEC-listed small-cap whose legal name happens to start with a common
+word. Considered and rejected building an automated identity filter
+(token-overlap between the platform's declared company name and the
+ticker's SEC name): hand-traced that it would NOT have caught this
+session's actual failures, because the colliding company's REAL declared
+name literally IS "Forward" (or "Eagle"/"Universe") — a token-overlap
+check would pass, not fail, on the exact cases found. Shipping a filter
+that doesn't solve the problem it's built for would be worse than
+shipping none and documenting the limitation honestly, so none was
+built. This is recorded as HONEST LIMITATION #5 in the script's own
+docstring for the next session that reaches for this file.
+
+VERDICT (applying this item's own pre-stated GATE 0 rule verbatim: "if
+coverage <~10%... downgrade to covered-universe-only and log it"): 0%
+verified coverage is below the bar. **The broad, name-guessed,
+sweep-the-whole-panel form of this data root is KILLED at gate 0** — an
+autonomous nightly resolver cannot be trusted to run this without a
+human or a session manually content-verifying every hit, which defeats
+the purpose of an unattended pipeline. NOT killed entirely: a narrower,
+explicitly hand-verified ticker->board-token watchlist (each entry
+confirmed via the company's own investor-relations/careers page before
+being added, the same shape the GitHub-org-activity item already
+proposes for itself) remains a legitimate, much smaller-scope future
+path — not built this session, logged as a separate, more
+labor-intensive task rather than rushed through. `open_questions.md`
+item 2 updated with the full verdict.
+
+DOWNSTREAM CHAIN (Reasoning Standard #1): zero interaction with the
+trading loop, scoring, or sizing — this is an offline research probe
+script with no server route, no manifest, no daemon wiring (per the
+`gtrends_probe.py` precedent: "no dead code for a stream likely dead at
+gate 1/0"). Nothing in `bot_engine.py`/`ml_model_v2.py`/`system_config.py`
+touched.
+
+GATES: `python3 -m pytest -q test_ats_resolver_gate0.py` — 23 passed
+(targeted, pure-function only, no network). Full suite:
+`python3 -m pytest -q` — **939 passed, 1 skipped** (916 baseline + 23
+net-new, zero regressions). No TypeScript/client/server files touched —
+`tsc`/`build`/`visual` gates don't apply.
+
+BACKTEST: N/A — pure research probe script, no scoring/sizing/execution
+path touched, no measurement-code path touched.
+
+Version 1.0.499 -> 1.0.500 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed no advance since
+session start).
+
+NEXT: the hand-verified-watchlist variant (per-ticker manual board-token
+confirmation via the company's own careers/IR page, same shape as the
+GitHub-org-activity item's own proposed ~15-org panel) is the item's
+only remaining live path — a future session should pick a small,
+deliberately curated set of tickers already known (from other
+open_questions.md hypotheses or the illiquid-universe panel) to be
+small/thinly-covered, and manually verify each one's real board before
+adding it, rather than re-attempting broad name-guessing (killed
+above). Separately: KNOWN BROKEN #25's own follow-up (wiring
+`alpaca_feed.options_feed()` into `options_scanner.py`/
+`options_manager.py`/`vol_surface.py`'s still-hardcoded `feed="opra"`
+call sites) remains queued and is a good, low-risk pick for a future
+T-BOT session — not done here (different territory, would have been a
+second logical change bundled into this PR).
+
+## 2026-07-26 (scheduled-routine session #2) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.481's scan_phase field finally landed live (post deploy-freeze) with a LOW/consistent `last_phase=deep_score age=255-275s` reading; split the previously-unsplit 2026-05-04 "instrument each step" gap in two (v1.0.501, T-BOT)
+
+TERRITORY: T-BOT (`bot_engine.py`, `test_step6a_timing_checkpoint.py`,
+`research/open_questions.md` item 18 update + this entry, `package.json`
+version bump only). No client files touched.
+
+SESSION-START CHECKS: CLAUDE.md (full re-read), experiments.md tail,
+open_questions.md KNOWN BROKEN walked in full. Loop-health ratio over the
+last 10 tagged entries (5 RESEARCH/REPAIR/REPAIR/PIPELINE/REPAIR-pivot/
+PRODUCT/PIPELINE/PIPELINE/REPAIR/RESEARCH): 4/10 REPAIR — well under the
+7+ thrash trigger, no meta-problem to address. Branch `claude/busy-fermi-
+jj54as` confirmed in sync with `origin/main` at session start
+(`git merge-base --is-ancestor` clean). `session_health_check.py --json`
+against the live site: no ALARM. Two WARNs, both already-tracked: (a)
+`ml_feedback` — 61 live records all orphan_exit, matches KNOWN BROKEN
+#12(c)'s known open exit-path gap, not a fresh finding; (b)
+`tier2_daemon_timeouts` — 45 daemon timeouts in the audit window, KNOWN
+BROKEN #18. Picked #18 as the primary action: it is the item whose own
+NEXT STEP (filed 2026-07-23) explicitly asks the next session to read a
+specific diagnostic field the moment it becomes available, and this
+session confirmed that field had in fact just started producing real
+data.
+
+WHAT WAS FOUND: `/api/diag/audit?type=TIER2-ERROR&limit=200&token=
+$DIAG_TOKEN` returned all 45 entries the buffer holds (2026-07-24T17:27Z
+through 2026-07-25T19:55Z — nothing today, 2026-07-26, a Saturday with
+markets closed, consistent with the health check's own "market closed"
+read on a separate DIAGNOSTIC-window check). Cross-referencing against
+KNOWN STATE's PRODUCTION DEPLOY FROZEN entry: the `scan_phase` field
+v1.0.481 added (2026-07-23) does NOT appear in any entry before
+2026-07-25T18:34:40Z, and appears in ALL 8 entries from that timestamp
+onward — direct, in-band confirmation (not assumed from the deploy-freeze
+timeline alone) that the freeze silently swallowed this instrument for
+~2 days, and that it only started actually running once the freeze
+cleared (matching the 2026-07-25 session #3/#4 deploy_freshness checks).
+All 8 live-code entries read `status=in_progress last_phase=deep_score
+age=X` with X clustered 255.9-275.0s — a LOW age (well under the 300s
+daemon timeout) naming the SAME phase every single time. Per the
+2026-07-23 UPDATE's own explicit decision tree, this is the branch that
+does NOT re-cross RECURRENCE ESCALATES' architecture-smell bar (that bar
+was conditioned on a HIGH/unclear age or a stale `status=completed`
+read) — this is "a legitimate basis for a fourth, evidence-backed
+mechanism fix, not a guess," in the prior session's own words.
+
+ROOT-CAUSE TRACE (READ BEFORE WRITE, this session): `last_phase=
+deep_score` names the last-passed checkpoint, not a phase still running —
+`deep_score`'s own internal loop is separately hard-capped at 35s
+(bot_engine.py:2888), so the 255-275s of unaccounted time lives entirely
+in the ~700-line span between `_timing_log("deep_score")` and the next
+existing checkpoint, `_timing_log("step6_trade_loop_and_options")` — the
+per-candidate trade-sizing loop (instrument_selector.select_instrument +
+a throttled per-ticker Alpaca quote fetch), the covered-call sweep, and
+`options_scanner.get_options_trades()`'s full-market options scan
+(earnings-calendar check + per-ticker OPRA chain fetches), all
+UNINSTRUMENTED as one block. Grep of that exact span turned up a comment
+that had sat there, unacted on, since 2026-05-04: "ALPHA AUDIT 2026-05-04
+batch 6: granular timing between deep_score and tier_engine_start.
+Production snapshots show this gap eats 507s but the tier engine itself
+is only 66s. Instrumenting each step so the next snapshot pinpoints the
+actual slow caller." — the comment's own stated intent to instrument was
+never followed by actual code; only the one checkpoint at the very end
+of the span existed. This is a genuinely new, previously-unactioned lead
+(a stale-intent gap), not a fourth guess at an already-refuted mechanism.
+
+FIX SHIPPED (v1.0.501, pure visibility, zero behavior change): added
+`_timing_log("step6a_trade_loop_and_covered_calls")` immediately after
+the covered-call-sweep except block and before
+`options_scanner.get_options_trades()` is called, splitting the
+previously-unsplit gap in two. The pre-existing
+`step6_trade_loop_and_options` checkpoint is untouched.
+
+RATCHET: new `test_step6a_timing_checkpoint.py` (3 tests, source-text pin
+via `inspect.getsource(bot_engine._scan_market_inner)`, matching
+`test_deep_score_source_diag.py`'s and
+`server/tier2DaemonTimeoutVisibility.test.ts`'s convention) — asserts the
+new checkpoint is logged, sits between the covered-call sweep and the
+options-scanner import, and that the existing downstream checkpoint is
+unchanged/still present. A/B-verified via `git stash push -- bot_engine.py`
+(test file kept): all 3 fail on pre-fix code (`AssertionError`, string not
+found), pass post-fix, confirming they test real wiring, not a tautology.
+Also confirmed (read, not assumed) that
+`server/tier2DaemonTimeoutVisibility.test.ts`'s existing
+`last_phase_completed` assertion is a generic field-presence check, not a
+hardcoded phase-name list — the new phase string cannot break it.
+
+GATES: `python3 -m pytest -q` (fresh sandbox, `pip3 install -r
+requirements.txt -r requirements-dev.txt` first) — **942 passed, 1
+skipped** (939 baseline from the prior session + 3 net-new, zero
+regressions). No TypeScript/client/server files touched — `tsc`/`build`/
+`visual`/`npx tsx --test server/*.test.ts` gates don't apply.
+
+BACKTEST: N/A — this only changes where a diagnostic timestamp is
+written to a JSON file; no scoring, sizing, entry/exit, or measurement
+(P&L/backtest) code path touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with trading
+decisions — `_timing_log` writes a timestamp/duration to
+`voltrade_scan_timings.json` and nothing else; no return value, control
+flow, or scored output is touched. The only consumer is
+`server/bot.ts`'s TIER2-ERROR catch branch, which already reads this file
+generically (confirmed above) — no new wiring needed on the Node side.
+
+Version 1.0.500 -> 1.0.501 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed no advance since session
+start).
+
+NEXT: whichever session catches the next live TIER2-ERROR during market
+hours (none landed today — Saturday, markets closed) should read whether
+`last_phase` stays at `deep_score` (points at the trade loop / covered-
+call sweep, specifically `instrument_selector.select_instrument` and the
+per-candidate throttled Alpaca quote fetch) or advances to
+`step6a_trade_loop_and_covered_calls` (points at
+`options_scanner.get_options_trades()`'s full-market OPRA-chain scan, the
+2026-05-04 comment's original suspicion). Either reading is now directly
+actionable — this item finally has a real, narrow target for its first
+genuine behavior fix instead of a fifth visibility instrument. Separately
+still queued, untouched this session (different logical change, would
+have bundled): KNOWN BROKEN #25's follow-up wiring
+`alpaca_feed.options_feed()` into `options_scanner.py`/
+`options_manager.py`/`vol_surface.py`'s remaining hardcoded `feed="opra"`
+call sites.
+
+## 2026-07-26 (scheduled-routine session #4) [REPAIR] — KNOWN BROKEN #18 ROOT-CAUSED AND FIXED: options_scanner.py was burning most of the 300s daemon budget fetching OPRA chains for two setups that have been structurally untradeable since v1.0.34 (v1.0.503, T-BOT)
+
+TERRITORY: T-BOT (`options_scanner.py`, `test_options_v134_fixes.py`,
+`research/open_questions.md` item 18) + `package.json` version bump
+(SHARED, last commit, read-and-increment — re-fetched `origin/main`
+immediately before, confirmed byte-identical to HEAD at 7a1a77e/v1.0.502,
+no race).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Loop-health ratio: the
+file's append position has drifted (two 07-25 entries sit near the TOP
+of the file — lines 6/163 — while the true newest entries, v1.0.494
+through v1.0.502, are appended at the BOTTOM near line 29188; a future
+session should treat this as a MEASUREMENT-DEBT-adjacent finding, filed
+below, not assume line position ⇒ recency). Reconstructed the true last-10
+tags by version number instead: 502 PRODUCT, 501 REPAIR, 500 RESEARCH,
+498 REPAIR, 497 PIPELINE, 495 REPAIR, 494 PIPELINE, 493 PRODUCT, 492
+PRODUCT — well under the 7-of-10 REPAIR thrash threshold, no meta-problem.
+`/api/health`: `status: "degraded"` — `bot.status: "active"`,
+`drawdownPct: "0.0"`, `liveness.dark: false` (no LIVENESS ALARM), but
+`scanner: {"status":"degraded","consecutiveFailures":12}`. This is a live,
+market-hours bug already surfacing in the audit log — SESSION BUDGET's
+"fix a bug seen in audit logs" ranks above judging experiments or
+starting new research, so this became the primary action over the
+open_questions.md/wishlist.md queue.
+
+DIAGNOSIS: `/api/diag/scanner` + `/api/diag/audit?type=TIER2-ERROR`
+(DIAG_TOKEN, present in this session's env) showed 12 CONSECUTIVE Tier2
+scan failures today (14:43Z-15:58Z, one every ~10-15min backoff cycle),
+every single one reading `last_phase=step6a_trade_loop_and_covered_calls
+age=255-275s` — the checkpoint this morning's session (v1.0.501) added
+specifically to answer "is it the trade loop or the options scanner?" The
+answer: the trade loop/covered-call sweep completes fine; the daemon
+times out entirely inside `options_scanner.get_options_trades()`, exactly
+matching that session's own stated decision tree (their NEXT STEP,
+followed to its conclusion same day).
+
+Traced into `get_options_trades()` → `scan_options()` → `_check_ticker()`:
+every one of ~700-800 per-scan candidates ran Setup 3
+(`high_iv_premium_sale`) AND Setup 4 (`low_iv_breakout_buy`) AND Setup 5
+(`gamma_pin`) — each a SEPARATE live OPRA chain fetch (`_fetch_options_chain`
+is cache-keyed by `ticker_min_days_max_days`; Setup 3/4/5 each use
+different day windows, so nothing is cache-shared). But `HIGH_EDGE_SETUPS`
+(`options_scanner.py`, set since v1.0.34) contains only
+`{earnings_iv_crush, vxx_panic_put_sale, high_iv_premium_sale}` —
+`get_options_trades()`'s own HIGH-EDGE GATE (`if setup not in
+HIGH_EDGE_SETUPS: continue`) has ALWAYS discarded every Setup 4/5 result,
+confirmed by reading both the v1.0.34 docstring ("CSP fillers, straddle
+scalps, low-IV buys, and gamma pins are disabled — they were net negative
+in both backtesting and live trading") and the gate code itself, plus
+grepping every `"setup": "..."` string in the file to verify only 3 of 6
+setup names ever match the whitelist. Also confirmed via grep that
+`analyze.py`/`insights.py`'s unrelated `compute_gamma_pin` (single-ticker
+/analyze page feature) shares no code path with this — safe to touch.
+ROOT CAUSE: the module's own comments ("16 workers, 700 candidates / 16
+workers = ~9 seconds total") never accounted for `alpaca_rate_limiter.py`
+(FROZEN): ALL fetches share ONE process-wide token bucket (180/min = 3
+req/sec) that serializes regardless of thread-pool size — wall time is
+candidates/3s, not candidates/workers. ~700-800 candidates / 3 per sec ≈
+230-270s, matching the observed 255-275s almost exactly. Setup 4/5 were
+never free: every low-IV candidate paid for 2 dead fetches (Setup 4 +
+Setup 5), every high-IV/anchor candidate paid for 1 dead fetch (Setup 5).
+
+FIX (options_scanner.py, pure dead-compute removal, zero trade-output
+behavior change — confirmed by the HIGH_EDGE_SETUPS gate proof above, not
+a RULE-REVIEW judgment call): removed the Setup 4 and Setup 5 calls from
+`_check_ticker` (functions kept defined, not deleted, matching the
+existing CSP/Setup 6 "kept commented for reference" precedent exactly —
+STALENESS AUDIT disabled-adapter exception, review-by 2026-08-26, logged
+in open_questions.md item 18's update). `_get_options_candidates()` no
+longer returns the low-IV tier at all — its only two consumers are now
+both disabled, so returning it only bought ~400 wasted live fetches per
+scan for zero possible trading value; the classification loop itself is
+kept (free, no network calls) so a future re-enable doesn't rebuild it.
+Corrected three stale/wrong comments in the same file that documented the
+false "16 workers ⇒ ~9s" assumption (the docstring's "WHY TWO STAGES",
+the `SETUPS 3,4,5` section header, and the ThreadPoolExecutor comment) so
+the next session doesn't re-derive this from scratch. `MAX_PER_TIER=400`
+for the remaining high-IV tier is UNCHANGED this PR (one logical change
+per PR — even post-fix, ~400 high-IV + 21 anchors is still ~140s at the
+3/sec floor, real remaining headroom cost but smaller); filed as the
+explicit NEXT step below rather than bundled.
+
+RATCHET: two new tests in `test_options_v134_fixes.py`
+(`TestFix5_NoStraddleScalpsOrCSP`, matching the file's existing
+`test_csp_disabled_in_scan_options` source-inspection pattern exactly):
+(1) `test_low_iv_and_gamma_pin_disabled_in_scan_options` — greps
+`scan_options`'s source for uncommented `_setup_low_iv_breakout_buy(`/
+`_setup_gamma_pin(` calls, asserts neither exists, asserts Setup 3 is
+still live; (2) `test_get_options_candidates_excludes_low_iv_tier` — calls
+the real function with a mocked `snap_data` (one low-IV-classified
+ticker, one high-IV-classified ticker) and a patched
+`bot_engine._get_full_universe` (avoids a live network call in the unit
+test), asserts the low-IV ticker is dropped and the high-IV ticker is
+kept. A/B-verified via `git stash push -- options_scanner.py`: both fail
+against pre-fix code with the exact expected assertion messages (`r4 =
+_setup_low_iv_breakout_buy(tkr, ...)` still found; `'low_iv' unexpectedly
+found`), both pass post-fix — confirms real wiring, not a tautology.
+
+GATES: `pip3 install -r requirements.txt -r requirements-dev.txt` (fresh
+sandbox) then `python3 -m pytest -q` — **944 passed, 1 skipped** (942
+baseline + 2 net-new, zero regressions). Ran the full options suite
+(`test_options_v134_fixes.py test_options_fixes.py`) in isolation first —
+119 passed. No TypeScript/client/server files touched — `tsc`/`build`/
+`visual`/`npx tsx --test` gates don't apply. Grepped `server/bot.ts` for
+`get_options_trades`/`scan_options`/`low_iv`/`gamma_pin` — zero matches,
+confirming no Node-side RPC method name or subprocess one-liner assumes
+anything about these setups (bot_engine.py imports options_scanner.py
+directly in-process; no cross-language call site to update).
+
+BACKTEST: N/A — this removes two setups that could never reach execution
+(proven by the pre-existing HIGH_EDGE_SETUPS gate, not a new filter this
+session invented), so there is no scoring/sizing/execution behavior
+change to backtest. PROMOTION RULE 3's Sharpe/drawdown gate doesn't apply,
+same as every other pure-visibility/pure-performance PR in this log.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero change to which
+opportunities `get_options_trades()` can return (Setup 4/5 outputs were
+always filtered before this PR and are simply never computed now) →
+zero change to position sizing, slot allocation, or which trades execute.
+The only downstream effect is TIME: `scan_options()` now issues
+substantially fewer live OPRA fetches per cycle, which is the entire
+point — restoring Tier2's ability to complete within the 300s daemon
+budget so candidate discovery (stocks AND options) resumes during market
+hours. Two steps out: fewer Tier2-scan failures ⇒ fewer 10-min TIER2-BACKOFF
+windows ⇒ more scan cycles per trading day ⇒ more chances for the
+`earnings_iv_crush`/`vxx_panic_put_sale`/`high_iv_premium_sale` setups
+(the ones that actually trade) to fire — a reliability fix with a
+plausible, not fabricated, secondary effect on opportunity count.
+
+Version 1.0.502 -> 1.0.503 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical to HEAD, no
+race).
+
+MARKET-HOURS NOTE: this session ran while the market is open (per the
+scheduling instruction). This is a REPAIR fixing a live, currently-active
+100%-Tier2-failure-rate bug (12/12 consecutive failures today, zero
+successful scans since 14:43Z) — the CLAUDE.md liveness/repair-mandate
+language treats an actively-degraded scanner as exactly the kind of thing
+that should not wait, but per this run's explicit instruction the PR
+description states merge should wait until after 4:00 PM ET unless a
+human reviewing it judges the active-failure condition itself to qualify
+as the "critical live break" exception — leaving that call to the human
+rather than self-invoking the exception.
+
+NEXT: (1) whichever session catches the next live TIER2-ERROR (or
+confirms a clean run) should check `/api/diag/scanner` for
+`last_phase` — if it now clears `step6a` and scans succeed, this fix
+worked; if `step6a` is still the last phase but ages are meaningfully
+lower (should drop from ~260s toward ~140s per the MAX_PER_TIER=400
+high-IV-only math), the remaining high-IV tier itself may need its own
+`MAX_PER_TIER` reduction, evidence first per RULE REVIEW. (2) the
+experiments.md file-ordering drift noted in SESSION-START CHECKS above
+(two 07-25 entries prepended near the top while the surrounding sessions
+append at the bottom) — not fixed this session (reordering past entries
+risks violating "never rewrite history"; flagging for a human/audit
+decision on whether to append a redirect note or leave as-is) — filed
+here rather than silently worked around again. (3) USAspending gate 2 /
+GITHUB ACTIONS CI status: unchanged from the 2026-07-26 #3 entry, not
+re-checked this session (out of scope, would have bundled).
+
+## 2026-07-26 (scheduled-routine session #3) [PRODUCT] — /developers live-query widget for the Everything Graph endpoint, closing the 2026-07-23 "docs-explorer live-query widget" NEXT STEP (v1.0.502, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/pages/developers.tsx`, `client/src/index.css`,
+`scripts/visual_check.mjs` fixture only) + `package.json` version bump
+(SHARED, last commit, read-and-increment). No datacore/server pipeline
+files touched.
+
+SESSION-START CHECKS: CLAUDE.md full re-read; `research/` dir listing;
+experiments.md tail + last-10-tag loop-health ratio (REPAIR/PRODUCT/
+RESEARCH mix from the two sessions earlier today, well under the 7+
+REPAIR thrash threshold — no meta-problem). Branch
+`claude/beautiful-planck-4e704v` initially looked 54 commits ahead of a
+stale cached `origin/main` ref from container init; re-fetching `main`
+directly confirmed it was byte-identical to HEAD (both at 6aa8d47/
+v1.0.501) — a fetch-ordering artifact, not real divergence, no branch
+reset needed. `python3 scripts/session_health_check.py --json` against
+the live site: no ALARM. Two WARNs, both already-tracked (KNOWN BROKEN
+#18 daemon timeouts, KNOWN BROKEN #12(c) orphan_exit feedback) —
+consistent with this morning's own REPAIR session on #18, nothing new.
+`deploy_freshness` OK: live `server_version` now reads `1.0.501`,
+confirming the PRODUCTION DEPLOY FREEZE tracked in wishlist.md since
+2026-07-22 has cleared (matches KNOWN STATE).
+
+PICKING THE ACTION: scanned unclaimed `NEXT` pointers across the last
+~10 experiments.md entries. USAspending gate 2 (award/mcap ratio vs.
+5-20d forward returns) looked like the obvious next ladder-gate move,
+but is blocked this session: gate 2 needs the multi-week historical
+archive (`datacore_archive/usaspending/*.jsonl` on the Railway volume),
+and the only live read surface for that stream, `/api/data/contracts`,
+serves just the in-memory last-6h cache (confirmed live: `warming_up:
+true, count:0` right after today's deploy-freeze-clearing restart) —
+there is no diag probe exposing the historical archive, and adding one
+is a separate, bigger logical change than gate-2 itself. Filed as its
+own gap below rather than silently skipped. Picked instead: the
+unclaimed `/developers` docs-explorer live-query widget for
+`/api/v1/graph`, filed 2026-07-23 (PR #591-adjacent entry) as "larger-
+scoped ... needs a real preview key UX decision, not filed as a single-
+PR NEXT STEP yet."
+
+UX DECISION (the thing that was blocking this from being filed as a
+single PR): no new preview-key UX is needed at all. `/api/v1/graph`
+already has an unauthenticated, parameter-identical mirror,
+`/api/data/graph` (the established `preview:` field pattern every other
+`/api/v1/*` entry in `server/apiProduct.ts` already uses for its "Run
+live example" button) — building the live-query widget against that
+free mirror sidesteps the key-UX question entirely while demonstrating
+the exact same query shape a real key would use.
+
+WHAT SHIPPED: `client/src/pages/developers.tsx` — endpoints whose live
+`params` string contains `entity=` (detected via `ENTITY_PARAM_RE`,
+data-driven off the live meta doc rather than hardcoded to
+`/api/v1/graph`'s path, so a future query-param'd endpoint gets the same
+treatment for free) now render an entity + hops input above their
+"Run live example" button. Clicking it queries
+`{preview}?entity=<value>&hops=<value>` (defaulting a blank entity to
+`STLD` — hand-verified live via `curl` this session to resolve to a
+real Steel Dynamics neighborhood, since the graph's ~680 company nodes
+are a curated Form-4/entity_map/GEM-ownership subset, not a general
+ticker universe: `LMT`/`AAPL` both 404 live, `STLD` returns real
+facility + operates edges). The curl sample above the button updates to
+match the same query. `freshnessLabel` (used to show a relative-time
+chip after a run) previously only parsed ISO strings; the graph
+response's own timestamp field, `built_at`, is an epoch-ms NUMBER —
+without this it silently showed "freshness unknown" forever for this
+one endpoint. Fixed to accept both shapes, verified in a manual QA
+render (below) that it now shows "Ns ago" instead of "unknown".
+
+RATCHET: `client/src/pages/developers.graphQuery.test.ts` (NEW, 7
+tests, source-inspection style matching
+`datamap.dossierRadius.test.ts`'s established pattern for TSX page
+components — no headless component-render harness exists in this repo)
+— pins: entity-param detection is regex-over-`params`, NOT hardcoded to
+the graph path; `graphPreviewUrl` URI-encodes and defaults a blank
+entity; `runEndpoint` branches to the query-aware URL builder for
+queryable endpoints; the input/select actually write into
+`graphQueries[e.path]`, gated behind `queryable`; the curl sample
+includes the live query string; `freshnessLabel` accepts a numeric
+epoch-ms timestamp. A/B-verified via `git stash push -- client/src/
+pages/developers.tsx`: all 7 fail against pre-fix code (test file kept
+un-stashed), all 7 pass post-fix — confirms real wiring, not a
+tautology.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `scripts/visual_check.mjs`'s own
+embedded fixture `/api/v1/meta` was missing a `/api/v1/graph` entry
+entirely, so the harness's registered `developers` page had never
+actually exercised this card (pre-existing gap, not introduced this
+session) — added the fixture endpoint entry plus a `?entity=` -aware
+branch on the mock `/api/data/graph` handler (mirrors the existing
+`since=` -aware `/api/data/aircraft` precedent already in that file) so
+the harness screenshot shows the widget's real result state, not just
+counts-only. `node scripts/visual_check.mjs --page developers`: PASS at
+390/768/1440, 0 hard failures (the one soft warning, "clipped control:
+Copy" at 1440px, is the harness's own documented "controls below the
+fold on a non-immersive scrolling page" allowance — same class of
+residual warning several past `/developers`-adjacent PRs have carried,
+not new here). Additionally ran a throwaway (not committed) Playwright
+script against the real built `dist/` bundle with a minimal local mock
+server to click through the actual interaction (type `STLD`, click "Run
+live example") at both 1440 and 390 — confirmed the real neighborhood
+JSON renders, the button relabels to "Run again", and the freshness
+chip reads "Ns ago" post-fix; screenshots reviewed against DESIGN.md
+(existing `.vt-dev-*` tokens reused for the new input/select, 44px
+min-height touch targets, no new colors introduced) then discarded
+(scratch QA only, not a repo artifact).
+
+GATES: `npx tsx --test client/src/pages/developers.graphQuery.test.ts`
+(isolated) then full `npx tsx --test server/*.test.ts client/src/**/
+*.test.ts` — **1025 passed, 0 failed** (1024 baseline + 1 net-new file
+of 7 tests — one more than 6 because the file itself batches all its
+tests under one runner invocation; zero regressions). `npx tsc --noEmit`
+— 80 errors, byte-identical to the `git stash`-verified pre-PR baseline
+(`node_modules` wasn't installed in this sandbox at session start; `npm
+ci` first). `npm run build` clean (pre-existing warnings only:
+astronomy-engine ESM interop, maplibre-gl chunk-size advisory). `python3
+-m pytest -q` (after `pip3 install -r requirements.txt -r
+requirements-dev.txt`) — 942 passed, 1 skipped, matching the morning
+session's own baseline exactly; zero Python files touched, pure sanity
+check.
+
+BACKTEST: N/A — pure developer-docs UI over an already-RAW, already-
+gated (`requireApiKey`) endpoint's free preview mirror; no scoring,
+sizing, or measurement-code path touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with trading
+decisions or the ML/scoring path. The only new live traffic this
+generates is extra hits to `/api/data/graph` (unauthenticated, already
+publicly cached at `max-age=300`) whenever a site visitor uses the
+widget — bounded by ordinary page-view volume, no metering/billing
+surface touched (`/api/v1/graph`'s `requireApiKey` + `meterUsage` path
+is completely untouched).
+
+Version 1.0.501 -> 1.0.502 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical —
+no advance since session start).
+
+NEXT: (1) USAspending gate 2 (award/mcap ratio vs. 5-20d forward
+returns, civilian-agency cohort only per the already-documented DoD
+~90-day publication lag) remains blocked on live-archive read access — a
+future T-DATACORE/PRODUCT session should either add a scoped, whitelisted
+diag probe for reading a datacore stream's historical JSONL archive (the
+existing `/api/diag/:probe` surface is a hard-coded switch with no
+generic archive reader) or pull the archive some other way before
+attempting the statistical test; this is now the gate-2 item's concrete
+blocker, not just "not attempted yet". (2) The glide-loop / TRAIL REBUILD
+STORM items from the 2026-07-20 terrain-audit round-10 follow-up list
+(satLayer/modelLayer/arcLayer never-idle repaint) remain open and
+unclaimed, separate investigation from this PR's scope. (3) GITHUB
+ACTIONS CI outage: not re-checked this session (already flagged
+repeatedly); the next session touching CI should check current status
+before assuming it's still down.
+
+## 2026-07-27 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.503's own NEXT STEP confirmed live (last_phase clears step6a), surfaced a NEW post-fix stall signature (`tier_engine_start`), closed the one remaining un-instrumented span inside `run_tiers()` (v1.0.508, T-BOT)
+
+TERRITORY: T-BOT (`tiered_strategy.py`, `bot_engine.py`,
+`test_tiered_strategy.py`, `research/open_questions.md` item #18) +
+`package.json` version bump (SHARED, last commit, read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE re-read per
+this session's own scheduled prompt). `research/` directory listing.
+Loop-health ratio over the last 10 tagged entries (615 REPAIR, 614 docs,
+613 RESEARCH, 612 PRODUCT, 611 REPAIR, 610 PRODUCT, 609 REPAIR, 608
+RESEARCH, 607 REPAIR, 606 gridvision) — 4 of 10 REPAIR-class, under the
+7+ thrash threshold, no meta-problem. Branch `claude/dazzling-planck-
+h138mj` was byte-identical to `origin/main`/HEAD at 9bfa25d (v1.0.507)
+at session start — the prior session's PR (#615) had already merged and
+the branch deleted; per the merged-PR restart protocol this session
+just continued from that same commit (no reset needed, nothing to
+salvage). `python3 scripts/session_health_check.py --json` against the
+live site: no ALARM. Two WARNs, both already-tracked (KNOWN BROKEN #18
+daemon timeouts — see below, this became the session; KNOWN BROKEN
+#12(c) orphan_exit feedback). Per the scheduled prompt's own instruction
+("if any critical item remains unfixed, this session becomes REPAIR" —
+otherwise pick a doctrine axis), the health check's own WARN classification
+plus the item's own filed, already-answerable NEXT STEP made this a
+judge-a-matured-experiment action, ranked above starting new EDGE
+DOCTRINE research per SESSION BUDGET.
+
+WHAT I FOUND: `/api/diag/audit?type=TIER2-ERROR&limit=50&token=
+$DIAG_TOKEN` shows 12 occurrences from 2026-07-26 16:33Z-19:47Z (the
+afternoon AFTER v1.0.503 deployed) reading `last_phase=tier_engine_start
+age=17.3-35.4s` — a signature never seen on this item before, distinct
+from the `step6a`/`deep_score` signatures every prior update chased.
+Read `server/bot.ts`'s `scanTimingsDetail` computation directly (not
+assumed): `age = now - last_phase_at`, i.e. time stuck SINCE that
+checkpoint fired. This means: (a) the options-scanner fix genuinely
+worked — the step6a-to-step6 gap these occurrences would have shown is
+gone; (b) run_tiers() itself was killed only ~30s into its own
+execution, with ZERO record of which internal tier (1/2/3/4/allocator)
+was running, because `tier_engine_breakdown` only gets appended to the
+TIMING-DISK file on a clean return from `ts.run_tiers(ctx)`
+(bot_engine.py) — the exact same "one synchronous span, dark if killed
+mid-flight" shape this item's `step6a` split fixed one checkpoint
+earlier, just the next boundary out. A live idle-hours `/api/diag/
+timings` read this session showed the full 12-phase preamble (through
+`tier_engine_start`) completing in 26.84s on a clean run — a ~10x gap
+against the ~270s implied for the busy-hours failures that has NO
+explanation yet (filed as a NEXT STEP, not chased — see below).
+
+PRIOR: expected that the step6a fix would either (a) make TIER2-ERROR
+occurrences stop entirely, or (b) leave a residual `step6a` gap smaller
+than before per the fix's own filed caveat ("~400 high-IV + 21 anchor
+candidates is still ~140s at the 3/sec floor"). Neither happened exactly
+— (b) partially held (the fix demonstrably worked, `step6a` no longer
+appears) but the failures continued via a DIFFERENT localization
+entirely, one checkpoint later. Updating: the fix was real and correctly
+scoped, but the daemon's 300s budget is evidently still being exhausted
+somewhere in the preamble before `tier_engine_start`, an outcome this
+session's prior had not specifically considered.
+
+NOT GUESSING WHICH TIER IS SLOW: per RULE REVIEW / RECURRENCE ESCALATES
+("patch blind before checking the diagnostic you just built defeats the
+point of building it"), did not touch `MAX_PER_TIER` or any tier1/2/3/4
+threshold. Instead closed the structural gap the same way this item's
+every prior update has: `TieredStrategy.run_tiers()` (tiered_strategy.py)
+gained an optional `on_phase: Optional[Callable[[str], None]]` parameter,
+invoked after each of tier1/tier2/tier3/tier4/allocator with the tier's
+own label, wrapped so an exception inside the callback can never
+propagate into the tier engine. `bot_engine.py`'s sole callsite now
+passes `on_phase=lambda p: _timing_log(f"tier_engine_{p}")`, writing a
+progressive checkpoint to the SAME on-disk TIMING-DISK file every other
+phase boundary in the pipeline already uses. A future `tier_engine_start`
+occurrence will now show `last_phase=tier_engine_tier1` (etc.) if
+run_tiers() got that far before being killed — or, if `last_phase` stays
+at `tier_engine_start` even with the callback wired, that is itself new
+evidence that tier1 (`tier1_csp_core`, whose own CSP Layer 2 prefetch
+comment already documents "up to 150 tickers x 2 Alpaca-bound calls in a
+45s wall budget") never finished within its slice of the remaining
+budget.
+
+SILENT-EXCEPT RATCHET CAUGHT ITS OWN CLASS WORKING: first draft of the
+callback wrapper used a bare `except Exception: pass`, which
+`test_silent_except_ratchet.py` correctly failed (`tiered_strategy.py`'s
+pinned count would have gone 3 -> 4; raising a pin is forbidden per
+CLAUDE.md). Fixed to `logger.debug(...)` instead — same never-propagate
+guarantee, zero new silent handler, pin stays at 3. Noting this because
+it is exactly the ratchet doing its job, not a mistake to bury.
+
+RATCHET: 4 new tests in `test_tiered_strategy.py` — fires-in-order
+(tier1→tier2→tier3→tier4→allocator), not-called-when-master-kill-switch-
+fires (the early-return kill branch must never invoke it), exception-
+inside-callback-never-propagates, and default-omitted-still-works
+(backward compat with the one other test-only caller in
+`test_csp_universe_layer2_prefetch.py`). A/B-verified via
+`git stash push -- tiered_strategy.py bot_engine.py`: the first 3 fail
+against pre-fix code (`TypeError: run_tiers() got an unexpected keyword
+argument 'on_phase'`), all 4 pass post-fix; `test_run_tiers_default_...`
+passes both before and after by design (it's the compat pin).
+
+GATES: `python3 -m pytest -q` — baseline (this session's own `git stash`
+of the 3 changed files) **960 passed, 1 skipped**; post-fix **964
+passed, 1 skipped** (960 + 4 net-new, zero regressions, confirmed via
+two full clean runs). No TypeScript/client/server files touched —
+`tsc`/`build`/`visual`/`npx tsx --test server/*.test.ts` gates don't
+apply, same precedent this item's prior Python-only sessions used.
+
+BACKTEST: N/A — pure diagnostic-visibility change to the tier-engine
+call site (a progress callback plus a disk write); no scoring, sizing,
+or execution logic touched, no threshold changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `on_phase` fires only after a
+tier's work is already done and its own `tier_timings[...]` entry
+already recorded — it cannot affect which actions a tier proposes or in
+what order. The write itself lands in the identical TIMING-DISK path
+`_timing_log` already uses for every other phase; no new file, no new
+lock, no change to what `/api/diag/timings` or the TIER2-ERROR audit
+line already expose (it just gains finer-grained values in the same
+`last_phase` field it already reads).
+
+Version 1.0.507 -> 1.0.508 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical —
+no advance since session start).
+
+NEXT: whichever session catches the next `TIER2-ERROR` with a
+`tier_engine_*` last_phase should read it directly — no further
+instrumentation should be needed for this specific span. If the
+localized tier is `tier1`, cross-reference `csp_universe.
+get_last_layer2_prefetch_stats()`'s reading already surfaced in the same
+audit line (`layer2_prefetch=...`) before proposing any threshold change
+to Tier 1's own internal budget (RULE REVIEW: evidence first, one change
+at a time, logged rollback trigger). Separately, and NOT yet
+investigated: the ~10x idle-vs-busy gap in the ALREADY-instrumented
+preamble (26.84s clean-run vs. ~270s implied for the busy-hours
+failures) — a future session should read the per-phase `duration_sec`
+breakdown (not just the summary `last_phase`) from `/api/diag/timings`
+during an actual in-progress busy-hours scan (not a completed one) before
+assuming this is fully explained by "market hours have more candidates."
+GITHUB ACTIONS CI: not re-checked this session; assumed still recovered
+per KNOWN STATE, verify if a PR this session opens fails to get CI
+signal.
+
+## 2026-07-27 (scheduled-routine session #2, [PRODUCT]) — ENTSO-E day-ahead price pipeline: closes wishlist 9c's last open follow-up (load 07-07, generation-mix 07-21, day-ahead prices 07-27), v1.0.510
+
+TERRITORY: T-DATACORE (`server/euDayAheadPrices.ts` + test, new
+manifest) + `server/routes.ts` (SHARED, last commit, small/minimal) +
+`package.json` version bump (SHARED, read-and-increment at commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/` directory
+listing read. Branch `claude/beautiful-planck-anq9n1` was byte-identical
+to `origin/main` at 46dda80 (v1.0.509) at session start — no reset
+needed. `python3 scripts/session_health_check.py --json` against the
+live site: no ALARM. Two pre-existing WARNs (KNOWN BROKEN #18 daemon
+timeouts, KNOWN BROKEN #12(c) orphan_exit feedback), both already
+tracked and non-blocking per the routine's own instruction ("product
+sessions do not preempt the DAILY routines' repair duty" unless a
+break blocks the session — neither does).
+
+WHAT AND WHY: `research/wishlist.md` item 9c (ENTSO-E) explicitly named
+day-ahead prices (documentType A44) as its one still-open follow-up
+after `server/euLoad.ts` (actual load, 2026-07-07) and
+`server/euGenerationMix.ts` (fuel mix, 2026-07-21) shipped — flagged
+"genuinely separate parser, not a copy of the load/generation-mix
+GL_MarketDocument shape." This is priority-1 work under Amendment 5's
+self-proposed-work ordering (deepening an existing irreplaceable
+archive on an already-resolved token, not a new speculative root) and
+`platform_program.md`'s own queue was otherwise clear except the
+human-gated P5, so this ranked above starting a fresh hypothesis.
+
+READ BEFORE WRITE: read `server/euLoad.ts` and `server/euGenerationMix.ts`
+in full (this session) before writing anything — the fetch/parse/
+archive/cache/poll/route five-layer pattern, the value-aware vintage-
+dedup archive discipline, the R14 dist-staging lesson (moot here: the
+manifest dir is already staged wholesale, confirmed via
+`repoFiles.test.ts`'s existing generic `cp("datacore/manifests", ...)`
+assertion, and the runtime archive itself is written to the volume, not
+shipped from git — no build.ts change needed). Cross-checked the actual
+A44 query contract and `Publication_MarketDocument`/`price.amount`/
+`currency_Unit.name`/`price_Measure_Unit.name` schema against the
+ecosystem-canonical `entsoe-py` library's source (parsers.py,
+entsoe.py) via WebFetch this session, the same cross-check discipline
+euGenerationMix's own build session used for A75 — NOT yet confirmed
+against a live authenticated response (no `ENTSOE_API_KEY` in this
+sandbox, only Railway has it; same honesty caveat euGenerationMix's
+entry carries, inherited verbatim as this stream's own NEXT CHECK).
+
+WHAT'S GENUINELY DIFFERENT FROM THE SIBLING MODULES (not just a
+renamed copy): (1) no `processType` parameter — the ENTSO-E API guide
+and entsoe-py agree A44 doesn't take one, unlike A65/A75's `A16`;
+(2) `in_Domain` AND `out_Domain` both required and identical (load uses
+only `outBiddingZone_Domain`, generation only `in_Domain`); (3) document
+root is `Publication_MarketDocument`, not `GL_MarketDocument` — parser
+rejects the wrong root rather than guessing; (4) value tag is
+`price.amount` (dot-containing, needed escaping in the shared
+`tagText`/`tagBlocks` regex helpers — the two literal-dot tags,
+`currency_Unit.name`/`price_Measure_Unit.name`, needed the same fix);
+(5) prices can be NEGATIVE (renewables oversupply routinely clears
+below zero) — explicitly never clamped, and a `negative_price_points`
+stat surfaces the count per zone per window, since that count is itself
+a first-order signal candidate for a future gate-2 pass; (6) currency/
+unit are read per-TimeSeries and stored per-observation, never assumed
+EUR/MWh (SE's day-ahead settlement has not always cleared in EUR); (7)
+FETCH WINDOW is forward-looking (`now-24h .. now+48h`), not
+trailing-only like the two REALISED siblings — day-ahead prices publish
+FOR tomorrow, so a trailing-only window would miss a same-day
+publication until the next UTC-day boundary; the archive's
+`gzipOldPriceDays` was adjusted so a future/near-term day-file (e.g.
+tomorrow's just-published result) is never eligible for the 3-day gz
+cutoff before its own day has actually aged.
+
+GATES: `npm install` was needed first — this sandbox's `node_modules`
+was essentially empty (72KB, missing `express`/`@types/node`/etc.) at
+session start, an environment gap unrelated to this change; installed
+cleanly, no lockfile drift. `npx tsx --test server/*.test.ts` — 895
+passed, 0 failed post-install (pre-install, 7 files failed with
+`ERR_MODULE_NOT_FOUND: express`, confirmed via `git stash` A/B against
+untouched `main` that this was pre-existing sandbox state, not caused
+by this change). `npm run check` (tsc) shows pre-existing repo-wide
+errors (`bot.ts` Buffer/`trim`, several `--downlevelIteration` Map-
+iteration errors, a missing `pngjs` type decl) in files this session
+never touched — confirmed via `grep` that zero errors reference
+`euDayAheadPrices` or `routes.ts`. `python3 -m pytest -q` needed
+`pip3 install -r requirements.txt` + `openpyxl` (also missing, not in
+requirements.txt, surfaced via `test_grid_county_ba.py`'s import) —
+**961 passed, 2 skipped, 0 failed** (pure-Python engine untouched by
+this PR; ran the full suite anyway per PROMOTION RULES #1's blanket
+requirement rather than assuming a TS-only change is exempt).
+
+NEW TESTS: `server/euDayAheadPrices.test.ts`, 10 cases mirroring
+euLoad.test.ts/euGenerationMix.test.ts's battery shape plus the
+genuinely-new behavior: A44/no-processType/both-domains URL contract,
+`Publication_MarketDocument`-required rejection of a
+`GL_MarketDocument` (proves the module can't silently misparse the
+wrong sibling's response shape), negative-price preservation, missing-
+currency/unit honesty, forward-window gz-eligibility (tomorrow's file
+must NOT gz early). `server/manifests.test.ts`'s FORWARD ENFORCEMENT
+test and `server/repoFiles.test.ts` both pass against the new
+`eudayaheadprices` archive dir + manifest without any test-file edits
+— confirms the existing generic ratchets (dir-name scrape,
+whole-directory dist staging) already cover a correctly-named new
+stream, no manual registration needed.
+
+BACKTEST: N/A — new RAW archive-only data pipeline, gate-locked
+hypothesis (stated in the manifest's `confidence_model`), no scoring/
+sizing/execution logic touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the route is additive
+(`/api/data/eu-day-ahead-prices`, new path, nothing else reads it yet);
+`bootEuDayAheadPricesPoll()` only fires when `ENTSOE_API_KEY`/
+`ENTSOE_TOKEN` is present (same key already gating euLoad/
+euGenerationMix's live polls in Railway — this adds a THIRD independent
+8-call/2h sweep on the same token, still ~24 calls/2h total across all
+three EU modules, nowhere near the 400/min limit). No existing route,
+poller, or archive is modified. RAW-vs-SIGNAL: labeled `kind: "raw"` in
+the route response per the 2026-07-03 standing rule — no predictive
+claim, gate-locked hypothesis stated honestly in the manifest only.
+
+NOT DONE THIS SESSION (deliberately, one-logical-change-per-PR): no
+`/data` client UI or analyst-tool wiring — confirmed via grep that
+neither euLoad nor euGenerationMix have ANY client-side or
+`server/analyst.ts` tool wiring either (both are archive+API-only,
+RAW-hypothesis streams), so day-ahead prices following the identical
+scope is consistency, not a shortfall. Wishlist 9c's three-part
+ENTSO-E follow-up list is now fully closed.
+
+MARKET-HOURS MERGE COUPLING: session started 09:05 ET, gates finished
+~09:20 ET — inside the 9:30-16:00 ET window by the time of PR open.
+Per the scheduled-routine prompt's own instruction, this PR is prepared
+and pushed but its merge should wait for the close (or a session that
+starts before 9:30/after 16:00 ET) rather than self-merging mid-market.
+
+Version 1.0.509 -> 1.0.510 (read-and-increment at commit time,
+re-fetched `origin/main` immediately before — byte-identical, no
+advance since session start).
+
+NEXT: once merged and deployed, read `/api/data/eu-day-ahead-prices`'s
+`issues` field on the first live sweep — same NEXT CHECK discipline as
+euGenerationMix's own entry, now resolved-or-not for all three ENTSO-E
+streams at once. If issues surface a contract mismatch (e.g. an ack for
+a param this session couldn't live-verify), the fix is scoped to
+`priceUrl()`/`parsePrices()` only. Separately, once the three ENTSO-E
+archives have enough live history, the natural gate-1/2 next step is a
+same-zone join across all three (load residual + fuel mix + price) that
+none of the three individual build sessions attempted alone.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · [PRODUCT] · T-CLIENT
+Standalone Three.js/WebGL2 moon viewer at /moon.html (v1.0.511)
+
+HUMAN-DIRECTED BUILD (verbatim spec: Google-Maps-style 3D moon viewer,
+single self-contained file, one build for desktop + mobile). Delivered as
+client/public/moon.html — no bundler, no build step, no route in the SPA.
+
+WHY VENDORED, NOT CDN: server/securityHeaders.ts's CSP allows script-src
+'self' plus two named CDNs; an ESM CDN import for three would work today
+(CSP ships report-only) and silently break the day SECURITY_CSP_ENFORCE
+is switched on. three r0.185.1 (MIT) therefore sits in
+client/public/vendor/ (module + core — the r160+ split build imports
+./three.core.min.js as a sibling, both required). Vite copies publicDir
+verbatim, verified in dist/public/. Also means it renders offline.
+
+IMAGERY: the repo's existing NASA/LRO mosaics in client/public/space/ —
+nothing new fetched. Capability-driven tier (NOT device type, per spec):
+MAX_TEXTURE_SIZE >= 8192 plus navigator.deviceMemory >= 6 GiB (fallback
+hardwareConcurrency >= 8) -> moon_8k.jpg; >= 2048 -> 2k_moon.jpg; else
+moonmap1k.jpg. 1k paints first, the chosen tier swaps in behind it
+(uniform assignment — the material itself is never swapped).
+
+HONESTY NOTE — "normal map": the only relief asset (moonbump1k.jpg) is a
+grayscale HEIGHT map, not a tangent-space normal map. Rather than
+mislabel it, the shader derives a normal from its gradient (finite
+differences over the sphere's east/north tangents, cos(lat) guard at the
+poles). Relief strength is artistic, not metric, and at 1000x500 it
+reads as broad relief near the terminator — not crater-sharp.
+
+RESOLUTION CEILING (stated, not hidden): an 8k GLOBAL mosaic is ~4.7
+km/px at the equator, so below roughly 500 km altitude the surface goes
+soft. That is a data limit, not a renderer bug. The upgrade path already
+exists in-repo: stream LROC WAC WMTS tiles the way
+client/src/lib/celestial/moonTiles.ts + lroc.ts do for the space frame's
+focused-close Moon.
+
+CORE FEATURE — one ShaderMaterial, one uniform:
+  t = smoothstep(800, 8000, altitudeKm)      // 0 zoomed in, 1 zoomed out
+  lambert = smoothstep(-0.05, 0.15, dot(N,L))
+  shade   = mix(1.0, lambert, t)
+  final   = albedo * (shade * sunColor + mix(0.9, 0.03, t))
+Implemented verbatim. t is a pure function of altitude recomputed every
+frame, so the transition is continuous BY CONSTRUCTION — no material
+swap, no light toggle, nothing conditional. Measured: t=0 at 20/800 km,
+t=1 at 8000/30000 km, 0.223 at 3000 km, monotonic across the sweep.
+CALIBRATION CAVEAT: at t=0 the spec's math is albedo*(1*sun + 0.9), so a
+full-intensity sun clips the mosaic's bright highlands; uSunColor
+defaults to warm white x0.6 to land just under 1.0. setSunColor() undoes
+it. setSunDirection(x,y,z) is the documented ephemeris hook.
+
+TWO REAL BUGS THE PROBE CAUGHT (both were mine, both fixed):
+1. FRAME-RATE-DEPENDENT ZOOM STEP. Discrete zoom was a velocity impulse
+   sized as logDelta*(1-DAMP) — i.e. assuming 60fps — while the decay was
+   frame-rate corrected. The two disagree, so on a slow device a
+   double-tap under-travelled: measured 10000 -> 8210 km where a factor
+   of two wants 5000. Replaced with an EASED TARGET (logAltTarget):
+   frame rate now affects only how fast the ease arrives, never where.
+   Re-measured exactly 10000 -> 5000 km. Wheel, pinch and double-tap all
+   feed that one additive log-altitude step, which is what makes the feel
+   identical across devices.
+2. A REFUSED setPointerCapture ABORTED GESTURE TRACKING. The call throws
+   ("No active pointer with the given id") and it sat before
+   pointers.set(), so the second finger was never registered and pinch
+   silently did nothing at all. Now try/catch'd: capture is an
+   optimisation, tracking is the contract.
+3. (third, found in the same loop) An in-flight reset tween swallowed
+   zoom input for ~600ms, because stepReset re-synced logAltTarget to
+   logAlt every frame — so long-press-to-reset followed by a scroll ate
+   the scroll. zoomBy()/setAltitude() now cancel the tween: input always
+   wins.
+
+CONTROLS are Pointer Events only — no touch/mouse branch, no UA sniffing
+anywhere. Verified BOTH paths hit the same handlers: mouse drag and a
+synthetic one-finger drag both rotate; RMB drag and two-finger both pan;
+wheel and pinch both zoom.
+PROBE FOOTNOTE: two first-round "failures" were the probe's fault, not
+the page's — offsetParent is null by spec for position:fixed (so the HUD
+check was invalid), and synthetic pointerId 1 collides with Chrome's real
+mouse pointer (so the "two-finger" test was really one finger). Fixed in
+the probe; recorded because the same two traps will bite the next
+session that hand-rolls a pointer probe.
+
+VERIFICATION (headless chromium, real WebGL2 via SwiftShader — 8 groups,
+ALL PASSED): zero console errors; no shader compile/link errors; altitude
+clamps at 20 and 30000 km; the terminator law above; pixel census proving
+the night side is strictly a zoomed-out phenomenon (8.9% dark pixels at
+30000 km vs 0.5% at 120 km); every gesture; forced context loss via
+forceContextLoss() -> loop stops, retry overlay shows, nothing throws,
+rebuild reloads textures and leaves exactly ONE canvas (no leak); canvas
+fills 390/768/1440 with no horizontal scroll; 226 frames of continuous
+input with median 37.5ms under software GL and no leaked pointers.
+Screenshots captured at all three widths x three altitudes.
+
+NOT CLAIMED: 60fps on real hardware. SwiftShader is software rasterisation
+(11-23 fps here) and cannot measure it; the geometry is ~12k tris with one
+texture fetch pair per fragment, which is trivial for a Galaxy S24, but
+that is an argument, not a measurement. Untested on real iOS/Android
+Safari — the honest gap.
+
+FROZEN PATHS: none touched. No route added, no server change, no
+package.json dependency (three installed with --no-save and vendored, so
+CI's npm ci is unaffected). client/public/** is excluded from CI's
+path-filtered heavy jobs by design.
+
+CORRECTION (same session, after live header inspection): the moon-viewer
+entry above justified vendoring three with "CSP allows script-src 'self'
+but no ESM CDN host." That is WRONG and is corrected in moon.html's
+header. Live `curl -D -` on https://voltradeai.com/moon.html shows
+script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:
+https://cdnjs.cloudflare.com https://cdn.jsdelivr.net — so a jsdelivr ESM
+import would survive SECURITY_CSP_ENFORCE; only unpkg/esm.sh would have
+been blocked. The vendoring decision stands on its real merits (pinned
+bytes, no third-party runtime dependency on a page whose job is to keep
+rendering, offline capable), not on a CSP hazard that doesn't exist for
+jsdelivr. Logged because a future session reading the original claim
+would have mis-scoped what this CSP actually permits.
+
+ALSO CONFIRMED LIVE at v1.0.511: /moon.html 200 text/html,
+/vendor/three.module.min.js and /vendor/three.core.min.js both 200
+text/javascript (the MIME matters — had express's SPA fallback caught
+them they'd be text/html and the browser would refuse the ESM import),
+/space/moon_8k.jpg 200 image/jpeg. CSP ships report-only in production,
+so nothing is enforced against the page today either way.
+UNVERIFIED: a real browser boot against the production URL. Playwright's
+chromium is not routed through this container's egress proxy
+(ERR_CONNECTION_RESET) and the honest options were disabling TLS
+verification (forbidden) or accepting the gap — gap accepted, since the
+byte-identical file passed all 8 probe groups locally and every asset is
+confirmed served with the right type.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · [PRODUCT] · T-CLIENT
+/moon.html round 2: zoom tool, imperial units, streamed LROC WAC detail (v1.0.520)
+
+HUMAN REPORT: "hard to zoom in to the moon at 300 miles on the phone …
+it needs to be like google maps or a sat view of the moon what it is
+really like — and how low can we go, what do we have?"
+
+ANSWERED THE DATA QUESTION FIRST (all arithmetic re-derived, and it
+CORRECTED a number this session had already shipped). Moon circumference
+10,916 km => 30,323 m per degree of longitude:
+  moonmap1k   1000px  =  10,916 m/px
+  2k_moon     2048px  =   5,330 m/px
+  moon_8k     8192px  =   1,333 m/px   <- the shipped base
+  WAC z7    32768px  =     167 m/px
+  WAC z8    65536px  =      83 m/px   (source is 303 ppd = 100 m/px)
+CORRECTION: v1.0.511's file header and log said the 8k base was
+"~4.7 km/px". It is 1,333 m/px — the earlier figure was wrong by 3.5x and
+matched no asset on disk. Corrected in the file header this round.
+
+WHY 300 MILES LOOKED BAD (the actual diagnosis): at 483 km on an 844px-tall
+phone one screen pixel covers 509 m, but the base mosaic only carries a
+pixel every 1,333 m — a 2.6x magnification. The blur was real and no
+renderer setting could fix it; it needed more imagery.
+
+HOW LOW CAN WE GO (honest ceiling, now in the file header too): WAC is
+sharp to ~50 mi altitude and softens below. Lower needs a different
+source: Kaguya TC ~10 m/px (~6 mi, on Trek, unprobed) or LROC NAC
+0.5-2 m/px (~1000 ft) which is NOT global — select sites only. So
+"anywhere on the Moon" has a hard floor near 6 mi, and that is a data
+limit, not a code one.
+
+BUILT
+1. STREAMED WAC DETAIL. Scheme reused from lroc.ts (itself probed from
+   WMTSCapabilities.xml), re-confirmed live this session: z8 tile -> 200
+   image/jpeg ~32 KB, z9 -> 404, Access-Control-Allow-Origin: * so the
+   browser fetches tiles directly with NO server relay. The patch is
+   addressed in the same equirect UV space as the base mosaic, so
+   alignment is inherited rather than re-derived, and fract() on the u
+   difference makes the 0/1 seam wrap-safe for free. Level is chosen to
+   match SCREEN resolution (not the deepest available — z8 at 300 mi
+   would be 6x oversampled for 64x the tiles), tile-budget bounded,
+   rebuilt only after the camera settles 140 ms, cross-faded in, and
+   released entirely when zoomed out.
+   MEASURED AT EXACTLY 300 MILES: z6 / 333 m/px against a 509 m/px
+   screen, and mean |laplacian| of the centre 260px went 1.29 -> 5.12,
+   i.e. 3.95x more high-frequency detail. That is the whole ask, verified
+   as a number rather than an impression.
+2. ZOOM TOOL. −/+ buttons (48px) that REPEAT while held (20,000 km ->
+   514 km in a 2s hold), a logarithmic altitude slider spanning
+   12 mi–18,600 mi in one drag (300 mi lands at slider 565, mid-track),
+   and a reset button, since long-press was never discoverable.
+3. IMPERIAL UNITS. v1.0.511 violated the standing UNITS PREFERENCE
+   directive by printing km/Mm. Now miles/feet by default, one-tap
+   toggle, persisted to the SAME `vt-units` localStorage key
+   client/src/lib/units.ts uses, so this page and /data agree. Storage
+   and maths stay in km; only display converts.
+4. HONESTY READOUT. The HUD prints the imagery's true resolution and
+   labels the view "sharp" or "N x soft" — so at 25 mi it says
+   "31.6x soft" instead of flattering itself.
+
+FIVE REAL BUGS THE PROBE CAUGHT (all mine, all fixed)
+a. kick() was called three times and never defined — a ReferenceError
+   that would fire on the first zoom-button press.
+b. hRes was used in the HUD updater and never declared — would have
+   thrown every 250 ms.
+c. disposeDetail() existed but was never called, leaking the mosaic
+   CanvasTexture across every context-loss rebuild.
+d. THE GLOBAL-VIEW GUARD WAS BACKWARDS IN EFFECT. It bailed on span
+   size, but when zoomed out only the CENTRE ray hits the sphere, so the
+   measured span stayed tiny and it cheerfully streamed z0 tiles at
+   30,000 km. Correct criterion: if ANY sampled ray misses, the limb is
+   in frame, we are looking at the whole disc, and the base mosaic is
+   already finer than a screen pixel — so stream nothing.
+e. A STUCK SLIDER FLAG. slideDragging was cleared on pointerup, so
+   driving the slider with ARROW KEYS (input fires, pointerup never
+   does) left it true forever and the slider stopped following the
+   camera. Replaced with a recency stamp that covers pointer, touch,
+   keyboard and programmatic input alike.
+Plus a layout collision the screenshots exposed: the HUD's widest row
+("8k · max 8192" + "4,372 ft/px · 2.6x soft") grew into the top-right
+credit and overlapped it at 390px. Below the phone breakpoint the credit
+now sits in the empty strip above the zoom bar.
+
+ALSO FIXED: the tile budget (28) was the binding constraint and forced
+z5 (666 m/px) at 300 mi — COARSER than the 509 m/px screen, i.e. mildly
+soft while the HUD still said "sharp". Raised to 64 (a ~2048px-square
+mosaic) so the screen-matched level is always reachable.
+
+KNOWN SOFT BAND, MEASURED NOT HIDDEN: streaming only runs while the disc
+does NOT fit on screen (covering the visible cap once the limb is in
+frame would need ~300 tiles). Phone and tablet have NO gap — streaming
+stops at ~2,200 / ~1,835 km, past which the base is already finer than a
+screen pixel. A WIDE desktop's frame corners clear the limb sooner, so
+1920x1080 has a band (~847-1616 km / 526-1004 mi) where the base is
+magnified up to 1.9x; the HUD says so. Fix path if it ever matters:
+stream a centre-weighted patch instead of the full visible cap.
+
+PROBE NOTES FOR THE NEXT SESSION: two of this round's "failures" were
+wrong ASSERTIONS, not wrong code — "must pick z8" (no: screen-matched is
+correct and cheaper) and "slider at 300 mi should read 700-950" (no:
+565, confirmed independently in pure math). A tile <img> 404 also logs a
+console line JS cannot suppress, so assert on exceptions, not on console
+noise. Chromium here has no egress (the proxy is curl-only), so the probe
+intercepts trek.nasa.gov and fulfils with REAL bytes fetched via curl —
+the true path (URL math, decode, mosaic, upload, shader) runs on genuine
+WAC pixels; only browser egress is stubbed, and CORS was confirmed by
+curl separately.
+
+VERIFIED: full probe ALL CHECKS PASSED (8 groups: boot, units incl.
+persistence, zoom tool incl. hold-repeat and slider extremes, WAC
+streaming with the sharpness delta, honesty readout, zoomed-out release,
+context loss WITH a patch resident rebuilding to exactly one canvas, and
+layout); a separate layout sweep clear at 360/390/768/1440 with the
+widest HUD text; pure-math checks on the slider mapping (exact
+round-trip, monotonic) and the unit formatters (483 km -> "300 mi",
+83 m/px -> "272 ft/px"). Screenshots at 390 and 1440, base vs WAC.
+NOT CLAIMED: real-hardware 60fps or real-device touch (SwiftShader is
+software GL, 11-30 fps here), and no real-browser boot against the
+production URL for the same proxy reason. FROZEN PATHS: none touched.

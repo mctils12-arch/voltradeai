@@ -325,12 +325,18 @@ As of 2026-07-07 later same session (claude/new-session-iu72vf):
 - NEXT (each its own PR): (1) V3 gate-2 design prep — subagent
   research of the complete dated public ERCOT conservation/EEA event
   list from primary sources; (2) [SHIPPED]; (3a) **RunPod fine-tune of
-  grid-detector-v0** — BLOCKED only on the launch path (RUNPOD_API_KEY is
-  in Railway not the session → needs a server-side launcher routine
-  calling authorize_job first, OR the key added to the session;
-  BLOCKED-FOR-MIKE). (3b) [SHIPPED 2026-07-17, v1.0.377] — see
-  experiments.md; (3c) fetch Duke-US zips to make substations trainable;
-  (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA
+  grid-detector-v0** — STALE bullet, superseded by real events:
+  RUNPOD_API_KEY was added to the session 2026-07-08 (Option A) and 5 GPU
+  fine-tune jobs (gv-div1 through gv-div5) already ran 2026-07-08/10 —
+  see this file's own later entries + research/grid_vision_phaseb.md's
+  "RESULT 2026-07-10" section (diversity augmentation plateaued at 0.197
+  AP50 held-out, below the 0.30 gate-1(a) bar — a real ML-progress
+  question, not a launch-access blocker). This bullet was never updated
+  after that and stayed "BLOCKED-FOR-MIKE" in error for ~2 weeks
+  (corrected 2026-07-25; same stale text also lived in CLAUDE.md's
+  KNOWN STATE, corrected there too). (3b) [SHIPPED 2026-07-17, v1.0.377]
+  — see experiments.md; (3c) fetch Duke-US zips to make substations
+  trainable; (4) Phase B1 VERIFY spec. Polygon arbiter for ambiguous pools: EIA
   Atlas BA layer (re-check ~late July).
 
 As of 2026-07-12 (claude/google-maps-api-railway-9d2wwg):

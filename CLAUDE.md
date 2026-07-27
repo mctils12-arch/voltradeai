@@ -590,8 +590,19 @@ read-before-write review.
   append-only ledger, authorize_job refuses unbounded/bad-rate/over-floor
   and returns the hard max_runtime_seconds. PLAN: grid-vision detector is
   the ONLY GPU workload ($50); satellite splatting CANCELLED $0 (0 splat
-  candidates, glTF covers it). RUNPOD_API_KEY is in Railway not the
-  session → launch is a server-routine step (BLOCKED-FOR-MIKE).
+  candidates, glTF covers it). STALE-DOC CORRECTION (found 2026-07-25,
+  re-verified live via `env` this session): `RUNPOD_API_KEY` HAS been
+  present in the agent session since 2026-07-08 (Option A, human-chosen,
+  research/runpod_ledger.md) — launch is NOT blocked; 5 GPU jobs
+  (gv-div1 through gv-div5) already ran from sessions between 07-08 and
+  07-10 (ledger: datacore/runpod/ledger.jsonl). This line sat wrong for
+  ~2 weeks — a since-recovered orphaned PR (#415, ships this session as
+  `scripts/runpod_reap.py`) made the same correction 2026-07-10 but
+  never merged (history-rewrite orphan, same class as #399). OPTION A's
+  live caveat: the cost-cap watchdog runs IN the launching session, so a
+  session ending mid-watchdog leaves its pod still billing — run
+  `python3 scripts/runpod_reap.py` (dry-run; `--apply` to act) at the
+  start of any session touching GRID VISION RunPod work.
 - GRID VISION Phase B data-prep shipped 2026-07-07 (#362, v1.0.206 —
   scripts/gridvision_* + research/grid_vision_phaseb.md): CC-BY labels
   (ETDII/Duke verified), OSM-seeded NAIP chip index, MPC STAC client;
@@ -627,18 +638,22 @@ read-before-write review.
   not a data-overview rewrite; data never made up — existing data or
   new data created by real means; CONTINUOUS BUILD MANDATE — sessions
   build the next unblocked slice until the program is finished.
-- PRODUCTION DEPLOY FROZEN since 2026-07-22 ~14:09Z (confirmed
-  2026-07-24): Railway is configured to deploy only after GitHub
-  Actions CI passes (`.github/workflows/ci.yml` header comment); Actions
-  has been unable to allocate a runner on any run since that timestamp
-  (research/wishlist.md's CI-outage entry, 6 updates). Live
-  `server_version` (`/api/data/layers`) reads `1.0.475` while `main` is
-  9 PRs / 6 versions ahead at `1.0.481` — every merge since the outage
-  began, including the KNOWN BROKEN #25 REPAIR fix, has not reached
-  production. Until a human flips Railway's "Wait for CI" setting or
-  Actions recovers, do not assume a merged PR's fix is observable live;
-  check `server_version` first. Full detail + recommended human actions
-  in wishlist.md.
+- PRODUCTION DEPLOY FREEZE (2026-07-22 ~14:09Z to some point between
+  2026-07-24 and 2026-07-25T18:23Z) is RESOLVED — CORRECTED 2026-07-26
+  (this paragraph was stale; research/wishlist.md's 2026-07-26 session #3
+  UPDATE found and confirmed the recovery same-day, this file just hadn't
+  been updated to match). GitHub Actions CI runs are completing normally
+  again (`completed`/`success`, not stuck queued) and Railway is deploying
+  merged PRs again — confirmed both via `mcp__github__actions_list`
+  history and via a live merge same day (PR #613, CI `success` at
+  2026-07-26T20:40Z). No human action is needed; whichever of "GitHub
+  Actions usage/billing recovered" or "a human already flipped something"
+  was the true cause, the effect is confirmed. Routine going forward:
+  still always check `server_version` via `/api/data/layers` before
+  assuming a merged PR's fix is observable live (deploy lag after a merge
+  is normal, a few minutes) — just no more standing "CI may still be down"
+  caveat is needed. Full outage history + evidence trail kept intact
+  (append-only) in wishlist.md.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 

@@ -149,6 +149,22 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   datacore/settlementstress/, test composite_score (or its rank) vs.
   forward N/5/20-day returns against a same-universe random-entry base
   rate (REASONING STANDARD #3) before this is ever considered a signal.
+  UPDATE 2026-07-27 (scheduled-routine PRODUCT session, v1.0.507,
+  [REPAIR]) — GATE 2 was actually attempted first-order (checking
+  whether enough history had accumulated) and found the composite had
+  archived ZERO rows across every date since shipping — root cause:
+  finrathreshold is OTC-only (FINRA's own schema) but finrashortvol only
+  ever ingested CNMS (exchange-listed-only), a structural population
+  mismatch that guaranteed permanent zero overlap regardless of elapsed
+  time, not "insufficient history." Fixed by adding FINRA's ORF (OTC
+  facility) short-volume file as a second ingestion source
+  (finraShortVolume.ts, datacore/manifests/finrashortvolotc.json);
+  shortVolPercentiles now ranks across both facilities. Full trace in
+  experiments.md same date. GATE 2 remains not-yet-run — this session
+  fixed gate-1 plumbing so gate 2 has a chance of ever seeing real
+  overlap; a future session should check /api/data/archive/stats for
+  nonzero-byte settlementstress files accumulating before attempting the
+  correlation test.
 - CENSUS BUILD #7 EU MACRO: SHIPPED v1.0.175 — server/euMacro.ts +
   /api/data/eu-macro (ECB EXR/EST/ILM + Eurostat sts_inpr_m + BBK
   Bund 10y; keyless, per-series attribution verified, vintage-honest;
@@ -512,12 +528,42 @@ data); full-state discovery sweeps use the same account later.
     see experiments.md same date. NOT yet live-response-confirmed (no
     ENTSOE_API_KEY in the build sandbox; cross-checked against entsoe-py
     instead) — future session should read the route's `issues` field
-    post-deploy. DAY-AHEAD-PRICES remains the one open follow-up
-    (documentType A44, Publication_MarketDocument/price.amount schema —
-    genuinely separate parser, not a copy of the load/generation-mix
-    GL_MarketDocument shape).
+    post-deploy.
+    DAY-AHEAD-PRICES FOLLOW-UP BUILT 2026-07-27 (v1.0.510,
+    server/euDayAheadPrices.ts, /api/data/eu-day-ahead-prices, same
+    token, documentType A44, no processType, in_Domain=out_Domain,
+    Publication_MarketDocument/price.amount schema — genuinely separate
+    parser, not a copy of the load/generation-mix GL_MarketDocument
+    shape; forward-looking 24h-before/48h-after fetch window since
+    day-ahead prices publish FOR tomorrow, unlike the two REALISED
+    siblings' trailing-only window; negative prices preserved, never
+    clamped; currency/unit read per-series, never assumed EUR/MWh) —
+    see experiments.md same date. Also NOT yet live-response-confirmed
+    (same no-key-in-sandbox caveat) — future session should read the
+    route's `issues` field post-deploy. **Wishlist 9c's three-part
+    ENTSO-E follow-up list (load/generation-mix/day-ahead-prices) is
+    now fully closed** — no more open items under 9c.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
+
+## INFORMATIONAL — no action required (2026-07-25, scheduled-routine
+## session; self-repaired same session, v1.0.498)
+
+**OPRA options data entitlement is also being rejected (HTTP 403
+"subscription does not permit querying OPRA data"), same shape as the
+#9 SIP incident below but for the options-chain endpoint specifically
+(CSP contract selection).** Confirmed live via `/api/diag/audit?type=
+T2-FAIL` for SPYM/UBER/HYG at 2026-07-25T20:06:53Z — this is what KNOWN
+BROKEN #25 (open_questions.md) had been silently causing "no options
+contracts available" failures since 2026-07-24. **Self-repaired this
+session:** `alpaca_feed.options_feed()` now probes the OPRA entitlement
+the same way `data_feed()` already does for SIP, and falls back to the
+free "indicative" options feed on 403 — CSP contract selection keeps
+working, just off computed/delayed quotes instead of real-time OPRA
+ticks. If you want real-time OPRA pricing back (tighter bid/ask, real
+open interest instead of the quote-size proxy), check whether the same
+Alpaca subscription that covers SIP (Algo Trader Plus) also still
+covers OPRA — no urgent action needed, the bot self-heals either way.
 
 ## ⚠️ URGENT — READ FIRST (2026-07-06 ~15:45Z, push-notified)
 
@@ -2033,3 +2079,77 @@ already follows. Live-run this session: still stale
 (`server_version=1.0.475` vs `package.json=1.0.493` at run time) — no
 change in the underlying outage, this is tooling only, not a new
 finding.
+
+## RUNPOD OPTION B — server-side pod watchdog (proposed 2026-07-10 by
+## orphaned PR #415, recovered into this file 2026-07-25; still not
+## built, NOT blocking — GRID VISION RunPod work is fully usable today
+## via Option A + the now-shipped `scripts/runpod_reap.py` stopgap)
+
+WHAT: `research/runpod_ledger.md`'s Option A CAVEAT (accepted 2026-07-08:
+the cost-cap watchdog lives in the launching Claude Code session) means a
+session ending before its watchdog reaches the terminate step can leave a
+pod billing unattended. `scripts/runpod_reap.py` (this session, recovered
+from the orphaned #415) closes that gap MANUALLY — a future session has
+to remember to run it at the start of any GRID VISION RunPod work. GPU
+launches (div1-div5, 2026-07-08/10) have already happened 5+ times.
+
+OPTION B: a small always-on watcher in the existing Node server
+(server/bot.ts territory or a sibling module) that reads
+`RUNPOD_API_KEY` from Railway env (never the session) and periodically
+(e.g. every 5 min) reconciles `datacore/runpod/ledger.jsonl`'s open jobs
+against `GET /pods`, terminating + closing any that exceed their own
+`max_hours`. Removes the CAVEAT entirely — no session needs to stay
+attached for a launch to be safe.
+
+WHY NOT BUILT: (a) it's a new persistent server capability, not a quick
+script — deserves its own PR + its own research; (b) it moves
+`RUNPOD_API_KEY` into the always-on deployed process (a broader exposure
+surface than the current session-only placement) — a security-relevant
+tradeoff a human should weigh in on, not a unilateral call; (c) the
+stopgap (`runpod_reap.py`, now shipped) already closes the practical gap
+at zero new attack surface as long as sessions remember to run it first.
+BUILD-FIRST note: no paid alternative considered — this is pure
+engineering effort, not a data-access purchase.
+
+DECISION NEEDED: does Mike want `RUNPOD_API_KEY` added to Railway (it may
+already be there for other reasons — verify) and a small always-on
+watchdog built, or is the session-start `runpod_reap.py` check sufficient
+given GPU launches are still occasional, not continuous? If the latter,
+this entry can be closed as "accepted stopgap, revisit if incidents
+recur."
+
+## UPDATE 2026-07-26 (scheduled-routine session #3) — GITHUB ACTIONS CI OUTAGE HAS CLEARED; the PRODUCTION DEPLOY FREEZE (tracked above since 2026-07-22T14:09:21Z) is resolved
+
+Confirmed via `mcp__github__actions_list` (`list_workflow_runs`, no
+branch filter, most recent 10): CI runs are completing normally again,
+not just queued — `CI` workflow shows `completed`/`success` at
+2026-07-25T18:23:21Z, 20:28:19Z, 23:36:58Z, 2026-07-26T02:59:34Z, and
+11:13:30Z (this morning's own REPAIR session's PR, #609), plus a
+`celestial-catalog-mirror` scheduled workflow succeeding at 03:53:49Z
+and 08:38:28Z. This session's own PR #610 shows `CI` `in_progress`
+immediately after push (no runner-allocation stall). Best-guess
+recovery window from the run history: sometime between the last
+confirmed-failing check (2026-07-24, per that session's log) and
+2026-07-25T18:23Z's first confirmed success — no tool here can read
+GitHub's own incident/status history to pin it tighter.
+
+Corroborating evidence already in KNOWN STATE (CLAUDE.md) and this
+morning's earlier session: live `server_version` now reads `1.0.501`,
+matching `main` at session start — the multi-day version gap this
+outage caused (6 versions / 9+ PRs stuck undeployed, per the
+2026-07-24 UPDATE above) has fully closed. `scripts/
+session_health_check.py`'s `deploy_freshness` check (added 2026-07-23
+specifically to track this outage) now reads OK, not WARN.
+
+NO ACTION NEEDED from the human on this item — both of the two
+RECOMMENDED HUMAN ACTIONS above (bypass "Wait for CI" / check Actions
+billing) are now moot; whichever of "GitHub Actions usage/billing
+recovered" or "a human already flipped something" was the true cause,
+the effect (CI running, Railway deploying on merge again) is confirmed
+live. Leaving the full outage history above intact (append-only) rather
+than deleting it — it documents the ~2-day KNOWN BROKEN-adjacent gap
+during which 9+ merged PRs sat live-unverified, which is exactly the
+kind of divergence CLAUDE.md's HONESTY METRIC asks to be able to
+reconstruct later. This closes out the outage as a going concern for
+autonomous sessions; no more "CI still down, verified via local gates
+only" caveats are needed on future PRs unless it recurs.

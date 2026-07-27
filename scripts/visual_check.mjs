@@ -266,6 +266,7 @@ const FIXTURES = {
       { path: "/api/v1/stats/portdwell", params: "-", desc: "Per-port dwell statistics.", preview: "/api/data/portdwell" },
       { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics.", preview: "/api/data/shadowstats" },
       { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata.", preview: "/api/data/archive/stats" },
+      { path: "/api/v1/graph", params: "?entity=<ticker|MMSI|CIK|facility id>&hops<=3 (omit entity for counts-only)", desc: "Everything Graph v1 — entity neighborhood join.", preview: "/api/data/graph" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: ["entity timelines (Graph v1)", "tank-fill readings (gate 2)"],
@@ -661,6 +662,23 @@ function startServer() {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ kind: "aircraft", id: u.split("/").pop(), points, count: points.length }));
       }
+      // /developers live-query widget (graph entity/hops "try it" input):
+      // exercise the real ?entity= neighborhood path instead of always
+      // falling through to the counts-only FIXTURES["/api/data/graph"]
+      // shape, so the harness screenshot actually shows the widget's real
+      // result state, not just its idle/counts state.
+      if (u === "/api/data/graph" && (qs || "").includes("entity=")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({
+          kind: "raw", built_at: 1, entity: "company:STLD", hops: 1,
+          caveat: "RAW graph — every edge asserts a relationship with provenance (fixture).",
+          nodes: [
+            { id: "company:STLD", type: "company", label: "STLD", attrs: { parent: "Fixture Steel Co.", tickers: ["STLD"] } },
+            { id: "facility:site:fixture_mill", type: "facility", label: "Fixture Steel Mill", attrs: { kind: "site", category: "steel_mill", lat: 41.37, lon: -84.9, operator: "Fixture Steel Co. (STLD)" } },
+          ],
+          edges: [{ type: "operates", from: "company:STLD", to: "facility:site:fixture_mill", confidence: "high", attrs: {} }],
+        }));
+      }
       // exact match wins before prefix match — otherwise /api/data/insider
       // shadows /api/data/insider/history
       const fx = Object.keys(FIXTURES).find((k) => u === k) ||
@@ -708,6 +726,11 @@ const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
   const root = document.getElementById('root');
   if (!root || root.childElementCount === 0) {
     out.failures.push("app did not mount: #root has no children (blank page — script failed to load/execute)");
+  } else if (root.querySelector('[data-vt-boot]')) {
+    // 2026-07-20: index.html now ships an inline boot splash inside #root
+    // (slow-connection fix), so "has children" no longer proves the app ran —
+    // the splash still present at check time means the bundle never executed.
+    out.failures.push("app did not mount: boot splash still present (script failed to load/execute)");
   }
 
   // 1. no horizontal overflow caused by the page

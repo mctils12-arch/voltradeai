@@ -2069,6 +2069,228 @@
     wishlist.md instead, per the architecture-smell bar this update already
     crossed.
 
+    UPDATE 2026-07-26 (scheduled-routine session, v1.0.501) — THE
+    scan_timings READ FINALLY LANDED, WITH A LOW/CONSISTENT ANSWER: THIS IS
+    THE EVIDENCE-BACKED CASE, NOT THE ARCHITECTURE-SMELL CASE. Per this
+    item's own 2026-07-23 NEXT STEP, checked `/api/diag/audit?
+    type=TIER2-ERROR&limit=200&token=$DIAG_TOKEN` this session. The audit
+    buffer holds 45 TIER2-ERROR entries spanning 2026-07-24T17:27Z through
+    2026-07-25T19:55Z. The scan_phase field (v1.0.481) only started
+    actually appearing at 2026-07-25T18:34:40Z — confirming, via direct
+    before/after evidence in this same probe, that the KNOWN STATE deploy
+    freeze (frozen ~2026-07-22T14:09Z, cleared per the 2026-07-25 session
+    #3/#4 deploy_freshness checks) had silently swallowed this instrument
+    for the first ~day of its life; every entry before that timestamp
+    predictably lacks the field, and EVERY SINGLE entry from that timestamp
+    onward (8/8, the only ones running the actually-deployed code) carries
+    it. All 8 read `status=in_progress last_phase=deep_score age=X` with X
+    in a tight band: 255.9-275.0s — a LOW age (well under the 300s daemon
+    budget) naming the SAME phase every time. Per the 2026-07-23 update's
+    own decision tree, this is explicitly the branch that does NOT
+    re-trigger the architecture-smell bar ("a legitimate basis for a
+    fourth, evidence-backed mechanism fix, not a guess") — the smell bar
+    was conditioned on a HIGH/unclear age or `status=completed`, neither of
+    which happened.
+    ROOT-CAUSE TRACE (READ BEFORE WRITE, this session, not assumed): the
+    phase named `deep_score` is `last_phase_completed`, i.e. the CHECKPOINT
+    the process passed most recently before it stalled — `deep_score`'s own
+    internal loop is hard-capped at 35s (bot_engine.py:2888, unrelated to
+    this hang), so the 255-275s of unaccounted time is NOT inside deep_score
+    itself; it's everything AFTER `_timing_log("deep_score")` (bot_engine.py
+    line 2909, at the time) and BEFORE the next existing checkpoint,
+    `_timing_log("step6_trade_loop_and_options")` — a ~700-line, entirely
+    uninstrumented span covering: the per-candidate trade-sizing loop
+    (instrument_selector.select_instrument, a per-ticker Alpaca quote fetch,
+    options-eligibility checks), the covered-call sweep, AND
+    `options_scanner.get_options_trades()` (a full-market options scan:
+    earnings-calendar per-ticker checks via a 3-worker ThreadPoolExecutor,
+    then `_get_options_candidates()` + per-ticker OPRA chain fetches for
+    setups 3/4/5/7). Grepping this exact span found a comment already
+    sitting there UNACTED ON since 2026-05-04 ("ALPHA AUDIT 2026-05-04 batch
+    6: granular timing between deep_score and tier_engine_start. Production
+    snapshots show this gap eats 507s but the tier engine itself is only
+    66s. Instrumenting each step so the next snapshot pinpoints the actual
+    slow caller.") — the comment's own stated intent to instrument was never
+    followed by code; only the ONE checkpoint at the very end of the span
+    existed, so no session before this one could have distinguished "the
+    trade loop is slow" from "the options scanner is slow." This is a
+    stale-intent gap (STALENESS AUDIT-adjacent), not a mechanism this item
+    tried and failed before — a genuinely new, previously-unactioned lead,
+    not a fourth guess.
+    FIX SHIPPED (v1.0.501, bot_engine.py, pure visibility, zero behavior
+    change): added `_timing_log("step6a_trade_loop_and_covered_calls")`
+    immediately after the covered-call-sweep block and before
+    `options_scanner.get_options_trades()` is called — splitting the
+    previously-unsplit gap in two. The pre-existing
+    `step6_trade_loop_and_options` checkpoint is untouched, still firing
+    after the options scanner. RATCHET: new `test_step6a_timing_checkpoint.py`
+    (3 tests, source-text pin matching test_deep_score_source_diag.py's and
+    server/tier2DaemonTimeoutVisibility.test.ts's convention) — A/B-verified
+    via `git stash` that all 3 fail on pre-fix bot_engine.py
+    (`_scan_market_inner` has no such call) and pass post-fix.
+    GATES: `python3 -m pytest -q` (fresh sandbox, pip installed both
+    requirements files first) — **942 passed, 1 skipped** (939 baseline + 3
+    net-new, zero regressions). No TypeScript/client/server files touched —
+    `tsc`/`build`/`visual`/`npx tsx --test server/*.test.ts` gates don't
+    apply; `server/tier2DaemonTimeoutVisibility.test.ts`'s existing
+    `last_phase_completed` assertion is a generic field check (verified by
+    reading it this session), not a hardcoded phase-name list, so the new
+    phase string is safe by construction — confirmed, not assumed.
+    BACKTEST: N/A — no scoring/sizing/execution logic touched, only where a
+    diagnostic timestamp is written.
+    NEXT STEP for whichever session catches the next live TIER2-ERROR
+    (market hours; today, 2026-07-26, produced zero fresh occurrences per
+    this session's own health check — Saturday, market closed, consistent
+    with the empty DIAGNOSTIC-window read): read the new
+    `step6a_trade_loop_and_covered_calls` duration in `scan_timings`'s
+    `phases` array (or infer from `last_phase` advancing past `deep_score`
+    to `step6a_trade_loop_and_covered_calls` before the timeout, vs. still
+    reading `deep_score`). If `last_phase` STAYS at `deep_score` with the
+    same ~255-275s age (meaning the process never even reaches the new
+    checkpoint), the per-candidate trade loop and/or covered-call sweep
+    (before step6a fires) is where the time goes — target
+    `instrument_selector.select_instrument` and the per-candidate throttled
+    Alpaca quote fetch next. If `last_phase` ADVANCES to
+    `step6a_trade_loop_and_covered_calls` (meaning the trade loop/sweep
+    itself completed quickly and the hang is AFTER it, before
+    `step6_trade_loop_and_options` logs), the target is
+    `options_scanner.get_options_trades()` — its full-market OPRA-chain
+    scan stage, per the 2026-05-04 comment's original suspicion. Either
+    reading is now directly actionable without a fifth blind guess.
+    UPDATE 2026-07-26 (scheduled-routine session) — ROOT CAUSE FOUND +
+    FIXED, v1.0.503, T-BOT: the "next occurrence" landed same-day, during
+    market hours. Live `/api/diag/scanner` + `/api/diag/audit?type=
+    TIER2-ERROR` (DIAG_TOKEN) showed 12 CONSECUTIVE Tier2 scan failures
+    (14:43Z-15:58Z), every one reading `last_phase=
+    step6a_trade_loop_and_covered_calls age=255-275s` — the trade
+    loop/covered-call sweep completes fine; the hang is entirely inside
+    `options_scanner.get_options_trades()`, confirming the second branch
+    of last session's own decision tree. Traced further: `scan_options()`'s
+    `_check_ticker` ran Setup 3 (high_iv_premium_sale, tradeable) AND
+    Setup 4 (low_iv_breakout_buy) AND Setup 5 (gamma_pin) for every
+    candidate — but neither Setup 4 nor Setup 5 has EVER been in
+    `HIGH_EDGE_SETUPS` (disabled since v1.0.34, same commit that disabled
+    CSP/Setup 6 for negative backtest/live P&L) — `get_options_trades()`'s
+    HIGH-EDGE GATE discards every result they produce. Each one is still
+    its own live OPRA network fetch though (`_fetch_options_chain` keyed
+    by ticker+min_days+max_days — Setup 3/4/5 each use different windows,
+    so nothing is cache-shared), and ALL fetches — regardless of
+    ThreadPoolExecutor worker count — share ONE process-wide token bucket
+    (`alpaca_throttle`, 180/min = 3 req/sec, `alpaca_rate_limiter.py`,
+    FROZEN). The existing code comments' math ("16 workers, 700 candidates
+    / 16 workers = ~9s") never accounted for that shared bucket at all:
+    real wall time is candidates/3s, not candidates/workers. With
+    ~700-800 candidates (400 high-IV + up to 400 low-IV, each low-IV name
+    additionally paying a second dead fetch for gamma_pin) the true
+    floor is ~230-270s — matching the observed 255-275s almost exactly.
+    FIX (options_scanner.py): Setup 4 and Setup 5 calls removed from
+    `_check_ticker` (functions kept defined, not deleted — STALENESS
+    AUDIT disabled-adapter exception, same precedent as CSP/Setup 6,
+    review-by 2026-08-26, logged here); `_get_options_candidates()` no
+    longer returns the low-IV tier at all (its only two consumers are now
+    both disabled, so returning it only bought ~400 wasted fetches/scan
+    for zero possible trading value — classification is kept, just not
+    surfaced, so a future re-enable doesn't have to rebuild it). ZERO
+    trade-output behavior change: nothing Setup 4/5 ever produced could
+    reach execution regardless (proven by the pre-existing HIGH_EDGE_SETUPS
+    gate, not a new judgment call) — this is pure dead-compute removal,
+    not a RULE-REVIEW threshold change. `MAX_PER_TIER=400` for the
+    remaining high-IV tier is UNCHANGED this PR (one logical change per
+    PR) — even after this fix, ~400 high-IV + 21 anchor candidates is
+    still ~140s at the 3/sec floor, real but smaller headroom; NEXT
+    session catching a fresh TIER2-ERROR should check whether `last_phase`
+    now clears `step6a` before further tuning `MAX_PER_TIER` (evidence
+    first, per RULE REVIEW). Full trace + regression tests (A/B-verified
+    against pre-fix code) in experiments.md's 2026-07-26 entry.
+
+    UPDATE 2026-07-27 (scheduled-routine session) — v1.0.503's own NEXT
+    STEP ANSWERED YES: last_phase DOES clear step6a. Live
+    `/api/diag/audit?type=TIER2-ERROR&limit=50&token=$DIAG_TOKEN` this
+    session shows 12 occurrences from 2026-07-26 16:33Z through 19:47Z
+    (the afternoon AFTER v1.0.503 deployed) with a signature never seen
+    before on this item: `last_phase=tier_engine_start age=~30s` (17.3-
+    35.4s across the 7 most recent) — NOT `step6a` and NOT `deep_score`.
+    Per `server/bot.ts`'s own `scanTimingsDetail` computation (age =
+    `now - last_phase_at`, i.e. time stuck SINCE that checkpoint fired,
+    confirmed by reading the code, not assumed), this means: (1) the
+    step6a options-scanner fix genuinely worked — the ~255-275s span that
+    used to sit between `step6a` and `step6` (options_scanner.
+    get_options_trades()) is gone from these occurrences; (2) the entire
+    preamble (`universe_load` through logging the `tier_engine_start`
+    checkpoint, 12 already-instrumented phases) now consumes ~270s during
+    these market-hours failures — a live idle-hours `/api/diag/timings`
+    read this session showed the SAME 12 phases completing in 26.84s on a
+    clean run, a ~10x gap between busy and idle that has no explanation
+    yet; (3) run_tiers() itself (`tiered_strategy.py`) was then killed
+    only ~30s into its own execution — WHICH internal tier (1/2/3/4/
+    allocator) was running at that moment was completely unrecorded,
+    because `tier_engine_breakdown` only gets appended to the TIMING-DISK
+    file on a clean return (bot_engine.py, the `ts.run_tiers(ctx)`
+    callsite) — the exact same "one synchronous span, invisible if
+    killed mid-flight" shape this item's `step6a` split fixed one
+    checkpoint earlier, just one boundary further out. NOT GUESSING which
+    tier is slow (RULE REVIEW / RECURRENCE ESCALATES: evidence before a
+    mechanism claim) — closed the structural gap instead, matching this
+    item's own established repeated pattern: `TieredStrategy.run_tiers()`
+    gained an optional `on_phase` callback (tiered_strategy.py), invoked
+    after each of tier1/tier2/tier3/tier4/allocator with the tier's own
+    label; `bot_engine.py`'s callsite now passes
+    `on_phase=lambda p: _timing_log(f"tier_engine_{p}")`, writing a
+    progressive checkpoint to the SAME on-disk file every other phase
+    boundary already uses. A future `tier_engine_start` occurrence will
+    now show `last_phase=tier_engine_tier1` (or `tier2`/`tier3`/`tier4`/
+    `allocator`) if it got that far, localizing the hang inside
+    `run_tiers()` for the first time — or, if `last_phase` stays at
+    `tier_engine_start` with the callback wired, that itself is new
+    evidence: tier1 (`tier1_csp_core`, whose own CSP Layer 2 prefetch
+    comment already documents "up to 150 tickers x 2 Alpaca-bound calls
+    in a 45s wall budget") never even finished within its slice of the
+    30s remaining budget.
+    PURE VISIBILITY, ZERO BEHAVIOR CHANGE — no RULE REVIEW gate applies:
+    `on_phase` defaults to `None` (backward compatible with the one other
+    call site, `test_csp_universe_layer2_prefetch.py`'s wiring-pin test,
+    which omits it and still passes); the callback is wrapped so an
+    exception inside it can never propagate into the tier engine
+    (`test_run_tiers_on_phase_exception_never_propagates`), same
+    discipline `log_masterkill_csp_shadow`'s own tests already hold this
+    file to. RATCHET: 4 new tests in `test_tiered_strategy.py`
+    (fires-in-order, not-called-when-killed, exception-swallowed,
+    default-omitted-still-works) — A/B-verified via `git stash` that the
+    first 3 fail against pre-fix code (`TypeError: unexpected keyword
+    argument 'on_phase'`) and all 4 pass post-fix.
+    SILENT-EXCEPT RATCHET CAUGHT ITS OWN CLASS WORKING AS DESIGNED: the
+    first draft of the exception-swallow above used a bare
+    `except Exception: pass`, which `test_silent_except_ratchet.py`
+    correctly failed (`tiered_strategy.py`'s pinned count would have gone
+    3 -> 4, and raising a pin is forbidden). Fixed to log via
+    `logger.debug` instead — captures the same "never propagate"
+    behavior without adding a new silent handler; pin stays at 3, exactly
+    the outcome the ratchet test exists to force.
+    GATES: `python3 -m pytest -q` — 964 passed, 1 skipped (963 baseline +
+    4 net-new -3 pre-existing unrelated flake retried clean, zero
+    regressions once the silent-except pin fix landed). No TypeScript/
+    client/server files touched — `tsc`/`build`/`visual`/
+    `npx tsx --test server/*.test.ts` gates don't apply, same precedent
+    this item's own prior Python-only sessions used.
+    BACKTEST: N/A — pure diagnostic-visibility change to the tier-engine
+    call site, no scoring/sizing/execution logic touched.
+    NEXT STEP: whichever session catches the next `TIER2-ERROR` with
+    `active_dispatches` staying flat and a `tier_engine_*` last_phase
+    should read it directly — no further instrumentation should be
+    needed for THIS specific span. If the localized tier turns out to be
+    `tier1` specifically, cross-reference `csp_universe.
+    get_last_layer2_prefetch_stats()`'s reading in the same audit line
+    (already surfaced via `layer2_prefetch=...`) before proposing any
+    threshold change to Tier 1's own internal budget. Separately, the
+    ~10x idle-vs-busy gap in the ALREADY-instrumented preamble (26.84s vs
+    ~270s) noted above is itself a new, unexplained data point — a
+    future session should NOT assume it's fully explained by "market
+    hours have more candidates" without checking the per-phase
+    `duration_sec` breakdown (not just the summary `last_phase`) on a
+    fresh busy-hours capture; that breakdown already exists in
+    `/api/diag/timings`'s `phases` array today, just never yet read
+    during an actual in-progress (not completed) busy-hours scan.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
@@ -2756,6 +2978,39 @@
     (tighten the universe upstream). Either way, this item stays OPEN
     until a live `T2-FAIL` sample with the new detail is read.
 
+    **RESOLVED (root cause + fix) 2026-07-25, scheduled-routine session,
+    v1.0.498:** the NEXT CHECK ran the moment the CI/deploy freeze
+    cleared this session (`server_version` finally matched `main`) —
+    live `T2-FAIL` audit read at 2026-07-25T20:06:53Z showed exactly the
+    predicted `HTTP 403: {"message":"subscription does not permit
+    querying OPRA data"}` for SPYM/UBER/HYG, confirming the OPRA/Algo
+    Trader Plus entitlement gap (same shape as the 2026-07-06 SIP-403
+    incident `alpaca_feed.py` was built for). Fix shipped per this
+    item's own NEXT-CHECK recommendation: new `alpaca_feed.options_feed()`
+    mirrors `data_feed()`'s probe/cache/downgrade design exactly —
+    probes a tiny SPY options snapshot with `feed=opra`, downgrades to
+    the free `"indicative"` feed on 403 (already used successfully
+    elsewhere in this codebase for the same tier: `options_scanner.py`'s
+    HV/IV-rank estimator, `bot_engine.py`'s ATM-IV lookup — not a
+    fabricated fallback), restores automatically when the subscription
+    comes back. Wired into `options_execution.py`'s `_fetch_option_chain`
+    (the exact Tier1/2 CSP path this item diagnosed) only.
+    `options_scanner.py`/`options_manager.py`/`vol_surface.py` still
+    hardcode `feed=opra` — same bug shape, deliberately NOT touched here
+    (separate call paths, one-logical-change rule, matches this item's
+    own 2026-07-24 scoping decision) — each is its own follow-up PR.
+    RATCHET: `test_alpaca_feed.py` gained `TestOptionsFeedResolution` (7
+    tests, mirrors `TestFeedResolution`'s SIP battery) +
+    `TestOptionsExecutionNoHardcodedOpra` (regex ratchet scoped to
+    `options_execution.py` only, since the other 3 files still legitimately
+    hardcode `opra` until their own fix lands). A/B-verified via
+    `git stash`: all 8 new/changed tests fail against pre-fix code
+    (`AttributeError: module 'alpaca_feed' has no attribute
+    'options_feed'` / hardcode-still-present), pass post-fix; full
+    pre-existing suite unaffected. This item now stays open only for the
+    3 remaining call sites — see wishlist/experiments for the follow-up
+    pointer.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -3338,6 +3593,25 @@ for any future "known endpoint moved" case in this repo.
   solarView-*.js hashes for one content). Verify by fetching a
   wave-unique asset/route and checking its BYTES (magic numbers,
   byte-compare against the committed file), not by a hash-pinned URL.
+
+- A PR BODY NOTE ASKING TO "WAIT FOR MARKET CLOSE" DOES NOT PREVENT
+  AUTO-MERGE (found 2026-07-27, PR #618): this repo has a CI-driven
+  auto-merge job ("Auto-merge Claude PRs", per the 2026-07-24 wishlist
+  finding) that merges any Claude-authored PR the moment its required
+  checks go green — it does not read the PR body, so a session's own
+  "merge should wait for close" note (CLAUDE.md's market-hours deploy-
+  coupling guidance) has ZERO enforcement effect once the PR is pushed
+  and CI passes. PR #618 (a pure-archive-pipeline change, zero trading-
+  logic risk) was merged by `github-actions[bot]` ~3 minutes after
+  opening, at 09:23 ET — 7 minutes before the open, effectively inside
+  the avoid-window. CORRECT PRACTICE going forward: the market-hours
+  guidance must be honored by NOT OPENING THE PR (or not pushing the
+  final commit) until outside 9:30-16:00 ET, not by opening it early
+  with a note — the note is decorative once auto-merge is in the loop.
+  For risk-bearing changes this matters; for a RAW-archive-only,
+  zero-trading-logic-touched PR like #618 the actual blast radius of
+  an accidental mid-market deploy is near zero, so this is filed as a
+  process correction, not an incident.
 
 - STOP-HOOK FALSE POSITIVE after every post-merge branch reset: the
   git-check hook flags the branch tip as "Unverified (committer
@@ -4199,6 +4473,68 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    freeze-detection (abnormal deletion rates), role-mix shifts vs
    forward returns/restructuring announcements vs base rate. Archive
    starts with the resolver — collect-everything, diff-based.
+
+   **GATE 0 RUN 2026-07-26 (scheduled-routine session) — KILLED at gate
+   0 for the broad-panel form; a narrower hand-verified form remains
+   possible, unbuilt.** `scripts/ats_resolver_gate0.py` (new, 22 pure-
+   function tests in `test_ats_resolver_gate0.py`) drew a reproducible
+   25-ticker NASDAQ Capital Market panel (same live-symbol-directory
+   filter as `illiquid_universe_probe.py`), derived board-token guesses
+   from each company's own SEC-listed security name (no guessing from
+   training-data memory of who uses which ATS), and probed all four
+   platforms live. Sanity-checked the harness itself first against two
+   KNOWN real users (AFRM->Greenhouse `affirm`, PLTR->Lever `palantir`)
+   to confirm it can find a true positive before trusting a null/low
+   result on the actual panel.
+   RAW RUN 1 found 0/25 schema-level hits. Investigating why led to
+   catching a real bug before trusting it: SmartRecruiters 200s
+   `{"content": []}` for ANY identifier, real or fake (verified live
+   via a garbage-string probe) — unlike the other three platforms,
+   which correctly 404 unknown slugs — so `classify_response()` was
+   fixed to require non-empty `content` there.
+   RUN 2 (after also fixing a slot-capping bug that was silently
+   dropping the single most useful guess — see experiments.md) found
+   4/25 schema-level hits (FWDI->greenhouse:'forward',
+   NUCL->ashby:'eagle', PPSI->greenhouse:'pioneer',
+   UPC->ashby:'universe'). **Before counting these as coverage, manually
+   inspected each hit's own content** (Greenhouse's job-level
+   `company_name` field; Ashby's job description "About {X}" text) —
+   **all 4 were false matches**: 'forward' is a real fintech startup at
+   getfwd.com (unrelated to ticker FWDI, "Forward Industries, Inc.");
+   'eagle' is a real AI/engineering-acquisition startup backed by
+   Lightspeed (unrelated to NUCL, "Eagle Nuclear Energy Corp."); the
+   ashby 'universe' board is a mobile-ads/growth-marketing company
+   (unrelated to UPC, "Universe Pharmaceuticals Inc"); 'pioneer' on
+   greenhouse is a real board with zero current postings, unverifiable
+   by content but a plausible fourth collision on the same generic-word
+   pattern. **VERIFIED coverage on this panel: 0/25 (0%).**
+   ROOT CAUSE OF THE FALSE-POSITIVE MODE (not just this panel's bad
+   luck — structural): Greenhouse/Ashby/Lever are disproportionately
+   used by VC-backed private startups that gravitate toward exactly the
+   kind of short, generic, single dictionary-word brand names
+   ("Forward", "Eagle", "Universe", "Pioneer") that a first-word slug
+   guess also produces for an SEC-listed small-cap with a similarly
+   generic first word in its legal name. A same-token-overlap identity
+   check does NOT fix this: the colliding company's real declared name
+   literally IS "Forward" (or "Eagle"/"Universe"), so overlap against
+   the ticker's own normalized name would still pass — verified by
+   hand-tracing that exact case before deciding not to ship an
+   automated identity filter that wouldn't have worked anyway.
+   VERDICT (per this item's own pre-stated GATE 0 rule, "if coverage
+   <~10%... downgrade to covered-universe-only and log it"): 0% is
+   below the bar. **The broad, name-guessed, sweep-the-whole-panel form
+   of this data root is KILLED at gate 0** — it cannot be trusted
+   without per-hit human content verification, which defeats the point
+   of an autonomous nightly resolver. NOT killed entirely: a NARROWER
+   variant — a small, hand-verified ticker-to-board-token watchlist,
+   built the same way the GitHub-org-activity item (#5 below) already
+   proposes its own "~15-org->ticker watchlist" — remains a legitimate,
+   much smaller-scope future path (a human or a session manually
+   confirms each board via the company's own investor-relations/careers
+   page before adding it, not by guessing). That variant is NOT built
+   this session — a different, more labor-intensive task, logged here
+   rather than rushed. Full trace, both raw runs, and the harness
+   sanity-check in `research/experiments.md`'s 2026-07-26 entry.
 3. **App-store rankings + review velocity (DUOL/BMBL/MTCH/HOOD/COIN/
    RBLX class).** LICENSING: Apple RSS/marketingtools top-chart JSON +
    iTunes Lookup rating counts CONDITIONAL (existing public feeds,
@@ -5203,6 +5539,58 @@ Reasoning Standard #10):
    NOT DONE (still queued, separate future work): gate 2 itself
    (award/mcap vs 5-20d forward returns, DoD cohorted out) — this
    entry only closes gate 1.
+   GATE 2 RUN 2026-07-26 (scheduled-routine session, T-DATACORE/RESEARCH,
+   v1.0.505) — INFRASTRUCTURE PROVEN, RESULT INCONCLUSIVE (sample-starved,
+   not a kill): `scripts/usaspending_gate2.py` built and run end-to-end
+   against the live archive for the first time via the new
+   `/api/diag/archive` probe (v1.0.504, same day). Pipeline: civilian-
+   agency-only (`ag != "Department of Defense"`, per this item's own
+   confidence_model note on DoD's ~90-day publication lag) + ticker-matched
+   via `mm in (name, cache)` only (excludes `mm=="parent"` per gate 1's
+   CAVEAT 1 residual BALL/BAE mismatch risk) + deduped by (aid,mod,amt) +
+   same-ticker-same-day awards summed into one event; market cap
+   approximated as (SEC EDGAR's most recent reported
+   dei:EntityCommonStockSharesOutstanding / us-gaap:CommonStockSharesOutstanding,
+   keyless) x (the same no-lookahead entry price used for the return calc);
+   small-cap universe = mcap < $2B; bucket = above/below this run's own
+   median award/mcap ratio; forward returns via `backtest_v2.fetch_bars`
+   (Yahoo path — ALPACA_KEY/SECRET absent this session, Alpaca-first logic
+   untouched); baseline = each ticker's own unconditional forward-return
+   distribution, contamination-guarded, same design as
+   `form4_gate2_test.py`'s gate-2 precedent.
+   RESULT: of 286 civilian+ticker-matched events across 103 tickers (the
+   full archive since it started 2026-07-05), 220 were excluded as
+   large-cap (>= $2B) and 6 had no resolvable EDGAR share count, leaving 30
+   small-cap events. Only 11 of those 30 are old enough for even the
+   5-TRADING-DAY horizon (4 high-ratio / 7 low-ratio) — NEITHER bucket
+   reaches the n>=5 significance floor cleanly (high-ratio n=4, below the
+   floor; low-ratio n=7 but p=0.96, indistinguishable from its baseline).
+   The 20-TRADING-DAY horizon has ZERO events with a computable forward
+   return: the archive is only 21 calendar days old (~15 trading days) as
+   of this run, so no award has had 20 trading days elapse yet — this was
+   predicted before running (REASONING STANDARD #10: stated as a live risk
+   in the script's own module docstring before execution) and is a
+   structural fact about archive age, not a pipeline bug.
+   VERDICT: NOT YET DECIDABLE, not killed. The gate-2 machinery is now a
+   real, tested, reusable tool (16 new tests in `test_usaspending_gate2.py`,
+   all pure-function/no-network per the form4_gate2_test.py precedent) —
+   the blocker that stopped this test for three prior sessions is fully
+   closed. What remains is calendar time: the archive accrues new civilian
+   ticker-matched awards every day the bot's Tier 3 hourly poll runs, and
+   this session's own count (286 events in 21 days, ~30/small-cap) implies
+   a 20-day-horizon-eligible sample of comparable size will exist by
+   roughly late August 2026, growing every day after.
+   NEXT: re-run `python3 scripts/usaspending_gate2.py` unmodified no
+   earlier than ~2026-08-15 (gives the earliest archived awards a full
+   20-trading-day forward window plus a buffer) and prefer waiting longer
+   if session cadence allows — more archive days directly raises both
+   n_small_cap and the DoD-agency 90-day-lag question could be revisited
+   as its own cohort once the archive itself is 90+ days old. Do NOT
+   interpret this run's high_ratio/low_ratio point estimates (-11.4% vs
+   -0.4% at 5d) as a finding either direction — n=4 and n=7 are display
+   noise, stated here only so a future session doesn't have to re-derive
+   them from the (uncommitted, session-local) `usaspending_gate2_results.json`
+   output.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
@@ -6363,17 +6751,31 @@ audit (all measured under SwiftShader; ratios are the finding):
   of idle permanently (10.6-10.9 renders/s terrain-off). Post-fix each
   frame is cheap (1.04× terrain baseline), but an idle-when-static
   scheme (skip tick when no aircraft moved a pixel) would cut battery/
-  GPU duty. Measure first: renders/s vs pixels moved.
-- celestialSky runs an unconditional rAF WebGL draw on the normal map
-  (celestialSky.ts ~995) — a fixed per-frame tax; gate by visibility?
-- TRAIL REBUILD STORM: paintTrack re-queries up to ~9k
-  queryTerrainElevation samples with a 25s cache TTL while rebuild
-  triggers arrive every 15-30s — periodic main-thread stalls with a
-  followed plane + terrain. Options: raise TTL (datum-keyed), or move
-  ground sampling to the DEM decoder (lib/elevation) off the query path.
+  GPU duty. Measure first: renders/s vs pixels moved. STILL OPEN as of
+  2026-07-27 — not fixed, not disproven.
+- **[CLOSED — fixed 2026-07-23, v1.0.481]** ~~celestialSky runs an
+  unconditional rAF WebGL draw on the normal map (celestialSky.ts ~995)
+  — a fixed per-frame tax; gate by visibility?~~ `mountCelestialSky`'s
+  render loop now checks `!doc.hidden` before every `drawFrame()` call
+  (celestialSky.ts:1000-1005) and re-renders once on `visibilitychange`
+  — commit e78c393, "Gate celestialSky's rAF WebGL draw by page
+  visibility". Confirmed live in this checkout 2026-07-27 (not just from
+  the commit message — read the current file). This item had gone
+  unmarked here for 4 days after shipping; caught while investigating
+  the MEASUREMENT-DEBT perf-gate entry below.
+- **[CLOSED — fixed 2026-07-21, v1.0.461]** ~~TRAIL REBUILD STORM:
+  paintTrack re-queries up to ~9k queryTerrainElevation samples with a
+  25s cache TTL while rebuild triggers arrive every 15-30s — periodic
+  main-thread stalls with a followed plane + terrain.~~ `groundDisplayAt`
+  (datamap.tsx:2989-3019) raised the cache TTL 25s→10min and the entry
+  cap 4000→9000, with the correctness case handled by an explicit
+  cfg-key flush (source|exaggeration) and repaintTrail3d, not the TTL —
+  commit bd55175. Confirmed live in this checkout 2026-07-27. Same
+  unmarked-for-days pattern as the celestialSky item above.
 - MapLibre prepareForRender rebuilds coord maps/fingerprints for ALL
   sources every terrain frame (CPU ∝ source count) — consolidating tiny
-  GeoJSON sources helps terrain perf even for non-draped layers.
+  GeoJSON sources helps terrain perf even for non-draped layers. STILL
+  OPEN as of 2026-07-27 — not fixed, not disproven.
 
 ## [T-DATACORE] GEM per-layer freshness (coal_mine_features / methane_plumes) — investigated 2026-07-24, correctly NOT built this session
 The per-layer freshness chip (server/layerFreshness.ts, wishlist.md Phase
@@ -6524,3 +6926,40 @@ own PR, tagged [RULE-REVIEW].
 NOT FIXED HERE: out of scope for the PRODUCT session that found it (one
 logical change per PR); filed so a future REPAIR/RULE-REVIEW session has
 a concrete, dated reproduction instead of re-discovering it from scratch.
+
+UPDATE 2026-07-27 (scheduled-routine session) — step (1) of the LADDER
+PATH run: does NOT reproduce today, 3/3 clean runs on an untouched `main`
+HEAD (v1.0.508, this checkout's own build, zero code changes)
+
+Ran `node scripts/visual_check.mjs --page data` three times in a row in
+this session's own sandbox (same class of environment — Chromium/
+SwiftShader software rendering — as the sessions that found this red).
+All three runs: 0 hard failures. 768px median frame 117/133/133ms (gate
+200ms); 1440px p95 frame 233/233/250ms (gate 350ms) — comfortably under
+both thresholds every time, not a near-miss. This does NOT reproduce the
+2026-07-25 finding of two failing gates on an untouched tree.
+
+NOT CLOSING THIS ITEM: three clean runs in one container on one day is
+not proof the flakiness is gone — the original finding's own note ("one
+PR's A/B run showed only ONE of the two failures") already established
+this as noisy across containers/runs, so a clean streak here is
+consistent with either "genuinely fixed" or "this container happened to
+be quiet." Two of the four root causes the 2026-07-20 audit originally
+named ARE independently confirmed fixed since (see the amended entry
+below — TRAIL REBUILD STORM's TTL raise, v1.0.461, and celestialSky's
+visibility gate, v1.0.481) but both shipped BEFORE the 2026-07-25 red
+reading, so they cannot be the reason today's runs are clean if 07-25's
+reading is trusted at face value — the more honest read is that this
+gate's pass/fail is dominated by container noise, not by app-side frame
+cost, at least at the current margins. The two THEORETICALLY still-live
+causes (NEVER-IDLE GLIDE LOOP idle-when-static, MapLibre
+`prepareForRender` per-source cost) remain unfixed and unmeasured.
+
+PRACTICAL EFFECT: downgrading the "every client/ PR needs a manual A/B
+re-run past an assumed-red gate" framing — that assumption no longer
+matches live evidence in this environment. A future PR's own harness run
+failing this gate should now be treated as a real signal worth a quick
+A/B check, not pre-judged red-on-main. If a future session sees this gate
+fail again on an untouched tree, that re-establishes the flakiness and
+this item should stay open; if the gate stays clean across several more
+sessions' worth of independent runs, it can be closed outright.

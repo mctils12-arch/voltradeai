@@ -20,6 +20,7 @@ import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
+import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import datacoreBoundariesAdmin1 from "../datacore/boundaries/ne_50m_admin1_lines.json";
@@ -64,7 +65,7 @@ import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
-import { bootShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
+import { bootShortVolPoll, bootOrfShortVolPoll, latestShortVol, readSummaryHistory, lookupSymbolHistory } from "./finraShortVolume";
 import { bootCotPoll, latestCot, searchMarkets as searchCotMarkets,
          lookupMarketHistory, readAggregateHistory as readCotAggregateHistory } from "./cftcCot";
 import { bootTffPoll, latestTff } from "./cftcTff";
@@ -79,6 +80,7 @@ import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
+import { bootEuDayAheadPricesPoll, latestPrices as latestEuPrices, euDayAheadPricesEnabled } from "./euDayAheadPrices";
 import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQuality";
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
@@ -1987,6 +1989,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // This is short-marked EXECUTION volume (a flow proxy), NOT short
   // interest — the label matters (manifest confidence_model).
   bootShortVolPoll();
+  // ORF (OTC facility) counterpart — feeds settlementStress.ts's
+  // shortVolPercentiles only (CNMS is exchange-listed only and can never
+  // see the OTC-only finrathreshold universe; see settlementStress.ts's
+  // 2026-07-27 root-cause note). No route of its own yet — RAW archive
+  // ingestion only, same posture CNMS started with.
+  bootOrfShortVolPoll();
   app.get("/api/data/short-volume", (_req, res) => {
     const hit = latestShortVol();
     if (!hit) {
@@ -2352,6 +2360,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.stats.length,
       note: "realised generation in MW per bidding zone x fuel/technology type (PSRTYPE_MAPPINGS code + name), ~1-2h publication lag; stored at zone-native resolution, never resampled; a fuel type absent from a zone's window means zero generation of that type was published, not necessarily zero output; window min/max/mean expose series shape",
+      zones: hit.stats,
+      issues: hit.issues,
+    });
+  });
+
+  // ENTSO-E day-ahead auction clearing price by EU bidding zone (RAW —
+  // wishlist 9c's last open follow-up, same token as eu-load/
+  // eu-generation-mix, built 2026-07-27). Serves the poller's cached
+  // per-zone stats only (event-loop rule).
+  bootEuDayAheadPricesPoll();
+  app.get("/api/data/eu-day-ahead-prices", (_req, res) => {
+    if (!euDayAheadPricesEnabled()) {
+      return res.json({ kind: "raw", enabled: false, reason: "ENTSOE_API_KEY not set (free token — see wishlist 9c)", count: 0, zones: [] });
+    }
+    const hit = latestEuPrices();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "ENTSO-E Transparency Platform", warming_up: true, count: 0, zones: [] });
+    }
+    res.set("Cache-Control", "public, max-age=1800");
+    res.json({
+      kind: "raw",
+      source: "ENTSO-E Transparency Platform (day-ahead auction clearing price, A44)",
+      attribution: "ENTSO-E Transparency Platform",
+      time: hit.at,
+      count: hit.stats.length,
+      note: "day-ahead auction clearing price per bidding zone, currency/unit as published (never assumed EUR/MWh); window spans 24h before to 48h after the poll, so tomorrow's auction result appears the day it publishes (~11:00-13:00 CET) rather than waiting for the next UTC day; negative prices are real (renewables oversupply) and reported as published, never clamped; zones absent from a cycle are absent, never zero-filled — their last sweep outcome is in `issues`",
       zones: hit.stats,
       issues: hit.issues,
     });
@@ -3895,6 +3929,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const ALPACA_KEY = process.env.ALPACA_KEY || "";
   const ALPACA_SECRET = process.env.ALPACA_SECRET || "";
   const alpacaHeaders = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+  // 2026-07-20 [REPAIR]: feed selection + upstream-error detection live in
+  // server/alpacaFeed.ts (with the regression test) — see that module for
+  // why the sip default was a silent site-wide breakage.
+  const ALPACA_DATA_FEED = resolveAlpacaFeed(process.env.ALPACA_DATA_FEED);
 
   // Market scanner data
   app.get("/api/market/scanner", async (_req, res) => {
@@ -3914,12 +3952,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const allTickers = Array.from(tickerSet).slice(0, 150);
       const stocks: any[] = [];
+      let upstreamError: string | null = null;
 
       for (let i = 0; i < allTickers.length; i += 50) {
         const batch = allTickers.slice(i, i + 50).join(",");
         try {
-          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}&feed=sip`, { headers: alpacaHeaders });
+          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
           const snapData = await snapRes.json();
+          const errMsg = alpacaErrorBody(snapRes.status, snapData);
+          if (errMsg) { upstreamError = errMsg; continue; }
           for (const [ticker, snap] of Object.entries(snapData) as any) {
             const bar = snap.dailyBar || {};
             const prev = snap.prevDailyBar || {};
@@ -3933,7 +3974,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         } catch {}
       }
       stocks.sort((a: any, b: any) => b.volume - a.volume);
-      res.json({ results: stocks, date: new Date().toISOString().split("T")[0] });
+      // Zero results WITH an upstream error is a dead feed, not an empty
+      // market — tell the client so it can show a designed error state.
+      if (stocks.length === 0 && upstreamError) {
+        return res.status(502).json({ error: upstreamError, results: [], date: new Date().toISOString().split("T")[0] });
+      }
+      res.json({ results: stocks, feed: ALPACA_DATA_FEED, date: new Date().toISOString().split("T")[0] });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3943,8 +3989,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/market/sectors", async (_req, res) => {
     try {
       const etfs = "XLK,XLF,XLE,XLV,XLI,XLC,XLY,XLP,XLU,XLRE,XLB";
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}&feed=sip`, { headers: alpacaHeaders });
-      res.json(await snapRes.json());
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
+      const body = await snapRes.json();
+      const errMsg = alpacaErrorBody(snapRes.status, body);
+      if (errMsg) return res.status(502).json({ error: errMsg });
+      res.json(body);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3957,8 +4006,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!symbols) return res.json({});
       // Bug 31: validate symbols — comma-separated tickers only
       if (!/^[A-Za-z.,]{1,500}$/.test(symbols)) return res.status(400).json({ error: "Invalid symbols" });
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=sip`, { headers: alpacaHeaders });
-      res.json(await snapRes.json());
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
+      const body = await snapRes.json();
+      const errMsg = alpacaErrorBody(snapRes.status, body);
+      if (errMsg) return res.status(502).json({ error: errMsg });
+      res.json(body);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

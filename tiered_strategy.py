@@ -59,7 +59,7 @@ import time
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Callable
 
 try:
     from storage_config import DATA_DIR
@@ -752,9 +752,25 @@ class TieredStrategy:
     def __init__(self, config_overrides: Optional[Dict] = None):
         self.config = config_overrides or {}
 
-    def run_tiers(self, ctx: TierContext) -> Dict[str, Any]:
+    def run_tiers(self, ctx: TierContext, on_phase: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
         """
         Execute all tiers and return a unified action list + diagnostics.
+
+        on_phase: optional callback invoked as each internal tier finishes
+        (KNOWN BROKEN #18 continuation, 2026-07-27) — "tier1", "tier2",
+        "tier3", "tier4", "allocator", in that order. run_tiers() is one
+        synchronous call from bot_engine.py's perspective; if it hangs
+        past the daemon's 300s budget, nothing about WHICH tier was still
+        running got recorded anywhere — the caller's own TIMING-DISK file
+        only gained a "tier_engine_breakdown" entry on successful return
+        (bot_engine.py ~line 3782), so a killed mid-flight run left that
+        whole span as dark as this item's very first defect. on_phase lets
+        the caller (bot_engine.py) write a phase checkpoint to the SAME
+        on-disk file progressively, the same pattern already used for
+        every other phase boundary in the scan pipeline. Never allowed to
+        raise into this function — a visibility hook must not be able to
+        break the tier engine it's observing (same discipline as
+        log_masterkill_csp_shadow below).
 
         Returns:
             {
@@ -766,6 +782,14 @@ class TieredStrategy:
                 "diagnostics": {...},
             }
         """
+        def _notify(phase: str) -> None:
+            if on_phase is None:
+                return
+            try:
+                on_phase(phase)
+            except Exception as e:
+                logger.debug(f"run_tiers on_phase({phase!r}) callback raised, ignored: {e}")
+
         # ALPHA AUDIT 2026-05-04 batch 5: per-tier timing for bottleneck
         # diagnosis. Production scans are timing out at 300s with the
         # tier_engine_complete phase as the culprit, but we don't know
@@ -812,12 +836,14 @@ class TieredStrategy:
             pass
         else:
             tier_timings["csp_layer2_prefetch"] = get_last_layer2_prefetch_stats()
+        _notify("tier1")
 
         # Tier 2 — multiply T1 sizing (if PM approved)
         _t_phase = _t.time()
         t1_after_t2 = tier2_leverage_multiplier(ctx, t1_actions)
         tier_timings["tier2_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t1_after_t2)
+        _notify("tier2")
 
         # Tier 3 — trend capture (independent of T1)
         _t_phase = _t.time()
@@ -825,6 +851,7 @@ class TieredStrategy:
         tier_timings["tier3_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t3_actions)
         logger.info(f"T3 trend: {len(t3_actions)} candidates [{tier_timings['tier3_sec']}s]")
+        _notify("tier3")
 
         # Tier 4 — tail hedge (always on, small size)
         _t_phase = _t.time()
@@ -832,6 +859,7 @@ class TieredStrategy:
         tier_timings["tier4_sec"] = round(_t.time() - _t_phase, 2)
         all_actions.extend(t4_actions)
         logger.info(f"T4 hedge: {len(t4_actions)} candidates [{tier_timings['tier4_sec']}s]")
+        _notify("tier4")
 
         # ── MASTER ALLOCATOR ──────────────────────────────────────────────
         # Tiers run independently and don't know about each other's
@@ -843,6 +871,7 @@ class TieredStrategy:
         _t_phase = _t.time()
         all_actions = _enforce_exposure_cap(ctx, all_actions)
         tier_timings["allocator_sec"] = round(_t.time() - _t_phase, 2)
+        _notify("allocator")
 
         tier_timings["total_sec"] = round(_t.time() - _t_start, 2)
 

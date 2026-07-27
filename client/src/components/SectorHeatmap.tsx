@@ -109,6 +109,34 @@ export default function SectorHeatmap() {
     );
   }
 
+  // Zero rows without an error means the snapshots came back with no usable
+  // bars (e.g. before the session's first bars) — a designed state, never a
+  // silent empty box (2026-07-20 audit finding).
+  if (sectors.length === 0) {
+    return (
+      <div style={{ padding: "2rem", textAlign: "center" }}>
+        <p style={{ color: "#4a5c70", fontSize: 12, marginBottom: "0.75rem", fontFamily: "'JetBrains Mono', monospace" }}>
+          NO SECTOR BARS YET — USUAL BEFORE THE SESSION'S FIRST SNAPSHOTS
+        </p>
+        <button
+          onClick={fetchSectors}
+          style={{
+            padding: "0.4rem 1rem",
+            background: "rgba(0, 8, 20, 0.8)",
+            border: "1px solid rgba(77, 159, 255, 0.2)",
+            borderRadius: "6px",
+            color: "#4d9fff",
+            fontSize: "0.82rem",
+            fontFamily: "'JetBrains Mono', monospace",
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   // Treemap layout: simple row-based packing
   const totalWeight = sectors.reduce((s, d) => s + d.marketCap, 0);
 

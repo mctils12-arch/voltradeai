@@ -2753,6 +2753,9 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   .vt-filings-table td::before {
     content: attr(data-l); color: var(--text-tertiary);
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px;
+    /* 2026-07-20: the td is a flex row; long values crushed this label to
+       2-char wraps ("AS SE T" for ASSET on the methane page at 390px). */
+    flex-shrink: 0; white-space: nowrap;
   }
   .vt-filings-table td[data-l=""]::before, .vt-filings-table td:last-child::before { content: none; }
 }
@@ -3598,6 +3601,17 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   margin-left: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary);
 }
 .vt-dev-sample { margin-top: 10px; max-height: 260px; overflow-y: auto; }
+.vt-dev-query-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.vt-dev-query-input {
+  flex: 1 1 220px; min-height: 44px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid rgba(102, 128, 160, 0.4); background: var(--bg-secondary);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 13px;
+}
+.vt-dev-query-hops {
+  flex: 0 0 auto; min-height: 44px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid rgba(102, 128, 160, 0.4); background: var(--bg-secondary);
+  color: var(--text-primary); font-family: var(--font-body); font-size: 13px;
+}
 
 /* ── field-layer display controls (weather upgrade, 2026-07-04) ───────── */
 .vt-field-controls {

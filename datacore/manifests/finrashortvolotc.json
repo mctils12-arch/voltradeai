@@ -1,0 +1,23 @@
+{
+ "stream": "finrashortvolotc",
+ "storage": "append-only JSONL day-files under <archive>/finrashortvolotc/, one file per TRADE date (gz after 2 days)",
+ "written_by": "server/finraShortVolume.ts archiveOrfShortVolDay (6h poll, 10-day lookback newest-first, eager boot)",
+ "source": "FINRA Reg SHO daily short sale volume, ORF (Over-the-Counter Reporting Facility) file (cdn.finra.org/equity/regsho/daily/FORFshvol{YYYYMMDD}.txt) — keyless; ~3-4K OTC symbols/trading day; weekend/holiday URLs 403 = not published (valid). Same schema as finrashortvol's CNMS file (parseShortVol handles both); verified live 2026-07-27",
+ "license": "FINRA publishes these files for free use with attribution; attribution 'FINRA Reg SHO daily short sale volume'",
+ "attribution": "FINRA Reg SHO daily short sale volume (ORF/OTC facility)",
+ "schema_version": 1,
+ "field_map": {
+  "date (trade date) — file-level dedup key": "same convention as finrashortvol: the ORF file is atomic and final once published; dedup is DATE-level",
+  "symbol/market": "as published (market = \"O\" for this facility, observed live)",
+  "short_vol/short_exempt_vol/total_vol": "fractional share counts as published",
+  "trailer integrity": "same bare row-count trailer check as CNMS — truncated downloads never reach the archive",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official venue data (ORF short-marked volume for non-exchange-listed OTC equities). NOT total short interest. Built specifically to fix server/settlementStress.ts's composite: finrathreshold (the threshold-persistence ingredient) is OTC-only by FINRA's own schema, and finrashortvol's CNMS file is exchange-listed-only — the two are disjoint populations, so the composite's 3-way join found zero overlap since it shipped until this stream was added. See settlementStress.ts's 2026-07-27 module-doc note and experiments.md for the full root-cause trace.",
+ "geo_fields": [],
+ "entity_key": "symbol + date",
+ "sentiment": null,
+ "started": "2026-07-27",
+ "cadence": "daily trading-day file, published evenings ET; 6h poll makes off-hours a dedup no-op",
+ "_note": "Universal archive envelope (approved 2026-07-04). Deliberately no deep-backfill path yet (same conservative default-off posture finrashortvol's CNMS backfill only added as a later, separate PR, per its own 2026-07-05 emergency-off volume-fill incident) — filed as a NEXT step, not built here."
+}

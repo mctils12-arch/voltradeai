@@ -168,6 +168,15 @@ def get_pod(pod_id, key):
     return _request("GET", f"{API_ROOT}/pods/{pod_id}", key)
 
 
+def list_pods(key):
+    """GET /pods -> list of every pod on the account (all in-flight jobs, any
+    job_id). Used by runpod_reap.py to find pods still billing after the
+    session that launched them (and was watching the wall-clock watchdog) has
+    ended — see the OPTION A CAVEAT in this file's docstring."""
+    res = _request("GET", f"{API_ROOT}/pods", key)
+    return res if isinstance(res, list) else res.get("pods", [])
+
+
 def terminate_pod(pod_id, key):
     return _request("DELETE", f"{API_ROOT}/pods/{pod_id}", key)
 
