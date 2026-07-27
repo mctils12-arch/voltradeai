@@ -2387,6 +2387,103 @@ the same throttle bucket as fresh calls, or shrink the timeout/backoff so
 zombies clear before the next attempt starts) — a short-lived or absent
 second entry refutes it, and the search returns to the still-open
 `csp_layer2_prefetch` correlation from the prior session.
+## 2026-07-20 [REPAIR] — Full-site UI audit (human-directed): dead Alpaca feed killed scanner/heatmap/watchlist + bot gap-guard; bad-print IV shipped as signal; 5 more findings fixed (v1.0.444–451, cross-territory audit session)
+
+(2026-07-27 ship note: main advanced v1.0.443->510 while this branch waited; rebased and renumbered v1.0.511-518 at ship time. One correction from the pre-ship gap-check: the bot.ts BARS fetch now uses iex, not delayed_sip — alpaca_feed.py bars_feed() had already compiled live evidence (2026-07-18) that the bars endpoint 400-rejects delayed_sip; snapshots keep delayed_sip. The 2026-07-06 Python-side feed repair (alpaca_feed.py, 44 call sites) never covered these Node call sites — this PR is its Node-side completion, which also dates the scanner/heatmap/watchlist breakage to ~2026-07-06.)
+
+TERRITORY: audit session (human-directed "open the site and find what's
+wrong"), cross-cutting by nature — server data proxy (routes.ts SHARED,
+minimal), client (T-CLIENT), analyze.py + bot.ts data fetches (T-BOT).
+One logical change per commit throughout; version read-and-increment per
+commit. Branch claude/full-site-ui-audit-9biltz.
+
+METHOD (compiled for reuse): the egress proxy TLS-resets browser
+fingerprints, so production browsing ran as real Chromium + Playwright
+route-interception relaying every request through Node fetch (which the
+proxy accepts). Sweep = 24 routes x {1440, 390} with video recording,
+full network log (status/timing/pending), console + pageerrors; then
+Slow-3G (relay-paced 50KB/s + 400ms) + 4x CPU pass; then interaction
+pass (forms valid+empty — write-forms empty-only against prod, rapid
+clicks, click-before-data races, Back/Forward, mobile tabs). Videos
+frame-stepped via Playwright's bundled ffmpeg. Scripts in session
+scratchpad (not committed — pattern documented here).
+
+FINDINGS -> FIXES (each verified in-browser against a local build before
+commit; ranked by severity at time of finding):
+- v1.0.444 [breaks-feature] /api/market/* hardcoded a sip feed param the
+  account's data subscription REJECTS ("subscription does not permit
+  querying recent SIP data"); Alpaca's {message} error body parsed as an
+  empty snapshot map -> scanner ALWAYS zero rows ("NO TICKERS MATCH
+  FILTER" while market open), sector heatmap an empty box, watchlist
+  prices never loading — for every visitor, HTTP 200, invisible to
+  monitoring. Unknown how long dead (predates audit; no console error
+  ever fired). Fix: delayed_sip default (full consolidated-tape volumes,
+  15-min delay — iex would gut the volume ranking + bar.v floors),
+  ALPACA_DATA_FEED override, upstream error bodies now 502 {error} via
+  server/alpacaFeed.ts (+5 regression tests incl. the exact prod body).
+- v1.0.445 client honesty for the same: designed no-data states
+  (feed-dead vs filter-excludes-all now distinct), heatmap zero-rows
+  state, footer freshness label derives from served feed ("15-MIN
+  DELAYED" — the old hardcoded "REAL-TIME SNAPSHOTS" claim was false
+  under any non-sip feed).
+- v1.0.446 [breaks-feature/honesty] analyze.py trusted yfinance
+  impliedVolatility raw: live at 13:41 UTC (11 min after open) TSLA
+  showed ATM IV 389.7% vs rv20 59.3 -> UI derived VRP +330.4%, skew
+  -389.7%, and a confident sell-vol rec from one bad market-open print
+  (same endpoint returned 65.4% minutes later). plausible_atm_iv gate:
+  [1%, max(150%, 4x rv20)] (250% absolute if no rv20); rejected chains
+  fall to next expiry, excluded from vol surface; all-rejected falls to
+  the existing rv20-proxy path. 6 offline-safe tests pin it; CI-suite
+  127 passed.
+- v1.0.447 [looks-broken] Back/Forward never switched app tabs: the
+  state->hash sync pushed history entries but nothing read the hash
+  back. hashchange listener -> handleTabClick (auth gating kept),
+  analyze subpath restores section, #/data/* stays datamap's. Verified:
+  back/forward drives Scanner/Watchlist/Analyze correctly.
+- v1.0.448 [looks-broken] Slow-3G = pure black void 20-40s until the
+  bundle ran (no boot indication at all). Inline splash inside #root
+  (wordmark + loading bar, theme tokens, zero requests), replaced at
+  React mount; visual_check.mjs dead-page ratchet extended (splash
+  still present at check time = failed build, else the splash would
+  have defeated the '#root has no children' check).
+- v1.0.449 [cosmetic] landing nav Docs was href="#" -> /developers.
+- v1.0.450 [cosmetic] .vt-filings-table mobile card label crushed to
+  2-char wraps by long values ("AS SE T" on methane at 390px) —
+  flex-shrink:0 + nowrap on the ::before, fixes all filings tables.
+- v1.0.451 [SAFETY] bot.ts morning-queue overnight-gap guard (skip
+  entries gapped >5%) was SILENTLY DISABLED by the same rejected sip
+  feed — snapshot returned {message}, one-liner printed 0, currentPrice
+  >0 guard never fired. delayed_sip restores it (15-min delay fine for
+  overnight-gap detection). Order-transmission paths untouched. Ratchet
+  test: no server file may hardcode a sip feed param again.
+
+VERIFIED NOT BUGS (evidence in session): aircraft layer renders fine
+(490 rendered at z3.6 — sweep screenshots were just pre-mount under
+SwiftShader); /newsletter 301->/newsletter/ works in real browsers
+(relay artifact); login invalid-email uses native browser validation;
+analyze double-click + click-chip-mid-flight races resolve correctly
+(TSLA won as clicked); throttled passes: zero console errors, zero
+undefined crashes on all six key pages.
+
+FILED, NOT FIXED (below fix bar this session): aircraft endpoint 8-9s
+on cache-miss (cached 0.3s — stale-while-revalidate candidate, server);
+/api/data/platform/stats hung >30s once then 0.2-0.6s (transient, watch);
+basemap switch has no in-progress indication and main-thread jank makes
+nearby controls unresponsive during style rebuild on slow hardware
+(SwiftShader-amplified in harness; needs on-device confirm); one 503
+console error under the frozen billing checkout path (flow behaves
+correctly — login gate); analyze map-decoration city labels collide with
+ticker chips at 1440 (cosmetic); newsletter/marketing touch-target soft
+warnings pre-existing in harness.
+
+VERIFICATION: full CI-equivalent pytest 127+6 passed; node
+alpacaFeed.test.ts 6/6; npm run build green every commit; full visual
+harness 0 hard failures (screenshots reviewed at 390/768/1440).
+BACKTEST: N/A — no strategy/parameter/scoring change (IV gate touches
+the display analyzer only; bot scoring paths untouched).
+
+LIVE HEALTH at session start (priority 1): /api/health ok, bot active,
+liveness.dark:false, drawdown 0.0, scanner.consecutiveFailures 0.
 
 ## 2026-07-20 [REPAIR]+[RESEARCH] — GEM methane join was silently dead on prod since gate-2(a) (packaging defect, fixed) + first real gate-2(c) base-rate verdict on the re-joined data (v1.0.441, T-DATACORE, scheduled-routine session)
 

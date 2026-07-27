@@ -726,6 +726,11 @@ const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
   const root = document.getElementById('root');
   if (!root || root.childElementCount === 0) {
     out.failures.push("app did not mount: #root has no children (blank page — script failed to load/execute)");
+  } else if (root.querySelector('[data-vt-boot]')) {
+    // 2026-07-20: index.html now ships an inline boot splash inside #root
+    // (slow-connection fix), so "has children" no longer proves the app ran —
+    // the splash still present at check time means the bundle never executed.
+    out.failures.push("app did not mount: boot splash still present (script failed to load/execute)");
   }
 
   // 1. no horizontal overflow caused by the page

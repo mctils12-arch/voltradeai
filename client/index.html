@@ -16,8 +16,18 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
     <link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png">
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin:0;background:#050a13">
+    <!-- Boot state (2026-07-20 audit): on slow connections the JS bundle
+         takes tens of seconds — until it runs, the page was a pure black
+         void with no indication anything was loading. This inline splash
+         costs zero requests and is replaced the moment React renders into
+         #root. Colors are the canonical theme tokens (DESIGN.md). -->
+    <div id="root"><div data-vt-boot style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#050a13;font-family:'Geist',-apple-system,system-ui,sans-serif">
+      <div style="font-size:22px;font-weight:700;letter-spacing:-0.02em"><span style="color:#eef3fb">vol</span><span style="color:#b3c2d8">trade</span><span style="color:#4d9fff;font-weight:600;font-size:17px;margin-left:4px">/AI</span></div>
+      <div style="width:120px;height:2px;background:rgba(77,159,255,.15);border-radius:1px;overflow:hidden"><div style="width:40%;height:100%;background:#4d9fff;border-radius:1px;animation:vtboot 1.1s ease-in-out infinite alternate"></div></div>
+      <div style="color:#6680a0;font-size:11.5px;letter-spacing:.08em;font-family:'Geist Mono',ui-monospace,monospace">LOADING</div>
+      <style>@keyframes vtboot{from{margin-left:0}to{margin-left:60%}}</style>
+    </div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

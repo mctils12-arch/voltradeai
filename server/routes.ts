@@ -20,6 +20,7 @@ import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
+import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
 import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
 import datacoreBoundariesAdmin1 from "../datacore/boundaries/ne_50m_admin1_lines.json";
@@ -3928,6 +3929,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const ALPACA_KEY = process.env.ALPACA_KEY || "";
   const ALPACA_SECRET = process.env.ALPACA_SECRET || "";
   const alpacaHeaders = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET };
+  // 2026-07-20 [REPAIR]: feed selection + upstream-error detection live in
+  // server/alpacaFeed.ts (with the regression test) — see that module for
+  // why the sip default was a silent site-wide breakage.
+  const ALPACA_DATA_FEED = resolveAlpacaFeed(process.env.ALPACA_DATA_FEED);
 
   // Market scanner data
   app.get("/api/market/scanner", async (_req, res) => {
@@ -3947,12 +3952,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const allTickers = Array.from(tickerSet).slice(0, 150);
       const stocks: any[] = [];
+      let upstreamError: string | null = null;
 
       for (let i = 0; i < allTickers.length; i += 50) {
         const batch = allTickers.slice(i, i + 50).join(",");
         try {
-          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}&feed=sip`, { headers: alpacaHeaders });
+          const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${batch}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
           const snapData = await snapRes.json();
+          const errMsg = alpacaErrorBody(snapRes.status, snapData);
+          if (errMsg) { upstreamError = errMsg; continue; }
           for (const [ticker, snap] of Object.entries(snapData) as any) {
             const bar = snap.dailyBar || {};
             const prev = snap.prevDailyBar || {};
@@ -3966,7 +3974,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         } catch {}
       }
       stocks.sort((a: any, b: any) => b.volume - a.volume);
-      res.json({ results: stocks, date: new Date().toISOString().split("T")[0] });
+      // Zero results WITH an upstream error is a dead feed, not an empty
+      // market — tell the client so it can show a designed error state.
+      if (stocks.length === 0 && upstreamError) {
+        return res.status(502).json({ error: upstreamError, results: [], date: new Date().toISOString().split("T")[0] });
+      }
+      res.json({ results: stocks, feed: ALPACA_DATA_FEED, date: new Date().toISOString().split("T")[0] });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3976,8 +3989,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/market/sectors", async (_req, res) => {
     try {
       const etfs = "XLK,XLF,XLE,XLV,XLI,XLC,XLY,XLP,XLU,XLRE,XLB";
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}&feed=sip`, { headers: alpacaHeaders });
-      res.json(await snapRes.json());
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${etfs}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
+      const body = await snapRes.json();
+      const errMsg = alpacaErrorBody(snapRes.status, body);
+      if (errMsg) return res.status(502).json({ error: errMsg });
+      res.json(body);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -3990,8 +4006,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!symbols) return res.json({});
       // Bug 31: validate symbols — comma-separated tickers only
       if (!/^[A-Za-z.,]{1,500}$/.test(symbols)) return res.status(400).json({ error: "Invalid symbols" });
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=sip`, { headers: alpacaHeaders });
-      res.json(await snapRes.json());
+      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
+      const body = await snapRes.json();
+      const errMsg = alpacaErrorBody(snapRes.status, body);
+      if (errMsg) return res.status(502).json({ error: errMsg });
+      res.json(body);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

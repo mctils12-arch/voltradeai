@@ -539,6 +539,33 @@ def find_atm_row(df, spot):
     return df.nsmallest(1, '_dist').iloc[0]
 
 
+def plausible_atm_iv(iv_pct, rv20):
+    """Reject ATM IV readings that are almost certainly bad option prints.
+
+    2026-07-20 [REPAIR]: yfinance impliedVolatility on wide/crossed quotes
+    right at the open produced ATM IV 389.7% for TSLA (rv20 ~59) — the UI
+    then displayed VRP +330% and a confident 'sell vol' signal derived
+    entirely from a bad print. Bound: IV must sit in [1%, max(150%, 4x
+    rv20)] — genuinely explosive names carry high realized vol too, so the
+    ratio bound keeps them while rejecting prints untethered from any
+    realized behavior. With no usable rv20, allow up to 250%.
+    Rejected chains fall through to the next expiry; if every chain is
+    rejected the existing rv20-proxy fallback applies (same as optionless
+    tickers), instead of a nonsense number presented confidently.
+    """
+    if iv_pct is None:
+        return False
+    try:
+        iv = float(iv_pct)
+    except (TypeError, ValueError):
+        return False
+    if rv20 and rv20 > 0:
+        cap = max(150.0, 4.0 * float(rv20))
+    else:
+        cap = 250.0
+    return 1.0 <= iv <= cap
+
+
 # ── Skew calculation ───────────────────────────────────────────────────────────
 
 def compute_skew(calls, puts, spot, T):
@@ -1974,17 +2001,20 @@ def analyze_ticker(ticker_symbol):
             atm_c = find_atm_row(calls, spot)
             if atm_c is not None:
                 iv_here  = float(atm_c['impliedVolatility']) * 100
-                vrp_here = round(iv_here - rv20, 1)
-                vol_surface.append({
-                    "expiry": exp,
-                    "days":   d,
-                    "atm_iv": round(iv_here, 1),
-                    "vrp":    vrp_here,
-                })
-                if atm_iv is None and d >= 7:
-                    atm_iv = round(iv_here, 1)
-                elif atm_iv is None:
-                    atm_iv = round(iv_here, 1)
+                # Bad prints (see plausible_atm_iv) are dropped entirely —
+                # neither the headline IV nor the vol surface may carry them.
+                if plausible_atm_iv(iv_here, rv20):
+                    vrp_here = round(iv_here - rv20, 1)
+                    vol_surface.append({
+                        "expiry": exp,
+                        "days":   d,
+                        "atm_iv": round(iv_here, 1),
+                        "vrp":    vrp_here,
+                    })
+                    if atm_iv is None and d >= 7:
+                        atm_iv = round(iv_here, 1)
+                    elif atm_iv is None:
+                        atm_iv = round(iv_here, 1)
 
             # Compute skew on first valid chain with ≥14 days (most meaningful)
             if skew is None and d >= 14:
@@ -2483,7 +2513,7 @@ def quick_scan(ticker_symbol):
                 atm_c = find_atm_row(calls, spot)
                 if atm_c is not None:
                     iv_here = float(atm_c['impliedVolatility']) * 100
-                    if atm_iv is None and d >= 7:
+                    if atm_iv is None and d >= 7 and plausible_atm_iv(iv_here, rv20):
                         atm_iv = iv_here
 
                 spreads = (
