@@ -29940,3 +29940,142 @@ unclaimed, separate investigation from this PR's scope. (3) GITHUB
 ACTIONS CI outage: not re-checked this session (already flagged
 repeatedly); the next session touching CI should check current status
 before assuming it's still down.
+
+## 2026-07-27 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #18 continuation: v1.0.503's own NEXT STEP confirmed live (last_phase clears step6a), surfaced a NEW post-fix stall signature (`tier_engine_start`), closed the one remaining un-instrumented span inside `run_tiers()` (v1.0.508, T-BOT)
+
+TERRITORY: T-BOT (`tiered_strategy.py`, `bot_engine.py`,
+`test_tiered_strategy.py`, `research/open_questions.md` item #18) +
+`package.json` version bump (SHARED, last commit, read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE re-read per
+this session's own scheduled prompt). `research/` directory listing.
+Loop-health ratio over the last 10 tagged entries (615 REPAIR, 614 docs,
+613 RESEARCH, 612 PRODUCT, 611 REPAIR, 610 PRODUCT, 609 REPAIR, 608
+RESEARCH, 607 REPAIR, 606 gridvision) — 4 of 10 REPAIR-class, under the
+7+ thrash threshold, no meta-problem. Branch `claude/dazzling-planck-
+h138mj` was byte-identical to `origin/main`/HEAD at 9bfa25d (v1.0.507)
+at session start — the prior session's PR (#615) had already merged and
+the branch deleted; per the merged-PR restart protocol this session
+just continued from that same commit (no reset needed, nothing to
+salvage). `python3 scripts/session_health_check.py --json` against the
+live site: no ALARM. Two WARNs, both already-tracked (KNOWN BROKEN #18
+daemon timeouts — see below, this became the session; KNOWN BROKEN
+#12(c) orphan_exit feedback). Per the scheduled prompt's own instruction
+("if any critical item remains unfixed, this session becomes REPAIR" —
+otherwise pick a doctrine axis), the health check's own WARN classification
+plus the item's own filed, already-answerable NEXT STEP made this a
+judge-a-matured-experiment action, ranked above starting new EDGE
+DOCTRINE research per SESSION BUDGET.
+
+WHAT I FOUND: `/api/diag/audit?type=TIER2-ERROR&limit=50&token=
+$DIAG_TOKEN` shows 12 occurrences from 2026-07-26 16:33Z-19:47Z (the
+afternoon AFTER v1.0.503 deployed) reading `last_phase=tier_engine_start
+age=17.3-35.4s` — a signature never seen on this item before, distinct
+from the `step6a`/`deep_score` signatures every prior update chased.
+Read `server/bot.ts`'s `scanTimingsDetail` computation directly (not
+assumed): `age = now - last_phase_at`, i.e. time stuck SINCE that
+checkpoint fired. This means: (a) the options-scanner fix genuinely
+worked — the step6a-to-step6 gap these occurrences would have shown is
+gone; (b) run_tiers() itself was killed only ~30s into its own
+execution, with ZERO record of which internal tier (1/2/3/4/allocator)
+was running, because `tier_engine_breakdown` only gets appended to the
+TIMING-DISK file on a clean return from `ts.run_tiers(ctx)`
+(bot_engine.py) — the exact same "one synchronous span, dark if killed
+mid-flight" shape this item's `step6a` split fixed one checkpoint
+earlier, just the next boundary out. A live idle-hours `/api/diag/
+timings` read this session showed the full 12-phase preamble (through
+`tier_engine_start`) completing in 26.84s on a clean run — a ~10x gap
+against the ~270s implied for the busy-hours failures that has NO
+explanation yet (filed as a NEXT STEP, not chased — see below).
+
+PRIOR: expected that the step6a fix would either (a) make TIER2-ERROR
+occurrences stop entirely, or (b) leave a residual `step6a` gap smaller
+than before per the fix's own filed caveat ("~400 high-IV + 21 anchor
+candidates is still ~140s at the 3/sec floor"). Neither happened exactly
+— (b) partially held (the fix demonstrably worked, `step6a` no longer
+appears) but the failures continued via a DIFFERENT localization
+entirely, one checkpoint later. Updating: the fix was real and correctly
+scoped, but the daemon's 300s budget is evidently still being exhausted
+somewhere in the preamble before `tier_engine_start`, an outcome this
+session's prior had not specifically considered.
+
+NOT GUESSING WHICH TIER IS SLOW: per RULE REVIEW / RECURRENCE ESCALATES
+("patch blind before checking the diagnostic you just built defeats the
+point of building it"), did not touch `MAX_PER_TIER` or any tier1/2/3/4
+threshold. Instead closed the structural gap the same way this item's
+every prior update has: `TieredStrategy.run_tiers()` (tiered_strategy.py)
+gained an optional `on_phase: Optional[Callable[[str], None]]` parameter,
+invoked after each of tier1/tier2/tier3/tier4/allocator with the tier's
+own label, wrapped so an exception inside the callback can never
+propagate into the tier engine. `bot_engine.py`'s sole callsite now
+passes `on_phase=lambda p: _timing_log(f"tier_engine_{p}")`, writing a
+progressive checkpoint to the SAME on-disk TIMING-DISK file every other
+phase boundary in the pipeline already uses. A future `tier_engine_start`
+occurrence will now show `last_phase=tier_engine_tier1` (etc.) if
+run_tiers() got that far before being killed — or, if `last_phase` stays
+at `tier_engine_start` even with the callback wired, that is itself new
+evidence that tier1 (`tier1_csp_core`, whose own CSP Layer 2 prefetch
+comment already documents "up to 150 tickers x 2 Alpaca-bound calls in a
+45s wall budget") never finished within its slice of the remaining
+budget.
+
+SILENT-EXCEPT RATCHET CAUGHT ITS OWN CLASS WORKING: first draft of the
+callback wrapper used a bare `except Exception: pass`, which
+`test_silent_except_ratchet.py` correctly failed (`tiered_strategy.py`'s
+pinned count would have gone 3 -> 4; raising a pin is forbidden per
+CLAUDE.md). Fixed to `logger.debug(...)` instead — same never-propagate
+guarantee, zero new silent handler, pin stays at 3. Noting this because
+it is exactly the ratchet doing its job, not a mistake to bury.
+
+RATCHET: 4 new tests in `test_tiered_strategy.py` — fires-in-order
+(tier1→tier2→tier3→tier4→allocator), not-called-when-master-kill-switch-
+fires (the early-return kill branch must never invoke it), exception-
+inside-callback-never-propagates, and default-omitted-still-works
+(backward compat with the one other test-only caller in
+`test_csp_universe_layer2_prefetch.py`). A/B-verified via
+`git stash push -- tiered_strategy.py bot_engine.py`: the first 3 fail
+against pre-fix code (`TypeError: run_tiers() got an unexpected keyword
+argument 'on_phase'`), all 4 pass post-fix; `test_run_tiers_default_...`
+passes both before and after by design (it's the compat pin).
+
+GATES: `python3 -m pytest -q` — baseline (this session's own `git stash`
+of the 3 changed files) **960 passed, 1 skipped**; post-fix **964
+passed, 1 skipped** (960 + 4 net-new, zero regressions, confirmed via
+two full clean runs). No TypeScript/client/server files touched —
+`tsc`/`build`/`visual`/`npx tsx --test server/*.test.ts` gates don't
+apply, same precedent this item's prior Python-only sessions used.
+
+BACKTEST: N/A — pure diagnostic-visibility change to the tier-engine
+call site (a progress callback plus a disk write); no scoring, sizing,
+or execution logic touched, no threshold changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `on_phase` fires only after a
+tier's work is already done and its own `tier_timings[...]` entry
+already recorded — it cannot affect which actions a tier proposes or in
+what order. The write itself lands in the identical TIMING-DISK path
+`_timing_log` already uses for every other phase; no new file, no new
+lock, no change to what `/api/diag/timings` or the TIER2-ERROR audit
+line already expose (it just gains finer-grained values in the same
+`last_phase` field it already reads).
+
+Version 1.0.507 -> 1.0.508 (read-and-increment at commit time;
+re-fetched `origin/main` immediately before, confirmed byte-identical —
+no advance since session start).
+
+NEXT: whichever session catches the next `TIER2-ERROR` with a
+`tier_engine_*` last_phase should read it directly — no further
+instrumentation should be needed for this specific span. If the
+localized tier is `tier1`, cross-reference `csp_universe.
+get_last_layer2_prefetch_stats()`'s reading already surfaced in the same
+audit line (`layer2_prefetch=...`) before proposing any threshold change
+to Tier 1's own internal budget (RULE REVIEW: evidence first, one change
+at a time, logged rollback trigger). Separately, and NOT yet
+investigated: the ~10x idle-vs-busy gap in the ALREADY-instrumented
+preamble (26.84s clean-run vs. ~270s implied for the busy-hours
+failures) — a future session should read the per-phase `duration_sec`
+breakdown (not just the summary `last_phase`) from `/api/diag/timings`
+during an actual in-progress busy-hours scan (not a completed one) before
+assuming this is fully explained by "market hours have more candidates."
+GITHUB ACTIONS CI: not re-checked this session; assumed still recovered
+per KNOWN STATE, verify if a PR this session opens fails to get CI
+signal.
