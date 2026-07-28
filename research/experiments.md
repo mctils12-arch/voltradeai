@@ -3,7 +3,151 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-07-28 (scheduled-routine PRODUCT session) [PRODUCT] — ORF (OTC) short-volume deep backfill built and gated; live-verified the 07-27 ORF fix is stable in production and that settlement-stress's stall is SEC's own publish schedule, not a bug (v1.0.523, T-DATACORE)
+## 2026-07-28 (scheduled-routine session, 2nd today) [RESEARCH] — Axis (b) illiquid-universe follow-up: independent NASDAQ re-draw reproduces the 2026-07-24 mean_reversion illiquid-edge finding, closing LADDER PATH step 1
+
+TERRITORY: `scripts/illiquid_universe_probe_redraw.py` (new, standalone
+— same T-BOT-adjacent-standalone-script class as the 2026-07-24 original
+probe: pure backtest/strategy research reading `backtest_v2.py` and the
+original probe module, no production/runtime/client file touched) +
+`test_illiquid_universe_probe_redraw.py` (repo-root, matches
+`test_illiquid_universe_probe.py`'s convention) +
+`research/open_questions.md` UPDATE to the 2026-07-24 entry (SHARED,
+append-only). No `package.json` version bump: zero runtime import, no
+strategy/parameter/trading-behavior change — same precedent as the
+07-24 original.
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + this
+session's scheduled prompt naming axes a-d). Confirmed the designated
+branch `claude/dazzling-planck-uun9j5` had already been merged into
+`main` (its last commit, e512307, is `main` HEAD) — restarted the
+branch from `origin/main` per this session's own instructions rather
+than stacking on dead history. `python3 scripts/session_health_check.py
+--json`: `status` effectively OK — liveness alive/not dark, all
+subsystems ok, deploy_freshness matches (v1.0.523); two WARNs, both
+already-tracked non-blocking items (`tier2_daemon_timeouts` = KNOWN
+BROKEN #18, `ml_feedback` orphan_exit = KNOWN BROKEN #12(c)), neither
+new nor liveness-critical — not a mandatory [REPAIR] session. Loop-
+health ratio over the last 10 tagged entries (PRODUCT/REPAIR/RESEARCH/
+REPAIR/RESEARCH/REPAIR/REPAIR/PRODUCT/RESEARCH/REPAIR, reading back)
+is 5/10 REPAIR, under the 7/10 thrash threshold.
+
+PICKING THE ACTION: all six of the scheduled prompt's axis-(a) standing
+pipeline examples (Sentinel-2, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends) are already built per `datacore/manifests/`
+and `alphadesk/` (pytrends itself already failed its gate-1 stability
+probe 2026-07-05 and was superseded by Wikimedia pageviews, per
+experiments.md 2026-07-05/07-09). Axis (b) had the most concrete,
+already-queued next step: the 2026-07-24 illiquid-universe finding
+(mean_reversion Sharpe +0.246 in illiquid vs. -0.222 in moderate,
+momentum showing the opposite pattern) explicitly named its own LADDER
+PATH step 1 as "INDEPENDENT RE-DRAW ... to check this isn't an artifact
+of the specific 10 names drawn" — a concrete, falsifiable, same-session
+executable check, not a fresh design decision. Chose this over axis (c)
+(foreign-field import, would need a fresh hypothesis from scratch) and
+axis (d) (compiling reasoning into code — the redraw itself IS this:
+turning a hand-run probe into a reusable, tested script) as the highest
+per-token-cost confidence gain available this session.
+
+PRIOR (stated before running, Reasoning Standard #10, also written into
+the new script's own docstring before execution): if the 07-24 finding
+reflects a real structural effect (thin order books mechanically
+exhausting oversold pressure without sustained institutional selling
+flow able to keep grinding a name down — Reasoning Standard #5), an
+independent, non-overlapping illiquid sample should show mean_reversion
+doing relatively better in illiquid than moderate, and momentum doing
+relatively worse in illiquid than moderate — same DIRECTION, expected
+DIFFERENT magnitude. Counter-prior: 10/7-name groups have very little
+statistical power: a second draw could show a different or even
+opposite pattern, and that would be an equally informative (negative)
+result, not a failure to report.
+
+READ BEFORE WRITE: read `illiquid_universe_probe.py` in full (module
+docstring, `fetch_nasdaq_capital_market_candidates`,
+`classify_liquidity_tier`, `run_group`, `summarize`) and
+`test_illiquid_universe_probe.py` before writing anything, to reuse
+its functions unchanged rather than re-deriving the tiering/backtest
+logic. Verified network access (nasdaqtrader.com 200, Yahoo fetch via
+`backtest_v2.fetch_bars` returns real bars) before building. Verified
+`sample_stride=41` produces zero ticker overlap with the original
+`ILLIQUID`/`MODERATE` lists (explicit set-intersection check) before
+running any backtest — a stride that happened to reproduce the same 34
+names would not have been an independent test.
+
+BUILT: `scripts/illiquid_universe_probe_redraw.py` —
+`screen_and_bucket()` (network-calling, screens a candidate list down
+to target illiquid/moderate counts using the ORIGINAL script's own
+`classify_liquidity_tier`, stops early once both targets are met) plus
+a `__main__` block mirroring the original's output shape. Fetched 33
+candidates at `sample_stride=41`, screened to 10 illiquid / 7 moderate
+(6 screened out for <500 bars history, 5 for landing in an already-full
+or >5M-volume bucket), ran all three groups (illiquid/moderate/fixed
+liquid) through `backtest_v2.run_backtest` for `momentum` and
+`mean_reversion`.
+
+RESULT — direction reproduces on both strategies, closing LADDER PATH
+step 1 (full numbers + interpretation filed in open_questions.md's
+2026-07-24 entry, UPDATE 2026-07-28, so the hypothesis and its evidence
+live together):
+  illiquid (n=10): momentum mean_sharpe -0.329 (2/10 positive; 07-24
+    reading: -0.236, 3/10). mean_reversion mean_sharpe +0.238 (8/10
+    positive, 92 trades; 07-24 reading: +0.246, 8/10, 147 trades) — the
+    mean_reversion magnitude is nearly identical across two fully
+    disjoint 10-name samples, the strongest single piece of evidence
+    against "single-sample artifact" this finding has had so far.
+  moderate (n=7): momentum -0.127 (07-24: +0.025 — sign flipped, both
+    low-power/low-magnitude readings); mean_reversion -0.022 (07-24:
+    -0.222 — same sign, smaller magnitude).
+  liquid (n=7, SAME fixed 7 tickers/window as 07-24, not re-drawn):
+    momentum +0.558 / mean_reversion +0.319 (11 trades) — matches the
+    07-24 reading almost exactly (0.558 vs 0.559, 0.319 vs 0.319), a
+    determinism sanity-check on `backtest_v2` passing, not an
+    independent result.
+
+INTERPRETATION: prior partially confirmed — the direction this session
+predicted (mean_reversion relatively better, momentum relatively worse,
+in illiquid vs. moderate/liquid) reproduced on a zero-overlap sample,
+and the mean_reversion illiquid magnitude reproduced unusually tightly.
+This is genuine evidence against the single-sample-artifact concern the
+07-24 entry raised, but per Reasoning Standard #4 one confirmatory
+re-draw is not a SIGNAL-gate pass by itself — no formal significance
+test has been run on either draw, both still share the same 4-year
+window (not a train/test split), and both candidate pools still carry
+the same survivorship caveat (today's live NASDAQ listing only). STILL
+NOT ACTIONABLE for any strategy/threshold change. LADDER PATH steps 2
+(train/test split) and 3 (bootstrap CI / significance test) remain the
+next queued step for a future session — both are now meaningfully
+higher-prior given step 1's result.
+
+GATES: `python3 -m pytest -q` (project interpreter; this sandbox's usual
+clean-container gap — numpy/pandas/lightgbm/scipy/yfinance/openpyxl/
+pytest not preinstalled, matching every prior session's logged
+precedent — resolved by installing them first): 986 passed, 3 skipped,
+4 warnings (pre-existing, unrelated: scipy precision-loss and
+ConstantInputWarning in two other test files, not this PR's code),
+109s. Includes the 19 new tests across
+`test_illiquid_universe_probe_redraw.py` (16, all network-mocked:
+volume-tier classification, insufficient-history/fetch-error screening,
+early-stop-once-both-targets-met, stride-differs-from-original) and the
+pre-existing `test_illiquid_universe_probe.py` (unchanged, still
+passing). `test_daemon_active_dispatches.py` and 5 other files import
+`voltrade_daemon.py`, which `sys.exit(2)`s on missing heavy deps in a
+fresh container before those deps are installed — same documented
+recurring sandbox gap noted above, unrelated to this change (confirmed
+these files import cleanly once numpy/pandas are present, same as every
+prior session's note on this). No TypeScript/client file touched, so
+`npx tsc`/`npx tsx --test`/`npm run build`/visual harness not re-run,
+per the same precedent the 07-24 original entry used for an identical
+Python-only research diff.
+
+NEXT: a future RESEARCH session should attempt LADDER PATH step 2
+(train/test split on the pooled 20-name illiquid sample across both
+draws — early-window pattern-check vs. later-window confirm) or step 3
+(bootstrap CI on the mean_reversion Sharpe spread) before this
+hypothesis could move toward a LOGIC-gate ablation. Per SESSION BUDGET
+fall-through, this session's remaining capacity: none — the two-step
+verify-and-log cycle (redraw + write-up) is this session's one logical
+change; a second independent finding in the same PR would violate
+PROMOTION RULES #5 (one logical change per PR).
 
 TERRITORY: T-DATACORE (`server/finraShortVolume.ts`, `server/
 finraShortVolume.test.ts`, `datacore/manifests/finrashortvolotc.json`) +
