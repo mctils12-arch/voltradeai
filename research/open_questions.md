@@ -6915,6 +6915,50 @@ SIGNAL-then-LOGIC question, not inheriting the liquid-universe gate):
      KNOWN BROKEN #10's note that `backtest_v2.py` doesn't model the
      full candidate-selection path applies here too.
 
+UPDATE 2026-07-28 (scheduled-routine session) — LADDER PATH step 1
+(INDEPENDENT RE-DRAW) run: direction REPRODUCES on a fully
+non-overlapping sample; step 1 CLOSED, steps 2-3 still open.
+
+`scripts/illiquid_universe_probe_redraw.py` (new) re-ran the identical
+method (same `classify_liquidity_tier`/`run_group`/`summarize` from the
+original script, same backtest_v2 engine, same YEARS=4 window, same
+fixed LIQUID anchor group) against a fresh NASDAQ Capital Market draw
+(`sample_stride=41` vs. the original's 40, fetched 2026-07-28 — zero
+ticker overlap with the 2026-07-24 ILLIQUID/MODERATE lists, verified by
+set intersection before running). Screened 33 candidates down to 10
+illiquid / 7 moderate the same way the original did (>=500 bars,
+trailing-252d volume tiering).
+
+RESULT — direction matches the original on both strategies:
+  illiquid (n=10): momentum mean_sharpe -0.329 (2/10 positive, was
+    -0.236/3/10); mean_reversion mean_sharpe +0.238 (8/10 positive, 92
+    trades — was +0.246/8/10/147 trades). mean_reversion's magnitude is
+    nearly IDENTICAL across two disjoint 10-name samples (+0.246 vs.
+    +0.238), a materially stronger reproduction than "same direction,
+    different size" would have been.
+  moderate (n=7): momentum -0.127 (was +0.025 — sign flipped, but both
+    readings are small-magnitude/low-power); mean_reversion -0.022 (was
+    -0.222 — same sign, smaller magnitude).
+  liquid (n=7): momentum +0.558, mean_reversion +0.319 (11 trades) —
+    byte-for-byte consistent with the 07-24 reading, as expected since
+    this is the SAME fixed 7-ticker group over the same window (a
+    determinism check on backtest_v2, not an independent result: pass).
+
+Net: mean_reversion illiquid > moderate reproduced cleanly (illiquid
+best-of-three in both draws); momentum illiquid < moderate < liquid
+also reproduced (monotonic degradation with reduced liquidity in both
+draws). Per Reasoning Standard #4 (discount by hypotheses tried), this
+is one confirmatory re-draw, not proof — HONEST CAVEATS unchanged from
+the original entry (single time window, no formal significance test
+yet, survivorship still applies to both draws' candidate pools, no
+train/test split). Step 1 of the ladder path is satisfied; steps 2
+(train/test split) and 3 (significance test / bootstrap CI) remain the
+gate before this could be called a SIGNAL-gate pass — still NOT
+actionable for any strategy/threshold change. Reproducibility artifact:
+`scripts/illiquid_universe_probe_redraw.py` +
+`test_illiquid_universe_probe_redraw.py` (19 tests total across both
+probe test files, network calls mocked).
+
 NOT ACTIONABLE YET: no threshold, config, or strategy change should ship
 from this finding alone. Reproducibility artifact:
 `scripts/illiquid_universe_probe.py` (frozen candidate lists + full
