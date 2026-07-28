@@ -431,6 +431,11 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   this session: SEC MIDAS (`/api/data/microstructure`, v1.0.265) has the
   identical no-client-view gap — same wiring recipe, model on
   atsSummary.tsx/shortvol.tsx, new `client/src/pages/midas.tsx`.
+  **SHIPPED 2026-07-28 (v1.0.524, scheduled-routine PRODUCT session)** —
+  `client/src/pages/midas.tsx` + `datamap.tsx`/`layers.json` wiring, same
+  recipe as named above (smallcap_watch leaderboard, RAW, off by
+  default). Full trace in experiments.md. DATACORE MAXIMUS shipped-data-
+  no-UI sweep is clear again — no further gaps found this session.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the
