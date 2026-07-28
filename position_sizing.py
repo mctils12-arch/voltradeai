@@ -297,6 +297,20 @@ def _get_historical_stats() -> dict:
     except Exception:
         return default
     
+    # [REPAIR 2026-07-28] trade_feedback now carries OPEN trades whose
+    # pnl_pct is null. `t.get("pnl_pct", 0)` does not guard that (the key
+    # EXISTS with value None), so `None > 0` raised TypeError here — traced
+    # live via the v1.0.526 frame instrumentation
+    # (@position_sizing.py:301:<listcomp>) after every Tier2 options
+    # candidate died in select_contract's catch-all since ~2026-07-23.
+    # Honesty: an open trade has NO outcome yet — it is excluded from the
+    # stats entirely, never counted as a 0% "loss" (that would silently
+    # deflate win_rate and the Kelly base).
+    closed = [t for t in trades if isinstance(t.get("pnl_pct"), (int, float))]
+    if len(closed) < 10:
+        return default
+    trades = closed
+
     # Overall stats
     wins = [t for t in trades if t.get("pnl_pct", 0) > 0]
     losses = [t for t in trades if t.get("pnl_pct", 0) <= 0]
