@@ -3,6 +3,155 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 (scheduled-routine session, 4th today) [RESEARCH] — Axis (b) illiquid-universe follow-up: LADDER PATH step 3 (bootstrap CI + permutation test) finds illiquid > moderate SIGNIFICANT, illiquid vs. liquid NOT significant
+
+TERRITORY: `scripts/illiquid_universe_probe_significance.py` (new,
+standalone — same T-BOT-adjacent-standalone-script class as the three
+prior probe scripts: pure backtest/research script reading
+`backtest_v2.py` and `illiquid_universe_probe.py`, zero runtime/
+production/client import) + `test_illiquid_universe_probe_significance.py`
+(repo-root, matches the existing three probe test files' convention) +
+`research/open_questions.md` UPDATE to the 2026-07-24 entry (SHARED,
+append-only). No `package.json` version bump: zero runtime import, no
+strategy/parameter/trading-behavior change — same precedent as the two
+earlier 2026-07-28 entries in this same thread (redraw + train/test),
+which both used the identical rationale for an identical-shaped diff.
+
+SESSION-START CHECKS: `/api/health` status ok, bot active, 0% drawdown,
+Alpaca active, scanner 0 consecutive failures — no LIVENESS ALARM.
+Last-10 commit tags: 3 [REPAIR] (#630/#629/#627), 5 [PRODUCT] (#632/#631/
+#628/#626/#623), 2 [RESEARCH] (#625/#624) — no thrash (well under the
+7-of-10 REPAIR trigger). Live-verified this morning's [REPAIR] (v1.0.527,
+#630) actually took: `/api/diag/audit?type=T2-FAIL` now shows ordinary
+affordability failures ("Not enough capital to sell cash-secured put...")
+instead of the pre-fix `'>' not supported between instances of
+'NoneType' and 'int'` crash signature — options Tier2 candidates are
+evaluating normally again post-deploy (server_version confirmed 1.0.528
+via `/api/data/layers`). Also investigated the day's one active
+DIAGNOSTIC WARN (`"1 data sources stale: ['trade_feedback']"`,
+`/api/diag/ml`: `live_pnl_null_count: 61`, `live_outcome_breakdown:
+{"orphan_exit": 61}`, `live_record_date_range: ["2026-07-10",
+"2026-07-17"]`) — this is NOT a new finding: it is the extensively
+pre-filed, already-gated KNOWN BROKEN #12(c) (dozens of prior sessions'
+entries independently re-confirm the identical all-orphan_exit signature
+and explicitly log "no new action, already gated" each time, most
+recently the 07-27/07-28 entries above). Re-litigating it without new
+evidence would repeat already-filed research per the SESSION BUDGET
+fall-through rule, so this session did not touch it and instead
+continued the already-queued, better-scoped LADDER PATH item below
+(SESSION BUDGET: "judge a matured experiment" outranks "start a new
+experiment," and this is a continuation of an experiment already in
+progress across the last two sessions today).
+
+PRIOR (stated before running, Reasoning Standard #10, also written into
+the new script's own docstring before execution): per step 2's own
+finding (illiquid-vs-moderate spread directionally stable across both
+time halves; illiquid's own Sharpe sign-flips early-vs-late), the prior
+was that illiquid vs MODERATE would clear a bootstrap/permutation
+significance check more comfortably than illiquid vs LIQUID — the
+liquid mean_reversion reading has near-zero statistical power (11 total
+trades across 7 tickers, already flagged in the 2026-07-24 entry as "not
+a fair mean_reversion baseline"), so a wide CI / large p-value there
+would mean "underpowered comparison," not "no effect." COUNTER-PRIOR
+(Reasoning Standard #4): n=10/n=7 are both small for a between-group
+bootstrap on a noisy per-ticker Sharpe statistic — even illiquid-vs-
+moderate might not clear a strict bar, and that would be an equally
+honest result, not a null to argue around.
+
+READ BEFORE WRITE: read `illiquid_universe_probe.py` in full again
+(`run_group`, `summarize`, the frozen ILLIQUID/MODERATE/LIQUID lists),
+`illiquid_universe_probe_traintest.py`'s sys.path/import convention
+(`sys.path.insert` for both repo root and `scripts/` itself, then plain
+`import illiquid_universe_probe as orig` — reused verbatim), and
+confirmed via a live one-ticker fetch (`backtest_v2.fetch_bars("AAPL",
+1900)`, 0.8s, 1305 bars) that Yahoo-fallback network access works in
+this sandbox before committing to a 24-ticker run (no Alpaca keys in
+this session's env; a raw urllib probe against a different Yahoo host
+path did hit a transient 429, but `backtest_v2._yahoo_bars`'s own
+retry-with-backoff succeeded cleanly).
+
+BUILT: `scripts/illiquid_universe_probe_significance.py` —
+`bootstrap_ci_mean_diff(a, b, n_boot, ci, seed)` (percentile bootstrap:
+resamples each group's per-ticker Sharpe list independently WITH
+replacement — a cluster bootstrap over TICKERS, since trades within one
+ticker are not independent draws — and reports whether the resulting CI
+on the mean spread excludes 0; raises `ValueError` below n=2 per group)
+and `permutation_test_mean_diff(a, b, n_perm, seed)` (pools both groups,
+randomly reassigns membership at the ORIGINAL sizes `n_perm` times,
+reports the two-sided fraction of permuted spreads at least as extreme
+as observed — the more standard formal small-sample significance test,
+and the second option this ladder-path step named verbatim: "bootstrap
+CI... or a paired per-ticker test"). Both are pure and seedable, verified
+against SYNTHETIC data with a known right answer (clearly separated
+groups -> significant; near-identical distributions -> not significant)
+BEFORE being trusted on the real comparison. `_mean_reversion_sharpes()`
+extracts one Sharpe per ticker, correctly skipping fetch-error rows and
+rows where a ticker had zero mean_reversion trades.
+`run_significance(group_rows)` wires it all together, scoped to
+mean_reversion ONLY (momentum's illiquid-worst/liquid-best pattern
+already reproduced cleanly with no sign instability across both prior
+steps, so it doesn't need this scrutiny) and to exactly the two
+comparisons the ladder-path entry names: illiquid vs. moderate, illiquid
+vs. liquid.
+
+14 new tests in `test_illiquid_universe_probe_significance.py`: bootstrap
+CI correctness (separated groups exclude zero, near-identical groups
+include zero, seed-determinism, single-observation-group ValueError,
+unequal group sizes), permutation test correctness (same shape of cases
+plus a no-input-mutation check), Sharpe-extraction edge cases
+(error-rows and missing-strategy-rows skipped), and `run_significance`
+integration (full three-group shape, graceful skip when a group has
+fewer than 2 tickers, error rows excluded from ticker counts). All 14
+pass; also re-ran the three sibling probe suites (`test_
+illiquid_universe_probe.py`, `_redraw.py`, `_traintest.py` — 29 tests)
+to confirm zero regressions from the shared `illiquid_universe_probe`
+import.
+
+ACTUAL RUN (live, this session, re-fetched all 24 tickers fresh — a
+new 4-year trailing window vs. the 07-24/07-28 runs, so small
+observed-diff drift from those sessions' exact numbers is expected and
+not a discrepancy):
+```
+illiquid_vs_moderate: observed_diff=+0.4893, bootstrap 95% CI=[0.145,
+  0.837] (EXCLUDES ZERO), permutation p=0.0195 (two-sided, n=10000)
+illiquid_vs_liquid:   observed_diff=-0.0535, bootstrap 95% CI=[-0.437,
+  0.318] (INCLUDES ZERO), permutation p=0.8011 (two-sided, n=10000)
+```
+VERDICT (Reasoning Standard #4 — stated as plainly as the numbers
+support, not spun stronger): illiquid > moderate CLEARS a formal
+significance bar by both methods (bootstrap CI excludes 0; permutation
+p=0.0195 < 0.05) — this is the load-bearing half of the original claim,
+and step 2 already showed it directionally stable across both time
+halves, so this is now the best-supported piece of the whole finding.
+illiquid vs. liquid does NOT clear significance (p=0.80, CI spans zero)
+— consistent with the PRIOR's own stated expectation that the liquid
+mean_reversion reading (11 trades/7 tickers) is underpowered rather than
+genuinely tied with illiquid; this result cannot distinguish "no real
+difference" from "not enough liquid-group power to see one," and this
+entry does not claim either. Per the honest caveat this same ladder path
+already carries: this is ONE pinned 10/7/7-ticker sample (already
+independently re-drawn once in step 1 with near-identical magnitude) —
+a formal significance pass here still does not make the illiquid vs.
+liquid comparison, or the whole finding, immune to Reasoning Standard #4
+multiple-hypothesis discounting across the growing number of ladder-path
+checks now run on the same underlying sample.
+
+LADDER PATH STATUS: step 3 (significance test) is now CLOSED for the
+illiquid-vs-moderate axis (SIGNIFICANT) and separately closed as
+NOT-SIGNIFICANT / underpowered for the illiquid-vs-liquid axis — this
+is the most load-bearing, best-supported checkpoint the finding has
+cleared yet on the illiquid-beats-moderate axis specifically. Per the
+entry's own step 4/5, this STILL does not make the finding actionable
+for any strategy/threshold/config change: step 4 (illiquid-tuned
+re-thresholding, RULE-REVIEW-gated with counterfactual evidence) and
+step 5 (a LOGIC-gate ablation against the live bot's actual deep_score/
+tier1_csp_core candidate-selection path, not this ETF-rotation-style
+backtest engine — KNOWN BROKEN #10's caveat applies here too) remain
+fully open. No strategy, threshold, or config change ships from this
+session.
+BACKTEST: N/A — pure research probe, zero runtime/production import,
+no strategy/scoring/threshold change.
+
 ## 2026-07-28 [REPAIR]+[PRODUCT] — options-flow outage root-caused via live frame instrumentation (v1.0.526-527, T-BOT) + moon viewer multi-source high-res descent (v1.0.528, T-CLIENT; human-directed session)
 
 TERRITORY: human-directed session continuing the 07-20 audit thread.

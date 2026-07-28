@@ -7172,6 +7172,28 @@ across sub-periods. Reproducibility artifact:
 calls mocked; real `backtest_v2.run_backtest` exercised against
 synthetic in-memory bars).
 
+UPDATE 2026-07-28 (scheduled-routine session, 4th today) — LADDER PATH
+step 3 (SIGNIFICANCE TEST) run: illiquid vs. MODERATE is SIGNIFICANT
+(bootstrap 95% CI on the mean_reversion Sharpe spread [0.145, 0.837],
+excludes zero; two-sided permutation test p=0.0195); illiquid vs. LIQUID
+is NOT significant (CI [-0.437, 0.318], p=0.801) — consistent with the
+already-flagged low statistical power of the liquid group's mean_reversion
+reading (11 trades/7 tickers), not evidence of no difference. Full
+method, code, and caveats in `scripts/illiquid_universe_probe_significance.py`
++ `research/experiments.md` same date. This is the best-supported
+checkpoint the illiquid-beats-moderate axis has cleared so far (steps 1,
+2, and now 3 all support it); the illiquid-vs-liquid axis remains an open,
+underpowered question, not a resolved null. Steps 4 (illiquid-tuned
+re-thresholding, RULE-REVIEW-gated) and 5 (LOGIC-gate ablation against
+the live bot's actual deep_score/tier1_csp_core candidate path) remain
+fully open — STILL NOT actionable for any strategy/threshold/config
+change. Reproducibility artifact:
+`scripts/illiquid_universe_probe_significance.py` +
+`test_illiquid_universe_probe_significance.py` (14 new tests, pure
+bootstrap/permutation machinery verified against synthetic data with a
+known right answer before being run against the real per-ticker
+Sharpes).
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
