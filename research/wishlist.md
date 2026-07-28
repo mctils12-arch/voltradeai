@@ -165,6 +165,27 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   overlap; a future session should check /api/data/archive/stats for
   nonzero-byte settlementstress files accumulating before attempting the
   correlation test.
+  UPDATE 2026-07-28 (scheduled-routine PRODUCT session, v1.0.523) — live-
+  verified /api/data/archive/stats: finrashortvolotc is accumulating real
+  nonzero-byte day-files (5 files, ~170KB, 07-20..07-24) on its normal 6h
+  poll — the thin ORF ingestion is confirmed stable in production, the
+  checkpoint the prior entry needed before a deep backfill. Also live-
+  verified directly against sec.gov that FTD period 202607a genuinely
+  isn't published yet (404 on every URL variant; only 202606b is live) —
+  settlementstress staying at its same 4 zero-byte June files is NOT a new
+  bug, it is correctly waiting on SEC's own "a" period publishing ~EOM.
+  Added the ORF counterpart to finrashortvol's own deep backfill
+  (finraShortVolume.ts: orfDeepBackfillIfSparse/countOrfArchivedDays/
+  gzipOldOrfShortVolDaysAsync, separate env gate FINRA_ORF_DEEP_BACKFILL=1,
+  separate done-marker in finrashortvolotc/, same default-off posture as
+  CNMS's own FINRA_DEEP_BACKFILL per its 2026-07-05 emergency-off
+  incident) — live-spot-checked FORFshvol{YYYYMMDD}.txt back to
+  2024-06-17 (real 200s on trading days), so the same ~2yr/750-day depth
+  is reasonable. NOT ENABLED — this is a volume-budget decision for the
+  human, same as every other deep-backfill gate in this codebase (~75MB
+  gz estimate, same order of magnitude as CNMS's own). To turn it on: set
+  FINRA_ORF_DEEP_BACKFILL=1 in Railway's env and the next boot poll
+  backfills once (done-marker prevents repeats).
 - CENSUS BUILD #7 EU MACRO: SHIPPED v1.0.175 — server/euMacro.ts +
   /api/data/eu-macro (ECB EXR/EST/ILM + Eurostat sts_inpr_m + BBK
   Bund 10y; keyless, per-series attribution verified, vintage-honest;
