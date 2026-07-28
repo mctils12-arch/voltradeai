@@ -3734,6 +3734,20 @@ else:
           const layer1Detail = l1 && Object.keys(l1).length > 0
             ? ` layer1_stats={cache_hit=${l1.cache_hit} universe_size=${l1.universe_size} elapsed=${l1.elapsed_sec}s age=${l1.age_sec}s}`
             : "";
+          // DAEMON-TIMEOUT-VISIBILITY 2026-07-28 (KNOWN BROKEN #18 continuation):
+          // live occurrences today show step6_trade_loop_and_options (the options
+          // scanner) as the preamble's slowest phase at 233-240s — RECURRING
+          // despite v1.0.503's fix for this exact phase. Root cause found this
+          // session: Setup 7 (options_scanner.py) calls vol_surface.get_surface_score()
+          // for every high_iv/anchor candidate, and THAT function's own spot/chain/
+          // bars fetches are not gated by alpaca_throttle — a cost none of this
+          // item's prior sessions' models accounted for. Surfacing it the same way
+          // so the next occurrence's audit line shows the call count and cumulative
+          // elapsed time directly.
+          const ss = hr?.surface_score_stats;
+          const surfaceDetail = ss && Object.keys(ss).length > 0
+            ? ` surface_score_stats={calls=${ss.calls} cache_misses=${ss.cache_misses} cumulative_elapsed=${ss.cumulative_elapsed_sec}s age=${ss.age_sec}s}`
+            : "";
           // DAEMON-TIMEOUT-VISIBILITY 2026-07-22 (KNOWN BROKEN #18 continuation):
           // layer2_prefetch only answers "was it Layer 2" — the storm's third
           // named mechanism (deep_score's ThreadPoolExecutor shutdown hazard,
@@ -3799,7 +3813,7 @@ else:
             scanTimingsDetail = ` scan_timings={read_error=${String(timingErr?.message || timingErr).slice(0, 80)}}`;
           }
           daemonState = hr && hr.alive
-            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${layer1Detail}${scanTimingsDetail}`
+            ? `daemon rss=${hr.rss_mb}MB active_dispatches=${hr.active_dispatches ?? "?"}${dispatchDetail} uptime=${hr.uptime_seconds}s${layer2Detail}${layer1Detail}${surfaceDetail}${scanTimingsDetail}`
             : `daemon health returned non-alive: ${JSON.stringify(h).slice(0, 150)}`;
         } catch (healthErr: any) {
           daemonState = `daemon health probe itself failed: ${String(healthErr?.message || healthErr).slice(0, 120)}`;

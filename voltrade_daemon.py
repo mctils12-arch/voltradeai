@@ -198,6 +198,31 @@ def _layer1_stats_snapshot():
     return stats
 
 
+# DAEMON-TIMEOUT-VISIBILITY 2026-07-28 (KNOWN BROKEN #18 continuation):
+# live TIER2-ERROR occurrences today show `step6_trade_loop_and_options`
+# (options_scanner.get_options_trades()) as the preamble's single slowest
+# phase at 233-240s of a ~296-300s total — RECURRING despite v1.0.503's
+# "ROOT CAUSE FOUND + FIXED" claim for this exact phase. Root cause: Setup 7
+# calls vol_surface.get_surface_score() for every high_iv/anchor candidate,
+# and that function's own spot/chain/bars fetches are NOT gated by
+# alpaca_throttle — a previously uninstrumented cost. Same live-mid-hang
+# read pattern as layer1/layer2 above.
+def _surface_score_stats_snapshot():
+    """Live read of vol_surface's scan-scoped get_surface_score() cost
+    accumulator, plus how stale that reading is. {} if vol_surface hasn't
+    loaded yet (no scan has reached Setup 7 in this process)."""
+    vol_surface = sys.modules.get("vol_surface")
+    if vol_surface is None:
+        return {}
+    stats = vol_surface.get_surface_score_scan_stats()
+    if not stats:
+        return {}
+    checked_at = stats.get("checked_at")
+    if checked_at:
+        stats["age_sec"] = round(time.time() - checked_at, 1)
+    return stats
+
+
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
 # This is the entire reason the daemon exists. Re-importing numpy/pandas/
 # LightGBM in 27 different subprocess calls per scan cycle costs 12+ seconds.
@@ -427,6 +452,7 @@ class RPCDispatcher:
             "active_dispatch_detail": _active_dispatch_snapshot(),
             "layer2_prefetch": _layer2_prefetch_snapshot(),
             "layer1_stats": _layer1_stats_snapshot(),
+            "surface_score_stats": _surface_score_stats_snapshot(),
             "pid": os.getpid(),
         }
 

@@ -31731,3 +31731,188 @@ further gaps found this session past MIDAS). A future [RESEARCH] session
 could pick up the MIDAS HFT-colonization filter's own gate-2 NEXT STEP
 (cross-stream join vs. Form-4 clusters once both sides accumulate enough
 history) — unrelated to this UI-only PR.
+
+────────────────────────────────────────────────────────────────────────
+## 2026-07-28 (scheduled-routine session #2) [REPAIR] — KNOWN BROKEN #18 RECURRENCE root-caused: vol_surface.get_surface_score()'s unthrottled per-candidate fetches, not the options_scanner chain fetch v1.0.503 already fixed, are the real step6_trade_loop_and_options cost (v1.0.525, T-BOT)
+
+TERRITORY: T-BOT (`vol_surface.py`, `options_scanner.py`, `voltrade_daemon.py`,
+`server/bot.ts`'s daemon-timeout branch, `research/open_questions.md` item
+#18) + `package.json` version bump (SHARED, last commit, read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md` tail,
+`research/open_questions.md` KNOWN BROKEN section, `research/wishlist.md`
+tail all read. Loop-health ratio over the last 10 tagged entries (2026-07-25
+REPAIR#3, 2026-07-25 PIPELINE#2, 2026-07-26 RESEARCH, 2026-07-26 REPAIR#2,
+2026-07-26 REPAIR#4, 2026-07-26 PRODUCT#3, 2026-07-27 REPAIR, 2026-07-27
+PRODUCT#2, 2026-07-27 REPAIR#3, 2026-07-28 PRODUCT) — 5/10 REPAIR-class,
+under the 7+ thrash threshold, no meta-problem flagged. `git status` clean
+at session start, branch byte-identical to `origin/main` HEAD (f7e7b3e,
+v1.0.524) — no reset needed. `/api/health` live: status ok, bot active,
+liveness not dark, drawdownPct 0.0 — no LIVENESS ALARM. `python3
+scripts/session_health_check.py --json` live: no ALARM, two already-tracked
+WARNs (KNOWN BROKEN #18 daemon timeouts; KNOWN BROKEN #12(c) orphan_exit
+feedback) — matches prior sessions, no new subsystem break.
+
+WHAT I FOUND (session-budget primary action — "fix a bug seen in audit
+logs" outranks judging a matured experiment or starting new research): per
+SESSION BUDGET, pulled `/api/diag/audit?type=TIER2-ERROR&limit=50&token=
+$DIAG_TOKEN` live and found TWO fresh occurrences already today (13:36:33Z,
+13:42:33Z) carrying v1.0.522's `preamble={total=... slowest=...}` field —
+both read `slowest=step6_trade_loop_and_options` at 233.15s/239.63s of a
+~296-300s total preamble. This is the EXACT phase v1.0.503 (2026-07-26)
+marked "ROOT CAUSE FOUND + FIXED" by removing dead Setup 4/5 fetches, which
+predicted a post-fix cost of ~140s (~421 candidates / 3 req/sec at the
+shared `alpaca_throttle` bucket) — recurring at nearly double that
+estimate. Per CLAUDE.md's RECURRENCE ESCALATES rule ("if an issue already
+marked fixed in experiments.md breaks again, patching it again is FORBIDDEN
+— the session becomes a root-cause analysis"), did not re-tune
+`MAX_PER_TIER` or guess a sixth mechanism — read `options_scanner.py` and
+`vol_surface.py`'s current code fresh (READ BEFORE WRITE).
+
+ROOT CAUSE: `options_scanner.py`'s Setup 7 ("VRP-driven iron condor",
+REAL-ALPHA-TUNE 2026-04-22) calls `vol_surface.get_surface_score(tkr)`
+UNCONDITIONALLY for every `high_iv`/`anchor` candidate from inside the same
+`ThreadPoolExecutor(max_workers=4)` this item's entire "candidates/3s" cost
+model was built around. `get_surface_score`'s own `build_surface()` does an
+UNTHROTTLED spot-price fetch, an UNTHROTTLED options-chain fetch
+(`vol_surface.py`'s own `_fetch_options_chain`, up to 10 paginated Alpaca
+calls — a SEPARATE code path from `options_scanner.py`'s own throttled,
+3-min-cached `_fetch_options_chain`), and an UNTHROTTLED 90-day bars fetch
+— confirmed by reading every network call site in `vol_surface.py`: none of
+them call `alpaca_throttle.acquire()`. Every one of this item's five prior
+sessions (v1.0.501/503/508/521/522) modeled cost purely via
+`options_scanner.py`'s own throttled fetch; this call was invisible to
+every version of that model, both as extra wall-clock (synchronous, inside
+the same per-candidate worker function) and as unaccounted pressure against
+Alpaca's real rate limits (the exact thing `alpaca_throttle`, FROZEN, exists
+to protect).
+
+SEPARATELY FOUND (same session, same code block, same READ BEFORE WRITE
+pass): the pre-existing ticker-already-found dedup check (`not any(o.get(
+"ticker") == tkr for o in found)`) ran AFTER `get_surface_score()` and a
+second `_setup_high_iv_premium_sale()` call, not before — so whenever
+Setup 3 (`r3`, computed earlier in the same `_check_ticker` closure) already
+found an opportunity for a ticker, the block still paid for a full
+`get_surface_score()` call before discovering the result would be discarded
+anyway. Per RULE REVIEW: this is dead-compute, not a threshold/behavior
+change — `found`'s final contents are unchanged (r7 could only ever be
+appended when the ticker wasn't already present; that condition itself is
+unchanged, just checked before the expensive call instead of after) — same
+class as v1.0.503's Setup 4/5 removal, no evidence gate required.
+
+FIX (visibility + provably-behavior-preserving dead-compute removal only —
+Setup 7's own scoring/selection logic is untouched, no RULE REVIEW gate
+applies):
+(a) `vol_surface.py` gained a thread-safe scan-scoped accumulator
+(`reset_surface_score_scan_stats()` / `get_surface_score_scan_stats()` /
+`_record_surface_score_call()`) wrapping `get_surface_score()` via a new
+`_get_surface_score_inner()` split — tracks `calls`/`cache_misses`/
+`cumulative_elapsed_sec` for the current scan cycle, mirroring
+`csp_universe.py`'s `layer1_stats`/`layer2_prefetch` convention (pure
+function + module-level dict + getter) exactly, adapted for a
+concurrently-called accumulator (lock-protected) rather than a single-call
+snapshot.
+(b) `options_scanner.py`'s `scan_options()` calls `reset_surface_score_scan_
+stats()` once, before the `ThreadPoolExecutor` fan-out starts.
+(c) `voltrade_daemon.py`'s `_health()` gained `_surface_score_stats_
+snapshot()` (same live-mid-hang `sys.modules.get()` read pattern as
+`_layer1_stats_snapshot()`), so a client can read it even while a scan is
+still hung past its own 300s RPC timeout.
+(d) `server/bot.ts`'s TIER2-ERROR daemon-timeout branch now surfaces
+`surface_score_stats={calls=... cache_misses=... cumulative_elapsed=...s
+age=...s}` in the audit line, interpolated into `daemonState` alongside
+`layer2Detail`/`layer1Detail`/`scanTimingsDetail`.
+(e) `_check_ticker`'s Setup 7 block: moved the dedup check to gate the
+WHOLE block instead of just the final append.
+
+RATCHET: 8 new tests in `test_vol_surface_surface_score_stats.py`
+(reset/record/get shape, accumulation across multiple calls, cache-hit vs
+cache-miss counting, no-op-not-a-crash when recorded before any reset, the
+wrapper records even when the inner call raises) + 4 new tests in
+`test_options_scanner_surface_score_dead_compute.py` (get_surface_score
+skipped when Setup 3 already found the ticker; still runs when Setup 3
+found nothing — the real, load-bearing case; a combined two-ticker scenario
+proving final `opportunities` output is identical to the pre-fix post-hoc-
+dedup semantics; a source-text pin that `reset_surface_score_scan_stats()`
+runs before the `ThreadPoolExecutor` fan-out) + 1 wiring-pin test in
+`server/tier2DaemonTimeoutVisibility.test.ts` for `surface_score_stats`,
+matching the exact assertion style of the 2026-07-21/27 layer1/layer2
+wiring-pin tests. A/B-verified via `git stash push -- vol_surface.py
+options_scanner.py voltrade_daemon.py server/bot.ts server/
+tier2DaemonTimeoutVisibility.test.ts`: both new Python test files fail to
+even COLLECT against pre-fix code (`ImportError: cannot import name
+'reset_surface_score_scan_stats'`) — the strongest possible A/B signal —
+and all pass post-fix.
+
+SILENT-EXCEPT RATCHET CAUGHT ITS OWN CLASS AGAIN, same discipline the
+2026-07-27 session hit: the first draft's `reset_surface_score_scan_stats()`
+import wrapper in `scan_options()` used a bare `except Exception: pass`,
+which `test_silent_except_ratchet.py` correctly failed (options_scanner.py's
+pinned count would have gone 14 -> 15, caught by the full-suite run, not
+anticipated up front). Fixed to `logger.debug(...)` — pin stays at 14,
+exactly the outcome the ratchet exists to force.
+
+GATES: fresh sandbox at session start (`pytest`, `openpyxl`,
+`numpy`/`pandas`/etc. all missing; `node_modules` empty) — installed
+`requirements.txt` + `requirements-dev.txt` (for pytest) + `openpyxl`, ran
+`npm ci`, noting this since a future session hitting the same bare-container
+start shouldn't re-derive it. `python3 -m pytest -q` — 1009 passed, 2
+skipped (997 baseline + 12 net-new, zero regressions; the silent-except
+ratchet failure was caught and fixed within this same session before the
+final gate run, not left red). `npx tsx --test server/*.test.ts` — 906
+passed, 0 failed. `npx tsc --noEmit` — 80 errors, byte-identical via `git
+stash` A/B to the pre-existing environment/type-lib baseline (none touching
+the new lines in bot.ts). `npm run build` — clean, `dist/index.cjs` 13.0mb,
+only the pre-existing unrelated `astronomy-engine` default-export warning.
+No client/ files touched — VISUAL VERIFICATION gate does not apply.
+
+BACKTEST: N/A — pure diagnostics (`surface_score_stats`) plus a provably
+behavior-preserving dead-compute skip (Setup 7's final `found` contents are
+identical for every candidate before and after, verified by test); no
+scoring, sizing, or threshold value changed. PROMOTION RULE 3's Sharpe/
+drawdown comparison doesn't apply.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the new accumulator only ever
+reads/writes a module-level dict guarded by a lock — it cannot affect which
+candidates get scanned, which trades get selected, or `scan_options()`'s
+returned `opportunities`; it only changes what a later diagnostic read
+(`/api/diag`-adjacent health probe) can observe. The Setup 7 dead-compute
+skip is provably a no-op on output (test-verified) — its only effect is
+fewer wasted network calls per scan, which should REDUCE (not increase)
+`step6_trade_loop_and_options`'s wall-clock for the subset of candidates
+where Setup 3 already succeeded; it does not fully resolve the recurrence
+by itself (Setup 7 still runs unconditionally, and expensively, for
+candidates where Setup 3 found nothing — the majority case) — that's why
+this PR ships as visibility + a bounded, safe partial improvement, not a
+claimed full fix, and the NEXT STEP below stays a RULE REVIEW question
+rather than a mechanical guess.
+
+Version 1.0.524 -> 1.0.525 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+MARKET-HOURS NOTE: session start was 2026-07-28 ~16:00 UTC / ~12:00 ET —
+inside the 9:30-16:00 ET market window. Per the CLAUDE.md deploy-coupling
+rule, this PR is prepared but its merge should wait until after the 16:00
+ET close, unless a reviewer judges the recurring TIER2-ERROR storm itself
+(a live break already in progress, not a new one introduced by this PR) to
+justify an earlier merge — noted for the human's judgment, not decided
+here, since this fix is diagnostics + a safety-neutral dead-compute removal
+rather than a change that could plausibly make live trading worse if merged
+mid-session.
+
+NEXT: whichever session catches the next live TIER2-ERROR with
+`step6_trade_loop_and_options` as the slowest preamble phase should read
+the new `surface_score_stats={calls=... cumulative_elapsed=...}` field
+directly. If `cumulative_elapsed` accounts for most of the 233-240s gap
+between v1.0.503's ~140s estimate and the observed cost, that CONFIRMS this
+root cause and the next legitimate lever — per RULE REVIEW, evidence first
+— is whether Setup 7's `get_surface_score()` call should be throttled
+through `alpaca_throttle` (slower per-call, protects the shared budget) or
+capped by its own time budget the way `build_surface()`'s internal SABR
+loop already is; either is a genuine design/threshold change requiring
+evidence or a backtest ablation, not a blind guess, and is explicitly NOT
+decided or shipped this session. If `cumulative_elapsed` does NOT explain
+the gap, Setup 7 is ruled out and the remaining suspects are the earnings
+calendar `ThreadPoolExecutor` (Setup 1, 30 tickers) or `_setup_high_iv_
+premium_sale` itself running slower than its own 3-min cache would predict.
