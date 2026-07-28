@@ -124,6 +124,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "VolTradeAI datacore (SEC EDGAR, GEM ownership, aisstream.io)",
     resell: "conditional",
   },
+  "stats/plant-operations": {
+    license: "U.S. EPA Clean Air Markets Division (CAMD) unit-level CEMS reporting — public domain (US federal government work)",
+    attribution: "U.S. EPA Clean Air Markets Division (CAMD)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -138,6 +143,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/shadow", params: "-", desc: "Dark-ship RAW statistics: AIS gap events, identity candidates, STS-zone loitering — counts with honest coverage caveats.", preview: "/api/data/shadowstats" },
       { path: "/api/v1/stats/archive", params: "-", desc: "Archive growth metadata (streams, samples, days recorded).", preview: "/api/data/archive/stats" },
       { path: "/api/v1/graph", params: "?entity=<ticker|MMSI|CIK|facility id>&hops<=3 (omit entity for counts-only)", desc: "Everything Graph v1 — Form 4 insiders, entity_map operator->ticker, and AIS port-call edges, joined into one node/edge graph. RAW (asserts filed relationships with provenance; no predictive claim).", preview: "/api/data/graph" },
+      { path: "/api/v1/stats/plant-operations", params: "-", desc: "Per-facility power-plant utilization ground truth (sum grossLoad MW-days, sum operating hours) from EPA's own unit-level CEMS reporting, TX pilot scope, quarterly cadence. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/plant-operations" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -211,6 +217,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       },
       endpoint: "GET /api/v1/graph?entity={entity}&hops={hops}",
       returns_provenance: ["graph"],
+    },
+    {
+      name: "voltrade_plant_operations_stats",
+      description: "Per-facility power-plant utilization ground truth (summed gross load MW-days, summed operating hours) from the U.S. EPA's own unit-level Continuous Emissions Monitoring (CEMS) reporting, TX pilot scope, quarterly cadence. Public-domain US federal data, freely resellable. RAW overlay — direct plant-utilization ground truth, not a trading signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/plant-operations",
+      returns_provenance: ["stats/plant-operations"],
     },
   ];
   return {

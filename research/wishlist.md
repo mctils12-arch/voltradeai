@@ -436,6 +436,19 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   recipe as named above (smallcap_watch leaderboard, RAW, off by
   default). Full trace in experiments.md. DATACORE MAXIMUS shipped-data-
   no-UI sweep is clear again — no further gaps found this session.
+  STALE-NOTE CORRECTION (2026-07-28, later scheduled-routine PRODUCT
+  session): this v0.524 entry's own "cross-stream join vs. Form-4
+  clusters once both sides accumulate enough history" phrasing repeats a
+  claim that stopped being true on 2026-07-22 — the Form-4-cluster
+  hypothesis's own gate 2 already ran and was KILLED that day (naive
+  buy-cluster/sell-cluster direction shows no edge, see open_questions.md
+  "Insider Form 4 clustering as a signal" for the full result). Full
+  correction filed in open_questions.md's MIDAS HFT-COLONIZATION FILTER
+  HYPOTHESIS entry — read it before scoping the MIDAS x Form4 join as a
+  build session; the join as originally specified now has low expected
+  value. New DATACORE-boundary work this session instead: `/api/v1/
+  stats/plant-operations` (EPA CAMD keyed mirror, v1.0.528) — see
+  experiments.md.
 
 ## GRID VISION — program state (human directive 2026-07-07; charter =
 ## research/grid_vision.md, RESUME STATE block at its bottom is the

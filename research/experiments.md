@@ -31977,3 +31977,171 @@ decided or shipped this session. If `cumulative_elapsed` does NOT explain
 the gap, Setup 7 is ruled out and the remaining suspects are the earnings
 calendar `ThreadPoolExecutor` (Setup 1, 30 tickers) or `_setup_high_iv_
 premium_sale` itself running slower than its own 3-min cache would predict.
+
+────────────────────────────────────────────────────────────────────────
+## 2026-07-28 (scheduled-routine PRODUCT session #3) [PRODUCT] · SHARED (apiProduct.ts) — /api/v1/stats/plant-operations: EPA CAMD keyed mirror closes a real SPINOUT-READY DATA LAYER gap (v1.0.528)
+
+TERRITORY: `server/apiProduct.ts` + `server/apiProduct.test.ts` (the
+platform-program API surface, T-CLIENT/T-DATACORE-adjacent per
+platform_program.md) + one new route block in `server/routes.ts` (SHARED,
+last commit) + `package.json`/`package-lock.json` version bump (SHARED,
+read-and-increment at commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail, open_questions.md KNOWN BROKEN section, wishlist.md tail).
+`python3 scripts/session_health_check.py --json` live: liveness alive/not
+dark, no LIVENESS ALARM; two already-tracked WARNs (KNOWN BROKEN #18 daemon
+timeouts, KNOWN BROKEN #12(c) orphan_exit feedback) — neither is a new
+break, neither blocks product work per this session's own instructions.
+`deploy_freshness` OK (`server_version=1.0.527` matched `package.json` and
+`origin/main` HEAD `0e1c61d` at session start — no PRODUCTION DEPLOY FREEZE,
+no reset needed). Loop-health ratio over the last 10 tagged entries (2 x
+2026-07-25 REPAIR/PIPELINE, 2026-07-26 RESEARCH, 2 x 2026-07-26 REPAIR,
+2026-07-26 PRODUCT, 2026-07-27 REPAIR, 2026-07-27 PRODUCT, 2026-07-27
+REPAIR, 2026-07-28 PRODUCT, 2026-07-28 REPAIR) — 6/10 REPAIR-class, under
+the 7+ thrash threshold, no meta-problem flagged (worth a future session's
+attention if the next REPAIR pushes it to 7).
+
+WHAT I FOUND (session-budget primary action, product ladder path (d) —
+improve datacore's API boundary toward spinout-readiness): the
+DATACORE MAXIMUS "shipped-data-no-UI" sweep (last run this morning,
+v1.0.524) only checks `/data` map layers/dedicated pages against
+`datacore/layers.json` — a DIFFERENT surface from the public
+`/api/v1/*` product API. Compared `server/apiProduct.ts`'s `apiMeta()`
+endpoint list (5 live data endpoints: tracks, stats/portdwell,
+stats/shadow, stats/archive, graph) against the much larger set of RAW
+datacore streams that exist only internally at `/api/data/*`
+(ats_summary, midas, epacamd/plant-operations, coal-mine-features,
+faastatus, cbpborderwait, secftd, secmidas, gem, finrashortvol, and
+more — confirmed via `curl .../api/data/archive/stats` live, ~50
+archived stream kinds vs. 5 public v1 endpoints) — a real, unaddressed
+gap against the SPINOUT-READY DATA LAYER standing behavior ("signals
+are exposed only through an internal API boundary... datacore/ is a
+potential standalone product") and VISION.md/GIP.md's "sell the same
+intelligence via API" mandate. Picked ONE stream to add, not a batch,
+per PROMOTION RULE 5 (one logical change per PR) and the established
+precedent (`/api/v1/graph` was added alone on 2026-07-23, `/api/v1/
+agent-tools` alone the same day) — chose EPA CAMD `plant-operations`
+specifically for its LICENSE CLEANLINESS: every other unadded stream
+inspected is either AIS-derived (conditional resell, already 3
+endpoints deep on that license class) or has a murkier attribution
+story (FINRA/SEC exchange-published data); EPA CAMD is U.S. federal
+public-domain data with the CLEANEST possible resell mark ("ok"),
+making it the highest-value low-risk next pick and diversifying the
+API's license-mark distribution.
+
+BUILT: `server/apiProduct.ts` gained a new `LICENSE_MARKS["stats/
+plant-operations"]` entry (public domain, resell: "ok" — the first
+"ok" mark alongside `tracks/trains`, everything else on the API is
+share-alike or conditional), a new `apiMeta().endpoints` entry
+(`/api/v1/stats/plant-operations`, `preview: "/api/data/
+plant-operations"` so `/developers`' existing live-endpoint-explorer
+picks it up with ZERO client-side changes — confirmed by reading
+`developers.tsx` first: `meta.endpoints.map(...)` renders whatever
+`/api/v1/meta` returns, entirely data-driven since the P2 build), and a
+new `agentToolSpec()` tool (`voltrade_plant_operations_stats`).
+`server/routes.ts` gained one new route, `GET /api/v1/stats/
+plant-operations`, registered immediately after `/api/v1/graph`,
+reusing the EXACT existing `latestEpaCamd()`/`aggregateByFacility()`/
+`epaCamdUsingDemoKey()` functions the internal `/api/data/
+plant-operations` route already calls (no new computation, no new
+poller, `bootEpaCamdPoll()` already runs earlier in the same file) —
+wrapped in `requireApiKey`/`v1Envelope`/`meterUsage` following the
+identical `stats/portdwell`/`stats/shadow` pattern (503 + Retry-After
+while the first quarter is still archiving, never a synchronous
+recompute per request). `server/apiProduct.test.ts` gained 2 new tests
+(the new endpoint is live and documented in `apiMeta()`; the new
+license mark is "ok"/public-domain, contrasted against the
+AIS-derived marks) and 2 existing tests extended (`wiring pinned`'s
+route-presence loop and key-guarded-count floor; `meta honesty`'s
+live-path assertion) so the ratchets that already protect the other 5
+endpoints now protect this one too.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a new GET route gated behind
+the SAME `requireApiKey`/rate-limiter/metering machinery every other
+`/api/v1/*` route already uses — it cannot bypass a limit, leak an
+unlicensed field, or change any existing endpoint's behavior. It reads
+the SAME module-level cache (`latestEpaCamd()`) the pre-existing
+internal `/api/data/plant-operations` route already reads, so it adds
+zero new network calls, zero new polling cadence, and zero new load on
+EPA's shared `api.data.gov` DEMO_KEY (the exact collision-risk concern
+wishlist 9a already flags for that key) — a second reader of an
+existing cache, not a second fetcher. `agentToolSpec()`'s tool count is
+derived mechanically from `apiMeta().endpoints.length` (per its own
+test), so this addition keeps that ratchet green without any manual
+count bookkeeping.
+
+GATES: fresh sandbox this session (`node_modules` had only `typescript`
+pre-installed; `npm ci` — 487 packages) then Python deps installed
+(`pip install -r requirements.txt -r requirements-dev.txt openpyxl`, the
+same recurring sandbox gap prior sessions have logged). `npx tsc --noEmit`
+— 80 errors, byte-identical via `git stash` A/B (pre-existing environment/
+type-lib baseline, none touching the new lines in apiProduct.ts/routes.ts).
+`npx tsx --test server/*.test.ts` — 907 passed, 0 failed (905 baseline + 2
+net-new in apiProduct.test.ts). `python3 -m pytest -q` — 1018 passed, 1
+skipped, 1 pre-existing failure (`test_silent_except_ratchet.py`'s
+`options_execution.py` pin, 7 vs. 6 handlers — confirmed via `git stash` A/B
+to fail identically on the untouched baseline; zero Python files touched
+this session, unrelated to this PR). `npm run build` clean, `dist/
+index.cjs` 13.0mb, only the pre-existing unrelated `astronomy-engine`
+default-export warning. LIVE END-TO-END SMOKE TEST (beyond the mocked-fetch
+unit tests): ran `refreshEpaCamd()` + `latestEpaCamd()` +
+`aggregateByFacility()` + `apiMeta()` + `agentToolSpec()` directly via `npx
+tsx -e` against the real archived TX quarter — returned real facility rows
+(W A Parish, Oak Grove, real lat/lon/owner/fuel), confirmed the new
+endpoint/tool/license-mark are all present and shaped correctly. No client/
+files touched — VISUAL VERIFICATION gate does not apply (server-only PR).
+
+BACKTEST: N/A — this is API-surface/documentation plumbing over an
+already-RAW, already-gate-1-clear data stream (no scoring, sizing, or
+trading logic touched, and no new SIGNAL surfaced — `coming_gated` still
+lists only tank-fill).
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) is this session's
+only version-bump edit, last commit, minimized to the version fields only
+(`git diff --stat` confirms 2 lines changed in package-lock.json, both the
+root `version` field — `npm install --package-lock-only` was used
+specifically to avoid touching any dependency version). `server/routes.ts`
+(SHARED) gets one new self-contained route block, inserted at a single
+insertion point with no edits to surrounding code. Version 1.0.527 ->
+1.0.528, read-and-increment at commit time; `git fetch origin main`
+immediately before confirmed `origin/main` still at `0e1c61d`/v1.0.527, no
+advance since session start.
+
+STALE-NOTE CORRECTION FOUND ALONG THE WAY (filed, not the primary action):
+while surveying wishlist.md/open_questions.md for the highest-value next
+step, found that the SEC MIDAS HFT-colonization-filter hypothesis's "join
+against Form 4 clusters" NEXT STEP has been silently re-stated as
+still-viable by at least two sessions (2026-07-10's original entry and this
+morning's v1.0.524 MIDAS-UI entry) after the Form-4-cluster hypothesis's
+OWN gate 2 was already run and KILLED on 2026-07-22 (naive buy/sell-cluster
+direction: no 20d separation, a significant NEGATIVE 60d excess return —
+momentum/timing-at-extremes confound, not insider information). Corrected
+in both `open_questions.md` (full explanation appended to the MIDAS
+HFT-COLONIZATION FILTER HYPOTHESIS entry) and `wishlist.md` (pointer
+appended to the DATACORE MAXIMUS MIDAS-UI entry) so no future session
+scopes a build session around that join as originally specified without
+reading the correction first — this is exactly the kind of stale-doc debt
+the STALENESS/CONSTITUTIONAL AUDITS exist to catch, caught here as a
+byproduct of session-start research rather than a dedicated audit pass.
+
+DEPLOY-COUPLING NOTE: session start was 2026-07-28 ~18:10 UTC / ~14:10 ET —
+inside the 9:30-16:00 ET market window. Per the CLAUDE.md deploy-coupling
+rule, this PR is prepared but its merge should wait until after the 16:00
+ET close (~20:00 UTC) rather than merging mid-market. This is a low-risk,
+additive-only, server-only change (a new GET route reusing an existing
+cache, gated behind existing auth/rate-limit/metering) with no plausible
+path to affecting the live trading loop, but the general rule still
+applies absent an urgent reason to deviate.
+
+NEXT: the DATACORE MAXIMUS "shipped-data-no-UI" sweep and this session's
+new "shipped-data-no-v1-API" sweep are DIFFERENT checks — a future PRODUCT
+session could pick the next-cleanest-license unadded stream (SEC MIDAS or
+SEC FTD, both SEC public-domain data, both currently `/data`-only) to keep
+closing this gap one endpoint at a time, per the established
+one-endpoint-per-PR precedent. `datacore/API_TERMS_DRAFT.md`/
+`LICENSING_AUDIT.md` were not re-read this session in full — a future
+session adding an AIS-derived or FINRA/SEC-exchange-derived stream should
+re-check those drafts' resell classification before picking a mark, the
+same care this session took choosing "ok" only for the unambiguous
+public-domain case.

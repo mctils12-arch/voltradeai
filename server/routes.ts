@@ -3416,6 +3416,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // EPA CAMD plant-operations keyed mirror (SPINOUT-READY DATA LAYER
+  // standing behavior — every RAW datacore stream belongs on the public
+  // API boundary, not just internally at /api/data/*; this one was found
+  // missing during a 2026-07-28 sweep of apiMeta()'s endpoint list against
+  // datacore's live streams). Same latestEpaCamd()/aggregateByFacility()
+  // read /api/data/plant-operations already uses — no new computation, no
+  // new poller; public domain US-gov data (resell: "ok", the cleanest
+  // license class on this API), same 503+Retry-After warming-up shape as
+  // stats/portdwell and stats/shadow while the first quarter archives.
+  app.get("/api/v1/stats/plant-operations", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestEpaCamd();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/plant-operations", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/plant-operations", {
+        state: "TX",
+        year: hit.year,
+        quarter: hit.quarter,
+        unit_days: hit.rows.length,
+        key_mode: epaCamdUsingDemoKey() ? "shared api.data.gov DEMO_KEY (rate-limited)" : "dedicated key",
+        facilities: aggregateByFacility(hit.rows),
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/plant-operations", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/plant-operations", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

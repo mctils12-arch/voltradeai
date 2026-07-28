@@ -59,6 +59,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   const paths = meta.endpoints.map((e: any) => e.path).join(" ");
   assert.ok(!paths.includes("tank"), "tank-fill must not be a live endpoint before gate 2");
   assert.ok(paths.includes("/api/v1/graph"), "Everything Graph v1 shipped — its keyed mirror must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/stats/plant-operations"), "EPA CAMD keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -66,18 +67,24 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 5, `expected >=5 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 6, `expected >=6 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
 test("graph license mark: conditional resell, inherits AIS conditionality like the port stats", () => {
   assert.equal(LICENSE_MARKS["graph"].resell, "conditional");
   assert.ok(LICENSE_MARKS["graph"].license.includes("aisstream"));
+});
+
+test("plant-operations license mark: public-domain US-gov data resells freely, unlike the AIS-derived stats", () => {
+  assert.equal(LICENSE_MARKS["stats/plant-operations"].resell, "ok");
+  assert.ok(LICENSE_MARKS["stats/plant-operations"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["stats/plant-operations"].license.includes("EPA"));
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {

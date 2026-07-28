@@ -3687,6 +3687,31 @@ discount for the number of metric combinations tried (cancel-to-trade,
 hidden-rate, odd-lot-rate — 3 candidate filters, not 1) per REASONING
 STANDARD #4.
 
+UPDATE 2026-07-28 (scheduled-routine PRODUCT session) — STALE-NOTE
+CORRECTION: the "(b)" framing above ("Form 4 clusters ... also
+gate-2-blocked on its own accumulating history") is no longer accurate
+and has been silently re-stated as still-blocked by at least two later
+sessions (this morning's own MIDAS UI PR at v1.0.524 said "cross-stream
+join vs. Form-4 clusters once both sides accumulate enough history").
+In fact the Form-4-cluster hypothesis family's OWN gate 2 already ran
+to completion and was KILLED on 2026-07-22 (see this file's "Insider
+Form 4 clustering as a signal" entry): naive officer/director buy
+clusters show no 20d separation from a same-ticker baseline and a
+significant NEGATIVE 60d excess return (momentum/timing-at-extremes
+confound, not insider information) — code-S sales mirror the same
+non-informative pattern in the opposite direction. Building the MIDAS
+x Form4-cluster join as originally specified ("does the colonization
+filter change the Form-4-cluster edge's forward return") now means
+moderating an edge that was never shown to exist in the first place —
+low expected value until/unless a future session re-derives a
+DIFFERENT Form-4 hypothesis (e.g. the momentum-confound angle the
+2026-07-22 entry flagged as unexplored, with its own fresh PRIOR and a
+held-out re-test) that actually clears its own gate 2. Filed here so no
+future session spends a build session on the join as originally
+scoped without reading this update first; the MIDAS raw feed itself
+(gate 1 DATA, the UI, the API) is unaffected — only the specific
+cross-stream SIGNAL hypothesis is downgraded.
+
 WHAT DIDN'T WORK (logged so nobody re-walks it, corrects the record left
 by two prior sessions): the 2026-07-06 census entry flagged MIDAS "probed
 200" without recording the actual URL used, and the 2026-07-08 COT
