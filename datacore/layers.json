@@ -1163,6 +1163,16 @@
    "description": "FINRA-precomputed ATS-vs-OTC per-symbol volume leaderboards (weekly) and OTC per-symbol volume (monthly), plus per-venue block-trading ranks. As-is display of FINRA's own aggregates \u2014 dark-pool composition shift as a signal is an open [RESEARCH] hypothesis, not yet surfaced."
   },
   {
+   "id": "midas",
+   "name": "Market microstructure (SEC MIDAS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "SEC MIDAS individual-security market-structure metrics, quarterly files (public domain, no API key required)",
+   "description": "SEC-published per-(date, ticker) lit/hidden/odd-lot/cancel-to-trade metrics; rank scale differs by kind (Stock deciles, ETF quartiles, never comparable). As-is display of a small-cap watchlist ranked by SEC's own cancel-to-trade ratio \u2014 a candidate HFT-colonization filter is an open [RESEARCH] hypothesis (gate-2 unattempted), not yet surfaced as a signal."
+  },
+  {
    "id": "attention",
    "name": "Attention proxy (Wikipedia pageviews)",
    "kind": "raw",

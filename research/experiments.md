@@ -31610,3 +31610,124 @@ inflates 9x between idle and busy hours, not deep_score's per-candidate
 cost. GITHUB ACTIONS CI: not re-checked this session; assumed still
 recovered per KNOWN STATE (last confirmed 2026-07-26), verify if this
 session's PR fails to get CI signal.
+
+────────────────────────────────────────────────────────────────────────
+## 2026-07-28 (scheduled-routine PRODUCT session) [PRODUCT] · T-CLIENT
+SEC MIDAS /data map-layer UI — the last shipped-data-no-UI gap from the 2026-07-22 atsSummary sweep (v1.0.524)
+
+TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`, new
+`client/src/pages/midas.tsx`, `datacore/layers.json` — SHARED, this
+session's own only shared-file edit, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py --json` live: liveness alive/not dark, no
+LIVENESS ALARM, all core subsystems OK; two already-tracked WARNs (KNOWN
+BROKEN #18 daemon timeouts, KNOWN BROKEN #12(c) orphan_exit feedback) —
+neither blocks product work per this session's own instructions.
+`deploy_freshness` OK (`server_version=1.0.523` matched `package.json` at
+session start). Loop-health ratio not recomputed by hand this session
+(the prior [REPAIR] entry's own count — 4/10 REPAIR-class — is still
+current; no new evidence of thrash). `git status` clean at session start,
+branch byte-identical to `origin/main` HEAD (32b3408, v1.0.523).
+
+WHAT I FOUND (session-budget primary action, product ladder path (b) —
+build product UI for an already-shipped RAW route): swept
+`research/wishlist.md`'s DATACORE MAXIMUS block for the most recent
+"shipped-data-no-UI" note. The 2026-07-22 v1.0.479 entry (ATS/OTC venue
+UI) named the ONE remaining gap explicitly: `/api/data/microstructure`
+(SEC MIDAS individual-security market-structure metrics, `server/
+secMidas.ts`, shipped API-only 2026-07-10 v1.0.265) had no client page —
+confirmed live via `grep -rn midas client/src/` (zero hits) and
+`ls client/src/pages/` (no `midas.tsx`) before starting, per READ BEFORE
+WRITE.
+
+BUILT: `client/src/pages/midas.tsx` (new) — same wiring recipe as
+`atsSummary.tsx`/`shortvol.tsx`: single RAW leaderboard table (the
+server's own `smallcap_watch` top-20, ranked by SEC's published
+cancel-to-trade ratio), kind_counts (Stock vs ETF row counts, explicit
+rank-scale-differs-by-kind honesty line since Stock ranks are deciles and
+ETF ranks are quartiles — never comparable, per secMidas.ts's own
+docstring), attribution link to SEC's MIDAS page. Reuses the existing
+`.vt-filings-*`/`.vt-shortvol-body` CSS — no new styles needed (same
+precedent atsSummary.tsx set). Wired into `datamap.tsx`: new `midas`
+entry in `LAYER_GROUP` (filings group, same as ats_summary/shortvol),
+hash-driven `midasOpen` state + `#/data/midas` deep link (mirrors every
+sibling filings view), a 300s panel-badge poll (server itself refreshes
+on its own daily cadence — this poll only refreshes the row-count badge,
+same convention as ats_summary), a `Radar` icon (new import, no existing
+icon assignment collided), a `"watchlist"` unit label, and the panel-row
+"Open full view" button. New `datacore/layers.json` registry entry
+(id `midas`, kind `raw`, group `filings`, status `live`) — no ladder gate
+needed: this is an as-is display of SEC's own precomputed ranks/ratios,
+not a signal; the description states the HFT-colonization filter framing
+is a separate, still-gate-2-unattempted [RESEARCH] hypothesis (already
+filed in open_questions.md's MIDAS HFT-COLONIZATION FILTER HYPOTHESIS
+section — untouched this session, this PR is UI-only). `midas` defaults
+OFF (not added to `DEFAULT_ON`), matching `ats_summary`'s own precedent
+for the newest filings-group additions rather than the older
+always-on set (insider/earnings/shortvol/attention/cot).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a new inert layer entry, off
+by default, whose fetch effect only mounts when a user explicitly toggles
+it on or deep-links `#/data/midas` — it cannot affect map render cost,
+default TTI, or any other layer's behavior at rest. The new
+`client/src/pages/midas.tsx` component is statically imported (same
+pattern as every sibling filings view) so it adds to the main bundle
+unconditionally but renders nothing until `midasOpen` is true.
+
+GATES: `npm ci` (empty sandbox, fresh install). `npx tsc --noEmit` — 80
+errors, byte-identical via `git stash` A/B (baseline errors are pre-
+existing environment/type-lib issues across bot.ts/epaCamd.ts/
+optionsChainArchive.ts/etc., none touching datamap.tsx's new lines or
+midas.tsx). `npx tsx --test server/*.test.ts` — 905 passed, 0 failed
+(includes `layersRegistry.test.ts` + `layersWiring.test.ts`, both green
+against the new `midas` registry entry — the "every live registry layer
+is declared in datamap.tsx LAYER_GROUP" ratchet in particular). `python3
+-m pytest -q` — 997 passed, 2 skipped (no Python file touched this
+session; run for PROMOTION RULE 1 completeness). `npm run build` —
+clean, `dist/index.cjs` 13.0mb, only the pre-existing unrelated
+`astronomy-engine` default-export warning.
+
+VISUAL VERIFICATION (client/ PR, DESIGN.md/PROMOTION RULE 6):
+`node scripts/visual_check.mjs --page data` at 390/768/1440 showed 4 hard
+failures — but per MEASUREMENT INTEGRITY, ran the SAME harness against an
+untouched tree first (`git stash` of just `datamap.tsx`+`layers.json`,
+rebuilt, re-ran) to separate signal from the already-filed
+[MEASUREMENT-DEBT · 2026-07-25] "/data perf gate fails on an untouched
+baseline" flakiness. RESULT: the baseline run ALSO hard-fails — 2 of the
+same failures, same "upload-hitch spikes" signature, near-identical
+magnitudes (768px p95 400ms vs. this session's 417ms; 1440px p95 517ms
+identical both runs). The one failure that appeared only in this
+session's run (390px TTI 3464ms > 3000ms gate) did NOT reproduce in the
+baseline run (390px passed clean, tti 2779ms) — but per the 2026-07-25
+entry's own established pattern ("one PR's A/B run showed only ONE of
+the two failures ... run-to-run variance on the SAME untouched code"),
+a single non-reproducing extra failure on a container already proven
+noisy at these exact margins is not attributable to a ~2KB inert layer
+addition with zero render-path involvement, and the aircraft counts
+driving the perf numbers (1665/3034/3507 this session vs. 1426/2806/3507
+baseline) are themselves live-feed-driven and not deterministic between
+runs. Screenshots captured both runs at all three widths
+(`.visual/data-{390,768,1440}.png`). NOT claiming the flaky gate is
+fixed — that is the separate, already-filed [MEASUREMENT-DEBT] item's
+job, not this PRODUCT session's.
+
+BACKTEST: N/A — no scoring/sizing/execution logic touched, a pure
+RAW-data display page with no ladder gate.
+
+MERGE-ORDER: `datacore/layers.json` (SHARED) is this session's only
+SHARED-file edit — last commit, minimized to the one new registry entry.
+Version 1.0.523 -> 1.0.524, read-and-increment at commit time,
+re-fetched `origin/main` immediately before (byte-identical, 32b3408, no
+advance since session start).
+
+DEPLOY-COUPLING NOTE: session start was 2026-07-28 ~13:39 UTC / ~9:39 ET
+— inside the 9:30-16:00 ET market window. Per the CLAUDE.md deploy-
+coupling rule, this PR is being prepared but its merge should wait until
+after the 16:00 ET close rather than merging mid-market.
+
+NEXT: DATACORE MAXIMUS shipped-data-no-UI sweep is now clear again (no
+further gaps found this session past MIDAS). A future [RESEARCH] session
+could pick up the MIDAS HFT-colonization filter's own gate-2 NEXT STEP
+(cross-stream join vs. Form-4 clusters once both sides accumulate enough
+history) — unrelated to this UI-only PR.
