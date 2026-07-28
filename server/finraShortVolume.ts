@@ -22,6 +22,23 @@
  * RSS-capped process. If FINRA ever reposts a corrected file we keep
  * the first version; noted in the manifest.
  *
+ * ORF DEEP BACKFILL ADDED 2026-07-28 (scheduled-routine PRODUCT session):
+ * the 2026-07-27 thin ORF ingestion was confirmed stable in production
+ * this session (`/api/data/archive/stats` live-checked: finrashortvolotc
+ * had 5 real nonzero-byte day-files, 2026-07-20 through 07-24, accumulating
+ * normally on the 6h boot poll) — the exact checkpoint the 07-27 entry
+ * required before attempting a deep backfill. Live-spot-checked
+ * FORFshvol{YYYYMMDD}.txt back to 2024-06-17 (same earliest date CNMS's
+ * own deep backfill targets) — all 200s on real trading days, 403 on
+ * genuine holidays/weekends — so the same ~2-year/750-calendar-day depth
+ * is a reasonable target, mirrored via a SEPARATE env gate
+ * (FINRA_ORF_DEEP_BACKFILL=1) and a separate done-marker in the
+ * finrashortvolotc dir, so the existing CNMS backfill's own
+ * FINRA_DEEP_BACKFILL gate/marker is untouched and this can be enabled
+ * independently once the human is ready to spend the ORF archive's
+ * ~75MB gz'd footprint (same order of magnitude as CNMS's own backfill,
+ * per the 2026-07-05 emergency-off incident this module already carries).
+ *
  * OTC/ORF FACILITY ADDED 2026-07-27 (scheduled-routine PRODUCT session):
  * CNMS ("Consolidated NMS") covers exchange-LISTED securities only —
  * FINRA's own file catalog (developer.finra.org, live-fetched this
@@ -263,12 +280,11 @@ export function readOrfArchivedDay(iso: string, baseDir?: string): ShortVolRow[]
   return [];
 }
 
-/** One shallow-lookback refresh pass for the ORF/OTC facility — mirrors
- *  refreshShortVol's newest-first loop, deliberately WITHOUT a deep-
- *  backfill path (that stays a follow-up per the 2026-07-05 CNMS
- *  emergency-off volume-fill incident this module's own history
- *  documents — ship thin first, backfill is its own future PR/decision,
- *  same precedent as every other census stream in this codebase). */
+/** One lookback refresh pass for the ORF/OTC facility — mirrors
+ *  refreshShortVol's newest-first loop exactly, including the trailing
+ *  gzip sweep below. `lookbackDays` defaults to a shallow 10 for the
+ *  routine 6h poll; `orfDeepBackfillIfSparse` (2026-07-28) calls this same
+ *  function with `ORF_DEEP_BACKFILL_DAYS` for the one-shot deep pass. */
 export async function refreshOrfShortVol(fetchImpl: FetchFn = fetch as any, nowMs?: number,
                                          lookbackDays = 10, baseDir?: string): Promise<void> {
   const now = nowMs ?? Date.now();
@@ -292,6 +308,7 @@ export async function refreshOrfShortVol(fetchImpl: FetchFn = fetch as any, nowM
       }
       await new Promise((res) => setTimeout(res, 300)); // polite spacing
     }
+    await gzipOldOrfShortVolDaysAsync(baseDir, now);
   } catch (e: any) {
     console.error("[datacore] finrashortvolotc refresh:", e?.message || e);
   }
@@ -299,11 +316,14 @@ export async function refreshOrfShortVol(fetchImpl: FetchFn = fetch as any, nowM
 
 let orfPolling = false;
 
-/** Same 6h cadence as bootShortVolPoll (files publish evenings ET). */
+/** Same 6h cadence as bootShortVolPoll (files publish evenings ET); sparse
+ *  archives trigger the one-shot ORF deep backfill after current data is up
+ *  (env-gated, see orfDeepBackfillEnabled below — added 2026-07-28). */
 export function bootOrfShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
   if (orfPolling) return;
   orfPolling = true;
-  refreshOrfShortVol().catch((e) => console.error("[datacore] finrashortvolotc boot:", e?.message || e));
+  refreshOrfShortVol().then(() => orfDeepBackfillIfSparse())
+    .catch((e) => console.error("[datacore] finrashortvolotc boot:", e?.message || e));
   setInterval(() => { refreshOrfShortVol(); }, intervalMs).unref?.();
 }
 
@@ -335,6 +355,26 @@ export function gzipOldShortVolDays(baseDir?: string, nowMs?: number): number {
 export async function gzipOldShortVolDaysAsync(baseDir?: string, nowMs?: number): Promise<number> {
   let n = 0;
   for (const fp of gzTargets(svDir(baseDir), nowMs ?? Date.now())) {
+    try { gzOne(fp); n++; } catch {}
+    await new Promise((res) => setImmediate(res));
+  }
+  return n;
+}
+
+/** ORF counterparts to gzipOldShortVolDays(Async) — same catch-all sweep,
+ *  separate directory (added 2026-07-28 alongside the ORF deep backfill,
+ *  so a deep pass's per-day inline gzip has a trailing safety net too). */
+export function gzipOldOrfShortVolDays(baseDir?: string, nowMs?: number): number {
+  let n = 0;
+  for (const fp of gzTargets(otcDir(baseDir), nowMs ?? Date.now())) {
+    try { gzOne(fp); n++; } catch {}
+  }
+  return n;
+}
+
+export async function gzipOldOrfShortVolDaysAsync(baseDir?: string, nowMs?: number): Promise<number> {
+  let n = 0;
+  for (const fp of gzTargets(otcDir(baseDir), nowMs ?? Date.now())) {
     try { gzOne(fp); n++; } catch {}
     await new Promise((res) => setImmediate(res));
   }
@@ -625,4 +665,41 @@ export function bootShortVolPoll(intervalMs = 6 * 60 * 60_000): void {
   refreshShortVol().then(() => deepBackfillIfSparse())
     .catch((e) => console.error("[datacore] finrashortvol boot:", e?.message || e));
   setInterval(() => { refreshShortVol(); }, intervalMs).unref?.();
+}
+
+// ── ORF deep backfill (separate gate/marker from CNMS's own above — see
+// the module header's 2026-07-28 note) ──────────────────────────────────
+
+export const ORF_DEEP_BACKFILL_DAYS = DEEP_BACKFILL_DAYS; // same ~2yr target, live-verified back to 2024-06-17
+
+export function countOrfArchivedDays(baseDir?: string): number {
+  try {
+    return fs.readdirSync(otcDir(baseDir)).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)).length;
+  } catch { return 0; }
+}
+
+const orfDoneMarker = (baseDir?: string) => path.join(otcDir(baseDir), "backfill_done.json");
+
+/** Separate env opt-in from CNMS's FINRA_DEEP_BACKFILL — the two archives
+ *  are independent populations and independent volume-budget decisions;
+ *  ships default-off per the same 2026-07-05 emergency-off lesson. */
+export function orfDeepBackfillEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.FINRA_ORF_DEEP_BACKFILL === "1";
+}
+
+export async function orfDeepBackfillIfSparse(fetchImpl: FetchFn = fetch as any, nowMs?: number,
+                                              baseDir?: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (!orfDeepBackfillEnabled(env)) return;
+  if (fs.existsSync(orfDoneMarker(baseDir))) return;
+  const have = countOrfArchivedDays(baseDir);
+  console.log(`[datacore] finrashortvolotc deep backfill: archive has ${have} day-files — fetching ~${ORF_DEEP_BACKFILL_DAYS} calendar days`);
+  await refreshOrfShortVol(fetchImpl, nowMs, ORF_DEEP_BACKFILL_DAYS, baseDir);
+  try {
+    fs.writeFileSync(orfDoneMarker(baseDir), JSON.stringify({
+      done_rt: new Date().toISOString(),
+      day_files: countOrfArchivedDays(baseDir),
+      calendar_days: ORF_DEEP_BACKFILL_DAYS,
+    }));
+  } catch {}
+  console.log(`[datacore] finrashortvolotc deep backfill done: ${countOrfArchivedDays(baseDir)} day-files`);
 }

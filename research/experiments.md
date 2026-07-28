@@ -3,6 +3,148 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 (scheduled-routine PRODUCT session) [PRODUCT] — ORF (OTC) short-volume deep backfill built and gated; live-verified the 07-27 ORF fix is stable in production and that settlement-stress's stall is SEC's own publish schedule, not a bug (v1.0.523, T-DATACORE)
+
+TERRITORY: T-DATACORE (`server/finraShortVolume.ts`, `server/
+finraShortVolume.test.ts`, `datacore/manifests/finrashortvolotc.json`) +
+`research/wishlist.md` (SHARED, this session's tracked-decision update) +
+`package.json` version bump (SHARED, last, per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`
+tail, `research/open_questions.md` KNOWN BROKEN section, and
+`research/wishlist.md` DATACORE MAXIMUS block all read. `git status`
+clean on `claude/quirky-hopper-4vlijz`, byte-identical to `origin/main`
+HEAD (f723c73, v1.0.522) at session start — no reset needed.
+`python3 scripts/session_health_check.py --json` against the live site:
+`status: ok`, no LIVENESS ALARM. Two WARNs, both already-tracked and
+non-blocking: `tier2_daemon_timeouts` (KNOWN BROKEN #18, T-BOT territory,
+not this session's) and `ml_feedback` orphan_exit (KNOWN BROKEN #12(c)).
+Per this session's own instructions (a [PRODUCT] session), neither
+blocked product work.
+
+PICKING THE ACTION: the most recent T-DATACORE [PRODUCT]/[REPAIR] entry
+(2026-07-27, v1.0.507) fixed the settlement-stress composite's permanent
+zero-output bug (CNMS/ORF population mismatch) and filed a concrete NEXT
+list: (1) verify live that `finrashortvolotc`/`settlementstress` are both
+accumulating nonzero-byte files; (2) an ORF deep backfill, explicitly
+gated on (1) confirming the thin version stable in prod; (3) a data-
+mutation call about the 4 stale June zero-row dates; (4) USAspending
+gate-2, calendar-blocked to ~2026-08-15; (5)/(6) unrelated T-CLIENT perf
+items. Per this session's option (a) ("advance a datacore pipeline
+through its next ladder gate") and SESSION BUDGET's fall-through order,
+checked (1) first — a live, checkable prediction sitting in the queue —
+before deciding whether (2) was actually unblocked.
+
+VERIFICATION (live, via `/api/data/archive/stats`, no token needed):
+`finrashortvolotc` shows 5 real files (2026-07-20 through 07-24, ~170KB
+total, nonzero bytes) — the thin ORF ingestion IS accumulating normally
+on its 6h poll in production. `settlementstress` is UNCHANGED: still
+exactly the same 4 zero-byte June files (2026-06-25..06-30) as before
+the 07-27 fix — no new dates picked up. Traced why, live, rather than
+assuming a new bug: `refreshSettlementStress` requires the covering FTD
+half-month period to be archived before it processes a date; July dates
+need period `202607a`. Fetched real SEC FTD URLs directly
+(`https://www.sec.gov/files/data/fails-deliver-data/cnsfails202607a.zip`
+and the `_0`/`other/` fallback variants `secFtd.ts` also tries) — ALL
+404 as of 2026-07-28, while the same check against `cnsfails202606b.zip`
+returns 200. This matches `secFtd.ts`'s own documented contract ("a"
+publishes ~EOM of the same month) exactly — July's first-half period is
+genuinely not due yet, one day before month-end. CONCLUSION: the
+settlement-stress stall is NOT a new bug; it is the composite correctly
+waiting on SEC's own publish schedule, confirming (not contradicting)
+the 07-27 entry's own prediction. This closes NEXT-list item (1) with an
+honest negative-for-now-but-expected result on the settlementstress half,
+and a positive, falsifiable-and-confirmed result on the finrashortvolotc
+half — which is exactly the checkpoint item (2) needed.
+
+READ BEFORE WRITE: read `finraShortVolume.ts` in full (both the CNMS and
+07-27 ORF sections) before touching anything, plus `finraShortVolume.
+test.ts`'s existing CNMS deep-backfill test as the pattern to mirror.
+Live-spot-checked `FORFshvol{YYYYMMDD}.txt` (the ORF file) at 2024-06-17,
+2025-01-15, 2025-07-01, 2026-01-02, 2026-03-02, 2026-07-01, 2026-07-24 —
+all 200 on real trading days (two initially-tried dates 403'd, but those
+were a New Year's holiday and a Sunday — confirmed non-trading, not a
+depth limit) — so the same ~2-year/750-calendar-day target CNMS's own
+`DEEP_BACKFILL_DAYS` uses is a reasonable, evidence-based depth for ORF
+too, not a guess.
+
+BUILT (mirrors the CNMS deep-backfill pattern exactly, per this file's
+own EDGE DOCTRINE precedent of copying a working design rather than
+inventing a new one): `finraShortVolume.ts` gains
+`ORF_DEEP_BACKFILL_DAYS` (aliases `DEEP_BACKFILL_DAYS`),
+`countOrfArchivedDays`, `orfDeepBackfillEnabled` (separate env key
+`FINRA_ORF_DEEP_BACKFILL`, deliberately independent of CNMS's own
+`FINRA_DEEP_BACKFILL` — the two are separate volume-budget decisions),
+`orfDeepBackfillIfSparse` (same done-marker/resume semantics as CNMS's
+`deepBackfillIfSparse`, separate marker file in `finrashortvolotc/`), and
+`gzipOldOrfShortVolDays(Async)` (the ORF counterpart to the existing
+CNMS catch-all gzip sweep — `refreshOrfShortVol` previously had no
+trailing sweep at all, an asymmetry with `refreshShortVol` that would
+have mattered more once a 750-day deep pass could run through it; closed
+in the same PR since it's directly load-bearing for the new backfill
+path). `bootOrfShortVolPoll` now chains `orfDeepBackfillIfSparse()` after
+its routine refresh, exactly mirroring `bootShortVolPoll`'s own
+`refreshShortVol().then(() => deepBackfillIfSparse())` — zero change to
+`server/routes.ts` since it already calls `bootOrfShortVolPoll()`.
+NOT ENABLED: `FINRA_ORF_DEEP_BACKFILL` stays unset — turning it on is a
+~75MB-gz volume-budget decision for the human, filed in wishlist.md
+alongside the CNMS backfill's own precedent, not self-applied.
+
+RATCHET: `server/finraShortVolume.test.ts` gains 2 new tests — "ORF deep
+backfill" (mirrors the CNMS deep-backfill test's marker-completes/
+interruption-resumes/done-marker-short-circuits structure exactly, PLUS
+an explicit check that CNMS's own `FINRA_DEEP_BACKFILL` env key does NOT
+enable the ORF path, since the two gates being independent is the whole
+point) and "gzipOldOrfShortVolDaysAsync" (pins the new catch-all sweep).
+A/B-verified via `git stash push -- server/finraShortVolume.ts`: both new
+tests fail (import error — the new exports don't exist) against pre-fix
+code; all 16 tests in the file (14 pre-existing + 2 new) pass post-fix.
+
+GATES: sandbox had no `node_modules` at session start — ran `npm ci`
+first. `npx tsx --test server/*.test.ts client/src/**/*.test.ts
+client/src/pages/*.test.ts` — 1058 passed, 0 failed. `npx tsc --noEmit`
+— 80 lines of output, byte-identical via `git stash` A/B before/after
+(pre-existing environment/config errors — `node`/`vite-client` type-lib
+entries + deprecated `baseUrl` — not code errors, not touched this
+session). `npm run build` — clean, same pre-existing astronomy-engine/
+chunk-size warnings as documented baseline. `python3 -m pytest -q`
+(after `pip3 install -r requirements.txt -r requirements-dev.txt`) — 983
+passed, 1 skipped, matching the prior session's exact baseline; zero
+Python files touched this session, pure sanity check per PROMOTION RULE 1.
+
+BACKTEST: N/A — this is archive-depth infrastructure for a GATE-1
+composite that is not wired into `deep_score`/any order path and not
+surfaced on `/data` (unvalidated derived score per its own docstring and
+the RAW OVERLAYS vs SIGNALS rule). No scoring/sizing/execution logic
+touched, no threshold changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop. The only behavior change reachable without the human's env
+opt-in is the new trailing gzip sweep inside `refreshOrfShortVol` (pure
+housekeeping — compresses any stray uncompressed day older than 2 days
+in the `finrashortvolotc/` dir; a no-op today since the existing 5 files
+are already gz'd via the inline path). With the opt-in, the deep backfill
+would add ~75MB of new archive volume over its one-shot run, same order
+of magnitude as CNMS's own backfill, gzipped per-day exactly like CNMS's
+own crash-loop lesson requires — no full-pass uncompressed window.
+
+Version 1.0.522 -> 1.0.523 (read-and-increment at commit time; re-
+fetched `origin/main` immediately before, confirmed byte-identical — no
+advance since session start).
+
+NEXT: (1) human decision on `FINRA_ORF_DEEP_BACKFILL=1` (wishlist.md,
+this session's entry) — once run, `finrashortvolotc`'s archive depth
+would match CNMS's ~2yr, letting the settlement-stress composite's
+eventual gate-2 test span the full history rather than just the last
+10-day lookback window. (2) A future session should re-check
+`/api/data/archive/stats` for `secftd`'s newest period advancing to
+`202607a` (expected ~2026-07-31 per the "a" publishes ~EOM contract) and
+then whether `settlementstress` starts producing nonzero-byte July
+files — the concrete, dated, falsifiable follow-up this session's own
+finding makes. (3)/(4)/(5) the three items from the 07-27 entry not
+touched this session (stale zero-row date cleanup, USAspending gate-2
+calendar block, T-CLIENT perf items) remain open and unclaimed.
+
 ## 2026-07-27 (scheduled-routine session, 5th today) [REPAIR] — KNOWN BROKEN #18 continuation: 11/11 fresh tier_engine_start occurrences localize the hang inside tier1_csp_core; Layer 1's invisible cache-miss cost instrumented (v1.0.521, T-BOT); PR #621 open, market-hours hold noted
 
 TERRITORY: T-BOT (`csp_universe.py`, `voltrade_daemon.py`, `server/bot.ts`

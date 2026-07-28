@@ -13,6 +13,8 @@ import {
   TOP_CAP, FLOOR_TOTAL_VOL, DEEP_BACKFILL_DAYS,
   appendSummaryHistoryEntry, readSummaryHistory, listArchivedDates, lookupSymbolHistory,
   fetchOrfShortVolDay, archiveOrfShortVolDay, readOrfArchivedDay, refreshOrfShortVol,
+  orfDeepBackfillIfSparse, countOrfArchivedDays, ORF_DEEP_BACKFILL_DAYS,
+  gzipOldOrfShortVolDaysAsync,
 } from "./finraShortVolume";
 
 // Mirrors the live file verified 2026-07-05: pipe header, fractional
@@ -256,4 +258,49 @@ test("refreshOrfShortVol: fetches only unarchived days in the lookback window, a
   await refreshOrfShortVol(async (url: string) => { fetched2.push(url); return { ok: false, status: 403, text: async () => "" }; },
     Date.parse(`${day}T23:30:00Z`), 2, base);
   assert.ok(!fetched2.some((u) => u.includes(day.replace(/-/g, ""))), "already-archived day is skipped, not refetched");
+});
+
+test("ORF deep backfill (2026-07-28): separate gate/marker from CNMS's own, same resume/short-circuit semantics", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-orf-bf-"));
+  const now = Date.parse("2026-04-25T12:00:00Z");
+  assert.ok(ORF_DEEP_BACKFILL_DAYS >= 700, "target ~2 years of trading days, same as CNMS");
+  // dates globally unique to this test (see file-wide convention above)
+  const SERVED = new Set(["20260420", "20260421", "20260422"]);
+  let calls = 0;
+  const fake = async (url: string) => {
+    calls++;
+    const m = url.match(/FORFshvol(\d{8})\.txt/);
+    if (!m || !SERVED.has(m[1])) return { ok: false, status: 403, text: async () => "" };
+    const day = m[1];
+    return { ok: true, status: 200, text: async () =>
+      `Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n${day}|CHLSY|100|0|200|O\n1` };
+  };
+  const ON = { FINRA_ORF_DEEP_BACKFILL: "1" } as any;
+  // EMERGENCY-OFF precedent applies to ORF too: keyless env = no-op
+  await orfDeepBackfillIfSparse(fake as any, now, base, {} as any);
+  assert.equal(calls, 0, "default-off: not a single fetch without the env opt-in");
+  // CNMS's own gate must not enable ORF, and vice versa — independent decisions
+  await orfDeepBackfillIfSparse(fake as any, now, base, { FINRA_DEEP_BACKFILL: "1" } as any);
+  assert.equal(calls, 0, "CNMS's own env key does not enable the ORF backfill");
+  await orfDeepBackfillIfSparse(fake as any, now, base, ON);
+  assert.equal(countOrfArchivedDays(base), 3, "all served days archived");
+  assert.ok(fs.existsSync(path.join(base, "finrashortvolotc", "backfill_done.json")), "completion marker written");
+  assert.ok(fs.existsSync(path.join(base, "finrashortvolotc", "2026-04-20.jsonl.gz")),
+    "deep-pass day is gzipped IMMEDIATELY (volume-flood guard, same as CNMS)");
+  assert.ok(!fs.existsSync(path.join(base, "finrashortvolotc", "2026-04-20.jsonl")));
+  const callsAfterDone = calls;
+  await orfDeepBackfillIfSparse(fake as any, now, base, ON);
+  assert.equal(calls, callsAfterDone, "done marker short-circuits — zero refetches");
+  fs.unlinkSync(path.join(base, "finrashortvolotc", "backfill_done.json"));
+  await orfDeepBackfillIfSparse(fake as any, now, base, ON);
+  assert.equal(countOrfArchivedDays(base), 3, "resume run added nothing new (dedup)");
+  assert.ok(fs.existsSync(path.join(base, "finrashortvolotc", "backfill_done.json")), "marker rewritten");
+});
+
+test("gzipOldOrfShortVolDaysAsync: catch-all sweep mirrors the CNMS async variant, separate directory", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "finra-orf-gz-"));
+  const rows = parseShortVol(ORF_FILE.replace(/20260624/g, "20260410"), "2026-07-28");
+  archiveOrfShortVolDay(rows, base);
+  assert.equal(await gzipOldOrfShortVolDaysAsync(base, Date.parse("2026-07-28T12:00:00Z")), 1);
+  assert.ok(fs.existsSync(path.join(base, "finrashortvolotc", "2026-04-10.jsonl.gz")));
 });
