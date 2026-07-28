@@ -6964,6 +6964,80 @@ from this finding alone. Reproducibility artifact:
 `scripts/illiquid_universe_probe.py` (frozen candidate lists + full
 methodology in its docstring) + `test_illiquid_universe_probe.py`.
 
+UPDATE 2026-07-28 (scheduled-routine session, 3rd today) — LADDER PATH
+step 2 (TRAIN/TEST SPLIT) run: MIXED result, closing step 2 as
+"checked," not "confirmed." Step 3 (bootstrap CI / significance test)
+remains the next open step.
+
+`scripts/illiquid_universe_probe_traintest.py` (new) split each
+ticker's own full 4y bars in half (early = `bars[0:mid]`; late =
+`bars[max(0, mid-252):]`, i.e. the late half gets up to 252 prepended
+warmup days strictly BEFORE its own nominal start — standard
+walk-forward slicing, zero lookahead) and re-ran `backtest_v2` on both
+halves for all three ORIGINAL (2026-07-24) pinned groups — the redraw
+sample was deliberately NOT pooled in, to keep this a clean "does the
+SAME sample's pattern hold across time" question rather than
+conflating two different draws' regime exposure. SPY/VXX fetched once
+each and shared across every ticker and both halves (regime lookup is
+by date string, not index, so no slicing needed there).
+
+RESULT (mean_sharpe, pos_frac, total trades across the group):
+  illiquid (n=10): momentum early -0.134 (0/10, 4 trades) / late -0.175
+    (2/10, 95 trades) — worst-of-three in BOTH halves, matching the
+    pooled/redraw finding. mean_reversion early -0.178 (4/10, 57
+    trades) / late +0.403 (10/10, 134 trades) — SIGN FLIPS between
+    halves (negative early, strongly positive late); the pooled 4y
+    reading (+0.246, 8/10) sits between the two, i.e. it is not evenly
+    spread across the window.
+  moderate (n=7): momentum early +0.046 (2/7, 22 trades) / late -0.02
+    (3/7, 184 trades). mean_reversion early -0.39 (2/7, 36 trades) /
+    late -0.197 (3/7, 109 trades) — negative in both halves, consistent
+    with the pooled/redraw readings.
+  liquid (n=7, same fixed 7 tickers, not re-drawn): momentum early
+    +0.437 (6/7, 119 trades) / late +0.542 (6/7, 330 trades) —
+    best-of-three in both halves. mean_reversion early +0.049 (1/7,
+    only 2 trades) / late +0.382 (5/7, 11 trades) — both readings
+    remain the low-power group the original entry already flagged;
+    neither half changes that.
+
+VERDICT (Reasoning Standard #4 — stated as plainly as the finding, not
+spun stronger than the numbers support): momentum's illiquid-worst/
+liquid-best pattern reproduces cleanly in BOTH halves — that axis is
+robust to the time split. mean_reversion is MIXED: the sharper,
+more load-bearing half of the original claim — illiquid beating
+moderate — holds directionally in BOTH halves and widens in the late
+one (illiquid ahead of moderate by +0.21 early, +0.60 late). But the
+broader "illiquid is best-of-all-three" framing does NOT hold cleanly:
+illiquid's own mean_reversion Sharpe is outright NEGATIVE in the early
+half (liquid, on a nearly-powerless 2-trade sample, is ahead of
+illiquid there) and only turns solidly positive in the late half,
+where it edges liquid by a hair (+0.403 vs +0.382, itself still only
+an 11-trade liquid sample). This within-illiquid-group sign flip
+(negative early, strongly positive late) is exactly the kind of
+half-window instability Reasoning Standard #4/#7 warn a pooled 4y
+result could be hiding — it is NOT proof the pooled finding is a
+sub-period artifact (57 and 134 trades per half are evaluable widths,
+not a handful of noise trades, and the illiquid-beats-moderate axis
+IS stable), but it is real evidence against "constant, time-invariant
+structural effect" as currently stated, and this session does not
+attempt to resolve which explanation is right — that is a
+regime-conditioning / step-3-significance question for a future
+session, not this one.
+
+LADDER PATH step 2 is CLOSED — "closed" means "checked," not
+"confirmed": the pattern survived the split on one axis (illiquid >
+moderate) and did not survive cleanly on the other (illiquid > liquid,
+and illiquid's own sign stability). Step 3 (bootstrap CI / significance
+test on the mean_reversion Sharpe spread) remains the next open step,
+and this train/test result alone does not make the finding SIGNAL-gate
+actionable — if anything the early/late split raises the bar step 3
+needs to clear, since it can no longer assume the effect is uniform
+across sub-periods. Reproducibility artifact:
+`scripts/illiquid_universe_probe_traintest.py` +
+`test_illiquid_universe_probe_traintest.py` (10 new tests, network
+calls mocked; real `backtest_v2.run_backtest` exercised against
+synthetic in-memory bars).
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean

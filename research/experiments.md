@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 (scheduled-routine session, 3rd today) [RESEARCH] — Axis (b) illiquid-universe follow-up: train/test split (LADDER PATH step 2) on the original pinned sample gives a MIXED result
+
+TERRITORY: `scripts/illiquid_universe_probe_traintest.py` (new,
+standalone — same T-BOT-adjacent-standalone-script class as the prior
+two probe scripts: pure backtest/research script reading
+`backtest_v2.py` and `illiquid_universe_probe.py`, zero
+runtime/production/client import) + `test_illiquid_universe_probe_traintest.py`
+(repo-root, matches the two existing probe test files' convention) +
+`research/open_questions.md` UPDATE to the 2026-07-24 entry (SHARED,
+append-only). No `package.json` version bump: zero runtime import, no
+strategy/parameter/trading-behavior change — same precedent confirmed
+by re-checking both the 07-24 original and the 07-28 redraw entries,
+which both used the identical rationale for an identical-shaped diff.
+
+SESSION-START CHECKS: this session was launched directly as a
+scheduled autonomous session's PRIMARY action (parent session already
+researched and scoped the task; CLAUDE.md read in full per the READ
+BEFORE WRITE protocol before touching any code). This is a targeted,
+pre-scoped follow-up to the 2026-07-24 and 2026-07-28 (2nd) entries'
+own explicitly-named LADDER PATH step 2 — not a fresh SESSION BUDGET
+primary-action selection, so the axis-selection tree from the 2nd
+2026-07-28 entry is not re-run here.
+
+PRIOR (stated before running, Reasoning Standard #10, also written
+into the new script's own docstring before execution): if the illiquid
+mean_reversion edge is a real structural effect (thin order books
+mechanically exhausting oversold pressure without sustained
+institutional selling flow — Reasoning Standard #5), splitting the
+SAME 4-year window in half should show the SAME qualitative pattern
+(mean_reversion doing relatively better in illiquid than
+moderate/liquid) in BOTH halves. A pattern that only shows up in one
+half and reverses in the other would suggest the pooled 4y result is
+dominated by a specific sub-period, not a persistent structural
+effect. COUNTER-PRIOR / CAVEAT stated up front: splitting an
+already-small trade count (147 illiquid mean_reversion trades over 4y
+across 10 tickers) roughly in half is not a large-sample regime, even
+though each half remains wide enough to be evaluable — a weak or
+reversed half-pattern would be suggestive, not proof, in either
+direction.
+
+READ BEFORE WRITE: read `illiquid_universe_probe.py` in full (module
+docstring, `run_group`, `summarize`, `classify_liquidity_tier`),
+`test_illiquid_universe_probe.py` and
+`test_illiquid_universe_probe_redraw.py` (mocking convention),
+`backtest_v2.py`'s `run_backtest()` (injectable bars/spy/vxx),
+`simulate()` (score_candidate warmup: i>=252 momentum, i>=20
+mean_reversion — the reason a naive half-slice would silently
+under-trade a fresh window's first ~252 days), `fetch_bars()`, and
+`regime_series()`/the by-DATE (not by-index) regime lookup in
+`simulate()` — confirming SPY/VXX do not need to be sliced to match a
+ticker's sliced bars, only fetched once and shared.
+
+BUILT: `scripts/illiquid_universe_probe_traintest.py` —
+`split_bars(bars, warmup_days=252)` (pure function: early =
+`bars[0:mid]`, matching how the pooled run already starts cold from
+index 0; late = `bars[max(0, mid-warmup_days):]`, prepending up to
+`warmup_days` days strictly BEFORE the late window's nominal start so
+`score_candidate` isn't silently zero near the start of the late half
+either — every prepended day is in the late half's own past, so this
+introduces ZERO lookahead, Reasoning Standard #7; raises `ValueError`
+on too-few-bars or mismatched-field-length input rather than returning
+a misleading near-empty split) and `run_split_group(tickers, years=4,
+warmup_days=252)` (fetches each ticker's full bars ONCE plus SPY/VXX
+ONCE each, shared across all tickers and both halves; splits via
+`split_bars`; runs `backtest_v2.run_backtest(ticker, "all", years/2,
+bars=<half>, spy=spy_bars, vxx=vxx_bars)` for both halves; wraps each
+ticker in try/except exactly like the original `run_group`, appending
+an `{"ticker": t, "error": ...}` row to BOTH the early and late output
+lists on failure so one bad ticker never kills the whole group).
+Reuses `illiquid_universe_probe.summarize()` unchanged, called
+separately on the early-half and late-half rows per group. Scoped
+DELIBERATELY to the ORIGINAL 2026-07-24 pinned ILLIQUID/MODERATE/LIQUID
+lists only — the redraw sample was NOT pooled in, since it draws live
+from NASDAQ's daily-changing directory and pooling it in would
+conflate two different draws' regime exposure into one "does the SAME
+sample hold across time" question (documented as a deliberate scope
+decision in the script's own docstring, with the redraw-sample split
+noted as a distinct future NEXT, not built here).
+
+10 new unit tests in `test_illiquid_universe_probe_traintest.py`:
+`split_bars` correctness (split point, prepend count capped at
+min(warmup_days, mid), field alignment/no off-by-one, no-lookahead
+date check, too-few-bars / mismatched-length rejection — 6 tests) and
+`run_split_group` integration (real `backtest_v2.run_backtest` against
+synthetic in-memory bars, one-bad-ticker-does-not-kill-the-group,
+SPY/VXX fetched exactly once each regardless of ticker count — 4
+tests), following `test_backtest_v2_liquidity_cost.py`'s convention of
+exercising the real engine over a mocked-fetch synthetic tape rather
+than mocking `run_backtest` itself.
+
+Ran `python3 scripts/illiquid_universe_probe_traintest.py` for real
+(network: 21 ticker fetches + 1 shared SPY + 1 shared VXX fetch, Yahoo
+fallback, no API key — ~a few minutes for 21 tickers x 2 halves x 2
+strategies = 84 backtest runs).
+
+RESULT (full numbers + interpretation filed in open_questions.md's
+2026-07-24 entry, UPDATE 2026-07-28 3rd-today, so the hypothesis and
+its evidence live together):
+  illiquid (n=10): momentum early mean_sharpe -0.134 (0/10 positive, 4
+    trades) / late -0.175 (2/10, 95 trades) — worst-of-three in BOTH
+    halves, matching the pooled/redraw finding cleanly. mean_reversion
+    early -0.178 (4/10, 57 trades) / late +0.403 (10/10, 134 trades) —
+    SIGN FLIPS between halves; the pooled 4y reading (+0.246, 8/10)
+    sits between the two, meaning it is not evenly spread across the
+    window.
+  moderate (n=7): momentum early +0.046 (2/7, 22 trades) / late -0.02
+    (3/7, 184 trades). mean_reversion early -0.39 (2/7, 36 trades) /
+    late -0.197 (3/7, 109 trades) — negative in both halves.
+  liquid (n=7, same fixed 7 tickers, not re-drawn): momentum early
+    +0.437 (6/7, 119 trades) / late +0.542 (6/7, 330 trades) —
+    best-of-three in both halves. mean_reversion early +0.049 (1/7,
+    only 2 trades) / late +0.382 (5/7, 11 trades) — remains the
+    low-power group the original entry already flagged in both halves.
+
+INTERPRETATION (Reasoning Standard #4 — stated as plainly as the
+finding warrants, not spun stronger than the numbers support):
+momentum's illiquid-worst/liquid-best pattern is ROBUST to the time
+split — reproduces cleanly in both halves. mean_reversion is MIXED:
+the sharper of the two original comparisons (illiquid beats moderate)
+holds directionally in both halves and widens in the late one (+0.21
+gap early, +0.60 gap late) — this axis is stable. The broader
+"illiquid is best-of-all-three" framing does NOT hold cleanly:
+illiquid's own mean_reversion Sharpe is negative in the early half
+(liquid, on a near-powerless 2-trade sample, edges ahead there) and
+only turns solidly positive in the late half, where it edges liquid by
+a hair (+0.403 vs +0.382, itself only an 11-trade liquid sample). This
+within-illiquid sign flip is exactly the kind of half-window
+instability Reasoning Standard #4/#7 warn a pooled result could be
+hiding — 57 and 134 trades per half are evaluable widths, not noise
+from a handful of trades, so this is real (if not conclusive) evidence
+against "constant, time-invariant structural effect" as currently
+worded. This session does not attempt to adjudicate WHY (regime
+exposure of the specific early/late calendar split vs. genuine
+non-stationarity of the effect) — that is future regime-conditioning
+or step-3-significance work, not this script's job.
+
+GATES: `python3 -m pytest -q` (numpy/pandas/scipy/scikit-learn/
+lightgbm/yfinance/openpyxl/pytest installed first — same documented
+recurring clean-container gap every prior session in this territory
+has logged): 987 passed, 2 skipped before this change (baseline,
+recorded first); after adding the 10 new tests, all pre-existing tests
+still pass unchanged including `test_illiquid_universe_probe.py` (19
+tests, unmodified) and `test_illiquid_universe_probe_redraw.py`
+(unmodified) — zero regressions. No TypeScript/client file touched, so
+`npx tsc`/`npm run build`/visual harness not re-run, same precedent the
+07-24 and 07-28 (2nd) entries used for an identical-shaped Python-only
+research diff.
+
+NEXT: LADDER PATH step 3 (bootstrap CI / significance test on the
+mean_reversion Sharpe spread between illiquid and moderate/liquid,
+ideally accounting for the early/late instability surfaced this
+session — e.g. per-half or block-bootstrap rather than assuming
+uniform-across-time draws) is the remaining gate before this finding
+could be called SIGNAL-gate actionable. A separate, not-yet-built
+follow-up (noted but explicitly out of scope this session, per
+PROMOTION RULES #5 one-logical-change-per-PR) would be re-running this
+identical split methodology against the 2026-07-28 redraw sample
+independently, rather than pooling it with the original as this
+session deliberately avoided. Per SESSION BUDGET fall-through, this
+session's remaining capacity: none — build + real run + write-up is
+this session's one logical change.
+
 ## 2026-07-28 (scheduled-routine session, 2nd today) [RESEARCH] — Axis (b) illiquid-universe follow-up: independent NASDAQ re-draw reproduces the 2026-07-24 mean_reversion illiquid-edge finding, closing LADDER PATH step 1
 
 TERRITORY: `scripts/illiquid_universe_probe_redraw.py` (new, standalone
