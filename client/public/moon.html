@@ -37,9 +37,16 @@
 
   ALTITUDE-DRIVEN LIGHTING (the core feature)
     altitude = |camera - center| - MOON_RADIUS_KM
-    t = smoothstep(TERM_LOW=800, TERM_HIGH=8000, altitude)
+    t = smoothstep(TERM_LOW=3500, TERM_HIGH=11000, altitude)
     t -> 1 zoomed OUT  = hard terminator, real night side on the limb
     t -> 0 zoomed IN   = surface lit everywhere, Google-Maps style
+    RETUNE 2026-07-28 (human report): with the original 800..8000 band the
+    night side stayed a black void from the default view (12,000 km) all
+    the way down to ~4,700 km — zooming in on the far side felt like
+    nothing existed until the surface "popped" in. TERM_HIGH sits just
+    under the default altitude so brightening starts with the first bit of
+    zoom-in, and the wider band spreads it Google-Earth-smoothly; the
+    full-phase look at/above the default view is unchanged.
   ONE ShaderMaterial owns this via the uTerminator uniform. No material swap,
   no light toggling, nothing conditional -> the transition is continuous by
   construction: t is a pure function of altitude, evaluated every frame.
@@ -215,8 +222,15 @@ import * as THREE from "./vendor/three.module.min.js";
 const MOON_RADIUS_KM = 1737.4;      // IAU mean radius. World units ARE km.
 const ALT_MIN = 20;                 // km — camera altitude clamp
 const ALT_MAX = 30000;              // km
-const TERM_LOW = 800;               // km — t=0 at/below (fully lit, map-like)
-const TERM_HIGH = 8000;             // km — t=1 at/above (hard terminator)
+// RETUNE 2026-07-28 (human report — "can't see the moon when I zoom in on
+// the dark side"): was 800..8000, which left the night side near-black from
+// the 12,000 km default view down to ~4,700 km. TERM_HIGH now sits just
+// below the default altitude so any zoom-in immediately starts lifting the
+// night side, reaching map-like full lighting by 3,500 km (~2,200 mi). The
+// far-out full-phase view (t=1 at >= 11,000 km, default included) is
+// untouched.
+const TERM_LOW = 3500;              // km — t=0 at/below (fully lit, map-like)
+const TERM_HIGH = 11000;            // km — t=1 at/above (hard terminator)
 
 // One notch of wheel (~100px) and a pinch both feed the SAME log-altitude
 // accumulator, so the zoom rate per gesture "unit" is identical on every device.
@@ -1136,7 +1150,14 @@ const onSlide = () => {
   resetFrom = null;
   const km = sliderToAlt(Number(zSlide.value));
   view.logAltTarget = clampLog(Math.log(km));
-  view.logAlt = view.logAltTarget;      // slider is direct, like a pinch
+  // FIX 2026-07-28 (human report — zoom "jumps"): a TAP on the slider track
+  // lands the thumb far from the current altitude and used to snap the
+  // camera there instantly — a teleport across up to three decades of
+  // altitude. Small deltas (a continuous drag emits many of these) stay
+  // direct so dragging feels pinned to the thumb; a large delta eases
+  // through the existing zoom smoothing instead, like Google Earth.
+  const dLog = view.logAltTarget - view.logAlt;
+  if (Math.abs(dLog) < Math.log(1.6)) view.logAlt = view.logAltTarget;
   kick();
 };
 zSlide.addEventListener("input", onSlide);
