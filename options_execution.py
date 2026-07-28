@@ -456,7 +456,33 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         return result
     
     except Exception as e:
-        return {"error": f"Contract selection failed: {str(e)[:200]}"}
+        return {"error": f"Contract selection failed: {_error_with_frame(e)}"}
+
+
+def _error_with_frame(e: Exception) -> str:
+    """Error message + the exception's last own-code frame (file:line:function).
+
+    INSTRUMENTATION 2026-07-28: since the indicative-feed fallback (v1.0.498)
+    the audit trail has been full of
+      T2-FAIL <ticker>: Contract selection failed: '>' not supported between
+      instances of 'NoneType' and 'int'
+    on every Tier2 candidate — options order flow is zero — and the bare
+    message gives no way to tell WHICH comparison sees the None the
+    indicative feed introduced. select_contract's catch-all swallows the
+    traceback, and the failure needs live indicative-feed data to reproduce,
+    so the log line itself has to carry the location. One scan cycle after
+    this deploys, the audit line names the exact file:line to fix.
+    """
+    msg = str(e)[:200]
+    try:
+        import traceback
+        frames = traceback.extract_tb(e.__traceback__)
+        if frames:
+            last = frames[-1]
+            msg += f" @{os.path.basename(last.filename)}:{last.lineno}:{last.name}"
+    except Exception:
+        pass  # instrumentation must never mask the original error
+    return msg
 
 
 def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
