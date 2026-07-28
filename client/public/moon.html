@@ -29,11 +29,15 @@
     (~847-1616 km, 526-1004 mi) where the base is magnified up to 1.9x. The HUD
     says "1.9x soft" there rather than pretending. Fix path if it matters: stream
     a centre-weighted patch instead of the full visible cap.
-    HOW LOW: sharp to roughly 50 mi altitude. Below that WAC is magnified too.
-    Going lower needs a different source (Kaguya TC ~10 m/px, or LROC NAC
-    0.5-2 m/px which is NOT global — select sites only). Nothing here pretends
-    to detail it does not have: the HUD prints the imagery's true m/px and
-    labels the view "sharp" or "N x soft".
+    HOW LOW (2026-07-28, multi-source ladder): sources escalate as you
+    descend — WAC z8 (~83 m/px, global) -> Kaguya TC z10 (~21 m/px, global,
+    incl. far side) -> Apollo 15/16 Metric z11 (~10 m/px, equatorial bands)
+    -> LRO NAC ROI mosaics z14 (~1.3 m/px, 31 catalogued ~1 deg sites). The
+    camera floor FOLLOWS the imagery: ~12 mi globally, ~5 mi in the Metric
+    bands, ~1.6 mi inside a NAC site. Every maxZ was probed live (200 at
+    maxZ, 404 above). Nothing here pretends to detail it does not have: the
+    HUD names the active source and its true m/px, labels the view "sharp"
+    or "N x soft", and the credit line follows the imagery on screen.
 
   ALTITUDE-DRIVEN LIGHTING (the core feature)
     altitude = |camera - center| - MOON_RADIUS_KM
@@ -220,7 +224,12 @@ import * as THREE from "./vendor/three.module.min.js";
 /* ─────────────────────────── constants ─────────────────────────── */
 
 const MOON_RADIUS_KM = 1737.4;      // IAU mean radius. World units ARE km.
-const ALT_MIN = 20;                 // km — camera altitude clamp
+// 2026-07-28 multi-source: the ABSOLUTE floor is what the finest imagery
+// anywhere supports (NAC ~1.3 m/px is ~2x-soft at 2.5 km). The floor that
+// actually applies at any moment is dynFloorKm — a function of what imagery
+// covers the view centre (see computeFloorKm) — so descent is honest: you
+// can only go as low as there is data to see.
+const ALT_MIN = 2.5;                // km — absolute camera floor (slider range)
 const ALT_MAX = 30000;              // km
 // RETUNE 2026-07-28 (human report — "can't see the moon when I zoom in on
 // the dark side"): was 800..8000, which left the night side near-black from
@@ -258,12 +267,88 @@ const DEFAULT_SUN_COLOR = new THREE.Color(1.0, 0.97, 0.92).multiplyScalar(0.6);
 // Access-Control-Allow-Origin: * so the browser fetches tiles directly with no
 // server relay). Level z has 2^(z+1) columns x 2^z rows of 256px tiles, each
 // spanning 180/2^z degrees square, TopLeftCorner (-180, +90).
+const TREK = "https://trek.nasa.gov/tiles/Moon/EQ";
+const TILE_PX = 256;
+// ── MULTI-SOURCE LADDER (2026-07-28, "go lower for real") ────────────────────
+// Every layer below shares the SAME Moon Trek WMTS tiling (default028mm,
+// level z = 2^(z+1) x 2^z tiles of 256px spanning 180/2^z deg, TopLeftCorner
+// (-180,+90)) — only the label, format, max level and coverage differ. Each
+// maxZ was PROBED live (tile 200 at maxZ, 404 at maxZ+1), not assumed:
+//   WAC z8 ~83 m/px global (jpg) · Kaguya TC z10 ~20.7 m/px global (png,
+//   gray+alpha) · Apollo 15/16 Metric z11 ~10.4 m/px equatorial bands (png)
+//   · LRO NAC ROI mosaics z14 ~1.3 m/px, 37 catalogued ~1 deg sites (png).
+// bbox = [lonMin, latMin, lonMax, latMax]. floorKm is how low the CAMERA may
+// descend while the view centre sits in this source's coverage — the floor
+// follows the imagery so "how low can I go" is an honest function of what
+// there is to see (sharp to ~2x magnification at each floor).
 const WAC = {
-  base: "https://trek.nasa.gov/tiles/Moon/EQ/LRO_WAC_Mosaic_Global_303ppd_v02/1.0.0/default/default028mm",
-  tilePx: 256,
-  maxZ: 8,                   // z9 404s — verified
+  id: "wac", short: "LROC WAC",
+  label: "LRO_WAC_Mosaic_Global_303ppd_v02", ext: "jpg",
+  tilePx: TILE_PX, maxZ: 8, bbox: [-180, -90, 180, 90], floorKm: 20,
   credit: "NASA/LRO LROC WAC 303 ppd · trek.nasa.gov · public domain",
 };
+const SRC_KAGUYA = {
+  id: "kaguya", short: "Kaguya TC",
+  label: "Kaguya_TCortho_Mosaic_Global_4096ppd", ext: "png",
+  tilePx: TILE_PX, maxZ: 10, bbox: [-180, -90, 180, 90], floorKm: 20,
+  credit: "JAXA/SELENE Kaguya TC ortho · trek.nasa.gov",
+};
+const SRC_A15 = {
+  id: "a15", short: "Apollo 15 Metric",
+  label: "Apollo15_MetricCam_Mosaic_Global_4096ppd", ext: "png",
+  tilePx: TILE_PX, maxZ: 11, bbox: [-68, -29.99, 179.99, 34], floorKm: 8,
+  credit: "NASA Apollo 15 Metric Camera · trek.nasa.gov",
+};
+const SRC_A16 = {
+  id: "a16", short: "Apollo 16 Metric",
+  label: "Apollo16_MetricCam_Mosaic_Global_4096ppd", ext: "png",
+  tilePx: TILE_PX, maxZ: 11, bbox: [-48, -13.99, 179.99, 14], floorKm: 8,
+  credit: "NASA Apollo 16 Metric Camera · trek.nasa.gov",
+};
+// The 37 LRO NAC region mosaics from the Moon Trek EQ catalog (productLabel +
+// bbox, extracted 2026-07-28; 0.5-2 m/px class, tiles served to z14). These
+// include the Apollo-region ROIs. Registry format: [label, lonMin, latMin,
+// lonMax, latMax, m/px] — expanded into source objects below.
+const NAC_ROIS = [
+  ["LRO_NAC_Mosaic_00N234E_50cmp",-126.247,-0.574,-124.927,0.746,0.5],
+  ["LRO_NAC_Mosaic_02N085E_50cmp",84.68,1.483,86.001,2.803,0.5],
+  ["LRO_NAC_Mosaic_02S167E_50cmp",166.105,-2.74,167.425,-1.42,0.5],
+  ["LRO_NAC_Mosaic_02S317E_50cmp",-43.858,-3.127,-42.538,-1.807,0.5],
+  ["LRO_NAC_Mosaic_03S286E_50cmp",-74.926,-3.714,-73.605,-2.394,0.5],
+  ["LRO_NAC_Mosaic_05N000E_50cmp",-1.074,4.053,0.25,5.372,0.5],
+  ["LRO_NAC_Mosaic_06N120E_50cmp",119.558,5.984,120.101,7.109,0.5],
+  ["LRO_NAC_Mosaic_07N022E_50cmp",21.41,6.252,22.739,7.571,0.5],
+  ["LRO_NAC_Mosaic_07N301E_50cmp",-58.866,6.859,-58.41,7.823,0.5],
+  ["LRO_NAC_Mosaic_08N332E_50cmp",-28.074,7.062,-27.476,8.092,0.5],
+  ["LRO_NAC_Mosaic_09S015E_50cmp",14.805,-9.633,16.141,-8.313,0.5],
+  ["LRO_NAC_Mosaic_13N356E_50cmp",-4.432,12.224,-3.077,13.544,0.5],
+  ["LRO_NAC_Mosaic_13S358E_50cmp",-2.608,-13.12,-2.005,-12.087,0.5],
+  ["LRO_NAC_Mosaic_14N304E_50cmp",-56.136,13.213,-55.642,14.196,0.5],
+  ["LRO_NAC_Mosaic_16S041E_50cmp",40.138,-16.581,41.511,-15.261,0.5],
+  ["LRO_NAC_Mosaic_17S173E_50cmp",172.777,-17.444,174.156,-16.125,0.5],
+  ["LRO_NAC_Mosaic_19N005E_50cmp",5.229,18.129,5.505,19.086,0.5],
+  ["LRO_NAC_Mosaic_19S070E_50cmp",69.135,-19.364,70.531,-18.044,0.5],
+  ["LRO_NAC_Mosaic_19S129E_50cmp",127.827,-20.024,129.223,-18.704,0.5],
+  ["LRO_NAC_Mosaic_25N311E_50cmp",-49.041,24.089,-48.435,25.29,0.5],
+  ["LRO_NAC_Mosaic_26N004E_50cmp",2.931,25.446,4.399,26.766,0.5],
+  ["LRO_NAC_Mosaic_26N150E_50cmp",150.146,25.623,150.685,26.817,0.5],
+  ["LRO_NAC_Mosaic_26S265E_50cmp",-95.788,-26.717,-95.062,-25.491,0.5],
+  ["LRO_NAC_Mosaic_27N318E_50cmp",-42.454,26.738,-40.973,28.058,0.5],
+  ["LRO_NAC_Mosaic_28N307E_50cmp",-53.292,27.208,-51.797,28.528,0.5],
+  ["LRO_NAC_Mosaic_32N292E_50cmp",-67.879,31.004,-66.854,32.316,0.5],
+  ["LRO_NAC_Mosaic_36N320E_50cmp",-40.334,35.668,-39.643,36.743,0.5],
+  ["LRO_NAC_Mosaic_43S349E_50cmp",-12.105,-43.643,-10.301,-42.323,0.5],
+  ["LRO_NAC_Mosaic_55N077E_50cmp",76.903,53.778,77.397,54.935,0.5],
+  ["LRO_NAC_Mosaic_60S200E_50cmp",-161.213,-60.623,-158.574,-59.303,0.5],
+  ["LRO_NAC_Mosaic_61N099E_50cmp",98.114,60.435,100.837,61.755,0.5],
+];
+const SOURCES_COARSE_TO_FINE = [WAC, SRC_KAGUYA, SRC_A16, SRC_A15,
+  ...NAC_ROIS.map(([label, x0, y0, x1, y1]) => ({
+    id: label, short: "LROC NAC",
+    label, ext: "png", tilePx: TILE_PX, maxZ: 14,
+    bbox: [x0, y0, x1, y1], floorKm: 2.5,
+    credit: "NASA/GSFC/ASU LROC NAC mosaic · trek.nasa.gov",
+  }))];
 const MOON_CIRC_M = 2 * Math.PI * MOON_RADIUS_KM * 1000;
 const M_PER_DEG = MOON_CIRC_M / 360;                       // 30,323 m
 const wacDegPerTile = (z) => 180 / Math.pow(2, z);
@@ -304,9 +389,34 @@ const view = {
 const sunDir = DEFAULT_SUN.clone();
 const sunColor = DEFAULT_SUN_COLOR.clone();
 
-const clampAlt = (a) => Math.min(ALT_MAX, Math.max(ALT_MIN, a));
+// The live floor: starts at the old global value; recomputed every frame
+// from coverage under the view centre. Grandfather rule in frame(): panning
+// out of high-res coverage while low never yanks the camera up — it only
+// blocks FURTHER descent.
+let dynFloorKm = 20;
+const clampAlt = (a) => Math.min(ALT_MAX, Math.max(Math.max(ALT_MIN, dynFloorKm), a));
 const clampLog = (l) => Math.log(clampAlt(Math.exp(l)));
 const altitude = () => clampAlt(Math.exp(view.logAlt));
+
+const pointInBbox = (lon, lat, b) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
+/** lon/lat under the orbit centre's view direction (pan offset ignored — the
+ *  floor is a coarse coverage question, not a survey). */
+function centerLonLat() {
+  const sp = Math.sin(view.phi), cp = Math.cos(view.phi);
+  const d = { x: sp * Math.sin(view.theta), y: cp, z: sp * Math.cos(view.theta) };
+  const theta = Math.acos(Math.min(1, Math.max(-1, d.y)));
+  const phi = Math.atan2(d.z, -d.x);
+  const u = ((phi / (2 * Math.PI)) % 1 + 1) % 1, v = 1 - theta / Math.PI;
+  return [u * 360 - 180, v * 180 - 90];
+}
+function computeFloorKm() {
+  const [lon, lat] = centerLonLat();
+  let f = 20;
+  for (const s of SOURCES_COARSE_TO_FINE) {
+    if (s.floorKm < f && pointInBbox(lon, lat, s.bbox)) f = s.floorKm;
+  }
+  return f;
+}
 
 /* ── units ──────────────────────────────────────────────────────────────────
    The site has ONE user-facing unit preference (imperial default), persisted
@@ -394,7 +504,12 @@ const FRAG = /* glsl */`
         // rectangle while the next mosaic is still loading.
         vec2 e = min(d, 1.0 - d);
         float edge = smoothstep(0.0, 0.06, min(e.x, e.y));
-        albedo = mix(albedo, texture2D(uDetail, d).rgb, uDetailMix * edge);
+        // Per-pixel alpha (2026-07-28, multi-source): NAC/Kaguya/Metric tiles
+        // are gray+alpha — transparent texels are NO-DATA (mosaic gaps, ROI
+        // borders, missing tiles drawn as nothing). Alpha in the mix lets the
+        // base mosaic show through instead of a gray rectangle.
+        vec4 det = texture2D(uDetail, d);
+        albedo = mix(albedo, det.rgb, uDetailMix * edge * det.a);
       }
     }
 
@@ -453,6 +568,7 @@ const detail = {
   origin: [0, 0], span: [1, 1],
   mix: 0,               // eased 0..1 (uDetailMix)
   level: -1, tiles: 0, mPerPx: BASE_TEX_M_PER_PX,
+  src: null,            // active SOURCES_COARSE_TO_FINE entry (null = base)
   wantKey: "", haveKey: "", inflight: false, lastMoveAt: 0, failed: 0,
 };
 let detailEnabled = true;             // setDetailEnabled() flips this for A/B checks
@@ -513,16 +629,25 @@ function visibleUvRect() {
   // the centre ray hits, so duMax stayed tiny and it happily fetched z0 tiles.
   if (hits < 9) return null;
   // pad slightly so a small camera nudge doesn't immediately invalidate (duMax
-  // is a HALF-span, so 2.16 = full span + 8% margin)
-  const uSpan = Math.min(0.5, duMax * 2.16 + 0.004);
-  const vSpan = Math.min(0.5, dvMax * 2.16 + 0.004);
+  // is a HALF-span, so 2.16 = full span + 8% margin).
+  // FIX 2026-07-28: the pad was a fixed +0.004 (1.44 deg of longitude) —
+  // negligible against WAC-scale views but 5-15x the whole visible span
+  // below ~50 km, which inflated the rect and silently forced the patch
+  // 1-2 zoom levels coarser than the sources allow. Proportional pad with a
+  // tiny absolute floor (0.018 deg — under two z14 tiles) preserves the
+  // nudge tolerance at every scale.
+  const uSpan = Math.min(0.5, duMax * 2.32 + 0.00005);
+  const vSpan = Math.min(0.5, dvMax * 2.32 + 0.00005);
   if (uSpan >= 0.42 || vSpan >= 0.42) return null;         // belt and braces
   if (sv + vSpan / 2 > 0.995 || sv - vSpan / 2 < 0.005) return null;  // pole
   return { su, sv, uSpan, vSpan };
 }
 
-function loadTile(z, y, x) {
-  const key = `${z}/${y}/${x}`;
+const tileUrl = (src, z, y, x) =>
+  `${TREK}/${src.label}/1.0.0/default/default028mm/${z}/${y}/${x}.${src.ext}`;
+
+function loadTile(src, z, y, x) {
+  const key = `${src.id}/${z}/${y}/${x}`;
   const hit = tileCache.get(key);
   if (hit) return Promise.resolve(hit);
   return new Promise((resolve) => {
@@ -535,8 +660,27 @@ function loadTile(z, y, x) {
       resolve(img);
     };
     img.onerror = () => resolve(null);      // a hole stays base imagery, never a throw
-    img.src = `${WAC.base}/${z}/${y}/${x}.jpg`;
+    img.src = tileUrl(src, z, y, x);
   });
+}
+
+/** Coarsest source that can still match the screen's resolution over the
+ *  visible rect; escalates to finer regional sources only when (a) the rect
+ *  fits inside their coverage and (b) the screen actually needs them. */
+function pickSource(rect, targetMPerPx) {
+  const lonC = rect.su * 360 - 180, latC = rect.sv * 180 - 90;
+  const halfW = rect.uSpan * 180, halfH = rect.vSpan * 90;   // deg half-spans
+  const contains = (b) =>
+    lonC - halfW >= b[0] && lonC + halfW <= b[2] &&
+    latC - halfH >= b[1] && latC + halfH <= b[3];
+  let src = WAC;
+  for (const s of SOURCES_COARSE_TO_FINE) {
+    const global = s.bbox[0] <= -180 && s.bbox[2] >= 180;
+    if (!global && !contains(s.bbox)) continue;
+    src = s;
+    if (wacMetresPerPx(s.maxZ) <= targetMPerPx) break;  // fine enough — stop
+  }
+  return src;
 }
 
 /** Build (or rebuild) the detail mosaic for the current pose. Fire-and-forget:
@@ -547,21 +691,42 @@ async function refreshDetail() {
   if (!rect) {                       // zoomed out: drop back to the base mosaic
     detail.wantKey = "";
     detail.level = -1;
+    detail.src = null;
     detail.mPerPx = BASE_TEX_M_PER_PX;
     return;
   }
-  // deepest level whose texels are at least as fine as a screen pixel, capped
+  // pick the source (coarsest that meets the screen, escalating to regional
+  // high-res only inside its coverage), then the deepest level within it
   const target = screenMetresPerPx();
-  let z = WAC.maxZ;
+  const src = pickSource(rect, target);
+  let z = src.maxZ;
   while (z > 0 && wacMetresPerPx(z - 1) <= target) z--;
-  // ...then back off if the tile budget would be blown at that level
+  // CENTRE-WEIGHTED BUDGETING (2026-07-28): at fine z the full visible rect
+  // can need hundreds of tiles, and the old back-off silently gave up
+  // resolution the sources have (a15 served z9 where z11 exists; NAC never
+  // got streamed at all). New rule: if the budget's grid (~8x8 tiles) at
+  // this z covers >=60% of the visible rect, stream that centre grid at
+  // full resolution — the patch rim feathers into base imagery, exactly the
+  // centre-weighted fix path the original header note named. Under 60%
+  // coverage, a coarser z (2x the area per step) is the better picture.
+  // -1: a grid-wide span lands on up to GRID+1 tile columns when misaligned;
+  // 7 keeps the worst case at 8x8 = the 64-tile budget exactly.
+  const GRID = Math.floor(Math.sqrt(MAX_PATCH_TILES)) - 1;   // 7
   let cols, rows, x0, y0, dpt;
   for (;;) {
     dpt = wacDegPerTile(z);
     const uPerTile = dpt / 360, vPerTile = dpt / 180;
-    x0 = Math.floor(((rect.su - rect.uSpan / 2) % 1 + 1) % 1 / uPerTile);
-    const x1 = Math.floor(((rect.su + rect.uSpan / 2) % 1 + 1) % 1 / uPerTile);
-    const vTop = Math.min(1, rect.sv + rect.vSpan / 2), vBot = Math.max(0, rect.sv - rect.vSpan / 2);
+    let uSpan = rect.uSpan, vSpan = rect.vSpan;
+    const gU = GRID * uPerTile, gV = GRID * vPerTile;
+    if (z > 0 && (gU < uSpan || gV < vSpan)) {
+      if (gU / uSpan >= 0.6 && gV / vSpan >= 0.6) {
+        uSpan = Math.min(uSpan, gU * 0.98);
+        vSpan = Math.min(vSpan, gV * 0.98);
+      } else if (z > 1) { z--; continue; }
+    }
+    x0 = Math.floor(((rect.su - uSpan / 2) % 1 + 1) % 1 / uPerTile);
+    const x1 = Math.floor(((rect.su + uSpan / 2) % 1 + 1) % 1 / uPerTile);
+    const vTop = Math.min(1, rect.sv + vSpan / 2), vBot = Math.max(0, rect.sv - vSpan / 2);
     y0 = Math.floor((1 - vTop) / vPerTile);
     const y1 = Math.floor((1 - vBot) / vPerTile);
     cols = ((x1 - x0) % wacCols(z) + wacCols(z)) % wacCols(z) + 1;
@@ -569,7 +734,7 @@ async function refreshDetail() {
     if (cols * rows <= MAX_PATCH_TILES || z <= 1) break;
     z--;
   }
-  const key = `${z}:${x0}:${y0}:${cols}:${rows}`;
+  const key = `${src.id}:${z}:${x0}:${y0}:${cols}:${rows}`;
   if (key === detail.haveKey) return;
   detail.wantKey = key;
   detail.inflight = true;
@@ -578,7 +743,7 @@ async function refreshDetail() {
       Array.from({ length: cols * rows }, (_, i) => {
         const cx = (x0 + (i % cols)) % wacCols(z);
         const cy = Math.min(wacRows(z) - 1, y0 + Math.floor(i / cols));
-        return loadTile(z, cy, cx);
+        return loadTile(src, z, cy, cx);
       }),
     );
     if (!gl || detail.wantKey !== key) return;           // a newer pose won
@@ -586,12 +751,15 @@ async function refreshDetail() {
     if (!got) { detail.failed++; return; }
     detail.failed = 0;
     const cv = document.createElement("canvas");
-    cv.width = cols * WAC.tilePx; cv.height = rows * WAC.tilePx;
-    const cx2 = cv.getContext("2d", { alpha: false });
-    cx2.fillStyle = "#3a3a3a"; cx2.fillRect(0, 0, cv.width, cv.height);
+    cv.width = cols * TILE_PX; cv.height = rows * TILE_PX;
+    // Transparent canvas (2026-07-28): missing tiles and the sources' own
+    // no-data alpha stay transparent, and the shader's per-pixel alpha blend
+    // shows base imagery there — never a gray rectangle.
+    const cx2 = cv.getContext("2d");
+    cx2.clearRect(0, 0, cv.width, cv.height);
     imgs.forEach((im, i) => {
-      if (im) cx2.drawImage(im, (i % cols) * WAC.tilePx, Math.floor(i / cols) * WAC.tilePx,
-                            WAC.tilePx, WAC.tilePx);
+      if (im) cx2.drawImage(im, (i % cols) * TILE_PX, Math.floor(i / cols) * TILE_PX,
+                            TILE_PX, TILE_PX);
     });
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.NoColorSpace;
@@ -608,6 +776,7 @@ async function refreshDetail() {
     detail.span = [cols * uPerTile, rows * vPerTile];
     detail.level = z; detail.tiles = cols * rows;
     detail.mPerPx = wacMetresPerPx(z);
+    detail.src = src;
     detail.haveKey = key;
     gl.mat.uniforms.uDetail.value = tex;
     gl.mat.uniforms.uDetailOrigin.value.set(detail.origin[0], detail.origin[1]);
@@ -621,7 +790,7 @@ async function refreshDetail() {
 
 function disposeDetail() {
   if (detail.tex) { try { detail.tex.dispose(); } catch {} }
-  detail.tex = null; detail.mix = 0; detail.level = -1;
+  detail.tex = null; detail.mix = 0; detail.level = -1; detail.src = null;
   detail.haveKey = ""; detail.wantKey = ""; detail.failed = 0;
   detail.mPerPx = BASE_TEX_M_PER_PX;
 }
@@ -635,6 +804,7 @@ const ovMsg = document.getElementById("ovMsg");
 const ovBtn = document.getElementById("ovBtn");
 const hAlt = document.getElementById("hAlt"), hTerm = document.getElementById("hTerm");
 const hTex = document.getElementById("hTex"), hFps = document.getElementById("hFps"), hBar = document.getElementById("hBar");
+const creditEl = document.getElementById("credit");
 const hRes = document.getElementById("hRes");
 
 let gl = null;        // { canvas, renderer, scene, camera, mesh, geo, mat, textures[] }
@@ -1033,6 +1203,16 @@ function frame(now) {
   lastT = now;
   const decay = (d) => Math.pow(d, dt * 60);          // frame-rate independent
 
+  // Dynamic camera floor (2026-07-28): how low you may go follows the imagery
+  // under the view centre. Grandfather rule: panning out of high-res coverage
+  // while below the local floor never yanks the camera up — it only blocks
+  // further descent (floor = current altitude until you climb back above it).
+  {
+    const f = computeFloorKm();
+    const cur = Math.exp(view.logAlt);
+    dynFloorKm = cur < f ? Math.max(ALT_MIN, cur) : f;
+  }
+
   stepReset(now);
 
   // inertia
@@ -1079,7 +1259,13 @@ function frame(now) {
     const alt = altitude();
     hAlt.textContent = fmtAlt(alt);
     hTerm.textContent = t.toFixed(3);
-    hTex.textContent = detail.level >= 0 ? `WAC z${detail.level} · ${detail.tiles} tiles` : texLabel;
+    hTex.textContent = detail.level >= 0
+      ? `${(detail.src || WAC).short} z${detail.level} · ${detail.tiles} tiles`
+      : texLabel;
+    // credit follows the imagery actually on screen (honesty: JAXA and ASU
+    // sources are not "LROC WAC")
+    const activeCredit = detail.level >= 0 ? (detail.src || WAC).credit : WAC.credit;
+    if (creditEl.textContent !== activeCredit) creditEl.textContent = activeCredit;
     // Honest sharpness readout: the imagery's own resolution, and whether the
     // screen is currently magnifying it (soft) or oversampling it (sharp).
     const shown = detail.level >= 0 ? detail.mPerPx : BASE_TEX_M_PER_PX;
@@ -1206,7 +1392,22 @@ window.moonViewer = {
   setSunColor(r, g, b) { sunColor.setRGB(r, g, b); },
   setAltitude(km) {
     resetFrom = null;                  // same reason as zoomBy: don't be overwritten
+    // The floor is normally refreshed by the frame loop; an API caller may
+    // set altitude in the same tick as a pose change, so refresh it here
+    // rather than clamping against the PREVIOUS pose's floor.
+    dynFloorKm = computeFloorKm();
     view.logAlt = view.logAltTarget = Math.log(clampAlt(km));
+  },
+  /** Aim the view centre at a lat/lon (deg). Inverse of centerLonLat():
+   *  phi = (90-lat)·π/180, theta = (lon+180)/360·2π − π/2. */
+  setView(latDeg, lonDeg) {
+    resetFrom = null;
+    view.phi = Math.min(Math.PI - PHI_EPS, Math.max(PHI_EPS, (90 - latDeg) * Math.PI / 180));
+    view.theta = ((lonDeg + 180) / 360) * 2 * Math.PI - Math.PI / 2;
+    view.vTheta = view.vPhi = 0;
+    view.target.set(0, 0, 0);
+    dynFloorKm = computeFloorKm();
+    kick();
   },
   reset: resetView,
   getState: () => ({
@@ -1215,7 +1416,9 @@ window.moonViewer = {
     target: view.target.toArray(),
     sunDir: sunDir.toArray(), texture: texLabel, units,
     detail: { level: detail.level, tiles: detail.tiles, mix: detail.mix,
-              mPerPx: detail.mPerPx, enabled: detailEnabled, failed: detail.failed },
+              mPerPx: detail.mPerPx, enabled: detailEnabled, failed: detail.failed,
+              source: detail.src ? detail.src.id : null },
+    floorKm: dynFloorKm,
     screenMetresPerPx: screenMetresPerPx(),
     running, contextLost,
     pointers: pointers.size, gesture: gestureMode,

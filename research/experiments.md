@@ -3,6 +3,67 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 [REPAIR]+[PRODUCT] — options-flow outage root-caused via live frame instrumentation (v1.0.526-527, T-BOT) + moon viewer multi-source high-res descent (v1.0.528, T-CLIENT; human-directed session)
+
+TERRITORY: human-directed session continuing the 07-20 audit thread.
+Bot commits and client commits shipped as separate PRs (#629, #630,
+moon feature PR); research/* appended last per WORKSTREAM PARTITION.
+
+BOT OUTAGE (human report "bot seems dead"; GOAL priority 1):
+- /api/diag/orders: options order flow ZERO since 2026-07-23; equity
+  trades continued. Audit trail: every Tier2 candidate died with
+  T2-FAIL <tkr>: Contract selection failed: '>' not supported between
+  instances of 'NoneType' and 'int' — bare message, traceback swallowed
+  by select_contract's catch-all, unreproducible offline (no keys).
+- METHOD (compiled): v1.0.526 (#629) appended the exception's last
+  frame (file:line:function) to the error string. ONE Tier2 cycle
+  after deploy the audit named it: @position_sizing.py:301:<listcomp>.
+- ROOT CAUSE: trade_feedback began carrying OPEN trades with
+  pnl_pct:null (~07-23). t.get('pnl_pct', 0) does not guard an
+  EXISTING null -> None > 0 raised inside _get_historical_stats ->
+  _dynamic_options_size -> select_contract. NOTE the failure was
+  nowhere near the options code the message suggested.
+- FIX v1.0.527 (#630, measurement-honest): unclosed records EXCLUDED
+  from Kelly stats entirely (never counted as 0% losses — that would
+  deflate win_rate); 10-trade evidence floor counts closed only.
+  4 offline tests pin crash shape + win-rate honesty (8/12 not 8/17).
+- VERIFY NEXT MARKET SESSION: T2-FAIL position_sizing lines gone,
+  options orders reappear in /api/diag/orders. OPEN TAILS (filed, not
+  fixed): options_scanner.py/options_manager.py/vol_surface.py still
+  hardcode feed=opra (dead entitlement, KNOWN BROKEN #25 follow-ups);
+  chain-fetch 429s during 1-min scans; WHY pnl_pct:null records began
+  ~07-23 (which change started writing open trades?) — unanswered.
+
+MOON VIEWER (human: "work on going lower for real"):
+- v1.0.525 (#628, earlier today): night-side lighting band retuned
+  3500..11000 km (was a black void from default view to ~4,700 km);
+  slider taps glide.
+- v1.0.528 multi-source descent ladder, every maxZ PROBED live (200 at
+  maxZ, 404 above) against NASA Moon Trek WMTS (same default028mm
+  tiling for every layer): WAC z8 83 m/px global -> Kaguya TC z10
+  20.7 m/px GLOBAL incl. far side -> Apollo 15/16 Metric z11 10.4 m/px
+  equatorial bands -> 31 LRO NAC ROI mosaics z14 ~1.3 m/px (embedded
+  registry from the Trek catalog, productLabel+bbox). Camera floor
+  FOLLOWS coverage: 20 km global / 8 km Metric bands / 2.5 km (~1.6 mi)
+  in NAC sites, grandfathered on pan-out (blocks descent, never yanks
+  up). Shader detail blend now per-pixel alpha (no-data -> base, never
+  gray). Two latent bugs found by driving: (1) visibleUvRect's fixed
+  +0.004 uv pad = 1.44 deg lon — 5-15x the visible span below ~50 km,
+  silently forcing patches 1-2 levels coarse (now proportional);
+  (2) full-viewport patches blow the 64-tile budget at fine z — centre-
+  weighted grid (>=60% coverage rule) streams max res at centre, rim
+  feathers to base. HUD/credit follow the ACTIVE source (JAXA/ASU/NASA
+  credits differ). setView(lat,lon) added to the public API.
+- VERIFIED (local build, real Trek tiles via relay): 40 km Kaguya z10 /
+  12 km A15 z11 (Hadley Rille visible) / 4 km NAC z13 / 2.5 km floor
+  NAC z14 at 1.3 m/px vs screen 2.5 — sharp at every step; Kaguya-only
+  point floors at 20 km. Visual harness: all non-timing checks pass;
+  the data-page TTI/perf gates flapped ACROSS DIFFERENT widths on a
+  loaded VM and passed clean when quiet — the documented 07-25
+  measurement-debt flake, unrelated (moon.html is standalone).
+BACKTEST: N/A both (no strategy/scoring change; sizing fix alters
+which records are evidence, not the math).
+
 ## 2026-07-28 (scheduled-routine session, 3rd today) [RESEARCH] — Axis (b) illiquid-universe follow-up: train/test split (LADDER PATH step 2) on the original pinned sample gives a MIXED result
 
 TERRITORY: `scripts/illiquid_universe_probe_traintest.py` (new,
