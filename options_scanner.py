@@ -1657,6 +1657,17 @@ def scan_options() -> dict:
             "message": "Options scanner only runs during regular market hours (9:30am-4pm ET)"
         }
 
+    # KNOWN BROKEN #18 continuation (2026-07-28): zero vol_surface's
+    # get_surface_score() scan-scoped accumulator here, once, before the
+    # ThreadPoolExecutor below starts calling it concurrently — so
+    # get_surface_score_scan_stats() reflects THIS cycle, not a running
+    # lifetime total. See vol_surface.py for why this cost was invisible.
+    try:
+        from vol_surface import reset_surface_score_scan_stats
+        reset_surface_score_scan_stats()
+    except Exception as e:
+        logger.debug(f"reset_surface_score_scan_stats failed (diagnostics only, non-fatal): {e}")
+
     # ── Get macro context (shared across all setup checks) ────────────────
     vxx_ratio   = _get_vxx_ratio()
     spy_vs_ma50 = _get_spy_vs_ma50()
@@ -1777,7 +1788,19 @@ def scan_options() -> dict:
         # FIX vs prior attempt: setup name kept as "high_iv_premium_sale"
         # so it passes the HIGH_EDGE_SETUPS whitelist at line 1851.
         # Reasoning field is prefixed with VRP context for observability.
-        if setup_hint in ("high_iv", "anchor"):
+        #
+        # DEAD-COMPUTE FIX 2026-07-28 (KNOWN BROKEN #18 continuation): the
+        # ticker-already-found dedup check used to run AFTER get_surface_score()
+        # and the second _setup_high_iv_premium_sale() call — so whenever
+        # Setup 3 (r3, above) already found this ticker, this whole block still
+        # paid for a full get_surface_score() call (its own uncached spot/
+        # chain/bars fetches, NONE throttled by alpaca_throttle — see
+        # vol_surface.py's 2026-07-28 comment) before discovering the result
+        # would be discarded anyway. Moving the check first is a pure no-op on
+        # `found`'s final contents (r7 could only ever be appended when the
+        # ticker wasn't already present — that condition is unchanged, just
+        # checked before the expensive call instead of after).
+        if setup_hint in ("high_iv", "anchor") and not any(o.get("ticker") == tkr for o in found):
             try:
                 from vol_surface import get_surface_score
                 srf = get_surface_score(tkr)
@@ -1786,7 +1809,7 @@ def scan_options() -> dict:
                 days_to_earn = earnings_cal.get(tkr, 99)
                 if vrp_val > 0.05 and surf_score > 65 and days_to_earn > 10:
                     r7 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
-                    if r7 and not any(o.get("ticker") == tkr for o in found):
+                    if r7:
                         # KEEP setup="high_iv_premium_sale" — whitelist gate
                         r7["vrp_enhanced"] = True
                         r7["vrp_20d"] = vrp_val

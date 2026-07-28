@@ -11,6 +11,7 @@ import os
 import logging
 import time
 import re
+import threading
 import requests
 from math import log, sqrt, exp, pi
 from datetime import datetime, timedelta, timezone
@@ -1475,11 +1476,75 @@ def get_vrp(ticker: str) -> dict:
 
 # ─── Surface Score ───────────────────────────────────────────────────────────
 
+# KNOWN BROKEN #18 continuation (2026-07-28): options_scanner.py's Setup 7
+# ("VRP-driven iron condor", REAL-ALPHA-TUNE 2026-04-22) calls get_surface_score()
+# unconditionally for every high_iv/anchor candidate (up to ~421/scan) from
+# inside its own ThreadPoolExecutor(max_workers=4) — a code path none of this
+# item's five prior sessions instrumented, because they only modeled cost via
+# options_scanner.py's own alpaca_throttle-gated _fetch_options_chain. This
+# function's own build_surface() does its OWN spot-price fetch, its OWN
+# options-chain fetch (_fetch_options_chain in THIS module, a full pagination
+# loop, up to 10 pages), and its OWN 90-day bars fetch — NONE of those calls
+# go through alpaca_throttle, so they are both uncounted by the "candidates/3s"
+# cost model AND capable of running at a higher aggregate rate against Alpaca
+# than the rest of the scan intends. This accumulator makes that previously
+# invisible cost readable live, mid-scan, the same way csp_universe.py's
+# layer1_stats/layer2_prefetch already are — no behavior change, diagnostics
+# only. Thread-safe: get_surface_score() runs concurrently across scan_options()'s
+# worker pool.
+_SURFACE_SCORE_SCAN_LOCK = threading.Lock()
+_SURFACE_SCORE_SCAN_STATS: dict = {}  # {} until reset_surface_score_scan_stats() first runs
+
+
+def reset_surface_score_scan_stats() -> None:
+    """Zero the accumulator at the start of each scan_options() cycle so
+    the stats reflect THIS scan, not a lifetime total. Called once,
+    single-threaded, before the ThreadPoolExecutor fan-out starts."""
+    with _SURFACE_SCORE_SCAN_LOCK:
+        _SURFACE_SCORE_SCAN_STATS.clear()
+        _SURFACE_SCORE_SCAN_STATS.update({
+            "calls": 0,
+            "cache_misses": 0,
+            "cumulative_elapsed_sec": 0.0,
+            "checked_at": time.time(),
+        })
+
+
+def get_surface_score_scan_stats() -> dict:
+    """Diagnostics only — accumulated get_surface_score() cost for the
+    current (or most recently completed) scan cycle. {} if
+    reset_surface_score_scan_stats() has never run in this process."""
+    with _SURFACE_SCORE_SCAN_LOCK:
+        return dict(_SURFACE_SCORE_SCAN_STATS)
+
+
+def _record_surface_score_call(cache_hit: bool, elapsed_sec: float) -> None:
+    with _SURFACE_SCORE_SCAN_LOCK:
+        if not _SURFACE_SCORE_SCAN_STATS:
+            return  # scan_options() never called reset() this process run — nothing to accumulate into
+        _SURFACE_SCORE_SCAN_STATS["calls"] += 1
+        if not cache_hit:
+            _SURFACE_SCORE_SCAN_STATS["cache_misses"] += 1
+        _SURFACE_SCORE_SCAN_STATS["cumulative_elapsed_sec"] = round(
+            _SURFACE_SCORE_SCAN_STATS["cumulative_elapsed_sec"] + elapsed_sec, 3
+        )
+        _SURFACE_SCORE_SCAN_STATS["checked_at"] = time.time()
+
+
 def get_surface_score(ticker: str) -> dict:
     """
     One-call function: build surface, analyze skew, compute VRP,
     return a single composite score with a strategy recommendation.
     """
+    _t0 = time.time()
+    _cache_hit = ticker in _surface_cache and (time.time() - _surface_cache[ticker]["timestamp"]) < CACHE_TTL
+    try:
+        return _get_surface_score_inner(ticker)
+    finally:
+        _record_surface_score_call(cache_hit=_cache_hit, elapsed_sec=time.time() - _t0)
+
+
+def _get_surface_score_inner(ticker: str) -> dict:
     surface = build_surface(ticker)
     if "error" in surface:
         return {"ticker": ticker, "error": surface["error"]}

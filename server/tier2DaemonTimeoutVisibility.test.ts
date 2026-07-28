@@ -189,6 +189,31 @@ test("KNOWN BROKEN #18 continuation 2026-07-27 #2: the daemon branch surfaces th
   assert.ok(/scanTimingsDetail\s*=[\s\S]*preambleDetail/.test(daemonBranch), "preambleDetail must actually be interpolated into scanTimingsDetail, not computed and discarded");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-28: the daemon branch surfaces surface_score_stats (calls/cache_misses/cumulative_elapsed/age), not just layer1_stats/layer2_prefetch", () => {
+  // Live evidence this session: two fresh TIER2-ERROR occurrences today
+  // (13:36:33Z, 13:42:33Z) both read preamble={... slowest=
+  // step6_trade_loop_and_options:233-240s} — the options scanner phase
+  // RECURRING as the dominant cost despite v1.0.503's "ROOT CAUSE FOUND +
+  // FIXED" claim for that exact phase. Root-caused this session:
+  // options_scanner.py's Setup 7 calls vol_surface.get_surface_score() for
+  // every high_iv/anchor candidate, and that function's own spot/chain/bars
+  // fetches are NOT gated by alpaca_throttle — a cost none of this item's
+  // prior sessions' cost models accounted for. This pins that bot.ts
+  // surfaces the new accumulator the same way layer1_stats/layer2_prefetch
+  // already are, so the next occurrence's audit line shows the call count
+  // and cumulative elapsed time directly instead of requiring another
+  // session to re-derive this from scratch.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("surface_score_stats"), "must read hr.surface_score_stats off the unwrapped health result");
+  assert.ok(daemonBranch.includes("ss.calls") && daemonBranch.includes("ss.cache_misses"), "must format calls/cache_misses — the fields that distinguish scan volume from actual network cost");
+  assert.ok(daemonBranch.includes("ss.cumulative_elapsed_sec"), "must surface the cumulative wall-clock cost, the number this whole finding hinges on");
+  assert.ok(daemonBranch.includes("ss.age_sec"), "must surface how stale the reading is, same discipline layer1_stats/layer2_prefetch's age_sec already holds");
+  assert.ok(/daemonState\s*=[\s\S]*surfaceDetail/.test(daemonBranch), "surfaceDetail must actually be interpolated into the daemonState message, not computed and discarded");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
