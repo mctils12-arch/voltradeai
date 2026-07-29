@@ -1506,6 +1506,7 @@ def reset_surface_score_scan_stats() -> None:
             "calls": 0,
             "cache_misses": 0,
             "cumulative_elapsed_sec": 0.0,
+            "skipped_budget": 0,
             "checked_at": time.time(),
         })
 
@@ -1529,6 +1530,46 @@ def _record_surface_score_call(cache_hit: bool, elapsed_sec: float) -> None:
             _SURFACE_SCORE_SCAN_STATS["cumulative_elapsed_sec"] + elapsed_sec, 3
         )
         _SURFACE_SCORE_SCAN_STATS["checked_at"] = time.time()
+
+
+# KNOWN BROKEN #18 continuation (2026-07-29): the accumulator above made the
+# cost visible; this makes it BOUNDED. Two straight days of live TIER2-ERROR
+# occurrences (2026-07-27/28) show cumulative_elapsed_sec landing at
+# 312-365s per scan (459-495 calls, ~100% cache-miss) against a 300s daemon
+# RPC timeout — Setup 7 alone can exceed the whole budget, so scan_options()
+# (and therefore the entire run_full_scan() RPC, stock trades included) times
+# out and returns NOTHING every cycle. options_scanner.py's _check_ticker
+# checks this before each Setup 7 call and skips get_surface_score() for the
+# rest of the scan once tripped — the same "stop paying for a slow nice-to-
+# have once the shared budget is gone" pattern build_surface()'s own SABR
+# loop already uses internally, just applied at the whole-scan level instead
+# of per-ticker (a per-ticker budget already exists via BUILD_SURFACE_TIME_
+# BUDGET_S and isn't the bottleneck — the bottleneck is having ~450+ calls at
+# ~0.75s each, not any single call being slow). This is a resource governor,
+# not a trade-selection threshold: it changes nothing about how a candidate
+# is scored, only how many candidates get a Setup 7 score before the scan
+# must move on — RULE REVIEW's evidence-before-shipping gate governs rules
+# that filter/size/block trades by quality, not this. skipped_budget on the
+# stats dict makes the truncation itself visible (never silent).
+def surface_score_scan_budget_exceeded(budget_sec: float) -> bool:
+    """True once this scan cycle's cumulative get_surface_score() cost has
+    already used up budget_sec — callers should stop invoking it for the
+    rest of this scan cycle. False (never trips) if reset_surface_score_
+    scan_stats() hasn't run this cycle, mirroring the other accumulator
+    reads' safe-no-signal-yet default."""
+    with _SURFACE_SCORE_SCAN_LOCK:
+        if not _SURFACE_SCORE_SCAN_STATS:
+            return False
+        return _SURFACE_SCORE_SCAN_STATS.get("cumulative_elapsed_sec", 0.0) >= budget_sec
+
+
+def record_surface_score_budget_skip() -> None:
+    """Diagnostics only — counts a Setup 7 candidate that was skipped
+    because surface_score_scan_budget_exceeded() was already true."""
+    with _SURFACE_SCORE_SCAN_LOCK:
+        if not _SURFACE_SCORE_SCAN_STATS:
+            return
+        _SURFACE_SCORE_SCAN_STATS["skipped_budget"] = _SURFACE_SCORE_SCAN_STATS.get("skipped_budget", 0) + 1
 
 
 def get_surface_score(ticker: str) -> dict:

@@ -214,6 +214,25 @@ test("KNOWN BROKEN #18 continuation 2026-07-28: the daemon branch surfaces surfa
   assert.ok(/daemonState\s*=[\s\S]*surfaceDetail/.test(daemonBranch), "surfaceDetail must actually be interpolated into the daemonState message, not computed and discarded");
 });
 
+test("KNOWN BROKEN #18 continuation 2026-07-29: the daemon branch surfaces skipped_budget, the scan-wide Setup 7 budget-guard's own truncation counter", () => {
+  // The 2026-07-28 accumulator above made the cost visible; it did nothing
+  // to CAP it. Live TIER2-ERROR occurrences on 2026-07-27/28 (12+ occurrences,
+  // essentially every Tier-2 scan during market hours both days) show
+  // cumulative_elapsed_sec (312-365s) alone exceeding the 300s daemon RPC
+  // timeout, so run_full_scan() times out and returns NOTHING every cycle —
+  // not just no options trades, the entire Tier-2 stock+options scan.
+  // options_scanner.py's Setup 7 now stops calling get_surface_score() once
+  // this scan's cumulative cost trips a budget; skipped_budget is how the
+  // audit line shows whether that budget actually tripped and how many
+  // candidates it cost, so a truncated scan is never mistaken for a healthy
+  // one just because it finally returned.
+  const block = tier2ScanTryCatch();
+  const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");
+  const daemonBranchEnd = block.indexOf("} else {", daemonBranchStart);
+  const daemonBranch = block.slice(daemonBranchStart, daemonBranchEnd);
+  assert.ok(daemonBranch.includes("ss.skipped_budget"), "must surface skipped_budget — the truncation must never be silent");
+});
+
 test("wiring pinned: the daemon branch still emits a TIER2-ERROR audit entry (same action type, richer detail)", () => {
   const block = tier2ScanTryCatch();
   const daemonBranchStart = block.indexOf("if (err?.daemonFailure)");

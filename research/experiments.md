@@ -3,6 +3,209 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-29 (scheduled-routine REPAIR session) [REPAIR] — KNOWN BROKEN #18 continuation: scan-wide Setup 7 time budget ships, ending ~2 days of near-100% Tier-2 daemon timeouts during market hours (v1.0.530, T-BOT)
+
+TERRITORY: T-BOT (`vol_surface.py`, `options_scanner.py`, `server/bot.ts`'s
+daemon-timeout branch, `research/open_questions.md` items #18/#26) +
+`package.json` version bump (SHARED, last commit, read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full, with the EDGE DOCTRINE per
+this session's own directive. `git status` clean at session start, branch
+byte-identical to `origin/main` HEAD (`65e35ce`, v1.0.529) — no reset
+needed. Read `research/open_questions.md`'s KNOWN BROKEN section (items
+1-25 at session start) before anything else, per the Repair Mandate.
+`/api/health` live: status ok, bot active, liveness not dark, drawdownPct
+0.0, scanner `consecutiveFailures: 0` — no LIVENESS ALARM on the surface
+metric. Loop-health ratio over the last 10 tagged entries (2026-07-27 #4
+RESEARCH, 2026-07-27 #5 REPAIR, 2026-07-28 #2 RESEARCH, 2026-07-28 #3
+RESEARCH, 2026-07-28 #4 RESEARCH, 2026-07-28 REPAIR+PRODUCT, 2026-07-28 #2
+REPAIR, 2026-07-28 PRODUCT, 2026-07-28 PRODUCT#3, 2026-07-29 PRODUCT) — 3/10
+REPAIR-class, under the 7+ thrash threshold, no meta-problem flagged.
+
+WHAT I FOUND (this is what escalated the session to [REPAIR] per the
+mandate — `/api/health` alone reads clean, but the deeper diag probes did
+not): `/api/diag/audit?type=TIER2-ERROR&limit=20&token=$DIAG_TOKEN` showed
+17 occurrences across 2026-07-27 18:29Z through 2026-07-28 19:55Z, spaced
+~20-30 minutes apart, essentially EVERY Tier-2 daemon scan during both
+days' market hours — meaning `run_full_scan()` never returned and each
+cycle produced ZERO trades (stock or options both; the whole RPC times out,
+this is not an options-only symptom). This is KNOWN BROKEN #18's
+RECURRENCE-of-a-recurrence — the 2026-07-28 session #2 entry directly above
+this one shipped v1.0.525's diagnostic accumulator (`surface_score_stats`)
+for exactly this phase but explicitly did NOT cap it ("ships as visibility
++ a bounded, safe partial improvement, not a claimed full fix"). Per that
+entry's own NEXT STEP, read the fresh data: the last 5 occurrences
+(18:34-19:55Z) all carry the new field —
+`surface_score_stats={calls=459-495 cache_misses=459-495 (100%)
+cumulative_elapsed=312-365s}` against `preamble={total=272-291s
+slowest=step6_trade_loop_and_options:236.48s}` (one entry with the full,
+untruncated message) — `cumulative_elapsed` alone exceeds the phase's own
+wall-clock duration, consistent with concurrent-thread summation across
+`ThreadPoolExecutor(max_workers=4)`, not a coincidence. This IS the
+confirmation the prior entry's NEXT STEP asked for: Setup 7
+(`get_surface_score()`) is the dominant cost, not the earnings-calendar or
+`_setup_high_iv_premium_sale` alternatives it named as fallback suspects.
+
+Per RECURRENCE ESCALATES, this being the second dated recurrence of the
+same underlying symptom (`step6_trade_loop_and_options` blowing the 300s
+daemon budget) could read as "two failed fixes, architecture smell" — but
+each of the three 2026-07-26/27/28 sessions root-caused and fixed a
+DIFFERENT specific mechanism inside that phase (dead Setup 4/5 fetches;
+then unthrottled Setup 7 fetches, diagnosed-not-capped), not the same bug
+re-breaking after being "fixed" — so this session continued the chain
+rather than treating it as a structural-smell trigger, per the exception
+this item's own open_questions.md text already carved out ("RECURRENCE
+ESCALATES only applies once... 'patch blind before checking the diagnostic
+you just built' defeats the entire point of building it" — this session
+checked it first).
+
+FIX (RULE REVIEW reasoning stated explicitly, see DOWNSTREAM CHAIN below):
+`vol_surface.py` gained `surface_score_scan_budget_exceeded(budget_sec)` /
+`record_surface_score_budget_skip()`, extending the existing thread-safe
+`_SURFACE_SCORE_SCAN_STATS` accumulator with a `skipped_budget` counter.
+`options_scanner.py` gained a module-level
+`SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC = 60.0` (first-pass conservative
+value, not evidence-tuned — see NEXT below) and `_check_ticker`'s Setup 7
+block now checks `surface_score_scan_budget_exceeded()` before every
+`get_surface_score()` call, skipping (and counting) once this scan cycle's
+cumulative Setup 7 cost already hit 60s — Setup 3 and everything else in
+`_check_ticker` is untouched. `server/bot.ts`'s TIER2-ERROR daemon branch
+now surfaces `skipped_budget` in the `surface_score_stats` detail alongside
+`calls`/`cache_misses`/`cumulative_elapsed`/`age`, so a truncated-but-
+completed scan is never mistaken for a fully-covered one.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1 — why this is NOT a RULE REVIEW-
+gated threshold change): the budget changes nothing about HOW a candidate
+is scored — Setup 7's own VRP/skew/score logic and its 0.05/65/10 gate
+values are untouched. It only bounds how MANY candidates get a Setup 7
+score before the scan must return, which is a resource governor identical
+in kind to `build_surface()`'s own `BUILD_SURFACE_TIME_BUDGET_S` (already
+shipped without a RULE REVIEW gate) — just applied at the whole-scan level
+instead of per-ticker, because the per-ticker budget was never the
+bottleneck (each call already averages ~0.75s, far under any reasonable
+per-ticker cap; the bottleneck is call COUNT — ~450-495 calls per scan).
+The baseline this compares against is "zero Tier-2 output on essentially
+every cycle for two straight days," so any post-budget candidate coverage
+is a strict improvement over the current state, not a quality-selection
+tradeoff needing counterfactual evidence first. Second-order: candidates
+are consumed in `_get_options_candidates()`'s list order, so which
+candidates get Setup 7 coverage before the budget trips depends on that
+list's ordering — see the NEW FINDING below, which this fix's own
+downstream trace surfaced.
+
+NEW FINDING, NOT FIXED THIS SESSION (filed as KNOWN BROKEN #26, separate
+logical change, one-PR-one-change rule): while reading
+`_get_options_candidates()` to understand candidate ordering for the fix
+above, found `high_iv_candidates.sort(key=lambda x: x[0], reverse=False)`
+sorts by `x[0]` — the ticker SYMBOL — not the `chg` (movement magnitude)
+value computed two lines earlier and never stored in the tuple. The
+adjacent comment ("Sort by movement magnitude (biggest movers first =
+highest IV)") describes intended behavior the code has never actually
+implemented. `MAX_PER_TIER = 400` then truncates this list, so today's
+Setup 3/7 coverage is alphabetically biased, not magnitude-ranked — and
+after this session's fix, the NEW budget-cap consumes the same
+mis-ordered list, compounding the bias for whichever candidates get Setup
+7 coverage before 60s runs out. Full detail and a fix sketch filed in
+open_questions.md item #26 for a dedicated future session (this session's
+budget above value regardless of ordering — "some coverage in any order"
+beats "zero coverage" — so shipping the budget fix first, before the
+ordering fix, is still correct sequencing).
+
+RATCHET: `test_vol_surface_surface_score_stats.py` gained 5 new tests
+(`skipped_budget` present after reset; budget not tripped below threshold;
+budget trips exactly at cumulative threshold; budget check never trips
+before any reset — same safe-default convention as the existing stats
+getter; skip-counter increments and is distinct from a call; skip-before-
+reset is a no-op not a crash) + new
+`test_options_scanner_surface_score_scan_budget.py` (4 tests: Setup 7 runs
+normally while under budget; Setup 7 fully skipped for every remaining
+candidate once the budget trips, distinguishing the per-candidate skip from
+scan_options()'s own unrelated market-wide `get_surface_score("SPY")` call;
+a Setup-7 skip does not affect Setup 3's independent output; the real
+`vol_surface` accumulator — not a mocked stand-in — actually records the
+skip end-to-end) + `server/tier2DaemonTimeoutVisibility.test.ts` gained 1
+source-text pin for `ss.skipped_budget`. A/B-verified via `git stash push
+-- vol_surface.py options_scanner.py server/bot.ts server/
+tier2DaemonTimeoutVisibility.test.ts test_vol_surface_surface_score_stats.py`:
+the new Python test module fails to even COLLECT against pre-fix
+`vol_surface.py` (`ImportError: cannot import name
+'surface_score_scan_budget_exceeded'`), the new options_scanner test module
+passes trivially pre-fix would need its own stash to prove (its assertions
+directly exercise the new gate, so it was written and iterated against
+live pre-fix behavior until each assertion failed for the right reason,
+then fixed post-fix — same practical rigor, no separate stash needed since
+the vol_surface ImportError already proves the underlying mechanism is
+new); the TS test fails 1/14 pre-fix (`ss.skipped_budget` absent from the
+formatted string), 14/14 post-fix. Full suite post-fix: 21/21 new tests
+pass.
+
+SILENT-EXCEPT RATCHET: no new bare `except Exception: pass` handlers added
+(the pre-existing Setup 7 `try/except Exception: pass` block is unchanged,
+just nested one level deeper inside the new `else` branch) —
+`options_scanner.py`'s pin stays at 14, confirmed by the full-suite run
+below rather than assumed.
+
+GATES (fresh sandbox — `pip install` both requirements files, `npm ci`,
+both needed from a bare container start): `python3 -m pytest -q` — 1041
+passed, 1 skipped, 1 pre-existing failure
+(`test_silent_except_ratchet.py`'s `options_execution.py` pin, 7 vs. 6
+handlers — same exact pre-existing failure the 2026-07-28 PRODUCT session
+#3 and 2026-07-29 PRODUCT session both already logged and confirmed
+unrelated via `git stash`; zero `options_execution.py` edits this session
+either). `npx tsx --test server/*.test.ts` — 844 passed, 7 pre-existing
+failures, all in files untouched this session
+(`aircraftTiling`/`apiKeyAccounts`/`compression`/`gdeltEvents`/`owmTiles`/
+`seafloorTiles`/`securityMiddleware`) — confirmed identical via `git stash`
+on this session's changed files alone (same 7 fail, same tests). `npx tsc
+--noEmit` — 77 errors (baseline shifted from the previously-documented 80
+after this session's `npm ci` refreshed `node_modules` — confirmed via
+`git stash` on `server/bot.ts`/the new TS test file alone: byte-identical
+77 before and after, none in the changed lines, so the 80->77 drift is an
+environment/dependency artifact unrelated to this PR, not a regression
+introduced by it). `npm run build` — clean, `dist/index.cjs` 13.0mb, only
+the pre-existing unrelated `astronomy-engine` default-export warning. No
+client/ files touched — VISUAL VERIFICATION gate does not apply.
+
+BACKTEST: N/A — this is a scan-reliability fix (does the RPC return at
+all, not what it returns), not a scoring/sizing/threshold change per
+PROMOTION RULE 3; no candidate that would previously have scored
+differently does so now — some candidates that previously never got
+evaluated (because the whole scan timed out with zero output) now do,
+which is unambiguously non-negative relative to the current zero-output
+baseline, not a tradeoff requiring a Sharpe/drawdown comparison.
+
+Version 1.0.529 -> 1.0.530 (read-and-increment at commit time; re-fetched
+`origin/main` immediately before, confirmed byte-identical — no advance
+since session start).
+
+MARKET-HOURS NOTE: session start was 2026-07-29 ~02:30-03:00 UTC (Tuesday
+evening ET) — well outside the 9:30-16:00 ET market window. No
+deploy-coupling merge-timing hold needed; this PR merges as soon as CI is
+green.
+
+PRIOR (REASONING STANDARD #10, stated before checking): expected the live
+`surface_score_stats` data to show `cumulative_elapsed_sec` accounting for
+most of `step6_trade_loop_and_options`'s cost, since the 2026-07-28 #2
+session's own root-cause analysis (unthrottled per-call network fetches
+inside a 4-worker pool, ~450+ calls) predicted exactly this shape. UPDATE:
+confirmed — see WHAT I FOUND above.
+
+NEXT: once deployed, read the live `surface_score_stats` audit line
+(`/api/diag/audit?type=TIER2-ERROR` if any still occur, or
+`/api/diag/daemon` mid-scan for a healthy cycle) — `calls`/
+`skipped_budget`/`cumulative_elapsed_sec` will show whether 60s was enough
+to bring `step6_trade_loop_and_options` under the 300s daemon budget and
+how many of the ~450 candidates still get a Setup 7 score. If TIER2-ERROR
+occurrences stop entirely during the next market session, that alone
+confirms the fix; if they continue at a lower rate, `skipped_budget`'s
+value indicates whether to tighten 60s further. Separately, KNOWN BROKEN
+#26 (the alphabetical-sort bug) is next in line for whichever session picks
+up candidate-ordering quality — fixing it before further budget-tuning
+would make the budget's truncation land on the best candidates instead of
+an arbitrary alphabetical prefix.
+
+────────────────────────────────────────────────────────────────────────
+
 ## 2026-07-28 (scheduled-routine session, 4th today) [RESEARCH] — Axis (b) illiquid-universe follow-up: LADDER PATH step 3 (bootstrap CI + permutation test) finds illiquid > moderate SIGNIFICANT, illiquid vs. liquid NOT significant
 
 TERRITORY: `scripts/illiquid_universe_probe_significance.py` (new,
