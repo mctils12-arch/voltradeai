@@ -3,6 +3,56 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 [REPAIR]x2+[PRODUCT] — follow-up queue worked: OPRA wiring completed (#636), space-view zoom/lighting/Milky-Way fixes (#637), null-pnl origin closed, 429s closed by observation (v1.0.531-534)
+
+TERRITORY: options data plane (T-BOT, #636) + celestial client (T-CLIENT,
+#637); research/* appended last.
+
+QUEUE STATUS (from the 07-28 morning outage session's filed tails):
+1. OPRA hardcodes -> DONE (#636, v1.0.531): options_scanner/
+   options_manager/vol_surface wired to alpaca_feed.options_feed();
+   ratchet widened to ALL runtime modules + resolver-presence asserts.
+2. CHAIN-FETCH 429s -> CLOSED BY OBSERVATION: 80 post-#636 audit entries
+   show ZERO 429s (the three dead-opra call sites were the churn).
+   Re-open only if they recur.
+3. NULL-PNL ORIGIN -> ANSWERED, no further fix needed: entry records
+   with pnl_pct:null are the DESIGNED open-trade shape (Bug #13 exit
+   machinery; caller since R12-D2 2026-07-06). Crash appeared ~07-23
+   because order flow switched from same-day churn (entries always
+   paired before any Kelly-stats read) to positions HELD OPEN across
+   reads. v1.0.527 handles open records permanently + honestly.
+   RESIDUAL WATCH: confirm exits keep pairing (an unpaired-entry pileup
+   would silently shrink the closed-stats sample).
+4. CSP CAPITAL ALLOCATION -> FILED in open_questions.md with prior +
+   backtest ablation ladder path (RULE-REVIEW class; no change without
+   gate-3 evidence). Live 07-28: every CSP candidate passes selection
+   and dies at the capital check — code-healthy, structurally starved.
+5. BRANCH CLEANUP -> still blocked on human credentials (session git
+   403s ref deletion; command delivered 07-20).
+
+SPACE-VIEW FIXES (#637, human reports w/ screenshot — the earlier moon
+fixes landed on /moon.html; the in-app celestial view had the same
+class of defects in ITS OWN code):
+- v1.0.532 zoom: wheel/buttons/pinch multiplied CENTER distance ->
+  near a surface one notch deleted ~70%% of ALTITUDE ("300 miles then
+  one click to 5 miles"). surfaceRelativeStep at all 3 input sites;
+  driven live: uniform per-click altitude ratio 2732->...->54 mi floor.
+- v1.0.533 lighting: approachLitBlend (phase >=6.3R alt, lit <=2.0R —
+  the /moon.html band, so both moon surfaces agree) through all three
+  shading paths, cache-keyed. Driven live: 4,884 mi readable (was
+  black), 1,602 mi fully-lit LROC.
+- v1.0.534 Milky Way ghost: incremental sky rebuild composited the
+  PREVIOUS basis's buffer 1:1 while stars redrew live -> band slid then
+  snapped. skyLagOffsetPx translates the stale buffer by the SAME
+  small-angle displacement projectStarScreen gives stars — lockstep
+  pinned by test (compensation == star displacement within 2%%).
+NEW SMALL DEFECT FILED (open_questions.md): options_execution's
+no-affordable-puts message prints "$0 needs $0" when the chain had no
+OTM puts at all (HYG live 07-28).
+VERIFY NEXT SESSIONS: options orders should fire when equity churn
+frees collateral OR a CSP-sized candidate appears; #637 deploy = space
+view behavior on prod matches the drives above.
+
 ## 2026-07-29 (scheduled-routine REPAIR session) [REPAIR] — KNOWN BROKEN #18 continuation: scan-wide Setup 7 time budget ships, ending ~2 days of near-100% Tier-2 daemon timeouts during market hours (v1.0.530, T-BOT)
 
 TERRITORY: T-BOT (`vol_surface.py`, `options_scanner.py`, `server/bot.ts`'s
@@ -32795,3 +32845,56 @@ it exists to collect. Build clean.
 NEXT: needs chrome://gpu from the affected machine, whether terrain was on,
 and whether it reproduces on demand or only after a long session. Until
 then the mechanism is a HYPOTHESIS, labelled as such.
+
+## 2026-07-29 — [PIPELINE] SWPC space weather: gate-1 archiver + /data aurora layer (T-DATACORE)
+
+TERRITORY: T-DATACORE (server/spaceWeather.ts + manifest + tests); the
+client layer rides along under the cross-territory rule (change belongs
+wholly to its primary territory). Human-directed via cross-session relay
+(the other session's "say the word and I'll take it" offer, relayed here
+with the instruction to build it in this session).
+
+WHAT SHIPPED: server/spaceWeather.ts — keyless NOAA SWPC poller (10-min,
+eager boot, nwsAlerts.ts pattern) over six feeds: planetary Kp (observed,
+3-hourly), R/S/G scales (current observed + 3-day forecast rows, labeled
+per row), SWPC alert messages, solar-wind speed + IMF summaries, OVATION
+aurora forecast grid. Archives three JSONL day-series under
+<archive>/spaceweather/ (kp- by time_tag, alerts- by product_id+issue,
+conditions- by composite upstream stamp) with the standard dedup-Set +
+oldest-half-trim + gz-after-2-days lifecycle; manifest
+datacore/manifests/spaceweather.json (the ratchet test caught its absence
+— the enforcement works). /api/data/spaceweather serves cache; /data map
+layer "spaceweather" renders the oval as 2°-aggregated MAX-folded cells
+(green→red probability ramp, legend chips + forecast-honesty note) with
+observed Kp/G/wind in the status note and a conditions click-card.
+
+HONESTY DECISIONS: (1) aurora is served and labeled MODEL FORECAST
+everywhere — never blended with observations; (2) ovation raster (~900KB)
+is never archived — conditions rows keep a summary; the gate-1 evidence
+base is Kp/scales/alerts, not the display raster; (3) aggregation takes
+MAX not mean (thinning must never dim the oval); (4) a feed failing
+mid-pull yields nulls in the conditions row, never fabricated values —
+observed live during the smoke test (two SWPC endpoints 503'd
+transiently; the row recorded kp:null while the other feeds served); (5)
+solar-wind speed stays km/s in both unit systems (domain convention,
+same fixed-convention clause as knots/hPa/nT).
+
+PROBED LIVE 2026-07-29: products/solar-wind/{mag,plasma}-1-day.json are
+404 (docs elsewhere still cite them) — products/summary/* carry the
+card's needs; ovation ~919KB/65k cells 1° grid; quiet-sun max 19%.
+
+VERIFIED: 8-test server battery (parses, partial-failure fetch, archive
+dedup/gz, conditions stamp) + full node suite 917/917 after the manifest
+fix; visual harness all-green (0 hard failures; toggle-consistency
+"41 layers toggled clean" now includes spaceweather via the fixture
+registry); targeted Playwright captures at 1440+390 with the layer ON:
+oval ramp, panel row, status note "NOAA SWPC · Kp 3.33 · G1 · wind 329
+km/s", click-card chips (fixed a WIND-chip truncation found in the
+capture). Pre-existing failures not mine: pytest scipy/openpyxl
+collection errors + macro-snapshot/silent-except failures reproduce on a
+clean tree.
+
+GATE STATE: gate 1 OPEN and now accumulating — OE-417 validation runs
+once a G2+ window lands in the archive (quiet weeks prove nothing).
+Gate 2 (utility event study conditioned on GIC exposure) untouched.
+Cross-tie filed in open_questions.md BUILD PROGRESS note.

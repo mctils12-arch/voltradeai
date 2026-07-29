@@ -1,0 +1,29 @@
+{
+ "stream": "spaceweather",
+ "storage": "append-only JSONL day-files under <archive>/spaceweather/ — three prefixed series per day: kp-YYYY-MM-DD.jsonl (observed planetary Kp), alerts-YYYY-MM-DD.jsonl (SWPC alert messages), conditions-YYYY-MM-DD.jsonl (per-poll composite snapshot); gz after 2 days",
+ "written_by": "server/spaceWeather.ts archiveSpaceWeather (10-min poll, eager boot)",
+ "source": "NOAA SWPC services.swpc.noaa.gov: products/noaa-planetary-k-index.json, products/noaa-scales.json, products/alerts.json, products/summary/solar-wind-{speed,mag-field}.json, json/ovation_aurora_latest.json",
+ "license": "US government work, public domain; attribution 'NOAA SWPC'. Keyless.",
+ "attribution": "NOAA Space Weather Prediction Center",
+ "schema_version": 1,
+ "field_map": {
+  "kp-*: t": "3-hour bin start (UTC) — dedup key for the Kp series",
+  "kp-*: kp": "planetary Kp (PRELIMINARY estimate; definitive Kp posts later — never relabeled here)",
+  "kp-*: a/n": "a_running index / contributing station count as published",
+  "alerts-*: id": "product_id + issue_datetime (dedup key — messages are immutable)",
+  "alerts-*: code/serial/title": "extracted from the message text (Space Weather Message Code / Serial Number / first ALERT|WARNING|WATCH|SUMMARY line)",
+  "alerts-*: message": "full message text, truncated to 2000 chars",
+  "conditions-*: id": "composite of upstream stamps (Kp bin + scales stamp + wind time_tags + ovation obs) — dedup key; one row per distinct upstream state",
+  "conditions-*: kp/r/s/g": "latest observed Kp + current R/S/G scales at poll time",
+  "conditions-*: windKms/btNt/bzNt": "solar-wind speed / IMF Bt / Bz summary readings",
+  "conditions-*: auroraMax/auroraObs": "OVATION grid max probability (%) + model observation time — a SUMMARY; the ~900 KB forecast raster is never archived",
+  "rt": "as-seen UTC date"
+ },
+ "confidence_model": "RAW official NOAA readings plus NOAA's OWN model forecast, labeled per row and never blended: Kp/scales-current/solar-wind/alerts are observations as published (Kp preliminary); ovation aurora and scales-forecast rows are NOAA forecasts and are always served/labeled as forecasts. No derived quantities of ours anywhere in the stream. The grid/utility trading hypothesis (Kp/G spikes -> DOE OE-417 disturbance reports -> exposed-utility moves) is ladder-gated in open_questions.md — this archive IS the gate-1 evidence base, not a validated signal.",
+ "geo_fields": [],
+ "entity_key": null,
+ "sentiment": null,
+ "started": "2026-07-29",
+ "cadence": "10-min poll; Kp advances 3-hourly, ovation ~5-min upstream, alerts as issued",
+ "_note": "Universal archive envelope (approved 2026-07-04). open_questions.md SPACE WEATHER hypothesis, gate-1 archiver + RAW /data display layer (aurora oval + conditions card)."
+}

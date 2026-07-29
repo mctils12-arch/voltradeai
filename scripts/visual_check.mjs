@@ -131,6 +131,7 @@ const FIXTURES = {
       { id: "biomass", name: "Aboveground biomass density (GEDI, GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — GEDI L4B aboveground biomass density", description: "Static mission-life mean (2019-04 to 2023-03), no scrubber." },
       { id: "rivergauges", name: "River gauges (barge corridor)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS NWIS (public domain)", description: "Live stage/discharge at 14 barge-corridor gauges." },
       { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
+      { id: "spaceweather", name: "Space weather (NOAA SWPC)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "NOAA Space Weather Prediction Center (public domain)", description: "Aurora oval (OVATION model FORECAST) + observed Kp / R-S-G scales / solar wind." },
       { id: "earthquakes", name: "Earthquakes (USGS)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS Earthquake Hazards Program (public domain)", description: "Real-time M2.5+ seismic events, sized/colored by magnitude." },
       { id: "buoys", name: "Ocean buoys (NDBC)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "NOAA National Data Buoy Center (public domain)", description: "Latest wave/wind/pressure readings, ~889 stations worldwide." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
@@ -187,6 +188,26 @@ const FIXTURES = {
         rings: [[[-97.2, 35.8], [-96.6, 35.8], [-96.6, 36.2], [-97.2, 36.2], [-97.2, 35.8]]] },
       { id: "urn:oid:fixture.flood", event: "Flood Watch", severity: "Moderate", area: "St. Louis Metro, MO", ends: null,
         rings: [[[-90.6, 38.4], [-89.9, 38.4], [-89.9, 38.9], [-90.6, 38.9], [-90.6, 38.4]]] },
+    ],
+  },
+  "/api/data/spaceweather": {
+    kind: "raw", source: "NOAA SWPC (fixture)", time: 1,
+    note: "fixture: observed Kp/scales/wind + OVATION forecast cells",
+    kp_recent: [
+      { t: "2026-07-29T06:00:00", kp: 1.67, a: 6, n: 8, rt: "2026-07-29" },
+      { t: "2026-07-29T09:00:00", kp: 3.33, a: 18, n: 8, rt: "2026-07-29" },
+    ],
+    scales: {
+      current: { kind: "current", date: "2026-07-29", time: "12:37:00", r: "0", s: "0", g: "1", rMinorProb: null, rMajorProb: null, sProb: null },
+      forecast: [{ kind: "forecast", date: "2026-07-30", time: "00:00:00", r: null, s: null, g: "0", rMinorProb: 30, rMajorProb: 1, sProb: 1 }],
+    },
+    wind: { speedKms: 329, speedAt: "2026-07-29T12:32:00Z", btNt: 4, bzNt: 1, magAt: "2026-07-29T12:34:00Z" },
+    aurora: {
+      obs: "2026-07-29T12:30:00Z", forecast: "2026-07-29T13:51:00Z", max: 42, aggDeg: 2, minVal: 2,
+      cells: [[-160, 62, 12], [-158, 62, 25], [-156, 64, 42], [-100, 60, 8], [20, 68, 15], [-150, -72, 30]],
+    },
+    alerts_recent: [
+      { id: "K05W:2026-07-27 02:11:00.000", productId: "K05W", issued: "2026-07-27 02:11:00.000", code: "WARK05", serial: 2101, title: "WARNING: Geomagnetic K-index of 5 expected", message: "fixture", rt: "2026-07-29" },
     ],
   },
   "/api/data/rivergauges": {

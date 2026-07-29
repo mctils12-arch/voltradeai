@@ -62,6 +62,7 @@ import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
+import { bootSpaceWeatherPoll, latestSpaceWeather } from "./spaceWeather";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
@@ -1828,6 +1829,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       zone_only: hit.zoneOnly,
       note: "polygon-carrying alerts only; zone-coded alerts without geometry are counted in zone_only (resolution is a filed follow-up)",
       alerts: hit.display,
+    });
+  });
+
+  // NOAA SWPC space weather (RAW — open_questions.md SPACE WEATHER
+  // hypothesis, gate-1 archiver + display). Observed Kp/scales/solar-wind
+  // and NOAA's OWN model forecast (ovation aurora, 3-day scales) served
+  // side by side but LABELED per row — observed vs forecast never blended.
+  // The grid/utility trading hypothesis stays ladder-gated; this route
+  // displays conditions and the poller archives the gate-1 evidence.
+  bootSpaceWeatherPoll();
+  app.get("/api/data/spaceweather", (_req, res) => {
+    const hit = latestSpaceWeather();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "NOAA SWPC (services.swpc.noaa.gov)", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=120");
+    res.json({
+      kind: "raw",
+      source: "NOAA Space Weather Prediction Center (services.swpc.noaa.gov) — US government work, public domain",
+      attribution: "NOAA SWPC",
+      time: hit.at,
+      note: "kp_recent = observed 3-hourly planetary Kp (preliminary estimates); scales.current = observed now, scales.forecast = NOAA 3-day forecast probabilities; aurora = OVATION Prime MODEL FORECAST grid (thresholded, 2°-aggregated, max-folded), not an observation",
+      kp_recent: hit.kpRecent,
+      scales: hit.scales,
+      wind: hit.wind,
+      aurora: hit.aurora,
+      alerts_recent: hit.alertsRecent,
+      feed_errors: hit.errors.length ? hit.errors : undefined,
     });
   });
 
