@@ -213,27 +213,36 @@ class TestOptionsFeedResolution(unittest.TestCase):
 
 
 class TestOptionsExecutionNoHardcodedOpra(unittest.TestCase):
-    """RATCHET: options_execution.py's CSP contract-selection path (the one
-    KNOWN BROKEN #25 diagnosed and this session fixed) must resolve its
-    options feed via alpaca_feed.options_feed(), never a hardcoded "opra"
-    literal — that hardcode is exactly what made the OPRA-403 entitlement
-    rejection silent in the first place. Scoped to this one file only:
-    options_scanner.py/options_manager.py/vol_surface.py still hardcode
-    feed=opra deliberately (separate follow-up PRs, one-logical-change
-    rule; see open_questions.md KNOWN BROKEN #25)."""
+    """RATCHET: every options-data call site must resolve its feed via
+    alpaca_feed.options_feed(), never a hardcoded "opra" literal — that
+    hardcode is exactly what made the OPRA-403 entitlement rejection
+    silent in the first place. [2026-07-28] Widened from
+    options_execution.py-only to ALL runtime modules: the remaining three
+    deliberate hardcodes (options_scanner.py, options_manager.py,
+    vol_surface.py — KNOWN BROKEN #25's filed follow-ups) are now wired,
+    so the whole options data plane rides one resolver and the next
+    entitlement change is a one-module event."""
 
     HARDCODED = re.compile(r'''["']feed["']\s*:\s*["']opra["']''')
+    WIRED = ["options_execution.py", "options_scanner.py",
+             "options_manager.py", "vol_surface.py"]
 
-    def test_fetch_option_chain_uses_the_resolver(self):
-        path = os.path.join(REPO, "options_execution.py")
-        src = open(path, encoding="utf-8").read()
-        offenders = self.HARDCODED.findall(src)
+    def test_no_runtime_module_hardcodes_opra(self):
+        offenders = []
+        for f in os.listdir(REPO):
+            if not f.endswith(".py") or f.startswith("test_") or f == "alpaca_feed.py":
+                continue
+            src = open(os.path.join(REPO, f), encoding="utf-8", errors="replace").read()
+            for m in self.HARDCODED.finditer(src):
+                offenders.append(f"{f}: {m.group(0)}")
         self.assertEqual(offenders, [],
-            f"options_execution.py hardcodes feed=opra — use "
-            f"alpaca_feed.options_feed(): {offenders}")
-        self.assertIn("alpaca_feed.options_feed()", src,
-            "options_execution.py must call alpaca_feed.options_feed() "
-            "for its options chain fetch")
+            f"hardcoded opra feed found — use alpaca_feed.options_feed(): {offenders}")
+
+    def test_options_modules_call_the_resolver(self):
+        for f in self.WIRED:
+            src = open(os.path.join(REPO, f), encoding="utf-8").read()
+            self.assertIn("alpaca_feed.options_feed()", src,
+                f"{f} must call alpaca_feed.options_feed() for its options fetches")
 
 
 class TestNoHardcodedFeeds(unittest.TestCase):

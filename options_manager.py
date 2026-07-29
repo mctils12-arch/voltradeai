@@ -24,6 +24,14 @@ import json
 import time
 import logging
 import requests
+
+# [REPAIR 2026-07-28] KNOWN BROKEN #25 follow-up: this module was one
+# of the call sites still hardcoding the opra feed param after the
+# entitlement died (~07-23); alpaca_feed.options_feed() probes the
+# entitlement and falls back to the free "indicative" feed, restoring
+# automatically if the subscription returns. Same wiring as
+# options_execution.py (v1.0.498).
+import alpaca_feed
 from datetime import datetime, timedelta
 
 try:
@@ -99,7 +107,7 @@ def _get_option_snapshot(occ_symbol: str) -> dict:
 
         resp = requests.get(
             f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
-            params={"feed": "opra", "symbols": occ_symbol},
+            params={"feed": alpaca_feed.options_feed(), "symbols": occ_symbol},
             headers=_alpaca_headers(),
             timeout=10,
         )
@@ -257,7 +265,7 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
         resp = requests.get(
             f"{ALPACA_DATA}/v1beta1/options/snapshots/{ticker}",
             params={
-                "feed": "opra",
+                "feed": alpaca_feed.options_feed(),
                 "expiration_date_gte": new_min_exp,
                 "expiration_date_lte": new_max_exp,
                 "strike_price_gte": str(strike - 1),
