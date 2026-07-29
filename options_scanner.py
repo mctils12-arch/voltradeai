@@ -52,6 +52,14 @@ import json
 import time
 import logging
 import requests
+
+# [REPAIR 2026-07-28] KNOWN BROKEN #25 follow-up: this module was one
+# of the call sites still hardcoding the opra feed param after the
+# entitlement died (~07-23); alpaca_feed.options_feed() probes the
+# entitlement and falls back to the free "indicative" feed, restoring
+# automatically if the subscription returns. Same wiring as
+# options_execution.py (v1.0.498).
+import alpaca_feed
 # Alpaca rate limiter — prevents silent 429 errors during parallel scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -317,7 +325,7 @@ def _fetch_options_chain(ticker: str, price: float,
 
         while pages < 5:  # Max 5 pages = 5,000 contracts (more than enough for any single name)
             params: dict = {
-                "feed": "opra", "limit": 1000,
+                "feed": alpaca_feed.options_feed(), "limit": 1000,
                 "expiration_date_gte": min_exp,
                 "expiration_date_lte": max_exp,
                 "strike_price_gte":   str(min_k),

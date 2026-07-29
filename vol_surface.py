@@ -13,6 +13,14 @@ import time
 import re
 import threading
 import requests
+
+# [REPAIR 2026-07-28] KNOWN BROKEN #25 follow-up: this module was one
+# of the call sites still hardcoding the opra feed param after the
+# entitlement died (~07-23); alpaca_feed.options_feed() probes the
+# entitlement and falls back to the free "indicative" feed, restoring
+# automatically if the subscription returns. Same wiring as
+# options_execution.py (v1.0.498).
+import alpaca_feed
 from math import log, sqrt, exp, pi
 from datetime import datetime, timedelta, timezone
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
@@ -205,7 +213,7 @@ def _fetch_options_chain(ticker: str, dte_min: int = 7, dte_max: int = 90) -> di
 
     for page_num in range(max_pages):
         params = {
-            "feed": "opra",
+            "feed": alpaca_feed.options_feed(),
             "limit": 200,
             "expiration_date_gte": gte,
             "expiration_date_lte": lte,
