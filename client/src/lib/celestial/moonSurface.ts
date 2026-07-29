@@ -162,6 +162,10 @@ export interface MoonSurfaceView {
   /** B6 realistic-lighting OFF (even-lit inspection mode): full-bright, no
    *  terminator. Optional (default = realistic ON). */
   fullBright?: boolean;
+  /** approach-lit blend 0..1 (textureSphere.approachLitBlend) — near the
+   *  surface the night side lifts to visible; matches the sprite path so
+   *  the patch and the disc agree across the zoom continuum. */
+  litBlend?: number;
   /** B6 whole-patch eclipse/umbra multiplier (0..1, 1 = fully sunlit) — the
    *  close surface patch matches the far sprite's eclipse darkening so the
    *  terminator/eclipse read consistently across the zoom continuum. */
@@ -185,6 +189,7 @@ export function renderMoonSurfaceRows(
   const { bw, bh, originX, originY, stepX, stepY, cx, cy, k, r, u, f, cam, center, radius, X, Y, Z, wDeg, sun } = view;
   const texOff = (view.texLonOffsetDeg ?? 0) / 360;
   const fullBright = !!view.fullBright;
+  const litBlend = Math.max(0, Math.min(1, view.litBlend ?? 0));
   const shadowFactor = view.shadowFactor ?? 1;
   const y0 = Math.max(0, rowStart);
   const y1 = Math.min(bh, rowEnd);
@@ -219,7 +224,8 @@ export function renderMoonSurfaceRows(
       // B6: realistic OFF ⇒ full-bright (no terminator); ON ⇒ lambert × the
       // eclipse/umbra factor (matches the far-sprite shading for zoom continuity).
       const lit = nx * sun.x + ny * sun.y + nz * sun.z;
-      const w = fullBright ? 1 : lambertWeight(lit) * shadowFactor;
+      let w = fullBright ? 1 : lambertWeight(lit) * shadowFactor;
+      if (!fullBright && litBlend > 0) w += (1 - w) * litBlend;
       out[o] = rgb[0] * w;
       out[o + 1] = rgb[1] * w;
       out[o + 2] = rgb[2] * w;

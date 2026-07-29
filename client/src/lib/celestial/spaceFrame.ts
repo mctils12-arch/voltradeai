@@ -217,6 +217,7 @@ import {
   spinObliquityDeg,
   SATURN_RING_INNER_REL,
   SATURN_RING_OUTER_REL,
+  approachLitBlend,
   type SphereLUT,
   type RingBand,
   type GalacticBasis,
@@ -274,6 +275,29 @@ export {
 // zoomSeam.ts header) — re-exported so this module's public surface and
 // its tests keep one name per contract.
 export { ZOOM_STEP_PER_NOTCH, zoomStepFactor, wheelDeltaForFactor, ZOOM_BUTTON_DELTAY } from "./zoomSeam.js";
+
+/** Pure form of the surface-relative zoom step (see stepDist inside the
+ *  frame): dist' = R + (dist - R)*g — altitude scales by g near a body,
+ *  converging to plain dist*g at planetary range. Exported for tests. */
+export function surfaceRelativeStep(d: number, R: number, g: number): number {
+  return R + Math.max(0, d - R) * g;
+}
+
+/** Screen-space offset that moves a sky image rendered for `oldB` so it
+ *  tracks the LIVE camera basis (Milky Way ghost fix, 2026-07-28): the
+ *  panorama rebuild spans many frames, and drawing the stale buffer 1:1 made
+ *  the band slide against the live-projected stars during orbits. Same
+ *  small-angle math as projectStarScreen (x = cx + k·(d·r)/(d·f),
+ *  y = cy − k·(d·u)/(d·f)) applied to the old view centre — the test pins
+ *  band motion to star motion for the same camera delta. */
+export function skyLagOffsetPx(oldB: CamBasis, liveB: CamBasis, k: number): { dx: number; dy: number } {
+  const cl = (x: number): number => Math.max(-1, Math.min(1, x));
+  const fwd = Math.max(0.2, dot(oldB.f, liveB.f)); // guard huge swings
+  return {
+    dx: (k * cl(dot(oldB.f, liveB.r))) / fwd,
+    dy: (-k * cl(dot(oldB.f, liveB.u))) / fwd,
+  };
+}
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -1719,6 +1743,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (skyWorkKey !== key) {
         skyWorkKey = key;
         skyWorkRow = 0;
+        skyWorkBasis = { f: { ...basis.f }, r: { ...basis.r }, u: { ...basis.u } };
         if (!skyWork || skyWork.length !== skyW * skyH * 4) skyWork = new Uint8ClampedArray(skyW * skyH * 4);
       }
       const t0 = performance.now();
@@ -1734,23 +1759,39 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         const scc = skyCanvas.getContext("2d")!;
         scc.putImageData(new ImageData(new Uint8ClampedArray(skyWork!), skyW, skyH), 0, 0);
         skyReadyKey = key;
+        skyReadyBasis = skyWorkBasis;
         skyWorkKey = "";
         skyRenderPending = false;
       } else {
         skyRenderPending = true; // keep drawing until the build finishes
       }
     }
-    // composite whatever completed buffer we have (during a fast orbit this may
-    // be the previous basis for a frame or two — an invisible backdrop lag)
-    if (skyReadyKey) {
+    // Composite the completed buffer. GHOST FIX (2026-07-28, human report:
+    // "when you move it looks weird" — the band slid against the point
+    // stars): during an orbit the buffer lags the camera by the rebuild
+    // (many 8ms slices), while the stars redraw live every frame. Instead
+    // of drawing the stale projection 1:1, MOTION-COMPENSATE it: translate
+    // and roll the cached image by the small-angle delta between the basis
+    // it was built for and the live one, so the band tracks the stars in
+    // lockstep and the compensation converges to zero as the rebuild lands.
+    if (skyReadyKey && skyCanvas) {
+      let dx = 0, dy = 0;
+      if (skyReadyBasis) {
+        // translation covers the orbit gestures; roll deltas stay under the
+        // basis key's quantization (a roll rebuild triggers before drift
+        // accumulates), so no rotation term.
+        const kFocal = (h / 2) / Math.tan((fovDeg * DEG) / 2);
+        ({ dx, dy } = skyLagOffsetPx(skyReadyBasis, basis, kFocal));
+      }
       ctx.save();
+      ctx.translate(w / 2 + dx, h / 2 + dy);
       ctx.globalAlpha = milkyShown;
-      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      ctx.drawImage(skyCanvas, -w / 2, -h / 2, w, h);
       // additive second pass — the reference's galaxyGlow (the band glows
       // instead of reading as dim wallpaper)
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = milkyShown * 0.55;
-      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      ctx.drawImage(skyCanvas, -w / 2, -h / 2, w, h);
       ctx.restore();
     }
   }
@@ -2069,6 +2110,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let skyWorkKey = "";
   let skyReadyKey = "";
   let skyRenderPending = false;
+  // the camera basis the completed sky buffer was BUILT for — lets the draw
+  // motion-compensate a stale buffer instead of lagging (ghost fix, 2026-07-28)
+  let skyWorkBasis: { f: Vec3; r: Vec3; u: Vec3 } | null = null;
+  let skyReadyBasis: { f: Vec3; r: Vec3; u: Vec3 } | null = null;
   // GALAXY / STARFIELD (2026-07-19): the real Yale BSC bright stars. Loaded
   // lazily (space-view only), the point layer cached against the camera basis
   // like the panorama (stars are at infinity → they never move on zoom, only
@@ -2191,6 +2236,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // B6: realistic OFF ⇒ full-bright patch; the eclipse scalar matches the
       // far sprite so the terminator/eclipse read consistently across zoom.
       fullBright: !realistic,
+      litBlend: realistic
+        ? approachLitBlend(Math.hypot(camPos.x - center.x, camPos.y - center.y, camPos.z - center.z), R)
+        : 0,
       shadowFactor,
     };
   }
@@ -2478,6 +2526,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           rowStart: u.composeRow, rowEnd: u.composeRow + rows,
           texLonOffsetDeg: textureLonOffsetDeg(u.def.id),
           fullBright: !u.light.realistic,
+          litBlend: u.light.litBlend,
           shadowFactor: u.light.shadowFactor,
           ringShadow: u.light.ring,
         },
@@ -2503,13 +2552,16 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     realistic: boolean;
     shadowFactor: number;
     ring: RingShadowParams | null;
+    /** approach-lit blend 0..1 (textureSphere.approachLitBlend) — quantized
+     *  into the sprite key so approaching a body re-shades its night side. */
+    litBlend: number;
   }
   function lightKey(l: BodyLight): string {
     const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
     const r = l.ring
       ? `r${sq(l.ring.sun.x)},${sq(l.ring.sun.y)},${sq(l.ring.sun.z)}`
       : "r0";
-    return `L${l.realistic ? 1 : 0}|e${Math.round(l.shadowFactor * 40)}|${r}`;
+    return `L${l.realistic ? 1 : 0}|e${Math.round(l.shadowFactor * 40)}|b${Math.round(l.litBlend * 10)}|${r}`;
   }
 
   function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3, light: BodyLight): string {
@@ -2596,6 +2648,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         ...(wantTangents ? { bump, bumpStrength: 1.2 } : {}),
         texLonOffsetDeg: textureLonOffsetDeg(def.id),
         fullBright: !light.realistic,
+        litBlend: light.litBlend,
         shadowFactor: light.shadowFactor,
         ringShadow: light.ring,
       },
@@ -2655,7 +2708,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           // curve × the eclipse/umbra factor (a moon in its parent's shadow).
           const day = Math.max(0, Math.min(1, (lit + 0.03) / 0.07));
           const shade = 0.05 + 0.95 * Math.max(lit, 0);
-          const w = light.realistic ? (0.05 + 0.95 * (day * shade)) * light.shadowFactor : 1;
+          let w = light.realistic ? (0.05 + 0.95 * (day * shade)) * light.shadowFactor : 1;
+          if (light.realistic && light.litBlend > 0) w += (1 - w) * light.litBlend;
           const i = (py * size + px) * 4;
           img.data[i] = cr * w;
           img.data[i + 1] = cg * w;
@@ -3052,7 +3106,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
               strength: RING_SHADOW_STRENGTH,
             };
           }
-          const light: BodyLight = { realistic, shadowFactor: eclipse, ring };
+          const light: BodyLight = {
+            realistic, shadowFactor: eclipse, ring,
+            litBlend: realistic ? approachLitBlend(d.distM, radiusM(d.id)) : 0,
+          };
           sprite = texturedSprite(
             def, r, sunCam, axisCam, nodeCam,
             iauPrimeMeridianDeg(rid, timeMs), tex,
@@ -3061,7 +3118,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           );
           texturedIds.push(d.id);
         } else {
-          sprite = shadedSprite(def, r, sunCam, { realistic, shadowFactor: eclipse, ring: null });
+          sprite = shadedSprite(def, r, sunCam, {
+            realistic, shadowFactor: eclipse, ring: null,
+            litBlend: realistic ? approachLitBlend(d.distM, radiusM(d.id)) : 0,
+          });
         }
         // the sprite's shaded disc has radius (sprite.width/2 − 1); scale the
         // whole sprite so THAT maps to exactly r (the +1 border must not
@@ -3499,6 +3559,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return Math.min(MAX_CAMERA_DISTANCE_M, Math.max(MIN_ZOOM_RADII * radiusM(focusId), d));
   }
 
+  /** Exponential zoom applied to the SURFACE-RELATIVE distance. Multiplying
+   *  CENTER distance (the old form) removes a constant fraction of the whole
+   *  radius+altitude sum, so near a surface one notch deletes most of the
+   *  remaining ALTITUDE — live symptom (human, 2026-07-28): "fine until 300
+   *  miles out and then one click zooms you in to 5 miles". At 300 mi over
+   *  the Moon, center distance is 1,380 mi; one x0.847 notch lands at
+   *  altitude ~90 mi (-70%%). dist' = R + (dist - R)*g scales ALTITUDE by g
+   *  instead (the map's own feel, Google-Earth semantics); far away
+   *  (dist >> R) it converges to the old dist*g within a fraction of a
+   *  notch, so approach/seam behaviour at planetary range is unchanged. */
+  function stepDist(d: number, g: number): number {
+    return surfaceRelativeStep(d, radiusM(focusId), g);
+  }
+
   /** the LIVE camera pose (layout space) for a raycast: look-at = focus centre
    *  + focusOff, camPos = look-at + dir·dist, basis from the axis-up rule. */
   function liveCamera(): { camPos: Vec3; basis: CamBasis; k: number; center: Vec3 } {
@@ -3529,7 +3603,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (exited) return;
     cancelFlight();
     const g = zoomStepFactor(deltaY);
-    distTarget = clampDist(distTarget * g);
+    distTarget = clampDist(stepDist(distTarget, g));
     // the Earth anchor hands the camera back to the LIVE MAP at the seam — keep
     // its zoom centred so the handoff frame is untouched (the map itself does
     // cursor-zoom once control returns). Every other body gets zoom-to-cursor.
@@ -3559,7 +3633,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // per-body closest approach; for Earth the seam (scale > 1 inside
     // draw()) hands back to the map long before this floor could bind.
     // MIN_ZOOM_RADII (not the arrival clamp) — manual zoom skims the surface.
-    dist = clampDist(dist * zoomStepFactor(deltaY));
+    dist = clampDist(stepDist(dist, zoomStepFactor(deltaY)));
     distTarget = dist;
     kick();
   }
@@ -3654,7 +3728,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // translation ⇒ pan. Together = zoom toward the pinch centroid + drag,
       // the map's two-finger gesture.
       if (pinchDist > 0 && d2 > 0) {
-        dist = clampDist(dist * (pinchDist / d2));
+        dist = clampDist(stepDist(dist, pinchDist / d2));
         distTarget = dist;
       }
       panOffsetBy(cx2 - pinchCx, cy2 - pinchCy);

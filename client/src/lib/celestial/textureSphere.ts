@@ -214,6 +214,20 @@ export function lambertWeight(lit: number): number {
   return 0.05 + 0.95 * day * shade;
 }
 
+/** Approach-lit blend (2026-07-28, human report "you can't see the dark side
+ *  of the moon" up close): 0 = full sun/phase realism (far), 1 = surface lit
+ *  everywhere (near). Blends over SURFACE-RELATIVE altitude in body radii —
+ *  full realism at/above 6.3 R altitude, fully lit at/below 2.0 R — the same
+ *  band the standalone /moon.html viewer ships (3,500..11,000 km over the
+ *  Moon), so the two moon surfaces agree. Only meaningful with realistic
+ *  lighting ON; realistic OFF is already full-bright. */
+export function approachLitBlend(distM: number, radiusM: number): number {
+  if (!(radiusM > 0) || !Number.isFinite(distM)) return 0;
+  const altR = Math.max(0, distM - radiusM) / radiusM;
+  const t = Math.max(0, Math.min(1, (altR - 2.0) / (6.3 - 2.0)));
+  return 1 - t * t * (3 - 2 * t);
+}
+
 /**
  * Compose a textured sprite into `out` (RGBA, size²·4): texel fetch at
  * (lonNode − W, lat) + Lambert light. lightCam null ⇒ emissive (full-bright
@@ -243,6 +257,9 @@ export function composeTexturedSprite(
     rowEnd?: number;
     texLonOffsetDeg?: number;
     fullBright?: boolean;
+    /** approach-lit blend 0..1 — lifts the shaded weight toward full-bright
+     *  as the camera nears the surface (approachLitBlend). */
+    litBlend?: number;
     shadowFactor?: number;
     ringShadow?: RingShadowParams | null;
   },
@@ -254,6 +271,7 @@ export function composeTexturedSprite(
   const bump = opts?.bump ?? null;
   const bk = opts?.bumpStrength ?? 1.2;
   const fullBright = !!opts?.fullBright;
+  const litBlend = Math.max(0, Math.min(1, opts?.litBlend ?? 0));
   const shadowFactor = opts?.shadowFactor ?? 1;
   const ring = opts?.ringShadow ?? null;
   const s = lightCam && !fullBright ? norm3(lightCam) : null;
@@ -302,6 +320,9 @@ export function composeTexturedSprite(
       w = lambertWeight(lit);
       // B6 eclipse/umbra: darken the whole lit disc by the shadow factor.
       if (shadowFactor !== 1) w *= shadowFactor;
+      // approach-lit: near the surface the night side lifts toward full
+      // visibility (inspection beats phase realism when you are landing).
+      if (litBlend > 0) w += (1 - w) * litBlend;
       // B6 ring shadow: reconstruct the body-frame surface unit normal from the
       // LUT's node-frame lon/lat and test it against the Sun in the same frame.
       if (ring && lit > 0) {
