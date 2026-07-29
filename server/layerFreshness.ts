@@ -40,6 +40,10 @@ export const LAYER_TO_STREAM: Readonly<Record<string, string>> = Object.freeze({
   buoys: "buoys",
   rivergauges: "usgswater",
   alerts: "nwsalerts",
+  // spaceweather polls two streams (swpckindex 3-hourly, swpcxray ~1-min);
+  // this join can only carry one — swpcxray is the faster-cadence, more
+  // failure-sensitive of the pair, so a stall shows up here soonest.
+  spaceweather: "swpcxray",
   plant_operations: "epacamd",
   faa_airports: "faastatus",
   border_waits: "cbpborderwait",

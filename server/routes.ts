@@ -62,6 +62,7 @@ import shadowZones from "../datacore/shadow_zones.json";
 import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
+import { bootSpaceWeatherPoll, latestSpaceWeather } from "./spaceWeather";
 import { bootTreasuryPoll, latestAuctions } from "./treasuryAuctions";
 import { bootDroughtPoll, latestDrought } from "./droughtMonitor";
 import { bootCensusPoll, latestImports, censusEnabled } from "./censusImports";
@@ -1828,6 +1829,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       zone_only: hit.zoneOnly,
       note: "polygon-carrying alerts only; zone-coded alerts without geometry are counted in zone_only (resolution is a filed follow-up)",
       alerts: hit.display,
+    });
+  });
+
+  // NOAA SWPC space weather (RAW overlay — keyless, non-geospatial: planetary
+  // K-index/G-scale + GOES X-ray flux/flare class, both official published
+  // readings + their official classification formulas, no predictive claim.
+  // GRID-ADJACENT FUTURE ROOTS #1 (2026-07-07) / live-data gap sweep
+  // (2026-07-27): Mike's GIC hypothesis (geomagnetic storms stress grid
+  // transformers) stays gate-1-unvalidated — this ships archiver + display
+  // only. Non-geospatial like attention/cot: status-badge poll on the map
+  // page, full standalone view at #/data/space-weather.
+  bootSpaceWeatherPoll();
+  app.get("/api/data/space-weather", (_req, res) => {
+    const hit = latestSpaceWeather();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "NOAA SWPC", warming_up: true, kindex: null, xray: null });
+    }
+    res.set("Cache-Control", "public, max-age=120");
+    res.json({
+      kind: "raw",
+      source: "NOAA Space Weather Prediction Center (services.swpc.noaa.gov) — US government work, public domain",
+      attribution: "NOAA Space Weather Prediction Center",
+      time: hit.at,
+      note: "official readings + NOAA's own published Kp->G-scale / flux->GOES-class formulas; geomagnetic-storm-stresses-grid-transformers stays an unvalidated hypothesis, not a signal",
+      kindex: hit.kindex,
+      xray: hit.xray,
     });
   });
 

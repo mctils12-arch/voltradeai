@@ -1,0 +1,23 @@
+{
+ "stream": "swpcxray",
+ "storage": "append-only JSONL day-files under <archive>/swpcxray/ (gz after 2 days)",
+ "written_by": "server/spaceWeather.ts archiveXray (5-min poll, eager boot)",
+ "source": "NOAA SWPC GOES primary X-ray flux (services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json)",
+ "license": "US government work, public domain",
+ "attribution": "NOAA Space Weather Prediction Center",
+ "schema_version": 1,
+ "field_map": {
+  "time_tag": "UTC minute of reading",
+  "satellite": "GOES satellite number, or null",
+  "energy": "energy band: 0.05-0.4nm (short) or 0.1-0.8nm (long, used for GOES flare classification)",
+  "flux": "electron-corrected X-ray flux, W/m^2",
+  "electron_contamination": "NOAA's own contamination flag for this reading, or null (upstream field is spelled 'electron_contaminaton' — normalized here)"
+ },
+ "confidence_model": "RAW official readings, both energy bands archived. NOAA's own published flux -> GOES flare-class formula (A/B/C/M/X) is applied for display (classifyFlare), not a derived/fitted signal.",
+ "geo_fields": [],
+ "entity_key": "time_tag+energy",
+ "sentiment": null,
+ "started": "2026-07-29",
+ "cadence": "5-min poll of a ~1-minute-resolution, 1-day rolling upstream window",
+ "_note": "Universal archive envelope (approved 2026-07-04). Paired stream: swpckindex.json (planetary K-index, same PR). Cache/display history caps to the long band's most recent 180 points (~3h) — the archive keeps everything, only the client payload is capped."
+}

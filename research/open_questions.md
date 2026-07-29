@@ -5088,7 +5088,19 @@ Filed with hypotheses so future sessions can pick them up (Mike's
 instruction verbatim: "Log two future candidates in the research/
 ideas backlog (not active build)").
 
-1. NOAA GEOMAGNETIC-STORM / SPACE-WEATHER FEED — "viable now, just
+1. NOAA GEOMAGNETIC-STORM / SPACE-WEATHER FEED — **[ARCHIVER + RAW
+   DISPLAY SHIPPED 2026-07-29, v1.0.538]** — server/spaceWeather.ts
+   (planetary K-index/G-scale + GOES X-ray flux/flare-class, both
+   keyless, 5-min poll), route /api/data/space-weather, standalone
+   view client/src/pages/spaceweather.tsx (#/data/space-weather, same
+   non-geospatial pattern as attention.tsx/cot.tsx — scalar time
+   series, not a map layer). See experiments.md same date for the
+   full trace. STILL OPEN: the GIC-vs-outage gate-1 validation below
+   was NOT attempted (archiver+display only); aurora oval
+   (ovation_aurora_latest.json) was NOT built (continuous grid, needs
+   its own gridded-render design, filed as a separate follow-up
+   [PIPELINE]). Original text preserved below for the still-open
+   ladder path. "Viable now, just
    not prioritized." Free national feeds from NOAA SWPC (planetary
    K-index, G1-G5 storm scales, alerts/warnings JSON; US-gov public
    domain). HYPOTHESIS (Mike's, verbatim core): "geomagnetic storms

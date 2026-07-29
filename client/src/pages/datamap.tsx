@@ -23,6 +23,7 @@ import EarningsView from "./earnings";
 import ShortVolView from "./shortvol";
 import AttentionView from "./attention";
 import CotView from "./cot";
+import SpaceWeatherView from "./spaceweather";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import GridStressView from "./gridstress";
@@ -594,7 +595,7 @@ const HAZARD_RADIUS_KM_DEFAULT = 50;
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
 const DEFAULT_ON: Record<string, boolean> = ALL_OFF
   ? { imagery: true }
-  : { imagery: true, places: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, attention: true, cot: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
+  : { imagery: true, places: true, aircraft: true, sites: true, insider: true, earnings: true, shortvol: true, attention: true, cot: true, spaceweather: true, powerplants: true, trains: true, shadowstats: true, portdwell: true, graph: true };
 
 // Layer panel v2 (2026-07-04): with 7+ layers the flat list stopped scaling —
 // collapsible groups keep the panel scannable as layers keep arriving.
@@ -636,6 +637,7 @@ const LAYER_GROUP: Record<string, string> = {
   floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
+  spaceweather: "environmental",
   earthquakes: "environmental",
   buoys: "environmental",
   biomass: "environmental",
@@ -2003,6 +2005,10 @@ export default function DataMapPage() {
   const [attentionOpen, setAttentionOpen] = useState(() => window.location.hash === "#/data/attention");
   // Full CFTC COT view (#/data/cot) — same overlay pattern.
   const [cotOpen, setCotOpen] = useState(() => window.location.hash === "#/data/cot");
+  // Full NOAA SWPC space-weather view (#/data/space-weather) — same overlay
+  // pattern (non-geospatial, like attention/cot: status badge here, full
+  // view in the standalone page).
+  const [spaceWeatherOpen, setSpaceWeatherOpen] = useState(() => window.location.hash === "#/data/space-weather");
   // Everything Graph full view (#/data/graph) — same overlay pattern.
   const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
   // Streams inventory (#/data/streams) — same overlay pattern (Phase 4).
@@ -2321,6 +2327,7 @@ export default function DataMapPage() {
       setShortvolOpen(window.location.hash === "#/data/short-volume");
       setAttentionOpen(window.location.hash === "#/data/attention");
       setCotOpen(window.location.hash === "#/data/cot");
+      setSpaceWeatherOpen(window.location.hash === "#/data/space-weather");
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
@@ -9932,6 +9939,33 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.attention, mapSettled, setStatus]);
 
+  // ── NOAA SWPC space weather (RAW; non-geospatial — same status-badge +
+  // full-view pattern as attention). Kp/X-ray flux archiver shipped this
+  // PR; the GIC-vs-outage hypothesis stays gate-1-unvalidated. Server
+  // polls every 5 min; this poll only refreshes the panel's badge. ──
+  useEffect(() => {
+    if (!enabled.spaceweather) { setStatus("spaceweather", "off"); return; }
+    if (!mapSettled) { setStatus("spaceweather", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("spaceweather", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/space-weather");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("spaceweather", "loading", 0, "warming up — first poll can take a minute"); return; }
+        const note = d.kindex?.gScale?.label && d.xray?.flare?.label
+          ? `Kp ${d.kindex.gScale.label} · ${d.xray.flare.label}-class` : undefined;
+        setStatus("spaceweather", "active", undefined, note);
+      } catch {
+        if (!stop) setStatus("spaceweather", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.spaceweather, mapSettled, setStatus]);
+
   // ── CFTC Commitments of Traders, disaggregated (RAW; non-geospatial —
   // same inline-panel-row + full-view pattern as insider/earnings/shortvol/
   // attention). BUILD ORDER 5 #2 pipeline shipped API-only 2026-07-05; this
@@ -10017,6 +10051,7 @@ export default function DataMapPage() {
     id === "earthquakes" ? <Activity size={15} /> :
     id === "buoys" ? <Waves size={15} /> :
     id === "attention" ? <Eye size={15} /> :
+    id === "spaceweather" ? <Sparkles size={15} /> :
     id === "cot" ? <Scale size={15} /> :
     id === "insider" || id === "earnings" ? <FileText size={15} /> :
     id === "shortvol" ? <TrendingUp size={15} /> :
@@ -10038,7 +10073,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "spaceweather" ? "readings" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -10450,6 +10485,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "spaceweather" && on && (
+          // Same pattern as attention/cot: non-geospatial readings don't
+          // belong in a layer-toggle sidebar — a status badge here, the
+          // full K-index/X-ray view behind one tap.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/space-weather"; setSpaceWeatherOpen(true); }}>
+              Open space weather — K-index, X-ray flare class →
+            </button>
+          </div>
+        )}
         {l.id === "graph" && on && (
           // Same pattern as insider/earnings/shortvol: an entity-search +
           // connections view doesn't belong in a layer-toggle sidebar.
@@ -10536,6 +10582,9 @@ export default function DataMapPage() {
       )}
       {cotOpen && (
         <CotView onBack={() => { window.location.hash = "#/data"; setCotOpen(false); }} />
+      )}
+      {spaceWeatherOpen && (
+        <SpaceWeatherView onBack={() => { window.location.hash = "#/data"; setSpaceWeatherOpen(false); }} />
       )}
       {graphOpen && (
         <GraphView onBack={() => { window.location.hash = "#/data"; setGraphOpen(false); }} />

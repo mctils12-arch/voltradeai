@@ -32795,3 +32795,110 @@ it exists to collect. Build clean.
 NEXT: needs chrome://gpu from the affected machine, whether terrain was on,
 and whether it reproduces on demand or only after a long session. Until
 then the mechanism is a HYPOTHESIS, labelled as such.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-29 · [PIPELINE] · T-DATACORE (crosses into T-CLIENT for the
+standalone view + sidebar wiring, same PR per the cross-territory rule —
+this is one logical change: archiver + its display)
+NOAA SWPC space weather: planetary K-index/G-scale + GOES X-ray flux/
+flare-class archiver + RAW display (v1.0.538)
+
+PRIMARY ACTION THIS SESSION. Read CLAUDE.md, research/ in full, and
+KNOWN BROKEN (nothing top-of-report — the trading loop's own liveness is
+unaffected; the one open item, KNOWN BROKEN #26 options_scanner.py
+alphabetical-not-magnitude sort, is a T-BOT candidate-ordering bug found
+2026-07-29 by an earlier session today, not a blocker for product work
+per this session's own charter). This session is [PRODUCT]: picked up
+research/open_questions.md's "GRID-ADJACENT FUTURE ROOTS" #1 (filed
+2026-07-07, Mike's own hypothesis) via the 2026-07-27 live-data gap
+sweep's RECOMMENDED ORDER, which named SWPC space weather step (2) — the
+one keyless, already-hypothesis-backed candidate that ties three existing
+systems (grid GIC stress, orbital drag/SEU, aircraft polar-route
+radiation).
+
+WHAT SHIPPED: server/spaceWeather.ts — two independent keyless archivers
+(NWS-alerts pattern: fetch/parse/archive/cache/boot-poll, 5-min interval)
+for services.swpc.noaa.gov/products/noaa-planetary-k-index.json (3-hourly
+Kp, ~60-row window) and .../json/goes/primary/xrays-1-day.json (~1-min
+GOES XRS flux, both energy bands, ~1-day window). Both endpoints
+curl-verified live this session (shapes matched the 2026-07-27 sweep's
+claim exactly). Dedup keys: time_tag for K-index, time_tag+energy for
+X-ray (two bands share a time_tag). classifyKp() and classifyFlare()
+apply NOAA's own PUBLISHED classification formulas (Kp->G-scale,
+flux->GOES letter+magnitude) — treated as RAW display per the same
+reasoning as alerts.severity color-coding, NOT a derived/fitted signal,
+so no gate-2 wait. Route: GET /api/data/space-weather (server/routes.ts).
+Manifests: datacore/manifests/swpckindex.json + swpcxray.json. Layer
+registry: datacore/layers.json "spaceweather" entry (group=environmental,
+costTier=light) + server/layerFreshness.ts LAYER_TO_STREAM (joined to the
+faster-cadence swpcxray stream — the join can only carry one of the two).
+
+UI: K-index and X-ray flux are SCALAR time series, not geospatial — no
+map layer is the right shape (confirmed via an Explore-agent survey of
+the existing pipeline patterns before writing code: nwsAlerts.ts /polygon
+fill, ndbcBuoys.ts /symbol points, and the attention.tsx/cot.tsx
+non-geospatial "status badge on the map page + standalone full view"
+pattern used for exactly this shape of data). Built
+client/src/pages/spaceweather.tsx mirroring attention.tsx's Sparkline
+component and layout (current Kp + G-scale badge + sparkline, current
+X-ray flux + flare-class badge + log-scale sparkline, both with
+timestamps/attribution), wired into datamap.tsx exactly like
+attention/cot: DEFAULT_ON (on by default, zero map-render cost),
+LAYER_GROUP=environmental, sidebar "Open space weather" launcher button,
+a non-geospatial status-poll useEffect (badge only, e.g. "Kp G3 ·
+C1.16-class"), hash routing (#/data/space-weather), and the render block.
+
+SCOPE DECISION, stated honestly: the aurora oval endpoint
+(ovation_aurora_latest.json, verified 200 in the 2026-07-27 sweep) was
+NOT built this session. It is a continuous probability grid, not a point
+or polygon feed — the honest analogue is the wx-grid-* gridded-sample
+pattern or a raster/heatmap layer, a materially larger and riskier build
+than the two scalar streams for one session to ship fully tested and
+verified. Filed as a follow-up below rather than rushed. The GIC-vs-
+outage validation study (gate 1: correlate K-index/G-scale events against
+DOE OE-417 disturbance reports) was also NOT attempted — this PR is the
+archiver + RAW display only, per the recommended order's own framing
+("meanwhile build SWPC space weather" as the keyless step, separate from
+the hypothesis test).
+
+VERIFIED: 7 new tests in server/spaceWeather.test.ts (parse, both
+classification-formula boundary tables, archive dedup for both streams
+including the time_tag+energy key on X-ray, gz rollover, and a
+refreshSpaceWeatherCache integration test proving one source failing
+(X-ray 500) leaves the other's cache (K-index) intact rather than going
+blank). Full suite: 916/916 server tests pass (was 909 before this PR).
+server/layerFreshness.test.ts's "every LAYER_TO_STREAM value is a real
+manifest" and "every key is a real layer id" ratchets both pass against
+the new entries (no hand-verification bypassed — self-checking). npm run
+check: 78 pre-existing errors, byte-identical to the pre-PR baseline
+(diffed line-by-line; only line numbers shifted) — confirmed via
+git-stash A/B, not assumed. npm run build: clean, dist/index.cjs +
+dist/public built without new warnings. python3 -m pytest: unavailable
+in this session's sandbox (module not installed) — moot anyway, zero
+Python files touched.
+VISUAL HARNESS: npm run visual hung in this container past the tool's
+120s foreground window (same environment issue the 2026-07-28 callsign-
+crush session hit and documented) — moved to background; result to be
+recorded in a follow-up note once it returns, per that session's own
+precedent of stating the harness caveat rather than skipping the
+disclosure.
+
+BACKTEST: N/A — no trading/scoring/sizing/execution logic touched, pure
+data pipeline + RAW display (rule 3 exemption).
+
+CROSS-TIES, graded honestly per the integration principle: K-index/
+G-scale vs. the grid layers (GIC hypothesis, REAL but UNVALIDATED —
+gate-1 pending); X-ray flux vs. orbital_sats (drag/SEU risk during
+flares, REAL physics, no join built yet) and vs. aircraft polar routes
+(HF blackout/radiation dose risk, REAL physics, no join built yet) —
+none of these three joins are built this session; this PR is the
+archiver + display only, the joins are the next layer up the stack.
+
+NEXT (filed, not started): (1) aurora oval as its own small [PIPELINE]
+PR, gridded-sample rendering, own visual-harness pass; (2) GIC gate-1:
+correlate archived K-index/G-scale storm events against DOE OE-417
+electric disturbance reports for storm-coincident outage excess vs. base
+rate, once enough archive history accumulates; (3) SO2 column via GIBS +
+USGS volcano alert levels, the 2026-07-27 sweep's other recommended
+step — still queued, genuinely new, cheapest build on that board (mirrors
+the existing no2/aerosol GIBS pipeline almost exactly).

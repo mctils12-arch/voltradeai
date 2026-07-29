@@ -1,0 +1,22 @@
+{
+ "stream": "swpckindex",
+ "storage": "append-only JSONL day-files under <archive>/swpckindex/ (gz after 2 days)",
+ "written_by": "server/spaceWeather.ts archiveKIndex (5-min poll, eager boot)",
+ "source": "NOAA SWPC planetary K-index (services.swpc.noaa.gov/products/noaa-planetary-k-index.json)",
+ "license": "US government work, public domain",
+ "attribution": "NOAA Space Weather Prediction Center",
+ "schema_version": 1,
+ "field_map": {
+  "time_tag": "start of the 3-hour UTC window, dedup key (readings are immutable once posted)",
+  "kp": "planetary Kp index, 0-9 in thirds",
+  "a_running": "running daily A-index at time of reading, or null",
+  "station_count": "number of contributing magnetometer stations, or null"
+ },
+ "confidence_model": "RAW official readings. NOAA's own published Kp -> G-scale storm-class formula is applied for display (classifyKp), not a derived/fitted signal. Mike's GIC hypothesis (geomagnetic storms stress grid transformers) is filed in research/open_questions.md GRID-ADJACENT FUTURE ROOTS #1 and stays gate-1-unvalidated — this stream is display + archive only.",
+ "geo_fields": [],
+ "entity_key": "time_tag",
+ "sentiment": null,
+ "started": "2026-07-29",
+ "cadence": "5-min poll of a 3-hourly, ~7.5-day rolling upstream window",
+ "_note": "Universal archive envelope (approved 2026-07-04). Live-data gap sweep 2026-07-27 (research/open_questions.md) picked this up as the recommended next keyless build. Paired stream: swpcxray.json (X-ray flux, same PR)."
+}
