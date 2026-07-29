@@ -32902,3 +32902,17 @@ rate, once enough archive history accumulates; (3) SO2 column via GIBS +
 USGS volcano alert levels, the 2026-07-27 sweep's other recommended
 step — still queued, genuinely new, cheapest build on that board (mirrors
 the existing no2/aerosol GIBS pipeline almost exactly).
+
+FOLLOW-UP same session, visual harness result (was backgrounded above):
+`npm run visual --page data` completed after ~4.5 min in this container
+(the known slow-environment issue, not a hang) — **0 hard failures** at
+390/768/1440px, data-all-off zero-cost check, and data-scale battery all
+PASS. The warnings printed (touch-target sizes on unrelated chrome —
+"About the Bot", "Sign in", layer-panel icon buttons; perf p95 upload-
+hitch spikes; one clipped vessels tooltip) are pre-existing baseline
+noise, confirmed by grep: nothing in the output references spaceweather/
+"space weather" at all — the new sidebar row and status badge introduced
+zero new warnings or layout issues. PR #640 opened from
+claude/beautiful-planck-cwqv80, noted to wait for merge until after
+market close per the deploy-coupling rule (session started at the 9:30 ET
+boundary).
