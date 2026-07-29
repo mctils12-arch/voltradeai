@@ -2516,6 +2516,18 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-site-card-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 8px; padding: 12px 14px 0; flex: 0 0 auto;
+  /* NAME BEATS CHROME (2026-07-27): the flight card carries five 32px icon
+     buttons (44px under the touch floor) = 160-220px of chrome. On a narrow
+     card that left ~40px for the title block, and since the ADS-B badge in it
+     is flex:none, the CALLSIGN was the only thing able to shrink — "SKY597"
+     rendered as "SK…". Wrapping lets the action cluster drop to its own row
+     whenever it cannot sit beside a readable name, instead of crushing it. */
+  flex-wrap: wrap; row-gap: 6px;
+}
+/* Keeps the buttons together so they wrap as ONE unit — ungrouped they would
+   peel off one at a time. margin-left:auto right-aligns them on either row. */
+.vt-card-head-actions {
+  display: flex; align-items: center; flex: 0 0 auto; margin-left: auto;
 }
 .vt-site-card-title { font-size: 14.5px; font-weight: 700; line-height: 1.3; }
 .vt-site-card-cat { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 3px; }

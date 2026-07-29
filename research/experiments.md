@@ -32634,3 +32634,51 @@ caveat) — a future session picking one of those should re-read
 `datacore/API_TERMS_DRAFT.md`/`LICENSING_AUDIT.md` first rather than
 assume "ok" the way this session and the last one could for
 unambiguous US-federal-public-domain sources.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · [REPAIR] · T-CLIENT
+Flight/space card header: the callsign was being crushed by its own
+chrome (v1.0.535)
+
+REPORTED: "on the card for the plane it cover up the name if you see" —
+screenshot showed a selected B738 rendering its callsign as "SK…"
+instead of SKY597.
+
+ROOT CAUSE (arithmetic, not guesswork). The card in the screenshot is
+~275px wide. .vt-site-card-head spent: 28px padding + ~14px grip + FIVE
+.vt-icon-btn at 32px = 160px (220px under the <=639px 44px touch floor)
++ ~32px of gaps. That leaves ~40px for the title block. Inside that
+block the ADS-B data-state badge is `flex: none` with
+`margin-left: auto`, i.e. unshrinkable — so the CALLSIGN was the only
+flex item able to give up space, and it collapsed to an ellipsis. The
+badge (shipped 2026-07-22 for the human's own "show the state of the
+data" request) was not at fault; the button cluster was, and the badge
+merely guaranteed the name lost the fight.
+
+FIX — name beats chrome, at any width. .vt-site-card-head gains
+`flex-wrap: wrap; row-gap: 6px`, the buttons are grouped into a new
+.vt-card-head-actions (display:flex, margin-left:auto, flex:0 0 auto),
+and the title block's `minWidth: 0` becomes `minWidth: 132`. The
+action cluster now drops to its own row whenever it cannot sit beside a
+readable name, instead of crushing it. Grouping matters: ungrouped, the
+buttons would have peeled off ONE AT A TIME under flex-wrap. Titles also
+gained `white-space: nowrap` + ellipsis + a `title` tooltip, so
+truncation can never be silent information loss.
+
+BLAST RADIUS, checked not assumed: .vt-site-card-head has exactly TWO
+consumers repo-wide (datamap.tsx:11224 space-body card, :11372
+flight/site card) and BOTH now carry the actions wrapper. No other card
+head exists, so no ungrouped cluster can peel.
+
+VERIFIED: production build passes (JSX balance is what a stray
+wrapper div would break). DOM measurement against the SHIPPED index.css
+at three widths x both button sizes — 275px/32px, 275px/44px touch,
+340px/32px — "SKY597" renders in full (54px needed, 54px available;
+previously ~40px) with zero horizontal header overflow, and the action
+row is confirmed to have wrapped to row 2 in each case.
+HARNESS CAVEAT, stated rather than papered over: npm run visual hung in
+this container (>7 min with no output beyond the npm banner; a second
+attempt died at launch with exit 144 earlier today, and a third flagged
+only the known shared-CPU perf-gate flake). The targeted DOM probe above
+is the actual evidence for this change; a harness re-run was kicked and
+its result is reported separately rather than assumed.

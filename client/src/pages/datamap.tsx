@@ -11225,10 +11225,14 @@ export default function DataMapPage() {
                style={{ cursor: spaceCardLocked ? "default" : "grab", touchAction: "none" }}
                title={spaceCardLocked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}>
             <span className="vt-card-grip" aria-hidden>⠿</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="vt-site-card-title">{spaceCard.name}</div>
+            <div style={{ flex: "1 1 auto", minWidth: 132 }}>
+              <div className="vt-site-card-title" title={spaceCard.name}
+                   style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {spaceCard.name}
+              </div>
               <div className="vt-site-card-cat">{spaceCard.typeLabel} · TRACKED</div>
             </div>
+            <div className="vt-card-head-actions">
             <button className="vt-icon-btn" data-vt-scale-down aria-label="Shrink card"
                     title="Smaller (size is remembered)" onClick={() => bumpSpaceCardScale(-1)}>
               <ZoomOut size={13} />
@@ -11247,6 +11251,7 @@ export default function DataMapPage() {
                     onClick={() => setSpaceFocus(null)}>
               <X size={14} />
             </button>
+            </div>
           </div>
           <div className="vt-card-detbody om-sb">
             <div className="vt-card-facts">
@@ -11368,9 +11373,12 @@ export default function DataMapPage() {
                title={cardLocked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}
                {...cardDrag}>
             <span className="vt-card-grip" aria-hidden>⠿</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: "1 1 auto", minWidth: 132 }}>
               <div className="vt-site-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{detail.title}</span>
+                <span title={detail.title}
+                      style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {detail.title}
+                </span>
                 {detail.kind === "aircraft" && (() => {
                   // DATA-STATE BADGE (human 2026-07-22: "have the adsb on the
                   // card that blinks show the state of the data"): the dot
@@ -11397,6 +11405,7 @@ export default function DataMapPage() {
               </div>
               <div className="vt-site-card-cat">{detail.subtitle}</div>
             </div>
+            <div className="vt-card-head-actions">
             <button className="vt-icon-btn" data-vt-scale-down aria-label="Shrink card"
                     title="Smaller (size is remembered)" onClick={() => bumpCardScale(-1)}>
               <ZoomOut size={14} />
@@ -11419,6 +11428,7 @@ export default function DataMapPage() {
                     onClick={() => { setDetail(null); clearTrail(); stopSatFocusRef.current?.(); }}>
               <X size={17} />
             </button>
+            </div>
           </div>
           {/* ONE row of stat chips — the whole default card (design 1a) */}
           {detail.stats && detail.stats.length > 0 && (
