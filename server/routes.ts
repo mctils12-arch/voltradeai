@@ -3450,6 +3450,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC CNS fails-to-deliver keyed mirror (SPINOUT-READY DATA LAYER standing
+  // behavior, same "shipped-data-no-v1-API" sweep that added plant-operations
+  // above). Same latestFtd() read /api/data/ftd already uses — no new
+  // computation, no new poller; public domain US-gov data (resell: "ok"),
+  // same 503+Retry-After warming-up shape as the other cache-backed stats.
+  app.get("/api/v1/stats/secftd", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestFtd();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/secftd", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/secftd", hit.summary, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/secftd", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/secftd", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
