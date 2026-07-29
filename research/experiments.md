@@ -3,6 +3,124 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-29 (scheduled-routine session #3) [REPAIR] — bot.ts's Tier-2-scanner options slot cap had drifted stale at 3, silently blocking legitimate CSP trades below system_config.py's canonical 6-slot budget (v1.0.540, T-BOT)
+
+TERRITORY: T-BOT (server/bot.ts + new server/optionsSlotCapConsistency.test.ts).
+
+LOOP-HEALTH CHECK (session start): last 10 tagged entries = 4 REPAIR / 5
+PRODUCT / 1 PIPELINE — no thrash (well under the 7/10 threshold), progress
+floor satisfied (a PIPELINE session shipped 2026-07-29 earlier the same
+day). `/api/health`: all subsystems ok, bot active, drawdown 0.0%,
+liveness not dark — no critical outage forcing a specific repair.
+
+WHAT I FOUND (audit-log-driven, per SESSION BUDGET's top primary-action
+category — "fix a bug seen in audit logs"): `/api/diag/audit` showed
+`OPTIONS-SLOT-FULL` firing repeatedly for VXUS/KWEB with the message
+"options slots full (4/3)" — a count (4) already exceeding its own stated
+cap (3). `/api/diag/positions-detail` confirmed the account genuinely held
+4 real CSP options positions (AAL x2 expiries, INTC, PFE — all legitimate
+short puts, not a QQQ-overlay-exclusion miscount). Traced the "3" to
+`executeTrades()`'s Tier-2-scanner options path in `server/bot.ts`:
+`const MAX_OPTIONS_POSITIONS = 3;` — an independent, LOCAL hardcoded
+constant, never wired to `system_config.py`.
+
+READ BEFORE WRITE found the real story: `system_config.py` already has a
+`MAX_OPTIONS_POSITIONS` key (added 2026-07-11, the KNOWN BROKEN #3 fix),
+explicitly commented as "Max total open OPTIONS (CSP) positions" and
+"the single source of truth," value **6**, held constant across every
+regime by design (so CSP keeps running in BEAR/PANIC/NEUTRAL). That same
+2026-07-11 fix wired `tiered_strategy.py`'s `tier1_csp_core()` to respect
+that 6-slot budget when generating SELL_CSP tier actions — but it never
+touched `bot.ts`'s *separate* Tier-2-scanner options slot check, which
+counts the exact same thing (total open `us_option` positions) against
+its own stale, independent "3". Two subsystems produce CSP-eligible
+trades — the tier engine (T1-4 dispatch, `bot.ts:3526`, correctly
+uncapped at the execution layer because Python already rations to 6) and
+the Tier-2 scanner (`executeTrades()`, `new_trades` with `use_options`)
+— and only the second one enforces a position-count ceiling, at a value
+2 slots stricter than what the rest of the system has already decided is
+correct. Net effect: once *either* source filled 3 of the 6 intended
+slots, the scanner path's CSP candidates (VXUS, KWEB, observed live)
+were silently rejected — a smaller-scoped sibling of the exact
+under-utilization pattern KNOWN BROKEN #3 fixed 18 days ago, in a
+code path that fix didn't reach because it lives in a different
+language/file with an accidentally-identical constant name (READ BEFORE
+WRITE rule 3's exact warning: "before hardcoding any number, check
+system_config.py — the parameter almost always already exists there").
+
+FIX: `bot.ts`'s local `MAX_OPTIONS_POSITIONS` bumped 3 -> 6, comment
+traces both the 2026-07-11 precedent and this session's live evidence.
+Not a new threshold/policy — restoring bot.ts to agreement with the
+value `system_config.py` already declared canonical 18 days ago (same
+justification class as the 2026-07-11 fix: "a mechanical inconsistency
+bug... not a threshold/policy question," no RULE REVIEW gate).
+
+RATCHET: new `server/optionsSlotCapConsistency.test.ts` (zero prior test
+coverage existed for this constant or this check — `bot.ts` has no
+`bot.test.ts`, so this follows the established source-text-anchor
+"wiring pinned" pattern from `tier2DaemonTimeoutVisibility.test.ts`
+rather than attempting to unit-test the closure directly). Two tests:
+(1) parses `system_config.py`'s `MAX_OPTIONS_POSITIONS` and `bot.ts`'s
+local constant and asserts they match — this is the general ratchet,
+catching *any* future drift between the two files, not just this one
+fixed value; (2) pins that the `OPTIONS-SLOT-FULL` audit call still
+immediately follows the slot-cap check (wiring didn't move). A/B-verified
+via `git stash push -- server/bot.ts`: test 1 fails pre-fix (3 != 6,
+1/2 pass), both pass post-fix.
+
+GATES: fresh container needed `npm ci` (empty `node_modules`) and
+`pip install pytest numpy pandas scipy openpyxl requests` (same
+recurring bare-container gap prior sessions have logged) before any gate
+could run for real. `npx tsx --test server/*.test.ts` — 854 passed, 7
+failed (aircraftTiling, apiKeyAccounts, compression, gdeltEvents,
+owmTiles, seafloorTiles, securityMiddleware) — the same 7 pre-existing
+failures the 2026-07-27 session #3 log already named, confirmed
+unrelated (no files in common with this diff). `python3 -m pytest -q` —
+1036 passed, 3 skipped, 4 failed: `test_silent_except_ratchet.py` is the
+already-documented pre-existing pin (options_execution.py, count 7,
+line 2271, per the 2026-07-29 session #2 entry above) and
+`test_macro_snapshot_spy_dedup.py` (3 failures) — both confirmed
+pre-existing without needing a `git stash` A/B, since this diff touches
+zero Python files (`git status --short` shows only `server/bot.ts`
+modified). `npx tsc --noEmit` — 3 errors, byte-identical to the
+documented baseline (vite/client + node type-lib resolution + deprecated
+`baseUrl`, none touched this session). `npm run build` — clean,
+`dist/index.cjs` 13.0mb, same pre-existing chunk-size/dynamic-import
+warnings as prior sessions, no client/ files touched so VISUAL
+VERIFICATION doesn't apply.
+
+BACKTEST: N/A — mechanical bug fix restoring an already-approved,
+already-documented single-source-of-truth value; not a new sizing or
+threshold policy, same precedent as the 2026-07-11 KNOWN BROKEN #3 fix
+and the 2026-07-29 session #2 CSP stretch-mode fix. Live effect is
+directly observable via `/api/diag/audit` (OPTIONS-SLOT-FULL should stop
+firing until genuinely 6 options positions are held, not 3) over the
+coming days.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): more scanner-sourced CSP
+candidates surviving the slot check → more Tier-2 options fills in
+addition to the tier-engine's own CSP flow → both CSP-sourcing paths now
+share the same real budget instead of the scanner path silently ceding
+2 of its 6 intended slots → more `trade_feedback` CSP records from a
+second independent source → worth a future session checking whether
+`OPTIONS-SLOT-FULL` firings drop in frequency and whether total options
+position count stabilizes nearer 5-6 instead of capping out at 3-4.
+
+MERGE-ORDER: `package.json` (SHARED) is this session's only
+version-bump edit, last commit, minimized to the version field only.
+1.0.539 -> 1.0.540, read-and-increment at commit time; `git fetch origin
+main` confirmed `origin/main` at `e91e446`/v1.0.539 with zero advance
+since branch creation.
+
+NEXT: a future session should verify via `/api/diag/audit` that
+OPTIONS-SLOT-FULL no longer fires below 6 real positions, and that no
+symmetrical drift exists for `MAX_POSITIONS` (bot.ts's stock-side
+sibling constant, currently 8 vs. system_config.py's 6 — but that
+direction is a generous backstop matching the established
+"absolute-ceiling-set-above-the-regime-cap" design intent documented at
+bot.ts:299-303, not a starvation bug, so it was deliberately left alone
+this session per the one-logical-change rule).
+
 ## 2026-07-28 [REPAIR]x2+[PRODUCT] — follow-up queue worked: OPRA wiring completed (#636), space-view zoom/lighting/Milky-Way fixes (#637), null-pnl origin closed, 429s closed by observation (v1.0.531-534)
 
 TERRITORY: options data plane (T-BOT, #636) + celestial client (T-CLIENT,

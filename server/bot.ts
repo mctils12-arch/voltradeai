@@ -3900,7 +3900,24 @@ else:
           return true;
         }).length
       : 0;
-    const MAX_OPTIONS_POSITIONS = 3;  // Separate slots for options
+    // BUG FIX 2026-07-29: was hardcoded to 3, a stale local constant that
+    // predates system_config.py's dedicated MAX_OPTIONS_POSITIONS key
+    // (added 2026-07-11, KNOWN BROKEN #3 fix) which is explicitly
+    // documented there as "Max total open OPTIONS (CSP) positions" and
+    // "the single source of truth" at value 6, held constant across every
+    // regime. This scanner-path slot check counts the SAME thing
+    // (total open us_option positions) as tiered_strategy.py's
+    // tier1_csp_core(), which already generates up to 6 CSP candidates —
+    // so a stricter local cap of 3 here silently blocked legitimate
+    // Tier-2-scanner options trades once the tier engine (or this path
+    // itself) had filled 3 of the 6 intended slots. Live evidence
+    // 2026-07-29: OPTIONS-SLOT-FULL fired for VXUS/KWEB at "4/3" while
+    // the account correctly held 4 real CSP positions (within the 6-slot
+    // budget) — the scanner path was starving itself against a ceiling
+    // nothing else in the system agrees with. Mechanical fix restoring
+    // the documented single-source-of-truth value; not a new threshold
+    // policy (same class as the 2026-07-11 fix), no RULE REVIEW gate.
+    const MAX_OPTIONS_POSITIONS = 6;  // Separate slots for options — mirrors system_config.py's MAX_OPTIONS_POSITIONS
     let slotsUsed = stockPositions;  // Only count stocks against MAX_POSITIONS
     let optionsSlotsUsed = optionsPositions;
     let totalDeployed = Array.isArray(positions)
