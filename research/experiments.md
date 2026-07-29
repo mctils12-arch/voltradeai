@@ -32898,3 +32898,143 @@ GATE STATE: gate 1 OPEN and now accumulating — OE-417 validation runs
 once a G2+ window lands in the archive (quiet weeks prove nothing).
 Gate 2 (utility event study conditioned on GIC exposure) untouched.
 Cross-tie filed in open_questions.md BUILD PROGRESS note.
+
+────────────────────────────────────────────────────────────────────────
+## 2026-07-29 (scheduled-routine session #2) [REPAIR] — CSP stretch-mode sizing bug: the exact root cause of the "structurally starved" options tier filed 2026-07-28, fixed (v1.0.539, T-BOT)
+
+TERRITORY: T-BOT (options_execution.py, test_options_fixes.py).
+
+CONTEXT: /api/health showed the system fully healthy (all subsystems ok,
+liveness not dark, drawdown 0.0%). Loop-health ratio over the last 10
+tagged sessions: 4 REPAIR / 5 PRODUCT / 1 PIPELINE — no thrash (well
+under the 7/10 threshold), progress floor satisfied (a PIPELINE session
+shipped today). Per SESSION BUDGET, "fix a bug seen in audit logs"
+outranks starting a new experiment — `/api/diag/audit` showed the CSP
+tier's T2-FAIL messages the 2026-07-28 session had already flagged
+("Not enough capital to sell cash-secured put") still firing on every
+single Tier-2 CSP attempt (PYPL $5,500, DRAM $3,900, AAOI $6,500, APLD
+$2,000, IONQ $2,700, CRWV $5,000, live 2026-07-29). That session filed
+it as `research/open_questions.md`'s "CSP CAPITAL ALLOCATION" open
+question, diagnosed as the options tier being structurally starved by
+100%-equity stock deployment, with a proposed LADDER PATH of a
+backtest_v2 with/without-cash-sleeve ablation.
+
+READ BEFORE WRITE this session found that diagnosis was incomplete: (1)
+`backtest_v2.py`'s own docstring states options/CSP legs are NOT
+simulated at all ("no historical options / short-interest data") — the
+filed ladder path can't actually run as written without first building
+an options-P&L simulator, a much bigger undertaking; (2) tracing
+`_select_sell_put()` (options_execution.py) end to end found a
+self-contained sizing bug that reproduces the exact observed failure
+regardless of how much real buying power the account has.
+
+ROOT CAUSE: `_select_sell_put()`'s AFFORDABILITY FILTER (2026-05-22)
+computes `affordable_budget = max(equity * size_pct, equity * 0.02)` — a
+2%-of-equity floor — to decide which strikes are "affordable," and its
+GRACEFUL DEGRADATION "stretch" branch (same date) widens that further to
+up to 20% of equity when nothing fits the normal budget, explicitly to
+rescue tickers that would otherwise get zero CSP exposure. But the FINAL
+sizing calculation 80-ish lines later (`max_contracts = int(equity *
+size_pct / cash_per_contract)`) never knew about either the 2% floor or
+the stretch — it divided by the raw, often much smaller, Kelly-scaled
+`size_pct` alone. Reproduced exactly with the live PYPL numbers: equity
+$110k, a plausible compounded `size_pct` of 0.5% (several sub-1.0
+Kelly/vol/confidence/regime/earnings/time/heat/liquidity scalars
+multiplied together, per `_dynamic_options_size()`) → affordable_budget
+floors at $2,200, stretch mode fires and picks the $55 strike ($5,500,
+inside the 20%/$22,000 stretch ceiling, correctly "affordable" by the
+function's own logic) — then `max_contracts = int(equity * size_pct /
+cash_per_contract) = int(110000*0.005/5500) = int(550/5500) = 0`,
+guaranteeing the "Not enough capital" error on every stretch-mode trade,
+defeating the entire reason the stretch escape hatch exists. This is a mechanical inconsistency bug
+(two computations of "how much budget backs this trade" disagreeing),
+not a threshold/policy question — no RULE-REVIEW gate applies, same
+class as KNOWN BROKEN #3's MAX_OPTIONS_POSITIONS fix.
+
+FIX: a new `effective_budget` variable is set once, alongside
+`affordable_budget`, and updated by the stretch branch to
+`smallest_strike * 100` when it fires. The final `max_contracts` calc
+now divides by `effective_budget` — the same figure that already
+qualified this exact strike as "affordable" a few lines earlier —
+instead of the raw `equity * size_pct`. Comments trace both the original
+2026-05-22 intent and this fix at both edit sites.
+
+VERIFIED: this sandbox is missing pytest/numpy/pandas/scipy/yfinance/
+openpyxl by default (the same recurring clean-container gap prior
+sessions have logged every time); installed them to get a real gate
+rather than a partial one. New regression test
+`test_sell_put_stretch_mode_sizing_matches_its_own_budget`
+(test_options_fixes.py) A/B-verified via `git stash`: FAILS against
+pre-fix `options_execution.py` with the byte-identical live error
+string ("Not enough capital to sell cash-secured put at $55.0 (need
+$5,500 per contract)"), PASSES post-fix with `qty=1` at the $55 strike.
+Full gate: `python3 -m pytest -q` 1039 passed, 1 failed, 3 skipped — the
+1 failure (`test_silent_except_ratchet.py`) is PRE-EXISTING, confirmed
+byte-for-byte identical via the same `git stash` A/B on this file
+(options_execution.py's silent-except count is 7 both before and after
+this diff; my change only shifted the flagged line number 2249→2271 by
+adding lines above it — zero new except handlers added, `git diff` grep
+confirms). No client/ files touched — VISUAL VERIFICATION gate does not
+apply.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): more successful stretch-mode
+CSP fills → Tier 1/2 CSP premium income resumes in exactly the
+NEUTRAL/BEAR/CAUTION regimes system_config.py's own comments say it's
+designed to carry the portfolio in → `trade_feedback` gains real CSP
+outcomes for the first time since the pipeline was repaired (v1.0.526-7)
+→ the ML retrain loop gets non-degenerate options-class training data →
+worth checking `/api/diag/ml` in a future session once fills accumulate.
+Also directly narrows (does not close) the open_questions.md CSP CAPITAL
+ALLOCATION question: some of the "starvation" was this bug, not pure
+100%-equity deployment — that question's LADDER PATH needs correcting
+away from backtest_v2 (which cannot simulate options) toward the
+shadow_portfolio counterfactual-logging pattern this codebase already
+uses for exactly this class of decision (rejected_masterkill,
+rejected_heat, rejected_other) — filed as this entry's own follow-up
+below rather than open_questions.md, since it's a direct continuation of
+this fix, not a new hypothesis.
+
+BACKTEST: N/A — mechanical bug fix restoring the code's own documented
+stretch-mode intent (2026-05-22 comments), not a new threshold or sizing
+policy; PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply the
+same way it wouldn't to KNOWN BROKEN #3's precedent. Live effect is
+directly observable via `/api/diag/audit` (stretch-mode CSP fills
+appearing instead of T2-FAIL "Not enough capital" spam) and
+`/api/diag/orders` (options orders resuming) over the coming days — a
+future session should check both.
+
+MERGE-ORDER: `package.json` (SHARED) is this session's only version-bump
+edit, last commit, minimized to the version field only. Version 1.0.538
+-> 1.0.539, read-and-increment at commit time; `git fetch origin main`
+immediately before confirmed `origin/main` still at `df676a6`/v1.0.538,
+no advance since session start. `package-lock.json` left untouched (no
+dependency change, and it was already stale at 1.0.530 vs main's 1.0.538
+before this session — a pre-existing drift, not something this PR's
+scope should fix).
+
+DEPLOY-COUPLING NOTE: session start was 2026-07-29 ~16:00 UTC / ~12:00 PM
+ET — INSIDE the 9:30-16:00 ET market window. Per this scheduled routine's
+own instruction, the PR is opened but merge should wait until after 4:00
+PM ET, since this is a real fix (not a data-only/UI-only change touching
+live order sizing) but is not a critical live break — the CSP tier has
+been silently starved this way since 2026-05-22, one more afternoon of
+the same behavior is not an emergency, and merging a live order-sizing
+change mid-session is exactly the kind of risk the market-hours hold
+exists to avoid.
+
+NEXT: (1) correct open_questions.md's CSP CAPITAL ALLOCATION ladder path
+per the DOWNSTREAM CHAIN note above (shadow_portfolio counterfactual
+logging, not an infeasible backtest_v2 ablation) — a future session
+should do this as its own small filing, not bundled here; (2) once this
+merges and a few days of live stretch-mode fills accumulate, verify via
+`/api/diag/audit` that qty=1 stretch trades are actually landing and
+check whether the 20% single-position stretch ceiling itself is a new
+RULE-REVIEW question worth counterfactual-logging (does a
+20%-of-equity single CSP position carry more concentration risk than
+its premium income is worth? — genuinely unexplored, flagged not
+answered); (3) the pre-existing `test_silent_except_ratchet.py` failure
+found during this session's gate run is unrelated to this fix and was
+left alone per the one-logical-change rule — a future session picking up
+staleness-audit fall-through should either raise the pin to 7 with a
+named justification or fix the actual handler at options_execution.py's
+newly-shifted line 2271.
