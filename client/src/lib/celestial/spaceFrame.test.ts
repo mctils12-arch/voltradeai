@@ -65,6 +65,7 @@ import {
   defaultBodyRegistry,
   seamExitArmed,
   type Vec3,
+  surfaceRelativeStep,
 } from "./spaceFrame.js";
 import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
 import { subsolarPoint } from "./ephemeris.js";
@@ -1063,4 +1064,29 @@ test("fly-to reframe of the CURRENT focus can't degenerate the look direction", 
   const real = { x: 10, y: 0, z: 0 };
   const away2 = Math.hypot(real.x, real.y, real.z) > 1 ? { x: real.x / 10, y: 0, z: 0 } : unit;
   close(away2.x, 1, 1e-12, "non-degenerate outbound uses its own direction");
+});
+
+// ── surface-relative zoom step (human report 2026-07-28: "fine until 300
+// miles out and then one click zooms you in to 5 miles") ────────────────────
+test("surfaceRelativeStep: one notch scales ALTITUDE by g near a body", () => {
+  const R = 1_737_400; // moon, m
+  const alt = 482_803; // ~300 mi
+  const g = 1 / ZOOM_STEP_PER_NOTCH;
+  const d2 = surfaceRelativeStep(R + alt, R, g);
+  close(d2 - R, alt * g, 1e-6, "altitude scales by exactly g");
+  // the OLD center-distance form deleted ~70% of the altitude in one notch:
+  const oldAlt = (R + alt) * g - R;
+  assert.ok(oldAlt < alt * 0.4, "old form really was a cliff (documented)");
+});
+
+test("surfaceRelativeStep: converges to plain dist*g at planetary range", () => {
+  const R = 1_737_400;
+  const d = 500 * R;
+  const rel = surfaceRelativeStep(d, R, ZOOM_STEP_PER_NOTCH) / (d * ZOOM_STEP_PER_NOTCH);
+  assert.ok(Math.abs(rel - 1) < 0.001, "within 0.1% of the old form when far");
+});
+
+test("surfaceRelativeStep: never returns below the surface", () => {
+  const R = 1_737_400;
+  assert.ok(surfaceRelativeStep(R * 1.0001, R, 0.01) >= R, "floor at R");
 });

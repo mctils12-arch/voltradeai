@@ -275,6 +275,13 @@ export {
 // its tests keep one name per contract.
 export { ZOOM_STEP_PER_NOTCH, zoomStepFactor, wheelDeltaForFactor, ZOOM_BUTTON_DELTAY } from "./zoomSeam.js";
 
+/** Pure form of the surface-relative zoom step (see stepDist inside the
+ *  frame): dist' = R + (dist - R)*g — altitude scales by g near a body,
+ *  converging to plain dist*g at planetary range. Exported for tests. */
+export function surfaceRelativeStep(d: number, R: number, g: number): number {
+  return R + Math.max(0, d - R) * g;
+}
+
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
@@ -3499,6 +3506,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     return Math.min(MAX_CAMERA_DISTANCE_M, Math.max(MIN_ZOOM_RADII * radiusM(focusId), d));
   }
 
+  /** Exponential zoom applied to the SURFACE-RELATIVE distance. Multiplying
+   *  CENTER distance (the old form) removes a constant fraction of the whole
+   *  radius+altitude sum, so near a surface one notch deletes most of the
+   *  remaining ALTITUDE — live symptom (human, 2026-07-28): "fine until 300
+   *  miles out and then one click zooms you in to 5 miles". At 300 mi over
+   *  the Moon, center distance is 1,380 mi; one x0.847 notch lands at
+   *  altitude ~90 mi (-70%%). dist' = R + (dist - R)*g scales ALTITUDE by g
+   *  instead (the map's own feel, Google-Earth semantics); far away
+   *  (dist >> R) it converges to the old dist*g within a fraction of a
+   *  notch, so approach/seam behaviour at planetary range is unchanged. */
+  function stepDist(d: number, g: number): number {
+    return surfaceRelativeStep(d, radiusM(focusId), g);
+  }
+
   /** the LIVE camera pose (layout space) for a raycast: look-at = focus centre
    *  + focusOff, camPos = look-at + dir·dist, basis from the axis-up rule. */
   function liveCamera(): { camPos: Vec3; basis: CamBasis; k: number; center: Vec3 } {
@@ -3529,7 +3550,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     if (exited) return;
     cancelFlight();
     const g = zoomStepFactor(deltaY);
-    distTarget = clampDist(distTarget * g);
+    distTarget = clampDist(stepDist(distTarget, g));
     // the Earth anchor hands the camera back to the LIVE MAP at the seam — keep
     // its zoom centred so the handoff frame is untouched (the map itself does
     // cursor-zoom once control returns). Every other body gets zoom-to-cursor.
@@ -3559,7 +3580,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // per-body closest approach; for Earth the seam (scale > 1 inside
     // draw()) hands back to the map long before this floor could bind.
     // MIN_ZOOM_RADII (not the arrival clamp) — manual zoom skims the surface.
-    dist = clampDist(dist * zoomStepFactor(deltaY));
+    dist = clampDist(stepDist(dist, zoomStepFactor(deltaY)));
     distTarget = dist;
     kick();
   }
@@ -3654,7 +3675,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // translation ⇒ pan. Together = zoom toward the pinch centroid + drag,
       // the map's two-finger gesture.
       if (pinchDist > 0 && d2 > 0) {
-        dist = clampDist(dist * (pinchDist / d2));
+        dist = clampDist(stepDist(dist, pinchDist / d2));
         distTarget = dist;
       }
       panOffsetBy(cx2 - pinchCx, cy2 - pinchCy);
