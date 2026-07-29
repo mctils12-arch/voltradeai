@@ -856,6 +856,13 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     affordable_budget = max(equity * size_pct, equity * 0.02)  # at least 2% of equity per CSP
     affordable_strike_max = affordable_budget / 100.0
     affordable_puts = [c for c in puts if c.get("strike", 0) * 100 <= affordable_budget]
+    # BUG FIX 2026-07-29: the final max_contracts sizing calc below must use
+    # the SAME budget that was used to decide a strike is "affordable" here,
+    # or the two disagree and every affordable candidate still gets rejected
+    # at the capital check. Tracked separately from affordable_budget because
+    # the "stretch" branch below picks a strike using a LARGER budget (up to
+    # 20% of equity) than affordable_budget reflects.
+    effective_budget = affordable_budget
 
     if not affordable_puts:
         # GRACEFUL DEGRADATION 2026-05-22: instead of failing, check if there's
@@ -870,6 +877,16 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
             # Allow up to 20% of equity for a single CSP under "stretch" mode
             # — but explicitly log and tag so the dispatcher knows.
             affordable_puts = [c for c in puts if c.get("strike", 0) == smallest_strike]
+            # BUG FIX 2026-07-29: without this, max_contracts below divides by
+            # the original (pre-stretch) budget, which is always smaller than
+            # what a stretched strike needs — guaranteeing max_contracts == 0
+            # and a "Not enough capital" failure on every stretch-mode trade,
+            # defeating the whole point of stretching. See CSP CAPITAL
+            # ALLOCATION entry in open_questions.md (2026-07-28): the
+            # "structurally starved" options tier this created live matches
+            # this bug's signature exactly (PYPL/DRAM/AAOI/APLD/IONQ/CRWV,
+            # all mid-priced names well inside the 20% stretch ceiling).
+            effective_budget = smallest_strike * 100
             import logging
             logging.getLogger("voltrade.options_execution").info(
                 f"CSP {ticker}: stretching position budget — smallest available strike "
@@ -930,10 +947,15 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
 
     # Cash required to secure: strike * 100 per contract
     cash_per_contract = best["strike"] * 100
-    max_contracts = int(equity * size_pct / cash_per_contract)  # Dynamic sizing
+    # BUG FIX 2026-07-29: use effective_budget (the budget the affordability
+    # filter above actually qualified this strike against — either the
+    # normal 2%-floor budget or the stretched one), not the raw
+    # equity * size_pct. Using the raw figure here reintroduced the exact
+    # failure the affordability pre-filter and stretch mode exist to avoid.
+    max_contracts = int(effective_budget / cash_per_contract)  # Dynamic sizing
     if max_contracts <= 0:
-        # Shouldn't reach here after the affordability pre-filter, but keep
-        # as defense-in-depth for unusual sizing edge cases.
+        # Shouldn't reach here now that sizing matches the affordability
+        # filter's budget, but keep as defense-in-depth for rounding edges.
         return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)"}
 
     qty = min(max_contracts, 2)  # Conservative: max 2 contracts

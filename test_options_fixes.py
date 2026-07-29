@@ -301,6 +301,39 @@ class TestSizePctParameter(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertIsNone(result.get("error"))
 
+    def test_sell_put_stretch_mode_sizing_matches_its_own_budget(self):
+        """
+        BUG FIX 2026-07-29 regression: when no strike fits the normal
+        size_pct/2%-floor budget, _select_sell_put "stretches" to the
+        smallest available strike if it's within 20% of equity (the
+        2026-05-22 GRACEFUL DEGRADATION branch) — but the final
+        max_contracts calc used to divide by the ORIGINAL tiny budget
+        instead of the stretched one, guaranteeing max_contracts == 0 and
+        an "Not enough capital" error on every single stretch-mode trade.
+
+        Equity $110k, size_pct 0.005 (0.55% — a plausible Kelly-scaled
+        value after several sub-1.0 scalars compound): normal budget =
+        max(110000*0.005, 110000*0.02) = $2,200. Only strike available is
+        $55 (needs $5,500) — exceeds $2,200 but is well inside the 20%
+        stretch ceiling ($22,000), so stretch mode should fire and
+        succeed with 1 contract, not fail.
+        """
+        from options_execution import _select_sell_put
+        contracts = [
+            {"occ_symbol": "PYPL260918P00055000", "option_type": "put",
+             "strike": 55.0, "bid": 1.10, "ask": 1.30, "mid": 1.20,
+             "delta": -0.29, "gamma": 0.02, "theta": -0.03, "iv": 0.35,
+             "volume": 200, "open_interest": 900, "expiry": "2026-09-18",
+             "days_to_expiry": 51}
+        ]
+        result = _select_sell_put(contracts, 68.0, 110000, "PYPL", 0.005)
+        self.assertIsNone(
+            result.get("error"),
+            f"stretch-mode CSP should succeed, got: {result.get('error')}",
+        )
+        self.assertEqual(result.get("qty"), 1)
+        self.assertEqual(result.get("strike"), 55.0)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEST 6: Options Manager — DTE Exit Logic
