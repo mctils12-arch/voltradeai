@@ -3334,6 +3334,36 @@
 
 ## OPEN RESEARCH QUESTIONS
 
+### CSP CAPITAL ALLOCATION — should the bot reserve cash collateral for its options tier? (filed 2026-07-28)
+
+CONTEXT: after the options pipeline was repaired end-to-end (v1.0.526-527
++ #636), every Tier2 CSP candidate now reaches the CAPITAL check and dies
+there: "Not enough capital to sell cash-secured put" (XLP/KO/INTC/AAL/
+DRAM observed live 07-28). Equity ~$110k is fully deployed in stock
+positions, so no CSP can post its strike*100 cash collateral. The
+options tier is code-healthy but structurally starved.
+
+QUESTION (RULE-REVIEW class — needs evidence, not vibes): would reserving
+a cash sleeve (e.g. 10-20% of equity) for CSP collateral raise long-run
+compound growth vs. the current 100%-equity deployment? PRIOR (stated
+before testing): premium selling in high-VRP regimes is the bot's
+designed edge; a starved options tier means the regime blocks that edge
+exactly when system_config's own comments say it should fire ("BEAR is
+prime time for premium selling"). Expect a modest sleeve to WIN in
+NEUTRAL/BEAR regimes and LOSE slightly in strong bull tapes.
+
+LADDER PATH: backtest_v2 ablation — run with/without a 15% reserved
+sleeve across regime splits (gate 3 evidence); no threshold change ships
+without it per RULE REVIEW. One threshold at a time; rollback trigger =
+sleeve underperforms 100%-equity baseline on rolling 60d Sharpe.
+
+RELATED SMALL DEFECT (separate fix PR): options_execution.py's
+no-affordable-puts error prints "smallest strike $0 needs $0" when the
+fetched chain simply had NO puts at/below price (min(default=0) leaks
+into the message — seen live on HYG 07-28). Message should distinguish
+"no OTM puts in fetched chain" from "underlying too expensive".
+
+
 - **Insider Form 4 clustering as a signal** (gate 1 PASSED 2026-07-03 — see
   `server/edgarForm4.ts` / `edgarForm4.test.ts` / `datacore/README.md`; the
   feed is live at `/api/data/insider`, surfaced as RAW only, no predictive

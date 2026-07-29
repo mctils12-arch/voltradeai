@@ -3,6 +3,56 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-28 [REPAIR]x2+[PRODUCT] — follow-up queue worked: OPRA wiring completed (#636), space-view zoom/lighting/Milky-Way fixes (#637), null-pnl origin closed, 429s closed by observation (v1.0.531-534)
+
+TERRITORY: options data plane (T-BOT, #636) + celestial client (T-CLIENT,
+#637); research/* appended last.
+
+QUEUE STATUS (from the 07-28 morning outage session's filed tails):
+1. OPRA hardcodes -> DONE (#636, v1.0.531): options_scanner/
+   options_manager/vol_surface wired to alpaca_feed.options_feed();
+   ratchet widened to ALL runtime modules + resolver-presence asserts.
+2. CHAIN-FETCH 429s -> CLOSED BY OBSERVATION: 80 post-#636 audit entries
+   show ZERO 429s (the three dead-opra call sites were the churn).
+   Re-open only if they recur.
+3. NULL-PNL ORIGIN -> ANSWERED, no further fix needed: entry records
+   with pnl_pct:null are the DESIGNED open-trade shape (Bug #13 exit
+   machinery; caller since R12-D2 2026-07-06). Crash appeared ~07-23
+   because order flow switched from same-day churn (entries always
+   paired before any Kelly-stats read) to positions HELD OPEN across
+   reads. v1.0.527 handles open records permanently + honestly.
+   RESIDUAL WATCH: confirm exits keep pairing (an unpaired-entry pileup
+   would silently shrink the closed-stats sample).
+4. CSP CAPITAL ALLOCATION -> FILED in open_questions.md with prior +
+   backtest ablation ladder path (RULE-REVIEW class; no change without
+   gate-3 evidence). Live 07-28: every CSP candidate passes selection
+   and dies at the capital check — code-healthy, structurally starved.
+5. BRANCH CLEANUP -> still blocked on human credentials (session git
+   403s ref deletion; command delivered 07-20).
+
+SPACE-VIEW FIXES (#637, human reports w/ screenshot — the earlier moon
+fixes landed on /moon.html; the in-app celestial view had the same
+class of defects in ITS OWN code):
+- v1.0.532 zoom: wheel/buttons/pinch multiplied CENTER distance ->
+  near a surface one notch deleted ~70%% of ALTITUDE ("300 miles then
+  one click to 5 miles"). surfaceRelativeStep at all 3 input sites;
+  driven live: uniform per-click altitude ratio 2732->...->54 mi floor.
+- v1.0.533 lighting: approachLitBlend (phase >=6.3R alt, lit <=2.0R —
+  the /moon.html band, so both moon surfaces agree) through all three
+  shading paths, cache-keyed. Driven live: 4,884 mi readable (was
+  black), 1,602 mi fully-lit LROC.
+- v1.0.534 Milky Way ghost: incremental sky rebuild composited the
+  PREVIOUS basis's buffer 1:1 while stars redrew live -> band slid then
+  snapped. skyLagOffsetPx translates the stale buffer by the SAME
+  small-angle displacement projectStarScreen gives stars — lockstep
+  pinned by test (compensation == star displacement within 2%%).
+NEW SMALL DEFECT FILED (open_questions.md): options_execution's
+no-affordable-puts message prints "$0 needs $0" when the chain had no
+OTM puts at all (HYG live 07-28).
+VERIFY NEXT SESSIONS: options orders should fire when equity churn
+frees collateral OR a CSP-sized candidate appears; #637 deploy = space
+view behavior on prod matches the drives above.
+
 ## 2026-07-29 (scheduled-routine REPAIR session) [REPAIR] — KNOWN BROKEN #18 continuation: scan-wide Setup 7 time budget ships, ending ~2 days of near-100% Tier-2 daemon timeouts during market hours (v1.0.530, T-BOT)
 
 TERRITORY: T-BOT (`vol_surface.py`, `options_scanner.py`, `server/bot.ts`'s
