@@ -7406,3 +7406,92 @@ A/B check, not pre-judged red-on-main. If a future session sees this gate
 fail again on an untouched tree, that re-establishes the flakiness and
 this item should stay open; if the gate stays clean across several more
 sessions' worth of independent runs, it can be closed outright.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-27 · LIVE-DATA GAP SWEEP (asked: "what other live data could we
+have for the site"). Endpoint status below is CURL-VERIFIED THIS SESSION,
+not assumed. Filed per the research-terminates-in-artifacts rule.
+
+CONTEXT FIRST — the site serves 127 layers but only FOUR are truly live
+(aircraft, vessels, trains, orbital_sats). The single largest structural
+gap: 64 power-grid layers (51 US states + 13 CA provinces of lines,
+substations, plants) carry NO live electricity flow. We mapped the wires
+and never energised them.
+
+AND THE HONEST FINDING: most obvious candidates are ALREADY FILED. The
+binding constraint on live data is not ideas — it is one free API key
+plus execution. Ranked, with what actually blocks each:
+
+A. ALREADY FILED, BLOCKED ON A FREE KEY (human, ~1 minute)
+   EIA-930 hourly grid demand/generation/interchange by balancing
+   authority. Verified: api.eia.gov/v2 returns HTTP 403 without a key.
+   wishlist.md item (a) EIA_API_KEY already asks for this. Highest
+   value/effort ratio on the whole board: it turns 64 static grid layers
+   into a live system, and open_questions already names the joins
+   (EIA-930 x weather for load-vs-temperature, x powerplants for the
+   flow-signal denominator, x euGenerationMix for a cross-Atlantic
+   comparison). NOTHING else unlocks as much for as little.
+
+B. ALREADY FILED, KEYLESS, BUILDABLE TODAY (no human action at all)
+   1. NOAA SWPC space weather — open_questions calls it "viable now,
+      just not prioritized," with the human's own GIC hypothesis
+      attached. VERIFIED 200 JSON this session:
+        services.swpc.noaa.gov/products/noaa-planetary-k-index.json
+        services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json
+        services.swpc.noaa.gov/json/ovation_aurora_latest.json
+      CAVEAT: the real-time solar-wind product path is NOT confirmed —
+      mag-1-day/plasma-1-day/mag-5-minute/plasma-5-minute all 404'd.
+      Whoever builds this discovers the correct filename first.
+      Uniquely TRIPLE cross-tied, which is why it ranks here: orbital_sats
+      (drag + single-event upsets), powergrid (GIC transformer stress —
+      the filed hypothesis), aircraft (polar-route HF/radiation). Also
+      the archive-first argument applies: nobody sells us the history of
+      OUR joins, so recording starts paying immediately.
+   2. FAA airport status / delay programs — VERIFIED 200 application/xml
+      at nasstatus.faa.gov/api/airport-status-information. Ground stops,
+      ground-delay programs, closure reasons. Ties aircraft x faa_airports
+      x weather. Catalogued reason codes only, never inferred severity
+      (wishlist already states that constraint).
+
+C. NOT PREVIOUSLY FILED — NEW, and cheapest first
+   1. SO2 COLUMN via GIBS — the cheapest add on this list by a wide
+      margin: the no2/aerosol/nightlights layers ALREADY run this exact
+      GIBS WMTS pipeline, so this is a registry entry plus a layer id,
+      not a new integration. VERIFIED present in GIBS
+      WMTSCapabilities.xml: OMPS_NOAA20_SO2_{Lower,Middle,PBL},
+      OMI_SO2_{Lower,Middle,PBL,Upper}_*, AIRS_Prata_SO2_Index_{Day,Night}.
+      RAW OVERLAY (no predictive claim, so no gate-2 wait).
+      CROSS-TIES, honestly graded: volcanic degassing vs C.2's alert
+      levels = REAL SIGNAL; coal/smelter/refinery plumes vs powerplants +
+      coal_mine_features = REAL SIGNAL worth testing; everything else
+      showcase.
+   2. USGS VOLCANO ALERT LEVELS — VERIFIED 200 JSON at
+      volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes
+      (3.3 KB, elevated volcanoes only). Keyless. Ties to SO2 (C.1),
+      earthquakes/quakehistory, and aviation ash risk vs aircraft.
+      Small, self-contained, genuinely live.
+   3. CLOUDFLARE RADAR internet outages — country/ASN-level disruption
+      as a geopolitical tripwire feeding the entity graph. NEEDS a free
+      API token (not yet requested; would be a new wishlist ask). NOT
+      verified this session.
+   4. VIIRS NIGHTFIRE gas flaring (EOG/Colorado Mines) — the strongest
+      pure EDGE-DOCTRINE candidate here (build a refinery/oilfield
+      activity index from raw radiance nobody bills for; flaring tracks
+      upstream activity). BUT eogdata.mines.edu returned 302 — download
+      almost certainly needs registration. Free-alternative analysis
+      required before it may enter wishlist.
+
+VERIFIED-BUT-LOWER-VALUE / needs work: CDEC California reservoirs (200,
+HTML only — would need scraping, and rivergauges already covers
+streamflow); NOAA HMS smoke polygons (200 directory listing, KML —
+plausible but fires/firetemp/aerosol already cover most of the story);
+NSIDC sea-ice daily CSV (404 — path moved, needs rediscovery); OpenAQ v3
+(401, key required, already filed as low priority since the S3 bulk
+archive is keyless); GDELT (200, already filed with 22 references).
+
+RECOMMENDED ORDER: (1) human registers the free EIA key — it is the one
+thing only they can do and it unlocks the most; meanwhile (2) build SWPC
+space weather, since it is keyless, already hypothesis-backed, and the
+only candidate that ties three existing systems at once; then (3) SO2 +
+volcano together as one small [PIPELINE] PR, since they share a
+cross-tie and SO2 is nearly free given the GIBS pipeline.
