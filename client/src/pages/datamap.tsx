@@ -410,7 +410,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather";
   title: string;
   subtitle: string;
   body: string;
@@ -636,6 +636,7 @@ const LAYER_GROUP: Record<string, string> = {
   floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
+  spaceweather: "environmental",
   earthquakes: "environmental",
   buoys: "environmental",
   biomass: "environmental",
@@ -1016,7 +1017,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -1063,6 +1064,15 @@ const LegendPanel = memo(function LegendPanel({
                       .map(([t, c]) => (
                         <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t} Alert</span>
                       ))}
+                  </>
+                )}
+                {enabled.spaceweather && (
+                  <>
+                    {([["Aurora 2–15%", "#1f8f4f"], ["15–35%", "#37d67a"], ["35–60%", "#ffd23f"], ["60%+", "#ff3b3b"]] as const)
+                      .map(([t, c]) => (
+                        <span key={t} className="vt-legend-chip"><i style={{ background: c }} /> {t}</span>
+                      ))}
+                    <span className="vt-legend-note">viewing-probability FORECAST (OVATION Prime model, NOAA SWPC) — not an observation</span>
                   </>
                 )}
                 {enabled.surfacewater && (
@@ -9476,6 +9486,111 @@ export default function DataMapPage() {
     const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.alerts, mapReady, setStatus]);
+
+  // ── NOAA SWPC space weather (RAW overlay): aurora viewing-probability
+  // FORECAST (OVATION Prime model — always labeled forecast, never passed
+  // off as an observation) drawn as aggregated grid cells; observed Kp,
+  // R/S/G scales, and solar-wind summary carry the status note + click
+  // card. The grid/utility trading hypothesis stays validation-gated —
+  // this layer displays official NOAA readings as-is. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.spaceweather) {
+      try {
+        if (map?.getLayer("spaceweather-fill")) map.removeLayer("spaceweather-fill");
+        if (map?.getSource("spaceweather")) map.removeSource("spaceweather");
+      } catch {}
+      setStatus("spaceweather", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("spaceweather", "loading");
+    let stop = false;
+    let detach = () => {};
+    let latest: any = null; // newest payload for the click card (source added once)
+    const kpNote = (d: any) => (d.kp_recent?.length ? `Kp ${d.kp_recent[d.kp_recent.length - 1].kp}` : null);
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/spaceweather");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("spaceweather", "loading", 0, "warming up — first poll can take a minute"); return; }
+        latest = d;
+        const agg = d.aurora?.aggDeg || 2;
+        const cells: Array<[number, number, number]> = d.aurora?.cells || [];
+        const fc = {
+          type: "FeatureCollection",
+          features: cells.map(([lonW, latS, p]) => ({
+            type: "Feature",
+            geometry: {
+              type: "Polygon",
+              coordinates: [[[lonW, latS], [lonW + agg, latS], [lonW + agg, latS + agg], [lonW, latS + agg], [lonW, latS]]],
+            },
+            properties: { p },
+          })),
+        };
+        const src: any = map.getSource("spaceweather");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("spaceweather", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "spaceweather-fill", type: "fill", source: "spaceweather",
+            paint: {
+              "fill-color": ["interpolate", ["linear"], ["get", "p"], 2, "#1f8f4f", 15, "#37d67a", 35, "#ffd23f", 60, "#ff8c42", 90, "#ff3b3b"] as any,
+              "fill-opacity": ["interpolate", ["linear"], ["get", "p"], 2, 0.1, 15, 0.25, 35, 0.4, 90, 0.55] as any,
+            },
+          });
+          detach = attachLayerInteractions(map, "spaceweather-fill", (e: any) => {
+            const f = e.features?.[0];
+            if (!f || !latest) return;
+            const p = Number(f.properties?.p) || 0;
+            const cur = latest.scales?.current;
+            const kpLast = latest.kp_recent?.length ? latest.kp_recent[latest.kp_recent.length - 1] : null;
+            const w = latest.wind || {};
+            const dossierKey = `spaceweather:${Date.now()}`;
+            setDetail({
+              kind: "spaceweather",
+              title: "Aurora forecast — space weather",
+              subtitle: `NOAA SWPC · ${p}% viewing probability at this cell`,
+              stats: [
+                ...(kpLast ? [{ label: "Kp", value: String(kpLast.kp) }] : []),
+                ...(cur?.g != null ? [{ label: "G", value: String(cur.g) }] : []),
+                ...(w.speedKms != null ? [{ label: "SW KM/S", value: String(w.speedKms) }] : []),
+                ...(w.bzNt != null ? [{ label: "Bz", value: `${w.bzNt} nT` }] : []),
+              ],
+              facts: [
+                ...(cur ? [{ label: "Scales now (observed)", value: `R${cur.r ?? "?"} S${cur.s ?? "?"} G${cur.g ?? "?"}` }] : []),
+                ...(latest.aurora?.forecast ? [{ label: "Aurora forecast valid", value: latest.aurora.forecast }] : []),
+                ...(kpLast ? [{ label: "Kp bin (UTC)", value: kpLast.t }] : []),
+              ],
+              body:
+                `Aurora oval is the OVATION Prime MODEL FORECAST (probability of visible aurora), not an observation. ` +
+                `Kp, R/S/G scales, and solar wind are observed NOAA readings displayed as published. ` +
+                `Preliminary values revise — see swpc.noaa.gov for authoritative guidance.`,
+              sourceTag: "NOAA SWPC",
+              sourceUrl: "https://www.swpc.noaa.gov/",
+              dossierKey,
+            } as any);
+            // Not an Everything Graph node — lat/lon dossier on the click point.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        const condLine = [
+          kpNote(d),
+          d.scales?.current?.g != null ? `G${d.scales.current.g}` : null,
+          d.wind?.speedKms != null ? `wind ${d.wind.speedKms} km/s` : null,
+        ].filter(Boolean).join(" · ");
+        setStatus("spaceweather", "active", cells.length, condLine ? `NOAA SWPC · ${condLine}` : "NOAA SWPC");
+      } catch {
+        if (!stop) setStatus("spaceweather", "error");
+      }
+    };
+    load();
+    // 5-min refresh, hidden-tab gated (server polls upstream every 10)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.spaceweather, mapReady, setStatus]);
 
   // ── USGS earthquakes (RAW; M2.5+, global, rolling 24h — sized/colored by
   // magnitude, no predictive claim). Off by default (reference layer;
