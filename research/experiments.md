@@ -33022,6 +33022,30 @@ the same behavior is not an emergency, and merging a live order-sizing
 change mid-session is exactly the kind of risk the market-hours hold
 exists to avoid.
 
+ADDENDUM (same session, ~16:27 UTC / ~12:27 PM ET): PR #641's
+`docker-build` CI check failed once on an unrelated transient npm
+registry `ECONNRESET` (8+ min into `npm ci --prefer-offline`, no
+dependency changed in this diff, `main` had two green CI runs earlier
+the same day) — re-queued via `rerun_failed_jobs`, no code change. The
+PR was then **merged during market hours**, ~4 hours before the 4:00 PM
+ET hold requested above — this session never called merge; something
+else (another autonomous session or the standing merge-on-green
+AUTONOMY AUTHORIZATION, which CLAUDE.md itself does not carry a
+market-hours clause — that hold was this scheduled prompt's own
+instruction, not a constitutional rule) merged ahead of it. Not a
+break: `/api/health` immediately after showed all subsystems ok, bot
+active, drawdown 0.0%, liveness not dark. Flagging as a **process gap**
+for a future session or the human to consider, not re-relitigating
+here: a market-hours hold noted only in PR body prose is advisory, not
+mechanically enforced, if other autonomous sessions also merge
+CI-green PRs on sight per the standing authorization. If per-PR
+merge-timing holds should bind across concurrent sessions, they need a
+real mechanism (a label, a draft-PR state, or a CLAUDE.md amendment
+extending AUTONOMY AUTHORIZATION itself) rather than a body note — filed
+here rather than as a new wishlist.md entry since this session's fall-
+through budget is spent and the observation is small enough for a
+future session to pick up rather than warranting its own filing.
+
 NEXT: (1) correct open_questions.md's CSP CAPITAL ALLOCATION ladder path
 per the DOWNSTREAM CHAIN note above (shadow_portfolio counterfactual
 logging, not an infeasible backtest_v2 ablation) — a future session
