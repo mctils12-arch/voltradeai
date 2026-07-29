@@ -243,7 +243,20 @@ const TERM_HIGH = 11000;            // km — t=1 at/above (hard terminator)
 
 // One notch of wheel (~100px) and a pinch both feed the SAME log-altitude
 // accumulator, so the zoom rate per gesture "unit" is identical on every device.
-const WHEEL_LOG_PER_PX = Math.log(1.25) / 100;
+// EARTH PARITY (human 2026-07-28: "it should zoom at the same rate that the
+// earth does"). This mirrors the /data map's shared seam constant —
+// client/src/lib/celestial/zoomSeam.ts ZOOM_STEP_PER_NOTCH = 1.18, where one
+// wheel notch (deltaY 100) multiplies camera distance by 1.18 and one +/-
+// button click is x2 = exactly one MapLibre zoom level. This page cannot
+// import that TS module (no bundler), so the value is mirrored with
+// zoomSeam.ts named as the source of truth: change it there first.
+// It was 1.25 here, i.e. the moon zoomed ~38% further per notch than Earth.
+const ZOOM_STEP_PER_NOTCH = 1.18;
+const WHEEL_LOG_PER_PX = Math.log(ZOOM_STEP_PER_NOTCH) / 100;
+// Hold-to-repeat rate, in MapLibre zoom levels per second (a level = x2).
+// Applied per-frame from rAF rather than on a setInterval, so the descent is
+// frame-locked smooth instead of stepping in 80ms chunks.
+const HOLD_LEVELS_PER_S = 2.6;
 const DAMP_ROTATE = 0.90;           // per 1/60 s — rotate inertia
 const ZOOM_SMOOTH = 0.86;           // per 1/60 s — fraction of the REMAINING
                                     // zoom distance kept each frame
@@ -364,7 +377,16 @@ const BASE_TEX_M_PER_PX = M_PER_DEG / (8192 / 360);        // 1,333 m for moon_8
 // and forced z5 (666 m/px) at 300 mi, i.e. COARSER than the screen's 509 m/px:
 // mildly soft while the HUD still said "sharp".
 const MAX_PATCH_TILES = 64;
-const DETAIL_SETTLE_MS = 140;       // rebuild only once the camera stops moving
+const DETAIL_SETTLE_MS = 140;       // full-quality rebuild once the camera stops
+// STREAM WHILE DESCENDING (human 2026-07-28: "it need to go down and render
+// smoothly and fast"). The old rule refreshed ONLY when fully settled, so a
+// hold-zoom from 300 -> 100 miles showed nothing but magnified base imagery
+// the whole way down and only snapped sharp after release. Now a cheap pass
+// runs during motion on a throttle, and the full-budget pass still runs on
+// settle. The previous patch stays resident until a new one is ready, so the
+// picture sharpens progressively instead of dropping back to blur.
+const DETAIL_MOVING_MS = 240;       // min gap between in-motion passes
+const QUICK_PATCH_TILES = 16;       // in-motion tile budget (vs MAX_PATCH_TILES)
 const DETAIL_FADE_PER_S = 3.2;
 
 const TEX_DIR = "./space/";
@@ -569,9 +591,33 @@ const detail = {
   mix: 0,               // eased 0..1 (uDetailMix)
   level: -1, tiles: 0, mPerPx: BASE_TEX_M_PER_PX,
   src: null,            // active SOURCES_COARSE_TO_FINE entry (null = base)
-  wantKey: "", haveKey: "", inflight: false, lastMoveAt: 0, failed: 0,
+  wantKey: "", haveKey: "", inflight: false, lastMoveAt: 0, lastReqAt: 0, failed: 0,
 };
 let detailEnabled = true;             // setDetailEnabled() flips this for A/B checks
+// PER-SOURCE FAULT TOLERANCE (2026-07-28). The old rule was a single global
+// counter: three zero-tile passes and `detail.failed >= 3` disabled streaming
+// for the WHOLE SESSION, silently, with no recovery short of a reload. Two ways
+// that bit: (a) any three transient network failures killed detail permanently;
+// (b) worse, the source ladder escalates to regional high-res (Kaguya/Apollo/
+// NAC) whose tiles do not exist everywhere, so over an area they do not cover,
+// three escalations poisoned EVERY source — measured live as the detail level
+// freezing at z6 (333 m/px) all the way down to 43 mi, where z8 (83 m/px) was
+// available and the view sat 4.6x softer than the screen could show.
+// Now a miss is attributed to the SOURCE that missed, with a cooldown, so the
+// ladder simply falls back to the next usable source and keeps refining.
+const srcFail = new Map();            // src.id -> { n, until }
+const SRC_FAIL_COOLDOWN_MS = 30000;
+const SRC_FAIL_LIMIT = 2;             // misses before a source rests
+function srcUsable(src, now) {
+  const f = srcFail.get(src.id);
+  return !f || f.n < SRC_FAIL_LIMIT || now >= f.until;
+}
+function noteSrcMiss(src, now) {
+  const f = srcFail.get(src.id) || { n: 0, until: 0 };
+  f.n++; f.until = now + SRC_FAIL_COOLDOWN_MS;
+  srcFail.set(src.id, f);
+}
+function noteSrcHit(src) { srcFail.delete(src.id); }
 const tileCache = new Map();          // "z/y/x" -> HTMLImageElement (decoded)
 const TILE_CACHE_MAX = 400;
 
@@ -667,7 +713,7 @@ function loadTile(src, z, y, x) {
 /** Coarsest source that can still match the screen's resolution over the
  *  visible rect; escalates to finer regional sources only when (a) the rect
  *  fits inside their coverage and (b) the screen actually needs them. */
-function pickSource(rect, targetMPerPx) {
+function pickSource(rect, targetMPerPx, now = performance.now()) {
   const lonC = rect.su * 360 - 180, latC = rect.sv * 180 - 90;
   const halfW = rect.uSpan * 180, halfH = rect.vSpan * 90;   // deg half-spans
   const contains = (b) =>
@@ -677,6 +723,7 @@ function pickSource(rect, targetMPerPx) {
   for (const s of SOURCES_COARSE_TO_FINE) {
     const global = s.bbox[0] <= -180 && s.bbox[2] >= 180;
     if (!global && !contains(s.bbox)) continue;
+    if (!srcUsable(s, now)) continue;   // resting after repeated misses
     src = s;
     if (wacMetresPerPx(s.maxZ) <= targetMPerPx) break;  // fine enough — stop
   }
@@ -685,8 +732,8 @@ function pickSource(rect, targetMPerPx) {
 
 /** Build (or rebuild) the detail mosaic for the current pose. Fire-and-forget:
  *  it only ever assigns uniforms when it finishes, so frames never wait on it. */
-async function refreshDetail() {
-  if (!gl || !detailEnabled || detail.inflight || detail.failed >= 3) return;
+async function refreshDetail(budget = MAX_PATCH_TILES) {
+  if (!gl || !detailEnabled || detail.inflight) return;
   const rect = visibleUvRect();
   if (!rect) {                       // zoomed out: drop back to the base mosaic
     detail.wantKey = "";
@@ -711,7 +758,7 @@ async function refreshDetail() {
   // coverage, a coarser z (2x the area per step) is the better picture.
   // -1: a grid-wide span lands on up to GRID+1 tile columns when misaligned;
   // 7 keeps the worst case at 8x8 = the 64-tile budget exactly.
-  const GRID = Math.floor(Math.sqrt(MAX_PATCH_TILES)) - 1;   // 7
+  const GRID = Math.max(1, Math.floor(Math.sqrt(budget)) - 1);   // 7 at the full budget
   let cols, rows, x0, y0, dpt;
   for (;;) {
     dpt = wacDegPerTile(z);
@@ -731,7 +778,7 @@ async function refreshDetail() {
     const y1 = Math.floor((1 - vBot) / vPerTile);
     cols = ((x1 - x0) % wacCols(z) + wacCols(z)) % wacCols(z) + 1;
     rows = Math.max(1, y1 - y0 + 1);
-    if (cols * rows <= MAX_PATCH_TILES || z <= 1) break;
+    if (cols * rows <= budget || z <= 1) break;
     z--;
   }
   const key = `${src.id}:${z}:${x0}:${y0}:${cols}:${rows}`;
@@ -748,7 +795,15 @@ async function refreshDetail() {
     );
     if (!gl || detail.wantKey !== key) return;           // a newer pose won
     const got = imgs.filter(Boolean).length;
-    if (!got) { detail.failed++; return; }
+    if (!got) {
+      // this source has no imagery here — rest it and let the next pass fall
+      // back down the ladder instead of disabling detail everywhere
+      noteSrcMiss(src, performance.now());
+      detail.failed++;              // diagnostic only; no longer a kill switch
+      detail.haveKey = "";          // force a genuine retry with another source
+      return;
+    }
+    noteSrcHit(src);
     detail.failed = 0;
     const cv = document.createElement("canvas");
     cv.width = cols * TILE_PX; cv.height = rows * TILE_PX;
@@ -792,6 +847,7 @@ function disposeDetail() {
   if (detail.tex) { try { detail.tex.dispose(); } catch {} }
   detail.tex = null; detail.mix = 0; detail.level = -1; detail.src = null;
   detail.haveKey = ""; detail.wantKey = ""; detail.failed = 0;
+  srcFail.clear();
   detail.mPerPx = BASE_TEX_M_PER_PX;
 }
 
@@ -1025,6 +1081,11 @@ let pinchPrev = 0;
 let panPrev = null;
 let lastTapAt = 0, lastTapX = 0, lastTapY = 0;
 let pressTimer = 0, pressStart = null;
+// HOLD-TO-ZOOM state. The +/- buttons only set a direction; the frame loop
+// integrates it at HOLD_LEVELS_PER_S using real dt, so the descent is
+// frame-locked smooth and runs at the same speed on a 30fps phone as on a
+// 120Hz desktop (a setInterval stepped in fixed 80ms chunks regardless).
+let holdDir = 0, holdSince = 0;
 
 function centroid() {
   let x = 0, y = 0;
@@ -1213,6 +1274,13 @@ function frame(now) {
     dynFloorKm = cur < f ? Math.max(ALT_MIN, cur) : f;
   }
 
+  // continuous hold-zoom, integrated per frame with a short ramp-in so it
+  // does not jerk straight after the button tap's own one-level step
+  if (holdDir !== 0) {
+    const ramp = Math.min(1, (now - holdSince) / 120);
+    zoomBy(holdDir * Math.log(2) * HOLD_LEVELS_PER_S * ramp * dt);
+  }
+
   stepReset(now);
 
   // inertia
@@ -1239,11 +1307,19 @@ function frame(now) {
   // ── detail patch: rebuild only once the camera has settled (fetching on every
   // frame of a drag would thrash the network for mosaics nobody sees), then
   // cross-fade in so it never pops.
-  const moving = pointers.size > 0 || resetFrom ||
+  const moving = pointers.size > 0 || resetFrom || holdDir !== 0 ||
     Math.abs(view.logAltTarget - view.logAlt) > 1e-4 ||
     Math.abs(view.vTheta) > 1e-4 || Math.abs(view.vPhi) > 1e-4;
   if (moving) detail.lastMoveAt = now;
-  else if (now - detail.lastMoveAt > DETAIL_SETTLE_MS) refreshDetail();
+  const settled = !moving && now - detail.lastMoveAt > DETAIL_SETTLE_MS;
+  // In motion: a small, fast pass every DETAIL_MOVING_MS so each level of the
+  // descent actually renders. Settled: the full-budget pass, but only once —
+  // detail.haveKey makes a repeat call a no-op.
+  if (settled) refreshDetail();
+  else if (moving && now - (detail.lastReqAt || 0) > DETAIL_MOVING_MS) {
+    detail.lastReqAt = now;
+    refreshDetail(QUICK_PATCH_TILES);
+  }
   const wantMix = detail.tex && detail.level >= 0 ? 1 : 0;
   if (detail.mix !== wantMix) {
     const s = DETAIL_FADE_PER_S * dt;
@@ -1352,18 +1428,16 @@ zSlide.addEventListener("change", onSlide);
 /** One press = a factor of 2 (same step as a double-tap). Holding keeps going
  *  in smaller increments, which is what makes deep zoom bearable on a phone. */
 function holdZoom(btn, sign) {
-  let timer = 0;
-  const stop = () => { if (timer) { clearInterval(timer); timer = 0; } };
   btn.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     try { btn.setPointerCapture?.(e.pointerId); } catch { /* optional */ }
-    zoomBy(sign * Math.log(2));
-    stop();
-    timer = setInterval(() => zoomBy(sign * Math.log(1.16)), 80);
+    zoomBy(sign * Math.log(2));      // the tap itself: exactly one zoom level
+    holdDir = sign;                  // the frame loop takes it from here
+    holdSince = performance.now();
     kick();
   });
   for (const ev of ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"]) {
-    btn.addEventListener(ev, stop);
+    btn.addEventListener(ev, () => { if (holdDir === sign) holdDir = 0; });
   }
 }
 holdZoom(zIn, -1);      // zooming IN lowers altitude
@@ -1417,6 +1491,7 @@ window.moonViewer = {
     sunDir: sunDir.toArray(), texture: texLabel, units,
     detail: { level: detail.level, tiles: detail.tiles, mix: detail.mix,
               mPerPx: detail.mPerPx, enabled: detailEnabled, failed: detail.failed,
+              resting: [...srcFail.entries()].filter(([, f]) => f.n >= SRC_FAIL_LIMIT).map(([id]) => id),
               source: detail.src ? detail.src.id : null },
     floorKm: dynFloorKm,
     screenMetresPerPx: screenMetresPerPx(),

@@ -32682,3 +32682,68 @@ attempt died at launch with exit 144 earlier today, and a third flagged
 only the known shared-CPU perf-gate flake). The targeted DOM probe above
 is the actual evidence for this change; a harness re-run was kicked and
 its result is reported separately rather than assumed.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-28 · [REPAIR] · T-CLIENT
+/moon.html: zoom rate now matches Earth, and detail renders DURING the
+descent instead of after it (v1.0.536)
+
+REPORTED: "when you hit the zoom it need to go down and render smoothly
+and fast it starts at 300miles 200mile 100miles it should zoom at the
+same rate that the earth does."
+
+THREE CAUSES, all confirmed by measurement, not inspection:
+
+1. RATE MISMATCH. zoomSeam.ts is the shared source of truth for the
+   map<->space seam: ZOOM_STEP_PER_NOTCH = 1.18 per wheel notch, and one
+   +/- click = x2 = exactly one MapLibre zoom level. moon.html carried its
+   own literal 1.25, so the moon zoomed ~38% further per notch than
+   Earth. Now mirrored from 1.18 with WHEEL_LOG_PER_PX derived from it.
+   MEASURED after: x1.1800 out, x0.8475 in (= 1/1.18), x0.5000 per tap.
+
+2. NOTHING STREAMED WHILE DESCENDING — the actual "300/200/100" symptom.
+   refreshDetail() ran ONLY when the camera was fully settled, and during
+   a hold-zoom logAltTarget never stops moving, so the whole descent
+   showed magnified 1,333 m/px base imagery and snapped sharp only on
+   release. Now a cheap 16-tile pass runs during motion on a 240ms
+   throttle (full 64-tile pass still runs on settle) and the previous
+   patch stays resident until a better one is ready.
+   MEASURED after: detail resident in 15/15 mid-descent samples; level
+   refines z6 -> z7 in flight -> z8 once settled; ends 83 m/px against an
+   85 m/px screen = 0.98x, i.e. 1:1 sharp (was 4.6x soft).
+
+3. HOLD WAS setInterval. Fixed 80ms steps meant the descent rate varied
+   with frame rate and stepped visibly. The frame loop now integrates
+   HOLD_LEVELS_PER_S = 2.6 against real dt with a 120ms ramp-in, so it is
+   frame-locked and identical at 30fps and 120Hz. MEASURED: 3.0 levels/s
+   including the tap's ease catch-up; max frame 53ms under software GL.
+
+ALSO FIXED (latent, found while diagnosing, NOT the cause of the above):
+detail.failed >= 3 was a PERMANENT SESSION-WIDE KILL SWITCH — three
+zero-tile passes disabled streaming until reload, silently. Since the
+source ladder escalates to regional high-res (Kaguya/Apollo/NAC) that
+does not cover everywhere, flying over uncovered ground could poison even
+the global WAC source that was working. Failures are now attributed to
+the source that missed, with a 30s cooldown, so the ladder falls back and
+keeps refining. Cooldown state is exposed in getState().detail.resting.
+
+RATCHET: zoomSeam.ts had NO test file at all. Added
+client/src/lib/celestial/zoomSeam.test.ts — 4 tests covering the shared
+curve (exponential composition, wheelDeltaForFactor round-trip, the x2
+button step) plus a DRIFT GUARD that reads /moon.html and fails if its
+mirrored constant disagrees with zoomSeam.ts. A mirrored constant with no
+test is a bug with a delay fuse; this removes the fuse. Verified the
+guard genuinely FAILS with 1.25 restored and passes at 1.18.
+
+MEASUREMENT-INTEGRITY NOTE (worth more than the fix). Two successive
+probe runs "proved" the detail level was frozen at z6 and I began
+diagnosing a product bug that did not exist. The instrument was at fault:
+the probe's tile handler called execFileSync INSIDE an async Playwright
+route handler, blocking Node's event loop, so a 30-tile mosaic serialised
+into ~15s of stalling while the descent lasts 660ms — the page was
+starved by its own test. The tell was in the output all along
+("sources resting after misses: none" disproved the failure-counter
+theory). Fixed with async execFile + an 8-way pool + a warm-up pass down
+the same corridor; the frozen level vanished and z6->z7->z8 appeared.
+Lesson for the next session: when a probe reports a product defect,
+check the probe's own diagnostics for self-contradiction FIRST.
