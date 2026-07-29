@@ -60,6 +60,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(!paths.includes("tank"), "tank-fill must not be a live endpoint before gate 2");
   assert.ok(paths.includes("/api/v1/graph"), "Everything Graph v1 shipped — its keyed mirror must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/plant-operations"), "EPA CAMD keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/stats/secftd"), "SEC FTD keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -67,12 +68,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 6, `expected >=6 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 7, `expected >=7 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -85,6 +86,16 @@ test("plant-operations license mark: public-domain US-gov data resells freely, u
   assert.equal(LICENSE_MARKS["stats/plant-operations"].resell, "ok");
   assert.ok(LICENSE_MARKS["stats/plant-operations"].license.includes("public domain"));
   assert.ok(LICENSE_MARKS["stats/plant-operations"].license.includes("EPA"));
+});
+
+test("secftd license mark: public-domain US-gov data resells freely; agent tool documents it", () => {
+  assert.equal(LICENSE_MARKS["stats/secftd"].resell, "ok");
+  assert.ok(LICENSE_MARKS["stats/secftd"].license.includes("public domain"));
+  assert.ok(LICENSE_MARKS["stats/secftd"].license.includes("SEC"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t: any) => t.name === "voltrade_secftd_stats");
+  assert.ok(tool, "voltrade_secftd_stats tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["stats/secftd"]);
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {

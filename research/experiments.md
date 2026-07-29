@@ -32294,3 +32294,140 @@ session adding an AIS-derived or FINRA/SEC-exchange-derived stream should
 re-check those drafts' resell classification before picking a mark, the
 same care this session took choosing "ok" only for the unambiguous
 public-domain case.
+
+────────────────────────────────────────────────────────────────────────
+## 2026-07-29 (scheduled-routine PRODUCT session) [PRODUCT] · SHARED (apiProduct.ts) — /api/v1/stats/secftd: SEC CNS fails-to-deliver keyed mirror, second step on the "shipped-data-no-v1-API" gap the 2026-07-28 session opened
+
+TERRITORY: `server/apiProduct.ts` + `server/apiProduct.test.ts` (platform-
+program API surface) + one new route block in `server/routes.ts` (SHARED,
+last commit) + `package.json`/`package-lock.json` version bump (SHARED,
+read-and-increment at commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail, open_questions.md KNOWN BROKEN section, wishlist.md tail).
+`python3 scripts/session_health_check.py --json` live: liveness alive/not
+dark, no LIVENESS ALARM. Two WARNs, both already-tracked, neither new,
+neither blocking per this session's own instructions (product sessions
+don't preempt DAILY repair duty): `tier2_daemon_timeouts` (KNOWN BROKEN
+#18, 22 timeouts in window, 2 active_dispatches — the vol_surface
+Setup-7 root cause from the 2026-07-28 session #2 entry is diagnosed but
+not yet throttled) and `ml_feedback` (KNOWN BROKEN #12(c), 61 live
+feedback records, all orphan_exit). `deploy_freshness` OK
+(`server_version=1.0.528` matched `package.json` and `origin/main` HEAD
+`50288d3` at session start — no PRODUCTION DEPLOY FREEZE, no reset
+needed). Loop-health ratio over the last 10 tagged entries (2026-07-24
+research/PRODUCT, 2026-07-28 PRODUCT x2 (moon viewer, plant-operations),
+2026-07-28 REPAIR x2, 2026-07-28 PRODUCT (MIDAS UI), 2026-07-28 research
+x1... concretely by commit: RESEARCH #633, PRODUCT #632, PRODUCT #631,
+REPAIR #630, REPAIR #629, PRODUCT #628, REPAIR #627, PRODUCT #626,
+RESEARCH #625, RESEARCH #624) — 3/10 REPAIR-class, well under the 7+
+thrash threshold, no meta-problem flagged.
+
+WHAT I DID (session-budget primary action, product ladder path (d) —
+improve datacore's API boundary toward spinout-readiness): the prior
+session's own NEXT note flagged that the "shipped-data-no-v1-API" sweep
+(comparing `apiMeta()`'s 5 live `/api/v1/*` endpoints against ~50
+archived internal `/api/data/*` streams) should continue one endpoint per
+PR, naming SEC MIDAS or SEC FTD as the next-cleanest-license candidates
+(both SEC public-domain data, both currently `/data`-only). Picked SEC
+FTD (`server/secFtd.ts`, `/api/data/ftd`) over MIDAS specifically because
+MIDAS already got its `/data` map-layer UI shipped this same morning
+(#626) — FTD has zero public-API presence at all yet, a cleaner marginal
+gap to close. Confirmed the license mark directly from the existing
+internal route's own comment (`server/routes.ts:2130-2132`): "SEC CNS
+fails-to-deliver... public domain — the resale-safe source", so `resell:
+"ok"` is not a new judgment call, it mirrors language already in the
+codebase for this exact stream.
+
+BUILT: `server/apiProduct.ts` gained `LICENSE_MARKS["stats/secftd"]`
+(public domain, resell "ok" — the second "ok" mark after
+`stats/plant-operations`), a new `apiMeta().endpoints` entry
+(`/api/v1/stats/secftd`, `preview: "/api/data/ftd"`, description states
+the >=100k share floor and the level-not-flow / 2.5-4.5-week-lag caveats
+verbatim from the internal route so the public docs don't lose that
+honesty framing), and a new `agentToolSpec()` tool
+(`voltrade_secftd_stats`). `server/routes.ts` gained one new route, `GET
+/api/v1/stats/secftd`, registered immediately after `/api/v1/stats/
+plant-operations`, reusing the EXACT existing `latestFtd()` function the
+internal `/api/data/ftd` route already calls (no new computation, no new
+poller — `bootFtdPoll()` already runs earlier in the same file) —
+wrapped in `requireApiKey`/`v1Envelope`/`meterUsage`, identical
+503+Retry-After warming-up shape to `stats/plant-operations`/
+`stats/portdwell`/`stats/shadow`. `server/apiProduct.test.ts` gained 2 new
+tests (license mark is "ok"/public-domain/SEC-attributed, and the new
+agent tool exists with the right `returns_provenance`) and extended 3
+existing tests (`meta honesty`'s live-path assertion, the wiring-pinned
+route list + key-guarded-count floor bumped 6->7, the "every endpoint
+documents a preview" test covers it automatically since it iterates
+`apiMeta().endpoints`).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a new GET route gated behind
+the SAME `requireApiKey`/rate-limiter/metering machinery every other
+`/api/v1/*` route uses — cannot bypass a limit, leak an unlicensed
+field, or change any existing endpoint's behavior. It reads the SAME
+module-level `cache` variable `latestFtd()` already exposes (populated
+by the existing `bootFtdPoll()` 12h cadence) so it adds zero new network
+calls and zero new load on SEC's servers — a second reader of an
+existing cache, not a second fetcher. `agentToolSpec()`'s tool count
+stays derived mechanically from `apiMeta().endpoints.length` (pinned by
+its own existing test), so that ratchet stays green without manual
+bookkeeping.
+
+GATES: fresh sandbox this session (`node_modules` absent entirely — `npm
+ci`, 487 packages; Python deps already present from a prior sandbox
+state, `pytest` importable without reinstall). `npx tsx --test
+server/*.test.ts` — 908 passed, 0 failed (906 baseline + 2 net-new in
+apiProduct.test.ts; first run before `npm ci` showed 7 unrelated
+`ERR_MODULE_NOT_FOUND` suite crashes — confirmed via `git stash` A/B to
+fail identically on the untouched baseline with the same missing-
+`node_modules` cause, not a regression from this change). `python3 -m
+pytest -q` — 1032 passed, 1 skipped, 1 pre-existing failure
+(`test_silent_except_ratchet.py`'s `options_execution.py` pin, 7 vs. 6
+handlers — same exact pre-existing failure the 2026-07-28 PRODUCT
+session #3 already logged and confirmed unrelated via `git stash`; zero
+Python files touched this session either). `npx tsc --noEmit` — 80
+errors, byte-identical count to the pre-existing baseline, none in
+`apiProduct.ts`/`routes.ts` (confirmed via targeted grep on the new
+lines). `npm run build` clean, `dist/index.cjs` 13.0mb, only the
+pre-existing unrelated `astronomy-engine` default-export warning. LIVE
+END-TO-END SMOKE TEST (beyond the mocked-fetch unit tests): this sandbox
+had no pre-populated FTD archive, so ran `refreshFtd()` directly via `npx
+tsx -e` against the real SEC CNS endpoint — it fetched and archived the
+newest published half-month period live, `latestFtd()` returned real
+top-fails rows (CAG, RZLV, LCID, UNP, XLE, and others with real
+qty/price fields matching the `FtdSummary` shape the new route reads).
+No client/ files touched — VISUAL VERIFICATION gate does not apply
+(server-only PR).
+
+BACKTEST: N/A — API-surface plumbing over an already-RAW, already-live
+internal data stream; no scoring, sizing, or trading logic touched, no
+new SIGNAL surfaced (`coming_gated` still lists only tank-fill).
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) is this
+session's only version-bump edit, last commit, minimized to the version
+fields only (`npm install --package-lock-only`, `git diff --stat` shows 2
+lines in package-lock.json). `server/routes.ts` (SHARED) gets one new
+self-contained route block inserted at a single point, no edits to
+surrounding code. Version 1.0.528 -> 1.0.529, read-and-increment at
+commit time; `git fetch origin main` immediately before confirmed
+`origin/main` still at `50288d3`/v1.0.528, no advance since session
+start.
+
+DEPLOY-COUPLING NOTE: session start was 2026-07-29 ~00:00-00:10 UTC /
+2026-07-28 ~20:00-20:10 ET — outside the 9:30-16:00 ET market window
+(market closed, Tuesday evening). No merge-timing hold needed; this PR
+merges immediately per the CLAUDE.md deploy-coupling rule (only holds
+mid-market merges, not off-hours ones).
+
+NEXT: SEC MIDAS (`server/secMidas.ts`, internal at `/api/data/midas`,
+already gained its `/data` map-layer UI this week per #626) is the next
+same-shaped candidate for the "shipped-data-no-v1-API" sweep — same SEC
+public-domain license class, same one-endpoint-per-PR precedent this and
+the 2026-07-28 session both followed. Beyond that, the remaining ~48
+unadded internal streams are mostly AIS-derived (conditional resell,
+already 3 endpoints deep on that license class) or FINRA/SEC-exchange-
+published (murkier attribution, per the 2026-07-28 session's own
+caveat) — a future session picking one of those should re-read
+`datacore/API_TERMS_DRAFT.md`/`LICENSING_AUDIT.md` first rather than
+assume "ok" the way this session and the last one could for
+unambiguous US-federal-public-domain sources.
