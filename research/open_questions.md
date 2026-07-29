@@ -2439,6 +2439,98 @@
     calendar `ThreadPoolExecutor` (Setup 1, 30 tickers) or `_setup_high_iv_
     premium_sale` itself running slower than its own cache would predict.
 
+    **UPDATE 2026-07-29 (scheduled-routine REPAIR session) — the NEXT STEP's
+    evidence came in, CONFIRMS the root cause, SCAN-WIDE BUDGET SHIPPED,
+    v1.0.530.** Checked `/api/diag/audit?type=TIER2-ERROR` at session start:
+    5 fresh occurrences 2026-07-28 18:34-19:55Z (the last ~2 market hours of
+    that session), plus 12 more 2026-07-27/28 earlier — essentially EVERY
+    Tier-2 daemon scan during market hours both days timed out, meaning
+    `run_full_scan()` never returned and the cycle produced ZERO trades
+    (stock or options — the whole RPC times out, not just the options half).
+    `surface_score_stats.cumulative_elapsed_sec` read 312-365s per scan
+    (459-495 calls, ~100% cache-miss) against `step6_trade_loop_and_options`
+    (the slowest preamble phase) at 233-291s of a ~290s total preamble on a
+    300s daemon budget — cumulative_elapsed alone exceeds the whole phase's
+    wall time (consistent with concurrent-thread summation across
+    `ThreadPoolExecutor(max_workers=4)`, not literal serial cost), which IS
+    the confirmation this item's own 2026-07-28 NEXT STEP asked for: Setup 7
+    (`get_surface_score()`) is the dominant, budget-blowing cost, not the
+    earnings-calendar or `_setup_high_iv_premium_sale` alternatives it named.
+    FIX: `vol_surface.py` gained `surface_score_scan_budget_exceeded(budget)`
+    / `record_surface_score_budget_skip()` (thread-safe, same lock/dict as
+    the existing scan-scoped accumulator; `skipped_budget` added to its
+    stats). `options_scanner.py` gained a module-level
+    `SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC = 60.0` (first-pass conservative
+    value, NOT evidence-tuned — see NEXT STEP below) and `_check_ticker`'s
+    Setup 7 block now checks it before every `get_surface_score()` call,
+    skipping (and counting the skip) once this scan cycle's cumulative cost
+    already hit 60s. REASONING for why this is NOT a RULE REVIEW-gated
+    threshold change (stated per the REASONING STANDARD's downstream-chain
+    requirement): this changes nothing about how any candidate is SCORED —
+    it only bounds how many candidates get a Setup 7 score before the scan
+    must return, which is a resource governor identical in kind to
+    `build_surface()`'s own `BUILD_SURFACE_TIME_BUDGET_S` (already
+    unguarded by RULE REVIEW) — just applied at the whole-scan level instead
+    of per-ticker, because the per-ticker budget was never the bottleneck
+    (each call already averages well under it; the bottleneck is call
+    COUNT). The baseline this compares against is "zero Tier-2 output every
+    cycle," so any candidate coverage after this fix is a strict
+    improvement, not a quality-selection tradeoff. `skipped_budget` is
+    surfaced live in `server/bot.ts`'s `surface_score_stats` audit detail
+    (never silent) precisely so a truncated-but-completed scan is never
+    mistaken for a fully-covered one.
+    NEW FINDING, NOT FIXED THIS SESSION (separate logical change, filed as
+    KNOWN BROKEN #26 below): while reading this exact code path,
+    `_get_options_candidates()`'s `high_iv_candidates.sort(key=lambda x:
+    x[0], reverse=False)` sorts by TICKER SYMBOL, not the `chg` (movement
+    magnitude) the adjacent comment claims ("Sort by movement magnitude,
+    biggest movers first") — `chg` is computed but never stored in the
+    tuple being sorted. `MAX_PER_TIER = 400`'s truncation is therefore
+    alphabetical, not quality-ranked, which interacts with THIS session's
+    fix (the first ~N candidates Setup 7 gets to see before the budget trips
+    are alphabetically-early tickers, not the biggest movers) — noted here
+    per the REASONING STANDARD's "variables interact" rule, not bundled in
+    per the one-logical-change rule.
+    RATCHET: `test_vol_surface_surface_score_stats.py` gained 5 new tests
+    (budget not/exceeded, never-trips-before-reset, skip-counter
+    increments, skip-before-reset no-op) + new
+    `test_options_scanner_surface_score_scan_budget.py` (4 tests: normal
+    operation under budget, full skip once exceeded, Setup 3 output
+    survives a Setup-7 skip, real-accumulator end-to-end) +
+    `server/tier2DaemonTimeoutVisibility.test.ts` gained 1 source-text pin
+    for `ss.skipped_budget`. A/B-verified via `git stash`: Python suite
+    fails to even COLLECT against pre-fix `vol_surface.py`/
+    `options_scanner.py` (`ImportError`), passes 21/21 post-fix; TS test
+    1/14 fails pre-fix (`ss.skipped_budget` absent), 14/14 post-fix. Full
+    gates (fresh sandbox, `pip install` both requirements files, `npm ci`):
+    `python3 -m pytest -q` — 1041 passed, 1 skipped, 1 pre-existing failure
+    (`test_silent_except_ratchet.py`'s `options_execution.py` pin, 7 vs. 6
+    handlers — same pre-existing failure the 2026-07-28/29 PRODUCT sessions
+    already logged and confirmed unrelated via `git stash`; zero
+    `options_execution.py` edits this session). `npx tsx --test
+    server/*.test.ts` — 844 passed, 7 pre-existing failures, all in files
+    untouched this session (`aircraftTiling`/`apiKeyAccounts`/`compression`/
+    `gdeltEvents`/`owmTiles`/`seafloorTiles`/`securityMiddleware`),
+    confirmed identical via `git stash` on the changed files alone. `npx tsc
+    --noEmit` — 77 errors, byte-identical count via `git stash` on
+    `server/bot.ts`/the new test file, none in the changed lines. `npm run
+    build` — clean, `dist/index.cjs` 13.0mb, only the pre-existing unrelated
+    `astronomy-engine` default-export warning. No client/ files touched —
+    VISUAL VERIFICATION gate does not apply.
+    BACKTEST: N/A — this is a scan-reliability fix (does the RPC return at
+    all), not a scoring/sizing/threshold change; no candidate that would
+    have scored differently does so, some candidates that previously never
+    got evaluated (because the whole scan timed out) now do.
+    NEXT STEP: read the live `surface_score_stats` audit line after deploy —
+    `calls`/`skipped_budget`/`cumulative_elapsed_sec` on the next
+    `TIER2-ERROR` (if any still occur) or on a healthy scan's final state
+    (daemon `/api/diag/daemon` mid-scan) will show whether 60s was enough to
+    bring `step6_trade_loop_and_options` under budget, and how many of the
+    ~450 candidates still get a Setup 7 score. If TIER2-ERROR occurrences
+    stop entirely, that alone confirms the fix; if they continue at a lower
+    rate, `skipped_budget`'s value tells us whether to tighten the 60s
+    further or whether a second cost source remains uninstrumented.
+
 19. **[RESOLVED 2026-07-11, v1.0.270] `track_fill()`'s `code_version` field
     was hardcoded to the literal `"1.0.34"` (Bug #13's fix version) for
     EVERY live trade_feedback record, forever — PROMOTION RULES #4's
@@ -3158,6 +3250,44 @@
     pre-existing suite unaffected. This item now stays open only for the
     3 remaining call sites — see wishlist/experiments for the follow-up
     pointer.
+
+26. **[FOUND 2026-07-29, not fixed — dead-code/comment-mismatch bug,
+    scheduled-routine REPAIR session] `options_scanner.py`'s
+    `_get_options_candidates()` does not actually sort candidates by
+    movement magnitude, despite its own comment claiming it does.**
+    Found while root-causing KNOWN BROKEN #18's scan-timeout: `chg =
+    abs((c - pc) / pc * 100) if pc > 0 else 0` is computed per candidate,
+    then `high_iv_candidates.append((sym, c, "high_iv"))` — `chg` is
+    NEVER stored in the tuple. The very next line,
+    `high_iv_candidates.sort(key=lambda x: x[0], reverse=False)`, sorts
+    by `x[0]`, which is `sym` (the ticker string) — an alphabetical sort,
+    not a magnitude sort — directly contradicting its own comment ("Sort
+    by movement magnitude (biggest movers first = highest IV)"). Since
+    `MAX_PER_TIER = 400` then truncates this list (`high_iv_top =
+    high_iv_candidates[:MAX_PER_TIER]`), every scan's Setup 3/7 coverage
+    is silently biased toward alphabetically-early tickers whenever
+    `len(high_iv_candidates) > 400`, not toward the biggest actual movers
+    the comment (and the rest of the system's design intent) promises.
+    INTERACTION WITH THIS SESSION'S #18 FIX: the new Setup-7 scan-wide
+    time budget (`SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC`) also consumes
+    this list in order, so until this bug is fixed, the candidates that
+    survive BOTH truncations (400-cap and the new budget-cap) skew
+    doubly toward alphabetically-early symbols — worth fixing before
+    tuning the budget value, since a magnitude-sorted list would put the
+    best opportunities first regardless of where the budget cuts off.
+    NOT FIXED THIS SESSION, deliberately: one-logical-change-per-PR (the
+    #18 timeout fix is unrelated in mechanism, and bundling would break
+    attribution for both). LADDER PATH: this is a candidate-selection
+    ORDERING bug, not a new rule/threshold — restoring the comment's
+    already-documented intended behavior (sort by `chg` descending) is a
+    mechanical bug fix, not a RULE REVIEW-gated change (no threshold
+    value changes, just which 400-ish candidates get evaluated first).
+    FIX SKETCH for the next session: store `chg` in the tuple (e.g.
+    `(sym, c, "high_iv", chg)`) or sort against a precomputed dict, then
+    `sort(key=..., reverse=True)` on `chg` descending; needs a regression
+    test asserting the returned order is magnitude-descending, and should
+    check whether `low_iv_candidates` (currently unused, per KNOWN BROKEN
+    #18's 2026-07-26 note) has the same bug for when it's re-enabled.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

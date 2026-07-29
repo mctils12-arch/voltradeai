@@ -3746,7 +3746,7 @@ else:
           // elapsed time directly.
           const ss = hr?.surface_score_stats;
           const surfaceDetail = ss && Object.keys(ss).length > 0
-            ? ` surface_score_stats={calls=${ss.calls} cache_misses=${ss.cache_misses} cumulative_elapsed=${ss.cumulative_elapsed_sec}s age=${ss.age_sec}s}`
+            ? ` surface_score_stats={calls=${ss.calls} cache_misses=${ss.cache_misses} cumulative_elapsed=${ss.cumulative_elapsed_sec}s skipped_budget=${ss.skipped_budget ?? 0} age=${ss.age_sec}s}`
             : "";
           // DAEMON-TIMEOUT-VISIBILITY 2026-07-22 (KNOWN BROKEN #18 continuation):
           // layer2_prefetch only answers "was it Layer 2" — the storm's third

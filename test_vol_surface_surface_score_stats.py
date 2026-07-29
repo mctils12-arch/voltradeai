@@ -29,6 +29,8 @@ from vol_surface import (
     reset_surface_score_scan_stats,
     get_surface_score_scan_stats,
     _record_surface_score_call,
+    surface_score_scan_budget_exceeded,
+    record_surface_score_budget_skip,
 )
 
 
@@ -43,6 +45,7 @@ def test_reset_zeroes_the_accumulator_and_stamps_checked_at():
     assert stats["calls"] == 0
     assert stats["cache_misses"] == 0
     assert stats["cumulative_elapsed_sec"] == 0.0
+    assert stats["skipped_budget"] == 0
     assert "checked_at" in stats
 
 
@@ -128,3 +131,46 @@ def test_get_surface_score_still_records_even_when_inner_raises(monkeypatch):
 
     stats = get_surface_score_scan_stats()
     assert stats["calls"] == 1  # the finally-block still recorded the call
+
+
+# KNOWN BROKEN #18 continuation (2026-07-29): two straight days of live
+# TIER2-ERROR occurrences show cumulative_elapsed_sec (312-365s/scan) alone
+# exceeding the 300s daemon RPC timeout — this accumulator answered "how
+# much does it cost" but did nothing to CAP it. These tests cover the new
+# scan-wide budget guard options_scanner.py's Setup 7 block now checks
+# before every get_surface_score() call.
+
+def test_budget_not_exceeded_below_threshold():
+    reset_surface_score_scan_stats()
+    _record_surface_score_call(cache_hit=False, elapsed_sec=10.0)
+    assert surface_score_scan_budget_exceeded(60.0) is False
+
+
+def test_budget_exceeded_once_cumulative_elapsed_reaches_threshold():
+    reset_surface_score_scan_stats()
+    _record_surface_score_call(cache_hit=False, elapsed_sec=45.0)
+    _record_surface_score_call(cache_hit=False, elapsed_sec=15.0)  # cumulative = 60.0
+    assert surface_score_scan_budget_exceeded(60.0) is True
+
+
+def test_budget_check_never_trips_before_any_reset(monkeypatch):
+    """Same safe-no-signal-yet default as get_surface_score_scan_stats()
+    itself — a process that hasn't reset this cycle must not spuriously
+    block every Setup 7 call."""
+    monkeypatch.setattr(vol_surface, "_SURFACE_SCORE_SCAN_STATS", {})
+    assert surface_score_scan_budget_exceeded(0.0) is False
+
+
+def test_record_budget_skip_increments_the_counter():
+    reset_surface_score_scan_stats()
+    record_surface_score_budget_skip()
+    record_surface_score_budget_skip()
+    stats = get_surface_score_scan_stats()
+    assert stats["skipped_budget"] == 2
+    assert stats["calls"] == 0  # a skip is not a call — must not double-count
+
+
+def test_record_budget_skip_before_any_reset_is_a_noop_not_a_crash(monkeypatch):
+    monkeypatch.setattr(vol_surface, "_SURFACE_SCORE_SCAN_STATS", {})
+    record_surface_score_budget_skip()  # must not raise
+    assert get_surface_score_scan_stats() == {}

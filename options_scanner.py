@@ -1445,6 +1445,28 @@ _options_candidates_cache: list = []
 _options_candidates_time: float = 0.0
 _CANDIDATES_CACHE_TTL = 60  # 1 minute — candidates change during the day
 
+# KNOWN BROKEN #18 continuation (2026-07-29): scan-wide budget for Setup 7's
+# vol_surface.get_surface_score() calls in _check_ticker below — see
+# vol_surface.py's 2026-07-29 comment on surface_score_scan_budget_exceeded()
+# for the full trace. Two straight days of live TIER2-ERROR occurrences
+# (2026-07-27/28) show surface_score_stats.cumulative_elapsed_sec landing at
+# 312-365s per scan (459-495 calls, ~100% cache-miss, ~0.75s/call average) —
+# Setup 7 alone can burn past the whole 300s daemon RPC timeout, so
+# scan_options() (and therefore run_full_scan(), stock trades included)
+# times out and returns NOTHING every cycle. Once this scan cycle's
+# cumulative Setup 7 cost hits this budget, _check_ticker skips
+# get_surface_score() for the rest of the candidates — same "stop paying for
+# a slow nice-to-have once the shared budget is gone" pattern build_surface()
+# already uses internally via BUILD_SURFACE_TIME_BUDGET_S, applied at the
+# whole-scan level instead of per-ticker (the per-ticker budget already
+# exists and isn't the bottleneck — the bottleneck is ~450+ calls at ~0.75s
+# each, not any single slow call). First-pass conservative value, not
+# evidence-tuned — the NEXT STEP in open_questions.md item 18 is reading the
+# live surface_score_stats (calls/skipped_budget/cumulative_elapsed_sec)
+# after this ships to see how many candidates still get a Setup 7 score and
+# whether 60s needs to move.
+SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC = 60.0
+
 
 def _get_options_candidates(snap_data: dict = None) -> list:
     """
@@ -1800,25 +1822,37 @@ def scan_options() -> dict:
         # `found`'s final contents (r7 could only ever be appended when the
         # ticker wasn't already present — that condition is unchanged, just
         # checked before the expensive call instead of after).
+        # SCAN-WIDE BUDGET FIX 2026-07-29 (KNOWN BROKEN #18 continuation): the
+        # dedup check above stops PAYING TWICE for the same ticker, but does
+        # nothing about the aggregate cost across ~450 distinct candidates —
+        # that's what was blowing the 300s daemon timeout every cycle (see
+        # SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC's module-level comment). Once
+        # this scan's cumulative get_surface_score() cost trips the budget,
+        # skip it for every remaining candidate so scan_options() actually
+        # returns instead of the whole RPC timing out with zero output.
         if setup_hint in ("high_iv", "anchor") and not any(o.get("ticker") == tkr for o in found):
-            try:
-                from vol_surface import get_surface_score
-                srf = get_surface_score(tkr)
-                vrp_val = srf.get("vrp", {}).get("vrp_20d", 0)
-                surf_score = srf.get("surface_score", 0)
-                days_to_earn = earnings_cal.get(tkr, 99)
-                if vrp_val > 0.05 and surf_score > 65 and days_to_earn > 10:
-                    r7 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
-                    if r7:
-                        # KEEP setup="high_iv_premium_sale" — whitelist gate
-                        r7["vrp_enhanced"] = True
-                        r7["vrp_20d"] = vrp_val
-                        r7["surface_score_ticker"] = surf_score
-                        r7["reasoning"] = f"[VRP+] vrp_20d={vrp_val*100:.1f}%, surface={surf_score:.0f}. " + r7.get("reasoning", "")
-                        r7["score"] = min(88, r7.get("score", 60) + 4)
-                        found.append(r7)
-            except Exception:
-                pass
+            from vol_surface import surface_score_scan_budget_exceeded, record_surface_score_budget_skip
+            if surface_score_scan_budget_exceeded(SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC):
+                record_surface_score_budget_skip()
+            else:
+                try:
+                    from vol_surface import get_surface_score
+                    srf = get_surface_score(tkr)
+                    vrp_val = srf.get("vrp", {}).get("vrp_20d", 0)
+                    surf_score = srf.get("surface_score", 0)
+                    days_to_earn = earnings_cal.get(tkr, 99)
+                    if vrp_val > 0.05 and surf_score > 65 and days_to_earn > 10:
+                        r7 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
+                        if r7:
+                            # KEEP setup="high_iv_premium_sale" — whitelist gate
+                            r7["vrp_enhanced"] = True
+                            r7["vrp_20d"] = vrp_val
+                            r7["surface_score_ticker"] = surf_score
+                            r7["reasoning"] = f"[VRP+] vrp_20d={vrp_val*100:.1f}%, surface={surf_score:.0f}. " + r7.get("reasoning", "")
+                            r7["score"] = min(88, r7.get("score", 60) + 4)
+                            found.append(r7)
+                except Exception:
+                    pass
         # Setup 6: Cash-secured put in normal markets — DISABLED (v1.0.34)
         # Backtest: CSP filler strategy at IVR 20-50 had negative P&L.
         # Premium too small to overcome spread cost + assignment risk.
