@@ -217,6 +217,7 @@ import {
   spinObliquityDeg,
   SATURN_RING_INNER_REL,
   SATURN_RING_OUTER_REL,
+  approachLitBlend,
   type SphereLUT,
   type RingBand,
   type GalacticBasis,
@@ -2198,6 +2199,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       // B6: realistic OFF ⇒ full-bright patch; the eclipse scalar matches the
       // far sprite so the terminator/eclipse read consistently across zoom.
       fullBright: !realistic,
+      litBlend: realistic
+        ? approachLitBlend(Math.hypot(camPos.x - center.x, camPos.y - center.y, camPos.z - center.z), R)
+        : 0,
       shadowFactor,
     };
   }
@@ -2485,6 +2489,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           rowStart: u.composeRow, rowEnd: u.composeRow + rows,
           texLonOffsetDeg: textureLonOffsetDeg(u.def.id),
           fullBright: !u.light.realistic,
+          litBlend: u.light.litBlend,
           shadowFactor: u.light.shadowFactor,
           ringShadow: u.light.ring,
         },
@@ -2510,13 +2515,16 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     realistic: boolean;
     shadowFactor: number;
     ring: RingShadowParams | null;
+    /** approach-lit blend 0..1 (textureSphere.approachLitBlend) — quantized
+     *  into the sprite key so approaching a body re-shades its night side. */
+    litBlend: number;
   }
   function lightKey(l: BodyLight): string {
     const sq = (n: number): number => Math.round(n / 0.06) * 0.06;
     const r = l.ring
       ? `r${sq(l.ring.sun.x)},${sq(l.ring.sun.y)},${sq(l.ring.sun.z)}`
       : "r0";
-    return `L${l.realistic ? 1 : 0}|e${Math.round(l.shadowFactor * 40)}|${r}`;
+    return `L${l.realistic ? 1 : 0}|e${Math.round(l.shadowFactor * 40)}|b${Math.round(l.litBlend * 10)}|${r}`;
   }
 
   function spriteKey(id: string, tier: string, shadeR: number, wq: number, sunCam: Vec3, axisCam: Vec3, light: BodyLight): string {
@@ -2603,6 +2611,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         ...(wantTangents ? { bump, bumpStrength: 1.2 } : {}),
         texLonOffsetDeg: textureLonOffsetDeg(def.id),
         fullBright: !light.realistic,
+        litBlend: light.litBlend,
         shadowFactor: light.shadowFactor,
         ringShadow: light.ring,
       },
@@ -2662,7 +2671,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           // curve × the eclipse/umbra factor (a moon in its parent's shadow).
           const day = Math.max(0, Math.min(1, (lit + 0.03) / 0.07));
           const shade = 0.05 + 0.95 * Math.max(lit, 0);
-          const w = light.realistic ? (0.05 + 0.95 * (day * shade)) * light.shadowFactor : 1;
+          let w = light.realistic ? (0.05 + 0.95 * (day * shade)) * light.shadowFactor : 1;
+          if (light.realistic && light.litBlend > 0) w += (1 - w) * light.litBlend;
           const i = (py * size + px) * 4;
           img.data[i] = cr * w;
           img.data[i + 1] = cg * w;
@@ -3059,7 +3069,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
               strength: RING_SHADOW_STRENGTH,
             };
           }
-          const light: BodyLight = { realistic, shadowFactor: eclipse, ring };
+          const light: BodyLight = {
+            realistic, shadowFactor: eclipse, ring,
+            litBlend: realistic ? approachLitBlend(d.distM, radiusM(d.id)) : 0,
+          };
           sprite = texturedSprite(
             def, r, sunCam, axisCam, nodeCam,
             iauPrimeMeridianDeg(rid, timeMs), tex,
@@ -3068,7 +3081,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           );
           texturedIds.push(d.id);
         } else {
-          sprite = shadedSprite(def, r, sunCam, { realistic, shadowFactor: eclipse, ring: null });
+          sprite = shadedSprite(def, r, sunCam, {
+            realistic, shadowFactor: eclipse, ring: null,
+            litBlend: realistic ? approachLitBlend(d.distM, radiusM(d.id)) : 0,
+          });
         }
         // the sprite's shaded disc has radius (sprite.width/2 − 1); scale the
         // whole sprite so THAT maps to exactly r (the +1 border must not

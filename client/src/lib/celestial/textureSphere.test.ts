@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  approachLitBlend,
   equirectUV,
   sampleEquirectRGB,
   buildSphereLUT,
@@ -385,4 +386,26 @@ test("sky render: bilinear interpolates between texels (nearest snaps)", () => {
   let brighter = 0;
   for (let i = 0; i < w * h; i++) if (lit[i * 4] >= dim[i * 4]) brighter++;
   assert.equal(brighter, w * h, "exposure ≥1 never darkens");
+});
+
+// ── approach-lit blend (2026-07-28 human report: dark side invisible when
+// zooming in on a body in the space view) ───────────────────────────────────
+test("approachLitBlend: full realism far, fully lit near, smooth between", () => {
+  const R = 1_737_400;
+  assert.equal(approachLitBlend(R + 7 * R, R), 0);        // >6.3R alt: pure phase
+  assert.equal(approachLitBlend(R + 2 * R, R), 1);        // <=2R alt: fully lit
+  const mid = approachLitBlend(R + 4.15 * R, R);          // band midpoint
+  assert.ok(mid > 0.45 && mid < 0.55, `mid ≈ 0.5, got ${mid}`);
+  // monotone: closer is never darker
+  let prev = -1;
+  for (let a = 6.5; a >= 1.9; a -= 0.2) {
+    const b = approachLitBlend(R + a * R, R);
+    assert.ok(b >= prev, "monotone as altitude falls");
+    prev = b;
+  }
+});
+
+test("approachLitBlend: degenerate inputs are full realism, not NaN", () => {
+  assert.equal(approachLitBlend(NaN, 1737400), 0);
+  assert.equal(approachLitBlend(1e9, 0), 0);
 });
