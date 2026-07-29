@@ -128,10 +128,22 @@ def _dynamic_options_size(trade: dict, equity: float, existing_positions: list =
     if not _HAS_SIZER:
         return 0.05  # Fallback: 5% fixed
     
-    # Start with Kelly base
+    # Start with Kelly base.
+    # BUCKET FIX 2026-07-29 (KNOWN BROKEN #3 recurrence): this used
+    # stats["overall"] — the blended win-rate across ALL trade types,
+    # including the documented -EV "stocks" bucket (position_sizing.py's
+    # own by_strategy defaults: stocks 49% WR vs csp_options 71.6% WR,
+    # +0.69/-0.46 avg). calculate_position() already does the correct
+    # per-bucket lookup via _infer_strategy() for stock/ETF sizing; this
+    # options-only sizer never got the same alignment (BUG #12 FIX
+    # 2026-05-03 in position_sizing.py fixed calculate_position's call
+    # site only). Every call into this function IS an options trade, so
+    # the bucket is known statically — no _infer_strategy() call needed.
     stats = _get_historical_stats()
-    overall = stats["overall"]
-    kelly_base = _kelly_fraction(overall["win_rate"], overall["avg_win"], overall["avg_loss"])
+    options_stats = stats["by_strategy"].get("csp_options", stats["overall"])
+    kelly_base = _kelly_fraction(
+        options_stats["win_rate"], options_stats["avg_win"], options_stats["avg_loss"]
+    )
     
     # Apply all the same scalars as stocks
     score = trade.get("deep_score", trade.get("score", 50))

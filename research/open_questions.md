@@ -3289,6 +3289,89 @@
     check whether `low_iv_candidates` (currently unused, per KNOWN BROKEN
     #18's 2026-07-26 note) has the same bug for when it's re-enabled.
 
+27. **[FOUND + FIXED 2026-07-29, v1.0.532, scheduled-routine REPAIR
+    session] Both copies of `_dynamic_options_size()` (options_execution.py
+    and instrument_selector.py — the latter's own docstring says "Mirrors
+    the logic in options_execution.py") sized every options trade off
+    `stats["overall"]` instead of the `csp_options` bucket, silently
+    collapsing CSP/options sizing to the 1% floor on essentially every
+    scan and producing a zero-fill options channel for 17+ days.**
+    EVIDENCE (this session): `/api/diag/audit?type=T2-FAIL&limit=100`
+    returned 100/100 recent entries as "Not enough capital"/"exceed
+    position budget" rejections, ALL carrying an identical `size_pct
+    1.00%` (21/21 entries where that field is present) — not a value that
+    varies with score/vol/liquidity, i.e. a hard floor, not organic
+    sizing. `/api/diag/orders?limit=200` confirmed zero `us_option` orders
+    across the full 200-order/17-day window (2026-07-10 through
+    2026-07-27) against 200 `us_equity` fills in the same span — the
+    options channel is completely dark, not just occasionally rejected.
+    ROOT CAUSE: `position_sizing.py`'s own `by_strategy` table documents
+    `csp_options` as the system's proven +EV bucket (71.6% WR,
+    +0.69/-0.46 avg — third-Kelly clamps to the 8% ceiling) versus the
+    blended `overall` bucket, which mixes in the documented -EV `stocks`
+    bucket. `calculate_position()` (the stock/ETF sizer) already does the
+    correct per-bucket lookup via `_infer_strategy()`
+    (`position_sizing.py`'s own BUG #12 FIX 2026-05-03 comment), but that
+    alignment never reached either options-only sizer — both were left
+    reading `stats["overall"]` directly. When the blended bucket's
+    computed Kelly is non-positive, `_kelly_fraction` returns 0.0 and
+    `dynamic_pct = 0 * (any scalars) = 0`, which the outer
+    `max(0.01, min(dynamic_pct, MAX_OPTIONS_PCT_CEILING))` clamp floors at
+    exactly 1% — independent of score, volatility, liquidity, or regime —
+    matching the observed pattern exactly. That 1%/2% affordability floor
+    (`options_execution.py`'s `_select_sell_put`) is far below what almost
+    any liquid underlying's CSP strike requires at this account's equity
+    (~$105K), so nearly every candidate fails "too expensive," recurring
+    with the same handful of tickers (HYG, EEM, DRAM, MDT, ON, BMY, INTC…)
+    every cycle.
+    FIX: both functions now read `stats["by_strategy"].get("csp_options",
+    stats["overall"])` instead of `stats["overall"]` directly — every call
+    into either function IS an options trade, so the bucket is known
+    statically; no `_infer_strategy()` call needed (that would require
+    threading an `options_strategy` field neither caller currently sets).
+    LADDER PATH: this restores documented, already-established intended
+    behavior (the same per-bucket alignment `calculate_position()` already
+    has) — a mechanical bug fix, not a new sizing policy or threshold
+    value, so no RULE REVIEW evidence gate applies (same precedent as
+    KNOWN BROKEN #3's `MAX_OPTIONS_POSITIONS` fix). No threshold constant
+    changed; `MAX_OPTIONS_PCT_CEILING` (0.08), `ABSOLUTE_MAX_POSITION_PCT`
+    (0.08), and the affordability floor logic are all untouched.
+    DOWNSTREAM CHAIN: this makes options position sizing swing meaningfully
+    with score/vol/liquidity/regime again (previously multiplying by those
+    scalars was moot once the outer floor always won) — that's the
+    intended interaction, not a new one, but it means the affordability
+    floor in `_select_sell_put` will now vary cycle-to-cycle instead of
+    sitting at a fixed 2%, so more (not all) of the recurring "too
+    expensive" tickers should start clearing.
+    RATCHET: `test_options_sizer_csp_bucket.py` (NEW, 4 tests) — both
+    fixed functions verified to use the csp_options bucket over a
+    negative-EV "overall" via injected fake stats (all non-Kelly scalars
+    pinned to 1.0 so only the bucket-selection logic is under test); a
+    defensive fallback-to-overall test for if `by_strategy["csp_options"]`
+    is ever absent; a pin against `position_sizing.py`'s REAL shipped
+    defaults asserting the csp_options bucket computes positive Kelly, so
+    a future edit to those defaults that breaks this fix's assumption
+    fails loudly here instead of silently reappearing as a live zero-fill
+    outage. A/B-verified via `git stash push -- options_execution.py
+    instrument_selector.py`: exactly the 2 tests exercising the bucket
+    fix fail pre-fix (`assert 0.01 > 0.01`), all 4 pass post-fix.
+    SILENT-EXCEPT RATCHET: no new try/except added by this change.
+    Confirmed the suite's one pre-existing failure
+    (`test_silent_except_ratchet.py`, options_execution.py: 7 silent
+    handlers found vs. pin 6) is IDENTICAL with or without this fix
+    (same 7-vs-6 discrepancy, same set of line offsets shifted only by
+    this diff's added comment lines) — pre-existing, not introduced or
+    worsened this session, not touched (belongs to a dedicated future
+    session per the ratchet's own scope).
+    NEXT: check `/api/diag/orders` and `/api/diag/audit?type=T2-FAIL` in
+    a few days for `us_option` fills resuming and for the T2-FAIL
+    affordability-rejection rate dropping — if CSP fills still don't
+    resume, the affordability floor itself (not just the sizing bucket)
+    may need a RULE REVIEW-gated look. KNOWN BROKEN #26 (candidate-list
+    alphabetical-sort bug) is a separate, still-open issue that compounds
+    with this one (which handful of tickers get evaluated first each
+    cycle) — not fixed here per one-logical-change-per-PR.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

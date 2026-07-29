@@ -1012,9 +1012,17 @@ def _dynamic_options_size(trade: dict, equity: float,
     if not _HAS_SIZER:
         return 0.05  # Fallback: 5% fixed
 
-    stats   = _get_historical_stats()
-    overall = stats["overall"]
-    kelly_base = _kelly_fraction(overall["win_rate"], overall["avg_win"], overall["avg_loss"])
+    # BUCKET FIX 2026-07-29 (KNOWN BROKEN #3 recurrence, same root cause as
+    # the mirrored function in options_execution.py): use the csp_options
+    # bucket (71.6% WR, +EV) instead of the blended "overall" stats, which
+    # get dragged down by the documented -EV "stocks" bucket. Every call
+    # into this function is an options trade, so the bucket is known
+    # statically.
+    stats = _get_historical_stats()
+    options_stats = stats["by_strategy"].get("csp_options", stats["overall"])
+    kelly_base = _kelly_fraction(
+        options_stats["win_rate"], options_stats["avg_win"], options_stats["avg_loss"]
+    )
 
     score   = trade.get("deep_score", trade.get("score", 50))
     ewma_rv = trade.get("ewma_rv") or 2.0
