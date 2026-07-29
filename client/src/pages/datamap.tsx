@@ -527,6 +527,46 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
 // instead of the raw maplibre error JSON when the browser can't (or won't)
 // give the page a WebGL context — the actionable path is a full reload
 // and/or enabling hardware acceleration.
+/** GL-LOSS DIAGNOSTICS (2026-07-28). Context loss has now been "fixed" three
+ *  times on this subsystem (v1.0.467 terrain x animation overload, v1.0.475 the
+ *  exag=3.0 cascade, and a live report at the Moon on v1.0.536) and each fix was
+ *  reasoned from a mechanism nobody could observe at the moment of failure — the
+ *  sandbox runs SwiftShader, so a real-GPU loss cannot be reproduced here at all.
+ *  RECURRENCE ESCALATES says stop patching and root-cause; a root cause needs
+ *  evidence, and evidence needs to survive the crash. This records what was
+ *  actually resident when the context died: where the camera was, whether the
+ *  DEM/drape was still live, how many canvases and of what size, and the heap.
+ *  Kept to cheap, already-computed values wrapped individually in try/catch so
+ *  the recorder can never itself throw inside a crash handler. */
+const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
+export function captureGlSnapshot(reason: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  const g = <T,>(fn: () => T): T | null => { try { return fn(); } catch { return null; } };
+  const snap: Record<string, unknown> = {
+    reason,
+    at: new Date().toISOString(),
+    sinceLoadMs: Math.round(g(() => performance.now()) ?? 0),
+    ...extra,
+    dpr: g(() => window.devicePixelRatio),
+    viewport: g(() => `${window.innerWidth}x${window.innerHeight}`),
+    // every canvas and its BACKING-STORE size — the real GPU/tile-memory bill,
+    // and the one number that distinguishes "too many surfaces" from "one huge one"
+    canvases: g(() => [...document.querySelectorAll("canvas")]
+      .map((c) => `${(c as HTMLCanvasElement).width}x${(c as HTMLCanvasElement).height}`)),
+    heapMB: g(() => Math.round(((performance as any).memory?.usedJSHeapSize ?? 0) / 1e6)) || null,
+    heapLimitMB: g(() => Math.round(((performance as any).memory?.jsHeapSizeLimit ?? 0) / 1e6)) || null,
+    deviceMemoryGiB: g(() => (navigator as any).deviceMemory ?? null),
+    cores: g(() => navigator.hardwareConcurrency ?? null),
+    ua: g(() => navigator.userAgent),
+  };
+  try {
+    const prev = JSON.parse(window.localStorage.getItem(GL_LOSS_LOG_KEY) ?? "[]") as unknown[];
+    window.localStorage.setItem(GL_LOSS_LOG_KEY, JSON.stringify([...prev, snap].slice(-5)));
+  } catch { /* storage full or blocked — the console copy below still stands */ }
+  // eslint-disable-next-line no-console
+  console.error("[VT GL-LOSS]", JSON.stringify(snap));
+  return snap;
+}
+
 const WEBGL_BLOCKED_MSG =
   "The browser blocked 3D graphics for this page (usually after a graphics driver hiccup, or because hardware acceleration is off). Reload the page to recover; if it keeps happening, enable hardware acceleration in your browser settings (chrome://settings → System) and check chrome://gpu.";
 const GLOBE_PREF_KEY = "vt-map-globe";
@@ -2778,6 +2818,20 @@ export default function DataMapPage() {
     let lostTimer: number | null = null;
     const canvas = (() => { try { return map.getCanvas(); } catch { return null; } })();
     const onCtxLost = () => {
+      // FIRST, before any recovery decision: record what was resident. The
+      // space/moon view is the newest suspect — MapLibre keeps the DEM mesh,
+      // the RTT drape, every layer buffer and its tile caches alive while the
+      // space frame allocates a full-screen 2D canvas plus a 2048px mosaic and
+      // celestialSky holds a SECOND WebGL context, so peak GPU demand lands
+      // exactly when the user is furthest from needing the Earth map at all.
+      captureGlSnapshot("webglcontextlost", {
+        inSpace: !!spaceActiveRef.current,
+        terrainLive: (() => { try { return !!(map as any).getTerrain?.(); } catch { return null; } })(),
+        terrainExag: terrainExagRef.current,
+        mapZoom: (() => { try { return Number(map.getZoom().toFixed(2)); } catch { return null; } })(),
+        projection: (() => { try { return ((map as any).getProjection?.() || {}).type ?? null; } catch { return null; } })(),
+        styleLayers: (() => { try { return map.getStyle()?.layers?.length ?? null; } catch { return null; } })(),
+      });
       if (lostTimer != null) window.clearTimeout(lostTimer);
       lostTimer = window.setTimeout(() => {
         // AUTO-RECOVERY, SAFELY (live incident 2026-07-22: pushing exag to
@@ -10850,7 +10904,21 @@ export default function DataMapPage() {
             <strong>{mapError === WEBGL_BLOCKED_MSG ? "3D map unavailable" : "Map error"}</strong>
             <p>{mapError}</p>
             {mapError === WEBGL_BLOCKED_MSG && (
-              <button onClick={() => window.location.reload()}>Reload the page</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                <button onClick={() => window.location.reload()}>Reload the page</button>
+                {/* the crash is not reproducible on a software renderer, so the
+                    only way to root-cause it is the real machine's own record */}
+                <button
+                  style={{ background: "transparent", border: "1px solid rgba(148,163,184,.4)", color: "#cbd5e1" }}
+                  onClick={() => {
+                    let text = "";
+                    try { text = window.localStorage.getItem("vt-gl-loss-log") ?? "[]"; } catch { text = "[]"; }
+                    try { void navigator.clipboard?.writeText(text); } catch { /* fall through */ }
+                    // eslint-disable-next-line no-console
+                    console.error("[VT GL-LOSS LOG]", text);
+                  }}
+                >Copy diagnostics</button>
+              </div>
             )}
           </div>
         </div>

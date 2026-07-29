@@ -2192,3 +2192,81 @@ kind of divergence CLAUDE.md's HONESTY METRIC asks to be able to
 reconstruct later. This closes out the outage as a going concern for
 autonomous sessions; no more "CI still down, verified via local gates
 only" caveats are needed on future PRs unless it recurs.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-28 · STRUCTURAL PROPOSAL (needs human approval) — GL CONTEXT LOSS
+IS NOW AN ARCHITECTURE SMELL, NOT A BUG TO PATCH AGAIN
+
+TRIGGER: live report on v1.0.536 — "i went to the moon and looked around
+and zoomed and it crashed", with the /data map showing the 3D-unavailable
+card (Chrome had blocked WebGL for the page).
+
+WHY THIS IS FILED INSTEAD OF FIXED. CLAUDE.md: "If an issue already marked
+fixed in experiments.md breaks again, patching it again is FORBIDDEN — the
+session becomes a root-cause analysis. Two failed fixes on the same
+subsystem = architecture smell: propose structural work via wishlist.md."
+This subsystem has been "fixed" twice already:
+  · v1.0.467 (round 15) — GPU death spiral root-caused to terrain x
+    animation sustained-render overload; device tier + frame governor +
+    overload tick-stretch + GL auto-recovery.
+  · v1.0.475 (round 20) — the exag=3.0 cascade, where the round-15
+    auto-reload restarted INTO the crashing state until Chrome
+    permanently blocked WebGL.
+Both were reasoned from mechanisms nobody could observe at the moment of
+failure, because this sandbox runs SwiftShader and a real-GPU context loss
+CANNOT be reproduced here. A third fix by the same method would be a third
+guess. So this session shipped diagnostics only (below) and files the
+structural question here.
+
+THE ONE CONCRETE, VERIFIED FINDING (grep, not inference): NOTHING releases
+MapLibre's GPU residency when the user enters space. `map.setTerrain` is
+called in exactly two places in datamap.tsx — the terrain-toggle effect and
+its cleanup — and neither is on space entry/exit. Consequence: standing at
+the Moon, 380,000 km from Earth, the page is still paying for
+  · the terrain DEM mesh + the render-to-texture drape (round 15 already
+    identified terrain as the single largest GPU consumer),
+  · every enabled layer's buffers + tile caches (127 layers registered),
+  · the satellite CustomLayer,
+while SIMULTANEOUSLY the space frame allocates a full-screen 2D canvas at
+devicePixelRatio plus up to a 2048x2048 RGBA mosaic (16 MB, MOON_MOSAIC_MAX_PX)
+and a ~1100px patch buffer, AND celestialSky holds a SECOND WebGL context.
+Peak GPU demand therefore lands exactly when the user needs the Earth map
+least. That is a structural mismatch, and it is consistent with (though not
+yet proven to be) what the human hit.
+
+PROPOSALS, cheapest first — approve one or more:
+ A. SHED TERRAIN IN SPACE (small). On space entry set terrain null; restore
+    on exit. Removes the largest known consumer at zero visual cost, since
+    the DEM is invisible at that range. CAUTION, and the reason this is not
+    self-applied: datamap.tsx:3681 carries an explicit warning that the
+    terrain and seafloor toggles "can never race over map.setTerrain", so a
+    third writer needs to be sequenced through the same effect rather than
+    bolted on. Estimated: one careful PR + a test that terrain returns on
+    exit.
+ B. SHED LAYER RESIDENCY IN SPACE (medium). Hide non-celestial layers while
+    spaceActive so their buffers/tiles can be evicted, restoring on exit.
+    Needs care: hiding is not the same as freeing in MapLibre, so this must
+    be MEASURED (renderer info before/after) rather than assumed.
+ C. ONE CONTEXT (large, the real architectural answer). Today three GPU
+    consumers coexist with independent budgets: MapLibre's WebGL context,
+    celestialSky's WebGL context, and the space frame's 2D canvas. Draw the
+    space frame and sky as MapLibre CustomLayers in the single existing
+    context — the satellite layer already proves the pattern works here
+    (client/src/lib/orbital/satLayer.ts). Eliminates the summed-budget
+    failure mode entirely rather than trimming it.
+
+WHAT ONLY THE HUMAN CAN SUPPLY (this is the fastest path to certainty):
+ 1. chrome://gpu on the machine that crashed — specifically the "Graphics
+    Feature Status" block and any "context lost" entries at the bottom.
+ 2. Whether terrain (3D relief) was ON when it happened, and whether it
+    reproduces on a second attempt or only after a long session.
+ 3. The output of the new "Copy diagnostics" button on that card (ships in
+    v1.0.537 below) — it now carries the resident-canvas sizes, heap, DPR,
+    whether the DEM was still live, and where the camera was.
+
+SHIPPED THIS SESSION (v1.0.537, non-speculative, no behaviour change):
+captureGlSnapshot() records the above at the instant of webglcontextlost,
+rings the last 5 into localStorage (vt-gl-loss-log), prints them under a
+[VT GL-LOSS] console tag, and the blocked card gained a Copy-diagnostics
+button. Making an unreproducible failure observable is the prerequisite for
+root-causing it; it is deliberately NOT another attempt at a fix.

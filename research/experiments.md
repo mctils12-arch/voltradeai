@@ -32747,3 +32747,51 @@ theory). Fixed with async execFile + an 8-way pool + a warm-up pass down
 the same corridor; the frozen level vanished and z6->z7->z8 appeared.
 Lesson for the next session: when a probe reports a product defect,
 check the probe's own diagnostics for self-contradiction FIRST.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-28 · [REPAIR] · T-CLIENT
+GL context loss at the Moon: diagnostics shipped, THIRD fix deliberately
+NOT attempted (v1.0.537)
+
+REPORTED: "i went to the moon and looked around and zoomed and it crashed"
+— /data showing the 3D-unavailable card, i.e. Chrome had blocked WebGL for
+the page after context loss. Desktop (screenshot 1354x693).
+
+RECURRENCE HANDLING. This is the third loss on this subsystem (v1.0.467
+terrain x animation overload; v1.0.475 the exag=3.0 reload cascade that
+ended in Chrome blocking WebGL; now the Moon close-up). CLAUDE.md forbids
+patching a re-broken issue and demands root-cause analysis, with two failed
+fixes = architecture smell -> wishlist.md. Both prior fixes were reasoned
+from mechanisms that could not be observed at failure time, because this
+sandbox is SwiftShader and a real-GPU loss is not reproducible here. A
+third fix by the same method would be a third guess, so none was made.
+Full analysis + three ranked structural proposals filed in wishlist.md.
+
+VERIFIED FINDING (grep, not inference): nothing releases MapLibre's GPU
+residency on space entry — setTerrain appears only in the terrain-toggle
+effect and its cleanup, never on enter/exitSpace. At the Moon the page
+still pays for the DEM mesh + RTT drape + 127 layers' buffers + tile
+caches, while the space frame adds a full-screen DPR canvas + a 2048px
+mosaic (16 MB) and celestialSky holds a second WebGL context. Peak GPU
+demand coincides with minimum need for the Earth map.
+
+CHECKED AND RULED OUT (so the next session does not re-tread): MapLibre's
+own _contextLost DOES call e.preventDefault() and saves _lostContextStyle
+(read from node_modules/maplibre-gl/dist/maplibre-gl.js), so restore is
+possible and datamap's additional listener is purely additive — the missing
+preventDefault in our own handler is NOT a bug. The moon mosaic is bounded
+(MOON_MOSAIC_MAX_PX = 2048, tiles <= 64), so it is not an unbounded leak.
+
+SHIPPED (non-speculative): captureGlSnapshot() records, at the instant of
+webglcontextlost, whether we were in space, whether the DEM was still live,
+exaggeration, zoom, projection, style-layer count, every canvas's backing
+-store size, heap used/limit, DPR, deviceMemory, cores and UA. Rings the
+last 5 into localStorage vt-gl-loss-log, logs under [VT GL-LOSS], and the
+blocked card gained a Copy-diagnostics button so the human can hand over
+the real machine's record. Every field is individually try/catch-wrapped —
+a recorder that throws inside a crash handler would destroy the evidence
+it exists to collect. Build clean.
+
+NEXT: needs chrome://gpu from the affected machine, whether terrain was on,
+and whether it reproduces on demand or only after a long session. Until
+then the mechanism is a HYPOTHESIS, labelled as such.
