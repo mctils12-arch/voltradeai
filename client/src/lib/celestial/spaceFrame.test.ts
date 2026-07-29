@@ -66,8 +66,10 @@ import {
   seamExitArmed,
   type Vec3,
   surfaceRelativeStep,
+  skyLagOffsetPx,
 } from "./spaceFrame.js";
 import { solarSystemState, BODY_RADIUS_M, BODY_ORDER, AU_M } from "./solarSystem.js";
+import { projectStarScreen } from "./starCatalog.js";
 import { subsolarPoint } from "./ephemeris.js";
 import { MOON_IDS, MOONS, moonLocalOffsetEclM, moonOrbitPeriodDays } from "./moons.js";
 
@@ -1089,4 +1091,34 @@ test("surfaceRelativeStep: converges to plain dist*g at planetary range", () => 
 test("surfaceRelativeStep: never returns below the surface", () => {
   const R = 1_737_400;
   assert.ok(surfaceRelativeStep(R * 1.0001, R, 0.01) >= R, "floor at R");
+});
+
+// ── Milky Way ghost fix: the stale-sky compensation must move the band
+// EXACTLY as projectStarScreen moves the stars for the same camera delta ──
+test("skyLagOffsetPx: band tracks stars in lockstep for yaw and pitch", () => {
+  const k = 1010; // any focal
+  const up = { x: 0, y: 0, z: 1 };
+  const A = camBasis({ x: 1, y: 0, z: 0 }, up);
+  // star straight ahead of A (screen centre under A)
+  const star = { x: A.f.x, y: A.f.y, z: A.f.z };
+  for (const [dyaw, dpitch] of [[3, 0], [-2.3, 0], [0, 3], [0, -1.7], [1.7, 1.1]]) {
+    // rotate the camera DIR by the delta (about up for yaw, right for pitch)
+    let dir = { x: 1, y: 0, z: 0 };
+    dir = rotateAbout(dir, up, dyaw);
+    const B0 = camBasis(dir, up);
+    dir = rotateAbout(dir, B0.r, dpitch);
+    const B = camBasis(dir, up);
+    const p = projectStarScreen(star, B, k, 0, 0);
+    assert.ok(p.front, "star still in front");
+    const { dx, dy } = skyLagOffsetPx(A, B, k);
+    // the compensated band offset equals the star's screen displacement
+    close(dx, p.x, Math.abs(p.x) * 0.02 + 0.5, `dx tracks star x (yaw ${dyaw}, pitch ${dpitch})`);
+    close(dy, p.y, Math.abs(p.y) * 0.02 + 0.5, `dy tracks star y (yaw ${dyaw}, pitch ${dpitch})`);
+  }
+});
+
+test("skyLagOffsetPx: zero delta means zero offset", () => {
+  const A = camBasis({ x: 0.3, y: 0.8, z: 0.52 }, { x: 0, y: 0, z: 1 });
+  const { dx, dy } = skyLagOffsetPx(A, A, 900);
+  close(dx, 0, 1e-9, "dx"); close(dy, 0, 1e-9, "dy");
 });

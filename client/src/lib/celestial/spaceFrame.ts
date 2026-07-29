@@ -283,6 +283,22 @@ export function surfaceRelativeStep(d: number, R: number, g: number): number {
   return R + Math.max(0, d - R) * g;
 }
 
+/** Screen-space offset that moves a sky image rendered for `oldB` so it
+ *  tracks the LIVE camera basis (Milky Way ghost fix, 2026-07-28): the
+ *  panorama rebuild spans many frames, and drawing the stale buffer 1:1 made
+ *  the band slide against the live-projected stars during orbits. Same
+ *  small-angle math as projectStarScreen (x = cx + k·(d·r)/(d·f),
+ *  y = cy − k·(d·u)/(d·f)) applied to the old view centre — the test pins
+ *  band motion to star motion for the same camera delta. */
+export function skyLagOffsetPx(oldB: CamBasis, liveB: CamBasis, k: number): { dx: number; dy: number } {
+  const cl = (x: number): number => Math.max(-1, Math.min(1, x));
+  const fwd = Math.max(0.2, dot(oldB.f, liveB.f)); // guard huge swings
+  return {
+    dx: (k * cl(dot(oldB.f, liveB.r))) / fwd,
+    dy: (-k * cl(dot(oldB.f, liveB.u))) / fwd,
+  };
+}
+
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
@@ -1727,6 +1743,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (skyWorkKey !== key) {
         skyWorkKey = key;
         skyWorkRow = 0;
+        skyWorkBasis = { f: { ...basis.f }, r: { ...basis.r }, u: { ...basis.u } };
         if (!skyWork || skyWork.length !== skyW * skyH * 4) skyWork = new Uint8ClampedArray(skyW * skyH * 4);
       }
       const t0 = performance.now();
@@ -1742,23 +1759,39 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         const scc = skyCanvas.getContext("2d")!;
         scc.putImageData(new ImageData(new Uint8ClampedArray(skyWork!), skyW, skyH), 0, 0);
         skyReadyKey = key;
+        skyReadyBasis = skyWorkBasis;
         skyWorkKey = "";
         skyRenderPending = false;
       } else {
         skyRenderPending = true; // keep drawing until the build finishes
       }
     }
-    // composite whatever completed buffer we have (during a fast orbit this may
-    // be the previous basis for a frame or two — an invisible backdrop lag)
-    if (skyReadyKey) {
+    // Composite the completed buffer. GHOST FIX (2026-07-28, human report:
+    // "when you move it looks weird" — the band slid against the point
+    // stars): during an orbit the buffer lags the camera by the rebuild
+    // (many 8ms slices), while the stars redraw live every frame. Instead
+    // of drawing the stale projection 1:1, MOTION-COMPENSATE it: translate
+    // and roll the cached image by the small-angle delta between the basis
+    // it was built for and the live one, so the band tracks the stars in
+    // lockstep and the compensation converges to zero as the rebuild lands.
+    if (skyReadyKey && skyCanvas) {
+      let dx = 0, dy = 0;
+      if (skyReadyBasis) {
+        // translation covers the orbit gestures; roll deltas stay under the
+        // basis key's quantization (a roll rebuild triggers before drift
+        // accumulates), so no rotation term.
+        const kFocal = (h / 2) / Math.tan((fovDeg * DEG) / 2);
+        ({ dx, dy } = skyLagOffsetPx(skyReadyBasis, basis, kFocal));
+      }
       ctx.save();
+      ctx.translate(w / 2 + dx, h / 2 + dy);
       ctx.globalAlpha = milkyShown;
-      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      ctx.drawImage(skyCanvas, -w / 2, -h / 2, w, h);
       // additive second pass — the reference's galaxyGlow (the band glows
       // instead of reading as dim wallpaper)
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = milkyShown * 0.55;
-      ctx.drawImage(skyCanvas, 0, 0, w, h);
+      ctx.drawImage(skyCanvas, -w / 2, -h / 2, w, h);
       ctx.restore();
     }
   }
@@ -2077,6 +2110,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let skyWorkKey = "";
   let skyReadyKey = "";
   let skyRenderPending = false;
+  // the camera basis the completed sky buffer was BUILT for — lets the draw
+  // motion-compensate a stale buffer instead of lagging (ghost fix, 2026-07-28)
+  let skyWorkBasis: { f: Vec3; r: Vec3; u: Vec3 } | null = null;
+  let skyReadyBasis: { f: Vec3; r: Vec3; u: Vec3 } | null = null;
   // GALAXY / STARFIELD (2026-07-19): the real Yale BSC bright stars. Loaded
   // lazily (space-view only), the point layer cached against the camera basis
   // like the panorama (stars are at infinity → they never move on zoom, only
