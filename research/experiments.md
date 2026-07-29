@@ -32845,3 +32845,56 @@ it exists to collect. Build clean.
 NEXT: needs chrome://gpu from the affected machine, whether terrain was on,
 and whether it reproduces on demand or only after a long session. Until
 then the mechanism is a HYPOTHESIS, labelled as such.
+
+## 2026-07-29 — [PIPELINE] SWPC space weather: gate-1 archiver + /data aurora layer (T-DATACORE)
+
+TERRITORY: T-DATACORE (server/spaceWeather.ts + manifest + tests); the
+client layer rides along under the cross-territory rule (change belongs
+wholly to its primary territory). Human-directed via cross-session relay
+(the other session's "say the word and I'll take it" offer, relayed here
+with the instruction to build it in this session).
+
+WHAT SHIPPED: server/spaceWeather.ts — keyless NOAA SWPC poller (10-min,
+eager boot, nwsAlerts.ts pattern) over six feeds: planetary Kp (observed,
+3-hourly), R/S/G scales (current observed + 3-day forecast rows, labeled
+per row), SWPC alert messages, solar-wind speed + IMF summaries, OVATION
+aurora forecast grid. Archives three JSONL day-series under
+<archive>/spaceweather/ (kp- by time_tag, alerts- by product_id+issue,
+conditions- by composite upstream stamp) with the standard dedup-Set +
+oldest-half-trim + gz-after-2-days lifecycle; manifest
+datacore/manifests/spaceweather.json (the ratchet test caught its absence
+— the enforcement works). /api/data/spaceweather serves cache; /data map
+layer "spaceweather" renders the oval as 2°-aggregated MAX-folded cells
+(green→red probability ramp, legend chips + forecast-honesty note) with
+observed Kp/G/wind in the status note and a conditions click-card.
+
+HONESTY DECISIONS: (1) aurora is served and labeled MODEL FORECAST
+everywhere — never blended with observations; (2) ovation raster (~900KB)
+is never archived — conditions rows keep a summary; the gate-1 evidence
+base is Kp/scales/alerts, not the display raster; (3) aggregation takes
+MAX not mean (thinning must never dim the oval); (4) a feed failing
+mid-pull yields nulls in the conditions row, never fabricated values —
+observed live during the smoke test (two SWPC endpoints 503'd
+transiently; the row recorded kp:null while the other feeds served); (5)
+solar-wind speed stays km/s in both unit systems (domain convention,
+same fixed-convention clause as knots/hPa/nT).
+
+PROBED LIVE 2026-07-29: products/solar-wind/{mag,plasma}-1-day.json are
+404 (docs elsewhere still cite them) — products/summary/* carry the
+card's needs; ovation ~919KB/65k cells 1° grid; quiet-sun max 19%.
+
+VERIFIED: 8-test server battery (parses, partial-failure fetch, archive
+dedup/gz, conditions stamp) + full node suite 917/917 after the manifest
+fix; visual harness all-green (0 hard failures; toggle-consistency
+"41 layers toggled clean" now includes spaceweather via the fixture
+registry); targeted Playwright captures at 1440+390 with the layer ON:
+oval ramp, panel row, status note "NOAA SWPC · Kp 3.33 · G1 · wind 329
+km/s", click-card chips (fixed a WIND-chip truncation found in the
+capture). Pre-existing failures not mine: pytest scipy/openpyxl
+collection errors + macro-snapshot/silent-except failures reproduce on a
+clean tree.
+
+GATE STATE: gate 1 OPEN and now accumulating — OE-417 validation runs
+once a G2+ window lands in the archive (quiet weeks prove nothing).
+Gate 2 (utility event study conditioned on GIC exposure) untouched.
+Cross-tie filed in open_questions.md BUILD PROGRESS note.

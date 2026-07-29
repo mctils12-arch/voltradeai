@@ -1387,6 +1387,16 @@
    "description": "Active NWS warnings/watches with polygons, colored by severity, ~10-min refresh. Official alerts displayed as-is; zone-coded alerts without polygons are counted, not drawn (follow-up filed). Not for safety-of-life use."
   },
   {
+   "id": "spaceweather",
+   "name": "Space weather (NOAA SWPC)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NOAA Space Weather Prediction Center (public domain)",
+   "description": "Aurora oval (OVATION Prime MODEL FORECAST, labeled as forecast) + observed planetary Kp, R/S/G storm scales, and solar-wind summary, ~10-min refresh. Observed vs forecast carried per row, never blended; the grid/utility hypothesis is validation-gated."
+  },
+  {
    "id": "earthquakes",
    "name": "Earthquakes (USGS)",
    "kind": "raw",

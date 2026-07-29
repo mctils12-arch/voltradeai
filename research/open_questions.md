@@ -5135,6 +5135,20 @@ ideas backlog (not active build)").
    conditioned on exposure. Build shape: small keyless SWPC archiver
    (NWS-alerts pattern) + map event layer; the grid layer join is
    what makes it more than a weather feed.
+   BUILD PROGRESS 2026-07-29 (gate-1 archiver SHIPPED, human-directed
+   via cross-session relay): server/spaceWeather.ts polls 6 keyless
+   SWPC feeds (Kp, R/S/G scales, alert messages, solar-wind speed +
+   IMF summaries, OVATION aurora) every 10 min; archives kp-/alerts-/
+   conditions- JSONL day-series (manifest datacore/manifests/
+   spaceweather.json); /api/data/spaceweather + /data map layer
+   "spaceweather" (aurora oval FORECAST-labeled + observed conditions
+   card). Live-probed: products/solar-wind/{mag,plasma}-1-day.json
+   404 (use products/summary/* instead); transient 503s on individual
+   feeds observed in the wild — partial-failure tolerance is load-
+   bearing, not defensive. GATE 1 REMAINS OPEN: the archive is now
+   accumulating; the OE-417 storm-coincident outage-excess validation
+   runs once enough K/G events accrue (needs a G2+ event window —
+   quiet-sun weeks prove nothing). Gate 2 untouched.
 2. GROUND-BASED MAGNETOMETER SENSING OF PER-LINE LOAD — long-horizon
    PARK ("if we ever do physical sensors"). Physics is real: current
    in a conductor produces a measurable magnetic field at ground
