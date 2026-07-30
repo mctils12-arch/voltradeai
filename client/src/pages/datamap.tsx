@@ -129,6 +129,7 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // statically importable (tiny, pure) while the space frame itself stays a
 // lazy chunk; spaceFrame re-exports these same names for its tests.
 import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
+import { bootBegin, mark as bbMark, bootComplete, shouldRunSafe, lastCrashReport, resetAll, heartbeat, closeCleanly } from "@/lib/blackbox";
 // Celestial v2 B2 (2026-07-18): user-controlled scale for the space view —
 // pure mapping + persisted preference store (localStorage, the units.ts
 // pattern), statically importable for the LAYERS-panel CELESTIAL section
@@ -539,6 +540,43 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
  *  DEM/drape was still live, how many canvases and of what size, and the heap.
  *  Kept to cheap, already-computed values wrapped individually in try/catch so
  *  the recorder can never itself throw inside a crash handler. */
+// ── BOOT RECORDER (2026-07-30) ────────────────────────────────────────────────
+// Runs at module scope so it is armed before any map or GL work begins. See
+// lib/blackbox.ts for why this is inverted (observe whether the PREVIOUS boot
+// got healthy, rather than trying to observe a crash that runs no code).
+const BOOT_STARTED_AT = Date.now();
+const BOOT_STORE: import("@/lib/blackbox").Storage = (() => {
+  try {
+    const ls = window.localStorage;
+    ls.getItem("vt-probe");
+    return ls;
+  } catch {
+    const m = new Map<string, string>();   // private mode / storage blocked
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k) };
+  }
+})();
+const BOOT_QS = (() => { try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
+if (BOOT_QS.get("reset") === "1") {
+  // escape hatch: /app?reset=1#/data wipes persisted view state
+  resetAll(BOOT_STORE, ["vt-map-globe", "vt-terrain-exag", "vt-map-preset", "vt-map-fs", "vt-field-opacity"]);
+}
+const BOOT_REPORT = bootBegin(BOOT_STORE, BOOT_STARTED_AT,
+  `${BOOT_STARTED_AT.toString(36)}-${Math.random().toString(36).slice(2, 7)}`);
+/** Reduced configuration: the previous boot died before becoming healthy, so the
+ *  persisted configuration is not trusted this time. ?safe=1 forces it. */
+const BOOT_SAFE = shouldRunSafe(BOOT_REPORT) || BOOT_QS.get("safe") === "1" || BOOT_QS.get("reset") === "1";
+let BOOT_LAST_STEP = "module-eval";
+function bmark(step: string, extra: Record<string, unknown> = {}): void {
+  BOOT_LAST_STEP = step;
+  bbMark(BOOT_STORE, BOOT_STARTED_AT, Date.now(), step, extra);
+}
+bmark("module-eval", { safe: BOOT_SAFE, prevCrashed: BOOT_REPORT.prevCrashed, streak: BOOT_REPORT.consecutive });
+if (BOOT_REPORT.prevCrashed) {
+  // eslint-disable-next-line no-console
+  console.error("[VT BOOT] previous boot never became healthy",
+    { survivedMs: BOOT_REPORT.prevSurvivedMs, streak: BOOT_REPORT.consecutive, trail: BOOT_REPORT.prevTrail });
+}
+
 const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
 
 /** GPU identity, read ONCE at boot from a throwaway context. It cannot be read
@@ -1711,6 +1749,7 @@ export default function DataMapPage() {
     const container = mapContainer.current;
     if (!map || !container || spaceActiveRef.current) return;
     spaceActiveRef.current = true;
+    bmark("space-enter", { zoom: (() => { try { return Number(map.getZoom().toFixed(2)); } catch { return null; } })() });
     try {
       // lazy: the map bundle grows by nothing until a user actually leaves Earth
       const { mountSpaceFrame } = await import("@/lib/celestial/spaceFrame");
@@ -1861,6 +1900,27 @@ export default function DataMapPage() {
   // from never mounting them.
   const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [crashNoticeDismissed, setCrashNoticeDismissed] = useState(false);
+  // BOOT HEALTH + HEARTBEAT. Two separate jobs, deliberately not conflated:
+  //  · the 20s wall-clock timer declares the BOOT healthy. It must not depend on
+  //    map "idle" — tiles can be slow or fail entirely (they never load at all in
+  //    the CI sandbox), and a boot that never completes would falsely look like a
+  //    crash on every subsequent load and pin the user in reduced mode forever.
+  //  · the heartbeat records that a HEALTHY session was still alive N seconds in,
+  //    so a late death (the reported OOM hit ~190s) is still reportable without
+  //    triggering safe mode, which is only for start-up loops.
+  useEffect(() => {
+    const healthy = window.setTimeout(() => { bootComplete(BOOT_STORE); bmark("healthy"); }, 20_000);
+    const beat = window.setInterval(
+      () => heartbeat(BOOT_STORE, Date.now() - BOOT_STARTED_AT, BOOT_LAST_STEP), 5_000);
+    const clean = () => closeCleanly(BOOT_STORE);   // a real navigation/close is not a crash
+    window.addEventListener("pagehide", clean);
+    return () => {
+      window.clearTimeout(healthy);
+      window.clearInterval(beat);
+      window.removeEventListener("pagehide", clean);
+    };
+  }, []);
   // W1 always-on celestial sky: handle + readiness (the paths toggle effect
   // must re-run once the async mount lands).
   const celestialRef = useRef<any>(null);
@@ -2522,7 +2582,10 @@ export default function DataMapPage() {
         // the style so the first paint is already in the preferred mode.
         const canGlobe = typeof (maplibregl.Map.prototype as any).setProjection === "function";
         setGlobeSupport(canGlobe ? "ok" : "unavailable");
-        const startGlobe = canGlobe && readGlobePref();
+        // safe mode: mercator, not globe — the globe path is the heavier one and
+        // is what the crashing sessions were in (inSpace:true, negative zoom)
+        const startGlobe = canGlobe && !BOOT_SAFE && readGlobePref();
+        bmark("map-create", { globe: startGlobe, safe: BOOT_SAFE });
         const map = new maplibregl.Map({
           container: mapContainer.current,
           // flight-track handoff (2026-07-20): near-grazing tilt for the
@@ -2607,7 +2670,16 @@ export default function DataMapPage() {
           // v2.4 deferred mount: heavy default-on layers wait for the first
           // post-ready idle (base map + aircraft win the initial contention);
           // 4s failsafe so tile errors can't starve them forever.
-          map.once("idle", () => { if (!cancelled) setMapSettled(true); });
+          map.once("idle", () => {
+            if (cancelled) return;
+            setMapSettled(true);
+            bmark("first-idle");
+            // Declare the boot healthy only after surviving a while PAST first
+            // idle. Clearing the marker at idle would call a crash-loop clean:
+            // the OOM hit ~190s in, long after the map settled.
+            // fast path only; the wall-clock timer below is the guarantee
+            window.setTimeout(() => { if (!cancelled) { bootComplete(BOOT_STORE); bmark("healthy-idle"); } }, 8000);
+          });
           window.setTimeout(() => { if (!cancelled) setMapSettled(true); }, 4000);
         };
         map.once("load", ready);
@@ -11157,6 +11229,54 @@ export default function DataMapPage() {
         <div className="vt-map-skeleton" aria-label="Map loading">
           <div className="vt-map-skeleton-shimmer" />
           <span>Loading map…</span>
+        </div>
+      )}
+      {/* CRASH RECOVERY BANNER (2026-07-30): the previous boot never became
+          healthy — most likely the renderer was killed (OOM) or the tab died,
+          neither of which runs any of our code, so this is the first moment we
+          can say anything about it. Reduced mode is already applied; the report
+          is one click away because the human's copy-paste is the only channel
+          that reaches a real GPU from here. */}
+      {(BOOT_REPORT.prevCrashed || BOOT_REPORT.prevEndedAbruptly) && !crashNoticeDismissed && (
+        <div className="vt-gl-lost" role="status">
+          <div className="vt-gl-lost-card">
+            <strong>{BOOT_REPORT.prevCrashed ? "Recovered from a crash" : "Last session ended unexpectedly"}</strong>
+            <p>
+              The last session stopped responding{(() => {
+                const ms = BOOT_REPORT.prevCrashed ? BOOT_REPORT.prevSurvivedMs : BOOT_REPORT.prevAliveMs;
+                return ms != null ? ` after ${Math.round(ms / 1000)}s` : "";
+              })()}
+              {BOOT_REPORT.consecutive > 1 ? ` (${BOOT_REPORT.consecutive} times in a row)` : ""}.
+              {BOOT_SAFE ? " The map is running in reduced mode (flat projection) so it can start cleanly." : ""}
+              {BOOT_REPORT.prevTrail.length
+                ? ` Last thing it did: ${String(BOOT_REPORT.prevTrail[BOOT_REPORT.prevTrail.length - 1]?.step ?? "?")}.`
+                : ""}
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+              <button onClick={() => {
+                const payload = JSON.stringify({
+                  report: lastCrashReport(BOOT_STORE),
+                  glLosses: (() => { try { return JSON.parse(window.localStorage.getItem("vt-gl-loss-log") ?? "[]"); } catch { return []; } })(),
+                  safeMode: BOOT_SAFE, streak: BOOT_REPORT.consecutive, ua: navigator.userAgent,
+                }, null, 1);
+                try { void navigator.clipboard?.writeText(payload); } catch { /* console below */ }
+                // eslint-disable-next-line no-console
+                console.error("[VT CRASH REPORT]", payload);
+                setCrashNoticeDismissed(true);
+              }}>Copy crash report</button>
+              <button
+                style={{ background: "transparent", border: "1px solid rgba(148,163,184,.4)", color: "#cbd5e1" }}
+                onClick={() => {
+                  resetAll(BOOT_STORE, ["vt-map-globe", "vt-terrain-exag", "vt-map-preset", "vt-map-fs", "vt-field-opacity"]);
+                  window.location.reload();
+                }}
+              >Reset view &amp; reload</button>
+              <button
+                style={{ background: "transparent", border: "1px solid rgba(148,163,184,.4)", color: "#cbd5e1" }}
+                onClick={() => setCrashNoticeDismissed(true)}
+              >Dismiss</button>
+            </div>
+          </div>
         </div>
       )}
       {mapError && (

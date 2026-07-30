@@ -34016,3 +34016,66 @@ fine for now, but a future wave should weigh moving tile serving off
 the repo before the folder crosses ~1GB.
 
 BACKTEST: N/A (datacore /data layer, no trading logic).
+────────────────────────────────────────────────────────────────────────
+2026-07-30 · [REPAIR] · T-CLIENT
+The /data tab crashed on start; built a recorder that survives process
+kills, plus a safe mode that breaks the loop (v1.0.547)
+
+REPORTED, in sequence: renderer OOM ("Not enough memory to open this
+page") while HOLDING ZOOM-OUT from Earth toward the Moon, then "the data
+tab just crash on start now", then — the instruction that mattered — "you
+need to find a solution to fix the problem and be able to see the issues".
+
+WHY EVERY DIAGNOSTIC SO FAR FAILED. All of them assumed our code runs at
+the moment of failure. An OOM kill does not unwind, fire an event, or run
+a handler — the process is gone. So a recorder that reacts to a crash
+cannot see the worst crashes, and the v1.0.475 crash-loop guard that
+writes a flag on the way down never gets to write it. Worse, this session
+proved the sandbox CANNOT observe this class of bug at all: chromium here
+has no egress to tile hosts, so a 10s hold-zoom-out fetched ZERO images.
+The "flat heap, no leak, no crash" result from the OOM repro was therefore
+meaningless — it measured a map with no imagery. Recorded plainly because
+two hypotheses had already died on this bug and a third nearly shipped.
+
+THE INVERSION. Do not observe the crash; observe whether the PREVIOUS boot
+ever became healthy. One bit, needs no cooperation from the dying process,
+correct for OOM kills, tab kills and pulled power alike:
+  boot N   : bootBegin() arms {bootId, startedAt}; mark() drops breadcrumbs
+  boot N+1 : marker still present => boot N died young, and its trail is
+             right there naming the last thing it did
+Two markers, deliberately not conflated:
+ · IN_PROGRESS, cleared once healthy -> drives SAFE MODE (start-up loops).
+ · HEARTBEAT every 5s, cleared on pagehide -> catches a LATE death (the
+   reported OOM hit ~190s) and reports it WITHOUT forcing safe mode, since
+   a crash three minutes in is not a start-up problem.
+
+BUG CAUGHT BY THE PROBE, in my own first cut: health was tied to MapLibre's
+"idle" event. Tiles never load in this sandbox, so idle never fired, the
+boot never completed, and every later boot falsely reported a crash. That
+would have pinned any user with slow or failing tiles into permanent
+reduced mode with a permanent crash banner — a worse bug than the one being
+fixed. Health is now a 20s WALL-CLOCK timer (idle+8s kept only as a fast
+path). Verified live: trail reads module-eval > map-create > healthy@20075ms
+with no tiles present at all.
+
+SHIPPED: client/src/lib/blackbox.ts (hermetic, injectable storage, 7 tests
+incl. a hostile-storage case proving no entry point can throw — a recorder
+that throws inside a failing page destroys the evidence it exists to
+collect). Safe mode forces the flat projection (the crashing sessions were
+inSpace with negative zoom on the globe path). A recovery banner states
+what happened, how long the last session lasted, and its last breadcrumb,
+with Copy-crash-report and Reset-view-and-reload buttons. Escape hatches:
+/app?safe=1 and /app?reset=1 (reset also lands in the light config).
+
+VERIFIED end-to-end in a browser, 17/17: healthy boot clears the marker
+without needing idle; a simulated hard kill (page closed mid-boot, no JS)
+is detected on the next boot with its trail, survival time, streak,
+console line and banner; safe mode reports reduced; ?reset=1 drops the
+persisted state. Build clean, 7 unit tests green.
+
+STILL UNKNOWN, stated as such: the OOM's actual cause. Prime suspect
+remains tile-texture accumulation during a full-range zoom sweep,
+amplified by the deliberate maxTileCacheZoomLevels: 8 retention (round 17,
+for "square tiles building") times however many layers were enabled — a
+mechanism visible in code but UNMEASURED, and unmeasurable here. The next
+occurrence now yields a trail instead of a mystery.
