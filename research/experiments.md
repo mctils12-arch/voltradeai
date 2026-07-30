@@ -3,6 +3,119 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — SEC MIDAS keyed mirror shipped: /api/v1/stats/midas, the fourth "shipped-data-no-v1-API" sweep (v1.0.541, SHARED)
+
+TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts,
+package.json/package-lock.json — minimized, last commit per MERGE-ORDER PROTOCOL).
+
+LOOP-HEALTH CHECK (session start): last 10 tagged entries = 4 REPAIR / 5
+PRODUCT / 1 PIPELINE — no thrash (well under the 7/10 threshold). A
+PIPELINE session shipped 2026-07-29 (SWPC space weather), so the 14-day
+PROGRESS FLOOR is satisfied; no STARVED streak in wishlist.md. AUDIT
+REGISTER (experiments.md ~line 7221): staleness next due 2026-08-04,
+constitutional next due ~2026-08-03 — neither overdue, no audit forced
+this session.
+
+SYSTEM HEALTH CHECK (per this scheduled routine's own instruction to check
+before product work): `/api/health` — server ok, alpaca ACTIVE, bot active,
+drawdownPct 0.0, liveness.dark=false, scanner 0 consecutiveFailures. No
+LIVENESS ALARM. `research/open_questions.md` KNOWN BROKEN section has no
+new unresolved critical item since #26 (2026-07-29, a dead-code/comment
+mismatch, explicitly non-blocking, T-BOT territory) — nothing here blocks
+or preempts product work, matching the scheduled prompt's own carve-out
+("product sessions do not preempt the DAILY routines' repair duty").
+
+PRIMARY ACTION SELECTION: dispatched a research pass over wishlist.md,
+open_questions.md, platform_program.md, data_census.md, and the last ~15
+experiments.md entries to find the single highest-value, session-scoped
+product action. Top candidate: the 2026-07-29 entry (`stats/secftd`'s own
+shipping session) explicitly named SEC MIDAS as "the next same-shaped
+candidate for the shipped-data-no-v1-API sweep" — the RAW `/data` UI
+(`client/src/pages/midas.tsx`) and internal cache-backed route
+(`/api/data/microstructure`, `server/secMidas.ts::latestMidas()`) already
+shipped 2026-07-28 (MIDAS HFT-COLONIZATION FILTER HYPOTHESIS,
+open_questions.md); only the keyed `/api/v1` mirror for external/agent
+consumers was missing. This directly advances the SPINOUT-READY DATA
+LAYER standing behavior (datacore/ signals exposed through the same
+internal API boundary an external customer would use) at near-zero risk:
+zero new network calls, zero new pollers, zero scoring/trading-logic
+touched.
+
+WHAT SHIPPED: `GET /api/v1/stats/midas` in `server/routes.ts`, placed
+immediately after the `stats/secftd` route and reusing its exact shape
+(`requireApiKey` → `latestMidas()` → 503+Retry-After if the cache hasn't
+warmed vs. `v1Envelope("stats/midas", hit.summary, hit.at)` on hit →
+`meterUsage` on every branch). `server/apiProduct.ts` gained: (1) a
+`LICENSE_MARKS["stats/midas"]` entry — "public domain (US federal
+government work)," `resell: "ok"`, same class as `stats/secftd` and
+`stats/plant-operations` (SEC MIDAS's own publishing terms match the
+already-verified FTD/CAMD precedent, no new licensing research needed);
+(2) an `apiMeta().endpoints` entry documenting the rank-scale honesty
+caveat (Stock deciles 1-10 vs. ETF quartiles 1-4, never comparable) that
+already lives in the internal route's response, carried through so the
+external API doesn't lose that nuance; (3) an `agentToolSpec()` tool
+(`voltrade_midas_stats`) whose description explicitly states "not a
+validated trading signal (gate-2 unattempted)" — the RAW-vs-SIGNAL
+honesty rule applies to the agent-facing surface exactly like the
+human-facing one, not just the internal `/data` route.
+
+RATCHET: `server/apiProduct.test.ts` gained 1 new test (license mark +
+resell terms + agent-tool provenance + the "not a validated trading
+signal" honesty string) and 3 existing tests were extended to include
+`/api/v1/stats/midas` in their live-endpoint/guarded-route pins (the meta
+honesty test, the wiring-pinned route-list test, and its `>=8` guarded-
+route-count bump from `>=7`).
+
+VERIFIED: sandbox started with only `typescript` installed under
+`node_modules` (the recurring clean-container gap prior sessions have
+logged every time) — ran `npm install` (486 packages) and
+`pip install -r requirements-dev.txt` to get real gates rather than
+partial ones. `npx tsx --test server/*.test.ts`: 920 passed, 0 failed (up
+from 861/854-passed pre-deps-install baseline; the 7 module-resolution
+failures seen before `npm install` were confirmed pre-existing via
+`git stash` A/B on the untouched baseline — byte-identical 7/861 both
+before and after this diff). `npx tsc --noEmit`: 78 errors, byte-identical
+via the same `git stash` A/B (zero new errors). `npm run build`: clean
+(client + server, `dist/index.cjs` 13.0mb, datacore runtime files
+copied). `python3 -m pytest -q`: 1042 passed, 1 failed, 2 skipped — the 1
+failure (`test_silent_except_ratchet.py`, options_execution.py pinned at
+7 handlers) is the SAME pre-existing failure the 2026-07-29 CSP-sizing
+session already logged and A/B-verified as unrelated to Node/server
+changes; this session touched zero Python files, so it cannot be this
+diff's regression. No client/ files touched — VISUAL VERIFICATION gate
+does not apply.
+
+BACKTEST: N/A — pure API-surface plumbing over an already-shipped,
+already-RAW internal cache (no new scoring, sizing, or threshold value;
+PROMOTION RULE 3 doesn't apply the way it would to a strategy change).
+
+DEPLOY-COUPLING NOTE: session ran ~2026-07-30 00:00-00:20 UTC (~20:00-
+20:20 ET Wed 2026-07-29) — outside the 9:30-16:00 ET market window, so no
+merge-timing hold is needed regardless; also, unlike the CSP-sizing fix
+two sessions ago, this change touches zero order-execution or sizing
+code, so even a mid-market merge would carry none of that risk class.
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) are this
+session's only version-bump edits, last commit, minimized to the version
+field. `git fetch origin main` immediately before confirmed `origin/main`
+still at `3cdc824`/v1.0.540, no advance since session start. Version
+1.0.540 -> 1.0.541, read-and-increment at commit time.
+
+NEXT: (1) SEC MIDAS's own gate-2 signal-testing ladder path remains
+unattempted (open_questions.md's MIDAS HFT-COLONIZATION FILTER
+HYPOTHESIS) — this session shipped distribution plumbing only, not new
+validation, and the agent-tool/API-meta honesty strings say so
+explicitly; (2) the "shipped-data-no-v1-API" sweep pattern (plant-
+operations -> secftd -> midas) is likely exhausted for now — a future
+product session doing the same audit should re-check
+`research/data_census.md` and datacore/manifests/*.json for any newer
+RAW stream that shipped an internal route/UI without a v1 mirror; (3)
+`research/open_questions.md` MAP V2 ROADMAP's R6 DATA-QUALITY dashboard
+panel (freshness + provider status + archive growth, all already
+computed by `layerFreshness.ts` and the streams-inventory aggregator) was
+this session's close-second candidate — buildable entirely from existing
+endpoints, its own T-CLIENT PR, visual-harness-gated.
+
 ## 2026-07-29 (scheduled-routine session #3) [REPAIR] — bot.ts's Tier-2-scanner options slot cap had drifted stale at 3, silently blocking legitimate CSP trades below system_config.py's canonical 6-slot budget (v1.0.540, T-BOT)
 
 TERRITORY: T-BOT (server/bot.ts + new server/optionsSlotCapConsistency.test.ts).
