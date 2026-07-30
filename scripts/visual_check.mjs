@@ -46,6 +46,10 @@ const PAGES = {
   // harness at 390/768/1440 before it ships. Non-map battery (the overlay
   // covers the map).
   streams: { route: "/app#/data/streams", map: false },
+  // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — same Phase 5
+  // ratchet rule as streams above: every new view passes the harness at
+  // 390/768/1440 before it ships.
+  quality: { route: "/app#/data/quality", map: false },
   // Grid-stress descriptive reading overlay (GRID VISION A1 gate-2 FAIL
   // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
   gridstress: { route: "/app#/data/grid-stress", map: false },
@@ -362,6 +366,31 @@ const FIXTURES = {
       forecast_strain_pct: 1.4, strain_percentile: 61, strain_sample_days: 41,
       weather_degree_days: 27, weather_percentile: 74, weather_sample_days: 62,
       composite_percentile: 72,
+    },
+  },
+  // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry
+  // per health bucket + a multi-kind archive so the bar-chart rendering
+  // path is exercised at 390px.
+  "/api/data/quality-dashboard": {
+    generated_at: "2026-07-30T00:00:00.000Z",
+    streams_warming_up: false,
+    streams: { total: 42, live: 30, recent: 8, stale: 3, no_data: 1 },
+    archive: {
+      total_bytes: 4831838208,
+      total_files: 5120,
+      kinds: [
+        { kind: "aircraft", files: 2100, bytes: 2147483648 },
+        { kind: "vessels", files: 1800, bytes: 1073741824 },
+        { kind: "filings", files: 620, bytes: 536870912 },
+        { kind: "fires", files: 300, bytes: 268435456 },
+        { kind: "trains", files: 210, bytes: 134217728 },
+        { kind: "earthquakes", files: 90, bytes: 67108864 },
+      ],
+    },
+    verification: {
+      sites: { verified: 16, total: 16, method: "Esri World Imagery crosshair check, scripts/site_verify.py (2026-07-03) (fixture)" },
+      ports: { verified: 9, total: 9, method: "subset of the imagery-verified strategic sites (category = port) (fixture)" },
+      plants: { verified: 100, total: 9833, method: "top-100-by-MW plants imagery-verified against Esri World Imagery (fixture)" },
     },
   },
   // Streams inventory (Phase 4) — one row per health state so the card

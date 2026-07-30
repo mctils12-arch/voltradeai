@@ -25,6 +25,7 @@ import AttentionView from "./attention";
 import CotView from "./cot";
 import GraphView from "./graph";
 import StreamsView from "./streams";
+import QualityDashboardView from "./qualityDashboard";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
@@ -2017,6 +2018,9 @@ export default function DataMapPage() {
   const [graphOpen, setGraphOpen] = useState(() => window.location.hash === "#/data/graph");
   // Streams inventory (#/data/streams) — same overlay pattern (Phase 4).
   const [streamsOpen, setStreamsOpen] = useState(() => window.location.hash === "#/data/streams");
+  // Data quality dashboard (#/data/quality) — same overlay pattern (MAP V2
+  // ROADMAP R6(b), 2026-07-30).
+  const [qualityOpen, setQualityOpen] = useState(() => window.location.hash === "#/data/quality");
   // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
   // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
   const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
@@ -2333,6 +2337,7 @@ export default function DataMapPage() {
       setCotOpen(window.location.hash === "#/data/cot");
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
+      setQualityOpen(window.location.hash === "#/data/quality");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
@@ -10662,6 +10667,9 @@ export default function DataMapPage() {
       {streamsOpen && (
         <StreamsView onBack={() => { window.location.hash = "#/data"; setStreamsOpen(false); }} />
       )}
+      {qualityOpen && (
+        <QualityDashboardView onBack={() => { window.location.hash = "#/data"; setQualityOpen(false); }} />
+      )}
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
       )}
@@ -11109,6 +11117,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/streams"; setStreamsOpen(true); }}>
               <DatabaseIcon size={13} /> Streams inventory
               <span className="vt-streams-launch-sub">every archived stream · health &amp; freshness</span>
+            </button>
+            {/* Data-quality dashboard launcher (MAP V2 ROADMAP R6(b),
+                2026-07-30): platform-wide health/growth/verification
+                summary, page-wide like Streams inventory above rather than
+                a spatial layer. */}
+            <button type="button" className="vt-streams-launch" data-vt-quality-launch
+                    onClick={() => { window.location.hash = "#/data/quality"; setQualityOpen(true); }}>
+              <Shield size={13} /> Data quality
+              <span className="vt-streams-launch-sub">feed health · archive growth · verification coverage</span>
             </button>
             {/* Grid-stress launcher (GRID VISION A1 gate-2 FAIL path, 2026-07-07):
                 TX/ERCOT-specific, not a spatial layer, so it launches from the

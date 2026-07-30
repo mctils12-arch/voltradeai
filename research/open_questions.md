@@ -4301,6 +4301,18 @@ R6. **Dashboards from monitoring we already emit (charter directive
     PIPELINE-HEALTH — /api/health checks history, provider backoff
     states, compliance status. DESIGN.md applies (self-see, three
     widths); each panel its own PR.
+    **[(b) SHIPPED 2026-07-30, v1.0.544]** `server/qualityDashboard.ts` +
+    `/api/data/quality-dashboard` + `client/src/pages/qualityDashboard.tsx`
+    (`#/data/quality`, launcher next to Streams inventory) — pure
+    aggregation over `streamsInventory.ts` (feed health buckets),
+    `archiveStats()` (archive growth by kind), and the
+    `strategic_sites.json`/`us_power_plants.json` imagery-verification
+    registries (sites 16/16, ports 9/9, plants 100/9,833 — all read live,
+    never hardcoded). Zero new collection, per the charter directive. (a)
+    and (c) remain unbuilt; (c) is NOT zero-new-collection like (b) was —
+    `/api/health` only reports the current instant today, so a
+    checks-history panel needs a new time-series capture first, unlike
+    this session's pure read-side join.
 
 ## ARCHIVE-ENABLED SIGNAL HYPOTHESES (raw material accumulating from R1;
    each still validates through the full ladder)
