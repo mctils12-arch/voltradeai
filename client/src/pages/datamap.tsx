@@ -9558,15 +9558,18 @@ export default function DataMapPage() {
                 ...(cur?.g != null ? [{ label: "G", value: String(cur.g) }] : []),
                 ...(w.speedKms != null ? [{ label: "SW KM/S", value: String(w.speedKms) }] : []),
                 ...(w.bzNt != null ? [{ label: "Bz", value: `${w.bzNt} nT` }] : []),
+                ...(latest.xray_flare?.label ? [{ label: "X-ray flare", value: latest.xray_flare.label }] : []),
               ],
               facts: [
                 ...(cur ? [{ label: "Scales now (observed)", value: `R${cur.r ?? "?"} S${cur.s ?? "?"} G${cur.g ?? "?"}` }] : []),
                 ...(latest.aurora?.forecast ? [{ label: "Aurora forecast valid", value: latest.aurora.forecast }] : []),
                 ...(kpLast ? [{ label: "Kp bin (UTC)", value: kpLast.t }] : []),
+                ...(latest.xray_latest?.time_tag ? [{ label: "X-ray flux (0.1-0.8nm, observed)", value: `${latest.xray_latest.flux} W/m² (${latest.xray_flare?.label ?? "?"}) @ ${latest.xray_latest.time_tag}` }] : []),
               ],
               body:
                 `Aurora oval is the OVATION Prime MODEL FORECAST (probability of visible aurora), not an observation. ` +
-                `Kp, R/S/G scales, and solar wind are observed NOAA readings displayed as published. ` +
+                `Kp, R/S/G scales, solar wind, and GOES X-ray flare class are observed NOAA readings displayed as published ` +
+                `(flare class via NOAA's own published A/B/C/M/X formula, not a fit). ` +
                 `Preliminary values revise — see swpc.noaa.gov for authoritative guidance.`,
               sourceTag: "NOAA SWPC",
               sourceUrl: "https://www.swpc.noaa.gov/",
@@ -9580,6 +9583,7 @@ export default function DataMapPage() {
           kpNote(d),
           d.scales?.current?.g != null ? `G${d.scales.current.g}` : null,
           d.wind?.speedKms != null ? `wind ${d.wind.speedKms} km/s` : null,
+          d.xray_flare?.label ? `flare ${d.xray_flare.label}` : null,
         ].filter(Boolean).join(" · ");
         setStatus("spaceweather", "active", cells.length, condLine ? `NOAA SWPC · ${condLine}` : "NOAA SWPC");
       } catch {

@@ -1833,11 +1833,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // NOAA SWPC space weather (RAW — open_questions.md SPACE WEATHER
-  // hypothesis, gate-1 archiver + display). Observed Kp/scales/solar-wind
-  // and NOAA's OWN model forecast (ovation aurora, 3-day scales) served
-  // side by side but LABELED per row — observed vs forecast never blended.
-  // The grid/utility trading hypothesis stays ladder-gated; this route
-  // displays conditions and the poller archives the gate-1 evidence.
+  // hypothesis, gate-1 archiver + display). Observed Kp/scales/solar-wind/
+  // X-ray flare class and NOAA's OWN model forecast (ovation aurora, 3-day
+  // scales) served side by side but LABELED per row — observed vs forecast
+  // never blended. The grid/utility trading hypothesis stays ladder-gated;
+  // this route displays conditions and the poller archives the gate-1
+  // evidence (X-ray flux salvaged from PR #640's zero-CI-unmerged delta —
+  // see research/wishlist.md's zero-CI-PR entry — folded into this
+  // already-merged #639 stream rather than shipped as a second, colliding
+  // spaceWeather.ts module).
   bootSpaceWeatherPoll();
   app.get("/api/data/spaceweather", (_req, res) => {
     const hit = latestSpaceWeather();
@@ -1850,12 +1854,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       source: "NOAA Space Weather Prediction Center (services.swpc.noaa.gov) — US government work, public domain",
       attribution: "NOAA SWPC",
       time: hit.at,
-      note: "kp_recent = observed 3-hourly planetary Kp (preliminary estimates); scales.current = observed now, scales.forecast = NOAA 3-day forecast probabilities; aurora = OVATION Prime MODEL FORECAST grid (thresholded, 2°-aggregated, max-folded), not an observation",
+      note: "kp_recent = observed 3-hourly planetary Kp (preliminary estimates); scales.current = observed now, scales.forecast = NOAA 3-day forecast probabilities; aurora = OVATION Prime MODEL FORECAST grid (thresholded, 2°-aggregated, max-folded), not an observation; xray_flare = GOES long-band (0.1-0.8nm) flux classified via NOAA's own published A/B/C/M/X formula, observed not forecast",
       kp_recent: hit.kpRecent,
       scales: hit.scales,
       wind: hit.wind,
       aurora: hit.aurora,
       alerts_recent: hit.alertsRecent,
+      xray_latest: hit.xrayLatest,
+      xray_flare: hit.flare,
+      xray_recent: hit.xrayRecent,
       feed_errors: hit.errors.length ? hit.errors : undefined,
     });
   });

@@ -1,8 +1,8 @@
 {
  "stream": "spaceweather",
- "storage": "append-only JSONL day-files under <archive>/spaceweather/ — three prefixed series per day: kp-YYYY-MM-DD.jsonl (observed planetary Kp), alerts-YYYY-MM-DD.jsonl (SWPC alert messages), conditions-YYYY-MM-DD.jsonl (per-poll composite snapshot); gz after 2 days",
+ "storage": "append-only JSONL day-files under <archive>/spaceweather/ — four prefixed series per day: kp-YYYY-MM-DD.jsonl (observed planetary Kp), alerts-YYYY-MM-DD.jsonl (SWPC alert messages), conditions-YYYY-MM-DD.jsonl (per-poll composite snapshot), xray-YYYY-MM-DD.jsonl (GOES X-ray flux, both energy bands); gz after 2 days",
  "written_by": "server/spaceWeather.ts archiveSpaceWeather (10-min poll, eager boot)",
- "source": "NOAA SWPC services.swpc.noaa.gov: products/noaa-planetary-k-index.json, products/noaa-scales.json, products/alerts.json, products/summary/solar-wind-{speed,mag-field}.json, json/ovation_aurora_latest.json",
+ "source": "NOAA SWPC services.swpc.noaa.gov: products/noaa-planetary-k-index.json, products/noaa-scales.json, products/alerts.json, products/summary/solar-wind-{speed,mag-field}.json, json/ovation_aurora_latest.json, json/goes/primary/xrays-1-day.json",
  "license": "US government work, public domain; attribution 'NOAA SWPC'. Keyless.",
  "attribution": "NOAA Space Weather Prediction Center",
  "schema_version": 1,
@@ -17,13 +17,16 @@
   "conditions-*: kp/r/s/g": "latest observed Kp + current R/S/G scales at poll time",
   "conditions-*: windKms/btNt/bzNt": "solar-wind speed / IMF Bt / Bz summary readings",
   "conditions-*: auroraMax/auroraObs": "OVATION grid max probability (%) + model observation time — a SUMMARY; the ~900 KB forecast raster is never archived",
+  "xray-*: time_tag|energy": "GOES observation timestamp + energy band (0.05-0.4nm short / 0.1-0.8nm long) — composite dedup key, two bands share a time_tag",
+  "xray-*: flux": "W/m^2 as published; the API layer classifies the long band into NOAA's own published A/B/C/M/X flare-class formula (not stored pre-classified — classification is applied at serve time so a formula fix never needs a backfill)",
+  "xray-*: electronContamination": "NOAA's own per-reading contamination flag (normalized from their upstream field's misspelling), null if absent",
   "rt": "as-seen UTC date"
  },
- "confidence_model": "RAW official NOAA readings plus NOAA's OWN model forecast, labeled per row and never blended: Kp/scales-current/solar-wind/alerts are observations as published (Kp preliminary); ovation aurora and scales-forecast rows are NOAA forecasts and are always served/labeled as forecasts. No derived quantities of ours anywhere in the stream. The grid/utility trading hypothesis (Kp/G spikes -> DOE OE-417 disturbance reports -> exposed-utility moves) is ladder-gated in open_questions.md — this archive IS the gate-1 evidence base, not a validated signal.",
+ "confidence_model": "RAW official NOAA readings plus NOAA's OWN model forecast, labeled per row and never blended: Kp/scales-current/solar-wind/alerts/X-ray-flux are observations as published (Kp preliminary); ovation aurora and scales-forecast rows are NOAA forecasts and are always served/labeled as forecasts. X-ray flare class is NOAA's own published classification formula applied to the observed flux, not a fit of ours. No derived quantities of ours anywhere in the stream. The grid/utility trading hypothesis (Kp/G spikes -> DOE OE-417 disturbance reports -> exposed-utility moves) is ladder-gated in open_questions.md — this archive IS the gate-1 evidence base, not a validated signal.",
  "geo_fields": [],
  "entity_key": null,
  "sentiment": null,
  "started": "2026-07-29",
- "cadence": "10-min poll; Kp advances 3-hourly, ovation ~5-min upstream, alerts as issued",
+ "cadence": "10-min poll; Kp advances 3-hourly, ovation ~5-min upstream, alerts as issued, X-ray flux ~1-min upstream (sampled at poll cadence, not every upstream tick)",
  "_note": "Universal archive envelope (approved 2026-07-04). open_questions.md SPACE WEATHER hypothesis, gate-1 archiver + RAW /data display layer (aurora oval + conditions card)."
 }

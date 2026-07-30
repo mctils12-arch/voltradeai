@@ -11,6 +11,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import {
   parseKp, parseScales, parseSwpcAlerts, parseWindSummary, parseOvation,
+  parseXray, classifyFlare,
   fetchSpaceWeather, archiveSpaceWeather, gzipOldSpaceWeatherDays, conditionsRow,
 } from "./spaceWeather";
 
@@ -36,6 +37,14 @@ const ALERTS_FIX = [
   },
   { product_id: "K05W", issue_datetime: "2026-07-27 02:11:00.000", message: "Space Weather Message Code: WARK05\r\nSerial Number: 2101\r\n\r\nWARNING: Geomagnetic K-index of 5 expected" },
   { product_id: "noMsg", issue_datetime: "2026-07-27 00:00:00.000" }, // dropped: no message
+];
+
+const XRAY_FIX = [
+  { time_tag: "2026-07-29T12:00:00Z", satellite: 18, energy: "0.05-0.4nm", flux: 1.2e-7, electron_contaminaton: false },
+  { time_tag: "2026-07-29T12:00:00Z", satellite: 18, energy: "0.1-0.8nm", flux: 3.4e-6, electron_contaminaton: false },
+  { time_tag: "2026-07-29T12:01:00Z", energy: "0.1-0.8nm", flux: 5.1e-6 },
+  { time_tag: "bad", flux: "not-a-number", energy: "0.1-0.8nm" },
+  { time_tag: "2026-07-29T12:02:00Z", energy: "0.1-0.8nm" }, // no flux -> dropped
 ];
 
 // 1° grid rows: [lon 0..359, lat, prob%]
@@ -106,6 +115,23 @@ test("parseOvation: lon normalized, 2-degree MAX aggregation, threshold applied,
   for (const [lonW] of g.cells) assert.ok(lonW >= -180 && lonW < 180);
 });
 
+test("parseXray: maps rows, skips malformed/no-flux, normalizes NOAA's misspelled contamination field", () => {
+  const recs = parseXray(XRAY_FIX);
+  assert.equal(recs.length, 3);
+  assert.deepEqual(recs[0], { time_tag: "2026-07-29T12:00:00Z", satellite: 18, energy: "0.05-0.4nm", flux: 1.2e-7, electronContamination: false });
+  assert.equal(recs[2].satellite, null, "missing satellite -> null, not fabricated");
+});
+
+test("classifyFlare: official GOES A/B/C/M/X boundary table", () => {
+  assert.equal(classifyFlare(3.4e-6).label, "C3.4");
+  assert.equal(classifyFlare(1e-4).cls, "X");
+  assert.equal(classifyFlare(9.9e-5).cls, "M");
+  assert.equal(classifyFlare(1e-5).cls, "M");
+  assert.equal(classifyFlare(1e-6).cls, "C");
+  assert.equal(classifyFlare(1e-7).cls, "B");
+  assert.equal(classifyFlare(5e-9).cls, "A", "below A floor still classifies as A, fractional magnitude");
+});
+
 test("fetchSpaceWeather: one dead feed never blanks the rest", async () => {
   const fetchImpl = async (url: string) => {
     if (url.includes("ovation")) return { ok: false, status: 503, text: async () => "" };
@@ -113,6 +139,7 @@ test("fetchSpaceWeather: one dead feed never blanks the rest", async () => {
     if (url.includes("noaa-scales")) return { ok: true, status: 200, text: async () => JSON.stringify(SCALES_FIX) };
     if (url.includes("alerts")) return { ok: true, status: 200, text: async () => JSON.stringify(ALERTS_FIX) };
     if (url.includes("solar-wind-speed")) return { ok: true, status: 200, text: async () => JSON.stringify([{ proton_speed: 400, time_tag: "2026-07-29T12:00:00Z" }]) };
+    if (url.includes("xrays")) return { ok: true, status: 200, text: async () => JSON.stringify(XRAY_FIX) };
     return { ok: true, status: 200, text: async () => JSON.stringify([{ bt: 5, bz_gsm: 2, time_tag: "2026-07-29T12:00:00Z" }]) };
   };
   const pull = await fetchSpaceWeather(fetchImpl as any, Date.parse("2026-07-29T13:00:00Z"));
@@ -121,11 +148,12 @@ test("fetchSpaceWeather: one dead feed never blanks the rest", async () => {
   assert.ok(pull.scales.current);
   assert.equal(pull.alerts.length, 2);
   assert.equal(pull.wind.speedKms, 400);
+  assert.equal(pull.xray.length, 3);
   assert.equal(pull.errors.length, 1);
   assert.match(pull.errors[0], /503/);
 });
 
-test("archive: kp dedup by time_tag, alerts by id, conditions by upstream stamp; gz lifecycle", () => {
+test("archive: kp dedup by time_tag, alerts by id, conditions by upstream stamp, xray by time_tag+energy; gz lifecycle", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "swpc-"));
   const now = Date.parse("2026-07-29T13:00:00Z");
   const pull = {
@@ -134,20 +162,23 @@ test("archive: kp dedup by time_tag, alerts by id, conditions by upstream stamp;
     alerts: parseSwpcAlerts(ALERTS_FIX, "2026-07-29"),
     wind: parseWindSummary([{ proton_speed: 329, time_tag: "t1" }], [{ bt: 4, bz_gsm: 1, time_tag: "t2" }]),
     aurora: parseOvation(OVATION_FIX),
+    xray: parseXray(XRAY_FIX),
     errors: [],
   };
   const first = archiveSpaceWeather(pull as any, base, now);
-  assert.deepEqual(first, { kp: 2, alerts: 2, conditions: 1 });
+  assert.deepEqual(first, { kp: 2, alerts: 2, conditions: 1, xray: 3 });
   // identical re-poll: nothing new anywhere (conditions stamp unchanged)
   const again = archiveSpaceWeather(pull as any, base, now + 60_000);
-  assert.deepEqual(again, { kp: 0, alerts: 0, conditions: 0 });
+  assert.deepEqual(again, { kp: 0, alerts: 0, conditions: 0, xray: 0 });
   // a new Kp bin arrives -> exactly that row + a new conditions stamp
   const pull2 = { ...pull, kp: [...pull.kp, { t: "2026-07-29T12:00:00", kp: 2.0, a: 9, n: 8, rt: "2026-07-29" }] };
   const third = archiveSpaceWeather(pull2 as any, base, now + 120_000);
-  assert.deepEqual(third, { kp: 1, alerts: 0, conditions: 1 });
+  assert.deepEqual(third, { kp: 1, alerts: 0, conditions: 1, xray: 0 });
   const dir = path.join(base, "spaceweather");
   const kpLines = fs.readFileSync(path.join(dir, "kp-2026-07-29.jsonl"), "utf8").trim().split("\n");
   assert.equal(kpLines.length, 3);
+  const xrayLines = fs.readFileSync(path.join(dir, "xray-2026-07-29.jsonl"), "utf8").trim().split("\n");
+  assert.equal(xrayLines.length, 3, "same time_tag, different energy -> both kept (composite key)");
   // gz: files older than 2 days compress and remain readable
   fs.writeFileSync(path.join(dir, "kp-2026-07-25.jsonl"), JSON.stringify({ t: "old" }) + "\n");
   const n = gzipOldSpaceWeatherDays(base, now);
@@ -165,6 +196,7 @@ test("conditionsRow: composite stamp keys the dedup; latest Kp row wins", () => 
     alerts: [],
     wind: parseWindSummary([{ proton_speed: 329, time_tag: "tS" }], [{ bt: 4, bz_gsm: 1, time_tag: "tM" }]),
     aurora: parseOvation(OVATION_FIX),
+    xray: [],
     errors: [],
   };
   const row = conditionsRow(pull as any, Date.parse("2026-07-29T13:00:00Z"));
