@@ -33906,3 +33906,113 @@ shows a multi-hundred-ms or second-scale frame immediately before the loss,
 TDR is confirmed and the fix targets whatever produces that frame. If the
 frames are ~16 ms right up to the loss, TDR is RULED OUT and the remaining
 suspects are the negative-zoom transform state and the three-context budget.
+
+## 2026-07-30 [RESEARCH] — GRID VISION US: detector CLOSED at ladder gate 1 (held-out region), superseded by HIFLD; the US grid is mapped by authoritative vector data, not ML
+
+CLOSING VERDICT (filed at the human's direction after they challenged the
+premise "we kinda have the grid mapped already?" — they were right, and
+the record had no closing entry, so a future session could have
+re-launched a dead line).
+
+THE DETECTOR IS DEAD AT GATE 1. Campaign arc, all July 8-10:
+- v0: held-out AP50 **0.036** (FAIL; prior art 0.55-0.75).
+- v1 (tiling fix): **0.566 IN-DOMAIN** — but gate-1's held-out-region
+  test FAILED. In-domain skill was never the question.
+- div1-div5: diversity + augmentation campaign explicitly aimed at
+  cross-region generalization. Final run gv-div5-ks (10 regions, AZ +
+  5 NZ + 3 Duke US, held out KS): **AP50 0.197 vs the pre-stated 0.30
+  bar** — and FLAT against the NZ-only 6-region result (0.200), i.e.
+  adding real US regions bought nothing. That is the falsification:
+  the fix direction ("diversity is the fix") did not hold.
+- Layer of death: **GATE 1 (DATA), sub-test (a) held-out region.**
+  Total campaign spend $7.22 of $50; 21 closed jobs, all cost-capped.
+
+SUPERSEDED BY BETTER FREE DATA (the reason not to retry). Our own
+research/grid_vision_data_modalities.md had already concluded it:
+"the fastest, most accurate national US grid coverage does NOT come
+from fixing cross-region optical detection - it comes from ingesting
+authoritative pre-built free vector data first." That shipped: HIFLD
+(DHS / Oak Ridge, public domain) = **94,216 transmission segments
+69-765 kV + 75,328 substations + 11,810 plants**, nationally surveyed,
+zero generalization problem, and EIA officially defers to HIFLD as the
+source of truth. OSM covers all 50 states + DC on top (tower nodes
+included since v1.0.377). The US transmission grid is MAPPED.
+
+WHAT REMAINS GENUINELY UNSOLVED (much narrower than "map the grid"):
+DISTRIBUTION voltage (<69 kV poles/lines) and tower point-locations,
+which no authoritative vector set covers. Per the same research the
+proven modality there is STREET-VIEW ML (Mapillary as the free
+alternative; upward-CAM detectors F1 ~0.95 lines / ~0.93 poles) - a
+DIFFERENT project on a different modality, not a resumption of the
+aerial/NAIP detector. SAR stays exploratory (every strong result uses
+3-8 m GaoFen-3, not free ~10 m Sentinel-1).
+
+RULE FOR FUTURE SESSIONS: do NOT relaunch the aerial tower detector to
+"finish" the US. It failed its gate, twice over, and the deliverable it
+was chasing already exists from a better source. The remaining $42.78
+GPU balance is unreserved - spend it on a workload that passes its own
+gate, not this one. Next grid work is GLOBAL COVERAGE via the existing
+OSM pipeline (build_power_tiles.sh is region-agnostic), starting South
+America - see the following entry.
+
+BACKTEST: N/A (datacore, no trading logic).
+
+## 2026-07-30 [PIPELINE] — GRID VISION global rollout, wave 1: South America (13 countries) + coverage-gap census (v1.0.546)
+
+TERRITORY: T-DATACORE (pipeline) + the /data wiring that lights it up
+(same PR per the powergrid precedent — tiles without a toggle are
+invisible). Human directive: "close the us and work on the world start
+on south America and see if there are any gaps in the existing grid."
+
+SHIPPED: per-country OSM power extracts for all 13 South American
+countries (incl. French Guiana via Geofabrik's europe/france/guyane —
+geographically SA, so it lives in the SA group) + ONE merged
+continental roll-up (power_southamerica.pmtiles, 30MB), all through the
+existing build_power_tiles.sh recipe (osmium tags-filter w/power=line,
+minor_line,cable nwr/power=substation,plant n/power=tower → tippecanoe
+-zg). Client: SA_COUNTRIES array + grid_sa panel group + master toggle,
+mirroring the Canada pattern exactly (prefixed sa_ codes, no US-state
+collisions). Registry: 14 layers.json entries, insert-only diff.
+VERIFIED (not assumed): production build green; visual harness PASS at
+390/768/1440 + zero-cost + layer-scale; a headless probe against the
+real built bundle (range-request static server + real registry) toggled
+master/Brazil/Guyana → all "active", PMTiles range-fetches observed,
+and a Brasília-region screenshot shows the HV network drawing.
+Probe gotcha worth keeping: GROUP_ROW_CAP=12 progressive disclosure
+hides the 13th row of both "Facilities" and the new SA group behind
+"show all" — a probe that doesn't click it reports ROW NOT FOUND (this
+is the panel working as designed, not a wiring failure).
+
+COVERAGE-GAP CENSUS (the "any gaps?" answer — full per-country stats in
+the table below; line_km = line+minor_line+cable great-circle length):
+
+  br 914,207 feats / 311,996 km    py  23,578 / 9,012
+  ar 246,566 / 65,138              ec  22,787 / 8,854
+  cl  79,593 / 28,623              uy  20,367 / 8,633
+  ve  64,283 / 23,162              gf   1,438 / 430
+  pe  61,663 / 22,772              sr     408 / 134
+  co  58,986 / 23,058              gy     164 / 54
+  bo  25,517 / 9,821
+
+Normalized by land area (line-km per 1,000 km²), the continent clusters
+at ~18-49 — except GUYANA (0.25) and SURINAME (0.8), TWO ORDERS OF
+MAGNITUDE below their neighbors, and BOLIVIA (8.9) at roughly half the
+continental floor. Guyana's real grid (GPL's DBIS interconnect) is
+hundreds of km of 69kV — OSM simply hasn't mapped it. These are MAPPING
+gaps, not grid gaps, and the product says so: the two near-empty
+countries carry an explicit COVERAGE GAP caveat in their layer
+descriptions, and every SA description states "OSM coverage varies by
+country." Honesty rule (RAW OVERLAYS): sparse rendering must never be
+readable as "this country barely has a grid."
+Secondary anomaly, filed not fixed: Peru tags 7,846 substations against
+only 1,121 line ways (neighbors run ~1:2 the other way) — a community
+tagging-style difference, worth knowing before anyone reads substation
+counts as infrastructure density.
+
+NEXT WAVES (same recipe, nothing blocking): Europe is the obvious wave
+2 (dense OSM, many countries), then Asia/Africa/Oceania. Disk note:
+tiles are committed under client/public/tiles/ (now ~362MB total) —
+fine for now, but a future wave should weigh moving tile serving off
+the repo before the folder crosses ~1GB.
+
+BACKTEST: N/A (datacore /data layer, no trading logic).
