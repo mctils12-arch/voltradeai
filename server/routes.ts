@@ -110,6 +110,11 @@ import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
 import { attachLayerFreshness } from "./layerFreshness";
+import {
+  buildStreamHealthSummary as buildQualityStreamHealth,
+  buildArchiveSummary as buildQualityArchive,
+  verificationCoverage as qualityVerificationCoverage,
+} from "./qualityDashboard";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
@@ -1310,6 +1315,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const inv = getStreamsInventoryCached();
       if (!inv) { res.json({ warming_up: true, count: 0, streams: [] }); return; }
       res.json(inv);
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // MAP V2 ROADMAP R6(b) DATA-QUALITY dashboard (research/open_questions.md,
+  // charter directive 2026-07-04: "dashboards from monitoring we already
+  // emit, no new collection"). Pure aggregation over the streams inventory,
+  // the archive-growth scan, and the imagery-verification registries —
+  // zero new pollers, zero new network calls. Cache-only / sync reads, same
+  // event-loop discipline as the routes it composes.
+  app.get("/api/data/quality-dashboard", (_req, res) => {
+    try {
+      const inv = getStreamsInventoryCached();
+      res.json({
+        generated_at: new Date().toISOString(),
+        streams_warming_up: !inv,
+        streams: buildQualityStreamHealth(inv?.streams || []),
+        archive: buildQualityArchive(archiveStats()),
+        verification: qualityVerificationCoverage(),
+      });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 

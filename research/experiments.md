@@ -3,6 +3,162 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(b) DATA-QUALITY dashboard shipped: /data/quality, zero new collection (v1.0.544, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/pages/qualityDashboard.tsx`, `client/src/pages/datamap.tsx`,
+`client/src/index.css`, `scripts/visual_check.mjs`) + `server/qualityDashboard.ts` +
+`server/qualityDashboard.test.ts` + `server/routes.ts` (a small additive route,
+cross-territory rule: this whole change belongs wholly to T-CLIENT, its primary
+territory, per WORKSTREAM PARTITION item 5) + `package.json` (SHARED, minimized,
+last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md` and
+`research/open_questions.md` (KNOWN BROKEN section, items 1-27 — only #26 unresolved,
+explicitly filed as non-blocking/T-BOT/diagnosability-only, not this session's
+territory). `/api/health` on both `voltradeai-production.up.railway.app` and
+`voltradeai.com`: `status: "ok"`, `bot.status: "active"`, `liveness.dark: false`,
+`drawdownPct: "0.0"` — no LIVENESS ALARM, nothing preempting product work.
+`git fetch origin main` confirmed local `HEAD` (`aa836f6`, v1.0.543) byte-identical
+to GitHub's real tip via direct hash comparison (the git-proxy stale-cache artifact
+prior 2026-07-30 sessions logged did not reproduce here). LOOP-HEALTH: last 10 tagged
+entries are a REPAIR/PRODUCT/PIPELINE mix, no run of 7+ REPAIR — no thrash. PROGRESS
+FLOOR satisfied (multiple PRODUCT/PIPELINE sessions in the last 14 days).
+
+PRIMARY ACTION SELECTION: the immediately-prior 2026-07-30 SEC MIDAS session's own
+NEXT list named two candidates: (1) the "shipped-data-no-v1-API" sweep, which it
+assessed as "likely exhausted for now"; (2) `research/open_questions.md`'s MAP V2
+ROADMAP R6(b) DATA-QUALITY panel, explicitly flagged "buildable entirely from
+existing endpoints ... its own T-CLIENT PR, visual-harness-gated." Verified R6(b) was
+still genuinely unbuilt (grepped `experiments.md`/`open_questions.md`/`wishlist.md`
+for "DATA-QUALITY" and checked `client/src/pages/` — only `streams.tsx`, Phase 4's
+per-stream drill-down, existed; none of R6's three panels (a/b/c) had shipped).
+Also checked SEC MIDAS's own gate-2 signal path (the other live candidate) before
+picking R6(b): `open_questions.md`'s MIDAS HFT-COLONIZATION FILTER HYPOTHESIS 2026-
+07-28 UPDATE shows its originally-scoped cross-stream partner (Form-4 clustering)
+was independently KILLED at gate 2 on 2026-07-22 (no forward-return separation from
+baseline) — building that specific join now would be validating a hypothesis
+against an edge already shown not to exist, low expected value until a future
+session re-derives a different Form-4 angle. R6(b) was the clearer highest-value
+pick.
+
+WHAT SHIPPED: `GET /api/data/quality-dashboard` (`server/routes.ts`, backed by the
+new pure module `server/qualityDashboard.ts`) composes three already-computed
+readings with ZERO new pollers and ZERO new network calls: (1) stream health —
+`buildStreamHealthSummary()` buckets the existing `getStreamsInventoryCached()`
+result (Phase 4's streams inventory) into live/recent/stale/no-data counts; (2)
+archive growth — `buildArchiveSummary()` sorts `archiveStats()`'s per-kind byte
+counts largest-first; (3) verification coverage — `verificationCoverage()` reads
+`datacore/sites/strategic_sites.json`'s own "ALL 16 imagery-verified" doc claim
+(sites = verified = total by construction; ports = the `category:"port"` subset of
+that same coordinate set, also fully verified) and `datacore/powerplants/
+us_power_plants.json`'s `verified_count`/`count` fields (100/9,833 — a genuine
+PARTIAL fraction, the one honestly-incomplete number of the three, stated as such
+rather than rounded up). All three counts are read from source at call time, never
+hardcoded, so they grow as the registries grow — same discipline as the landing-page
+hero counters.
+
+Client: `client/src/pages/qualityDashboard.tsx` (`#/data/quality`), wired into
+`datamap.tsx` with the same hash-driven overlay pattern as Streams inventory/
+Grid-stress (state + hashchange listener + launcher button at the layers-panel top,
+next to the Streams-inventory launcher, since this is a page-wide surface, not a
+spatial layer — no `datacore/layers.json` entry, matching the streams/gridstress
+precedent). Three sections: Feed health (four color-coded stat tiles, links out to
+the full per-stream Streams-inventory drill-down rather than duplicating its
+per-row card list — avoids the anti-churn "never duplicate to look busy" trap while
+adding the genuinely-new roll-up view), Verification coverage (three tiles with a
+percent-filled bar each, explicit "not every number is 100%, and that's stated
+honestly" sub-line — PREMIUM EXPERIENCE STANDARD (c): "every number visibly carries
+freshness, provenance, and confidence"), Archive growth (top-12 kinds by bytes as a
+simple bar list, "+N smaller kinds not shown" when truncated — a stated cap, not a
+silent one, per the workflow "no silent caps" discipline). New CSS added under
+`.vt-quality-*` (mobile-first, DESIGN.md tokens only, reuses the `.vt-filings-*`/
+`.vt-streams-body` shell rather than inventing a new page chrome).
+
+BUG CAUGHT BY THE BUILD GATE (not by review): the first CSS comment I wrote —
+`/* ... Reuses .vt-filings-*/.vt-streams-body shell. ... */` — contained a literal
+`*/` inside `.vt-filings-*/` that closed the comment early, corrupting the next
+rule's selector. `npm run build` failed immediately with a PostCSS parse error
+naming the exact bad selector text, caught before any gate was skipped; fixed by
+rewording the comment to avoid the substring. Left in the log as a reminder that
+CSS comments containing a class-name wildcard immediately followed by a path
+separator are a real footgun in this codebase's `/* … */` style.
+
+GATES: `npm ci` (fresh sandbox, 0 `node_modules` at session start — the same
+recurring bare-container gap prior sessions have logged). `npx tsx --test
+server/qualityDashboard.test.ts`: 5/5 pass (health-bucket counting incl. an
+all-zero/empty-inventory case, archive-summary sort + totals incl. an empty-archive
+case, and the verification-coverage honesty assertions — sites/ports are 100%-of-
+total BY CONSTRUCTION, asserted as `verified === total` rather than a hardcoded
+16/9, while plants is asserted as a genuine `verified < total` partial fraction so
+a future accidental "verify everything" edit would fail loudly). Full `npx tsx
+--test server/*.test.ts`: 927/927 pass, 0 failed. `npx tsc --noEmit`: 78 errors,
+byte-identical via `git stash` A/B against unmodified `main` (zero new errors; all
+78 are pre-existing `Buffer`/`downlevelIteration`/`pngjs`-types noise in unrelated
+files, already documented by prior sessions). `npm run build`: clean after the CSS
+fix above (`dist/index.cjs` 13.0mb, client build succeeds, datacore runtime files
+copied). **VISUAL VERIFICATION** (Promotion Rule 6, this PR touches `client/`):
+`node scripts/visual_check.mjs --soft --page quality` — 0 hard failures at all
+three canonical widths (390/768/1440); screenshots self-reviewed against DESIGN.md
+— stat tiles, health bars, and the archive bar-chart render cleanly with no overlap,
+clipping, or off-token colors at any width; the only overlay present (a "software
+renderer, no GPU acceleration" toast) is a pre-existing, page-independent sandbox
+notice that appears identically on every map-adjacent screenshot in this
+environment (confirmed by grep — the toast text lives in `datamap.tsx`'s own
+SwiftShader-detection code, unrelated to this diff), not something this page
+introduces. The one new soft touch-target warning (`streams inventory`, an inline
+text link inside the footnote sub-line) matches an established, pre-existing
+pattern already used on `atsSummary.tsx`/`attention.tsx`/`cot.tsx`/`earnings.tsx`/
+`filings.tsx`/`methaneHotspots.tsx`/`midas.tsx`'s own `.vt-filings-sub a` inline
+links — not a new class of issue this page introduces. Registered `quality:
+{ route: "/app#/data/quality", map: false }` in the harness `PAGES` list plus a new
+`/api/data/quality-dashboard` fixture (Phase 5 ratchet: every new view passes the
+harness before it ships). The un-scoped `node scripts/visual_check.mjs --soft` run
+across every registered page (needed a longer background timeout than this tool's
+default 280s — the scoped `--page quality` run alone was well under that) came back
+**0 hard failure(s)** across all pages/widths, `quality` included — no regressions
+introduced elsewhere by the `datamap.tsx`/`index.css` edits.
+
+BACKTEST: N/A — pure read-side dashboard over already-computed monitoring data, no
+scoring/sizing/trading logic touched (same class as the Streams-inventory/
+Grid-stress precedents).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none into the trading loop (SPINOUT-READY
+DATA LAYER: this is entirely within the datacore/PRODUCT surface, no imports from or
+into trading logic). The intended effect is external/human trust: a data customer
+or the human reviewing the platform can now see, in one place, how healthy the
+archive is, how fast it's growing, and — critically — which claimed positions are
+actually imagery-verified vs. registry-sourced-and-unverified, rather than having to
+piece that together from `research/` prose or per-stream drill-downs.
+
+DEPLOY-COUPLING NOTE: session ran mid-day UTC; verify market-hours status before
+merge — if inside 9:30-16:00 ET, this PR carries zero order-execution or sizing risk
+(pure display code) so even a mid-market auto-merge is low-blast-radius, but the PR
+description still states the session's own market-hours read for the record per
+CLAUDE.md's deploy-coupling guidance.
+
+MERGE-ORDER: `package.json` is this session's only version-bump edit (`server/
+routes.ts` is additive-only, not a SHARED-file collision risk beyond the version
+line), last commit, minimized. Version 1.0.543 -> 1.0.544, read-and-increment at
+commit time; `git fetch origin main` immediately before confirmed `origin/main`
+still at `aa836f6`/v1.0.543, no advance since session start. `package-lock.json`
+left untouched (no dependency change; already stale at 1.0.541 vs main's 1.0.543
+before this session — a pre-existing drift documented by the 2026-07-29 SEC MIDAS
+session, not this PR's scope to fix).
+
+NEXT: (1) R6(a) SIGNAL-STRENGTH (ladder position of every root, gate passed/date/
+next gate, from `research/` bookkeeping made machine-readable) and R6(c)
+PIPELINE-HEALTH (`/api/health` checks history, provider backoff states, compliance
+status) remain unbuilt — R6(c) in particular would need a NEW time-series capture
+of `/api/health` snapshots (today's route only ever reports the current instant,
+nothing archives history), so unlike R6(b) it is not a zero-new-collection panel;
+worth flagging honestly for whichever future session picks it up rather than
+assuming it is as cheap as this one was; (2) SEC MIDAS's own gate-2 ladder path
+stays open per the 2026-07-28 update — a genuinely new Form-4 hypothesis (the
+momentum-confound angle that update flagged as unexplored) would need to exist
+before that join is worth building; (3) R6(a)/(c) are the natural next MAP V2
+ROADMAP items once a future session wants another zero-to-cheap-collection
+dashboard build.
+
 ## 2026-07-30 (scheduled-routine session) [PRODUCT] — salvaged PR #640's zero-CI-unmerged X-ray-flux delta into the already-merged spaceWeather.ts (v1.0.543, T-CLIENT + SHARED)
 
 TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`) + server-side data

@@ -3401,6 +3401,45 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-streams-foot { padding-top: 2px; }
 .vt-spin { animation: vt-streams-spin 1s linear infinite; }
 @keyframes vt-streams-spin { to { transform: rotate(360deg); } }
+
+/* ── Data quality dashboard (#/data/quality — MAP V2 ROADMAP R6(b),
+   2026-07-30). Reuses the vt-filings and vt-streams-body shell. ──────── */
+.vt-quality-section { display: flex; flex-direction: column; gap: 8px; }
+.vt-quality-section-head {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+}
+.vt-quality-section-sub { font-size: 11px; font-weight: 400; color: var(--text-tertiary); font-family: var(--font-mono); }
+.vt-quality-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;
+}
+.vt-quality-tile {
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.vt-quality-tile-value { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
+.vt-quality-tile-of { font-size: 13px; font-weight: 500; color: var(--text-tertiary); }
+.vt-quality-tile-label { font-size: 11px; color: var(--text-secondary); }
+.vt-quality-tile-pct { font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.vt-quality-bar-track {
+  height: 4px; border-radius: 2px; background: rgba(77, 159, 255, 0.1); overflow: hidden; margin-top: 2px;
+}
+.vt-quality-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+.vt-quality-kinds { display: flex; flex-direction: column; gap: 6px; }
+.vt-quality-kind-row {
+  display: grid; grid-template-columns: 100px 1fr auto; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.vt-quality-kind-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-quality-kind-bar-track {
+  height: 6px; border-radius: 3px; background: rgba(77, 159, 255, 0.08); overflow: hidden; display: block;
+}
+.vt-quality-kind-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.vt-quality-kind-bytes { color: var(--text-tertiary); white-space: nowrap; text-align: right; }
+@media (max-width: 480px) {
+  .vt-quality-kind-row { grid-template-columns: 74px 1fr auto; gap: 6px; }
+}
 /* Phase 3a imagery capture-date chip — bottom-left inside the map page
    (the page already clears the mobile tab bar), left of the compact
    maplibre attribution. Never intercepts map gestures. */
