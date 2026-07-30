@@ -2338,3 +2338,19 @@ future session's cherry-pick attempt hit the conflict directly. Doesn't
 change the proposed fix, but raises its priority: a stuck-PR check would
 have caught this within a day instead of it silently waiting for a
 session to stumble into the conflict.
+
+## 2026-07-30 UPDATE — EIA_API_KEY added to the AGENT SESSION ENV (human)
+
+The human reports adding EIA_API_KEY to the claude.ai/code environment
+settings on 2026-07-30 (chat confirmation: "its added"). Railway has had
+its own active key for a while (grid-demand serves live BAs). Env vars
+inject at container start, so the session that received this
+confirmation predates the addition and CANNOT verify from inside —
+RunPod precedent applies (a key sat wrongly marked "blocked" for ~2
+weeks): the NEXT fresh session touching EIA work must run
+`env | grep EIA_API_KEY`, and on success log the confirmation here and
+treat direct-EIA work (930 history backfill, per-BA live-flow expansion
+across the static grid layers, dev testing against the real API) as
+UNBLOCKED. Wishlist item 8(a) is thereby fully closed once verified;
+item 5 (FRED_API_KEY session-env) remains open and is now the analogous
+2-minute ask.
