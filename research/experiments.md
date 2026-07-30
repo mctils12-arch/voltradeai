@@ -3,6 +3,129 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #26 fixed: options_scanner.py's high-IV candidate list was sorting alphabetically by ticker instead of by movement magnitude (v1.0.551, T-BOT)
+
+TERRITORY: T-BOT (`options_scanner.py`, `test_options_v134_fixes.py`) +
+`package.json` (SHARED, minimized, last commit) + `research/open_questions.md`
+/ `research/experiments.md` (SHARED, append-only).
+
+SESSION-START CHECKS: CLAUDE.md read in full this session.
+`research/experiments.md` reviewed (last ~10 tagged entries: a PRODUCT/
+REPAIR mix — roughly 5-6 REPAIR of 10 with one PRODUCT-tagged entry that
+also contains two REPAIR sub-items — no 7+-of-10 run, no thrash escalation
+triggered). `research/open_questions.md` KNOWN BROKEN section checked: item
+26 was the one open item (25 others already resolved), carrying a
+FIX SKETCH filed 2026-07-29 by an earlier session that deliberately left it
+unfixed for one-logical-change-per-PR reasons. `/api/health` on production
+(voltradeai.com) checked live this session: `status: "ok"`, bot `active`,
+`liveness.dark: false`, `drawdownPct: "0.0"`, scanner `consecutiveFailures:
+0` — no liveness alarm, no degraded state, nothing blocking normal-priority
+REPAIR work. `/api/diag/audit` returned `{"error":"unauthorized"}` (no
+DIAG_TOKEN in this session's env) so this session could not itself mine the
+live audit log for new bugs — fell back to the KNOWN BROKEN queue per the
+REPAIR MANDATE, which already had a real, unfixed, well-evidenced bug
+queued with its own fix sketch.
+
+PRIMARY ACTION SELECTION (SESSION BUDGET order: fix a bug seen in audit
+logs > judge a matured experiment > start a new experiment > research):
+audit-log access was unavailable this session (see above), so the next
+rung down — a concretely diagnosed, still-open KNOWN BROKEN bug — was the
+highest-value action available, ahead of any new PRODUCT/RESEARCH work per
+the REPAIR MANDATE ("fixing known breaks outranks new research").
+
+WHAT WAS BROKEN: `options_scanner.py::_get_options_candidates()` computes
+`chg = abs((c - pc) / pc * 100)` per candidate to classify high-IV movers,
+but the classification tuple only ever stored `(sym, c, "high_iv")` — `chg`
+itself was silently dropped. The very next line, `high_iv_candidates.sort(
+key=lambda x: x[0], reverse=False)`, therefore sorted on `x[0]` (the ticker
+symbol string), an alphabetical sort directly contradicting its own comment
+("Sort by movement magnitude (biggest movers first = highest IV)"). Since
+`MAX_PER_TIER = 400` then truncates the list, every scan's Setup 3/7
+options coverage was silently biased toward alphabetically-early tickers
+whenever more than 400 stocks qualified as high-IV movers on a given day —
+the biggest actual movers (the ones the comment, and the system's design
+intent, says should be prioritized) could be truncated away in favor of a
+ticker that happened to start with "A". This was found by a prior session
+(2026-07-29) while root-causing KNOWN BROKEN #18's scan-timeout, filed with
+an exact fix sketch, and deliberately left unfixed pending its own PR.
+
+THE FIX (exactly the filed sketch): `high_iv_candidates.append((sym, c,
+"high_iv", chg))` now carries `chg` through; the sort key changed to
+`lambda x: x[3]` with `reverse=True` (descending, biggest movers first).
+Since the function's documented return contract is 3-tuples `(ticker,
+price, setup_type)`, the 4th field is stripped back off when building the
+final `result` list from `high_iv_top` (`for sym, price, setup_type, _chg
+in high_iv_top`) — no caller-visible shape change; `csp_universe.py` (the
+only other importer) never touches `high_iv_candidates` directly, only the
+already-3-tuple return value, so it needed no change.
+
+Per the sketch's own explicit ask, also checked whether `low_iv_candidates`
+(currently dead — its only two consumers, Setup 4/5, are disabled per
+KNOWN BROKEN #18) carries the same bug: it has no `.sort()` call anywhere
+and no comment claims an order for it, so there is no comment/behavior
+mismatch to fix there — left untouched (one-logical-change scope; if
+Setup 4/5 are ever re-enabled, the future session re-enabling them should
+add magnitude-sorting to `low_iv_candidates` at that point, not before).
+
+DOWNSTREAM CHAIN TRACED (REASONING STANDARD #1): this changes WHICH ~400
+high-IV candidates get OPRA chain fetches and downstream Setup 3/7
+evaluation on days with >400 qualifying movers — it does not change any
+threshold, sizing rule, or entry/exit logic, so it is a candidate-ordering
+mechanical bug fix, not a RULE-REVIEW-gated parameter change (confirmed
+against the prior session's own ladder-path classification of this bug).
+Expected effect: on high-volatility days (the exact days options premium
+selling is most valuable), the bot now evaluates the biggest real movers
+first instead of whatever the alphabet handed it — better use of the fixed
+400-candidate OPRA-fetch budget, no scan-timeout risk introduced (same list
+length, same MAX_PER_TIER cap, same downstream Setup-7 time-budget interaction
+from KNOWN BROKEN #18 — that interaction note in open_questions.md item 26
+is now resolved in the bot's favor: the survivors of both truncations are
+the biggest actual movers, not the alphabetically-earliest ones).
+
+GATES: new regression test added
+(`test_options_v134_fixes.py::TestFix5_NoStraddleScalpsOrCSP::
+test_high_iv_candidates_sorted_by_magnitude_not_alphabetically`) — fixture
+tickers chosen (AAA=3% move, MMZ=10% move, ZZZ=50% move) so alphabetical
+order (`AAA, MMZ, ZZZ`) and magnitude-descending order (`ZZZ, MMZ, AAA`)
+diverge on every element; asserts the exact magnitude-descending order,
+which fails against a `git stash` of this change (confirmed) and passes
+after. Full sandbox `python3 -m pytest -q` needed `pip3 install -r
+requirements.txt` first (fresh sandbox was missing pandas/lightgbm/etc.,
+which crashes `voltrade_daemon.py`'s module-level import at test-collection
+time with `sys.exit(2)` — an environment-setup step, not a code issue) —
+after install: **1055 passed, 1 pre-existing failure (unrelated), 1
+skipped**. The one failure (`test_silent_except_ratchet.py::
+test_no_new_silent_handlers_and_pins_exact`, a pinned-count drift in
+`options_execution.py`, a different file from this change) was confirmed
+via `git stash` A/B to fail identically on unmodified `main` — pre-existing,
+not introduced by this change, out of scope for a one-logical-change PR
+(filing, not fixing, since fixing it would mean editing FROZEN-adjacent
+`options_execution.py` order-submission-internals territory without its
+own dedicated diagnosis). `test_options_v134_fixes.py` alone: 50/50 pass.
+No `npm`/client-side files touched, so no visual harness run needed.
+
+VERSION: v1.0.551 (read-and-incremented from origin/main's v1.0.550 at
+commit time, confirmed branch was current with `origin/main` before
+bumping, per MERGE-ORDER PROTOCOL).
+
+HYPOTHESIS: fixing this ordering bug should show up, over the following
+weeks, as fewer "too expensive"/alphabetically-clustered rejection patterns
+in `/api/diag/audit?type=T2-FAIL` on high-volatility days specifically
+(days with >400 qualifying high-IV movers) — a future session with
+DIAG_TOKEN access should compare T2-FAIL rejection-ticker distributions
+before/after 2026-07-30 on such days, if any occurred, as the live-vs-
+expectation check for this fix (no backtest applies — this is candidate
+selection order, not a strategy rule, so PROMOTION RULE 3's Sharpe/drawdown
+gate does not apply here; RULE 1/2 do and were satisfied above).
+
+FALL-THROUGH: session capacity remained after this fix, but per SESSION
+BUDGET the next action is a new PR/log entry, and this REPAIR was already
+the one highest-value action for this session's slot; the queue (R6(c)
+PIPELINE-HEALTH dashboard, EPA_CAMD_API_KEY / GEM Drive follow-ups in
+wishlist.md, DATACORE MAXIMUS's clear queue) remains for the next session —
+not STARVED, since this session's single PR is the deliberate scope per the
+scheduled-routine's "execute the SINGLE highest-value action" instruction.
+
 ## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(a) SIGNAL-STRENGTH dashboard shipped: /data/signals, closes the R6 dashboard trio (v1.0.550, T-CLIENT)
 
 TERRITORY: T-CLIENT (`client/src/pages/signalLadder.tsx`, `client/src/pages/
