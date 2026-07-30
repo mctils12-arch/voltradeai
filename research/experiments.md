@@ -283,6 +283,189 @@ OTM puts at all (HYG live 07-28).
 VERIFY NEXT SESSIONS: options orders should fire when equity churn
 frees collateral OR a CSP-sized candidate appears; #637 deploy = space
 view behavior on prod matches the drives above.
+## 2026-07-29 (scheduled-routine REPAIR session, 2nd today) [REPAIR] — KNOWN BROKEN #27 (new): both options position-sizers used the blended "overall" Kelly bucket instead of the +EV `csp_options` bucket, flooring CSP/options size at 1% and producing zero options fills for 17+ days (v1.0.532, T-BOT)
+
+TERRITORY: T-BOT (`options_execution.py`, `instrument_selector.py`,
+`research/open_questions.md` item #27) + `package.json` version bump
+(SHARED, last commit, read-and-increment).
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `git status`
+clean, branch byte-identical to `origin/main` HEAD (`fb158ad`, v1.0.531) —
+no reset needed (prior session's PR #636 had already merged). Read
+`research/open_questions.md`'s KNOWN BROKEN section (items 1-26) and the
+tail of `experiments.md` before anything else, per the Repair Mandate.
+LOOP-HEALTH RATIO — last 10 tagged entries at session start (this entry's
+own predecessor first): 2026-07-29 #1 [REPAIR], 2026-07-28 #4 [RESEARCH],
+2026-07-28 [REPAIR]+[PRODUCT], 2026-07-28 #3 [RESEARCH], 2026-07-28 #2
+[RESEARCH], 2026-07-27 #5 [REPAIR], 2026-07-27 #4 [RESEARCH], 2026-07-27
+[REPAIR] (settlement-stress, T-DATACORE), 2026-07-26 #6 [RESEARCH],
+2026-07-25 #4 [REPAIR] — 5/10 REPAIR-class, under the 7+ thrash threshold,
+no meta-problem flagged.
+
+`/api/health` live: status ok, bot active, liveness not dark, drawdownPct
+0.0, scanner `consecutiveFailures: 0` — no LIVENESS ALARM on the surface
+metric, server_version 1.0.531 confirming the prior PR is deployed.
+
+WHAT I FOUND (escalated to REPAIR per the mandate — `/api/health` reads
+clean but a deeper diag probe did not): `/api/diag/audit?type=T2-FAIL&
+limit=100` returned 100/100 recent entries (2026-07-28T23:32Z through
+2026-07-29T11:02Z, i.e. the ~11.5 hours since today's market open) as
+"Not enough capital to sell cash-secured put" (67) or "exceed position
+budget" (21) rejections — every Tier-2 options candidate this session's
+own #18 fix finally let the scanner *reach* is failing at the execution
+layer instead. All 21 "exceed position budget" messages carried an
+IDENTICAL `size_pct 1.00%` — not a value that tracks score/vol/liquidity,
+a hard floor. The same handful of tickers recur every cycle (HYG 21x,
+EEM 12x, DRAM 11x, MDT 7x, ON 6x, BMY 6x, INTC 5x…), meaning the scanner
+keeps re-proposing candidates it can never afford. `/api/diag/orders?
+limit=200` confirmed the channel is fully dark, not just intermittently
+rejected: 200/200 recent orders (spanning 2026-07-10 through 2026-07-27,
+~17 days) are `us_equity`; zero `us_option` orders in that window despite
+200 equity fills completing normally in the same span. This is a
+recurrence of the KNOWN BROKEN #3 symptom class (CSP producing zero
+fills) but via a DIFFERENT root cause than #3's already-fixed
+`MAX_OPTIONS_POSITIONS` bug — per RECURRENCE ESCALATES, checked that this
+is a new mechanism (sizing, not the position-slot cap #3 fixed) before
+treating it as a repeat, same reasoning KNOWN BROKEN #18's prior sessions
+already applied to their own recurrence chain.
+
+ROOT CAUSE (traced the actual call graph, not assumed from memory):
+`options_execution.py`'s `_dynamic_options_size()` computed `kelly_base`
+from `stats["overall"]` — the blended win-rate across ALL trade types.
+`position_sizing.py`'s own documented defaults show `overall` gets dragged
+by the -EV `stocks` bucket (49% WR) versus the `csp_options` bucket alone
+(71.6% WR, +0.69/-0.46 avg, clearly +EV — third-Kelly clamps to the
+8% `ABSOLUTE_MAX_POSITION_PCT` ceiling). `calculate_position()` (the
+stock/ETF sizer) already does the correct per-bucket lookup via
+`_infer_strategy()` — `position_sizing.py`'s own "BUG #12 FIX 2026-05-03"
+comment documents that exact alignment — but it was never applied to
+either options-only sizer. `instrument_selector.py` has a SECOND, verbatim
+copy of the same function whose own docstring literally says "Mirrors the
+logic in options_execution.py" — same bug, same place, confirming this is
+a copy-paste defect, not a one-off. When `stats["overall"]`'s computed
+Kelly is non-positive, `_kelly_fraction` returns `0.0` and
+`dynamic_pct = 0 * (any scalars) = 0`, which the outer
+`max(0.01, min(dynamic_pct, MAX_OPTIONS_PCT_CEILING))` clamp floors at
+exactly 1% regardless of score/vol/liquidity/regime — this is precisely
+why every affected message showed the identical `size_pct 1.00%`. The
+downstream `_select_sell_put` affordability floor
+(`max(equity * size_pct, equity * 0.02)`) then computes ~$2,104 at this
+account's ~$105K equity, well below almost any liquid underlying's CSP
+strike requirement, so nearly every candidate fails "too expensive."
+
+FIX: both `_dynamic_options_size()` copies now read
+`stats["by_strategy"].get("csp_options", stats["overall"])` instead of
+`stats["overall"]` directly. Every call into either function IS an
+options trade (both are only ever invoked from the options-selection code
+paths), so the bucket is known statically — `_infer_strategy()` was not
+used because it keys off an `options_strategy` field neither call site
+currently populates, and adding that field-threading would be a second,
+larger change for no benefit here. No threshold constant changed
+(`MAX_OPTIONS_PCT_CEILING` 0.08, `ABSOLUTE_MAX_POSITION_PCT` 0.08, and the
+affordability-floor formula are all untouched) — this restores documented,
+already-established intended behavior identical in kind to
+`calculate_position()`'s existing pattern, so per the KNOWN BROKEN #3
+precedent this is a mechanical bug fix, not a RULE REVIEW-gated threshold
+change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): fixing the bucket makes options
+sizing swing meaningfully with score/vol/liquidity/regime again — before
+this fix, multiplying by those scalars was moot because the outer floor
+always won regardless of their value. That's the pre-existing INTENDED
+interaction (the scalars were always meant to shape sizing within the
+Kelly base), not a new one this session introduces. Second-order: the
+`_select_sell_put` affordability floor will now vary cycle-to-cycle
+instead of sitting at a fixed ~2%, so MORE (not necessarily all) of the
+recurring "too expensive" tickers should start clearing — KNOWN BROKEN #26
+(the still-open alphabetical-sort bug in candidate ordering) independently
+determines WHICH tickers get evaluated first each cycle and compounds with
+this fix; not touched here per one-logical-change-per-PR.
+
+RATCHET: `test_options_sizer_csp_bucket.py` (NEW, 4 tests) — both fixed
+functions verified to select the csp_options bucket over a negative-EV
+"overall" via injected fake stats, with every non-Kelly scalar
+(`_volatility_scalar`, `_confidence_scalar`/`_confidence_scalar_safe`,
+`_regime_scalar`, `_earnings_scalar`, `_time_scalar`,
+`_portfolio_heat_scalar`, `_liquidity_scalar`) pinned to 1.0 so only the
+bucket-selection logic is under test; a defensive fallback-to-overall test
+covering `by_strategy["csp_options"]` ever being absent; a pin against
+`position_sizing.py`'s REAL shipped defaults (not a mock) asserting the
+csp_options bucket computes positive Kelly, so a future edit to those
+defaults that breaks this fix's assumption fails loudly here instead of
+silently reappearing as a live zero-fill outage. A/B-verified via
+`git stash push -- options_execution.py instrument_selector.py`: exactly
+the 2 tests exercising the bucket-selection fix fail pre-fix
+(`assert 0.01 > 0.01` — the floor, confirming the mechanism), all 4 pass
+post-fix; stash popped, fix restored, re-verified passing.
+
+SILENT-EXCEPT RATCHET: no new try/except added by this diff (only replaced
+2 existing statements with 2 statements + comments in each file). Checked
+`test_silent_except_ratchet.py` (the suite's one known pre-existing
+failure carried from the prior session's own gate log — "1 pre-existing
+failure") is IDENTICAL with and without this fix via the same stash A/B:
+`options_execution.py: 7 silent broad-except handlers (pin 6)` both times,
+same 7 line offsets (shifted only by this diff's added comment-line count,
+not by handler count) — confirmed pre-existing and unrelated to this
+change, not touched (out of scope for this PR; belongs to a dedicated
+future session per the ratchet's own remit).
+
+GATES: `python3 -m pytest -q` — 1046 passed, 1 skipped, 1 pre-existing
+failure (`test_silent_except_ratchet.py`, confirmed unrelated above), zero
+NEW failures. `npx tsx --test server/*.test.ts` — 909 passed, 0 failed
+(this diff touches no `.ts` file, included for completeness). `npx tsc
+--noEmit` — 77 errors (this diff touches no `.ts`/`.tsx` file, so this
+count is invariant to it by construction; not compared against the prior
+session's stated 64-error baseline since drift between sessions from
+other merged PRs is expected and out of this PR's scope). `npm run build`
+— clean, no new warnings.
+
+Backtest: N/A — this restores documented existing per-bucket sizing logic
+to working order (the csp_options bucket and its +EV defaults already
+exist and are already used correctly elsewhere in the codebase); it does
+not change any scoring, threshold, or bucket VALUE, so PROMOTION RULE 3's
+Sharpe/drawdown comparison doesn't apply the way it would to a new
+strategy or threshold change. HYPOTHESIS: options/CSP orders should begin
+appearing in `/api/diag/orders` and the T2-FAIL affordability-rejection
+rate should drop over the next few trading days — a future session should
+check both per the NEXT note filed in open_questions.md item #27.
+
+SESSION BUDGET: this was the single highest-value action available this
+session (a currently-dead trading channel outranks starting new research
+per Priority 1/2). PR opened for this fix alone; no further fall-through
+work attempted this session given the fix required the full gate suite
+(A/B stash verification twice, full pytest/tsx/tsc/build runs) — falling
+through to research/audits would have diluted attention on verifying a
+live-money-adjacent (paper, but capital-sizing) sizing fix. Not STARVED:
+KNOWN BROKEN #26 and #18's remaining follow-ups are already filed and
+ready for the next session.
+
+LANDING ADDENDUM (2026-07-30, scheduled-routine session, session-start
+health check): this fix's PR (#638) never merged — `actions_list` showed
+0 CI workflow runs ever triggered on its branch (`claude/busy-fermi-
+v53jcs`), a repo-CI-triggering gap distinct from the already-tracked
+outage/create_pull_request-422 issues in wishlist.md, and it sat open
+and unactioned for ~13 hours spanning market close and the next
+session's KNOWN BROKEN sweep. Confirmed the bug was STILL LIVE on
+current `main` (`stats["overall"]` still read directly in both
+`_dynamic_options_size()` copies at HEAD `c459f2a`, v1.0.541) before
+acting — this was not a stale/superseded fix. Cherry-picked commit
+`1958e0c` onto `claude/dazzling-planck-c1yeom` (current main tip):
+`options_execution.py`/`instrument_selector.py`/`test_options_sizer_
+csp_bucket.py`/`research/open_questions.md` applied with zero conflicts
+(the intervening #641 stretch-mode-budget fix touches a different
+section of the same file — `max_contracts` sizing, not
+`_dynamic_options_size()` — confirmed by clean auto-merge, not assumed).
+Only the two SHARED files conflicted as expected (`package.json`
+version line, `research/experiments.md` append point) — resolved
+keep-both-sides per MERGE-ORDER PROTOCOL, version re-read-and-
+incremented at commit time (1.0.541 → 1.0.542, not the stale 1.0.532
+the original PR carried). Full gate re-run fresh in this sandbox rather
+than trusting the original PR body's numbers (see this session's own
+entry below for the actual run). PR #638 will be closed as superseded
+once this lands. PROCESS GAP filed in wishlist.md: PRs from this repo's
+autonomous sessions can silently get zero CI and then age out unmerged
+across session boundaries with nothing surfacing it except a future
+session's own KNOWN BROKEN re-verification — worth a standing check.
 
 ## 2026-07-29 (scheduled-routine REPAIR session) [REPAIR] — KNOWN BROKEN #18 continuation: scan-wide Setup 7 time budget ships, ending ~2 days of near-100% Tier-2 daemon timeouts during market hours (v1.0.530, T-BOT)
 
