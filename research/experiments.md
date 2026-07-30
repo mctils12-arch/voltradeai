@@ -33838,3 +33838,71 @@ left alone per the one-logical-change rule — a future session picking up
 staleness-audit fall-through should either raise the pin to 7 with a
 named justification or fix the actual handler at options_execution.py's
 newly-shifted line 2271.
+────────────────────────────────────────────────────────────────────────
+2026-07-30 · [REPAIR] · T-CLIENT
+GL loss at the Moon, round 2: the human's diagnostics REFUTED this
+session's own hypothesis (v1.0.545)
+
+The Copy-diagnostics button worked. Two snapshots arrived from the real
+machine (Chrome 150 / Windows, 16 GiB, 8 cores, dpr 1.125, 1707x772),
+11.6 s apart at sinceLoadMs 189850 and 201453 — i.e. a rapid re-loss
+cascade, which is what ends in Chrome blocking WebGL for the page.
+
+HYPOTHESIS REFUTED — stated plainly because the wishlist entry filed hours
+earlier argued the opposite. It proposed that MapLibre keeping the terrain
+DEM mesh + RTT drape resident in space was the likely cause (proposal A:
+shed terrain in space). The data says `terrainLive: false` on BOTH losses.
+Terrain was not resident. Had that "fix" shipped it would have changed
+nothing, and we would have believed the problem solved. This is exactly why
+the recurrence rule forbids the third blind patch.
+
+ALSO REFUTED — every memory explanation: heapMB 238 then 178 against a
+heapLimitMB of 4396 (the heap FELL between losses, so GC was keeping up),
+on a 16 GiB machine. Canvas total was three surfaces at ~1920x806 ≈ 18 MB.
+Nothing here is starved for memory.
+
+WHAT THE DATA DOES SHOW:
+ · inSpace: true on both — the space view is implicated, that much holds.
+ · canvases: 3 (vs 2 measured on the normal map in a headless repro this
+   session) — confirms three coexisting GPU consumers in space: MapLibre's
+   context, celestialSky's context, and the space frame's canvas. The
+   architecture smell (wishlist proposal C, one context) stands on its own
+   merits even though proposal A's mechanism was wrong.
+ · mapZoom -1.2 and -0.06 — NEGATIVE MapLibre zoom, below the library's
+   default floor of 0, and `setMinZoom` is called nowhere in client/src.
+   An out-of-band transform state at the moment of both losses. Not proven
+   causal; logged as the second open lead.
+ · projection and styleLayers came back null because MapLibre's own
+   _contextLost runs first and destroys the painter, so getStyle() throws
+   by the time our listener reads it. Not a bug — a limit of reading state
+   post-mortem, and the reason the new fields below are sampled CONTINUOUSLY
+   instead of at crash time.
+
+NEW LEADING HYPOTHESIS (untested, labelled as such): a Windows GPU driver
+reset (TDR), which fires when a single draw exceeds roughly 2 s and kills
+every context on the page. It is the only mechanism consistent with all
+four facts — repeated losses, capable hardware, zero memory pressure, and
+round 15's already-established "sustained max-cost render" finding. TDR is
+about ONE LONG FRAME, not about memory, and no diagnostic so far measured
+frame duration at all.
+
+SHIPPED (diagnostics only, still no speculative fix): the snapshot now also
+carries (a) `gpu` — vendor/renderer via WEBGL_debug_renderer_info, read
+ONCE at boot from a throwaway context and cached, since it cannot be read
+during a loss and it is what separates "integrated GPU out of its share"
+from "driver reset"; (b) `frames` — a rolling rAF interval recorder giving
+median/p95/max, the count over 250 ms and over 1 s, and `last8Ms` verbatim,
+so the run-up to the loss is visible; (c) `glContexts`, the live WebGL
+context count; (d) `lossOrdinal`, to tell a first loss from a cascade.
+VERIFIED end-to-end by forcing a real WEBGL_lose_context on /app#/data in
+headless chromium: one snapshot recorded, every field populated (gpu read
+correctly, frames {median 117, p95 417, max 417, last8Ms [83,67,417,117]},
+glContexts 2), zero page errors. The recorder is pure arithmetic in a rAF
+callback — it forces no layout or paint, and rAF is already suspended while
+the tab is hidden, so it cannot itself add the load it measures.
+
+NEXT: one more reproduction, then Copy diagnostics. If `frames.last8Ms`
+shows a multi-hundred-ms or second-scale frame immediately before the loss,
+TDR is confirmed and the fix targets whatever produces that frame. If the
+frames are ~16 ms right up to the loss, TDR is RULED OUT and the remaining
+suspects are the negative-zoom transform state and the three-context budget.

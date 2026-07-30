@@ -540,6 +540,65 @@ const IMAGERY_ATTRIB = "© Esri, Maxar, Earthstar Geographics";
  *  Kept to cheap, already-computed values wrapped individually in try/catch so
  *  the recorder can never itself throw inside a crash handler. */
 const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
+
+/** GPU identity, read ONCE at boot from a throwaway context. It cannot be read
+ *  during a loss (the context is gone, and creating one mid-crash risks making
+ *  things worse), yet it is the field that decides between "integrated GPU out
+ *  of its share" and "driver reset" — so it is captured up front and cached. */
+let gpuInfo: string | null = null;
+function readGpuInfo(): string | null {
+  if (gpuInfo !== null) return gpuInfo;
+  try {
+    const c = document.createElement("canvas");
+    const gl = (c.getContext("webgl2") || c.getContext("webgl")) as WebGLRenderingContext | null;
+    if (!gl) return (gpuInfo = "no-webgl");
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    gpuInfo = dbg
+      ? `${gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)} | ${gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)}`
+      : `${gl.getParameter(gl.VENDOR)} | ${gl.getParameter(gl.RENDERER)}`;
+    try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch {}   // free it immediately
+  } catch { gpuInfo = "unavailable"; }
+  return gpuInfo;
+}
+
+/** Rolling frame-interval recorder. THE decisive field for this investigation:
+ *  Windows resets the GPU (TDR) when a single draw exceeds ~2s, which kills every
+ *  context on the page. That failure mode is about ONE LONG FRAME, not memory —
+ *  and the evidence so far (terrain off, 238MB heap of a 4396MB limit, 16GiB
+ *  machine) has refuted every memory explanation. If the last frames before a
+ *  loss are hundreds of ms or worse, it is a stall/TDR; if they are ~16ms right
+ *  up to the loss, the cause is elsewhere and this rules TDR out. Either way the
+ *  next occurrence answers the question instead of raising it. */
+const frameLog: number[] = [];
+let frameLast = 0, frameRaf = 0;
+function startFrameRecorder(): void {
+  if (frameRaf) return;
+  const tick = (t: number) => {
+    if (frameLast) { frameLog.push(Math.round(t - frameLast)); if (frameLog.length > 240) frameLog.shift(); }
+    frameLast = t;
+    frameRaf = requestAnimationFrame(tick);
+  };
+  frameRaf = requestAnimationFrame(tick);
+}
+function stopFrameRecorder(): void {
+  if (frameRaf) { cancelAnimationFrame(frameRaf); frameRaf = 0; }
+  frameLast = 0;
+}
+function frameStats(): Record<string, unknown> {
+  const recent = frameLog.slice(-90);
+  if (!recent.length) return { frames: 0 };
+  const sorted = [...recent].sort((a, b) => a - b);
+  return {
+    frames: recent.length,
+    medianMs: sorted[sorted.length >> 1],
+    p95Ms: sorted[Math.floor(sorted.length * 0.95)],
+    maxMs: sorted[sorted.length - 1],
+    last8Ms: frameLog.slice(-8),          // the run-up to the loss, verbatim
+    over250ms: recent.filter((d) => d > 250).length,
+    over1000ms: recent.filter((d) => d > 1000).length,
+  };
+}
+
 export function captureGlSnapshot(reason: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   const g = <T,>(fn: () => T): T | null => { try { return fn(); } catch { return null; } };
   const snap: Record<string, unknown> = {
@@ -547,6 +606,18 @@ export function captureGlSnapshot(reason: string, extra: Record<string, unknown>
     at: new Date().toISOString(),
     sinceLoadMs: Math.round(g(() => performance.now()) ?? 0),
     ...extra,
+    gpu: g(() => readGpuInfo()),
+    frames: g(() => frameStats()),
+    // how many live WebGL contexts share this page's GPU budget
+    glContexts: g(() => [...document.querySelectorAll("canvas")]
+      .filter((c) => {
+        try { return !!((c as HTMLCanvasElement).getContext("webgl2", { failIfMajorPerformanceCaveat: false })
+          || (c as HTMLCanvasElement).getContext("webgl")); } catch { return false; }
+      }).length),
+    lossOrdinal: g(() => {
+      try { return (JSON.parse(window.localStorage.getItem(GL_LOSS_LOG_KEY) ?? "[]") as unknown[]).length + 1; }
+      catch { return null; }
+    }),
     dpr: g(() => window.devicePixelRatio),
     viewport: g(() => `${window.innerWidth}x${window.innerHeight}`),
     // every canvas and its BACKING-STORE size — the real GPU/tile-memory bill,
@@ -2886,7 +2957,12 @@ export default function DataMapPage() {
     };
     canvas?.addEventListener("webglcontextlost", onCtxLost);
     canvas?.addEventListener("webglcontextrestored", onCtxBack);
+    // record frame intervals so a loss can be attributed to (or cleared of) a
+    // long-frame stall. Pure arithmetic in a rAF callback — it forces no layout
+    // or paint of its own, and rAF is already suspended while the tab is hidden.
+    startFrameRecorder();
     return () => {
+      stopFrameRecorder();
       if (retryTimer != null) window.clearTimeout(retryTimer);
       if (lostTimer != null) window.clearTimeout(lostTimer);
       canvas?.removeEventListener("webglcontextlost", onCtxLost);
