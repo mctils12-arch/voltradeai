@@ -3,6 +3,165 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(a) SIGNAL-STRENGTH dashboard shipped: /data/signals, closes the R6 dashboard trio (v1.0.550, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/pages/signalLadder.tsx`, `client/src/pages/
+datamap.tsx`, `client/src/index.css`, `scripts/visual_check.mjs`) +
+`server/signalLadder.ts` + `server/signalLadder.test.ts` + `server/routes.ts`
+(small additive route, cross-territory rule per WORKSTREAM PARTITION item 5 —
+whole change belongs to T-CLIENT, its primary territory) + `datacore/
+signal_ladder.json` (new curated registry, DATACORE MAXIMUS's home for
+provenance-carrying reference data, entity_map.json precedent) +
+`package.json` (SHARED, minimized, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+and `research/open_questions.md` KNOWN BROKEN (items 1-27, only #26 open —
+non-blocking diagnosability note, T-BOT territory, not this session's).
+LOOP-HEALTH: last ~10 tagged entries were a REPAIR/PRODUCT/PIPELINE/RESEARCH
+mix (roughly 4-5 REPAIR of 10) — no 7+ run, no thrash. PROGRESS FLOOR
+satisfied (multiple PRODUCT/PIPELINE sessions inside 14 days, several the
+same day). Latest live commit on `origin/main` at session start: v1.0.548
+(risk_kill_switch REPAIR); a concurrent Europe-grid PIPELINE session merged
+v1.0.549 (#652) mid-session, handled via rebase before push (see MERGE-ORDER
+below) — no `/api/health` check was run against production this session
+(sandbox has no egress to voltradeai.com per the standing sandbox-network
+finding), but nothing in this diff touches trading/order logic so the
+liveness-alarm gate does not block PRODUCT work regardless.
+
+PRIMARY ACTION SELECTION: R6(b) DATA-QUALITY shipped hours earlier the same
+session-day (v1.0.544) with its own NEXT list explicitly naming R6(a)
+SIGNAL-STRENGTH ("ladder position of every root, gate passed/date/next gate,
+from research/ bookkeeping made machine-readable") and R6(c) PIPELINE-HEALTH
+as the two remaining MAP V2 ROADMAP R6 panels, flagging R6(c) as NOT
+zero-new-collection (needs a new `/api/health` time-series capture that
+doesn't exist yet) unlike R6(a)/R6(b). Picked R6(a): same zero-new-collection
+class as R6(b), directly continues the trio, and — unlike R6(c) — buildable
+entirely from research/ bookkeeping already on disk.
+
+WHAT SHIPPED: `datacore/signal_ladder.json` — a hand-compiled registry of 37
+data roots' current ROOT VALIDATION LADDER position (gates 1-5: DATA/SIGNAL/
+LOGIC/SIZING/EXECUTION per CLAUDE.md), each carrying {id, name, category,
+status, current_gate, last_update_date, note, source_ref}, same provenance
+discipline as `entity_map.json` (every claim traceable to a file/line so a
+human or future session can re-verify, not trust-blindly). COMPILATION
+METHOD (delegated to a research subagent, then spot-checked): mined
+`research/experiments.md` (~34k lines) and `research/open_questions.md`
+(~7.6k lines) for explicit gate-status language ("GATE 1/2", "FAILED gate",
+"KILLED at gate", "[BUILT vX]", ladder-path prose). SPOT-CHECK PERFORMED
+(not assumed accurate on the agent's word alone): re-read the full CFTC COT
+gate-2 trace in `open_questions.md` (lines 3643-3751) against the compiled
+entry's summary — Newey-West HAC results (SLV killed p=0.48-0.87, USO
+carried p=0.0355 failing the Bonferroni bar, TLT killed on cross-horizon
+non-replication) matched exactly; also independently cross-checked the
+GRID VISION tower-detector "killed" entry against this session's own earlier
+direct read of that closing verdict (same session, top of this file) — no
+discrepancy found in either spot-check. The registry's own `_doc` states
+plainly it is a SNAPSHOT (compiled 2026-07-30), not a live feed, and will
+go stale as new gate runs land — a future session re-running or extending
+the compilation is the maintenance path, not automatic. Honesty rule
+enforced in the data itself: RAW OVERLAYS (18 of 37 roots — earthquakes,
+buoys, night-lights, FAA status, CBP waits, etc.) carry `status: raw_only`
+and `current_gate: 0`, never conflated with a root that attempted and failed
+a gate — a raw overlay makes no predictive claim, so the ladder doesn't
+apply to it (RAW OVERLAYS vs SIGNALS STANDING BEHAVIOR).
+
+`server/signalLadder.ts`: pure aggregation (`summarizeLadder()`) over the
+registry — by_status/by_category counts, a 6-bucket gate-count funnel
+(gates 0-5), killed/raw_only counts, and `furthest_gate_reached` (deliberately
+computed only from `*_pass` statuses, never a killed root's death-gate or a
+raw_only root's gate-0 default — a root killed AT gate 3 must not read as
+"reached gate 3", it reads as "died trying gate 3"; a dedicated regression
+test pins this distinction). `/api/data/signal-ladder` route, same
+cache-only/zero-network-call discipline as R6(b)'s quality-dashboard route.
+
+Client: `client/src/pages/signalLadder.tsx` (`#/data/signals`) — a ladder
+funnel (bar per gate, count, honest "gate 0 = raw/untested" label so a
+visitor doesn't read the biggest bar as "5 roots at the top of the ladder"),
+tap-to-filter category chips, and a card per root (name, color-coded status
+badge — green pass / orange fail / red killed / grey pending / blue raw —
+note, category, last-updated date, and a `source_ref` so any claim traces
+back to the record). Wired into `datamap.tsx` as a third page-wide launcher
+alongside Streams inventory and Data quality (same hash-driven overlay
+pattern, no `layers.json` entry — this is a platform-wide surface, not a
+spatial layer). New `.vt-ladder-*` CSS reuses `.vt-quality-*`/`.vt-filings`
+tokens and DESIGN.md-governed theme variables only; a mobile-first funnel
+label column widens progressively (92px @480px narrow -> 150px default ->
+220px @1024px+) so gate names don't truncate needlessly on desktop — caught
+and fixed during the visual harness self-review below, not assumed correct
+from the code alone.
+
+GATES: `npm ci` (fresh sandbox). `npx tsx --test server/signalLadder.test.ts`:
+5/5 pass, including a dedicated regression for the "killed-at-gate-3 must not
+read as reached-gate-3" distinction and a real-registry integrity check
+(unique ids, every root has name/note/source_ref, gates in [0,5], raw_only
+roots always carry current_gate 0). Full `npx tsx --test server/*.test.ts`:
+932/932 pass (927 baseline + 5 new), 0 regressions. `npx tsc --noEmit`: 82
+errors, byte-identical to the `git stash` A/B baseline (line numbers shifted
+by the new import line, same exact error set — zero new errors). `python3 -m
+pytest -q`: 1054 passed, 1 skipped, 1 pre-existing unrelated failure
+(`test_silent_except_ratchet.py`'s `options_execution.py` pin drift, already
+logged by the 2026-07-29 CSP-stretch-mode session as a pre-existing gap in a
+Python T-BOT file this PR never touches — left alone per the one-logical-
+change rule, same as that session's own note). `npm run build`: clean.
+**VISUAL VERIFICATION** (Promotion Rule 6): `node scripts/visual_check.mjs
+--soft --page signals` — 0 hard failures at 390/768/1440; self-review caught
+the funnel-label truncation at 1440px on the first pass (a real DESIGN.md/
+PREMIUM EXPERIENCE STANDARD miss — a spacious desktop screen truncating text
+that would easily fit is exactly the kind of polish gap the standard exists
+to catch), fixed with the responsive label-width media query above, then
+re-verified clean. Full unscoped `node scripts/visual_check.mjs --soft` (all
+registered pages) came back **0 hard failure(s)** — no regressions elsewhere
+from the `datamap.tsx`/`index.css` edits, matching the R6(b) precedent's own
+full-sweep discipline. Registered `signals: { route: "/app#/data/signals",
+map: false }` in the harness PAGES list plus a new `/api/data/signal-ladder`
+fixture (6 roots, one per status class, so the funnel/chips/badges all
+exercise every rendering path at 390px) — Phase 5 ratchet, every new view
+passes the harness before shipping.
+
+BACKTEST: N/A — pure read-side dashboard over a hand-compiled research
+snapshot, no scoring/sizing/trading logic touched (same class as R6(b)/
+Streams-inventory/Grid-stress).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none into the trading loop
+(SPINOUT-READY DATA LAYER: entirely within the datacore/PRODUCT surface, no
+imports from or into trading logic). Intended effect is external/human
+trust: a data customer or the human can now see, in one place, which of the
+platform's 37+ tracked data roots are validated signals vs. raw overlays vs.
+killed hypotheses — the HONESTY METRIC and RAW-vs-SIGNAL rule made visible
+and screenshot-able, directly serving the PREMIUM EXPERIENCE STANDARD's
+"every number visibly carries freshness, provenance, and confidence" clause
+at the platform level.
+
+DEPLOY-COUPLING NOTE: session ran mid-day UTC-adjacent; this PR is pure
+display code (no order-execution or sizing path touched), so even a
+mid-market merge carries zero live-trading blast radius — same low-risk
+class as R6(b). Session did not independently determine ET market-hours
+status (no reliable external clock probe in this sandbox); noting the fact
+for the record per CLAUDE.md's deploy-coupling guidance rather than
+asserting a market-hours read this session couldn't actually verify.
+
+MERGE-ORDER: a concurrent session merged Europe-grid PIPELINE work (#652,
+v1.0.549) while this session was mid-build. Rebased cleanly onto
+`origin/main` (no conflicts — disjoint files) before the version-bump
+commit; `package.json` bump to 1.0.550 is this session's own final,
+minimized commit (read-and-increment at commit time, confirmed via a fresh
+`git fetch origin main` immediately before committing — no further advance).
+The feature commit's own message text says "v1.0.549" because it was
+written before the rebase surfaced the concurrent claim on that number —
+left uncorrected per the "never amend, create a new commit" git discipline;
+the authoritative version tag is the separate bump commit, not the feature
+commit's message string.
+
+NEXT: R6(c) PIPELINE-HEALTH (`/api/health` checks history, provider backoff
+states, compliance status) is the one remaining MAP V2 ROADMAP R6 panel —
+NOT zero-new-collection like (a)/(b), needs a new time-series capture of
+`/api/health` snapshots first (today's route only reports the current
+instant). This registry (`signal_ladder.json`) is a snapshot and WILL go
+stale — a future session should either re-run the compilation periodically
+or, if the ladder logging in experiments.md ever gets more structured
+(e.g. a machine-parseable tag on every gate-result entry), consider
+generating this file mechanically instead of by hand-compilation.
+
 ## 2026-07-30 (scheduled-routine session) [REPAIR] — risk_kill_switch.py's free-BP and correlation-cap warnings divided exposure by REMAINING buying_power instead of TOTAL capacity, producing unbounded nonsense percentages live in production (v1.0.548, T-BOT)
 
 TERRITORY: T-BOT (`risk_kill_switch.py`, `test_risk_kill_switch.py` new) +
