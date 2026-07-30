@@ -2367,3 +2367,34 @@ rather than the full backfill/expansion work — see
 finding. The 930 history backfill and per-BA live-flow expansion this
 key was requested for remain unbuilt; next PIPELINE session touching
 EIA work can proceed directly, no further unblocking needed.
+
+## 2026-07-30 — TILE SERVING STRATEGY DECISION NEEDED before GRID VISION wave 3 (Asia/Africa) [HUMAN DECISION]
+
+Wave 2 (Europe, 48 countries) hit the ceiling of the committed-tiles
+pattern: France's full-detail tile exceeded GitHub's hard 100MB file
+limit and had to be recut at z11; the continental master needed z8.
+Committed tiles now total ~860MB in-repo (also baked into the Railway
+image). Wave 3 candidates (China, India, Japan, SE Asia) have larger
+OSM extracts than Europe — the pattern dies there.
+
+BUILD-FIRST ANALYSIS (per the doctrine):
+1. Raw material: free (Geofabrik OSM), pipeline proven across 3
+   continents — the only question is where the OUTPUT bytes live.
+2. Free-tier options, in preference order:
+   (a) Cloudflare R2 free tier: 10GB storage + free egress — fits ALL
+       remaining continents at full z-detail (no z11/z8 compromises),
+       range requests supported (PMTiles native). Needs a human-created
+       account + one bucket + a public custom domain or r2.dev URL, and
+       an R2 write token in the agent env. ~15 min of human setup, $0.
+   (b) Railway volume serving (/data/voltrade/tiles + an express static
+       route with range support): zero new accounts, but the volume is
+       1GB-class and already holds bot state — tiles would crowd it,
+       and getting 1GB+ of tiles ONTO the volume from CI needs a
+       deploy-time fetch from somewhere anyway. Weakest option.
+   (c) Keep committing capped tiles: dies at wave 3 (single files would
+       exceed 100MB even capped, and repo/image bloat compounds).
+RECOMMENDATION: (a) R2. If approved, wave 3+ tiles (and optionally a
+full-detail Europe re-cut) serve from R2; the client change is one
+base-URL constant. Until decided, wave 3 is NOT blocked from BUILDING
+(extracts + stats are cheap to produce and archive) — only from
+SHIPPING the tiles to users.

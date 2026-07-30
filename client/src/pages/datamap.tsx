@@ -6280,7 +6280,7 @@ export default function DataMapPage() {
         setStatus("powergrid_europe", "loading");
         addGrid("powergrid_europe_src", "power_europe.pmtiles");
         setStatus("powergrid_europe", "active", undefined,
-          "Entire Europe grid — 48 countries/territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); Russia excluded (own extract, later wave)");
+          "Entire Europe grid — 48 countries/territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity (z8) — per-country toggles carry full detail; Russia excluded (own extract, later wave)");
       } catch { setStatus("powergrid_europe", "error"); }
     } else {
       removeGrid("powergrid_europe_src");

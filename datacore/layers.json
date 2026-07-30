@@ -1284,7 +1284,7 @@
    "group": "facilities",
    "costTier": "moderate",
    "source": "OpenStreetMap power features (\u00a9 OpenStreetMap contributors, ODbL) \u2014 vector tiles by scripts/build_power_tiles.sh",
-   "description": "Transmission lines, substations and plant footprints from OpenStreetMap for 48 European countries/territories, merged into one continental tile. This MASTER toggle shows the whole continent at once; per-country toggles under 'Power grid \u2014 Europe (by country)' control each individually. Voltage-classed; untagged voltage renders dashed 'unknown' (never hidden). Russia is excluded this wave (its own top-level extract spanning two continents \u2014 a later wave). Provenance: osm-verified (community OSM data, ODbL).",
+   "description": "Transmission lines, substations and plant footprints from OpenStreetMap for 48 European countries/territories, merged into one continental tile at overview fidelity (z8 \u2014 Europe's OSM grid density is the highest on the planet; the tile stays range-servable). Per-country toggles under 'Power grid \u2014 Europe (by country)' carry the full-detail tiles. Voltage-classed; untagged voltage renders dashed 'unknown' (never hidden). Russia is excluded this wave (its own top-level extract spanning two continents \u2014 a later wave). Provenance: osm-verified (community OSM data, ODbL).",
    "field": false
   },
   {
