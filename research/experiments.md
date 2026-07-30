@@ -33906,3 +33906,53 @@ shows a multi-hundred-ms or second-scale frame immediately before the loss,
 TDR is confirmed and the fix targets whatever produces that frame. If the
 frames are ~16 ms right up to the loss, TDR is RULED OUT and the remaining
 suspects are the negative-zoom transform state and the three-context budget.
+
+## 2026-07-30 [RESEARCH] — GRID VISION US: detector CLOSED at ladder gate 1 (held-out region), superseded by HIFLD; the US grid is mapped by authoritative vector data, not ML
+
+CLOSING VERDICT (filed at the human's direction after they challenged the
+premise "we kinda have the grid mapped already?" — they were right, and
+the record had no closing entry, so a future session could have
+re-launched a dead line).
+
+THE DETECTOR IS DEAD AT GATE 1. Campaign arc, all July 8-10:
+- v0: held-out AP50 **0.036** (FAIL; prior art 0.55-0.75).
+- v1 (tiling fix): **0.566 IN-DOMAIN** — but gate-1's held-out-region
+  test FAILED. In-domain skill was never the question.
+- div1-div5: diversity + augmentation campaign explicitly aimed at
+  cross-region generalization. Final run gv-div5-ks (10 regions, AZ +
+  5 NZ + 3 Duke US, held out KS): **AP50 0.197 vs the pre-stated 0.30
+  bar** — and FLAT against the NZ-only 6-region result (0.200), i.e.
+  adding real US regions bought nothing. That is the falsification:
+  the fix direction ("diversity is the fix") did not hold.
+- Layer of death: **GATE 1 (DATA), sub-test (a) held-out region.**
+  Total campaign spend $7.22 of $50; 21 closed jobs, all cost-capped.
+
+SUPERSEDED BY BETTER FREE DATA (the reason not to retry). Our own
+research/grid_vision_data_modalities.md had already concluded it:
+"the fastest, most accurate national US grid coverage does NOT come
+from fixing cross-region optical detection - it comes from ingesting
+authoritative pre-built free vector data first." That shipped: HIFLD
+(DHS / Oak Ridge, public domain) = **94,216 transmission segments
+69-765 kV + 75,328 substations + 11,810 plants**, nationally surveyed,
+zero generalization problem, and EIA officially defers to HIFLD as the
+source of truth. OSM covers all 50 states + DC on top (tower nodes
+included since v1.0.377). The US transmission grid is MAPPED.
+
+WHAT REMAINS GENUINELY UNSOLVED (much narrower than "map the grid"):
+DISTRIBUTION voltage (<69 kV poles/lines) and tower point-locations,
+which no authoritative vector set covers. Per the same research the
+proven modality there is STREET-VIEW ML (Mapillary as the free
+alternative; upward-CAM detectors F1 ~0.95 lines / ~0.93 poles) - a
+DIFFERENT project on a different modality, not a resumption of the
+aerial/NAIP detector. SAR stays exploratory (every strong result uses
+3-8 m GaoFen-3, not free ~10 m Sentinel-1).
+
+RULE FOR FUTURE SESSIONS: do NOT relaunch the aerial tower detector to
+"finish" the US. It failed its gate, twice over, and the deliverable it
+was chasing already exists from a better source. The remaining $42.78
+GPU balance is unreserved - spend it on a workload that passes its own
+gate, not this one. Next grid work is GLOBAL COVERAGE via the existing
+OSM pipeline (build_power_tiles.sh is region-agnostic), starting South
+America - see the following entry.
+
+BACKTEST: N/A (datacore, no trading logic).
