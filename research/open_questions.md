@@ -3251,8 +3251,8 @@
     3 remaining call sites — see wishlist/experiments for the follow-up
     pointer.
 
-26. **[FOUND 2026-07-29, not fixed — dead-code/comment-mismatch bug,
-    scheduled-routine REPAIR session] `options_scanner.py`'s
+26. **[FOUND 2026-07-29, FIXED 2026-07-30, v1.0.551, scheduled-routine
+    REPAIR session — dead-code/comment-mismatch bug] `options_scanner.py`'s
     `_get_options_candidates()` does not actually sort candidates by
     movement magnitude, despite its own comment claiming it does.**
     Found while root-causing KNOWN BROKEN #18's scan-timeout: `chg =
@@ -3288,6 +3288,21 @@
     test asserting the returned order is magnitude-descending, and should
     check whether `low_iv_candidates` (currently unused, per KNOWN BROKEN
     #18's 2026-07-26 note) has the same bug for when it's re-enabled.
+
+    FIXED 2026-07-30 (v1.0.551, scheduled-routine REPAIR session):
+    applied exactly the fix sketch above — `high_iv_candidates` now
+    appends `(sym, c, "high_iv", chg)`, sorts on `x[3]` (chg) descending,
+    and the `chg` field is stripped back off before the function's
+    documented 3-tuple return shape is built. New regression test
+    (`test_options_v134_fixes.py::
+    test_high_iv_candidates_sorted_by_magnitude_not_alphabetically`)
+    pins magnitude-descending order with fixtures chosen so alphabetical
+    and magnitude order diverge on every element (AAA=3%/MMZ=10%/ZZZ=50%,
+    expected ["ZZZ","MMZ","AAA"]) — this would have failed against the
+    pre-fix code. `low_iv_candidates` checked per the sketch's own ask:
+    it has no `.sort()` call at all (no comment claims an order for it),
+    so it carries no equivalent bug — left untouched, one-logical-change
+    scope. Full trace in experiments.md same date.
 
 27. **[FOUND + FIXED 2026-07-29, v1.0.532, scheduled-routine REPAIR
     session] Both copies of `_dynamic_options_size()` (options_execution.py

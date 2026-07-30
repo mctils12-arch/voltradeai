@@ -1594,13 +1594,18 @@ def _get_options_candidates(snap_data: dict = None) -> list:
 
         if chg > 2.0:
             # Stock moved significantly today → IV is elevated → sell premium candidate
-            high_iv_candidates.append((sym, c, "high_iv"))
+            high_iv_candidates.append((sym, c, "high_iv", chg))
         elif chg < 0.3:
             # Stock is very quiet today → IV may be at lows → buy cheap options candidate
             low_iv_candidates.append((sym, c, "low_iv"))
 
-    # Sort by movement magnitude (biggest movers first = highest IV)
-    high_iv_candidates.sort(key=lambda x: x[0], reverse=False)
+    # Sort by movement magnitude (biggest movers first = highest IV).
+    # FIXED 2026-07-30 (KNOWN BROKEN #26): this used to sort on x[0] (the
+    # ticker symbol), an alphabetical sort that directly contradicted this
+    # comment — `chg` was computed above but never carried into the tuple,
+    # so MAX_PER_TIER's truncation below was silently keeping
+    # alphabetically-early tickers instead of the biggest actual movers.
+    high_iv_candidates.sort(key=lambda x: x[3], reverse=True)
 
     # Cap the tier to keep total OPRA calls manageable.
     # ORIGINAL comment here ("even with 16 workers, 700+ chain fetches
@@ -1636,7 +1641,7 @@ def _get_options_candidates(snap_data: dict = None) -> list:
                 p   = float(bar.get("c", 0) or 0)
             result.append((sym, p, "anchor"))
 
-    for sym, price, setup_type in high_iv_top:
+    for sym, price, setup_type, _chg in high_iv_top:
         if sym not in seen:
             seen.add(sym)
             result.append((sym, price, setup_type))

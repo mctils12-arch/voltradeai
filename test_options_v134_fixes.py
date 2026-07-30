@@ -436,6 +436,40 @@ class TestFix5_NoStraddleScalpsOrCSP(unittest.TestCase):
         self.assertNotIn("QUIET", symbols, "low_iv-classified ticker should be dropped, not returned")
         self.assertIn("MOVER", symbols, "high_iv-classified ticker should still be returned")
 
+    def test_high_iv_candidates_sorted_by_magnitude_not_alphabetically(self):
+        """KNOWN BROKEN #26 (2026-07-29, fixed 2026-07-30): _get_options_candidates
+        must return high-IV tickers ordered by movement magnitude descending
+        (biggest movers first, per its own comment) — it used to sort on the
+        ticker symbol instead (chg was computed but never stored in the
+        tuple), an alphabetical order that silently biased MAX_PER_TIER's
+        truncation toward alphabetically-early tickers regardless of how big
+        the actual move was."""
+        from options_scanner import _get_options_candidates
+        import options_scanner as os_mod
+
+        # Alphabetically AAA < MMZ < ZZZ, but movement magnitude is the exact
+        # reverse (AAA moves least, ZZZ moves most) — this is what makes the
+        # alphabetical-sort bug and the magnitude-sort fix diverge in their
+        # expected order rather than coincidentally agreeing.
+        fake_snap = {
+            "AAA": {"dailyBar": {"c": 51.5, "v": 5_000_000},
+                    "prevDailyBar": {"c": 50.0}},   # 3% move
+            "MMZ": {"dailyBar": {"c": 55.0, "v": 5_000_000},
+                    "prevDailyBar": {"c": 50.0}},   # 10% move
+            "ZZZ": {"dailyBar": {"c": 75.0, "v": 5_000_000},
+                    "prevDailyBar": {"c": 50.0}},   # 50% move
+        }
+        os_mod._options_candidates_cache = []
+        os_mod._options_candidates_time = 0.0
+        with patch("bot_engine._get_full_universe", return_value=["AAA", "MMZ", "ZZZ"]):
+            candidates = _get_options_candidates(snap_data=fake_snap)
+
+        high_iv_syms = [sym for sym, _, setup in candidates if setup == "high_iv"]
+        self.assertEqual(high_iv_syms, ["ZZZ", "MMZ", "AAA"],
+            "high_iv candidates must be ordered by movement magnitude descending "
+            f"(ZZZ=50%, MMZ=10%, AAA=3%), got {high_iv_syms} — the pre-fix bug "
+            "would have returned the alphabetical order ['AAA', 'MMZ', 'ZZZ'] instead")
+
     def test_delta_selection_always_20(self):
         """Iron condor should select 20-delta contracts (not 50-delta straddle)."""
         import inspect
