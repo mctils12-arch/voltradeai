@@ -115,6 +115,7 @@ import {
   buildArchiveSummary as buildQualityArchive,
   verificationCoverage as qualityVerificationCoverage,
 } from "./qualityDashboard";
+import { loadSignalLadder } from "./signalLadder";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
@@ -1334,6 +1335,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         archive: buildQualityArchive(archiveStats()),
         verification: qualityVerificationCoverage(),
       });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // MAP V2 ROADMAP R6(a) SIGNAL-STRENGTH dashboard (research/open_questions.md,
+  // charter directive 2026-07-04): "ladder position of every root (gate
+  // passed/date/next gate), from research/ bookkeeping made machine-readable."
+  // Pure read over the hand-compiled datacore/signal_ladder.json snapshot —
+  // no new collection, no network calls (same class as R6(b) above).
+  app.get("/api/data/signal-ladder", (_req, res) => {
+    try {
+      res.json({ generated_at: new Date().toISOString(), ...loadSignalLadder() });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 

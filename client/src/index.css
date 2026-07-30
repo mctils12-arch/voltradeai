@@ -3440,6 +3440,54 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 @media (max-width: 480px) {
   .vt-quality-kind-row { grid-template-columns: 74px 1fr auto; gap: 6px; }
 }
+
+/* ── Signal-strength dashboard (#/data/signals — MAP V2 ROADMAP R6(a),
+   2026-07-30). Reuses the vt-filings/vt-streams-body/vt-quality-* shell. ── */
+.vt-ladder-funnel { display: flex; flex-direction: column; gap: 7px; }
+.vt-ladder-funnel-row { display: flex; align-items: center; gap: 8px; }
+.vt-ladder-funnel-label {
+  width: 150px; flex: 0 0 150px; font-size: 11px; color: var(--text-secondary);
+  font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vt-ladder-funnel-count {
+  width: 24px; flex: 0 0 24px; text-align: right; font-family: var(--font-mono);
+  font-size: 11.5px; color: var(--text-primary); font-weight: 600;
+}
+@media (max-width: 480px) {
+  .vt-ladder-funnel-label { width: 92px; flex-basis: 92px; font-size: 9.5px; }
+}
+@media (min-width: 1024px) {
+  .vt-ladder-funnel-label { width: 220px; flex-basis: 220px; font-size: 12px; }
+}
+.vt-ladder-cat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vt-ladder-cat-chip {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary);
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+.vt-ladder-cat-chip-on { color: var(--accent); border-color: var(--accent); background: rgba(77, 159, 255, 0.12); }
+.vt-ladder-list { display: flex; flex-direction: column; gap: 8px; }
+.vt-ladder-row {
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.vt-ladder-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vt-ladder-row-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.vt-ladder-row-note { font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; }
+.vt-ladder-row-foot {
+  display: flex; flex-wrap: wrap; gap: 5px; font-size: 10px; color: var(--text-tertiary);
+  font-family: var(--font-mono); margin-top: 2px;
+}
+.vt-ladder-row-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.vt-ladder-badge {
+  flex: 0 0 auto; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+}
+.vt-ladder-badge-raw { color: var(--accent); background: rgba(77, 159, 255, 0.12); border: 1px solid rgba(77, 159, 255, 0.35); }
+.vt-ladder-badge-pending { color: var(--text-tertiary); background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); }
+.vt-ladder-badge-pass { color: var(--accent-green); background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.35); }
+.vt-ladder-badge-fail { color: var(--accent-orange); background: rgba(251, 178, 76, 0.12); border: 1px solid rgba(251, 178, 76, 0.35); }
+.vt-ladder-badge-killed { color: var(--accent-red); background: rgba(255, 90, 110, 0.12); border: 1px solid rgba(255, 90, 110, 0.35); }
 /* Phase 3a imagery capture-date chip — bottom-left inside the map page
    (the page already clears the mobile tab bar), left of the compact
    maplibre attribution. Never intercepts map gestures. */

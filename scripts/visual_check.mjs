@@ -50,6 +50,9 @@ const PAGES = {
   // ratchet rule as streams above: every new view passes the harness at
   // 390/768/1440 before it ships.
   quality: { route: "/app#/data/quality", map: false },
+  // Signal-strength dashboard (MAP V2 ROADMAP R6(a), 2026-07-30) — same
+  // Phase 5 ratchet rule as streams/quality above.
+  signals: { route: "/app#/data/signals", map: false },
   // Grid-stress descriptive reading overlay (GRID VISION A1 gate-2 FAIL
   // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
   gridstress: { route: "/app#/data/grid-stress", map: false },
@@ -391,6 +394,31 @@ const FIXTURES = {
       sites: { verified: 16, total: 16, method: "Esri World Imagery crosshair check, scripts/site_verify.py (2026-07-03) (fixture)" },
       ports: { verified: 9, total: 9, method: "subset of the imagery-verified strategic sites (category = port) (fixture)" },
       plants: { verified: 100, total: 9833, method: "top-100-by-MW plants imagery-verified against Esri World Imagery (fixture)" },
+    },
+  },
+  // Signal-strength dashboard (MAP V2 ROADMAP R6(a), 2026-07-30) — one root
+  // per status class so the funnel bars, category chips, and badge colors
+  // all render at 390px.
+  "/api/data/signal-ladder": {
+    generated_at: "2026-07-30T00:00:00.000Z",
+    compiled: "2026-07-30",
+    sources: ["research/experiments.md (fixture)", "research/open_questions.md (fixture)"],
+    roots: [
+      { id: "fx_raw", name: "Fixture raw overlay", category: "environmental", status: "raw_only", current_gate: 0, last_update_date: "2026-07-08", note: "Display-only overlay, no predictive claim (fixture).", source_ref: "experiments.md:1 (fixture)" },
+      { id: "fx_g1p", name: "Fixture gate-1 pending", category: "macro", status: "gate1_pending", current_gate: 0, last_update_date: "2026-07-06", note: "Archiver shipped, gate-1 criteria stated, no run result yet (fixture).", source_ref: "experiments.md:2 (fixture)" },
+      { id: "fx_g1pass", name: "Fixture gate-1 pass", category: "macro", status: "gate1_pass", current_gate: 1, last_update_date: "2026-07-05", note: "Prod values exact-matched the published export (fixture).", source_ref: "experiments.md:3 (fixture)" },
+      { id: "fx_g1fail", name: "Fixture gate-1 fail", category: "commodities", status: "gate1_fail", current_gate: 1, last_update_date: "2026-07-05", note: "Both sensor designs dead at gate 1 (fixture).", source_ref: "experiments.md:4 (fixture)" },
+      { id: "fx_g2p", name: "Fixture gate-2 pending", category: "government_spending", status: "gate2_pending", current_gate: 2, last_update_date: "2026-07-26", note: "Gate 1 passed, first gate-2 run inconclusive (fixture).", source_ref: "experiments.md:5 (fixture)" },
+      { id: "fx_killed", name: "Fixture killed root", category: "insider_trading", status: "killed", current_gate: 2, last_update_date: "2026-07-22", note: "Gate 2 kill in both directions (fixture).", source_ref: "experiments.md:6 (fixture)" },
+    ],
+    summary: {
+      total: 6,
+      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1 },
+      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1 },
+      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 2 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
+      killed_count: 1,
+      raw_only_count: 1,
+      furthest_gate_reached: 1,
     },
   },
   // Streams inventory (Phase 4) — one row per health state so the card
