@@ -134,6 +134,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
     resell: "ok",
   },
+  "stats/midas": {
+    license: "U.S. SEC MIDAS individual-security market-structure metrics, quarterly files — public domain (US federal government work)",
+    attribution: "U.S. Securities and Exchange Commission (MIDAS)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -150,6 +155,7 @@ export function apiMeta() {
       { path: "/api/v1/graph", params: "?entity=<ticker|MMSI|CIK|facility id>&hops<=3 (omit entity for counts-only)", desc: "Everything Graph v1 — Form 4 insiders, entity_map operator->ticker, and AIS port-call edges, joined into one node/edge graph. RAW (asserts filed relationships with provenance; no predictive claim).", preview: "/api/data/graph" },
       { path: "/api/v1/stats/plant-operations", params: "-", desc: "Per-facility power-plant utilization ground truth (sum grossLoad MW-days, sum operating hours) from EPA's own unit-level CEMS reporting, TX pilot scope, quarterly cadence. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/plant-operations" },
       { path: "/api/v1/stats/secftd", params: "-", desc: "SEC CNS fails-to-deliver leaderboard: newest settlement date's top fail balances (>=100k share floor, stated). A level, not a daily flow, published on a 2.5-4.5 week SEC lag. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/ftd" },
+      { path: "/api/v1/stats/midas", params: "-", desc: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel data per (date, ticker), quarterly files with a multi-quarter publish lag. Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). RAW, no predictive claim — public-domain US federal data, resell ok. A candidate HFT-colonization filter; gate-2 signal testing not yet attempted (see research/open_questions.md).", preview: "/api/data/microstructure" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -237,6 +243,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/secftd",
       returns_provenance: ["stats/secftd"],
+    },
+    {
+      name: "voltrade_midas_stats",
+      description: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel-to-trade data per (date, ticker) from the SEC's own quarterly files (multi-quarter publish lag). Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). Public-domain US federal data, freely resellable. RAW overlay — a candidate HFT-colonization filter, not a validated trading signal (gate-2 unattempted).",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/midas",
+      returns_provenance: ["stats/midas"],
     },
   ];
   return {
