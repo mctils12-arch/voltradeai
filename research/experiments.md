@@ -3,6 +3,88 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine session) [REPAIR] — landed KNOWN BROKEN #27's already-built fix (options sizer Kelly-bucket bug) that had aged out unmerged with zero CI on PR #638; filed the zero-CI process gap (v1.0.542, T-BOT + SHARED)
+
+TERRITORY: T-BOT (`options_execution.py`, `instrument_selector.py`) +
+`package.json` version bump + `research/wishlist.md` process-gap entry
+(both SHARED, minimized, resolved/appended last).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git status` clean;
+verified `HEAD` byte-identical to GitHub's real `main` tip (`c459f2a`,
+v1.0.541, PR #644) via `mcp__github__list_commits` — the local `git
+fetch origin main` had returned a stale, much-older ref (`47772d6`,
+07-23) through the environment's git proxy, a caching artifact, not an
+actual history rewrite or divergence; ruled that out explicitly before
+trusting anything else this session. Read `research/open_questions.md`'s
+KNOWN BROKEN section (items 1-26, all resolved or already filed) and the
+tail of `experiments.md`.
+
+WHAT I FOUND: `mcp__github__list_pull_requests` showed PR #638
+("[REPAIR] KNOWN BROKEN #27... options sizer used blended overall Kelly
+bucket instead of +EV csp_options bucket") open since
+2026-07-29T11:18Z — a complete, already-gated fix (4 new regression
+tests, full pytest run documented in the PR body) that simply never
+merged. `mcp__github__actions_list list_workflow_runs` for its branch
+(`claude/busy-fermi-v53jcs`) returned `total_count: 0` — no CI ever
+triggered, a distinct failure mode from the already-tracked CI/deploy
+outage this file tracked through 2026-07-26. Confirmed the bug was
+STILL LIVE on current `main` by reading `options_execution.py:133` and
+`instrument_selector.py:1016` directly (`stats["overall"]` still read
+unconditionally) before treating this as actionable rather than stale.
+
+ACTION: cherry-picked PR #638's commit (`1958e0c`) onto this session's
+branch off current `main`. Applied with zero conflicts to both Python
+files — confirmed via the clean auto-merge itself (not assumed) that
+the intervening #641 stretch-mode-budget fix touches a different
+section of `options_execution.py` (`max_contracts` sizing inside
+`_select_sell_put`, not `_dynamic_options_size()`). Only the two SHARED
+files conflicted as expected: `package.json` (resolved via
+read-and-increment at commit time, 1.0.541 -> 1.0.542, not the stale
+1.0.532 the original PR carried) and `research/experiments.md`
+(resolved keep-both-sides per MERGE-ORDER PROTOCOL — the incoming
+entry now lives inline below, dated 2026-07-29 as originally written).
+Full detail of the bug/fix mechanism and the landing gap itself is in
+that inline entry's LANDING ADDENDUM below — not duplicated here.
+
+GATES (re-run fresh in this sandbox, not trusted from the original PR
+body): sandbox was missing pytest/numpy/pandas/scipy/openpyxl (the same
+recurring bare-container gap prior sessions have logged) — installed via
+pip before any real gate could run. `python3 -m pytest -q` — 1040
+passed, 3 skipped, 4 failed; A/B-verified via `git stash` against
+unmodified `main` that all 4 are pre-existing and untouched by this diff
+(`test_silent_except_ratchet.py`'s known `options_execution.py` pin
+drift, 7 vs pin 6; 3 `test_macro_snapshot_spy_dedup.py` failures already
+logged pre-existing by the 2026-07-30 SEC MIDAS entry below). New
+`test_options_sizer_csp_bucket.py`: 4/4 pass. No `client/` or
+`server/*.ts` files touched — `tsc`/`build`/VISUAL VERIFICATION gates
+don't apply.
+
+HOUSEKEEPING: closed PR #638 as superseded by the new PR (#645) with a
+comment explaining why. Filed a `research/wishlist.md` entry proposing a
+cheap standing check ("PR open >N hours with 0 CI runs, not draft ->
+flag it") since nothing currently surfaces this failure mode short of a
+future session re-verifying KNOWN BROKEN from scratch, as this one did.
+
+BACKTEST: N/A — mechanical bug fix restoring already-documented sizing
+behavior (same class as KNOWN BROKEN #3's precedent), not a new
+threshold or policy; no RULE REVIEW gate.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): this and the already-merged
+#641 (stretch-mode budget) and #643 (slot-cap drift) are three
+INDEPENDENT bugs that all compounded on the same symptom (options
+channel dark). With all three now on `main`, options sizing should
+finally vary meaningfully with score/vol/liquidity/regime AND clear the
+affordability/slot checks — worth checking `/api/diag/orders` for
+resumed `us_option` fills in a few days, per this entry's own PR
+description.
+
+SESSION BUDGET: this was the single highest-value action available —
+landing a dead-since-2026-07-10 trading channel's fix outranks starting
+new research per GOAL Priority 1/2, and it was sitting fully solved,
+just unmerged. Not STARVED: KNOWN BROKEN #26 (alphabetical-sort
+candidate bug) remains filed and ready for a future session; this
+session's own process-gap wishlist entry is new queued work too.
+
 ## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — SEC MIDAS keyed mirror shipped: /api/v1/stats/midas, the fourth "shipped-data-no-v1-API" sweep (v1.0.541, SHARED)
 
 TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts,
