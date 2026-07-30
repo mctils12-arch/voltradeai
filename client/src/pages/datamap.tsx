@@ -26,6 +26,7 @@ import CotView from "./cot";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import QualityDashboardView from "./qualityDashboard";
+import SignalLadderView from "./signalLadder";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
@@ -2255,6 +2256,9 @@ export default function DataMapPage() {
   // Data quality dashboard (#/data/quality) — same overlay pattern (MAP V2
   // ROADMAP R6(b), 2026-07-30).
   const [qualityOpen, setQualityOpen] = useState(() => window.location.hash === "#/data/quality");
+  // Signal-strength dashboard (#/data/signals) — same overlay pattern (MAP V2
+  // ROADMAP R6(a), 2026-07-30): ladder position of every root.
+  const [signalsOpen, setSignalsOpen] = useState(() => window.location.hash === "#/data/signals");
   // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
   // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
   const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
@@ -2572,6 +2576,7 @@ export default function DataMapPage() {
       setGraphOpen(window.location.hash === "#/data/graph");
       setStreamsOpen(window.location.hash === "#/data/streams");
       setQualityOpen(window.location.hash === "#/data/quality");
+      setSignalsOpen(window.location.hash === "#/data/signals");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
@@ -10977,6 +10982,9 @@ export default function DataMapPage() {
       {qualityOpen && (
         <QualityDashboardView onBack={() => { window.location.hash = "#/data"; setQualityOpen(false); }} />
       )}
+      {signalsOpen && (
+        <SignalLadderView onBack={() => { window.location.hash = "#/data"; setSignalsOpen(false); }} />
+      )}
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
       )}
@@ -11481,6 +11489,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/quality"; setQualityOpen(true); }}>
               <Shield size={13} /> Data quality
               <span className="vt-streams-launch-sub">feed health · archive growth · verification coverage</span>
+            </button>
+            {/* Signal-strength dashboard launcher (MAP V2 ROADMAP R6(a),
+                2026-07-30): ladder position of every root, page-wide like
+                the two launchers above. */}
+            <button type="button" className="vt-streams-launch" data-vt-signals-launch
+                    onClick={() => { window.location.hash = "#/data/signals"; setSignalsOpen(true); }}>
+              <TrendingUp size={13} /> Signal strength
+              <span className="vt-streams-launch-sub">ladder position of every data root · what's validated, what isn't</span>
             </button>
             {/* Grid-stress launcher (GRID VISION A1 gate-2 FAIL path, 2026-07-07):
                 TX/ERCOT-specific, not a spatial layer, so it launches from the
