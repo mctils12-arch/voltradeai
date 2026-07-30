@@ -2270,3 +2270,32 @@ rings the last 5 into localStorage (vt-gl-loss-log), prints them under a
 [VT GL-LOSS] console tag, and the blocked card gained a Copy-diagnostics
 button. Making an unreproducible failure observable is the prerequisite for
 root-causing it; it is deliberately NOT another attempt at a fix.
+
+## AUTONOMOUS-SESSION PRs CAN GET ZERO CI AND AGE OUT UNMERGED (found 2026-07-30)
+
+CONTEXT: this session's KNOWN BROKEN sweep found PR #638 ("[REPAIR] KNOWN
+BROKEN #27" — options sizer Kelly-bucket bug, a genuine live fix with a
+full test gate already run and documented) had been open since
+2026-07-29T11:18Z with **zero CI workflow runs ever triggered**
+(`actions_list list_workflow_runs` for its branch returned
+`total_count: 0`) — distinct from the already-tracked, since-resolved
+CI/deploy outage tracked earlier in this file. The PR just sat, unmerged,
+across a session boundary, with nothing in `/api/health` or any other
+standing check surfacing it. It was caught only because this session
+happened to re-verify the KNOWN BROKEN list from scratch and noticed the
+bug was still live on `main`.
+
+RESOLVED THIS SESSION (tactical): cherry-picked the fix onto a fresh PR
+(#645) after confirming the bug was still live and the cherry-pick applied
+cleanly; closed #638 as superseded.
+
+PROPOSAL (needs human review — this is a process/tooling gap, not a code
+bug): some standing check should catch "PR open >N hours with 0 CI runs
+and not draft" and surface it the way the LIVENESS ALARM surfaces a dead
+trading loop — e.g. a cheap addition to the DAILY session's own opening
+checklist ("list open non-draft PRs authored by this account; for each,
+check total CI run count; flag any at 0"), or a dedicated lightweight
+routine. Not built here — this file is for the human's review per
+AUTONOMY AUTHORIZATION, and this is exactly the kind of standing-check
+proposal that section exists for. Estimated cost: near-zero (one more
+`list_pull_requests` + `list_workflow_runs` pair per DAILY session).
