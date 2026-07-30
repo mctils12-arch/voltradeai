@@ -677,6 +677,7 @@ const PANEL_GROUPS = [
   { id: "hazards", label: "Hazards & environment" },
   { id: "grid", label: "Power grid — US (by state)" },
   { id: "grid_ca", label: "Power grid — Canada (by province)" },
+  { id: "grid_sa", label: "Power grid — South America (by country)" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "graph", label: "Everything Graph" },
@@ -732,6 +733,12 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_ca_ns: "grid_ca", powergrid_ca_nu: "grid_ca", powergrid_ca_on: "grid_ca",
   powergrid_ca_pe: "grid_ca", powergrid_ca_qc: "grid_ca", powergrid_ca_sk: "grid_ca",
   powergrid_ca_yt: "grid_ca",
+  powergrid_southamerica: "facilities",
+  powergrid_sa_ar: "grid_sa", powergrid_sa_bo: "grid_sa", powergrid_sa_br: "grid_sa",
+  powergrid_sa_cl: "grid_sa", powergrid_sa_co: "grid_sa", powergrid_sa_ec: "grid_sa",
+  powergrid_sa_gf: "grid_sa", powergrid_sa_gy: "grid_sa", powergrid_sa_py: "grid_sa",
+  powergrid_sa_pe: "grid_sa", powergrid_sa_sr: "grid_sa", powergrid_sa_uy: "grid_sa",
+  powergrid_sa_ve: "grid_sa",
   orbital_sats: "live",
 };
 
@@ -837,6 +844,29 @@ const CANADA_PROVINCES = [
   { code: "ca_qc", name: "Quebec", file: "power_ca_qc.pmtiles" },
   { code: "ca_sk", name: "Saskatchewan", file: "power_ca_sk.pmtiles" },
   { code: "ca_yt", name: "Yukon", file: "power_ca_yt.pmtiles" },
+] as const;
+// South America — OSM community power grid per country (ODbL). Codes are
+// prefixed "sa_" (same collision-avoidance scheme as Canada's "ca_").
+// French Guiana ships from Geofabrik's europe/france/guyane extract but is
+// geographically South American, so it lives here. Continental roll-up
+// served from power_southamerica.pmtiles. COVERAGE HONESTY: OSM density
+// varies sharply by country here (see the per-country gap stats in
+// research/experiments.md) — sparse rendering means sparse MAPPING, not a
+// sparse grid; per-country descriptions carry the caveat.
+const SA_COUNTRIES = [
+  { code: "sa_ar", name: "Argentina", file: "power_sa_ar.pmtiles" },
+  { code: "sa_bo", name: "Bolivia", file: "power_sa_bo.pmtiles" },
+  { code: "sa_br", name: "Brazil", file: "power_sa_br.pmtiles" },
+  { code: "sa_cl", name: "Chile", file: "power_sa_cl.pmtiles" },
+  { code: "sa_co", name: "Colombia", file: "power_sa_co.pmtiles" },
+  { code: "sa_ec", name: "Ecuador", file: "power_sa_ec.pmtiles" },
+  { code: "sa_gf", name: "French Guiana", file: "power_sa_gf.pmtiles" },
+  { code: "sa_gy", name: "Guyana", file: "power_sa_gy.pmtiles" },
+  { code: "sa_py", name: "Paraguay", file: "power_sa_py.pmtiles" },
+  { code: "sa_pe", name: "Peru", file: "power_sa_pe.pmtiles" },
+  { code: "sa_sr", name: "Suriname", file: "power_sa_sr.pmtiles" },
+  { code: "sa_uy", name: "Uruguay", file: "power_sa_uy.pmtiles" },
+  { code: "sa_ve", name: "Venezuela", file: "power_sa_ve.pmtiles" },
 ] as const;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
@@ -5983,9 +6013,10 @@ export default function DataMapPage() {
   // re-runs on any grid toggle without hardcoding one dependency per state.
   const powerGridKey = (enabled.powergrid ? "M" : "") + (enabled.powergrid_hifld ? "H" : "") +
     (enabled.powergrid_hifld_sub ? "S" : "") + (enabled.powergrid_hifld_plants ? "P" : "") +
-    (enabled.powergrid_canada ? "C" : "") +
+    (enabled.powergrid_canada ? "C" : "") + (enabled.powergrid_southamerica ? "Z" : "") +
     POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("") +
-    CANADA_PROVINCES.map((p) => (enabled[`powergrid_${p.code}`] ? p.code : "")).join("");
+    CANADA_PROVINCES.map((p) => (enabled[`powergrid_${p.code}`] ? p.code : "")).join("") +
+    SA_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -6076,6 +6107,22 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_canada_src");
       setStatus("powergrid_canada", "off");
+    }
+
+    // "South America Power Grid (all countries)" master -> ONE continental tile
+    // merged from all 13 countries incl. French Guiana (OSM, ODbL). Same
+    // voltage-classed rendering; coverage honesty caveat — OSM completeness
+    // varies by country, sparse rendering = sparse mapping, not a sparse grid.
+    if (enabled.powergrid_southamerica) {
+      try {
+        setStatus("powergrid_southamerica", "loading");
+        addGrid("powergrid_southamerica_src", "power_southamerica.pmtiles");
+        setStatus("powergrid_southamerica", "active", undefined,
+          "Entire South America grid — 13 countries incl. French Guiana (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country");
+      } catch { setStatus("powergrid_southamerica", "error"); }
+    } else {
+      removeGrid("powergrid_southamerica_src");
+      setStatus("powergrid_southamerica", "off");
     }
 
     // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
@@ -6284,6 +6331,17 @@ export default function DataMapPage() {
         addGrid(src, pr.file);
         setStatus(src, "active", undefined,
           `${pr.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden)`);
+      } catch { setStatus(src, "error"); }
+    });
+    // South America per-country layers (each its own toggle, like Canada)
+    SA_COUNTRIES.forEach((co) => {
+      const src = `powergrid_${co.code}`;
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
+      try {
+        setStatus(src, "loading");
+        addGrid(src, co.file);
+        setStatus(src, "active", undefined,
+          `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country`);
       } catch { setStatus(src, "error"); }
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips

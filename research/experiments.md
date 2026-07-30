@@ -33956,3 +33956,63 @@ OSM pipeline (build_power_tiles.sh is region-agnostic), starting South
 America - see the following entry.
 
 BACKTEST: N/A (datacore, no trading logic).
+
+## 2026-07-30 [PIPELINE] — GRID VISION global rollout, wave 1: South America (13 countries) + coverage-gap census (v1.0.546)
+
+TERRITORY: T-DATACORE (pipeline) + the /data wiring that lights it up
+(same PR per the powergrid precedent — tiles without a toggle are
+invisible). Human directive: "close the us and work on the world start
+on south America and see if there are any gaps in the existing grid."
+
+SHIPPED: per-country OSM power extracts for all 13 South American
+countries (incl. French Guiana via Geofabrik's europe/france/guyane —
+geographically SA, so it lives in the SA group) + ONE merged
+continental roll-up (power_southamerica.pmtiles, 30MB), all through the
+existing build_power_tiles.sh recipe (osmium tags-filter w/power=line,
+minor_line,cable nwr/power=substation,plant n/power=tower → tippecanoe
+-zg). Client: SA_COUNTRIES array + grid_sa panel group + master toggle,
+mirroring the Canada pattern exactly (prefixed sa_ codes, no US-state
+collisions). Registry: 14 layers.json entries, insert-only diff.
+VERIFIED (not assumed): production build green; visual harness PASS at
+390/768/1440 + zero-cost + layer-scale; a headless probe against the
+real built bundle (range-request static server + real registry) toggled
+master/Brazil/Guyana → all "active", PMTiles range-fetches observed,
+and a Brasília-region screenshot shows the HV network drawing.
+Probe gotcha worth keeping: GROUP_ROW_CAP=12 progressive disclosure
+hides the 13th row of both "Facilities" and the new SA group behind
+"show all" — a probe that doesn't click it reports ROW NOT FOUND (this
+is the panel working as designed, not a wiring failure).
+
+COVERAGE-GAP CENSUS (the "any gaps?" answer — full per-country stats in
+the table below; line_km = line+minor_line+cable great-circle length):
+
+  br 914,207 feats / 311,996 km    py  23,578 / 9,012
+  ar 246,566 / 65,138              ec  22,787 / 8,854
+  cl  79,593 / 28,623              uy  20,367 / 8,633
+  ve  64,283 / 23,162              gf   1,438 / 430
+  pe  61,663 / 22,772              sr     408 / 134
+  co  58,986 / 23,058              gy     164 / 54
+  bo  25,517 / 9,821
+
+Normalized by land area (line-km per 1,000 km²), the continent clusters
+at ~18-49 — except GUYANA (0.25) and SURINAME (0.8), TWO ORDERS OF
+MAGNITUDE below their neighbors, and BOLIVIA (8.9) at roughly half the
+continental floor. Guyana's real grid (GPL's DBIS interconnect) is
+hundreds of km of 69kV — OSM simply hasn't mapped it. These are MAPPING
+gaps, not grid gaps, and the product says so: the two near-empty
+countries carry an explicit COVERAGE GAP caveat in their layer
+descriptions, and every SA description states "OSM coverage varies by
+country." Honesty rule (RAW OVERLAYS): sparse rendering must never be
+readable as "this country barely has a grid."
+Secondary anomaly, filed not fixed: Peru tags 7,846 substations against
+only 1,121 line ways (neighbors run ~1:2 the other way) — a community
+tagging-style difference, worth knowing before anyone reads substation
+counts as infrastructure density.
+
+NEXT WAVES (same recipe, nothing blocking): Europe is the obvious wave
+2 (dense OSM, many countries), then Asia/Africa/Oceania. Disk note:
+tiles are committed under client/public/tiles/ (now ~362MB total) —
+fine for now, but a future wave should weigh moving tile serving off
+the repo before the folder crosses ~1GB.
+
+BACKTEST: N/A (datacore /data layer, no trading logic).
