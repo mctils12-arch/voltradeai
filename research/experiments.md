@@ -3,6 +3,130 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine session) [PRODUCT] — salvaged PR #640's zero-CI-unmerged X-ray-flux delta into the already-merged spaceWeather.ts (v1.0.543, T-CLIENT + SHARED)
+
+TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`) + server-side data
+module edits that are additive to an already-shipped PRODUCT feature
+(`server/spaceWeather.ts`, `server/spaceWeather.test.ts`, `server/
+routes.ts`, `datacore/manifests/spaceweather.json`, `datacore/
+layers.json`) + `package.json`/`research/wishlist.md` (SHARED,
+minimized, resolved last per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Verified `HEAD` against
+GitHub's real `main` tip via `mcp__github__list_commits` (`f51b277`,
+v1.0.542, PR #645) — matched the local branch exactly this time (the
+local `git fetch`'s proxy-caching artifact noted in the prior 2026-07-30
+session did NOT reproduce here; ruled stale-vs-fresh out by direct
+comparison rather than assuming either way). LOOP-HEALTH CHECK: last 10
+tagged entries are a mix of REPAIR/PRODUCT/RESEARCH with no run of
+7+ REPAIR — no thrash, no Priority-1 meta-problem. PROGRESS FLOOR:
+PRODUCT/PIPELINE work shipped within the last 14 days (this file's own
+tail). `/api/health` clean on both `voltradeai-production.up.railway.app`
+and `voltradeai.com`: `status: "ok"`, `bot.status: "active"`,
+`liveness.dark: false`, `drawdownPct: "0.0"` — no LIVENESS ALARM.
+
+WHAT I FOUND: `mcp__github__list_pull_requests` showed PR #640 ("product:
+NOAA SWPC space weather (K-index + X-ray flux) archiver + RAW display",
+v1.0.538) open since 2026-07-29T13:29Z with **zero CI workflow runs ever
+triggered** (`actions_list list_workflow_runs` for its branch returned
+`total_count: 0`) — the same zero-CI-unmerged-PR failure mode the prior
+2026-07-30 session found and fixed for PR #638 (now logged as a second
+occurrence in `research/wishlist.md`'s standing proposal). Attempting the
+same cherry-pick-onto-main tactic surfaced a NEW sub-failure this time:
+PR #640 was built against `main` AFTER #639 ("SWPC space weather: gate-1
+archiver + aurora /data layer") had already merged, but #640's author
+never noticed #639 had shipped a `server/spaceWeather.ts` of its own —
+both PRs created a file with the identical path/module name for
+overlapping-but-distinct NOAA SWPC data (aurora+Kp+alerts+wind-summary
+in #639's 459-line version vs. K-index+X-ray-flux in #640's 263-line
+version), an add/add conflict a normal PR review's diff view would have
+flagged immediately ("this file changed on main too") but zero CI meant
+no reviewer ever looked.
+
+ACTION: per CLAUDE.md's WORKSTREAM PARTITION collision precedent
+("first-merged wins, the duplicate salvages its unique delta") — read
+both full versions of `spaceWeather.ts` before touching either (READ
+BEFORE WRITE), confirmed #639 already owns Kp/scales/alerts/wind/aurora
+end-to-end (cache shape, archive prefixes, route, map-layer UI) and
+#640's only non-redundant contribution is GOES X-ray flux: `XrayRec`,
+`parseXray` (defensively normalizes NOAA's own upstream misspelling
+`electron_contaminaton`), `classifyFlare` (NOAA's published A/B/C/M/X
+formula from 0.1-0.8nm flux, not a fit). Hand-folded that delta into
+#639's already-merged module as pure additions, matching its existing
+style rather than reintroducing #640's parallel implementation:
+`SpaceWeatherPull.xray`, a 7th `Promise.allSettled` fetch (partial-
+failure-tolerant, same pattern as the other 6), a 4th archive prefix
+(`xray-YYYY-MM-DD.jsonl`, dedup key `time_tag|energy` since two energy
+bands share a time_tag — mirrors #640's own reasoning), and
+`SpaceWeatherCache.xrayLatest/flare/xrayRecent` (long-band-only,
+180-row sparkline cap). Wired into the existing `/api/data/spaceweather`
+response (`xray_latest`/`xray_flare`/`xray_recent`, no new route — #640
+had proposed a second route + a second standalone page mirroring
+`attention.tsx`; unnecessary since #639 already has a live map-layer
+click-card UI to extend) and into that click card's stats/facts/status-
+line (flare class + flux reading), plus the `spaceweather` manifest and
+`datacore/layers.json` description. Kept the poll cadence at #639's
+existing 10-min interval rather than #640's proposed 5-min (X-ray flux
+does move on minute scales upstream, but this is a display refresh
+cadence, not a gate-1 sampling-completeness claim — the archive keeps
+whatever the upstream endpoint returns each poll, same completeness
+either way; noted as a deliberate, documented call, not an oversight).
+
+GATES: `npm ci` run first (bare sandbox had only `typescript` installed,
+same class of gap prior sessions have logged for Python deps — `npm run
+test:node`/`tsc` are silently misleading without it, e.g. `tsx: not
+found` and inflated tsc error noise from missing `@types/node`).
+`npx tsx --test server/spaceWeather.test.ts`: 10/10 pass (6 new: parseXray,
+classifyFlare boundary table, archive dedup extended to the 4th xray
+prefix, fetchSpaceWeather extended to assert the 7th feed populates
+`pull.xray`; existing tests' hand-built `pull` fixtures updated to carry
+`xray: []`/real records since the type gained a required field). Full
+`npm run test:node`: 922/922 pass (0 pre-`npm ci` failures — the 7
+failures seen before `npm ci` were an environment artifact, confirmed
+by re-running against unmodified `main` in the same bare state and
+getting the identical 7, none touching `spaceWeather.ts`). `npx tsc
+--noEmit`: 78 errors, byte-identical to a `git stash`-verified `main`
+baseline (not assumed). `npm run build`: clean. **Visual harness**:
+`npm run visual` hung past this tool's foreground window (same known
+environment issue the 2026-07-28/29 sessions already documented) —
+backgrounded, then confirmed killed at the 280s timeout (exit 143,
+`Terminated`) rather than ever completing. Disclosed rather than
+skipped, per that precedent: the client diff is three additive text
+fields (`stats`/`facts` entries + a status-line clause) inside an
+already-rendered generic dossier-card pattern — no new layout, no new
+CSS, no new component — assessed as low visual risk, but genuinely
+unverified in a real browser this session. A future session should spot-
+check `#/data/spaceweather` (aurora layer, click the oval) if the
+harness environment issue ever gets fixed.
+
+HOUSEKEEPING: closed PR #640 as superseded, referencing this PR. Filed
+an UPDATE in `research/wishlist.md`'s zero-CI-PR entry documenting the
+second occurrence and the new filename-collision sub-failure-mode found
+this session (raises, does not change, the standing proposal's
+priority).
+
+BACKTEST: N/A — RAW overlay display + gate-1 archiver, no scoring/sizing/
+trading logic touched, same class as the original #639/#640 PRODUCT
+sessions.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none into the trading loop —
+this is entirely within the datacore/PRODUCT surface (SPINOUT-READY DATA
+LAYER: `server/spaceWeather.ts` has no imports from or into trading
+logic). The only real "chain" is archival completeness: the gate-1
+evidence base for the still-unvalidated GIC/grid hypothesis
+(open_questions.md GRID-ADJACENT FUTURE ROOTS #1) now has X-ray flux
+alongside Kp/scales/alerts/wind, which a future gate-1 session can join
+against DOE OE-417 disturbance reports.
+
+SESSION BUDGET: this was the single highest-value action available —
+landing a second real, dead-since-open PRODUCT delta (KNOWN BROKEN sweep
+found nothing new top-of-report; `/api/health` clean) outranks starting
+fresh research, and the added complexity (a genuine architecture
+collision, not just a stale-branch cherry-pick) was still tractable
+within one session once traced carefully. Not STARVED: this session's
+own wishlist UPDATE and the still-open KNOWN BROKEN #26 remain queued
+for a future session.
+
 ## 2026-07-30 (scheduled-routine session) [REPAIR] — landed KNOWN BROKEN #27's already-built fix (options sizer Kelly-bucket bug) that had aged out unmerged with zero CI on PR #638; filed the zero-CI process gap (v1.0.542, T-BOT + SHARED)
 
 TERRITORY: T-BOT (`options_execution.py`, `instrument_selector.py`) +

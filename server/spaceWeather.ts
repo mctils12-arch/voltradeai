@@ -24,6 +24,11 @@
  *    FORECAST grid (1°, 65k cells). Display-only: served thresholded +
  *    2°-aggregated; the archive keeps a per-poll summary, never the 900 KB
  *    raster (the validation archive needs Kp/scales/alerts, not the oval).
+ *  · json/goes/primary/xrays-1-day.json — GOES X-ray flux (~1-min, two
+ *    energy bands sharing each time_tag; dedup keys on time_tag+energy).
+ *    NOAA's own GOES flare-class formula (A/B/C/M/X) is applied — a
+ *    published classification, not a fit — same RAW-overlay treatment as
+ *    Kp -> G-scale above.
  */
 
 import fs from "fs";
@@ -39,7 +44,10 @@ const URLS = {
   windSpeed: `${BASE}/products/summary/solar-wind-speed.json`,
   windMag: `${BASE}/products/summary/solar-wind-mag-field.json`,
   ovation: `${BASE}/json/ovation_aurora_latest.json`,
+  xray: `${BASE}/json/goes/primary/xrays-1-day.json`,
 } as const;
+
+const XRAY_LONG_BAND = "0.1-0.8nm";
 
 // ── parse: planetary Kp ─────────────────────────────────────────────────────
 
@@ -222,6 +230,52 @@ export function parseOvation(json: any, aggDeg = 2, minVal = 2): AuroraGrid {
   };
 }
 
+// ── parse: GOES X-ray flux ──────────────────────────────────────────────────
+
+export interface XrayRec {
+  time_tag: string;
+  satellite: number | null;
+  energy: string; // "0.05-0.4nm" (short) | "0.1-0.8nm" (long)
+  flux: number; // W/m^2
+  electronContamination: boolean | null;
+}
+
+export function parseXray(json: any): XrayRec[] {
+  const out: XrayRec[] = [];
+  for (const r of Array.isArray(json) ? json : []) {
+    const t = r?.time_tag;
+    const flux = Number(r?.flux);
+    const energy = r?.energy;
+    if (typeof t !== "string" || !Number.isFinite(flux) || typeof energy !== "string") continue;
+    out.push({
+      time_tag: t,
+      satellite: Number.isFinite(Number(r?.satellite)) ? Number(r.satellite) : null,
+      energy,
+      flux,
+      // NOAA's own upstream field is misspelled "electron_contaminaton" — read
+      // defensively, normalize the name on our side.
+      electronContamination: typeof r?.electron_contaminaton === "boolean" ? r.electron_contaminaton : null,
+    });
+  }
+  return out;
+}
+
+/** Official NOAA GOES flare classification from 0.1-0.8nm flux in W/m^2
+ *  (published formula, not a fit): A < 1e-7 < B < 1e-6 < C < 1e-5 < M < 1e-4 < X. */
+export function classifyFlare(flux: number): { cls: "A" | "B" | "C" | "M" | "X"; magnitude: number; label: string } {
+  const bands: Array<["A" | "B" | "C" | "M" | "X", number]> = [
+    ["X", 1e-4], ["M", 1e-5], ["C", 1e-6], ["B", 1e-7], ["A", 1e-8],
+  ];
+  for (const [cls, floor] of bands) {
+    if (flux >= floor) {
+      const magnitude = +(flux / floor).toFixed(2);
+      return { cls, magnitude, label: `${cls}${magnitude}` };
+    }
+  }
+  const magnitude = +(flux / 1e-8).toFixed(2);
+  return { cls: "A", magnitude, label: `A${magnitude}` };
+}
+
 // ── fetch (partial-failure tolerant — one dead feed never blanks the rest) ──
 
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
@@ -232,6 +286,7 @@ export interface SpaceWeatherPull {
   alerts: SwpcAlertRec[];
   wind: WindSummary;
   aurora: AuroraGrid | null;
+  xray: XrayRec[];
   errors: string[];
 }
 
@@ -246,13 +301,14 @@ async function getJson(fetchImpl: FetchFn, url: string): Promise<any> {
 
 export async function fetchSpaceWeather(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<SpaceWeatherPull> {
   const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
-  const [kpR, scR, alR, wsR, wmR, ovR] = await Promise.allSettled([
+  const [kpR, scR, alR, wsR, wmR, ovR, xrR] = await Promise.allSettled([
     getJson(fetchImpl, URLS.kp),
     getJson(fetchImpl, URLS.scales),
     getJson(fetchImpl, URLS.alerts),
     getJson(fetchImpl, URLS.windSpeed),
     getJson(fetchImpl, URLS.windMag),
     getJson(fetchImpl, URLS.ovation),
+    getJson(fetchImpl, URLS.xray),
   ]);
   const errors: string[] = [];
   const val = <T,>(r: PromiseSettledResult<any>, f: (j: any) => T, empty: T): T => {
@@ -271,6 +327,7 @@ export async function fetchSpaceWeather(fetchImpl: FetchFn = fetch as any, nowMs
       wmR.status === "fulfilled" ? wmR.value : (errors.push(String(wmR.reason?.message || wmR.reason)), null),
     ),
     aurora: val(ovR, (j) => parseOvation(j), null),
+    xray: val(xrR, (j) => parseXray(j), []),
     errors,
   };
 }
@@ -284,6 +341,7 @@ function swDir(baseDir?: string): string {
 const seenKp = new Set<string>();
 const seenAlerts = new Set<string>();
 const seenCond = new Set<string>();
+const seenXray = new Set<string>();
 let seeded = false;
 
 function seedPrefix(dir: string, prefix: string, set: Set<string>, idOf: (r: any) => string, nowMs: number): void {
@@ -366,13 +424,16 @@ export function conditionsRow(pull: SpaceWeatherPull, nowMs: number): Conditions
   };
 }
 
-export function archiveSpaceWeather(pull: SpaceWeatherPull, baseDir?: string, nowMs?: number): { kp: number; alerts: number; conditions: number } {
+const xrayId = (r: XrayRec) => `${r.time_tag}|${r.energy}`;
+
+export function archiveSpaceWeather(pull: SpaceWeatherPull, baseDir?: string, nowMs?: number): { kp: number; alerts: number; conditions: number; xray: number } {
   const dir = swDir(baseDir);
   const now = nowMs ?? Date.now();
   if (!seeded) {
     seedPrefix(dir, "kp", seenKp, (r) => r.t, now);
     seedPrefix(dir, "alerts", seenAlerts, (r) => r.id, now);
     seedPrefix(dir, "conditions", seenCond, (r) => r.id, now);
+    seedPrefix(dir, "xray", seenXray, xrayId, now);
     seeded = true;
   }
   try {
@@ -380,10 +441,11 @@ export function archiveSpaceWeather(pull: SpaceWeatherPull, baseDir?: string, no
       kp: appendFresh(dir, "kp", seenKp, (r: KpRec) => r.t, pull.kp, now),
       alerts: appendFresh(dir, "alerts", seenAlerts, (r: SwpcAlertRec) => r.id, pull.alerts, now),
       conditions: appendFresh(dir, "conditions", seenCond, (r: ConditionsRec) => r.id, [conditionsRow(pull, now)], now),
+      xray: appendFresh(dir, "xray", seenXray, xrayId, pull.xray, now),
     };
   } catch (e: any) {
     console.error("[datacore] spaceweather archive:", e?.message || e);
-    return { kp: 0, alerts: 0, conditions: 0 };
+    return { kp: 0, alerts: 0, conditions: 0, xray: 0 };
   }
 }
 
@@ -414,8 +476,14 @@ export interface SpaceWeatherCache {
   wind: WindSummary;
   aurora: AuroraGrid | null;
   alertsRecent: SwpcAlertRec[]; // newest first, capped
+  xrayLatest: XrayRec | null; // most recent long-band (0.1-0.8nm) reading
+  flare: ReturnType<typeof classifyFlare> | null;
+  xrayRecent: XrayRec[]; // long-band only, most recent first (sparkline)
   errors: string[];
 }
+
+const XRAY_RECENT = 180; // long-band minutes (3h) — enough for a sparkline
+                          // without shipping the full 1-day/2-band payload
 
 let cache: SpaceWeatherCache | null = null;
 let polling = false;
@@ -429,8 +497,10 @@ const ALERTS_RECENT = 20;
 export async function refreshSpaceWeatherCache(fetchImpl: FetchFn = fetch as any, nowMs?: number): Promise<void> {
   try {
     const pull = await fetchSpaceWeather(fetchImpl, nowMs);
-    const gotAnything = pull.kp.length || pull.scales.current || pull.aurora || pull.alerts.length;
+    const gotAnything = pull.kp.length || pull.scales.current || pull.aurora || pull.alerts.length || pull.xray.length;
     if (gotAnything || !cache) {
+      const xLongHistory = pull.xray.filter((r) => r.energy === XRAY_LONG_BAND).slice(-XRAY_RECENT);
+      const xLatest = xLongHistory.length ? xLongHistory[xLongHistory.length - 1] : cache?.xrayLatest ?? null;
       cache = {
         at: Date.now(),
         kpRecent: pull.kp.slice(-8),
@@ -438,6 +508,9 @@ export async function refreshSpaceWeatherCache(fetchImpl: FetchFn = fetch as any
         wind: pull.wind,
         aurora: pull.aurora ?? cache?.aurora ?? null, // keep last good oval across a single feed hiccup
         alertsRecent: [...pull.alerts].sort((a, b) => (a.issued < b.issued ? 1 : -1)).slice(0, ALERTS_RECENT),
+        xrayLatest: xLatest,
+        flare: xLatest ? classifyFlare(xLatest.flux) : null,
+        xrayRecent: xLongHistory.length ? xLongHistory : cache?.xrayRecent ?? [],
         errors: pull.errors,
       };
     }

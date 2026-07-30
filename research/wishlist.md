@@ -2299,3 +2299,36 @@ routine. Not built here — this file is for the human's review per
 AUTONOMY AUTHORIZATION, and this is exactly the kind of standing-check
 proposal that section exists for. Estimated cost: near-zero (one more
 `list_pull_requests` + `list_workflow_runs` pair per DAILY session).
+
+**UPDATE 2026-07-30 (second occurrence + a new sub-failure-mode found):**
+this scheduled-routine session found the same zero-CI pattern on PR #640
+("product: NOAA SWPC space weather (K-index + X-ray flux) archiver + RAW
+display", open since 2026-07-29T13:29Z, `list_workflow_runs` for its
+branch again `total_count: 0`) — confirming this is a recurring gap, not
+a one-off. The proposal above stands unchanged; two data points now
+support it.
+
+NEW FINDING this occurrence surfaces: PR #640 was a genuine WORKSTREAM
+PARTITION collision (CLAUDE.md's MERGE-ORDER PROTOCOL item 6) with the
+already-merged #639 ("SWPC space weather: gate-1 archiver + aurora /data
+layer") — two concurrent PRODUCT sessions both built `server/
+spaceWeather.ts` under the same filename for overlapping-but-distinct
+NOAA SWPC data (aurora+Kp+alerts+wind vs. K-index+X-ray-flux), an
+add/add conflict a normal review would have caught but zero CI meant
+no one ever looked. Applied the documented supersession precedent:
+first-merged (#639) kept its module identity/exports/cache shape;
+#640's unique delta (GOES X-ray flux archiving + NOAA's own flare-class
+formula) was hand-folded into the existing `spaceWeather.ts` as
+additive fields (`SpaceWeatherPull.xray`, `SpaceWeatherCache.xrayLatest/
+flare/xrayRecent`, a fourth `xray-YYYY-MM-DD.jsonl` archive prefix) —
+the redundant K-index re-parsing in #640 was dropped since #639 already
+owned that series. Shipped as v1.0.543, closing #640 as superseded.
+This makes the zero-CI gap strictly worse than "PR ages out unmerged"
+in the two-concurrent-session case — it can silently produce a same-
+filename collision that a normal PR review's diff view would have
+flagged immediately (GitHub shows "this file was also changed on
+main"), but with zero CI and no reviewer, nothing surfaced it until a
+future session's cherry-pick attempt hit the conflict directly. Doesn't
+change the proposed fix, but raises its priority: a stuck-PR check would
+have caught this within a day instead of it silently waiting for a
+session to stumble into the conflict.
