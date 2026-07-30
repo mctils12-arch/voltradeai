@@ -716,6 +716,7 @@ const PANEL_GROUPS = [
   { id: "grid", label: "Power grid — US (by state)" },
   { id: "grid_ca", label: "Power grid — Canada (by province)" },
   { id: "grid_sa", label: "Power grid — South America (by country)" },
+  { id: "grid_eu", label: "Power grid — Europe (by country)" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "graph", label: "Everything Graph" },
@@ -772,6 +773,23 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_ca_pe: "grid_ca", powergrid_ca_qc: "grid_ca", powergrid_ca_sk: "grid_ca",
   powergrid_ca_yt: "grid_ca",
   powergrid_southamerica: "facilities",
+  powergrid_europe: "facilities",
+  powergrid_eu_al: "grid_eu", powergrid_eu_ad: "grid_eu", powergrid_eu_at: "grid_eu",
+  powergrid_eu_by: "grid_eu", powergrid_eu_be: "grid_eu", powergrid_eu_ba: "grid_eu",
+  powergrid_eu_bg: "grid_eu", powergrid_eu_hr: "grid_eu", powergrid_eu_cy: "grid_eu",
+  powergrid_eu_cz: "grid_eu", powergrid_eu_dk: "grid_eu", powergrid_eu_ee: "grid_eu",
+  powergrid_eu_fo: "grid_eu", powergrid_eu_fi: "grid_eu", powergrid_eu_fr: "grid_eu",
+  powergrid_eu_ge: "grid_eu", powergrid_eu_de: "grid_eu", powergrid_eu_gb: "grid_eu",
+  powergrid_eu_gr: "grid_eu", powergrid_eu_gg: "grid_eu", powergrid_eu_hu: "grid_eu",
+  powergrid_eu_is: "grid_eu", powergrid_eu_ie: "grid_eu", powergrid_eu_im: "grid_eu",
+  powergrid_eu_it: "grid_eu", powergrid_eu_xk: "grid_eu", powergrid_eu_lv: "grid_eu",
+  powergrid_eu_li: "grid_eu", powergrid_eu_lt: "grid_eu", powergrid_eu_lu: "grid_eu",
+  powergrid_eu_mt: "grid_eu", powergrid_eu_md: "grid_eu", powergrid_eu_mc: "grid_eu",
+  powergrid_eu_me: "grid_eu", powergrid_eu_nl: "grid_eu", powergrid_eu_mk: "grid_eu",
+  powergrid_eu_no: "grid_eu", powergrid_eu_pl: "grid_eu", powergrid_eu_pt: "grid_eu",
+  powergrid_eu_ro: "grid_eu", powergrid_eu_rs: "grid_eu", powergrid_eu_sk: "grid_eu",
+  powergrid_eu_si: "grid_eu", powergrid_eu_es: "grid_eu", powergrid_eu_se: "grid_eu",
+  powergrid_eu_ch: "grid_eu", powergrid_eu_tr: "grid_eu", powergrid_eu_ua: "grid_eu",
   powergrid_sa_ar: "grid_sa", powergrid_sa_bo: "grid_sa", powergrid_sa_br: "grid_sa",
   powergrid_sa_cl: "grid_sa", powergrid_sa_co: "grid_sa", powergrid_sa_ec: "grid_sa",
   powergrid_sa_gf: "grid_sa", powergrid_sa_gy: "grid_sa", powergrid_sa_py: "grid_sa",
@@ -905,6 +923,61 @@ const SA_COUNTRIES = [
   { code: "sa_sr", name: "Suriname", file: "power_sa_sr.pmtiles" },
   { code: "sa_uy", name: "Uruguay", file: "power_sa_uy.pmtiles" },
   { code: "sa_ve", name: "Venezuela", file: "power_sa_ve.pmtiles" },
+] as const;
+// Europe — OSM community power grid per Geofabrik extract (ODbL), "eu_"
+// prefixed codes (same scheme as ca_/sa_). Two extracts are multi-territory
+// (Ireland & Northern Ireland; Guernsey & Jersey) — named honestly as such.
+// Russia is excluded from this wave (own top-level extract, spans two
+// continents — a later wave). Continental roll-up: power_europe.pmtiles.
+const EU_COUNTRIES = [
+  { code: "eu_al", name: "Albania", file: "power_eu_al.pmtiles" },
+  { code: "eu_ad", name: "Andorra", file: "power_eu_ad.pmtiles" },
+  { code: "eu_at", name: "Austria", file: "power_eu_at.pmtiles" },
+  { code: "eu_by", name: "Belarus", file: "power_eu_by.pmtiles" },
+  { code: "eu_be", name: "Belgium", file: "power_eu_be.pmtiles" },
+  { code: "eu_ba", name: "Bosnia and Herzegovina", file: "power_eu_ba.pmtiles" },
+  { code: "eu_bg", name: "Bulgaria", file: "power_eu_bg.pmtiles" },
+  { code: "eu_hr", name: "Croatia", file: "power_eu_hr.pmtiles" },
+  { code: "eu_cy", name: "Cyprus", file: "power_eu_cy.pmtiles" },
+  { code: "eu_cz", name: "Czechia", file: "power_eu_cz.pmtiles" },
+  { code: "eu_dk", name: "Denmark", file: "power_eu_dk.pmtiles" },
+  { code: "eu_ee", name: "Estonia", file: "power_eu_ee.pmtiles" },
+  { code: "eu_fo", name: "Faroe Islands", file: "power_eu_fo.pmtiles" },
+  { code: "eu_fi", name: "Finland", file: "power_eu_fi.pmtiles" },
+  { code: "eu_fr", name: "France", file: "power_eu_fr.pmtiles" },
+  { code: "eu_ge", name: "Georgia", file: "power_eu_ge.pmtiles" },
+  { code: "eu_de", name: "Germany", file: "power_eu_de.pmtiles" },
+  { code: "eu_gb", name: "Great Britain", file: "power_eu_gb.pmtiles" },
+  { code: "eu_gr", name: "Greece", file: "power_eu_gr.pmtiles" },
+  { code: "eu_gg", name: "Guernsey & Jersey", file: "power_eu_gg.pmtiles" },
+  { code: "eu_hu", name: "Hungary", file: "power_eu_hu.pmtiles" },
+  { code: "eu_is", name: "Iceland", file: "power_eu_is.pmtiles" },
+  { code: "eu_ie", name: "Ireland & Northern Ireland", file: "power_eu_ie.pmtiles" },
+  { code: "eu_im", name: "Isle of Man", file: "power_eu_im.pmtiles" },
+  { code: "eu_it", name: "Italy", file: "power_eu_it.pmtiles" },
+  { code: "eu_xk", name: "Kosovo", file: "power_eu_xk.pmtiles" },
+  { code: "eu_lv", name: "Latvia", file: "power_eu_lv.pmtiles" },
+  { code: "eu_li", name: "Liechtenstein", file: "power_eu_li.pmtiles" },
+  { code: "eu_lt", name: "Lithuania", file: "power_eu_lt.pmtiles" },
+  { code: "eu_lu", name: "Luxembourg", file: "power_eu_lu.pmtiles" },
+  { code: "eu_mt", name: "Malta", file: "power_eu_mt.pmtiles" },
+  { code: "eu_md", name: "Moldova", file: "power_eu_md.pmtiles" },
+  { code: "eu_mc", name: "Monaco", file: "power_eu_mc.pmtiles" },
+  { code: "eu_me", name: "Montenegro", file: "power_eu_me.pmtiles" },
+  { code: "eu_nl", name: "Netherlands", file: "power_eu_nl.pmtiles" },
+  { code: "eu_mk", name: "North Macedonia", file: "power_eu_mk.pmtiles" },
+  { code: "eu_no", name: "Norway", file: "power_eu_no.pmtiles" },
+  { code: "eu_pl", name: "Poland", file: "power_eu_pl.pmtiles" },
+  { code: "eu_pt", name: "Portugal", file: "power_eu_pt.pmtiles" },
+  { code: "eu_ro", name: "Romania", file: "power_eu_ro.pmtiles" },
+  { code: "eu_rs", name: "Serbia", file: "power_eu_rs.pmtiles" },
+  { code: "eu_sk", name: "Slovakia", file: "power_eu_sk.pmtiles" },
+  { code: "eu_si", name: "Slovenia", file: "power_eu_si.pmtiles" },
+  { code: "eu_es", name: "Spain", file: "power_eu_es.pmtiles" },
+  { code: "eu_se", name: "Sweden", file: "power_eu_se.pmtiles" },
+  { code: "eu_ch", name: "Switzerland", file: "power_eu_ch.pmtiles" },
+  { code: "eu_tr", name: "Turkey", file: "power_eu_tr.pmtiles" },
+  { code: "eu_ua", name: "Ukraine", file: "power_eu_ua.pmtiles" },
 ] as const;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
@@ -6088,7 +6161,9 @@ export default function DataMapPage() {
     (enabled.powergrid_canada ? "C" : "") + (enabled.powergrid_southamerica ? "Z" : "") +
     POWER_STATES.map((s) => (enabled[`powergrid_${s.code}`] ? s.code : "")).join("") +
     CANADA_PROVINCES.map((p) => (enabled[`powergrid_${p.code}`] ? p.code : "")).join("") +
-    SA_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
+    SA_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
+    (enabled.powergrid_europe ? "E" : "") +
+    EU_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -6195,6 +6270,21 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_southamerica_src");
       setStatus("powergrid_southamerica", "off");
+    }
+
+    // "Europe Power Grid (all countries)" master -> ONE continental tile merged
+    // from all 48 Geofabrik Europe extracts (OSM, ODbL). Same voltage-classed
+    // rendering. Russia excluded this wave (own extract, later wave).
+    if (enabled.powergrid_europe) {
+      try {
+        setStatus("powergrid_europe", "loading");
+        addGrid("powergrid_europe_src", "power_europe.pmtiles");
+        setStatus("powergrid_europe", "active", undefined,
+          "Entire Europe grid — 48 countries/territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity (z8) — per-country toggles carry full detail; Russia excluded (own extract, later wave)");
+      } catch { setStatus("powergrid_europe", "error"); }
+    } else {
+      removeGrid("powergrid_europe_src");
+      setStatus("powergrid_europe", "off");
     }
 
     // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
@@ -6414,6 +6504,17 @@ export default function DataMapPage() {
         addGrid(src, co.file);
         setStatus(src, "active", undefined,
           `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country`);
+      } catch { setStatus(src, "error"); }
+    });
+    // Europe per-country layers (each its own toggle, like Canada/South America)
+    EU_COUNTRIES.forEach((co) => {
+      const src = `powergrid_${co.code}`;
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
+      try {
+        setStatus(src, "loading");
+        addGrid(src, co.file);
+        setStatus(src, "active", undefined,
+          `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden)`);
       } catch { setStatus(src, "error"); }
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips

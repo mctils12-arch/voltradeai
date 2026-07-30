@@ -34269,3 +34269,59 @@ amplified by the deliberate maxTileCacheZoomLevels: 8 retention (round 17,
 for "square tiles building") times however many layers were enabled — a
 mechanism visible in code but UNMEASURED, and unmeasurable here. The next
 occurrence now yields a trail instead of a mystery.
+
+## 2026-07-30 [PIPELINE] — GRID VISION wave 2: Europe (48 countries) + census; tile-size ceiling hit and handled (v1.0.549)
+
+TERRITORY: T-DATACORE + /data wiring (wave-1 precedent). Continuation
+of the human's "work on the world" directive; wave 1 (South America,
+PR #650) merged and verified live same day.
+
+SHIPPED: all 48 Geofabrik Europe extracts (incl. Guernsey & Jersey,
+Isle of Man, Faroes; Ireland extract = the island incl. NI; RUSSIA
+EXCLUDED — its own two-continent extract, a later wave) as per-country
+PMTiles + one continental master, EU_COUNTRIES/grid_eu client wiring +
+49 registry entries mirroring wave 1. A container restart killed the
+first build mid-run; the resume-safe rerun (skip built, append stats)
+recovered without rework — keep the skip-if-built guard in any future
+wave script from the start.
+
+THE CEILING (the real finding of this wave): Europe's OSM grid density
+broke the committed-tiles serving pattern. tippecanoe -zg gave FRANCE
+152MB (whole ENEDIS distribution network is bulk-imported into OSM) —
+OVER GITHUB'S 100MB HARD FILE LIMIT — and the -zg continental merge hit
+645MB; z9 still 178MB. Handled inside the established product language
+("overview fidelity", the power_us precedent): giants (fr gb de pl it
+ie pt) recut at z11 (fr 152→51MB), master recut at z8 (→80MB), and the
+master's registry description states the z8 overview + where full
+detail lives (per-country toggles). Every file now <95MB; the wave adds
+~500MB; committed tiles total ~860MB.
+
+CONSEQUENCE FILED IN WISHLIST: wave 3+ (Asia: China/India/Japan dwarf
+Europe's extract sizes) CANNOT ship as committed repo tiles — serving
+strategy (object storage/CDN vs Railway volume) is now a human
+decision, filed with options. The repo pattern dies at roughly the next
+continent.
+
+CENSUS (48/48 countries measured; line-km per 1,000 km²): Europe is
+the best-mapped continent — range 76–825 vs South America's 0.25–49,
+NO near-empty countries. Density leaders: Portugal 825, Czechia 809,
+Great Britain 794, Ireland 672 (GB/IE/FR/PT distribution grids are
+bulk-imported, inflating their minor_line counts — a provenance note,
+not an error). Low end: Iceland 76 (partly REAL sparseness), TURKEY 94
+(almost certainly OSM under-mapping for a grid its size — the one
+country here worth flagging as a genuine mapping gap). Tagging
+anomalies filed: Greece 16,238 plants vs 972 substations (cf. Peru's
+substation skew in wave 1). Full table in /tmp died with the container;
+counts preserved here: br-style raw rows live in the wave-2 PR body.
+
+VERIFIED: build green; ratchet green; visual harness 5/5 PASS (one
+1440px perf-gate p95 flake 367ms vs 350ms on first run, clean 5/5 on
+rerun — the documented MEASUREMENT-DEBT flake class, and the zero-cost
+battery passed both times: new layers add nothing when off); headless
+probe on the real bundle: master/Germany/France all active, range
+fetches observed, German HV grid drawing in the screenshot. Probe
+lesson repeated from wave 1 and now twice-earned: the probe must click
+group heads AND .vt-layer-showmore before asserting rows (GROUP_ROW_CAP
+=12), and must navigate to /app#/data (hash route), not /data.
+
+BACKTEST: N/A (datacore /data layer, no trading logic).
