@@ -2354,3 +2354,16 @@ across the static grid layers, dev testing against the real API) as
 UNBLOCKED. Wishlist item 8(a) is thereby fully closed once verified;
 item 5 (FRED_API_KEY session-env) remains open and is now the analogous
 2-minute ask.
+
+**VERIFIED 2026-07-30 (scheduled-routine session, later same day):**
+`env | grep EIA_API_KEY` succeeded in this session's container — the key
+is live in the agent session env, confirming the human's report above.
+Item 8(a) is CLOSED. Used this session for a quick gate-1-adjacent probe
+(direct EIA-930 pulls for US48, cross-checked against the production
+`/api/data/grid-demand` cache and against a second pull 4 minutes later)
+rather than the full backfill/expansion work — see
+`research/experiments.md`'s 2026-07-30 [REPAIR] session-log NEXT item
+(4) for the (inconclusive, one-time-settle-not-continuous-revision)
+finding. The 930 history backfill and per-BA live-flow expansion this
+key was requested for remain unbuilt; next PIPELINE session touching
+EIA work can proceed directly, no further unblocking needed.

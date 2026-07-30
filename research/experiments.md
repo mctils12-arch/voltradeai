@@ -3,6 +3,196 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-30 (scheduled-routine session) [REPAIR] — risk_kill_switch.py's free-BP and correlation-cap warnings divided exposure by REMAINING buying_power instead of TOTAL capacity, producing unbounded nonsense percentages live in production (v1.0.548, T-BOT)
+
+TERRITORY: T-BOT (`risk_kill_switch.py`, `test_risk_kill_switch.py` new) +
+`package.json` (SHARED, minimized, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(tail + a scan across the file — noted below, the file's own "newest at
+top" convention has drifted: the three most recent sessions by version
+number, v1.0.545-547, appended near the BOTTOM instead, not something this
+session fixes but worth a future CONSTITUTIONAL/STALENESS-AUDIT note),
+`research/open_questions.md` KNOWN BROKEN section, `research/wishlist.md`.
+LOOP-HEALTH: last 10 tagged entries by actual recency (v1.0.538-547) are
+REPAIR x5 / PRODUCT x3 / PIPELINE x1 / RESEARCH-adjacent x1 — no run of
+7+ REPAIR, no thrash. PROGRESS FLOOR satisfied (PRODUCT/PIPELINE shipped
+within 14 days). `/api/health` clean on both hosts: `status:"ok"`,
+`bot.status:"active"`, `liveness.dark:false`, `drawdownPct:"0.0"` — no
+LIVENESS ALARM. `git fetch origin main` confirmed local HEAD (`466d965`,
+v1.0.547) byte-identical to `origin/main` both before and after this
+session's work (re-checked immediately before the version bump below).
+EIA_API_KEY confirmed present in this session's env (`env | grep
+EIA_API_KEY` succeeded) per wishlist.md's 2026-07-30 standing ask —
+logged there; direct-EIA work (930 backfill, per-BA expansion) is
+UNBLOCKED for a future session, not built this session (see NEXT).
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, "fix a bug seen in audit
+logs" is the first thing to check before judging/starting experiments.
+`GET /api/diag/audit?limit=300&token=$DIAG_TOKEN` (200 entries spanning
+14:10-16:04Z) showed 14 `KILL-WARN` entries in under 2 hours, GROWING
+MONOTONICALLY both before and after the v1.0.547 mid-session redeploy:
+"Free BP below 10%: -2.0%" (14:26) → "-179.7%" (14:44, pre-redeploy) →
+[SIGTERM 14:44:18, reboot 14:44:20-25] → "-86.1%" (15:36) → "-908.2%"
+(15:57) → "-867.9%" (16:04); "Correlation cap breach: INDEX_ETF at
+X% (max 60%)" tracked the same growth, reaching 573.9%. Also 16
+`T2-FAIL` entries, all the same two candidates (XLE, DRAM) rejected by
+Alpaca every ~7min cycle for insufficient options buying power
+(available ~$2,100-2,145 each time) — not fixed this session (see NEXT),
+but the "available" figures in those messages were the clue that led to
+the root cause below.
+
+ROOT CAUSE (read-before-write on `risk_kill_switch.py`, not assumed):
+`check_kill_switches()` line 318 (old) computed
+`free_bp_pct = 1.0 - (bp_used / max(buying_power, 1))` and
+`_check_correlation()` divided group exposure by the same `buying_power`
+(the account's REMAINING buying power, from `acct.get("buying_power")`
+in `bot_engine.py`). Remaining buying power shrinks toward zero as the
+account gets used — with $110k equity, ~$20.7k deployed (a normal ~19%
+exposure) and only ~$2.1k left (back-calculated from the 16:04 numbers:
+`1 - bp_used/2140.81 = -8.679` ⇒ `bp_used ≈ 20,720`; `exposure/2140.81 =
+5.510` ⇒ INDEX_ETF exposure ≈ $11,796), the OLD formula produces -868%
+and 551% — meaningless. The SAME modest, unremarkable portfolio state
+would read as a sane ~9.4% free / ~51.6% correlated once divided by
+TOTAL capacity (used + free) instead. Cross-checked against the rest of
+the codebase's own convention: `bot_engine.py`'s `total_deployed`,
+`current_pct`, `drift_pct` all divide by a stable base (equity), never
+by a residual that trends to zero — `risk_kill_switch.py` was the
+outlier. SECOND-ORDER (REASONING STANDARD #1): almost certainly
+triggered for the FIRST time today by this same session-run's sibling
+fix earlier today (#27, v1.0.542 — the Kelly-bucket bug that had CSP
+sizing floored at 1% for 17+ days) finally letting CSP collateral draw
+buying_power down for real; the formula bug was latent since the file's
+inception but had nothing to bite on until buying_power actually moved.
+
+ALSO FOUND (not fixed, dead code): `is_ticker_blocked_by_correlation()`
+has the identical `total_bp`-must-be-total-not-remaining assumption
+baked into its docstring's intent but is called from ZERO sites (grepped
+`*.py`, confirmed) — added a docstring correction so a future session
+wiring it up doesn't reintroduce the same bug, did not wire it up (own
+PR if/when someone builds the per-candidate enforcement the module's own
+docstring #3 "reject new corr" implies but `check_kill_switches` today
+does not actually do — `blocks_entries` only depends on the daily-loss
+check; correlation/free-BP are warning-only. That gap is real but a
+separate, larger finding — filed in NEXT, not built here to keep this
+PR one logical change.)
+
+FIX: denominator for both checks changed to `bp_used + buying_power` —
+computed once, used by both `_check_correlation` and the free-BP check
+(previously computed independently, in the wrong place, with different
+fallback behavior). CORRELATION_CAP (0.60) and MIN_FREE_BP (0.10)
+UNCHANGED — this restores their intended 0-100%-bounded meaning, it
+is not a threshold change, so RULE REVIEW's counterfactual-logging gate
+does not apply (same class as the #27/MAX_OPTIONS_POSITIONS mechanical
+fixes CLAUDE.md's KNOWN BROKEN #3 already established as precedent).
+SIDE EFFECT (also a genuine fix): the old `if buying_power > 0:` guard
+meant the free-BP warning could never fire once buying_power hit exactly
+0 or went negative — precisely the regime it exists to catch; the new
+`if total_bp_capacity > 0:` guard closes that gap.
+
+MEASUREMENT INTEGRITY read: this is a risk-monitoring metric, not the
+backtest/P&L/slippage code that section names explicitly, but the same
+discipline applies by spirit. Before/after on the SAME live-observed
+inputs (16:04Z audit entry, back-calculated bp_used/exposure above):
+free-BP reads -867.9% before this change, +9.4% after; correlation
+reads 551.0% before, and — checked separately with a second position
+added to isolate the group's own share of total capacity — 51.4% after
+(no longer breaching the 60% cap). Direction of bias: this makes the
+existing rules look LESS alarming (fewer/smaller warnings), which is
+exactly the "suspect by default" direction CLAUDE.md's MEASUREMENT
+INTEGRITY section warns about — independent justification here is a
+NAMED bug (denominator inversion, not a threshold edit) plus an external
+sanity check (the same percentage bounded 0-100% by construction once
+fixed, vs. provably unbounded before), not a vibes-based "seems too
+strict" call.
+
+RATCHET: `test_risk_kill_switch.py` (NEW — zero test coverage existed
+for `check_kill_switches`/`_check_correlation` before this PR despite
+this file backing two of the module's seven documented kill switches).
+7 tests: `_check_correlation` pure-function denominator behavior (a
+genuine-concentration case still breaches; the exact bug shape does NOT
+false-positive against total capacity); the full free-BP integration
+reproducing the live audit-log shape almost exactly (9.4% match);
+correlation-cap false-breach-suppressed-but-still-catches-real-breaches
+(70% case); the buying_power=0 previously-silent gap; a healthy-control
+no-warning case. A/B-verified via `git stash`: 4 of 7 fail against
+pre-fix `risk_kill_switch.py` (the 3 pure-total-capacity control cases
+correctly pass either way), all 7 pass post-fix.
+
+GATES: `pip install -r requirements.txt` + `pip install openpyxl` (bare
+sandbox gap, same recurring class prior sessions logged — `openpyxl`
+specifically isn't even in `requirements.txt`, a pre-existing gap not
+this PR's scope). `python3 -m pytest -q test_risk_kill_switch.py`: 7/7
+pass. Full `python3 -m pytest -q`: 1051 passed, 2 skipped, 1 FAILED —
+`test_silent_except_ratchet.py`'s `options_execution.py` pin (7 vs
+pinned 6, lines noted in the failure) — confirmed via `git stash`
+A/B against unmodified `main` that this failure is 100% pre-existing
+and unrelated to this PR (this session touched neither
+`options_execution.py` nor the ratchet test). `npm ci` (bare sandbox,
+same gap). `npx tsx --test server/*.test.ts`: 927/927 pass (no
+server/client files touched, no new TS tests needed). `npx tsc
+--noEmit`/`npm run build`/visual harness: N/A, this PR touches zero
+TS/client files (Python-only + one new Python test file).
+
+BACKTEST: N/A — this is a risk-monitoring/warning calculation fix, not
+a scoring, sizing, or entry/exit rule; no trading logic touched. The
+`warnings` list currently feeds nothing but the audit log (confirmed
+while reading the function: `blocks_entries` only depends on
+`daily_limit_hit`), so this PR changes zero live trading behavior —
+purely a diagnostics-accuracy fix. Live effect will be directly
+observable in `/api/diag/audit`: `KILL-WARN` entries should return to
+small, occasionally-firing, bounded percentages instead of triple-digit
+nonsense — a future session should check this.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `warnings` is logged into the
+audit trail and returned in `check_kill_switches()`'s result dict but,
+verified this session, is not currently consumed by any threshold logic
+downstream — so this fix changes NO live trading behavior today. It
+does change what a human (or future automation) reading `/api/diag/audit`
+believes about portfolio risk, which is the whole point: a KILL-WARN
+line reading -868% is not just noise, it actively teaches the wrong
+lesson about how correlated or over-margined the account is.
+
+MARKET-HOURS NOTE: session ran mid-day UTC (~14:10-16:20Z, well inside
+9:30-16:00 ET). Per this scheduled run's own instructions, PR merge
+should wait until after 4:00 PM ET even though this is a diagnostics-
+only fix with zero live trading-behavior change (confirmed above) —
+stated in the PR for the record.
+
+MERGE-ORDER: `package.json` is this session's only SHARED-file edit
+(version bump only), last commit, minimized; `git fetch origin main`
+immediately before confirmed `origin/main` still at `466d965`/v1.0.547,
+no advance since session start. Version 1.0.547 → 1.0.548,
+read-and-increment at commit time.
+
+NEXT: (1) the T2-FAIL XLE/DRAM repeat-rejection pattern (same two
+candidates failing the identical Alpaca insufficient-options-BP check
+every ~7min cycle for at least 2 hours straight) — likely a real,
+separate inefficiency: the tier engine doesn't appear to pre-check
+available buying power or back off after a rejection before proposing
+the same candidate again next cycle; needs its own read-before-write
+session in `tiered_strategy.py`/`options_execution.py` (T-BOT) to
+confirm and fix, NOT touched here to keep this PR one logical change;
+(2) the larger gap this session found but didn't build: correlation-cap
+and free-BP breaches are WARNING-ONLY today (`blocks_entries` doesn't
+read them) even though the module's own docstring for kill switches #3
+and #4 says "reject new corr" / "force-reduce" — whether that's
+intentional (advisory-only by design) or a second latent gap is worth a
+dedicated RULE-REVIEW session; `is_ticker_blocked_by_correlation()`
+sitting unwired with zero callers is the concrete evidence something
+was planned here and never finished; (3) EIA_API_KEY is now confirmed
+live in the agent session env (wishlist.md item 8(a) closed) — a future
+PIPELINE session can pick up the 930 history backfill / per-BA live-flow
+expansion described there; (4) minor, filed not chased: a fresh direct
+EIA-930 pull for US48 showed a revised T13 value (520,553) vs. the
+already-cached production reading (514,681, ~1.1% lower) taken ~2min
+earlier — re-pulling the same periods 4 minutes later showed NO further
+change, so this reads as a one-time settle rather than continuous
+revision; not conclusive evidence of an ongoing near-real-time-revision
+behavior worth a honesty-label change, but worth a future session
+repeating the probe with wider temporal separation before concluding
+either way.
+
 ## 2026-07-30 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(b) DATA-QUALITY dashboard shipped: /data/quality, zero new collection (v1.0.544, T-CLIENT)
 
 TERRITORY: T-CLIENT (`client/src/pages/qualityDashboard.tsx`, `client/src/pages/datamap.tsx`,

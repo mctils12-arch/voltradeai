@@ -307,15 +307,43 @@ def check_kill_switches(
     if regime_killed_t234:
         warnings.append(f"Regime kill for T2-T4 (VXX ratio {vxx_ratio:.2f})")
 
+    # ── 7/8 shared denominator: TOTAL buying-power capacity (used + free),
+    #    not remaining buying_power alone. BUG FOUND 2026-07-30 (live audit
+    #    log: "Free BP below 10%: -867.9%", "Correlation cap breach:
+    #    INDEX_ETF at 551.0% (max 60%)", both growing monotonically across
+    #    a trading day). Both checks previously divided exposure by
+    #    REMAINING buying_power (`buying_power`), which shrinks toward zero
+    #    as the account gets used — so ANY deployed capital reads as an
+    #    ever-larger fraction of what's left, guaranteeing both percentages
+    #    diverge past 100%/below 0% on any actively-traded day regardless
+    #    of real concentration (back-calculated from the audit numbers
+    #    above: ~$20.7k deployed against ~$110k equity — a normal ~19%
+    #    exposure level — produced a nonsense -868% reading). Denominator
+    #    fixed to bp_used + buying_power (a stable, always-non-negative
+    #    total-capacity approximation), matching the equity-relative
+    #    convention used everywhere else in the codebase for exposure %
+    #    (bot_engine.py's total_deployed/current_pct/drift_pct all divide
+    #    by a stable base, never by a residual that trends to zero).
+    #    CORRELATION_CAP and MIN_FREE_BP themselves are UNCHANGED — this
+    #    restores their intended 0-100%-bounded meaning, it does not loosen
+    #    or tighten either threshold (no RULE REVIEW evidence gate needed,
+    #    same class as the #27/MAX_OPTIONS_POSITIONS mechanical bug fixes).
+    #    Side effect (also a fix, not scope creep): the old `if buying_power
+    #    > 0:` guard meant the free-BP warning could never fire at all once
+    #    buying_power hit exactly 0 or went negative — precisely the
+    #    regime it exists to catch. `total_bp_capacity > 0` fires whenever
+    #    there is any deployed capital to measure against.
+    bp_used = sum(abs(float(p.get("market_value", 0))) for p in positions)
+    total_bp_capacity = bp_used + max(buying_power, 0.0)
+
     # ── 7. Correlation cap (checked per-trade, surfaced as warning here) ──
-    corr_warning = _check_correlation(positions, buying_power or equity)
+    corr_warning = _check_correlation(positions, total_bp_capacity or equity)
     if corr_warning:
         warnings.append(corr_warning)
 
     # ── 8. Margin buffer ─────────────────────────────────────────────────
-    if buying_power > 0:
-        bp_used = sum(abs(float(p.get("market_value", 0))) for p in positions)
-        free_bp_pct = 1.0 - (bp_used / max(buying_power, 1))
+    if total_bp_capacity > 0:
+        free_bp_pct = buying_power / total_bp_capacity
         if free_bp_pct < MIN_FREE_BP:
             warnings.append(f"Free BP below {MIN_FREE_BP*100:.0f}%: {free_bp_pct*100:.1f}%")
 
@@ -373,7 +401,12 @@ def is_ticker_blocked_by_correlation(
     new_size_pct: float
 ) -> bool:
     """Check if adding `new_size_pct` of `ticker` would breach correlation cap.
-    Called per-candidate-trade."""
+    Called per-candidate-trade. NOT currently wired to any call site (verified
+    2026-07-30 — grep found zero callers). `total_bp` MUST be TOTAL buying-
+    power capacity (positions' market value + remaining buying_power), never
+    remaining buying_power alone — see the 2026-07-30 fix in
+    check_kill_switches/_check_correlation for why the remaining-only
+    denominator diverges unboundedly as an account gets used."""
     group = _which_group(ticker)
     if not group:
         return False
