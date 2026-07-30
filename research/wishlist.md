@@ -1346,9 +1346,15 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
 
 ## ANALYST CONSOLE keys (program installed 2026-07-07 by human directive — research/console_charter.md)
 
-- **BLOCKED-FOR-MIKE — ANTHROPIC_API_KEY in Railway (the one that
-  matters):** unlocks W6, the LLM analyst pane — the centerpiece of
-  the console program. BUILD-FIRST analysis: there is no free
+- **[RESOLVED 2026-07-20 — Mike confirms the key is installed in
+  Railway.]** ANTHROPIC_API_KEY is SET; the analyst pane is live for
+  logged-in users (the /api/analyst route's 401 for anonymous callers
+  is the deliberate session gate against anonymous token burn, NOT a
+  missing key). Future sessions: do NOT re-file this as blocked.
+  Original entry kept below for the build-first record.
+- **(historical) BLOCKED-FOR-MIKE — ANTHROPIC_API_KEY in Railway (the
+  one that mattered):** unlocks W6, the LLM analyst pane — the
+  centerpiece of the console program. BUILD-FIRST analysis: there is no free
   substitute for LLM inference itself; everything AROUND it (query
   engine, tool protocol, map-command channel, UI, tests) builds
   without the key and the analyst ACTIVATES ON KEY DETECT like every
