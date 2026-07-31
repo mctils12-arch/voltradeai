@@ -755,6 +755,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── R2 tile passthrough (GRID VISION world rollout, 2026-07-31) ──────────
+  // Streams PMTiles range requests from the public R2 bucket through our own
+  // origin, so the browser needs no CORS on r2.dev. Continents too large for
+  // committed repo tiles (Asia onward) serve exclusively through this path;
+  // when the bucket's CORS policy is eventually set, the client can switch to
+  // direct r2.dev URLs and this route becomes a fallback. Streamed, never
+  // buffered — a 100KB range read costs ~0 heap. Name is allowlist-shaped
+  // (power/seafloor/places pmtiles only) so this can't proxy arbitrary keys.
+  const R2_TILES_BASE = process.env.R2_PUBLIC_URL || "https://pub-4d65a892936747ada1c67a1f00e286c8.r2.dev";
+  app.get("/tiles-r2/:name", async (req, res) => {
+    const name = String(req.params.name || "");
+    if (!/^[a-z0-9_]+\.pmtiles$/.test(name)) { res.status(400).json({ error: "bad tile name" }); return; }
+    try {
+      const headers: Record<string, string> = {};
+      if (req.headers.range) headers.range = String(req.headers.range);
+      const up = await fetch(`${R2_TILES_BASE}/tiles/${name}`, { headers });
+      if (!up.ok && up.status !== 206) { res.status(up.status === 404 ? 404 : 502).end(); return; }
+      res.status(up.status);
+      for (const h of ["content-type", "content-length", "content-range", "accept-ranges", "etag"]) {
+        const v = up.headers.get(h);
+        if (v) res.setHeader(h, v);
+      }
+      res.setHeader("cache-control", "public, max-age=86400, immutable");
+      if (!up.body) { res.end(); return; }
+      const { Readable } = await import("node:stream");
+      Readable.fromWeb(up.body as any).pipe(res);
+    } catch {
+      res.status(502).end();
+    }
+  });
+
   // ── DATACORE BOUNDARY (/api/data/*) ──────────────────────────────────────
   // The spinout-ready data layer's API boundary (CLAUDE.md: SPINOUT-READY
   // DATA LAYER). All /data map overlay data is served here — the frontend

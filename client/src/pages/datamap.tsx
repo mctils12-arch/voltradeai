@@ -737,6 +737,7 @@ const PANEL_GROUPS = [
   { id: "grid_ca", label: "Power grid — Canada (by province)" },
   { id: "grid_sa", label: "Power grid — South America (by country)" },
   { id: "grid_eu", label: "Power grid — Europe (by country)" },
+  { id: "grid_as", label: "Power grid — Asia (by country)" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "graph", label: "Everything Graph" },
@@ -794,6 +795,20 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_ca_yt: "grid_ca",
   powergrid_southamerica: "facilities",
   powergrid_europe: "facilities",
+  powergrid_asia: "facilities",
+  powergrid_as_af: "grid_as", powergrid_as_am: "grid_as", powergrid_as_az: "grid_as",
+  powergrid_as_bd: "grid_as", powergrid_as_bt: "grid_as", powergrid_as_kh: "grid_as",
+  powergrid_as_cn: "grid_as", powergrid_as_gcc: "grid_as", powergrid_as_in: "grid_as",
+  powergrid_as_id: "grid_as", powergrid_as_ir: "grid_as", powergrid_as_iq: "grid_as",
+  powergrid_as_il: "grid_as", powergrid_as_jp: "grid_as", powergrid_as_jo: "grid_as",
+  powergrid_as_kz: "grid_as", powergrid_as_kg: "grid_as", powergrid_as_la: "grid_as",
+  powergrid_as_lb: "grid_as", powergrid_as_my: "grid_as", powergrid_as_mv: "grid_as",
+  powergrid_as_mn: "grid_as", powergrid_as_mm: "grid_as", powergrid_as_np: "grid_as",
+  powergrid_as_kp: "grid_as", powergrid_as_pk: "grid_as", powergrid_as_ph: "grid_as",
+  powergrid_as_ru: "grid_as", powergrid_as_kr: "grid_as", powergrid_as_lk: "grid_as",
+  powergrid_as_sy: "grid_as", powergrid_as_tw: "grid_as", powergrid_as_tj: "grid_as",
+  powergrid_as_th: "grid_as", powergrid_as_tm: "grid_as", powergrid_as_uz: "grid_as",
+  powergrid_as_vn: "grid_as", powergrid_as_ye: "grid_as",
   powergrid_eu_al: "grid_eu", powergrid_eu_ad: "grid_eu", powergrid_eu_at: "grid_eu",
   powergrid_eu_by: "grid_eu", powergrid_eu_be: "grid_eu", powergrid_eu_ba: "grid_eu",
   powergrid_eu_bg: "grid_eu", powergrid_eu_hr: "grid_eu", powergrid_eu_cy: "grid_eu",
@@ -999,6 +1014,60 @@ const EU_COUNTRIES = [
   { code: "eu_tr", name: "Turkey", file: "power_eu_tr.pmtiles" },
   { code: "eu_ua", name: "Ukraine", file: "power_eu_ua.pmtiles" },
 ] as const;
+// Asia — OSM community power grid per Geofabrik extract (ODbL), "as_"
+// prefixed codes. Russia lives in this group (its extract spans both
+// continents — stated in the layer description). Three extracts are
+// multi-territory (GCC; Israel & Palestine; Malaysia·Singapore·Brunei) —
+// named honestly as such. FIRST R2-SERVED CONTINENT: these tiles are NOT
+// committed to the repo (Asia broke the 100MB/file + repo-size ceiling);
+// they stream from the R2 bucket through the same-origin /tiles-r2/ proxy
+// (server/routes.ts) — see tilePath() below.
+const AS_COUNTRIES = [
+  { code: "as_af", name: "Afghanistan", file: "power_as_af.pmtiles" },
+  { code: "as_am", name: "Armenia", file: "power_as_am.pmtiles" },
+  { code: "as_az", name: "Azerbaijan", file: "power_as_az.pmtiles" },
+  { code: "as_bd", name: "Bangladesh", file: "power_as_bd.pmtiles" },
+  { code: "as_bt", name: "Bhutan", file: "power_as_bt.pmtiles" },
+  { code: "as_kh", name: "Cambodia", file: "power_as_kh.pmtiles" },
+  { code: "as_cn", name: "China", file: "power_as_cn.pmtiles" },
+  { code: "as_gcc", name: "Gulf States (GCC)", file: "power_as_gcc.pmtiles" },
+  { code: "as_in", name: "India", file: "power_as_in.pmtiles" },
+  { code: "as_id", name: "Indonesia", file: "power_as_id.pmtiles" },
+  { code: "as_ir", name: "Iran", file: "power_as_ir.pmtiles" },
+  { code: "as_iq", name: "Iraq", file: "power_as_iq.pmtiles" },
+  { code: "as_il", name: "Israel & Palestine", file: "power_as_il.pmtiles" },
+  { code: "as_jp", name: "Japan", file: "power_as_jp.pmtiles" },
+  { code: "as_jo", name: "Jordan", file: "power_as_jo.pmtiles" },
+  { code: "as_kz", name: "Kazakhstan", file: "power_as_kz.pmtiles" },
+  { code: "as_kg", name: "Kyrgyzstan", file: "power_as_kg.pmtiles" },
+  { code: "as_la", name: "Laos", file: "power_as_la.pmtiles" },
+  { code: "as_lb", name: "Lebanon", file: "power_as_lb.pmtiles" },
+  { code: "as_my", name: "Malaysia · Singapore · Brunei", file: "power_as_my.pmtiles" },
+  { code: "as_mv", name: "Maldives", file: "power_as_mv.pmtiles" },
+  { code: "as_mn", name: "Mongolia", file: "power_as_mn.pmtiles" },
+  { code: "as_mm", name: "Myanmar", file: "power_as_mm.pmtiles" },
+  { code: "as_np", name: "Nepal", file: "power_as_np.pmtiles" },
+  { code: "as_kp", name: "North Korea", file: "power_as_kp.pmtiles" },
+  { code: "as_pk", name: "Pakistan", file: "power_as_pk.pmtiles" },
+  { code: "as_ph", name: "Philippines", file: "power_as_ph.pmtiles" },
+  { code: "as_ru", name: "Russia", file: "power_as_ru.pmtiles" },
+  { code: "as_kr", name: "South Korea", file: "power_as_kr.pmtiles" },
+  { code: "as_lk", name: "Sri Lanka", file: "power_as_lk.pmtiles" },
+  { code: "as_sy", name: "Syria", file: "power_as_sy.pmtiles" },
+  { code: "as_tw", name: "Taiwan", file: "power_as_tw.pmtiles" },
+  { code: "as_tj", name: "Tajikistan", file: "power_as_tj.pmtiles" },
+  { code: "as_th", name: "Thailand", file: "power_as_th.pmtiles" },
+  { code: "as_tm", name: "Turkmenistan", file: "power_as_tm.pmtiles" },
+  { code: "as_uz", name: "Uzbekistan", file: "power_as_uz.pmtiles" },
+  { code: "as_vn", name: "Vietnam", file: "power_as_vn.pmtiles" },
+  { code: "as_ye", name: "Yemen", file: "power_as_ye.pmtiles" },
+] as const;
+// Tiles that live ONLY in R2 (never committed to the repo) route through the
+// same-origin proxy; everything else keeps the repo path. When the bucket
+// CORS policy is set, this can switch to the direct r2.dev URL in one line.
+const R2_ONLY_TILE_PREFIXES = ["power_as_", "power_asia"];
+const tilePath = (file: string): string =>
+  R2_ONLY_TILE_PREFIXES.some((p) => file.startsWith(p)) ? `/tiles-r2/${file}` : `/tiles/${file}`;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
 // "reload to enable" (the honest mid-deploy state) — so an id that IS
@@ -6275,7 +6344,9 @@ export default function DataMapPage() {
     CANADA_PROVINCES.map((p) => (enabled[`powergrid_${p.code}`] ? p.code : "")).join("") +
     SA_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
     (enabled.powergrid_europe ? "E" : "") +
-    EU_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
+    EU_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
+    (enabled.powergrid_asia ? "A" : "") +
+    AS_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -6306,7 +6377,7 @@ export default function DataMapPage() {
       if (!map.getSource(src)) {
         map.addSource(src, {
           type: "vector",
-          url: `pmtiles://${window.location.origin}/tiles/${file}`,
+          url: `pmtiles://${window.location.origin}${tilePath(file)}`,
           attribution: "© OpenStreetMap contributors, ODbL",
         } as any);
       }
@@ -6397,6 +6468,21 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_europe_src");
       setStatus("powergrid_europe", "off");
+    }
+
+    // "Asia Power Grid" master -> ONE continental tile (37 regions incl.
+    // Russia; OSM, ODbL) at z8 overview fidelity, served from R2 through the
+    // same-origin proxy (first continent too large for committed repo tiles).
+    if (enabled.powergrid_asia) {
+      try {
+        setStatus("powergrid_asia", "loading");
+        addGrid("powergrid_asia_src", "power_asia.pmtiles");
+        setStatus("powergrid_asia", "active", undefined,
+          "Entire Asia grid — 37 countries/regions incl. Russia (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity (z8) — per-country toggles carry full detail");
+      } catch { setStatus("powergrid_asia", "error"); }
+    } else {
+      removeGrid("powergrid_asia_src");
+      setStatus("powergrid_asia", "off");
     }
 
     // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
@@ -6627,6 +6713,17 @@ export default function DataMapPage() {
         addGrid(src, co.file);
         setStatus(src, "active", undefined,
           `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden)`);
+      } catch { setStatus(src, "error"); }
+    });
+    // Asia per-country layers (R2-served via the same-origin proxy)
+    AS_COUNTRIES.forEach((co) => {
+      const src = `powergrid_${co.code}`;
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
+      try {
+        setStatus(src, "loading");
+        addGrid(src, co.file);
+        setStatus(src, "active", undefined,
+          `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country`);
       } catch { setStatus(src, "error"); }
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips
