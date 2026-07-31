@@ -52,8 +52,9 @@ void main() {
 #ifdef GLOBE
   // FAR-SIDE CULL on the anchor — identical test to satLayer.ts (mirrors
   // ./occlusion; 0.998001 = OCCLUSION_RADIUS²): a model whose satellite is
-  // behind the earth must vanish with it.
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // behind the earth must vanish with it. Runs through the whole
+  // globe↔mercator transition, matching satLayer (2026-07-31).
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(u_anchor.xy) * (1.0 + u_anchor.z / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;

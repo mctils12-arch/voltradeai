@@ -160,7 +160,15 @@ export function pickNearestSatelliteScreen(
  * point, and ground-mercator picking selects nothing / the wrong nadir).
  * Projection mirrors the shader's mercator branch:
  * clip = matrix × [mercX, mercY, altMeters, 1] (projectTileFor3D contract;
- * satellites carry no terrain exaggeration). No far-side cull in mercator.
+ * satellites carry no terrain exaggeration).
+ *
+ * `cameraSphere`: this path serves the whole globe↔mercator TRANSITION
+ * band, not just pure mercator — and the transition is zoom-driven and
+ * persistent, so a camera parked mid-blend (~100–250 km altitude) lives
+ * here indefinitely. The shader far-side cull runs throughout that band
+ * (2026-07-31 report: clicking empty ground selected a satellite on the
+ * other side of the planet); passing the camera applies the same physics
+ * filter. Null (pure mercator) = no cull, the flat world map's whole sky.
  */
 export function pickNearestSatelliteScreenMercator(
   positions: ArrayLike<number>,
@@ -172,6 +180,7 @@ export function pickNearestSatelliteScreenMercator(
   width: number,
   height: number,
   tolerancePx: number,
+  cameraSphere?: Vec3 | null,
 ): PickResult | null {
   const total = Math.min(gp.length, Math.floor(positions.length / stride));
   const tol2 = tolerancePx * tolerancePx;
@@ -192,7 +201,16 @@ export function pickNearestSatelliteScreenMercator(
     const dx = ((cx + 1) / 2) * width - clickX;
     const dy = ((1 - cy) / 2) * height - clickY;
     const d2 = dx * dx + dy * dy;
-    if (d2 <= bestD2) { bestD2 = d2; bestI = i; }
+    if (d2 <= bestD2) {
+      if (
+        cameraSphere &&
+        earthOccludes(cameraSphere, mercatorToSphere(px, py, positions[base + 2]))
+      ) {
+        continue; // hidden behind the earth mid-transition — not pickable
+      }
+      bestD2 = d2;
+      bestI = i;
+    }
   }
   if (bestI < 0) return null;
   const base = bestI * stride;

@@ -58,10 +58,20 @@ test('cull mirrors occlusion.ts: camera reconstruction, segment test, radius²',
   assert.ok(src.includes(r2), `inlines OCCLUSION_RADIUS² (${r2})`);
 });
 
-test('cull is disabled mid globe↔mercator transition and on a degenerate plane', () => {
+test('cull runs through the WHOLE globe↔mercator transition; disabled only at full mercator / degenerate plane', () => {
+  // 2026-07-31: the transition is zoom-driven and PERSISTENT — a camera
+  // parked at ~100-250km sits mid-blend indefinitely, where the old
+  // full-globe-only gate (> 0.999) let far-side satellites draw as faint
+  // ghosts and get click-picked. Physical occlusion doesn't blend.
   assert.ok(
-    src.includes('u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0'),
-    'gated to full globe mode with a valid clipping plane',
+    src.includes('u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0'),
+    'gated to any globe-ness with a valid clipping plane',
+  );
+  // the vtProjElev UNIT gate (meters vs mercator units) legitimately keeps
+  // its own 0.999 check — only the CULL's plane-conjoined gate must be gone
+  assert.ok(
+    !src.includes('u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0'),
+    'the old full-globe-only cull gate must be gone',
   );
 });
 
@@ -308,6 +318,33 @@ test('render at close zoom keeps the continuous glide loop (no timer, direct rep
   assert.equal(layer.getRenderFailed(), false);
   assert.equal(repaints, before + 1, 'close zoom: per-frame repaint request continues');
   assert.equal(timers.length, 0, 'no paced timer needed when the per-frame loop runs');
+});
+
+test('getGlobeCamera: non-null through the whole transition band, null only at full mercator (2026-07-31 far-side pick fix)', async () => {
+  const { SatLayer } = await import('./satLayer.js');
+  const { SAT_STRIDE } = await import('./satBuffer.js');
+  const fakeMap = { getZoom: () => 7, getCenter: () => ({ lat: 0 }), triggerRepaint: () => {} };
+  const layer = new SatLayer({ now: () => 1000, setTimeoutFn: () => 1, clearTimeoutFn: () => {} });
+  const gl = makeGlStub();
+  layer.onAdd(fakeMap as any, gl);
+  layer.updatePositions(new Float32Array(SAT_STRIDE), { shown: 1, deepSpaceSkipped: 0, invalidSkipped: 0 }, 1);
+  const frame = (transition: number, plane: number[]) => {
+    const a = RENDER_ARGS();
+    a.defaultProjectionData.projectionTransition = transition;
+    a.defaultProjectionData.clippingPlane = plane;
+    layer.render(gl, a);
+  };
+  assert.equal(layer.getGlobeCamera(), null, 'no frame yet — no camera');
+  // camera over lon 0 / lat 0 at distance 3 (occlusion.test.ts convention)
+  frame(1, [0, 0, 1, -1 / 3]);
+  assert.deepEqual(layer.getGlobeCamera(), [0, 0, 3], 'full globe: camera reconstructed');
+  frame(0.5, [0, 0, 1, -1 / 3]);
+  assert.deepEqual(layer.getGlobeCamera(), [0, 0, 3],
+    'MID-TRANSITION (zoom-parked ~100-250km): the camera must persist — the shader culls here, so the pick must too');
+  frame(0, [0, 0, 1, -1 / 3]);
+  assert.equal(layer.getGlobeCamera(), null, 'full mercator: no cull — the flat world map shows the whole sky');
+  frame(0.5, [0, 0, 1, 0]);
+  assert.equal(layer.getGlobeCamera(), null, 'degenerate plane (w >= 0) fails open — never a garbage camera');
 });
 
 test('setTickTime: stores the anchor (defaulting to the injected clock) and requests a frame', async () => {

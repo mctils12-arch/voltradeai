@@ -332,12 +332,18 @@ void main() {
   // the clipping plane (C = plane.xyz · -1/plane.w) — a plain hemisphere
   // test would wrongly hide high-altitude (GEO) objects visible past the
   // limb. Mirrors ./occlusion.ts (earthOccludes / cameraFromClippingPlane);
-  // 0.998001 = OCCLUSION_RADIUS² (0.999², limb anti-flicker bias). Skipped
-  // mid globe↔mercator transition (positions blend toward flat; there is no
-  // far side to hide) and on a degenerate plane (w must be < 0). Uses the
-  // GLIDED position (g_xy/g_alt) — the cull must hide the point where it is
-  // DRAWN, or objects would pop at the limb mid-glide.
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // 0.998001 = OCCLUSION_RADIUS² (0.999², limb anti-flicker bias). Runs
+  // through the WHOLE globe↔mercator transition, not just full globe
+  // (2026-07-31 report: the transition is zoom-driven and PERSISTENT — a
+  // camera parked at ~100–250 km sits mid-blend indefinitely, where
+  // far-side satellites were drawn as faint ghosts and pickable; physical
+  // occlusion is projection-independent, so the sphere test stays valid
+  // while positions blend). Skipped only at transition 0 (full mercator —
+  // the flat world map legitimately shows the whole sky) and on a
+  // degenerate plane (w must be < 0). Uses the GLIDED position
+  // (g_xy/g_alt) — the cull must hide the point where it is DRAWN, or
+  // objects would pop at the limb mid-glide.
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(g_xy) * (1.0 + g_alt / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;
@@ -914,13 +920,16 @@ export class SatLayer implements CustomLayerInterface {
 
   /**
    * Camera position in unit-sphere space, reconstructed from the last frame's
-   * clipping plane — non-null ONLY when the map is fully in globe mode (the
-   * only mode where the shader far-side cull runs). Pass it to
-   * pickNearestSatellite so clicks can't select satellites hidden behind the
-   * earth. Null (mercator / mid-transition / no frame yet) = don't filter.
+   * clipping plane — non-null whenever ANY globe-ness remains (transition
+   * > 0), matching the shader far-side cull's gate: the globe↔mercator
+   * transition is zoom-driven and persistent, and a camera parked mid-blend
+   * (~100–250 km) could click-select far-side satellites (2026-07-31
+   * report). Pass it to the pick functions so clicks can't select
+   * satellites hidden behind the earth. Null (full mercator / no frame
+   * yet / degenerate plane) = don't filter.
    */
   getGlobeCamera(): Vec3 | null {
-    if (!this.lastClippingPlane || this.lastTransition <= 0.999) return null;
+    if (!this.lastClippingPlane || this.lastTransition <= 0) return null;
     return cameraFromClippingPlane(this.lastClippingPlane);
   }
 

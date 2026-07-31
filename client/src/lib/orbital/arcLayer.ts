@@ -153,7 +153,9 @@ void main() {
   // far-side test — identical formula to satLayer/modelLayer/airLayer
   // (0.998001 = OCCLUSION_RADIUS²) but flagged to the FRAGMENT stage:
   // ribbons must fade at the horizon, not stretch to a snapped vertex.
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // Runs through the whole globe↔mercator transition, matching satLayer
+  // (2026-07-31): a camera parked mid-blend must not see far-side ghosts.
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(a_pos.xy) * (1.0 + a_pos.z / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;

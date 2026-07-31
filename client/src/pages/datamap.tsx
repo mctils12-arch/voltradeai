@@ -5923,12 +5923,16 @@ export default function DataMapPage() {
             PICK_TOLERANCE_PX, layer.getGlobeCamera())
         // MERCATOR screen pick (2026-07-20, same displaced-by-altitude miss
         // as aircraft): tilted terrain views draw orbits far from their
-        // ground points — pick with the frame's own projection.
+        // ground points — pick with the frame's own projection. The camera
+        // (non-null mid globe↔mercator transition, 2026-07-31) excludes
+        // far-side satellites — parked at ~100-250km camera altitude this
+        // path is live indefinitely, and clicking empty ground was
+        // selecting a satellite on the other side of the planet.
         : mercMatrix
         ? pickNearestSatelliteScreenMercator(
             positions, layer.getStride(), gp, mercMatrix,
             e.point.x, e.point.y, canvas.clientWidth || 1, canvas.clientHeight || 1,
-            PICK_TOLERANCE_PX)
+            PICK_TOLERANCE_PX, layer.getGlobeCamera())
         : pickNearestSatellite(
         positions, layer.getStride(), gp, clickMerc.x, clickMerc.y,
         pixelToleranceToMercUnits(PICK_TOLERANCE_PX, map.getZoom()),

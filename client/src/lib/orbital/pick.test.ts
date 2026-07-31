@@ -188,6 +188,28 @@ test('pickNearestSatelliteScreenMercator: mercator-unit z (never meters) — the
   assert.equal(pickNearestSatelliteScreenMercator(masked, SAT_STRIDE, gp, M, sx, sy, W, H, 12), null);
 });
 
+test('pickNearestSatelliteScreenMercator: cameraSphere excludes far-side satellites mid-transition (2026-07-31)', () => {
+  // The mercator screen path serves the whole zoom-driven globe↔mercator
+  // transition band — a camera parked there had clicks selecting satellites
+  // on the other side of the planet. Identity matrix: screen pos derives
+  // straight from mercator coords, so the click lands on the LEO at lon 180
+  // — which is directly behind the earth from a camera over lon 0 (CAM).
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const gpArr = [{ noradId: 1, name: 'FARSIDE-LEO' }] as any[];
+  const positions = buf([[1.0, 0.5, 550_000, CLASS_CODE.LEO]]);
+  const W = 1000, H = 1000;
+  const sx = ((1.0 + 1) / 2) * W;
+  const sy = ((1 - 0.5) / 2) * H;
+  // without the camera (pure mercator): pickable, exactly as before
+  const flat = pickNearestSatelliteScreenMercator(positions, SAT_STRIDE, gpArr, I, sx, sy, W, H, 12);
+  assert.ok(flat, 'pure mercator keeps the whole-sky behavior');
+  assert.equal(pickNearestSatelliteScreenMercator(positions, SAT_STRIDE, gpArr, I, sx, sy, W, H, 12, null)?.gp.name,
+    'FARSIDE-LEO', 'explicit null camera = identical');
+  // with the mid-transition camera: hidden behind the planet — honest miss
+  assert.equal(pickNearestSatelliteScreenMercator(positions, SAT_STRIDE, gpArr, I, sx, sy, W, H, 12, CAM), null,
+    'a satellite the shader culls must never be click-selected');
+});
+
 test('mercatorZFromAltitude: latitude scaling + pole guard', () => {
   const zEq = mercatorZFromAltitude(1000, 0.5);            // equator
   const zMid = mercatorZFromAltitude(1000, 0.3);           // ~55°N → smaller circumference → bigger z

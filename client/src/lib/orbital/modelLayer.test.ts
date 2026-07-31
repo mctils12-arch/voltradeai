@@ -26,7 +26,7 @@ test('far-side cull: identical formulas to satLayer/occlusion, guarded to GLOBE'
     'camera reconstruction matches cameraFromClippingPlane');
   const r2 = (OCCLUSION_RADIUS * OCCLUSION_RADIUS).toFixed(6);
   assert.ok(src.includes(r2), `inlines OCCLUSION_RADIUS² (${r2})`);
-  assert.ok(src.includes('u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0'),
+  assert.ok(src.includes('u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0'),
     'cull disabled mid-transition / degenerate plane, same gate as satLayer');
 });
 
