@@ -45,6 +45,7 @@ import {
   FRAME_DISC_FRACTION,
   MIN_DISTANCE_RADII,
   MIN_ZOOM_RADII,
+  occludedByNearerDisc,
   orbitInertiaStep,
   ORBIT_INERTIA_DAMP,
   ORBIT_INERTIA_EPS_DEG,
@@ -1121,4 +1122,26 @@ test("skyLagOffsetPx: zero delta means zero offset", () => {
   const A = camBasis({ x: 0.3, y: 0.8, z: 0.52 }, { x: 0, y: 0, z: 1 });
   const { dx, dy } = skyLagOffsetPx(A, A, 900);
   close(dx, 0, 1e-9, "dx"); close(dy, 0, 1e-9, "dy");
+});
+
+test("occludedByNearerDisc: a body behind a nearer disc is hidden; beside the limb it is not", () => {
+  // the 2026-07-31 video: Saturn (far) projected onto the Moon's face (near,
+  // huge disc). Screen containment + depth order must hide it.
+  const moon = { id: "moon", x: 600, y: 400, discPx: 900, layoutDistM: 3e6 };
+  const saturnBehind = { id: "saturn", x: 620, y: 380, layoutDistM: 1.3e12 };
+  const saturnLimb = { id: "saturn", x: 600 + 900 / 2 + 10, y: 400, layoutDistM: 1.3e12 };
+  assert.equal(occludedByNearerDisc(saturnBehind, [moon]), true, "dead-centre behind the Moon");
+  assert.equal(occludedByNearerDisc(saturnLimb, [moon]), false, "peeking past the limb stays visible");
+});
+
+test("occludedByNearerDisc: only NEARER bodies occlude, tiny discs never do, self never does", () => {
+  const nearTiny = { id: "io", x: 500, y: 500, discPx: 3, layoutDistM: 1e6 };
+  const target = { id: "mars", x: 500, y: 500, layoutDistM: 5e6 };
+  assert.equal(occludedByNearerDisc(target, [nearTiny]), false, "a 3px disc hides nothing");
+  const fartherBig = { id: "jupiter", x: 500, y: 500, discPx: 400, layoutDistM: 9e12 };
+  assert.equal(occludedByNearerDisc(target, [fartherBig]), false, "a body BEHIND cannot occlude");
+  const selfDisc = { id: "mars", x: 500, y: 500, discPx: 400, layoutDistM: 5e6 };
+  assert.equal(occludedByNearerDisc(target, [selfDisc]), false, "a body never occludes itself");
+  const equal = { id: "x", x: 500, y: 500, discPx: 400, layoutDistM: 5e6 };
+  assert.equal(occludedByNearerDisc(target, [equal]), false, "equal depth is not nearer");
 });

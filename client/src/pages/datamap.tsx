@@ -11260,8 +11260,10 @@ export default function DataMapPage() {
           void enterSpace({ nudgeDeltaY: ZOOM_BUTTON_DELTAY });
           return true;
         }}
-        onSuspendedZoom={(out) => {
-          try { spaceHandleRef.current?.nudgeZoom(out ? ZOOM_BUTTON_DELTAY : -ZOOM_BUTTON_DELTAY); } catch {}
+        onSuspendedZoom={(out, scale = 1) => {
+          // scale < 1 = a hold repeat (a fraction of one x2 level per tick);
+          // the space frame eases every step, so holding reads as one flight
+          try { spaceHandleRef.current?.nudgeZoom((out ? 1 : -1) * ZOOM_BUTTON_DELTAY * scale); } catch {}
         }}
         onSuspendedReset={() => {
           // FLY HOME from space — the same continuous flight back through

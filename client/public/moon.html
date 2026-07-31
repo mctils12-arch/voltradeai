@@ -238,8 +238,12 @@ const ALT_MAX = 30000;              // km
 // night side, reaching map-like full lighting by 3,500 km (~2,200 mi). The
 // far-out full-phase view (t=1 at >= 11,000 km, default included) is
 // untouched.
-const TERM_LOW = 3500;              // km — t=0 at/below (fully lit, map-like)
-const TERM_HIGH = 11000;            // km — t=1 at/above (hard terminator)
+// MIRRORS textureSphere.ts APPROACH_LIT_LO_R/HI_R (0.3 R / 1.5 R) in km —
+// change there first; textureSphere.test.ts drift-guards this pair. Human-
+// approved 2026-07-31: phase realism whenever the Moon reads as an object,
+// flat lighting only when skimming the surface.
+const TERM_LOW = 521;               // km = 0.3 R — t=0 at/below (fully lit)
+const TERM_HIGH = 2606;             // km = 1.5 R — t=1 at/above (full phase)
 
 // One notch of wheel (~100px) and a pinch both feed the SAME log-altitude
 // accumulator, so the zoom rate per gesture "unit" is identical on every device.

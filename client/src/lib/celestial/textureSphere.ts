@@ -214,17 +214,31 @@ export function lambertWeight(lit: number): number {
   return 0.05 + 0.95 * day * shade;
 }
 
-/** Approach-lit blend (2026-07-28, human report "you can't see the dark side
- *  of the moon" up close): 0 = full sun/phase realism (far), 1 = surface lit
- *  everywhere (near). Blends over SURFACE-RELATIVE altitude in body radii —
- *  full realism at/above 6.3 R altitude, fully lit at/below 2.0 R — the same
- *  band the standalone /moon.html viewer ships (3,500..11,000 km over the
- *  Moon), so the two moon surfaces agree. Only meaningful with realistic
- *  lighting ON; realistic OFF is already full-bright. */
+/** Approach-lit blend: 0 = full sun/phase realism (far), 1 = surface lit
+ *  everywhere (near). Blends over SURFACE-RELATIVE altitude in body radii, so
+ *  one law serves every body — full realism at/above APPROACH_LIT_HI_R,
+ *  fully lit at/below APPROACH_LIT_LO_R. Only meaningful with realistic
+ *  lighting ON; realistic OFF is already full-bright.
+ *
+ *  BAND HISTORY, because it has now swung both ways on human direction:
+ *  · 2026-07-28 ("you can't see the dark side of the moon" up close): band
+ *    set to 2.0..6.3 R so the surface lit up on approach.
+ *  · 2026-07-31 (video + screenshot review): 2.0..6.3 R proved far too wide —
+ *    at 4,534 mi out (3.2 R alt) the whole Moon rendered as a flat-lit full
+ *    moon and the human reported the phase shading "gone". The approved
+ *    design: phase realism whenever the body reads as an OBJECT (their
+ *    reference screenshot: 31,512 mi out, phase clearly visible), flat only
+ *    when genuinely skimming the surface. Band now 0.3..1.5 R: full phase
+ *    down to ~2,700 mi out on the Moon, fully flat below ~324 mi altitude.
+ *  The standalone /moon.html viewer mirrors this band in km (TERM_LOW/HIGH);
+ *  textureSphere.test.ts carries a drift guard so the two cannot diverge
+ *  silently again (the ZOOM_STEP_PER_NOTCH lesson). */
+export const APPROACH_LIT_LO_R = 0.3;
+export const APPROACH_LIT_HI_R = 1.5;
 export function approachLitBlend(distM: number, radiusM: number): number {
   if (!(radiusM > 0) || !Number.isFinite(distM)) return 0;
   const altR = Math.max(0, distM - radiusM) / radiusM;
-  const t = Math.max(0, Math.min(1, (altR - 2.0) / (6.3 - 2.0)));
+  const t = Math.max(0, Math.min(1, (altR - APPROACH_LIT_LO_R) / (APPROACH_LIT_HI_R - APPROACH_LIT_LO_R)));
   return 1 - t * t * (3 - 2 * t);
 }
 

@@ -4,9 +4,14 @@
 // galactic sky frame. Hermetic node:test via tsx (no DOM).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   approachLitBlend,
+  APPROACH_LIT_LO_R,
+  APPROACH_LIT_HI_R,
   equirectUV,
   sampleEquirectRGB,
   buildSphereLUT,
@@ -390,11 +395,32 @@ test("sky render: bilinear interpolates between texels (nearest snaps)", () => {
 
 // ── approach-lit blend (2026-07-28 human report: dark side invisible when
 // zooming in on a body in the space view) ───────────────────────────────────
+test("DRIFT GUARD: /moon.html mirrors the approach-lit band (0.3/1.5 R in km)", () => {
+  // The band lives in TWO renderers that cannot import each other (moon.html is
+  // a standalone static page). The zoom-rate constant already drifted once this
+  // way and shipped a ~38% mismatch; this guard makes band drift a test failure.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const moon = readFileSync(resolve(here, "../../../public/moon.html"), "utf8");
+  const lo = moon.match(/const\s+TERM_LOW\s*=\s*([0-9.]+)/);
+  const hi = moon.match(/const\s+TERM_HIGH\s*=\s*([0-9.]+)/);
+  assert.ok(lo && hi, "moon.html must declare TERM_LOW/TERM_HIGH");
+  const R_KM = 1737.4;
+  assert.ok(Math.abs(Number(lo![1]) - APPROACH_LIT_LO_R * R_KM) < R_KM * 0.01,
+    `moon.html TERM_LOW ${lo![1]} km != ${(APPROACH_LIT_LO_R * R_KM).toFixed(0)} km ` +
+    `(${APPROACH_LIT_LO_R} R). textureSphere.ts is the source of truth.`);
+  assert.ok(Math.abs(Number(hi![1]) - APPROACH_LIT_HI_R * R_KM) < R_KM * 0.01,
+    `moon.html TERM_HIGH ${hi![1]} km != ${(APPROACH_LIT_HI_R * R_KM).toFixed(0)} km ` +
+    `(${APPROACH_LIT_HI_R} R). textureSphere.ts is the source of truth.`);
+});
+
 test("approachLitBlend: full realism far, fully lit near, smooth between", () => {
   const R = 1_737_400;
-  assert.equal(approachLitBlend(R + 7 * R, R), 0);        // >6.3R alt: pure phase
-  assert.equal(approachLitBlend(R + 2 * R, R), 1);        // <=2R alt: fully lit
-  const mid = approachLitBlend(R + 4.15 * R, R);          // band midpoint
+  assert.equal(approachLitBlend(R + 2 * R, R), 0);        // >1.5R alt: pure phase
+  // the human's reference framings must BOTH show full phase (2026-07-31):
+  assert.equal(approachLitBlend(R + 28.2 * R, R), 0);     // 31,512 mi out
+  assert.equal(approachLitBlend(R + 3.2 * R, R), 0);      // 4,534 mi out (was flat)
+  assert.equal(approachLitBlend(R + 0.3 * R, R), 1);      // <=0.3R alt: fully lit
+  const mid = approachLitBlend(R + 0.9 * R, R);           // band midpoint
   assert.ok(mid > 0.45 && mid < 0.55, `mid ≈ 0.5, got ${mid}`);
   // monotone: closer is never darker
   let prev = -1;

@@ -35231,3 +35231,65 @@ probe with wider temporal separation") is now closed by this entry.
 
 STARVED: no — this was the session's one primary action, matched to
 capacity; no queued higher-priority item was skipped.
+────────────────────────────────────────────────────────────────────────
+2026-07-31 · [REPAIR] · T-CLIENT
+Space-view Moon round: shading band restored per the reference screenshot,
+occlusion for markers/labels, eased continuous hold-zoom, in-motion patch
+clarity, eye-altitude HUD, floor 1.05→1.02 R (v1.0.556)
+
+HUMAN-DIRECTED (video 2 + reference screenshot + "do the low risk just
+them moon fix all the other problems as well ... i just hold down the
+zoom and its laggy and not clear and the zoom is not smooth"). Five
+fixes, one commit-scope (all the same subsystem, same session review):
+
+1. SHADING BAND (the regression they reported as "the shading is gone").
+   approachLitBlend's 2026-07-28 band (flat-lit ≤2.0 R alt, realism ≥6.3 R)
+   made every whole-Moon framing flat: at 4,534 mi out (3.2 R alt) the Moon
+   rendered as a flat full moon. Band now 0.3..1.5 R (APPROACH_LIT_LO_R/
+   HI_R): full phase whenever the body reads as an object — their reference
+   screenshot at 31,512 mi out AND the 4,534 mi framing both land in full
+   realism (both pinned in textureSphere.test.ts) — flat only below ~324 mi
+   altitude. moon.html mirrors in km (521/2606) with a NEW DRIFT GUARD in
+   textureSphere.test.ts (verified to fail at the old 3500 km value); the
+   band had no cross-file guard before, same failure class as the 1.25 zoom
+   drift.
+2. OCCLUSION (video f036/f039: "Saturn · 9.04 AU · +1 moon" + Neptune
+   labels printed across Mare Imbrium; Saturn is 837M mi BEHIND the Moon).
+   The painter's far→near sort already hid occluded SPRITES; the marker/
+   label overlay pass drew every on-screen body's dot + label + fly-to
+   target on top of everything. New exported occludedByNearerDisc()
+   (screen containment + depth order — equivalent to the ray test for
+   sphere occluders, -2px limb margin) filters the labeled set, which also
+   removes the fly-to hit target: clicking the Moon's face can no longer
+   fly to a planet behind it. Unit-tested (behind=hidden, limb=visible,
+   farther-never-occludes, tiny-disc-never, self-never, equal-depth-never).
+3. EASED HOLD-ZOOM (measured in video 1 at 15fps: 4534→2807→1943→1511→1295
+   mi with ZERO intermediate frames — ×2 teleports, 160ms apart while
+   held). spaceFrame.nudge() now steps the eased TARGET (the wheel's
+   existing advanceZoomEase glide) instead of snapping dist, and
+   MapNavCluster hold repeats send 0.42 of a level per 160ms tick
+   (≈2.6 levels/s, the moon.html rate) via a new onSuspendedZoom scale
+   param. Discrete taps stay ×2 — now glided, not cut.
+4. IN-MOTION CLARITY ("not clear"): the surface patch only rebuilt when
+   SETTLED (150ms idle), so a continuous eased descent stretched one stale
+   full-tier buffer the whole way down. New MOON_PATCH_MOVING_LONG_PX=480
+   mid tier rebuilt on a 240ms throttle during motion; the settled 1100px
+   full tier still lands at rest, including a full-tier upgrade of a
+   buffer that was built mid-motion (tier recorded on MoonPatchBuf.long).
+   Same shape as moon.html's QUICK_PATCH_TILES fix from 2026-07-28.
+5. HUD + FLOOR: "camera 1134 mi out" meant 54 mi eye altitude — the HUD
+   now prints eye ALTITUDE above the target's surface (Google Earth
+   convention; "alt N mi"). MIN_ZOOM_RADII 1.05→1.02 (Moon floor ~54→~22
+   mi altitude; ~2× soft at the very floor vs WAC z8's 76 m/px — stated,
+   not hidden; per-body since it is in radii).
+
+VERIFIED: 254 celestial tests pass (3 new suites: band pins + drift guard,
+occlusion), vite build clean, moon.html parses. NOT VERIFIED HERE, stated
+plainly: real-GPU smoothness of the eased hold (SwiftShader cannot measure
+feel) — the human's next video is the test.
+
+DEFERRED, on their own direction: Earth shading (satellite-layer
+interaction, "moon first"); the mercator-mode satellite far-side mispick
+(Earth-side issue, same occlusion concept — pick.ts skips the far-side
+cull when cameraSphere is null); full inertial Google-Earth flight
+(the eased glide is the low-risk step toward it).

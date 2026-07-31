@@ -332,7 +332,12 @@ export const MIN_DISTANCE_RADII = 3.2;
  *  to skim the surface (human, 2026-07-18: "zoom in way more to the moon").
  *  1.05 sits just above the surface; the texture softens there until the
  *  LRO tile pyramid lands, but the APPROACH is no longer capped. */
-export const MIN_ZOOM_RADII = 1.05;
+// 1.05 -> 1.02 (2026-07-31): 1.05 R stopped the Moon descent at ~54 mi
+// altitude, right where WAC z8 (~76 m/px) is still 1:1 sharp — the human hit
+// the wall and reported it. 1.02 R (~22 mi over the Moon) trades ~2x softness
+// at the very floor for meaningfully lower flight; per-body because it is in
+// radii.
+export const MIN_ZOOM_RADII = 1.02;
 
 /** Rotational inertia (the reference's damped OrbitControls feel — human:
  *  "exactly like the claude design"): after a drag releases, the orbit
@@ -601,6 +606,15 @@ export const MOON_PATCH_CHUNK_PX = 6_000;
  *  200ms input-active window so the settle rebuild always fires. */
 export const MOON_PATCH_SETTLE_MS = 150;
 
+/** Mid tier rebuilt DURING camera motion, px (2026-07-31 "not clear" while
+ *  holding zoom): settled-only rebuilds meant a continuous eased descent
+ *  never refreshed the crisp buffer — the stale full-tier buffer stretched
+ *  across the growing disc and read as blur the whole way down. A throttled
+ *  fresh middle tier beats a stale stretched full tier; the full tier still
+ *  lands on settle. */
+export const MOON_PATCH_MOVING_LONG_PX = 480;
+export const MOON_PATCH_MOVING_MS = 240;
+
 /** The tile mosaic covers the viewport-visible surface arc times this factor
  *  (headroom past the viewport corners so the sharp region fills the frame AND
  *  a PREFETCH ring so panning/orbiting into new surface reveals already-resident
@@ -697,6 +711,28 @@ export function mapAnchorOpacity(discPx: number): number {
 }
 
 /** Marker rule: sub-MARKER_MAX_DISC_PX bodies are flagged, never inflated. */
+/** True when `target`'s sightline is blocked by a NEARER body's drawn disc
+ *  (screen containment + depth order — for sphere occluders under a
+ *  perspective camera this equals the 3D ray test). 2026-07-31 video review:
+ *  the painter's far→near sort already hides an occluded body's SPRITE, but
+ *  the marker/label overlay pass drew every on-screen body's dot + label +
+ *  fly-to target on top of everything — "Saturn · 9.04 AU" printed across
+ *  Mare Imbrium while Saturn was 837 million miles BEHIND the Moon. The
+ *  -2px limb margin keeps a body peeking past the edge honestly visible. */
+export function occludedByNearerDisc(
+  target: { id?: string; x: number; y: number; layoutDistM: number },
+  bodies: Array<{ id?: string; x: number; y: number; discPx: number; layoutDistM: number }>,
+): boolean {
+  for (const b of bodies) {
+    if (b.id !== undefined && b.id === target.id) continue;
+    if (!(b.layoutDistM < target.layoutDistM)) continue;   // only NEARER bodies occlude
+    const r = b.discPx / 2 - 2;
+    if (r < 2) continue;                                   // tiny discs can't hide anything
+    if (Math.hypot(target.x - b.x, target.y - b.y) < r) return true;
+  }
+  return false;
+}
+
 export function markerNeeded(discPx: number): boolean {
   return discPx < MARKER_MAX_DISC_PX;
 }
@@ -2179,6 +2215,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   const RAD = 180 / Math.PI;
   interface MoonPatchBuf {
     key: string;
+    /** the tier this buffer was built at (long-side px): MOVING mid tier or
+     *  the FULL settled tier — drives the settled full-tier upgrade. */
+    long: number;
     canvas: HTMLCanvasElement;
     img: ImageData;
     bufW: number;
@@ -2200,6 +2239,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let mpFast: { canvas: HTMLCanvasElement; img: ImageData; bufW: number; bufH: number } | null = null;
   let mpFull: MoonPatchBuf | null = null;
   let mpBuilding: MoonPatchBuf | null = null;
+  let mpLastBuildAt = 0;   // moving-tier throttle (MOON_PATCH_MOVING_MS)
   let mpTimer: ReturnType<typeof setTimeout> | null = null;
   let moonPatchOn = false;
   let moonPatchDrewThisFrame = false;
@@ -2421,13 +2461,22 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // stops. Away from the floor the mosaic covers the whole sweep, so "settled"
     // arrives ~150ms after the last input with the fresh pose already correct.
     const patchSettled = !flight && performance.now() - lastInputAt >= MOON_PATCH_SETTLE_MS;
-    if ((!mpFull || mpFull.key !== key) && !mpBuilding && (patchSettled || !mpFull)) {
-      const ld = patchBufDims(bw, bh, MOON_PATCH_FULL_LONG_PX);
+    // in-motion refresh (throttled, mid tier) + settled full-tier upgrade of a
+    // buffer that was built mid-motion — see MOON_PATCH_MOVING_LONG_PX
+    const movingDue = !patchSettled && !!mpFull && mpFull.key !== key &&
+      performance.now() - mpLastBuildAt >= MOON_PATCH_MOVING_MS;
+    const fullUpgradeDue = patchSettled && !!mpFull && mpFull.key === key &&
+      (mpFull.long ?? MOON_PATCH_FULL_LONG_PX) < MOON_PATCH_FULL_LONG_PX;
+    if ((((!mpFull || mpFull.key !== key) && (patchSettled || !mpFull)) || movingDue || fullUpgradeDue) && !mpBuilding) {
+      const tierPx = patchSettled || !mpFull ? MOON_PATCH_FULL_LONG_PX : MOON_PATCH_MOVING_LONG_PX;
+      mpLastBuildAt = performance.now();
+      const ld = patchBufDims(bw, bh, tierPx);
       const cv = document.createElement("canvas");
       cv.width = ld.bufW;
       cv.height = ld.bufH;
       mpBuilding = {
-        key, canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
+        key, long: tierPx,
+        canvas: cv, img: cv.getContext("2d")!.createImageData(ld.bufW, ld.bufH),
         bufW: ld.bufW, bufH: ld.bufH, bx, by, bw, bh,
         view: patchView(ld.bufW, ld.bufH, bx, by, bw, bh, camPos, center, R, basis, k, cx, cy, X, Y, Z, wDeg, sun, texLon, shadowFactor),
         base, detail, row: 0, ready: false, nCam,
@@ -3171,7 +3220,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         foldedMoons.set(parentId, (foldedMoons.get(parentId) ?? 0) + 1);
       }
     }
-    const labeled = [...onScreen].reverse().filter((d) => !insideParent.has(d.id));
+    // bodies hidden BEHIND a nearer disc get no dot, no label, no fly-to
+    // target — clicking the Moon's face must never fly to Saturn behind it
+    const occCand = onScreen.map((b) => ({
+      id: b.id, x: b.p.x, y: b.p.y, discPx: b.discPx, layoutDistM: b.layoutDistM,
+    }));
+    const occluded = new Set<string>();
+    for (const c of occCand) if (occludedByNearerDisc(c, occCand)) occluded.add(c.id);
+    const labeled = [...onScreen].reverse()
+      .filter((d) => !insideParent.has(d.id) && !occluded.has(d.id));
     const anchorDrawn = onScreen.find((d) => d.id === anchorDef.id);
     const phantoms: { x: number; y: number }[] = [];
     if (anchorDrawn && anchorDrawn.discPx >= 16 && mapAnchorOpacity(anchorDrawn.discPx) > 0.05) {
@@ -3259,7 +3316,14 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const trackSuffix =
       !flight && focusId !== sunDef.id && focusId !== anchorDef.id ? ` · tracking ${hudName}` : "";
     ctx.fillText(
-      `${flight ? "flying to" : "at"} ${hudName} · camera ${fmtSpaceDistance(flight ? len3(sub(camTrue, posT[flight.toId])) : focus.distM)} out${trackSuffix}`,
+      // ALTITUDE, not centre distance (2026-07-31): "camera 1134 mi out" read
+      // as 1,134 mi up when the eye was 54 mi above the surface — the Google
+      // Earth convention (eye altitude) is what the number must mean.
+      (() => {
+        const tId = flight ? flight.toId : focusId;
+        const dC = flight ? len3(sub(camTrue, posT[flight.toId])) : focus.distM;
+        return `${flight ? "flying to" : "at"} ${hudName} · alt ${fmtSpaceDistance(Math.max(0, dC - radiusM(tId)))}${trackSuffix}`;
+      })(),
       72, 38,
     );
     // honesty caption — persistent, every frame; wraps to three lines on
@@ -3633,8 +3697,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // per-body closest approach; for Earth the seam (scale > 1 inside
     // draw()) hands back to the map long before this floor could bind.
     // MIN_ZOOM_RADII (not the arrival clamp) — manual zoom skims the surface.
-    dist = clampDist(stepDist(dist, zoomStepFactor(deltaY)));
-    distTarget = dist;
+    // EASED, not snapped (2026-07-31 "i just hold down the zoom and its laggy
+    // and not clear and the zoom is not smooth"): the old immediate snap made
+    // every held repeat a x2 TELEPORT — six per second — with the surface
+    // patch churning behind each jump. Stepping the TARGET and letting
+    // advanceZoomEase glide dist there (the wheel's existing path) turns the
+    // ladder into one continuous log-space flight.
+    distTarget = clampDist(stepDist(distTarget, zoomStepFactor(deltaY)));
     kick();
   }
 

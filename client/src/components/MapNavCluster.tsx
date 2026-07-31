@@ -62,7 +62,12 @@ import {
   type Rig,
 } from "@/lib/cameraRig";
 
-export interface MapNavClusterProps {
+export /** each 160ms space-hold repeat applies this fraction of one zoom level:
+ *  0.42 x (1000/160) ≈ 2.6 levels/s — the moon.html hold rate, here eased by
+ *  the space frame's zoom glide into one continuous flight. */
+const SPACE_HOLD_TICK_SCALE = 0.42;
+
+interface MapNavClusterProps {
   map: maplibregl.Map | null;
   /** true once the map fired ready (the cluster stays inert before). */
   mapReady: boolean;
@@ -94,7 +99,11 @@ export interface MapNavClusterProps {
   dragScheme?: boolean;
   /** suspended (space-frame) mode: the rig is inert but zoom buttons stay —
    *  each press forwards one seam step to the space camera (out = true). */
-  onSuspendedZoom?: (out: boolean) => void;
+  /** space-mode zoom. `scale` is the fraction of one zoom level (x2) this
+   *  call should apply: 1 for a discrete press, SPACE_HOLD_TICK_SCALE for
+   *  each 160ms hold repeat — so holding is a continuous ~2.6 levels/s glide
+   *  instead of x2 teleports (2026-07-31 "laggy...not smooth"). */
+  onSuspendedZoom?: (out: boolean, scale?: number) => void;
   /** suspended mode FLY HOME — a continuous flight back through the seam
    *  (the space frame's Escape behavior, given a button so the controls
    *  never "go away when you zoom out" — live report 2026-07-20). */
@@ -706,8 +715,8 @@ export default function MapNavCluster({
         e.preventDefault();
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         stopSpaceHold();
-        onSuspendedZoom?.(out);
-        spaceIvRef.current = window.setInterval(() => onSuspendedZoom?.(out), 160);
+        onSuspendedZoom?.(out, 1);
+        spaceIvRef.current = window.setInterval(() => onSuspendedZoom?.(out, SPACE_HOLD_TICK_SCALE), 160);
       },
       onPointerUp: stopSpaceHold,
       onPointerCancel: stopSpaceHold,
