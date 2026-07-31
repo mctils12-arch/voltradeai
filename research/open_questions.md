@@ -446,6 +446,53 @@
     bot_engine-side closes, manual dashboard closes) still record
     nothing; wire path-by-path after (b) resolves.
 
+    UPDATE 2026-07-31 (scheduled-routine session, [REPAIR], v1.0.565) —
+    (b)'s working assumption FALSIFIED by 20 days of live data; ONE root
+    cause of the never-matching exits found and fixed, D3 removal STILL
+    gated. `/api/diag/ml` this session: `live_outcome_breakdown:
+    {"orphan_exit": 70}` across the full live record range (2026-07-10
+    through 2026-07-30) — ALL 70 non-seeded records are orphan_exit, ZERO
+    open/win/loss/flat. (b)'s prediction ("once a WS exit records a real
+    outcome... expect within days") never came true; per REASONING
+    STANDARD #9/#10, live data overrides the prior expectation.
+    ROOT CAUSE (one confirmed contributor, READ BEFORE WRITE trace of
+    every `addPositionToMonitor`/`track_fill` call site in `server/
+    bot.ts`): of 5 `addPositionToMonitor` call sites, only 2 (regular-hours
+    stock entry ~4332, morning-queue entry ~3151) call `track_fill` on
+    entry. The ETF execution branch (2x-leveraged-ETF trades the
+    instrument selector chooses, ~line 4090) and the options-scanner
+    monitor call (~4221) do NOT — they monitor the position for WS exit
+    but never write an entry record, so `_find_entry_record` always
+    returns -1 for their eventual exits and every one becomes a
+    permanent, unrecoverable orphan_exit. Given the live basket this
+    session (`/api/health`, `/api/diag/audit`) is ETF-heavy (VXUS/KWEB,
+    SPY-floor basket) and CSP/options is a standing Tier-1 engine, this
+    plausibly accounts for most or all of the 70/70 signature, though the
+    live data alone can't rule out the regular/morning entry paths ALSO
+    silently failing in this window — that remains to check once real
+    matched records start appearing.
+    FIX (ETF path only, own PR): `server/entryFill.ts` (`buildEntryFillPayload`,
+    unit-tested — asserts no exit-detection key ever leaks into an entry
+    payload) wired into the ETF branch, mirroring the two working entry
+    sites exactly (same ticker as `addPositionToMonitor` receives, so the
+    later WS exit's `ticker` matches). NOT fixed this session, deliberately:
+    the options-monitor site (~4221) — that position is monitored via the
+    UNDERLYING's price, so an entry/exit pair recorded there would price
+    pnl_pct off the stock's move, not the option's actual premium P&L,
+    exactly the "options fill realism" gap this same item's (c) and the
+    open_questions options-fill-realism entry already gate behind a
+    dedicated quote-based-pricing design decision — mislabeling training
+    data to close this gap faster would violate MEASUREMENT INTEGRITY.
+    (b)'s D3-removal decision STAYS GATED: still zero matched win/loss
+    live records as of this session, so D3 remains not-provably-redundant.
+    NEXT: check `/api/diag/ml`'s `live_outcome_breakdown` after this fix
+    has had a few ETF entries+exits cycle live — the first non-orphan
+    bucket (open/win/loss/flat) appearing is the falsifiable signal this
+    fix worked; if 100% orphan_exit persists even after several ETF round
+    trips, the regular/morning entry paths (or the boot-cleanup purge, or
+    a ticker-normalization mismatch) need the same trace applied to them
+    next.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/

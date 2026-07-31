@@ -35634,3 +35634,104 @@ FILED (not built): the same transition-band cull gate exists in
 airLayer.ts:392 and flightTrackLayer.ts:265/325 — same physics, no live
 report (aircraft at 10km make dimmer ghosts); filed in open_questions.md
 rather than widening this change's blast radius.
+
+## 2026-07-31 (scheduled-routine session) [REPAIR] — T-BOT — KNOWN BROKEN #12(c): ETF entries never wrote a track_fill record, guaranteeing every leveraged-ETF exit becomes a permanent orphan_exit (v1.0.565)
+
+Territory: T-BOT (server/bot.ts outside frozen paths). Session budget:
+CLAUDE.md read, experiments.md/open_questions.md/wishlist.md read.
+Loop-health ratio: last 10 tagged sessions = 2 [REPAIR] (or at most 5 if
+the informal round-22 sub-entries count separately) out of 10 — well
+under the 7+ thrash threshold, no meta-repair action needed. `/api/health`
+clean (bot active, drawdown 0.0%, scanner ok, liveness not dark).
+`/api/diag/audit` (150-entry tail): no ERROR/FAIL/HALT types; only routine
+STARTUP/SHUTDOWN (deploy cadence from today's round-22 merges),
+EVENTLOOP-LAG under 1s past the 2s tick (KNOWN BROKEN #18, non-blocking),
+OPTIONS-SLOT-FULL (VXUS/KWEB, informational), one POS-WARN. No fresh bug
+in the audit log — moved to the next SESSION BUDGET tier ("judge a
+matured experiment") and checked KNOWN BROKEN #12(b)'s open gate, whose
+own text predicted a live matched outcome "within days" back on
+2026-07-06.
+
+FINDING: `/api/diag/ml` — `live_outcome_breakdown: {"orphan_exit": 70}`,
+`live_record_date_range: ["2026-07-10", "2026-07-30"]`. Every single one
+of 70 live (non-seeded) feedback records across 20 days of live trading
+is `orphan_exit`; zero open/win/loss/flat. This falsifies #12(b)'s
+working prediction outright — REASONING STANDARD #9 ("when live diverges
+from backtest/expectation, believe live") — the ML feedback loop has
+recorded literally zero real live outcomes since its D1/D2 fixes shipped
+(2026-07-06), despite active trading. This is a PRIORITY-2 finding
+(PROTECT THE INTEGRITY OF LEARNING): the model cannot learn from a single
+live trade result, and `check_ml_feedback`/live-vs-backtest divergence
+tracking is blind by construction.
+
+ROOT CAUSE (READ BEFORE WRITE trace of all 5 `addPositionToMonitor` call
+sites and both `track_fill` entry call sites in `server/bot.ts`, this
+session, not from memory): only 2 of 5 monitored-position paths
+(regular-hours stock entry ~4332, morning-queue entry ~3151) call
+`track_fill` on entry. The ETF execution branch (~4090, 2x-leveraged-ETF
+trades the instrument selector picks over the underlying stock) calls
+`addPositionToMonitor` but never `track_fill` — so when the WS exit
+monitor later closes that position (same ticker, confirmed by tracing
+`buildExitFillPayload`'s callers at ~5001/~5550 back to the exact
+`ticker` variable each uses), `ml_model_v2._find_entry_record` finds no
+matching outcome=None record for that ticker and appends a fresh
+`orphan_exit` — guaranteed, every time, for every ETF trade. The
+options-scanner monitor call (~4221) has the identical gap. Given the
+live basket this session is ETF-heavy (SPY-floor basket, VXUS, KWEB) and
+CSP/options is a standing Tier-1 engine, this plausibly explains most or
+all of the 70/70 orphan signature — though live data alone can't rule out
+the two "working" entry paths also failing in this exact window; that's
+the explicit NEXT step once real matched records start appearing.
+
+FIX (ETF path only, one logical change): new `server/entryFill.ts`
+(`buildEntryFillPayload`, pure + unit-tested — asserts the payload never
+carries `exit_context`/`exit_reason`/`is_close`, since any of those would
+misfile the entry as an exit) wired into the ETF branch, using the exact
+same `etfTicker` `addPositionToMonitor` receives so the later WS exit's
+ticker lookup can find it. Deliberately NOT extended to the options-monitor
+site (~4221): that position is watched via the UNDERLYING's price, so an
+entry/exit pair recorded there would price `pnl_pct` off the stock's move,
+not the option's real premium P&L — exactly the "options fill realism"
+gap already gated behind a dedicated quote-based-pricing decision
+(KNOWN BROKEN #12(c) and the separate options-fill-realism open_questions
+entry). Recording it now would violate MEASUREMENT INTEGRITY by mislabeling
+training data to look like progress. Filed as still-open in
+open_questions.md rather than attempted here — one attribution at a time,
+per the item's own long-standing gating rule.
+
+KNOWN BROKEN #12(b)'s D3-removal decision STAYS GATED — still zero
+matched win/loss live records as of this session, so the dead-code block
+remains not-provably-redundant; only the ETF entry gap is fixed, not the
+whole orphan signature.
+
+VERIFIED: `npx tsx --test server/entryFill.test.ts server/exitFill.test.ts`
+8/8 pass (3 new). Full `npx tsx --test server/*.test.ts`: 908/915 pass, 7
+pre-existing failures (aircraftTiling/apiKeyAccounts/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware — confirmed
+byte-identical via `git stash`, none touched this session). `python3 -m
+pytest -q`: 1058 passed, 1 skipped, 1 pre-existing failure
+(`test_silent_except_ratchet.py`, confirmed identical via `git stash`,
+zero `options_execution.py` edits this session). `npx tsc --noEmit`: 82
+errors, byte-identical set via `git stash` (diff only shows line-number
+shifts from the insertion, same messages, same count). `npm run build`:
+clean, `dist/index.cjs` 13.1mb. No client/ files touched — VISUAL
+VERIFICATION gate does not apply.
+
+BACKTEST: N/A — this is an attribution/measurement-pipeline fix (does a
+trade write a record at all), not a scoring/sizing/threshold change; no
+candidate scores differently, no order behavior changes. Version bumped
+1.0.564 -> 1.0.565 (PROMOTION RULE 4) so future `code_version` readings on
+ETF entries separate from every prior deploy that never wrote one.
+
+BRANCH NOTE: `claude/funny-fermat-qlb0wh`'s prior PR (round-22, 1680077/
+65ee571) had already merged to main by the time this session started
+(`origin/main` fast-forwarded to 65ee571 during this session's own
+`git fetch`) — restarted the branch from `origin/main` per the merged-PR
+protocol before committing this session's work (no-op for the working
+tree since HEAD was already at that same commit).
+
+NEXT (queued, not this session): once a few ETF round-trips have cycled
+live, re-check `/api/diag/ml`'s `live_outcome_breakdown` — a non-orphan
+bucket appearing confirms the fix; persistent 100% orphan even after ETF
+trades close would mean the regular/morning entry paths (or boot-cleanup,
+or a ticker-normalization mismatch) need the identical trace next.
