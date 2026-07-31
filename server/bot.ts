@@ -3451,6 +3451,13 @@ print(json.dumps(get_auto_fix_params()))
       // 4. Check daily/weekly limits
       const acct = await alpaca("/v2/account");
       const equity = parseFloat(acct.equity || "100000");
+      // LIVE-CAPITAL CAP 2026-07-31: real uncommitted cash, threaded into the
+      // Tier 1/2 SELL_CSP dispatch below so options_execution's CSP budget
+      // check can cap itself against actual account capacity instead of a
+      // pure equity percentage. See options_execution.py's cash_available
+      // comment for the full evidence trail (repeated T2-FAIL "insufficient
+      // options buying power" rejections on the same ticker every cycle).
+      const cashAvailable = parseFloat(acct.cash || "0");
       const lastEquity = parseFloat(acct.last_equity || "100000");
       const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
 
@@ -3531,6 +3538,7 @@ print(json.dumps(check_weekly_loss(history)))
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
                 price: 0,  // Python will fetch current price
                 equity: equity,
+                cash: cashAvailable,
                 size_pct: action.size_pct,
                 metadata: action.metadata,
               };
@@ -3543,7 +3551,7 @@ import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${cspTmpPath}'))
 import os; os.remove('${cspTmpPath}')
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'))
 if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:

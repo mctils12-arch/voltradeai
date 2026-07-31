@@ -3,6 +3,174 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-31 (scheduled-routine session) [REPAIR] — CSP sizing was 100% equity-percentage-based with zero live-capital awareness, causing the same unaffordable ticker to be retried and rejected by Alpaca every scan cycle for hours (v1.0.554, T-BOT)
+
+TERRITORY: T-BOT (`options_execution.py`, `server/bot.ts`'s Tier 1/2 SELL_CSP
+dispatch, `test_options_fixes.py`) + `package.json` (SHARED, minimized, last
+commit) + `research/experiments.md` (SHARED, append-only).
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `research/
+experiments.md`'s last ~10 tagged entries reviewed: REPAIR/PRODUCT mix,
+roughly 6 REPAIR of 10 (counting the mixed [REPAIR]x2+[PRODUCT] entry as
+REPAIR-leaning) — close to but under the 7-of-10 thrash-escalation
+threshold, no escalation triggered. `research/open_questions.md` KNOWN
+BROKEN section: items 1-27 reviewed; only #10 (dead SCORE_BAND_MAX config,
+blocked on shadow-portfolio history) and #20 (master_kill_switch design
+question, blocked on RULE-REVIEW evidence accumulating) remain open, both
+deliberately left unfixed by prior sessions pending evidence gates, neither
+a fresh bug. `/api/health` on production (voltradeai.com) checked live:
+`status: "ok"`, bot `active`, `liveness.dark: false`, `drawdownPct: "0.0"`,
+scanner `consecutiveFailures: 0` — no liveness alarm, nothing blocking
+normal-priority work. DIAG_TOKEN was present in this session's env (unlike
+2026-07-30's session), so this session mined the live audit log directly
+per the REPAIR MANDATE's stated ordering ("fix a bug seen in audit logs"
+ranks above judging a matured experiment).
+
+WHAT WAS FOUND: `/api/diag/audit?type=T2-FAIL&limit=300` showed 26 of the
+last 40 T2-FAIL entries were the identical shape — `Alpaca rejected:
+insufficient options buying power for cash-secured put (required: X,
+available: Y)` — with Y an order of magnitude below X every time (e.g. TLT
+required $7,889.01, available $362.36/$418.88/$401.97 across three
+consecutive retries 6 minutes apart spanning 2026-07-30T18:25-18:37Z; same
+pattern for MSFU, XLE, XLF, MO, IREN, DRAM, IONQ). `/api/diag/orders`
+confirmed CSP fills DO happen on cheap-enough underlyings (INTC/AAL/DRAM/
+MCHP puts filled the same window) — so the tier engine isn't fully dead,
+it just keeps re-proposing the same doomed expensive tickers every ~6-minute
+scan cycle, burning slots that could go to affordable candidates.
+
+ROOT CAUSE (traced the actual call graph, not assumed): `options_execution.
+_select_sell_put()` (called from `select_contract()`, called from `server/
+bot.ts`'s Tier 1/2 SELL_CSP dispatcher at the inline-python `select_contract(
+data['ticker'], data['strategy'], data['price'], data['equity'])` call) sizes
+its `affordable_budget` purely as `equity * size_pct` (plus a 20%-of-equity
+"stretch mode" fallback, per the 2026-05-22/2026-07-29 AFFORDABILITY FILTER
+comments already in the file). Neither `_select_sell_put` nor `select_contract`
+ever received the account's actual live buying power/cash — `TierContext.
+buying_power` exists elsewhere in `tiered_strategy.py` but was never threaded
+into this specific call path, and `bot.ts` already fetches the full account
+object (`const acct = await alpaca("/v2/account")`, line 3452) for `equity`
+but discarded `acct.cash`. So the affordability gate answers "is 8% of total
+equity enough for this strike?" — a question with no relationship to how much
+of the account is ALREADY deployed (the account was reading ~78% invested per
+concurrent TIER-KILL audit lines that same window) — instead of "is there
+enough real uncommitted cash left?" REASONING STANDARD #1 (variables
+interact): per-position budget was computed in isolation from aggregate
+capital state, so it stayed constant and kept re-passing its own pre-filter
+for the same ticker every cycle while Alpaca's real check kept failing it.
+
+THE FIX: threaded a new `cash_available` parameter through `select_contract()`
+→ `_select_sell_put()` (default `None`, so every existing caller/test is
+unaffected — the parameter is additive only). When provided and non-negative,
+it caps both `affordable_budget` and the stretch-mode ceiling: `affordable_
+budget = min(affordable_budget, cash_available)` and `stretch_ceiling =
+min(equity * 0.20, cash_available)`. `server/bot.ts`'s Tier 1/2 SELL_CSP
+dispatch now reads `acct.cash` (already fetched, previously unused) into
+`cashAvailable` alongside the existing `equity` const, threads it through
+`cspPayload.cash`, and passes `cash_available=data.get('cash')` into the
+inline python `select_contract(...)` call. Net effect: a doomed-by-real-
+capital candidate now fails CLEANLY inside `_select_sell_put` (a normal
+"error" return, same code path as every other pre-existing affordability
+failure) before ever reaching Alpaca, instead of being submitted and rejected
+live every single cycle.
+
+SCOPE DELIBERATELY NARROWED (one logical change): only the `sell_cash_secured_
+put` strategy / Tier 1-2 SELL_CSP dispatch path was touched — this is the
+path the audit log evidenced as broken. Tier 4's tail-hedge `BUY_PUT` dispatch
+(`server/bot.ts` line ~3620) and the options-scanner `SCANNER PATH` dispatch
+(line ~4088) both also call `select_contract()` with only `equity`, no
+`cash_available` — same theoretical gap, but with zero audit-log evidence of
+this specific failure mode there (debit trades have far smaller absolute
+dollar requirements than CSP collateral, so they're much less exposed) — left
+untouched, noted here as a candidate for the same fix if future audit
+evidence shows it failing the same way. Also NOT touched: the separate,
+pre-existing observation that `cspPayload.metadata`/`action.size_pct` are
+computed by `tiered_strategy.tier1_csp_core()` but silently dropped by this
+exact inline-python call (only `ticker/strategy/price/equity/cash` are
+passed through) — the comment above the block already (inaccurately) claims
+"Python side picks the actual contract based on metadata (target_dte,
+target_delta)"; this is a second, separate comment-contradicts-code finding
+in the same neighborhood as this fix but is NOT the cause of the evidenced
+T2-FAIL pattern (no metadata field participates in `_select_sell_put`'s
+budget calc), so fixing it is left as its own future one-logical-change item
+rather than bundled here.
+
+KNOWN LIMITATION (stated honestly, not hidden): `cashAvailable` is fetched
+ONCE per scan cycle (mirroring how `equity` itself is already handled in this
+same function) and reused for every SELL_CSP action in that cycle's
+`tier_actions` loop. If multiple CSPs execute sequentially in one cycle, the
+2nd/3rd ticker still sees the pre-trade cash figure, not the post-1st-fill
+figure — this fix eliminates the dominant repeated-same-ticker-for-hours
+waste pattern the audit log showed, but does not perfectly account for
+intra-cycle sequential consumption. A future session could re-fetch `acct.
+cash` between actions in the loop if this residual gap shows up in future
+audit evidence; not built here to keep this PR to its one evidenced defect.
+
+DOWNSTREAM CHAIN TRACED: this changes WHEN `_select_sell_put` returns an
+error vs. a contract for capital-constrained tickers — it does not change
+delta targeting, strike selection logic, or any regime/threshold, so it is a
+capital-awareness bug fix (an existing rule doing what it always intended,
+now correctly capital-aware), not a RULE-REVIEW-gated threshold change.
+Expected downstream effect: fewer wasted `execPythonSerialized` round-trips
+and Alpaca API calls on doomed CSP attempts; the scan-cycle slots freed up
+should let the tier engine reach affordable candidates it previously never
+got to try that cycle (no behavior change for tickers that were already
+affordable — `cash_available >= budget` cases are provably unaffected, see
+test below).
+
+GATES: 4 new tests in `test_options_fixes.py` (`TestSizePctParameter`):
+(1) a low `cash_available` reproducing the exact live TLT numbers from the
+audit log fails cleanly with a `cash_available` note in the error; (2) a
+generous `cash_available` (way above the equity-based budget) leaves
+existing behavior byte-for-byte unchanged (same strike, no error); (3) the
+stretch-mode ceiling is also capped by `cash_available`, confirmed via the
+existing 2026-07-29 stretch-mode-succeeds fixture with `cash_available`
+lowered enough that it should now fail instead. Full `python3 -m pytest -q`
+after `pip3 install -r requirements.txt` + `pip3 install openpyxl` (fresh
+sandbox gaps, not code issues): **1055 passed, 1 pre-existing failure
+(unrelated), 2 skipped**. The one failure (`test_silent_except_ratchet.py::
+test_no_new_silent_handlers_and_pins_exact`, options_execution.py pinned at 6
+silent broad-except handlers vs. 7 found) was confirmed via `git stash` A/B
+to fail IDENTICALLY on unmodified `main` — pre-existing (same file, same
+line numbers modulo the diff's own line-shift), not introduced by this
+change, out of scope for a one-logical-change PR (a future session should
+either narrow those handlers or bump the ratchet's pin with justification).
+`test_options_fixes.py` + `test_options_chain_diagnosability.py` alone:
+82/82 pass. No `npm`/client-side files touched beyond `server/bot.ts`
+(non-UI, no visual harness needed); `npx tsc --noEmit` in this sandbox hits
+pre-existing missing-node_modules/@types errors unrelated to this change
+(sandbox has no `node_modules`, same class of environment gap as the Python
+side) — could not fully type-check locally; CI will catch any TS error this
+introduces (the edit is a straightforward two-line addition of an existing,
+already-fetched `acct.cash` field into an existing payload object plus one
+new named kwarg on an existing function call, no new types).
+
+VERSION: v1.0.554 (read-and-incremented from origin/main's v1.0.553 at
+commit time, confirmed branch was current with `origin/main` before
+bumping, per MERGE-ORDER PROTOCOL).
+
+HYPOTHESIS: over the following days, `/api/diag/audit?type=T2-FAIL` should
+show a material drop in "insufficient options buying power" entries relative
+to total T2-FAIL/T1-FAIL volume, replaced (if at all) by the pre-existing
+"All available puts exceed position budget" clean-skip message now carrying
+a `cash_available=$X` note — a future session should query this comparison
+once a few live trading days have passed, and treat a persistent recurrence
+of the live-Alpaca-rejection shape specifically (not the clean-skip shape) as
+evidence the per-cycle-stale-cash limitation above needs closing sooner than
+expected. No backtest applies — this is a capital-awareness fix to contract
+selection, not a strategy/threshold rule, so PROMOTION RULE 3's Sharpe/
+drawdown gate does not apply (RULE 1/2 satisfied above).
+
+FALL-THROUGH: session capacity remained after this fix, but per the
+scheduled-routine's "execute the SINGLE highest-value action" instruction,
+this REPAIR was the deliberate scope for this session's one PR. Queue for
+next session: KNOWN BROKEN #20's `rejected_masterkill` shadow-stats check
+(TIER-KILL fired dozens of times on 2026-07-30 alone, per this session's own
+audit-log read — `/api/diag/audit?type=TIER-KILL` — real evidence has now
+plausibly accumulated for the RULE-REVIEW gate that item has been waiting
+on since 2026-07-11); the dropped-metadata/size_pct finding noted above; R6/
+DATACORE MAXIMUS queues per wishlist.md. Not STARVED — single-PR scope was
+deliberate, not a resource limit.
+
 ## 2026-07-30 (scheduled-routine session) [REPAIR] — KNOWN BROKEN #26 fixed: options_scanner.py's high-IV candidate list was sorting alphabetically by ticker instead of by movement magnitude (v1.0.551, T-BOT)
 
 TERRITORY: T-BOT (`options_scanner.py`, `test_options_v134_fixes.py`) +
