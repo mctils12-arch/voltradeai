@@ -34607,3 +34607,147 @@ group heads AND .vt-layer-showmore before asserting rows (GROUP_ROW_CAP
 =12), and must navigate to /app#/data (hash route), not /data.
 
 BACKTEST: N/A (datacore /data layer, no trading logic).
+
+## 2026-07-31 (scheduled-routine PRODUCT session) [PIPELINE] — CFTC TFF (leveraged-money positioning): GATE 1 accounting-identity validation built + verified live at 15,000-record scale, ladder gate 1 PASSED (v1.0.552, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/cftcTff.ts + server/cftcTff.test.ts) +
+datacore/signal_ladder.json (SHARED per its own header, minimized —
+one-line status edit) + research/* (last commit, this entry only).
+
+SESSION-START CHECKS: CLAUDE.md read in full; research/experiments.md
+tail (last ~10 tagged entries: REPAIR x3, PRODUCT x4, PIPELINE x2,
+RESEARCH x1 — no 7+ REPAIR run, no thrash; PROGRESS FLOOR satisfied,
+[PIPELINE]/[PRODUCT] shipped within the last 14 days); KNOWN BROKEN
+section of open_questions.md — items #26 and #27 (the two most recent)
+are both already FIXED, nothing open blocks product work. `/api/health`
+clean: `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+`drawdownPct:"0.0"` — no LIVENESS ALARM. `server_version` (1.0.551) via
+`/api/health` matched `package.json`/`origin/main` HEAD (321c192) before
+this session's work — no deploy lag, no stale-main surprise. Branch
+`claude/quirky-hopper-unlzqs` was byte-identical to `origin/main` at
+session start (prior PR's work already merged), so this session's
+commits start fresh from main per the merged-branch restart rule.
+
+PRIMARY ACTION SELECTION: read datacore/signal_ladder.json (the machine-
+readable ladder-position snapshot built 2026-07-30) end to end — 37
+roots, 8 sitting at `gate1_pending` with "no build or gate-1 run result
+found in the record" despite live archivers already shipped and
+polling. Per the scheduled-routine PRODUCT brief, "(a) advance a
+datacore/ pipeline through its next ladder gate (gate 1 ground-truth
+validation... IS product work" is explicitly in scope. Picked
+`cftc_tff_positioning` (CFTC Traders in Financial Futures): the
+archiver (`server/cftcTff.ts`, BUILD ORDER 6 #1, live since 2026-07-06)
+already existed and had been polling for ~3.5 weeks, but had ZERO
+validation gating what it archives — a pure infrastructure-exists,
+evidence-missing gap, the cleanest kind of "advance through gate 1" to
+close in one session. Read the ALREADY-PASSED sibling's methodology
+first (Legacy COT, `cftc_cot.py`'s `validate_record` — open_questions.md
+:3655-3665): gate 1 there is NOT an external cross-check against a
+different provider, it is CFTC's OWN accounting identities (long+spread
++short subtotals must sum to the reported totals; reported+non-reported
+must equal open interest) verified per-record, deterministically, no
+external ground truth needed beyond the report's own arithmetic — 0
+rejections across a 156-week/7-symbol backfill. This is the correct
+precedent to mirror, not the older (and, on inspection, unbuilt-and-
+not-really-independent) "cross-check vs CFTC's published HTML report"
+phrasing the TFF ladder note carried from 2026-07-06 filing.
+
+READ-BEFORE-WRITE: fetched TFF's real live schema directly from
+`publicreporting.cftc.gov/resource/gpe5-46if.json` this session (not
+assumed from the 2026-07-06 docstring) to find the fields COT's
+identity check doesn't need but TFF's structurally requires — TFF splits
+COT's single "noncomm" bucket into FOUR financial trader categories
+(dealer, asset_mgr, lev_money, other_rept), each with ITS OWN spread
+field counted on BOTH the long and short leg. Verified the identity
+shape empirically against one real record (3 YEAR ERIS SOFR SWAP,
+report_date 2026-07-21) before writing any code: dealer_long+dealer_
+spread + asset_mgr_long+spread + lev_money_long+spread + other_rept_
+long+spread summed to EXACTLY `tot_rept_positions_long_all` (78,616),
+mirrored on the short side (78,625), and both totals plus their
+`nonrept_*` counterpart summed to `open_interest_all` (78,626) —
+confirms the identity shape before committing to it, exactly the
+kind of thing CLAUDE.md's READ BEFORE WRITE rule exists to prevent
+getting wrong from memory of "how COT usually works."
+
+SHIPPED: `tffAccountingIssues(raw)` in `server/cftcTff.ts` — pure,
+per-raw-Socrata-row gate-1 validator returning `QualityIssue[]` (the
+established `server/dataQuality.ts` contract already used by
+pfas.ts/superfund.ts/waterViolators.ts, not a bespoke return shape),
+checking the four identities above with a 5-unit tolerance (matches
+`cftc_cot.py`'s own tolerance constant and stated reason: rare report-
+revision rounding artifacts). Wired into `fetchLatestTff()` via
+`partitionValid()` BEFORE `parseTff()` — a row that fails the identity
+check never reaches the archive; a non-empty suspect batch logs a
+`gate1-reject n/total (e.g. field:rule)` line so a live failure is
+observable, not silent. `tot_rept_positions_long_all`/`_short` fields
+added to `FIELD` (previously unused/unparsed by this module — needed
+as the identity's RHS).
+
+VERIFIED LIVE, using the actual shipped function (not a hand-rolled
+scratch check): pulled 10,000 real records ordered DESC (2023-10-10
+through 2026-07-21, 146 distinct weeks) AND 5,000 more ordered ASC from
+the dataset's earliest history (2006-06-13 through 2009-06-23, 159
+weeks, the oldest reporting era, in case early-history rows use a
+different convention) — **0 rejections across all 15,000 records,
+305 distinct report weeks, full 2006-2026 dataset span** (bettering the
+COT precedent's own rigor: 15,000 records across the ENTIRE market
+panel vs COT's 1,092 records across 7 hand-picked symbols). Throwaway
+probe scripts used to run these live pulls were deleted after use —
+nothing left in the repo but the shipped validator + its tests.
+LADDER UPDATE: `datacore/signal_ladder.json`'s `cftc_tff_positioning`
+entry moved `gate1_pending` → `gate1_pass`, note rewritten with the
+identity description + the 15,000-record evidence, source_ref pointing
+at the shipped function/test/this entry (mirrors the file's own
+provenance-citation discipline).
+
+RATCHET: `server/cftcTff.test.ts` gained 6 new tests — `tffAccountingIssues`
+against a REAL live-pulled record (not hand-built, so the fixture can't
+bake in the same bug the check exists to catch): clean pass; corrupted
+long-side total (correctly fires BOTH the category-sum AND the OI
+identity it also breaks — a genuine cross-field coupling, asserted
+explicitly rather than papered over); corrupted OI denominator; zero/
+missing OI short-circuits before the identity checks run (no false
+noise); `fetchLatestTff` end-to-end proving a corrupted row is
+quarantined and only the valid one reaches the returned array. Existing
+`parseTff`/archive/refresh tests (the pre-existing ROW fixture, which
+intentionally uses small non-realistic numbers for dedup-logic testing)
+were left completely untouched — the new gate sits at the `fetchLatestTff`
+layer, one level above `parseTff`, specifically so the widely-shared
+parse-shape fixture never had to be retrofitted to satisfy an accounting
+identity it was never designed to hold.
+
+GATES: `npx tsx --test server/cftcTff.test.ts` 10/10 pass. Full
+`npx tsx --test server/*.test.ts`: 872/879 pass, 7 fail — A/B-verified
+via `git stash`: byte-identical 7 failing files (aircraftTiling,
+apiKeyAccounts, compression, gdeltEvents, owmTiles, seafloorTiles,
+securityMiddleware) on unmodified `main`, 100% pre-existing, none
+touch cftcTff. `npx tsc --noEmit`: 79 errors, byte-identical diff
+(empty) against a `git stash`-verified baseline run. `npm run build`:
+clean, no new warnings. `python3 -m pytest -q`: 1052 passed, 2 skipped,
+1 failed (`test_silent_except_ratchet.py`'s pre-existing options_
+execution.py 7-vs-pin-6 discrepancy, the same one KNOWN BROKEN #27's
+entry already logged as pre-existing and out of scope — this PR touches
+zero Python files). `python3 -c "import json; json.load(...)"` on the
+edited `signal_ladder.json`: valid.
+
+BACKTEST: N/A — datacore archive-ingest validation, no trading logic,
+no scoring/sizing/threshold value touched.
+
+NEXT: gate 2 (leveraged-money positioning extremes vs forward returns,
+mirroring the COT gate-2 screen design — HAC/Newey-West-corrected from
+the start this time, per the COT precedent's own methodological finding
+about weekly-sampled/60d-horizon window overlap) needs the ARCHIVE
+itself to accumulate real history first (live since 2026-07-06, ~3.5
+weeks deep) — the 15,000-record gate-1 sample pulled the full dataset
+DIRECTLY from CFTC's Socrata API for validation purposes, it does not
+backfill our own archive. A future session could ALSO backfill our
+archive from the full public history (available back to 2006, per this
+session's own probe) rather than waiting on the 12h poll to accumulate
+it organically — worth doing before gate 2 is attempted, logged here so
+it isn't rediscovered. Also carried from the 2026-07-30 wishlist entry,
+unrelated to this PR: FRED_API_KEY session-env verification remains the
+open analogous 2-minute ask (wishlist.md item 5).
+
+STARVED: no — this was the session's one primary action, matched to
+capacity; no queued higher-priority item was skipped (KNOWN BROKEN is
+clean, no LIVENESS ALARM, no thrash).
