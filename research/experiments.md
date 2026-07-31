@@ -35570,3 +35570,67 @@ STILL OPEN: whether the driver dies even without any burst (loss #5 says
 probably yes — 10.7s after load, 1 context, idle). The next crash report
 carries fatalFrameMs + the gesture trail, which decides the remaining
 question. Driver update remains the highest-value user-side action.
+
+## 2026-07-31 [REPAIR] — round 22: the two remaining live-report defects root-caused and fixed, + space-weather Phase 0.3-0.5 ships (v1.0.561-564, T-CLIENT + shared server files)
+
+Directive: "figure out all these issues and fix them fully" (workflow
+opt-in). Four separate commits, one logical change each.
+
+1. CURTAIN STOPS AT THE LAST ARCHIVED FIX (v1.0.561 + v1.0.562).
+   Evidence chain: recovered video (mdat-only MP4, SPS/PPS graft) showed
+   GND SPD updating while the curtain never reached the plane => the
+   crumb block ran with live altitude null. Pure buildTailVertices repro:
+   both-alts = 3 segments (full wall, 156 floats); NaN toAlt = 1 segment
+   (trace only, 52 floats). ONE null altitude NaN-gapped the whole live
+   bridge. Two-layer fix:
+   a. SERVER root cause: readsb rows drop alt_baro for stretches while
+      alt_geom (GNSS altitude, also real broadcast) stays present —
+      mapPointAircraft now falls back baro->geom, never an estimate;
+      ground rows keep null. Also improves icon alt-coloring + archive
+      completeness for every consumer.
+   b. CLIENT resilience: ALTITUDE HOLD in mergeTrackWithCrumbs — a fix
+      that omits altitude displays at the last REAL broadcast altitude
+      for <= 240s (ALT_HOLD_MAX_AGE_SEC), flagged held:true; stored
+      crumbs keep al:null (the buffer never lies about what was
+      broadcast); sustained outage returns to an honest gap. Tail toAltM
+      falls back to the track's last display altitude. Same held-level
+      policy the glide tail always documented.
+   DOWNSTREAM TRACE (rule 1): held altitude -> vsFpm derives ~0 for that
+   segment (level-flight display, consistent with the hold); marker/
+   follow-camera unchanged (they read fix.al which stays null).
+
+2. FAR-SIDE SATELLITE PICKED FROM EMPTY GROUND (v1.0.563). "Under the
+   height of the satellites, clicking a random spot picks a sat —
+   probably thinking it's the other side of the planet" was EXACTLY
+   right: MapLibre's globe->mercator transition is zoom-driven and
+   PERSISTENT; parked at ~100-250km camera altitude the map sits
+   mid-blend indefinitely, and every far-side cull (satLayer shader,
+   getGlobeCamera, pick path) was gated to transition > 0.999 — so
+   far-side sats drew as faint ghosts (the 100-250km LOD fade band
+   overlaps the same altitudes) and were click-selectable. Physical
+   occlusion doesn't blend: gates relaxed to transition > 0 across the
+   orbital family (satLayer, arcLayer, modelLayer), mercator screen pick
+   gains the same cameraSphere occlusion filter. Full mercator
+   (transition 0) keeps whole-sky flat-map behavior. vtProjElev's 0.999
+   check is a UNIT switch, not a cull — untouched, test updated to pin
+   the distinction.
+
+3. SPACE WEATHER Phase 0.3-0.5 (v1.0.564, subagent worktree reviewed +
+   integrated): spaceweatherNormalizer.ts (ONE home for NOAA rtsw field
+   names; open source enum — live file interleaves ACE/IMAP/SOLAR1 with
+   DSCOVR absent; latestActive sorts by time_tag, never file order;
+   noaaUtcMs pins Z-less SWPC stamps to UTC), per-feed freshness on
+   /api/data/spaceweather (additive keys; 15m wind/xray, 6h kp/scales/
+   alerts, 30m ovation), 10 new tests on a synthetic fixture. Phase 0
+   verdict stands: prod archiver was never broken; staleness was the gap.
+
+Tests: full node suite 971/971; orbital 216/216; tsc baseline unchanged
+(10 pre-existing datamap errors, 0 added). Prior: I expected the curtain
+bug to be renderer-side (depth/order) — the probe REFUTED that (globe
+21085 vs mercator 21162 px, identical) and the data-side trace found it;
+logged per REASONING STANDARD 10.
+
+FILED (not built): the same transition-band cull gate exists in
+airLayer.ts:392 and flightTrackLayer.ts:265/325 — same physics, no live
+report (aircraft at 10km make dimmer ghosts); filed in open_questions.md
+rather than widening this change's blast radius.

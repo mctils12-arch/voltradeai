@@ -7664,3 +7664,18 @@ space weather, since it is keyless, already hypothesis-backed, and the
 only candidate that ties three existing systems at once; then (3) SO2 +
 volcano together as one small [PIPELINE] PR, since they share a
 cross-tie and SO2 is nearly free given the GIBS pipeline.
+
+## 2026-07-31 — QUEUED FIX CANDIDATE: transition-band far-side cull for the AIR layers (same defect class as the satellite fix, v1.0.563)
+
+The zoom-driven globe->mercator transition-band gap fixed for the orbital
+family in v1.0.563 (cull gated at transition > 0.999 while the blend is
+PERSISTENT at ~100-250km camera altitude) also exists verbatim in
+airLayer.ts:392 and flightTrackLayer.ts:265/325. Same physics: a far-side
+aircraft/curtain can draw as a blended ghost mid-transition. Not shipped
+with v1.0.563 because (a) no live report — at 10km altitude the ghost
+offset is far smaller and dimmer than a 550km satellite's, and (b) it
+widens a shader change's blast radius across territories. TESTABLE FORM:
+apply the identical one-line gate change (> 0.999 -> > 0.0) + pinned-string
+test updates; verify no aircraft pop at the limb in globe view and no
+regression at full mercator (the w < 0 degenerate-plane guard already
+fails open). Low risk, ~30 min, next T-CLIENT session.
