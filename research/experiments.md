@@ -35505,3 +35505,68 @@ THE CRASH ITSELF (plane click -> renderer kill, no curtain): cause
 unknown, investigation running (click->curtain allocation path + recent
 regressions). NOT guessed at here — the next occurrence will carry the
 last-step breadcrumb, which is the point of this fix.
+
+────────────────────────────────────────────────────────────────────────
+2026-08-01 · [REPAIR] · T-CLIENT
+Plane-click crash root-caused to a coupling MY sky fix created; fixed +
+integrated-GPU tile retention + fatal-frame instrumentation (v1.0.560)
+
+NEW FIELD DATA (losses #5/#6, both post-v1.0.557): #5 crashed 10.7s after
+load with glContexts:1 — the sky lifecycle change was deployed and working
+and the crash happened anyway (mitigation confirmed insufficient; the
+GPU identity was READABLE during the loss = only the map's context died,
+the eviction signature). #6: terrainLive:true, zoom 9.2, glContexts:2,
+last COMPLETED frame 953ms, then gpu:"no-webgl" (whole GPU process gone).
+
+PIPELINE TRACE (subagent, full report in its transcript; key file:line
+refs preserved here): the curtain path is byte-identical since
+v1.0.455-478 — NO regression. But the trace surfaced a coupling
+v1.0.557 CREATED: the plane click eases pitch to EXACTLY 55
+(datamap.tsx onAircraftClickProps easeTo pitch: Math.max(getPitch(),55))
+and the sky-mount threshold was pitch >= 55 — so since v1.0.557,
+clicking a plane summoned the second full-screen antialiased WebGL2
+context (~75-95MB backing+MSAA at that machine's DPR, 4 shader
+compiles) at the same instant as the track fetch, curtain build
+(~7MB peak geometry + GL upload + 2 programs), and — with terrain on —
+the cold-cache elevation sweep (up to 6000 sync queryTerrainElevation)
+plus up to 4 repaint cycles whose retry path flushes the ground cache
+it depends on. Loss #6 matches this gesture EXACTLY (zoom 9.2 = the
+click's Math.max floor, 2 contexts, terrain on, 953ms frame, GPU dead).
+The mitigation for the driver fragility became a trigger on the exact
+gesture the human used. Own goal, logged as such.
+
+FIXES:
+1. SKY_PITCH_ON 55 -> 62 (visibility genuinely starts ~72°; still
+   pre-warms 10° early; no longer fires on the click's pitch-55) AND
+   mount defers to map idle — never creates a GL context mid-ease.
+2. maxTileCacheZoomLevels 8 -> 5 on Intel integrated GPUs (INTEGRATED_GPU
+   from an eager boot-time readGpuInfo; Arc excluded). Grounds: losses
+   #3/#5 show the map context dying ALONE (GPU process alive) — the
+   eviction signature — on a shared-memory chip; the 8-level retention is
+   a round-17 nicety those machines cannot afford. ROLLBACK TRIGGER: if
+   integrated users report the "square tiles building" regression without
+   crash relief, revert to 8 and pursue wishlist proposal C. Eager GPU
+   read also caches the identity so "no-webgl" losses (#4/#6) no longer
+   lose it — a diagnostics win by itself.
+3. fatalFrameMs on every loss snapshot: how long the IN-FLIGHT frame had
+   run when the context died. last8Ms only holds COMPLETED frames — a
+   device hang's fatal frame never completes and was invisible. This
+   field directly tests the device-hang hypothesis for shape-B losses.
+   (Honest correction: I declared TDR dead on losses #3/#4 — still true
+   for those; #6's shape FITS a hang on the fatal frame. The refutation
+   was over-broad.)
+4. Blackbox breadcrumbs on the reported gesture: plane-select (icao/zoom/
+   terrain), track-loaded (point count), curtain-set (samples/terrain),
+   and the paintTrack catch NO LONGER SWALLOWS SILENTLY — it logs
+   [VT CURTAIN] + a curtain-error breadcrumb. "No curtain and no message"
+   (the exact report) violated the honesty rail; any future curtain
+   failure now names itself.
+
+VERIFIED: tsc caught and I fixed an INTEGRATED_GPU use-before-declaration;
+remaining datamap tsc errors (altScale x3) are pre-existing. Build clean.
+Scope identifiers (kind/n/terrainOn) verified in-scope at each breadcrumb.
+
+STILL OPEN: whether the driver dies even without any burst (loss #5 says
+probably yes — 10.7s after load, 1 context, idle). The next crash report
+carries fatalFrameMs + the gesture trail, which decides the remaining
+question. Driver update remains the highest-value user-side action.

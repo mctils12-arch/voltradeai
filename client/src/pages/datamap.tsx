@@ -586,6 +586,11 @@ const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
  *  things worse), yet it is the field that decides between "integrated GPU out
  *  of its share" and "driver reset" — so it is captured up front and cached. */
 let gpuInfo: string | null = null;
+/** Read the GPU identity EAGERLY at module load (not just at crash time): a
+ *  dead GPU process reports "no-webgl" and the identity is lost forever —
+ *  losses #4/#6 in the 2026-07-31 field reports carry no GPU name for exactly
+ *  this reason. One throwaway context at boot, immediately released. */
+let INTEGRATED_GPU = false;
 function readGpuInfo(): string | null {
   if (gpuInfo !== null) return gpuInfo;
   try {
@@ -600,6 +605,12 @@ function readGpuInfo(): string | null {
   } catch { gpuInfo = "unavailable"; }
   return gpuInfo;
 }
+try {
+  const g = readGpuInfo() ?? "";
+  // Intel HD/UHD/Iris are shared-memory integrated parts (Arc is discrete).
+  // Apple/ARM "integrated" GPUs are not fragile the same way — scope to Intel.
+  INTEGRATED_GPU = /intel/i.test(g) && !/\barc\b/i.test(g);
+} catch { /* stays false */ }
 
 /** Rolling frame-interval recorder. THE decisive field for this investigation:
  *  Windows resets the GPU (TDR) when a single draw exceeds ~2s, which kills every
@@ -647,6 +658,13 @@ export function captureGlSnapshot(reason: string, extra: Record<string, unknown>
     sinceLoadMs: Math.round(g(() => performance.now()) ?? 0),
     ...extra,
     gpu: g(() => readGpuInfo()),
+    integrated: g(() => INTEGRATED_GPU),
+    tileCacheLevels: g(() => (INTEGRATED_GPU ? 5 : 8)),
+    // how long the IN-FLIGHT frame had been running when the context died.
+    // last8Ms only holds COMPLETED frames — a device hang's fatal frame never
+    // completes, so it is invisible there (loss #6: last completed 953ms, then
+    // death). This field is the direct test of the device-hang hypothesis.
+    fatalFrameMs: g(() => (frameLast ? Math.round(performance.now() - frameLast) : null)),
     frames: g(() => frameStats()),
     // how many live WebGL contexts share this page's GPU budget
     glContexts: g(() => [...document.querySelectorAll("canvas")]
@@ -2685,7 +2703,16 @@ export default function DataMapPage() {
           // terrain on, every re-fetched tile also re-drapes, which is
           // what made the squares so visible there. First visits still
           // pay the network once; repeats are instant.
-          maxTileCacheZoomLevels: 8,
+          // 8, except on shared-memory Intel integrated GPUs (2026-08-01):
+          // field losses #3/#5 show the map's context dying alone with the GPU
+          // process still alive — the eviction signature — on a chip whose
+          // "VRAM" is the same RAM everything else uses. The 8-level retention
+          // (round 17, zoom re-render from cache) multiplies GPU tile memory
+          // for a nicety those machines cannot afford; MapLibre's default 5 is
+          // the fallback. ROLLBACK TRIGGER: if integrated-GPU users report the
+          // round-17 "square tiles building" regression without crash relief,
+          // revert to 8 and pursue proposal C instead.
+          maxTileCacheZoomLevels: INTEGRATED_GPU ? 5 : 8,
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -3554,6 +3581,7 @@ export default function DataMapPage() {
         } : null;
         // altScale 1: every input above is ALREADY in display meters
         layer.setTrack(input, 1);
+        bmark("curtain-set", { n, terrain: terrainOn });
         layer.setTail(null); // full geometry reaches the newest real fix
         const id = detailRef.current?.trailId || airCrumbsRef.current.id || "";
         // altMin/altMax here = the DISPLAY ramp domain (tail shares it);
@@ -3563,7 +3591,14 @@ export default function DataMapPage() {
           : null;
         setFlightProfile(n >= 2 ? { samples, groundM, altMin, altMax } : null);
         updateFlightTail();
-      } catch { /* the click card still works without the 3D track */ }
+      } catch (err) {
+        // the click card still works without the 3D track — but a swallowed
+        // failure here IS the human's "it didn't show the curtain" with no
+        // signal anywhere. Name it in the console and the blackbox trail.
+        // eslint-disable-next-line no-console
+        console.error("[VT CURTAIN] paint failed", err);
+        bmark("curtain-error", { err: String((err as Error)?.message ?? err).slice(0, 120) });
+      }
       (window as any).__vtTrailLen = raw.length; // harness ratchet reads this
       return lastT;
     } catch { return undefined; }
@@ -3798,6 +3833,7 @@ export default function DataMapPage() {
       const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
       const d = await r.json();
       const raw = (d.points || []) as TrackPoint[];
+      bmark("track-loaded", { kind, pts: raw.length });
       archivedTrackRef.current = { kind, id, raw };
       const followed = kind === "aircraft" && airCrumbsRef.current.id === id;
       const merged = followed ? mergeTrackWithCrumbs(raw, airCrumbsRef.current.crumbs) : raw;
@@ -5072,7 +5108,16 @@ export default function DataMapPage() {
     let handle: any = null;
     let mounting = false;
     let downTimer: number | null = null;
-    const SKY_PITCH_ON = 55;
+    // 55 -> 62 (2026-08-01, crash-report loss #6 + pipeline trace): the plane
+    // click eases pitch to EXACTLY 55, so a 55 threshold summoned this context
+    // — a full-screen antialiased WebGL2 allocation plus four shader compiles —
+    // at the same instant as the track fetch, curtain geometry build and GL
+    // upload. On the reporting machine (Intel Iris Xe) that click died with a
+    // 953ms final frame and the GPU process gone. Sky visibility genuinely
+    // begins at pitch ≈ 72 (top of frame reaches the horizon at the default
+    // fov), so 62 still pre-warms 10° early — it just no longer fires on the
+    // click gesture. Mount also DEFERS to map idle, never mid-ease.
+    const SKY_PITCH_ON = 62;
     const SKY_PITCH_OFF = 45;
     const mount = async () => {
       if (disposed || handle || mounting) return;
@@ -5119,6 +5164,9 @@ export default function DataMapPage() {
       const p = map.getPitch();
       if (p >= SKY_PITCH_ON) {
         if (downTimer != null) { window.clearTimeout(downTimer); downTimer = null; }
+        // never create a GL context while the camera is animating — that is
+        // exactly when the curtain/tiles are already bursting the GPU
+        if (!handle && (map as any).isMoving?.()) { map.once("idle", check); return; }
         void mount();
       } else if (p < SKY_PITCH_OFF && handle && downTimer == null) {
         downTimer = window.setTimeout(() => { downTimer = null; unmount(); }, 4000);
@@ -7452,6 +7500,13 @@ export default function DataMapPage() {
     });
     // one card handler for BOTH renderers (2D symbol clicks + 3D picks)
     const onAircraftClickProps = async (p: any, lngLat: any) => {
+        // blackbox breadcrumb: the plane-click crash of 2026-07-31 left a
+        // blank report; if it recurs, the heartbeat's lastStep now names it
+        bmark("plane-select", {
+          icao: String(p?.icao24 ?? "?"),
+          zoom: (() => { try { return Number(mapRef.current?.getZoom().toFixed(1)); } catch { return null; } })(),
+          terrain: (() => { try { return !!(mapRef.current as any)?.getTerrain?.(); } catch { return null; } })(),
+        });
         const cls = AIRCRAFT_CLASS_LABEL[(p.cls || "unknown") as keyof typeof AIRCRAFT_CLASS_LABEL] || "Aircraft";
         const dossierKey = `aircraft:${p.icao24}:${Date.now()}`;
         // CLICK-TO-FRAME + AUTO-FOLLOW (human 2026-07-20 round 2: "when you
