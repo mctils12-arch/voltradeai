@@ -317,7 +317,8 @@ def should_use_options(trade: dict, equity: float, existing_positions: list = No
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def select_contract(ticker: str, strategy: str, price: float, equity: float,
-                    trade: dict = None, positions: list = None, macro: dict = None) -> dict:
+                    trade: dict = None, positions: list = None, macro: dict = None,
+                    cash_available: float = None) -> dict:
     """
     Select the best options contract for the given strategy.
     
@@ -429,7 +430,7 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         elif strategy == "buy_put":
             result = _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
-            result = _select_sell_put(liquid, price, equity, ticker, size_pct)
+            result = _select_sell_put(liquid, price, equity, ticker, size_pct, cash_available=cash_available)
         elif strategy == "bull_call_spread":
             result = _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
@@ -818,7 +819,8 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str, s
     }
 
 
-def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05) -> dict:
+def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05,
+                      cash_available: float = None) -> dict:
     """
     Select a put to sell (cash-secured).
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
@@ -866,6 +868,22 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     # whose strike fits in the position budget BEFORE delta selection.
     # If no strikes fit (e.g. underlying too expensive), fail cleanly.
     affordable_budget = max(equity * size_pct, equity * 0.02)  # at least 2% of equity per CSP
+    # LIVE-CAPITAL CAP 2026-07-31: affordable_budget above is a pure equity
+    # percentage — it has no idea how much of the account is already
+    # deployed (other CSPs, the stock/ETF book). Confirmed live via
+    # /api/diag/audit?type=T2-FAIL 2026-07-30: repeated identical rejections
+    # like "TLT: Alpaca rejected: insufficient options buying power for
+    # cash-secured put (required: 7889.01, available: 362.36)" — the same
+    # ticker retried every scan cycle for hours, always against the same
+    # equity-based budget, always rejected by Alpaca's real capital check.
+    # cash_available (Alpaca account `cash`, threaded in from the caller)
+    # is the account's actual uncommitted dollars — capping here means we
+    # stop proposing/selecting strikes the account cannot actually secure,
+    # instead of relying on Alpaca's live rejection to find out after the
+    # fact. None/negative = caller didn't supply it (tests, older callers)
+    # — behavior is then unchanged from before this fix.
+    if cash_available is not None and cash_available >= 0:
+        affordable_budget = min(affordable_budget, cash_available)
     affordable_strike_max = affordable_budget / 100.0
     affordable_puts = [c for c in puts if c.get("strike", 0) * 100 <= affordable_budget]
     # BUG FIX 2026-07-29: the final max_contracts sizing calc below must use
@@ -885,7 +903,13 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         # _enforce_exposure_cap allocator at the tier-engine level will scale
         # back if we collectively exceed the total budget anyway.
         smallest_strike = min((p.get("strike", 0) for p in puts), default=0)
-        if puts and smallest_strike > 0 and smallest_strike * 100 <= equity * 0.20:
+        stretch_ceiling = equity * 0.20
+        # Same live-capital cap applied to the stretch ceiling — otherwise
+        # stretch mode "succeeds" at picking a strike the account still
+        # cannot secure, and Alpaca rejects it exactly the same as before.
+        if cash_available is not None and cash_available >= 0:
+            stretch_ceiling = min(stretch_ceiling, cash_available)
+        if puts and smallest_strike > 0 and smallest_strike * 100 <= stretch_ceiling:
             # Allow up to 20% of equity for a single CSP under "stretch" mode
             # — but explicitly log and tag so the dispatcher knows.
             affordable_puts = [c for c in puts if c.get("strike", 0) == smallest_strike]
@@ -908,11 +932,16 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
             )
         else:
             # Even the smallest strike is too expensive — give up cleanly
+            _cash_note = (
+                f" cash_available=${cash_available:,.0f}."
+                if cash_available is not None and cash_available >= 0
+                else ""
+            )
             return {"error": (
                 f"All available puts exceed position budget for {ticker}: "
                 f"smallest strike ${smallest_strike:.0f} needs ${smallest_strike*100:,.0f}, "
                 f"but max affordable per-position is ${affordable_budget:,.0f} "
-                f"(equity ${equity:,.0f} × size_pct {size_pct:.2%}). "
+                f"(equity ${equity:,.0f} × size_pct {size_pct:.2%}).{_cash_note} "
                 f"Underlying too expensive at ${price:.2f} for this account."
             )}
 

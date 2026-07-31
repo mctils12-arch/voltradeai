@@ -334,6 +334,77 @@ class TestSizePctParameter(unittest.TestCase):
         self.assertEqual(result.get("qty"), 1)
         self.assertEqual(result.get("strike"), 55.0)
 
+    def test_sell_put_rejects_when_cash_available_below_equity_budget(self):
+        """
+        LIVE-CAPITAL CAP 2026-07-31 regression: without cash_available,
+        _select_sell_put sizes purely off equity * size_pct and has no idea
+        the account's real uncommitted cash is far lower — Alpaca then
+        rejects the order live. Reproduces the exact live shape confirmed
+        via /api/diag/audit?type=T2-FAIL 2026-07-30: "TLT: Alpaca rejected:
+        insufficient options buying power for cash-secured put (required:
+        7889.01, available: 362.36)" — repeated every scan cycle for hours
+        because the equity-based budget never changed.
+
+        Equity $105,397, size_pct 0.08 (8% MAX_OPTIONS_PCT) => equity-based
+        budget ~$8,432, comfortably covering a $78 strike ($7,800/contract).
+        With cash_available=362.36 (the live figure from the audit log),
+        the fix must cap the budget below every available strike and fail
+        CLEANLY here — instead of Alpaca finding out after submission.
+        """
+        from options_execution import _select_sell_put
+        contracts = [
+            {"occ_symbol": "TLT260918P00078000", "option_type": "put",
+             "strike": 78.0, "bid": 1.10, "ask": 1.30, "mid": 1.20,
+             "delta": -0.29, "gamma": 0.02, "theta": -0.03, "iv": 0.20,
+             "volume": 500, "open_interest": 2000, "expiry": "2026-09-18",
+             "days_to_expiry": 49}
+        ]
+        result = _select_sell_put(contracts, 82.0, 105397, "TLT", 0.08,
+                                   cash_available=362.36)
+        self.assertIsNotNone(
+            result.get("error"),
+            "cash-capped CSP should fail cleanly, not return a contract "
+            "Alpaca will reject",
+        )
+        self.assertIn("cash_available", result["error"])
+
+    def test_sell_put_unaffected_by_generous_cash_available(self):
+        """cash_available higher than the equity-based budget must not
+        restrict anything below the pre-existing behavior."""
+        from options_execution import _select_sell_put
+        contracts = [
+            {"occ_symbol": "AAPL260418P00175000", "option_type": "put",
+             "strike": 175, "bid": 1.80, "ask": 2.10, "mid": 1.95,
+             "delta": -0.28, "gamma": 0.015, "theta": -0.03, "iv": 0.20,
+             "volume": 400, "open_interest": 1800, "expiry": "2026-04-18",
+             "days_to_expiry": 9}
+        ]
+        result = _select_sell_put(contracts, 185.0, 100000, "AAPL", 0.20,
+                                   cash_available=1_000_000)
+        self.assertIsNone(result.get("error"))
+        self.assertEqual(result.get("strike"), 175)
+
+    def test_sell_put_stretch_mode_also_capped_by_cash_available(self):
+        """The 20%-of-equity stretch ceiling must also respect
+        cash_available — otherwise stretch mode picks a strike the account
+        still cannot secure, and Alpaca rejects it exactly as before."""
+        from options_execution import _select_sell_put
+        contracts = [
+            {"occ_symbol": "PYPL260918P00055000", "option_type": "put",
+             "strike": 55.0, "bid": 1.10, "ask": 1.30, "mid": 1.20,
+             "delta": -0.29, "gamma": 0.02, "theta": -0.03, "iv": 0.35,
+             "volume": 200, "open_interest": 900, "expiry": "2026-09-18",
+             "days_to_expiry": 51}
+        ]
+        # Same inputs as the stretch-mode-succeeds test above, but with
+        # cash_available far below the $5,500 the stretched strike needs.
+        result = _select_sell_put(contracts, 68.0, 110000, "PYPL", 0.005,
+                                   cash_available=400.0)
+        self.assertIsNotNone(
+            result.get("error"),
+            "stretch mode must not exceed cash_available",
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEST 6: Options Manager — DTE Exit Logic
