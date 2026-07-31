@@ -15,6 +15,7 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
+import { buildEntryFillPayload } from "./entryFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -4087,6 +4088,31 @@ else:
             notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
             slotsUsed++;
             totalDeployed += etfShares * trade.price; // Approximate
+            // REPAIR 2026-07-31 (KNOWN BROKEN #12(c) contributor): this branch
+            // monitored the position for WS exit but never wrote a track_fill
+            // entry record, so its eventual exit always found no match and
+            // became a permanent orphan_exit — see entryFill.ts for the full
+            // trace. Record the entry the same way the regular/morning-queue
+            // stock paths already do.
+            try {
+              const etfEntryPayload = buildEntryFillPayload({
+                ticker: etfTicker, side: "buy", qty: etfShares,
+                fillPrice: trade.price || 0, session: "regular",
+                volume: trade.volume, score: trade.score,
+                instrument: "etf", codeVersion: pkgVersion,
+              });
+              const etfTmp = `/tmp/fill_etf_${etfTicker}_${Date.now()}.json`;
+              fs.writeFileSync(etfTmp, JSON.stringify(etfEntryPayload));
+              pythonCall(
+                "track_fill", etfEntryPayload,
+                `python3 -c "import json, os; from ml_model_v2 import track_fill; d=json.load(open('${etfTmp}')); os.remove('${etfTmp}'); track_fill(d)"`,
+                { timeout: 5000 }
+              ).then((r) => {
+                if (r.via === "daemon") {
+                  try { fs.unlinkSync(etfTmp); } catch {}
+                }
+              }).catch(() => {});
+            } catch (err: any) { console.error("[bot]", err?.message || err); }
             addPositionToMonitor(etfTicker, trade.side === "short" ? "short" : "long", trade.price || 0, etfShares);
             continue;
           } catch (etfErr: any) {
