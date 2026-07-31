@@ -168,3 +168,14 @@ SAME-DAY RESPONSE:
 3. CORS note: the R2 client-serving switch is armed in-session and
    fires as soon as the human pastes the bucket CORS policy; until
    then tiles keep serving from the repo path (both copies exist).
+
+## 2026-07-31 ADDENDUM (same conversation, minutes later)
+Human clarification, verbatim intent: no usage screenshot is coming —
+ever ("i would forget"). NEW STANDING MODE, human-directed: the
+calibration loop runs BLIND-AGGRESSIVE. No screenshot input exists;
+sessions default to the aggressive branch continuously; the HUMAN is
+the throttle — they will say so if usage becomes a problem, and any
+such message is acted on same-day per the existing drop order. The
+routine slate stays as-is (6 standing + the temporary
+world-rollout-week slot). CLAUDE.md's USAGE-CALIBRATION bullet gets a
+matching dated note in this same PR.
