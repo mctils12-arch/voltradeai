@@ -143,3 +143,39 @@ weekly plan reading. Response (same-day per the loop): throttled
 fall-through for the rest of this session — finish queued work only
 (catalog-mirror auth fix + B3 integration already in flight), no new
 speculative slices until after the reset.
+
+## 2026-07-31 (verbal directive, no screenshot)
+Human, in-session: the usage screenshot didn't get uploaded, but the
+standing goal for THIS WEEK is explicit — "use it all up before the end
+of the week on useful work." Treated as the clear-headroom aggressive
+branch of the calibration loop, by direct human instruction (no
+reading to log; if a screenshot arrives later, log its numbers here).
+SAME-DAY RESPONSE:
+1. IN-SESSION HEAVY WORK (biggest lever): GRID VISION wave 3 launched
+   immediately — Asia + Russia, 37 Geofabrik regions, z11 per-country
+   + z8 continental roll-up, resume-safe from the start. R2 object
+   storage (human-provisioned today, bucket voltrade-tiles) removes
+   the GitHub 100MB ceiling: all 135 existing tiles already uploaded;
+   world coverage no longer gated on repo size. Remaining after Asia:
+   Africa, Oceania, Central America/Caribbean — the whole world is
+   this week's target.
+2. TEMPORARY 7TH ROUTINE SLOT: voltrade-world-rollout-week, daily
+   16:30 ET (20:30 UTC), fresh-session, continues the wave queue
+   (build next region set → upload to R2 → wire client → PR).
+   EXPLICITLY TEMPORARY: the Sunday weekly-review session drops it
+   when the week's allowance resets (or earlier if 5-hour peaks
+   spike, per the existing drop order — this slot is FIRST to drop).
+3. CORS note: the R2 client-serving switch is armed in-session and
+   fires as soon as the human pastes the bucket CORS policy; until
+   then tiles keep serving from the repo path (both copies exist).
+
+## 2026-07-31 ADDENDUM (same conversation, minutes later)
+Human clarification, verbatim intent: no usage screenshot is coming —
+ever ("i would forget"). NEW STANDING MODE, human-directed: the
+calibration loop runs BLIND-AGGRESSIVE. No screenshot input exists;
+sessions default to the aggressive branch continuously; the HUMAN is
+the throttle — they will say so if usage becomes a problem, and any
+such message is acted on same-day per the existing drop order. The
+routine slate stays as-is (6 standing + the temporary
+world-rollout-week slot). CLAUDE.md's USAGE-CALIBRATION bullet gets a
+matching dated note in this same PR.

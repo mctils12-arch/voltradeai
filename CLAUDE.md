@@ -683,7 +683,13 @@ experiments.md.
   (interpreted readings: tank-fill %, inventory change, flow anomalies)
   stay gated at ladder gate 2 before surfacing. Every map layer is
   labeled one or the other.
-- USAGE-CALIBRATION LOOP (2026-07-03; daily-aggressive same day): when
+- USAGE-CALIBRATION LOOP (2026-07-03; daily-aggressive same day;
+  BLIND MODE 2026-07-31, human-directed: no usage screenshots will be
+  provided anymore — sessions run the aggressive branch continuously
+  and the human is the throttle, flagging problems in-session; any
+  such flag is acted on same-day per usage_log.md's drop order. The
+  screenshot protocol below stays for the record should one ever
+  arrive): when
   the human pastes a usage screenshot, log it to research/usage_log.md
   and respond SAME-DAY: clear headroom → name exact routine slots to
   add NOW (within the platform's daily cap and hourly spacing);
