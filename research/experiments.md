@@ -35735,3 +35735,52 @@ live, re-check `/api/diag/ml`'s `live_outcome_breakdown` — a non-orphan
 bucket appearing confirms the fix; persistent 100% orphan even after ETF
 trades close would mean the regular/morning entry paths (or boot-cleanup,
 or a ticker-normalization mismatch) need the identical trace next.
+
+## 2026-07-31 [PIPELINE] — GRID VISION wave 3: Asia + Russia (37 regions), FIRST R2-SERVED CONTINENT via same-origin proxy (v1.0.566)
+
+TERRITORY: T-DATACORE + /data wiring + one minimal server/routes.ts
+route (shared file, last commit). Spend-down directive session (see
+usage_log.md 2026-07-31).
+
+SHIPPED: all 37 Geofabrik Asia regions incl. Russia (whose extract
+spans both continents — grouped under Asia, stated in the layer
+description) + z8 continental roll-up. AS_COUNTRIES/grid_as wiring +
+39 registry entries mirror the EU pattern. NONE of these tiles are in
+the repo: Asia broke both the 100MB/file limit (roll-up 122MB) and
+any sane repo budget, so this is the first continent served from R2
+object storage — through a NEW same-origin passthrough route
+(/tiles-r2/:name in server/routes.ts, streams range requests from the
+public bucket, allowlist-shaped names, never buffers). WHY A PROXY
+NOT DIRECT r2.dev: the bucket CORS policy needs a dashboard action
+the human hasn't completed after 3 hourly checks — the proxy removes
+the human dependency entirely; when CORS lands, tilePath() switches
+to direct CDN URLs in one line and the route stays as fallback.
+
+OMISSION CAUGHT BY CROSS-CHECK, not luck: the build map declared 37
+regions but the ORDER string only ran 36 — IRAN was silently missing
+(280k features / 86.5k line-km — a top-5 Asian grid). Lesson, now
+standing for wave scripts: derive the loop from the map's keys, or
+assert len(built)==len(map) at the end; a hand-maintained parallel
+list WILL drift. Roll-up was rebuilt Iran-inclusive and re-uploaded.
+
+CENSUS (37/37, line-km): China 1,187,974 (4.0M features — the densest
+national grid in OSM, 3.7M towers alone), Russia 644,359, India
+475,606, then a long tail down to Maldives (31 km — real geography,
+not a gap: it's an island microstate). Genuinely thin coverage worth
+flagging: Yemen 2,206 km and Lebanon 952 km (conflict-affected
+mapping), Afghanistan 4,935 km — mapping gaps, not grid absence, and
+the layer descriptions carry the standing coverage caveat. Tagging
+skew filed: Pakistan 13,064 plants vs 2,387 substations (the
+Greece/Peru pattern).
+
+VERIFIED: build green; ratchet green; visual harness 5/5 PASS;
+headless probe running the REAL production path (probe server
+implements the same /tiles-r2 proxy against the LIVE R2 bucket):
+master + China + Iran all active, 25 proxied range-fetches observed,
+Chinese HV network drawing over the mainland in the screenshot.
+
+R2 bucket after this wave: ~1.35GB of 10GB free tier. Remaining
+waves (Africa, Oceania, Central America/Caribbean) fit trivially;
+the daily world-rollout routine owns them.
+
+BACKTEST: N/A (datacore /data layer, no trading logic).
