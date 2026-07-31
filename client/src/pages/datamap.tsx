@@ -27,6 +27,7 @@ import GraphView from "./graph";
 import StreamsView from "./streams";
 import QualityDashboardView from "./qualityDashboard";
 import SignalLadderView from "./signalLadder";
+import PipelineHealthDashboardView from "./pipelineHealthDashboard";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
@@ -2259,6 +2260,9 @@ export default function DataMapPage() {
   // Signal-strength dashboard (#/data/signals) — same overlay pattern (MAP V2
   // ROADMAP R6(a), 2026-07-30): ladder position of every root.
   const [signalsOpen, setSignalsOpen] = useState(() => window.location.hash === "#/data/signals");
+  // Pipeline-health dashboard (#/data/pipeline-health) — same overlay pattern
+  // (MAP V2 ROADMAP R6(c), 2026-07-31): closes the R6 dashboard trio.
+  const [pipelineHealthOpen, setPipelineHealthOpen] = useState(() => window.location.hash === "#/data/pipeline-health");
   // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
   // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
   const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
@@ -2577,6 +2581,7 @@ export default function DataMapPage() {
       setStreamsOpen(window.location.hash === "#/data/streams");
       setQualityOpen(window.location.hash === "#/data/quality");
       setSignalsOpen(window.location.hash === "#/data/signals");
+      setPipelineHealthOpen(window.location.hash === "#/data/pipeline-health");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
@@ -10985,6 +10990,9 @@ export default function DataMapPage() {
       {signalsOpen && (
         <SignalLadderView onBack={() => { window.location.hash = "#/data"; setSignalsOpen(false); }} />
       )}
+      {pipelineHealthOpen && (
+        <PipelineHealthDashboardView onBack={() => { window.location.hash = "#/data"; setPipelineHealthOpen(false); }} />
+      )}
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
       )}
@@ -11497,6 +11505,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/signals"; setSignalsOpen(true); }}>
               <TrendingUp size={13} /> Signal strength
               <span className="vt-streams-launch-sub">ladder position of every data root · what's validated, what isn't</span>
+            </button>
+            {/* Pipeline-health dashboard launcher (MAP V2 ROADMAP R6(c),
+                2026-07-31): closes the R6 dashboard trio, page-wide like the
+                two launchers above. */}
+            <button type="button" className="vt-streams-launch" data-vt-pipelinehealth-launch
+                    onClick={() => { window.location.hash = "#/data/pipeline-health"; setPipelineHealthOpen(true); }}>
+              <Activity size={13} /> Pipeline health
+              <span className="vt-streams-launch-sub">uptime, provider backoff, and compliance status over time</span>
             </button>
             {/* Grid-stress launcher (GRID VISION A1 gate-2 FAIL path, 2026-07-07):
                 TX/ERCOT-specific, not a spatial layer, so it launches from the
