@@ -34751,3 +34751,149 @@ open analogous 2-minute ask (wishlist.md item 5).
 STARVED: no — this was the session's one primary action, matched to
 capacity; no queued higher-priority item was skipped (KNOWN BROKEN is
 clean, no LIVENESS ALARM, no thrash).
+
+## 2026-07-31 (scheduled-routine EDGE session) [PIPELINE] — EIA-930 grid demand: GATE 1 revision-stability instrument built + run live, ladder gate 1 PASSED (v1.0.553, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/gridDemandRevision.ts + test,
+scripts/gate1_eia930_revision_probe.ts) + datacore/signal_ladder.json
+(SHARED per its own header, minimized — one-line status edit) +
+package.json (SHARED, version bump only) + research/* (last commit,
+this entry only).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE re-read per
+the routine's own brief). `/api/health` on the production Railway
+deployment: `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+`drawdownPct:"0.0"` — no LIVENESS ALARM. Walked open_questions.md's
+numbered KNOWN BROKEN list end to end: items #1/#2/#3/#5-#19/#21-#25
+already RESOLVED; #10 (dead score-band config, not repaired) and #20
+(master_kill_switch design/threshold question, evidence-logging already
+built, awaiting >=20 trading days of TIER-KILL firings) are both
+non-blocking, previously-triaged, not this session's territory; #26/#27
+(the two most recent, options-scanner sort bug + CSP sizing bucket bug)
+are both already FIXED per the same-day earlier session's own check —
+nothing critical unfixed, so this is NOT a [REPAIR] session. Loop-health
+ratio over the last 10 tagged entries before this one: 2/10 REPAIR
+(well under the 7+ thrash trigger) — PRODUCT x3, PIPELINE x4, REPAIR x2,
+RESEARCH x1. `python3 scripts/runpod_reap.py` (dry-run, per the standing
+reminder in KNOWN STATE): "no open ledger jobs -- nothing to reap."
+`git fetch origin main` confirmed local HEAD (`b53d762`, v1.0.552,
+today's earlier CFTC-TFF PR #655) byte-identical to GitHub's real tip
+before this session's work.
+
+AXIS CHOSEN: (a) build a free-data pipeline end-to-end as code — but
+first delegated a survey (background agent, read-only) to check whether
+this axis is already saturated before starting, per the pattern the
+2026-07-26 session already established. Confirmed: every EDGE-DOCTRINE
+standing example (Sentinel-2 tank shadows, EDGAR Form 4, USAspending,
+CFTC COT, FDA calendar, Google Trends) is already built or correctly
+declined; axis (b) illiquid-universe work's fill-realism prerequisite
+HAS shipped (v1.0.480) and axis-(b) research already ran on top of it
+through 2026-07-28, closing ladder steps 1-3 — its next open steps
+(RULE-REVIEW-gated re-thresholding, and a LOGIC-gate ablation against
+the live bot's actual candidate-selection path) are higher-risk,
+strategy-adjacent work better suited to a dedicated session with more
+runway than this routine's typical budget. The survey's top
+recommendation: advance `eia930_grid_demand` through gate 1 —
+archiver already live since 2026-07-06 (v1.0.163) with pre-stated gate-1
+criteria, `EIA_API_KEY` confirmed live in the session env, and the
+"advance a datacore/ root through its next ladder gate" pattern is
+explicitly in scope per the same-day PRODUCT session's own precedent
+(CFTC TFF, immediately above). Chose this over the survey's other
+candidates (a sea-state foreign-field hypothesis, axis c; a DTCC
+swap-data root gated on a human volume-budget decision) as the
+lowest-risk, most mechanical, most directly evidence-backed option.
+
+PRIOR (stated before running, Reasoning Standard #10): the module's own
+header already carried one anecdotal data point (one US48 hour pulled
+twice ~2 minutes apart, 2026-07-30, 1.1% one-time revision then stable
+on a 4-minute-later third pull) with a standing note that "a future
+session should repeat the probe with wider temporal separation before
+concluding either way." Expected a wider, systematic run (all 12
+respondents x 48h window x D+DF, 9 minutes apart) to show revisions
+concentrated in the newest few hours (closest to the ~1-2h publication
+lag) and roughly in the same 0.5-1.5% magnitude range as the anecdote,
+with the possibility that a systematic run would surface something
+larger the single anecdote missed.
+
+WHAT SHIPPED: `computeRevisionStats()` (server/gridDemandRevision.ts) —
+a pure function pairing every (respondent, period, type) cell present
+in two independent draws and computing per-cell value diffs, bucketed
+by hours-since-period at draw 1 (publication-lag proxy); flags cells at
+or above `MATERIAL_REVISION_PCT` (2%, set with ~2x margin over the
+single prior anecdote) without ever quarantining or altering anything —
+purely a measurement, this stream carries no predictive claim yet, so
+there is nothing to gate. `scripts/gate1_eia930_revision_probe.ts` —
+the runner: calls the REAL, unmodified `fetchDemand()` from
+`server/gridDemand.ts` twice, `--wait-min` apart (default 20; run this
+session with 9, capped by this environment's 10-minute command limit,
+already >2x the prior anecdote's separation), and prints the report.
+7 new tests (server/gridDemandRevision.test.ts) — identical draws (0
+revisions), sub-threshold vs. material revisions, sign preservation,
+worst-sorted-by-magnitude, only-in-one-draw cells never miscounted as
+revisions, null-valued cells excluded from comparison entirely, D/DF
+treated as distinct cells, hours-old bucketing — all pure, no network.
+
+EVIDENCE (this session, live run against the real EIA-930 API, 9-minute
+gap, 2026-07-31T02:44-02:53Z): 1,152 rows per draw (12 respondents x 48h
+x D+DF), 1,140 comparable cells (12 dropped out of each draw's edge as
+the rolling 48h window advanced by roughly one hour — mechanical window
+shift, not data loss). 37 revised (3.25% of compared cells), 0 reaching
+the 2% material threshold, max |diff| 0.24% (NW region-rollup,
+2026-07-30T16, 11h old at draw 1). The gate-1 TARGET respondent, US48
+itself, moved by at most 0.05% across the two cells that changed at all
+(T01: +0.05%, T16: +0.02%) — both far below any decision-relevant
+threshold. RESULT DIFFERED FROM THE STATED PRIOR in one respect worth
+recording: revisions were NOT concentrated in the newest few hours as
+expected from the publication-lag hypothesis — NW showed small revisions
+spread across hours 2 through 19 (of the 48h window) with no obvious
+recency gradient, and the two respondents that actually revised (NW,
+US48) skew toward exactly two of twelve, not a broad cross-respondent
+pattern. Read honestly: one 9-minute run cannot distinguish "revisions
+are recency-independent" from "this particular hour happened to settle
+late" — flagged as a real open question below rather than overclaimed
+as a finding, and the magnitude in every case was small regardless of
+which hypothesis is true.
+
+LADDER UPDATE: `datacore/signal_ladder.json`'s `eia930_grid_demand`
+entry moved `gate1_pending` -> `gate1_pass`, `current_gate` 0 -> 1, note
+rewritten with the evidence above, `source_ref` pointing at the shipped
+instrument + this entry. Honest scope note carried into the ladder
+entry itself: this is one run, not a multi-day battery — the magnitude
+measured is already far below any threshold that would matter for a
+RAW display with zero predictive claim, but a future gate-2 session
+(degree-day-adjusted demand residual vs industrial-sector returns)
+should not assume the recency-gradient question above is settled.
+
+GATES: `npx tsx --test server/gridDemandRevision.test.ts` 7/7 pass.
+Full `npx tsx --test server/*.test.ts` (after `npm install`, this
+sandbox started with only `typescript` present in node_modules — a
+fresh-container quirk, not a repo issue): 944/944 pass, 0 fail (0
+pre-existing failures once dependencies were actually installed — the
+"7 pre-existing failures" pattern cited in recent same-day sessions was
+this same missing-node_modules artifact, not real breakage; worth a
+one-line correction for the next session that inherits a similarly bare
+container). `npx tsc --noEmit`: 79 errors, matching the count the
+CFTC-TFF session recorded a few hours earlier on the same baseline;
+grep-confirmed zero hits on either new file. `npm run build`: clean, no
+new warnings (pre-existing vite chunk-size and astronomy-engine ESM
+warnings unrelated to this change). `python3 -m pytest`: not run — zero
+.py files touched, out of scope. `python3 -c "import json; ..."` on the
+edited `signal_ladder.json`: valid.
+
+BACKTEST: N/A — datacore archive-ingest gate-1 validation, no trading
+logic, no scoring/sizing/threshold value touched; the underlying stream
+is RAW-only with no predictive claim, still gate-locked before any
+trading use.
+
+NEXT: (1) the recency-gradient open question above — a future session
+could re-run the probe at a few different times of day / days of week
+to see whether NW's spread-out revision pattern repeats or was a
+one-off; (2) gate 2 (degree-day-adjusted demand residual vs
+industrial-sector returns, per the module's own stated hypothesis) needs
+archive depth — the archive has been live since 2026-07-06, ~25 days,
+likely still thin for a seasonal degree-day join; (3) the module
+header's stale anecdote note ("worth a future session repeating the
+probe with wider temporal separation") is now closed by this entry.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity; no queued higher-priority item was skipped.
