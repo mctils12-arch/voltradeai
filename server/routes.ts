@@ -1920,6 +1920,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       xray_flare: hit.flare,
       xray_recent: hit.xrayRecent,
       feed_errors: hit.errors.length ? hit.errors : undefined,
+      // Phase 0.4 hardening — ADDITIVE: per-feed freshness at fetch time
+      // (newest parsed record vs poll time, each feed against its own
+      // threshold — FEED_MAX_AGE_MS in spaceWeather.ts). Existing fields
+      // above stay byte-compatible.
+      freshness: hit.freshness,
+      anyStale: hit.anyStale,
     });
   });
 

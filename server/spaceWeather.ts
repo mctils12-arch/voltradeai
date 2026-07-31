@@ -35,6 +35,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { assessStaleness, noaaUtcMs } from "./spaceweatherNormalizer";
 
 const BASE = "https://services.swpc.noaa.gov";
 const URLS = {
@@ -332,6 +333,72 @@ export async function fetchSpaceWeather(fetchImpl: FetchFn = fetch as any, nowMs
   };
 }
 
+// ── freshness (Phase 0.4 hardening) ─────────────────────────────────────────
+// Per-feed age = newest record the parser produced vs fetch time, each feed
+// against its OWN threshold (a 3-hourly Kp product is not stale at 20 min; a
+// 1-min solar-wind summary is). Additive on the API response — existing
+// consumers see byte-identical fields plus `freshness` + `anyStale`.
+
+export type SwFeedKey = "kp" | "scales" | "alerts" | "windSpeed" | "windMag" | "ovation" | "xray";
+
+export const FEED_MAX_AGE_MS: Record<SwFeedKey, number> = {
+  kp: 6 * 3_600_000, // 3-hourly bins; 6 h = two missed bins
+  scales: 6 * 3_600_000,
+  alerts: 6 * 3_600_000, // event-driven: "stale" = no message issued in 6 h, a quiet-feed flag not a fault
+  windSpeed: 15 * 60_000, // ~1-min upstream summaries
+  windMag: 15 * 60_000,
+  ovation: 30 * 60_000, // ~5-min model cadence
+  xray: 15 * 60_000, // ~1-min GOES flux
+};
+
+export interface FeedFreshness {
+  at: string | null; // newest upstream timestamp the parser produced (verbatim)
+  ageS: number | null; // whole seconds at fetch time; null when at is null/unparseable
+  stale: boolean;
+}
+
+const newestIso = (isos: Array<string | null | undefined>): string | null => {
+  let best: string | null = null;
+  let bestMs = -Infinity;
+  for (const s of isos) {
+    const ms = noaaUtcMs(s ?? null);
+    if (ms !== null && ms > bestMs) {
+      bestMs = ms;
+      best = s as string;
+    }
+  }
+  return best;
+};
+
+/** Newest upstream timestamp per feed — by parsed time, never file order. */
+export function newestFeedAt(pull: SpaceWeatherPull): Record<SwFeedKey, string | null> {
+  const cur = pull.scales.current;
+  return {
+    kp: newestIso(pull.kp.map((r) => r.t)),
+    scales: cur?.date && cur?.time ? `${cur.date}T${cur.time}` : null, // UTC stamp of the observed row
+    alerts: newestIso(pull.alerts.map((r) => r.issued)),
+    windSpeed: pull.wind.speedAt,
+    windMag: pull.wind.magAt,
+    ovation: pull.aurora?.obs ?? null, // Observation Time = model input vintage, not the forecast target
+    xray: newestIso(pull.xray.map((r) => r.time_tag)),
+  };
+}
+
+export function computeFreshness(
+  pull: SpaceWeatherPull,
+  nowMs: number,
+): { feeds: Record<SwFeedKey, FeedFreshness>; anyStale: boolean } {
+  const at = newestFeedAt(pull);
+  const feeds = {} as Record<SwFeedKey, FeedFreshness>;
+  let anyStale = false;
+  for (const k of Object.keys(FEED_MAX_AGE_MS) as SwFeedKey[]) {
+    const { stale, ageMs } = assessStaleness(at[k], FEED_MAX_AGE_MS[k], nowMs);
+    feeds[k] = { at: at[k], ageS: ageMs === null ? null : Math.round(ageMs / 1000), stale };
+    if (stale) anyStale = true;
+  }
+  return { feeds, anyStale };
+}
+
 // ── archive (JSONL per day under spaceweather/; dedup Sets, never clear) ────
 
 function swDir(baseDir?: string): string {
@@ -480,6 +547,9 @@ export interface SpaceWeatherCache {
   flare: ReturnType<typeof classifyFlare> | null;
   xrayRecent: XrayRec[]; // long-band only, most recent first (sparkline)
   errors: string[];
+  /** Phase 0.4: per-feed freshness at fetch time (additive on the API response) */
+  freshness: Record<SwFeedKey, FeedFreshness>;
+  anyStale: boolean;
 }
 
 const XRAY_RECENT = 180; // long-band minutes (3h) — enough for a sparkline
@@ -501,6 +571,10 @@ export async function refreshSpaceWeatherCache(fetchImpl: FetchFn = fetch as any
     if (gotAnything || !cache) {
       const xLongHistory = pull.xray.filter((r) => r.energy === XRAY_LONG_BAND).slice(-XRAY_RECENT);
       const xLatest = xLongHistory.length ? xLongHistory[xLongHistory.length - 1] : cache?.xrayLatest ?? null;
+      // per-feed age vs FETCH time, from what THIS pull's parsers produced —
+      // a feed that returned nothing is honestly {at:null, stale:true} even
+      // when a last-good value (aurora/xray) is still being served below
+      const { feeds: freshness, anyStale } = computeFreshness(pull, nowMs ?? Date.now());
       cache = {
         at: Date.now(),
         kpRecent: pull.kp.slice(-8),
@@ -512,6 +586,8 @@ export async function refreshSpaceWeatherCache(fetchImpl: FetchFn = fetch as any
         flare: xLatest ? classifyFlare(xLatest.flux) : null,
         xrayRecent: xLongHistory.length ? xLongHistory : cache?.xrayRecent ?? [],
         errors: pull.errors,
+        freshness,
+        anyStale,
       };
     }
     try { archiveSpaceWeather(pull, undefined, nowMs); } catch {}

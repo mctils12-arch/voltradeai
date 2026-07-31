@@ -1,0 +1,12 @@
+[
+  { "time_tag": "2026-07-31T12:02:00Z", "source": "SOLAR1", "active": true, "overall_quality": 2, "proton_speed": null, "proton_density": null, "proton_temperature": null, "bt": 6.1, "bz_gsm": -2.4, "phi_gsm": 141.2, "theta_gsm": -12.9 },
+  { "time_tag": "2026-07-31T12:02:00Z", "source": "ACE", "active": false, "overall_quality": 0, "proton_speed": 402.7, "proton_density": 4.9, "proton_temperature": 101234, "bt": 5.8, "bz_gsm": -1.9, "phi_gsm": 139.4, "theta_gsm": -10.2 },
+  { "time_tag": "2026-07-31T12:01:00Z", "source": "SOLAR1", "active": true, "overall_quality": 0, "proton_speed": 412.3, "proton_density": 5.2, "proton_temperature": 98321, "bt": 6.0, "bz_gsm": -2.1, "phi_gsm": 140.0, "theta_gsm": -11.5 },
+  { "time_tag": "2026-07-31T12:01:00Z", "source": "IMAP", "active": false, "overall_quality": 0, "proton_speed": 388.0, "proton_density": 4.4, "proton_temperature": 87654, "bt": 5.5, "bz_gsm": -1.2, "phi_gsm": 137.8, "theta_gsm": -8.9 },
+  { "time_tag": "2026-07-31T12:00:00Z", "source": "SOLAR1", "active": true, "overall_quality": 0, "proton_speed": 409.9, "proton_density": 5.1, "proton_temperature": 97840, "bt": 6.2, "bz_gsm": -2.6, "phi_gsm": 140.7, "theta_gsm": -11.9 },
+  { "time_tag": "2026-07-31T12:00:00Z", "source": "ACE", "active": false, "overall_quality": 1, "proton_speed": 401.5, "proton_density": 4.8, "proton_temperature": 100500, "bt": 5.7, "bz_gsm": -1.8, "phi_gsm": 139.0, "theta_gsm": -10.0 },
+  { "time_tag": "2026-07-31T12:00:00Z", "source": "IMAP", "active": false, "overall_quality": 0, "proton_speed": 387.2, "proton_density": 4.3, "proton_temperature": 87100, "bt": 5.4, "bz_gsm": -1.1, "phi_gsm": 137.5, "theta_gsm": -8.7 },
+  { "time_tag": "2026-07-29T23:50:00Z", "source": "ACE", "active": false, "overall_quality": 0, "proton_speed": 365.4, "proton_density": 3.9, "proton_temperature": 65432, "bt": 4.2, "bz_gsm": 0.8, "phi_gsm": 132.1, "theta_gsm": -3.4 },
+  { "time_tag": "2026-07-29T23:49:00Z", "source": "SOLAR1", "active": false, "overall_quality": 0, "proton_speed": 372.8, "proton_density": 4.0, "proton_temperature": 66789, "bt": 4.4, "bz_gsm": 0.5, "phi_gsm": 132.9, "theta_gsm": -3.8 },
+  { "time_tag": "2026-07-29T23:48:00Z", "source": "IMAP", "active": false, "overall_quality": 2, "proton_speed": null, "proton_density": null, "proton_temperature": null, "bt": 4.1, "bz_gsm": 0.9, "phi_gsm": 131.7, "theta_gsm": -3.1 }
+]
