@@ -7,6 +7,7 @@ import {
   CRUMB_CAP,
   CRUMB_MIN_DT_SEC,
   CRUMB_MERGE_GUARD_SEC,
+  ALT_HOLD_MAX_AGE_SEC,
   pushCrumb,
   mergeTrackWithCrumbs,
   type Crumb,
@@ -55,13 +56,68 @@ test('merge: crumbs newer than the archive extend it; the seam guard drops the o
     c(1190),                                   // older than the archive head — dropped
     c(1200 + CRUMB_MERGE_GUARD_SEC),           // inside the seam guard — dropped
     c(1215, -97.4, 38.6),                      // fresh — kept
-    c(1230, -97.3, 38.7, null),                // fresh, no alt — kept as-is
+    c(1230, -97.3, 38.7, null),                // fresh, no alt — altitude HOLD kicks in
   ];
   const merged = mergeTrackWithCrumbs(archived, crumbs);
   assert.equal(merged.length, 4);
   assert.deepEqual(merged.slice(0, 2), archived, 'archived history untouched, in order');
   assert.equal(merged[2].t, 1215);
-  assert.equal(merged[3].al, null);
+  // 2026-07-31: one missing altitude field no longer NaN-gaps the live
+  // bridge — the display point carries the last real broadcast altitude
+  // (here the 1215 crumb's 9000), explicitly flagged as held
+  assert.equal(merged[3].al, 9000);
+  assert.equal(merged[3].held, true, 'held display altitude is flagged, never passed off as broadcast');
+  assert.equal(merged[2].held, undefined, 'real broadcast points carry no held flag');
+});
+
+test('merge: ALTITUDE HOLD seeds from the archived end when the first crumb already lacks altitude', () => {
+  const archived = [{ lo: -98, la: 38, t: 1200, al: 8000 }];
+  const merged = mergeTrackWithCrumbs(archived, [c(1215, -97.9, 38.1, null)]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[1].al, 8000, 'archived altitude carries the bridge');
+  assert.equal(merged[1].held, true);
+});
+
+test('merge: ALTITUDE HOLD expires at the bound — a sustained outage is still an honest gap', () => {
+  const archived = [{ lo: -98, la: 38, t: 1000, al: 8000 }];
+  const inBound = 1000 + ALT_HOLD_MAX_AGE_SEC;        // exactly at the bound — held
+  const outBound = 1000 + ALT_HOLD_MAX_AGE_SEC + 15;  // past it — honest null
+  const merged = mergeTrackWithCrumbs(archived, [
+    c(inBound, -97.9, 38.1, null),
+    c(outBound, -97.8, 38.2, null),
+  ]);
+  assert.equal(merged[1].al, 8000);
+  assert.equal(merged[1].held, true);
+  assert.equal(merged[2].al, null, 'the hold is bounded from the last REAL fix, not the last held point');
+  assert.equal(merged[2].held, undefined);
+});
+
+test('merge: a real broadcast altitude resets the hold source and value', () => {
+  const merged = mergeTrackWithCrumbs([], [
+    c(1000, -97, 39, 9000),
+    c(1015, -96.9, 39, null),   // held at 9000
+    c(1030, -96.8, 39, 10000),  // real fix — new source
+    c(1045, -96.7, 39, null),   // held at 10000, aged from t=1030
+  ]);
+  assert.equal(merged[1].al, 9000);
+  assert.equal(merged[1].held, true);
+  assert.equal(merged[2].al, 10000);
+  assert.equal(merged[2].held, undefined);
+  assert.equal(merged[3].al, 10000);
+  assert.equal(merged[3].held, true);
+});
+
+test('merge: ALTITUDE HOLD with no altitude anywhere stays null — nothing is ever invented', () => {
+  const archived = [{ lo: -98, la: 38, t: 1200, al: null }];
+  const merged = mergeTrackWithCrumbs(archived, [c(1215, -97.9, 38.1, null)]);
+  assert.equal(merged[1].al, null, 'no hold source, no fabricated altitude');
+  assert.equal(merged[1].held, undefined);
+});
+
+test('merge: an untimed archived altitude never seeds the hold (cannot be age-bounded)', () => {
+  const archived = [{ lo: -98, la: 38, al: 8000 }]; // no t — treated as old
+  const merged = mergeTrackWithCrumbs(archived, [c(1215, -97.9, 38.1, null)]);
+  assert.equal(merged[1].al, null);
 });
 
 test('merge: no archive yet — the live crumbs alone form the track', () => {

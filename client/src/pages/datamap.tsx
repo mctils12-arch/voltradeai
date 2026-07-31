@@ -3634,7 +3634,13 @@ export default function DataMapPage() {
         // tail visibly stepped at the seam on the flat map (AGL datum)
         fromAltM: st.altDisp[li], fromGroundZ: st.groundZ[li],
         toMercX: m.x, toMercY: m.y,
-        toAltM: lv.fix.al == null ? NaN : displayAltReal(map, lv.fix.al, lo, la),
+        // ALTITUDE HOLD (2026-07-31): a live fix without altitude no longer
+        // NaN-gaps the bridge — reuse the track's last display altitude (a
+        // level continuation, the same held-altitude policy this tail has
+        // always applied to the glide; the merged track's own hold feeds
+        // that vertex, so the wall stays continuous). Still NaN — an honest
+        // gap — when the track has no altitude anywhere to hold.
+        toAltM: lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la),
         toGroundZ: terrainOn ? groundDisplayAt(map, lo, la) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
