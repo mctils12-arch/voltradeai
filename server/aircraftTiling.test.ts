@@ -162,6 +162,28 @@ test("mapPointAircraft: readsb record -> unified shape (units, ground, null-pos 
   assert.deepEqual(mapPointAircraft({ aircraft: [] }, "aircraft"), []);
 });
 
+test("mapPointAircraft: alt_geom fallback — a missing alt_baro no longer nulls the altitude of an airborne row", () => {
+  const raw = { ac: [
+    // alt_baro dropped mid-flight, alt_geom (GNSS) still broadcast — the
+    // 2026-07-31 curtain-gap case: the row is airborne with a real altitude
+    { hex: "geo001", lat: 40, lon: -75, alt_geom: 36000, gs: 440 },
+    // both broadcast → baro wins (the aviation convention)
+    { hex: "both01", lat: 41, lon: -74, alt_baro: 35000, alt_geom: 35400 },
+    // neither broadcast → honestly null (never invented)
+    { hex: "none01", lat: 42, lon: -73, gs: 250 },
+    // on ground: alt_geom may still carry field elevation — altitude stays
+    // null and on_ground true, exactly as before
+    { hex: "gnd001", lat: 43, lon: -72, alt_baro: "ground", alt_geom: 650 },
+  ] };
+  const out = mapPointAircraft(raw, "ac");
+  assert.equal(out.find((a) => a.icao24 === "geo001").altitude_m, Math.round(36000 * 0.3048));
+  assert.equal(out.find((a) => a.icao24 === "geo001").on_ground, false);
+  assert.equal(out.find((a) => a.icao24 === "both01").altitude_m, Math.round(35000 * 0.3048));
+  assert.equal(out.find((a) => a.icao24 === "none01").altitude_m, null);
+  assert.equal(out.find((a) => a.icao24 === "gnd001").altitude_m, null);
+  assert.equal(out.find((a) => a.icao24 === "gnd001").on_ground, true);
+});
+
 // ── fetchDiscs orchestration (mocked upstream) ──────────────────────────────
 
 const CHAIN: DiscProvider[] = [

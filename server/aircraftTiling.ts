@@ -166,19 +166,32 @@ export interface DiscProvider {
  *  the position archive consume (extracted verbatim from routes.ts so every
  *  disc maps identically and the mapping is unit-testable). */
 export function mapPointAircraft(raw: any, arrKey: string): any[] {
-  return ((raw?.[arrKey] as any[]) || []).slice(0, 10000).map((a: any) => ({
-    icao24: a.hex,
-    callsign: String(a.flight || "").trim(),
-    origin_country: a.r || "",
-    lon: a.lon,
-    lat: a.lat,
-    altitude_m: a.alt_baro === "ground" || a.alt_baro == null ? null : Math.round(a.alt_baro * 0.3048),
-    on_ground: a.alt_baro === "ground",
-    velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
-    heading: a.track ?? null,
-    type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
-    category: a.category || null,          // ADS-B emitter category (A1..A7)
-  })).filter((a: any) => a.lat != null && a.lon != null);
+  return ((raw?.[arrKey] as any[]) || []).slice(0, 10000).map((a: any) => {
+    // alt_baro drops out of readsb rows for stretches while alt_geom (GNSS
+    // altitude — also a real broadcast field) stays present; a null here
+    // NaN-gapped the 3D track curtain at the live end even though the plane
+    // was clearly airborne (2026-07-31 video). Baro first (the aviation
+    // convention every consumer expects), geometric as the fallback — both
+    // are broadcast measurements, never an estimate.
+    const onGround = a.alt_baro === "ground";
+    const altFt = onGround ? null
+      : typeof a.alt_baro === "number" ? a.alt_baro
+      : typeof a.alt_geom === "number" ? a.alt_geom
+      : null;
+    return {
+      icao24: a.hex,
+      callsign: String(a.flight || "").trim(),
+      origin_country: a.r || "",
+      lon: a.lon,
+      lat: a.lat,
+      altitude_m: altFt == null ? null : Math.round(altFt * 0.3048),
+      on_ground: onGround,
+      velocity_ms: a.gs == null ? null : Math.round(a.gs * 0.5144),
+      heading: a.track ?? null,
+      type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
+      category: a.category || null,          // ADS-B emitter category (A1..A7)
+    };
+  }).filter((a: any) => a.lat != null && a.lon != null);
 }
 
 /** Merge per-disc aircraft lists, deduping by icao24 (discs overlap by
