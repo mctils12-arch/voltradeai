@@ -35293,3 +35293,61 @@ interaction, "moon first"); the mercator-mode satellite far-side mispick
 (Earth-side issue, same occlusion concept — pick.ts skips the far-side
 cull when cameraSphere is null); full inertial Google-Earth flight
 (the eased glide is the low-risk step toward it).
+
+────────────────────────────────────────────────────────────────────────
+2026-07-31 · [REPAIR] · T-CLIENT
+Crash-report analysis: the GPU is Intel Iris Xe, the losses are
+driver/GPU-process-level, THREE hypotheses now formally dead; first
+evidence-backed mitigation shipped (sky context lifecycle) (v1.0.557)
+
+THE HUMAN PASTED THE FULL BLACKBOX REPORT — the recorder built for exactly
+this. What it settles:
+
+HYPOTHESES REFUTED BY THIS DATA, in order of death:
+1. Terrain/DEM residency (refuted 2026-07-30): terrainLive:false on every
+   loss.
+2. Memory pressure in JS: heap 50-238MB against a 4,396MB limit each time.
+3. TDR / long-frame stall (this session's leading theory): the new frame
+   recorder shows last8Ms [16,33,17,17,33,17,50,17], zero frames over
+   250ms, right up to the loss. There was no long draw. TDR is dead.
+
+WHAT THE DATA ESTABLISHES:
+· gpu (loss #3): "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics ... D3D11)" —
+  INTEGRATED graphics sharing the 16GB system RAM.
+· Loss #3 died 3.8s AFTER LOAD on the NORMAL MAP (inSpace:false, zoom
+  2.76) — no space view, no user gesture, healthy frames, healthy heap.
+· Loss #4 reports gpu:"no-webgl" — at snapshot time Chrome could not
+  create ANY WebGL context: the GPU process itself was down.
+· The dead boot in the report survived 3,458ms (trail: module-eval ->
+  map-create) with NO loss event recorded — killed without our code
+  running, the OOM/process-kill signature.
+· safeMode engaged and the Copy button delivered this report: the
+  blackbox worked end-to-end on its first real crash.
+
+DIAGNOSIS (stated with its confidence): driver/GPU-process-level
+instability on Intel Iris Xe + Chrome D3D11 — a combination with a long
+public history of device-removed resets — amplified by (a) TWO standing
+WebGL contexts + three full-screen canvases of surface area, and (b) an
+integrated GPU competing for the same physical RAM as a heavily-loaded
+browser (the tab strip in the human's captures shows many corporate
+apps). This is NOT primarily our render load: frames were 17ms.
+
+SHIPPED (evidence-responsive, not speculative): celestialSky's WebGL
+context is now LIFECYCLE-MANAGED instead of session-permanent. It is
+geometrically invisible until pitch ≈ 72° (lookEl = pitch − 90, fov
+~37°); it now mounts at pitch ≥ 55°, disposes after 4s below 45°, and
+never mounts in safe mode. The 2026-07-17 "always on" directive is
+preserved — the sky exists whenever it can be SEEN; what is gone is an
+invisible standing context. Loss #3 (top-down, 3.8s in) would have had
+HALF the WebGL surface area under this change. Mount/unmount drop
+blackbox breadcrumbs, so the next crash report shows whether the sky
+context was even alive.
+
+USER-SIDE FACTS FILED FOR THE HUMAN: Intel Iris Xe driver updates fix
+real classes of these resets (Intel's release notes repeatedly cite
+Chrome stability); integrated GPUs share system RAM, so heavy tab loads
+directly shrink GPU headroom.
+
+WISHLIST proposal C (one context) gains this as evidence: with the
+driver as the failure point, every extra context is attack surface, and
+C remains the structural end-state.

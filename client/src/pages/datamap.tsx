@@ -5054,11 +5054,33 @@ export default function DataMapPage() {
     const map = mapRef.current;
     const container = mapContainer.current;
     if (!map || !mapReady || !container) return;
+    // CONTEXT LIFECYCLE, not feature removal (2026-07-31 crash-report review).
+    // The sky previously held a second full-screen WebGL context for the WHOLE
+    // session, yet it is geometrically invisible until the camera pitches near
+    // the horizon (lookEl = pitch − 90; with the default ~37° fov nothing above
+    // the horizon enters the frame until pitch ≈ 72°). The human's crash
+    // diagnostics (Intel Iris Xe, Chrome D3D11) show GPU-process context losses
+    // with HEALTHY frame times and heap — driver-level instability, where every
+    // standing GL context is surface area. Loss #3 in that report died 3.8s
+    // after load, TOP-DOWN, with this context alive and contributing nothing.
+    // So: mount when the sky could become visible (pitch ≥ 55°, well under the
+    // ~72° visibility edge), dispose after 4s below 45° (hysteresis). The
+    // 2026-07-17 "always on" directive is preserved — the sky is there every
+    // time it can be SEEN; what no longer exists is an invisible context.
+    // Safe mode (a prior boot died young) never mounts it at all.
     let disposed = false;
     let handle: any = null;
-    (async () => {
+    let mounting = false;
+    let downTimer: number | null = null;
+    const SKY_PITCH_ON = 55;
+    const SKY_PITCH_OFF = 45;
+    const mount = async () => {
+      if (disposed || handle || mounting) return;
+      mounting = true;
       const { mountCelestialSky } = await import("@/lib/celestial/celestialSky");
-      if (disposed) return;
+      mounting = false;
+      if (disposed || handle) return;
+      bmark("sky-mount", { pitch: Math.round(map.getPitch()) });
       handle = mountCelestialSky(container, {
         getView: () => {
           const c = map.getCenter();
@@ -5082,13 +5104,35 @@ export default function DataMapPage() {
       celestialRef.current = handle;
       (window as any).__vtCelestial = handle; // harness seam (prod-inert, like __vtMap)
       setCelestialReady(true);
-    })();
-    return () => {
-      disposed = true;
-      try { handle?.dispose(); } catch {}
+    };
+    const unmount = () => {
+      if (!handle) return;
+      bmark("sky-unmount");
+      try { handle.dispose(); } catch { /* context may already be gone */ }
+      handle = null;
       celestialRef.current = null;
       setCelestialReady(false);
       try { delete (window as any).__vtCelestial; } catch {}
+    };
+    const check = () => {
+      if (disposed || BOOT_SAFE) return;
+      const p = map.getPitch();
+      if (p >= SKY_PITCH_ON) {
+        if (downTimer != null) { window.clearTimeout(downTimer); downTimer = null; }
+        void mount();
+      } else if (p < SKY_PITCH_OFF && handle && downTimer == null) {
+        downTimer = window.setTimeout(() => { downTimer = null; unmount(); }, 4000);
+      }
+    };
+    if (BOOT_SAFE) bmark("sky-skipped-safe-mode");
+    map.on("pitch", check);
+    map.on("pitchend", check);
+    check();
+    return () => {
+      disposed = true;
+      try { map.off("pitch", check); map.off("pitchend", check); } catch {}
+      if (downTimer != null) window.clearTimeout(downTimer);
+      unmount();
     };
   }, [mapReady]);
 

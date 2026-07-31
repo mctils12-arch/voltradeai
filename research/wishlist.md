@@ -2253,7 +2253,13 @@ PROPOSALS, cheapest first — approve one or more:
     spaceActive so their buffers/tiles can be evicted, restoring on exit.
     Needs care: hiding is not the same as freeing in MapLibre, so this must
     be MEASURED (renderer info before/after) rather than assumed.
- C. ONE CONTEXT (large, the real architectural answer). Today three GPU
+ C. ONE CONTEXT (large, the real architectural answer). EVIDENCE UPDATE
+    2026-07-31: the blackbox report identifies Intel Iris Xe (D3D11) with
+    healthy frames and heap at every loss — driver/GPU-process-level
+    resets, where each standing context is surface area. TDR and memory
+    theories are dead (see experiments.md). First step shipped same day:
+    celestialSky context lifecycle (mount ≥55° pitch, dispose <45°+4s).
+     Today three GPU
     consumers coexist with independent budgets: MapLibre's WebGL context,
     celestialSky's WebGL context, and the space frame's 2D canvas. Draw the
     space frame and sky as MapLibre CustomLayers in the single existing
