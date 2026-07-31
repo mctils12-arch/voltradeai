@@ -4323,11 +4323,26 @@ R6. **Dashboards from monitoring we already emit (charter directive
     `archiveStats()` (archive growth by kind), and the
     `strategic_sites.json`/`us_power_plants.json` imagery-verification
     registries (sites 16/16, ports 9/9, plants 100/9,833 — all read live,
-    never hardcoded). Zero new collection, per the charter directive. (a)
-    and (c) remain unbuilt; (c) is NOT zero-new-collection like (b) was —
-    `/api/health` only reports the current instant today, so a
-    checks-history panel needs a new time-series capture first, unlike
-    this session's pure read-side join.
+    never hardcoded). Zero new collection, per the charter directive.
+    **[(a) SHIPPED 2026-07-30, v1.0.550]** `/data/signals` SIGNAL-STRENGTH
+    dashboard — ladder position of every root, from `datacore/
+    signal_ladder.json` made machine-readable.
+    **[(c) SHIPPED 2026-07-31, v1.0.555]** `server/pipelineHealthHistory.ts`
+    + `/api/data/pipeline-health-dashboard` + `client/src/pages/
+    pipelineHealthDashboard.tsx` (`#/data/pipeline-health`) — this one
+    genuinely was NOT zero-new-collection like (b): `/api/health` only
+    ever reported the current instant, so this ships the missing
+    time-series capture itself. No new poller — `recordHealthSnapshot()`
+    hooks into the existing `/api/health` handler (server/bot.ts) and
+    throttles to one JSONL append per 5-minute window, riding the
+    platform's own existing health-check polling cadence rather than
+    adding a timer. Uptime (24h/7d), a timeline sparkline, and per-check
+    degraded counts (database/alpaca/python/scanner backoff/licensing/
+    trading-loop liveness). See research/experiments.md 2026-07-31 for
+    the full build log, including a visual-harness-caught CSS bug
+    (reused flex-direction:column class collapsed the timeline bars)
+    fixed before shipping. R6 IS NOW FULLY CLOSED — all three panels
+    live.
 
 ## ARCHIVE-ENABLED SIGNAL HYPOTHESES (raw material accumulating from R1;
    each still validates through the full ladder)

@@ -1,0 +1,25 @@
+{
+ "stream": "pipeline_health",
+ "storage": "append-only JSONL day-files under <archive>/pipeline_health/, one line per recorded snapshot (no gzip — plain rows stay tiny, ~150 bytes each)",
+ "written_by": "server/pipelineHealthHistory.ts recordHealthSnapshot(), called from inside the existing /api/health handler (server/bot.ts) on every hit, throttled in-memory to one write per DEFAULT_MIN_INTERVAL_MS (5 min) — no dedicated poller/timer",
+ "source": "the same /api/health computation the endpoint already returns to callers (Railway platform health checks + any external monitor) — this stream is a flattened snapshot of that response, not a separate fetch from anywhere",
+ "license": "internal operational telemetry, no third-party terms",
+ "attribution": "n/a (self-generated)",
+ "schema_version": 1,
+ "field_map": {
+  "t": "unix seconds at snapshot time",
+  "status": "'ok' | 'degraded' — the /api/health top-level status at that instant",
+  "database_ok / alpaca_ok / python_ok": "booleans mirroring each /api/health sub-check's status === 'ok'",
+  "scanner_ok / scanner_consecutive_failures": "Tier-2 scan backoff state at snapshot time",
+  "licensing_ok": "aircraft-provider monetization-compliance check (MONETIZATION TRIPWIRE)",
+  "bot_status / bot_liveness_dark": "trading-loop active/stopped/killed state and the LIVENESS ALARM flag",
+  "heap_used_mb / rss_mb": "Node process memory at snapshot time"
+ },
+ "confidence_model": "RAW operational telemetry, no predictive claim — this is the PIPELINE-HEALTH panel (MAP V2 ROADMAP R6(c)), not a trading or product signal. uptime_pct is reported null (never fabricated as 100%) whenever a window has zero recorded samples.",
+ "geo_fields": [],
+ "entity_key": "t (one row per recorded instant; no other stream to join against)",
+ "sentiment": null,
+ "started": "2026-07-31",
+ "cadence": "throttled to at most one write per 5 minutes, driven by whatever cadence /api/health is actually polled at",
+ "_note": "Closes the R6 dashboard trio (R6(a) signal-strength + R6(b) data-quality shipped 2026-07-30 were pure joins over already-computed state; this one needed an actual time-series capture, which research/open_questions.md's roadmap note flagged as the reason (c) stayed unbuilt). Served at /api/data/pipeline-health-dashboard, rendered at #/data/pipeline-health."
+}

@@ -29,6 +29,7 @@ import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
   recentTrackCached, archiveStats,
 } from "./datacoreArchive";
+import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
@@ -1346,6 +1347,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/signal-ladder", (_req, res) => {
     try {
       res.json({ generated_at: new Date().toISOString(), ...loadSignalLadder() });
+    } catch (e: any) { res.status(500).json({ error: e?.message }); }
+  });
+
+  // MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard (research/open_questions.md;
+  // the third and final R6 panel, 2026-07-31). Unlike (a)/(b) above, /api/health
+  // (server/bot.ts) only reports the current instant — this reads the JSONL
+  // history that handler now records on every hit (throttled, see
+  // pipelineHealthHistory.ts) and summarizes two trailing windows. Honest with
+  // zero data: uptime_pct is null (never fabricated as 100%) until snapshots
+  // accumulate, which starts the moment this ships.
+  app.get("/api/data/pipeline-health-dashboard", (_req, res) => {
+    try {
+      const rows = readHealthHistory(8);
+      res.json({
+        generated_at: new Date().toISOString(),
+        warming_up: rows.length === 0,
+        window_24h: summarizeWindow(rows, 24),
+        window_7d: summarizeWindow(rows, 24 * 7),
+      });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 

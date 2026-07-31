@@ -11,6 +11,7 @@ import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay } from "./datacoreArchive";
+import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload } from "./exitFill";
@@ -1336,6 +1337,13 @@ print(json.dumps(data))
       rssMB: Math.round(mem.rss / 1048576),
       externalMB: Math.round(mem.external / 1048576),
     };
+
+    // MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard time-series (2026-07-31):
+    // no new poller — this handler already computes every check on a steady
+    // external polling cadence (Railway + monitors), so recordHealthSnapshot
+    // throttles itself to one disk write per window. Never let a history-
+    // recording failure affect the health response itself.
+    try { recordHealthSnapshot(checks); } catch {}
 
     const httpCode = checks.status === "ok" ? 200 : 503;
     res.status(httpCode).json(checks);

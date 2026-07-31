@@ -53,6 +53,10 @@ const PAGES = {
   // Signal-strength dashboard (MAP V2 ROADMAP R6(a), 2026-07-30) — same
   // Phase 5 ratchet rule as streams/quality above.
   signals: { route: "/app#/data/signals", map: false },
+  // Pipeline-health dashboard (MAP V2 ROADMAP R6(c), 2026-07-31) — same
+  // Phase 5 ratchet rule as streams/quality/signals above; closes the R6
+  // dashboard trio.
+  pipelinehealth: { route: "/app#/data/pipeline-health", map: false },
   // Grid-stress descriptive reading overlay (GRID VISION A1 gate-2 FAIL
   // path, 2026-07-07) — same Phase 5 ratchet rule as streams above.
   gridstress: { route: "/app#/data/grid-stress", map: false },
@@ -419,6 +423,34 @@ const FIXTURES = {
       killed_count: 1,
       raw_only_count: 1,
       furthest_gate_reached: 1,
+    },
+  },
+  // Pipeline-health dashboard (MAP V2 ROADMAP R6(c), 2026-07-31) — a mixed
+  // 24h timeline (mostly ok, a few degraded bars) plus non-zero per-check
+  // degraded counts so both the uptime tiles and the "what's degrading"
+  // bar-chart rendering paths are exercised at 390px.
+  "/api/data/pipeline-health-dashboard": {
+    generated_at: "2026-07-31T00:00:00.000Z",
+    warming_up: false,
+    window_24h: {
+      window_hours: 24, sample_count: 288, uptime_pct: 97.6,
+      current: {
+        t: 1783200000, status: "ok", database_ok: true, alpaca_ok: true, python_ok: true,
+        scanner_ok: true, scanner_consecutive_failures: 0, licensing_ok: true,
+        bot_status: "active", bot_liveness_dark: false,
+      },
+      degraded_counts: { database: 0, alpaca: 2, python: 0, scanner: 5, licensing: 0, bot_liveness_dark: 0 },
+      timeline: Array.from({ length: 48 }, (_, i) => ({ t: 1783200000 - (47 - i) * 1800, status: i === 10 || i === 11 || i === 30 ? "degraded" : "ok" })),
+    },
+    window_7d: {
+      window_hours: 168, sample_count: 2016, uptime_pct: 99.1,
+      current: {
+        t: 1783200000, status: "ok", database_ok: true, alpaca_ok: true, python_ok: true,
+        scanner_ok: true, scanner_consecutive_failures: 0, licensing_ok: true,
+        bot_status: "active", bot_liveness_dark: false,
+      },
+      degraded_counts: { database: 0, alpaca: 3, python: 0, scanner: 15, licensing: 0, bot_liveness_dark: 1 },
+      timeline: Array.from({ length: 100 }, (_, i) => ({ t: 1783200000 - (99 - i) * 6048, status: i % 33 === 0 ? "degraded" : "ok" })),
     },
   },
   // Streams inventory (Phase 4) — one row per health state so the card

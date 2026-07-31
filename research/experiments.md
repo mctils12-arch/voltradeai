@@ -3,6 +3,172 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-31 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard shipped: /data/pipeline-health, closes the R6 dashboard trio (v1.0.555, T-CLIENT + SHARED)
+
+TERRITORY: T-CLIENT (`client/src/pages/pipelineHealthDashboard.tsx`,
+`client/src/pages/datamap.tsx` launcher/overlay wiring, `scripts/
+visual_check.mjs`) + `server/pipelineHealthHistory.ts` + test (a genuinely
+new, small, standalone module — no bot.ts scoring/sizing logic touched;
+its only T-BOT-territory contact is a two-line hook inside the existing
+`/api/health` handler, called out explicitly below) + `datacore/manifests/
+pipeline_health.json` (SHARED per its own envelope header, minimized) +
+`package.json`/`package-lock.json` (SHARED, version bump only, read-and-
+incremented at commit time per MERGE-ORDER PROTOCOL) + `research/*` (last
+commit, this entry only).
+
+SESSION-START CHECKS: CLAUDE.md read in full, all of research/ read (this
+session's own opening brief: "read CLAUDE.md completely, then all of
+research/"). `/api/health` on the production Railway deployment:
+`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+`drawdownPct:"0.0"`, `equityPeak:109967.44` — no LIVENESS ALARM, no
+critical unfixed KNOWN BROKEN item (open_questions.md's list is either
+RESOLVED or previously-triaged non-blocking, per the same-day 07-31
+CFTC-TFF and EIA-930 sessions' own walks, re-confirmed by grep this
+session rather than trusted from memory). Loop-health ratio over the
+last 10 tagged entries before this one: well under the 7+ REPAIR thrash
+trigger (this same day alone already logged 3 PIPELINE/PRODUCT entries
+today before this one — CFTC TFF gate 1, EIA-930 gate 1, and the CSP-
+sizing repair immediately below this one in file order). Not a [REPAIR]
+session: this is the scheduled [PRODUCT] routine, whose own brief
+explicitly defers repair duty to the DAILY routines unless a break
+blocks product work outright (none did).
+
+AXIS CHOSEN: per this session's own brief ("advance a datacore/ pipeline
+gate" / "build product UI/UX" / "propose a new feature" / "improve the
+API boundary"), read research/open_questions.md's MAP V2 ROADMAP R6
+section end to end. R6(a) SIGNAL-STRENGTH and R6(b) DATA-QUALITY both
+shipped 2026-07-30 (v1.0.550, v1.0.544) as pure read-side joins over
+state the platform already computed — the section's own text flagged
+R6(c) PIPELINE-HEALTH as NOT zero-new-collection like (b): "/api/health
+only reports the current instant today, so a checks-history panel needs
+a new time-series capture first." Grep-confirmed nothing had built that
+capture (`ls server/ | grep -i health` showed only `scannerHealth.ts`,
+the Tier-2 backoff-classification pure function, and `client/src/pages/`
+had no pipeline-health view) — a genuinely unclaimed, previously-scoped
+roadmap item, the lowest-risk kind of product work available (no new
+external data source, no scoring/sizing logic, a well-understood shape
+from its two already-shipped siblings).
+
+WHAT SHIPPED:
+- `server/pipelineHealthHistory.ts` — the time-series capture. Design
+  choice made explicit in the module header: NO new poller/timer.
+  `/api/health` (server/bot.ts) already computes every check (database/
+  alpaca/python/bot/scanner/licensing) on every hit, and Railway (plus
+  any external monitor) already polls it on a steady cadence for
+  platform health — so `recordHealthSnapshot()` is called from INSIDE
+  that existing handler (two-line hook, non-blocking try/catch, added
+  immediately before the existing `res.status(httpCode).json(checks)`
+  line) and throttles itself in-memory (module-level last-write clock,
+  same tolerance pattern as `datacoreArchive.ts`'s per-entity `lastWrite`
+  map — a process restart just writes one extra sample early, harmless)
+  to one real disk write per 5-minute window regardless of hit
+  frequency. Zero new network calls, zero new timers, one flat JSONL
+  line per window at `<archiveBaseDir>/pipeline_health/YYYY-MM-DD.jsonl`
+  — the same day-file convention as `cftcTff.ts`/`edgarForm4.ts`.
+  `summarizePipelineHealth()`/`summarizeWindow()` are pure aggregation:
+  uptime_pct (honestly `null`, never fabricated as 100%, when a window
+  has zero samples), per-check degraded counts (database/alpaca/python/
+  scanner/licensing/bot_liveness_dark), a capped+downsampled timeline
+  (<=200 points) for the sparkline strip, and the latest snapshot as
+  "current". 12 new tests (`server/pipelineHealthHistory.test.ts`):
+  snapshot flattening (ok payload, degraded payload, malformed/missing
+  sub-objects never throw and read as unhealthy-safe rather than
+  crashing), throttle behavior (blocks inside the window, writes again
+  once elapsed), multi-call append-never-overwrite, multi-day-file
+  reads returning oldest-first, missing-directory graceful empty,
+  honest-null-uptime with zero samples, uptime/degraded-count math,
+  timeline downsampling at 5,000 synthetic rows, and window filtering
+  (a 30h-old row correctly excluded from a 24h window, included in 48h).
+- `/api/data/pipeline-health-dashboard` (server/routes.ts) — reads the
+  last 8 days of history and returns 24h + 7d window summaries. Same
+  event-loop discipline as its R6(a)/(b) siblings (sync reads only, no
+  request-time network calls).
+- `datacore/manifests/pipeline_health.json` — the FORWARD ENFORCEMENT
+  archive-manifest test (`server/manifests.test.ts`) requires every new
+  archive directory to carry the universal envelope; this stream is
+  RAW operational telemetry (no third-party license, self-generated),
+  documented as such.
+- `client/src/pages/pipelineHealthDashboard.tsx` (`#/data/pipeline-
+  health`) — uptime tiles (24h/7d, color-graded green/orange/red by
+  threshold), a 24h timeline sparkline strip, current-status line
+  (status/age/bot state/scanner backoff count when nonzero), and a
+  "what's degrading" bar chart of per-check failure counts. Wired into
+  `datamap.tsx` alongside the Streams/Quality/Signals launchers (same
+  page-wide overlay pattern, same hash-routing wiring: state, hash-
+  change listener, overlay render, launcher button). Honest empty state
+  when `warming_up:true` (zero snapshots yet — this session's own
+  deploy is when capture starts): explicitly states nothing is
+  fabricated in the meantime rather than showing a misleading blank
+  chart or a fake 100%.
+- `scripts/visual_check.mjs` — new `pipelinehealth` page entry + a
+  fixture with a mixed 24h timeline (2 of 48 bars degraded) and non-zero
+  per-check counts, so both the uptime tiles and the bar-chart path are
+  exercised, per the Phase 5 ratchet every prior R6 dashboard followed.
+
+BUG CAUGHT BY THE HARNESS ITSELF (worth recording — this is exactly what
+VISUAL VERIFICATION is for): the first draft's timeline strip reused the
+`vt-quality-kinds` CSS class for its container shell. That class sets
+`flex-direction: column` (correct for its original archive-kind-row list
+use), which the new inline `style={{ display: "flex", ... }}` did NOT
+override — so the 48 timeline bars laid out as a vertical stack inside a
+28px-tall box, each rendering at a sub-pixel height and vanishing
+entirely. `npm run visual --page pipelinehealth` at all three widths
+showed an empty gap where the timeline should be; a side-by-side render
+of the already-shipped `quality` page confirmed everything else
+(touch-target warnings, the SwiftShader software-renderer overlay) was
+identical global-chrome noise, isolating the timeline gap as this page's
+own bug. Fix: dropped the reused class, added an explicit
+`flexDirection: "row"` to the inline style. Re-ran the harness — the
+timeline now renders correctly at 390/768/1440 (screenshots reviewed:
+green/red bars visible, uptime tiles color-graded correctly, no new
+touch-target or clipped-control warnings beyond the pre-existing global
+ones shared with every other data-dashboard page). This is the kind of
+defect the PREMIUM EXPERIENCE STANDARD's "perceived performance/zero
+jank" clause and promotion rule 6 (visual harness at all three widths,
+reviewed before opening the PR) exist specifically to catch before
+shipping, not after a human notices a blank panel.
+
+GATES: `npx tsx --test server/pipelineHealthHistory.test.ts` 12/12 pass.
+Full `npx tsx --test server/*.test.ts`: 897/955 initially — 8 failures,
+all traced to this fresh container starting with a stripped
+`node_modules` (only `typescript` present; same fresh-container quirk
+the same-day EIA-930 session already flagged, `ERR_MODULE_NOT_FOUND:
+express`, unrelated to this change) plus one genuine new failure this
+change caused: `server/manifests.test.ts`'s FORWARD ENFORCEMENT check
+correctly caught the new `pipeline_health` archive directory missing its
+manifest before the manifest file above was added. After `npm install`
++ adding the manifest: 955/955 pass, 0 fail. `npx tsc --noEmit`: 82
+errors — confirmed via `git stash`/`tsc`/`git stash pop` to be the exact
+pre-existing baseline on `main` (81195e4), zero attributable to this
+change (grep-confirmed no hits on any new/touched file). `npm run
+build`: clean, same pre-existing vite chunk-size + astronomy-engine ESM
+warnings as every recent session. `npm run visual --page pipelinehealth`
++ `--page quality` (comparison baseline): both 0 hard failures at
+390/768/1440 after the fix above; screenshots reviewed this session
+(not just run) per promotion rule 6. `python3 -m pytest`: not run — zero
+.py files touched, out of scope.
+
+BACKTEST: N/A — a monitoring/observability dashboard, no trading logic,
+no scoring/sizing/threshold value touched, no new data source or
+predictive claim (the manifest states this explicitly: RAW operational
+telemetry only).
+
+NEXT: (1) once a few days of history accumulate, revisit whether 5-min
+throttle granularity is the right resolution for the 7d window (2,016
+samples/week at 5-min cadence may be worth a coarser display bucket
+once the timeline needs to show a full week rather than 24h); (2) the
+degraded-count list currently only surfaces checks that fired at least
+once in the trailing 24h — a longer-lived but resolved degradation
+window (e.g. a bad day 5 days ago) is invisible until the 7d aggregate
+view is built out with its own breakdown, not just an uptime number;
+(3) R6 is now fully closed (a+b+c all shipped) — the next MAP V2 ROADMAP
+item PRODUCT sessions should look at is R2 (maritime transit analytics
+gate 2) or the still-open R5 Everything Graph `/api/v1/graph` mirror
+follow-ups, per the roadmap's own ordering.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity; no queued higher-priority item was skipped.
+
 ## 2026-07-31 (scheduled-routine session) [REPAIR] — CSP sizing was 100% equity-percentage-based with zero live-capital awareness, causing the same unaffordable ticker to be retried and rejected by Alpaca every scan cycle for hours (v1.0.554, T-BOT)
 
 TERRITORY: T-BOT (`options_execution.py`, `server/bot.ts`'s Tier 1/2 SELL_CSP
