@@ -7679,3 +7679,21 @@ apply the identical one-line gate change (> 0.999 -> > 0.0) + pinned-string
 test updates; verify no aircraft pop at the limb in globe view and no
 regression at full mercator (the w < 0 degenerate-plane guard already
 fails open). Low risk, ~30 min, next T-CLIENT session.
+
+## 2026-07-31 — round-22 self-review follow-ups (filed, not built)
+
+1. SURFACE THE `held` FLAG IN THE FLIGHT UI. v1.0.562's altitude hold
+   marks held display points (held:true in mergeTrackWithCrumbs) but the
+   flight profile chart and curtain don't visually distinguish them yet —
+   a <=240s flat segment can read as a real level-off. PREMIUM EXPERIENCE
+   STANDARD (c) says provenance surfaces beautifully: e.g. dashed chart
+   segment or lighter curtain tint over held spans. Data already carries
+   the flag; UI-only change, T-CLIENT.
+2. TRANSITION-BAND PICK GEOMETRY MISMATCH (pre-existing, bounded). Mid
+   globe->mercator transition the GPU draws satellites at BLENDED
+   positions while the CPU mercator screen-pick projects pure-flat — the
+   12px tolerance absorbs small blends but deep mid-band (transition
+   ~0.5) picks can miss/mis-rank near the limb. v1.0.563's occlusion
+   filter removed the harmful case (far-side selection); exact-blend CPU
+   projection (mirror maplibre's interpolateProjectionFor3D) would close
+   the rest. Low priority until a live report says otherwise.
