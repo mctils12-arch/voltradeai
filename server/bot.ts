@@ -339,6 +339,20 @@ const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXU
 // case one is ever held again. Not part of FLOOR_AND_LEG_TICKERS itself.
 const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", "SCHP"]);
 
+// OCC option symbol detector (e.g. XLK260424P00149000) — same shape check
+// already used by /api/bot/bars/:ticker below. The equity market-data stream
+// (wss://stream.data.alpaca.markets/v2/iex) only accepts stock symbols; a
+// "subscribe"/"unsubscribe" message containing an option symbol makes Alpaca
+// reject the WHOLE batched message with code=400 "invalid syntax" — silently
+// dropping any legitimate equity tickers bundled in the same call. Used to
+// keep option positions out of the WS bars subscription (they still get
+// full position-monitor tracking — kill/warn/time-exit — just not a live
+// bars stream, which doesn't exist for options on this feed anyway).
+function isOptionSymbol(ticker: string): boolean {
+  const t = String(ticker).toUpperCase();
+  return t.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(t);
+}
+
 // ─── ET Hour Helper + Order Params — extracted to ./orderParams (see top imports) for unit testing ──
 
 const state = {
@@ -2402,7 +2416,7 @@ print(json.dumps(s))
 
     // Detect OCC option symbols (e.g., XLK260424P00149000) and return empty bars
     const tickerStr = String(ticker).toUpperCase();
-    if (tickerStr.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(tickerStr)) {
+    if (isOptionSymbol(tickerStr)) {
       return res.json({ bars: [], ticker: tickerStr, timeframe: "1Day", isOptionSymbol: true });
     }
 
@@ -5070,7 +5084,7 @@ except: print('{}')
       const streamSet = new Set(STREAM_TICKERS);
       const toSubscribe: string[] = [];
       Array.from(activeTickers).forEach((ticker) => {
-        if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker)) {
+        if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker) && !isOptionSymbol(ticker)) {
           toSubscribe.push(ticker);
           positionSubscribedTickers.add(ticker);
         }
@@ -5113,9 +5127,10 @@ except: print('{}')
       atrPct: defaultRiskPct / 2.0,
       highestPrice: entryPrice,
     };
-    // Subscribe to WebSocket if not already streaming
+    // Subscribe to WebSocket if not already streaming (equity symbols only —
+    // the v2/iex bars stream rejects option symbols, see isOptionSymbol above)
     const streamSet = new Set(STREAM_TICKERS);
-    if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker)) {
+    if (!streamSet.has(ticker) && !positionSubscribedTickers.has(ticker) && !isOptionSymbol(ticker)) {
       positionSubscribedTickers.add(ticker);
       if (streamWs && streamConnected) {
         try {

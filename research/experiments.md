@@ -3,6 +3,120 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-07-31 (scheduled-routine session, market hours) [REPAIR] — option-symbol WS bars subscribe was crashing the equity real-time exit-monitor feed dozens of times a day (v1.0.558, T-BOT)
+
+TERRITORY: T-BOT (`server/bot.ts` inside the WS position-monitor path only —
+no scoring/sizing/strategy logic touched) + its new regression test
+(`server/optionSymbolStreamSubscribe.test.ts`) + `package.json`/
+`package-lock.json` (SHARED, version bump only, read-and-incremented at
+commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health` on prod: all
+checks `ok`, `bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:
+false` — no LIVENESS ALARM. Loop-health ratio over the last 10 tagged
+entries before this one: 5 [REPAIR] / 5 [PRODUCT] — under the 7+ thrash
+trigger, no meta-problem flag needed. Also verified this session's own
+designated branch (`claude/eloquent-dijkstra-2u1gn5`) carried no stray
+unmerged commits relative to `origin/main` (a local `main` ref was stale
+in this container, `git fetch`/`get_commit` confirmed the branch and
+`origin/main` are identical at `b9cae3b`) — nothing to salvage, clean
+starting point.
+
+AXIS CHOSEN: SESSION BUDGET's own top priority — "fix a bug seen in audit
+logs" — beats a subagent's independent research pass (run in parallel)
+that surfaced only priority-2/3 candidates (judging the 2026-07-29
+stretch-mode CSP sizing fix, or a small keyless SO2/volcano-alert
+[PIPELINE] PR). Queried `/api/diag/audit?limit=60` (DIAG_TOKEN present in
+this session's env) live against production and found `STREAM-ERROR`
+`"Alpaca stream error code=400 msg=invalid syntax"` recurring roughly
+every 30-90 minutes across 2026-07-30/07-31 — confirmed via `type=
+STREAM-ERROR&limit=30` this was not a one-off (30 hits in the returned
+window alone), and confirmed via grep that neither experiments.md nor
+open_questions.md had ever recorded this failure signature before — a
+genuinely new, live, currently-recurring break, outranking every queued
+item per REPAIR MANDATE.
+
+ROOT CAUSE (traced per READ BEFORE WRITE — read the actual current
+`syncMonitoredPositions`/`addPositionToMonitor` bodies this session, not
+from memory): every `STREAM-ERROR` entry was immediately preceded by a
+`POS-MONITOR: Subscribed to <ticker list>` entry whose ticker list was
+OCC option symbols (e.g. `AAL260828P00014000`) straight from Alpaca's own
+`pos.symbol` field on an options position. `activeTickers` (built from
+`GET /v2/positions`) makes no distinction between equity and option
+symbols, and both `syncMonitoredPositions`'s bulk resubscribe and
+`addPositionToMonitor`'s single-ticker path forwarded whatever wasn't
+already subscribed straight into
+`streamWs.send(JSON.stringify({action:"subscribe", bars:[...]}))` on
+`streamWs` — which `startStreaming()` connects to
+`wss://stream.data.alpaca.markets/v2/iex`, the EQUITY market-data feed
+(confirmed via `wsPositionFeed.test.ts`'s own pinned assertion). Alpaca's
+equity bars-stream parser doesn't accept OCC-shaped symbols and rejects
+the WHOLE batched `subscribe` message with `code=400 msg="invalid
+syntax"` — not just the bad entry. DOWNSTREAM CHAIN (REASONING STANDARD
+#1, traced two steps): because the guard was missing on the BULK path,
+any newly-opened EQUITY position bundled into the same `toSubscribe`
+batch as an already-held option position would also get silently
+dropped from real-time WS exit monitoring for that cycle, falling back
+to the slower ~30s Tier-1 poll cadence instead of event-driven exits —
+a real (if bounded, since Tier-1 still covers it) degradation of the
+"real-time, event-driven exits" path `wsPositionFeed.test.ts` already
+protects, not merely a log-noise cosmetic bug. Option positions
+themselves were never silently unmonitored otherwise — POS-KILL/POS-WARN/
+TIME-EXIT all operate on `activeTickers`/`monitoredPositions` directly, a
+separate code path untouched by this fix; they just don't (and can't)
+carry live bars off an equity-only feed.
+
+FIX: added a single shared `isOptionSymbol(ticker)` helper (module-level
+in `bot.ts`, reusing the exact OCC-shape check `/api/bot/bars/:ticker`
+already had inline: `length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/`) and gated
+both WS-subscribe call sites (`syncMonitoredPositions`'s bulk resubscribe,
+`addPositionToMonitor`'s single-ticker subscribe) on `!isOptionSymbol
+(ticker)`. The pre-existing `/api/bot/bars/:ticker` route now calls the
+shared helper instead of duplicating the regex (COMPILE KNOWLEDGE INTO
+CODE — one source of truth instead of two copies that could drift).
+`removePositionFromMonitor`'s unsubscribe path needed no change: it's
+already gated on `positionSubscribedTickers.has(ticker)`, which an option
+symbol can now never enter.
+
+GATES: new `server/optionSymbolStreamSubscribe.test.ts` (5 tests,
+following `floorBasketExemption.test.ts`/`wsPositionFeed.test.ts`'s
+established string-extraction-against-the-real-source convention, plus
+one behavioral test that extracts and actually executes `isOptionSymbol`
+via `new Function` against real OCC/equity sample symbols pulled straight
+from this session's own live audit-log query) — 5/5 pass. Full
+`npx tsx --test server/*.test.ts` (after `npm install` to restore this
+fresh container's stripped `node_modules` — the only initial 7 failures,
+all pre-existing `ERR_MODULE_NOT_FOUND: express`-class load failures,
+confirmed unrelated by name and by a clean second run): 960/960 pass, 0
+fail. `npx tsc --noEmit`: 82 errors, confirmed via `git stash`/`tsc`/
+`git stash pop` to be the exact pre-existing baseline, zero new errors
+attributable to this change. `npm run build`: clean, same pre-existing
+vite chunk-size + astronomy-engine warnings as every recent session.
+`package.json` bumped 1.0.557 → 1.0.558 (read-and-incremented against
+this branch's own tip, which was already even with `origin/main`);
+`package-lock.json` regenerated to match (its version field had drifted
+one commit stale before this session — a harmless side-effect fix, not
+a separate logical change). No backtest run: pure infrastructure/wiring
+fix, no scoring/sizing/strategy logic touched, matches KNOWN BROKEN #8's
+own precedent for shipping without one. `python3 -m pytest`: not run,
+zero `.py` files touched.
+
+MARKET-HOURS NOTE (this session's own brief): opened as a PR from
+`claude/eloquent-dijkstra-2u1gn5`; the PR description asks the merge to
+wait until after 16:00 ET close per CLAUDE.md's deploy-timing guidance —
+this is a real live-degradation fix (not merely cosmetic), but it is not
+a LIVENESS ALARM or an active trading-logic break, so there is no
+case for an intraday-merge exception.
+
+NEXT: once merged and live for a day+, a future session should confirm
+via `/api/diag/audit?type=STREAM-ERROR` that the `code=400 invalid
+syntax` signature has stopped recurring (KNOWN BROKEN-style follow-up,
+same "verify the fix actually lands" discipline as R19/KNOWN BROKEN #18).
+If it recurs with the SAME root cause, RECURRENCE ESCALATES applies —
+architecture smell, not a re-patch. If it recurs with a DIFFERENT shape
+(e.g. a still-unfiltered symbol format), that's a new finding per the
+same precedent `wsPositionFeed.test.ts`'s own header already documents.
+
 ## 2026-07-31 (scheduled-routine PRODUCT session) [PRODUCT] — MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard shipped: /data/pipeline-health, closes the R6 dashboard trio (v1.0.555, T-CLIENT + SHARED)
 
 TERRITORY: T-CLIENT (`client/src/pages/pipelineHealthDashboard.tsx`,
