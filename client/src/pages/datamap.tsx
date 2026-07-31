@@ -11419,6 +11419,17 @@ export default function DataMapPage() {
               <button onClick={() => {
                 const payload = JSON.stringify({
                   report: lastCrashReport(BOOT_STORE),
+                  // the full boot verdict — a late renderer kill leaves no
+                  // context-loss snapshot, so these fields (how long the dead
+                  // session lived, that it never closed cleanly) can be the
+                  // ONLY evidence of it (live gap found 2026-07-31)
+                  boot: {
+                    prevCrashed: BOOT_REPORT.prevCrashed,
+                    prevEndedAbruptly: BOOT_REPORT.prevEndedAbruptly,
+                    prevAliveMs: BOOT_REPORT.prevAliveMs,
+                    prevSurvivedMs: BOOT_REPORT.prevSurvivedMs,
+                    prevTrail: BOOT_REPORT.prevTrail,
+                  },
                   glLosses: (() => { try { return JSON.parse(window.localStorage.getItem("vt-gl-loss-log") ?? "[]"); } catch { return []; } })(),
                   safeMode: BOOT_SAFE, streak: BOOT_REPORT.consecutive, ua: navigator.userAgent,
                 }, null, 1);

@@ -86,14 +86,34 @@ export function bootBegin(s: Storage, now: number, bootId: string): BootReport {
   const prevTrail = readJson<Crumb[]>(s, TRAIL, []);
   const prevCrashed = !!prevMarker;
 
-  // a dead boot's trail is the evidence — keep it where the UI can show it
+  // a dead session's trail is the evidence — keep it where the UI can show it.
+  // TWO death shapes, both persisted (2026-07-31 live gap: a plane-click crash
+  // AFTER a healthy boot left report:null in the copied payload — the
+  // heartbeat had detected the abrupt end, but its details were never written
+  // anywhere the Copy button could read):
+  //  · prevCrashed      — died DURING startup (drives safe mode)
+  //  · endedAbruptly    — died AFTER going healthy (no safe mode; a crash
+  //    minutes in is not a startup problem, but its record matters MORE,
+  //    because no context-loss snapshot exists for a hard renderer kill)
   let consecutive = readJson<number>(s, STREAK, 0);
   if (prevCrashed) {
     consecutive = consecutive + 1;
     writeJson(s, PREV, {
+      kind: "boot-crash",
       bootId: prevMarker?.bootId ?? null,
       startedAt: prevMarker?.startedAt ?? null,
       survivedMs: prevMarker?.startedAt != null ? Math.max(0, now - prevMarker.startedAt) : null,
+      trail: prevTrail,
+    });
+  } else if (beat) {
+    // healthy session that never closed cleanly: keep how long it lived, the
+    // LAST THING IT DID, and its full breadcrumb trail (read above, before the
+    // trail is reset for this boot)
+    consecutive = 0;
+    writeJson(s, PREV, {
+      kind: "abrupt-end",
+      aliveMs: beat.aliveMs ?? null,
+      lastStep: beat.lastStep ?? null,
       trail: prevTrail,
     });
   } else {

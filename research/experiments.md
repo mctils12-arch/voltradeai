@@ -35465,3 +35465,43 @@ directly shrink GPU headroom.
 WISHLIST proposal C (one context) gains this as evidence: with the
 driver as the failure point, every extra context is attack surface, and
 C remains the structural end-state.
+
+────────────────────────────────────────────────────────────────────────
+2026-07-31 · [REPAIR] · T-CLIENT
+Recorder gap: a crash AFTER a healthy boot left report:null — late deaths
+now persist their last step and full trail (v1.0.559)
+
+REPORTED: "i clicked on a plane and it crashed and it didnt show the
+curtain" — and the pasted diagnostics contained NOTHING about it:
+glLosses unchanged (no webglcontextlost fired — renderer killed outright),
+report:null, streak:0.
+
+WHY IT WAS BLANK, precisely: the session had passed its 20s health check,
+so bootComplete() had cleared the crash-loop marker (correct — safe mode
+is for STARTUP loops). The 5s heartbeat DID detect the abrupt end on the
+next boot (that is why the banner appeared and the human found the Copy
+button at all) — but bootBegin only ever wrote the PREV record on the
+prevCrashed path. The heartbeat's aliveMs/lastStep, and the dead
+session's breadcrumb trail (read into memory at that very moment), were
+dropped on the floor. For a hard renderer kill — which fires no event and
+leaves no gl-loss snapshot — that heartbeat record is the ONLY possible
+evidence, and it was the one thing not persisted.
+
+FIX (blackbox.ts): bootBegin now writes PREV in BOTH death shapes, tagged
+kind:"boot-crash" (drives safe mode, unchanged) or kind:"abrupt-end"
+(aliveMs + lastStep from the heartbeat + the dead session's full trail;
+never triggers safe mode — a crash minutes in is not a startup problem).
+A clean close (pagehide -> closeCleanly) still leaves no record. The Copy
+payload additionally carries the full boot verdict (prevCrashed/
+prevEndedAbruptly/prevAliveMs/prevSurvivedMs/prevTrail) so nothing the
+recorder detects can be omitted from what the human hands over again.
+
+TESTS: 9/9 blackbox tests — two new: the exact live scenario (healthy
+boot -> plane-select breadcrumb -> heartbeat -> hard kill -> next boot
+retrieves kind/aliveMs/lastStep/trail, safe mode NOT triggered), and a
+clean close leaving no phantom record. Build clean.
+
+THE CRASH ITSELF (plane click -> renderer kill, no curtain): cause
+unknown, investigation running (click->curtain allocation path + recent
+regressions). NOT guessed at here — the next occurrence will carry the
+last-step breadcrumb, which is the point of this fix.

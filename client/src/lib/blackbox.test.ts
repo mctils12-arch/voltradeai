@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   bootBegin, mark, bootComplete, shouldRunSafe, lastCrashReport, resetAll,
+  heartbeat, closeCleanly,
   TRAIL_MAX, KEYS, type Storage,
 } from "./blackbox.ts";
 
@@ -102,6 +103,42 @@ test("the recorder never throws, even when storage is hostile", () => {
     lastCrashReport(broken);
     resetAll(broken, ["vt-map-globe"]);
   });
+});
+
+test("a LATE death (healthy boot, then killed) is persisted with its last step and trail", () => {
+  // the live gap this covers: a plane-click crash after a healthy boot left
+  // report:null in the copied payload — the heartbeat saw it, nothing kept it
+  const s = mem();
+  bootBegin(s, 0, "b1");
+  mark(s, 0, 500, "map-created");
+  bootComplete(s);                                  // healthy
+  mark(s, 0, 90_000, "plane-select", { icao: "8681b2" });
+  heartbeat(s, 93_000, "plane-select");             // last beat before the kill
+  // ...renderer killed here: no event, no handler, no pagehide
+  const r = bootBegin(s, 200_000, "b2");
+  assert.equal(r.prevCrashed, false, "the boot itself had completed");
+  assert.equal(r.prevEndedAbruptly, true, "but the session never closed cleanly");
+  assert.equal(r.prevAliveMs, 93_000);
+  assert.equal(r.consecutive, 0, "late death must NOT trigger safe mode");
+  assert.equal(shouldRunSafe(r), false);
+  const rep = lastCrashReport(s) as { kind: string; aliveMs: number; lastStep: string; trail: { step: string }[] };
+  assert.ok(rep, "the record is retrievable for the Copy button");
+  assert.equal(rep.kind, "abrupt-end");
+  assert.equal(rep.aliveMs, 93_000);
+  assert.equal(rep.lastStep, "plane-select", "the last thing it did survives");
+  assert.deepEqual(rep.trail.map((c) => c.step), ["map-created", "plane-select"],
+    "the dead session's full breadcrumb trail survives");
+});
+
+test("a clean close leaves NO abrupt-end record", () => {
+  const s = mem();
+  bootBegin(s, 0, "b1");
+  bootComplete(s);
+  heartbeat(s, 5_000, "idle");
+  closeCleanly(s);                                   // real navigation/close
+  const r = bootBegin(s, 10_000, "b2");
+  assert.equal(r.prevEndedAbruptly, false);
+  assert.equal(lastCrashReport(s), null, "no phantom crash report");
 });
 
 test("resetAll clears recorder state AND the caller's preference keys", () => {
