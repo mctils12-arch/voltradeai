@@ -26,6 +26,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { partitionValid, type QualityIssue } from "./dataQuality";
 
 const DATASET_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json";
 /** ~44 markets/week live; headroom for growth without pagination. */
@@ -52,6 +53,8 @@ const FIELD = {
   otherSpread: "other_rept_positions_spread",
   nonreptLong: "nonrept_positions_long_all",
   nonreptShort: "nonrept_positions_short_all",
+  totLong: "tot_rept_positions_long_all",
+  totShort: "tot_rept_positions_short",
 } as const;
 
 export interface TffRow {
@@ -82,6 +85,56 @@ const num = (v: any): number | null => {
   const n = typeof v === "number" ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n : null;
 };
+
+// ── GATE 1 (DATA): accounting-identity validation ───────────────────────────
+// Same discipline as the passed Legacy-COT gate 1 (cftc_cot.py's
+// validate_record: verify a record against CFTC's own accounting identities
+// before trusting it — catches field-mapping bugs and upstream corruption
+// deterministically, no external ground truth needed beyond the report's own
+// arithmetic), adapted for TFF's four financial trader categories (each with
+// its own spread field, counted on BOTH the long and short leg — verified
+// against a real live record 2026-07-31, see cftcTff.test.ts):
+//
+//   dealer_l+dealer_sp + asset_mgr_l+asset_mgr_sp + lev_money_l+lev_money_sp
+//     + other_rept_l+other_rept_sp        == tot_rept_positions_long_all
+//   (mirror on the short side, same spread values reused per leg)
+//   tot_rept_long + nonrept_long          == open_interest_all
+//   tot_rept_short + nonrept_short        == open_interest_all
+const toNum = (v: any): number => {
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
+const IDENTITY_TOLERANCE = 5; // rare report-revision rounding artifact, mirrors cftc_cot.py
+
+/** Validates ONE RAW Socrata row (pre-parseTff field mapping) against CFTC's
+ *  own accounting identities. Pure, per-record — no archive/network state. */
+export function tffAccountingIssues(raw: any): QualityIssue[] {
+  const issues: QualityIssue[] = [];
+  const oi = toNum(raw?.[FIELD.oi]);
+  if (oi <= 0) {
+    issues.push({ field: FIELD.oi, rule: "min", detail: "open interest zero/missing" });
+    return issues; // downstream identities are meaningless without a real OI denominator
+  }
+  const dl = toNum(raw?.[FIELD.dealerLong]), ds = toNum(raw?.[FIELD.dealerShort]), dsp = toNum(raw?.[FIELD.dealerSpread]);
+  const al = toNum(raw?.[FIELD.amLong]), as_ = toNum(raw?.[FIELD.amShort]), asp = toNum(raw?.[FIELD.amSpread]);
+  const ll = toNum(raw?.[FIELD.levLong]), ls = toNum(raw?.[FIELD.levShort]), lsp = toNum(raw?.[FIELD.levSpread]);
+  const ol = toNum(raw?.[FIELD.otherLong]), os_ = toNum(raw?.[FIELD.otherShort]), osp = toNum(raw?.[FIELD.otherSpread]);
+  const tl = toNum(raw?.[FIELD.totLong]), ts = toNum(raw?.[FIELD.totShort]);
+  const nl = toNum(raw?.[FIELD.nonreptLong]), ns = toNum(raw?.[FIELD.nonreptShort]);
+
+  const calcLong = dl + dsp + al + asp + ll + lsp + ol + osp;
+  const calcShort = ds + dsp + as_ + asp + ls + lsp + os_ + osp;
+  const checks: Array<[number, string, string]> = [
+    [Math.abs(calcLong - tl), FIELD.totLong, `computed ${calcLong} vs reported ${tl}`],
+    [Math.abs(calcShort - ts), FIELD.totShort, `computed ${calcShort} vs reported ${ts}`],
+    [Math.abs(tl + nl - oi), FIELD.oi, `long total+nonrept ${tl + nl} vs OI ${oi}`],
+    [Math.abs(ts + ns - oi), FIELD.oi, `short total+nonrept ${ts + ns} vs OI ${oi}`],
+  ];
+  for (const [delta, field, detail] of checks) {
+    if (delta > IDENTITY_TOLERANCE) issues.push({ field, rule: "identity", detail });
+  }
+  return issues;
+}
 
 /** Socrata JSON rows -> TffRows for the NEWEST report date in the batch
  *  (a fetch ordered DESC can straddle two weeks at the boundary — keep
@@ -139,7 +192,17 @@ export async function fetchLatestTff(fetchImpl: FetchFn = fetch as any, nowMs?: 
       console.error(`[datacore] cftctff -> ${r.status}`);
       return [];
     }
-    return parseTff(JSON.parse(await r.text()), rt);
+    const json = JSON.parse(await r.text());
+    if (!Array.isArray(json)) return [];
+    // GATE 1: quarantine any row that fails CFTC's own accounting identities
+    // before it ever reaches the archive — never let field-mapping bugs or
+    // upstream corruption become "trusted" raw history.
+    const part = partitionValid(json, tffAccountingIssues);
+    if (part.suspect.length) {
+      const sample = part.suspect[0].issues.map((i) => `${i.field}:${i.rule}`).join(",");
+      console.error(`[datacore] cftctff gate1-reject ${part.suspect.length}/${json.length} (e.g. ${sample})`);
+    }
+    return parseTff(part.clean, rt);
   } catch (e: any) {
     console.error("[datacore] cftctff:", e?.message || e);
     return [];
