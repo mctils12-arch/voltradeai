@@ -388,8 +388,12 @@ void main() {
 #ifdef GLOBE
   // anchor far-side cull — identical to satLayer/modelLayer (inert at the
   // z>=8 zooms this layer draws at, kept for contract parity; 0.998001 =
-  // OCCLUSION_RADIUS²). Uses the GLIDED position — cull where DRAWN.
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // OCCLUSION_RADIUS²). Runs through the WHOLE globe↔mercator transition,
+  // not just full globe (same fix as satLayer v1.0.563: the transition is
+  // zoom-driven and PERSISTENT, so a full-globe-only gate left far-side
+  // ghosts visible/pickable mid-blend). Uses the GLIDED position — cull
+  // where DRAWN.
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(g_xy) * (1.0 + a_inst.z / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;

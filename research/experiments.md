@@ -36139,3 +36139,125 @@ surfacing) remain queued, both still small/low-risk per their own filed
 notes; (c) once ~90 days of App Store rank/rating history accumulates
 (~2026-10-30, per the 2026-08-01 session #1 entry above), that stream's
 GATE 2 becomes actionable.
+
+## 2026-08-01 (scheduled-routine session #4, market hours) [REPAIR] — T-CLIENT — aircraft/flight-track far-side cull fixed to run the WHOLE globe↔mercator transition, closing the round-22-filed follow-up (v1.0.571, PR #667)
+
+TERRITORY: T-CLIENT (`client/src/lib/air/airLayer.ts`,
+`client/src/lib/air/flightTrackLayer.ts` + their test files), `package.json`/
+`package-lock.json` (SHARED, version bump only, read-and-incremented at
+commit time). No server/Python/bot code touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. Branch
+`claude/eloquent-dijkstra-ts20c5` confirmed byte-identical to `origin/main`
+at v1.0.570 (no rebase needed). `/api/health`: all-green (bot active,
+drawdown 0.0%, `liveness.dark:false` — no LIVENESS ALARM). `/api/diag/audit`:
+last 100 entries routine (TIER2/TIER3/MANIPULATION/QUEUE, one
+EVENTLOOP-LAG ~510ms past the 2s tick — KNOWN BROKEN #18, non-blocking).
+Probed `STREAM-ERROR` specifically (the class fixed 2026-07-31,
+v1.0.558) — 6 hits, all dated 2026-07-31, zero since — confirms that
+fix held, not a live break needing repair. Loop-health ratio, last 10
+tagged entries: 3/10 [REPAIR] (round-22, ETF-track_fill, silent-except
+ratchet), 7/10 [PIPELINE]/[PRODUCT] — well under the 7+ thrash bar (per
+the prior session's own count, reconfirmed). No progress-floor or
+STARVED flag in wishlist.md. AUDITS & DEBT register (top of this file,
+last updated 2026-07-04/07-05): staleness audit next due 2026-08-04,
+constitutional audit next due ~2026-08-03 — neither overdue yet.
+
+PRIMARY ACTION SELECTION: no fresh bug in the audit log (SESSION
+BUDGET's top tier came up empty) — fell through to "next queued item
+from open_questions.md." Two well-scoped T-CLIENT candidates were
+already filed by the 2026-07-31 round-22 session and re-surfaced by
+today's session #3: (a) the AIR-layer transition-band far-side-cull fix
+(same defect class as the satLayer v1.0.563 fix, exact testable form
+already specified: one-line gate change `> 0.999` → `> 0.0` + pinned
+tests) and (b) surfacing the `held` flag in the flight-profile UI
+(dashed chart segment / tinted curtain for altitude-hold spans). Picked
+(a): a genuine correctness defect (ghosting/false-positive click-pick
+at the exact camera altitude band the app defaults to) with a proven,
+already-shipped-once fix pattern to mirror exactly, vs. (b)'s pure
+polish addition — REPAIR MANDATE outranks new UI surface among two
+equally-queued, equally-low-risk items.
+
+READ BEFORE WRITE: read the current `satLayer.ts`/`satLayer.test.ts`
+fix (v1.0.563, the precedent) in full before touching anything, plus
+every occurrence of `0.999`/`u_projection_transition` in both target
+files. Confirmed by direct comparison that `satLayer.ts`'s precedent
+fix changed ONLY the shader cull gate (`> 0.999 && clipping_plane.w <
+0.0` → `> 0.0 && ...`) and deliberately left the separate CPU
+pick-mode selectors (`getGlobeProjection`/`getMercatorProjection`,
+gated at `lastTransition > 0.999`/`<= 0.999` — a different concern:
+which screen-pick math applies, not occlusion) untouched. Mirrored
+that exact scope: changed the 3 shader-cull sites (airLayer.ts's
+silhouette cull; flightTrackLayer.ts's curtain/ribbon fragment-discard
+cull and its marker-glyph cull) and left airLayer.ts's/
+flightTrackLayer.ts's own pick-mode selectors alone — grep-verified
+after editing that only the 3 intended `if (u_projection_transition >
+...)` lines changed value and the 3 pick-mode-selector `0.999`
+comparisons are untouched.
+
+GATES: new pinned tests in `airLayer.test.ts` and
+`flightTrackLayer.test.ts`, mirroring `satLayer.test.ts`'s existing
+"cull runs through the WHOLE globe↔mercator transition" pin — assert
+the new gate string is present and the old one is gone, across
+`AIR_VERT_SRC`, `FT_VERT_SRC`, and `FT_MARKER_VERT_SRC`. A/B-verified
+via `git stash push -- <only the 2 .ts source files>` (test files kept
+on disk): both new tests FAIL against the pre-fix gate (confirmed
+assertion messages: "gated to any globe-ness..." false) and PASS once
+the stash is popped back. Full `npx tsx --test server/*.test.ts
+client/src/**/*.test.ts`: 1141/1142 pass, 1 pre-existing fail (PMTiles-
+magic test, the same named environment-dependent failure logged by the
+last several sessions — zero tile files touched this session,
+`git status` confirmed). `npx tsc --noEmit`: 82 errors, `git stash`
+A/B-compared byte-identical to baseline (one line differs only in
+non-deterministic TS union-member ordering inside a pre-existing,
+unrelated error — same line/error the 2026-08-01 session #3 log also
+flagged as noise). `npm run build`: clean, `dist/index.cjs` 13.1mb,
+same pre-existing chunk-size warnings as every recent session. Python
+suite not re-run: zero `.py` files touched.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+data` at 390/768/1440px. First clean run (post-fix) showed 2 hard
+failures — TTI 8400ms at 390px (gate 3000ms, harness's own annotated
+"observed ceiling ~1.3s") and frame p95 367ms at 1440px (gate 350ms,
+"observed ceiling 183ms") — both landing immediately after an
+environment worker restart mid-session, which is a plausible
+contamination source (cold Chromium/JIT/container-resource state) that
+has nothing to do with a GLSL branch-condition edit. Rather than accept
+or dismiss on suspicion, ran a rigorous A/B per REASONING STANDARD #4
+(distrust a surprising result in proportion to how easily it could be
+noise): `git stash`-isolated the source fix, reran clean — 0 hard
+failures, TTI 2457-2662ms, frame p95 133-350ms, all under gate. Popped
+the stash back and reran the FIX a second time, now with the container
+warm and no restart nearby — 0 hard failures, numbers matching the
+baseline run almost exactly (identical rendered-aircraft counts per
+width, `toggleConsistency: "41 layers toggled clean"`, `legendParity`
+ok at every width). Two independent clean runs of the fix both pass;
+only the one run coincident with a restart failed — conclusively an
+environment artifact, not a regression (this shader-only occlusion
+change cannot plausibly affect page TTI or WebGL upload-hitch timing
+in the direction observed, and if anything culls MORE geometry per
+frame during the transition band, not less). Reviewed the harness's
+own descriptions of the 1440px screenshot (pre-existing warnings only:
+touch-target sizes on always-on chrome, one clipped Wind-toggle control
+— identical warning set the 2026-08-01 session #3 SO2 PR logged on an
+untouched page, confirmed baseline noise).
+
+BACKTEST: N/A — pure client-side WebGL shader occlusion fix (aircraft/
+flight-track far-side cull), zero server route, trading logic,
+candidate scores, or sizing touched.
+
+Version bumped 1.0.570 → 1.0.571 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (both fields kept in sync).
+
+MARKET-HOURS NOTE: this session ran during market hours per the
+scheduled-routine directive. PR #667 opened with an explicit top-of-body
+hold-for-merge note (wait until after 4:00 PM ET) since this is a
+T-CLIENT rendering fix with zero trading-loop impact — not a critical
+live break, so no exception to the hold applies.
+
+NEXT (queued, not this session): (a) surface the `held` flag in the
+flight-profile UI (round-22's other filed follow-up, still open); (b)
+the transition-band CPU pick-geometry mismatch (round-22 follow-up #2,
+low priority, no live report); (c) USGS volcano alert levels, rescoped
+per the 2026-08-01 session #3 correction (GVP vnum-coordinate join, not
+HTML parsing).
