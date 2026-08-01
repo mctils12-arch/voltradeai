@@ -35784,3 +35784,35 @@ waves (Africa, Oceania, Central America/Caribbean) fit trivially;
 the daily world-rollout routine owns them.
 
 BACKTEST: N/A (datacore /data layer, no trading logic).
+
+## 2026-08-01 [PIPELINE] — R2 migration completed for ALL power tiles: ~830MB leaves the repo and Docker image (v1.0.567)
+
+TERRITORY: T-CLIENT (tilePath one-liner) + repo tile removal. Follows
+wave 3's proxy (verified live in prod, HTTP 206 range-serving on
+/tiles-r2/power_as_cn.pmtiles minutes after deploy).
+
+CHANGE: tilePath() now routes EVERY power-grid tile (all 132: US
+states, US/HIFLD masters, Canada, South America, Europe, Asia)
+through the same-origin R2 proxy; the repo copies are DELETED. Safety
+gate run BEFORE deletion: every local file verified byte-identical to
+its bucket object (132/132, zero mismatches). places.pmtiles +
+seafloor tiles stay committed — small, page-critical, no reason to
+add a network hop. Repo tiles folder: 941MB -> 80MB; the Docker
+image and every future clone/deploy shrink accordingly.
+
+VERIFIED: build green (dist/public/tiles now 4 files); harness 5/5
+PASS — after two 4/5 runs whose single perf-gate failure MOVED
+between widths (383ms/367ms p95 vs 350 gate): the wave-4 Africa
+build was saturating this box's CPU, and a run after its heavy phase
+passed clean; the union of batteries passed in every run and the
+zero-cost battery passed all three times. OPS LESSON, embarrassing
+and recorded: pausing the build with pkill -STOP -f "tippecanoe|…"
+matched the INVOKING SHELL's own command line and froze itself (and
+its cleanup -CONT), killing the build's parent on cleanup — pkill -x
+(exact name), never -f with self-referencing patterns. Headless probe
+on the real bucket: US master + Germany both active through the
+proxy (9 proxied range-fetches), places still repo-served (12 direct
+hits) — the split is enforced, not assumed.
+
+BACKTEST: N/A (serving-path change only; tile bytes verified
+identical).
