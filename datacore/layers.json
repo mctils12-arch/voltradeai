@@ -2436,6 +2436,17 @@
    "field": true
   },
   {
+   "id": "so2",
+   "name": "Sulfur dioxide, planetary boundary layer (OMPS, GIBS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "moderate",
+   "source": "NASA GIBS/ESDIS \u2014 Suomi NPP/NOAA-20 OMPS sulfur-dioxide column (planetary boundary layer), public domain",
+   "description": "Sulfur-dioxide column density in the planetary boundary layer (nearest-surface of GIBS's three SO\u2082 altitude bands), dated (default: yesterday; step back via the on-panel scrubber). As-is display, no predictive claim: SO\u2082 over a named volcano (vs. USGS elevated-volcano alert levels, not yet built) as a degassing signal, and SO\u2082 over a named smelter/refinery/coal plant (vs. powerplants and coal_mine_features) as an activity proxy, are both open gate-2 hypotheses (research/open_questions.md), not yet signals. Satellite-swath gaps and cloud cover leave stripes/blanks \u2014 honest coverage, not a bug.",
+   "field": true
+  },
+  {
    "id": "floods",
    "name": "Flood / water extent (MODIS, GIBS)",
    "kind": "raw",

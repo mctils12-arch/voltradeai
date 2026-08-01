@@ -36024,3 +36024,118 @@ conditions — no new evidence surfaced this session that unblocks either.
 GRID VISION remaining waves (Africa, Oceania, Central America/Caribbean)
 remain the standing next [PIPELINE] item for the daily world-rollout
 routine per the 2026-07-31 wave-3 entry above.
+
+## 2026-08-01 (scheduled-routine PRODUCT session #3) [PIPELINE] — SO2 column (OMPS-NOAA20, GIBS) /data raw overlay: cheapest queued cross-tie, shipped (v1.0.570, T-CLIENT)
+
+TERRITORY: T-CLIENT only (`client/src/pages/datamap.tsx`, `datacore/layers.json`
+as the one minimized SHARED-file addition, last commit per MERGE-ORDER
+PROTOCOL). No server route, no Python, no bot code touched.
+
+SESSION-START HEALTH CHECK: `/api/health` all-green (server/database/
+alpaca ACTIVE/python/bot active, drawdown 0.0%, `liveness.dark:false` — no
+LIVENESS ALARM). `/api/data/layers` server_version 1.0.569, matching HEAD
+after rebasing onto `origin/main` (was 3 commits behind at session start;
+`git fetch` + `git rebase origin/main` brought it current — no merged-PR
+restart needed, branch just hadn't been re-pulled since a prior session).
+Loop-health ratio over the last 10 tagged entries: 3/10 [REPAIR]
+(round-22, ETF-track_fill, silent-except ratchet), 7/10 [PIPELINE]/
+[PRODUCT] — well under the 7/10 thrash bar. No STARVED streak, no
+progress-floor stall in wishlist.md. KNOWN BROKEN: no unresolved item
+found blocking product work this session (open_questions.md's live items
+are all either resolved or correctly gated on future evidence per their
+own filed conditions).
+
+PRIMARY ACTION SELECTION: delegated a research pass (general-purpose
+agent) to survey wishlist.md's progress-floor/audit register, open_
+questions.md's gate-1/gate-2-ready hypotheses, grid_vision.md/products.md
+(confirmed: remaining GRID VISION waves belong to the separate daily
+world-rollout cron slot, NOT this PRODUCT-session type — usage_log.md's
+`voltrade-world-rollout-week` owns them), and platform_program.md/
+console_charter.md (both fully drained; platform's only remainder, P5
+billing activation, is human-gated). Ranked candidates returned: (1) SO2
+column via GIBS — open_questions.md's own 2026-07-27 "NOT PREVIOUSLY
+FILED, cheapest first" C.1 entry, unbuilt, reuses the existing no2/
+aerosol/nightlights GIBS WMTS client pipeline verbatim; (2) a one-line
+transition-band far-side-cull fix for the AIR layers (same defect class
+v1.0.563 fixed for satellites); (3) surfacing the `held` flag in the
+flight-profile UI. Picked (1): genuinely new product surface rather than
+cleanup, EDGE-DOCTRINE-aligned (deepens the map/archive), and — unlike
+(2)/(3) — not blocked on anything.
+
+READ BEFORE WRITE: read `client/src/lib/gibs.ts` (the shared WMTS factory)
+and every no2/aerosol/floods touch point in `datamap.tsx` in full before
+touching anything — `grep -c "no2"` vs `grep -c "so2"` after the edit
+returned 27/27, confirming every reference class (LAYER_GROUP, legend
+props/condition/chip, per-layer date state, EARTH TWIN E1 time-axis sync,
+FIELD_MAP_LAYER, mount/unmount effect, icon map, scrubber UI, LegendPanel
+prop-threading) was mirrored with nothing missed or extra.
+
+VERIFICATION BEFORE BUILDING (own live checks, not trusting the filed
+note): `curl -sI` against
+`gibs.earthdata.nasa.gov/.../OMPS_NOAA20_SO2_Planetary_Boundary_Layer/...`
+returned 200 image/png; six z=2 tiles sampled globally came back with six
+DISTINCT byte sizes/MD5s (1.5-3.7KB), confirming a real non-blank global
+field rather than a placeholder tile. Picked the PLANETARY_BOUNDARY_LAYER
+band (nearest-surface of GIBS's Lower/Middle/PBL bands) over the other
+five SO2 layers GIBS exposes (MERRA2 monthly reanalysis, MLS stratosphere,
+OMI/OMPS-legacy/AIRS alternates) because it's the band the filed
+cross-tie hypotheses (volcanic degassing, industrial/smelter plumes) both
+actually need, and OMPS-NOAA20 (Suomi NPP successor) over legacy OMI for
+freshness. RAW OVERLAY per the standing RAW-vs-SIGNAL rule (as-is display,
+no predictive claim) — no ladder gate applies; both cross-ties stay filed
+as open gate-2 hypotheses in the registry description, not claimed.
+
+CORRECTION FILED (open_questions.md, same "NOT PREVIOUSLY FILED" section,
+item C.2): while scoping whether to also ship the adjacent USGS volcano-
+alert-levels overlay in this PR, found the listing endpoint carries NO
+lat/lon — only vnum/name/alert fields — and coordinates exist only as
+free-text DMS strings buried in each notice's HTML body, with one
+notice_identifier sometimes bundling multiple volcanoes. This downgrades
+that item from the filed "small, self-contained" to a real integration
+(likely a static GVP vnum->coordinate join, not an HTML-DMS parse) —
+corrected in place rather than silently built wrong or silently dropped.
+Not built this session (SO2 alone is the scoped, one-logical-change PR);
+left queued with the corrected scope for whoever picks it up next.
+
+VERIFIED: `server/layersRegistry.test.ts` 24/24 pass (schema/license-
+ratchet/registry-v2 invariants all hold for the new entry). `npx tsc
+--noEmit`: 82 errors, IDENTICAL count with the change stashed vs. applied
+(`git stash` A/B compared) — zero new errors, none reference so2 or the
+touched lines. `npx tsx --test server/*.test.ts client/src/**/*.test.ts`:
+1141/1142 pass, 1 pre-existing failure (`every client/public/tiles/
+*.pmtiles has the PMTiles magic` — the same named environment-dependent
+failure the last three sessions logged; zero tile files touched this
+session, confirmed via `git status`). `npm run build`: clean, `dist/
+index.cjs` 13.1mb. `python3 -m pytest -q` (after installing requirements
+in this fresh container): 1059 passed, 1 skipped, 0 failures — zero
+Python files touched, run purely as the standing full-suite check.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual` (full page
+battery, not `--page data` only, since it completed in-container this
+run) at 390/768/1440 — **0 hard failure(s)** across all pages
+(`.visual/results.json`). The `data` page (the only one touched) shows
+zero `failures` at any width; only pre-existing warning classes (touch-
+target sizes on always-on UI chrome, one clipped wind-toggle control at
+1440px) that are baseline noise unrelated to this change — same warning
+set a control run on an untouched page would show. The harness's own
+mechanical `toggleConsistency` check ("41 layers toggled clean") cycles
+every registered layer id including the new `so2` through on/off with no
+error. Reviewed `.visual/data-legend-1440.png` (SO2 correctly absent —
+off by default, matching every other GIBS layer) and confirmed the
+legend/scrubber code paths compile and render without exception.
+
+BACKTEST: N/A — pure client-side raw-overlay display, no server route, no
+trading logic, no candidate scores or sizing touched.
+
+Version bumped 1.0.569 -> 1.0.570 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (kept in sync, both carry the field).
+
+NEXT (queued, not this session): (a) USGS volcano alert levels, rescoped
+per the correction above (GVP vnum-coordinate join, not HTML parsing) —
+pairs naturally with SO2's volcanic-degassing cross-tie once built; (b)
+the two round-22 T-CLIENT follow-ups surfaced by this session's own
+scoping agent (AIR-layer transition-band cull fix; `held`-flag flight-UI
+surfacing) remain queued, both still small/low-risk per their own filed
+notes; (c) once ~90 days of App Store rank/rating history accumulates
+(~2026-10-30, per the 2026-08-01 session #1 entry above), that stream's
+GATE 2 becomes actionable.
