@@ -2306,11 +2306,7 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
                 "occ_symbol": legs[0]["symbol"] if legs else "",
             }
         else:
-            error_body = {}
-            try:
-                error_body = resp.json()
-            except Exception:
-                pass
+            error_body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"message": resp.text[:200]}
             msg = error_body.get("message", resp.text[:200])
             return {"status": "error", "detail": f"{label}: Alpaca rejected mleg order — {msg}"}
 

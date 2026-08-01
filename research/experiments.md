@@ -35927,3 +35927,100 @@ rating-velocity aggregates against company-reported usage metrics
 then against forward returns — per this item's own filed ladder in
 open_questions.md NEW DATA ROOTS #3. Given the stated sober prior,
 treat a negative GATE 2 result as the expected outcome, not a failure.
+
+## 2026-08-01 (scheduled-routine session #2) [REPAIR] — T-BOT (adjacent, non-frozen) — KNOWN BROKEN #28: silent broad-except ratchet failure on main fixed (v1.0.569)
+
+TERRITORY: T-BOT-adjacent, single file (`options_execution.py`), single
+non-frozen function. Read the surrounding ~150 lines fully before
+touching anything, per READ BEFORE WRITE and this item's own prior
+"needs a careful, narrowly-scoped session" note.
+
+SESSION-START HEALTH CHECK: `/api/health` all-green (server/database/
+alpaca ACTIVE/python/bot active, drawdown 0.0%, `liveness.dark:false` —
+no LIVENESS ALARM). Audit log (`/api/diag/audit`) shows TIER2 scans
+completing every ~5min with 2 trade candidates each cycle, TIER3
+strategic scan + ML-freshness check completing normally, no
+COMPLIANCE-WARNING or scan-blind entries. Loop-health ratio over the
+last 10 tagged sessions (2026-07-30 through 2026-08-01): 2/10 [REPAIR],
+1 [RESEARCH], 7 [PIPELINE] — well under the 7/10 thrash-escalation bar,
+no STARVED streak, no progress-floor stall flagged in wishlist.md.
+Branch confirmed current with `origin/main` (v1.0.568, PR #664) before
+starting — no merged-PR restart needed.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, a bug fix outranks a new
+experiment or research. `open_questions.md` KNOWN BROKEN #28 (filed
+2026-07-29, re-confirmed STILL OPEN 2026-08-01 inside the App Store
+session above) was a genuine failing test on `origin/main` —
+`test_silent_except_ratchet.py` — with an exact, already-scoped fix
+path on file. This is the highest-value action available this session:
+a real, currently-red test on main beats starting new exploratory work.
+
+ROOT CAUSE (re-verified, not assumed from the filed note):
+`options_execution.py`'s `_submit_mleg_order` (~line 2308-2315) had a
+bare `except Exception: pass` around `resp.json()` when parsing the
+error body of a rejected Alpaca mleg order — the 7th silent broad-except
+handler in the file against a pinned baseline of 6.
+
+FIX: removed the handler entirely (rather than narrowing its type),
+mirroring the sibling single-leg order function's existing pattern
+(`options_execution.py:2240`, `_submit_options_order`-equivalent single-
+leg path) which checks `resp.headers.get("content-type")` before calling
+`.json()` and falls back to `{"message": resp.text[:200]}` otherwise —
+no try/except needed, no error silently discarded. This is strictly
+error-message construction for the rejected-order detail string, NOT
+order transmission/retry/authentication — confirmed by rereading the
+full function this session: the FROZEN raw HTTP POST call and its
+outer `except Exception as e: return {...str(e)[:200]}` (which already
+captures and reports, so doesn't count as silent) are untouched.
+
+Because the fix removes the handler rather than narrowing it, the
+file's live count returns to exactly 6 — matching the existing
+`BASELINE["options_execution.py"] = 6` pin with zero test-file changes
+needed (no pin to lower, per the ratchet's own two-sided design).
+
+VERIFIED: `test_silent_except_ratchet.py` 2/2 pass (was 1 pass/1 fail).
+Full `python3 -m pytest -q` (after installing `requirements.txt` +
+`requirements-dev.txt`, absent in this session's fresh container):
+**1059 passed, 1 skipped, 0 failures** — the ratchet fix is the only
+change and the full suite is clean, no other pre-existing failures
+surfaced this session (unlike some recent sessions, this container had
+zero Python deps preinstalled, so this is the first full clean run
+logged in a while; noting for future sessions that a fresh container
+needs `pip3 install -r requirements.txt -r requirements-dev.txt` before
+`pytest` will even collect `voltrade_daemon.py`-importing test files,
+which otherwise hard-`sys.exit(2)` at import and crash the pytest
+collector entirely — not a code bug, an environment-provisioning gap).
+`npm install` (also absent, 486 packages) then `npx tsc --noEmit`: 79
+errors — close to but not exactly the 82 previously logged as baseline;
+zero errors reference `options_execution.py` (not a TS/JS file) or
+`package.json`, so the small drift is pre-existing dependency-version
+noise, not this change (confirmed zero TS files touched this session).
+`npx tsx --test server/*.test.ts`: 979/980 pass, 1 pre-existing failure
+(`every client/public/tiles/*.pmtiles has the PMTiles magic` — the same
+named environment-dependent failure logged in the 2026-08-01 R2-
+migration and App Store sessions above, confirmed same test name).
+`npm run build`: clean, `dist/index.cjs` 13.1mb. No `client/` files
+touched — VISUAL VERIFICATION gate does not apply.
+
+BACKTEST: N/A — measurement/observability fix to error-message
+construction in a rejected-order code path, not a scoring/sizing/
+threshold change; no candidate scores differently, no order behavior
+changes, no trading logic touched. Version bumped 1.0.568 -> 1.0.569
+(PROMOTION RULE 4).
+
+RULE REVIEW NOTE: this is explicitly NOT a RULE REVIEW item (no
+threshold, filter, or sizing logic changed) and NOT a MEASUREMENT
+INTEGRITY item under that section's stricter bar (no backtest/P&L
+metric changed) — it is a repair to an observability-debt class the
+ratchet test exists to catch, tagged [REPAIR] per KNOWN BROKEN #28's
+own filed guidance.
+
+NEXT (queued, not this session): KNOWN BROKEN #10 (dead
+SCORE_BAND_MAX/MAX_CHANGE_PCT config, gated on shadow_portfolio history
+accumulating) and #20 (master_kill_switch's cruder regime classification
+vs. ctx.regime, gated on counterfactual/backtest evidence) both remain
+open and correctly not-yet-actionable per their own filed gating
+conditions — no new evidence surfaced this session that unblocks either.
+GRID VISION remaining waves (Africa, Oceania, Central America/Caribbean)
+remain the standing next [PIPELINE] item for the daily world-rollout
+routine per the 2026-07-31 wave-3 entry above.

@@ -3434,11 +3434,20 @@
     with this one (which handful of tickers get evaluated first each
     cycle) — not fixed here per one-logical-change-per-PR.
 
-28. **[FOUND 2026-07-29 (noted inside #27), STILL OPEN 2026-08-01 —
-    promoted to its own tracked item] `test_silent_except_ratchet.py`
-    fails on current `origin/main`: `options_execution.py` carries 7
-    silent broad-except handlers against a pinned baseline of 6.**
-    Re-confirmed this session (scheduled-routine [PIPELINE] session,
+28. **[FOUND 2026-07-29 (noted inside #27), RESOLVED 2026-08-01,
+    v1.0.569] ~~`test_silent_except_ratchet.py` fails on current
+    `origin/main`: `options_execution.py` carries 7 silent broad-except
+    handlers against a pinned baseline of 6.~~** Fixed: the handler
+    (`_submit_mleg_order`'s error-body parse, ~line 2312) was removed
+    entirely rather than narrowed, mirroring the sibling single-leg
+    order function's existing content-type-check pattern
+    (`options_execution.py:2240`) — no try/except needed. File's live
+    count returns to exactly 6, matching the existing pin with zero
+    BASELINE edit. `test_silent_except_ratchet.py` 2/2 pass; full
+    `python3 -m pytest -q` 1059 passed/1 skipped/0 failures. See
+    experiments.md 2026-08-01 session #2 for the full verification.
+    Original filed text kept below for context.
+    ~~Re-confirmed this session (scheduled-routine [PIPELINE] session,
     v1.0.568) via `git stash` — identical failure with or without this
     session's unrelated diff, so it is genuinely pre-existing on main,
     not something this or the 2026-07-29 session introduced. The extra
@@ -3464,7 +3473,7 @@
     ratchet's own failure message points to), then lower nothing — the
     pin only moves down once the handler is gone or logged, per the
     test's own logic. Small, single-file, single-PR scope; tag
-    [REPAIR] when taken.
+    [REPAIR] when taken.~~
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
