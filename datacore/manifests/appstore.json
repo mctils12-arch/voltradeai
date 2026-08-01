@@ -1,0 +1,29 @@
+{
+ "stream": "appstore",
+ "storage": "volume JSONL <archive>/appstore/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/appStoreRankings.ts archiveAppStoreRecords",
+ "source": "Apple marketingtools RSS top-free/top-grossing charts (US/GB/CA storefronts, top 100) + iTunes Lookup API rating counts (US) for a hand-verified 16-app watchlist",
+ "license": "Apple public RSS/Lookup feeds — CONDITIONAL on low-volume internal use (this stream: ~28 calls/day, well under any documented Apple cap). Google Play is NOT included: robots.txt + ToS prohibit programmatic collection, stated honestly rather than silently omitted. Apple customer-reviews RSS is verified dead, not attempted.",
+ "attribution": "Apple Inc. (App Store charts + iTunes Lookup)",
+ "schema_version": 1,
+ "field_map": {
+  "t": "record type: 'rank' (chart position) | 'rating' (rating-count/version snapshot)",
+  "key": "dedup key: rank = rt|storefront|chart|ticker; rating = rt|ticker",
+  "ticker": "public-company ticker from the hand-verified watchlist (server/appStoreRankings.ts WATCHLIST)",
+  "appId": "Apple App Store numeric trackId, verified live against sellerName/bundleId 2026-08-01 — never name-guessed",
+  "storefront": "Apple storefront country code (us|gb|ca) — 3 of ~175 countries, a scoping choice",
+  "chart": "'top-free' | 'top-grossing' — OVERALL app chart, not genre-specific",
+  "rank": "1-100 chart position, or null if the app is outside the top 100 THAT DAY — never fabricated as a worst-case number",
+  "avgRating": "iTunes Lookup averageUserRating (US storefront), or null if unavailable",
+  "ratingCount": "iTunes Lookup userRatingCount (US storefront) — the review-VELOCITY proxy (delta day over day)",
+  "version": "current app version string at snapshot time, or null",
+  "rt": "as-seen UTC date (day WE fetched it)"
+ },
+ "confidence_model": "GATE 1 (DATA) only — this manifest covers the raw archiver. Ladder next step (GATE 2, not yet run): quarterly rank/velocity aggregates vs company-REPORTED usage metrics (DUOL DAU/bookings, RBLX bookings) as the EIA-equivalent ground truth, then vs forward returns. SOBER PRIOR stated before building (research/open_questions.md NEW DATA ROOTS #3): app-store data is the MOST arbitraged alt-data category — expect near-zero edge on these names; the archive itself, not a claimed edge, is this session's deliverable. HONEST GAPS: no downloads/revenue figures are free anywhere (ordinal rank is the only volume proxy); Android is entirely dark (ToS-blocked); overall charts miss genre-#1 apps outside the top 100 overall (rank:null, not a synthetic worst rank).",
+ "geo_fields": [],
+ "entity_key": "ticker",
+ "sentiment": null,
+ "started": "2026-08-01",
+ "cadence": "6h poll (7 requests/cycle: 3 storefronts x 2 charts + 1 US ratings batch lookup, ~28 calls/day)",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

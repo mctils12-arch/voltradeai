@@ -107,6 +107,7 @@ import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, ty
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
+import { bootAppStorePoll, latestAppStoreRankings } from "./appStoreRankings";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
@@ -3170,6 +3171,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.events.length,
       note: "No PDUFA target dates — legally unavailable free (21 CFR 314.430); adcom dates carry parse confidence",
       events: hit.events,
+    });
+  });
+
+  // App Store rank + review-velocity archiver (RAW display — EDGE
+  // DOCTRINE axis (a), NEW DATA ROOTS #3): daily chart position + rating
+  // count for a hand-verified 16-app watchlist across DUOL/BMBL/MTCH/
+  // HOOD/COIN/RBLX-class consumer names. GATE 1 (DATA) only — no signal
+  // claimed yet; the manifest carries the sober prior and the honest
+  // gaps (no Android, no downloads/revenue, ordinal rank only). Boots
+  // eagerly.
+  bootAppStorePoll();
+  app.get("/api/data/appstore-rankings", (_req, res) => {
+    const hit = latestAppStoreRankings();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "Apple App Store (marketingtools RSS + iTunes Lookup)", warming_up: true, count: 0, records: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "Apple marketingtools RSS top-free/top-grossing charts (US/GB/CA) + iTunes Lookup rating counts (US)",
+      attribution: "Apple Inc.",
+      time: hit.at,
+      count: hit.records.length,
+      note: "GATE 1 (DATA) only — no signal validated yet. Android excluded (ToS-blocked). rank:null means outside the top 100 that day, never a fabricated worst rank.",
+      records: hit.records,
     });
   });
 

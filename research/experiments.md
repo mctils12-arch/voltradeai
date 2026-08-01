@@ -35816,3 +35816,114 @@ hits) — the split is enforced, not assumed.
 
 BACKTEST: N/A (serving-path change only; tile bytes verified
 identical).
+
+## 2026-08-01 (scheduled-routine EDGE session) [PIPELINE] — App Store rank + review-velocity archiver: EDGE DOCTRINE axis (a), NEW DATA ROOTS #3 (v1.0.568, T-DATACORE)
+
+TERRITORY: T-DATACORE (server/appStoreRankings.ts + datacore/manifests/
+appstore.json) + one minimal server/routes.ts route (shared file, last
+commit, small).
+
+PRE-WORK: session-start health check found no unresolved critical
+KNOWN BROKEN item (all either RESOLVED or explicitly evidence-gated —
+items #10/#20 wait on shadow_portfolio/counterfactual data that hasn't
+matured; not this session's job to force). Repair-thrash ratio: 3/10
+of the last 10 logged sessions were [REPAIR] — well under the 7/10
+escalation bar. No STARVED streak, no progress-floor stall in
+wishlist.md. This is therefore NOT a [REPAIR] session — proceeded per
+the scheduled prompt's axis-selection fall-through.
+
+AXIS SELECTION: checked axis (a)'s named examples first (Sentinel-2
+tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar,
+Google Trends) — confirmed via grep + prior experiments.md entries
+(repeatedly logged, e.g. 2026-07-26 through 2026-07-31 sessions) that
+ALL are already built or correctly gate-declined. Delegated a research
+agent to survey research/open_questions.md + wishlist.md for the next
+UNBUILT axis-(a) candidate rather than re-attempt a finished one. It
+surfaced NEW DATA ROOTS #3 (open_questions.md, "App-store rankings +
+review velocity (DUOL/BMBL/MTCH/HOOD/COIN/RBLX class)") as genuinely
+unbuilt, fully keyless for its core form, small single-PR scope, and
+non-conflicting with concurrent-session territory.
+
+PRIOR (stated before building, Reasoning Standard #10): app-store
+rank/rating data is the MOST arbitraged alt-data category on the
+street (the item's own filed text says so). Expect near-zero edge on
+these large/mid-cap names. Building it anyway is BUILD-FIRST rule #2
+(accumulation) — every day not archived is a day permanently lost —
+plus doctrine axis (a)'s actual ask: a zero-token nightly script, not
+a claimed edge. This session builds ONLY the ladder's GATE 1 (DATA)
+step; GATE 2 (vs company-reported metrics) is explicitly NOT attempted
+here (needs a quarter of archived history first).
+
+BUILT: `server/appStoreRankings.ts` — mirrors the fdaEvents.ts/
+nasaFirms.ts archiver shape (injectable fetch, archive-with-dedup,
+gzip-old-days, 6h cache/poll). Sources: Apple marketingtools RSS
+top-free/top-grossing charts (US/GB/CA storefronts, top 100 each) +
+one iTunes Lookup batch call (US) for rating counts/version on a
+16-app watchlist (DUOL/BMBL/MTCH[Tinder]/HOOD/COIN/RBLX/PINS/SNAP/
+UBER/ABNB/DASH/LYFT/SPOT/CHGG/ETSY/YELP). 7 calls/cycle x 4 cycles/day
+(6h) = ~28 calls/day, matching the ladder's "~30 calls/day" budget.
+
+WATCHLIST HONESTY (directly avoiding NEW DATA ROOTS #2's failure mode,
+the job-board resolver killed at gate 0 for name-guessing): every app
+ID was verified LIVE this session via `itunes.apple.com/search`,
+reading trackId + sellerName + bundleId from the actual response and
+cross-checking sellerName against the real public company before
+hardcoding — never inferred from ticker/name similarity.
+
+HONEST GAPS stated in the manifest (datacore/manifests/appstore.json)
+and code comments: no downloads/revenue figures are free anywhere
+(ordinal chart rank is the only volume proxy); Google Play is
+PROHIBITED programmatically (robots.txt + ToS) — Android is entirely
+dark, stated, not backfilled by guessing; charts are OVERALL top-free/
+top-grossing, not per-genre, so a watchlist app that is #1 in its
+genre but outside the top 100 overall records rank:null — never a
+fabricated worst-case rank; 3 of ~175 storefronts covered (US/GB/CA),
+a stated scoping choice.
+
+Route: `/api/data/appstore-rankings` (RAW display, no ladder gate
+needed for raw chart positions/rating counts per the RAW OVERLAYS vs
+SIGNALS standing rule — no predictive claim is made). No client/
+changes: the manifest auto-registers into the existing Streams
+inventory tab (server/streamsInventory.ts enumerates datacore/
+manifests/*.json mechanically) — VISUAL VERIFICATION gate does not
+apply, T-CLIENT territory untouched.
+
+FALL-THROUGH FINDING (filed, not fixed — see open_questions.md KNOWN
+BROKEN #28): `python3 -m pytest -q` surfaced a pre-existing (confirmed
+via `git stash`, present on origin/main HEAD identically) failure in
+`test_silent_except_ratchet.py` — `options_execution.py` now has 7
+silent broad-except handlers against a pinned baseline of 6; the new
+one is at line ~2312 (a `except Exception: pass` around parsing a
+rejected mleg order's error body). Not fixed this session: unrelated
+to this PR's scope (PROMOTION RULE 5, one logical change per PR),
+and `options_execution.py` sits adjacent to a FROZEN PATH (order-
+submission internals) so any edit there needs its own careful,
+narrowly-scoped session — filed as KNOWN BROKEN rather than rushed
+or blindly pin-bumped (bumping the pin without narrowing/logging the
+handler would defeat the ratchet's purpose).
+
+VERIFIED: `npx tsx --test server/appStoreRankings.test.ts` 6/6 pass.
+Full `npx tsx --test server/*.test.ts`: 979/980 pass, 1 pre-existing
+failure (seafloor/places PMTiles magic-byte check — confirmed via
+`git status` that this session touched zero tile files; same failure
+class the 2026-08-01 R2-migration entry above already logged as
+environment-dependent). `npx tsc --noEmit`: 82 errors, same count as
+the prior session's stated baseline; zero errors reference
+appStoreRankings.ts (grep-confirmed). `npm run build`: clean,
+dist/index.cjs 13.1mb. `python3 -m pytest -q`: 1055 passed, 2 skipped,
+1 pre-existing failure (above, confirmed via git-stash byte-identical
+on origin/main — zero Python files touched this session). Version
+bumped 1.0.567 -> 1.0.568 (PROMOTION RULE 4) so future code_version
+reads separate cleanly, though this stream carries no trading-logic
+wiring yet (raw archive only).
+
+BACKTEST: N/A — new raw data-archival pipeline, no trading logic
+touched, no candidate scores or sizing affected.
+
+NEXT (queued, not this session): once ~90 days of daily rank/rating
+history accumulates (~2026-10-30), GATE 2 compares quarterly rank/
+rating-velocity aggregates against company-reported usage metrics
+(DUOL DAU/bookings, RBLX bookings) as the EIA-equivalent ground truth,
+then against forward returns — per this item's own filed ladder in
+open_questions.md NEW DATA ROOTS #3. Given the stated sober prior,
+treat a negative GATE 2 result as the expected outcome, not a failure.
