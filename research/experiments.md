@@ -3,6 +3,166 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-01 (scheduled-routine session #6) [RESEARCH] — Axis (b) illiquid-universe follow-up: REGIME-CONDITIONED check on the illiquid-beats-moderate mean_reversion edge, per REASONING STANDARD #2
+
+TERRITORY: `scripts/illiquid_universe_probe_regime.py` (new, standalone —
+same T-BOT-adjacent-standalone-script class as the four prior probe
+scripts: pure backtest/research script reading `backtest_v2.py` and
+`illiquid_universe_probe.py`, zero runtime/production/client import) +
+`test_illiquid_universe_probe_regime.py` (repo-root, matches the existing
+probe test files' convention) + `research/open_questions.md` UPDATE to
+the 2026-07-24 entry (SHARED, minimized, appended only) + this entry
+(SHARED). No `bot_engine.py`/`system_config.py`/`strategies/`/`server/`
+file touched; no version bump (matches every prior probe session in this
+same thread — pure research, zero runtime/production import, nothing a
+live `code_version` attribution needs to separate).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health` on prod: all
+checks `ok` (`server`, `database`, `alpaca` ACTIVE, `python`, `scanner`
+0 consecutive failures, `licensing`), `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false` — no LIVENESS ALARM. Pulled
+the last 300 `/api/diag/audit` entries live: zero ERROR/FAIL/KILL/WARN/
+COMPLIANCE-tagged entries in the window (only TIER2/RULES/TIER3/
+MANIPULATION/SCHEDULE/EXECUTION/SYSTEM/EVENTLOOP-LAG/QUEUE/STREAM/
+SHUTDOWN/POS-MONITOR/STARTUP types, all routine) — no fresh bug to fix,
+SESSION BUDGET's top tier came up empty. Loop-health ratio, last 10
+tagged entries (2026-07-31 through 2026-08-01): 4/10 [REPAIR], 6/10
+[PIPELINE]/[PRODUCT] — well under the 7+ thrash bar. AUDITS & DEBT
+register: staleness audit next due 2026-08-04 (not yet due), constitutional
+audit still awaiting human approval on already-filed proposals (not a
+session action item). KNOWN BROKEN in open_questions.md: only items #10
+and #20 remain unresolved, both explicitly gated on future evidence that
+hasn't accumulated yet — neither actionable now.
+
+PRIMARY ACTION SELECTION: ran a parallel research subagent (per SESSION
+BUDGET's fall-through, "next queued item from open_questions.md/roadmap")
+to survey candidates across ALL territories, not just the most recent
+T-CLIENT session's leftover queue item. It surfaced three: (a) the
+T-CLIENT transition-band CPU pick-geometry mismatch (explicitly "low
+priority until a live report says otherwise," cosmetic, no live report);
+(b) GRID VISION world-rollout wave 4 (mechanical, archive-breadth,
+T-DATACORE); (c) the illiquid `mean_reversion` edge (2026-07-24 entry) —
+steps 1-3 of its own filed ladder path all closed/checked as of 2026-07-28,
+idle for 4 days, step 4/5 explicitly still open. Picked (c): this is the
+only candidate that speaks to GOAL priorities 2 (integrity of learning —
+finish validating a partially-matured finding properly) and 3 (grow the
+account), both of which categorically outrank priority 4's capability-
+expansion work that (a) and (b) represent; it also matches SESSION
+BUDGET's PRIMARY-action ordering ("judge a matured experiment") more
+precisely than either alternative.
+
+READ BEFORE WRITE: before touching step 4 (illiquid-tuned re-thresholding,
+the ladder's own next-named step), re-read the full 2026-07-24 entry and
+all three 2026-07-28 UPDATEs in open_questions.md this session — found
+that step 2's train/test split left an UNEXPLAINED sign-flip (illiquid
+mean_reversion Sharpe negative in the early calendar half, strongly
+positive in the late half) that step 3's pooled significance test simply
+bootstrapped OVER without addressing. REASONING STANDARD #2 ("never
+evaluate a rule/strategy on pooled results alone — split by regime...
+'works overall' often means 'works in the regime that dominated the
+sample'") had NOT yet been applied to this finding — an arbitrary
+calendar-time split (early/late) is a different question from "does this
+hold across market regimes," and jumping straight to step 4 (a costly
+re-tuning design effort) on a still only partially-understood, unexplained
+instability would be exactly the kind of undisciplined haste Reasoning
+Standard #4 warns against. Chose to run the regime-conditioned check
+first — diagnostic, not itself step 4 or 5 — to learn whether step 2's
+sign-flip is explained by regime composition before spending effort on
+re-thresholding that might need to be regime-conditional from the start.
+
+BUILT: `scripts/illiquid_universe_probe_regime.py` —
+`build_regime_lookup(spy_bars, vxx_bars)` (thin wrapper around
+`backtest_v2.regime_series()`, the SAME function `simulate()` calls
+internally to gate params — a READ of the regime the backtest itself
+traded under, not a parallel re-derivation that could silently disagree),
+`tag_trades_with_regime(trades, lookup)` (pure, falls back to NEUTRAL on
+a missing date exactly like `simulate()`'s own fallback),
+`aggregate_by_regime(tagged_trades)` (pure, n_trades/win_rate_pct/
+mean_net_pct per regime bucket, omitting empty buckets rather than
+reporting a misleading 0%), and `run_group_regime(tickers)` (network
+orchestration: shared SPY/VXX fetch reused across all tickers, per-ticker
+`backtest_v2.run_backtest(ticker, "mean_reversion", years=4, ...)`,
+trades pulled from the top-level `all_trades["mean_reversion"]` key — NOT
+`resp["results"]`, which `simulate()`'s wrapper strips trades out of via
+`r.pop("trades")` before appending to `results`; confirmed this by
+reading `run_backtest`'s body this session, not assumed from the sibling
+scripts' pattern). Reused the ORIGINAL 2026-07-24 pinned ILLIQUID/
+MODERATE lists (LIQUID excluded — already flagged as underpowered for
+mean_reversion at the group level in every prior step, more so split
+five ways by regime).
+
+METRIC CHOICE, stated honestly: per-regime SHARPE is not computed — a
+regime-sliced equity sub-series isn't cleanly defined when a trade can
+open in one regime and close in another, and re-simulating with regime
+transitions as forced exits would be a materially different, more
+invasive experiment not attempted here. Reports n_trades/win_rate_pct/
+mean_net_pct (per-trade %, not portfolio-level) instead — a coarser
+metric than steps 1-3's Sharpe, not directly comparable to them.
+
+PRIOR, stated before running (Reasoning Standard #10): the structural
+story (thin order books mechanically exhausting retail-panic-driven
+oversold conditions) predicts the illiquid edge should concentrate in
+higher-vol regimes (BEAR/CAUTION/PANIC), muted in BULL.
+
+ACTUAL RUN (live, this session, real market data via `backtest_v2.
+fetch_bars`, no PANIC-regime trades landed in either group — rare enough
+that no trade's own `date_entry` happened to fall on a PANIC day for
+these 17 tickers over the 4y window):
+```
+illiquid (n=10, 144 trades): BULL 85/47.1%win/+3.332%mean; CAUTION
+  22/36.4%/+0.04%; NEUTRAL 28/46.4%/+0.221%; BEAR 9/66.7%/+2.458%.
+moderate (n=7, 114 trades): BULL 82/28.0%/-2.22%; CAUTION 15/26.7%/
+  -5.527%; NEUTRAL 12/33.3%/-1.285%; BEAR 5/0.0%/-7.732%.
+```
+
+VERDICT (Reasoning Standard #4 — stated as plainly as the numbers
+support): the PRIOR is NOT confirmed — the illiquid edge does not
+concentrate in high-vol regimes; BULL carries the most trades (85/144)
+and among the largest illiquid mean_net_pct. But the illiquid > moderate
+SPREAD is remarkably regime-consistent: illiquid mean_net_pct is
+positive in every regime bucket with trades, moderate is negative in
+every one of the same buckets — four independent regime cuts all point
+the same direction, on top of step 1's independent redraw and step 3's
+significance test. This means regime composition does NOT explain step
+2's sign-flip in illiquid's OWN Sharpe between calendar halves — since
+the illiquid-beats-moderate direction holds in every regime bucket, a
+difference in regime mix between the early/late halves cannot be what
+flipped illiquid's own sign. The flip's actual cause (trade clustering, a
+handful of large trades dominating one half, serial correlation a same-
+day regime label doesn't capture, or something else) remains UNEXPLAINED
+— this session narrows what it is NOT, not what it IS. HONEST CAVEATS:
+BEAR is thin in both groups (9 and 5 trades) — directionally consistent
+but not powerful; CAUTION shows the weakest illiquid edge (+0.04%,
+barely above zero) — not spun as uniformly strong; zero PANIC-regime
+trades means this axis says nothing about the market's most extreme
+state, the one the structural story leaned on most.
+
+LADDER PATH STATUS: strengthens confidence that illiquid > moderate is a
+real, regime-general pattern, but the newly-unexplained within-illiquid
+calendar instability (step 2) is still an open flag any future step 4
+(illiquid-tuned re-thresholding, RULE-REVIEW-gated) should carry forward
+rather than assume resolved. Steps 4 and 5 (LOGIC-gate ablation against
+the live bot's actual deep_score/tier1_csp_core path) remain fully open —
+STILL NOT actionable for any strategy/threshold/config change; no
+strategy, threshold, or config change ships from this session.
+
+VERIFIED: 11 new tests in `test_illiquid_universe_probe_regime.py` —
+`build_regime_lookup` (an upward VXX step produces PANIC right at the
+jump, a downward step produces BULL, missing VXX degrades to a valid
+label instead of crashing — using a purpose-built `_stepped_vxx` helper;
+first attempt at this used a flat-per-segment helper that always
+converges to ratio==1.0 regardless of the segment's absolute level, a
+real design mistake caught by the very first test run and fixed before
+proceeding, not discovered later), `tag_trades_with_regime` and
+`aggregate_by_regime` (pure, hand-built inputs with known right answers,
+including the "empty bucket omitted, not reported as 0%" case), and
+`run_group_regime` integration (regime buckets sum to total trades, one
+bad ticker doesn't kill the group, SPY/VXX fetched exactly once shared
+across tickers). All 11 pass. Full `python3 -m pytest -q`: 1070 passed, 1
+skipped (1059 baseline + 11 new), 0 failures — zero regressions.
+BACKTEST: N/A — pure research probe, zero runtime/production import, no
+strategy/scoring/threshold change.
+
 ## 2026-07-31 (scheduled-routine session, market hours) [REPAIR] — option-symbol WS bars subscribe was crashing the equity real-time exit-monitor feed dozens of times a day (v1.0.558, T-BOT)
 
 TERRITORY: T-BOT (`server/bot.ts` inside the WS position-monitor path only —

@@ -7587,6 +7587,83 @@ bootstrap/permutation machinery verified against synthetic data with a
 known right answer before being run against the real per-ticker
 Sharpes).
 
+UPDATE 2026-08-01 (scheduled-routine session) — REGIME-CONDITIONED check
+run, per REASONING STANDARD #2 ("never evaluate a rule/strategy on
+pooled results alone — split by regime"), which had not yet been applied
+to this finding despite step 2's own unexplained sign-flip (illiquid
+mean_reversion Sharpe negative in the early half of the 4y window,
+strongly positive in the late half). An arbitrary calendar-time split is
+not the same question as "does this hold across market regimes" — this
+step asks the regime question directly instead of assuming calendar time
+proxies for it. NOT step 4 or 5 of the filed ladder — purely diagnostic,
+answering whether step 2's sign-flip is EXPLAINED by regime composition.
+
+PRIOR, stated before running: the structural story (thin order books
+mechanically exhausting retail-panic-driven oversold conditions) predicts
+the illiquid edge should concentrate in higher-vol regimes (BEAR/CAUTION/
+PANIC), muted in BULL.
+
+METHOD: `scripts/illiquid_universe_probe_regime.py` reuses the ORIGINAL
+2026-07-24 pinned ILLIQUID/MODERATE lists (LIQUID excluded — already
+flagged as underpowered for mean_reversion at the group level, even more
+so split five ways), runs `backtest_v2.run_backtest(ticker,
+"mean_reversion", years=4, ...)` per ticker, and tags each trade's regime
+via `backtest_v2.regime_series()` (the SAME function `simulate()` uses
+internally, looked up by the trade's own `date_entry` — a read of the
+regime the backtest itself traded under, not a parallel re-derivation).
+Per-regime metric is n_trades / win_rate_pct / mean_net_pct (per-trade %
+return) — NOT a per-regime Sharpe, which would need a regime-sliced
+equity sub-series that isn't cleanly defined when a trade can span a
+regime transition; this is a coarser metric than steps 1-3's Sharpe and
+not directly comparable to them.
+
+RESULT (real run, 2026-08-01, no PANIC-regime trades landed in either
+group's window — rare enough that no trade's own entry date happened to
+fall on a PANIC day for these 17 tickers over 4y):
+  illiquid (n=10, 144 trades): BULL 85 trades/47.1% win/mean +3.332%;
+    CAUTION 22/36.4%/+0.04%; NEUTRAL 28/46.4%/+0.221%; BEAR 9/66.7%/+2.458%.
+  moderate (n=7, 114 trades): BULL 82/28.0%/-2.22%; CAUTION 15/26.7%/
+    -5.527%; NEUTRAL 12/33.3%/-1.285%; BEAR 5/0.0%/-7.732%.
+
+VERDICT, stated as plainly as the finding (Reasoning Standard #4): the
+PRIOR is NOT confirmed — the illiquid edge is NOT concentrated in
+high-vol regimes; if anything BULL carries the most trades (85/144) and
+among the largest illiquid mean_net_pct. But the illiquid > moderate
+SPREAD itself is remarkably regime-consistent: illiquid mean_net_pct is
+positive in every regime bucket that has trades, moderate is negative in
+every one of the same buckets — a cleaner, more direction-stable result
+across FOUR independent regime cuts than the single early/late calendar
+split produced. This means regime composition does NOT explain step 2's
+sign-flip (illiquid's own Sharpe flipping sign between calendar halves)
+— since the illiquid-beats-moderate direction holds in every regime
+bucket, a difference in regime MIX between the early and late halves
+cannot be what flipped illiquid's own sign. The flip's actual cause
+(trade clustering, a handful of large-magnitude trades dominating one
+half, serial correlation not captured by a same-day regime label, or
+something else) remains UNEXPLAINED — this session narrows what it is
+NOT, it does not identify what it IS. HONEST CAVEATS: BEAR is thin in
+both groups (9 and 5 trades) — the 66.7%/0.0% win-rate contrast there is
+directionally consistent with the rest but not powerful; CAUTION shows
+the weakest illiquid edge (mean +0.04%, barely above zero) — not spun as
+uniformly strong; zero PANIC-regime trades means this axis says nothing
+about the market's most extreme state, the one the original structural
+story leaned on most.
+
+NET EFFECT ON THE LADDER: strengthens confidence that illiquid > moderate
+is a real, regime-general pattern (four more independent cuts all point
+the same direction, on top of steps 1's redraw and 3's significance
+test) — but the newly-unexplained within-illiquid-group calendar
+instability (step 2) is still an open flag any step-4 re-thresholding
+effort should carry forward, not something this session resolves. Steps
+4 (illiquid-tuned re-thresholding) and 5 (LOGIC-gate ablation) remain
+fully open — STILL NOT actionable for any strategy/threshold/config
+change. Reproducibility artifact: `scripts/illiquid_universe_probe_regime.py`
++ `test_illiquid_universe_probe_regime.py` (11 new tests: pure regime-
+lookup/tagging/aggregation functions verified against hand-built and
+synthetic-step-function inputs with known right answers, plus an
+integration test against synthetic long-history bars, before being run
+against the real per-ticker trade histories above).
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
