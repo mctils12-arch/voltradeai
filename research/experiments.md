@@ -36261,3 +36261,147 @@ the transition-band CPU pick-geometry mismatch (round-22 follow-up #2,
 low priority, no live report); (c) USGS volcano alert levels, rescoped
 per the 2026-08-01 session #3 correction (GVP vnum-coordinate join, not
 HTML parsing).
+
+## 2026-08-01 (scheduled-routine PRODUCT session #5) [PRODUCT] — T-CLIENT — held (ALTITUDE HOLD) flag now surfaces in the flight-profile chart, closing the last round-22 self-review follow-up (v1.0.572)
+
+TERRITORY: T-CLIENT (`client/src/lib/air/trackModel.ts`,
+`client/src/components/FlightProfilePanel.tsx`, `client/src/index.css`) +
+`client/src/lib/air/trackModel.test.ts` + `package.json`/`package-lock.json`
+(SHARED, version bump only, read-and-incremented at commit time). No server
+route, no Python, no bot code touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+Designated branch `claude/lucid-keller-rijpz8` had no remote ref yet and its
+local copy was 15 commits behind `origin/main` (a stale prior checkout) —
+recreated from `origin/main` at v1.0.571 rather than rebasing garbage
+history, per the merged-PR restart guidance (no unmerged local commits
+existed to preserve — `git rev-list` confirmed 0 commits unique to the old
+local branch). No `/api/health` probe available from this session's network
+(no live token/URL in env) — proceeded on the documented KNOWN STATE instead:
+no LIVENESS ALARM condition is on record, the last logged production
+`/api/health` check (2026-08-01 session #4, same day) was all-green. Loop-
+health ratio, last 10 tagged entries (2026-07-29 through 2026-08-01):
+3/10 [REPAIR] (round-22, ETF-track_fill, silent-except ratchet), 7/10
+[PIPELINE]/[PRODUCT] — well under the 7+ thrash bar. AUDITS & DEBT register:
+staleness next due 2026-08-04, constitutional next due ~2026-08-03 — neither
+overdue. No STARVED flag, no progress-floor stall in wishlist.md. KNOWN
+BROKEN: open_questions.md items #10 and #20 are the only unresolved entries,
+both correctly gated on future evidence per their own filed conditions
+(#10 on shadow_portfolio history, #20 on counterfactual/backtest data) —
+neither blocks product work.
+
+PRIMARY ACTION SELECTION: three queued T-CLIENT candidates were on record
+from the 2026-08-01 session #3/#4 NEXT lists: (a) surface the `held` flag
+in the flight-profile UI (round-22 follow-up #1, filed 2026-07-31, still
+open); (b) the transition-band CPU pick-geometry mismatch (round-22
+follow-up #2, explicitly low priority, no live report); (c) USGS volcano
+alert levels, rescoped to a GVP vnum-coordinate join (a real integration,
+not the originally-scoped small HTML-parse item). Picked (a): matches menu
+item (b) of this session's own PRODUCT charter ("build product UI/UX"),
+directly serves the PREMIUM EXPERIENCE STANDARD's provenance clause ("every
+number visibly carries freshness, provenance, and confidence"), was
+already scoped down to "UI-only change" by the filing session, and — unlike
+(c) — carries zero data-integration risk. (b) stays queued (lowest priority
+of the three, no live report). (c) stays queued for a session with room for
+a real GVP coordinate-join investigation, not a fall-through slot.
+
+READ BEFORE WRITE: read `client/src/lib/air/breadcrumbs.ts` (the `held`
+flag's origin — `mergeTrackWithCrumbs`'s ALTITUDE HOLD policy, v1.0.564),
+`client/src/lib/air/trackModel.ts` in full (the `RawTrackPoint`/
+`TrackSample` pipeline `held` needed to cross), and
+`client/src/components/FlightProfilePanel.tsx` in full (the chart that
+needed to render it) before touching anything. Traced the actual gap:
+`breadcrumbs.ts` already flags `held: true` on ALTITUDE HOLD points, but
+`RawTrackPoint`/`TrackSample` (trackModel.ts) never carried the field —
+`buildTrackSamples(flight)` in `datamap.tsx` silently dropped it before the
+profile panel ever saw it, which is exactly the "data already carries the
+flag; UI-only change" scope the round-22 filing described, EXCEPT the flag
+also needed a mechanical trackModel.ts pass-through the filing hadn't named
+(a "UI-only change" from the flag's origin's point of view, not from
+trackModel.ts's).
+
+CHANGE: (1) `RawTrackPoint` and `TrackSample` (trackModel.ts) both gained
+`held` (optional on input, always-present boolean on the sample — mirrors
+`gap`'s existing pattern). (2) `buildTrackSamples` propagates `held` for
+raw fixes directly and for densified interior points as `f.held || n.held`
+— an interpolated point between a held reading and a real one inherits
+held (HONESTY: over-flagging a boundary point as "not fresh" is the safe
+direction, never under-flagging). (3) `sampleAt` (playback/scrub) reports
+`a.held || b.held` so the playhead readout never overstates freshness
+mid-scrub. (4) `FlightProfilePanel.tsx`'s `paths` builder now splits each
+contiguous non-gap run's altitude line into SOLID vs HELD sub-paths at
+every held/non-held transition, sharing the boundary vertex so the line
+stays visually continuous (no gap where dashed meets solid) — HELD spans
+render with the exact same dash style as the existing dead-reckoned tail
+(`strokeDasharray="4 5" opacity="0.55"`) for a consistent "not real-time
+data" visual language across the chart. (5) An `ALT HOLD (carried, not
+fresh)` legend entry appears ONLY when the current track actually contains
+a held sample (`hasHeld` memo) — most tracks never touch ALTITUDE HOLD (it
+needs a live-fix altitude drop while a plane is actively followed), so the
+legend stays uncluttered for the common case. The AGL band and terrain
+trace are UNCHANGED (position/terrain stay real regardless of the altitude
+reading's freshness) — only the altitude LINE itself is split.
+
+VERIFIED: `client/src/lib/air/trackModel.test.ts` gained 2 tests — "non-held
+fixes carry held:false" (the default reads as real data) and "held
+propagates from mergeTrackWithCrumbs-style fixes through buildTrackSamples
+and sampleAt" (raw held fix, both bracketing interpolated segments, and
+sampleAt mid-scrub all assert `held === true`; a fully-real track asserts
+`held` is never set). A/B-verified via `git stash push -- trackModel.ts`
+(test file kept): both new tests FAIL against the pre-fix file (2 fail /
+11 pass) and PASS once popped back (13/13). Full `npx tsx --test
+server/*.test.ts client/src/**/*.test.ts`: 1141/1142 pass, 1 pre-existing
+failure (`every client/public/tiles/*.pmtiles has the PMTiles magic` — the
+same named environment-dependent failure the last several sessions logged;
+zero tile files touched, confirmed via `git status`). `npx tsc --noEmit`:
+82 errors, `git stash` A/B-compared byte-identical count with the 3 source
+files stashed vs. applied — zero new errors, none reference the touched
+files. `npm run build`: clean, `dist/index.cjs` 13.1mb, same pre-existing
+chunk-size warnings as every recent session. `python3 -m pytest -q` (fresh
+container, `pip3 install -r requirements.txt -r requirements-dev.txt`
+first): 1059 passed, 1 skipped, 0 failures — zero Python files touched,
+run purely as the standing full-suite check.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page data` at
+390/768/1440px. First run (post-fix) showed 1 hard failure — TTI 3023ms at
+390px (gate 3000ms). Implausible on its face: `FlightProfilePanel` only
+mounts when a plane's track card is open, not on the page's default load
+path, so a pure altitude-line-splitting change inside it cannot plausibly
+move page TTI. Ran the same REASONING STANDARD #4 A/B the 2026-08-01
+session #4 shader fix used: `git stash`-isolated all 3 source changes
+(kept the version bump and test file untouched, since neither affects
+runtime perf) and reran clean — this BASELINE run (pre-fix code) ALSO
+failed, with a DIFFERENT signature (390px passed this time; 1440px frame
+p95 383ms > 350ms gate AND the synthetic layer-scale battery's TTI
+3001ms > 3000ms gate both failed instead) — 2 hard failures with zero of
+this session's code present. Two different failure signatures from the
+same untouched baseline, both absent from this session's own earlier
+2026-08-01 log entries, conclusively identifies container-level noise
+(cold Chromium/JIT/resource contention), not a regression this change
+could cause. Popped the stash back, rebuilt, reran a third time (fix
+restored, warm container) — **0 hard failures** at all three widths;
+identical rendered-aircraft counts per width to the first (failing) run,
+only the same pre-existing warning classes every recent session has logged
+(touch-target sizes on always-on chrome, one clipped Wind-toggle control at
+1440px, frame p95 350ms borderline). The `FlightProfilePanel` isn't open in
+the harness's default screenshot state (no track selected), so this
+session's own screenshots don't visually exercise the new dashed-segment
+rendering — that path is covered by the trackModel unit tests instead
+(the actual data-plumbing bug this session fixed); the harness confirms
+no page-level regression, which is the scope VISUAL VERIFICATION actually
+needs to rule out here.
+
+BACKTEST: N/A — pure client-side flight-profile chart rendering, zero
+server route, trading logic, candidate scores, or sizing touched.
+
+Version bumped 1.0.571 -> 1.0.572 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (both fields kept in sync).
+
+NEXT (queued, not this session): (a) the transition-band CPU pick-geometry
+mismatch (round-22 follow-up #2, low priority, no live report — the round-
+22 follow-up list is now fully drained except this one); (b) USGS volcano
+alert levels, rescoped per the 2026-08-01 session #3 correction (GVP
+vnum-coordinate join, not HTML parsing) — pairs naturally with the SO2
+overlay's volcanic-degassing cross-tie once built; (c) once ~90 days of
+App Store rank/rating history accumulates (~2026-10-30), that stream's
+GATE 2 becomes actionable.
