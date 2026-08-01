@@ -36,6 +36,11 @@ export interface RawTrackPoint {
   la: number;
   lo: number;
   al?: number | null;
+  /** true = breadcrumbs.ts's ALTITUDE HOLD carried this altitude forward
+   *  from the last real broadcast (mergeTrackWithCrumbs output only —
+   *  never set on archived fixes). Passed through so downstream consumers
+   *  (the profile chart) can mark the reading, never display it as fresh. */
+  held?: boolean;
 }
 
 /** One densified sample — everything downstream consumers need. */
@@ -48,6 +53,12 @@ export interface TrackSample {
   altM: number;
   /** true = this sample sits in a no-altitude gap (curtain/line break). */
   gap: boolean;
+  /** true = the altitude reading here is carried forward from the last
+   *  real broadcast (breadcrumbs.ts ALTITUDE HOLD), not a fresh fix —
+   *  interpolated samples inherit it from either bracketing fix. Never
+   *  set from the archive; only mergeTrackWithCrumbs's live merge sets
+   *  it. Consumers must not draw held spans identically to real data. */
+  held: boolean;
   /** derived ground speed, knots (from neighboring fixes). */
   gsKt: number;
   /** derived vertical speed, feet per minute (from neighboring fixes). */
@@ -156,7 +167,7 @@ export function buildTrackSamples(raw: RawTrackPoint[]): {
 } {
   const fixes = raw
     .filter((p) => p != null && Number.isFinite(p.la) && Number.isFinite(p.lo) && Number.isFinite(p.t))
-    .map((p) => ({ t: p.t as number, la: p.la, lo: p.lo, al: p.al ?? null }));
+    .map((p) => ({ t: p.t as number, la: p.la, lo: p.lo, al: p.al ?? null, held: !!p.held }));
   if (fixes.length === 0) return { samples: [], altMin: 0, altMax: 0 };
 
   // derived rates at each RAW fix (±2 window like the prototype)
@@ -180,23 +191,28 @@ export function buildTrackSamples(raw: RawTrackPoint[]): {
   const spacing = Math.max(TRACK_DENSIFY_M, total / Math.max(1, TRACK_MAX_SAMPLES - fixes.length));
 
   const out: TrackSample[] = [];
-  const push = (t: number, lon: number, lat: number, altM: number | null, g: number, v: number) => {
+  const push = (t: number, lon: number, lat: number, altM: number | null, g: number, v: number, held: boolean) => {
     out.push({
       t, lon, lat,
       altM: altM == null ? NaN : altM,
       gap: altM == null,
+      held,
       gsKt: g, vsFpm: v,
     });
   };
 
   for (let i = 0; i < fixes.length; i++) {
     const f = fixes[i];
-    push(f.t, f.lo, f.la, f.al ?? null, gs[i], vs[i]);
+    push(f.t, f.lo, f.la, f.al ?? null, gs[i], vs[i], f.held);
     if (i + 1 >= fixes.length) break;
     const n = fixes[i + 1];
     const segM = distMeters(f.la, f.lo, n.la, n.lo);
     const steps = Math.min(512, Math.floor(segM / spacing));
     const segGap = f.al == null || n.al == null; // either end silent → gap
+    // interpolated points inherit HELD from either bracketing fix — an
+    // interior point between a held reading and a real one is itself not
+    // a fresh broadcast, so it must not render as solid data either.
+    const segHeld = f.held || n.held;
     for (let s = 1; s <= steps; s++) {
       const u = s / (steps + 1);
       push(
@@ -206,6 +222,7 @@ export function buildTrackSamples(raw: RawTrackPoint[]): {
         segGap ? null : (f.al as number) + ((n.al as number) - (f.al as number)) * u,
         gs[i] + (gs[i + 1] - gs[i]) * u,
         segGap ? 0 : vs[i] + (vs[i + 1] - vs[i]) * u,
+        segHeld,
       );
     }
   }
@@ -292,6 +309,7 @@ export function sampleAt(samples: TrackSample[], t: number): TrackSample | null 
     lat: a.lat + (b.lat - a.lat) * u,
     altM: gap ? NaN : a.altM + (b.altM - a.altM) * u,
     gap,
+    held: a.held || b.held,
     gsKt: a.gsKt + (b.gsKt - a.gsKt) * u,
     vsFpm: gap ? 0 : a.vsFpm + (b.vsFpm - a.vsFpm) * u,
   };

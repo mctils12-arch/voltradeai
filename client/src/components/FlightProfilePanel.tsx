@@ -121,6 +121,10 @@ export default function FlightProfilePanel({
   const t0 = samples.length ? samples[0].t : 0;
   const t1 = samples.length ? samples[samples.length - 1].t : 0;
   const span = Math.max(1, t1 - t0);
+  // legend only appears when the track actually carries a held span —
+  // most tracks never touch ALTITUDE HOLD (it needs a live-fix altitude
+  // drop while the plane is being followed), so this stays silent then.
+  const hasHeld = useMemo(() => samples.some((s) => s.held), [samples]);
 
   // LIVE EDGE (human 2026-07-20: the banner "should continuously update …
   // as it gets it from adsb"): while pinned live the time axis runs to NOW,
@@ -155,14 +159,34 @@ export default function FlightProfilePanel({
       ter += ` L${X(samples[i].t).toFixed(1)} ${Y(g(i)).toFixed(1)}`;
     }
     ter += ` L${CW} ${CH} Z`;
-    // altitude line + AGL band per contiguous non-gap run (honest breaks)
+    // altitude line + AGL band per contiguous non-gap run (honest breaks).
+    // Within a run, the line itself splits further into SOLID (real
+    // broadcast altitude) vs HELD (breadcrumbs.ts ALTITUDE HOLD — carried
+    // forward, not fresh — round-22 self-review follow-up 2026-07-31: a
+    // held span must not read as real data). The two sub-paths share the
+    // transition vertex so the line stays visually continuous. The AGL
+    // band keeps the full run (position/terrain are real either way).
+    const pt = (i: number) => `${X(samples[i].t).toFixed(1)} ${Y(samples[i].altM).toFixed(1)}`;
     let alt = "";
+    let altHeld = "";
     let band = "";
     let run: number[] = [];
     const flush = () => {
       if (run.length < 2) { run = []; return; }
-      alt += run.map((i, k) =>
-        `${k ? "L" : "M"}${X(samples[i].t).toFixed(1)} ${Y(samples[i].altM).toFixed(1)}`).join(" ") + " ";
+      let sub = "";
+      let subHeld = !!samples[run[0]].held;
+      for (let k = 0; k < run.length; k++) {
+        const i = run[k];
+        if (k === 0) { sub = `M${pt(i)}`; continue; }
+        const segHeld = !!samples[run[k - 1]].held || !!samples[i].held;
+        if (segHeld !== subHeld) {
+          (subHeld ? (altHeld += sub + " ") : (alt += sub + " "));
+          sub = `M${pt(run[k - 1])}`; // shared boundary vertex, no visual gap
+          subHeld = segHeld;
+        }
+        sub += ` L${pt(i)}`;
+      }
+      (subHeld ? (altHeld += sub + " ") : (alt += sub + " "));
       band += run.map((i, k) =>
         `${k ? "L" : "M"}${X(samples[i].t).toFixed(1)} ${Y(samples[i].altM).toFixed(1)}`).join(" ")
         + " " + [...run].reverse().map((i) =>
@@ -193,7 +217,7 @@ export default function FlightProfilePanel({
       }
     }
     if (gapStart >= 0) gaps.push({ x0: X(samples[Math.max(0, gapStart - 1)].t), x1: CW });
-    return { ter, alt: alt.trim(), band: band.trim(), gaps };
+    return { ter, alt: alt.trim(), altHeld: altHeld.trim(), band: band.trim(), gaps };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, groundM, yMaxM, t0, span]);
 
@@ -402,6 +426,7 @@ export default function FlightProfilePanel({
           <span><i className="alt" />ALTITUDE</span>
           <span><i className="terr" />TERRAIN</span>
           <span><b />AGL BAND</span>
+          {hasHeld && <span><i className="alt-hold" />ALT HOLD (carried, not fresh)</span>}
         </div>
         <button className="vt-flight-profile-toggle" data-vt-scale-down aria-label="Shrink panel"
                 title="Smaller (size is remembered)" onClick={() => bumpScale(-1)}>
@@ -459,6 +484,14 @@ export default function FlightProfilePanel({
                 <path d={paths.band} fill="rgba(77,163,255,.16)" />
                 <path d={paths.ter} fill="rgba(56,84,52,.55)" stroke="#6b8f5e" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
                 <path d={paths.alt} fill="none" stroke="#4da3ff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                {/* ALT HOLD spans (breadcrumbs.ts ALTITUDE HOLD — carried
+                    forward, not fresh): same dash style as the dead-
+                    reckoned tail below, so "not a real fix" reads
+                    consistently across the chart (round-22 follow-up). */}
+                {paths.altHeld && (
+                  <path d={paths.altHeld} fill="none" stroke="#4da3ff" strokeWidth="2"
+                        strokeDasharray="4 5" opacity="0.55" vectorEffect="non-scaling-stroke" />
+                )}
               </g>
               {/* dashed dead-reckoned tail: last real fix → now, altitude
                   held at the last broadcast (never drawn as solid data) */}

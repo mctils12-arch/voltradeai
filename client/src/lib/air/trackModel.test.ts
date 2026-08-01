@@ -71,6 +71,43 @@ test('altitude gaps are honest: no-broadcast fixes break the curtain, never inve
   assert.equal(altMax, 2400);
 });
 
+test('non-held fixes carry held:false — the default is "real data" (round-22 held-flag follow-up)', () => {
+  const raw: RawTrackPoint[] = [
+    { t: 0, la: 40, lo: -100, al: 2000 },
+    { t: 60, la: 40.05, lo: -100, al: 2400 },
+  ];
+  const { samples } = buildTrackSamples(raw);
+  assert.ok(samples.every((s) => s.held === false), 'no fix flagged held → no sample is held');
+});
+
+test('held propagates from mergeTrackWithCrumbs-style fixes through buildTrackSamples and sampleAt (round-22 held-flag follow-up)', () => {
+  const raw: RawTrackPoint[] = [
+    { t: 0, la: 40, lo: -100, al: 2000 },                         // real broadcast
+    { t: 60, la: 40.05, lo: -100, al: 2000, held: true },         // ALTITUDE HOLD carried forward
+    { t: 120, la: 40.1, lo: -100, al: 2400 },                     // real broadcast resumes
+  ];
+  const { samples } = buildTrackSamples(raw);
+  // the raw held fix itself is held
+  const rawHeld = samples.find((s) => s.t === 60);
+  assert.equal(rawHeld?.held, true, 'the raw held fix is flagged held');
+  // interpolated points bracketing a held fix inherit held — a mid-segment
+  // reading is not fresh data just because one endpoint is
+  const beforeMid = samples.find((s) => s.t > 0 && s.t < 60);
+  const afterMid = samples.find((s) => s.t > 60 && s.t < 120);
+  assert.equal(beforeMid?.held, true, 'segment leading into the held fix is flagged held');
+  assert.equal(afterMid?.held, true, 'segment leading out of the held fix is flagged held');
+  // fully real segments (both endpoints real) are never flagged
+  const realOnly = buildTrackSamples([
+    { t: 0, la: 40, lo: -100, al: 2000 },
+    { t: 60, la: 40.05, lo: -100, al: 2400 },
+  ]).samples;
+  assert.ok(realOnly.every((s) => !s.held), 'no held endpoint anywhere → nothing flagged');
+  // sampleAt (playback/scrub) also reports held when either bracketing
+  // sample is held, so the playhead readout never overstates freshness
+  const scrub = sampleAt(samples, 45)!;
+  assert.equal(scrub.held, true, 'sampleAt inherits held from its bracketing samples');
+});
+
 test('derived gs/vs match the prototype derivation on a constant-rate track', () => {
   // due-north at ~120 m/s, climbing 5 m/s
   const raw: RawTrackPoint[] = [];
