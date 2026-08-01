@@ -1062,12 +1062,14 @@ const AS_COUNTRIES = [
   { code: "as_vn", name: "Vietnam", file: "power_as_vn.pmtiles" },
   { code: "as_ye", name: "Yemen", file: "power_as_ye.pmtiles" },
 ] as const;
-// Tiles that live ONLY in R2 (never committed to the repo) route through the
-// same-origin proxy; everything else keeps the repo path. When the bucket
+// ALL power-grid tiles serve from R2 through the same-origin proxy
+// (server/routes.ts /tiles-r2/) — 2026-07-31 migration: every repo copy was
+// verified byte-identical in the bucket before removal (~830MB off the repo
+// and Docker image). Non-power tiles (places, seafloor) are small and
+// page-critical, so they stay committed and repo-served. When the bucket
 // CORS policy is set, this can switch to the direct r2.dev URL in one line.
-const R2_ONLY_TILE_PREFIXES = ["power_as_", "power_asia"];
 const tilePath = (file: string): string =>
-  R2_ONLY_TILE_PREFIXES.some((p) => file.startsWith(p)) ? `/tiles-r2/${file}` : `/tiles/${file}`;
+  file.startsWith("power") ? `/tiles-r2/${file}` : `/tiles/${file}`;
 // [REPAIR R15 2026-07-07] LAYER_GROUP doubles as the CLIENT-WIRED
 // declaration: the panel marks any live registry id missing from it
 // "reload to enable" (the honest mid-deploy state) — so an id that IS
