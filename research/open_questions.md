@@ -3434,6 +3434,38 @@
     with this one (which handful of tickers get evaluated first each
     cycle) — not fixed here per one-logical-change-per-PR.
 
+28. **[FOUND 2026-07-29 (noted inside #27), STILL OPEN 2026-08-01 —
+    promoted to its own tracked item] `test_silent_except_ratchet.py`
+    fails on current `origin/main`: `options_execution.py` carries 7
+    silent broad-except handlers against a pinned baseline of 6.**
+    Re-confirmed this session (scheduled-routine [PIPELINE] session,
+    v1.0.568) via `git stash` — identical failure with or without this
+    session's unrelated diff, so it is genuinely pre-existing on main,
+    not something this or the 2026-07-29 session introduced. The extra
+    (7th, unpinned) handler is `options_execution.py` around line 2312:
+    a bare `except Exception: pass` swallowing a failed
+    `resp.json()` parse when building the error message for a rejected
+    mleg order submission — low-severity on its face (falls back to
+    `resp.text[:200]`) but exactly the class of silent failure the
+    ratchet exists to catch (v1.0.148 SIP-403 scan-blind precedent).
+    NOT FIXED across two sessions now, deliberately both times:
+    `options_execution.py` sits adjacent to the FROZEN order-submission
+    paths (`submit_options_order`, raw HTTP order POSTs) — the except
+    handler itself is NOT in the frozen list (it's error-message
+    construction, not order transmission), but any edit to this file
+    needs a careful, narrowly-scoped session that reads the surrounding
+    code fully before touching it (READ BEFORE WRITE), not a
+    drive-by inside an unrelated PIPELINE PR. Blindly bumping the pin
+    to 7 would silently weaken the ratchet without justifying the new
+    handler — forbidden by the ratchet's own design. FIX PATH for the
+    next session that takes this: either narrow the except to the
+    specific JSON-decode exception type, or capture+log the parse
+    failure (mirroring the `bot_engine._run_diag_fetch` pattern the
+    ratchet's own failure message points to), then lower nothing — the
+    pin only moves down once the handler is gone or logged, per the
+    test's own logic. Small, single-file, single-PR scope; tag
+    [REPAIR] when taken.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -5040,8 +5072,14 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    this session — a different, more labor-intensive task, logged here
    rather than rushed. Full trace, both raw runs, and the harness
    sanity-check in `research/experiments.md`'s 2026-07-26 entry.
-3. **App-store rankings + review velocity (DUOL/BMBL/MTCH/HOOD/COIN/
-   RBLX class).** LICENSING: Apple RSS/marketingtools top-chart JSON +
+3. **[GATE 1 (DATA) SHIPPED 2026-08-01, v1.0.568 — see experiments.md]**
+   App-store rankings + review velocity (DUOL/BMBL/MTCH/HOOD/COIN/
+   RBLX class). `server/appStoreRankings.ts` + `datacore/manifests/
+   appstore.json` archive daily chart rank + rating counts for a
+   16-app hand-verified watchlist (US/GB/CA storefronts). GATE 2 (vs
+   company-reported metrics) needs ~90 days of history — earliest
+   ~2026-10-30 — and is NOT attempted yet. Original filed spec kept
+   below for reference. LICENSING: Apple RSS/marketingtools top-chart JSON +
    iTunes Lookup rating counts CONDITIONAL (existing public feeds,
    low-volume internal use; Enterprise Partner Feed is the sanctioned
    bulk hedge — free program, human enrollment); Google Play
