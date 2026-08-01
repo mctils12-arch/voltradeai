@@ -7733,6 +7733,23 @@ C. NOT PREVIOUSLY FILED — NEW, and cheapest first
       (3.3 KB, elevated volcanoes only). Keyless. Ties to SO2 (C.1),
       earthquakes/quakehistory, and aviation ash risk vs aircraft.
       Small, self-contained, genuinely live.
+      CORRECTION (2026-08-01, scheduled-routine PRODUCT session, found
+      while scoping the SO2 build below): the listing endpoint itself
+      carries NO lat/lon — only vnum/volcano_name/obs_abbr/alert_level/
+      color_code/notice_identifier/notice_url. Coordinates exist, but
+      only embedded as free-text DMS ("52°4'35" N 176°6'39" W") inside
+      each notice's HTML body (`.../api/notice/getNotice/<id>`), and one
+      notice_identifier can bundle MULTIPLE volcanoes under one
+      observatory's weekly-update HTML (verified: 3 distinct volcano_name
+      rows sharing one notice_identifier this session) — so plotting
+      markers needs per-notice HTML parsing + multi-volcano splitting,
+      not a single structured field read. This downgrades the item from
+      "small, self-contained" to a real (if still bounded) integration —
+      likely needs a static reference table (e.g. Smithsonian GVP's
+      volcano-coordinate list, keyed by vnum) joined against the live
+      alert feed, rather than parsing HTML DMS strings live. Left queued,
+      not built this session (SO2 alone is the scoped PR); whoever picks
+      this up next should design around the join, not the HTML parse.
    3. CLOUDFLARE RADAR internet outages — country/ASN-level disruption
       as a geopolitical tripwire feeding the entity graph. NEEDS a free
       API token (not yet requested; would be a new wishlist ask). NOT
