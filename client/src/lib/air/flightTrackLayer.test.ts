@@ -128,6 +128,24 @@ test('shader contract pins: projectTileFor3D, GLOBE far-side fragment discard, w
   assert.ok(mvs.includes('mix(u_groundZ, u_altZ, a_altFrac)'), 'marker drop line spans ground→altitude');
 });
 
+test('cull runs through the WHOLE globe↔mercator transition; disabled only at full mercator / degenerate plane', () => {
+  // 2026-08-01: same defect class satLayer v1.0.563 fixed for satellites —
+  // the transition is zoom-driven and PERSISTENT, so a full-globe-only gate
+  // (> 0.999) let far-side curtains/ribbons/markers draw as faint ghosts.
+  const vs = FT_VERT_SRC('/*prelude*/', '#define GLOBE');
+  const mvs = FT_MARKER_VERT_SRC('/*prelude*/', '');
+  for (const [src, label] of [[vs, 'FT_VERT_SRC'], [mvs, 'FT_MARKER_VERT_SRC']] as const) {
+    assert.ok(
+      src.includes('u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0'),
+      `${label}: gated to any globe-ness with a valid clipping plane`,
+    );
+    assert.ok(
+      !src.includes('u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0'),
+      `${label}: the old full-globe-only cull gate must be gone`,
+    );
+  }
+});
+
 test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cull OFF, full depth range', () => {
   const layer = new FlightTrackLayer();
   layer.setTrack(input2(), 1);

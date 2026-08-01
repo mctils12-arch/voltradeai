@@ -132,6 +132,22 @@ test('shader contract: altitude-aware projection, GLOBE-guarded cull identical t
   assert.ok(src.includes('mix(0.25, 1.0, a_altFrac)'), 'line fades toward the surface end');
 });
 
+test('cull runs through the WHOLE globe↔mercator transition; disabled only at full mercator / degenerate plane', () => {
+  // 2026-08-01: same defect class satLayer v1.0.563 fixed for satellites —
+  // the transition is zoom-driven and PERSISTENT (a camera parked at
+  // ~100-250km sits mid-blend indefinitely), where the old full-globe-only
+  // gate (> 0.999) let far-side aircraft draw as faint ghosts.
+  const src = AIR_VERT_SRC('/* prelude stub */', '#define GLOBE');
+  assert.ok(
+    src.includes('u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0'),
+    'gated to any globe-ness with a valid clipping plane',
+  );
+  assert.ok(
+    !src.includes('u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0'),
+    'the old full-globe-only cull gate must be gone',
+  );
+});
+
 test('API smoke (no GL): counts, zoom gate semantics, no-instance render is a no-op', () => {
   const layer = new AirLayer();
   assert.equal(layer.getCounts().total, 0);

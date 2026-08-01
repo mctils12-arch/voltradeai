@@ -261,8 +261,10 @@ void main() {
 #ifdef GLOBE
   // far-side test — identical to satLayer/airLayer/arcLayer (0.998001 =
   // OCCLUSION_RADIUS²), flagged to the FRAGMENT stage: ribbons/walls fade
-  // at the horizon instead of stretching to a snapped vertex.
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // at the horizon instead of stretching to a snapped vertex. Runs through
+  // the WHOLE globe↔mercator transition, not just full globe (same fix as
+  // satLayer v1.0.563 — the transition is zoom-driven and PERSISTENT).
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(a_pos.xy) * (1.0 + a_pos.z / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;
@@ -322,7 +324,10 @@ uniform vec4 u_color;
 out vec4 v_color;
 void main() {
 #ifdef GLOBE
-  if (u_projection_transition > 0.999 && u_projection_clipping_plane.w < 0.0) {
+  // same whole-transition far-side cull as FT_VERT_SRC above (satLayer
+  // v1.0.563 fix) — the marker anchor must not draw as a far-side ghost
+  // mid-transition either.
+  if (u_projection_transition > 0.0 && u_projection_clipping_plane.w < 0.0) {
     vec3 satPos = projectToSphere(u_anchor) * (1.0 + u_altZ / GLOBE_RADIUS);
     vec3 cam = u_projection_clipping_plane.xyz * (-1.0 / u_projection_clipping_plane.w);
     vec3 v = satPos - cam;
