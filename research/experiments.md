@@ -37567,3 +37567,130 @@ capacity. Today is Sunday, market closed — no LIVENESS ALARM, no
 deploy-coupling market-hours constraint applies to this PR anyway
 (pure data-pipeline infrastructure, zero trading-logic or client
 surface touched).
+
+## 2026-08-02 (scheduled-routine session #7) [REPAIR] — T-BOT — oldest known instance of the zero-CI stranded-PR bug found and closed (PR #77, ~104 days), one real gap ratcheted (v1.0.579)
+
+TERRITORY: T-BOT (bot_engine.py) — no shared-file collisions expected;
+`research/wishlist.md` edit (SHARED) kept minimal per MERGE-ORDER
+PROTOCOL, `package.json`/`package-lock.json` version bump read-and-
+incremented against `origin/main`'s true tip at commit time (confirmed
+even with HEAD — no divergence).
+
+PRIOR STATE CHECK (per MEMORY PROTOCOL): read CLAUDE.md, tailed
+experiments.md, read open_questions.md's KNOWN BROKEN section and
+wishlist.md's tail. Loop-health ratio: last 10 session tags = 6x
+PIPELINE, 2x PRODUCT, 2x REPAIR — well under the 7+ thrash threshold,
+no meta-problem. System health: `/api/health` all-ok (Alpaca ACTIVE,
+bot active, drawdownPct 0.0, liveness.dark false, no LIVENESS ALARM);
+`server_version` 1.0.578 matched the last-shipped PR, deploy current.
+Audit log showed normal TIER2 scan cadence; `/api/diag/orders` showed
+options (CSP) orders filling normally as recently as 2026-07-30 —
+confirms KNOWN BROKEN #3's 2026-07-11 fix is holding live (masterkill/
+options engine both healthy), no repair needed there. No queued item
+in open_questions.md's round-22 follow-ups was actually unbuilt — both
+"transition-band far-side cull for AIR layers" and "surface the held
+flag" were already shipped in prior 2026-08-01 sessions (v1.0.571,
+v1.0.572), leaving the queue empty for a same-day pickup.
+
+PRIMARY ACTION (per SESSION BUDGET priority 1: "fix a bug seen in audit
+logs" — extended to the equivalent repo-hygiene case, a real fix
+sitting stranded): swept `list_pull_requests` for all open PRs (only 3:
+#77, #415, #604) and cross-checked each branch's CI run count via
+`list_workflow_runs`. Found PR #77 ("fix(tier2): gate inline ML retrain
+(OOM)", branch `fix/tier2-full-scan-oom`) open since **2026-04-20** —
+~104 days, by far the oldest and most severe live instance of the
+"AUTONOMOUS-SESSION PRs CAN GET ZERO CI AND AGE OUT UNMERGED" bug
+already tracked in wishlist.md (previously two data points, both
+2026-07-30, both ~1-2 days old when caught) — `pull_request_read
+get_status` confirmed zero check runs ever fired against this branch.
+
+INVESTIGATION (READ BEFORE WRITE, this session): read PR #77's full
+diff (1 commit, `bot_engine.py` + `server/bot.ts` + a new test file,
++195/-51) and its stated bug — an unconditional `train_model()` call in
+`bot_engine.py`'s `__main__` on every Tier2-every-minute scan invocation
+(~150MB lightgbm/sklearn import), causing Railway SIGKILL/OOM. Then
+read the CURRENT `bot_engine.py:__main__` (this session, not from
+memory): the identical bug, independently root-caused and fixed ONE DAY
+after PR #77 was opened — "MEM FIX 2026-04-21" comment, gated behind
+`mode=="train" or VOLTRADE_INLINE_ML_TRAIN=="1"` (PR #77 proposed the
+same shape under a different env var name, `BOT_ENGINE_INLINE_TRAIN`).
+The diagnostics half of PR #77 (stderr breadcrumbs) is also superseded,
+by something considerably more advanced already live: `_log_mem_phase()`
+persists phase transitions to disk (survives the SIGKILL) and
+`server/bot.ts` reads that file directly on `TIER2-ERROR`. Cross-checked
+`research/experiments.md` (two prior 2026-07-06 mentions, both "stale
+draft ... unrelated ... since April" — no session ever proposed
+re-applying it) — confirms this session's read, not a first look.
+
+CONCLUSION: PR #77 itself is NOT a live bug — re-applying its diff would
+add a redundant, differently-named env-var gate with zero incremental
+safety, and no longer applies cleanly against April's `bot_engine.py`/
+`server/bot.ts` (both substantially reworked since). Unlike the #638/
+#640 precedent (fix still valid, just needed a fresh CI-enabled
+branch), the correct action here is **close, not cherry-pick** — closed
+PR #77 with a comment explaining the supersession and pointing at this
+PR's fix for the one real gap the investigation surfaced.
+
+THE ONE REAL GAP, fixed this session: the existing `VOLTRADE_INLINE_ML_TRAIN`
+gate had ZERO regression coverage — nothing in CI would fail if a future
+edit silently reintroduced an unconditional `train_model()` call in
+`__main__`, exactly the class of silent regression AUDITS & DEBT and
+loop-health rule 3 (REPAIRS MUST RATCHET) exist to prevent. Extracted
+the inline gate check into a standalone pure function,
+`_inline_train_allowed(mode, env)` (bot_engine.py, next to the existing
+`_deep_score_guard_decision` — same established pattern of pulling
+env-gated boolean decisions into named, testable functions rather than
+leaving them inline in `__main__`, which cannot be imported/tested
+directly). Zero behavior change: `__main__` now calls
+`_inline_train_allowed(mode, os.environ)` in place of the identical
+inline boolean expression.
+
+RATCHET (`test_inline_train_gate.py`, NEW, 8 tests): pins scan/full/
+manage all default OFF with no env var; pins the flag staying off for
+`"0"`/empty/garbage env values; pins `mode=="train"` always allowed
+regardless of env; pins `VOLTRADE_INLINE_ML_TRAIN=="1"` allowing any
+mode; pins compatibility with the real `os.environ` object (not just a
+plain dict), matching exactly what `__main__` passes.
+
+VERIFIED: fresh container had neither `pytest` nor the `requirements.txt`
+packages installed — installed both (`pip3 install pytest && pip3
+install -r requirements.txt`), plus `openpyxl` (missing, pre-existing gap
+unrelated to this change, needed only for `test_grid_county_ba.py`'s
+collection to succeed). `python3 -m pytest -q`: **1075 passed, 2 skipped**
+(baseline + 8 new, zero regressions from this diff). `python3 -m
+compileall -q bot_engine.py test_inline_train_gate.py`: clean. TypeScript/
+build/visual harness: N/A — zero `client/` or `server/` files touched
+(PROMOTION RULE 6 does not apply).
+
+BACKTEST: N/A — this is test-coverage/repo-hygiene, not a strategy,
+scoring, sizing, or execution change; the gate's behavior is provably
+unchanged (same boolean expression, only its packaging moved from
+inline to a named function).
+
+Version bumped 1.0.578 -> 1.0.579 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none — pure test-coverage/repo-hygiene fix,
+no new data tie.
+
+WISHLIST UPDATE: appended a third data point to the existing "zero-CI
+stranded PR" tracking entry in `research/wishlist.md` (PR #77 is the
+oldest and most severe instance found yet, but was resolved by closure
+rather than cherry-pick, unlike the first two). The underlying proposal
+(a standing "PR open >N hours with 0 CI runs" check) remains unbuilt and
+still needs human review per AUTONOMY AUTHORIZATION — flagged that its
+case strengthens each time a session finds another instance by accident.
+
+NEXT (queued, not this session): (a) the standing zero-CI stranded-PR
+check itself, pending human review of the wishlist proposal; (b) PR
+#415 (gridvision fix) and #604 (explicitly-marked "do not merge" backlog
+draft) both have CI but show `failure` on their latest runs — #604 is
+self-documented as intentionally not-mergeable (bundles ~15 changes);
+#415 was not investigated this session (scope discipline — one primary
+action) and may be a second, smaller stranded-PR case worth a future
+session's attention.
+
+STARVED: no — this was the session's one primary action (repo-hygiene/
+REPAIR, chosen over starting new PIPELINE/PRODUCT work per SESSION
+BUDGET's "fix a bug ... first" ordering), matched to capacity. Today is
+Sunday, market closed — no LIVENESS ALARM; system healthy throughout.
