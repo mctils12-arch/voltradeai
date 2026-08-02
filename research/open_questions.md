@@ -5952,6 +5952,54 @@ the archives we now have — the compounding asset is the accumulation)
       on data recorded AFTER the pattern is filed. RE-RUN TRIGGERS:
       first pass at 30d depth (~2026-08-03), delta studies at 60d.
 
+   UPDATE 2026-08-02 (scheduled-routine PRODUCT session, v1.0.578) —
+   item (3)'s RE-RUN TRIGGER (~2026-08-03, tomorrow) turned out to rest
+   on a false assumption: archive AGE alone doesn't mean 30 days of
+   USABLE weekly history. Went to actually run the fleet-utilization
+   pass and found `/api/data/fleet-utilization` has only ever shown
+   ONE week (`2026-07-27`) regardless of the archive's 2026-07-03
+   start — ROOT CAUSE: `datacoreArchive.rollupOldDaysAsync` deletes raw
+   aircraft hour files once they age past `RAW_RETENTION_DAYS` (7), and
+   its own daily-track rollup summary drops callsigns entirely (bbox/
+   n/coarse-polyline only), so `fleetUtilization.buildFleetSeries`
+   (which needs precise per-point timestamps for session-gap folding
+   AND callsigns for operator resolution) can structurally never see
+   more than 7 days of history no matter how long the archive runs.
+   This wasn't a "need more calendar time" gap, it was silently
+   unfixable by waiting.
+   FIX (v1.0.578, server/fleetUtilization.ts): a permanent, small
+   weekly archive (`aircraft_fleet_weekly.json.gz`, per-owner {f,h} by
+   week, merge-additive) is now folded from each raw hour file BEFORE
+   `rollupOldDaysAsync` deletes it (`preserveWeeklyBeforeRollup`,
+   sequenced first in `server/routes.ts`'s 6h maintenance tick); a
+   `processedFiles` set makes this safe to re-run before the paired
+   delete actually happens (no double-counting on a crash/restart).
+   `buildFleetSeries` now merges this permanent archive with the live
+   ≤7-day scan; owners with only historical weeks still surface
+   (`registrant_type: "historical-archive-only"`), though the public
+   `/api/data/fleet-utilization` route's existing `n_airframes>=2`
+   filter means they won't be visible there until a future session
+   either widens that filter for research use or adds a dedicated
+   read path — not needed until the mining pass actually runs.
+   HONEST COST: everything the PRE-EXISTING rollup already deleted
+   (2026-07-03 through ~7 days before this fix shipped) is
+   UNRECOVERABLE — the daily-track summary it left behind can't be
+   replayed for session/operator data. This closes the gap going
+   FORWARD only. RE-BASELINED TRIGGER: a genuine trailing-4-week
+   baseline needs roughly 5 weeks of archive accumulated under the fix
+   (4 baseline weeks + the outlier week) — no earlier than
+   ~2026-08-31, and a future session should verify accumulated week
+   count live before trusting it, not just the calendar date.
+   OPEN QUESTION (not investigated this session, scope discipline):
+   items (1) port-dwell and (2) corridor-density in this same mining
+   design also read the position archives — `portDwell.ts` deliberately
+   windows to 168h/7d by design (not trying for a 30d trailing
+   baseline the way this item was), so it likely doesn't share this
+   exact failure mode, but that assumption is NOT verified here; a
+   future session scoping either of those passes should check whether
+   they need the same permanent-archive treatment before trusting a
+   30d+ baseline from them.
+
 ## BUILD ORDER 2 (SELF-PROPOSED, standing directive 2026-07-05: "when
 the wishlist is empty, generate the next wishlist yourself" — filed
 2026-07-05 after build order 1 fully resolved; [T-DATACORE]; same

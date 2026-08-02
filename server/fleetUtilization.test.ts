@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { foldSessions, weekStart, buildFleetSeries, _resetFleetCache, SESSION_GAP_MIN } from "./fleetUtilization";
+import { foldSessions, weekStart, buildFleetSeries, preserveWeeklyBeforeRollup, _resetFleetCache, SESSION_GAP_MIN } from "./fleetUtilization";
 import { _resetAircraftEntityCache } from "./aircraftEntities";
 
 beforeEach(() => { _resetFleetCache(); _resetAircraftEntityCache(); });
@@ -81,6 +81,94 @@ test("buildFleetSeries: missing archive or spine degrades to empty", async () =>
 // on ITSELF too, independent of the stream.on("error", ...) guard here —
 // unlistened, a truncated/corrupt .gz crashed the WHOLE PROCESS. See
 // datacoreArchive.test.ts for the full writeup + minimal repro.
+// preserveWeeklyBeforeRollup (found this session while trying to actually
+// run the BUILD ORDER 3d mining pass): datacoreArchive deletes raw aircraft
+// hour files past RAW_RETENTION_DAYS, so buildFleetSeries above can only
+// ever see 7 days of history no matter how long the archive has run. These
+// three tests pin the permanent-archive fix: fold-then-survive-deletion,
+// idempotent-before-deletion, and additive-across-ticks.
+const hourFile = (ms: number) => new Date(ms).toISOString().slice(0, 13).replace("T", "-") + ".jsonl";
+
+test("preserveWeeklyBeforeRollup folds an aged-out file into the permanent archive, survives its deletion, and does not double-count if called again before the file is deleted", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-preserve-"));
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  const spineFp = path.join(base, "spine.json");
+  fs.writeFileSync(spineFp, JSON.stringify({
+    entities: { abc123: { n_number: "N1CORP", owner: "ACME JETS INC", registrant_type: "corporation" } },
+  }));
+  const oldMs = (MON + 10 * 3600) * 1000;
+  const t0 = Math.floor(oldMs / 1000);
+  const fname = hourFile(oldMs);
+  fs.writeFileSync(path.join(base, "aircraft", fname),
+    [{ t: t0, i: "abc123" }, { t: t0 + 900, i: "abc123" }].map((l) => JSON.stringify(l)).join("\n") + "\n");
+  const nowMs = oldMs + 8 * 86400_000; // 8 days later: past the 7-day cutoff
+
+  const r1 = await preserveWeeklyBeforeRollup(base, nowMs, 7, spineFp);
+  assert.equal(r1.filesFolded, 1);
+  assert.equal(r1.ownersTouched, 1);
+
+  // idempotent: raw file still present (rollup hasn't deleted it yet) -> no-op
+  const r2 = await preserveWeeklyBeforeRollup(base, nowMs, 7, spineFp);
+  assert.equal(r2.filesFolded, 0, "already-folded file is not re-processed");
+
+  // simulate the generic rollup deleting the raw file afterward
+  fs.unlinkSync(path.join(base, "aircraft", fname));
+
+  const series = await buildFleetSeries(base, spineFp);
+  assert.equal(series.length, 1);
+  assert.equal(series[0].owner, "ACME JETS INC");
+  assert.equal(series[0].weekly[weekStart(t0)].f, 1, "one session preserved, not doubled by the idempotent second call");
+});
+
+test("preserveWeeklyBeforeRollup: a week spanning two rollup ticks accumulates additively, not overwritten", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-preserve2-"));
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  const spineFp = path.join(base, "spine.json");
+  fs.writeFileSync(spineFp, JSON.stringify({
+    entities: { abc123: { n_number: "N1CORP", owner: "ACME JETS INC", registrant_type: "corporation" } },
+  }));
+  const day1Ms = (MON + 10 * 3600) * 1000;
+  const day2Ms = day1Ms + 3600_000; // one hour later, same day/week, separate hour file
+
+  const f1 = hourFile(day1Ms);
+  fs.writeFileSync(path.join(base, "aircraft", f1), JSON.stringify({ t: Math.floor(day1Ms / 1000), i: "abc123" }) + "\n");
+  const r1 = await preserveWeeklyBeforeRollup(base, day1Ms + 8 * 86400_000, 7, spineFp);
+  assert.equal(r1.filesFolded, 1);
+  fs.unlinkSync(path.join(base, "aircraft", f1));
+
+  const f2 = hourFile(day2Ms);
+  fs.writeFileSync(path.join(base, "aircraft", f2), JSON.stringify({ t: Math.floor(day2Ms / 1000), i: "abc123" }) + "\n");
+  const r2 = await preserveWeeklyBeforeRollup(base, day2Ms + 8 * 86400_000, 7, spineFp);
+  assert.equal(r2.filesFolded, 1);
+  fs.unlinkSync(path.join(base, "aircraft", f2));
+
+  const series = await buildFleetSeries(base, spineFp);
+  assert.equal(series[0].weekly[weekStart(Math.floor(day1Ms / 1000))].f, 2,
+    "both hour files' sessions accumulate in the same week across two preserve calls, not overwritten");
+});
+
+test("buildFleetSeries surfaces historical-archive-only owners (no current live-window airframes) from the permanent weekly archive", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-histonly-"));
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  const spineFp = path.join(base, "spine.json");
+  fs.writeFileSync(spineFp, JSON.stringify({ entities: {} }));
+  const oldMs = (MON + 10 * 3600) * 1000;
+  const t0 = Math.floor(oldMs / 1000);
+  const fname = hourFile(oldMs);
+  // callsign-resolved operator (DAL prefix) — resolves without a spine entry
+  fs.writeFileSync(path.join(base, "aircraft", fname),
+    [{ t: t0, i: "dal001", c: "DAL123" }, { t: t0 + 900, i: "dal001", c: "DAL123" }].map((l) => JSON.stringify(l)).join("\n") + "\n");
+  await preserveWeeklyBeforeRollup(base, oldMs + 8 * 86400_000, 7, spineFp);
+  fs.unlinkSync(path.join(base, "aircraft", fname));
+
+  const series = await buildFleetSeries(base, spineFp);
+  assert.equal(series.length, 1);
+  assert.equal(series[0].owner, "DELTA AIR LINES");
+  assert.equal(series[0].n_airframes, 0, "no current-window airframes; still surfaced from the permanent archive");
+  assert.equal(series[0].registrant_type, "historical-archive-only");
+  assert.equal(series[0].weekly[weekStart(t0)].f, 1);
+});
+
 test("buildFleetSeries resolves (never crashes the process) on a truncated/corrupt gzip file", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-trunc-"));
   fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
