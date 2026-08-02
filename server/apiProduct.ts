@@ -139,6 +139,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Securities and Exchange Commission (MIDAS)",
     resell: "ok",
   },
+  "data/earnings-language": {
+    license: "SEC EDGAR 8-K Item 2.02 filing record is public, but each filing's Exhibit 99 press-release TEXT is issuer-authored — NOT U.S. government work product like the CAMD/FTD/MIDAS datasets above. Displayed as-filed for research/transparency use; bulk resale of the extracted text has not been separately rights-cleared.",
+    attribution: "Filing company (per record) via SEC EDGAR",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -156,6 +161,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/plant-operations", params: "-", desc: "Per-facility power-plant utilization ground truth (sum grossLoad MW-days, sum operating hours) from EPA's own unit-level CEMS reporting, TX pilot scope, quarterly cadence. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/plant-operations" },
       { path: "/api/v1/stats/secftd", params: "-", desc: "SEC CNS fails-to-deliver leaderboard: newest settlement date's top fail balances (>=100k share floor, stated). A level, not a daily flow, published on a 2.5-4.5 week SEC lag. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/ftd" },
       { path: "/api/v1/stats/midas", params: "-", desc: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel data per (date, ticker), quarterly files with a multi-quarter publish lag. Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). RAW, no predictive claim — public-domain US federal data, resell ok. A candidate HFT-colonization filter; gate-2 signal testing not yet attempted (see research/open_questions.md).", preview: "/api/data/microstructure" },
+      { path: "/api/v1/data/earnings-language", params: "-", desc: "Most-recent SEC 8-K Item 2.02 (earnings-results) filings: as-filed Exhibit 99 press-release text, resolved ticker, filing/acceptance timestamps (lookahead-free). RAW as-filed display, no predictive claim — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot (research/open_questions.md). Exhibit text is issuer-authored, not government work product — conditional resell, see license_marks.", preview: "/api/data/earnings-language" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -250,6 +256,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/midas",
       returns_provenance: ["stats/midas"],
+    },
+    {
+      name: "voltrade_earnings_language",
+      description: "Most-recent SEC 8-K Item 2.02 filings: as-filed Exhibit 99 earnings press-release text per company, with resolved ticker and exact filing/acceptance timestamps (lookahead-free). RAW as-filed display — gate-2 signal testing (does guidance-language tone predict forward returns) has only a preliminary, INCOMPLETE pilot result, not a validated trading signal. Exhibit text is issuer-authored, not government work product like the SEC MIDAS/FTD tools above — conditional resell.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/earnings-language",
+      returns_provenance: ["data/earnings-language"],
     },
   ];
   return {

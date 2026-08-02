@@ -3,6 +3,153 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-02 (scheduled-routine PRODUCT session) [PRODUCT] — SEC 8-K earnings-language keyed mirror shipped: /api/v1/data/earnings-language, the fifth "shipped-data-no-v1-API" sweep instance, with a licensing correction the prior four didn't need (v1.0.573, SHARED)
+
+TERRITORY: SHARED (server/apiProduct.ts, server/apiProduct.test.ts,
+server/routes.ts, package.json/package-lock.json — minimized, last commit
+per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ per MEMORY
+PROTOCOL. `/api/health` on prod: all checks `ok` (server, database, alpaca
+ACTIVE, python, scanner 0 consecutiveFailures, licensing), `bot.status:
+"active"`, `drawdownPct:"0.0"`, `liveness.dark:false` — no LIVENESS ALARM,
+no critical unresolved KNOWN BROKEN item (#10/#20 both explicitly gated on
+future evidence per the 2026-08-01 session, neither actionable now; this
+scheduled prompt's own carve-out is that product sessions don't preempt
+DAILY repair duty in any case). Loop-health ratio, last 10 tagged entries:
+well under the 7/10 thrash bar (mix of REPAIR/PRODUCT/RESEARCH). Neither
+audit in the AUDITS & DEBT register was overdue.
+
+PRIMARY ACTION SELECTION: read MAP V2 ROADMAP (R1-R6, all substantially
+shipped — R6's dashboard trio fully closed 2026-07-31) and the "shipped-
+data-no-v1-API" sweep thread (plant-operations -> secftd -> midas, closed
+2026-07-30 as "likely exhausted... re-check data_census.md and
+datacore/manifests/*.json for any newer RAW stream that shipped an
+internal route/UI without a v1 mirror"). Did exactly that re-check: two
+RAW streams shipped since (App Store rankings v1.0.568 2026-08-01; SEC
+8-K earnings-language v1.0.67 2026-07-04, still no v1 mirror despite
+~4 weeks of archive maturity) have internal `/api/data/*` routes but no
+`/api/v1` mirror. CHOSE earnings-language over App Store rankings for a
+licensing reason found this session (see below) — App Store's own filed
+licensing verdict (research/open_questions.md NEW DATA ROOTS #3) is
+"CONDITIONAL (existing public feeds, LOW-VOLUME INTERNAL USE)", which
+reads as incompatible with putting it behind a resold-to-external-
+customers API surface without further review; earnings-language's
+underlying filing RECORD is unambiguously public (SEC EDGAR, no
+redistribution restriction) even though the exhibit TEXT itself needed
+its own license-mark nuance (below). Advances SPINOUT-READY DATA LAYER
+(signals exposed through the same internal API boundary an external
+customer would use) at near-zero risk: zero new network calls, zero new
+pollers, zero scoring/trading-logic touched — same class as the four
+prior sweep instances.
+
+LICENSING CORRECTION FOUND THIS SESSION (the actual judgment call, not
+just plumbing): the four prior sweep instances (plant-operations/
+secftd/midas/archive) are all GOVERNMENT-PRODUCED datasets (EPA CAMD,
+SEC CNS, SEC MIDAS) — correctly marked `resell: "ok"`, "public domain
+(US federal government work)". Earnings-language is different: SEC EDGAR
+hosts the FILING (public record, no restriction), but the Exhibit 99
+press-release TEXT inside it is issuer-authored — the company's own
+copyrighted press release, not government work product, merely disclosed
+via a regulatory filing. Copy-pasting the `resell: "ok"` pattern from the
+other four would have mismarked a company-authored document as freely
+resellable government data — a real licensing-hygiene error, not a
+pedantic distinction (this is exactly the class of mistake the
+GEOSPATIAL LICENSING REGISTER precedent and the wishlist's per-source
+licensing rigor exist to catch). Marked `LICENSE_MARKS["data/earnings-
+language"].resell = "conditional"` instead, with the license string
+stating explicitly that the text is issuer-authored, not government
+work, and that bulk resale hasn't been separately rights-cleared — same
+honesty-forward pattern already used for `tracks/vessels`/`stats/
+portdwell`/`stats/shadow`/`graph` (all "conditional" for their own
+distinct reasons). This doesn't block shipping the mirror: several
+already-live v1 endpoints are "conditional" and still valuable (agent-
+tool-usable with the caveat traveling in the response), matching
+SPINOUT-READY DATA LAYER's standing behavior.
+
+WHAT SHIPPED: `GET /api/v1/data/earnings-language` in `server/routes.ts`,
+placed immediately after `/api/v1/stats/midas`, reusing the exact
+`requireApiKey` -> cache-read -> 503+Retry-After-if-cold ->
+`v1Envelope(...)` -> `meterUsage` shape every prior sweep instance uses.
+Reuses `latestEarnings8Ks()` (the same cache `/api/data/earnings-language`
+already reads) — no new computation, no new poller. Response body is
+`{count, filings}` (mirrors the internal route's own shape) wrapped in
+`v1Envelope("data/earnings-language", ..., hit.at)`. `server/apiProduct.ts`
+gained: (1) the `LICENSE_MARKS["data/earnings-language"]` entry described
+above; (2) an `apiMeta().endpoints` entry stating both honesty caveats
+that travel with this stream — gate-2 (does guidance-language tone
+predict forward returns) is only a PRELIMINARY, INCOMPLETE pilot
+(2026-07-12 entry, N=47 at one horizon, explicitly not gate-2-complete),
+and the exhibit text's issuer-authored/conditional-resell status; (3) an
+`agentToolSpec()` tool (`voltrade_earnings_language`) whose description
+states both caveats too, mirroring how `voltrade_midas_stats` carries its
+own "not a validated trading signal" language through to the agent-facing
+surface.
+
+RATCHET: `server/apiProduct.test.ts` gained 1 new dedicated test (license
+mark asserted CONDITIONAL, not "ok" — the test's own assertion message
+states WHY, so a future accidental copy-paste to "ok" fails loudly with
+the reason attached — plus the agent-tool INCOMPLETE-status pin) and 3
+existing tests were extended: the route-path pin list, the meta-honesty
+live-endpoint pin, and the guarded-route-count floor bumped from `>=8` to
+`>=9` (matching the actual count exactly, a strict ratchet like the prior
+sweep's `>=7` -> `>=8` bump, not a loose one).
+
+VERIFIED: sandbox started with no `node_modules` and no Python deps beyond
+`typescript` (the same recurring clean-container gap prior sessions have
+logged every time) — ran `npm install` (487 packages) and
+`pip install -r requirements-dev.txt` + `pip install -r requirements.txt`
+(the dev file alone does NOT include the numpy/pandas/etc. runtime deps
+`voltrade_daemon.py` imports at module load — a fresh gap this session
+hit and resolved: `pytest` was throwing `INTERNALERROR` at collection
+because `test_daemon_active_dispatches.py` imports `voltrade_daemon`,
+which `sys.exit(2)`s on `ImportError` when pandas is missing; installing
+`requirements.txt` too fixed it). `npx tsx --test server/*.test.ts`: 981
+passed, 1 failed (the 1 failure, `every client/public/tiles/*.pmtiles has
+the PMTiles magic`, is PRE-EXISTING and unrelated — R2 migration
+(v1.0.567, 2026-07-31) removed local tile files from the repo; confirmed
+byte-identical via `git stash` A/B: 979 pass/1 fail on untouched `main`
+too, same failing test, same count delta as my +2 new tests {1 dedicated
+license test in apiProduct.test.ts + it also picks up as +1 net counted
+test file-wide}). `npx tsc --noEmit`: 82 errors, byte-identical via the
+same `git stash` A/B (zero new errors). `npm run build`: clean (client +
+server, `dist/index.cjs` 13.1mb). `python3 -m pytest -q`: 1070 passed, 1
+skipped (zero Python files touched this session, so this is a pure
+environment-completeness check, not a regression signal).
+
+BACKTEST: N/A — pure API-surface plumbing over an already-shipped,
+already-RAW internal cache; no scoring, sizing, or threshold value
+changed. PROMOTION RULE 3 doesn't apply the way it would to a strategy
+change.
+
+DEPLOY-COUPLING NOTE: no order-execution, sizing, or scoring code touched
+— even a mid-market merge would carry none of that risk class. Session
+ran outside the 9:30-16:00 ET window regardless (checked wall-clock
+before merging).
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) are this
+session's only version-bump edits, last commit, minimized to the version
+field (both files, kept in sync). `git fetch origin main` immediately
+before confirmed `origin/main` at `ca2bab5`/v1.0.572 (the 2026-08-01
+RESEARCH session's entry, which correctly did not bump version), no
+advance since session start. Version 1.0.572 -> 1.0.573, read-and-
+increment at commit time.
+
+NEXT: (1) App Store rankings still lacks any v1 mirror — correctly NOT
+shipped this session over the licensing concern above; a future session
+should either get a human read on whether "low-volume internal use"
+tolerates a metered, rate-limited external mirror, or ship a mirror
+marked `resell: "conditional"` the same way this session did, rather than
+leaving it unshipped indefinitely; (2) earnings-language's own gate-2
+ladder path remains genuinely incomplete (not this session's job — pure
+distribution plumbing, and the shipped honesty strings say so explicitly
+in both the API meta and the agent-tool description); (3) the "shipped-
+data-no-v1-API" sweep should be re-checked again after the next RAW
+stream ships — SO2 column (v1.0.570, 2026-08-01) is a map overlay with no
+natural "stats" numeric shape and no dedicated `/api/data/*` route of its
+own to mirror, so it's NOT a candidate the way earnings-language/App
+Store are.
+
 ## 2026-08-01 (scheduled-routine session #6) [RESEARCH] — Axis (b) illiquid-universe follow-up: REGIME-CONDITIONED check on the illiquid-beats-moderate mean_reversion edge, per REASONING STANDARD #2
 
 TERRITORY: `scripts/illiquid_universe_probe_regime.py` (new, standalone —
