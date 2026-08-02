@@ -36712,3 +36712,203 @@ vnum-coordinate join, not HTML parsing) — pairs naturally with the SO2
 overlay's volcanic-degassing cross-tie once built; (c) once ~90 days of
 App Store rank/rating history accumulates (~2026-10-30), that stream's
 GATE 2 becomes actionable.
+
+## 2026-08-02 (scheduled-routine EDGE session) [PIPELINE] — T-DATACORE — GitHub org engineering-momentum archiver: EDGE DOCTRINE axis (a), NEW DATA ROOTS #5, the last unbuilt item in that charter (v1.0.574)
+
+TERRITORY: T-DATACORE (`server/githubOrgActivity.ts` + `server/githubOrgActivity.test.ts` +
+`datacore/manifests/github_activity.json`) + `server/routes.ts` (SHARED — 2-line
+import + one route block, last commit, minimized) + `package.json`/`package-lock.json`
+(SHARED, version bump only, read-and-incremented at commit time). No Python, no
+client/, no trading/scoring logic touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + BUILD-FIRST RULE
+with particular attention, per this session's routine prompt), then all of
+research/. Branch `claude/dazzling-planck-ccu0id` was already at `origin/main`
+tip (`git rev-list --left-right --count origin/main...HEAD` = 0/0) — a prior
+PR from this branch had already merged; no restart needed, developed straight
+on top. KNOWN BROKEN (open_questions.md): only #10 (SCORE_BAND dead config)
+and #20 remain open, both explicitly gated on future evidence (shadow_portfolio
+history / counterfactual data) per their own filed conditions, neither
+blocking — confirmed this is NOT a [REPAIR] session, matching the 2026-08-01
+session #5 entry's same finding one day earlier. Loop-health ratio, last 10
+tagged entries before this one (2026-07-31 through 2026-08-02): 2/10 [REPAIR],
+8/10 [PIPELINE]/[PRODUCT]/[RESEARCH] — well under the 7+ thrash bar. AUDITS &
+DEBT register: neither staleness nor constitutional audit overdue as of the
+2026-08-01 session #5 check; not re-verified in full this session since a
+primary action was already identified (see below), per the fall-through
+ordering (queued/identified work takes priority over starting a fresh audit
+sweep). No LIVENESS ALARM condition on record; no live `/api/health` probe
+available from this sandbox's network (proxy scopes GitHub access to this
+one repo — see below — and no production URL/token is in this session's
+env), so proceeded on the documented KNOWN STATE (last logged all-green
+production check was 2026-08-01) per the same precedent the 2026-08-01
+session #5 entry used.
+
+PRIMARY ACTION SELECTION: this session's routine explicitly named axis (a)
+— build a free-data pipeline end-to-end as code, deliverable a script/module
+the bot runs nightly at zero token cost, not an analysis. Surveyed the
+EDGE DOCTRINE #1 named examples (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends) against the repo and
+found every one already has a shipped or explicitly-scoped pipeline
+(`sentinel2_tankfill.py`/`tankfill_*.py`, `sec_form4_bulk.py`/`edgarForm4.ts`,
+`usaspending_gate2.py`, `cftc_cot.py`, `server/fdaEvents.ts`,
+`scripts/gtrends_probe.py`) — none was a fresh axis-(a) build. Fell back to
+the NEW DATA ROOTS charter (open_questions.md), the repo's own standing
+axis-(a) queue: #1 (8-K language) and #3 (app-store) SHIPPED gate 1; #2
+(job postings) KILLED at gate 0 (0% verified coverage on the broad sweep,
+2026-07-26); #4 (USPTO) BLOCKED on a human ID.me signup with no free
+keyless path (verified dead 2026-07-04: BDSS retired, Developer Hub
+decommissioned, PatentsView offline). #5 (GitHub org activity) was the
+only remaining item with no blocker — picked it.
+
+READ BEFORE WRITE: read `server/fdaEvents.ts` and `server/appStoreRankings.ts`
+in full before writing anything — both are the established "small hand-
+verified watchlist, keyless public API, injectable fetch, dedup-by-key
+JSONL archive, cache + boot-eager poll" pattern this module needed to
+match. Read `server/datacoreArchive.ts`'s `archiveBaseDir`/`archiveStats`
+(confirmed archive dirs are auto-enumerated from disk, no hardcoded kind
+list to update) and `server/streamsInventory.ts` (confirmed manifests are
+auto-scanned from `datacore/manifests/*.json` by filename — a new manifest
+alone makes the stream appear in the inventory, no registration elsewhere
+needed). Grepped `server/routes.ts` for the exact `bootXPoll()` + route
+call sites both precedent modules use, to mirror placement and shape.
+
+WATCHLIST VERIFICATION (this session's real work, per REASONING STANDARD
+#7/#9: never trust a name→ticker→org mapping built from training-data
+memory alone when 7 months may have passed since cutoff): this sandbox's
+network proxy returns 403 on ANY `github.com`/`api.github.com` path
+outside this session's one configured repo ("sessions are bound to their
+configured repositories") — confirmed by direct probe, so org-slug
+existence could not be live-verified via the GitHub API itself the way
+`appStoreRankings.ts`'s watchlist was against iTunes Search. Used WebSearch
+instead: 15 candidate SaaS/devtools names were checked one by one against
+live SEC-filing/exchange-listing evidence for ticker status and against
+public GitHub org pages for the login slug. This caught a real, current
+error before it shipped: **Confluent (CFLT) was in the initial candidate
+list and had to be dropped** — IBM's acquisition closed and the ticker
+went defunct 2026-03-18, which postdates this model's training cutoff and
+would have silently shipped a dead ticker into the watchlist without this
+check. HashiCorp, New Relic, Sumo Logic, and Smartsheet were excluded up
+front on the same prior (all confirmed taken private, well-established
+facts). The 15 that verified clean: MDB (mongodb), ESTC (elastic), NET
+(cloudflare), DDOG (DataDog), SNOW (snowflakedb), TWLO (twilio), HUBS
+(HubSpot), PD (PagerDuty), FROG (jfrog), WIX (wix), U (Unity-Technologies),
+ASAN (Asana), MNDY (mondaycom), PLTR (palantir), BRZE (braze-inc) — every
+ticker and every org login traces to a checked source (full citations in
+this session's transcript), never inferred from company-name similarity
+(exactly the failure mode NEW DATA ROOTS #2's job-board resolver hit at
+0% coverage).
+
+CHANGE: `server/githubOrgActivity.ts` (new) — `fetchGithubActivity` runs 2
+keyless GitHub Search API calls per org per week (`search/issues` for
+bot-app-excluded merged-PR totals via the documented
+`-author:app/<slug>` qualifier; `search/commits` for unfiltered commit
+totals plus a bot-filtered unique-actor count sampled from the first
+100 returned items, honestly labeled `actorSampleCapped` when the true
+count exceeds that sample), sequential with a 6.5s inter-call delay to
+stay under the unauthenticated search API's 10 req/min limit.
+`lastCompletedWeek` always reports the prior full Mon-Sun UTC week, never
+an in-progress one. `isArchived`/`archiveGithubActivity` dedup by
+`weekStart|org` and the poll's `skip()` callback checks this BEFORE
+issuing any network call — the important property on a repo that
+redeploys multiple times a day: a week already archived costs zero API
+calls on every subsequent boot, only a completed-but-unfetched week ever
+spends the budget. `bootGithubActivityPoll` (24h interval, boots eagerly)
+registered in `server/routes.ts` alongside a new `/api/data/github-activity`
+RAW-overlay route, mirroring the FDA/app-store route bodies exactly
+(warming_up guard, Cache-Control, honesty note in the JSON body itself).
+`datacore/manifests/github_activity.json` follows the Universal archive
+envelope with the GATE-1-only confidence_model and the sampling-cap
+honesty spelled out in `field_map`.
+
+SOURCE DEVIATION LOGGED (not silently substituted): the filed ladder in
+open_questions.md named GH Archive as the DATA source. Built against the
+GitHub REST/Search API instead — full reasoning in the module's header
+and in the open_questions.md update: GH Archive ships the entire public
+firehose per hour, and filtering 15 orgs out of that stream would cost on
+the order of a gigabyte a day for a nightly job, in tension with GOAL
+priority 1 on a container with a documented 1GB RSS self-kill. The Search
+API produces the same weekly per-org counts directly from GitHub's own
+index at ~2 keyless calls/org, matching every other archiver's call-volume
+shape in this codebase. Downstream chain (REASONING STANDARD #1): lighter
+source -> viable at 24h-check/skip-if-done cadence inside the existing
+always-on Node process (no separate cron infra needed) -> the metric
+accumulates automatically across whatever redeploy cadence this repo
+actually runs at, same accretion pattern as fdaEvents/appstore -> gate 2
+becomes testable once a few months of weekly rows land, with no separate
+backfill step required.
+
+VERIFIED: `server/githubOrgActivity.test.ts`, 11 new tests — week-boundary
+correctness (Monday 00:00 UTC still resolves to the PRIOR week, never the
+one that just started), query-string construction (bot-app exclusion
+present in the PR query, absent-by-design in the commit query, both
+documented), `parseSearchTotal`/`parseCommitSample` pure-function bot
+filtering and sample-cap honesty against a hand-built fixture (2 unique
+non-bot actors correctly deduped/filtered out of 5 mixed items, capped
+correctly flagged true when total_count exceeds the sample), per-org
+failure isolation with a mocked fetch (one org's merged-PR call failing
+never drops its independently-successful commits call, and never drops
+other orgs), `skip()` proven to prevent any network call for an
+already-archived org (asserted via the mock never being invoked for that
+org's key), archive dedup-by-key round-trip, a partial record (one leg
+null) still gets archived rather than losing the whole week, watchlist
+well-formedness (no duplicate tickers/orgs, all non-empty), and a
+routes.ts/manifest wiring check mirroring `fdaEvents.test.ts`'s own final
+assertion. Full `npx tsx --test server/*.test.ts client/src/**/*.test.ts`:
+1085 tests, 11 pre-existing failures (A/B-confirmed via `git stash`:
+running the identical command against the pre-change tree reproduces the
+same 11 failures, all in files this session never touched — pmtiles
+magic-byte check, `owmTiles`/`seafloorTiles`/`securityMiddleware`/
+`compression`/`apiKeyAccounts`/`aircraftTiling`/`gdeltEvents` suite
+crashes, 2 client shader/basemap fixture tests — the same named
+environment-dependent flakiness class recent session logs have already
+flagged; the stash run showed 12 failures, the extra one being this
+session's OWN routes.ts-wiring assertion correctly failing against the
+reverted file, which disappears once popped back). `npx tsc --noEmit`:
+`node_modules` was incomplete in this fresh container (no `@types/node` —
+`npm install` had not yet been run this session); ran `npm install`
+(486 packages) then re-checked: 79 pre-existing errors (Buffer/`trim`
+mismatches in `bot.ts`, `--downlevelIteration` Map-iteration errors,
+`pngjs` missing types), zero referencing `githubOrgActivity.ts`. `npm run
+build`: clean, `dist/index.cjs` 13.1mb, confirmed
+`dist/datacore/manifests/github_activity.json` is staged by the build's
+runtime-file copy step (the same 2026-07-07 packaging fix streamsInventory
+depends on in production). `python3 -m pytest -q` (fresh container,
+`pip3 install -r requirements.txt -r requirements-dev.txt` first): 1070
+passed, 1 skipped, 0 failures — zero Python files touched, run purely as
+the standing full-suite check.
+
+VISUAL VERIFICATION: N/A (PROMOTION RULE 6 scope) — zero `client/` files
+touched; this is a server-side data archiver with a new RAW-overlay API
+route and no map layer/UI surface yet (mirrors fdaEvents's and
+appStoreRankings's own "no UI page yet" sequencing — pipeline+API first,
+a view once archive history exists).
+
+BACKTEST: N/A — GATE 1 (DATA) only, zero trading logic, candidate scores,
+sizing, or execution touched. No signal is claimed; gate 2 (velocity
+deltas vs forward returns) is explicitly unstarted and needs weeks of
+accumulated history.
+
+Version bumped 1.0.573 -> 1.0.574 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (both fields kept in sync).
+
+HYPOTHESIS + PRIOR (stated before building, REASONING STANDARD #10): this
+module's own header states the sober prior explicitly — public GitHub
+activity is a strategic, biased slice; expect real gate-2 structure for
+maybe a third of this 15-name panel (the names that genuinely ship
+product through the watched org) and noise for the rest. That split,
+once gate 2 runs, is itself the finding — building the archiver now is
+the accumulation half of BUILD-FIRST rule #2, not a claim of a found edge.
+
+NEXT (queued, not this session): (a) once enough weekly rows accumulate
+(several months, per the ladder's own "weekly per-org metrics" cadence),
+run gate 2 — velocity deltas vs forward returns, develop-in-public names
+only, discounting for the panel's small size and the stated prior; (b)
+NEW DATA ROOTS charter is now fully built-or-resolved (1 shipped, 2
+killed, 3 shipped, 4 blocked-on-human, 5 shipped this session) — a future
+[RESEARCH] session should look for the next axis-(a) candidate beyond
+this charter's original five, or return to axis (b)/(c)/(d) per this
+session's own routine menu; (c) the transition-band CPU pick-geometry
+mismatch (round-22 follow-up #2, still queued from 2026-08-01, low
+priority); (d) once ~90 days of App Store rank/rating history accumulates
+(~2026-10-30), that stream's own GATE 2 becomes actionable.

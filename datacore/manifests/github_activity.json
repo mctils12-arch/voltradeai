@@ -1,0 +1,29 @@
+{
+ "stream": "github_activity",
+ "storage": "volume JSONL <archive>/github_activity/YYYY-MM-DD.jsonl (append-only; one growing file, not one-per-poll — record volume is tiny, <=15/week)",
+ "written_by": "server/githubOrgActivity.ts archiveGithubActivity",
+ "source": "GitHub REST Search API (api.github.com/search/issues, /search/commits) — keyless",
+ "license": "GitHub API Terms: CONDITIONAL — aggregated, non-personal counts (merged-PR totals, commit totals, bot-filtered unique-actor sample) are an accepted keyless use; no per-user profiling beyond the public commit author field already used to exclude bot accounts.",
+ "attribution": "GitHub, Inc. (public repository activity, aggregated)",
+ "schema_version": 1,
+ "field_map": {
+  "t": "record type: always 'org_week'",
+  "key": "dedup key: weekStart|org",
+  "ticker": "public-company ticker mapped to this org (hand-verified watchlist, see githubOrgActivity.ts header)",
+  "org": "GitHub org login",
+  "weekStart": "Monday UTC of the archived week (YYYY-MM-DD)",
+  "weekEnd": "Sunday UTC of the archived week, inclusive",
+  "mergedPRs": "merged PR count for the org that week, GitHub-App bot authors (dependabot/renovate/github-actions) excluded via the API's own author:app/<slug> qualifier; null if the query failed",
+  "commits": "total commit count for the org that week across all branches indexed by GitHub's search API — NOT bot-filtered (see HONEST GAPS below); null if the query failed",
+  "uniqueActorsSample": "unique non-bot committer identities within the first 100 returned commit items only — a SAMPLE, not a full-org unique count",
+  "actorSampleCapped": "true when the week's true commit count exceeds the 100-item sample window, meaning uniqueActorsSample undercounts",
+  "rt": "as-seen date (UTC day the archiver ran)"
+ },
+ "confidence_model": "GATE 1 (DATA) ONLY. No signal validated yet (gate 2, deliberately not attempted this session). SOBER PRIOR stated before building: public GitHub activity is a strategic, biased slice — real signal only for names that genuinely develop in public; noise for the rest of the watchlist. The split itself, once gate 2 runs, is the finding.",
+ "geo_fields": [],
+ "entity_key": "org",
+ "sentiment": null,
+ "started": "2026-08-02",
+ "cadence": "24h check; the underlying metric is weekly-granularity and each org/week is fetched at most once (isArchived skip) — the 24h cadence exists for retry robustness across frequent redeploys, not to refetch a completed week",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}
