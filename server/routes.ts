@@ -124,6 +124,7 @@ import { bootFtdPoll, latestFtd } from "./secFtd";
 import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
+import { bootVolcanoesPoll, latestVolcanoAlerts } from "./usgsVolcanoes";
 import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
 import { mergeSiteImagery } from "./siteImagery";
@@ -1733,6 +1734,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.events.length,
       quakes: hit.events,
+    });
+  });
+
+  // USGS Volcano Hazards Program elevated-alert-level feed, joined against
+  // the Smithsonian GVP coordinate database (RAW, keyless, global) —
+  // free-data pipeline build (EDGE DOCTRINE #1), closing the "NOT
+  // PREVIOUSLY FILED C.2" open_questions.md item (rescoped 2026-08-01 from
+  // a static reference table to a live per-request WFS join, see
+  // server/usgsVolcanoes.ts for the full licensing trace). Boots eagerly,
+  // no key gate needed. Map layer (color-coded by USGS alert level) ships
+  // same PR — see datamap.tsx's "volcanoes" layer effect + datacore/layers.json.
+  bootVolcanoesPoll();
+  app.get("/api/data/volcanoes", (_req, res) => {
+    const hit = latestVolcanoAlerts();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "USGS Volcano Hazards Program", warming_up: true, count: 0, volcanoes: [] });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      kind: "raw",
+      source: "USGS Volcano Hazards Program (elevated alert levels) + Smithsonian Institution Global Volcanism Program (volcano coordinates, VOTW database)",
+      attribution: "U.S. Geological Survey · Global Volcanism Program, Smithsonian Institution",
+      time: hit.at,
+      count: hit.alerts.length,
+      volcanoes: hit.alerts,
     });
   });
 

@@ -2443,7 +2443,7 @@
    "group": "environmental",
    "costTier": "moderate",
    "source": "NASA GIBS/ESDIS \u2014 Suomi NPP/NOAA-20 OMPS sulfur-dioxide column (planetary boundary layer), public domain",
-   "description": "Sulfur-dioxide column density in the planetary boundary layer (nearest-surface of GIBS's three SO\u2082 altitude bands), dated (default: yesterday; step back via the on-panel scrubber). As-is display, no predictive claim: SO\u2082 over a named volcano (vs. USGS elevated-volcano alert levels, not yet built) as a degassing signal, and SO\u2082 over a named smelter/refinery/coal plant (vs. powerplants and coal_mine_features) as an activity proxy, are both open gate-2 hypotheses (research/open_questions.md), not yet signals. Satellite-swath gaps and cloud cover leave stripes/blanks \u2014 honest coverage, not a bug.",
+   "description": "Sulfur-dioxide column density in the planetary boundary layer (nearest-surface of GIBS's three SO\u2082 altitude bands), dated (default: yesterday; step back via the on-panel scrubber). As-is display, no predictive claim: SO\u2082 over a named volcano (vs. the volcanoes layer's USGS elevated-alert levels, shipped 2026-08-02) as a degassing signal, and SO\u2082 over a named smelter/refinery/coal plant (vs. powerplants and coal_mine_features) as an activity proxy, are both open gate-2 hypotheses (research/open_questions.md), not yet signals. Satellite-swath gaps and cloud cover leave stripes/blanks \u2014 honest coverage, not a bug.",
    "field": true
   },
   {
@@ -2538,6 +2538,16 @@
    "costTier": "light",
    "source": "USGS Earthquake Hazards Program (public domain)",
    "description": "Real-time M2.5+ seismic events worldwide, rolling 24h window, sized and colored by magnitude. Official USGS feed displayed as-is; not for safety-of-life use."
+  },
+  {
+   "id": "volcanoes",
+   "name": "Volcano alert levels (USGS/GVP)",
+   "kind": "raw",
+   "status": "live",
+   "group": "environmental",
+   "costTier": "light",
+   "source": "USGS Volcano Hazards Program (elevated alert levels, public domain) + Global Volcanism Program, Smithsonian Institution (volcano coordinates, Volcanoes of the World database — a US-federal-employee-authored compilation per GVP's own citation policy, not the site's general non-commercial narrative/photo Content)",
+   "description": "Currently-elevated volcanoes worldwide (USGS Volcano Hazards Program alert level: ADVISORY/WATCH/WARNING, color-coded YELLOW/ORANGE/RED), coordinates joined live per-request from GVP's public WFS database rather than a static reference table (rescoped 2026-08-01 from an assumed static join; the live join needs no stale-data maintenance). As-is display, no predictive claim. A vnum with no GVP coordinate match still counts but cannot be placed on the map (rare; USGS's Volcano Numbers are the same scheme GVP catalogs). Cross-ties (open_questions.md, gate-2 hypotheses, not claimed here): volcanic degassing vs. the SO2 layer, aviation ash risk vs. aircraft, and nearby USGS earthquake activity."
   },
   {
    "id": "buoys",
