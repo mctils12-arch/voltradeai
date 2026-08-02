@@ -319,6 +319,27 @@ def _deep_score_guard_decision(rss_mb: int, skip_mb: int, trim_mb: int) -> str:
         return "trim"
     return "normal"
 
+
+def _inline_train_allowed(mode: str, env) -> bool:
+    """Pure gate for whether bot_engine.py's __main__ may run the inline
+    ML training block (imports lightgbm + sklearn, ~150MB RSS).
+
+    MEM FIX 2026-04-21: that import happens on EVERY bot_engine.py
+    invocation if unguarded. Tier2 calls this every minute, which pushed
+    scan_inner_start to ~219MB and caused Railway SIGKILL/OOM before
+    deep_score could run. Tier3 already owns retraining via
+    ml_retrain_safe.py (server/bot.ts:3118, :3403), so scan/full/manage
+    must skip the heavy import. Opt-in via mode=train (explicit manual
+    invocation) or VOLTRADE_INLINE_ML_TRAIN=1 (explicit env override).
+
+    Extracted 2026-08-02 into a standalone pure function (previously
+    inline in __main__) so this gate is directly testable — see
+    test_inline_train_gate.py. Behavior is unchanged from the inline
+    version; only the packaging moved.
+    """
+    return mode == "train" or env.get("VOLTRADE_INLINE_ML_TRAIN", "0") == "1"
+
+
 def _gc_checkpoint(phase: str = ""):
     """Force garbage collection at phase boundaries. Reduces peak memory
     by 30-80MB by releasing short-lived dicts/DataFrames between phases."""
@@ -5236,16 +5257,7 @@ if __name__ == "__main__":
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "full"
 
-    # MEM FIX 2026-04-21: The inline ML training block below imports lightgbm +
-    # sklearn (~150MB RSS) on EVERY bot_engine.py invocation. Tier2 calls this
-    # every minute, which pushed scan_inner_start to ~219MB and caused Railway
-    # SIGKILL/OOM before deep_score could run. Tier3 already owns retraining via
-    # ml_retrain_safe.py (server/bot.ts:3118, :3403), so skip the heavy import
-    # for scan/full/manage. Opt-in via mode=train or VOLTRADE_INLINE_ML_TRAIN=1.
-    _inline_train_ok = (
-        mode == "train"
-        or os.environ.get("VOLTRADE_INLINE_ML_TRAIN", "0") == "1"
-    )
+    _inline_train_ok = _inline_train_allowed(mode, os.environ)
     if _inline_train_ok:
         # ── ML v2 Training Schedule (opt-in path only) ──────────────────
         # Daily retrain at 4am runs via Tier 3 / ml_retrain_safe.py; this

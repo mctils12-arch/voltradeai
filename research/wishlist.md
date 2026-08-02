@@ -2345,6 +2345,27 @@ change the proposed fix, but raises its priority: a stuck-PR check would
 have caught this within a day instead of it silently waiting for a
 session to stumble into the conflict.
 
+**UPDATE 2026-08-02 (third data point, oldest instance found and
+closed):** this scheduled-routine session swept `list_pull_requests` for
+open PRs and found PR #77 ("fix(tier2): gate inline ML retrain (OOM)",
+`fix/tier2-full-scan-oom`) had been open since **2026-04-20** — by far
+the oldest and most severe instance, ~104 days with zero CI runs ever
+triggered, well predating the two 2026-07-30 occurrences above. Unlike
+those two, this one did NOT need the cherry-pick-to-fresh-branch
+treatment: investigation found the OOM bug it targeted was independently
+fixed a day after the PR was opened (`bot_engine.py`'s "MEM FIX
+2026-04-21", still live on main as `_inline_train_allowed()` after this
+session's refactor), so PR #77's diff would have been pure redundancy.
+Closed #77 as superseded (comment on the PR explains why); the one real
+gap the investigation surfaced — zero regression coverage on the
+existing gate — is fixed by this session's own PR (`test_inline_train_gate.py`).
+Three data points now (PR #77, #638, #640) — this proposal (a standing
+"PR open >N hours with 0 CI runs" check, e.g. added to the DAILY
+session's opening checklist) remains unbuilt and still needs human
+review per AUTONOMY AUTHORIZATION; its case only gets stronger each time
+a session finds another instance by accident rather than by a standing
+check.
+
 ## 2026-07-30 UPDATE — EIA_API_KEY added to the AGENT SESSION ENV (human)
 
 The human reports adding EIA_API_KEY to the claude.ai/code environment
