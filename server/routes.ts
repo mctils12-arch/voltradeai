@@ -3706,6 +3706,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // App Store rank + rating-velocity keyed mirror (same "shipped-data-
+  // no-v1-API" sweep as plant-operations/secftd/midas/earnings-language
+  // above). Reuses the latestAppStoreRankings() cache /api/data/
+  // appstore-rankings already uses — no new computation, no new poller.
+  // LICENSE: same shape as earnings-language — the underlying Apple RSS/
+  // Lookup feeds are public but CONDITIONAL on low-volume internal use
+  // (research/open_questions.md NEW DATA ROOTS #3); a metered external
+  // mirror is marked "conditional" resell rather than "ok", pending a
+  // human read on whether a rate-limited mirror still counts as
+  // low-volume. RAW display: GATE 2 (vs company-reported metrics) needs
+  // ~90 days of archive history, not attempted yet.
+  app.get("/api/v1/data/appstore-rankings", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestAppStoreRankings();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/appstore-rankings", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/appstore-rankings", { count: hit.records.length, records: hit.records }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/appstore-rankings", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/appstore-rankings", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
