@@ -3,6 +3,122 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-02 (scheduled-routine PRODUCT session #2) [PRODUCT] — App Store rankings keyed mirror shipped: /api/v1/data/appstore-rankings, the sixth "shipped-data-no-v1-API" sweep instance, closing the gap the prior session left open (v1.0.575, SHARED)
+
+TERRITORY: SHARED (server/apiProduct.ts, server/apiProduct.test.ts,
+server/routes.ts, research/open_questions.md, package.json/
+package-lock.json — minimized, last commit per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md,
+open_questions.md, wishlist.md per MEMORY PROTOCOL. `/api/health` on prod:
+all checks `ok` (server, database, alpaca ACTIVE, python, scanner 0
+consecutiveFailures, licensing), `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false` — no LIVENESS ALARM. Pulled the last 300
+`/api/diag/audit` entries live: zero ERROR/FAIL/KILL/WARN/COMPLIANCE-tagged
+entries in the window (TIER2/MANIPULATION/TIER3/RULES/SCHEDULE/TIER3-DIAG/
+EXECUTION/SYSTEM/EVENTLOOP-LAG/QUEUE/STREAM/POS-MONITOR only, all routine;
+market closed for the weekend, next open 2026-08-03) — no fresh bug, SESSION
+BUDGET's top tier came up empty. Loop-health ratio, last 10 tagged entries
+(2026-07-30 through 2026-08-02): 4/10 [REPAIR], 6/10 [PRODUCT]/[RESEARCH] —
+well under the 7+ thrash bar. AUDITS & DEBT register: staleness audit next
+due 2026-08-04 (not yet due), constitutional audit still awaiting human
+approval on already-filed proposals (not a session action item). KNOWN
+BROKEN in open_questions.md: only items #10 and #20 remain unresolved, both
+explicitly gated on future evidence that hasn't accumulated yet — neither
+actionable now.
+
+PRIMARY ACTION SELECTION: with the repair tier empty, fell through to
+SESSION BUDGET's queued-item tier. The 2026-08-02 earlier PRODUCT session's
+own NEXT list named this exact gap: App Store rankings (GATE 1 shipped
+2026-08-01, v1.0.568) had an internal `/api/data/appstore-rankings` route
+but no `/api/v1` mirror, deliberately left unshipped over a licensing
+question (its verdict reads "CONDITIONAL...low-volume internal use", in
+apparent tension with a metered, resold-to-external-customers surface) —
+and that session explicitly named the resolution: ship it marked `resell:
+"conditional"` the same way earnings-language was, rather than leaving the
+question open indefinitely, OR get a human read first. Chose to ship marked
+conditional: this is the documented, already-precedented path (earnings-
+language shipped the exact same day under the exact same reasoning for a
+different licensing nuance), advances SPINOUT-READY DATA LAYER at
+near-zero risk (zero new network calls, zero new pollers, zero scoring/
+trading-logic touched), and getting a human read is not something a
+scheduled autonomous session can itself produce — filing the question
+honestly in the shipped mark (as done) is the correct autonomous action per
+AUTONOMY AUTHORIZATION, not a blocker to wait on.
+
+WHAT SHIPPED: `GET /api/v1/data/appstore-rankings` in `server/routes.ts`,
+placed immediately after `/api/v1/data/earnings-language`, reusing the
+exact `requireApiKey` -> cache-read -> 503+Retry-After-if-cold ->
+`v1Envelope(...)` -> `meterUsage` shape every prior sweep instance uses.
+Reuses `latestAppStoreRankings()` (the same cache
+`/api/data/appstore-rankings` already reads) — no new computation, no new
+poller. Response body is `{count, records}` wrapped in
+`v1Envelope("data/appstore-rankings", ..., hit.at)`. `server/apiProduct.ts`
+gained: (1) the `LICENSE_MARKS["data/appstore-rankings"]` entry (resell:
+"conditional", license string states the low-volume-internal-use tension
+explicitly, same honesty pattern as earnings-language); (2) an
+`apiMeta().endpoints` entry stating the GATE 2 not-attempted-yet status
+(~90 days of history needed, earliest ~2026-10-30) and the Android-dark
+gap; (3) an `agentToolSpec()` tool (`voltrade_appstore_rankings`) whose
+description states both caveats too, mirroring how `voltrade_earnings_
+language` carries its own incomplete-status language through to the
+agent-facing surface.
+
+RATCHET: `server/apiProduct.test.ts` gained 1 new dedicated test (license
+mark asserted CONDITIONAL with the assertion message stating why, plus the
+agent-tool not-attempted-status pin) and 2 existing tests were extended:
+the route-path pin list and the meta-honesty live-endpoint pin gained the
+new path; the guarded-route-count floor bumped from `>=9` to `>=10`
+(matching the actual count exactly, a strict ratchet like every prior
+sweep instance's bump, not a loose one). `research/open_questions.md`'s
+NEW DATA ROOTS #3 entry updated in place (append-only spirit: the old "NO
+v1 API MIRROR YET" note replaced with the shipped state and the still-open
+human-read question carried forward honestly, not dropped).
+
+VERIFIED: sandbox started with no `node_modules` and no Python deps beyond
+`typescript` (the same recurring clean-container gap prior sessions have
+logged every time) — ran `npm install` (487 packages) and
+`pip install -r requirements-dev.txt` + `pip install -r requirements.txt`.
+`npx tsx --test server/*.test.ts`: 993 passed, 1 failed (the 1 failure,
+`every client/public/tiles/*.pmtiles has the PMTiles magic`, is
+PRE-EXISTING and unrelated — R2 migration removed local tile files from
+the repo, same failure the prior session already confirmed byte-identical
+on untouched `main`; this session's new tests all pass, net +12 tests in
+`apiProduct.test.ts` alone {1 dedicated license test + 11 pre-existing now
+passing again with node_modules installed}). `npx tsc --noEmit`: 79
+errors, byte-identical via `git stash` A/B (zero new errors). `npm run
+build`: clean (client + server, `dist/index.cjs` 13.1mb). `python3 -m
+pytest -q`: 1070 passed, 1 skipped (zero Python files touched this
+session, pure environment-completeness check, not a regression signal —
+matches the exact count from the prior same-day session).
+
+BACKTEST: N/A — pure API-surface plumbing over an already-shipped,
+already-RAW internal cache; no scoring, sizing, or threshold value
+changed. PROMOTION RULE 3 doesn't apply the way it would to a strategy
+change.
+
+DEPLOY-COUPLING NOTE: no order-execution, sizing, or scoring code touched.
+Session ran outside the 9:30-16:00 ET window regardless (Sunday, market
+closed both at session start and at merge time).
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) are this
+session's only version-bump edits, last commit, minimized to the version
+field (both files, kept in sync). `git fetch origin main` immediately
+before confirmed `origin/main` at `81b5ac0`/v1.0.574 (the prior
+earnings-language session's entry), no advance since this session's start.
+Version 1.0.574 -> 1.0.575, read-and-increment at commit time.
+
+NEXT: (1) whether a rate-limited external mirror still counts as
+"low-volume" for the Apple feeds' terms remains a genuinely open human-read
+question — this session's `resell: "conditional"` mark keeps it honest
+without resolving it, same as the earlier session left it for
+earnings-language; (2) both App Store rankings' and earnings-language's
+own GATE 2 ladder paths remain genuinely incomplete (not this session's
+job — pure distribution plumbing, and the shipped honesty strings say so
+explicitly); (3) the "shipped-data-no-v1-API" sweep should be re-checked
+again after the next RAW stream ships with its own internal `/api/data/*`
+route.
+
 ## 2026-08-02 (scheduled-routine PRODUCT session) [PRODUCT] — SEC 8-K earnings-language keyed mirror shipped: /api/v1/data/earnings-language, the fifth "shipped-data-no-v1-API" sweep instance, with a licensing correction the prior four didn't need (v1.0.573, SHARED)
 
 TERRITORY: SHARED (server/apiProduct.ts, server/apiProduct.test.ts,

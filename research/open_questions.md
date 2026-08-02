@@ -5098,17 +5098,15 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    company-reported metrics) needs ~90 days of history — earliest
    ~2026-10-30 — and is NOT attempted yet. Original filed spec kept
    below for reference.
-   **NO v1 API MIRROR YET (checked 2026-08-02, deliberately not shipped
-   that session)**: this stream's own licensing verdict below says
-   "CONDITIONAL (...low-volume internal use)" — that phrase reads as in
-   tension with putting it behind a metered, resold-to-external-
-   customers `/api/v1` endpoint the way the government-produced CAMD/
-   FTD/MIDAS streams were. A future session should either get a human
-   read on whether a rate-limited external mirror still counts as
-   "low-volume" for this purpose, or ship it explicitly marked `resell:
-   "conditional"` (the same pattern used for earnings-language,
-   experiments.md 2026-08-02) rather than leaving the question
-   unresolved indefinitely. LICENSING: Apple RSS/marketingtools top-chart JSON +
+   **v1 API MIRROR SHIPPED 2026-08-02, v1.0.575 (see experiments.md)**:
+   `GET /api/v1/data/appstore-rankings`, marked `resell: "conditional"`
+   in `server/apiProduct.ts` (not `"ok"` like the government-produced
+   CAMD/FTD/MIDAS streams) — same pattern used for earnings-language.
+   Whether a rate-limited external mirror still counts as "low-volume"
+   for the underlying Apple feeds' terms is still an open human-read
+   question (not resolved by marking conditional, only kept honest by
+   it); if a human ever gets a definitive read either way, update the
+   mark accordingly. LICENSING: Apple RSS/marketingtools top-chart JSON +
    iTunes Lookup rating counts CONDITIONAL (existing public feeds,
    low-volume internal use; Enterprise Partner Feed is the sanctioned
    bulk hedge — free program, human enrollment); Google Play
