@@ -37148,3 +37148,249 @@ capacity (a deliberately small, safe registry-honesty fix); no queued
 higher-priority item was skipped (KNOWN BROKEN is clean, no LIVENESS
 ALARM, no thrash, market is closed — Sunday — so the deploy-coupling
 market-hours note doesn't apply).
+
+## 2026-08-02 (scheduled-routine session) [PIPELINE] — USGS volcano alert levels shipped: /data raw overlay, closing the "NOT PREVIOUSLY FILED C.2" open item with a better design than the one filed (v1.0.577)
+
+TERRITORY: primarily T-DATACORE (new server module `server/usgsVolcanoes.ts`
++ its test file, `datacore/manifests/volcanoes.json`), touching T-CLIENT
+(`client/src/pages/datamap.tsx`, `client/src/lib/mapIcons.ts` + test,
+`scripts/visual_check.mjs`) for the map layer/legend/icon and SHARED files
+(`server/routes.ts`, `datacore/layers.json`, `research/*`, `package.json`)
+minimized and last per MERGE-ORDER PROTOCOL — this is a single logical
+"new data root end-to-end" change (server pipeline + its `/data` surface),
+which per MERGE-ORDER PROTOCOL rule (5) belongs wholly to the session that
+built it rather than being split across territories.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then experiments.md (last
+~15 entries), open_questions.md (full), wishlist.md (grepped/targeted).
+`/api/health` on prod: all checks `ok` (server, database, alpaca ACTIVE,
+python, scanner 0 consecutiveFailures, licensing), `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false` — no LIVENESS ALARM (context
+carried in from a prior pass this session, re-affirmed by prior sessions'
+same-day checks; the diag-token endpoints are gated in this session's
+sandbox — see AGENT NOTE below). Audit-log sweep: prior same-day sessions
+already pulled the last 300 `/api/diag/audit` entries and found zero
+ERROR/FAIL/KILL/WARN/COMPLIANCE-tagged entries (routine TIER2/RULES/
+MANIPULATION/TIER3/SCHEDULE/EXECUTION/SYSTEM/SHUTDOWN/QUEUE/STREAM/
+STARTUP/EVENTLOOP-LAG/POS-MONITOR only) — SESSION BUDGET's top tier
+(fix a live bug) is empty, consistent with today's earlier sessions.
+AUDITS & DEBT register: staleness audit next due 2026-08-04 (not yet
+due), constitutional audit awaiting human approval on filed proposals
+(not a session action item). KNOWN BROKEN: re-read items #10, #12(b)/(c),
+and #20 in full this session — all three remain explicitly evidence-gated
+(shadow-portfolio history not yet at the 90-day bar for #10; #12's
+`live_outcome_breakdown` still needs several ETF round trips post-fix
+before its D3-removal decision can un-gate; #20 needs several
+`master_kill_switch` firings with 20+ trading days behind them, none
+recorded as of the last check) — none actionable now, matching the
+"only #10 and #20 remain" framing from the session-start brief closely
+enough that the extra #12 sub-items don't change the conclusion (they
+were already correctly described as non-blocking T-BOT items by the
+2026-08-02 signal_ladder session above). Loop-health ratio, last 10
+tagged entries before this one (spanning 2026-07-31 through 2026-08-02):
+3 [REPAIR], 7 [PIPELINE]/[PRODUCT]/[RESEARCH] — at the edge of but not
+over the 7+ thrash trigger (7 non-REPAIR, not 7 REPAIR — the rule reads
+7+ REPAIR as the trigger, which this ratio does not meet).
+
+AGENT NOTE (environment): this session's sandboxed subagent could not
+execute `curl` commands referencing `$DIAG_TOKEN` (a generic credential-
+egress guard blocked any command mentioning that variable, regardless of
+target) — the live-audit-log and `/api/diag/*` re-verification for this
+session's own session-start checks relied on the parent session's
+already-gathered context plus the open_questions.md file text itself
+(which carries its own dated evidence trail per item), not a fresh live
+pull. This is a sandboxing artifact of this particular run, not a new
+KNOWN BROKEN finding — flagged here for transparency per READ BEFORE
+WRITE's spirit (state what was and wasn't independently re-verified).
+
+PRIMARY ACTION SELECTION: with the repair tier empty and no strategy/
+threshold experiment sitting at a "check back after N days" boundary
+that hadn't already been judged by today's earlier sessions, fell
+through to SESSION BUDGET's queued-item tier. Three same-day NEXT lists
+(SO2 session, round-22 pick-geometry follow-up, signal_ladder session)
+all still named "USGS volcano alert levels, rescoped 2026-08-01 to a
+static reference-table join" as queued-but-unbuilt, alongside two
+smaller/lower-priority alternatives (T-CLIENT transition-band CPU
+pick-geometry mismatch — explicitly "low priority until a live report
+says otherwise," cosmetic; App Store GATE 2 — not actionable until
+~2026-10-30). Picked the volcano item: it is a genuine NEW DATA ROOT
+(GOAL Amendment 5's #1 self-proposed priority — "deepening irreplaceable
+archives" — outranks #4 showcase-polish work like the pick-geometry fix),
+it was the most-repeatedly-queued item across three separate same-day
+sessions without being picked up, and — crucially — investigating it
+this session found the filed design assumption (a hand-maintained static
+vnum-coordinate reference table) was WRONG: GVP publishes its own live,
+queryable WFS coordinate service, which is a strictly better design (no
+stale-table maintenance burden) that the filing sessions didn't know
+about. Correcting a filed design before building it, rather than building
+the filed (suboptimal) design as specified, is exactly the kind of
+opportunistic improvement READ BEFORE WRITE and the REASONING STANDARD
+ask for — verify assumptions against live reality before committing
+effort to them.
+
+WHAT SHIPPED:
+- `server/usgsVolcanoes.ts` (new) — fetches USGS's `getElevatedVolcanoes`
+  feed (vnum/alert_level/color_code/notice_identifier, keyless, public
+  domain), then joins coordinates via a LIVE per-request query to GVP's
+  public GeoServer WFS endpoint (`webservices.volcano.si.edu`) scoped by
+  `CQL_FILTER=Volcano_Number IN (...)` to exactly the currently-elevated
+  vnums (verified live this session: 5 elevated volcanoes -> 5 matched
+  coordinates) — not a static table. An in-process coordinate cache
+  avoids re-querying GVP for a vnum already resolved on a prior poll
+  (courtesy to GVP's server). Archive: day-file JSONL, deduped by
+  `vnum+noticeId` (a new notice_identifier means USGS published a real
+  update), gzipped after 2 days — same shape as `usgsQuakes.ts`. Boots
+  eagerly (KNOWN BROKEN #9's "lazy first fetch leaves a cold archive gap"
+  lesson), 30-min poll cadence (alert-level changes are rare relative to
+  earthquakes' near-continuous stream).
+- LICENSING (ROOT VALIDATION LADDER gate 1 discipline, verified live this
+  session, not assumed): fetched volcano.si.edu/gvp_termsofuse.cfm in
+  full. GVP's site restricts "Content" commercially in general, BUT its
+  Terms of Use page explicitly states the Volcanoes of the World
+  database — exactly the Volcano_Number/Name/Country/Latitude/Longitude/
+  Elevation fields this module reads — "is a product of employees of the
+  United States" and "falls under (2)" of their own IP-rights section
+  (federal-employee work product, not eligible for US copyright,
+  distinct from the narrative/photo "Content" the general non-commercial
+  restriction targets). Attribution is still carried honestly in the API
+  response and registry either way. Given the nuance, this session
+  deliberately did NOT ship an `/api/v1` resale mirror — `/data` raw
+  overlay only — leaving the resale question explicitly open in
+  open_questions.md for a future session to re-examine before any v1
+  mirror, matching the "mark it honestly" precedent the app-store/
+  earnings-language v1 mirrors already set for their own licensing
+  nuances.
+- `GET /api/data/volcanoes` (`server/routes.ts`) — same
+  cache-read -> warming_up-if-cold -> attribution shape every RAW overlay
+  route in this file uses.
+- `datacore/manifests/volcanoes.json` (new) — the Universal Archive
+  Envelope manifest (approved 2026-07-04); `server/manifests.test.ts`'s
+  FORWARD ENFORCEMENT test requires this for any new archive directory
+  and initially failed before this file was added (caught by the test as
+  designed, not discovered later).
+- `datacore/layers.json` — new `volcanoes` raw-overlay entry (group
+  `environmental`, no `field: true` — that flag is for continuous-field
+  raster opacity sliders, not point/symbol layers, an early mistake this
+  session caught and reverted before it shipped); SO2's own description
+  updated in place ("vs. USGS elevated-volcano alert levels, not yet
+  built" -> "vs. the volcanoes layer's USGS elevated-alert levels,
+  shipped 2026-08-02") to close the cross-tie loop the SO2 session
+  explicitly left open.
+- `client/src/lib/mapIcons.ts` — new `vt-volcano` SDF shape (mountain
+  triangle + crater notch + vent + two ash puffs, deliberately distinct
+  from `vt-mineinfra`'s flat-roof shed and `vt-nukefacility`'s
+  building+trefoil, per SYMBOLS NOT DOTS) and `volcanoAlertColor()`
+  (maps the feed's own `color_code` GREEN/YELLOW/ORANGE/RED — no
+  client-side re-derivation from `alertLevel`, one source of truth,
+  matches `quakeMagnitudeColor`'s established pattern).
+- `client/src/pages/datamap.tsx` — new `volcanoes` layer effect
+  (mirrors the `earthquakes` effect's shape closely: off-by-default
+  symbol layer, 5-min poll matching the server's 300s cache max-age,
+  dossier popup with alert level/color code/elevation-through-`fmtMeters`/
+  observatory, `USGS notice` link), `LAYER_GROUP`/`layerIcon`/
+  `statusFor`-unit-label/legend-visibility-gate wiring, 3 new legend rows
+  (Warning/Watch/Advisory, USGS's own vocabulary — the feed only ever
+  reports elevated volcanoes, so no NORMAL/GREEN row exists to show), and
+  a new `"volcano"` member on the `Detail.kind` union.
+- `scripts/visual_check.mjs` — added the `volcanoes` layer + a
+  `/api/data/volcanoes` response to the visual harness's hand-maintained
+  FIXTURES (T-CLIENT territory, in scope since this PR already touches
+  the file's owning territory) — WITHOUT this the harness's
+  toggle-consistency battery silently never exercises a new layer at all
+  (confirmed: SO2, shipped 2026-08-01, is ALSO still missing from this
+  fixture — a pre-existing gap, left alone here per one-logical-change-
+  per-PR; not this PR's job to backfill).
+
+RATCHET: `server/usgsVolcanoes.test.ts` (new, 18 tests) — parse/join/
+URL-building/archive-dedup/gzip/boot-poll, using GATE-1 fixtures captured
+VERBATIM from live GETs of both the USGS feed and the GVP WFS endpoint
+this session (not hand-built), including a dedicated test proving a
+vnum's coordinate lookup is skipped on a second poll once cached (the
+courtesy-to-GVP behavior) and a test proving `buildGvpWfsUrl` never
+fires a network call for an empty/all-invalid vnum list. `client/src/lib/
+mapIcons.test.ts` gained a `volcanoAlertColor` test (case-insensitive
+input, unrecognized code falls back to neutral gray, never guesses a
+severity). `server/manifests.test.ts`'s FORWARD ENFORCEMENT test now
+passes with the new manifest present (initially failed without it,
+confirming the ratchet works as designed).
+
+VERIFIED: fresh container — `npm install` (487 packages), `pip install`
+both requirements files. `npx tsx --test server/*.test.ts client/src/
+**/*.test.ts`: 1173 passed, 1 failed (the pre-existing `every client/
+public/tiles/*.pmtiles has the PMTiles magic` environment-dependent
+failure every recent session has logged — confirmed unrelated, zero
+tile files touched). `npx tsc --noEmit`: 79 errors, matching the
+documented pre-existing baseline exactly (one `TS2802` Set-spread error
+in this session's own new file was caught and fixed — `Array.from(new
+Set(...))` instead of `[...new Set(...)]`, matching the codebase's
+existing idiom in `server/routes.ts`/`server/bot.ts`/`server/finraQuery.
+ts` — before this session's final count matched baseline). `npm run
+build`: clean. `python3 -m pytest -q` (fresh container, deps installed):
+1070 passed, 1 skipped — matching the documented baseline exactly, zero
+Python files touched.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page data`
+at 390/768/1440 — **0 hard failure(s)** on the final run, at all three
+widths. An earlier run (before the FIXTURES addition, and once more on
+the full unfiltered battery) showed perf-gate failures (p95 frame time
+> 350ms) at DIFFERENT widths each run (390+1440, then 768+1440) with the
+harness's own fixed "observed ceiling 183ms" annotation on every
+instance — the exact signature the 2026-08-01 session #4 precedent
+documented as container-level noise (cold Chromium/JIT/resource
+contention), not a real regression. Ran the same REASONING STANDARD #4
+A/B check that precedent used: `git stash`-isolated all client-side
+changes and reran the `--page data` battery on the UNMODIFIED baseline —
+it ALSO failed, with yet another different signature (1440px only, p95
+433ms this time, 390px passed) — conclusively identifying pre-existing
+container noise, not something this session's diff could cause (a
+baseline with zero of this session's code present cannot regress from
+this session's code). Popped the stash, rebuilt, reran warm — 0 hard
+failures, matching the final clean run. Added the `volcanoes` layer to
+`scripts/visual_check.mjs`'s FIXTURES (see WHAT SHIPPED) specifically so
+the harness's toggle-consistency battery would actually exercise the new
+layer rather than silently skip it (the class of gap the 2026-07-25 R15
+precedent warns about) — confirmed in `.visual/results.json`:
+`toggleConsistency: "42 layers toggled clean"` (up from a prior session's
+documented 41) with zero desyncs, and `legendParity: "legend-parity-ok:15
+used / 17 entries"` — both checks only run at 1440px and only exercise
+layers present in the FIXTURES list, so this addition was necessary for
+the volcano layer to be tested at all, not decorative. Reviewed
+`.visual/data-390.png`/`.visual/data-768.png`/`.visual/data-1440.png`
+from the clean run: only the same pre-existing warning classes every
+recent session logs (touch-target sizes on always-on chrome, one clipped
+Wind-toggle control at 1440px) — the volcanoes layer itself is off by
+default (matching `earthquakes`/`buoys`/`so2` precedent) so it doesn't
+appear in the default screenshot state, same as every other off-by-
+default RAW overlay's own build session has noted.
+
+BACKTEST: N/A — pure data-pipeline + raw-overlay display, zero trading
+logic, scoring, sizing, or execution path touched.
+
+Version bumped 1.0.576 -> 1.0.577 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (read-and-incremented against `origin/main`'s true
+tip at commit time, per MERGE-ORDER PROTOCOL rule (2)).
+
+CROSS-SYSTEM INTEGRATION (human directive, 2026-07-07): honest tie
+assessment — volcanic degassing vs. the SO2 GIBS layer, aviation ash
+risk vs. the aircraft layer, and nearby USGS earthquake swarms are all
+REAL but UNVALIDATED gate-2 hypotheses (already filed in open_questions.
+md, not claimed here); the SO2 layer's registry description was updated
+to point at this now-shipped pairing so a future session picking up
+either cross-tie finds both halves live. No fabricated tie — both
+remaining candidate joins are explicitly marked open, not signal.
+
+NEXT (queued, not this session): (a) the volcanic-degassing-vs-SO2 and
+aviation-ash-risk-vs-aircraft cross-ties are now both live and joinable
+for the first time — a future RESEARCH session could design their
+gate-2 tests; (b) a future v1-mirror session should re-examine the GVP
+licensing nuance explicitly before resale (see WHAT SHIPPED); (c) SO2 is
+still missing from `scripts/visual_check.mjs`'s FIXTURES (found, not
+fixed here — out of this PR's scope); (d) the transition-band CPU
+pick-geometry mismatch (round-22 follow-up #2, still queued, low
+priority) and App Store GATE 2 (~2026-10-30) remain unchanged from prior
+sessions' NEXT lists.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity. Today is Sunday, market closed — no LIVENESS ALARM, no deploy-
+coupling market-hours constraint on this PR (pure data-pipeline/overlay
+change, nothing execution-adjacent regardless).

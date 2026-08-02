@@ -419,6 +419,29 @@ const shapes: Record<string, () => ImageData> = {
     ctx.quadraticCurveTo(m + 7, s - 3, s - 6, s - 9);
     ctx.stroke();
   }),
+  // volcano: mountain triangle with a crater notch at the peak + a filled
+  // vent dot and two rising ash puffs — deliberately distinct from
+  // vt-mineinfra's flat-roof shed and vt-nukefacility's building+trefoil
+  // (no straight roofline, no building silhouette at all).
+  "vt-volcano": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    ctx.beginPath();
+    ctx.moveTo(m, 6);              // peak (left slope start)
+    ctx.lineTo(m - 3.5, 12);        // crater notch, left rim
+    ctx.lineTo(m, 15.5);            // crater notch, floor
+    ctx.lineTo(m + 3.5, 12);        // crater notch, right rim
+    ctx.lineTo(s - 7, s - 8);       // right base
+    ctx.lineTo(7, s - 8);           // left base
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillRect(9, s - 12, s - 18, 3.4);   // snow/scree seam near the base
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(m, 13, 1.8, 0, Math.PI * 2); ctx.fill(); // vent
+    ctx.beginPath(); ctx.arc(m - 2, 5, 1.6, 0, Math.PI * 2); ctx.fill();  // ash puff
+    ctx.beginPath(); ctx.arc(m + 2.5, 2.5, 1.3, 0, Math.PI * 2); ctx.fill(); // ash puff
+  }),
   // train: locomotive nose-up — rounded body, cab window notch, nose taper
   // (points "up"/north so icon-rotate can turn it to bearing when known)
   "vt-train": () => draw(S, (ctx, s) => {
@@ -998,6 +1021,22 @@ export function quakeMagnitudeColor(mag: number | null | undefined): string {
   if (m >= 5) return "#ff8c42";
   if (m >= 4) return "#ffd23f";
   return "#8bc34a";
+}
+
+/** USGS Volcano Hazards Program alert-level color code — used AS REPORTED
+ *  by the feed (server/usgsVolcanoes.ts's `colorCode` field), never
+ *  re-derived from `alertLevel` client-side (one source of truth, matches
+ *  the feed's own NORMAL=GREEN/ADVISORY=YELLOW/WATCH=ORANGE/WARNING=RED
+ *  scheme). Falls back to a neutral gray for an unrecognized/missing code
+ *  rather than guessing. */
+export function volcanoAlertColor(colorCode: string | null | undefined): string {
+  switch (String(colorCode || "").toUpperCase()) {
+    case "RED": return "#ff3b3b";
+    case "ORANGE": return "#ff8c42";
+    case "YELLOW": return "#ffd23f";
+    case "GREEN": return "#8bc34a";
+    default: return "#9aa5b1";
+  }
 }
 
 /** EPA CAMD CEMS ground-truth utilization (server/epaCamd.ts): fraction of

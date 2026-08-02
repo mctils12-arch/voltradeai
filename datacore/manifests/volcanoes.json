@@ -1,0 +1,33 @@
+{
+ "stream": "volcanoes",
+ "storage": "volume JSONL <archive>/volcanoes/YYYY-MM-DD.jsonl(.gz)",
+ "written_by": "server/usgsVolcanoes.ts archiveVolcanoAlerts",
+ "source": "USGS Volcano Hazards Program getElevatedVolcanoes feed (alert level/color code), joined per-request against the Global Volcanism Program (GVP, Smithsonian Institution) WFS geoserver for volcano coordinates (Volcanoes of the World database)",
+ "license": "USGS side: US government public domain (usgs.gov/information-policies-and-notices/copyrights-and-credits), no key, no rate limit documented. GVP side: the Volcanoes of the World database compilation is US-federal-employee-authored per GVP's own Terms of Use (volcano.si.edu/gvp_termsofuse.cfm, verified live 2026-08-02) — falls under their IP-rights category (2), distinct from the site's general non-commercial narrative/photo Content restriction. Attribution required either way; NOT shipped as an /api/v1 resale mirror (see server/usgsVolcanoes.ts header for the full trace) — /data raw overlay only in this build.",
+ "attribution": "U.S. Geological Survey · Global Volcanism Program, Smithsonian Institution",
+ "schema_version": 1,
+ "field_map": {
+  "vnum": "USGS/GVP shared volcano number — the archive dedup key's first half",
+  "name": "volcano name as reported by USGS",
+  "obs": "reporting observatory abbreviation (avo, hvo, ...)",
+  "obsFullname": "reporting observatory full name",
+  "alertLevel": "NORMAL | ADVISORY | WATCH | WARNING (USGS's own vocabulary, kept as-reported)",
+  "colorCode": "GREEN | YELLOW | ORANGE | RED (USGS's own vocabulary, kept as-reported)",
+  "noticeId": "USGS notice_identifier — the archive dedup key's second half; a new value means USGS published a new update for this vnum",
+  "noticeUrl": "USGS notice page",
+  "sentUtc": "notice-sent timestamp, UTC string as reported",
+  "sentUnixtime": "notice-sent timestamp, unix epoch seconds",
+  "lat": "joined from GVP's WFS; null when the vnum has no GVP coordinate match (rare, kept not dropped)",
+  "lon": "joined from GVP's WFS; null when unmatched",
+  "elevationM": "joined from GVP's WFS; null when unmatched",
+  "country": "joined from GVP's WFS; null when unmatched",
+  "rt": "as-seen date (UTC day WE fetched it)"
+ },
+ "confidence_model": "RAW overlay — USGS-reported alert level/color code carried verbatim; coordinates are a LIVE per-request join against GVP (not a static reference table — rescoped 2026-08-01 from an assumed static join), so a coordinate is only as fresh as GVP's own database at fetch time. No predictive claim. Volcanic-degassing-vs-SO2, aviation-ash-risk-vs-aircraft, and nearby-earthquake cross-ties are all open gate-2 hypotheses (open_questions.md), unattempted.",
+ "geo_fields": ["lat", "lon"],
+ "entity_key": "vnum+noticeId (alert notice)",
+ "sentiment": null,
+ "started": "2026-08-02",
+ "cadence": "30-min poll; USGS elevated-status changes are rare (weekly-to-monthly per volcano in steady state) relative to earthquakes' near-continuous stream",
+ "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
+}

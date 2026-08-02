@@ -7866,6 +7866,29 @@ C. NOT PREVIOUSLY FILED — NEW, and cheapest first
       alert feed, rather than parsing HTML DMS strings live. Left queued,
       not built this session (SO2 alone is the scoped PR); whoever picks
       this up next should design around the join, not the HTML parse.
+      **SHIPPED 2026-08-02 (scheduled-routine session, v1.0.577 — see
+      experiments.md), with a BETTER design than the "static reference
+      table" this correction assumed was needed**: GVP itself publishes a
+      public GeoServer WFS endpoint (webservices.volcano.si.edu) that
+      answers `Volcano_Number IN (...)` queries with live
+      Latitude/Longitude/Country/Elevation — a LIVE per-request join
+      against exactly the vnums currently elevated (verified live
+      2026-08-02: 5 elevated volcanoes, 5 matched coordinates), not a
+      hand-maintained static table, and coordinate-cached in-process so
+      repeat polls don't re-query GVP for an already-known vnum. Ships as
+      a `/data` RAW OVERLAY only (`/api/data/volcanoes`,
+      `server/usgsVolcanoes.ts`, `datacore/manifests/volcanoes.json`) —
+      deliberately NOT an `/api/v1` resale mirror this session: GVP's
+      Terms of Use (volcano.si.edu/gvp_termsofuse.cfm, read in full live
+      this session) restrict "Content" commercially in general but
+      explicitly carve the Volcanoes of the World database out as
+      US-federal-employee-authored (their own IP-rights category (2)),
+      distinct from the narrative/photo Content the general restriction
+      targets — a real distinction, but one a future v1-mirror session
+      should re-examine explicitly before resale, matching the "mark it
+      honestly" discipline the app-store/earnings-language v1 mirrors
+      already apply to their own licensing nuances. SO2 layer's
+      description updated in place to point at this now-shipped pairing.
    3. CLOUDFLARE RADAR internet outages — country/ASN-level disruption
       as a geopolitical tripwire feeding the entity graph. NEEDS a free
       API token (not yet requested; would be a new wishlist ask). NOT

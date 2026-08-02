@@ -8,7 +8,7 @@ import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
-  EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor,
+  EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor, volcanoAlertColor,
   camdUtilizationPct, camdUtilizationColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
@@ -414,7 +414,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather";
   title: string;
   subtitle: string;
   body: string;
@@ -772,6 +772,7 @@ const LAYER_GROUP: Record<string, string> = {
   alerts: "environmental",
   spaceweather: "environmental",
   earthquakes: "environmental",
+  volcanoes: "environmental",
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
@@ -1324,7 +1325,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.earthquakes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.earthquakes || enabled.volcanoes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -1362,6 +1363,14 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
                     <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
                     <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
+                  </>
+                )}
+                {enabled.volcanoes && (
+                  <>
+                    <LegendIcon icon="vt-volcano" color={volcanoAlertColor("RED")} label="Volcano — Warning" />
+                    <LegendIcon icon="vt-volcano" color={volcanoAlertColor("ORANGE")} label="Volcano — Watch" />
+                    <LegendIcon icon="vt-volcano" color={volcanoAlertColor("YELLOW")} label="Volcano — Advisory" />
+                    <span className="vt-legend-note">USGS elevated-alert volcanoes only (steady-state NORMAL volcanoes aren't in this feed); coordinates joined live from the Smithsonian GVP database — a marker missing its coordinate still counts toward totals but can't be placed</span>
                   </>
                 )}
                 {enabled.buoys && <LegendIcon icon="vt-buoy" color="#22d3ee" label="Ocean Buoy (NDBC)" />}
@@ -10282,6 +10291,98 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.earthquakes, mapReady, setStatus]);
 
+  // ── USGS volcano alert levels (RAW; elevated volcanoes only, coordinates
+  // joined live from the Smithsonian GVP database — see server/
+  // usgsVolcanoes.ts). Off by default (reference layer; initial-load
+  // budget, same precedent as earthquakes/rivergauges/alerts). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.volcanoes) {
+      try {
+        if (map?.getLayer("volcanoes-sym")) map.removeLayer("volcanoes-sym");
+        if (map?.getSource("volcanoes")) map.removeSource("volcanoes");
+      } catch {}
+      setStatus("volcanoes", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("volcanoes", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/volcanoes");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("volcanoes", "loading", 0, "warming up — first poll can take a minute"); return; }
+        // archive keeps every reported alert; the map can only place ones
+        // with a resolved GVP coordinate (unmatched vnums are rare — see
+        // the layer registry description).
+        const placeable = (d.volcanoes || []).filter((v: any) => v.lat != null && v.lon != null);
+        const fc = {
+          type: "FeatureCollection",
+          features: placeable.map((v: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [v.lon, v.lat] },
+            properties: {
+              vnum: v.vnum, name: v.name, obs: v.obs, obsFullname: v.obsFullname,
+              alertLevel: v.alertLevel, colorCode: v.colorCode, sentUtc: v.sentUtc,
+              noticeUrl: v.noticeUrl, elevationM: v.elevationM, country: v.country,
+              color: volcanoAlertColor(v.colorCode),
+            },
+          })),
+        };
+        const src: any = map.getSource("volcanoes");
+        if (src) {
+          src.setData(fc as any);
+        } else {
+          map.addSource("volcanoes", { type: "geojson", data: fc as any });
+          map.addLayer({
+            id: "volcanoes-sym", type: "symbol", source: "volcanoes",
+            layout: { "icon-image": "vt-volcano", "icon-size": 0.62, "icon-allow-overlap": true, "icon-ignore-placement": true },
+            paint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 },
+          });
+          detach = attachLayerInteractions(map, "volcanoes-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const dossierKey = `volcano:${p.vnum}:${Date.now()}`;
+            const elev = p.elevationM != null ? splitUnit(fmtMeters(Number(p.elevationM))) : { num: "—", unit: null as string | null };
+            setDetail({
+              kind: "volcano",
+              title: `${p.name || "Unknown volcano"}${p.country ? ` — ${p.country}` : ""}`,
+              subtitle: `${p.sentUtc ? `Notice issued ${p.sentUtc} UTC` : "issue time unknown"}`,
+              stats: [
+                { label: "Alert level", value: p.alertLevel || "—" },
+                { label: "Color code", value: p.colorCode || "—" },
+                { label: `Elevation${elev.unit ? ` ${elev.unit}` : ""}`, value: elev.num },
+                { label: "Observatory", value: p.obs ? p.obs.toUpperCase() : "—" },
+              ],
+              sourceTag: "USGS/GVP",
+              body: `${p.obsFullname ? `${p.obsFullname}\n` : ""}` +
+                    `\nUSGS Volcano Hazards Program alert level, coordinates joined from the ` +
+                    `Global Volcanism Program, Smithsonian Institution — displayed as-is, not for ` +
+                    `safety-of-life use.`,
+              links: p.noticeUrl ? [{ label: "USGS notice", href: p.noticeUrl }] : [],
+              dossierKey,
+            });
+            // Volcanoes aren't Everything Graph nodes — lat/lon-only dossier.
+            fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
+          });
+        }
+        setStatus("volcanoes", "active", fc.features.length, "USGS/GVP · elevated volcanoes only · not for safety-of-life use");
+      } catch {
+        if (!stop) setStatus("volcanoes", "error");
+      }
+    };
+    load();
+    // 5-min refresh, hidden-tab gated (matches server's max-age=300 —
+    // alert-level changes are far rarer than earthquakes, no need for a
+    // tighter poll)
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 5 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.volcanoes, mapReady, setStatus]);
+
   // ── NOAA NDBC ocean buoys (RAW; ~889 stations worldwide, latest obs —
   // wave height/period, wind, pressure, temps, no predictive claim). Off by
   // default (reference layer; initial-load budget, same precedent as
@@ -10727,6 +10828,7 @@ export default function DataMapPage() {
     id === "firetemp" ? <ThermometerSun size={15} /> :
     id === "biomass" ? <TreePine size={15} /> :
     id === "earthquakes" ? <Activity size={15} /> :
+    id === "volcanoes" ? <Mountain size={15} /> :
     id === "buoys" ? <Waves size={15} /> :
     id === "attention" ? <Eye size={15} /> :
     id === "cot" ? <Scale size={15} /> :
@@ -10750,7 +10852,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

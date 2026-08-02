@@ -144,6 +144,7 @@ const FIXTURES = {
       { id: "alerts", name: "Severe weather alerts (NWS)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "National Weather Service (public domain)", description: "Active NWS warnings/watches, colored by severity." },
       { id: "spaceweather", name: "Space weather (NOAA SWPC)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "NOAA Space Weather Prediction Center (public domain)", description: "Aurora oval (OVATION model FORECAST) + observed Kp / R-S-G scales / solar wind." },
       { id: "earthquakes", name: "Earthquakes (USGS)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS Earthquake Hazards Program (public domain)", description: "Real-time M2.5+ seismic events, sized/colored by magnitude." },
+      { id: "volcanoes", name: "Volcano alert levels (USGS/GVP)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "USGS Volcano Hazards Program + Global Volcanism Program, Smithsonian Institution", description: "Currently-elevated volcanoes, USGS alert level, coordinates joined live from GVP." },
       { id: "buoys", name: "Ocean buoys (NDBC)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "NOAA National Data Buoy Center (public domain)", description: "Latest wave/wind/pressure readings, ~889 stations worldwide." },
       { id: "surfacewater", name: "Surface water (1984–2021)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC/Google GSW v2021", description: "Static water occurrence, off by default." },
       { id: "forest", name: "Forest cover (2020)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "EC JRC GFC2020 via GFW", description: "Static forest extent, off by default." },
@@ -233,6 +234,13 @@ const FIXTURES = {
     quakes: [
       { id: "fx0001", mag: 4.6, place: "12 km SW of Fixture City, CA", lat: 34.02, lon: -118.5, depth: 8.2, time: 1, updated: 1, tsunami: false, sig: 312, net: "ci", magType: "ml", type: "earthquake", status: "reviewed", url: "https://earthquake.usgs.gov/earthquakes/eventpage/fx0001" },
       { id: "fx0002", mag: 6.3, place: "Offshore Fixture Trench", lat: 38.3, lon: -123.1, depth: 22.0, time: 1, updated: 1, tsunami: true, sig: 820, net: "us", magType: "mww", type: "earthquake", status: "reviewed", url: "https://earthquake.usgs.gov/earthquakes/eventpage/fx0002" },
+    ],
+  },
+  "/api/data/volcanoes": {
+    kind: "raw", source: "USGS Volcano Hazards Program + Global Volcanism Program, Smithsonian Institution (fixture)", time: 1, count: 2,
+    volcanoes: [
+      { vnum: "fx0001", name: "Fixture Sitkin", obs: "avo", obsFullname: "Alaska Volcano Observatory", alertLevel: "WATCH", colorCode: "ORANGE", noticeId: "fx-notice-1", noticeUrl: "https://volcanoes.usgs.gov/hans-public/notice/fx-notice-1", sentUtc: "2026-08-01 19:17:44", sentUnixtime: 1, lat: 52.076, lon: -176.13, elevationM: 1740, country: "United States", rt: "2026-08-02" },
+      { vnum: "fx0002", name: "Fixture Kilauea", obs: "hvo", obsFullname: "Hawaiian Volcano Observatory", alertLevel: "ADVISORY", colorCode: "YELLOW", noticeId: "fx-notice-2", noticeUrl: "https://volcanoes.usgs.gov/hans-public/notice/fx-notice-2", sentUtc: "2026-08-01 19:07:02", sentUnixtime: 2, lat: 19.421, lon: -155.287, elevationM: 1222, country: "United States", rt: "2026-08-02" },
     ],
   },
   "/api/data/buoys": {

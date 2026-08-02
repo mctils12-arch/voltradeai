@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -31,4 +31,15 @@ test("camdUtilizationColor: low-to-high blue-to-red bands, null tints as the low
   assert.equal(camdUtilizationColor(0.74), "#ffd23f");
   assert.equal(camdUtilizationColor(0.75), "#ff3b3b");
   assert.equal(camdUtilizationColor(1.4), "#ff3b3b", "readings above 100% (data quirks) still clamp to the top band, not crash");
+});
+
+test("volcanoAlertColor: USGS's own color_code vocabulary maps directly, unrecognized/missing falls back to neutral gray", () => {
+  assert.equal(volcanoAlertColor("RED"), "#ff3b3b");
+  assert.equal(volcanoAlertColor("ORANGE"), "#ff8c42");
+  assert.equal(volcanoAlertColor("YELLOW"), "#ffd23f");
+  assert.equal(volcanoAlertColor("GREEN"), "#8bc34a");
+  assert.equal(volcanoAlertColor("orange"), "#ff8c42", "case-insensitive — feed values are uppercase but never assumed");
+  assert.equal(volcanoAlertColor(null), "#9aa5b1");
+  assert.equal(volcanoAlertColor(undefined), "#9aa5b1");
+  assert.equal(volcanoAlertColor("UNKNOWN"), "#9aa5b1", "never guesses a severity color for an unrecognized code");
 });
