@@ -37028,3 +37028,123 @@ session's own routine menu; (c) the transition-band CPU pick-geometry
 mismatch (round-22 follow-up #2, still queued from 2026-08-01, low
 priority); (d) once ~90 days of App Store rank/rating history accumulates
 (~2026-10-30), that stream's own GATE 2 becomes actionable.
+
+## 2026-08-02 (scheduled-routine PRODUCT session) [PRODUCT] — signal_ladder.json re-compiled: 2 missing gate-1-pass roots added (v1.0.576)
+
+TERRITORY: SHARED files only, minimized — `datacore/signal_ladder.json`
+(the ladder registry, own header names it SHARED and re-compilable),
+`package.json`/`package-lock.json` (version bump), `research/*` (this
+entry, last commit).
+
+SESSION-START CHECKS: CLAUDE.md + all of research/ read this session.
+Live health: `curl https://voltradeai.com/api/health` — `status:"ok"`,
+bot `active`, `drawdownPct:"0.0"`, `liveness.dark:false` — no LIVENESS
+ALARM. KNOWN BROKEN section of open_questions.md scanned: no unresolved
+critical item found (all live entries are `[RESOLVED …]`/`[FOUND+FIXED
+…]`; the two still-open items — #10 dead SCORE_BAND_MAX config, #20 a
+logged design/threshold judgment call — are non-blocking T-BOT items,
+noted, not this session's territory). Loop-health ratio over the last 10
+tagged entries before this one: 2/10 [REPAIR], 8/10 [PIPELINE]/[PRODUCT]/
+[RESEARCH] — well under the 7+ thrash bar. No STARVED streak.
+
+PRIMARY ACTION SELECTION: `datacore/signal_ladder.json`'s own `_doc`
+states plainly that it is "a SNAPSHOT, not a live feed" that "goes stale
+as new gate runs land" and that "a future session should re-run the
+compilation … periodically, not treat it as self-updating." It was last
+compiled 2026-07-30. Since then two NEW DATA ROOTS shipped their own
+GATE 1 (DATA) pass and were logged in open_questions.md with explicit
+"GATE 1 (DATA) SHIPPED" language — App-store rank/review-velocity
+(v1.0.568, 2026-08-01) and GitHub org engineering-momentum (v1.0.574,
+2026-08-02, today, from the immediately-preceding EDGE session) — but
+neither appears anywhere in the 37-root registry (checked: `grep -i
+"app\|github" datacore/signal_ladder.json` returns nothing before this
+edit). This is exactly the staleness the file's own doc warns about, on
+a registry that backs a real customer/human-facing page
+(`client/src/pages/signalLadder.tsx`, `#/data/signals`) under the
+PREMIUM EXPERIENCE STANDARD's provenance-honesty clause — an incomplete
+ladder understates the platform's actual build-out. Chose this over
+starting a brand-new pipeline/UI feature because it is the smaller,
+safer, immediately-actionable spinout-readiness/API-boundary action (menu
+item (d)) with a concrete, already-identified gap, versus a same-session
+speculative new build.
+
+WHAT SHIPPED: added two entries to `datacore/signal_ladder.json.roots`,
+each with `source_ref` pointing at the exact open_questions.md line range
+citing the GATE 1 SHIPPED language (same provenance discipline as every
+existing entry):
+- `app_store_rank_review_velocity` — `gate1_pass`, `current_gate: 1`,
+  note states GATE 1 shipped v1.0.568, the stated sober prior (most
+  arbitraged alt-data category, expect near-zero on large caps), and
+  that GATE 2 needs ~90 days of archive history (earliest ~2026-10-30,
+  not yet attempted). `source_ref: "open_questions.md:5093-5125"`.
+- `github_org_engineering_momentum` — `gate1_pass`, `current_gate: 1`,
+  note states GATE 1 shipped v1.0.574, the 15-org watchlist and its
+  live-verification catch (CFLT dropped, IBM acquisition closed
+  2026-03-18), and that GATE 2 is unstarted pending weeks of accumulated
+  weekly history. `source_ref: "open_questions.md:5150-5185"`.
+Both categorized `"other"` (no existing category fits a consumer-app or
+devtools-engineering root; `"other"` already has a client-side label
+fallback, verified in `signalLadder.tsx`). Top-level `compiled` bumped
+`2026-07-30` → `2026-08-02`. No code changed — `server/signalLadder.ts`
+already reads the registry generically (`loadSignalLadder`/
+`summarizeLadder`), so both new roots flow through to the API route and
+the `#/data/signals` page with zero additional wiring, matching the
+module's own "pure read over the hand-compiled registry" design.
+
+VERIFIED: `python3 -c "import json; json.load(open('datacore/
+signal_ladder.json'))"` — valid, 39 roots (was 37). `npx tsx --test
+server/signalLadder.test.ts`: 5/5 pass, including the schema-invariant
+test (`loadSignalLadder reads the real committed registry: every root
+has required fields, ids are unique, source_ref is never empty`) and the
+raw_only/current_gate-0 invariant test — both exercise the two new
+entries automatically since they read the real committed file, no test
+edit needed (this is a pure registry-compilation change, not new code
+behavior — PROMOTION RULE 2 is satisfied by the existing generic
+schema/invariant tests already covering every root, same as every prior
+ladder-update-only session in this file's history, e.g. the
+`cftc_tff_positioning`/`eia930_grid_demand` status-only edits above).
+
+GATES: `npm install` first (fresh container, `node_modules` incomplete —
+no `tsx`/`esbuild` binaries present until installed). Full `npx tsx
+--test server/*.test.ts client/src/**/*.test.ts`: 1086 tests, 1075 pass,
+11 fail — every failing name (`aircraftTiling`/`apiKeyAccounts`/
+`compression`/`gdeltEvents`/`owmTiles`/`seafloorTiles`/
+`securityMiddleware` suite crashes, the pmtiles magic-byte check, 2
+client shader/basemap fixture tests, the MapLibre MercatorCoordinate
+ground-truth test) matches the exact same 11-name pre-existing-failure
+set the immediately-preceding session logged, none touching
+`signalLadder`. `npx tsc --noEmit`: 79 errors, matching the pre-existing
+baseline count exactly, zero referencing `signalLadder`/`signal_ladder`.
+`npm run build`: clean; confirmed via `grep -c
+"github_org_engineering_momentum\|app_store_rank_review_velocity"
+dist/index.cjs` that both new ids are present in the built bundle (the
+JSON is statically imported/inlined at build time, not runtime-copied —
+verified `dist/datacore/` only ever held `manifests/gem/sentinel2`,
+never `signal_ladder.json` itself, so its absence there is expected, not
+a packaging gap). `python3 -m pytest -q` (fresh container, `pip3 install`
+first): 1070 passed, 1 skipped — matching the pre-existing baseline
+exactly; zero Python files touched.
+
+BACKTEST: N/A — a documentation/registry-honesty change over an
+already-shipped read-only aggregation module; no trading logic, scoring,
+sizing, or execution path touched.
+
+Version bumped 1.0.575 → 1.0.576 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+NEXT (queued, not this session): the ladder registry will drift stale
+again as more GATE 1/2 results land (per its own doc) — a future session
+doing ANY ladder-adjacent work should spot-check for un-registered roots
+the same way this session did (`grep` each NEW-DATA-ROOTS/GATE-1/GATE-2
+open_questions.md entry's short name against the registry) before
+assuming it's current; this is a recurring maintenance task, not a
+one-time fix. Everything else queued from the prior EDGE session (GitHub
+org activity gate 2 — months away; transition-band CPU pick-geometry
+mismatch, T-CLIENT, low priority; App Store gate 2 ~2026-10-30) remains
+unchanged and untouched by this session.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (a deliberately small, safe registry-honesty fix); no queued
+higher-priority item was skipped (KNOWN BROKEN is clean, no LIVENESS
+ALARM, no thrash, market is closed — Sunday — so the deploy-coupling
+market-hours note doesn't apply).
