@@ -108,6 +108,7 @@ import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type Disc
 import { bootContractsPoll, latestContracts } from "./usaSpending";
 import { bootFdaPoll, latestFdaEvents } from "./fdaEvents";
 import { bootAppStorePoll, latestAppStoreRankings } from "./appStoreRankings";
+import { bootGithubActivityPoll, latestGithubActivity } from "./githubOrgActivity";
 import { bootUsgsPoll, latestGauges } from "./usgsWater";
 import { bootGdeltPoll, latestGdeltEvents } from "./gdeltEvents";
 import { bootStreamsInventoryPoll, getStreamsInventoryCached } from "./streamsInventory";
@@ -3195,6 +3196,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       time: hit.at,
       count: hit.records.length,
       note: "GATE 1 (DATA) only — no signal validated yet. Android excluded (ToS-blocked). rank:null means outside the top 100 that day, never a fabricated worst rank.",
+      records: hit.records,
+    });
+  });
+
+  // GitHub org engineering-momentum archiver (RAW display — EDGE DOCTRINE
+  // axis (a), NEW DATA ROOTS #5, the last unbuilt item in that charter):
+  // weekly merged-PR + commit counts for a 15-org hand-verified
+  // develop-in-public watchlist (small-cap devtools through large-cap
+  // controls). GATE 1 (DATA) only — no signal claimed yet; the manifest
+  // carries the sober prior (public activity is a biased slice, real
+  // signal only for names that genuinely build in public) and the honest
+  // sampling caps on unique-actor counts. Boots eagerly.
+  bootGithubActivityPoll();
+  app.get("/api/data/github-activity", (_req, res) => {
+    const hit = latestGithubActivity();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "GitHub REST Search API", warming_up: true, count: 0, records: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "GitHub REST Search API (search/issues, search/commits) — keyless",
+      attribution: "GitHub, Inc. (public repository activity, aggregated)",
+      time: hit.at,
+      count: hit.records.length,
+      note: "GATE 1 (DATA) only — no signal validated yet. mergedPRs excludes dependabot/renovate/github-actions bot PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true means it undercounts).",
       records: hit.records,
     });
   });

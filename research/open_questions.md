@@ -5149,21 +5149,42 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    ticker map vs KPSS match file (>95% top-500 agreement, small-cap
    disagreement quantified, never hidden); SIGNAL: allowance/grant
    velocity anomalies vs forward returns vs base rate.
-5. **GitHub org activity (engineering momentum, small-cap devtools).**
-   LICENSING: GitHub API conditional (aggregated non-personal metrics
-   OK; 5k req/hr authed); GH Archive free (redistribution ambiguous —
-   internal computation + derived aggregates only); OSS Insight
-   treated prohibited-by-default; Libraries.io CC BY-SA. HONEST
-   CONFOUND (attacks the premise): public activity is a strategic,
-   biased slice that varies by company — meaningful for
-   develop-in-public names (ESTC, MDB), a rounding error elsewhere;
-   private repos invisible everywhere. LADDER — DATA: weekly per-org
-   metrics (merged PRs, pushes, bot-filtered unique actors) from GH
-   Archive for a hand-verified ~15-org→ticker watchlist + mega-cap
-   controls; cross-verify vs GitHub REST; known-event replay
-   (HashiCorp BSL Aug-2023 discontinuity, announced layoffs) must
-   appear at the right dates; SIGNAL: velocity deltas vs forward
-   returns, develop-in-public names only.
+5. **[GATE 1 (DATA) SHIPPED 2026-08-02, v1.0.574 — see experiments.md]**
+   GitHub org activity (engineering momentum, small-cap devtools) — the
+   fifth and last item in this charter's build order, now unblocked and
+   built. `server/githubOrgActivity.ts` archives weekly merged-PR +
+   commit counts for a 15-org hand-verified develop-in-public watchlist
+   (MDB/ESTC/NET/DDOG/SNOW/TWLO/HUBS/PD/FROG/WIX/U/ASAN/MNDY/PLTR/BRZE —
+   every ticker AND GitHub org login independently web-verified live
+   this session, catching one stale assumption: Confluent/CFLT was
+   dropped after verification found IBM's acquisition closed and the
+   ticker went defunct 2026-03-18, the exact "did the M&A happen since
+   training cutoff" failure mode this verification step exists to catch;
+   HashiCorp/New Relic/Sumo Logic/Smartsheet excluded up front, same
+   reason). Live at `/api/data/github-activity`, RAW-DATA overlay only,
+   no predictive claim yet. SOURCE DEVIATION FROM THIS LADDER, logged
+   honestly in the module header: built against the GitHub REST/Search
+   API instead of GH Archive — GH Archive ships the entire public
+   firehose per hour (~1GB/day just to filter 15 orgs out of it), which
+   conflicts with GOAL priority 1 on a container with a documented 1GB
+   RSS self-kill; the Search API gets the same weekly counts in ~2
+   keyless calls/org, matching every other archiver's call-volume shape
+   in this file. Consequence: the known-event replay this ladder
+   originally specified (HashiCorp's Aug-2023 BSL discontinuity) is not
+   testable going forward — HashiCorp is now private besides, so that
+   validation point is moot regardless. Merged-PR counts exclude
+   dependabot/renovate/github-actions bot-app authors via the documented
+   `author:app/<slug>` qualifier; commit totals are NOT bot-filtered
+   (query-level exclusion risk outweighed the benefit — see the module's
+   HONEST GAPS note) but `uniqueActorsSample` bot-filters the up-to-100
+   returned commit items and honestly labels `actorSampleCapped:true`
+   when a week's true count exceeds that sample. GATE 2 (velocity deltas
+   vs forward returns, develop-in-public names only) is UNSTARTED —
+   needs weeks of accumulated history first; SOBER PRIOR stated in the
+   module before building, per REASONING STANDARD #10: expect real
+   structure for maybe a third of this panel (names that actually ship
+   product through the watched org) and noise for the rest — that split
+   is itself the gate-2 finding, not a reason not to have built this.
 
 ## GEOSPATIAL LICENSING REGISTER (Tier 1/2, verified from primary sources 2026-07-04 — build PRs cite this)
 
