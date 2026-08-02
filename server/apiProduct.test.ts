@@ -62,6 +62,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/plant-operations"), "EPA CAMD keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/secftd"), "SEC FTD keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/midas"), "SEC MIDAS keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/earnings-language"), "SEC 8-K earnings-language keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -69,12 +70,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/data/earnings-language"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 8, `expected >=8 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 9, `expected >=9 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -108,6 +109,17 @@ test("midas license mark: public-domain US-gov data resells freely; agent tool d
   assert.ok(tool, "voltrade_midas_stats tool must exist");
   assert.deepEqual(tool.returns_provenance, ["stats/midas"]);
   assert.ok(tool.description.includes("not a validated trading signal"), "honesty: gate-2 status must travel with the tool description");
+});
+
+test("earnings-language license mark: issuer-authored exhibit text is CONDITIONAL resell, unlike the government-produced CAMD/FTD/MIDAS stats; agent tool documents the incomplete gate-2 status", () => {
+  assert.equal(LICENSE_MARKS["data/earnings-language"].resell, "conditional",
+    "the Exhibit 99 press-release text is issuer-authored, not U.S. government work product — must not be marked resell:ok like the CAMD/FTD/MIDAS datasets");
+  assert.ok(LICENSE_MARKS["data/earnings-language"].license.includes("issuer-authored"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t: any) => t.name === "voltrade_earnings_language");
+  assert.ok(tool, "voltrade_earnings_language tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/earnings-language"]);
+  assert.ok(tool.description.includes("INCOMPLETE"), "honesty: the gate-2 pilot's incomplete status must travel with the tool description");
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {

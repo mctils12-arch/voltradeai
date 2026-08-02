@@ -3652,6 +3652,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC 8-K Item 2.02 earnings-language keyed mirror (same "shipped-data-
+  // no-v1-API" sweep as plant-operations/secftd/midas above). Reuses the
+  // latestEarnings8Ks() cache /api/data/earnings-language already uses — no
+  // new computation, no new poller. UNLIKE the government-produced CAMD/
+  // FTD/MIDAS streams, the Exhibit 99 press-release TEXT is issuer-authored
+  // (not U.S. government work) — license mark is "conditional", not "ok"
+  // (server/apiProduct.ts LICENSE_MARKS). RAW as-filed display: gate-2
+  // signal testing is a preliminary, INCOMPLETE pilot only (research/
+  // open_questions.md), not a validated trading signal.
+  app.get("/api/v1/data/earnings-language", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestEarnings8Ks();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/earnings-language", { count: hit.filings.length, filings: hit.filings }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

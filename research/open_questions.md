@@ -5001,6 +5001,15 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    trigger: >=90 days of archive (5-day horizon N>=30) or a second
    filing quarter per company (unlocks the delta feature). Full trace +
    numbers in experiments.md's 2026-07-12 [RESEARCH] entry.
+   **[V1 API MIRROR SHIPPED 2026-08-02, v1.0.573]** `GET /api/v1/data/
+   earnings-language` (server/routes.ts + server/apiProduct.ts) —
+   distribution plumbing only, gate 2 above unchanged/still incomplete.
+   LICENSING NOTE for future sessions reusing this pattern: unlike the
+   government-produced CAMD/FTD/MIDAS v1 mirrors, this endpoint's
+   license mark is `resell: "conditional"` — the filing RECORD is public
+   (EDGAR, no restriction) but the Exhibit 99 press-release TEXT is
+   issuer-authored, not government work product. See experiments.md's
+   2026-08-02 [PRODUCT] entry for the full reasoning.
 2. **Job postings via ATS public JSON (hiring velocity / role mix).**
    LICENSING: Greenhouse/Lever/Ashby/SmartRecruiters public postings
    endpoints carry no express third-party grant — CONDITIONAL: polite
@@ -5088,7 +5097,18 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    16-app hand-verified watchlist (US/GB/CA storefronts). GATE 2 (vs
    company-reported metrics) needs ~90 days of history — earliest
    ~2026-10-30 — and is NOT attempted yet. Original filed spec kept
-   below for reference. LICENSING: Apple RSS/marketingtools top-chart JSON +
+   below for reference.
+   **NO v1 API MIRROR YET (checked 2026-08-02, deliberately not shipped
+   that session)**: this stream's own licensing verdict below says
+   "CONDITIONAL (...low-volume internal use)" — that phrase reads as in
+   tension with putting it behind a metered, resold-to-external-
+   customers `/api/v1` endpoint the way the government-produced CAMD/
+   FTD/MIDAS streams were. A future session should either get a human
+   read on whether a rate-limited external mirror still counts as
+   "low-volume" for this purpose, or ship it explicitly marked `resell:
+   "conditional"` (the same pattern used for earnings-language,
+   experiments.md 2026-08-02) rather than leaving the question
+   unresolved indefinitely. LICENSING: Apple RSS/marketingtools top-chart JSON +
    iTunes Lookup rating counts CONDITIONAL (existing public feeds,
    low-volume internal use; Enterprise Partner Feed is the sanctioned
    bulk hedge — free program, human enrollment); Google Play
