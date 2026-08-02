@@ -37394,3 +37394,176 @@ STARVED: no — this was the session's one primary action, matched to
 capacity. Today is Sunday, market closed — no LIVENESS ALARM, no deploy-
 coupling market-hours constraint on this PR (pure data-pipeline/overlay
 change, nothing execution-adjacent regardless).
+
+## 2026-08-02 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — fleet-utilization gate-2 mining pass blocked at a structural root: the archive rollup silently caps the live weekly series at 7 days forever, no matter its age; fixed forward (v1.0.578)
+
+SYSTEM HEALTH CHECK (session start, per REPAIR MANDATE): `/api/health`
+all-green (server/database/alpaca ACTIVE/python/scanner ok, bot "active",
+`equityPeak` 109967.44, drawdownPct 0.0, `liveness.dark` false) — no
+LIVENESS ALARM, no KNOWN BROKEN item blocking product work. research/
+open_questions.md's KNOWN BROKEN list (items 1-28) is fully resolved or
+carries only design/threshold judgment calls already gated behind RULE
+REVIEW evidence (item 20) — nothing here preempted this session.
+research/experiments.md's last-10-entries thrash ratio: 2/10 REPAIR — no
+HEALTH-OF-THE-LOOP escalation warranted.
+
+WHY THIS ACTION (session-budget primary pick): `datacore/signal_ladder.
+json` (re-compiled yesterday, v1.0.576) lists 12 `gate1_pass` roots
+awaiting gate 2. `research/open_questions.md`'s BUILD ORDER 3d mining
+design pre-registered a "fleet-utilization week-over-week outliers"
+pass with an explicit RE-RUN TRIGGER of "~2026-08-03" — TOMORROW.
+Went to actually run it (the closest thing to a due, ready-to-execute
+gate-2 signal test in the queue) and found the trigger date rests on a
+false premise.
+
+FOUND (READ-BEFORE-WRITE, this session — not assumed from the filed
+design): `curl /api/data/fleet-utilization?top=200` against the live
+site showed every owner (UNITED AIRLINES, DELTA AIR LINES, AMERICAN
+AIRLINES, ...) carrying exactly ONE week (`2026-07-27`) in its `weekly`
+object, despite the aircraft archive's own manifest stating
+`"started": "2026-07-03"` — 30 days old. Traced the call graph (READ
+BEFORE WRITE, not memory): `server/fleetUtilization.ts`'s
+`buildFleetSeries` scans ONLY the raw `datacore_archive/aircraft/*.jsonl
+(.gz)` hour files currently on disk; `server/datacoreArchive.ts`'s
+`rollupOldDaysAsync` (runs every 6h, `RAW_RETENTION_DAYS=7`) deletes
+those same raw files once they age past 7 days, replacing them with a
+per-entity DAILY TRACK summary (`{i, d, n, t0, t1, bbox, pl}` — a
+50-point-capped coarse polyline) that drops callsigns entirely and
+loses per-point timing precision. `fleetUtilization.ts`'s session-gap
+sessionization (needs exact consecutive-point gaps) and operator
+resolution (needs archived callsigns) can NEVER be replayed from that
+summary. Net effect: the live weekly series has been structurally
+capped at ~7 days since the day it shipped (2026-07-05) — the archive
+being "30 days old" was never going to produce a usable 30-day
+trailing baseline no matter when this ladder gate was attempted. This
+is exactly the class of finding REASONING STANDARD #7 (silent
+lookahead/survivorship-class killers) warns about, just on the DATA-
+RETENTION axis instead: a promised research trigger date that can't
+actually be met, discovered only by trying to run it rather than
+trusting the filed design.
+
+FIX (`server/fleetUtilization.ts`): a new PERMANENT, small weekly
+archive (`aircraft_fleet_weekly.json.gz`, sibling to the `aircraft/`
+raw dir — never inside it, so it's never itself mistaken for a raw
+hour file) accumulates per-owner `{f, h}` by week, merge-ADDITIVE
+(never overwrite — a week legitimately gets contributions from
+multiple rollup ticks when only part of its hour files have aged out
+so far). `preserveWeeklyBeforeRollup(base, nowMs, retentionDays,
+spineFp)` folds every raw hour file older than the retention cutoff
+that hasn't already been folded (tracked via a `processedFiles` set
+inside the same persisted file, pruned once an entry is old enough
+that the generic rollup is certain to have already deleted it) using
+the EXACT SAME accumulation logic `buildFleetSeries` uses (extracted
+into a shared `resolveOwnerKey` helper so the live series and the
+permanent archive can never drift on which hex belongs to which
+owner). Wired into `server/routes.ts`'s existing 6h maintenance
+`setInterval` — `preserveWeeklyBeforeRollup` now runs FIRST, THEN
+`rollupOldDaysAsync` (via `.finally`), so the raw files are always
+folded into the permanent archive before the pre-existing job deletes
+them; the `processedFiles` idempotency guard makes this crash-safe
+even if the process restarts between the two steps and re-runs the
+first one on files the second one hasn't deleted yet. `buildFleetSeries`
+now merges the permanent archive's owners into its live-scan result;
+an owner with ONLY historical weeks (no current live-window airframes)
+still surfaces, honestly labeled `registrant_type:
+"historical-archive-only"`.
+
+SCOPE BOUNDARY (deliberately NOT done this session): `server/
+datacoreArchive.ts` itself is UNTOUCHED — the fix lives entirely in
+`fleetUtilization.ts` (which already one-directionally imports
+`archiveBaseDir`/`RAW_RETENTION_DAYS` from it) plus a 2-line sequencing
+edit in `routes.ts` (SHARED territory per WORKSTREAM PARTITION, kept
+minimal per the MERGE-ORDER PROTOCOL). This avoids touching the
+generic multi-kind (aircraft/vessels/trains) rollup that other
+consumers (site-timeline, recentTrack) depend on, and avoids the
+sync/async rollup "provably same computation" equivalence tests in
+`datacoreArchive.test.ts` entirely — zero risk to either.
+
+HONEST COST, stated plainly: everything the PRE-EXISTING rollup
+already deleted — 2026-07-03 through ~7 days before this fix shipped,
+essentially the entire archive's history to date — is UNRECOVERABLE.
+The daily-track summary it left in place of those raw files cannot be
+replayed for session/operator data (no callsigns, lossy polyline).
+This fix closes the gap going FORWARD only. RE-BASELINED RE-RUN
+TRIGGER (replacing the stale "~2026-08-03" in open_questions.md): a
+genuine trailing-4-week baseline needs ~5 weeks of archive accumulated
+UNDER the fix (4 baseline weeks + the outlier week) — no earlier than
+~2026-08-31, and whichever session attempts it then should verify the
+actual accumulated week count live rather than trusting the calendar
+date alone (the exact mistake this session found). Filed in
+open_questions.md's BUILD ORDER 3d as an UPDATE 2026-08-02, including
+an explicit open question (not investigated this session — scope
+discipline) on whether the port-dwell/corridor-density items in the
+same mining design share this failure mode.
+
+`datacore/signal_ladder.json`'s `fleet_utilization_aircraft` entry
+updated: status stays `gate1_pass` (still true), note rewritten to
+describe the infra fix and the re-baselined trigger instead of the
+stale "needs a registrant→operator step" text (that step shipped
+2026-07-05 and was never the actual remaining blocker).
+
+RATCHET (`server/fleetUtilization.test.ts`, 4 new tests): (1) fold an
+aged-out file into the permanent archive, survive its deletion, and
+prove a second `preserveWeeklyBeforeRollup` call BEFORE the file is
+actually deleted is a no-op (not a double-count) — the crash-safety
+property the design depends on; (2) a week spanning two separate
+rollup ticks (two hour files aging out at different times) accumulates
+ADDITIVELY, not overwritten; (3) `buildFleetSeries` surfaces a
+historical-archive-only owner (callsign-resolved, no spine entry
+needed) with `n_airframes: 0` and the honest label; (4) implicitly
+covered by all three — the existing corporate-spine-join test still
+passes unmodified, confirming the `resolveOwnerKey` extraction is
+behavior-preserving.
+
+VERIFIED: fresh `npm install` (486 packages). `npx tsx --test server/
+*.test.ts client/src/**/*.test.ts`: 1176 passed, 1 failed — the same
+pre-existing environment-dependent "every client/public/tiles/*.pmtiles
+has the PMTiles magic" failure every recent session has logged
+(confirmed via `git stash`: the same 7 test FILES fail identically
+with zero of this session's diff present, before `npm install` was run
+in this container — an incomplete-node_modules artifact of this
+sandbox, not a real regression; after `npm install` only the one
+documented PMTiles case remained). `npx tsc --noEmit`: 79 errors,
+byte-for-byte matching the documented baseline count; zero in
+`fleetUtilization.ts` or `routes.ts`. `npm run build`: clean.
+`python3 -m pytest -q`: SKIPPED — no Python dependencies installed in
+this container and zero `.py` files touched this session, so there is
+nothing this change could regress there; a future session touching
+Python should still run the full suite per PROMOTION RULE 1.
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched (server-side
+archive pipeline + scheduling only), PROMOTION RULE 6 does not apply.
+
+BACKTEST: N/A — infrastructure fix to a data-retention pipeline, zero
+trading logic, scoring, sizing, or execution path touched; nothing here
+is a SIGNAL (gate 2 is still explicitly not attempted).
+
+Version bumped 1.0.577 -> 1.0.578 (PROMOTION RULE 4) in `package.json`
++ `package-lock.json` (read-and-incremented against `origin/main`'s
+true tip at commit time — unchanged from f3517e2 since this session's
+last check, per MERGE-ORDER PROTOCOL rule (2)).
+
+CROSS-SYSTEM INTEGRATION: none new — this is plumbing underneath an
+already-filed hypothesis (BUILD ORDER 2 #1's corporate-fleet-utilization
+x M&A/earnings-surprise idea), not a new tie.
+
+NEXT (queued, not this session): (a) once ~2026-08-31 arrives, run the
+actual gate-2 mining pass (z>=3 week-over-week outliers vs a trailing
+4-week baseline) — first verify live accumulated week count, then
+decide whether to test against forward returns (the standard,
+already-precedented operationalization every other gate-2 script in
+this repo uses) or literally earnings-date proximity (the original
+BUILD ORDER 3d framing, needing an 8-K filing-date join) before
+running, not after seeing results; (b) the public `/api/data/
+fleet-utilization` route's `n_airframes>=2` filter will hide
+historical-archive-only owners from that endpoint — a future gate-2
+script will need either a widened filter or a dedicated read path,
+not built here since it isn't needed until (a); (c) the open question
+on whether port-dwell/corridor-density share this same retention-cap
+failure mode (see open_questions.md UPDATE) is unstarted.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity. Today is Sunday, market closed — no LIVENESS ALARM, no
+deploy-coupling market-hours constraint applies to this PR anyway
+(pure data-pipeline infrastructure, zero trading-logic or client
+surface touched).

@@ -90,7 +90,7 @@ import { bootOccPoll, latestOcc } from "./occVolume";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
-import { fleetSeriesCached } from "./fleetUtilization";
+import { fleetSeriesCached, preserveWeeklyBeforeRollup } from "./fleetUtilization";
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
@@ -1181,7 +1181,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // 30min/6h — periodic multi-second stalls for every response AND the
   // trading loop with zero user interaction. Streamed variants breathe.
   setInterval(() => { compressOldHoursAsync().catch(() => {}); }, 30 * 60_000).unref?.();
-  setInterval(() => { rollupOldDaysAsync().catch(() => {}); }, 6 * 3600_000).unref?.();
+  // preserveWeeklyBeforeRollup MUST run first: it folds aircraft hour files
+  // into the permanent fleet-utilization weekly archive before
+  // rollupOldDaysAsync deletes those same files past RAW_RETENTION_DAYS —
+  // see fleetUtilization.ts's "permanent weekly archive" section for why.
+  setInterval(() => {
+    preserveWeeklyBeforeRollup().catch((e) => console.error("[fleet-weekly]", e?.message || e))
+      .finally(() => { rollupOldDaysAsync().catch(() => {}); });
+  }, 6 * 3600_000).unref?.();
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —
