@@ -111,6 +111,7 @@ import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
+import { GRID_MASTER_IDS, allGridsOn, setAllGrids } from "@/lib/gridMaster";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
 import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX, TERRAIN_EXAG_DEFAULT } from "@/lib/terrainExag";
@@ -11310,6 +11311,57 @@ export default function DataMapPage() {
   // shared by every named PANEL_GROUPS entry AND the unknown-group catch-all
   // below — GROUP_ROW_CAP progressive disclosure lives here once, not
   // duplicated per call site.
+  // ── ALL POWER GRIDS master switch (human request 2026-07-31): one motion
+  // shows everything mapped so far — the four continental OSM masters (US,
+  // Canada, South America, Europe; lib/gridMaster.ts holds the state rules:
+  // derived position, masters-only ON, whole-family OFF). Rendered pinned
+  // above the first per-region grid group, where a user hunting "power
+  // grid" is already looking. Coverage note stays honest about what is NOT
+  // mapped yet. ──
+  const renderAllGridsRow = () => {
+    const on = allGridsOn(enabled);
+    return (
+      <div key="powergrid-all" className="vt-layer-group">
+        <div className="vt-layer-row" data-vt-layer="powergrid_all">
+          <span className="vt-layer-ic">{layerIcon("powergrid")}</span>
+          <span className="vt-layer-name">
+            <button className="vt-layer-namebtn" aria-expanded={!!descOpen["powergrid_all"]}
+                    aria-label="About All power grids"
+                    onClick={() => setDescOpen((s) => ({ ...s, powergrid_all: !s.powergrid_all }))}>
+              All power grids <Info size={11} aria-hidden style={{ opacity: 0.55 }} />
+            </button>
+            <span className="vt-kind-badge raw">RAW</span>
+            <span className="vt-layer-status">
+              <i style={{ background: on ? "var(--accent-green)" : "var(--text-tertiary)" }} />
+              {on ? "US · Canada · S. America · Europe" : "off"}
+            </span>
+          </span>
+          <button
+            role="switch"
+            aria-checked={on}
+            aria-label="Toggle all power grids"
+            className={`vt-switch${on ? " on" : ""}`}
+            onClick={() => setEnabled((s) => setAllGrids(s, !allGridsOn(s)))}
+          >
+            <i />
+          </button>
+        </div>
+        {!!descOpen["powergrid_all"] && (
+          <div className="vt-layer-desc" role="note">
+            Every grid mapped so far in one switch: the US (all 50 states + DC),
+            Canada (13 provinces/territories), South America (13 countries) and
+            Europe (48 countries/territories) continental masters together.
+            Not yet mapped: Africa, Asia, Oceania — coming in later waves.
+            Off clears the whole power-grid family, including any per-state or
+            per-country picks. HIFLD (US authoritative transmission) stays a
+            separate toggle under Facilities — it overlays the same US lines.
+            <span className="vt-layer-desc-src">Source: OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — vector tiles by scripts/build_power_tiles.sh</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderPanelGroup = (id: string, label: string, members: LayerMeta[]) => {
     if (members.length === 0) return null;
     const onCount = members.filter((l) => !!enabled[l.id] && toggleable(l)).length;
@@ -11927,7 +11979,17 @@ export default function DataMapPage() {
               <Zap size={13} /> Grid stress (TX) — descriptive only
               <span className="vt-streams-launch-sub">gate-2 FAILED · non-predictive reading</span>
             </button>
-            {PANEL_GROUPS.map((g) => renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id)))}
+            {PANEL_GROUPS.flatMap((g) => {
+              const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
+              // ALL POWER GRIDS master pinned above the first per-region
+              // grid group — one switch for everything mapped so far. Only
+              // when a continental master is actually in the live registry:
+              // a registry without them (older deploy, synthetic harness
+              // battery) must not show a dead control.
+              const mastersLive = g.id === "grid" &&
+                layers.some((l) => (GRID_MASTER_IDS as readonly string[]).includes(l.id) && l.status === "live");
+              return mastersLive ? [renderAllGridsRow(), grp] : [grp];
+            })}
             {/* CELESTIAL section (celestial v2 B2/§7, 2026-07-18) — the
                 space view's scale controls, styled as a panel group. Not a
                 registry layer: it controls the client-side space frame, so
