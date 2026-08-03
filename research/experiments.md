@@ -37694,3 +37694,141 @@ STARVED: no — this was the session's one primary action (repo-hygiene/
 REPAIR, chosen over starting new PIPELINE/PRODUCT work per SESSION
 BUDGET's "fix a bug ... first" ordering), matched to capacity. Today is
 Sunday, market closed — no LIVENESS ALARM; system healthy throughout.
+
+## 2026-08-03 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — occ_options_volume GATE 1 PASSED: OCC's own June-2026 published total matched exactly, 0 diff across 21 trading days (v1.0.580)
+
+TERRITORY: T-DATACORE (datacore/signal_ladder.json, scripts/) — a new
+scripts/occ_volume_gate1.ts is additive, zero collisions expected;
+package.json/package-lock.json version bump (SHARED) kept minimal and
+read-and-incremented against origin/main's true tip at commit time
+(219ba72, v1.0.579 — confirmed via a fresh `git fetch` after an earlier
+stale-proxy-cache false alarm this session wrongly suggested main was
+19 versions behind; re-fetching resolved it, no actual divergence).
+
+PRIOR STATE CHECK (per MEMORY PROTOCOL): read CLAUDE.md, tailed
+experiments.md (last session #7 [REPAIR], v1.0.579, zero-CI stranded-PR
+closure), read open_questions.md's KNOWN BROKEN section in full (items
+1-28 — all resolved/fixed except #10 dead-config-not-repaired, #20
+design/threshold judgment awaiting counterfactual data, and #21's
+partial-fix carryover, none of which block product work), and
+wishlist.md's tail. Loop-health ratio, last 10 tagged entries: 5x
+PIPELINE, 3x REPAIR, 2x PRODUCT — no thrash. System health: `/api/health`
+all-ok (Alpaca ACTIVE, bot active, drawdownPct 0.0, liveness.dark false,
+no LIVENESS ALARM). Today is Sunday evening ET at commit time (system
+clock: 2026-08-02 20:13 EDT) — market closed, no deploy-coupling
+constraint on this merge.
+
+PRIMARY ACTION (per this session's [PRODUCT] mandate, option (a) —
+"advance a datacore/ pipeline through its next ladder gate; gate 1
+ground-truth validation... IS product work"): scanned
+`datacore/signal_ladder.json` (39 roots) for entries with an explicitly
+stated but never-run gate-1 criterion. Found several candidates
+(occ_options_volume, port_dwell_maritime_transit, crop_conditions_usda_nass,
+nrc_outage_reports) with "gate-1 criteria stated ... but no run result
+found in the record" language. Picked occ_options_volume: the criterion
+was already precisely pre-stated in `server/occVolume.ts`'s own header
+comment ("gate 1 = one day's totals vs OCC's published daily volume
+page"), the cleanest, most falsifiable of the four.
+
+INVESTIGATION (READ BEFORE WRITE, this session): read `server/
+occVolume.ts` in full (parseOcc, aggregateOcc's clearing-side halving,
+fetchOccDay/classifyBody) and its existing test file before writing
+anything. Attempted the literal stated criterion first — OCC's "Daily
+Volume" webpage (theocc.com/market-data/market-data-reports/volume-and-
+open-interest/daily-volume) — via both WebFetch and a browser-UA curl:
+both returned a Cloudflare "Just a moment..." 403 JS challenge (verified
+by inspecting the response body, not just the status code). Tested
+whether this was page-specific or site-wide: theocc.com/getmedia/*.pdf
+(their static volume toolkit PDFs) also 403'd identically; only
+marketdata.theocc.com (the API subdomain occVolume.ts already depends
+on) is unprotected — confirmed live, HTTP 200 CSV returned for a
+same-day pull.
+
+HONEST SCOPE WIDENING (stated, not silently substituted): rather than
+declare the gate un-runnable, searched for OCC's OWN published totals
+via a channel search engines already index — their monthly press
+releases, whose TITLES headline an exact total-contracts figure (e.g.
+"OCC Clears 962.6M Contracts in June 2023"). Found "OCC June 2026
+Monthly Volume Data" (theocc.com/newsroom/views/2026/07-02-june-2026-
+monthly-volume-report, indexed even though unfetchable): Equity
+778,333,823 + ETF 689,472,511 + Index 135,685,225 = 1,603,491,559 total
+cleared contracts for June 2026. This widens the criterion from one day
+to a full calendar month — arguably a STRONGER check (every trading
+day's parse in the month has to be correct simultaneously for an exact
+match, not just one) — and is still "OCC's own published" figure, just
+sourced via press release instead of the blocked dashboard page.
+
+BUILT `scripts/occ_volume_gate1.ts` (new, follows the existing
+`scripts/finra_gate1.ts`/`scripts/gate1_eia930_revision_probe.ts`
+convention exactly): imports
+the SAME `fetchOccDay` production function occVolume.ts's live poller
+uses (zero reimplementation — a mismatch would be a real parser defect,
+not script drift), walks every weekday in a given month, sums `qty`
+across all rows, halves for the clearing-side double-count (same
+arithmetic `aggregateOcc` already does per-underlying, applied here at
+the whole-month level), and diffs against a hand-recorded official
+total passed as a CLI arg (cannot be polled — the source figure itself
+had to be read by this session, not fetched programmatically, an
+honesty note carried in the script's own header comment).
+
+RESULT: `npx tsx scripts/occ_volume_gate1.ts 202606 1603491559` — 22
+weekday candidates in June 2026, 21 returned real data, 1 (2026-06-19,
+Juneteenth) correctly self-classified as `no_records` with ZERO
+hardcoded holiday list (the script discovers the holiday from OCC's own
+"no record(s) found" response, not from market_calendar.py). Sum of the
+21 real days: **1,603,491,559** — matching OCC's published June 2026
+total **EXACTLY** (diff 0, 0.0000%). Pre-stated bar (exact match, not
+"close") — PASS.
+
+`datacore/signal_ladder.json`'s `occ_options_volume` entry updated:
+status `gate1_pending` -> `gate1_pass`, `current_gate` 0 -> 1, note
+rewritten with the full methodology + result + source citation
+(single targeted Edit, not a full-file rewrite — an earlier attempt at
+this same edit via a Python `json.dump()` round-trip reformatted the
+ENTIRE 39-root file's whitespace/array-layout, a 436-line diff for a
+1-line semantic change; reverted with `git checkout --` and redone as
+a precise string replace, final diff 1 insertion/1 deletion).
+
+VERIFIED: fresh `npm install` (487 packages, clean). `npx tsx --test
+server/occVolume.test.ts`: 6/6 pass, unmodified (this session touched
+zero lines of `occVolume.ts` itself — only imported its exports).
+`npx tsc --noEmit`: 79 errors, byte-for-byte matching the documented
+baseline, zero in the new script. `python3 -m pytest -q`: SKIPPED — zero
+`.py` files touched this session (pure TS script + two JSON/config
+files), nothing to regress there; a future session touching Python
+should still run the full suite per PROMOTION RULE 1.
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched, PROMOTION RULE
+6 does not apply.
+
+BACKTEST: N/A — this is DATA-layer (ladder gate 1) validation of an
+already-shipped RAW display, zero trading logic, scoring, sizing, or
+execution path touched. The root's SIGNAL claim (customer-vs-MM P/C
+extremes vs forward returns, gate 2) remains explicitly untested —
+this session only proves the parser reads OCC's feed correctly, not
+that the feed predicts anything.
+
+Version bumped 1.0.579 -> 1.0.580 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new this session — occ_options_volume's
+existing hypothesis (customer-vs-market-maker P/C by ticker, the
+retired ISEE's successor) is unchanged; this session only strengthens
+its evidentiary footing, doesn't extend its ties.
+
+NEXT (queued, not this session): (a) gate 2 for occ_options_volume
+(customer-opening P/C extremes vs forward returns, discounted for
+census breadth per Reasoning Standard #4) is now unblocked by this
+gate-1 pass and is the natural next session on this root; (b) the same
+"gate-1 criteria stated but never run" gap exists for
+port_dwell_maritime_transit, crop_conditions_usda_nass, and
+nrc_outage_reports — noted, not attempted (one primary action per
+session); (c) the Cloudflare-block finding itself (theocc.com main site
+unfetchable, only marketdata.theocc.com open) is worth a one-line note
+if a future session ever needs theocc.com press releases again — this
+entry is that note.
+
+STARVED: no — this was the session's one primary action (PRODUCT/
+PIPELINE per this session's mandate), matched to capacity. Market
+closed at commit time (Sunday evening ET); no LIVENESS ALARM, system
+healthy throughout.
