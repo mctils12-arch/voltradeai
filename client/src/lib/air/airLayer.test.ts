@@ -291,3 +291,36 @@ test('overload tick-skip: half cadence while deviceTier reports overload, full w
   for (let i = 0; i < 4; i++) layer.glideRepaintTick();
   assert.equal(repaints - b3, 4, 'flag cleared: full cadence returns');
 });
+
+// ── terrain-saturation gate (repair 2026-07-31) ─────────────────────────────
+// Probe-proven: an active terrain mesh multiplies every forced frame ~7-10x;
+// once the governor flags overload, parity-halving cannot create idle time
+// (a single frame outlasts 2+ tick periods). The tick must force ZERO glide
+// frames while overloaded+terrain hold — and keep FULL glide on healthy
+// machines with terrain on (the gate must never dim a machine that can cope).
+test('glideRepaintTick: overloaded+terrain forces zero frames; overloaded alone parity-halves; healthy terrain keeps full glide', async () => {
+  const { setOverloaded } = await import('../deviceTier.js');
+  const drive = (terrain: boolean, overloaded: boolean, ticks = 8): number => {
+    let t = 1_000_000;
+    let repaints = 0;
+    const map: any = {
+      getZoom: () => AIR_3D_MIN_ZOOM + 1,
+      getTerrain: () => (terrain ? { source: 'dem' } : null),
+      triggerRepaint: () => { repaints++; },
+    };
+    const layer = new AirLayer({ now: () => t });
+    layer.onAdd(map, {} as any);
+    layer.setInstances(new Float32Array(AIR_INST_STRIDE)); // one plane
+    layer.setTickTime(t);
+    repaints = 0; // setInstances/setTickTime each repaint once — not the tick's doing
+    setOverloaded(overloaded);
+    try {
+      for (let i = 0; i < ticks; i++) { t += 300; layer.glideRepaintTick(); }
+    } finally { setOverloaded(false); }
+    return repaints;
+  };
+  assert.equal(drive(true, true), 0, 'overloaded + terrain: zero forced frames — saturation gate');
+  assert.equal(drive(true, false), 8, 'healthy machine keeps full glide under terrain');
+  assert.equal(drive(false, true), 4, 'overloaded without terrain: parity halving unchanged');
+  assert.equal(drive(false, false), 8, 'baseline: every tick repaints');
+});

@@ -7427,6 +7427,11 @@ export default function DataMapPage() {
       const g = opts.glide;
       glideIv = window.setInterval(() => {
         if (stop || document.hidden || glideAnchor == null || !lastPayload) return;
+        // terrain saturation (2026-07-31 probe — see airLayer.glideRepaintTick):
+        // under an active terrain mesh a drowning renderer gets NO glide
+        // writes at all; each setData both re-tiles the source and forces a
+        // frame terrain multiplies ~7-10x. Positions snap on the next poll.
+        try { if (isOverloaded() && (map as any).getTerrain?.()) return; } catch {}
         // device overloaded (deviceTier governor): halve the glide cadence
         // — every setData re-tiles the source AND repaints; a drowning
         // renderer needs the idle gaps more than 3.3Hz motion
@@ -7461,7 +7466,14 @@ export default function DataMapPage() {
         lastGlideEmpty = glided.length === 0;
         const gliddedPayload = g.withRows(lastPayload, glided);
         src.setData({ type: "FeatureCollection", features: opts.toFeatures(gliddedPayload) });
-        if (opts.toVectors && shouldBuildVectors(z)) {
+        // draped-write guard (2026-07-31 probe): with a terrain mesh active,
+        // ANY setData on a draped (line) source bumps the revision inside
+        // maplibre's RTT fingerprint (webgl/render_to_texture.ts) and clears
+        // every visible terrain tile's drape cache — the whole raster stack
+        // re-rasterizes per 300ms tick, the same per-tile cost class the
+        // 2026-07-20 drape-order fix removed. While terrain is on, the
+        // vector lines refresh on real 15s polls only.
+        if (opts.toVectors && shouldBuildVectors(z) && !(map as any).getTerrain?.()) {
           const vsrc: any = map.getSource(vecSrc);
           if (vsrc) vsrc.setData({ type: "FeatureCollection", features: opts.toVectors(gliddedPayload) });
         }
