@@ -37858,3 +37858,100 @@ Also answered (no code): space weather lives at /data -> layers panel ->
 Environmental -> "Space weather (NOAA SWPC)" (aurora oval + Kp/scales/
 wind/X-ray card). 3D space-weather build (Phases 1-4) remains next in
 queue now Phase 0 is merged green.
+
+## 2026-08-03 (scheduled-routine session) [PIPELINE] — data_stream_registry_check.py: EDGE DOCTRINE axis (d), compiling recurring "is X already built" reasoning into code (v1.0.582)
+
+TERRITORY: T-DATACORE (scripts/ pipeline tooling). PRIMARY ACTION
+SELECTION per SESSION BUDGET: read CLAUDE.md, then dispatched a recon
+subagent to check KNOWN BROKEN status (open_questions.md items #10/#20/
+#21 are all intentionally parked pending live/shadow data accumulation —
+no forced [REPAIR]), thrash ratio (2 REPAIR / last 10 — healthy), and
+wishlist.md stall/starvation flags (none). Clear to pick a doctrine axis.
+
+PRIOR (stated before building, Reasoning Standard #10): the task's
+literal EDGE DOCTRINE axis (a) example list (Sentinel-2 tank shadows,
+EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google Trends/
+pytrends) is fully resolved — expected this to be true going in, since
+every session I could find that touched this exact list over the last
+month reached the same conclusion.
+
+VERIFIED: grepped experiments.md for "already built" / axis-(a) status
+confirmations — found the identical conclusion independently re-derived
+at least 15 separate times (lines scattered from #29328 through #36867,
+verbatim "FDA calendar, Google Trends) are ALL already built or correctly
+declined" pattern recurring session after session). Also checked the
+extended candidate set the 2026-07-27 LIVE-DATA GAP SWEEP entry
+recommended building next (NOAA SWPC space weather, FAA airport status,
+SO2/GIBS, USGS volcano alerts) — all four ALSO already shipped
+(2026-07-29 through 2026-08-02), confirming this is not a one-off: new
+sessions keep re-deriving "is it built" via grep instead of trusting (or
+being able to verify) the prose record.
+
+WHY THIS IS EDGE DOCTRINE #3, not a NO-ACTION: "Never analyze the same
+thing twice with reasoning — the second occurrence becomes a script the
+bot runs free forever." ~15 sessions independently spending tokens
+re-deriving the same fact is exactly the failure mode that rule exists
+to prevent. research/data_census.md and datacore/signal_ladder.json are
+themselves hand-compiled prose/JSON that can silently drift from repo
+reality (nothing re-verifies them against the filesystem) — which is
+plausibly WHY sessions keep re-deriving from scratch instead of trusting
+them.
+
+SHIPPED: `scripts/data_stream_registry_check.py` — a curated CANDIDATES
+table (34 entries: the 6 EDGE-DOCTRINE-named + 28 repeatedly-relitigated
+extended candidates from the census/gap-sweep work) cross-checked at
+runtime against `datacore/manifests/*.json` and `datacore/layers.json`
+(the actual repo state), not against other prose. `audit()` flags DRIFT
+in either direction: a "built" candidate whose manifest/layer evidence
+vanished, or an "unbuilt" candidate whose evidence now exists (table
+gone stale the other way). `--unbuilt` prints only what's left to build
+(direct replacement for the grep archaeology); `--json` for machine
+consumption. Zero drift found against the live repo (23/34 built, 11
+declined/blocked/candidate). Deliberately scoped as a supplement to
+data_census.md's full prose census, not a replacement — documented in
+the module docstring.
+
+RATCHET: `test_data_stream_registry_check.py` (8 tests) — asserts zero
+drift against the live repo (the actual regression guard: a future
+session renaming/deleting a tracked file, or shipping a new stream
+without flipping its table status, fails this test); the EDGE-DOCTRINE-
+named 6 are each asserted built-or-declined (never left open); and two
+tests prove the drift detector isn't vacuous by feeding it deliberately
+wrong tables (a claimed-built candidate with a nonexistent manifest key,
+and a claimed-unbuilt candidate pointed at a manifest that's actually on
+disk) and confirming both are caught. `python3 -m unittest` and
+`pytest -q` both pass (129 passed, 1 skipped, full local suite including
+this file — CI's `.github/workflows/ci.yml` explicit test list is
+FROZEN and unchanged; this file joins the existing precedent of many
+other `test_*.py` files not in that curated subset, run via full local
+`pytest -q` per PROMOTION RULES 1).
+
+BACKTEST: N/A — zero trading logic, scoring, sizing, or execution path
+touched; pure research-tooling script.
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+Version bumped 1.0.581 -> 1.0.582 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json` (also caught package-lock.json already lagging one
+version behind package.json from the prior PR — synced both to .582).
+
+CROSS-SYSTEM INTEGRATION: none — this is session-tooling, not a data
+stream; no new archive, no new /data layer, no new cross-tie.
+
+NEXT (queued, not this session): the "uncatalogued manifests" list the
+script itself prints (32 manifests that exist but aren't in CANDIDATES —
+aircraft, vessels, trains, treasury, GDELT, etc.) is expected, since
+those were never part of the EDGE-DOCTRINE-named/re-litigated set this
+table specifically targets, not a gap — noted so a future session
+doesn't mistake it for one. Genuinely unbuilt candidates worth a real
+BUILD-FIRST + wishlist writeup, ranked by the script's own output:
+Cloudflare Radar (needs a new free key ask), VIIRS Nightfire (strongest
+pure EDGE-DOCTRINE candidate left on the board, but registration-gated —
+needs the free-alternative analysis before it may enter wishlist.md per
+BUILD-FIRST RULE), CBOE daily stats (keyless, licensing-clean for the
+uncrowded P/C-spread signal even though raw resale needs a license).
+
+STARVED: no — this was the session's one primary action ([PIPELINE] per
+SESSION BUDGET), matched to capacity; fall-through not reached this
+session (one logical PR, per PROMOTION RULE 5). Market closed at commit
+time (weekend); no LIVENESS ALARM per the earlier recon, system healthy.
