@@ -259,3 +259,16 @@ Rules: each slice = own PR + tests per promotion ladder; measurement
 changes (S-A4) separate from behavior changes; the harness perf section
 gates regressions. Server slices touch routes.ts (SHARED territory —
 serialize, smallest-last-commit).
+
+- 2026-07-31 HUMAN DIRECTIVE (voice): stability/perf elevated to "the
+  bigger aspect of the site as a whole" in the human's own words:
+  "when I'm zoomed into a power plant it just needs to display what I
+  am able to see right there — not the power grid in Albania... when I
+  zoom out it needs to be fast across every single layer." That is S1
+  viewport-bounded serving + client-side viewport culling + zoom-gated
+  LOD, stated as the product's top structural priority by the human.
+  S1 remaining steps and S2 tiling move to the front of the queue for
+  any session in this territory; EARTH TWIN A1 envelopes are the same
+  spine (camera altitude = another viewport bound). Directive cut off
+  mid-sentence ("The bigger thing when I turn on, um, at") — follow-up
+  pending, do not guess it.

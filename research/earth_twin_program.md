@@ -1170,3 +1170,47 @@ Every body: real position or absent — never decorative placement.
   integrity: full wind fleet OSM-verified (#525, 24 overrides).
   DEFERRED with evidence: satellite frame-cost profiling (three
   sandbox attempts each failed differently; needs a fresh container).
+
+- 2026-07-31 HUMAN DIRECTIVE (voice, decoded — priority reaffirmation +
+  two new verticals + one defect):
+  (1) ALTITUDE-LAYERED WORLD confirmed as the product vision in the
+  human's own words: "everything would be at a height... the Earth
+  needs its physical height"; satellites visible at their altitude and
+  DISAPPEARING once the camera zooms past them; weather appearing at
+  its own height band. This IS A1 (LOD director, camera-altitude
+  envelopes) — the human has now independently asked for exactly what
+  E0 gates. A1/E0 priority raised accordingly.
+  (2) 3D SPACE WEATHER AROUND THE EARTH (new vertical, ties to the
+  heliocentric Space View build prompt received 2026-07-31, Phase 0
+  audit filed in experiments.md): aurora rendered as a 3D shell at its
+  real emission altitude band (~100–250 km — physically standard,
+  labeled), not only the 2D map fill; magnetopause surface (Shue 1998,
+  labeled MODELED) compressing with live Dp/Bz; both visible from
+  globe zoom AND surviving the zoom-out into the solar-system
+  continuum (O7 one-camera family) where the heliocentric CME view
+  takes over. Existing 2D aurora layer is the fallback, untouched.
+  (3) 3D WEATHER WITH REAL CLOUD HEIGHTS (new vertical): "traditional
+  weather apps are 2D over a 2D map... show cloud heights... base
+  layer, height layer, a 3D rendition that is some level of opaque but
+  has intensity." HONEST DATA PATH (build-first): NASA GIBS serves
+  cloud-top HEIGHT/pressure products (MODIS/VIIRS, daily) and GOES ABI
+  L2 ACHA cloud-top height is free — so a coarse, honestly-labeled 3D
+  cloud deck (top-height-extruded, opacity=optical thickness proxy
+  where the product provides it) is buildable from REAL readings; no
+  volumetric fiction beyond what the data carries, tier labeled.
+  (4) DEFECT — "DRAIN THE EARTH" MUST DRAIN WATER ONLY (human,
+  verbatim intent): current seafloor layer shows GEBCO hypsometric
+  tint over LAND while drained ("almost like a filter" — the human is
+  right; the legend note even admits it). Fix: mask the GEBCO relief
+  to water geometry (oceans + lakes incl. Great Lakes — MapLibre water
+  polygons or Natural Earth ocean+lakes mask), leaving land
+  imagery/terrain untouched; pair with Terrain so basins physically
+  sink (already supported). E2 vertical owns this.
+  (5) 3D TERRAIN CALLED OUT as "one of the bigger things we're
+  missing" — next terrain session: audit current DEM source/exag
+  defaults/zoom ceiling vs the GLO-30 ceiling note, and the key-gated
+  Google 3D Tiles deep-zoom path (cost guard already shipped), file
+  the upgrade plan.
+  NOTE: the directive transmission CUT OFF mid-sentence ("The bigger
+  thing when I turn on, um, at") — a follow-up fragment about layer
+  toggling is pending from the human; do not assume its content.
