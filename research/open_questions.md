@@ -7995,3 +7995,70 @@ fails open). Low risk, ~30 min, next T-CLIENT session.
    filter removed the harmful case (far-side selection); exact-blend CPU
    projection (mirror maplibre's interpolateProjectionFor3D) would close
    the rest. Low priority until a live report says otherwise.
+
+## [HYPOTHESIS · filed 2026-08-03, from the occ_options_volume GATE 2 KILL] Customer put-heavy OCC skew outperforms customer call-heavy skew — reversed from the naive ISEE reading, UNCONFIRMED, needs clustered stats + out-of-sample before any trust
+
+CONTEXT: scripts/occ_volume_gate2.ts pre-registered "customer call-skew
+= bullish ISEE-successor signal, high skew -> higher forward returns"
+and tested it on 16 weekly OCC sample days (2026-01-07..04-22) x 40-name
+CALL_SKEW/PUT_SKEW/NEUTRAL buckets x Yahoo +5d/+20d forward returns
+(full methodology + honesty caveats in experiments.md 2026-08-03,
+scheduled-routine PRODUCT session #2, and the script's own header
+comment). The pre-stated hypothesis was REJECTED — the ladder entry is
+now `killed` at gate 2 in datacore/signal_ladder.json — but the ordering
+came back cleanly REVERSED rather than merely null:
+
+  +5d:  PUT_SKEW mean -0.122% > CALL_SKEW mean -0.722%  (NEUTRAL +0.404%)
+  +20d: PUT_SKEW mean +1.711% > CALL_SKEW mean -1.159%  (NEUTRAL +0.164%)
+        spread (CALL-PUT) = -2.870%, naive-pooled Welch t = -2.304
+
+TESTABLE FORM (the actual next-step hypothesis, distinct from the killed
+one above — do NOT reuse the same pooled t-test as confirmation):
+"underlyings with the heaviest customer PUT-side options volume (per
+the same skew definition and FLOOR/BUCKET_SIZE calibration) subsequently
+outperform underlyings with the heaviest customer CALL-side volume, net
+of a neutral-skew control, at a 20-trading-day horizon."
+
+WHY NOT ALREADY BELIEVED (Reasoning Standard #4, stated explicitly in
+the killing entry): the t=-2.3 above pools ~620 (day,ticker) rows as if
+independent. They are not — the same tickers recur across the 16
+sample weeks, and every name in one day's bucket shares that day's
+market-wide move (within-day cross-sectional correlation). True
+independent information content is closer to 16 day-clusters than 620
+i.i.d. draws, so a naive pooled t-test materially overstates
+significance here. This was one pre-registered test, not fished across
+variant definitions — but pre-registration doesn't fix a wrong
+standard-error model.
+
+SECOND-ORDER PRIOR (Reasoning Standard #5, why this could be real and
+not "nobody noticed" if it survives proper testing): heavy customer
+call volume plausibly captures retail "lottery-ticket" speculative call
+buying on hyped names — a documented behavioral bias (retail
+overpaying for positive-skew payoffs); the edge, if real, would survive
+because shorting into retail call froth carries real borrow cost and
+squeeze risk, a structural friction, not neglect. Equally plausible
+mundane confound not yet ruled out: heavy customer PUT volume is a
+partial proxy for high-IV/beaten-down names already reflecting bad news
+in price (a pure mean-reversion effect unrelated to options positioning
+at all) — the skew signal may just be riding on IV-driven selection,
+not adding information beyond it. NOT distinguished by this session's
+data.
+
+LADDER PATH for the next session that picks this up (own PR, do not
+bundle with a re-run of the killed direction):
+  1. Re-run the identical bucket construction with DAY-CLUSTERED
+     standard errors (cluster on report date, ~16 clusters) instead of
+     the naive pooled Welch t — if |t_clustered| collapses well below 2,
+     this candidate is ALSO dead and should be marked `killed` too, not
+     left open indefinitely.
+  2. If it survives clustering, test on a DISJOINT sample window (e.g.
+     2026-05 through the most recent >20-trading-day-old date) as true
+     out-of-sample replication — the 2026-01..04-22 window used here
+     must not be re-used as its own confirmation.
+  3. Only after both (1) and (2) pass does this move to `gate2_pass`
+     candidate status; a rough control for the IV-selection confound
+     above (e.g. controlling for realized volatility over the trailing
+     20d) would be needed before any promotion toward gate 3 (LOGIC).
+Source: experiments.md 2026-08-03 (scheduled-routine PRODUCT session
+#2); datacore/signal_ladder.json occ_options_volume entry;
+scripts/occ_volume_gate2.ts.

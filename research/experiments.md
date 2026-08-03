@@ -3,6 +3,170 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-03 (scheduled-routine PRODUCT session #2) [PIPELINE] — T-DATACORE — occ_options_volume GATE 2 KILLED: pre-registered customer call/put skew hypothesis rejected, reversed direction found but flagged unconfirmed (v1.0.585)
+
+TERRITORY: T-DATACORE (scripts/occ_volume_gate2.ts additive, zero
+collisions expected; datacore/signal_ladder.json single-line edit;
+package.json/package-lock.json version bump kept minimal per MERGE-ORDER
+PROTOCOL).
+
+SESSION-START CHECKS (this is a second scheduled-routine PRODUCT session
+today, continuing from the same day's earlier occ_options_volume GATE 1
+PASS, v1.0.580): re-read CLAUDE.md in full per READ BEFORE WRITE, tailed
+experiments.md (last entry [REPAIR] v1.0.584, TIER3-DIAG; before that
+[REPAIR] v1.0.583 terrain-ON, then a run of [PIPELINE]/[PRODUCT] —
+thrash ratio healthy, no forced repair), read open_questions.md's KNOWN
+BROKEN section (items #10/#20/#21 remain parked pending evidence, none
+blocking product work), wishlist.md tail (DATACORE MAXIMUS resume block,
+no blocking decision, no stall/starvation flag). `/api/health` not
+re-polled this session (no production credentials in this session's env —
+same constraint noted in the KNOWN BROKEN "autonomous sessions cannot
+read audit logs from outside the container" item); no LIVENESS ALARM
+signal reached this session either way.
+
+PRIMARY ACTION (session mandate option (a) — "advance a datacore/
+pipeline through its next ladder gate; gate 2 signal testing IS product
+work"): this morning's GATE 1 PASS entry explicitly queued "gate 2 for
+occ_options_volume (customer-opening P/C extremes vs forward returns,
+discounted for census breadth) is now unblocked... the natural next
+session on this root" — picked it up directly rather than re-deriving
+the next step.
+
+OPERATIONALIZATION (pre-registered BEFORE running, Reasoning Standard
+#10 — full text in scripts/occ_volume_gate2.ts's header comment, not
+repeated in full here): customer-only call/put skew per underlying per
+day, `(cust_call - cust_put) / (cust_call + cust_put)`, actype "C" rows
+only — chosen because it matches the retired ISEE sentiment index's own
+methodology (customer-only, excluding MM/firm mechanical hedging flow),
+which is why the root's hypothesis text calls this "the retired ISEE's
+successor" rather than a literal customer-minus-MM difference.
+
+HONESTY CAVEAT STATED BEFORE RUNNING (lowered the prior going in): OCC's
+public volume-query feed carries NO buy/sell direction and NO opening/
+closing distinction, unlike true ISEE (opening-buy volume only).
+"Customer put volume" here blends new put buyers (bearish), put sellers
+closing out, cash-secured-put writers (bullish premium sellers), and
+short-put covering — a structurally cruder, noisier proxy. PRIOR stated:
+~30% chance of a clean pass on both horizons; a null or partial result
+was flagged as the more likely honest outcome.
+
+CALIBRATION (on volume only, never on outcome — Reasoning Standard #4
+discipline: the network-cost knobs below were fixed by a `--dry` run
+before any price data was fetched): a first pass at FLOOR=1000 customer
+contracts/day needed ~1,100 Yahoo price series/day (2,222 unique tickers
+across the full sample) — too many for a session-run script. Raised
+FLOOR to 8,000 and switched from a decile fraction to a FIXED
+BUCKET_SIZE=40 per bucket purely to bound network cost; final run needed
+852 unique tickers total across 16 sample days.
+
+METHOD: 16 weekly Wednesday sample days (2026-01-07 through 2026-04-22,
+well inside OCC's 2-year window and >100 calendar days before this
+script's run date so every +20-trading-day outcome is fully realized —
+no lookahead, Reasoning Standard #7). Per day: fetched the SAME
+`fetchOccDay`/`aggregateOcc` production functions occVolume.ts's live
+poller uses (zero reimplementation, same discipline as gate 1), filtered
+to underlyings with cust_put+cust_call >= FLOOR, ranked by skew, and cut
+three FIXED 40-name buckets — CALL_SKEW (top), PUT_SKEW (bottom), NEUTRAL
+(centered middle band, standing in for a full-universe base rate at
+bounded network cost per Reasoning Standard #3 — a stated scope
+limitation). Fetched one Yahoo adjusted-close range per unique ticker
+(batched concurrency=8, not fully serial, to keep wall time bounded),
+computed close-to-close forward returns at +5d and +20d.
+
+RESULT (fetched=825/852 tickers, 27 unrecoverable — index/adjusted-series
+symbols and similar, an honest ~3% loss, not silently dropped):
+
+  +5d:  CALL_SKEW n=610 mean=-0.722%   NEUTRAL n=633 mean=+0.404%   PUT_SKEW n=622 mean=-0.122%
+  +20d: CALL_SKEW n=610 mean=-1.159%   NEUTRAL n=633 mean=+0.164%   PUT_SKEW n=622 mean=+1.711%
+        spread (CALL-PUT) at +20d = -2.870%, Welch t (naive pooled) = -2.304
+
+PRE-STATED PASS BAR (CALL_SKEW > NEUTRAL > PUT_SKEW on both horizons AND
+|t20| > 2): **FAILED.** The ordering came back REVERSED on both horizons
+— PUT_SKEW outperformed CALL_SKEW, not the other way around. The tested
+hypothesis (customer call-heavy skew = bullish signal, ISEE-successor
+direction) is REJECTED as stated, not merely inconclusive.
+
+REASONING STANDARD #4 DISCIPLINE (why the reversed pattern is filed as a
+candidate, not a promoted signal): the |t|=2.3 above treats ~620 (day,
+ticker) rows as independent draws. They are not — names recur across
+weeks (ticker overlap) and every name in a given day's bucket shares
+that day's market-wide move (within-day cross-sectional correlation), so
+the true independent-information content is closer to 16 day-clusters
+than 620 i.i.d. observations. A naive pooled t-test on clustered data
+systematically overstates significance; this was ONE pre-registered
+test (not fished across variant definitions), but "pre-registered" does
+not make the standard-error math correct. Reporting |t20|>2 as if it
+cleared the bar while ignoring the clustering problem would itself be
+exactly the self-deception Reasoning Standard #4 warns against.
+
+SECOND-ORDER PLAUSIBILITY (Reasoning Standard #5, why this isn't "nobody
+noticed" if real): heavy customer call volume plausibly captures retail
+"lottery-ticket" speculative call buying on hyped names — a documented
+behavioral bias (retail overpaying for positive-skew payoffs) that
+persists because shorting into retail call froth carries real borrow
+cost and squeeze risk, not because it's unnoticed. Plausible, not
+proven by this session's data.
+
+FILED (not built): a fresh, explicitly unconfirmed candidate hypothesis
+— "customer put-heavy skew outperforms customer call-heavy skew,
+opposite of the naive ISEE reading" — logged in open_questions.md with
+its own ladder path: retest with day-clustered standard errors (not
+pooled), then true out-of-sample replication on a disjoint sample
+window before any promotion, per Reasoning Standard #4's "distrust your
+own results" and #10's "state the prior before updating."
+
+RAW DISPLAY UNAFFECTED: `/api/data/occ-volume` and its archive are a RAW
+overlay (STANDING BEHAVIORS: raw overlays carry no predictive claim, no
+ladder gate) and are untouched by this gate-2 kill — only the SIGNAL
+hypothesis is killed, not the data pipeline.
+
+`datacore/signal_ladder.json`: occ_options_volume `status` `gate1_pass`
+-> `killed`, `current_gate` 1 -> 2 (single targeted Edit, 1 insertion/1
+deletion diff, same precision-editing discipline as the gate-1 session
+after that session's own earlier full-file-reformat near-miss).
+
+VERIFIED: `npx tsx --test server/occVolume.test.ts`: 6/6 pass, unmodified
+(this session imported `fetchOccDay`/`aggregateOcc` from occVolume.ts,
+touched zero lines of the file itself). `python3 -m pytest -q`: SKIPPED
+— zero `.py` files touched (this session is pure TS script + two JSON/MD
+files); `pip3` has no `pytest` installed in this session's container
+either, consistent with "zero Python touched" rather than a real gap.
+No dedicated test file added for `occ_volume_gate2.ts` itself, matching
+the gate-1 script's own precedent — a session-run measurement script
+that produces one archival result, not new runtime behavior, is not the
+kind of "behavior change" PROMOTION RULE 2 targets; both gate scripts
+touch zero production code paths.
+
+BACKTEST: N/A — SIGNAL-layer (gate 2) statistical measurement only, zero
+trading logic, scoring, sizing, or execution path touched.
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+Version bumped 1.0.584 -> 1.0.585 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new — this session only resolves (kills)
+the existing occ_options_volume hypothesis's evidentiary status; no new
+archive, layer, or cross-tie.
+
+NEXT (queued, not this session): (a) the reversed-direction candidate
+filed in open_questions.md is the natural follow-up, but explicitly
+needs the clustered-SE + out-of-sample rework before it's trusted, not
+a quick re-run; (b) the same "gate-1 criteria stated but never run" gap
+still exists for port_dwell_maritime_transit, crop_conditions_usda_nass,
+and nrc_outage_reports (noted in this morning's gate-1 entry, still
+untouched); (c) the OCC deep-backfill archive (occVolume.ts, default-on
+since 2026-07-07) continues independent of this kill and would let a
+future retest sample from the ARCHIVED history directly instead of
+re-fetching OCC's live feed day-by-day.
+
+STARVED: no — this was the session's one primary action ([PIPELINE] per
+PRODUCT session mandate), matched to capacity; fall-through not reached
+(one logical PR, PROMOTION RULE 5). Market status not re-checked this
+session (no production health access, noted above) — no LIVENESS ALARM
+signal reached this session; product work proceeded per the session's
+explicit instruction that it does not preempt DAILY repair duty.
+
 ## 2026-08-03 (scheduled-routine session) [REPAIR] — TIER3-DIAG audit line enriched with the actual per-problem system/severity/message, closing a month-old "1 issues" mystery follow-up (v1.0.584, T-BOT + SHARED)
 
 TERRITORY: T-BOT (server/bot.ts, server/tier3DiagVisibility.test.ts) + SHARED
