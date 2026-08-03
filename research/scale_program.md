@@ -272,3 +272,34 @@ serialize, smallest-last-commit).
   spine (camera altitude = another viewport bound). Directive cut off
   mid-sentence ("The bigger thing when I turn on, um, at") — follow-up
   pending, do not guess it.
+
+- 2026-07-31 STABILITY FLEET AUDIT — RANKED FIX QUEUE (5-agent workflow,
+  evidence + file refs in experiments.md entry + workflow journal
+  wf_ab5d8057-6ee; terrain saturation repair SHIPPED same day):
+  1. [CRITICAL][S1d] setScaleView on map 'move' → whole-page React
+     re-render once per frame during EVERY camera move. Fix: extract the
+     scale/zoom chip into a self-subscribing memo component (Legend
+     precedent, v1.0.373).
+  2. [CRITICAL][S2] Whole-world static point layers ship full geojson at
+     all zooms: powerplants 9,833 DEFAULT-ON, quakes 14,492, military
+     3,024 polygons, nuketests 2,027+rings, PFAS/superfund/violators.
+     Fix: pmtiles them exactly like places/powergrid (the repo's own
+     good pattern); interim S1 bbox filter.
+  3. [HIGH][S1] Trains: full payload + full setData every 30s, no
+     since/unchanged delta, un-quantized count defeats render bail.
+     Aircraft wireLivePoints is the gold pattern — inherit it.
+  4. [HIGH][S1] All polled overlays (alerts/spaceweather/earthquakes/
+     volcanoes/buoys/faa/border/rivergauges) re-setData full payloads
+     every tick with no unchanged short-circuit.
+  5. [HIGH][S2] Per-state power-grid fan-out: each of ~162 toggles adds
+     its own pmtiles source + 6 style layers; many-on has no collapse
+     into the national tile.
+  6. [MEDIUM] /api/data/layers: no Cache-Control, recomputed per request
+     (slowest TTFB on load path). firetemp GIBS: source recreate instead
+     of setTiles (full tile-cache flush per 5-min refresh).
+     applyMarkerLod runs 60Hz during gestures with no early-out. Fires:
+     bbox-bounded but never refetches on pan (stale viewport until
+     15-min tick). Seven count-only panel feeds ship full payloads.
+  7. [MEDIUM][terrain] Pitch-58 auto-tilt on toggle inflates visible-tile
+     pyramid; tier it (~40-45 weak/software tiers, datamap.tsx:4193-4199).
+  CLEAN: toggle-off teardown across all layers checked — no leak class.

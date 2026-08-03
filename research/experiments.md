@@ -37955,3 +37955,80 @@ STARVED: no — this was the session's one primary action ([PIPELINE] per
 SESSION BUDGET), matched to capacity; fall-through not reached this
 session (one logical PR, per PROMOTION RULE 5). Market closed at commit
 time (weekend); no LIVENESS ALARM per the earlier recon, system healthy.
+
+## 2026-07-31 — [RESEARCH] Stability fleet audit: 5-agent workflow (terrain repro, follow-cams, render sweep, layer matrix) (T-CLIENT)
+
+Human directive (voice): terrain toggle "slows down the system
+significantly"; satellite/plane follow "we've talked about this over and
+over"; "review every single line... all layers on at any time and the
+system runs smooth on any computer." Explicit multi-agent authorization.
+Ran a 5-agent workflow (917k tokens, 36 min, 276 tool uses): terrain-perf
+(browser repro w/ synthesized DEM + frame sampling), sat-follow +
+plane-follow (code trace + browser drive), render-sweep (static audit of
+all ~70 layer effects), layer-matrix (233 ids, vertical-anchor conflict
+matrix). HEADLINE FINDINGS (full JSON in the workflow journal;
+wf_ab5d8057-6ee):
+1. TERRAIN: 2026-07-20 drape fix holds (buried=[]); residual = never-idle
+   aircraft glide duty cycle × terrain multiplying every forced frame
+   ~7-10x = 100% duty, zero recovery (measured 0.2-0.3 renders/s of
+   back-to-back 3.4-4.7s frames, SwiftShader ratios). Plus: 300ms glide
+   setData on the DRAPED aircraft-vec line source invalidates maplibre's
+   RTT fingerprint → full drape re-raster per tick in the z6-8.05 band
+   (code-confirmed chain; isolated A/B was below SwiftShader noise floor
+   — stated honestly). Plus pitch-58 auto-tilt tile-count inflation
+   (medium, queued). REPAIRED this session — see next entry.
+2. SAT FOLLOW: frame-of-reference architecture is CORRECT (per-frame SGP4
+   chase writes center+elevation, bearing/pitch/zoom = persistent local
+   offset). What fails is INPUT ROUTING: left-drag stays native dragPan →
+   60Hz rubber-band fight; wheel pauses the chase (drift-then-snap) and
+   zooms around cursor not craft. The complete solution EXISTS for
+   aircraft (cameraRig.ts "unbreakable follow") but its three enabling
+   props are gated kind==="aircraft" (datamap.tsx:11649/11674/11707).
+   Fix = route sat lock through the rig; stand down the bespoke writer
+   via __vtRigFollowAt. QUEUED (next client session, own PR).
+3. PLANE FOLLOW: rig itself browser-verified CORRECT (plane ≤18px from
+   center through wheel/orbit/drag/poll boundary, 70/70 distinct centers).
+   THE BUG: clicking a plane at z<8.05 (2D symbol path — the normal way)
+   self-kills the just-armed follow: __vtFeatClaim (not __vtAirClaim) →
+   deferred clearTrail() nulls pendingFollowRef before the ease lands.
+   Reproduced: follow OFF, camera frozen 18s, plane lost 2,524px
+   off-screen. Surgical fix QUEUED. Secondary: follow inert <2 track
+   points; no antimeridian unwrap in center goal.
+4. RENDER SWEEP (top of ranked queue, full list in scale_program.md):
+   CRITICAL (a) setScaleView on map 'move' re-renders the whole 12.7k-line
+   component once per frame during every camera move; CRITICAL (b)
+   whole-world static point layers (9,833 powerplants DEFAULT-ON, 14,492
+   quakes, 3,024 military polygons...) ship full geojson to the GPU at all
+   zooms — the user's "Albania" case verbatim. Aircraft layer = the gold
+   pattern (bbox+since+moving-skip); almost nothing inherited it. Teardown
+   audit CLEAN (no leak class).
+5. MATRIX: ships-on-drained-seabed is REAL and mechanism-verified
+   (maplibre terrain-elevates symbol anchors in-shader from DEM with no ≥0
+   clamp; ocean mesh active whenever seafloor is on → vessels/buoys sink
+   to seabed where DEM is loaded, hover at 0 elsewhere). Human's depth
+   drop-line fix is FEASIBLE + honest (queryTerrainElevation gives real
+   local depth; aircraft drop-line template exists). Also: aircraft fleet
+   drop-lines anchor to z=0 (pierce below ground at elevated airports).
+   Non-conflicts recorded so nobody re-derives.
+
+## 2026-07-31 — [REPAIR] Terrain-ON saturation: glide work now yields when terrain multiplies frame cost (T-CLIENT)
+
+THE FIX (one mechanism, three sites): (1) airLayer.glideRepaintTick —
+when isOverloaded() AND map.getTerrain() both hold, force ZERO glide
+frames (parity-halving cannot create idle time when one frame outlasts
+2+ tick periods); healthy machines keep full glide under terrain. (2)
+same gate in the 2D glide setData interval (datamap.tsx). (3)
+draped-write guard: the glide tick never setDatas the aircraft-vec LINE
+source while terrain is active (RTT fingerprint invalidation → full
+drape re-raster per 300ms); vectors refresh on real 15s polls instead.
+RATCHET: airLayer.test.ts pins all four quadrants (overload×terrain →
+0 frames; overload alone → parity; healthy+terrain → FULL glide —
+the gate must never dim a machine that copes; baseline). VERIFIED with
+the diagnosis probe on the fixed build: static-with-terrain went from
+median 3,400ms frames at 100% duty (no idle, no recovery) to median
+16.7ms then FULL IDLE (1 frame in the late window); 4x-throttle config
+same collapse to idle; toggle-to-idle 9.7s (was: never within 14s).
+Pan cost under terrain unchanged by design — camera-driven frames are
+real work; the repair removes FORCED frames when the user isn't moving.
+Positions stay exact and snap on the next poll — motion smoothness is
+sacrificed ONLY on machines the governor already flagged as drowning.

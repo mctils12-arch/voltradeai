@@ -573,6 +573,14 @@ export class AirLayer implements CustomLayerInterface {
     if (!this.map || this.tickAnchorMs == null || this.count === 0) return;
     if (this.map.getZoom() < AIR_3D_MIN_ZOOM) return;
     if (airGlideDtSec(this.now(), this.tickAnchorMs) >= MAX_AIR_GLIDE_SEC) return;
+    // terrain saturation (probe 2026-07-31, research/experiments.md): an
+    // active terrain mesh multiplies every forced frame ~7-10x, and once
+    // the governor says the renderer is drowning, parity-halving cannot
+    // create idle time — one frame outlasts 2+ tick periods (measured
+    // 0.2-0.3 renders/s of back-to-back frames, zero recovery). Force NO
+    // glide frames while BOTH hold: positions stay exact and snap on the
+    // next real poll; healthy machines keep full glide with terrain on.
+    if (isOverloaded() && !!(this.map as any).getTerrain?.()) return;
     // device overloaded (deviceTier governor): halve the step cadence so a
     // drowning renderer gets idle gaps — motion updates less often, the
     // positions stay exact (probe finding 2026-07-21: terrain render cost
