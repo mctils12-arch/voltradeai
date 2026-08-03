@@ -4507,7 +4507,16 @@ print(json.dumps(run_diagnostics()))
 "`, { timeout: 15000 });
       const diagReport = JSON.parse(diagFull.trim());
       if (diagReport.overall_status !== "healthy") {
-        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues`);
+        // R-DIAG (KNOWN BROKEN follow-up, research/experiments.md 2026-07-05/
+        // 2026-07-06): this audit line used to report only the problem COUNT,
+        // never WHICH system or WHAT the message was — "1 issues" recurred in
+        // the audit log for a month with no session able to tell what it
+        // actually was without re-running diagnostics.py by hand. diagReport
+        // already carries system/severity/message per problem; just log it.
+        const detail = (diagReport.problems || [])
+          .map((p: any) => `[${String(p.severity || "?").toUpperCase()}] ${p.system || "?"}: ${p.message || ""}`)
+          .join(" | ");
+        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues: ${detail}`);
       }
     } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
 
