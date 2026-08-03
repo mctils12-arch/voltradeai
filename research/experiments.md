@@ -38673,3 +38673,112 @@ pre-scoped matured next-step per SESSION BUDGET's ordering, matched to
 capacity; no queued higher-priority item (KNOWN BROKEN clean, no
 LIVENESS ALARM, no thrash) was skipped. One logical change, one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-03 (scheduled-routine session #6) [REPAIR] — new `/api/diag/shadow` probe unblocks two evidence-gated KNOWN BROKEN next-steps (v1.0.588, PR #685)
+
+TERRITORY: T-BOT (server/bot.ts, server/diag.ts outside frozen paths) +
+server/diag.test.ts + package.json/package-lock.json (SHARED, minimized
+to the version-bump line, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health` (both the
+Railway subdomain and voltradeai.com): `status:"ok"`, `bot.status:
+"active"`, `liveness.dark:false`, `drawdownPct:"0.0"` — no LIVENESS
+ALARM. Loop-health ratio: last 10 tagged entries = 3 REPAIR / 10 (well
+under the 7+ thrash bar), no STARVED streak, no PROGRESS FLOOR stall.
+KNOWN BROKEN section of open_questions.md: scanned end-to-end — every
+numbered item is either RESOLVED or, for the two still-open ones (#10
+dead SCORE_BAND_MAX config, #20 master_kill_switch CSP shadow), each
+already has its own filed evidence-gate NEXT STEP rather than an
+actionable repair sitting idle. Checked both gates directly:
+`/api/diag/audit?type=TIER-KILL` returned zero entries (master_kill_switch
+hasn't fired since the #3 fix shipped, so #20's `rejected_masterkill`
+shadow bucket has no data yet) and there is no way to query
+`shadow_portfolio.get_shadow_stats()` (which #10's next step also
+depends on) from outside the Railway volume at all — no diag probe for
+it existed. Neither KNOWN BROKEN item is actionable as a repair yet
+because the evidence-reading infrastructure they both depend on doesn't
+exist — building that infrastructure IS the highest-value repair-adjacent
+action available this session (a session that can't check a gate can't
+close it, so the gate silently stalls).
+
+PRIMARY ACTION: added a new `"shadow"` case to `server/diag.ts`'s
+`DIAG_PROBES` whitelist and a matching `case "shadow":` block in
+`server/bot.ts`'s `/api/diag/:probe` switch, mirroring the existing `"ml"`
+probe's `execPythonSerialized` inline-Python pattern exactly: `python3 -c
+"from shadow_portfolio import get_shadow_stats; print(json.dumps(...))"`,
+response passed through the same `sanitizeDiag` every other probe uses.
+`get_shadow_stats()` itself is untouched — read-only passthrough, zero
+changes to shadow_portfolio.py, zero changes to any scoring/trading path.
+Confirmed by inspection the function is already aggregate-only (counts,
+win rates by decision/regime label, oldest/newest timestamps) with no
+per-ticker or per-price fields, so no additional filtering was needed
+beyond the standard sanitizer every probe already goes through.
+
+READ BEFORE WRITE: read `server/diag.ts` (full DIAG_PROBES history/
+rationale comments) and the `/api/diag/:probe` switch in `server/bot.ts`
+(every existing case, esp. `"ml"` and `"archive"` as the two closest
+precedents) in full this session before writing anything. Read
+`shadow_portfolio.py`'s `get_shadow_stats()` function body directly
+(not from memory) to confirm the aggregate-only claim before shipping it
+through a new external read surface.
+
+RATCHET: new test in `server/diag.test.ts` — pins that `DIAG_PROBES`
+includes `"shadow"`, that the `case "shadow"` block actually calls
+`get_shadow_stats()` (not a re-derived/partial stat), that it passes
+through `sanitizeDiag`, and (reading `shadow_portfolio.py` directly, not
+duplicating a fixture) that `get_shadow_stats()`'s function body contains
+no `ticker`/`symbol` field — matching the existing test file's
+established pattern (`timings`/`archive`/`ml` probes each get an
+analogous wiring-pinned test). This also means the pre-existing generic
+"every whitelisted probe has a matching `case`" test in the same file
+covers the new probe automatically, with no edit needed.
+
+GATES: `npx tsx --test server/diag.test.ts` 12/12 pass (1 new).
+`npx tsx --test server/*.test.ts`: 1020 passed, 1 failed — the failure
+is the pre-existing `client/public/tiles/*.pmtiles` magic-byte check;
+A/B-verified byte-identical via `git stash -u` against unmodified `main`
+in this same container (this PR touches zero files related to tiles).
+`npx tsc --noEmit`: 82 errors, byte-identical count via the same stash
+A/B against `main` — this PR touches no file that appears in the error
+list (all pre-existing `MapIterator`/`pngjs` toolchain-baseline errors).
+`python3 -m pytest -q`: 1114 passed, 1 skipped, 0 failed — unchanged
+from baseline (this PR touches zero Python files). `npm run build`:
+clean (pre-existing chunk-size/import.meta warnings only). PROMOTION
+RULE 6 (visual harness) does not apply — zero `client/` files touched.
+
+BACKTEST: N/A — pure read-only diagnostics infrastructure; no scoring,
+sizing, or threshold value touched, and `get_shadow_stats()` itself is
+unmodified.
+
+Version bumped 1.0.587 -> 1.0.588 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none — this is server-side diagnostics
+infrastructure, not a new data stream, archive, or /data-facing surface.
+
+PR #685 opened from `claude/funny-fermat-inbajt`, merged into the
+branch the harness assigned this session (not a fresh `claude/`-random
+name per the usual convention — this session's git identity came
+pre-set by the calling harness to a specific branch, already up to
+date with `origin/main` at session start, so no restart-from-main step
+was needed). Subscribed to PR activity per standing protocol; will
+drive CI to green and address review comments per the drive-to-green
+posture since this is a PR the session itself opened.
+
+NEXT (queued, not this session): once this probe is live, a future
+session should (a) check `/api/diag/shadow` directly — `by_decision`,
+`win_rate_by_decision`, and specifically whether
+`win_rate_by_decision["rejected_masterkill"]` has accumulated `n>=5` at
+any horizon yet (KNOWN BROKEN #20's own stated readiness bar); (b) once
+`shadow_portfolio` has >=90 days of backfilled history, use this same
+probe to test the `|change_pct|>35` win-rate hypothesis KNOWN BROKEN #10
+specifies, and either wire the dead `SCORE_BAND_MAX`/`MAX_CHANGE_PCT`
+skip back in with the evidence (RULE REVIEW) or delete the four dead
+keys per DEAD CODE POLICY if the query doesn't support it.
+
+STARVED: no — this was the session's one primary action (infrastructure
+that unblocks two already-filed, evidence-gated KNOWN BROKEN items,
+matched to capacity per SESSION BUDGET); no higher-priority queued item
+was skipped (KNOWN BROKEN's two open items are both blocked on exactly
+this gap, not independently actionable; no LIVENESS ALARM; no thrash).
+One logical change, one PR, per PROMOTION RULE 5.
