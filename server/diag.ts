@@ -43,6 +43,19 @@ export const DIAG_PROBES = [
   // archive directory; see readArchiveDay in datacoreArchive.ts and the
   // "archive" case in bot.ts for the stream/day validation.
   "archive",
+  // ADDED 2026-08-03 (scheduled-routine session): shadow_portfolio.py's
+  // get_shadow_stats() (win/loss counts by decision bucket, incl. the
+  // rejected_masterkill and score-band buckets) has been queryable
+  // in-process since 2026-07-11 but had NO read surface outside the
+  // Railway volume — two already-filed, evidence-gated open_questions.md
+  // items (KNOWN BROKEN #10's dead SCORE_BAND_MAX/MAX_CHANGE_PCT gate,
+  // KNOWN BROKEN #20's master_kill_switch CSP shadow) both explicitly
+  // instruct a "future session" to query this exact function once enough
+  // history accumulates, and neither could actually be checked from an
+  // autonomous session's container without this probe. Aggregate-only
+  // (counts, win rates, decision/regime labels) — no ticker, no price,
+  // same posture as the "ml" probe.
+  "shadow",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

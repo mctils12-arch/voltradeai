@@ -2357,6 +2357,24 @@ print(json.dumps(s))
             rows: result.rows.map((r) => sanitizeDiag(r)),
           });
         }
+        case "shadow": {
+          // ADDED 2026-08-03 (scheduled-routine session): read-only
+          // passthrough of shadow_portfolio.get_shadow_stats() — see the
+          // "shadow" entry in diag.ts's DIAG_PROBES for why (unblocks
+          // KNOWN BROKEN #10 and #20's queued evidence checks). Mirrors
+          // the "ml" probe's execPythonSerialized inline-script pattern;
+          // get_shadow_stats() is already aggregate-only by construction
+          // (counts/win-rates/labels, no ticker or price fields), so no
+          // extra filtering is applied beyond the standard sanitizeDiag
+          // pass every probe goes through.
+          const { stdout } = await execPythonSerialized(
+            `python3 -c "
+import json
+from shadow_portfolio import get_shadow_stats
+print(json.dumps(get_shadow_stats()))
+"`, { timeout: 15000 });
+          return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
