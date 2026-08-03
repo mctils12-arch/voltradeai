@@ -172,3 +172,23 @@ test("archive probe (2026-07-26): wired, validates stream/day, reads via readArc
     "rows must be sanitized per-row (deliberately bypassing the whole-array 200-item cap other probes rely on)");
   assert.ok(block.includes("truncated"), "response must report whether the limit cut off real rows, never silently drop them");
 });
+
+test("shadow probe (2026-08-03): wired, reuses get_shadow_stats() unchanged, sanitized like every other probe", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("shadow"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const start = bot.indexOf('case "shadow"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "shadow probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("from shadow_portfolio import get_shadow_stats"),
+    "shadow probe must reuse shadow_portfolio.get_shadow_stats(), not re-derive stats from the raw log");
+  assert.ok(block.includes("get_shadow_stats()"), "must actually call get_shadow_stats()");
+  assert.ok(block.includes("sanitizeDiag"), "shadow probe must pass the sanitizer like every other probe");
+  const shadowPy = fs.readFileSync(path.join(here, "..", "shadow_portfolio.py"), "utf8");
+  const statsStart = shadowPy.indexOf("def get_shadow_stats");
+  assert.ok(statsStart > 0, "get_shadow_stats must still exist in shadow_portfolio.py");
+  const statsBody = shadowPy.slice(statsStart, shadowPy.indexOf("\ndef ", statsStart + 10) === -1
+    ? shadowPy.length : shadowPy.indexOf("\ndef ", statsStart + 10));
+  assert.ok(!/\bticker\b|\bsymbol\b/.test(statsBody.replace(/#.*$/gm, "")),
+    "get_shadow_stats() must stay aggregate-only (no per-ticker fields) — this probe has no additional filtering beyond sanitizeDiag");
+});
