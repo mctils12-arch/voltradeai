@@ -1214,3 +1214,43 @@ Every body: real position or absent — never decorative placement.
   NOTE: the directive transmission CUT OFF mid-sentence ("The bigger
   thing when I turn on, um, at") — a follow-up fragment about layer
   toggling is pending from the human; do not assume its content.
+
+- 2026-07-31 FOLLOW-CAM + VERTICAL-DATUM QUEUE (stability fleet audit;
+  evidence in experiments.md + workflow journal wf_ab5d8057-6ee):
+  (a) PLANE FOLLOW self-kill [CRITICAL, surgical]: 2D symbol click
+      (z<8.05, the normal path) marks __vtFeatClaim not __vtAirClaim →
+      deferred plane-deselect clearTrail() nulls pendingFollowRef/
+      flightFollowRef before the click ease lands; moveend engage check
+      fails. Browser-reproduced (follow OFF, camera frozen 18s, plane
+      lost 2,524px off-screen). Rig itself verified CORRECT (≤18px
+      center-hold through wheel/orbit/drag/poll). Fix: claim marker or
+      clearTrail must spare an armed follow. Secondary: followTarget
+      gated on trackSamples≥2 (silently inert for fresh hexes — gate on
+      the live fix instead); antimeridian unwrap in the center goal.
+  (b) SAT FOLLOW input routing [HIGH]: chase architecture correct
+      (bearing/pitch/zoom = persistent craft-local offset) but left-drag
+      stays native dragPan (60Hz rubber-band fight) and wheel pauses the
+      chase (drift-then-snap, cursor-anchored zoom). The aircraft
+      cameraRig ("unbreakable follow") IS the spec — its dragScheme/
+      followTarget/followActive props are gated kind==="aircraft"
+      (datamap.tsx:11649/11674/11707). Fix: route lockMode "sat" through
+      the rig; stand down the bespoke smoothFollowFrame writer via the
+      existing __vtRigFollowAt arbitration. Guided approach modes become
+      rig goals (own PR). Note: offset re-aim already works via
+      right-drag/ctrl-drag — discoverability, not capability, was the
+      gap ("asked over and over" explained).
+  (c) SHIPS ON THE DRAINED SEABED [HIGH, mechanism-verified]: with the
+      ocean mesh active (seafloor toggle, even without terrain),
+      maplibre terrain-elevates ALL symbol anchors in-shader from the
+      DEM (no ≥0 clamp) → vessels/buoys sink to the seabed where DEM
+      tiles are loaded and hover at old sea level where not — the
+      human's "ships floating like satellites," confirmed. Human's
+      chosen fix is FEASIBLE + honest: keep ships at sea level and draw
+      a depth drop-line to the seabed (queryTerrainElevation gives real
+      local depth in display datum; aircraft drop-line rendering
+      template exists; label depths as GEBCO indicative). Same class:
+      aircraft fleet drop-lines anchor to z=0, piercing below ground at
+      elevated airports with terrain on — anchor to terrain elevation.
+  (d) Area fills added with no beforeId stack above previously-toggled
+      point symbols (aurora-vs-daynight ordering toggle-order-dependent)
+      [MEDIUM]: give fills a stable insertion anchor.
