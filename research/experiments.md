@@ -37832,3 +37832,29 @@ STARVED: no — this was the session's one primary action (PRODUCT/
 PIPELINE per this session's mandate), matched to capacity. Market
 closed at commit time (Sunday evening ET); no LIVENESS ALARM, system
 healthy throughout.
+## 2026-08-03 [PRODUCT] — round 23: ALL POWER GRIDS master switch (v1.0.581, T-CLIENT)
+
+Human: "can we get an all power grid option". One switch above the
+per-region grid groups flips the four continental OSM masters (US 50+DC,
+Canada 13, S.America 13, Europe 48); OFF clears the whole powergrid_*
+family. Pure state rules in lib/gridMaster.ts (4 tests): derived
+position, masters-only ON, whole-family OFF, input never mutated. HIFLD
+stays individual (overlays the same US lines). Honest coverage note:
+Africa/Asia/Oceania not yet mapped — the switch's scope grows as waves
+ship (GRID_MASTER_IDS is the one place to append).
+
+PROCESS CATCH worth keeping: the visual harness does NOT rebuild —
+`npm run visual` after an edit exercises the PREVIOUS dist bundle. My
+first "PASS" verified nothing; rebuilt and re-ran properly. Second
+catch: the harness layer-scale battery failed 51/50 rows — the master
+row rendered even on registries with no grid layers (dead control on
+older deploys); guarded to render only when a master is live. Both
+catches now pinned (scale battery counts exact rows; the guard is the
+fix). Fresh-build harness: 5/5 PASS at 390/768/1440, 0 hard failures;
+probe screenshots verify off->on flips the masters (facilities 2/14 ->
+6/14) on desktop and phone.
+
+Also answered (no code): space weather lives at /data -> layers panel ->
+Environmental -> "Space weather (NOAA SWPC)" (aurora oval + Kp/scales/
+wind/X-ray card). 3D space-weather build (Phases 1-4) remains next in
+queue now Phase 0 is merged green.
