@@ -38456,3 +38456,220 @@ capacity, fall-through not reached this session (one logical PR per
 PROMOTION RULE 5). Market open at commit time (2026-08-03, Monday
 ~12:01pm ET) — system healthy throughout per the pre-session /api/health
 check; no LIVENESS ALARM.
+
+## 2026-08-03 (scheduled-routine PRODUCT session #2) [PIPELINE] — cftc_tff_positioning GATE 2 run: general mean-reversion hypothesis KILLED, TLT momentum candidate filed unconfirmed (v1.0.587, T-DATACORE)
+
+TERRITORY: T-DATACORE (new standalone research scripts cftc_tff_gate2_test.py
++ test_cftc_tff_gate2.py, zero imports from bot_engine.py/deep_score/
+system_config.py) + datacore/signal_ladder.json (SHARED per its own header,
+minimized — one-entry status edit) + research/* (last commit, this entry
++ the open_questions.md filing).
+
+SESSION-START CHECKS (this is a fresh session per the scheduled [PRODUCT]
+routine, distinct from today's earlier market-hours [REPAIR] session):
+CLAUDE.md read in full. experiments.md tail — last 10 tagged entries
+(REPAIR, PRODUCT-ish/RESEARCH occ-kill, PIPELINE, PIPELINE, REPAIR,
+PIPELINE, PIPELINE, PRODUCT, PIPELINE, PIPELINE) show 2/10 REPAIR — no
+thrash-ratio escalation, PROGRESS FLOOR satisfied ([PIPELINE]/[PRODUCT]
+shipped within 14 days, in fact within hours). KNOWN BROKEN section of
+open_questions.md: the two most recently logged items (#27, #28) are both
+already RESOLVED/FIXED; nothing open blocks product work — no repair
+preempts this session per the routine's own instructions. `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+`drawdownPct:"0.0"`, `equityPeak: 109967.44` — no LIVENESS ALARM.
+`server_version` (1.0.586) matched `package.json`/branch HEAD (195af51,
+also confirmed == origin/main) at session start — no deploy lag, no
+stale-main surprise; branch `claude/lucid-keller-m3b1cy` was byte-
+identical to origin/main, so this session's commit builds fresh from main
+per the merged-branch-restart rule (moot here since nothing was merged
+onto it yet, but verified anyway).
+
+PRIMARY ACTION SELECTION: per the [PRODUCT] session brief, "(a) advance a
+datacore/ pipeline through its next ladder gate (gate 1 ground-truth
+validation and gate 2 signal testing ARE product work)" is explicitly in
+scope. datacore/signal_ladder.json's cftc_tff_positioning entry (gate 1
+PASSED 2026-07-31) carried its own queued NEXT note verbatim: "gate 2
+(leveraged-money positioning extremes vs forward returns, mirroring the
+COT gate-2 screen design — HAC/Newey-West-corrected from the start this
+time...)" — a fully pre-scoped, matured, ready-to-run next step, the
+highest-value single action available (judging/advancing an already-
+prepared experiment outranks starting a brand-new one per SESSION
+BUDGET's ordering). Chose this over other candidates considered:
+EIA-930 grid-demand gate 1 (passed 2026-07-31, but its own gate-2 next
+step — per-BA live-flow signal testing — is less immediately scoped than
+TFF's explicit note); building new /data UI (no fresh gate-2-passed
+signal exists yet to surface, and RAW overlays already ship freely
+without gating).
+
+READ BEFORE WRITE: read cot_gate2_test.py + test_cot_gate2.py in full
+(the passed methodology precedent this mirrors) and cftcTff.ts +
+cftc_cot.py in full (the gate-1 validators + archive/fetch patterns) this
+session before writing anything. Live-verified this session's exact TFF
+contract-code -> ETF-proxy mapping directly against the real dataset
+(publicreporting.cftc.gov/resource/gpe5-46if.json) rather than assuming
+from memory: SPY=13874A (E-MINI S&P 500), QQQ=209742 (NASDAQ MINI),
+TLT=020601 (UST BOND), IEF=043602 (UST 10Y NOTE), SHY=042601 (UST 2Y
+NOTE), UUP=098662 (USD INDEX, ICE), FXE=099741 (EURO FX) — 7 symbols,
+same count as the passed Legacy-COT screen, chosen for direct futures<->
+liquid-ETF correspondence, not cherry-picked for a result. Cross-checked
+each code's live market_and_exchange_names string against the probe
+output before writing SYMBOLS (a wrong code would silently pull the wrong
+market's positioning).
+
+PRE-REGISTERED HYPOTHESIS (stated before running, REASONING STANDARD
+#10; copied verbatim into the script's own docstring so it can't
+silently drift): "leveraged-money net-positioning extremes... predict a
+forward MEAN-REVERSION move in the underlying financial future" — the
+exact wording carried in cftcTff.ts's own build-order docstring since
+2026-07-06. Dealer-side positioning (that same docstring's OTHER stated
+hypothesis, "dealer positioning is the informed side") was deliberately
+NOT tested this session — running both would double the comparison
+count (14 vs 7 symbols) with neither individually pre-registered ahead
+of time; left as an explicit, separately-flagged follow-up.
+
+BUILT: `cftc_tff_gate2_test.py` (new, standalone, zero bot_engine/
+deep_score/system_config imports) — a Python mirror of
+`cftc_cot.py`/`cot_gate2_test.py`'s proven design, adapted for TFF's
+schema: `validate_record()` re-implements server/cftcTff.ts's already-
+shipped gate-1 `tffAccountingIssues()` identity check in Python (so this
+standalone research script has no runtime dependency on the Node
+server), `_derive_fields()` computes `net_lev_money_pct_oi` (lev_money_
+long minus lev_money_short, as %OI), `attach_lev_money_index()` applies
+the identical 0-100 trailing-156-week COT-index transform already
+validated on the Legacy-COT archive, and the forward-return/bucket/HAC
+machinery (`find_entry_index`, `compute_forward_returns`, `summarize`,
+`_newey_west_diff_test`, `hac_significance`) is copied byte-for-byte
+from `cot_gate2_test.py` (same no-lookahead Friday-publish entry rule,
+same extreme_high/low >=80/<=20 buckets, same 20d/60d horizons, same
+Newey-West Bartlett-kernel HAC construction) — applied FROM THE START
+here rather than iterated to after an initial raw-means look, the one
+deliberate methodological improvement over the Legacy-COT precedent
+(REASONING STANDARD #4: avoids the look-then-decide sequencing that
+screen's own history shows it fell into).
+
+RATCHET: `test_cftc_tff_gate2.py` (NEW, 28 tests) — mirrors
+`test_cot_gate2.py`'s full coverage of the shared HAC/bucket/forward-
+return machinery, PLUS new TFF-specific tests: `validate_record` against
+a hand-verified real-shaped record (arithmetic double-checked by hand:
+dealer 10000L/9000S/1000sp + asset_mgr 20000L/15000S/2000sp + lev_money
+15000L/20000S/3000sp + other_rept 5616L/10625S/1000sp sums to
+57616L/61625S, plus nonrept 21010L/17001S against OI 78626) — clean pass,
+corrupted long-total, corrupted short-total, corrupted OI (fires both
+identities it also breaks, same coupling cftcTff.test.ts already asserts
+for the shipped TS validator), zero/missing OI short-circuit, small-delta
+tolerance pass; `_derive_fields` net/pct arithmetic + zero-OI no-crash
+case.
+
+LIVE RUN (this session, using the actual shipped script, not a scratch
+probe): all 7 symbols returned `status: "ok"`, 156 weeks each (full
+2023-08 through 2026-07-28 span), **0 gate-1 rejections across all 7 x
+156 = 1,092 records** (the gate-1 validator holding on a fresh, disjoint
+pull from the one already verified at 15,000-record scale on 2026-07-31 —
+consistent, not a new gate-1 claim). Full JSON results (28 comparisons:
+7 symbols x 2 horizons x 2 buckets) reviewed in full, not cherry-picked.
+
+RESULT — GATE 2 KILLED for the general, pre-registered hypothesis, per
+REASONING STANDARD #4 (28 comparisons demand a multiple-comparison bar,
+not eyeballed p<0.05s): applying a Bonferroni correction across all 28
+(alpha/28 = 0.00179) leaves exactly 3 survivors:
+  TLT +20d extreme_high: mean_diff +3.075% (t=3.227, p=0.0013)
+  TLT +20d extreme_low:  mean_diff -6.503% (t=-8.824, p≈0)
+  UUP +20d extreme_high: mean_diff -1.107% (t=-3.207, p=0.0013)
+The pre-registered hypothesis specifically predicted MEAN-REVERSION:
+extreme_high (heavy net-long) -> negative forward return, extreme_low
+(heavy net-short) -> positive forward return. TLT's two survivors are
+BOTH the wrong sign for that prediction (extreme_high positive,
+extreme_low negative — a strong MOMENTUM/continuation pattern instead).
+Only UUP's single survivor points the predicted direction. Two Bonferroni
+survivors disagreeing in sign is itself evidence against one coherent
+"leveraged-money extremes mean-revert across financial futures"
+mechanism (REASONING STANDARD #5: a real edge should have a stated,
+consistent reason, not opposite signs in different assets with none).
+CONCLUSION: the general hypothesis, AS STATED, is REJECTED. Ladder
+updated: `cftc_tff_positioning` -> `status: "killed"`, `current_gate: 2`
+in datacore/signal_ladder.json (mirrors the exact phrasing/structure the
+2026-08-03 occ_options_volume kill entry established a few hours earlier
+today, same file, same discipline).
+
+NOT DISCARDED — TLT momentum candidate filed, unconfirmed (mirrors the
+OCC session's reversed-candidate handling exactly): the TLT effect is
+strong enough to clear a strict 28-comparison Bonferroni bar on a single
+pre-registered test (not fished across variant definitions), so it is
+filed as its own DISTINCT, un-pre-registered hypothesis in
+open_questions.md ("extreme leveraged-money net positioning in UST BOND
+futures predicts CONTINUATION over the next 20 trading days") rather
+than silently dropped. Full entry states why it is NOT yet believable
+(REASONING STANDARD #4: one symbol of seven, no analogous strength in
+IEF/SHY — the rest of the UST curve — despite testing the same
+construction; REASONING STANDARD #2: a single continuous 156-week window
+spanning one dominant rate-cycle regime, exactly the "works in the
+regime that dominated the sample" risk), the second-order prior for why
+it could be real (leveraged-money/CTA trend-following in rates as a
+lagging trend-confirmation mechanism, a structural reason distinct from
+"nobody noticed") and against (one long autocorrelated macro episode
+dressed up as 156 nominal observations, a risk HAC corrects for within-
+symbol but not at the single-dominant-episode level), and the exact
+ladder path a future session should follow (disjoint out-of-sample
+window first, cross-UST-curve generalization check second, regime split
+before any gate-3 promotion) — explicitly NOT to be confirmed by re-using
+this same 2023-08..2026-07 window.
+
+GATES: `python3 -m pytest test_cftc_tff_gate2.py -q` 28/28 pass. Full
+`python3 -m pytest -q`: 1114 passed, 1 skipped, 4 warnings (pre-existing
+scipy precision-loss + spearmanr constant-input warnings on unrelated
+files, not this PR's code) — zero failures, full suite including the 28
+new tests. (Container note: this session's environment initially lacked
+`pandas`/`openpyxl`/etc. entirely — `pip install -r requirements.txt -r
+requirements-dev.txt` was required before ANY test could collect;
+unrelated to this PR's diff, a fresh-container gap, not a regression.)
+`npx tsc --noEmit`: 3 errors — A/B-verified via `git stash -u` byte-
+identical on unmodified `main` in this same container (this PR touches
+zero .ts/.tsx files, so tsc's count cannot have moved; the absolute
+count differs from the historically-logged "79 baseline" because this
+container's installed toolchain/deps differ from prior sessions', not
+because anything changed — noted honestly rather than asserting a false
+match). `npx tsx --test server/*.test.ts`: 953 pass, 8 fail — every
+failure is the exact same pre-existing set this repo's own 2026-07-31
+CFTC-TFF gate-1 session already documented as pre-existing on unmodified
+main (aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware, gridTiles' pmtiles-magic check) — this
+PR touches zero server/.ts files, so no new A/B was re-run, the existing
+documented precedent applies directly. `npm run build`: could NOT be run
+this session — this container's `node_modules` is essentially empty
+(only the root package present, `tsx` binary absent from `node_modules/
+.bin`), an environment gap distinct from and in addition to the missing-
+Python-deps gap above; a full `npm install` was not attempted given the
+scratch time budget and because this PR touches zero client/server
+build-relevant files (Python + JSON + Markdown only) — PROMOTION RULE 6's
+visual-harness requirement explicitly applies only to PRs touching
+`client/`, which this one does not. `python3 -c "import json;
+json.load(...)"` on the edited `signal_ladder.json`: valid.
+
+BACKTEST: N/A — pure gate-2 statistical measurement, no trading logic,
+no scoring/sizing/threshold value touched (same precedent as every prior
+gate-2 screen in this repo: the 2026-07-05/07-08 COT runs, the 2026-08-03
+OCC run).
+
+Version bumped 1.0.586 -> 1.0.587 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is a signal-
+ladder gate result on an already-archived, already-RAW-displayed stream
+(`/api/data/tff`); no new data stream, archive, or /data-facing surface
+was added. The TLT candidate, if it eventually confirms, would be a
+genuine cross-tie candidate for a future rates-vertical dashboard, noted
+so a future session doesn't have to re-derive the observation.
+
+NEXT (queued, not this session, per the ladder path filed in
+open_questions.md): (1) re-run the TLT-only construction on a disjoint
+out-of-sample window before any trust; (2) test cross-UST-curve
+generalization (IEF/SHY) at a lower bar; (3) the dealer-side "informed
+side" hypothesis from cftcTff.ts's own docstring remains completely
+untested — a separate future gate-2 pass, own PR, own pre-registration,
+not to be bundled with a re-run of either hypothesis above.
+
+STARVED: no — this was the session's one primary action, a fully
+pre-scoped matured next-step per SESSION BUDGET's ordering, matched to
+capacity; no queued higher-priority item (KNOWN BROKEN clean, no
+LIVENESS ALARM, no thrash) was skipped. One logical change, one PR, per
+PROMOTION RULE 5.

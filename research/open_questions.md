@@ -8062,3 +8062,98 @@ bundle with a re-run of the killed direction):
 Source: experiments.md 2026-08-03 (scheduled-routine PRODUCT session
 #2); datacore/signal_ladder.json occ_options_volume entry;
 scripts/occ_volume_gate2.ts.
+
+## [HYPOTHESIS · filed 2026-08-03, from the cftc_tff_positioning GATE 2 KILL] TLT (UST BOND) leveraged-money net-positioning extremes show MOMENTUM continuation at 20d, not mean-reversion — UNCONFIRMED, needs a disjoint out-of-sample window before any trust
+
+CONTEXT: cftc_tff_gate2_test.py pre-registered "leveraged-money net-
+positioning extremes mean-revert in index/rate/FX futures" (COT-index
+style 0-100 trailing-156-week bucket on lev_money_long minus lev_money_
+short as %OI, extreme_high/low >= 80 / <= 20) and tested it on 7 liquid
+ETF<->TFF-futures pairs (SPY, QQQ, TLT, IEF, SHY, UUP, FXE) x 20d/60d
+horizons x 2 buckets = 28 comparisons, 156 weeks each (2023-08 through
+2026-07), Newey-West HAC from the start (full methodology + honesty
+caveats in experiments.md 2026-08-03 and the script's own header
+comment). The general hypothesis, AS STATED, was REJECTED at gate 2 —
+the ladder entry is now `killed` in datacore/signal_ladder.json — but
+one pair came back with a strong, Bonferroni-surviving effect in the
+OPPOSITE direction from what mean-reversion predicts:
+
+  TLT +20d: extreme_high mean_diff +3.075% (t=3.227, p=0.0013)
+            extreme_low  mean_diff -6.503% (t=-8.824, p≈0)
+  TLT +60d: extreme_high mean_diff +3.743% (t=2.472, p=0.0134, does not
+            survive the 28-comparison Bonferroni bar of 0.0018)
+
+Heavy leveraged-money net-LONG TLT futures (extreme_high) is followed
+by a POSITIVE forward 20d return, and heavy net-SHORT (extreme_low) by
+a NEGATIVE one — momentum/continuation, exactly backwards from the
+pre-registered mean-reversion direction. The only other Bonferroni
+survivor, UUP extreme_high (-1.107%, p=0.0013), DOES point the
+predicted mean-reversion direction — so the two symbols that clear the
+strict multi-comparison bar disagree on sign, which is itself evidence
+against one coherent "leveraged-money extremes mean-revert" mechanism
+across financial futures (Reasoning Standard #5: a real edge should
+have a coherent story, not opposite signs in different assets with no
+stated reason why).
+
+TESTABLE FORM (the actual next-step hypothesis, distinct from the
+killed general-class one — do NOT reuse this same 2023-08..2026-07
+window as its own confirmation): "extreme leveraged-money net
+positioning in UST BOND (TLT-proxy) futures predicts CONTINUATION (not
+reversal) of the prevailing positioning direction over the next 20
+trading days."
+
+WHY NOT ALREADY BELIEVED (Reasoning Standard #4): this was the single
+pre-registered hypothesis (not fished across variant bucket/horizon
+definitions), and it does clear a strict Bonferroni bar across all 28
+comparisons run — stronger discipline than the OCC reversal candidate
+filed earlier today, which only cleared a naive uncorrected threshold.
+Still not yet believable on its own: (a) it is one symbol out of seven
+tested, so a "why TLT specifically and not IEF/SHY (the other rate
+futures in the same screen)" question is unanswered — IEF and SHY
+showed no comparably strong or Bonferroni-surviving effect, which is
+awkward for any story that should generalize across the UST curve;
+(b) the 156-week sample is a single continuous 2023-08..2026-07 rate
+regime (post-2023 tightening, a large multi-year TLT drawdown followed
+by a partial recovery) — a momentum result over one long rate cycle is
+exactly the kind of "worked in the regime that dominated the sample"
+case REASONING STANDARD #2 warns about; (c) no out-of-sample window has
+been tested at all yet.
+
+SECOND-ORDER PRIOR (Reasoning Standard #5, why this could be real if it
+survives out-of-sample testing): leveraged funds (the CFTC "leveraged
+money" category is largely CTAs/macro hedge funds) are documented
+trend-followers in rates futures — a positioning extreme in this
+category could be a lagging CONFIRMATION of an already-established
+trend rather than a contrarian crowding signal, which would predict
+continuation, not reversion, and would be structurally hard to arbitrage
+away precisely because trend-following is what that trader class is
+paid to do (a structural reason, not "nobody noticed"). Equally
+plausible mundane confound not yet ruled out: TLT's realized trend
+over this specific 3-year window (a large drawdown then partial
+recovery) could mechanically correlate with leveraged-money extremes
+without any causal or persistent relationship — i.e. this could be one
+long autocorrelated episode dressed up as 156 "independent" weekly
+observations, the same overlapping-window risk HAC is designed to
+correct for at the WITHIN-symbol level but cannot fully rule out at the
+"one dominant macro episode" level.
+
+LADDER PATH for the next session that picks this up (own PR, do not
+bundle with a re-run of the killed general-class hypothesis):
+  1. Re-run the identical TLT-only construction on a DISJOINT sample
+     window (the earliest available TFF history back to 2006, or the
+     period immediately preceding 2023-08 once that stretch is >20
+     trading days old) as true out-of-sample replication — the
+     2023-08..2026-07 window used here must not be re-used as its own
+     confirmation.
+  2. If it survives on a disjoint window, test whether the effect is
+     specific to TLT or generalizes to IEF/SHY at a lower bar (e.g.
+     raw-means direction agreement even without Bonferroni survival) —
+     if the UST curve doesn't move together on this, the "leveraged
+     money = trend confirmation in rates" story needs revising.
+  3. Only after (1) and (2) does this move to `gate2_pass` candidate
+     status; a regime split (rate-hiking vs rate-cutting environment)
+     would be a reasonable next control before any promotion toward
+     LOGIC gate 3, given prior (b) above.
+Source: experiments.md 2026-08-03 (scheduled-routine PRODUCT session);
+datacore/signal_ladder.json cftc_tff_positioning entry;
+cftc_tff_gate2_test.py.
