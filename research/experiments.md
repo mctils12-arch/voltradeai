@@ -3,6 +3,139 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-03 (scheduled-routine session) [REPAIR] — TIER3-DIAG audit line enriched with the actual per-problem system/severity/message, closing a month-old "1 issues" mystery follow-up (v1.0.584, T-BOT + SHARED)
+
+TERRITORY: T-BOT (server/bot.ts, server/tier3DiagVisibility.test.ts) + SHARED
+(package.json/package-lock.json, research/experiments.md — minimized, last
+commit per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(newest-at-top), research/open_questions.md's KNOWN BROKEN section in full,
+research/wishlist.md skimmed (DATACORE MAXIMUS resume block — no blocking
+decision). Loop-health ratio, last 10 tagged entries (2026-07-30 through
+2026-08-02): 4/10 [REPAIR], 5/10 [PRODUCT], 1/10 [RESEARCH] — well under the
+7+ thrash bar, no meta-problem override. AUDITS & DEBT register: neither
+audit overdue. `/api/health` on prod: all checks `ok` (server, database,
+alpaca ACTIVE, python, scanner 0 consecutiveFailures, licensing),
+`bot.status: "active"`, `drawdownPct: "0.0"`, `liveness.dark: false` — no
+LIVENESS ALARM. KNOWN BROKEN #10/#20 remain the only open items, both
+explicitly gated on future evidence that hasn't accumulated (not actionable
+this session, confirmed by re-reading both in full).
+
+PRIMARY ACTION SELECTION: pulled the last 300 `/api/diag/audit` entries live
+before assuming the repair tier was empty. Zero ERROR/FAIL/KILL/COMPLIANCE-
+tagged entries, but a recurring `TIER3-DIAG "System health: warning — 1
+issues"` line fired on essentially every hourly Tier-3 cycle across the
+entire fetched window (spanning 2026-08-02T07:58Z through 2026-08-03T11:00Z,
+and per grep of this file, the exact same terse line has recurred since
+2026-07-05/06 — nearly a month). Two prior sessions (2026-07-05 RESEARCH
+entry, 2026-07-06 R19 entry) both flagged this as a "follow-up for a
+diagnostics session" and never closed it. READ BEFORE WRITE traced the
+call site (`server/bot.ts` ~line 4501-4512): it runs `diagnostics.
+run_diagnostics()` fresh every Tier-3 cycle and has full access to
+`report["problems"]` (each carrying `system`/`severity`/`message` per
+`diagnostics.py`'s own schema) but only ever audited
+`diagReport.problems?.length` — the count, never which system or what the
+message said. A SEPARATE, sibling code path (Tier-2's `DIAGNOSTIC` audit
+line, ~line 3293-3315, calling `get_auto_fix_params()`) DOES build a real
+`[SEVERITY] message` summary string — but live `/api/diag/audit?
+type=DIAGNOSTIC` returned ZERO entries ever in the queryable window, so
+that richer line has apparently never once fired in production (a
+separate, unexplained puzzle — not investigated further this session, see
+NEXT below) while the terse Tier-3 line has fired constantly. Checked
+`/api/diag/ml` first to rule out the obvious candidate: `total_trades: 0`
+in `live_performance`, so the "low win rate" problem (needs >20 trades)
+cannot be the recurring cause — the actual cause has been genuinely
+unknown to every session that's seen this line. This is a real, live,
+currently-reproducing, previously-un-repaired audit-log opacity gap
+(REPAIR mandate: "fix a bug seen in audit logs" is SESSION BUDGET's first
+primary-action tier) — chose it over starting fresh research.
+
+WHAT SHIPPED: `server/bot.ts`'s TIER3-DIAG audit call now builds a `detail`
+string from `diagReport.problems` (`[SEVERITY] system: message`, joined
+with " | ") and appends it to the existing count-only message, so the very
+next time this fires (which per the observed cadence should be within the
+hour of merge) the audit log will finally say WHAT is wrong, not just that
+something is. Pure read-and-log addition — `diagReport` was already parsed
+in memory for the `.length` read; no new subprocess call, no new schedule,
+no trading/sizing/scoring path touched, cannot affect any live decision.
+Mirrors the established enrichment precedent on this exact file
+(TIER3-MANIP-ERROR/TIER3-ML-ERROR both went from bare-count/generic
+messages to rich causal detail via the same "the data was already there,
+just log it" pattern).
+
+RATCHET: `server/tier3DiagVisibility.test.ts` (NEW, 3 tests, mirrors the
+source-inspection convention `tier3ManipVisibility.test.ts`/
+`tier2DaemonTimeoutVisibility.test.ts` already established for this
+un-unit-testable orchestrator file) — pins that the audited detail
+includes `p.system`/`p.severity`/`p.message` (not just the count), that
+the count itself survives alongside the new detail (not replaced), and a
+direct behavioral test of the exact detail-building expression against
+empty/malformed/well-formed `problems` arrays (never throws). A/B-verified
+via `git stash` on `bot.ts` alone: the first test fails pre-fix (`actual:
+false` against `block.includes("diagReport.problems")` etc.) and all 3
+pass post-fix.
+
+VERIFIED: sandbox started with no `node_modules` and no Python deps beyond
+`typescript` (the same recurring clean-container gap every prior session
+has logged) — ran `npm install` (487 packages) and `pip install -r
+requirements-dev.txt` + `pip install -r requirements.txt`. `npx tsx --test
+server/*.test.ts`: 1016 passed, 1 failed (the 1 failure, `every
+client/public/tiles/*.pmtiles has the PMTiles magic`, is PRE-EXISTING and
+unrelated — the R2 tile-migration artifact prior sessions have already
+confirmed byte-identical on untouched `main`). `npx tsc --noEmit`: 79
+errors — matches the exact documented baseline count from the prior
+session's entry (App Store rankings PR, same day prior); zero Python or
+new-file-driven type errors introduced. `npm run build`: clean (client +
+server, `dist/index.cjs` 13.1mb). `python3 -m pytest -q`: 1086 passed, 1
+skipped — zero Python files touched this session, pure environment-
+completeness check (count differs slightly from the most recent PRODUCT
+session's 1070/1 because this environment's freshly-installed dep set
+differs by a few collected cases, not a regression signal — no Python
+source changed).
+
+BACKTEST: N/A — pure observability/audit-log enrichment, no scoring,
+sizing, or threshold value changed. PROMOTION RULE 3's Sharpe/drawdown
+comparison doesn't apply the way it would to a strategy change.
+
+DEPLOY-COUPLING NOTE: no order-execution, sizing, or scoring code touched;
+this is a same-file, same-precedent change as the already-shipped
+TIER3-MANIP-ERROR/TIER3-ML-ERROR enrichments. Session ran outside the
+9:30-16:00 ET window regardless (Sunday... actually 2026-08-03 is a
+Monday; market was open during part of this session — audit confirms
+TIER2/MANIPULATION/EXECUTION cycles running normally throughout with zero
+new ERROR/FAIL/KILL entries after this change was authored, consistent
+with a pure-logging change).
+
+MERGE-ORDER: `package.json`/`package-lock.json` (SHARED) are this
+session's only version-bump edits, last commit, minimized to the version
+field (both files, kept in sync — `package-lock.json` was found stale at
+1.0.582 vs. `package.json`'s 1.0.583 before `npm install` synced it; both
+now bumped together to 1.0.584). `git fetch origin main` immediately
+before confirmed `origin/main` at `a3de744`/v1.0.583 (this session's
+starting branch, `claude/busy-fermi-6nldph`, had zero prior commits and no
+existing PR — `list_pull_requests` for this branch head returned empty —
+so this is a fresh branch off the current main tip, not a rebase).
+Version 1.0.583 -> 1.0.584, read-and-increment at commit time.
+
+NEXT: (1) the Tier-2 `DIAGNOSTIC` audit line (`get_auto_fix_params()`,
+bot.ts ~line 3293-3315) has apparently never fired in production despite
+running every 5th Tier-2 cycle and building the same kind of
+problems-derived summary — worth a future session's live investigation
+once this session's fix has surfaced a few real TIER3-DIAG detail strings
+to compare against (is the Tier-2 path silently throwing inside its own
+try/catch, swallowed to `console.error` only with no audit trail, or does
+its underlying `report["problems"]`/`["warnings"]` genuinely never overlap
+with Tier-3's independent call at the moments each fires?); (2) once the
+next TIER3-DIAG line lands with real detail, a future session should read
+it and — if it is the suspected `api_checks` file-existence flakiness
+(polygon/sec_edgar/wikipedia/gdelt/fred cache-presence checks) — decide
+whether that's a genuine intermittent data-source gap worth fixing at the
+source or a diagnostics-check false positive in the `check_cache_freshness`
+staleness-window logic, following the same "only flag what could actually
+be wrong" precedent `test_diagnostic_false_positives.py` already
+established for the ml_model dynamic-criticality check.
+
 ## 2026-08-02 (scheduled-routine PRODUCT session #2) [PRODUCT] — App Store rankings keyed mirror shipped: /api/v1/data/appstore-rankings, the sixth "shipped-data-no-v1-API" sweep instance, closing the gap the prior session left open (v1.0.575, SHARED)
 
 TERRITORY: SHARED (server/apiProduct.ts, server/apiProduct.test.ts,
