@@ -38329,3 +38329,130 @@ Pan cost under terrain unchanged by design — camera-driven frames are
 real work; the repair removes FORCED frames when the user isn't moving.
 Positions stay exact and snap on the next poll — motion smoothness is
 sacrificed ONLY on machines the governor already flagged as drowning.
+
+## 2026-08-03 (scheduled-routine session, market-hours) [REPAIR] — options-slot race: tier dispatcher now re-checks live cap before SELL_CSP (v1.0.586, T-BOT, PR #683)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths — order-submission
+internals/submit_options_order itself untouched). PRIMARY ACTION
+SELECTION per SESSION BUDGET: read CLAUDE.md, tail of experiments.md
+(loop-health ratio last 10 tags: PIPELINE/PRODUCT/PIPELINE/PIPELINE/
+REPAIR/PIPELINE/PRODUCT/PIPELINE/RESEARCH/REPAIR — 2/10 REPAIR, healthy,
+no thrash-ratio escalation needed), open_questions.md KNOWN BROKEN
+section, wishlist.md (DATACORE MAXIMUS program state, no stall/
+starvation flags). /api/health: all subsystems ok, bot active, equity
+$109,967.44, drawdown 0.0%, liveness not dark — no LIVENESS ALARM.
+`/api/diag/audit?token=$DIAG_TOKEN` (top SESSION BUDGET category — "fix
+a bug seen in audit logs") surfaced a live, current bug: `OPTIONS-SLOT-
+FULL` firing repeatedly at `"(7/6)"` for VXUS/KWEB/SRAD — one MORE than
+the documented 6-slot cap, not the "cap constant mismatch" class KNOWN
+BROKEN #3 already fixed (that class showed a WRONG cap number, e.g.
+"4/3"; this shows the CORRECT cap number, 6, with count exceeding it).
+
+PRIOR (stated before investigating further, Reasoning Standard #10):
+expected either (a) a genuine race between two independent order-
+opening code paths given the system's documented architecture (Tier-2
+JS scanner path + Python tier engine both open options positions), or
+(b) simple multi-leg-spread double-counting (one logical CSP position
+producing 2+ raw Alpaca position rows). Bet on (a) given the "6" itself
+was correct (rules out a stale-constant repeat).
+
+VERIFIED: `/api/diag/positions-detail` — 7 real us_option positions
+held (AAL, CIFR, DRAM, IREN, KWEB, NKE x2), each single-leg short puts,
+ruling out (b). Read-before-write on both execution paths: `server/
+bot.ts`'s `executeTrades()` (Tier-2 scanner path, correctly increments
+its local `optionsSlotsUsed` after each fill within its own loop — no
+bug there) is called at line 3532/3555, BEFORE the "TIER DISPATCHER"
+block (line ~3546+/3569+) that dispatches `result.tier_actions`
+(`SELL_CSP`, computed by `tiered_strategy.py`'s `tier1_csp_core` against
+`ctx.positions` — a snapshot captured BEFORE `executeTrades` ran, since
+both `new_trades` and `tier_actions` come from the SAME upstream
+`scan_market()` RPC call). The tier dispatcher had ZERO re-check of live
+account state before submitting each `SELL_CSP` — it trusted Python's
+`slots_available` (computed from the stale pre-`executeTrades` snapshot)
+unconditionally. Confirms hypothesis (a): if `executeTrades` filled an
+options slot in the same cycle, the tier dispatcher's already-computed
+`SELL_CSP` actions could push the real count one past the cap — a
+TOCTOU race between two independent enforcement points, not a
+threshold/policy question (cap value 6 unchanged throughout), so no
+RULE REVIEW evidence gate applies (same class as the earlier mechanical
+`MAX_OPTIONS_POSITIONS` fixes).
+
+FIX: hoisted `MAX_OPTIONS_POSITIONS` from a local `const` inside
+`executeTrades` to module scope (one declaration for the whole file to
+drift from, instead of two that can silently diverge again). Extracted
+the options-position filter (us_option positions, excluding QQQ
+convexity-overlay hedge puts — same exclusion `executeTrades` already
+applied) into a shared `countOptionsPositions()` helper used by both
+`executeTrades` and the tier dispatcher. The tier dispatcher now
+re-fetches `/v2/positions` and re-enforces the cap immediately before
+dispatching any `SELL_CSP` action, incrementing a live counter after
+each successful submit so a second `SELL_CSP` in the same batch can't
+also slip through. Order-submission internals (`submit_options_order`,
+the raw HTTP POST path) untouched — this only changes WHETHER an order
+is attempted, never HOW it's transmitted (FROZEN PATHS respected).
+
+RATCHET: `server/optionsSlotRaceFix.test.ts` (NEW, 3 tests) — pins (1)
+`countOptionsPositions` defined exactly once and used by `executeTrades`
+rather than re-inlined, (2) the tier dispatcher fetches fresh positions,
+calls the shared helper, and gates `SELL_CSP` against
+`MAX_OPTIONS_POSITIONS` before the actual order submission in source
+order, (3) `MAX_OPTIONS_POSITIONS` declared exactly once. A/B-verified
+via `git stash push -- server/bot.ts`: 2/3 tests fail against the
+pre-fix code (no fresh-fetch, no live re-check found), all 3 pass
+post-fix; `git stash pop` restored the fix cleanly.
+
+VERIFIED (full gates): `python3 -m pytest -q` — 1083 passed, 2 skipped
+(zero `.py` files touched this session; ran for full-suite hygiene per
+PROMOTION RULE 1). `npx tsx --test server/*.test.ts` — 1019/1020 passed;
+the 1 failure (`gridTiles.test.ts`'s pmtiles-magic check) is pre-existing
+and environment-only — confirmed via the same `git stash` maneuver that
+it fails identically with `server/bot.ts` reverted, i.e. unrelated to
+this change (missing large binary tile assets in this session's
+environment). `npx tsc --noEmit` — 79 errors, byte-identical to the
+documented baseline, zero new. `npm run build` clean (pre-existing
+chunk-size and astronomy-engine-export warnings only, no new ones).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+BACKTEST: N/A — zero scoring, sizing, or strategy logic touched; this
+restores existing cap enforcement to work as documented (closes an
+order-submission race), not a new trading rule or threshold.
+
+Version bumped 1.0.585 -> 1.0.586 (PROMOTION RULE 4) in `package.json` +
+`package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new — this is an internal risk-cap
+enforcement fix within the existing CSP/options execution path; no new
+data stream, archive, or /data-facing surface.
+
+PR #683 opened from `claude/eloquent-dijkstra-mtvwbq`. MARKET-HOURS
+NOTE (this session ran during market hours): PR description states
+merge should wait until after 4:00 PM ET today per the scheduled-
+routine instructions, while flagging that this closes a live, currently
+recurring breach of a documented risk cap on the paper account — final
+call on early-merge left to the human/reviewing session per that same
+instruction. Session subscribed to PR activity per standing protocol;
+will drive CI to green and address review comments per the drive-to-
+green posture since this is a PR the session itself opened.
+
+NEXT (queued, not this session): the SAME race window could in
+principle also let a `BUY_PUT` (Tier 4 tail-hedge) action fire alongside
+a scanner-path options fill, though `BUY_PUT` hedge puts are explicitly
+excluded from the CSP-slot cap by `countOptionsPositions()`'s QQQ-symbol
+exclusion (by design — hedges aren't scanner/CSP slot consumers), so no
+action needed there; noted so a future session doesn't re-derive it.
+A future session should check `/api/diag/audit?type=OPTIONS-SLOT-FULL`
+a few days after this deploys — the tier-dispatcher-sourced skip
+messages (new, worded "tier dispatcher skipped SELL_CSP") should start
+appearing in place of the account ever exceeding 6 real positions again;
+if a fresh case of "(N/6)" with N>6 ever recurs after this ships, per
+RECURRENCE ESCALATES that would be a THIRD distinct mechanism on this
+subsystem (stale-constant class, then this TOCTOU class) and should
+stop patching and become a root-cause/architecture-smell session instead.
+
+STARVED: no — this was the session's one primary action ([REPAIR] per
+SESSION BUDGET's top category, a live audit-log-visible bug); matched to
+capacity, fall-through not reached this session (one logical PR per
+PROMOTION RULE 5). Market open at commit time (2026-08-03, Monday
+~12:01pm ET) — system healthy throughout per the pre-session /api/health
+check; no LIVENESS ALARM.

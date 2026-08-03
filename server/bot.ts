@@ -301,6 +301,14 @@ const DAILY_LOSS_LIMIT = -3; // percent — hard circuit breaker
 const MAX_POSITION_SIZE = 0.20; // Safety ceiling — real sizing from system_config.py (3-15%)
 const MAX_TOTAL_EXPOSURE = 0.30; // 30% of equity for ACTIVE trades (excludes QQQ floor + third leg)
 const MAX_POSITIONS = 8; // absolute ceiling (dynamic sizing uses portfolio heat)
+// Single source of truth for the options (CSP) position cap — mirrors
+// system_config.py's MAX_OPTIONS_POSITIONS (KNOWN BROKEN #3, 2026-07-11).
+// Module-scope (not a per-function local) so every options-opening path
+// in this file — the Tier-2 scanner path (executeTrades) AND the tier
+// dispatcher (SELL_CSP) — enforces the identical cap; see the RACE FIX
+// 2026-08-03 comment at the tier dispatcher for why two enforcement
+// points need to agree on more than just this value.
+const MAX_OPTIONS_POSITIONS = 6;
 const STOP_LOSS_PCT = 0.15; // Emergency backstop only — real stops from system_config.py (6% ATR-based)
 const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_config.py (12% ATR-based)
 // NOTE: These are EMERGENCY SAFETY NETS only. The real limits come from
@@ -352,6 +360,21 @@ const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", 
 function isOptionSymbol(ticker: string): boolean {
   const t = String(ticker).toUpperCase();
   return t.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(t);
+}
+
+// Shared by executeTrades() and the tier dispatcher's SELL_CSP gate so both
+// options-opening paths count the same thing the same way (RACE FIX
+// 2026-08-03 — see the tier dispatcher comment). Excludes QQQ convexity
+// overlay puts, which are hedge positions, not scanner/CSP slot consumers.
+function countOptionsPositions(positions: any[]): number {
+  return Array.isArray(positions)
+    ? positions.filter((p: any) => {
+        if (p.asset_class !== "us_option") return false;
+        const sym = p.symbol || "";
+        if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
+        return true;
+      }).length
+    : 0;
 }
 
 // ─── ET Hour Helper + Order Params — extracted to ./orderParams (see top imports) for unit testing ──
@@ -3546,8 +3569,33 @@ print(json.dumps(check_weekly_loss(history)))
       if (result.tier_actions && result.tier_actions.length > 0) {
         audit("TIERS", `${result.tier_actions.length} tier actions: ${JSON.stringify(result.tier_stats || {})}`);
 
+        // RACE FIX 2026-08-03: result.tier_actions was computed by Python's
+        // run_tiers() (tiered_strategy.py's tier1_csp_core) against a
+        // positions snapshot taken BEFORE executeTrades() ran a few lines
+        // above — executeTrades can itself fill options positions via the
+        // Tier-2 scanner path in this same cycle. Dispatching SELL_CSP
+        // against that now-stale slots_available let a 7th options position
+        // through the documented 6-slot cap (live evidence: OPTIONS-SLOT-FULL
+        // audit lines reading "(7/6)"; /api/diag/positions-detail confirmed
+        // 7 real us_option positions held, one over MAX_OPTIONS_POSITIONS).
+        // Re-fetch positions HERE — after executeTrades has already run —
+        // and re-enforce the same cap immediately before dispatch, mirroring
+        // executeTrades' own optionsSlotsUsed/countOptionsPositions pattern
+        // so both options-opening paths agree on live state, not a stale
+        // pre-cycle snapshot. Mechanical fix closing a TOCTOU race between
+        // two independent enforcement points; the cap VALUE (6) is
+        // unchanged, so no RULE REVIEW threshold gate applies.
+        const freshPositionsForTiers = await alpaca("/v2/positions").catch(() => []);
+        let tierOptionsSlotsUsed = countOptionsPositions(
+          Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
+        );
+
         for (const action of result.tier_actions) {
           if (state.killSwitch) break;
+          if (action.action === "SELL_CSP" && tierOptionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
+            audit("OPTIONS-SLOT-FULL", `${action.ticker}: tier dispatcher skipped SELL_CSP — options slots full (${tierOptionsSlotsUsed}/${MAX_OPTIONS_POSITIONS})`);
+            continue;
+          }
           try {
             // ── TIER 1/2: SELL CSP ────────────────────────────────────────────
             // CSPs are options trades — use the Python options_execution path
@@ -3586,6 +3634,7 @@ else:
                 const r = JSON.parse(stdout.trim());
                 if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
+                  tierOptionsSlotsUsed++;
                 } else {
                   audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
@@ -3922,33 +3971,14 @@ else:
     const stockPositions = Array.isArray(positions)
       ? positions.filter((p: any) => (p.asset_class || "us_equity") === "us_equity").length
       : held.length;
-    const optionsPositions = Array.isArray(positions)
-      ? positions.filter((p: any) => {
-          if (p.asset_class !== "us_option") return false;
-          // Don't count convexity overlay puts against scanner slots
-          const sym = p.symbol || "";
-          if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
-          return true;
-        }).length
-      : 0;
     // BUG FIX 2026-07-29: was hardcoded to 3, a stale local constant that
     // predates system_config.py's dedicated MAX_OPTIONS_POSITIONS key
-    // (added 2026-07-11, KNOWN BROKEN #3 fix) which is explicitly
-    // documented there as "Max total open OPTIONS (CSP) positions" and
-    // "the single source of truth" at value 6, held constant across every
-    // regime. This scanner-path slot check counts the SAME thing
-    // (total open us_option positions) as tiered_strategy.py's
-    // tier1_csp_core(), which already generates up to 6 CSP candidates —
-    // so a stricter local cap of 3 here silently blocked legitimate
-    // Tier-2-scanner options trades once the tier engine (or this path
-    // itself) had filled 3 of the 6 intended slots. Live evidence
-    // 2026-07-29: OPTIONS-SLOT-FULL fired for VXUS/KWEB at "4/3" while
-    // the account correctly held 4 real CSP positions (within the 6-slot
-    // budget) — the scanner path was starving itself against a ceiling
-    // nothing else in the system agrees with. Mechanical fix restoring
-    // the documented single-source-of-truth value; not a new threshold
-    // policy (same class as the 2026-07-11 fix), no RULE REVIEW gate.
-    const MAX_OPTIONS_POSITIONS = 6;  // Separate slots for options — mirrors system_config.py's MAX_OPTIONS_POSITIONS
+    // (added 2026-07-11, KNOWN BROKEN #3 fix). Now reads the module-scope
+    // MAX_OPTIONS_POSITIONS (hoisted 2026-08-03 so this path and the tier
+    // dispatcher's SELL_CSP gate can never drift from each other again —
+    // see countOptionsPositions() and the RACE FIX comment at the tier
+    // dispatcher).
+    const optionsPositions = countOptionsPositions(positions);
     let slotsUsed = stockPositions;  // Only count stocks against MAX_POSITIONS
     let optionsSlotsUsed = optionsPositions;
     let totalDeployed = Array.isArray(positions)
