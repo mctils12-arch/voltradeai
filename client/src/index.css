@@ -3615,6 +3615,29 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-gridstress-composite-label { font-size: 12.5px; color: var(--text-secondary); }
 .vt-gridstress-composite-value { font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
 
+/* ── /data/crop-conditions — USDA NASS weekly condition ratings (2026-08-04) ── */
+.vt-cropcond-body { display: flex; flex-direction: column; gap: 14px; }
+.vt-cropcond-commodity {
+  background: var(--bg-card); border: 1px solid rgba(102, 128, 160, 0.25);
+  border-radius: 10px; padding: 14px;
+}
+.vt-cropcond-commodity-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.vt-cropcond-commodity-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.vt-cropcond-commodity-gpe { font-size: 11px; font-family: var(--font-mono); color: var(--text-tertiary); }
+.vt-cropcond-bar {
+  display: flex; height: 16px; border-radius: 4px; overflow: hidden;
+  background: rgba(102, 128, 160, 0.15);
+}
+.vt-cropcond-seg { height: 100%; transition: width 0.3s ease; }
+.vt-cropcond-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; }
+.vt-cropcond-legend-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.vt-cropcond-legend-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.vt-cropcond-legend-val { font-family: var(--font-mono); color: var(--text-primary); margin-left: 2px; }
+.vt-cropcond-note { font-size: 10.5px; color: var(--text-tertiary); margin-top: 8px; line-height: 1.4; }
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

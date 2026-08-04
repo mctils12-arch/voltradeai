@@ -64,6 +64,9 @@ const PAGES = {
   // × EXTRACTION-REGISTRY PROXIMITY hypothesis, 2026-07-20) — same Phase 5
   // ratchet rule as streams/gridstress above.
   methanehotspots: { route: "/app#/data/methane-hotspots", map: false },
+  // Crop conditions — USDA NASS weekly ratings (2026-08-04) — same Phase 5
+  // ratchet rule as streams/gridstress/methanehotspots above.
+  cropconditions: { route: "/app#/data/crop-conditions", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -382,6 +385,28 @@ const FIXTURES = {
       weather_degree_days: 27, weather_percentile: 74, weather_sample_days: 62,
       composite_percentile: 72,
     },
+  },
+  // Crop conditions — USDA NASS weekly ratings (2026-08-04, RAW display).
+  "/api/data/crop-conditions": {
+    kind: "raw",
+    source: "USDA NASS QuickStats — weekly crop condition ratings (US government data) (fixture)",
+    attribution: "USDA National Agricultural Statistics Service (QuickStats)",
+    time: "2026-08-03T00:00:00.000Z",
+    latest_week: "2026-08-02",
+    count: 10,
+    note: "national weekly CONDITION ratings for corn + soybeans (fixture)",
+    rows: [
+      { commodity: "CORN", week_ending: "2026-08-02", item: "CORN - CONDITION, MEASURED IN PCT VERY POOR", pct: 4, rt: "2026-08-03" },
+      { commodity: "CORN", week_ending: "2026-08-02", item: "CORN - CONDITION, MEASURED IN PCT POOR", pct: 10, rt: "2026-08-03" },
+      { commodity: "CORN", week_ending: "2026-08-02", item: "CORN - CONDITION, MEASURED IN PCT FAIR", pct: 25, rt: "2026-08-03" },
+      { commodity: "CORN", week_ending: "2026-08-02", item: "CORN - CONDITION, MEASURED IN PCT GOOD", pct: 48, rt: "2026-08-03" },
+      { commodity: "CORN", week_ending: "2026-08-02", item: "CORN - CONDITION, MEASURED IN PCT EXCELLENT", pct: 13, rt: "2026-08-03" },
+      { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT VERY POOR", pct: 2, rt: "2026-08-03" },
+      { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT POOR", pct: 7, rt: "2026-08-03" },
+      { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT FAIR", pct: 28, rt: "2026-08-03" },
+      { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT GOOD", pct: 52, rt: "2026-08-03" },
+      { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT EXCELLENT", pct: 11, rt: "2026-08-03" },
+    ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry
   // per health bucket + a multi-kind archive so the bar-chart rendering

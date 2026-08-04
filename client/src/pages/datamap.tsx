@@ -32,6 +32,7 @@ import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
 import MidasView from "./midas";
+import CropConditionsView from "./cropConditions";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2383,6 +2384,9 @@ export default function DataMapPage() {
   // Grid-stress descriptive reading (#/data/grid-stress) — same overlay
   // pattern (GRID VISION A1 gate-2 FAIL path product, 2026-07-07).
   const [gridStressOpen, setGridStressOpen] = useState(() => window.location.hash === "#/data/grid-stress");
+  // Crop-conditions chart/table view (#/data/crop-conditions) — same
+  // overlay pattern (RAW national aggregate, not a spatial layer).
+  const [cropCondOpen, setCropCondOpen] = useState(() => window.location.hash === "#/data/crop-conditions");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2707,6 +2711,7 @@ export default function DataMapPage() {
       setSignalsOpen(window.location.hash === "#/data/signals");
       setPipelineHealthOpen(window.location.hash === "#/data/pipeline-health");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
+      setCropCondOpen(window.location.hash === "#/data/crop-conditions");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11556,6 +11561,9 @@ export default function DataMapPage() {
       {gridStressOpen && (
         <GridStressView onBack={() => { window.location.hash = "#/data"; setGridStressOpen(false); }} />
       )}
+      {cropCondOpen && (
+        <CropConditionsView onBack={() => { window.location.hash = "#/data"; setCropCondOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12095,6 +12103,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/grid-stress"; setGridStressOpen(true); }}>
               <Zap size={13} /> Grid stress (TX) — descriptive only
               <span className="vt-streams-launch-sub">gate-2 FAILED · non-predictive reading</span>
+            </button>
+            {/* Crop-conditions launcher (2026-08-04): USDA NASS national
+                weekly condition ratings — an 18-state aggregate, not a
+                spatial layer, so it launches from the panel top like the
+                other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-cropcond-launch
+                    onClick={() => { window.location.hash = "#/data/crop-conditions"; setCropCondOpen(true); }}>
+              <Leaf size={13} /> Crop conditions — USDA NASS
+              <span className="vt-streams-launch-sub">weekly corn &amp; soybean condition ratings · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
