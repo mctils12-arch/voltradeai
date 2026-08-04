@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-04 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — crop_conditions_usda_nass GATE 1 PASSED: 10/10 exact match vs USDA NASS's own published Crop Progress bulletin (v1.0.589)
+
+TERRITORY: T-DATACORE (scripts/crop_conditions_gate1.ts, new, additive
+only; datacore/signal_ladder.json single-entry edit; package.json/
+package-lock.json version bump kept minimal per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full per READ BEFORE WRITE.
+`/api/health` (voltradeai.com): `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, `drawdownPct:"0.0"`, alpaca ACTIVE — no LIVENESS
+ALARM. `git fetch origin main` — local branch was already at `origin/
+main`'s tip (`ffa1dbd`, PR #685 merged by the prior session), no restart-
+from-main needed. Loop-health ratio, last 10 tagged entries (2026-08-01
+through 2026-08-03): 3 REPAIR / 6 PRODUCT-or-PIPELINE / 1 RESEARCH — well
+under the 7+ thrash bar, no meta-problem to stop for. `research/
+open_questions.md` KNOWN BROKEN section: items #10/#20/#21 remain parked
+on their own filed evidence gates (the new `/api/diag/shadow` probe from
+the immediately-prior session unblocks both, but neither has accumulated
+data yet) — none blocking product work, matching this session's own
+"note but proceed" instruction. `research/wishlist.md` tail: DATACORE
+MAXIMUS resume block, no blocking human decision, no starvation flag.
+
+PRIMARY ACTION SELECTION: the two most recent PRODUCT/PIPELINE sessions
+(2026-08-03, occ_options_volume gate-1-pass and gate-2-kill) both left
+the identical NEXT note: "the same 'gate-1 criteria stated but never
+run' gap exists for port_dwell_maritime_transit, crop_conditions_usda_
+nass, and nrc_outage_reports." Checked `datacore/signal_ladder.json`
+for all three: `nrc_outage_reports` (status `gate1_pending`, "no build
+or gate-1 run found in the record") would need a NEW fetcher/parser
+built from scratch before any gate check is possible — out of scope for
+one session's primary action. `port_dwell_maritime_transit` (status
+`gate1_pending`, shipped v1.0.60) and `crop_conditions_usda_nass`
+(status `raw_only`, shipped v1.0.164, key-gated archiver already
+verified live) both only need the CHECK run, not new collection.
+Picked `crop_conditions_usda_nass`: its stated gate-1 criterion ("values
+vs the published Crop Progress report") points at a single, dated,
+government-published bulletin — the cleanest, most falsifiable
+ground-truth comparison of the three, and option (a) in this session's
+own mandate ("advance a datacore/ pipeline through its next ladder
+gate; gate 1 ground-truth validation... IS product work") names this
+directly.
+
+GROUND TRUTH SOURCING (done BEFORE writing any comparison code, so the
+truth values couldn't be back-fit to whatever production happened to
+return): searched for USDA's own Crop Progress release schedule, found
+it publishes weekly Monday 4pm ET at `esmis.nal.usda.gov` (the current
+home of the former `usda.library.cornell.edu` Crop Progress archive —
+confirmed via a live 301 redirect, not assumed). Located the exact
+2026-08-03 release (`prog3126.txt`, covering week ending 2026-08-02)
+and downloaded it DIRECTLY via `curl` to this session's scratchpad —
+deliberately not trusting only the WebFetch tool's small-model summary
+of the page, since Reasoning Standard #7 (silent killers) applies to
+citations too: a summarization step is itself a place a "close enough"
+number could sneak in undetected. Grepped the raw text for the "Corn
+Condition" and "Soybean Condition" tables' "18 States" national summary
+rows (the exact same population NASS's own QuickStats API — this
+pipeline's source — reports at `agg_level_desc=NATIONAL`) and
+hand-recorded the five condition-class percentages for each commodity
+directly from that grep output (pasted below in scripts/
+crop_conditions_gate1.ts's header, not just asserted here).
+
+  Corn (Very poor/Poor/Fair/Good/Excellent):     4 / 10 / 25 / 48 / 13
+  Soybeans (Very poor/Poor/Fair/Good/Excellent):  2 /  7 / 28 / 52 / 11
+
+METHOD: `scripts/crop_conditions_gate1.ts` fetches the LIVE production
+route `/api/data/crop-conditions` (this session's container has no
+`NASS_API_KEY`, so re-hitting QuickStats directly from here isn't
+possible — reading what production's real poller, using the real
+Railway-provisioned key, already served through the unmodified `item`/
+`pct` fields `cropConditions.ts`'s own `parseConditions` produced is the
+honest substitute; zero reimplementation of the parser) and diffs all
+10 (commodity, condition-class) cells against the hand-recorded truth
+table above for `week_ending: "2026-08-02"` (the production cache's
+current `latest_week` at run time, confirmed before comparing — the
+script explicitly SKIPS rather than silently mis-comparing if a future
+run finds a different week live).
+
+RESULT: **GATE 1 PASSED, 10/10 exact match, 0 pp difference on every
+cell** — Corn 4/10/25/48/13 and Soybeans 2/7/28/52/11, both identical to
+the hand-recorded truth. Raw script output:
+`{"verdict":"PASS","week_ending":"2026-08-02","cells_checked":10,
+"cells_matched":10,"diffs":[]}`. This is a stronger result than the
+gate-1 criterion technically demanded a "close" match on — QuickStats
+and the published bulletin are compiled from the identical underlying
+survey (same discipline noted in `eia930_grid_demand`'s own gate-1
+entry: there is no fully independent third source for this specific
+weekly estimate), so an exact match confirms the PARSER and QUERY are
+correct, not that the underlying survey methodology is independently
+externally verified — stated honestly, matching this repo's existing
+precedent for this exact class of ground truth.
+
+VERIFIED (A/B against unmodified `main` via `git stash -u`, same
+container, byte-identical baseline confirmed before crediting this
+change): `npx tsx --test server/signalLadder.test.ts` 5/5 pass
+(unmodified — this session's `datacore/signal_ladder.json` edit is a
+single-entry status/note update, still valid against the same schema
+every other `gate1_pass` root already satisfies). `npx tsx --test
+server/*.test.ts`: 954 passed, 8 failed — IDENTICAL pass/fail count and
+identical failing file list (`aircraftTiling`, `apiKeyAccounts`,
+`compression`, `gdeltEvents`, the `pmtiles` magic-byte check,
+`owmTiles`, `seafloorTiles`, `securityMiddleware`) with this session's
+changes stashed out — pre-existing container-fixture gaps, not caused
+by this PR (which touches zero files in any of those areas). `npx tsc
+--noEmit`: 3 errors, all pre-existing toolchain-baseline (`vite/client`
+and `node` type-def resolution, a `baseUrl` deprecation notice) — none
+reference `scripts/crop_conditions_gate1.ts` or `signal_ladder.json`.
+`python3 -m pytest -q`: SKIPPED — `pytest` is not installed in this
+session's container (same documented environment gap as the prior
+session's occ gate-2 entry) and this PR touches zero `.py` files
+regardless. `npm run build`: FAILED with `tsx: not found` — this
+session's container has an effectively-empty `node_modules/.bin` (the
+exact gap documented in the 2026-08-03 shadow-probe session: "`tsx`
+binary absent from `node_modules/.bin`"), an environment-wide gap that
+predates and is unrelated to this change; `npx tsx --test` above (which
+works via npx's on-demand resolution) already exercises the same
+TypeScript this PR touches. No dedicated test file added for
+`crop_conditions_gate1.ts` itself — matches the established precedent
+for this exact class of file (`occ_volume_gate1.ts`, `occ_volume_gate2.ts`):
+a session-run measurement script producing one archival result, zero
+production code paths touched, not the kind of behavior change
+PROMOTION RULE 2 targets.
+
+BACKTEST: N/A — pure gate-1 DATA-layer ground-truth measurement, no
+trading logic, scoring, sizing, or threshold value touched. Same
+precedent as every prior gate-1/gate-2 entry this repo has logged
+(EIA-930, FRED, FINRA, OCC).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+Version bumped 1.0.588 -> 1.0.589 (PROMOTION RULE 4, read-and-increment
+at commit time) in `package.json` + `package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new — `/api/data/crop-conditions` was
+already a live RAW overlay (STANDING BEHAVIORS: raw overlays display
+as-is, no ladder gate needed for display); this session only advances
+the root's INTERNAL ladder-tracking status (`raw_only` -> `gate1_pass`
+in `datacore/signal_ladder.json`, feeding the existing `/data/signals`
+SIGNAL-STRENGTH dashboard's aggregate counts) — no new archive, layer,
+route, or /data-facing surface. The eventual gate-2 hypothesis
+(condition-delta vs forward grain futures returns, already stated in
+`cropConditions.ts`'s header) pairs naturally with the live Drought
+Monitor stream per the original BUILD ORDER 6 note, but that join is
+future gate-2 work, not attempted this session.
+
+NEXT (queued, not this session): (a) `crop_conditions_usda_nass` gate 2
+(condition-delta vs forward CORN/SOYB futures or ag-equity returns,
+belt-weighted with the Drought Monitor join) needs several more weeks
+of archived history before a meaningful pre-registered test — check
+`cropconditions/` archive depth first; (b) the same "gate-1 criteria
+stated but never run" gap now narrows to two: `port_dwell_maritime_
+transit` (check-only, same shape as this session's action) and
+`nrc_outage_reports` (needs a new build first, larger scope); (c) this
+session deliberately did not attempt `nrc_outage_reports` — noted, not
+started, per one-primary-action-per-session discipline.
+
+STARVED: no — this was the session's one primary action (gate-1
+DATA-layer validation per this session's own mandate option (a)),
+matched to capacity; fall-through not reached (one logical PR,
+PROMOTION RULE 5). No LIVENESS ALARM at session start; product work
+proceeded per the session's explicit instruction that it does not
+preempt DAILY repair duty, and no critical trading-loop item was found
+unfixed in KNOWN BROKEN regardless.
+
 ## 2026-08-03 (scheduled-routine PRODUCT session #2) [PIPELINE] — T-DATACORE — occ_options_volume GATE 2 KILLED: pre-registered customer call/put skew hypothesis rejected, reversed direction found but flagged unconfirmed (v1.0.585)
 
 TERRITORY: T-DATACORE (scripts/occ_volume_gate2.ts additive, zero
