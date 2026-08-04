@@ -39141,3 +39141,150 @@ matched to capacity per SESSION BUDGET); no higher-priority queued item
 was skipped (KNOWN BROKEN's two open items are both blocked on exactly
 this gap, not independently actionable; no LIVENESS ALARM; no thrash).
 One logical change, one PR, per PROMOTION RULE 5.
+
+## 2026-08-04 (scheduled-routine session) [REPAIR] — shadow_portfolio backfill_outcomes() result made audit-visible: 12,048 records, 100% unlabeled at every horizon since 2026-04-20 (v1.0.591, PR #688)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths) + server/
+shadowBackfillVisibility.test.ts + package.json/package-lock.json
+(SHARED, minimized to the version-bump line, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `/api/health`: `status:
+"ok"`, `bot.status:"active"`, `liveness.dark:false`, `drawdownPct:
+"0.0"` — no LIVENESS ALARM. Loop-health ratio: last 10 tagged entries
+(2026-07-31 through 2026-08-03) = 4 REPAIR / 10 PIPELINE-or-other, well
+under the 7+ thrash bar. Read open_questions.md KNOWN BROKEN in full;
+items #10 and #20 both explicitly instruct a future session to query
+`/api/diag/shadow`'s `win_rate_by_decision` once shadow_portfolio has
+accumulated enough backfilled history — a directly actionable queued
+NEXT STEP per SESSION BUDGET.
+
+PRIMARY ACTION: queried `/api/diag/shadow?token=$DIAG_TOKEN` (the probe
+the 2026-08-03 session built for exactly this check). Result:
+`total_records: 12048`, `oldest: 2026-04-20`, `newest: 2026-08-04`,
+`labeled_by_horizon`: **every single horizon (+5d/+10d/+20d) shows
+wins:0, losses:0, unknown:12048** — literally zero shadow records have
+ever been labeled, including ones from the very first day of logging,
+3.5+ months past even the widest (+20d) observability window.
+`win_rate_by_decision` is consequently `{}` (empty — nothing has >=5
+labeled records at any horizon, so #10's and #20's readiness bar isn't
+met and can't be, until backfill actually works). This is a Priority-2
+(PROTECT THE INTEGRITY OF LEARNING) finding, not just a blocked
+next-step: the counterfactual-logging machinery RULE REVIEW requires
+before any threshold change ships has never produced usable evidence,
+silently, since inception.
+
+READ BEFORE WRITE / ROOT-CAUSE TRACE (this session, not from memory):
+read `shadow_portfolio.py`'s `backfill_outcomes()` (the labeling loop,
+horizon-buffer math, per-ticker Alpaca batch fetch) and
+`_fetch_historical_bars_batch()` in full; read `server/bot.ts`'s
+`tier1Reflex()` call site (10pm UTC gate, `_shadowBackfilledToday`
+flag, `.then()`/`.catch()`) in full. Checked and ruled out several
+hypotheses by direct code inspection: (a) horizon-buffer skip logic —
+`min_observable` maxes at ~51 calendar days for the +20d horizon,
+records are up to 106 days old, not the cause; (b) `bars_feed()`
+env/import mismatch — shadow_portfolio.py correctly imports and calls
+the centralized `bars_feed()` fix (2026-07-18/07-30), not obviously
+broken; (c) `ALPACA_KEY`/`ALPACA_SECRET` env-var naming — matches the
+codebase-wide convention used in 8+ other modules, not a naming
+mismatch (initially suspected the wrong thing myself, checked against
+`bot_engine.py`/`options_execution.py`/`alpaca_feed.py`/etc. before
+ruling it out); (d) file-locking — `_load_shadow_log`/`_save_shadow_log`
+already use `fcntl` POSIX locks + atomic temp-file rename, not
+obviously racy. NONE of these were disprovable to 100% certainty
+without production Alpaca creds or server logs, which this repo-only
+session does not have access to (no `ALPACA_KEY` in this container by
+design). Could NOT reach a conclusive root cause this session.
+
+FIX SHIPPED (the actionable slice, given the access limitation): the
+nightly backfill job (`tier1Reflex`, bot.ts ~line 3271-3298) has run
+silently since inception — `.then()`/`.catch()` only ever hit
+`console.log`/`console.error`, invisible outside the container. Wired
+both paths through the existing persisted `audit()` log: success ->
+`audit("SHADOW-BACKFILL", <parsed stats dict JSON>)`; failure (bad
+JSON or subprocess rejection) -> `audit("SHADOW-BACKFILL-ERROR", ...)`.
+Mirrors the `TIER-KILL`/`TIER3-DIAG` visibility precedents exactly
+(same "the mechanism already exists, nobody can see its output"
+pattern as KNOWN BROKEN #3's TIER-KILL fix). Zero change to
+`backfill_outcomes()`, its labeling logic, or `shadow_portfolio.py` —
+purely additive observability in `server/bot.ts`.
+
+RATCHET: new `server/shadowBackfillVisibility.test.ts` (4 tests,
+source-inspection pattern copied from `tier3DiagVisibility.test.ts`
+since `tier1Reflex` isn't independently importable): pins both new
+`audit("SHADOW-BACKFILL"...)`/`audit("SHADOW-BACKFILL-ERROR"...)` call
+sites, confirms the pre-existing console logging survives untouched,
+and directly behavior-tests the error-detail-building expression
+(`Error`, plain string, non-Error object, `undefined`). A/B-verified
+via `git stash`: 2 of 4 fail against pre-fix `bot.ts`.
+
+GATES: this session had to `npm install` (`node_modules` was empty —
+only `typescript` present via prior `npx` caching) and
+`pip3 install --break-system-packages -r requirements.txt -r
+requirements-dev.txt` (`voltrade_daemon.py` SystemExit(2) at collection
+— numpy/pandas/requests missing) before any gate could run for real;
+noting this since a future session hitting the same empty-environment
+state shouldn't re-diagnose it from scratch. `npx tsx --test server/
+shadowBackfillVisibility.test.ts` 4/4 pass. `npx tsx --test server/
+*.test.ts`: 977 passed, 8 failed — A/B-verified via `git stash` to be
+byte-identical baseline failures (pmtiles magic-byte,
+`aircraftTiling`/`apiKeyAccounts`/`compression`/`gdeltEvents`/
+`owmTiles`/`seafloorTiles`/`securityMiddleware`, none touching this
+change). `npx tsc --noEmit`: 81 -> 82 (A/B-verified via `git stash`)
+— the +1 is `result.stdout.trim()` on the new code, the identical
+pre-existing `Buffer`/`.trim()` type-decl mismatch already present
+~40 other times in this same file (accepted non-blocking baseline
+pattern per every prior session's log, not a new error class).
+`npm run build` clean. `python3 -m pytest -q`: 1114 passed, 1 skipped,
+unchanged from the previously-recorded baseline (zero Python files
+touched).
+
+BACKTEST: N/A — pure audit-log visibility change, no scoring/sizing/
+threshold value touched.
+
+Version bumped 1.0.590 -> 1.0.591 (PROMOTION RULE 4) in `package.json`
++ `package-lock.json`.
+
+CROSS-SYSTEM INTEGRATION: none new — this is server-side diagnostics
+infrastructure over an existing internal learning-data pipeline, not a
+new data stream, archive, or /data-facing surface.
+
+PR #688 opened from `claude/busy-fermi-cslef6` (branch was already up
+to date with `origin/main` at session start per the harness's usual
+pre-set state, same as the 2026-08-03 session). Subscribed to PR
+activity per standing protocol; will drive CI to green per the
+drive-to-green posture since this is a PR the session itself opened.
+
+NEXT (queued, not this session, high priority — this is now the
+critical path for KNOWN BROKEN #10 and #20 AND for the general health
+of the RULE REVIEW evidence machinery): once this PR merges and
+deploys, and tonight's 10pm UTC cycle runs, a future session MUST check
+`/api/diag/audit?type=SHADOW-BACKFILL&token=$DIAG_TOKEN` (and the
+`-ERROR` variant) to learn the actual failure mode for the first time.
+Three concrete outcomes to distinguish: (1) the audit line shows
+`missing_price` consuming ~all attempted jobs -> the Alpaca historical-
+bars fetch itself is failing (auth, feed value, symbol format, or data
+plan entitlement — check the exact HTTP status via a follow-up probe if
+this is the case, since `_fetch_historical_bars_batch` only logs
+`resp.status_code` to `logger.warning`, also not currently audit-
+visible); (2) the audit line shows `updated` > 0 nightly but
+`/api/diag/shadow` still shows 0 wins/losses next time it's checked ->
+a write-loss/race bug between `backfill_outcomes()`'s
+`_save_shadow_log()` and `log_candidate()`'s far-more-frequent
+read-modify-write calls to the same file (both already use `fcntl`
+locks + atomic rename, so this would need a deeper trace, e.g. whether
+`log_candidate()`'s stale in-memory `records` list read before
+`backfill_outcomes()` finishes silently clobbers the just-written
+outcomes on its own next save); (3) no SHADOW-BACKFILL* audit line
+appears at all after 24h -> the 10pm-UTC gate itself isn't firing
+(check server uptime/restart timing around that hour, or whether
+`tier1Reflex()` is even being scheduled every cycle). Also queued,
+lower priority: audit-log `_fetch_historical_bars_batch`'s per-chunk
+`resp.status_code` failures the same way, since right now even outcome
+(1) above would only be inferable, not confirmed, from the stats dict
+alone.
+
+STARVED: no — this was the session's one primary action, a directly
+queued next-step per two already-filed KNOWN BROKEN items and matched
+to capacity; no higher-priority queued item was skipped (no LIVENESS
+ALARM, no thrash, KNOWN BROKEN scanned end-to-end). One logical
+change, one PR, per PROMOTION RULE 5.

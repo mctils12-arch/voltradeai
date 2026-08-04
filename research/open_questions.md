@@ -167,6 +167,17 @@
     trading days of history behind those firings (mirrors the ~90-day
     readiness bar already used for the other rejected_* buckets) before
     proposing the (a)/(b) threshold or regime-source change above.
+    **UPDATE 2026-08-04 (scheduled-routine session, [REPAIR], v1.0.591,
+    PR #688): the firing side has happened** — `/api/diag/shadow` now
+    shows `by_decision.rejected_masterkill: 140` (master_kill_switch has
+    fired 140 times since the item #3 fix shipped) — **but the readiness
+    bar can't be checked**: `win_rate_by_decision` is empty for every
+    decision bucket, including `rejected_masterkill`, because
+    `backfill_outcomes()` has labeled zero shadow records at any horizon
+    across the entire 12,048-record archive (same defect blocking item
+    #10's NEXT STEP directly above — see that entry and the 2026-08-04
+    experiments.md entry for the fix shipped and what a future session
+    should check). This item's NEXT is gated on the same fix as #10's.
 
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
@@ -381,6 +392,27 @@
     with the evidence cited in the PR per RULE REVIEW; if not, delete
     the four dead keys from `system_config.py` (DEAD CODE POLICY) rather
     than leave them as misleading documentation.
+    **UPDATE 2026-08-04 (scheduled-routine session, [REPAIR], v1.0.591,
+    PR #688): NEXT STEP above is now BLOCKED on a newly-found defect, not
+    just elapsed time.** Queried `/api/diag/shadow` per this note's own
+    instruction: `total_records: 12048`, oldest record `2026-04-20`
+    (106+ days old, well past the 90-day bar) — but `labeled_by_horizon`
+    shows **0 wins, 0 losses at every horizon (+5d/+10d/+20d), for all
+    12,048 records**. `backfill_outcomes()` has apparently never
+    successfully labeled a single record since inception, despite
+    running nightly per its own schedule. Root cause NOT found this
+    session (ruled out several hypotheses by code inspection — horizon-
+    buffer math, `bars_feed()` wiring, `ALPACA_KEY`/`ALPACA_SECRET` env
+    naming, file-locking — none conclusively; this repo-only session has
+    no production Alpaca creds or server logs to test further). Shipped
+    the unblocking step instead: the nightly job's result now routes
+    through the persisted audit log (`SHADOW-BACKFILL`/
+    `SHADOW-BACKFILL-ERROR`, see experiments.md 2026-08-04 entry) so the
+    NEXT session can read tonight's actual failure mode directly instead
+    of guessing. This item's NEXT STEP (and KNOWN BROKEN #20's, which
+    depends on the same backfill mechanism) cannot proceed until that
+    diagnosis happens and the underlying defect is fixed — treat this as
+    higher priority than the original 90-day-wait framing implied.
 
 11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
     `shadow_stats` pointed at a function that doesn't exist~~.
