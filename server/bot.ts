@@ -3278,8 +3278,23 @@ print(json.dumps(result))
           ).then((result) => {
               console.log("[SHADOW] Backfill result:", result.stdout);
               _shadowBackfilledToday = true;
+              // REPAIR 2026-08-04: this ran silently (console-only) since
+              // inception — /api/diag/shadow showed 12,048 records spanning
+              // 2026-04-20 to present with ZERO outcomes labeled at any of
+              // +5d/+10d/+20d, and there was no way to tell whether the job
+              // was erroring, running with 0 updates, or not running at all.
+              // Route the stats dict {updated, already_filled, missing_price,
+              // skipped, total_records} through the persisted audit log so
+              // that question is answerable without a code deploy.
+              try {
+                  const stats = JSON.parse(result.stdout.trim());
+                  audit("SHADOW-BACKFILL", JSON.stringify(stats));
+              } catch (parseErr: any) {
+                  audit("SHADOW-BACKFILL-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)}`);
+              }
           }).catch((e) => {
               console.error("[SHADOW] Backfill failed:", e);
+              audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
           });
       }
       if (nowHour === 0) {
