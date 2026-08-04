@@ -1071,6 +1071,18 @@ export function camdUtilizationColor(pct: number | null | undefined): string {
   return "#4d9fff";
 }
 
+/** NRC daily reactor-status tier tint (server/nrcReactorStatus.ts's
+ *  PlantPowerStatus) — a DATA-DRIVEN operating-status dimension, not fuel
+ *  type (unlike the static powerplants layer's fuelColor). Green = full
+ *  power, amber = reduced, red = outage, gray = no reading reported today
+ *  (never guessed as either full or down). */
+export function nrcReactorStatusColor(status: string | null | undefined): string {
+  if (status === "full") return "#4ade80";
+  if (status === "reduced") return "#fbb24c";
+  if (status === "outage") return "#ff3b3b";
+  return "#94a3b8"; // "unknown" or unrecognized
+}
+
 /** Project a short velocity-vector endpoint from position/heading/speed.
  *  Length scales with speed (capped) — pure math, cheap for 10k features. */
 export function velocityEndpoint(lat: number, lon: number, headingDeg: number,

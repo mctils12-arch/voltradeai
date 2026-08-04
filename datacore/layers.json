@@ -222,6 +222,16 @@
    "description": "Direct plant-utilization ground truth from EPA's own unit-level Continuous Emissions Monitoring reporting — the ladder gate-1 truth source for the power vertical's satellite/imagery inference roots, not itself a trading signal. v1 pilot scope: Texas only (matches GRID VISION's ERCOT focus); quarterly cadence — a quarter is only queryable once fully closed, so this is NOT live/daily despite per-day granularity inside each record. Marker color is a DATA-DRIVEN utilization tier (operating hours actually reported, as a fraction of every possible unit-hour that quarter) — not fuel type; facilities whose EPA facility/attributes join missed a position are honestly omitted, never guessed. Served via the shared api.data.gov DEMO_KEY unless a dedicated EPA_CAMD_API_KEY is configured (disclosed on click)."
   },
   {
+   "id": "nrc_reactor_status",
+   "name": "US nuclear reactor status (NRC, daily)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "U.S. NRC daily Power Reactor Status Reports (nrc.gov, public domain, keyless)",
+   "description": "Percent-of-rated-thermal-power reported daily by the NRC for every operating US commercial reactor, joined onto the WRI/HIFLD nuclear-plant registry's coordinates (server/nrcReactorStatus.ts's joinToPlants — an NRC unit that can't be resolved to a registry plant is dropped, never guessed at a nearby site). Marker color is a DATA-DRIVEN status tier off today's mean reported power across a plant's units (full / reduced / outage / unknown-no-reading) — not fuel type, and distinct from the static powerplants/HIFLD layers' capacity snapshot. NRC collects this once daily (4am-8am ET); not a live/real-time feed. GATE 1 (DATA) passed 2026-08-04 (datacore/signal_ladder.json nrc_outage_reports, 95/95 unit-name reconciliation); the outage-adjacent SIGNAL hypothesis (unplanned power drops vs. operator returns) stays gate-2-locked — RAW display only, no predictive claim."
+  },
+  {
    "id": "faa_airports",
    "name": "FAA airport status (ground stops / delays / closures)",
    "kind": "raw",
