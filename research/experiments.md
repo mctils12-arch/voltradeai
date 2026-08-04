@@ -3,6 +3,156 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-04 (scheduled-routine session, market hours) [REPAIR] — T-BOT — stale stop_state.json remaining_qty was making WS exits request more shares than AXTI actually held, failing with a 403 every ~60s for 1h45m+ and never closing the position (v1.0.593)
+
+TERRITORY: T-BOT (server/bot.ts, position-exit monitoring outside the
+frozen order-submission internals — WHAT gets exited/sized changed, HOW
+orders are transmitted did not) + server/positionQtySync.test.ts (new) +
+package.json/package-lock.json (SHARED, version bump only, last commit
+per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md,
+open_questions.md, wishlist.md. Branch `claude/eloquent-dijkstra-iyaw2l`
+was already at `origin/main`'s tip (`a5b19c4`, v1.0.592, PR #689 merged by
+an earlier session today) — confirmed via `git fetch` + `rev-list
+--left-right --count`, no restart needed. Loop-health ratio, last 10
+tagged entries (via `git log` on origin/main, since experiments.md's own
+append order has drifted from strict newest-at-top due to concurrent-
+session merge conflicts resolved keep-both-sides): PRODUCT, REPAIR,
+PIPELINE, PIPELINE, diag/REPAIR-class, RESEARCH(GATE2-KILLED),
+REPAIR, RESEARCH(GATE2-KILLED), REPAIR, REPAIR — 4-5 of 10 REPAIR,
+well under the 7+ thrash bar, no meta-problem to address.
+`/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, alpaca ACTIVE — no LIVENESS ALARM. `server_version`
+via `/api/data/layers`: `1.0.592`, matching the branch tip — no deploy lag.
+
+PRIMARY ACTION SELECTION: per SESSION BUDGET, "fix a bug seen in audit
+logs" outranks judging a matured experiment or starting new research.
+`/api/diag/audit?limit=200` showed 72 of the last 200 entries (spanning
+only 2026-08-04T14:17Z–16:03Z, 1h45m+) were AXTI-related:
+`POS-MONITOR-SYNC: bot_engine flagged AXTI (trailing_stop) — WS monitor
+should handle` repeating every ~40-90s, interleaved with `WS-EXIT-ERROR:
+AXTI: Alpaca 403: {"available":"5",...,"existing_qty":"5",..."message":
+"insufficient qty available for order (requested: 12, ...)`. This isn't
+just log spam — `/api/diag/positions-detail` confirmed AXTI's live qty was
+genuinely 5, and bot_engine kept re-flagging the SAME trailing-stop exit
+every scan cycle because the WS exit path kept failing to actually close
+it: a live risk-management malfunction (GOAL priority 1/2 territory), not
+merely cosmetic.
+
+ROOT CAUSE (traced via server/bot.ts's actual current code this session,
+not assumed): `syncMonitoredPositions()` (bot.ts:5150-5152 pre-fix)
+computed `remainingQty = existingPos ? Math.min(existingPos.remainingQty,
+ps.remaining_qty || qty) : (ps.remaining_qty || qty)` — taking the min of
+the in-memory tracked value and the value persisted in
+`voltrade_stop_state.json`, but NEVER bounding either against `qty`, the
+broker's actual live position size (already available in the same
+function, `const qty = Math.abs(parseInt(pos.qty || "0"))` from the
+`/v2/positions` response). Grepped the whole repo for anything that
+deletes a ticker's entry from `voltrade_stop_state.json` on close
+(`del ss[...]`, `.pop(ticker...)`, etc.) — nothing exists.
+`removePositionFromMonitor()` (bot.ts:5245) only clears the in-memory
+`monitoredPositions` map and stream-history buffers; the persisted
+per-ticker stop-state record is immortal. `/api/diag/orders?limit=200`
+confirmed the numbers: AXTI bought 17 shares, one sell of 12 already
+filled, live remainder 5 — consistent with an earlier WS exit firing with
+`exitQty = pos.remainingQty` already stale-inflated to 12 (from a prior
+AXTI trade's leftover stop-state, or a scale-out miscount) at the moment
+it fired, succeeding (Alpaca had 17 shares to sell 12 from), leaving 5
+genuinely held — but `pos.remainingQty` was never brought back down to
+match, so every subsequent trailing-stop re-trigger kept requesting the
+same stale 12 forever, 403-ing against the true 5 every single cycle
+since nothing in the pipeline enforces "remainingQty ≤ actually owned."
+
+FIX: `remainingQty` is now `Math.min(rawRemainingQty, qty)` — a stale or
+corrupted persisted/in-memory value self-heals on the very next 60s sync
+instead of retrying a doomed order forever. A new `POS-QTY-CORRECTED`
+audit line fires whenever the cap actually changes something, so a future
+occurrence of this class of drift is visible immediately instead of
+requiring another audit-log archaeology session (mirrors the visibility
+precedent PR #688 set for the shadow-backfill silent-failure gap).
+DELIBERATELY NOT TOUCHED: `originalQty` — capping it the same way would be
+WRONG, since `originalQty` legitimately exceeds live `qty` any time
+scale-outs have already reduced a position during its own lifecycle (that
+IS correct state, not staleness); only `remainingQty` — shares still owed
+an exit right now — can never exceed what's actually held. Also
+deliberately not touched: root-causing exactly which prior event first
+desynced AXTI's remaining_qty (stale cross-trade leftover vs. a scale-out
+miscount) — the self-healing invariant fix makes that forensic distinction
+moot for correctness, and chasing it further would be scope creep beyond
+one primary action. The underlying design gap (stop_state.json entries are
+never cleaned up on position close) is a separate, smaller finding, filed
+below as a NEXT item rather than fixed here (deleting stale entries
+proactively is a different, non-urgent change from capping their misuse).
+
+RATCHET: `server/positionQtySync.test.ts` (NEW) — 4 tests, using the same
+source-text-extraction technique as `wsPositionFeed.test.ts` since
+`syncMonitoredPositions`'s closures aren't independently importable.
+A/B-verified via `git stash push -- server/bot.ts`: 3 of 4 fail against
+the pre-fix code (the cap-expression match, the audit-visibility check,
+and the numeric AXTI-scenario replay using the real reported numbers —
+17 bought/12 sold/5 held/12 stale-tracked); the `originalQty` untouched
+check passes on both (correctly — it wasn't the one that broke). All 4
+pass post-fix.
+
+VERIFIED: `npx tsx --test server/positionQtySync.test.ts` 4/4 pass.
+`npx tsx --test server/*.test.ts`: 986 total, 978 passed, 8 failed —
+IDENTICAL failing file list to today's earlier documented baseline
+(`aircraftTiling`, `apiKeyAccounts`, `compression`, `gdeltEvents`, the
+pmtiles magic-byte check, `owmTiles`, `seafloorTiles`,
+`securityMiddleware`), all pre-existing container-fixture gaps unrelated
+to this change. `npx tsc --noEmit`: 3 errors, all pre-existing toolchain-
+baseline (missing @types/node, missing vite/client, deprecated baseUrl —
+none reference `server/bot.ts` or the new test file). `python3 -m pytest
+-q`: SKIPPED — pytest not installed in this container (documented gap),
+zero `.py` files touched regardless. `npm run build`: not run — same
+documented `tsx: not found` container gap as prior sessions; `npx tsx
+--test` already exercises the exact TypeScript this PR touches.
+
+BACKTEST: N/A — this is a bug fix restoring an always-true invariant
+("you cannot owe more shares to an exit than you actually hold"), not a
+new threshold, scoring, or sizing policy; PROMOTION RULE 3's Sharpe/
+drawdown comparison doesn't apply. No RULE REVIEW evidence gate applies
+either — this doesn't move a threshold, it stops orders from being
+computed with a number that was already wrong by construction. Live
+effect will be directly observable: `/api/diag/audit?type=WS-EXIT` should
+show AXTI's position actually closing (or scaling correctly) on the first
+sync after deploy, and `/api/diag/audit?type=WS-EXIT-ERROR` should stop
+accumulating AXTI 403s. A future session should check both once this
+deploys.
+
+DEPLOY-TIMING: session ran during market hours (`/api/health` timestamp
+~16:02-16:08 UTC / ~12:02-12:08 ET). Per CLAUDE.md's deploy-coupling
+guidance, opened as a PR but the PR body states merge should wait for the
+16:00 ET close — UNLESS a maintainer judges this a critical live break
+worth an early merge, since it's actively causing an open position's risk
+management to malfunction in production right now (repeated failed exits
+for well over 1h45m and counting as of this session). Subscribing to PR
+activity per standing protocol to drive CI to green regardless of merge
+timing.
+
+NEXT (queued, not this session): (1) `voltrade_stop_state.json` never
+deletes a ticker's entry when its position closes — this session's fix
+makes stale entries harmless (self-healing cap), but the entries
+themselves still accumulate forever, growing the file and potentially
+confusing a future human/session reading it directly. A future session
+could add cleanup in `removePositionFromMonitor()`'s Python-state-write
+path, own small PR. (2) once this deploys, confirm live via
+`/api/diag/audit?type=POS-QTY-CORRECTED` (should show exactly one AXTI
+entry from the first post-deploy sync, then nothing) and
+`/api/diag/audit?type=WS-EXIT` (AXTI should show a real close). (3) the
+same "persisted state can silently exceed live broker truth" class of
+gap might also affect `scalesCompleted`/`breakevenActive` in less
+obviously-visible ways (they don't directly produce a rejected order the
+way remainingQty did) — worth a dedicated look if this recurs for a
+different ticker. (4) gem_methane_plume_proximity's ladder entry is still
+stale (queued by the prior PR #689 session, not yet picked up).
+
+STARVED: no — this was the session's one primary action, a live, actively
+recurring bug directly matching SESSION BUDGET's top-priority bucket, not
+skipped in favor of anything higher. No LIVENESS ALARM, no thrash. One
+logical change, one PR, per PROMOTION RULE 5.
+
 ## 2026-08-04 (scheduled-routine EDGE session #2) [PIPELINE] — T-DATACORE — nrc_outage_reports BUILT + GATE 1 PASSED: 95/95 live NRC unit names reconcile against the 58-plant nuclear registry (v1.0.590)
 
 TERRITORY: T-DATACORE (server/nrcReactorStatus.ts + server/nrcReactorStatus.test.ts,

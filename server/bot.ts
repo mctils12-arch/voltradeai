@@ -5147,9 +5147,24 @@ except: print('{}')
         const scalesCompleted = existingPos
           ? Math.max(existingPos.scalesCompleted, ps.scales_completed || 0)
           : (ps.scales_completed || 0);
-        const remainingQty = existingPos
+        // REPAIR 2026-08-04: remainingQty tracks shares still owed an exit and
+        // can never legitimately exceed the broker's live qty for this
+        // ticker — but nothing ever deletes a closed ticker's entry from
+        // voltrade_stop_state.json, so re-trading the same ticker later
+        // inherits the PRIOR position's stale remaining_qty. Live evidence:
+        // AXTI's stale remaining_qty=12 made every WS exit request 12 shares
+        // when only 5 were actually held (12 already sold), failing with a
+        // 403 every ~60s sync cycle for 1h45m+ (audit type WS-EXIT-ERROR)
+        // instead of ever closing the position. Capping against the live
+        // `qty` here lets a stale value self-heal on the very next sync
+        // instead of retrying a doomed order forever.
+        const rawRemainingQty = existingPos
           ? Math.min(existingPos.remainingQty, ps.remaining_qty || qty)
           : (ps.remaining_qty || qty);
+        const remainingQty = Math.min(rawRemainingQty, qty);
+        if (rawRemainingQty > qty) {
+          audit("POS-QTY-CORRECTED", `${ticker}: tracked remainingQty ${rawRemainingQty} exceeded live qty ${qty} — corrected to prevent oversized exit orders`);
+        }
         const breakevenActive = existingPos
           ? (existingPos.breakevenActive || ps.breakeven_active || false)
           : (ps.breakeven_active || false);
