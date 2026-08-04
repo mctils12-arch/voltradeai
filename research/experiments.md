@@ -3,6 +3,203 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-04 (scheduled-routine EDGE session #2) [PIPELINE] — T-DATACORE — nrc_outage_reports BUILT + GATE 1 PASSED: 95/95 live NRC unit names reconcile against the 58-plant nuclear registry (v1.0.590)
+
+TERRITORY: T-DATACORE (server/nrcReactorStatus.ts + server/nrcReactorStatus.test.ts,
+new; scripts/nrc_gate1_registry_match.ts, new; datacore/manifests/
+nrcreactorstatus.json, new) + server/routes.ts (SHARED — one import + one
+route block) + datacore/signal_ladder.json (SHARED — single-entry status
+update) + package.json/package-lock.json (SHARED, version bump only, last
+commit per MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + BUILD-FIRST
+RULE per this session's routine prompt), then all of research/. Branch
+`claude/dazzling-planck-ar78dv` was already at `origin/main`'s tip
+(`7d8dd8a`, PR #686 merged by the prior session this same day) — no
+restart needed, developed straight on top; re-confirmed still in sync
+immediately before finalizing this PR. `/api/health` (voltradeai-
+production.up.railway.app): `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, `drawdownPct:"0.0"`, alpaca ACTIVE — no LIVENESS
+ALARM. KNOWN BROKEN (open_questions.md): items #10 and #20 remain parked
+on their own filed evidence gates (shadow_portfolio history), neither
+blocking; checked KNOWN BROKEN #12(b)'s gated ML-feedback question too
+(see NEXT below) — not this session's primary action, but confirms
+nothing in KNOWN BROKEN rose to critical-unfixed this session, so this
+stayed a [PIPELINE] session, not [REPAIR]. Loop-health ratio, last 10
+tagged entries before this one: well under the 7+ [REPAIR] thrash bar
+(today's crop_conditions session and this one are both [PIPELINE]).
+
+PRIMARY ACTION SELECTION: this session's routine named axis (a) — build
+a free-data pipeline end-to-end as code. Surveyed the CLAUDE.md-named
+examples (Sentinel-2, EDGAR Form 4, USAspending, CFTC COT, FDA calendar,
+Google Trends) against the repo, per the 2026-08-02 session's own
+finding: all six already have a shipped-or-explicitly-scoped pipeline
+(Google Trends downgraded to a one-session gate-1 PROBE that FAILED —
+Google rate-limits the unofficial pytrends path after ~45 pulls; not
+re-attempted, no new information). Fell back to the repo's own NEW DATA
+ROOTS / signal_ladder.json queue, per SESSION BUDGET's "take the next
+queued item" rule: this morning's crop_conditions_usda_nass gate-1
+session left an explicit NEXT note — the same "gate-1 criteria stated
+but never run" gap exists for `port_dwell_maritime_transit` (check-only)
+and `nrc_outage_reports` (needs a new build first, explicitly not
+attempted that session "per one-primary-action-per-session discipline").
+
+FIRST ATTEMPTED port_dwell_maritime_transit (check-only, seemingly the
+smaller task) — ABANDONED after investigation, logged here so the next
+session doesn't re-derive this: the production `/api/data/portdwell`
+route only ever serves a rolling 7-day AGGREGATE snapshot (no historical/
+custom-window query param), and the `archive` diag probe's 5000-row cap
+covers roughly 4 MINUTES of the global `vessels` stream's actual density
+(confirmed live: a 5000-row pull of 2026-08-01 spanned t=1785542426 to
+1785542666, 240 seconds) — reconstructing even one day of per-port visit
+detection from outside the production container would need on the order
+of ~350+ diag calls per day, infeasible for a gate-1 check. A live
+external ground truth (Port of LA/Long Beach vessel-in-port counts) was
+also not cleanly matchable to our system's rolling-7-day window without
+either a new comparison route (scope creep beyond one primary action) or
+a much weaker order-of-magnitude claim than this repo's gate-1 precedent
+demands. FILED, not fixed: `port_dwell_maritime_transit` gate 1 needs
+either (a) a new diag surface that returns computePortDwellAsync's
+ALREADY-AGGREGATED per-port stats for an arbitrary historical window
+(cheap — the aggregation, not raw points, is what's needed), or (b) a
+live single-snapshot vessel-name-list comparison against a published
+in-port report — either is a legitimate future session's primary action,
+not attempted here.
+
+PICKED `nrc_outage_reports` instead: NRC daily Power Reactor Status
+Reports (nrc.gov) — verified live this session via direct curl (not
+assumed from training data, since NRC has restructured this page
+before): one pipe-delimited `ReportDt|Unit|Power` text file per calendar
+year, keyless, no signup, public domain, updated daily. This is a
+genuinely NEW pipeline (no prior build existed — signal_ladder.json's
+entry said "no build or gate-1 run found in the record"), matching this
+session's routine mandate literally: "a script the bot runs nightly at
+zero token cost, not an analysis."
+
+BUILD: `server/nrcReactorStatus.ts` — fetch/parse/archive/cache/eager-
+boot-poll, mirroring `cropConditions.ts`'s established shape (event-
+identity dedup date|unit, day-file JSONL, gzip after 2 days, 6h poll).
+`/api/data/nrc-reactor-status` (RAW overlay, no predictive claim, per
+STANDING BEHAVIORS raw-vs-signal rule) serves the cached newest day.
+
+GATE 1 (this session's own mandate: "a script the bot runs... not an
+analysis" — but this ladder gate is DIFFERENT in kind from crop_
+conditions'/occ_volume's external-bulletin comparisons: it reconciles
+two things we control, our parser's output against our own registry, so
+it is mechanical and needed no accumulated history, same class as the
+earthquake-hazard hypothesis's "gate 1 = proximity join... mechanical,
+no new data needed" precedent — shipping it in the same PR is honest,
+not gate-skipping): `matchToRegistry()` in the same module, unit-tested
+in isolation, then run live via `scripts/nrc_gate1_registry_match.ts`
+against the REAL fetched NRC feed and the REAL `us_power_plants.json`
+registry (58 nuclear plant rows). NRC reports at UNIT granularity
+("Beaver Valley 1"/"Beaver Valley 2"); the WRI registry is at PLANT
+granularity ("Beaver Valley") — `normalizePlantName` + a small hand-
+verified `ALIASES` table bridge the genuine spelling/word-form
+differences (e.g. "D.C. Cook 1" -> "Donald C Cook", "Hope Creek 1" ->
+"PSEG Hope Creek Generating Station"), each alias checked against both
+literal source strings, not guessed.
+
+RESULT: **GATE 1 PASSED — 95/95 live NRC units matched (100%), zero
+unexplained registry gaps.** Iterated the normalization/alias table
+against the REAL current data (not a synthetic fixture) until every unit
+resolved cleanly — this caught and fixed three real bugs before landing:
+(1) suffix-stripping only removed one trailing word, missing "X Power
+Station" -> "X"; (2) hyphens ("Davis-Besse") weren't normalized like
+periods/commas; (3) a unit-number suffix ("River Bend Station 1") has to
+be stripped BEFORE the suffix-word check can see the underlying "Station"
+word, needing a second normalization pass. Three registry plants have NO
+live NRC match: Indian Point 2/3 (permanently shut down 2020/2021) and
+Duane Arnold — the last one is a genuine finding, not assumed: zero
+appearances ANYWHERE in the full 2026 feed (not just the latest day)
+prompted a live web-search check, which confirmed Duane Arnold has been
+in SAFSTOR decommissioning since the 2020-08-10 derecho, with a
+NextEra-filed license-transfer targeting a ~2028-2029 restart — not an
+operating reactor in 2026, so its absence is correct, not a defect. All
+three are hardcoded in `EXPECTED_REGISTRY_ONLY` with citations; a NEW
+`unexpectedRegistryGaps` field on `MatchResult` means any FUTURE
+unexplained registry gap surfaces explicitly rather than being silently
+absorbed the way the original two-way match/unmatched split would have
+done (caught this class of bug via Duane Arnold's own silent-drop before
+adding the field — logged as a "measure your own measurement" moment,
+not just a good practice restated from precedent).
+
+VERIFIED (this session's container, no `git stash` A/B needed — this PR
+adds new files and two small, additive edits to shared files, nothing
+pre-existing touched): `npx tsx --test server/nrcReactorStatus.test.ts`
+11/11 pass. `npx tsx --test server/manifests.test.ts` 3/3 pass (new
+manifest satisfies the envelope + forward-enforcement scrape). `npx tsx
+--test server/signalLadder.test.ts` 5/5 pass. `npx tsx --test
+server/*.test.ts`: 973 total, 965 passed, 8 failed — IDENTICAL failing
+file list to this morning's crop_conditions session's documented
+baseline (`aircraftTiling`, `apiKeyAccounts`, `compression`,
+`gdeltEvents`, the pmtiles magic-byte check, `owmTiles`,
+`seafloorTiles`, `securityMiddleware`), all pre-existing container-
+fixture gaps unrelated to this change. `npx tsc --noEmit`: 3 errors, all
+pre-existing toolchain-baseline (same as documented this morning), none
+referencing any file this PR touches. `python3 -m pytest -q`: SKIPPED —
+pytest not installed in this container (same documented gap), zero `.py`
+files touched regardless. `npm run build`: FAILED with `tsx: not found`
+— same documented container gap (empty `node_modules/.bin`), unrelated;
+`npx tsx --test` already exercises the same TypeScript this PR touches.
+
+BACKTEST: N/A — pure gate-1 DATA-layer archiver + reconciliation check,
+no trading logic, scoring, sizing, or threshold value touched. Same
+precedent as every prior gate-1 entry (crop_conditions, EIA-930, FRED,
+FINRA, OCC).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched (no map/`/data`
+UI wiring this session, matching the `cropConditions.ts` precedent of an
+API-only RAW national/aggregate feed with no per-entity lat/lon surfaced
+on the map; the registry DOES have lat/lon per plant, so a future
+[PRODUCT] session could add a client overlay, not attempted here to keep
+this PR to one logical change).
+
+Version bumped 1.0.589 -> 1.0.590 (PROMOTION RULE 4, read-and-increment
+at commit time, re-verified `origin/main` unchanged immediately before)
+in `package.json` + `package-lock.json` (top-level field only — the
+nested `packages.""` field was already pre-existing-stale at 1.0.585
+before this session touched the file; not this PR's regression, out of
+scope to fix here).
+
+CROSS-SYSTEM INTEGRATION: none new this session — the registry join
+(unit -> plant -> operator -> ticker via `entity_map.json`) is exactly
+the gate-2 join partner named in open_questions.md's POWER-PLANT SIGNAL
+HYPOTHESES entry, but gate 2 itself needs a quarter of archived history
+and is not attempted here. Honest note per the CROSS-SYSTEM INTEGRATION
+PRINCIPLE: this stream's real cross-tie is that gate-2 join, not
+anything wired this session.
+
+NEXT (queued, not this session): (a) `nrc_outage_reports` gate 2
+(outage-day operator returns vs a same-universe random-entry baseline)
+needs a quarter of archived daily history — earliest actionable
+~2026-11; (b) `port_dwell_maritime_transit` gate 1 is now the ONLY
+remaining "criteria stated, never run" item, blocked on the new-diag-
+surface or live-snapshot-comparison design decision filed above, not a
+simple check-only task as previously assumed; (c) re-checked KNOWN
+BROKEN #12(b)'s gated D3-removal decision while triaging this session's
+primary action (not the primary action itself): `/api/diag/ml` still
+shows 100% orphan_exit among matched live records as of 2026-08-03 (70
+orphan_exit, 1 new `open`-status record — the first non-orphan signature
+since the 2026-07-31 ETF-path fix, a promising but not yet conclusive
+sign the entry-record fix is holding; the SPY-floor/convexity-basket
+GLD/QQQ round-trips visible in `/api/diag/orders` are NOT part of this
+gap — `server/bot.ts`'s own `FLOOR_AND_LEG_TICKERS` comment confirms
+those are `bot_engine.py`'s passive regime-driven rebalancing, a
+separate code path that was never expected to call `track_fill`), still
+gated, still worth a future session's check once more ETF round trips
+accumulate.
+
+STARVED: no — this was the session's one primary action (a full new
+axis-(a) pipeline build + its own mechanical gate 1, matched to
+capacity per SESSION BUDGET); fall-through not reached beyond the
+abandoned-and-logged port_dwell investigation above (one logical PR,
+PROMOTION RULE 5 — the port_dwell finding is a filed note, not a second
+change). No LIVENESS ALARM at session start; no critical trading-loop
+item was found unfixed in KNOWN BROKEN, confirmed twice (both this
+session's own check and the same-day crop_conditions session's earlier
+check).
+
 ## 2026-08-04 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — crop_conditions_usda_nass GATE 1 PASSED: 10/10 exact match vs USDA NASS's own published Crop Progress bulletin (v1.0.589)
 
 TERRITORY: T-DATACORE (scripts/crop_conditions_gate1.ts, new, additive

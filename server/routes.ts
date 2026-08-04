@@ -87,6 +87,7 @@ import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQu
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
+import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
@@ -3031,6 +3032,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       latest_week: hit.latest_week,
       count: hit.rows.length,
       note: "national weekly CONDITION ratings for corn + soybeans (5 classes via short_desc, Monday releases in season); condition-delta signals stay gate-locked until ladder validation",
+      rows: hit.rows,
+    });
+  });
+
+  // NRC daily Power Reactor Status Reports (RAW — EDGE DOCTRINE axis (a),
+  // keyless, no signup). Serves the poller's cached newest day only
+  // (event-loop rule). GATE 1 (DATA) PASSED 2026-08-04 — see
+  // scripts/nrc_gate1_registry_match.ts and datacore/manifests/
+  // nrcreactorstatus.json; the outage-adjacent SIGNAL hypothesis stays
+  // gate-2-locked (research/open_questions.md POWER-PLANT SIGNAL
+  // HYPOTHESES).
+  bootReactorStatusPoll();
+  app.get("/api/data/nrc-reactor-status", (_req, res) => {
+    const hit = latestReactorStatus();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "U.S. NRC Power Reactor Status Reports", warming_up: true, count: 0, rows: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "U.S. NRC Power Reactor Status Reports (public domain, US government data)",
+      attribution: "U.S. Nuclear Regulatory Commission (NRC)",
+      time: hit.at,
+      date: hit.date,
+      count: hit.rows.length,
+      note: "daily percent-of-rated-thermal-power per operating unit (NRC unit granularity, not plant); outage-adjacent signals stay gate-locked until ladder validation",
       rows: hit.rows,
     });
   });

@@ -1,0 +1,22 @@
+{
+ "stream": "nrcreactorstatus",
+ "storage": "append-only JSONL day-files under <archive>/nrcreactorstatus/, one file per FETCH date with event-identity dedup (date|unit) across restarts; gz after 2 days",
+ "written_by": "server/nrcReactorStatus.ts archiveReactorStatus (6h poll, eager boot; keyless, no signup)",
+ "source": "NRC Power Reactor Status Report raw data text file (nrc.gov/reading-rm/doc-collections/event-status/reactor-status/<year>/<year>PowerStatus.txt) — one pipe-delimited file per calendar year, updated daily (NRC collects reactor status 4am-8am ET). Verified live 2026-08-04 via direct fetch, not assumed from training data. Only OPERATING power reactors report; permanently shut-down/decommissioning units never appear (see confidence_model).",
+ "license": "US federal government work — public domain, no restriction.",
+ "attribution": "U.S. Nuclear Regulatory Commission (NRC), Power Reactor Status Reports",
+ "schema_version": 1,
+ "field_map": {
+  "date|unit — event-identity dedup key": "the same day's reading for a unit never re-archives",
+  "date": "report date YYYY-MM-DD, parsed from the source's ReportDt column",
+  "unit": "NRC unit name, verbatim (e.g. 'Beaver Valley 1') — UNIT granularity, not plant granularity; see confidence_model for the registry join",
+  "power": "percent of rated thermal power (0-100 typical; passed through verbatim, never clamped or reshaped — a null means the source cell was blank)"
+ },
+ "confidence_model": "RAW official daily status readings, one row per operating unit. GATE 1 (DATA) validated 2026-08-04 (scripts/nrc_gate1_registry_match.ts): every live NRC unit name reconciles against datacore/powerplants/us_power_plants.json's 58 nuclear PLANT rows via normalizePlantName + a hand-verified unit->plant alias table (nrcReactorStatus.ts's ALIASES) — NRC reports at unit granularity (2-4 units per multi-unit site), the registry at plant granularity. Two registry plants (Indian Point 2/3, permanently shut down 2020/2021) and one more (Duane Arnold, SAFSTOR decommissioning since 2020-08-10, targeted ~2028-2029 restart) are DOCUMENTED, EXPECTED absences from the live feed, not match failures. GATE 2 (SIGNAL, not attempted): unplanned power drops at large single-operator units vs same-week operator returns, needs a quarter of archived history — research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES.",
+ "geo_fields": [],
+ "entity_key": "unit (join to a registry plant via nrcReactorStatus.ts's matchToRegistry, not a raw string equality)",
+ "sentiment": null,
+ "started": "2026-08-04",
+ "cadence": "daily source (NRC collects 4am-8am ET); 6h poll makes off-hours a dedup no-op; eager boot",
+ "_note": "Universal archive envelope (approved 2026-07-04). EDGE DOCTRINE axis (a) — signal_ladder.json's nrc_outage_reports entry, filed 2026-07-03, built this session (the last still-unbuilt item from that session's own NEXT queue)."
+}
