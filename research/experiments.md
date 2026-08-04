@@ -39785,3 +39785,168 @@ open items are both correctly blocked on data accumulation, not
 actionable; no LIVENESS ALARM; no thrash — last-10-entries type ratio
 unchanged from this morning's earlier check). One logical change, one
 PR, per PROMOTION RULE 5.
+
+## 2026-08-04 (scheduled-routine session #2) [RESEARCH] — day-clustered re-test of the OCC skew-reversal candidate: SPLIT verdict, +20d survives, +5d doesn't (v1.0.595)
+
+TERRITORY: SHARED-adjacent research work (scripts/, research/*) — no
+T-DATACORE/T-CLIENT/T-BOT runtime paths touched; package.json/
+package-lock.json version bump is the only SHARED-file edit, last
+commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/
+experiments.md, open_questions.md, wishlist.md. `/api/health`:
+status ok, bot active, drawdownPct 0.0, liveness.dark=false — no
+LIVENESS ALARM. `server_version` via `/api/data/layers` = 1.0.594,
+confirming main already carried both PRs from earlier today
+(NRC map layer #689, crop-conditions chart #691, plus a stop-state
+repair #690) — deploy is current, nothing stuck. Loop-health ratio:
+last 10 experiments.md entries = 4 REPAIR / 3 PIPELINE / 2 PRODUCT /
+1 RESEARCH — under the 7-of-10 REPAIR thrash threshold, no meta-problem
+flag needed. KNOWN BROKEN (open_questions.md): only #10 and #20 remain
+open, both correctly blocked on shadow_portfolio history accumulating
+overnight (per yesterday's PR #688) — tonight's 10pm UTC cycle hadn't
+run yet at session start (20:17 UTC), so neither was actionable this
+session; noted, not worked.
+
+PRIMARY-ACTION SELECTION: audit log (`/api/diag/audit`, DIAG_TOKEN
+present in session env) showed only routine TIER2/TIER3/QUEUE/
+MANIPULATION/OPTIONS-SLOT-FULL activity, no new bug — SESSION BUDGET's
+top slot ("fix a bug seen in audit logs") had nothing to fix. Next
+slot ("judge a matured experiment") pointed at open_questions.md's two
+2026-08-03-filed reversal-candidate hypotheses (occ_options_volume's
+PUT-skew-outperforms-CALL-skew candidate; cftc_tff_positioning's TLT
+momentum candidate), both with an explicit, ready-now LADDER PATH step
+(1): re-run with day-clustered standard errors instead of the naive
+pooled Welch t that originally flagged them, per Reasoning Standard #4
+("distrust your own results in proportion to how many things you
+tried... testing pooled rows as independent when they share within-day
+correlation overstates significance"). Picked the OCC candidate over
+the CFTC one: OCC's step (1) is a genuine unaddressed statistical flaw
+(naive pooled Welch t over ~620 non-independent rows); CFTC's script
+already used Newey-West HAC from the start, so its own flagged next
+step is disjoint-window replication (step 2 territory), not a
+clustering fix — the OCC step (1) was the more precisely-scoped,
+ready-now action. This directly serves PRIORITY 2 (PROTECT THE
+INTEGRITY OF LEARNING): an unconfirmed candidate sitting in
+open_questions.md with a known statistical flaw in its own supporting
+number is exactly the kind of "corrupted learning is worse than no
+learning" risk that rule exists to catch before anything downstream
+(a future gate-3 backtest, a wishlist spend proposal) treats it as
+real.
+
+READ BEFORE WRITE: read scripts/occ_volume_gate2.ts in full (the
+original gate-2 script, its extensive pre-registration header comment,
+and its bucket/fetch/stats logic) before touching it. Verified live
+network reachability for both dependencies before committing to the
+plan (curl smoke tests): OCC's marketdata.theocc.com endpoint required
+the exact query-param set already baked into `server/occVolume.ts`'s
+`occUrl()` (a bare guess at the URL 403'd; the real one built from the
+existing helper 200'd), and Yahoo's chart endpoint needed the same
+desktop User-Agent the original script already sends (a bare curl
+429'd; the script's UA header 200'd) — confirmed the existing fetch
+helpers, not fresh guesses, before reusing them.
+
+WHAT SHIPPED: new `scripts/statsUtils.ts` — `clusterMeanTTest()`
+(collapse-to-cluster-means one-sample t-test, the standard small-
+cluster-count alternative to analytic cluster-robust SEs per Cameron &
+Miller 2015), `tCrit005()` (a real df-adjusted two-tailed 5% critical-
+value table, df 1-30, normal approximation beyond), and
+`survivesAtCrit005()`. 5 new unit tests in `scripts/statsUtils.test.ts`
+including one that specifically demonstrates the flat-`|t|>2`-heuristic
+failure mode this replaces (a t=2.05 result that clears the naive bar
+but correctly fails the true df=15 critical value of 2.131). Mechanical
+refactor of `scripts/occ_volume_gate2.ts`: added `export` to the
+constants (FLOOR/BUCKET_SIZE/HORIZONS/SAMPLE_START/SAMPLE_WEEKS) and
+pure helper functions (weeklySampleDays/ymdCompact/bucketDay/
+fetchYahooDaily/toSeries/fwdReturn/meanStd/welchT) it already had —
+zero behavior change, so the already-recorded killed occ_options_volume
+result stays exactly reproducible from the same source. New
+`scripts/occ_volume_gate2_clustered.ts` imports those directly (cannot
+drift from the original's FLOOR/BUCKET_SIZE/sample window since it's
+the same constants, not redefined values) and replaces only the
+statistics: day-level mean returns per bucket, day-level CALL-PUT
+spread, then `clusterMeanTTest` across the ~16 day-level spreads
+(cluster = report day) instead of Welch's t across ~620 pooled rows.
+
+LIVE RUN (not simulated — real OCC + Yahoo fetches, same 16 weekly
+sample days 2026-01-07..04-22, same FLOOR=8000/BUCKET_SIZE=40 as the
+original killed run): 16/16 days had data, 852 unique tickers, 825
+priced (27 Yahoo lookup failures, consistent with the original run's
+rate). Day-clustered result (n=16, df=15, correct critical=2.131):
+
+  +5d:  mean spread (CALL-PUT) = -0.618%, t_clustered = -1.130 ->
+        does NOT survive at 5% (nowhere close — even the naive-pooled
+        -0.951 on this horizon was never significant)
+  +20d: mean spread (CALL-PUT) = -2.970%, t_clustered = -2.961 ->
+        SURVIVES at 5% (clears 2.131) — stronger than the naive-pooled
+        -2.304 that originally flagged this candidate, because
+        collapsing to day-level means removed within-day cross-
+        sectional noise without losing the (fairly consistent
+        day-to-day) directional signal; noted as the opposite of the
+        usual "clustering weakens significance" direction rather than
+        assumed to always cut one way.
+
+VERDICT (per the candidate's own pre-stated rule: dead only if BOTH
+horizons collapse): SPLIT, not dead. +20d is the theory-relevant
+horizon per the candidate's own second-order prior (options positioning
+reflects medium conviction, not next-day noise) and it survives the
+CORRECT df-adjusted bar, not just the flat heuristic originally
+proposed. Full day-by-day CALL/PUT/spread breakdown for both horizons
+recorded in open_questions.md's UPDATE block (not duplicated here) —
+including an honesty flag that one day (2026-04-08, spread=-12.464% at
++20d) is a disproportionately large single-cluster swing in a 16-
+cluster sample, which raises rather than lowers the importance of the
+still-outstanding step (2) disjoint-window replication.
+
+RATCHET: 5 new tests for scripts/statsUtils.ts (clusterMeanTTest zero-
+variance/n=0/n=1 guards, a hand-verified known-value check against
+values 1..5, tCrit005's table lookup + df>30 normal-approximation
+fallback, and survivesAtCrit005's flat-heuristic-vs-correct-critical-
+value demonstration).
+
+GATES: this session had to `npm install` (node_modules was empty at
+session start, same recurring environment gap prior sessions have
+logged). `npx tsx --test server/*.test.ts scripts/*.test.ts`: 1050
+total (1049 passed, 1 failed — the pre-existing pmtiles magic-byte
+baseline failure, confirmed unrelated: zero client/public/tiles/*
+files touched this session). `npx tsc --noEmit`: A/B-verified via
+`git stash` — 85 errors both before and after, byte-identical count
+(zero new errors from either the export-only refactor or the two new
+files). `npm run build` clean. Python gate not re-run: zero `.py`
+files touched this session (unchanged from the prior session's own
+zero-Python-files baseline reasoning), and this is pure TypeScript
+research tooling with no daemon/backtest/trading-path import.
+
+BACKTEST: N/A — this is GATE 2 (SIGNAL layer) statistical research on
+an already-`killed` root's still-open reversal hypothesis, no
+scoring/sizing/threshold value touched, no runtime path imported.
+
+Version bumped 1.0.594 -> 1.0.595 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start.
+
+CROSS-SYSTEM INTEGRATION: none new — pure statistical-methodology
+tooling for an existing datacore research candidate, not a new data
+stream, archive, or /data-facing surface.
+
+NEXT (queued, not this session, per the candidate's own ladder path
+and this session's own explicit non-bundling discipline): LADDER PATH
+STEP (2) — re-run `occ_volume_gate2_clustered.ts` unmodified against a
+DISJOINT sample window (2026-05 onward, the entry's own proposed
+range) as true out-of-sample replication; the 2026-01-07..04-22 window
+used here must never be reused as its own confirmation. Only if step
+(2) also survives does step (3) (an IV-selection confound control)
+gate any `gate2_pass` promotion in datacore/signal_ladder.json — no
+ladder-status change was made this session, occ_options_volume's own
+entry correctly stays `killed` (this is a distinct, still-unconfirmed
+candidate). The cftc_tff_positioning TLT momentum candidate's own
+step (1)-equivalent (disjoint-window replication, since its script
+already used HAC from the start) remains queued and untouched, lower
+priority than finishing OCC's shorter path first.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/live-verification all completed. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both correctly blocked on data accumulation, not actionable; no
+audit-log bug found; no LIVENESS ALARM; no thrash). One logical
+change, one PR, per PROMOTION RULE 5.

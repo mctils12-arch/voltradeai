@@ -8095,6 +8095,81 @@ Source: experiments.md 2026-08-03 (scheduled-routine PRODUCT session
 #2); datacore/signal_ladder.json occ_options_volume entry;
 scripts/occ_volume_gate2.ts.
 
+**UPDATE 2026-08-04 (scheduled-routine session, [RESEARCH]) — LADDER PATH
+STEP (1) DONE: SPLIT VERDICT, +20d SURVIVES clustering, +5d does not.**
+New `scripts/statsUtils.ts` (`clusterMeanTTest`/`tCrit005`/
+`survivesAtCrit005`, 5 unit tests) implements the "collapse to cluster
+means" fix named in this entry's own step (1): for each of the 16 report
+days, compute the day-level mean forward return for CALL_SKEW and
+PUT_SKEW separately, take the day-level (CALL-PUT) spread, then t-test
+ACROSS those 16 day-level spreads (df=15) instead of across ~620 pooled
+rows — the CLUSTER (report day) is the unit of independence, not the
+row. New `scripts/occ_volume_gate2_clustered.ts` re-ran the IDENTICAL
+data collection as `occ_volume_gate2.ts` (same FLOOR=8000,
+BUCKET_SIZE=40, SAMPLE_START/SAMPLE_WEEKS, imported directly from the
+original script so the two cannot drift) — no variant fishing, only the
+statistical test changed. Also corrected a second, previously
+unstated flaw: the original entry's own step (1) proposed comparing
+against a flat `|t|>2` heuristic, but at df=15 the true two-tailed 5%
+critical value is 2.131, not 2 — `tCrit005()` uses the correct
+df-adjusted table value throughout.
+
+Result (live run, both horizons, n=16 clusters, df=15,
+critical=2.131):
+
+  +5d:  day-clustered mean spread (CALL-PUT) = -0.618%, t_clustered =
+        -1.130 -> SURVIVES=false (does not clear the 5% bar at all,
+        let alone the naive-pooled -0.951 it roughly matches)
+  +20d: day-clustered mean spread (CALL-PUT) = -2.970%, t_clustered =
+        -2.961 -> SURVIVES=true (clears 2.131; actually STRONGER than
+        the naive-pooled -2.304 that triggered this re-test, because
+        day-clustering removed within-day cross-sectional noise that
+        was inflating the pooled row count without adding independent
+        information — the opposite of the usual "clustering weakens
+        significance" direction, and worth noting as such rather than
+        assumed)
+
+This is a SPLIT result, not a clean pass or a clean kill: the
+theory-relevant horizon (per this entry's own SECOND-ORDER PRIOR —
+"options positioning reflects short/medium conviction, not next-day
+noise" — +20d was always the horizon the mechanism predicts, not +5d)
+is the one that survives. Per this entry's own pre-stated rule ("if
+|t_clustered| collapses well below [critical] on BOTH horizons, this
+candidate is ALSO dead") — that condition is NOT met (only one horizon
+collapsed), so per the entry's own logic this candidate is NOT dead and
+proceeds to LADDER PATH STEP (2): a disjoint out-of-sample window (the
+original 2026-01-07..04-22 sample may not be reused as its own
+confirmation). day-level detail (all 16 CALL/PUT/spread rows per
+horizon) is in this session's script output, not reproduced here —
+re-run `npx tsx scripts/occ_volume_gate2_clustered.ts` for the full
+day-by-day breakdown if needed.
+
+HONESTY NOTE (Reasoning Standard #4 still applies): n=16 clusters is a
+small-sample regime where a single large-magnitude day (2026-04-08:
+CALL=+4.173% PUT=+16.638%, spread=-12.464%, by far the largest day-level
+swing in the +20d series) can materially move a 16-point mean/t-stat.
+This was not excluded or treated as an outlier before running (no
+data-dependent trimming) — but it means step (2)'s disjoint window is
+now MORE important, not less, before this is trusted: a single volatile
+day dominating an already-thin cluster count is exactly the kind of
+result an independent replication window should confirm or kill.
+
+NOT DONE this session (deliberately, ladder-path discipline — "do not
+bundle with a re-run of the killed direction" / one logical change per
+PR): step (2)'s disjoint out-of-sample window. Next session picking
+this up should pull the sample from 2026-05 onward (the entry's own
+proposed disjoint range), run it through `occ_volume_gate2_clustered.ts`
+unmodified (same FLOOR/BUCKET_SIZE/HORIZONS), and only then — if it
+also survives — proceed to step (3)'s IV-selection confound control
+before any `gate2_pass` promotion in datacore/signal_ladder.json (this
+session made no signal_ladder.json change; occ_options_volume's own
+entry correctly stays `killed`, this is a distinct still-unconfirmed
+candidate).
+
+Source: this session's research/experiments.md entry;
+scripts/statsUtils.ts + scripts/statsUtils.test.ts;
+scripts/occ_volume_gate2_clustered.ts.
+
 ## [HYPOTHESIS · filed 2026-08-03, from the cftc_tff_positioning GATE 2 KILL] TLT (UST BOND) leveraged-money net-positioning extremes show MOMENTUM continuation at 20d, not mean-reversion — UNCONFIRMED, needs a disjoint out-of-sample window before any trust
 
 CONTEXT: cftc_tff_gate2_test.py pre-registered "leveraged-money net-
