@@ -3,6 +3,183 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-04 (scheduled-routine PRODUCT session #2) [PRODUCT] — T-CLIENT/T-DATACORE — crop_conditions_usda_nass /data chart view: the gate-1-passed pipeline from earlier today gets its UI (v1.0.594)
+
+TERRITORY: T-CLIENT (client/src/pages/cropConditions.tsx new, client/src/
+pages/datamap.tsx launcher+overlay wiring, client/src/index.css new
+`.vt-cropcond-*` block, scripts/visual_check.mjs new PAGES entry +
+fixture) crossing into T-DATACORE (datacore/signal_ladder.json single-
+entry note update recording the UI shipping) — a single logical change
+(one pipeline's UI follow-up) legitimately spans both per MERGE-ORDER
+PROTOCOL item 5, same precedent PR #689 (NRC reactor status map layer)
+set earlier today. package.json/package-lock.json (SHARED, version bump
+only) touched last.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+Local branch `claude/lucid-keller-tqjay2` had drifted from `origin/main`
+— an earlier `git fetch origin main claude/lucid-keller-tqjay2` in this
+same session silently no-op'd on `origin/main` because the second
+refspec (a branch that doesn't exist on the remote) made the whole
+fetch fail, and a subsequent `git checkout -B ... origin/main` reset
+onto that STALE cached ref (`dbe635c`, 2026-07-31), discarding 40 real
+merged commits through today's `v1.0.593` before any new commit was
+made. CAUGHT AND FIXED same session, before any work was lost: a
+`git fetch origin main` (single ref, no bad second arg) correctly
+resolved to `5f76afd`/`v1.0.593`, and `git reset --hard origin/main`
+restored the branch to the correct tip — recorded here as a process
+lesson, not a repair to the codebase (no application code involved):
+never combine an unverified branch name with `main` in one `git fetch`
+call; fetch and verify each ref separately when a branch's existence on
+the remote is uncertain. `/api/health`: `status:"ok"`, `bot.status:
+"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, alpaca ACTIVE —
+no LIVENESS ALARM. KNOWN BROKEN (open_questions.md): only #10/#20
+remain open, both already correctly gated on shadow_portfolio history
+accumulating (unaffected by, and not blocking, this session's product
+work per the routine's own instruction). Loop-health ratio, last 10
+tagged entries before this one (today's AXTI REPAIR, nrc_outage_reports
+PIPELINE, crop_conditions PIPELINE, the shadow-backfill REPAIR, the NRC
+map-layer PRODUCT, plus the preceding day's mix): well under the 7+
+[REPAIR] thrash bar.
+
+PRIMARY-ACTION SELECTION: the same-day NRC map-layer PRODUCT session
+(v1.0.592, PR #689) left an explicit NEXT note: "crop_conditions_usda_
+nass (also gate1_pass today, no UI yet) is the next API-only-pipeline-
+needs-UI candidate, best suited to a chart/table view rather than a map
+point layer — separate scoping needed." Picked it up directly, matching
+this session's own charter option (b) ("build product UI/UX... RAW-DATA
+overlays freely"): crop conditions is a national 18-state aggregate
+(corn + soybeans, 5 condition classes each) with no per-entity lat/lon,
+so a stacked-bar chart + legend fits it better than the map's
+point-symbol convention — exactly the scoping gap the NRC session named.
+
+READ BEFORE WRITE: read server/cropConditions.ts in full (the module
+docstring, `ConditionObs` shape, `parseConditions`'s verbatim-`item`
+convention) and its route in server/routes.ts (`/api/data/crop-
+conditions`, serves the poller's cached NEWEST WEEK only) before writing
+any client code. Read server/cropConditions.test.ts to confirm the
+exact `item` string shape emitted by the real parser ("CORN - CONDITION,
+MEASURED IN PCT EXCELLENT") so the client's condition-class extraction
+matches production, not a guessed format. Read client/src/pages/
+gridstress.tsx and atsSummary.tsx end to end as templates (bar-plus-
+legend and `.vt-filings-*` shell precedent, respectively) and grepped
+datamap.tsx for every one of the five existing page-wide launcher
+buttons (streams/quality/signals/pipeline-health/grid-stress) to confirm
+crop-conditions belongs in that same group (national aggregate, not a
+spatial layer) rather than the per-layer-row launcher pattern used by
+filings/earnings/methane-hotspots.
+
+WHAT SHIPPED: `client/src/pages/cropConditions.tsx` (new) — fetches
+`/api/data/crop-conditions`, groups rows by commodity, and renders one
+card per commodity: a 100%-stacked horizontal bar (5 segments, worst-
+to-best NASS ordering VERY POOR→POOR→FAIR→GOOD→EXCELLENT, diverging
+red-to-green chart color ramp — a chart color scale, not a map symbol,
+so SYMBOLS NOT DOTS doesn't apply) plus a swatch legend with each
+class's exact percentage, plus a "good/excellent" summary stat. Honest
+edge case handled: if a week's classes don't sum to ~100% (NASS rounds
+each class independently), a note says so rather than silently
+misrepresenting the total as a data error. Loading/warming-up/disabled
+(no NASS_API_KEY)/error/no-rows-yet states all designed explicitly,
+mirroring the gridstress.tsx/atsSummary.tsx precedent. New `.vt-
+cropcond-*` CSS block in index.css (bar/segment/legend/note), reusing
+the existing `.vt-filings-page/-head/-title/-sub` shell and `.vt-
+streams-body` wrapper — no new page shell invented. datamap.tsx: new
+`cropCondOpen` state + hash handler (`#/data/crop-conditions`, same
+overlay-pattern precedent as the other five page-wide dashboards) and a
+new launcher button positioned directly after the Grid-stress launcher
+in the page-wide group (national aggregate, not a spatial layer, so it
+does not join the map's per-layer on/off list).
+
+RATCHET (Phase 5 rule — every new page-wide view ships with its own
+harness page before merge): registered a new `cropconditions` entry in
+scripts/visual_check.mjs's `PAGES` map (route `/app#/data/crop-
+conditions`, `map:false`) plus a deterministic `/api/data/crop-
+conditions` fixture (10 rows matching this morning's real gate-1 truth
+values verbatim — corn 4/10/25/48/13, soybeans 2/7/28/52/11 — so the
+harness screenshot shows the same numbers the gate-1 session already
+verified against USDA's own bulletin, not arbitrary fixture data).
+
+VERIFIED: `npx tsc --noEmit`: 85 errors, byte-identical count to this
+session's own pre-change baseline (re-checked via `git stash -u` A/B —
+identical 85 both before and after, none referencing cropConditions.tsx
+or the touched lines in datamap.tsx/visual_check.mjs). `npx tsx --test
+server/*.test.ts`: 1045 total, 1044 passed, 1 failed — the single
+failure is the documented pre-existing `pmtiles` magic-byte
+container-fixture gap (git-lfs related), identical before and after.
+`npx tsx --test server/cropConditions.test.ts`: 5/5 pass, unchanged
+(zero server-side code touched this session). `npm run build`: clean.
+`python3 -m pytest -q`: SKIPPED — pytest not importable via `python3 -m`
+in this container (documented recurring gap; a separately-installed
+`pytest` binary exists but resolves to a different Python than
+`python3`), zero `.py` files touched regardless.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+cropconditions` — **0 hard failures at all three canonical widths**
+(390/768/1440), screenshots reviewed directly (not just the pass/fail
+line): stacked bars render with correct segment widths and colors,
+legend values match the fixture exactly, RAW/no-predictive-claim
+framing is the first thing visible, mobile layout at 390px stacks
+cleanly with no overflow. The only warnings at any width are the
+pre-existing global nav/toggle touch-target items already documented in
+every other page's harness run (same button names — 'VolTradeAI home',
+'Sign in', 'About the Bot', etc. — none belonging to this page) and one
+pre-existing 'About Temperature (global)'/'Toggle Country borders'
+clipped-control note unrelated to this change. Separately ran `npm run
+visual -- --page data` (the map page this view's launcher was added
+to): 390px/768px PASS with only the same pre-existing warning set; 1440px
+showed a HARD FAILURE (perf/TTI gate at ~3500 rendered aircraft) — A/B-
+verified via `git stash -u` that this failure reproduces IDENTICALLY on
+unmodified `main` (a different flavor each run — median-frame vs. TTI —
+consistent with a flaky, live-aircraft-feed-dependent container perf
+gate, not a regression from a closed-by-default overlay button that
+touches zero map/aircraft rendering code). Documented here rather than
+chased further: fixing the map page's live-data perf flakiness is a
+separate, larger investigation than a chart-page follow-up PR's scope.
+
+BACKTEST: N/A — pure `/data` display code, RAW overlay per STANDING
+BEHAVIORS' raw-vs-signal rule (`kind:"raw"` already asserted server-side,
+unchanged this session), no scoring/sizing/threshold value touched.
+
+Version bumped 1.0.593 -> 1.0.594 (PROMOTION RULE 4, read-and-increment
+at commit time; re-verified `origin/main` unchanged at `5f76afd`
+immediately before bumping) in `package.json` + `package-lock.json`
+(top-level + nested `packages.""` fields, both updated this time — the
+2026-08-04 AXTI-fix session's note that the nested field was stale is
+now resolved incidentally by this PR touching the same lines).
+
+CROSS-SYSTEM INTEGRATION: none new — this is a display-only follow-up
+to a pipeline whose cross-tie (condition-delta vs. forward futures,
+belt-weighted with the Drought Monitor join) is explicitly future gate-2
+work, unchanged this session.
+
+DEPLOY-TIMING: session ran ~18:1x-18:4x UTC (~14:1x-14:4x ET) — mid-
+market. Per CLAUDE.md's deploy-coupling guidance, opened as a PR but the
+PR body states merge should wait for the 16:00 ET close; subscribing to
+PR activity per standing protocol to drive CI to green regardless.
+
+NEXT (queued, not this session): (a) `crop_conditions_usda_nass` gate 2
+(condition-delta vs forward CORN/SOYB futures or ag-equity returns)
+still needs several more weeks of archived history, unchanged from this
+morning's gate-1 entry; (b) `nrc_outage_reports` gate 2 and
+`port_dwell_maritime_transit` gate 1 remain queued from earlier today's
+sessions, untouched here (one logical PR, PROMOTION RULE 5); (c) the
+data-page 1440px perf/TTI flakiness found during this session's A/B
+check is worth a dedicated future investigation (own primary action,
+not a byproduct of a chart-page PR) — first step would be determining
+whether it's genuinely load-dependent (live aircraft count varies run to
+run: 3507 this session vs. lower counts on calmer traffic days) or a
+container-resource artifact of this specific sandboxed environment; (d)
+gem_methane_plume_proximity's stale ladder entry (noted by both of
+today's earlier PIPELINE/PRODUCT sessions, still not fixed) remains
+queued as a small docs-only follow-up.
+
+STARVED: no — this was the session's one primary action (a full
+gate-1-passed pipeline's `/data` UI, matched to charter option (b) and
+capacity); fall-through not reached beyond the queued NEXT notes above
+(one logical PR, PROMOTION RULE 5). No LIVENESS ALARM at session start;
+KNOWN BROKEN had no critical trading-loop item unfixed, confirmed via
+`/api/health` before starting product work, consistent with the
+session's own "note but proceed" instruction.
+
 ## 2026-08-04 (scheduled-routine session, market hours) [REPAIR] — T-BOT — stale stop_state.json remaining_qty was making WS exits request more shares than AXTI actually held, failing with a 403 every ~60s for 1h45m+ and never closing the position (v1.0.593)
 
 TERRITORY: T-BOT (server/bot.ts, position-exit monitoring outside the
