@@ -39288,3 +39288,173 @@ queued next-step per two already-filed KNOWN BROKEN items and matched
 to capacity; no higher-priority queued item was skipped (no LIVENESS
 ALARM, no thrash, KNOWN BROKEN scanned end-to-end). One logical
 change, one PR, per PROMOTION RULE 5.
+
+## 2026-08-04 (scheduled-routine session, [PRODUCT]) — NRC daily reactor status live map layer: gate-1-passed pipeline from earlier today gets its /data UI (v1.0.592, PR #689)
+
+TERRITORY: T-DATACORE (server/nrcReactorStatus.ts + test) crossing into
+T-CLIENT (client/src/pages/datamap.tsx, client/src/lib/mapIcons.ts) for
+the map layer itself — a single logical change (one pipeline's UI
+follow-up) legitimately spans both per MERGE-ORDER PROTOCOL item 5
+("a cross-territory change belongs wholly to the session owning its
+PRIMARY territory"); the datacore pipeline is the primary territory,
+the map layer is its necessary UI half. SHARED files (datacore/
+layers.json, package.json/package-lock.json) touched last, minimized to
+one new entry + the version-bump line.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`
+— no LIVENESS ALARM. KNOWN BROKEN (open_questions.md): only #10 (dead
+SCORE_BAND_MAX config) and #20 (master_kill_switch CSP shadow) remain
+open, and both are already correctly blocked on shadow_portfolio history
+accumulating (the prior scheduled-routine session today, PR #688, just
+made that backfill visible — nothing new to act on yet, per this
+session's own PRODUCT charter: "note it but proceed with product work
+unless the break blocks you," and it doesn't).
+
+PRIMARY-ACTION SELECTION: surveyed datacore/signal_ladder.json's 39
+roots for the highest-value next ladder step. Several gate-2-ready
+candidates (usaspending_contracts, cftc_cot_positioning's USO carry,
+sec_8k_earnings_language) were all found to have explicit, dated
+re-run triggers that haven't matured yet (archive needs to age to
+~2026-08-15, ~15-20 more weekly COT reports, or 90 archive-days
+respectively — checked each against today's date before ruling it out,
+not assumed). gem_methane_plume_proximity's ladder entry was found
+stale (still describes only the 2026-07-19 gate 2(a) join as shipped,
+missing the 2026-07-20 gate 2(c) FAIL result already on record in
+open_questions.md) — filed as a NEXT item below rather than fixed this
+session, to keep this PR to one logical change. Settled on: two roots
+(nrc_outage_reports, crop_conditions_usda_nass) passed gate 1 THIS
+SAME DAY via earlier sessions but shipped API-only, no /data surface —
+directly matches this session's charter option (b) ("build product
+UI/UX... noting UI may display RAW-DATA overlays freely"). Picked NRC
+over crop conditions: NRC data is point-geometry (58 plants with
+lat/lon) fitting the map's existing point-symbol convention directly,
+while crop conditions is an 18-state national summary better suited to
+a chart/table view — a separate future PRODUCT session's scope, not
+bundled here.
+
+READ BEFORE WRITE: read server/nrcReactorStatus.ts (the whole file,
+including matchToRegistry's alias table and its own doc comments) and
+server/nrcReactorStatus.test.ts in full before touching either. Found
+the exact template to mirror by reading the "EPA CAMD CEMS plant
+operations" layer (client/src/pages/datamap.tsx ~8205-8304) end to end
+— same shape (vt-power/vt-nuclear silhouette tinted by a DATA-DRIVEN
+status color, not fuel type) already exists for a different stream,
+so this PR follows an established pattern rather than inventing a new
+one. Traced datacore/powerplants/us_power_plants.json's actual on-disk
+schema (compact tuple array, not the shape assumed from the file name
+alone) and entityGraph.ts's plantFacilityId(idx) construction before
+writing the join, so the map layer's dossier click lands on the SAME
+Everything Graph node the static powerplants layer already uses for
+that plant. Traced datacore/layers.json (found via grep, not
+assumed) as the actual source of the /data layer-picker's labels —
+the client's LAYER_GROUP record only carries the group ID, not the
+display copy.
+
+WHAT SHIPPED: `joinToPlants()` (server/nrcReactorStatus.ts) groups
+today's per-unit NRC rows onto their registry plant and buckets each
+plant's mean reported power into full (>=95%) / reduced / outage
+(<=5%) / unknown (no reading). Refactored matchToRegistry's local
+`candidatesFor`/alias-map closures into module-scope `candidatesFor()`/
+`buildAliasNorm()` so gate-1 reconciliation and the new join share
+IDENTICAL name-resolution logic — they cannot silently drift apart on
+which unit resolves to which plant. A single-unit outage at an
+otherwise-full multi-unit plant reads as "reduced," not "outage" — the
+down unit stays visible in the per-unit `units[]` breakdown for the
+click-through detail, never collapsed away (HONESTY: the map color is
+a summary, the click reveals the real per-unit picture). New `/api/data/
+nrc-reactor-status` response field `plants` (existing `rows` untouched,
+backward compatible). New `/data` toggle `nrc_reactor_status`, off by
+default (matches plant_operations/faa_airports/buoys precedent — a
+reference layer, not defaulted on), vt-nuclear icon (SYMBOLS NOT DOTS:
+same silhouette as the static powerplants/HIFLD layers since it's the
+same KIND of thing; color instead carries live status). Legend entries
++ panel icon/unit-label wiring added alongside. datacore/layers.json
+gained one new registry entry (SHARED, last commit, minimal diff).
+datacore/signal_ladder.json's nrc_outage_reports note updated same PR
+to record the UI shipping (this is bookkeeping about the very item
+this PR changes, not a second unrelated ladder fix — the stale
+gem_methane entry noticed during survey was deliberately left alone).
+
+LIVE VERIFICATION (not just unit tests): booted `dist/index.cjs`
+locally against the real network and hit `/api/data/nrc-reactor-status`
+— 95 real NRC unit rows for 2026-08-04, joined to 55 of the registry's
+58 nuclear plants (exactly matching gate 1's own 95/95-unit, 3-expected-
+gap count), status breakdown 50 full / 3 reduced / 2 outage, with James
+A Fitzpatrick (94% avg, single-unit "reduced") as a concrete live
+non-full example. Confirmed `/api/data/layers` serves the new registry
+entry. This is the "verify the POSITIVE case on prod" discipline the
+2026-07-20 gem-methane gate-2(b) session's own postmortem named after
+getting burned by a dist-staging gap — applied here up front.
+
+RATCHET: server/nrcReactorStatus.test.ts gained 9 new tests (24 total,
+up from 15) — loadRegistryNuclearPlants index-preservation, joinToPlants
+grouping/status-bucketing/the reduced-vs-outage distinction/null-power
+exclusion/unresolved-unit-dropped, and a refresh() test rewritten to
+assert against the REAL registry data (not a fixture) that the end-to-end
+wiring produces a populated `plants` array with a sane status. All 6
+pre-existing matchToRegistry tests pass unchanged post-refactor (proves
+the shared-helper extraction preserved exact behavior).
+
+GATES: `npm install` (node_modules was empty at session start, same
+recurring environment gap prior sessions have logged) + `pip3 install
+--break-system-packages -r requirements.txt -r requirements-dev.txt`.
+`npx tsx --test server/*.test.ts` 1040/1041 (1 pre-existing pmtiles
+magic-byte failure, matches the standing documented baseline). `npx tsc
+--noEmit`: A/B-verified via `git stash` — 85 errors both before and
+after, byte-identical, only line numbers shifted from added lines (zero
+new errors; the file's own pre-existing MapIterator/Set downlevelIteration
+errors are baseline, confirmed already present at the pre-change line
+numbers). `npm run build` clean. `python3 -m pytest -q` 1114 passed/1
+skipped, unchanged (zero .py files touched). `npm run visual --page
+data`: PASS at 390/768/1440px, 0 hard failures — the new layer is
+off-by-default so it doesn't appear in the default-state screenshots
+(same as every other reference layer this mirrors); the pre-existing
+touch-target/clipped-control warnings in the output belong to unrelated
+nav/toggle controls, not this change.
+
+BACKTEST: N/A — RAW display only (`kind:"raw"` per datacore/README.md's
+RAW-vs-SIGNAL rule), no scoring/sizing/threshold value touched.
+
+Version bumped 1.0.591 -> 1.0.592 (PROMOTION RULE 4).
+
+CROSS-SYSTEM INTEGRATION: the map click wires into the SAME Everything
+Graph `facility:plant:N` node the static powerplants/HIFLD layers
+already use for that physical plant (verified against entityGraph.ts's
+plantFacilityId(idx) construction, not assumed) — a genuine tie, not a
+duplicate node, so a dossier lookup on a nuclear plant now surfaces
+whichever layer's context is relevant. Ties into the existing
+power_grid category alongside HIFLD/WRI plant registries and EIA-930
+grid demand, distinguishing itself by being the only LIVE (daily-
+updating) operational-status view among them rather than a static
+capacity snapshot.
+
+DEPLOY-TIMING: session ran 9:44 AM ET (mid-market, checked via
+`/api/health`'s timestamp before pushing). Per CLAUDE.md's deploy-
+coupling guidance, PR #689 was opened but NOT merged this session —
+the PR body states the merge should wait for the 16:00 ET close;
+subscribed to PR activity per standing protocol and will drive CI to
+green, but the merge itself is deliberately held.
+
+NEXT (queued, not this session): (1) gem_methane_plume_proximity's
+ladder entry is stale — missing the 2026-07-20 gate 2(c) FAIL result
+(N=32, all 3 horizons failed the pre-stated bar, but heavily caveated
+as data-availability-limited/concentrated in one ticker) that's already
+on record in open_questions.md; a future session should update the
+entry's status/note (own small PR, docs-only, per the "improve
+datacore's docs toward spinout-readiness" charter option). (2)
+crop_conditions_usda_nass (also gate1_pass today, no UI yet) is the
+next API-only-pipeline-needs-UI candidate, best suited to a chart/table
+view rather than a map point layer — separate scoping needed. (3) once
+PR #689 merges and deploys, a future session could spot-check the live
+map render (visual harness with the layer forced on, or a manual
+screenshot) since this session's harness run only covered the
+default-off state.
+
+STARVED: no — this was the session's one primary action, fully shipped
+with tests/gates/live-verification, matched to capacity per SESSION
+BUDGET. No higher-priority queued item was skipped (KNOWN BROKEN's two
+open items are both correctly blocked on data accumulation, not
+actionable; no LIVENESS ALARM; no thrash — last-10-entries type ratio
+unchanged from this morning's earlier check). One logical change, one
+PR, per PROMOTION RULE 5.

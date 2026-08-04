@@ -45,6 +45,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
 
 const BASE_URL = "https://www.nrc.gov/reading-rm/doc-collections/event-status/reactor-status";
 
@@ -150,6 +151,36 @@ function stripUnitSuffix(s: string): string {
   return s.replace(/\s+\d+$/, "").trim();
 }
 
+/** Alias values are raw registry strings, normalized through the SAME
+ *  normalizePlantName every registry index uses, so this table can never
+ *  drift out of sync with whatever it's compared against. Shared by
+ *  matchToRegistry (gate 1) and joinToPlants (the map layer's per-unit ->
+ *  per-plant grouping) so both use IDENTICAL name-resolution logic — a
+ *  unit either resolves the same way in both, or the map layer would
+ *  silently disagree with the gate-1 script about which plants match. */
+function buildAliasNorm(): Map<string, string> {
+  const aliasNorm = new Map<string, string>();
+  for (const [k, v] of Object.entries(ALIASES)) aliasNorm.set(k, normalizePlantName(v));
+  return aliasNorm;
+}
+
+/** Every normalized-name candidate a raw NRC unit string could resolve to
+ *  (verbatim, unit-suffix-stripped, alias-mapped) — extracted from
+ *  matchToRegistry so joinToPlants uses the exact same resolution order. */
+function candidatesFor(unit: string, aliasNorm: Map<string, string>): string[] {
+  const n = normalizePlantName(unit);
+  const stripped = stripUnitSuffix(n);
+  // Re-run suffix-word stripping after the unit number comes off — a name
+  // like "River Bend Station 1" only exposes its "station" suffix once the
+  // trailing "1" is gone (normalizePlantName's suffix check only fires
+  // when the suffix word is what the string CURRENTLY ends with).
+  const doubleStripped = normalizePlantName(stripped);
+  return [
+    n, stripped, doubleStripped,
+    aliasNorm.get(n) || "", aliasNorm.get(stripped) || "", aliasNorm.get(doubleStripped) || "",
+  ].filter(Boolean);
+}
+
 export interface MatchResult {
   matched: number;
   unmatched: string[];
@@ -165,34 +196,14 @@ export interface MatchResult {
 export function matchToRegistry(nrcUnitNames: string[], registryPlantNames: string[]): MatchResult {
   const registryNorm = new Map<string, string>(); // normalized -> original
   for (const name of registryPlantNames) registryNorm.set(normalizePlantName(name), name);
-
-  // Alias values are raw registry strings — normalize them through the
-  // SAME function that built registryNorm, so the two can never drift
-  // out of sync with each other.
-  const aliasNorm = new Map<string, string>();
-  for (const [k, v] of Object.entries(ALIASES)) aliasNorm.set(k, normalizePlantName(v));
-
-  const candidatesFor = (unit: string): string[] => {
-    const n = normalizePlantName(unit);
-    const stripped = stripUnitSuffix(n);
-    // Re-run suffix-word stripping after the unit number comes off — a
-    // name like "River Bend Station 1" only exposes its "station" suffix
-    // once the trailing "1" is gone (normalizePlantName's suffix check
-    // only fires when the suffix word is what the string CURRENTLY ends
-    // with).
-    const doubleStripped = normalizePlantName(stripped);
-    return [
-      n, stripped, doubleStripped,
-      aliasNorm.get(n) || "", aliasNorm.get(stripped) || "", aliasNorm.get(doubleStripped) || "",
-    ].filter(Boolean);
-  };
+  const aliasNorm = buildAliasNorm();
 
   const uniqueUnits = [...new Set(nrcUnitNames)];
   const unmatched: string[] = [];
   const matchedRegistryNorms = new Set<string>();
   let matched = 0;
   for (const unit of uniqueUnits) {
-    const hitNorm = candidatesFor(unit).find((c) => registryNorm.has(c));
+    const hitNorm = candidatesFor(unit, aliasNorm).find((c) => registryNorm.has(c));
     if (hitNorm) { matched++; matchedRegistryNorms.add(hitNorm); }
     else unmatched.push(unit);
   }
@@ -210,6 +221,87 @@ export function matchToRegistry(nrcUnitNames: string[], registryPlantNames: stri
     unexpectedRegistryGaps,
     matchRate: uniqueUnits.length ? matched / uniqueUnits.length : 0,
   };
+}
+
+// ── Map layer: per-plant live status (joins today's units onto registry lat/lon) ──
+
+/** Raw registry row shape: datacore/powerplants/us_power_plants.json's
+ *  compact tuple array, [name, mw, fuel, owner, lat, lon, verified]. `idx`
+ *  is the row's position in the UNFILTERED file — entityGraph.ts's
+ *  plantFacilityId(idx) is built from that same unfiltered array, so
+ *  carrying it through here is what lets a map click join into the same
+ *  Everything Graph facility node the static powerplants layer uses. */
+type RawPlantRow = [string, number, string, string, number, number, number];
+
+export interface RegistryNuclearPlant {
+  idx: number;
+  name: string;
+  mw: number;
+  owner: string;
+  lat: number;
+  lon: number;
+}
+
+export function loadRegistryNuclearPlants(rows: RawPlantRow[]): RegistryNuclearPlant[] {
+  const out: RegistryNuclearPlant[] = [];
+  rows.forEach((row, idx) => {
+    if (row[2] !== "nuclear") return;
+    out.push({ idx, name: row[0], mw: row[1], owner: row[3], lat: row[4], lon: row[5] });
+  });
+  return out;
+}
+
+export type PlantPowerStatus = "full" | "reduced" | "outage" | "unknown";
+
+// Thresholds on percent-of-rated-thermal-power (NRC's own unit). Not tuned
+// against any outcome — this is a RAW display bucketing, no trading claim,
+// so no RULE REVIEW evidence gate applies (CLAUDE.md's threshold-evidence
+// requirement governs trade-affecting rules, not a map-color cutoff).
+export const FULL_POWER_THRESHOLD = 95;
+export const OUTAGE_THRESHOLD = 5;
+
+export interface PlantReactorStatus {
+  idx: number;
+  name: string;
+  lat: number;
+  lon: number;
+  mw: number;
+  owner: string;
+  units: { unit: string; power: number | null }[];
+  avgPower: number | null; // mean of today's non-null unit readings; null if every unit is unreported
+  status: PlantPowerStatus;
+}
+
+/** Groups today's NRC unit rows onto their registry plant (same name
+ *  resolution as matchToRegistry — an unmatched unit is skipped here
+ *  exactly as it's reported unmatched there, never guessed at a nearby
+ *  plant) and buckets each plant's mean reported power into a status.
+ *  Multi-unit plants average across units — a single-unit outage at an
+ *  otherwise-full plant reads as "reduced," not "outage"; the unit-level
+ *  breakdown stays in `units` for the click-through detail to show which
+ *  unit is actually down, never collapsed away. */
+export function joinToPlants(rows: ReactorStatusRow[], registry: RegistryNuclearPlant[]): PlantReactorStatus[] {
+  const registryNorm = new Map<string, RegistryNuclearPlant>();
+  for (const p of registry) registryNorm.set(normalizePlantName(p.name), p);
+  const aliasNorm = buildAliasNorm();
+
+  const byPlant = new Map<string, { plant: RegistryNuclearPlant; units: { unit: string; power: number | null }[] }>();
+  for (const row of rows) {
+    const hitNorm = candidatesFor(row.unit, aliasNorm).find((c) => registryNorm.has(c));
+    if (!hitNorm) continue; // unresolved unit — surfaced honestly by matchToRegistry/the gate-1 script; this view drops it rather than guessing a plant
+    if (!byPlant.has(hitNorm)) byPlant.set(hitNorm, { plant: registryNorm.get(hitNorm)!, units: [] });
+    byPlant.get(hitNorm)!.units.push({ unit: row.unit, power: row.power });
+  }
+
+  return Array.from(byPlant.values()).map(({ plant, units }) => {
+    const powers = units.map((u: { unit: string; power: number | null }) => u.power).filter((p: number | null): p is number => p !== null);
+    const avgPower = powers.length ? powers.reduce((a: number, b: number) => a + b, 0) / powers.length : null;
+    const status: PlantPowerStatus =
+      avgPower === null ? "unknown" :
+      avgPower >= FULL_POWER_THRESHOLD ? "full" :
+      avgPower <= OUTAGE_THRESHOLD ? "outage" : "reduced";
+    return { idx: plant.idx, name: plant.name, lat: plant.lat, lon: plant.lon, mw: plant.mw, owner: plant.owner, units, avgPower, status };
+  });
 }
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -303,7 +395,13 @@ export function gzipOldStatusDays(baseDir?: string, nowMs?: number): number {
 
 // ── Cache + poll ─────────────────────────────────────────────────────────
 
-let cache: { at: number; date: string; rows: ReactorStatusRow[] } | null = null;
+// Computed once from the static registry import — the nuclear rows/indices
+// inside us_power_plants.json don't change between deploys, so re-filtering
+// per request would be pure waste (same "poller boots eagerly, request path
+// stays a free cache read" discipline as every other datacore stream).
+const REGISTRY_NUCLEAR_PLANTS = loadRegistryNuclearPlants((datacorePowerplants as any).plants);
+
+let cache: { at: number; date: string; rows: ReactorStatusRow[]; plants: PlantReactorStatus[] } | null = null;
 let polling = false;
 
 export function latestReactorStatus() {
@@ -316,7 +414,7 @@ export async function refreshReactorStatus(fetchImpl: FetchFn = fetch as any,
     const rows = await fetchReactorStatus(fetchImpl, nowMs);
     if (rows.length) {
       archiveReactorStatus(rows, baseDir, nowMs);
-      cache = { at: Date.now(), date: latestDay(rows), rows };
+      cache = { at: Date.now(), date: latestDay(rows), rows, plants: joinToPlants(rows, REGISTRY_NUCLEAR_PLANTS) };
     }
     gzipOldStatusDays(baseDir, nowMs);
   } catch (e: any) {

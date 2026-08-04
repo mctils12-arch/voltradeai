@@ -3059,6 +3059,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.rows.length,
       note: "daily percent-of-rated-thermal-power per operating unit (NRC unit granularity, not plant); outage-adjacent signals stay gate-locked until ladder validation",
       rows: hit.rows,
+      // per-plant view (joined onto the WRI/HIFLD registry's lat/lon for
+      // the /data map layer) — units grouped under their plant, status is
+      // a DATA-DRIVEN bucket off today's mean reported power, not fuel
+      // type or a predictive claim.
+      plantCount: hit.plants.length,
+      plants: hit.plants,
     });
   });
 

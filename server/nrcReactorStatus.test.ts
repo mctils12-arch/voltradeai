@@ -10,6 +10,7 @@ import {
   parseReactorStatus, reactorStatusUrl, latestDay, normalizePlantName,
   matchToRegistry, EXPECTED_REGISTRY_ONLY, fetchReactorStatus,
   archiveReactorStatus, refreshReactorStatus, latestReactorStatus,
+  loadRegistryNuclearPlants, joinToPlants,
 } from "./nrcReactorStatus";
 
 const SAMPLE = [
@@ -83,6 +84,64 @@ test("EXPECTED_REGISTRY_ONLY carries only documented-retired plants", () => {
   assert.ok(EXPECTED_REGISTRY_ONLY.has("duane arnold"));
 });
 
+test("loadRegistryNuclearPlants: filters to fuel==='nuclear', keeps the row's original index", () => {
+  const rows: [string, number, string, string, number, number, number][] = [
+    ["Grand Coulee", 6809, "hydro", "USBR", 47.9575, -118.9773, 1],
+    ["Beaver Valley", 1836.6, "nuclear", "Energy Harbor", 40.6234, -80.434, 1],
+    ["Palo Verde", 4209.6, "nuclear", "APS", 33.3881, -112.8617, 1],
+  ];
+  const plants = loadRegistryNuclearPlants(rows);
+  assert.equal(plants.length, 2);
+  assert.deepEqual(plants[0], { idx: 1, name: "Beaver Valley", mw: 1836.6, owner: "Energy Harbor", lat: 40.6234, lon: -80.434 });
+  assert.equal(plants[1].idx, 2, "index is the position in the UNFILTERED array (matches entityGraph.ts's plantFacilityId)");
+});
+
+test("joinToPlants: groups units under their plant, buckets status off the mean reported power", () => {
+  const registry = loadRegistryNuclearPlants([
+    ["Beaver Valley", 1836.6, "nuclear", "Energy Harbor", 40.6234, -80.434, 1],
+    ["Palo Verde", 4209.6, "nuclear", "APS", 33.3881, -112.8617, 1],
+  ]);
+  const rows = [
+    { date: "2026-08-04", unit: "Beaver Valley 1", power: 100 },
+    { date: "2026-08-04", unit: "Beaver Valley 2", power: 90 }, // avg 95 -> full (>= threshold)
+    { date: "2026-08-04", unit: "Palo Verde 1", power: 0 },
+    { date: "2026-08-04", unit: "Palo Verde 2", power: 3 },      // avg 1.5 -> outage
+  ];
+  const plants = joinToPlants(rows, registry);
+  assert.equal(plants.length, 2);
+  const bv = plants.find((p) => p.name === "Beaver Valley")!;
+  assert.equal(bv.units.length, 2);
+  assert.equal(bv.avgPower, 95);
+  assert.equal(bv.status, "full");
+  assert.equal(bv.idx, 0);
+  const pv = plants.find((p) => p.name === "Palo Verde")!;
+  assert.equal(pv.avgPower, 1.5);
+  assert.equal(pv.status, "outage");
+});
+
+test("joinToPlants: a single-unit outage at an otherwise-full multi-unit plant reads as 'reduced', not 'outage' — the down unit stays visible in units[]", () => {
+  const registry = loadRegistryNuclearPlants([["Beaver Valley", 1836.6, "nuclear", "Energy Harbor", 40.6234, -80.434, 1]]);
+  const rows = [
+    { date: "2026-08-04", unit: "Beaver Valley 1", power: 100 },
+    { date: "2026-08-04", unit: "Beaver Valley 2", power: 0 },
+  ];
+  const plants = joinToPlants(rows, registry);
+  assert.equal(plants[0].status, "reduced");
+  assert.deepEqual(plants[0].units, [{ unit: "Beaver Valley 1", power: 100 }, { unit: "Beaver Valley 2", power: 0 }]);
+});
+
+test("joinToPlants: null-power units are excluded from the average, not treated as 0; all-null resolves to 'unknown'", () => {
+  const registry = loadRegistryNuclearPlants([["Beaver Valley", 1836.6, "nuclear", "Energy Harbor", 40.6234, -80.434, 1]]);
+  assert.equal(joinToPlants([{ date: "2026-08-04", unit: "Beaver Valley 1", power: 100 }, { date: "2026-08-04", unit: "Beaver Valley 2", power: null }], registry)[0].avgPower, 100);
+  assert.equal(joinToPlants([{ date: "2026-08-04", unit: "Beaver Valley 1", power: null }], registry)[0].status, "unknown");
+});
+
+test("joinToPlants: an unresolved unit is dropped, not guessed at a nearby plant", () => {
+  const registry = loadRegistryNuclearPlants([["Beaver Valley", 1836.6, "nuclear", "Energy Harbor", 40.6234, -80.434, 1]]);
+  const plants = joinToPlants([{ date: "2026-08-04", unit: "Totally Unknown Unit 1", power: 100 }], registry);
+  assert.deepEqual(plants, []);
+});
+
 test("fetch: keeps only the newest day's rows, on non-ok logs and returns empty", async () => {
   const ok = async () => ({ ok: true, status: 200, text: async () => SAMPLE });
   const rows = await fetchReactorStatus(ok as any, Date.parse("2026-08-03T12:00:00Z"));
@@ -106,7 +165,7 @@ test("archive: date|unit dedup across fetches and restarts", () => {
   assert.equal(archiveReactorStatus(plus, base, now), 1, "new day's row lands");
 });
 
-test("refresh: cache holds only the newest day's rows", async () => {
+test("refresh: cache holds only the newest day's rows, plus the registry-joined plants view", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "nrc-"));
   const ok = async () => ({ ok: true, status: 200, text: async () => SAMPLE });
   await refreshReactorStatus(ok as any, Date.parse("2026-08-03T12:00:00Z"), base);
@@ -114,4 +173,13 @@ test("refresh: cache holds only the newest day's rows", async () => {
   assert.ok(hit);
   assert.equal(hit!.date, "2026-08-03");
   assert.ok(hit!.rows.every((r) => r.date === "2026-08-03"));
+  // real registry join against the actual us_power_plants.json, not a
+  // fixture — SAMPLE's units (Arkansas Nuclear 1, Beaver Valley 1, Palo
+  // Verde 2) all resolve to real registry plants, so this proves the
+  // wiring end-to-end, not just that joinToPlants works in isolation.
+  assert.ok(Array.isArray(hit!.plants));
+  assert.ok(hit!.plants.length >= 2, "Arkansas Nuclear + Beaver Valley + Palo Verde all resolve against the real registry");
+  const arkansas = hit!.plants.find((p) => p.name.includes("Arkansas"));
+  assert.ok(arkansas, "Arkansas Nuclear 1 (100%) resolves to a registry plant");
+  assert.equal(arkansas!.status, "full");
 });

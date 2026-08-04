@@ -9,7 +9,7 @@ import {
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
   POWER_FUEL_ICON, POWER_FUEL_COLOR, POWER_FUEL_LABEL, FIRE_CONFIDENCE_COLOR,
   EIA_FUEL_TO_CANON, EIA_FUEL_LABEL, quakeMagnitudeColor, volcanoAlertColor,
-  camdUtilizationPct, camdUtilizationColor,
+  camdUtilizationPct, camdUtilizationColor, nrcReactorStatusColor,
   classifyNukeTest, NUKE_CLASS_ICON, NUKE_CLASS_LABEL, NUKE_COUNTRY_COLOR,
   radiationBandColor, RADIATION_BANDS, RADIATION_CPM_COLOR, inesColor, NUKE_FACILITY_COLOR,
   PFAS_COUNT_BANDS, METHANE_MATCH_COLOR, METHANE_MATCH_LABEL, type MethaneMatchKind,
@@ -415,7 +415,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor";
   title: string;
   subtitle: string;
   body: string;
@@ -755,7 +755,7 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
-  plant_operations: "facilities", faa_airports: "facilities", border_waits: "facilities",
+  plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
   radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
@@ -1276,7 +1276,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.faa_airports || enabled.border_waits) && (
+          {(enabled.sites || enabled.powerplants || enabled.powergrid_hifld_plants || enabled.powergrid_hifld_sub || enabled.plant_operations || enabled.nrc_reactor_status || enabled.faa_airports || enabled.border_waits) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Facilities</div>
               <div className="vt-legend-items">
@@ -1302,6 +1302,15 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-power" color={camdUtilizationColor(0.35)} label="EPA CAMD Util. 25-50%" />
                     <LegendIcon icon="vt-power" color={camdUtilizationColor(0.1)} label="EPA CAMD Util. <25%" />
                     <span className="vt-legend-note">ground-truth capacity utilization from EPA's own unit-level CEMS reporting (TX pilot, quarterly) — not fuel type</span>
+                  </>
+                )}
+                {enabled.nrc_reactor_status && (
+                  <>
+                    <LegendIcon icon="vt-nuclear" color={nrcReactorStatusColor("full")} label="Full power" />
+                    <LegendIcon icon="vt-nuclear" color={nrcReactorStatusColor("reduced")} label="Reduced power" />
+                    <LegendIcon icon="vt-nuclear" color={nrcReactorStatusColor("outage")} label="Outage" />
+                    <LegendIcon icon="vt-nuclear" color={nrcReactorStatusColor("unknown")} label="No reading today" />
+                    <span className="vt-legend-note">NRC daily reactor status — mean of today's reported % power across a plant's units, not fuel type</span>
                   </>
                 )}
                 {enabled.faa_airports && (
@@ -8303,6 +8312,101 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.plant_operations, mapReady, mapSettled, setStatus]);
 
+  // ── NRC daily reactor status (RAW; server/nrcReactorStatus.ts joins
+  // today's per-unit % power onto the nuclear-plant registry's lat/lon).
+  // Same vt-nuclear silhouette the static powerplants/HIFLD layers use for
+  // fuel type (SYMBOLS NOT DOTS: same KIND, so same shape) — color here is
+  // instead the DATA-DRIVEN operating-status tier (full/reduced/outage/
+  // unknown), the plant_operations/camdUtilizationColor precedent applied
+  // to nuclear-specific live status rather than EPA utilization. Off by
+  // default (reference layer, same precedent as plant_operations/buoys). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.nrc_reactor_status) {
+      try {
+        if (map.getLayer("nrc-reactor-pt")) map.removeLayer("nrc-reactor-pt");
+        if (map.getSource("nrc-reactor")) map.removeSource("nrc-reactor");
+      } catch {}
+      setStatus("nrc_reactor_status", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("nrc_reactor_status", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("nrc_reactor_status", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/nrc-reactor-status", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (d.warming_up) { setStatus("nrc_reactor_status", "loading", 0, "warming up — first NRC daily report still loading"); return; }
+        if (!Array.isArray(d.plants)) throw new Error("no plants in response");
+        if (map.getSource("nrc-reactor")) return;
+        map.addSource("nrc-reactor", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.plants.map((p: any) => ({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+              properties: {
+                idx: p.idx, name: p.name, mw: p.mw, owner: p.owner,
+                avgPower: p.avgPower, plantStatus: p.status,
+                units: JSON.stringify(p.units),
+                icon: "vt-nuclear", color: nrcReactorStatusColor(p.status),
+              },
+            })),
+          } as any,
+        });
+        map.addLayer({
+          id: "nrc-reactor-pt", type: "symbol", source: "nrc-reactor",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.35, 6, 0.55, 10, 0.85],
+            "icon-allow-overlap": false,
+          },
+          paint: {
+            "icon-color": ["get", "color"],
+            "icon-halo-color": "rgba(5,10,19,0.95)",
+            "icon-halo-width": 1.3,
+          },
+        });
+        detach = attachLayerInteractions(map, "nrc-reactor-pt", (e: any) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties;
+          const units: { unit: string; power: number | null }[] = JSON.parse(p.units || "[]");
+          const avgPower = typeof p.avgPower === "number" ? p.avgPower : null;
+          const statusLabel: Record<string, string> = { full: "Full power", reduced: "Reduced power", outage: "Outage", unknown: "No reading today" };
+          const dossierKey = `nrcreactor:${p.idx}:${Date.now()}`;
+          setDetail({
+            kind: "nrcreactor",
+            title: p.name,
+            subtitle: `${statusLabel[p.plantStatus] || p.plantStatus} · ${avgPower != null ? `${avgPower.toFixed(0)}% avg` : "—"} · ${units.length} unit${units.length === 1 ? "" : "s"}`,
+            stats: [
+              { label: "Status", value: statusLabel[p.plantStatus] || p.plantStatus || "—" },
+              { label: "Avg power", value: avgPower != null ? `${avgPower.toFixed(0)}%` : "—" },
+              { label: "Units", value: String(units.length) },
+              { label: "Cap MW", value: Number(p.mw) ? Number(p.mw).toLocaleString() : "—" },
+            ],
+            sourceTag: "NRC Power Reactor Status",
+            body: `${p.owner ? `Operator: ${p.owner}\n` : ""}` +
+                  `Per-unit % of rated thermal power today:\n` +
+                  units.map((u) => `  ${u.unit}: ${u.power != null ? `${u.power}%` : "not reported"}`).join("\n") +
+                  `\n\nU.S. NRC daily Power Reactor Status Report — NRC collects this once daily (4am-8am ET), not a live/real-time feed. RAW ground-truth reading, no predictive claim — outage-adjacent signals stay gate-locked until ladder validation.`,
+            dossierKey,
+          });
+          fetchDossier(dossierKey, `facility:plant:${p.idx}`, e.lngLat?.lat, e.lngLat?.lng);
+        });
+        setStatus("nrc_reactor_status", "active", d.plants.length, `NRC daily reactor status — ${d.date || "latest"}`);
+      },
+      (failures) => setStatus("nrc_reactor_status", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.nrc_reactor_status, mapReady, mapSettled, setStatus]);
+
   // ── FAA National Airspace System status (RAW; ground stops/GDPs/delays/
   // closures — a rolling snapshot, not an event log, per server/faaStatus.ts's
   // own docstring naming this map layer as the deliberate follow-up once a
@@ -10824,6 +10928,7 @@ export default function DataMapPage() {
     id === "sites" ? <MapPin size={15} /> :
     id === "powerplants" ? <Zap size={15} /> :
     id === "plant_operations" ? <Gauge size={15} /> :
+    id === "nrc_reactor_status" ? <Zap size={15} /> :
     id === "faa_airports" ? <TowerControl size={15} /> :
     id === "border_waits" ? <Milestone size={15} /> :
     id === "coal_mine_features" ? <Mountain size={15} /> :
@@ -10865,7 +10970,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
