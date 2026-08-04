@@ -83,14 +83,14 @@
  */
 import { fetchOccDay, aggregateOcc, type UnderlyingStat } from "../server/occVolume";
 
-const FLOOR = 8000;
-const BUCKET_SIZE = 40;
-const HORIZONS = [5, 20] as const;
-const SAMPLE_START = "2026-01-07"; // Wednesday
-const SAMPLE_WEEKS = 16;
+export const FLOOR = 8000;
+export const BUCKET_SIZE = 40;
+export const HORIZONS = [5, 20] as const;
+export const SAMPLE_START = "2026-01-07"; // Wednesday
+export const SAMPLE_WEEKS = 16;
 const DRY = process.argv.includes("--dry");
 
-function weeklySampleDays(startYmd: string, weeks: number): string[] {
+export function weeklySampleDays(startYmd: string, weeks: number): string[] {
   const [y, m, d] = startYmd.split("-").map(Number);
   const out: string[] = [];
   const cur = new Date(Date.UTC(y, m - 1, d));
@@ -101,17 +101,17 @@ function weeklySampleDays(startYmd: string, weeks: number): string[] {
   return out;
 }
 
-function ymdCompact(iso: string): string {
+export function ymdCompact(iso: string): string {
   return iso.replace(/-/g, "");
 }
 
-interface SkewRow {
+export interface SkewRow {
   ticker: string;
   skew: number;
   volume: number;
 }
 
-interface DayBuckets {
+export interface DayBuckets {
   day: string;
   qualifying: number;
   callSkew: SkewRow[];
@@ -119,7 +119,7 @@ interface DayBuckets {
   neutral: SkewRow[];
 }
 
-function bucketDay(day: string, stats: UnderlyingStat[]): DayBuckets {
+export function bucketDay(day: string, stats: UnderlyingStat[]): DayBuckets {
   const qualifying: SkewRow[] = stats
     .filter((s) => s.cust_put + s.cust_call >= FLOOR)
     .map((s) => ({
@@ -141,7 +141,7 @@ function bucketDay(day: string, stats: UnderlyingStat[]): DayBuckets {
 
 // ── Yahoo daily adjusted close, one range fetch per ticker ─────────────────
 
-async function fetchYahooDaily(symbol: string, startSec: number, endSec: number): Promise<Map<string, number>> {
+export async function fetchYahooDaily(symbol: string, startSec: number, endSec: number): Promise<Map<string, number>> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
     `?period1=${startSec}&period2=${endSec}&interval=1d&events=div%2Csplit`;
   let lastErr: any;
@@ -175,16 +175,16 @@ async function fetchYahooDaily(symbol: string, startSec: number, endSec: number)
   throw lastErr;
 }
 
-interface Series { dates: string[]; closes: number[]; indexOf: Map<string, number>; }
+export interface Series { dates: string[]; closes: number[]; indexOf: Map<string, number>; }
 
-function toSeries(map: Map<string, number>): Series {
+export function toSeries(map: Map<string, number>): Series {
   const dates = Array.from(map.keys()).sort();
   const closes = dates.map((d) => map.get(d)!);
   const indexOf = new Map(dates.map((d, i) => [d, i]));
   return { dates, closes, indexOf };
 }
 
-function fwdReturn(series: Series, entryDate: string, horizonTradingDays: number): number | null {
+export function fwdReturn(series: Series, entryDate: string, horizonTradingDays: number): number | null {
   const idx = series.indexOf.get(entryDate);
   if (idx == null) return null;
   const fwdIdx = idx + horizonTradingDays;
@@ -195,7 +195,7 @@ function fwdReturn(series: Series, entryDate: string, horizonTradingDays: number
   return fwd / entry - 1;
 }
 
-function meanStd(arr: number[]): { mean: number; std: number; median: number; n: number } {
+export function meanStd(arr: number[]): { mean: number; std: number; median: number; n: number } {
   const n = arr.length;
   const mean = arr.reduce((a, b) => a + b, 0) / n;
   const variance = n > 1 ? arr.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
@@ -204,7 +204,7 @@ function meanStd(arr: number[]): { mean: number; std: number; median: number; n:
   return { mean, std: Math.sqrt(variance), median, n };
 }
 
-function welchT(a: number[], b: number[]): number {
+export function welchT(a: number[], b: number[]): number {
   const sa = meanStd(a), sb = meanStd(b);
   const se = Math.sqrt((sa.std ** 2) / sa.n + (sb.std ** 2) / sb.n);
   if (se === 0) return NaN;
