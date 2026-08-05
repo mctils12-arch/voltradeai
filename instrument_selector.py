@@ -135,6 +135,22 @@ MAX_OPTIONS_PCT_CEILING = 0.08   # Absolute max 8% per options trade (v1.0.34: w
 # profitable strategy. Doubled to 16% to let CSP income scale without
 # changing per-trade risk. Per-trade ceiling stays at 8% so a single
 # blow-up still can't exceed that. Revisit at 30 days of live data.
+# REVISIT ATTEMPTED 2026-08-05 (scheduled-routine [RULE-REVIEW] session, 94
+# days late — see open_questions.md): INCONCLUSIVE, not re-tuned. Live
+# evidence for whether 16% is well-calibrated doesn't exist yet — this cap
+# has never logged a live "options exposure ... at max" rejection in the
+# audit history (checked /api/diag/audit and grep of experiments.md), and
+# CSP volume has been starved for most of that window by two separate,
+# already-diagnosed bugs (item #3's MAX_OPTIONS_POSITIONS mixup, fixed
+# v1.0.275, and item #20's master_kill_switch over-kill, still open) — so
+# "the cap was never binding" cannot yet distinguish "16% is generous
+# enough" from "CSP essentially wasn't trading." The real blocker to a
+# revisit was DATA, not oversight: the rejection reason was only ever a
+# Python logger.info() call, invisible outside container logs once stock/
+# etf was chosen instead of options — this session closed that gap (see
+# `options_ruled_out_reason` / the "Options ruled out:" suffix on
+# full_reasoning below), so a future session can query the INSTRUMENT audit
+# line for real binding frequency before re-tuning this threshold.
 MAX_TOTAL_OPTIONS_PCT   = 0.16   # was 0.08 — cap binding on profitable CSP strategy
 ETF_LEVERAGE_DISCOUNT   = 0.50   # ETF sized at 50% of stock (2× leverage)
 MIN_OPTIONS_SCORE       = 65     # Minimum deep_score to consider options (lowered from 70)
@@ -1402,6 +1418,7 @@ def select_instrument(trade: dict, equity: float,
         logger.debug(f"[{ticker}] No leveraged ETF available for this ticker/direction")
 
     # Options candidate: score >= 70, regular hours, no naked calls, exposure limit
+    options_ruled_out_reason = None  # VISIBILITY FIX 2026-08-05: see below
     if options_score is not None and options_score.get("strategy") != "none":
         options_exposure = _options_exposure_pct(positions, equity)
         options_ok = (
@@ -1421,6 +1438,7 @@ def select_instrument(trade: dict, equity: float,
                 reason = f"options exposure {options_exposure:.1%} at max {MAX_TOTAL_OPTIONS_PCT:.0%}"
             else:
                 reason = "strategy not viable"
+            options_ruled_out_reason = reason
             logger.info(f"[{ticker}] Options ruled out: {reason}")
             if options_score:
                 options_score["score"]     = 0.0
@@ -1474,6 +1492,17 @@ def select_instrument(trade: dict, equity: float,
         f"Scores: [{score_summary}] | "
         f"{reasoning}"
     )
+    # VISIBILITY FIX 2026-08-05 (open_questions.md item #10/#20-adjacent —
+    # instrument_selector.py:138's "revisit MAX_TOTAL_OPTIONS_PCT at 30 days
+    # of live data" comment sat unactioned 94 days because no revisit was
+    # possible: the options-ruled-out reason above was only ever a Python
+    # logger.info() call, never reaching server/bot.ts's audit trail once
+    # stock/etf was chosen instead — the same class of gap item #20's
+    # TIER-KILL fix closed for master_kill_switch. Folding it into
+    # full_reasoning surfaces it in the existing INSTRUMENT audit line for
+    # free, no new audit() call site needed.
+    if chosen != "options" and options_ruled_out_reason:
+        full_reasoning += f" | Options ruled out: {options_ruled_out_reason}"
 
     return {
         "chosen":      chosen,
@@ -1487,6 +1516,7 @@ def select_instrument(trade: dict, equity: float,
         "sizing":      sizing,
         "stop_config": stop_config,
         "reasoning":   full_reasoning,
+        "options_ruled_out_reason": options_ruled_out_reason,
     }
 
 

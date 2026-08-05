@@ -3,6 +3,179 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-05 (scheduled-routine session #7) [RULE-REVIEW] — instrument_selector.py's overdue MAX_TOTAL_OPTIONS_PCT "revisit at 30 days" comment: attempted, INCONCLUSIVE, closed the visibility gap that made the revisit impossible (v1.0.603)
+
+TERRITORY: T-BOT (`instrument_selector.py`, outside frozen paths) + a new
+root-level test file. No other territory touched. SHARED files (`package.json`
+version bump only) kept as the last, smallest commit per MERGE-ORDER
+PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+initially returned a stale `dbe635c` (v1.0.559) tip despite the working
+branch already sitting at `2bad032` (v1.0.602) — a plain `git fetch origin
+main` (no second refspec) re-resolved correctly to `2bad032`, matching
+HEAD exactly; no commits were lost, this was a transient fetch artifact,
+not the "bad second refspec" failure mode prior sessions diagnosed (single
+refspec here). `/api/health`: `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, alpaca `ACTIVE`, scanner 0
+`consecutiveFailures` — no LIVENESS ALARM. `/api/diag/audit` (200 most
+recent entries, live): normal TIER2/TIER3/MANIPULATION/OPTIONS-SLOT-FULL
+activity, one `POS-KILL` (RIOT put, -25% stop firing correctly — the kill
+switch working as intended, not a bug) and one `TIER3-ML-ERROR`
+(`signal=SIGKILL`, timestamped 5 minutes before a `SHUTDOWN`/`SIGTERM` +
+redeploy-to-v1.0.602 boot sequence) — traced and ruled non-actionable: the
+retrain subprocess was killed mid-run by the deploy transition itself, and
+`/api/diag/ml` post-boot shows `model_exists:true`, `model_age_hours:2`,
+`retrain_needed:false` — self-healed, no recurrence, not the bare-"failed"
+pattern KNOWN BROKEN #17 already fixed (this message carried full
+signal/detail, confirming #17's fix is working correctly). Loop-health
+ratio, last 10 tagged entries by version (602/601/600/599/598/597/596/595/
+594/593): PRODUCT,RESEARCH,PRODUCT,RESEARCH,REPAIR,REPAIR,REPAIR,RESEARCH,
+PRODUCT,REPAIR = 4 REPAIR / 3 RESEARCH / 3 PRODUCT — under the 7-of-10
+thrash threshold, no meta-problem flag.
+
+PRIMARY-ACTION SELECTION: no live bug found (the one audit-log anomaly
+self-healed and traced to a deploy-timing coincidence, not a defect). No
+experiment was ready to judge — the `shadow_portfolio` nightly backfill
+fix (v1.0.596) hasn't had its first 22:00 UTC run yet today (session ran
+~20:00 UTC). Six other sessions had already run today (TLT refuted,
+App Store UI, OCC step-2 disjoint refuted, shadow backfill repair,
+crop_conditions chart, GitHub org UI per the git log) and the queued items
+surfaced by a full read of open_questions.md were either the same
+"whichever session catches the next live TIER2-ERROR" reactive watchers
+already threaded through many prior entries (nothing to catch this
+session) or explicitly gated on tonight's not-yet-run backfill (items
+#10/#20's `rejected_masterkill`/`backfill_outcomes` NEXT steps). Per
+SESSION BUDGET's fall-through: no queued item fit, so this session checked
+the AUDITS & DEBT register (both staleness and constitutional audits
+confirmed overdue by the prior TLT session, flagged as the next session's
+recommended action if nothing else is queued) — but a targeted grep for
+self-flagged "revisit"/"expires"/"kill date" code comments surfaced a more
+concrete, already-dated item first: `instrument_selector.py:137`'s
+"Revisit at 30 days of live data" (dated 2026-05-03, i.e. due ~2026-06-02,
+now 94 days overdue and never actioned in experiments.md — confirmed via
+grep, zero hits). This is a genuine matured-but-unjudged item (RULE REVIEW
+territory, ranked above generic staleness sweeps in SESSION BUDGET's own
+ordering) with a real deadline that had already passed, so it took
+priority over running the staleness audit cold.
+
+READ BEFORE WRITE: read `instrument_selector.py`'s full options-candidate
+block (`select_instrument()`, the exposure-cap check ~line 1404-1429, and
+the return-assembly ~line 1442-1490) before touching either. Traced every
+call site of `select_instrument()` (`bot_engine.py:3316-3330`, the live
+primary path) and its fallback `options_execution.should_use_options()`
+(`bot_engine.py:3331-3342`, exception-only fallback — confirmed dead in
+normal operation, not touched) to confirm which one actually governs live
+trades before deciding where to fix visibility.
+
+ATTEMPTED REVISIT, RESULT: INCONCLUSIVE — no live evidence exists yet to
+judge whether 16% is well-calibrated. `/api/diag/audit` (live) and a full
+grep of `research/experiments.md` both show zero historical occurrences of
+the cap's own rejection message ever firing. Per open_questions.md item
+#20's own (a)/(b) findings (master_kill_switch over-killing the CSP tier)
+and item #3's now-fixed `MAX_OPTIONS_POSITIONS` bug, CSP volume has been
+independently starved for most of the 94-day window this comment covers —
+so "never binding" cannot yet distinguish "the cap is generous enough"
+from "CSP wasn't trading regardless of the cap." Did NOT re-tune the
+threshold (no evidence either direction — re-tuning without evidence is
+exactly what RULE REVIEW forbids).
+
+ROOT CAUSE OF WHY THE REVISIT WAS IMPOSSIBLE (the actual finding worth
+shipping): `select_instrument()` computes a specific ruled-out reason for
+options (`"options exposure X% at max Y%"`, `"score N < MIN_OPTIONS_SCORE"`,
+`"outside regular hours"`, `"strategy not viable"`) and appends it to
+`options_score["reasoning"]` — but the function's returned top-level
+`reasoning` field (consumed by `bot_engine.py:3448` as
+`trade["instrument_reasoning"]`, then audited verbatim by
+`server/bot.ts:4152`'s existing `INSTRUMENT` audit line) only ever used the
+CHOSEN candidate's own reasoning string (`reasoning = stock_score
+["reasoning"]` when stock wins, line ~1456). The instant options lost to
+stock or ETF — the common case, per the zero-hits grep above — the ruled-
+out reason was provably unreachable outside a Python `logger.info()` call
+that never reaches the Node audit trail. Same shape, one layer down the
+stack, as item #20's TIER-KILL gap (a rule silently firing with zero
+production visibility).
+
+WHAT SHIPPED (own PR, v1.0.603): `select_instrument()` now captures the
+ruled-out reason in a dedicated `options_ruled_out_reason` local (set
+inside the existing else-branch, no new logic), returns it as its own
+field on the result dict, and — only when options did NOT win — appends
+`" | Options ruled out: <reason>"` to `full_reasoning`. Because
+`full_reasoning` already flows unchanged into `instrument_reasoning` and
+from there into the existing `INSTRUMENT` audit() call, zero changes were
+needed in `server/bot.ts` or `bot_engine.py` — the visibility reaches
+production for free. Also updated the stale code comment at
+`instrument_selector.py:129-144` in place to record this session's attempt
+and its inconclusive result, so a future session finds the "why" instead
+of re-discovering the same 94-day-old dead end. TRACE (REASONING STANDARD
+#1, two steps): a bound exposure-cap rejection now shows up in the
+INSTRUMENT audit line -> a future session can query `/api/diag/audit?
+type=INSTRUMENT` for "Options ruled out: options exposure" occurrences and
+their frequency -> that frequency is the missing evidence needed to
+actually revisit (raise/lower/leave) MAX_TOTAL_OPTIONS_PCT per RULE REVIEW.
+
+RATCHET: new `test_instrument_selector_visibility.py` (3 tests, fully
+offline — `get_instrument_intelligence`/`_build_sizing`/`_build_stop_config`/
+`_is_regular_hours`/`macro_data.get_macro_snapshot` all monkeypatched to
+avoid any network call, matching this repo's existing offline-unit-test
+convention for scoring internals). Test 1: exposure-cap rule fires ->
+`options_ruled_out_reason` and `reasoning` both carry the exact expected
+string. Test 2: a distinct ruled-out cause (score floor) produces its own
+distinct message, guarding against the fix collapsing every cause to one
+generic string. Test 3: when options DOES win, `options_ruled_out_reason`
+stays `None` and no stray "Options ruled out" text leaks into a
+successful options trade's reasoning (false-positive guard). A/B-verified
+via `git stash push -- instrument_selector.py`: all 3 raise `KeyError:
+'options_ruled_out_reason'` on pre-fix code (the field didn't exist yet),
+all 3 pass post-fix.
+
+GATES: `pip install -r requirements.txt -r requirements-dev.txt` (fresh
+container, same recurring gap prior sessions have logged). `python3 -m
+pytest -q`: 1124 passed, 1 skipped (1121 baseline + 3 new, zero
+regressions). No `.ts`/`.tsx` files touched this session (the TS side
+needed no change — it already reads `instrument_reasoning` verbatim), so
+`npx tsc --noEmit`/`npm run build` were not re-run, mirroring the
+established precedent for zero-`.ts`-touched sessions.
+
+BACKTEST: N/A — pure audit-visibility fix. No scoring, sizing, or
+threshold VALUE changed; `MAX_TOTAL_OPTIONS_PCT` stays 0.16, unre-tuned,
+exactly as RULE REVIEW requires absent evidence. The live effect (INSTRUMENT
+audit lines carrying real ruled-out reasons going forward) is directly
+observable in `/api/diag/audit?type=INSTRUMENT` — a future session should
+check it once enough live options-eligible candidates have run.
+
+Version bumped 1.0.602 -> 1.0.603 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping (still `2bad032`, no advance
+since session start) and again immediately before this commit.
+
+CROSS-SYSTEM INTEGRATION: none new — pure visibility fix on an existing
+live rule, no new data stream, archive, or /data-facing surface.
+
+AUDIT REGISTER: staleness (due 2026-08-04) and constitutional (due
+~2026-08-03) audits remain overdue, now flagged a third time across two
+sessions' records (the 2026-08-05 TLT session and this one) — this
+session deliberately chose the more concrete, already-dated
+`instrument_selector.py` revisit over a cold staleness sweep (SESSION
+BUDGET ranks "judge a matured experiment" above generic research/audit
+work), but the register itself is now overdue enough that the NEXT session
+with no queued item available should run the staleness pass first
+(older-overdue; unchanged recommendation from the prior session, still not
+acted on).
+
+NEXT: once live `INSTRUMENT` audit lines carrying "Options ruled out:
+options exposure ..." accumulate (or conclusively stay absent even after
+CSP volume recovers from item #3's now-fixed starvation), a future session
+should do the real MAX_TOTAL_OPTIONS_PCT revisit with actual evidence. Item
+#20's `rejected_masterkill` win-rate check and item #10's dead-config
+check both remain gated on tonight's first successful backfill run, still
+untouched by this session.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/live-verification all completed. No live bug
+was left unfixed (none found); the audit-log SIGKILL anomaly was traced
+and confirmed self-healed, not deferred. One logical change, one PR, per
+PROMOTION RULE 5.
+
 ## 2026-08-05 (scheduled-routine session, later) [RESEARCH] — TLT leveraged-money-positioning momentum candidate: LADDER PATH step (1) disjoint-window replication REFUTES it (v1.0.599)
 
 TERRITORY: root-level research scripts (cftc_tff_gate2_test.py,
