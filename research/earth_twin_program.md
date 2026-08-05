@@ -1254,3 +1254,38 @@ Every body: real position or absent — never decorative placement.
   (d) Area fills added with no beforeId stack above previously-toggled
       point symbols (aurora-vs-daynight ordering toggle-order-dependent)
       [MEDIUM]: give fills a stable insertion anchor.
+
+- 2026-08-05 FOLLOWED-PLANE CURTAIN/LAG DIAGNOSIS (agent workflow
+  wf_c7f2a61b-16c; fix shapes exact, implementation queued):
+  (a) [HIGH] Curtain ends short of the glided plane for up to ~15s+
+      after selection: airFollowLiveRef is seeded only by the NEXT
+      poll's onData, and the fast-poll cadence isn't adopted until the
+      pending 15s timer fires. Fix: seed lv at click time from the
+      clicked row (onAircraftClickProps ~7695 + 3D pick ~7839) and
+      re-arm wireLivePoints' timer when fastWhen flips true.
+  (b) [HIGH] Frozen-at-cap follow is silent: display age can exceed
+      the honest ~12-15s envelope (34s observed) while the badge reads
+      live — surface "extrapolated — holding last fix Xs old" at the
+      25s glide cap / >15s trailLastT age; server: earlier stale:true
+      on consecutive background-refresh failures.
+  (c) [MEDIUM] 2D band (z5.5-8.05) under the terrain-saturation gate:
+      icons freeze (gated) while the ungated tail keeps gliding ahead
+      — updateFlightTail must use dt=0 when the 2D glide is gated so
+      tail and plane agree.
+  (d) [MEDIUM] setTail's unconditional triggerRepaint silently defeats
+      the terrain-saturation gate whenever a flight card is open —
+      make the followed-plane exemption explicit and paced (~1Hz under
+      the gate; tail + silhouette advance together in the same forced
+      frame).
+  (e) [LOW] Follow rig's per-frame jumpTo storms moveend and
+      permanently resets the 400ms debounce (coverage-refetch dead
+      during follow; the 2s poll covers it) — stamp rig moves or skip
+      the reset while following. [LOW] NaN-altitude tail suppression
+      is honest but unexplained — add the card note.
+  NOTE: at z>=8.05 the plane does NOT freeze under the saturation gate
+  (render() recomputes u_dtSec on natural frames, and follow's rAF
+  jumpTo keeps frames coming) — the screenshot's gap is (a), not the
+  gate. EARTH-ON-MOON: fixed same day (anchorSightlineBlocked — the
+  live-map DOM canvas composited over the Moon's near-field patch;
+  occlusion was real geometry, compression was NOT the cause,
+  "Earth + Moon always true" verified to hold for position AND size).

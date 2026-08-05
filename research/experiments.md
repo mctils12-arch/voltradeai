@@ -40071,3 +40071,31 @@ higher-priority queued item was skipped (KNOWN BROKEN's two open items
 are both correctly blocked on data accumulation, not actionable; no
 audit-log bug found; no LIVENESS ALARM; no thrash). One logical
 change, one PR, per PROMOTION RULE 5.
+
+## 2026-08-05 — [REPAIR] Space view: live-map Earth no longer paints over a nearer body (anchorSightlineBlocked) (T-CLIENT)
+
+Human screenshot: tracking the Moon at 3,804 mi, the Earth drawn ON the
+Moon's near-field surface. Agent diagnosis (wf_c7f2a61b-16c) exonerated
+the scale model — "Earth + Moon always true" verified algebraically for
+BOTH position and size; Earth really was behind the Moon and its ~46px
+disc was the true 1.93° angular size. The defect: the live-map Earth is
+a DOM canvas composited ABOVE the space frame's canvas, and the anchor
+pose gate checked only behind-the-camera — the per-frame occluded set
+(occludedByNearerDisc, built 2026-07-31 for the Saturn-label bug) was
+never consulted, a KNOWN LIMIT in the module header since B-series.
+FIX: anchorSightlineBlocked (exported, pure) — exact layout-space
+ray-sphere test (raycastSphere, TRUE radii only, hit strictly nearer
+than the anchor) over drawn nearer bodies; the anchor block withholds
+the pose into the existing hidden branch when blocked. The exact test
+(not the disc test) because a viewport-filling near-field Moon projects
+its centre off-screen where the disc test is blind. Header KNOWN LIMITS
+updated from "paints the map on top" to the repaired behavior. RATCHET:
+5-case test (blocked / off-axis / beyond-anchor / grazing / degenerate),
+spaceFrame battery 58/58. Honesty preserved: nothing fake added — a
+physically hidden body stops being drawn; labels/numbers untouched.
+BOT HEALTH CHECKED same session (human ask): loop active/not-dark,
+Alpaca ACTIVE, scanner 0 failures, equity peak $110,384 dd 0.0%, 11
+positions ($89.8k gross), ML fresh, manipulation guard rejecting
+low-volume spikes. WATCH: TIER3-DIAG reports polygon/wikipedia/gdelt/
+fred sources down (enrichment degraded, not trading-stopping) — filed;
+boot EVENTLOOP-LAG 519ms noted (known pattern).
