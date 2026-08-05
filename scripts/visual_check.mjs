@@ -67,6 +67,9 @@ const PAGES = {
   // Crop conditions — USDA NASS weekly ratings (2026-08-04) — same Phase 5
   // ratchet rule as streams/gridstress/methanehotspots above.
   cropconditions: { route: "/app#/data/crop-conditions", map: false },
+  // App Store rankings — consumer-app watchlist (2026-08-05) — same
+  // Phase 5 ratchet rule as streams/gridstress/cropconditions above.
+  appstorerankings: { route: "/app#/data/appstore-rankings", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -406,6 +409,23 @@ const FIXTURES = {
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT FAIR", pct: 28, rt: "2026-08-03" },
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT GOOD", pct: 52, rt: "2026-08-03" },
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT EXCELLENT", pct: 11, rt: "2026-08-03" },
+    ],
+  },
+  // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
+  "/api/data/appstore-rankings": {
+    kind: "raw",
+    source: "Apple marketingtools RSS top-free/top-grossing charts (US/GB/CA) + iTunes Lookup rating counts (US) (fixture)",
+    attribution: "Apple Inc.",
+    time: 1785928979602,
+    count: 6,
+    note: "GATE 1 (DATA) only — no signal validated yet (fixture).",
+    records: [
+      { t: "rank", ticker: "DUOL", company: "Duolingo, Inc.", appId: "570060128", storefront: "us", chart: "top-free", rank: 65, rt: "2026-08-05" },
+      { t: "rank", ticker: "DUOL", company: "Duolingo, Inc.", appId: "570060128", storefront: "us", chart: "top-grossing", rank: 22, rt: "2026-08-05" },
+      { t: "rank", ticker: "BMBL", company: "Bumble Inc.", appId: "930441707", storefront: "us", chart: "top-free", rank: null, rt: "2026-08-05" },
+      { t: "rank", ticker: "BMBL", company: "Bumble Inc.", appId: "930441707", storefront: "us", chart: "top-grossing", rank: null, rt: "2026-08-05" },
+      { t: "rating", ticker: "DUOL", company: "Duolingo, Inc.", appId: "570060128", avgRating: 4.72, ratingCount: 5357702, version: "7.133.0", rt: "2026-08-05" },
+      { t: "rating", ticker: "BMBL", company: "Bumble Inc.", appId: "930441707", avgRating: 3.9, ratingCount: 412300, version: "6.2.0", rt: "2026-08-05" },
     ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry

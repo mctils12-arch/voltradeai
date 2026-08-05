@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -33,6 +33,7 @@ import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
 import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
+import AppStoreRankingsView from "./appStoreRankings";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2387,6 +2388,7 @@ export default function DataMapPage() {
   // Crop-conditions chart/table view (#/data/crop-conditions) — same
   // overlay pattern (RAW national aggregate, not a spatial layer).
   const [cropCondOpen, setCropCondOpen] = useState(() => window.location.hash === "#/data/crop-conditions");
+  const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2712,6 +2714,7 @@ export default function DataMapPage() {
       setPipelineHealthOpen(window.location.hash === "#/data/pipeline-health");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
+      setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11622,6 +11625,9 @@ export default function DataMapPage() {
       {cropCondOpen && (
         <CropConditionsView onBack={() => { window.location.hash = "#/data"; setCropCondOpen(false); }} />
       )}
+      {appStoreOpen && (
+        <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12170,6 +12176,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/crop-conditions"; setCropCondOpen(true); }}>
               <Leaf size={13} /> Crop conditions — USDA NASS
               <span className="vt-streams-launch-sub">weekly corn &amp; soybean condition ratings · RAW</span>
+            </button>
+            {/* App Store rankings launcher (2026-08-05): a 16-ticker
+                consumer-app watchlist, not a spatial layer, so it launches
+                from the panel top like the other page-wide dashboards. */}
+            <button type="button" className="vt-streams-launch" data-vt-appstore-launch
+                    onClick={() => { window.location.hash = "#/data/appstore-rankings"; setAppStoreOpen(true); }}>
+              <Smartphone size={13} /> App Store rankings
+              <span className="vt-streams-launch-sub">daily rank &amp; rating, 16 consumer-app tickers · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));

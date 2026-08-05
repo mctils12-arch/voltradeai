@@ -40274,3 +40274,159 @@ suites 24/24; harness 0 hard failures. QUEUED from the same diagnosis
 (not this PR): "extrapolated — holding last fix" badge honesty at the
 glide cap, earlier server stale:true on consecutive refresh failures,
 rig-moveend debounce stamp, NaN-altitude curtain-gap card note.
+
+## 2026-08-05 (scheduled-routine session, [PRODUCT]) — App Store rankings watchlist gets its /data UI (v1.0.600, T-CLIENT)
+
+TERRITORY: T-CLIENT-primary (client/src/pages/appStoreRankings.tsx +
+datamap.tsx wiring + scripts/visual_check.mjs harness registration);
+server/appStoreRankings.ts's small additive `company` field is a
+T-DATACORE-adjacent change made necessary by the UI (the archived
+records carried `ticker`/`appId` but no display name — see WHAT SHIPPED
+below), not a second logical change. package.json/package-lock.json
+version bump is the only SHARED-file edit, last commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/
+experiments.md's last ~12 entries, open_questions.md's KNOWN BROKEN
+section, wishlist.md's DATACORE MAXIMUS resume block, platform_program.md.
+`/api/health`: status ok, bot active, drawdownPct 0.0, alpaca ACTIVE,
+scanner 0 consecutiveFailures, liveness.dark:false — no LIVENESS ALARM. KNOWN BROKEN: only #10 (dead SCORE_BAND_MAX/MAX_CHANGE_PCT
+config, deliberately not wired per RULE REVIEW) and #20 (master_kill_switch
+regime-classification mismatch, needs RULE REVIEW evidence) remain open,
+both correctly blocked on evidence/threshold-review work, not actionable
+as a quick fix this session, and per this session's own PRODUCT-session
+charter ("product sessions do not preempt the DAILY routines' repair
+duty") neither blocks proceeding with product work. Loop-health ratio:
+of the 10 experiments.md entries immediately before this one, 6 are
+REPAIR — under the 7-of-10 thrash threshold, no meta-problem flag needed,
+though close enough to be worth a future session's attention if the next
+few entries skew the same way.
+
+PRIMARY-ACTION SELECTION: per this session's charter, option (a) advance
+a datacore/ pipeline through its next ladder gate, or (b) build product
+UI/UX for gate1_pass RAW data. Surveyed datacore/signal_ladder.json's 13
+`gate1_pass` roots for ones with a live server route but zero client
+surface — found two: `app_store_rank_review_velocity`
+(server/appStoreRankings.ts, /api/data/appstore-rankings, even already
+exposed at /api/v1/data/appstore-rankings for API customers) and
+`github_org_engineering_momentum` (server/githubOrgActivity.ts,
+/api/data/github-activity) — both shipped as GATE 1 (DATA) archivers in
+early August with no #/data view, confirmed via `grep -rn` across
+client/src turning up zero references to either. Picked App Store
+rankings over GitHub org momentum for this session (both remain valid
+next actions): it already has a v1 API surface (meaning a customer-
+facing product gap, not just an internal one) and its two-dimensional
+data (ordinal chart rank + rating) maps cleanly onto the existing
+.vt-filings-table pattern without new chart types. This is PRIORITY 3
+work (platform: data products with clean licensing and API surfaces) —
+a data root already gate1_pass with an API surface but literally
+invisible on the site itself is exactly the "product surface that
+customers pay for" gap GOAL priority 3 names.
+
+READ BEFORE WRITE: read server/appStoreRankings.ts (full file, including
+its licensing/honest-gaps header) and its route registration in
+routes.ts before touching anything. Read cropConditions.tsx (the most
+recent chart-view precedent, #691, 2026-08-04) and attention.tsx (the
+richer table-view precedent with a data-driven watchlist) in full before
+writing new code — both use the shared `.vt-filings-*`/`.vt-shortvol-*`
+CSS shell with zero new CSS needed, and attention.tsx's `.vt-filings-
+table` already has the mobile-responsive `data-l` card-collapse pattern
+(verified in index.css lines 2737-2772) this session reused rather than
+re-derived. Traced datamap.tsx's exact wiring pattern for a page-wide
+(non-spatial) view — hash-route state var, the shared `onHash` listener
+block, conditional render, and a launcher button in the panel-top list
+— from the crop-conditions precedent (4 call sites) before adding a
+5th for appstore-rankings, keeping the diff a mechanical repetition of
+an established pattern rather than a new one.
+
+WHAT SHIPPED: `client/src/pages/appStoreRankings.tsx` (new) —
+`#/data/appstore-rankings` table view, fetches the existing
+`/api/data/appstore-rankings` route once, groups the flat `records[]`
+(mixed rank/rating rows) by ticker client-side into one row per company
+(US top-free rank, US top-grossing rank, avg rating, rating count),
+sorted by best US chart position (nulls-outside-top-100 last, per the
+API's own "never fabricate a rank" honesty rule — rendered as literal
+"outside top 100" text, not a sentinel number). GB/CA storefronts are
+archived but deliberately not shown in this first view (stated in the
+page's own subheading) to keep the table legible at 390px without a
+second-storefront picker — a scoping choice, not a coverage gap, and
+named as such rather than silently dropped. `datamap.tsx` gained the
+4-site wiring (state, hash listener, conditional render, launcher
+button) mirroring crop-conditions exactly. `scripts/visual_check.mjs`
+gained the PAGES registry entry (Phase 5 ratchet — every new #/data
+view must pass the harness before shipping) and a `/api/data/
+appstore-rankings` fixture so the harness never depends on live Apple
+network access.
+
+SMALL ADDITIVE SERVER CHANGE (same PR, not a second logical change —
+the UI cannot show company names without it): `server/appStoreRankings.ts`'s
+`RankRecord`/`RatingRecord` interfaces and `parseChart`/`parseLookup`
+gained a `company` field, sourced directly from the existing `WATCHLIST`
+array's `company` field (already hardcoded and hand-verified per the
+module's own header — no new data, just a field that was already known
+server-side and never threaded into the record shape). Purely additive:
+existing archived JSONL rows are untouched, existing consumers reading
+`ticker`/`appId`/`rank`/`avgRating`/etc. are unaffected, and the 2
+existing appStoreRankings.test.ts assertions that check specific fields
+still pass unmodified — 2 new assertions added (`company` on both the
+rank and rating parse paths) rather than changing any existing one.
+
+GATES: `npm install` (node_modules empty at session start, same
+recurring environment gap prior sessions have logged). `npx tsx --test
+server/appStoreRankings.test.ts` 6/6 pass. `npx tsx --test
+server/*.test.ts` 1047 total, 1046 passed, 1 failed — the pre-existing
+pmtiles magic-byte baseline failure (confirmed unrelated: zero
+client/public/tiles/* files touched). `npx tsc --noEmit`: A/B-verified
+via `git stash` — 86 errors both before and after, `diff` confirms every
+line is byte-identical except line-number shifts from the added
+import/state/wiring lines in datamap.tsx (zero new errors). `npm run
+build` clean. `npm run visual -- --page appstorerankings`: PASS at
+390/768/1440px, 0 hard failures — screenshots self-reviewed (both
+widths render the table correctly: mobile collapses to the data-l
+card layout as designed, desktop shows the full 6-column table; the
+pre-existing touch-target/clipped-control warnings belong to unrelated
+nav/toggle controls, matching the same baseline every other page-wide
+view in this file logs). Python gate not re-run: zero `.py` files
+touched this session, matching the standing zero-Python-files baseline
+reasoning prior sessions have used for pure-TypeScript changes.
+
+BACKTEST: N/A — RAW display only (`kind:"raw"` per datacore/README.md's
+RAW-vs-SIGNAL rule, already the case for the underlying route before
+this PR), no scoring/sizing/threshold value touched.
+
+Version bumped 1.0.599 -> 1.0.600 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still af14997/#696). `package-lock.json`'s own recorded
+version field was stale at 1.0.595 (a gap from some prior version-only
+bump that didn't re-run `npm install`) — resynced via `npm install
+--package-lock-only` as part of this bump, no dependency changes (diff
+confirms only the two version-string lines changed).
+
+CROSS-SYSTEM INTEGRATION: none new — this is a UI-only surface over an
+existing, already-archived data root; no new entity-graph join, no new
+cross-stream tie. The existing v1 API `/api/v1/data/appstore-rankings`
+route already exposes the same data to external customers; this PR adds
+the matching first-party surface so the site itself doesn't hide a data
+product visible to API customers.
+
+`datacore/signal_ladder.json`'s `app_store_rank_review_velocity` entry's
+note appended (same PR, minimal diff, bookkeeping about this exact
+change) to record the UI shipping — same pattern the NRC reactor-status
+session (#689) used.
+
+NEXT (queued, not this session): (1) `github_org_engineering_momentum`
+is the identically-shaped remaining gap (gate1_pass, live route, zero
+UI) — a near-mechanical repeat of this session's pattern for a future
+PRODUCT session. (2) a `/history` endpoint for appstore-rankings (the
+archive already writes daily JSONL; today's view is current-snapshot
+only, matching the crop-conditions precedent) would let a future session
+add rank-trend sparklines, mirroring attention.tsx's ticker-lookup
+pattern. (3) KNOWN BROKEN #10/#20 remain open, both still correctly
+blocked on RULE REVIEW evidence rather than a quick fix.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/visual-harness/self-reviewed-screenshots all
+completed. No higher-priority queued item was skipped (KNOWN BROKEN's
+two open items are both correctly blocked on evidence, not actionable;
+no LIVENESS ALARM; no audit-log bug found this session; thrash ratio
+6/10, under threshold). One logical change (the server `company` field
+is inseparable from the UI it serves), one PR, per PROMOTION RULE 5.
