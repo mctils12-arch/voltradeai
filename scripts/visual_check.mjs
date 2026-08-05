@@ -70,6 +70,9 @@ const PAGES = {
   // App Store rankings — consumer-app watchlist (2026-08-05) — same
   // Phase 5 ratchet rule as streams/gridstress/cropconditions above.
   appstorerankings: { route: "/app#/data/appstore-rankings", map: false },
+  // GitHub org engineering-momentum watchlist (2026-08-05) — same
+  // Phase 5 ratchet rule as streams/gridstress/appstorerankings above.
+  githubactivity: { route: "/app#/data/github-activity", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -426,6 +429,22 @@ const FIXTURES = {
       { t: "rank", ticker: "BMBL", company: "Bumble Inc.", appId: "930441707", storefront: "us", chart: "top-grossing", rank: null, rt: "2026-08-05" },
       { t: "rating", ticker: "DUOL", company: "Duolingo, Inc.", appId: "570060128", avgRating: 4.72, ratingCount: 5357702, version: "7.133.0", rt: "2026-08-05" },
       { t: "rating", ticker: "BMBL", company: "Bumble Inc.", appId: "930441707", avgRating: 3.9, ratingCount: 412300, version: "6.2.0", rt: "2026-08-05" },
+    ],
+  },
+  // GitHub org engineering-momentum — develop-in-public watchlist
+  // (2026-08-05, RAW display).
+  "/api/data/github-activity": {
+    kind: "raw",
+    source: "GitHub REST Search API (search/issues, search/commits) — keyless (fixture)",
+    attribution: "GitHub, Inc. (public repository activity, aggregated)",
+    time: 1785928979602,
+    count: 4,
+    note: "GATE 1 (DATA) only — no signal validated yet (fixture).",
+    records: [
+      { t: "org_week", key: "2026-07-27|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 41, commits: 118, uniqueActorsSample: 37, actorSampleCapped: true, rt: "2026-08-03" },
+      { t: "org_week", key: "2026-07-27|PagerDuty", ticker: "PD", org: "PagerDuty", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 12, commits: 29, uniqueActorsSample: 9, actorSampleCapped: false, rt: "2026-08-03" },
+      { t: "org_week", key: "2026-07-27|jfrog", ticker: "FROG", org: "jfrog", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 6, commits: null, uniqueActorsSample: null, actorSampleCapped: false, rt: "2026-08-03" },
+      { t: "org_week", key: "2026-07-20|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2026-07-20", weekEnd: "2026-07-26", mergedPRs: 35, commits: 102, uniqueActorsSample: 33, actorSampleCapped: true, rt: "2026-07-27" },
     ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry

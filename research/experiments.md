@@ -40619,3 +40619,162 @@ bug found — the audit route itself is a known, already-logged access
 gap; thrash ratio 6/10, under threshold). One logical change (the
 entrypoint-guard fix is a prerequisite for the reuse this PR needed, not
 a second logical change), one PR, per PROMOTION RULE 5.
+
+## 2026-08-05 (scheduled-routine session #2) [PRODUCT] — T-CLIENT — GitHub engineering-momentum watchlist gets its /data UI (v1.0.602)
+
+TERRITORY: T-CLIENT (client/src/pages/githubOrgActivity.tsx new,
+client/src/pages/datamap.tsx wiring, scripts/visual_check.mjs harness
+registry+fixture). package.json/package-lock.json version bump is the
+only SHARED-file edit, last commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail, open_questions.md KNOWN BROKEN section, wishlist.md). Live
+`/api/health`: status ok, bot active, drawdownPct 0.0, alpaca ACTIVE,
+scanner 0 consecutiveFailures, liveness.dark:false — no LIVENESS ALARM,
+no critical trading-loop break blocking product work. KNOWN BROKEN's
+open items (#10/#20-class, the requireOwner audit-log gap) are the same
+already-logged, evidence-blocked state prior sessions found — nothing
+new, nothing actionable this session.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named building
+the /data section as this session's mandate. The immediately preceding
+session ([RESEARCH] #698, OCC skew disjoint-replication test) explicitly
+queued `github_org_engineering_momentum`'s /data UI in its own NEXT
+section as "the next near-mechanical PRODUCT-session repeat of the App
+Store rankings pattern" — confirmed against `datacore/signal_ladder.json`
+(gate1_pass, current_gate:1, GATE 1 archiver shipped v1.0.574) and
+`server/routes.ts` (the `/api/data/github-activity` route already exists
+and has served RAW data since the archiver shipped — only the first-party
+client view was missing, the identical gap the App Store rankings session
+closed for its own data root). Chose this as the highest-value PRODUCT
+action: option (b) from this session's own instructions (build /data UI
+for RAW overlays, no gate-2 gating required), zero ambiguity on what to
+build, a direct continuation of the prior session's own filed queue.
+
+READ BEFORE WRITE: read `server/githubOrgActivity.ts` in full (the
+archiver, its `GithubActivityRecord` shape, `WATCHLIST`, and its own
+header's HONEST GAPS section) and the exact `/api/data/github-activity`
+route block in `server/routes.ts` before writing any client code — the
+route was already live, not new, so the UI had to match the real
+response shape, not an assumed one. Read `client/src/pages/
+appStoreRankings.tsx` (full file, the most recent /data page-wide-view
+precedent, #697, 2026-08-05) and traced its exact 4-site wiring pattern
+in `datamap.tsx` (import, hash-state `useState`, `onHash` listener
+block, conditional render, panel-top launcher button) before adding a
+5th call site for github-activity, keeping the diff a mechanical
+repetition of an established pattern rather than a new one — same
+approach the App Store rankings session itself used relative to
+crop-conditions.
+
+WHAT SHIPPED: `client/src/pages/githubOrgActivity.tsx` (new) —
+`#/data/github-activity` table view, fetches the existing
+`/api/data/github-activity` route once, groups the flat `records[]`
+(one row per org per archived week, up to ~8 rolling weeks/org in the
+server cache) down to one row per ticker showing only the most recently
+archived completed week — a deliberate current-snapshot-only scoping
+(stated in the page's own subheading and comments), matching the App
+Store rankings view's identical scoping choice rather than building a
+trend view this session. Sorted by merged-PR count descending (the
+metric closest to "momentum," per the module's own header) with
+ticker as the tiebreak. Null `commits`/`uniqueActorsSample` (a per-org
+fetch failure the archiver's own try/catch already tolerates per-call)
+render as literal "—", never a fabricated zero — verified this path
+renders correctly via a fixture row (FROG) with both fields null.
+`actorSampleCapped:true` (the archiver's own honesty flag for when an
+org's true weekly commit count exceeds the sampled 100-item page)
+renders as a visible "(capped)" suffix rather than being silently
+dropped. `datamap.tsx` gained the 5th page-wide-view wiring (import,
+state, hash listener, conditional render, launcher button with a new
+`GitBranch` icon import) mirroring the appstore-rankings call sites
+exactly. `scripts/visual_check.mjs` gained the PAGES registry entry
+(Phase 5 ratchet) and an `/api/data/github-activity` fixture (4 records
+across 2 orgs/weeks, including one org with null commits/actors to
+exercise the "—" rendering path) so the harness never depends on live
+GitHub network access.
+
+NO SERVER CHANGE THIS SESSION: unlike the App Store rankings session
+(which needed one additive `company` field on the server side), this
+data root's existing `GithubActivityRecord` shape already carries every
+field the UI needed (`ticker`, `org`, `weekStart`, `mergedPRs`,
+`commits`, `uniqueActorsSample`, `actorSampleCapped`) — a pure
+client-only PR, one logical change.
+
+MINOR DEVIATION FROM THE PRECEDENT NOTED HONESTLY: the App Store
+rankings view used `[...byTicker.values()].sort(...)`; copying that
+exact idiom into the new file introduced a fresh TS2802 (MapIterator
+spread requires `--downlevelIteration` or ES2015+ target, which this
+repo's `tsconfig.json` has neither) — confirmed the precedent file
+already carries this same pre-existing error class (in the 86-error
+baseline), but rather than add a second instance of known debt, this
+PR uses `Array.from(byTicker.values())` instead (identical runtime
+behavior, zero tsc diagnostic). Not a fix to the precedent file (out of
+scope, would be a second logical change) — just avoided replicating it
+in new code.
+
+GATES: `npm install` (node_modules empty at session start, same
+recurring environment gap prior sessions have logged). `npx tsc
+--noEmit`: A/B-verified via `git stash -u` — 86 errors both before and
+after, `diff` confirms every line is byte-identical except line-number
+shifts from the added import/state/wiring lines in datamap.tsx (zero
+new errors; the near-miss above was caught and fixed before this
+verification, not left in). `npx tsx --test server/*.test.ts
+scripts/*.test.ts`: 1056 total, 1055 passed, 1 failed — the pre-existing
+pmtiles magic-byte baseline failure (confirmed unrelated: zero
+client/public/tiles/* files touched). `npm run build` clean (pre-existing
+astronomy-engine/chunk-size warnings unrelated, unchanged). `npm run
+visual -- --page githubactivity`: PASS at 390/768/1440px, 0 hard
+failures — screenshots self-reviewed: desktop shows the full 6-column
+table correctly (MDB/PD/FROG fixture rows, FROG's null commits/actors
+render as "—", MDB's capped actor count renders "37 (capped)"); mobile
+correctly collapses to the `.vt-filings-table`'s existing `data-l`
+card layout (reused with zero new CSS, same shell as appStoreRankings/
+cropConditions/attention); the pre-existing touch-target warnings and
+software-renderer toast belong to unrelated global nav/toggle controls,
+matching the same baseline every other page-wide view in this file
+logs. Python gate not re-run: zero `.py` files touched this session,
+matching the standing zero-Python-files baseline reasoning prior
+sessions have used for pure-TypeScript changes.
+
+BACKTEST: N/A — RAW display only (`kind:"raw"`, matching the existing
+`/api/data/github-activity` route's own response, unchanged by this
+PR), no scoring/sizing/threshold value touched.
+
+Version bumped 1.0.601 -> 1.0.602 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 921b44b/#698). `package-lock.json` resynced via
+`npm install --package-lock-only`, diff confirms only the two
+version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a UI-only surface over an
+existing, already-archived data root; no new entity-graph join, no new
+cross-stream tie. The existing `/api/data/github-activity` route already
+exposes the same data (no v1 API mirror exists yet for this root, unlike
+appstore-rankings' `/api/v1/data/appstore-rankings` — a gap a future
+session could close, not attempted here to keep this PR to one logical
+change).
+
+`datacore/signal_ladder.json`'s `github_org_engineering_momentum` entry's
+note appended (same PR, minimal diff, bookkeeping about this exact
+change, `last_update_date` bumped) — same pattern the App Store rankings
+and NRC reactor-status sessions used.
+
+NEXT (queued, not this session): (1) a v1 API mirror for
+github-activity (`/api/v1/data/github-activity`), the same-shaped gap
+appstore-rankings closed in its own follow-up session (#575) — a future
+PRODUCT session's near-mechanical repeat. (2) a `/history` endpoint +
+trend sparklines for both appstore-rankings and github-activity now
+that two data roots share the identical current-snapshot-only gap,
+each archive already writing daily/weekly JSONL. (3) GATE 2 work on
+this data root (velocity deltas vs forward returns, develop-in-public
+names only) remains correctly unstarted — the module's own header states
+its sober prior (real structure for maybe a third of the panel) and
+this session did not attempt it, staying inside PRODUCT-session scope
+(gate 1/scaffolding/RAW UI only, no signal claim). (4) KNOWN BROKEN's
+open items remain correctly blocked on RULE REVIEW evidence, untouched.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/visual-harness/self-reviewed-screenshots all
+completed. No higher-priority queued item was skipped (KNOWN BROKEN's
+open items are evidence-blocked, not actionable; no LIVENESS ALARM; no
+audit-log bug found this session). One logical change (client UI only,
+zero server/runtime path touched), one PR, per PROMOTION RULE 5.
