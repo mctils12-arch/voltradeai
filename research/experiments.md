@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-05 (scheduled-routine session, later) [RESEARCH] — TLT leveraged-money-positioning momentum candidate: LADDER PATH step (1) disjoint-window replication REFUTES it (v1.0.599)
+
+TERRITORY: root-level research scripts (cftc_tff_gate2_test.py,
+cftc_tff_tlt_disjoint_replication.py) + their tests + research/*
+(SHARED, last/smallest edit). No T-CLIENT/T-BOT/T-DATACORE-owned runtime
+path touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md,
+open_questions.md, wishlist.md tails. `/api/health`: status ok, bot
+active, drawdownPct 0.0, liveness.dark false, alpaca ACTIVE, scanner 0
+consecutiveFailures — no LIVENESS ALARM. `/api/diag/audit` last hour:
+clean, routine TIER2/TIER3/MANIPULATION only, no ERROR/WARN/FAIL/KILL/
+COMPLIANCE entries. Loop-health ratio, last 10 tagged entries before this
+one: REPAIR,PRODUCT,PRODUCT,REPAIR,PIPELINE,PIPELINE,RESEARCH,REPAIR,
+REPAIR,REPAIR = 5/10 REPAIR — under the 7+ thrash threshold, no
+meta-problem flag. Three other sessions already ran today (2 T-CLIENT:
+space-view Earth-occlusion fix, followed-plane curtain fix; 1 T-BOT: the
+shadow_portfolio nightly-backfill fix above, v1.0.596) — this session
+deliberately avoided all three territories and the two KNOWN BROKEN items
+(#10, #20) that fix gates on, since both explicitly need the v1.0.596
+fix's first live run at the next 22:00 UTC boundary (current time ~11:00
+UTC, hasn't happened yet) before any new data exists to check.
+
+PRIMARY-ACTION SELECTION: dispatched a research subagent to survey
+open_questions.md, wishlist.md, and the program charter files
+(grid_vision.md, scale_program.md, orbital_program.md,
+earth_twin_program.md, console_charter.md) for the single highest-value
+unblocked item per SESSION BUDGET's fall-through order, explicitly
+excluding T-CLIENT and the two gated KNOWN BROKEN items. It surfaced the
+TLT leveraged-money-positioning MOMENTUM candidate filed in
+open_questions.md 2026-08-03 (from the cftc_tff_positioning GATE 2 KILL)
+— a tier-1 queued item with its own numbered LADDER PATH, not a
+rediscovery, untouched by any of today's other sessions, and ranked
+above audit/staleness work per SESSION BUDGET's own "queue before
+audits" ordering (the AUDIT REGISTER in this file was separately
+confirmed stale/overdue by the same subagent — staleness due 2026-08-04,
+constitutional due ~2026-08-03, both now past due — flagged here for a
+future session with no queued item available, not acted on this
+session).
+
+CONTEXT: cftc_tff_gate2_test.py's 7-symbol pre-registered mean-reversion
+screen was REJECTED overall at gate 2, but TLT alone showed a strong,
+Bonferroni-surviving effect in the OPPOSITE (momentum/continuation)
+direction on the single 2023-08..2026-07 sample window (+20d:
+extreme_high t=3.227 p=0.0013, extreme_low t=-8.824 p≈0). Filed as its
+own distinct, un-pre-registered candidate needing a disjoint
+out-of-sample window before any trust (REASONING STANDARD #2/#4) — the
+2023-08..2026-07 window may never be reused as its own confirmation.
+
+READ BEFORE WRITE: read cftc_tff_gate2_test.py in full (fetch/validate/
+derive pipeline, COT-index transform, no-lookahead entry rule, Newey-West
+HAC significance test) and test_cftc_tff_gate2.py in full before touching
+either.
+
+WHAT SHIPPED: (1) refactored cftc_tff_gate2_test.py's `fetch_symbol_history`
+into a shared `_fetch_and_validate(where_clause, limit)` helper plus a new
+`fetch_symbol_history_range(contract_code, end_date, limit)` that adds an
+exclusive date cutoff to the same $where/validate/derive/sort pipeline —
+zero duplicated logic, only the query differs. (2) new
+`cftc_tff_tlt_disjoint_replication.py`: re-runs the IDENTICAL TLT-only
+construction (same COT-index transform, same extreme_high/low >=80/<=20
+buckets, same 20d/60d horizons, same LOOKBACK_WEEKS=156, same Newey-West
+HAC test, imported unchanged from cftc_tff_gate2_test.py) on the 156 weeks
+immediately PRECEDING the original window (cutoff 2023-08-01, exclusive)
+— chosen over reaching back to TFF's 2009 inception because it is
+directly adjacent (zero week overlap with the original) while landing in
+a genuinely different rate regime (COVID zero-rate policy through the
+fastest Fed hiking cycle in decades vs. the original window's post-hike/
+cutting regime), a real test of REASONING STANDARD #2's "regime that
+dominated the sample" concern.
+
+LIVE RUN (real CFTC Socrata + Alpaca/Yahoo fetches): window resolved to
+2020-08-04..2023-07-25, 156 weeks, 0 rejected records. Result — the
+effect DOES NOT REPLICATE, nowhere close:
+  +20d: extreme_high mean_diff +0.182% (t=0.142, p=0.887)
+        extreme_low  mean_diff -0.326% (t=-0.394, p=0.694)
+  +60d: extreme_high mean_diff +3.760% (t=1.228, p=0.220)
+        extreme_low  mean_diff -2.668% (t=-1.232, p=0.218)
+versus the original window's +20d t=3.227/p=0.0013 (extreme_high) and
+t=-8.824/p≈0 (extreme_low). Not a weaker echo — a complete absence of
+the effect in every bucket and horizon.
+
+VERDICT (per the candidate's own pre-stated ladder path — "if it
+survives on a disjoint window..."): FAILS step (1). Steps (2) (IEF/SHY
+generalization) and (3) (regime split) are moot; this does NOT become a
+`gate2_pass` candidate and stays out of anything traded or sold. This
+confirms the mundane confound the original entry's own SECOND-ORDER
+PRIOR section flagged as equally plausible to the trend-following-
+confirmation story: the original result was likely one long
+autocorrelated 3-year episode dressed up as 156 "independent" weekly
+observations, not a persistent structural relationship — a genuinely
+different regime shows zero effect, exactly what a real structural edge
+should NOT do. No `datacore/signal_ladder.json` change needed:
+`cftc_tff_positioning` was already correctly `killed` for the general
+hypothesis, and its note already flagged this exact test as the
+condition for trusting the TLT offshoot; this closes that thread with a
+negative result. Full detail filed as an UPDATE block on the original
+open_questions.md entry (now re-tagged REFUTED in its own heading).
+
+RATCHET: 6 new tests. `test_cftc_tff_gate2.py` gained
+`TestFetchSymbolHistoryRange` (3 tests, mocked `requests.get`, no
+network): confirms `fetch_symbol_history` still issues no date cutoff
+(regression pin on the refactor), confirms `fetch_symbol_history_range`
+adds the exact exclusive `report_date_as_yyyy_mm_dd < '...'` clause
+alongside the contract-code filter, confirms the shared pipeline still
+validates (rejects a corrupted record) and re-sorts ascending regardless
+of which entry point is used. `test_cftc_tff_tlt_disjoint.py` (new, 4
+tests) pins `run()`'s orchestration: no-TFF-data short-circuits before
+any bars fetch, no-price-data status, the ok-path window/weeks/rejected-
+count wiring, and `WINDOW_END` staying strictly before the original
+screen's 2023-08 start (an assertion that would fail if a future edit
+ever let the two windows overlap). A/B-verified via `git stash push --
+cftc_tff_gate2_test.py`: `TestFetchSymbolHistoryRange` fails to even
+import against the pre-refactor file (ImportError on
+`fetch_symbol_history_range`, confirming the tests exercise the new
+code, not a no-op).
+
+GATES: `pip install -r requirements.txt -r requirements-dev.txt` needed
+first (fresh container, numpy/pytest/openpyxl all absent at session
+start — same recurring environment gap prior sessions have logged).
+`python3 -m pytest -q`: 1121 passed, 1 skipped (baseline + 6 new, zero
+regressions). No `.ts`/`.tsx` files touched this session, so
+`npx tsc --noEmit`/`npm run build` were not re-run (mirrors the inverse
+precedent already established in the 2026-08-05 OCC day-clustered-retest
+entry above for zero-`.py`-touched sessions).
+
+BACKTEST: N/A — GATE 2 (SIGNAL layer) statistical research on an
+unconfirmed candidate, no scoring/sizing/threshold value touched, no
+runtime path imported.
+
+Version bumped 1.0.598 -> 1.0.599 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start.
+
+CROSS-SYSTEM INTEGRATION: none new — pure statistical-methodology
+research on an already-filed candidate, not a new data stream, archive,
+or /data-facing surface.
+
+NEXT: none queued from this candidate — it is refuted, not merely
+paused. The cftc_tff_positioning entry's other named follow-up (dealer-
+side "informed side" positioning, a separate un-pre-registered
+hypothesis per the original gate-2 note) remains open and untouched,
+lower priority than session budget allowed for today. AUDIT REGISTER
+(staleness overdue since 2026-08-04, constitutional overdue since
+~2026-08-03) is now flagged twice in the record (this entry and the
+subagent survey) — a future session with no queued item available
+should run the staleness pass first (older-overdue, and 30-day cadence
+items compound faster than the ~monthly constitutional one).
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/live-verification all completed. No
+higher-priority queued item was skipped (KNOWN BROKEN #10/#20 correctly
+blocked on the same day's earlier fix needing its first live run; no
+audit-log bug found; no LIVENESS ALARM; no thrash; T-CLIENT deliberately
+avoided, already covered twice today). One logical change, one PR, per
+PROMOTION RULE 5.
+
 ## 2026-08-05 (scheduled-routine session) [REPAIR] — shadow_portfolio nightly backfill root cause: the job was gated inside a market-hours-only code path and had never run, ever (v1.0.596)
 
 TERRITORY: T-BOT (server/bot.ts outside frozen paths) — single logical
