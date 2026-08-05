@@ -8074,7 +8074,7 @@ fails open). Low risk, ~30 min, next T-CLIENT session.
    projection (mirror maplibre's interpolateProjectionFor3D) would close
    the rest. Low priority until a live report says otherwise.
 
-## [HYPOTHESIS · filed 2026-08-03, from the occ_options_volume GATE 2 KILL] Customer put-heavy OCC skew outperforms customer call-heavy skew — reversed from the naive ISEE reading, UNCONFIRMED, needs clustered stats + out-of-sample before any trust
+## [FAILED LADDER STEP (2) 2026-08-05 — see UPDATE below · filed 2026-08-03, from the occ_options_volume GATE 2 KILL] Customer put-heavy OCC skew outperforms customer call-heavy skew — reversed from the naive ISEE reading — FAILED disjoint out-of-sample replication
 
 CONTEXT: scripts/occ_volume_gate2.ts pre-registered "customer call-skew
 = bullish ISEE-successor signal, high skew -> higher forward returns"
@@ -8215,6 +8215,85 @@ candidate).
 Source: this session's research/experiments.md entry;
 scripts/statsUtils.ts + scripts/statsUtils.test.ts;
 scripts/occ_volume_gate2_clustered.ts.
+
+**UPDATE 2026-08-05 (scheduled-routine session, [RESEARCH]) — LADDER PATH
+STEP (2) run, candidate FAILS REPLICATION:** `scripts/
+occ_volume_gate2_clustered_disjoint.ts` (new script, reuses `runClusteredDayTest`
+directly from `occ_volume_gate2_clustered.ts` unchanged — same FLOOR=8000,
+BUCKET_SIZE=40, HORIZONS, day-clustered `clusterMeanTTest`/`tCrit005`
+machinery, only the day list differs) ran the identical bucket construction
+on 9 weekly Wednesdays, **2026-05-06 through 2026-07-01** — zero overlap
+with step (1)'s 2026-01-07..04-22 sample (verified programmatically in
+`occ_volume_gate2_clustered_disjoint.test.ts`), starting 2 weeks after
+step (1)'s last sample day, with the last sample day 35 calendar days
+(~24 trading days) before this session's run date so +20d forward returns
+are fully realized with a buffer, not merely just-settled.
+
+RESULT: the one horizon that survived step (1) does not replicate.
+
+  +5d:  day-clustered mean spread (CALL-PUT) = -0.738%, t_clustered =
+        -0.738 (df=8, critical=2.306) -> SURVIVES=false (consistent
+        with step (1), which also failed +5d)
+  +20d: day-clustered mean spread (CALL-PUT) = -1.118%, t_clustered =
+        -0.586 (df=8, critical=2.306) -> SURVIVES=false (step (1) had
+        SURVIVES=true here, t=-2.961 at crit=2.131 — the disjoint
+        window does not clear the bar, nowhere close)
+
+HONESTY NOTE: the *sign* of the +20d spread is the same in both windows
+(-2.970% step (1) vs -1.118% here — PUT_SKEW still nominally
+outperforming CALL_SKEW on average) so this is not a clean reversal-of-
+sign refutation like the TLT momentum candidate's disjoint test the same
+day; it is a collapse in MAGNITUDE and SIGNIFICANCE on a much smaller
+day-cluster count (n=9 vs n=16, since only 9 realized weekly days fit
+between step (1)'s end and this session's run date — see the script's
+own header on why a longer disjoint sample wasn't available yet). A
+same-direction-but-far-weaker-and-nonsignificant result on a smaller
+sample is the ambiguous middle ground Reasoning Standard #4 warns
+about: it could mean (a) the effect is real but small and this window's
+n=9 lacks power to detect it, or (b) the original t=-2.961 was mostly
+the single dominant 2026-04-08 day (flagged as a risk in step (1)'s own
+entry) and the true effect is closer to zero. This run cannot
+distinguish (a) from (b) — a larger disjoint sample once more weeks
+have realized +20d outcomes (a future re-run in ~2-3 months, WITHOUT
+re-including 2026-05-06..07-01 as a second confirmation of itself)
+would be the honest next test if this candidate is revisited, not a
+promotion attempt on today's ambiguous result.
+
+VERDICT (per this candidate's own pre-stated ladder path — step (2)
+must independently clear the bar, an ambiguous non-clearing result is
+not a pass): **FAILS replication.** Step (3) (IV-selection confound
+control) is moot. This candidate does NOT become `gate2_pass` and stays
+out of anything traded or sold — no `datacore/signal_ladder.json` change
+needed, `occ_options_volume` was already correctly `killed` for the
+original (non-reversed) hypothesis and this reversed-direction offshoot
+never had its own ladder entry to begin with (tracked only here in
+open_questions.md per step (1)'s own session log). This closes the
+candidate's ladder path with a negative/inconclusive-toward-negative
+result rather than leaving it open indefinitely.
+
+RATCHET: entrypoint-guard bug found and fixed as a prerequisite for this
+reuse (`occ_volume_gate2.ts` and `occ_volume_gate2_clustered.ts` both
+called `main()` unconditionally at module scope with no ESM entrypoint
+guard — importing either file's constants, which this new script and its
+own test both need to do, silently re-triggered a full live OCC+Yahoo
+network fetch of the ORIGINAL window as an import side effect; confirmed
+live via a hung `--test` run before the fix). Both files gained a
+`pathToFileURL(process.argv[1])` guard so `main()` only runs when the
+file is the process entrypoint, with zero behavior change when run
+directly (verified: `npx tsx scripts/occ_volume_gate2_clustered.ts`'s own
+run is unaffected, only reachable via `main()` still calling the newly
+exported `runClusteredDayTest` with the same original days). 4 new tests
+in `occ_volume_gate2_clustered_disjoint.test.ts` pin the disjoint
+window's disjointness, chronological ordering, exact day list/weekday
+cadence, and settle-buffer — a plain assertion, not a network test, so a
+future edit to either window's constants can't silently reintroduce
+overlap or an unrealized horizon without a failing test.
+
+Source: this session's research/experiments.md entry;
+scripts/occ_volume_gate2_clustered_disjoint.ts +
+scripts/occ_volume_gate2_clustered_disjoint.test.ts;
+scripts/occ_volume_gate2.ts / occ_volume_gate2_clustered.ts (entrypoint
+guard fix).
 
 ## [REFUTED 2026-08-05 — see UPDATE below · filed 2026-08-03, from the cftc_tff_positioning GATE 2 KILL] TLT (UST BOND) leveraged-money net-positioning extremes show MOMENTUM continuation at 20d, not mean-reversion — FAILED disjoint out-of-sample replication
 
