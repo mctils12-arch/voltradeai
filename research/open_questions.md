@@ -178,7 +178,13 @@
     #10's NEXT STEP directly above — see that entry and the 2026-08-04
     experiments.md entry for the fix shipped and what a future session
     should check). This item's NEXT is gated on the same fix as #10's.
-
+    **UPDATE 2026-08-05 (scheduled-routine session, [REPAIR], v1.0.596):
+    root cause found and fixed — see item #10's 2026-08-05 update directly
+    above for the full diagnosis (the nightly job was gated inside a
+    market-hours-only code path and had never actually run). This item's
+    NEXT (the `rejected_masterkill` win-rate check) remains gated on
+    freshly-labeled shadow history accumulating after the fix's first
+    successful run, same as #10's.
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
    below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
@@ -413,6 +419,46 @@
     depends on the same backfill mechanism) cannot proceed until that
     diagnosis happens and the underlying defect is fixed — treat this as
     higher priority than the original 90-day-wait framing implied.
+    **ROOT CAUSE FOUND + FIXED 2026-08-05 (scheduled-routine session,
+    [REPAIR], v1.0.596, PR pending): the "running nightly per its own
+    schedule" premise was false — the job never ran, ever.** The
+    `nowHour === 22` check lived inside `tier1Reflex()` (`server/bot.ts`),
+    which the TIER 1 `setInterval` only invokes when `clock.is_open` is
+    true (checked immediately before calling it). NYSE regular hours are
+    9:30am-4:00pm ET, i.e. 13:30-20:00 UTC in EDT or 14:30-21:00 UTC in
+    EST — the market is ALWAYS closed by 21:00 UTC. 22:00 UTC (the job's
+    fire hour, "10pm UTC = 5pm EST" per its own comment) can therefore
+    never coincide with `clock.is_open === true`, so the entire
+    `nowHour === 22` branch — and the `nowHour === 0` reset beside it —
+    was unreachable dead code from the moment it was written, not merely
+    silently failing. This fully explains the 12,048-record, zero-labeled
+    symptom from the 2026-08-04 update above: there was nothing to
+    diagnose in `backfill_outcomes()` itself (the several hypotheses that
+    session ruled out — horizon-buffer math, `bars_feed()` wiring, env var
+    naming, file locking — were correctly ruled out, because the function
+    was simply never called). FIX: extracted the check into its own
+    `checkShadowBackfill()` function and drive it from a new, unconditional
+    `setInterval` (5-minute poll, no `clock.is_open`/`state.active`/
+    `state.killSwitch` gate — this is a read/write analytics job over
+    already-closed shadow candidates, not a trading action) placed next to
+    the existing always-on EVENTLOOP-LAG interval. RATCHET: two new
+    regression tests in `server/shadowBackfillVisibility.test.ts`,
+    A/B-verified via `git stash` to fail against the pre-fix code (one
+    asserts the backfill call is not nested inside `tier1Reflex`'s body,
+    one asserts the driving interval doesn't gate on `clock.is_open` or
+    `killSwitch`) and pass post-fix. Full gates: `python3 -m pytest -q`
+    1111 passed, 2 skipped (0 Python files touched, unchanged baseline);
+    `npx tsx --test server/*.test.ts` 1046 passed, 1 failed (pre-existing
+    pmtiles magic-byte baseline, confirmed unrelated — A/B'd separately);
+    `npx tsc --noEmit` 82 errors, byte-identical before/after via
+    `git stash`; `npm run build` clean. NEXT: the fix will fire for the
+    first time at the next 22:00 UTC boundary after deploy — a future
+    session should confirm via `/api/diag/audit?type=SHADOW-BACKFILL`
+    that a stats dict actually lands (not just that the interval exists),
+    then proceed with this item's original NEXT STEP (the |change_pct|>35
+    query) and KNOWN BROKEN #20's `rejected_masterkill` win-rate check,
+    both still gated on enough freshly-labeled history accumulating after
+    that first successful run.
 
 11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
     `shadow_stats` pointed at a function that doesn't exist~~.

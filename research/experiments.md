@@ -3,6 +3,127 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-05 (scheduled-routine session) [REPAIR] — shadow_portfolio nightly backfill root cause: the job was gated inside a market-hours-only code path and had never run, ever (v1.0.596)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths) — single logical
+change, no other territory touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+Local branch `claude/dazzling-planck-ko1yya` initially looked 42 commits
+behind `origin/main` on a `git fetch origin main claude/dazzling-planck-
+ko1yya` — same failure shape the 2026-08-04 PRODUCT-session-#2 entry
+above already diagnosed (a bad second refspec silently no-ops the whole
+fetch, leaving a stale cached `origin/main`). Caught before any
+destructive action landed on real work: re-ran `git fetch origin main`
+alone, which correctly resolved to the true tip (`2946e8e`/v1.0.595,
+identical to what was already checked out — no commits were actually
+stale or lost this time, just the diagnostic fetch). `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, alpaca ACTIVE — no LIVENESS ALARM. Loop-health
+ratio, last 10 tagged entries before this one: 3 REPAIR / 3 PIPELINE /
+2 PRODUCT / 1 RESEARCH / 1 REPAIR(this makes 4 REPAIR) — under the
+7-of-10 thrash threshold, no meta-problem flag needed.
+
+PRIMARY-ACTION SELECTION: KNOWN BROKEN #10 and #20 (open_questions.md)
+were the only open items, both explicitly noted by yesterday's session
+as blocked on `backfill_outcomes()`'s failure mode, newly diagnosable
+via the audit-log visibility that session shipped (v1.0.591, PR #688).
+Queried `/api/diag/audit?type=SHADOW-BACKFILL` and
+`?type=SHADOW-BACKFILL-ERROR` live (DIAG_TOKEN present in session env):
+both empty, despite the production server having been continuously up
+since ~20:50 UTC 2026-08-04 — spanning the entire 22:00 UTC window the
+job is supposed to fire in. Pulled the unfiltered audit log around
+21:00-23:59 UTC 2026-08-04 to rule out a logging-path bug: normal
+TIER2/TIER3/MANIPULATION/OPTIONS-SLOT-FULL activity throughout, but no
+SHADOW-BACKFILL entry of either type anywhere near hour 22 — the job
+didn't error, it never even attempted to run.
+
+READ BEFORE WRITE: read `tier1Reflex()` and its caller in full
+(server/bot.ts). Found it: the TIER 1 `setInterval` that invokes
+`tier1Reflex()` fetches `/v2/clock` and returns early if
+`!clock.is_open` — and the `nowHour === 22` shadow-backfill check lived
+INSIDE `tier1Reflex()`'s body. NYSE regular hours are 9:30am-4:00pm ET
+(13:30-20:00 UTC in EDT, 14:30-21:00 UTC in EST) — the market is closed
+by 21:00 UTC in every case, so `clock.is_open` can never be true at
+22:00 UTC. The `nowHour === 22` branch (and the `nowHour === 0` reset
+next to it) was unreachable dead code from the day it was written —
+not a runtime failure, a logical impossibility. This is why the
+2026-08-04 session's audit-log instrumentation showed nothing to
+diagnose: there was no failure to catch, because the instrumented code
+path never executed.
+
+WHAT SHIPPED: extracted the check into a standalone `async function
+checkShadowBackfill()` (still reusing the existing `_shadowBackfilledToday`
+closure variable and the same `backfill_outcomes(500)` call/audit-log
+wiring from yesterday's fix, unchanged) and drives it from a NEW,
+unconditional `setInterval` (5-minute poll) placed next to the existing
+always-on EVENTLOOP-LAG interval — no `clock.is_open`, `state.active`,
+or `state.killSwitch` gate, since this is a read/write analytics job
+over already-closed shadow candidates spanning days/weeks in the past,
+not a trading action with any reason to depend on current market or
+trading state.
+
+RATCHET: two new regression tests in
+`server/shadowBackfillVisibility.test.ts` — one asserts the backfill
+call is not nested inside `tier1Reflex`'s function body, one asserts
+the interval line driving `checkShadowBackfill()` does not gate on
+`clock.is_open`/`killSwitch`. A/B-verified via `git stash push --
+server/bot.ts`: both new tests fail against the pre-fix code (exactly
+the defect they're meant to catch), pass post-fix.
+
+GATES: `npm install` needed first (node_modules mostly empty at session
+start, same recurring environment gap prior sessions have logged).
+`python3 -m pytest -q`: 1111 passed, 2 skipped — zero `.py` files
+touched this session, gate run anyway for completeness (not skipped).
+`npx tsx --test server/*.test.ts`: 1046 passed, 1 failed (the
+pre-existing pmtiles magic-byte baseline failure; confirmed unrelated
+by running it in isolation against `git stash`-restored pre-fix code —
+same failure, zero `client/public/tiles/*` files touched). A separate
+A/B pass on 7 other test files that failed with `ERR_MODULE_NOT_FOUND`
+(aircraftTiling, apiKeyAccounts, compression, gdeltEvents, owmTiles,
+seafloorTiles, securityMiddleware) confirmed all 7 fail identically
+against unmodified pre-fix code — pre-existing environment/dependency
+gaps, not caused by this change. `npx tsc --noEmit`: A/B-verified via
+`git stash` — 82 errors both before and after, byte-identical count.
+`npm run build`: clean.
+
+BACKTEST: N/A — this restores a documented existing scheduled job
+(shadow-portfolio outcome labeling, an offline analytics/QA pipeline)
+to actually running; it touches no scoring, sizing, threshold, or
+execution path, so PROMOTION RULE 3's Sharpe/drawdown comparison
+doesn't apply.
+
+Version bumped 1.0.595 -> 1.0.596 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a scheduling-mechanism fix
+for an existing internal analytics job (shadow-portfolio outcome
+labeling), not a new data stream, archive, or /data-facing surface.
+Its downstream consumers (KNOWN BROKEN #10's SCORE_BAND_MAX/
+MAX_CHANGE_PCT evidence query and #20's rejected_masterkill win-rate
+check) were already filed and cross-referenced in prior sessions.
+
+NEXT (queued for a future session, explicitly not this one — the fix
+needs its first live run before anything downstream is actionable):
+confirm at/after the next 22:00 UTC boundary post-deploy that
+`/api/diag/audit?type=SHADOW-BACKFILL` actually shows a stats dict
+(not just that the interval now exists — the live subprocess call
+itself has never been observed to succeed, since it's never run).
+Once confirmed, KNOWN BROKEN #10's original NEXT STEP (the
+`|change_pct|>35` shadow-history query) and #20's `rejected_masterkill`
+win-rate check both remain gated on enough freshly-labeled history
+accumulating after that first successful run — do not treat the fix
+landing as equivalent to having the data yet.
+
+STARVED: no — this was the session's one primary action (a genuine
+KNOWN BROKEN repair, correctly prioritized per the Repair Mandate over
+new research), matched to capacity, with tests/gates/live-verification
+all completed and a root cause found (not just visibility, unlike
+yesterday's session). No higher-priority queued item was skipped; no
+LIVENESS ALARM; no thrash. One logical change, one PR, per PROMOTION
+RULE 5.
+
 ## 2026-08-04 (scheduled-routine PRODUCT session #2) [PRODUCT] — T-CLIENT/T-DATACORE — crop_conditions_usda_nass /data chart view: the gate-1-passed pipeline from earlier today gets its UI (v1.0.594)
 
 TERRITORY: T-CLIENT (client/src/pages/cropConditions.tsx new, client/src/
