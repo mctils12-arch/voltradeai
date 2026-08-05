@@ -185,6 +185,63 @@
     NEXT (the `rejected_masterkill` win-rate check) remains gated on
     freshly-labeled shadow history accumulating after the fix's first
     successful run, same as #10's.
+    **UPDATE 2026-08-05 (scheduled-routine session #2, [RULE-REVIEW],
+    v1.0.603) — a second, related visibility gap found and closed, same
+    starvation story as this item's own (a)/(b):**
+    `instrument_selector.py:138`'s `MAX_TOTAL_OPTIONS_PCT` (doubled to 16%
+    in the ALPHA AUDIT 2026-05-03 batch, the same overall CSP-scaling audit
+    this item's exposure numbers come from) carried its own code comment,
+    "Revisit at 30 days of live data" — never actioned, 94 days later.
+    Attempted the revisit this session: INCONCLUSIVE, not re-tuned.
+    `/api/diag/audit` (200 most recent entries, live) and a grep of
+    `research/experiments.md`'s full history both show ZERO occurrences of
+    the cap's own "options exposure ... at max ..." rejection message ever
+    firing — but per this item's (a)/(b) findings and item #3's
+    `MAX_OPTIONS_POSITIONS` bug, CSP volume has been starved for most of
+    the 94-day window by causes unrelated to this cap, so "never binding"
+    cannot yet distinguish "16% is generous enough" from "CSP wasn't
+    trading regardless of the cap." ROOT CAUSE OF WHY THE REVISIT WAS
+    IMPOSSIBLE (read-before-write trace, `instrument_selector.py`'s
+    `select_instrument()`): the rejection reason (`"options exposure X% at
+    max Y%"`, or the sibling `score < MIN_OPTIONS_SCORE` / `outside regular
+    hours` reasons) was appended to `options_score["reasoning"]` but
+    `select_instrument()`'s returned top-level `reasoning` field only ever
+    used the CHOSEN candidate's own reasoning string (line ~1456,
+    `reasoning = stock_score["reasoning"]` when stock wins) — so the moment
+    options lost out to stock/etf (the common case), the ruled-out reason
+    was provably unreachable outside a Python `logger.info()` call, never
+    reaching `server/bot.ts`'s audited `instrument_reasoning` field. Exactly
+    the same shape as this item's own TIER-KILL gap, one layer down the
+    instrument-selection stack. FIX (own PR, v1.0.603): `select_instrument()`
+    now tracks the ruled-out reason in a dedicated `options_ruled_out_reason`
+    variable, returns it as its own field, and appends
+    `" | Options ruled out: <reason>"` to `full_reasoning` whenever options
+    lost out — which already flows into `bot_engine.py`'s
+    `instrument_reasoning` and from there into the existing INSTRUMENT
+    audit() call in `server/bot.ts`, so no new audit call site was needed.
+    Code comment at `instrument_selector.py:129-144` updated in place to
+    record this attempt so a future session doesn't re-discover the same
+    "never fired" dead end without knowing why. RATCHET: new
+    `test_instrument_selector_visibility.py` (3 tests, A/B-verified via
+    `git stash` — all 3 raise `KeyError` on pre-fix code, pass post-fix):
+    exposure-cap rule pins the exact reason string reaches `reasoning` and
+    the dedicated field; a second case (score-floor rule) confirms distinct
+    ruled-out causes produce distinct messages, not one collapsed string;
+    a third confirms options-chosen trades carry no stray ruled-out text
+    (no false positives). GATES: `python3 -m pytest -q` 1124 passed, 1
+    skipped (1121 baseline + 3 new, zero regressions). No `.ts`/`.tsx`
+    files touched (the TS-side audit line needed no change — it already
+    reads `instrument_reasoning` verbatim), so `npx tsc --noEmit`/
+    `npm run build` were not re-run. BACKTEST: N/A — pure visibility fix,
+    changes no scoring/sizing/threshold value or trading decision.
+    **NEXT**: once a few weeks of live `INSTRUMENT` audit lines carry real
+    "Options ruled out: options exposure ..." occurrences (or confirm the
+    cap still never binds even with CSP volume no longer starved by item
+    #3's now-fixed bug), a future session can do the REAL revisit this
+    comment originally asked for — raise, lower, or leave 16% — with actual
+    evidence instead of silence. If it still never fires after CSP volume
+    recovers, that itself is the answer (16% is not the binding constraint
+    on CSP scaling) and the comment should say so instead of "revisit."
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
    below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
