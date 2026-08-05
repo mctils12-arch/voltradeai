@@ -160,15 +160,13 @@ def _derive_fields(row):
     }
 
 
-def fetch_symbol_history(contract_code, limit=LOOKBACK_WEEKS):
-    """Fetch up to `limit` most recent weekly TFF reports for one CFTC
-    contract code, directly from CFTC's Socrata API (same pattern as
-    cftc_cot.py's fetch_symbol_history — no dependency on our own polling
-    archive, which per the 2026-07-31 gate-1 entry has only ~4 weeks of
-    history so far). Returns validated, derived records sorted oldest ->
-    newest, plus a rejected-record count."""
+def _fetch_and_validate(where_clause, limit):
+    """Shared Socrata fetch + gate-1 validate/derive pipeline for both
+    fetch_symbol_history and fetch_symbol_history_range below — only the
+    $where clause differs between the two callers. Returns validated,
+    derived records sorted oldest -> newest, plus a rejected-record count."""
     params = {
-        "$where": f"cftc_contract_market_code='{contract_code}'",
+        "$where": where_clause,
         "$order": "report_date_as_yyyy_mm_dd DESC",
         "$limit": limit,
     }
@@ -189,6 +187,30 @@ def fetch_symbol_history(contract_code, limit=LOOKBACK_WEEKS):
         out.append(_derive_fields(row))
     out.sort(key=lambda r: r["report_date"])
     return out, rejected
+
+
+def fetch_symbol_history(contract_code, limit=LOOKBACK_WEEKS):
+    """Fetch up to `limit` most recent weekly TFF reports for one CFTC
+    contract code, directly from CFTC's Socrata API (same pattern as
+    cftc_cot.py's fetch_symbol_history — no dependency on our own polling
+    archive, which per the 2026-07-31 gate-1 entry has only ~4 weeks of
+    history so far). Returns validated, derived records sorted oldest ->
+    newest, plus a rejected-record count."""
+    return _fetch_and_validate(f"cftc_contract_market_code='{contract_code}'", limit)
+
+
+def fetch_symbol_history_range(contract_code, end_date, limit=LOOKBACK_WEEKS):
+    """Same fetch/validate/derive pipeline as fetch_symbol_history, but
+    returns the `limit` most recent weekly reports strictly BEFORE
+    `end_date` (YYYY-MM-DD) instead of the most recent overall — builds a
+    disjoint out-of-sample window ending just before another window's start.
+    Used by the TLT leveraged-money-positioning momentum candidate's LADDER
+    PATH step (1) replication (open_questions.md, filed 2026-08-03)."""
+    return _fetch_and_validate(
+        f"cftc_contract_market_code='{contract_code}' AND "
+        f"report_date_as_yyyy_mm_dd < '{end_date}'",
+        limit,
+    )
 
 
 def _cot_index(values, lookback):

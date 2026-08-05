@@ -6,12 +6,15 @@ Alpaca/Yahoo fetch.
 """
 import math
 import unittest
+from unittest.mock import MagicMock, patch
 
 from cftc_tff_gate2_test import (
     _derive_fields,
     _newey_west_diff_test,
     bucket_for,
     compute_forward_returns,
+    fetch_symbol_history,
+    fetch_symbol_history_range,
     find_entry_index,
     hac_significance,
     summarize,
@@ -263,6 +266,53 @@ class TestHacSignificance(unittest.TestCase):
         self.assertEqual(set(sig.keys()), {"20", "60"})
         for h in sig.values():
             self.assertEqual(set(h.keys()), {"extreme_high", "extreme_low"})
+
+
+class TestFetchSymbolHistoryRange(unittest.TestCase):
+    """fetch_symbol_history and fetch_symbol_history_range both route through
+    the shared _fetch_and_validate helper (refactored 2026-08-05 to support
+    the TLT disjoint-window replication) — these tests pin the ONE thing
+    that should differ (the $where clause's date cutoff) and confirm the
+    validate/derive/sort pipeline is still shared, not duplicated-and-drifted."""
+
+    def _mock_response(self, rows):
+        resp = MagicMock()
+        resp.json.return_value = rows
+        resp.raise_for_status.return_value = None
+        return resp
+
+    @patch("cftc_tff_gate2_test.requests.get")
+    def test_fetch_symbol_history_has_no_date_cutoff(self, mock_get):
+        mock_get.return_value = self._mock_response([])
+        fetch_symbol_history("020601", limit=10)
+        where = mock_get.call_args.kwargs["params"]["$where"]
+        self.assertEqual(where, "cftc_contract_market_code='020601'")
+
+    @patch("cftc_tff_gate2_test.requests.get")
+    def test_fetch_symbol_history_range_adds_exclusive_date_cutoff(self, mock_get):
+        mock_get.return_value = self._mock_response([])
+        fetch_symbol_history_range("020601", "2023-08-01", limit=156)
+        params = mock_get.call_args.kwargs["params"]
+        self.assertIn("cftc_contract_market_code='020601'", params["$where"])
+        self.assertIn("report_date_as_yyyy_mm_dd < '2023-08-01'", params["$where"])
+        self.assertEqual(params["$limit"], 156)
+
+    @patch("cftc_tff_gate2_test.requests.get")
+    def test_range_still_validates_and_sorts_ascending(self, mock_get):
+        good_early = _real_record(report_date_as_yyyy_mm_dd="2020-09-01T00:00:00.000")
+        good_late = _real_record(report_date_as_yyyy_mm_dd="2023-07-25T00:00:00.000")
+        bad = _real_record(
+            report_date_as_yyyy_mm_dd="2021-01-01T00:00:00.000",
+            open_interest_all="0",
+        )
+        # Socrata returns DESC order; the pipeline must re-sort ascending.
+        mock_get.return_value = self._mock_response([good_late, bad, good_early])
+
+        records, rejected = fetch_symbol_history_range("020601", "2023-08-01", limit=156)
+
+        self.assertEqual(rejected, 1)
+        self.assertEqual([r["report_date"] for r in records],
+                          ["2020-09-01", "2023-07-25"])
 
 
 if __name__ == "__main__":

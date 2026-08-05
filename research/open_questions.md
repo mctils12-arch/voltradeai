@@ -8216,7 +8216,7 @@ Source: this session's research/experiments.md entry;
 scripts/statsUtils.ts + scripts/statsUtils.test.ts;
 scripts/occ_volume_gate2_clustered.ts.
 
-## [HYPOTHESIS · filed 2026-08-03, from the cftc_tff_positioning GATE 2 KILL] TLT (UST BOND) leveraged-money net-positioning extremes show MOMENTUM continuation at 20d, not mean-reversion — UNCONFIRMED, needs a disjoint out-of-sample window before any trust
+## [REFUTED 2026-08-05 — see UPDATE below · filed 2026-08-03, from the cftc_tff_positioning GATE 2 KILL] TLT (UST BOND) leveraged-money net-positioning extremes show MOMENTUM continuation at 20d, not mean-reversion — FAILED disjoint out-of-sample replication
 
 CONTEXT: cftc_tff_gate2_test.py pre-registered "leveraged-money net-
 positioning extremes mean-revert in index/rate/FX futures" (COT-index
@@ -8310,3 +8310,49 @@ bundle with a re-run of the killed general-class hypothesis):
 Source: experiments.md 2026-08-03 (scheduled-routine PRODUCT session);
 datacore/signal_ladder.json cftc_tff_positioning entry;
 cftc_tff_gate2_test.py.
+
+**UPDATE 2026-08-05 (scheduled-routine session, [RESEARCH]) — LADDER PATH
+step (1) run, candidate REFUTED:** `cftc_tff_tlt_disjoint_replication.py`
+(new script, reuses cftc_tff_gate2_test.py's fetch/validate/COT-index/
+HAC machinery unchanged via a new `fetch_symbol_history_range` helper) ran
+the identical TLT-only construction on the 156 weeks immediately
+PRECEDING the original window, live: **2020-08-04..2023-07-25** — zero
+week overlap with the original 2023-08..2026-07 sample, a genuinely
+different rate regime (COVID zero-rate policy through the fastest Fed
+hiking cycle in decades) per this entry's own prior (b) concern.
+
+RESULT: the effect does not replicate — nowhere close.
+  +20d: extreme_high mean_diff +0.182% (t=0.142, p=0.887)
+        extreme_low  mean_diff -0.326% (t=-0.394, p=0.694)
+  +60d: extreme_high mean_diff +3.760% (t=1.228, p=0.220)
+        extreme_low  mean_diff -2.668% (t=-1.232, p=0.218)
+versus the original window's +20d t=3.227 (p=0.0013) / t=-8.824 (p≈0).
+Both buckets, both horizons, no significance anywhere in the disjoint
+window — not a weaker echo of the original effect, a complete absence
+of it.
+
+VERDICT (per this entry's own pre-stated ladder path — "if it survives
+on a disjoint window..."): FAILS step (1). Steps (2) (IEF/SHY
+generalization) and (3) (regime split) are moot; this candidate does
+NOT become `gate2_pass` and stays out of anything traded or sold. This
+is the mundane confound flagged in the original entry's SECOND-ORDER
+PRIOR section turning out to be the correct explanation, not the
+trend-following-confirmation story: "TLT's realized trend over this
+specific 3-year window... could mechanically correlate with
+leveraged-money extremes without any causal or persistent
+relationship — i.e. this could be one long autocorrelated episode
+dressed up as 156 'independent' weekly observations." A genuinely
+different regime shows zero effect, which is exactly what that
+confound predicts and exactly what a real structural relationship
+would not do (REASONING STANDARD #2).
+
+No `datacore/signal_ladder.json` change needed — `cftc_tff_positioning`
+was already correctly `killed` for the general hypothesis, and its note
+already flagged the TLT offshoot as needing this exact test before any
+trust; this closes that open thread with a negative result rather than
+promoting it. RATCHET: 6 new tests (3 in `test_cftc_tff_gate2.py` pinning
+the `fetch_symbol_history`/`fetch_symbol_history_range` refactor's shared
+validate/derive pipeline and the date-cutoff `$where` clause, 3 in
+`test_cftc_tff_tlt_disjoint.py` pinning the new script's orchestration —
+no-data/no-price short-circuits and window-bounds wiring). Full gate
+results and version bump in experiments.md 2026-08-05.
