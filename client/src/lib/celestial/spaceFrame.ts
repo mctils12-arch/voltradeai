@@ -80,12 +80,14 @@
 //   never data. The persistent caption states scale, provenance and the
 //   marker rule.
 //
-// KNOWN LIMITS (stated, not hidden): occlusion between the live-map Earth
-// and a body passing IN FRONT of it (e.g. the Moon transiting Earth's disc
-// as seen from behind the Moon) paints the map on top — the map canvas
-// always composites above this frame; bodies behind Earth are correctly
-// hidden by the opaque globe disc. Off-screen bodies get no edge pointers
-// (click-to-fly + markers make everything reachable; scope decision).
+// KNOWN LIMITS (stated, not hidden): the map canvas always composites above
+// this frame, so a body passing IN FRONT of the live-map Earth cannot be
+// drawn over it — instead the anchor pose is WITHHELD whenever a nearer
+// body's true sphere blocks the camera→Earth sightline (anchorSightlineBlocked,
+// repaired 2026-08-05: Earth painted on the Moon's near-field surface).
+// Bodies behind Earth are correctly hidden by the opaque globe disc.
+// Off-screen bodies get no edge pointers (click-to-fly + markers make
+// everything reachable; scope decision).
 //
 // B3 — ORBITS / ROTATION / MOONS / TIME (directive §3, 2026-07-18): the
 // registry gains the eight curated moons (Io, Europa, Ganymede, Callisto,
@@ -729,6 +731,33 @@ export function occludedByNearerDisc(
     const r = b.discPx / 2 - 2;
     if (r < 2) continue;                                   // tiny discs can't hide anything
     if (Math.hypot(target.x - b.x, target.y - b.y) < r) return true;
+  }
+  return false;
+}
+
+/** True when a nearer body's TRUE sphere blocks the camera→anchor sightline
+ *  (exact layout-space ray-sphere test, hit strictly nearer than the anchor).
+ *  2026-08-05 screenshot: the LIVE-MAP Earth painted on the Moon's near-field
+ *  surface — the map canvas is a DOM sibling composited ABOVE this frame's
+ *  canvas, so the painter's far→near sort cannot hide it; the anchor pose
+ *  itself must be withheld when Earth is physically behind a nearer body.
+ *  Same bug class occludedByNearerDisc fixed for labels, but the anchor
+ *  deserves the exact 3D test: the disc test needs the occluder's CENTRE
+ *  on-screen, and a near-field Moon filling the viewport can project its
+ *  centre outside it. TRUE radii only — enlarged display discs must never
+ *  over-hide (mirrors the satellite occlusion rule in orbital/occlusion.ts). */
+export function anchorSightlineBlocked(
+  camPos: Vec3,
+  anchorPos: Vec3,
+  nearer: Array<{ pos: Vec3; radiusM: number }>,
+): boolean {
+  const d = sub(anchorPos, camPos);
+  const distToAnchor = Math.hypot(d.x, d.y, d.z);
+  if (!(distToAnchor > 0)) return false;
+  for (const b of nearer) {
+    const hit = raycastSphere(camPos, d, b.pos, b.radiusM);
+    if (!hit) continue;
+    if (Math.hypot(hit.x - camPos.x, hit.y - camPos.y, hit.z - camPos.z) < distToAnchor) return true;
   }
   return false;
 }
@@ -3420,7 +3449,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const earth = drawn.find((d) => d.id === anchorDef.id)!;
     const mapDisc = mapGlobeDiscPx(seam.zoom, seam.centerLatDeg);
     let anchorOut: SpaceFrameState["anchor"] = null;
-    if (!earth.behind && Number.isFinite(earth.p.x)) {
+    // A nearer body physically in front of Earth must hide the live map —
+    // the map canvas composites ABOVE this frame (DOM order), so no in-frame
+    // draw order can bury it; withhold the pose instead (KNOWN LIMITS note).
+    const anchorBlocked = anchorSightlineBlocked(
+      camPos,
+      pos[anchorDef.id],
+      drawn
+        .filter((d) => d.id !== anchorDef.id && !d.behind && d.layoutDistM < earth.layoutDistM)
+        .map((d) => ({ pos: pos[d.id], radiusM: radiusM(d.id) })),
+    );
+    if (!earth.behind && Number.isFinite(earth.p.x) && !anchorBlocked) {
       const cssScale = earth.discPx / mapDisc;
       const opacity = mapAnchorOpacity(earth.discPx);
       // exit is armed only when heading for the map (idle at the anchor, or

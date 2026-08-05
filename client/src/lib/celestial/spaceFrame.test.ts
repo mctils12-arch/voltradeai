@@ -46,6 +46,7 @@ import {
   MIN_DISTANCE_RADII,
   MIN_ZOOM_RADII,
   occludedByNearerDisc,
+  anchorSightlineBlocked,
   orbitInertiaStep,
   ORBIT_INERTIA_DAMP,
   ORBIT_INERTIA_EPS_DEG,
@@ -1144,4 +1145,31 @@ test("occludedByNearerDisc: only NEARER bodies occlude, tiny discs never do, sel
   assert.equal(occludedByNearerDisc(target, [selfDisc]), false, "a body never occludes itself");
   const equal = { id: "x", x: 500, y: 500, discPx: 400, layoutDistM: 5e6 };
   assert.equal(occludedByNearerDisc(target, [equal]), false, "equal depth is not nearer");
+});
+
+// ── live-map anchor occlusion (repair 2026-08-05) ───────────────────────────
+// The 2026-08-05 screenshot: tracking the Moon at 3,804 mi, the LIVE-MAP
+// Earth (a DOM canvas composited above the space frame) painted on the
+// Moon's surface. The anchor pose must be withheld when a nearer body's
+// TRUE sphere blocks the camera→Earth sightline — exact ray test, because
+// a viewport-filling near-field Moon can project its centre off-screen
+// where the disc test is blind.
+test("anchorSightlineBlocked: nearer body on the sightline hides the anchor; beside it or behind it does not", () => {
+  const cam = { x: 0, y: 0, z: 0 };
+  const earth = { x: 3.77e8, y: 0, z: 0 };            // ~true Earth-from-Moon range (m)
+  const moonR = 1.7374e6;
+  // camera 7.86e6 m from Moon centre (~alt 3,804 mi), Moon dead ahead
+  const moonAhead = { pos: { x: 7.86e6, y: 0, z: 0 }, radiusM: moonR };
+  assert.equal(anchorSightlineBlocked(cam, earth, [moonAhead]), true, "Moon between camera and Earth hides the live map");
+  // Moon well off the sightline: Earth stays visible
+  const moonBeside = { pos: { x: 7.86e6, y: 6e6, z: 0 }, radiusM: moonR };
+  assert.equal(anchorSightlineBlocked(cam, earth, [moonBeside]), false, "off-axis Moon leaves Earth visible");
+  // a sphere BEYOND Earth on the same ray must not hide it (hit farther than anchor)
+  const beyond = { pos: { x: 8e8, y: 0, z: 0 }, radiusM: 7e7 };
+  assert.equal(anchorSightlineBlocked(cam, earth, [beyond]), false, "a body beyond Earth cannot occlude it");
+  // grazing: sphere just outside the ray corridor
+  const grazing = { pos: { x: 7.86e6, y: moonR + 250_000, z: 0 }, radiusM: moonR };
+  assert.equal(anchorSightlineBlocked(cam, earth, [grazing]), false, "grazing miss stays visible");
+  // degenerate: zero-length sightline never blocks
+  assert.equal(anchorSightlineBlocked(cam, cam, [moonAhead]), false, "zero-length sightline is a no-op");
 });
