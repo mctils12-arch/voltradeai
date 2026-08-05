@@ -11,6 +11,21 @@
 // SHADOW-BACKFILL-ERROR, mirroring the TIER-KILL / TIER3-DIAG visibility
 // precedents (see open_questions.md KNOWN BROKEN #3, #20 and
 // tier3DiagVisibility.test.ts).
+//
+// REPAIR 2026-08-05 (root cause of the zero-labeled-records symptom the
+// 2026-08-04 visibility fix above could only observe, not explain): the
+// nowHour===22 check lived inside tier1Reflex(), and the TIER 1
+// setInterval that invokes tier1Reflex() returns early whenever
+// `!clock.is_open`. NYSE regular hours end by 21:00 UTC even in EST
+// (20:00 UTC in EDT) — 22:00 UTC is therefore NEVER inside market hours,
+// so the whole nowHour===22 branch (and the nowHour===0 reset) was
+// unreachable dead code since inception; the job never actually ran, on
+// any night, ever. Fixed by extracting the check into its own
+// checkShadowBackfill() function driven by an unconditional setInterval
+// (no clock.is_open, state.active, or killSwitch gate) alongside the
+// EVENTLOOP-LAG interval. The tests below pin both halves of the fix:
+// the function is defined outside tier1Reflex's body, and it is wired to
+// an interval that does not check clock.is_open first.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -45,6 +60,31 @@ test("wiring pinned: the console-only logging this replaces is still present for
   const block = shadowBackfillBlock();
   assert.ok(block.includes("console.log(\"[SHADOW] Backfill result:\""));
   assert.ok(block.includes("console.error(\"[SHADOW] Backfill failed:\""));
+});
+
+test("regression: checkShadowBackfill is NOT nested inside tier1Reflex (which is market-hours-gated)", () => {
+  const tier1Start = bot.indexOf("async function tier1Reflex()");
+  assert.ok(tier1Start > 0, "tier1Reflex not found");
+  const tier1End = bot.indexOf("\n  }\n\n  // Once per day, backfill shadow portfolio outcomes.", tier1Start);
+  assert.ok(tier1End > tier1Start, "tier1Reflex's closing brace / handoff comment not found where expected");
+  const tier1Body = bot.slice(tier1Start, tier1End);
+  assert.ok(
+    !tier1Body.includes("backfill_outcomes"),
+    "the shadow backfill job must not be inlined inside tier1Reflex — tier1Reflex only runs when clock.is_open, " +
+    "and 22:00 UTC (the job's fire hour) is never inside NYSE market hours, so it would never run (KNOWN BROKEN #10/#20 root cause)"
+  );
+  assert.ok(bot.includes("async function checkShadowBackfill()"), "checkShadowBackfill must be its own top-level function");
+});
+
+test("regression: checkShadowBackfill is driven by an interval with no clock.is_open / market-hours gate", () => {
+  const callSite = bot.indexOf("checkShadowBackfill().catch(");
+  assert.ok(callSite > 0, "checkShadowBackfill() must be called from a scheduled interval");
+  // The call must be the interval's own callback body, not gated behind an
+  // await'd market-clock check the way the TIER 1 setInterval gates tier1Reflex().
+  const lineStart = bot.lastIndexOf("\n", callSite);
+  const line = bot.slice(lineStart, bot.indexOf("\n", callSite));
+  assert.ok(!line.includes("is_open"), "the shadow-backfill interval callback must not be gated on clock.is_open");
+  assert.ok(!line.includes("state.killSwitch"), "the shadow-backfill interval callback must not be gated on killSwitch");
 });
 
 test("SHADOW-BACKFILL-ERROR detail-building never throws on a non-Error rejection value", () => {

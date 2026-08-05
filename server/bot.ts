@@ -3268,41 +3268,58 @@ print(json.dumps(result))
       // 5. Track closed trades for learning
       await trackClosedTrades();
 
-      // Once per day, backfill shadow portfolio outcomes.
-      // Runs ~3-5 Alpaca batch calls (token-bucketed to stay within 200/min).
-      const nowHour = new Date().getUTCHours();
-      if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
-          execPythonSerialized(
-              `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(500)))"`,
-              { timeout: 120000 }  // 2 min cap
-          ).then((result) => {
-              console.log("[SHADOW] Backfill result:", result.stdout);
-              _shadowBackfilledToday = true;
-              // REPAIR 2026-08-04: this ran silently (console-only) since
-              // inception — /api/diag/shadow showed 12,048 records spanning
-              // 2026-04-20 to present with ZERO outcomes labeled at any of
-              // +5d/+10d/+20d, and there was no way to tell whether the job
-              // was erroring, running with 0 updates, or not running at all.
-              // Route the stats dict {updated, already_filled, missing_price,
-              // skipped, total_records} through the persisted audit log so
-              // that question is answerable without a code deploy.
-              try {
-                  const stats = JSON.parse(result.stdout.trim());
-                  audit("SHADOW-BACKFILL", JSON.stringify(stats));
-              } catch (parseErr: any) {
-                  audit("SHADOW-BACKFILL-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)}`);
-              }
-          }).catch((e) => {
-              console.error("[SHADOW] Backfill failed:", e);
-              audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
-          });
-      }
-      if (nowHour === 0) {
-          _shadowBackfilledToday = false;  // reset at midnight UTC
-      }
-
     } catch (err: any) {
       console.error("[tier1]", err?.message || err);
+    }
+  }
+
+  // Once per day, backfill shadow portfolio outcomes.
+  // Runs ~3-5 Alpaca batch calls (token-bucketed to stay within 200/min).
+  //
+  // REPAIR 2026-08-05 (KNOWN BROKEN #10/#20 root cause): this was previously
+  // inlined inside tier1Reflex(), gated behind `nowHour === 22` — but the
+  // TIER 1 setInterval that calls tier1Reflex() returns early whenever
+  // `!clock.is_open` (market-hours-only), and NYSE regular hours end by
+  // 21:00 UTC even in EST (20:00 UTC in EDT). 22:00 UTC is therefore NEVER
+  // inside market hours, so the nowHour===22 branch — and the nowHour===0
+  // reset alongside it — were unreachable dead code since inception. This
+  // is why /api/diag/shadow showed 12,048 records with zero outcomes
+  // labeled at any horizon despite the job "running nightly per its own
+  // schedule": it never actually ran. Moved to its own unconditional
+  // interval (below) with no market-hours or kill-switch gate — this is a
+  // read/write analytics job over already-closed shadow candidates, not a
+  // trading action, so it has no reason to depend on trading state.
+  async function checkShadowBackfill() {
+    const nowHour = new Date().getUTCHours();
+    if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
+      try {
+        const result = await execPythonSerialized(
+          `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(500)))"`,
+          { timeout: 120000 }  // 2 min cap
+        );
+        console.log("[SHADOW] Backfill result:", result.stdout);
+        _shadowBackfilledToday = true;
+        // REPAIR 2026-08-04: this ran silently (console-only) since
+        // inception — /api/diag/shadow showed 12,048 records spanning
+        // 2026-04-20 to present with ZERO outcomes labeled at any of
+        // +5d/+10d/+20d, and there was no way to tell whether the job
+        // was erroring, running with 0 updates, or not running at all.
+        // Route the stats dict {updated, already_filled, missing_price,
+        // skipped, total_records} through the persisted audit log so
+        // that question is answerable without a code deploy.
+        try {
+          const stats = JSON.parse(result.stdout.trim());
+          audit("SHADOW-BACKFILL", JSON.stringify(stats));
+        } catch (parseErr: any) {
+          audit("SHADOW-BACKFILL-ERROR", `unparseable stdout: ${String(result.stdout).slice(0, 300)}`);
+        }
+      } catch (e: any) {
+        console.error("[SHADOW] Backfill failed:", e);
+        audit("SHADOW-BACKFILL-ERROR", String(e?.message || e).slice(0, 500));
+      }
+    }
+    if (nowHour === 0) {
+      _shadowBackfilledToday = false;  // reset at midnight UTC
     }
   }
 
@@ -5900,6 +5917,12 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       audit("EVENTLOOP-LAG", `Node event loop stalled ~${lag}ms past its ${EVENTLOOP_LAG_CHECK_MS}ms tick — check for a coincident TIER2-ERROR/STREAM-DISCONNECT (KNOWN BROKEN #18)`);
     }
   }, EVENTLOOP_LAG_CHECK_MS);
+
+  // Shadow-portfolio nightly backfill check — unconditional (no market-hours
+  // or kill-switch gate; see checkShadowBackfill()'s comment for why this
+  // must NOT live inside the market-hours-gated Tier 1 interval below).
+  // 5-minute poll is plenty granular for an hour-boundary check.
+  setInterval(() => { checkShadowBackfill().catch((e) => console.error("[SHADOW]", e?.message || e)); }, 5 * 60 * 1000);
 
   // ── Three-Tier Engine Intervals ─────────────────────────────────────────────
   let tier2Running = false;
