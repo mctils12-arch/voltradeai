@@ -101,7 +101,7 @@ import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircr
 // DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
-import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec } from "@/lib/air/airGlide";
+import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec, tailGlideDtSec } from "@/lib/air/airGlide";
 // SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
 // card is open, each live poll appends its REAL fix so the 3D trail +
 // altitude curtain reach the plane's CURRENT position instead of ending at
@@ -3120,6 +3120,10 @@ export default function DataMapPage() {
   // rate + the receipt anchor — lets the curtain tail meet the plane where
   // it is DRAWN between polls (the same glide the plane renders with).
   const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+  // wireLivePoints' poll-loop re-arm (repair 2026-08-05): lets a freshly
+  // opened plane card cancel the pending SLOW timer and adopt the 2s fast
+  // cadence immediately instead of waiting out up to a full slow period.
+  const airPollRearmRef = useRef<(() => void) | null>(null);
   // Ground-elevation memo for the terrain-following curtain base — keyed by
   // terrain config (source|exaggeration: queryTerrainElevation's result
   // already includes the exaggeration, so a slider move changes every value).
@@ -3733,7 +3737,12 @@ export default function DataMapPage() {
         updateFlightMarker();
         return;
       }
-      const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
+      // dt matches what the PLANE renderer shows (repair 2026-08-05): in
+      // the 2D band under the terrain-saturation gate the icons are frozen
+      // at raw poll positions — the tail must freeze with them or it
+      // glides ahead of its own plane.
+      const frozen2d = map.getZoom() < AIR_3D_MIN_ZOOM && isOverloaded() && !!map.getTerrain();
+      const dt = tailGlideDtSec(performance.now(), lv.anchorMs, !!lv.vel, frozen2d);
       const lo = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
       const la = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
       const li = st.samples.length - 1;
@@ -4015,7 +4024,28 @@ export default function DataMapPage() {
     if (detailTrailKind === "aircraft" && detailTrailId) {
       if (airCrumbsRef.current.id !== detailTrailId) {
         airCrumbsRef.current = { id: detailTrailId, crumbs: [] };
-        airFollowLiveRef.current = null;
+        // CURTAIN SEED (repair 2026-08-05, diagnosis wf_c7f2a61b-16c —
+        // "the curtain is not up to the plane"): the live tail used to wait
+        // for the NEXT poll's onData to learn the plane's fix, leaving the
+        // curtain ending at the archived track (1-5 min stale = km short of
+        // the drawn plane) for up to a full slow-poll period. Seed the live
+        // anchor from the clicked row already in the payload buffer — the
+        // tail meets the plane on the very first tick; the next real poll
+        // replaces the seed with a fresh fix.
+        const row = airPayloadRef.current.find((x: any) => x?.icao24 === detailTrailId);
+        if (row && row.lat != null && row.lon != null) {
+          airFollowLiveRef.current = {
+            id: detailTrailId,
+            fix: { lo: row.lon, la: row.lat, al: row.on_ground ? 0 : (row.altitude_m ?? null), t: Date.now() / 1000 },
+            vel: glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground),
+            anchorMs: performance.now(),
+          };
+        } else {
+          airFollowLiveRef.current = null;
+        }
+        // fast-poll re-arm: the 15s slow timer already armed keeps a fresh
+        // card waiting; kick the poll loop over to the 2s cadence NOW.
+        try { airPollRearmRef.current?.(); } catch {}
       }
     } else {
       airCrumbsRef.current = { id: null, crumbs: [] };
@@ -7186,6 +7216,9 @@ export default function DataMapPage() {
      *  and send fresh=1 (the server tightens its SWR window per-request) */
     fastWhen?: () => boolean;
     fastIntervalMs?: number;
+    /** receives a poll-loop re-arm fn — call to reschedule the pending
+     *  timer at the CURRENT fastWhen cadence (repair 2026-08-05). */
+    rearmRef?: React.MutableRefObject<(() => void) | null>;
     toFeatures: (d: any) => any[];
     toVectors?: (d: any) => any[];
     onClick: (props: any, lngLat: any) => void;
@@ -7427,6 +7460,17 @@ export default function DataMapPage() {
       }, fast ? (opts.fastIntervalMs ?? opts.intervalMs) : opts.intervalMs);
     };
     schedulePoll();
+    // re-arm hook (repair 2026-08-05): fastWhen is only consulted when a
+    // timer is SCHEDULED — a card opening right after a slow timer armed
+    // waited out the whole slow period before its first fast poll. The
+    // consumer calls this to reschedule at the now-current cadence.
+    if (opts.rearmRef) {
+      opts.rearmRef.current = () => {
+        if (stop) return;
+        window.clearTimeout(pollTimer);
+        schedulePoll();
+      };
+    }
     // GLIDE stepper (~3.3Hz): dead-reckoned setData between polls. Skips
     // whenever it could not be seen (hidden tab, mid-gesture — symbols ride
     // the camera transform anyway, outside the visible-glide zoom band) or
@@ -7584,6 +7628,7 @@ export default function DataMapPage() {
       // smoothly between them, so 2s polling + glide reads as live.
       fastWhen: () => !!airCrumbsRef.current.id,
       fastIntervalMs: 2_000,
+      rearmRef: airPollRearmRef,
       lowZoom: { splitZoom: 4.5, keepFraction: 0.35 },
       // E3: icons cap at the hand-off zoom; the 3D silhouettes take over
       iconMaxZoom: AIR_3D_MIN_ZOOM,
@@ -7895,9 +7940,22 @@ export default function DataMapPage() {
     // (glided) plane — a ≤3-quad setTail buffer update, only while a card
     // is open (the full track geometry rebuilds only on real fixes), plus
     // the marker/tag/readout refresh anchored to the same clock.
+    let tailGateParity = 0;
     const glideRepaintIv = window.setInterval(() => {
       airLayer.glideRepaintTick();
-      try { if (!document.hidden && airFollowLiveRef.current) updateFlightTail(); } catch {}
+      try {
+        if (!document.hidden && airFollowLiveRef.current) {
+          // paced followed-plane exemption (repair 2026-08-05): setTail's
+          // repaint was silently defeating the terrain-saturation gate at
+          // full 3.3Hz whenever a flight card was open. Under the gate the
+          // tail runs at ~1.1Hz — an EXPLICIT, bounded exemption: one
+          // plane's ≤3-quad tail + one forced frame per second, in which
+          // the silhouette's u_dtSec re-evaluates too, so tail and plane
+          // advance together. Ungated cadence is unchanged.
+          const gated = isOverloaded() && !!(map as any).getTerrain?.();
+          if (!gated || (tailGateParity = (tailGateParity + 1) % 3) === 0) updateFlightTail();
+        }
+      } catch {}
     }, AIR_GLIDE_STEP_MS);
     return () => {
       stopWire();

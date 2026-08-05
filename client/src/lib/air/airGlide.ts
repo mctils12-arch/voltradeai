@@ -113,3 +113,23 @@ export function shouldGlidePerFrame(latDeg: number, zoom: number): boolean {
   if (!Number.isFinite(latDeg) || !Number.isFinite(zoom)) return false;
   return metersPerPixel(latDeg, zoom) < MAX_AIR_SPEED_MPS * (AIR_GLIDE_STEP_MS / 1000);
 }
+
+/**
+ * dt (seconds) for the curtain's LIVE TAIL — must match what the PLANE
+ * renderer is actually showing (repair 2026-08-05, "the curtain is not up
+ * to the plane"). In the 2D icon band under the terrain-saturation gate
+ * (2026-07-31: overloaded + terrain freezes the 2D glide setData at raw
+ * poll positions) the icons are frozen — the tail must freeze WITH them
+ * (dt = 0, ending exactly at the raw fix) or it glides ahead of its own
+ * plane. Above the hand-off (3D silhouettes glide in-shader every natural
+ * frame) wall-clock dt applies as before. No velocity → no glide, ever.
+ */
+export function tailGlideDtSec(
+  nowMs: number,
+  anchorMs: number,
+  hasVel: boolean,
+  frozen2d: boolean,
+): number {
+  if (!hasVel || frozen2d) return 0;
+  return airGlideDtSec(nowMs, anchorMs);
+}
