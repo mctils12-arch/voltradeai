@@ -43,6 +43,7 @@ test("parseChart: ranks found watchlist apps, records null (not fabricated) for 
   assert.equal(rows.length, 2, "one row per watchlist app, present or not");
   const duol = rows.find((r) => r.ticker === "DUOL")!;
   assert.equal(duol.rank, 2);
+  assert.equal(duol.company, "Duolingo, Inc.");
   assert.equal(duol.key, "2026-08-01|us|top-free|DUOL");
   const bmbl = rows.find((r) => r.ticker === "BMBL")!;
   assert.equal(bmbl.rank, null, "app absent from this chart must be null, never a fabricated worst rank");
@@ -55,6 +56,7 @@ test("parseLookup: rating fields mapped; missing watchlist apps get null fields,
   assert.equal(duol.avgRating, 4.72504);
   assert.equal(duol.ratingCount, 5357702);
   assert.equal(duol.version, "7.133.0");
+  assert.equal(duol.company, "Duolingo, Inc.");
   assert.equal(duol.key, "2026-08-01|DUOL");
   const bmbl = rows.find((r) => r.ticker === "BMBL")!;
   assert.equal(bmbl.avgRating, null);

@@ -78,6 +78,7 @@ export interface RankRecord {
   t: "rank";
   key: string; // rt|storefront|chart|ticker
   ticker: string;
+  company: string;
   appId: string;
   storefront: Storefront;
   chart: Chart;
@@ -89,6 +90,7 @@ export interface RatingRecord {
   t: "rating";
   key: string; // rt|ticker
   ticker: string;
+  company: string;
   appId: string;
   avgRating: number | null;
   ratingCount: number | null;
@@ -112,6 +114,7 @@ export function parseChart(json: any, storefront: Storefront, chart: Chart, watc
     t: "rank",
     key: `${rt}|${storefront}|${chart}|${a.ticker}`,
     ticker: a.ticker,
+    company: a.company,
     appId: a.appId,
     storefront,
     chart,
@@ -135,6 +138,7 @@ export function parseLookup(json: any, watchlist: WatchlistApp[], rt: string): R
       t: "rating",
       key: `${rt}|${a.ticker}`,
       ticker: a.ticker,
+      company: a.company,
       appId: a.appId,
       avgRating: typeof r?.averageUserRating === "number" ? r.averageUserRating : null,
       ratingCount: typeof r?.userRatingCount === "number" ? r.userRatingCount : null,
