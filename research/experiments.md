@@ -42149,3 +42149,39 @@ STARVED: no — this was the session's one primary action ([REPAIR] per
 SESSION BUDGET); fall-through not reached (one logical PR, per PROMOTION
 RULE 5). `/api/health` re-checked clean before finishing, no LIVENESS
 ALARM, drawdown 0.0%.
+## 2026-08-05 — [RESEARCH] GL loss at the Moon: investigation CLOSED on field evidence — driver/GPU-process instability, proposal C is the answer (T-CLIENT)
+
+The human's machine returned the full diagnostics payload the v1.0.545
+instrumentation was built to collect (4 glLosses + a boot-crash that
+tripped safe mode; preserved in the workflow journal wf_8ab35411-642).
+VERDICTS, each against the investigation's own pre-registered criteria:
+1. TDR/LONG-FRAME: DEAD. Round 2 wrote "if the frames are ~16ms right
+   up to the loss, TDR is RULED OUT." Field frames at both instrumented
+   losses: median 17ms, p95 17-66ms, ZERO frames >250ms. Ruled out.
+2. MEMORY/TERRAIN: stay dead (heap 50-238MB of 4396; terrainLive false).
+3. NEGATIVE ZOOM: EXONERATED, and the round-2 log corrected — MapLibre's
+   default minZoom is -2, NOT 0 (map.ts:436); the space seam deliberately
+   parks at the floor, and the observed -1.2/-0.06/-1.68 solve exactly to
+   the globe transform's per-latitude zoom re-normalization
+   (getZoomAdjustment; sub-camera lats ~55°/75°/37°). Lawful state.
+4. SPACE VIEW AS NECESSARY CAUSE: cleared — loss #3 hit the PLAIN MAP at
+   zoom 2.76, 3.8s after load.
+5. "no-webgl" BOOT PROBE with a running map = Chrome's GPU process down
+   at that instant — direct evidence of the fragile-driver state.
+ROOT CAUSE (now evidence-closed, not smelled): Intel Iris Xe D3D11
+driver/GPU-process instability in reset episodes; every standing WebGL
+context is attack surface; our render load, memory, and transform state
+are all exonerated. STRUCTURAL ANSWER: wishlist proposal C (draw sky +
+space frame as CustomLayers in MapLibre's single context — satLayer
+proves the pattern). Fix attempts 1 (v1.0.467 render-load) and 2
+(v1.0.475 exag ceiling) both aimed at refuted mechanisms; the recurrence
+rule's diagnostics-first mandate is what produced this closure.
+REPAIRED THIS SESSION (distinct defect the case file surfaced, not a
+third blind patch): the INTEGRATED_GPU fail-safe — a "no-webgl" probe
+left the flag false, silently DISABLING the tile-cache mitigation
+(maxTileCacheZoomLevels stayed 8) on exactly the machines mid-reset-
+episode. Classification moved to deviceTier.isFragileGpu (affirmative
+dead-GPU read => fragile; unknown stays non-fragile), 7-assert ratchet,
+deviceTier battery 17/17. QUEUED: celestialSky has no contextlost
+handler (dies permanently if lost while mounted; exposure bounded by the
+v1.0.557 pitch lifecycle) — add loss->dispose->remount.
