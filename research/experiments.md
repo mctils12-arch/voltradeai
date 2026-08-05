@@ -40099,3 +40099,21 @@ positions ($89.8k gross), ML fresh, manipulation guard rejecting
 low-volume spikes. WATCH: TIER3-DIAG reports polygon/wikipedia/gdelt/
 fred sources down (enrichment degraded, not trading-stopping) — filed;
 boot EVENTLOOP-LAG 519ms noted (known pattern).
+
+## 2026-08-05 — [REPAIR] Followed-plane curtain: click-time seed, fast-poll re-arm, tail/icon agreement, paced gate exemption (T-CLIENT)
+
+Implements diagnosis wf_c7f2a61b-16c (filed same day in
+earth_twin_program.md). Four coordinated pieces of ONE defect class —
+"the tail must end where the plane is drawn, promptly": (1) crumb-
+ownership effect seeds airFollowLiveRef from the clicked row in
+airPayloadRef (was: km-short curtain for up to a slow-poll period);
+(2) wireLivePoints rearmRef hook — card open kicks the poll loop to
+the 2s cadence immediately; (3) pure tailGlideDtSec freezes the tail
+with the gated 2D icons (never glides ahead of its own plane); (4)
+setTail's repaint under the terrain-saturation gate is now an explicit
+~1.1Hz paced exemption (was: silently defeating the gate at 3.3Hz with
+any flight card open). RATCHET: tailGlideDtSec 4-assert battery; air
+suites 24/24; harness 0 hard failures. QUEUED from the same diagnosis
+(not this PR): "extrapolated — holding last fix" badge honesty at the
+glide cap, earlier server stale:true on consecutive refresh failures,
+rig-moveend debounce stamp, NaN-altitude curtain-gap card note.
