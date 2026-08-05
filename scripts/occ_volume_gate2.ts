@@ -81,6 +81,7 @@
  * Result goes in research/experiments.md + datacore/signal_ladder.json,
  * never into any runtime path — this script touches no production state.
  */
+import { pathToFileURL } from "url";
 import { fetchOccDay, aggregateOcc, type UnderlyingStat } from "../server/occVolume";
 
 export const FLOOR = 8000;
@@ -325,4 +326,13 @@ async function main() {
   console.log(`ordered_both_horizons=${orderedBoth} welch_t_20d=${t20.toFixed(3)}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Entrypoint guard (ESM has no require.main): occ_volume_gate2_clustered.ts
+// and occ_volume_gate2_clustered_disjoint.ts import this module's constants
+// and pure functions (FLOOR/BUCKET_SIZE/weeklySampleDays/bucketDay/etc) —
+// without this guard, that `import` line would ALSO re-run this file's own
+// full OCC+Yahoo fetch as an unwanted side effect every time. Only run
+// main() when this file is the process entrypoint (`npx tsx
+// scripts/occ_volume_gate2.ts`), never on import.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

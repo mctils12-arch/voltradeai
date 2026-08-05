@@ -40430,3 +40430,192 @@ two open items are both correctly blocked on evidence, not actionable;
 no LIVENESS ALARM; no audit-log bug found this session; thrash ratio
 6/10, under threshold). One logical change (the server `company` field
 is inseparable from the UI it serves), one PR, per PROMOTION RULE 5.
+
+## 2026-08-05 (scheduled-routine session, market-hours) [RESEARCH] — T-DATACORE — OCC put-skew reversal candidate: LADDER PATH STEP (2) disjoint-window run FAILS replication (v1.0.601)
+
+TERRITORY: T-DATACORE (scripts/occ_volume_gate2*.ts, research/open_questions.md,
+research/experiments.md). package.json/package-lock.json version bump is
+the only SHARED-file edit, last commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+tail (last ~15 entries) and `research/open_questions.md`/`wishlist.md`
+tails read. `/api/health`: status ok, bot active, drawdownPct 0.0, alpaca
+ACTIVE, scanner 0 consecutiveFailures, liveness.dark:false — no LIVENESS
+ALARM. Audit log (`/api/bot/audit`) returned `{"error":"Not authenticated"}`
+— the known requireOwner gap (KNOWN BROKEN item, session cookie only,
+autonomous sessions cannot read it), not a new finding. Loop-health ratio:
+of the 10 experiments.md entries immediately before this one, 6 are
+[REPAIR] — under the 7-of-10 thrash threshold, no meta-problem flag
+needed. Checked open PRs (`list_pull_requests`): only #604 (draft,
+"stranded work", explicitly do-not-merge-as-is) and #415 (2026-07-10,
+already noted in KNOWN STATE as superseded by `scripts/runpod_reap.py`
+this session's history — stale housekeeping, not urgent, not touched
+this session to keep this PR to one logical change).
+
+PRIMARY-ACTION SELECTION: two queued items existed — (1)
+`github_org_engineering_momentum`'s /data UI (near-mechanical repeat of
+the 2026-08-05 App Store rankings session, PRIORITY 3 platform work),
+and (2) the occ_options_volume reversal candidate's own explicitly
+pre-stated LADDER PATH STEP (2): a disjoint out-of-sample window test,
+queued by name in yesterday's [RESEARCH] session's NEXT section. Chose
+(2): GOAL's priority order ranks PRIORITY 2 (protect the integrity of
+learning — ladder validation before anything is trusted or sold) above
+PRIORITY 3 (grow the platform's product surface), and this candidate
+was mid-ladder with an explicit next step already scoped by name in the
+prior session's own log — continuing an open validation thread over
+starting new platform-surface work. `github_org_engineering_momentum`
+remains queued, untouched, for a future PRODUCT session.
+
+READ BEFORE WRITE: read `scripts/occ_volume_gate2.ts` (full file) and
+`scripts/occ_volume_gate2_clustered.ts` (full file) this session before
+touching either. Read the filed candidate's full text in
+`open_questions.md` (both the original 2026-08-03 entry and the
+2026-08-04 step-(1) UPDATE) to confirm the exact pre-stated step (2)
+window proposal ("2026-05 onward") and pass bar before writing any code.
+
+WHAT SHIPPED:
+1. `scripts/occ_volume_gate2_clustered_disjoint.ts` (new) — LADDER PATH
+   STEP (2). Reuses `runClusteredDayTest` (newly exported from
+   `occ_volume_gate2_clustered.ts`, see below) unmodified — same
+   FLOOR=8000, BUCKET_SIZE=40, HORIZONS, day-clustered t-test — against
+   a DISJOINT day list: 9 weekly Wednesdays, 2026-05-06..2026-07-01.
+   Window chosen for two stated constraints: (a) disjoint — starts 2
+   weeks after step (1)'s last sample day (2026-04-22), zero overlap
+   (verified in the new test below, not just asserted in a comment);
+   (b) fully realized — last sample day is 35 calendar days / ~24
+   trading days before this session's run date (2026-08-05), so +20d
+   forward returns are already settled with a buffer. A longer disjoint
+   sample was not available: the candidate was only filed 2026-08-03, so
+   only ~9 weekly days exist between step (1)'s end and today without
+   reusing dates too recent for +20d to have occurred yet — stated
+   honestly in the script's own header, not padded to look like a full
+   16-week replication it isn't.
+2. `scripts/occ_volume_gate2_clustered.ts` refactored (NOT a methodology
+   change): extracted the existing fetch/bucket/day-cluster-test body
+   into an exported `runClusteredDayTest(days, label)` returning
+   structured `ClusteredHorizonResult[]`, so the new disjoint script
+   could reuse the identical logic instead of re-implementing it (same
+   reuse pattern as yesterday's `cftc_tff_tlt_disjoint_replication.py`
+   reusing `cftc_tff_gate2_test.py`'s machinery via a new helper).
+   `main()` still calls it with the original SAMPLE_START/SAMPLE_WEEKS
+   days and prints the identical verdict text as before the refactor —
+   behavior for the original run is unchanged (confirmed: only the
+   function boundary moved, no logic edited inside it).
+3. ENTRYPOINT-GUARD BUG found + fixed, a prerequisite for (1)/(2), not a
+   separate logical change: `occ_volume_gate2.ts` and (pre-refactor)
+   `occ_volume_gate2_clustered.ts` both called `main()` unconditionally
+   at module scope with no ESM entrypoint guard (this repo has
+   `"type":"module"`, so `require.main` doesn't exist). Every earlier
+   session that ran `occ_volume_gate2_clustered.ts` was therefore ALSO
+   silently re-triggering `occ_volume_gate2.ts`'s own full original-
+   window OCC+Yahoo fetch as an import side effect (its named exports
+   are imported directly) — wasted network cost, though it never
+   corrupted the clustered script's own separately-fetched results since
+   each script's data collection is independent. Caught live this
+   session: the new disjoint script's own test file (which needs to
+   import `DISJOINT_SAMPLE_START`/`DISJOINT_SAMPLE_WEEKS`) hung for over
+   60s on a live network fetch before the fix, confirming the bug
+   directly rather than by inspection alone. Fixed by adding
+   `if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)`
+   guards around all three scripts' `main()` calls (`occ_volume_gate2.ts`,
+   `occ_volume_gate2_clustered.ts`, and the new disjoint script) — zero
+   behavior change when a script is the process entrypoint, confirmed by
+   re-running `occ_volume_gate2_clustered.ts` directly after the fix (see
+   GATES below) and by the disjoint script's own live run completing
+   normally.
+
+RESULT (live run, `npx tsx scripts/occ_volume_gate2_clustered_disjoint.ts`,
+n=9 clusters, df=8, critical=2.306):
+
+  +5d:  day-clustered mean spread (CALL-PUT) = -0.738%, t=-0.738 ->
+        SURVIVES=false (consistent with step (1), which also failed +5d)
+  +20d: day-clustered mean spread (CALL-PUT) = -1.118%, t=-0.586 ->
+        SURVIVES=false — step (1) had SURVIVES=true here (t=-2.961 at
+        crit=2.131); the disjoint window does not clear the bar, nowhere
+        close (t collapsed by roughly 5x)
+
+VERDICT: FAILS ladder-path step (2). The one horizon that survived step
+(1)'s day-clustering does not replicate out-of-sample. HONESTY NOTE
+(stated in full in open_questions.md's UPDATE, not repeated verbatim
+here): the +20d spread's SIGN is the same in both windows (still
+negative, PUT_SKEW nominally ahead) — this is a collapse in magnitude/
+significance on a much smaller cluster count (n=9 vs n=16), not a clean
+sign-reversal refutation like the TLT candidate's disjoint test found
+yesterday. Per this candidate's own pre-stated ladder rule (step (2)
+must independently clear the bar on its own, an ambiguous non-clearing
+result is not a pass), this is a FAIL — step (3) (IV-selection confound
+control) is moot, no `gate2_pass` promotion, nothing traded or sold on
+this candidate. No `datacore/signal_ladder.json` change needed:
+`occ_options_volume` was already `killed` for the original hypothesis,
+and this reversed-direction offshoot never had its own separate ladder
+entry (tracked only in open_questions.md, per step (1)'s own log).
+
+RATCHET: 4 new tests in `occ_volume_gate2_clustered_disjoint.test.ts`
+(disjoint-vs-original zero overlap, chronological ordering, exact
+9-Wednesday day list, positive settle-buffer before the run date) — pure
+assertions on the day-list logic, no network, so a future edit to either
+window's constants cannot silently reintroduce overlap or an unrealized
+horizon without a failing test. This also indirectly ratchets the
+entrypoint-guard fix: the test file's own import of the disjoint
+script's constants is what caught the guard bug live.
+
+GATES: `npx tsx --test scripts/occ_volume_gate2_clustered_disjoint.test.ts`
+4/4 pass, near-instant (confirms no network side effect post-fix — before
+the fix this same command hung >60s on a live fetch). `npx tsx --test
+server/*.test.ts scripts/*.test.ts`: 1056 total, 1055 passed, 1 failed —
+the pre-existing pmtiles magic-byte baseline failure (confirmed unrelated:
+zero `client/public/tiles/*` files touched this session). `npx tsc
+--noEmit`: A/B-verified via `git stash -u` — 86 errors both before and
+after, `diff` confirms byte-identical output (zero new errors from the
+new files or the entrypoint-guard refactor). `npm run build` not
+re-run (research-script-only change, no client/ or server runtime path
+touched — matching the standing reasoning prior [RESEARCH] sessions have
+used for pure scripts/ changes). Python gate not re-run: zero `.py`
+files touched. Live-verified the refactor itself is behavior-preserving:
+`runClusteredDayTest`'s body is a mechanical extraction (no lines
+changed inside it, only the function boundary + the `export` keyword +
+the new `ClusteredHorizonResult`/`horizonResults.push` bookkeeping
+added), and `main()`'s printed verdict text is unchanged except for the
+new trailing `allDead=` diagnostic appended to the same message.
+
+BACKTEST: N/A — this is GATE 2 (SIGNAL layer) statistical research on a
+still-unconfirmed candidate (never `gate2_pass`, never traded), no
+scoring/sizing/threshold value touched, no runtime path imported.
+
+Version bumped 1.0.600 -> 1.0.601 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 8602e87/#697).
+
+CROSS-SYSTEM INTEGRATION: none new — pure statistical-methodology
+research on an existing datacore candidate, not a new data stream,
+archive, or /data-facing surface.
+
+MARKET-HOURS NOTE (this session ran during market hours): this PR is
+prepared for review but the accompanying PR description asks that merge
+wait until after 4:00 PM ET, per this run's own instructions — this
+change touches no live trading path (pure research script + docs), so
+the wait is a process courtesy, not a safety requirement; it may merge
+sooner only if it turns out to fix a critical live break (it does not).
+
+NEXT (queued, not this session): this candidate's ladder path is now
+closed with a FAIL at step (2) — no further step (3) work is warranted
+unless a future session deliberately re-opens it with a materially
+larger disjoint sample (e.g. re-running once several more months of
+weekly days have realized +20d outcomes, still never reusing
+2026-05-06..07-01 or the original 2026-01-07..04-22 window as its own
+confirmation). `github_org_engineering_momentum`'s /data UI remains the
+next near-mechanical PRODUCT-session repeat of the App Store rankings
+pattern (queued from yesterday's session, untouched this session).
+Housekeeping (not this session, low priority): PR #415 (2026-07-10) is
+now redundant per KNOWN STATE's own note that its fix shipped as
+`scripts/runpod_reap.py` — a future session can close it with a
+one-line comment, same treatment as PR #77.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/live-verification all completed. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+both correctly blocked on evidence; no LIVENESS ALARM; no new audit-log
+bug found — the audit route itself is a known, already-logged access
+gap; thrash ratio 6/10, under threshold). One logical change (the
+entrypoint-guard fix is a prerequisite for the reuse this PR needed, not
+a second logical change), one PR, per PROMOTION RULE 5.

@@ -42,18 +42,35 @@
  * never into any runtime path or signal_ladder.json gate-2 status (this
  * is pre-registration data for a still-unconfirmed candidate, not a
  * ladder promotion) — this script touches no production state.
+ *
+ * `runClusteredDayTest(days, label)` below is exported so LADDER PATH
+ * STEP (2) (a disjoint out-of-sample window, scripts/
+ * occ_volume_gate2_clustered_disjoint.ts) can reuse the identical
+ * fetch/bucket/cluster-test logic against a different day list without
+ * redefining it — same pattern as cftc_tff_tlt_disjoint_replication.py's
+ * reuse of cftc_tff_gate2_test.py's machinery. main() below still calls
+ * it with the original SAMPLE_START/SAMPLE_WEEKS days; behavior for the
+ * original run is unchanged.
  */
+import { pathToFileURL } from "url";
 import { fetchOccDay, aggregateOcc } from "../server/occVolume";
 import {
   FLOOR, BUCKET_SIZE, HORIZONS, SAMPLE_START, SAMPLE_WEEKS,
   weeklySampleDays, ymdCompact, bucketDay, fetchYahooDaily, toSeries,
   fwdReturn, meanStd, type DayBuckets, type Series,
 } from "./occ_volume_gate2";
-import { clusterMeanTTest, tCrit005, survivesAtCrit005 } from "./statsUtils";
+import { clusterMeanTTest, tCrit005, survivesAtCrit005, type ClusterTTestResult } from "./statsUtils";
 
-async function main() {
-  const days = weeklySampleDays(SAMPLE_START, SAMPLE_WEEKS);
-  console.log(`occ_volume_gate2_clustered: ${days.length} weekly sample days, FLOOR=${FLOOR}, BUCKET_SIZE=${BUCKET_SIZE} (identical to occ_volume_gate2.ts)`);
+export interface ClusteredHorizonResult {
+  horizon: number;
+  result: ClusterTTestResult;
+  crit: number;
+  survives: boolean;
+  dayDetail: { day: string; callMean: number; putMean: number; spread: number }[];
+}
+
+export async function runClusteredDayTest(days: string[], label: string): Promise<ClusteredHorizonResult[]> {
+  console.log(`${label}: ${days.length} weekly sample days, FLOOR=${FLOOR}, BUCKET_SIZE=${BUCKET_SIZE} (identical to occ_volume_gate2.ts)`);
 
   const dayBuckets: DayBuckets[] = [];
   for (const day of days) {
@@ -102,6 +119,7 @@ async function main() {
 
   // Day-level means (NOT pooled rows) per bucket per horizon.
   console.log(`\n=== DAY-CLUSTERED RESULTS (cluster = report day, n=${dayBuckets.length}) ===`);
+  const horizonResults: ClusteredHorizonResult[] = [];
   for (const h of HORIZONS) {
     const daySpreads: number[] = [];
     const dayDetail: { day: string; callMean: number; putMean: number; spread: number }[] = [];
@@ -135,9 +153,23 @@ async function main() {
     }
     console.log(`  day-clustered mean spread (CALL-PUT)=${(result.mean * 100).toFixed(3)}%  t_clustered=${result.t.toFixed(3)}  df-correct critical(0.05,two-tailed)=${crit.toFixed(3)}`);
     console.log(`  SURVIVES clustering at 5%: ${survives}`);
+    horizonResults.push({ horizon: h, result, crit, survives, dayDetail });
   }
 
-  console.log(`\nVERDICT: if both horizons show SURVIVES=false, the reversal candidate is dead at ladder-path step (1) — mark it killed in the same terms as occ_options_volume, per the pre-stated next step in open_questions.md. If either horizon survives, proceed to ladder-path step (2): disjoint out-of-sample window.`);
+  return horizonResults;
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+async function main() {
+  const days = weeklySampleDays(SAMPLE_START, SAMPLE_WEEKS);
+  const horizonResults = await runClusteredDayTest(days, "occ_volume_gate2_clustered");
+  const allDead = horizonResults.every((r) => !r.survives);
+  console.log(`\nVERDICT: if both horizons show SURVIVES=false, the reversal candidate is dead at ladder-path step (1) — mark it killed in the same terms as occ_options_volume, per the pre-stated next step in open_questions.md. If either horizon survives, proceed to ladder-path step (2): disjoint out-of-sample window. (this run: allDead=${allDead})`);
+}
+
+// Entrypoint guard (ESM has no require.main) — see occ_volume_gate2.ts's
+// identical guard for why: occ_volume_gate2_clustered_disjoint.ts imports
+// runClusteredDayTest from this file and must not trigger this file's own
+// original-window main() as an import side effect.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
