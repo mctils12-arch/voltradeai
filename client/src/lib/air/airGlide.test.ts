@@ -10,6 +10,7 @@ import {
   glideDegPerSec,
   mercVelPerSec,
   shouldGlidePerFrame,
+  tailGlideDtSec,
 } from './airGlide.js';
 import { AIR_3D_MIN_ZOOM } from './airLayer.js';
 import { lonLatToMercator, wrapMercDelta } from '../orbital/satBuffer.js';
@@ -78,4 +79,16 @@ test('shouldGlidePerFrame: per-frame repaint only where the step tick would visi
   assert.equal(shouldGlidePerFrame(40, AIR_3D_MIN_ZOOM), false, 'at the hand-off a 300ms step is still <1px');
   assert.equal(shouldGlidePerFrame(40, 11), true, 'close zoom: stepped motion would read as jank → 60fps');
   assert.equal(shouldGlidePerFrame(NaN, 11), false, 'broken input fails closed (step tick still runs)');
+});
+
+// ── tail dt agreement (repair 2026-08-05) ───────────────────────────────────
+// The curtain's live tail must end where the plane is DRAWN: frozen with the
+// 2D icons under the terrain-saturation gate, gliding on wall-clock above
+// the hand-off, zero without broadcast velocity.
+test('tailGlideDtSec: freezes with gated 2D icons, glides otherwise, capped like the plane, zero without velocity', () => {
+  const t0 = 1_000_000;
+  assert.equal(tailGlideDtSec(t0 + 8_000, t0, true, false), 8, 'wall-clock glide when the plane glides');
+  assert.equal(tailGlideDtSec(t0 + 8_000, t0, true, true), 0, '2D band under the gate: icons frozen -> tail frozen');
+  assert.equal(tailGlideDtSec(t0 + 8_000, t0, false, false), 0, 'no broadcast velocity -> no glide');
+  assert.equal(tailGlideDtSec(t0 + 60_000, t0, true, false), tailGlideDtSec(t0 + 26_000, t0, true, false), 'honesty cap matches the plane renderer');
 });
