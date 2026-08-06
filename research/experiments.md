@@ -3,6 +3,177 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-06 (scheduled-routine PRODUCT session) [PIPELINE] — settlement-stress composite's readiness gate checked the wrong archive, permanently locking 13 production dates as false zero-overlap findings before the OTC ingredient existed (v1.0.604, T-DATACORE)
+
+TERRITORY: T-DATACORE (`server/settlementStress.ts`, `server/settlementStress.test.ts`)
++ `package.json`/`package-lock.json` version bump (SHARED, last, per
+MERGE-ORDER PROTOCOL).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/` directory listed
+(35 files). `git status` clean on `claude/quirky-hopper-scjx9c`. Live
+`/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, Alpaca `ACTIVE`, scanner `consecutiveFailures:0` —
+no LIVENESS ALARM, nothing in KNOWN BROKEN blocking product work. Loop-
+health ratio not re-tallied this session (this entry continues, rather than
+starts fresh, the exact NEXT-list item the immediately preceding 07-28
+T-DATACORE session filed — see below); the last 10 tagged entries at
+session start were a healthy RULE-REVIEW/RESEARCH/PRODUCT mix, well under
+the 7-of-10 REPAIR thrash threshold.
+
+PICKING THE ACTION: per option (a) ("advance a datacore pipeline through
+its next ladder gate"), checked the 2026-07-28 session's own filed NEXT
+item (2): "a future session should re-check `/api/data/archive/stats` for
+`secftd`'s newest period advancing to `202607a`... and then whether
+`settlementstress` starts producing nonzero-byte July files." Live check
+confirmed the FIRST half exactly as predicted (`secftd` newest period IS
+now `202607a`) but REFUTED the second half: `/api/data/archive/stats`
+showed `settlementstress` still at 13 files, ALL 0 bytes, spanning
+2026-06-25 through 2026-07-14 — unchanged despite ~10 days and dozens of
+6-hourly poll cycles since the 07-27 join-population fix (v1.0.507) shipped.
+Per the REPAIR MANDATE / RECURRENCE ESCALATION spirit, a matured prediction
+coming back falsified is exactly the kind of finding that outranks starting
+a fresh queue item — this session became a root-cause trace of WHY, not a
+re-guess at the threshold.
+
+READ BEFORE WRITE: read `settlementStress.ts` in full (all of
+`thresholdPersistence`, `ftdDeltas`, `shortVolPercentiles`, `computeComposite`,
+`archiveComposite`, `refreshSettlementStress`) and `finraShortVolume.ts`'s
+`readArchivedDay`/`readOrfArchivedDay`/`refreshOrfShortVol` before touching
+anything, plus the existing `settlementStress.test.ts` battery as the
+pattern to extend.
+
+DIAGNOSIS (live evidence, not assumed): `/api/diag/archive?stream=finrathreshold&day=2026-07-01`
+returned 17 rows, all `marketCategoryDescription:"Other OTC"`. The SAME
+date's `/api/diag/archive?stream=finrashortvolotc&day=2026-07-01` (the ORF/
+OTC facility `computeComposite` actually needs) returned ZERO rows.
+`/api/data/archive/stats` confirmed why: `finrashortvolotc`'s earliest
+archived file is `2026-07-20` — its poller (`refreshOrfShortVol`) only ever
+ships a rolling `lookbackDays=10` window with no auto-backfill, so it never
+had, and structurally could never have had, data for any of the 13 dates
+`settlementstress` had already locked in (2026-06-25 through 2026-07-14, all
+strictly before 07-20). Yet those 13 dates got processed and permanently
+archived at 0 bytes anyway. ROOT CAUSE, traced by reading
+`refreshSettlementStress` line-by-line: its per-date readiness gate called
+`readArchivedDay(date)` — the CNMS (exchange-listed) archive — as its proxy
+for "the short-vol ingredient is ready," NOT `readOrfArchivedDay`. Since
+`finrathreshold`'s population is OTC-only by FINRA's own schema (confirmed
+in the 07-27 entry), CNMS is essentially ALWAYS present for any date
+regardless of whether the OTC/ORF data the join actually needs exists yet —
+the gate was checking the wrong stream and was therefore a no-op in
+practice. Every one of the 13 dates sailed through the gate (CNMS always
+non-empty, FTD period eventually archived) and got `archiveComposite`'d
+before ORF had a single file on disk, permanently locking a "0 rows" result
+that reflects "OTC data didn't exist yet," not "checked all three sources,
+found no 3-way overlap." `archiveComposite`'s own dedup semantics
+(`archivedDates` seeded from files already on disk) mean an already-locked
+date is NEVER retried, so this could not self-heal by waiting — exactly
+what the live 10-day-null result above demonstrated. This is a genuinely
+NEW, distinct bug from 07-27's join-population fix (that fix corrected
+`computeComposite`'s join itself, which is provably correct per its own
+regression test at line 135 of the test file) — not a recurrence of the
+same fix failing, so normal fix+test applies rather than the RECURRENCE
+ESCALATION's "patching forbidden, go structural" path.
+
+FIX (own PR, v1.0.604): `refreshSettlementStress`'s per-date readiness
+check now reads `readOrfArchivedDay(date)` instead of `readArchivedDay(date)`
+— a date is only ever locked in once its actual OTC ingredient exists,
+which also closes a latent forward-looking bug (a transient ORF fetch
+outage on any future date could otherwise have permanently corrupted that
+date's result the same way, since CNMS presence proves nothing about ORF
+availability). Added `unconfirmedEmptyDates()`: given a base dir, returns
+already-archived composite dates that are 0 bytes AND predate the earliest
+currently-archived ORF file — i.e. the 13 legacy dates (and any future
+recurrence) that were locked in before the ingredient they needed existed.
+This is exported specifically so a future gate-2 read of
+`datacore/settlementstress/` — or any other consumer — filters these out
+rather than mistaking "we never actually checked" for "checked, no
+overlap" (this exact confusion is what the MEASUREMENT INTEGRITY and
+HONESTY METRIC rules exist to prevent). The 13 legacy production files
+themselves were NOT touched — this session has no access to the Railway
+volume, and per the 07-27/07-28 sessions' own precedent, whether to spend
+volume backfilling ORF's history (`FINRA_ORF_DEEP_BACKFILL`, already
+built, currently off) so those specific dates could ever be answered for
+real is the human's standing wishlist decision, not something to
+self-apply. Updated the module docstring in place with the full trace so
+a future session finds the "why" without re-discovering it.
+
+RATCHET: `server/settlementStress.test.ts` gains 4 tests. (1) The existing
+`refreshSettlementStress` test's ingredient was switched from
+`archiveShortVolDay` (CNMS) to `archiveOrfShortVolDay` (ORF) to match the
+corrected contract — not a weakened assertion, a corrected one: the old
+version was asserting the exact flawed premise this session fixes. (2) A
+new REGRESSION test proves CNMS-only presence, with ORF absent, does NOT
+satisfy readiness (pre-fix behavior would have wrongly locked the date).
+(3)/(4) `unconfirmedEmptyDates` — flags an empty date older than ORF's
+earliest coverage, does NOT flag one on/after it, and flags everything
+when no ORF archive exists at all. A/B-verified via `git stash push --
+server/settlementStress.ts`: importing the test file against pre-fix code
+fails outright (`unconfirmedEmptyDates` doesn't exist yet — a hard
+import-time failure, the strongest possible A/B signal); post-fix all 13
+tests in the file (9 pre-existing + 4 new) pass.
+
+GATES: `npx tsx --test server/*.test.ts client/src/**/*.test.ts
+client/src/pages/*.test.ts` — 1216 passed, 1 failed, 0 skipped. The 1
+failure (`server/gridTiles.test.ts`, "every client/public/tiles/*.pmtiles
+has the PMTiles magic" — "expected the state+national tiles, found 3") is
+PRE-EXISTING and UNRELATED: `git ls-tree -r HEAD --name-only | grep
+pmtiles` confirms only 3 `.pmtiles` files are committed at HEAD
+(`places`, two `seafloor_gebco/tid_mariana` files) regardless of this
+session's changes — a T-CLIENT/grid-vision tiling gap, not caused or
+touched here, worth a future REPAIR session's attention but not this
+session's territory or blocker. Checked why this never blocked a merge:
+`mcp__github__actions_list` on the last several main-branch runs all show
+`conclusion:"success"`, and `.github/workflows/ci.yml`'s `node-build` job
+only runs `npx tsc --noEmit || true` (non-blocking) and `npm run build` —
+it never invokes `npx tsx --test` at all. This is an already-known, already
+wishlist-filed gap (see `research/experiments.md`'s own v1.0.36-era entry:
+"Wiring `test:node` into CI is a follow-up worth a human-approved wishlist
+entry since ci.yml can't be self-edited") — not a new finding, just the
+reason a real, currently-failing local test can sit unnoticed. Not
+re-filed since it's already tracked; flagged here only so this session's
+"1 failed" gate result isn't mistaken for a CI-blocking regression. `npx tsc --noEmit` — 86 lines, zero
+mentioning `settlementStress`, same pre-existing environment/config-only
+baseline prior sessions have logged. `npm run build` — clean, same
+pre-existing astronomy-engine/chunk-size warnings as documented baseline.
+`python3 -m pytest -q` (after `pip3 install -r requirements.txt -r
+requirements-dev.txt`) — 1124 passed, 1 skipped, matching the prior
+session's exact baseline; zero Python files touched, pure sanity check
+per PROMOTION RULE 1.
+
+BACKTEST: N/A — this is GATE-1 pipeline-correctness infrastructure for a
+composite that is not wired into `deep_score`/any order path and not
+surfaced on `/data` (unvalidated derived score, per RAW OVERLAYS vs
+SIGNALS). No scoring/sizing/execution logic touched, no threshold changed.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop — this module has no consumers outside itself and its own
+future gate-2 read. The only production behavior change is that
+`refreshSettlementStress`'s next run will, for the first time, actually
+wait for real OTC data before locking in a date, rather than silently
+declaring dates done. Concretely: THRESHOLD dates from 2026-07-20 onward
+(where ORF genuinely has coverage) are the first ones with a real chance
+at producing non-empty composite rows once their covering FTD half-month
+(`202607b`, not yet published — SEC's own "b ~mid-of-next-month" cadence,
+confirmed non-bug) becomes available. That is the concrete, dated,
+falsifiable prediction for the next session touching this composite to
+check: `/api/data/archive/stats` for `secftd`'s newest period advancing
+past `202607a`, and whether `settlementstress` then produces its first
+genuinely non-empty (or honestly-empty-but-confirmed) date on/after
+2026-07-20.
+
+Version bumped 1.0.603 -> 1.0.604 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping (byte-identical to session-start
+HEAD, `9e863eb`, no advance) and again immediately before this commit.
+
+NEXT: (1) the falsifiable prediction above (secftd 202607b + first real
+settlementstress date >= 2026-07-20) for whichever session next checks
+this composite. (2) the human's still-open `FINRA_ORF_DEEP_BACKFILL`
+wishlist decision — if ever run, `unconfirmedEmptyDates()` gives a future
+session a mechanical way to know exactly which legacy dates newly became
+answerable. (3) `server/gridTiles.test.ts`'s pre-existing pmtiles-count
+failure noted above remains open and unclaimed (T-CLIENT/grid-vision
+territory).
+
 ## 2026-08-05 (scheduled-routine session #7) [RULE-REVIEW] — instrument_selector.py's overdue MAX_TOTAL_OPTIONS_PCT "revisit at 30 days" comment: attempted, INCONCLUSIVE, closed the visibility gap that made the revisit impossible (v1.0.603)
 
 TERRITORY: T-BOT (`instrument_selector.py`, outside frozen paths) + a new

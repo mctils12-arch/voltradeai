@@ -15,7 +15,8 @@ import { archiveFtdPeriod, _resetFtdForTests, type FtdRow } from "./secFtd";
 import {
   thresholdPersistence, periodForDate, prevPeriod, ftdDeltas,
   shortVolPercentiles, computeComposite, archiveComposite, isCompositeArchived,
-  refreshSettlementStress, listThresholdDates, _resetSettlementStressForTests,
+  refreshSettlementStress, listThresholdDates, unconfirmedEmptyDates,
+  _resetSettlementStressForTests,
 } from "./settlementStress";
 
 // finrathreshold/secftd/settlementstress dedup state is reset between
@@ -184,12 +185,12 @@ test("archiveComposite + isCompositeArchived: date-level dedup, empty result sti
   assert.equal(archiveComposite("2026-07-10", [{ date: "2026-07-10" } as any], base), 0, "re-archiving a done date is a no-op");
 });
 
-test("refreshSettlementStress: only advances dates whose short-vol + FTD ingredients are already archived; idempotent", () => {
+test("refreshSettlementStress: only advances dates whose OTC (ORF) short-vol + FTD ingredients are already archived; idempotent", () => {
   const base = tmpBase();
   const d1 = "2026-08-10", d2 = "2026-08-11"; // distinct from computeComposite test's shortvol date (no reset for that namespace)
   archivePartition("finrathreshold", d1, [thresholdRow("AAA", "Alpha Co", d1)], d1, base);
   archivePartition("finrathreshold", d2, [thresholdRow("AAA", "Alpha Co", d2)], d2, base);
-  archiveShortVolDay([{ date: d1, symbol: "AAA", short_vol: 500_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "Q", rt: d1 }] as ShortVolRow[], base);
+  archiveOrfShortVolDay([{ date: d1, symbol: "AAA", short_vol: 500_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "O", rt: d1 }] as ShortVolRow[], base);
   archiveFtdPeriod(periodForDate(d1), [{ date: d1, cusip: "X1", symbol: "AAA", qty: 200_000, name: "Alpha Co", price: 5, rt: d1 }] as FtdRow[], base);
   // d2's short-vol/FTD ingredients are deliberately NOT archived yet.
 
@@ -200,4 +201,36 @@ test("refreshSettlementStress: only advances dates whose short-vol + FTD ingredi
 
   const second = refreshSettlementStress(base);
   assert.deepEqual(second, [], "d1 already archived — never recomputed");
+});
+
+test("refreshSettlementStress: REGRESSION — CNMS presence alone does NOT satisfy readiness (finrathreshold's population is OTC-only, so CNMS being present proves nothing about OTC/ORF availability)", () => {
+  const base = tmpBase();
+  const date = "2026-08-12";
+  archivePartition("finrathreshold", date, [thresholdRow("AAA", "Alpha Co", date)], date, base);
+  // CNMS has data (as it almost always does) but ORF — the ingredient
+  // that actually matters here — does not yet.
+  archiveShortVolDay([{ date, symbol: "AAA", short_vol: 500_000, short_exempt_vol: 0, total_vol: 1_000_000, market: "Q", rt: date }] as ShortVolRow[], base);
+  archiveFtdPeriod(periodForDate(date), [{ date, cusip: "X1", symbol: "AAA", qty: 200_000, name: "Alpha Co", price: 5, rt: date }] as FtdRow[], base);
+
+  const done = refreshSettlementStress(base);
+  assert.deepEqual(done, [], "pre-fix this date would have been wrongly locked in as processed off CNMS alone");
+  assert.equal(isCompositeArchived(date, base), false, "left pending — not permanently corrupted — until ORF actually lands");
+});
+
+test("unconfirmedEmptyDates: flags empty composite dates that predate the earliest archived ORF date, ignores empty dates covered by ORF", () => {
+  const base = tmpBase();
+  // Two composite dates archived empty (as if by a legit run): one before
+  // ORF's earliest coverage, one on/after it.
+  assert.equal(archiveComposite("2026-06-25", [], base), 0);
+  assert.equal(archiveComposite("2026-07-21", [], base), 0);
+  archiveOrfShortVolDay([{ date: "2026-07-20", symbol: "ZZZ", short_vol: 1, short_exempt_vol: 0, total_vol: 10, market: "O", rt: "r" }] as ShortVolRow[], base);
+
+  const flagged = unconfirmedEmptyDates(base);
+  assert.deepEqual(flagged, ["2026-06-25"], "07-21 is covered by ORF's earliest date (07-20) so it's a confirmed real finding, not flagged");
+});
+
+test("unconfirmedEmptyDates: no ORF archive at all yet = every empty date is unconfirmed", () => {
+  const base = tmpBase();
+  assert.equal(archiveComposite("2026-06-25", [], base), 0);
+  assert.deepEqual(unconfirmedEmptyDates(base), ["2026-06-25"]);
 });
