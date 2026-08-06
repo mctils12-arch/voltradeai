@@ -3,6 +3,177 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-06 (scheduled-routine session #3) [PIPELINE] — JODI oil-stocks GATE 2 run: non-OECD stock-build hypothesis KILLED, all 4 comparisons point the pre-registered direction but none clear significance (v1.0.606, T-DATACORE)
+
+TERRITORY: T-DATACORE (`scripts/jodi_gate2_test.py`, `test_jodi_gate2.py`,
+`datacore/signal_ladder.json`) + `package.json`/`package-lock.json` version
+bump (SHARED, last, per MERGE-ORDER PROTOCOL). No `.ts`/`.tsx` files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`open_questions.md`, `wishlist.md` read. Live `/api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM. Deployed
+`server_version` (1.0.605 via `/api/data/layers`) matched `origin/main`
+exactly — no deploy lag, no undiscovered live bug. Last 10 tagged session
+headers (most-recent-first, from `research/experiments.md`'s own
+prepend-at-top convention): PIPELINE/PIPELINE/RULE-REVIEW/RESEARCH/REPAIR/
+PRODUCT/REPAIR/PIPELINE/PIPELINE/PIPELINE — 2 of 10 REPAIR, well under the
+7-of-10 thrash bar; no STARVED streak flagged by any of those entries.
+AUDIT REGISTER (experiments.md ~line 478 at session start): staleness/
+constitutional audits are overdue and flagged repeatedly by prior
+sessions, but SESSION BUDGET ranks a concretely-queued item above a cold
+audit sweep — see below — so the register stays overdue for a future
+session, unchanged from the prior session's own note.
+
+PRIMARY-ACTION SELECTION: this session's own preceding entry (session #2,
+same day, v1.0.605) closed `jodi_oil_stocks`'s GATE 1 workup and filed an
+explicit NEXT: "SIGNAL gate 2 — non-OECD stock BUILDS (not levels) vs
+forward Brent/USO returns, per the root's original hypothesis" — a
+concretely queued item per SESSION BUDGET fall-through (1), and matched
+this session's start-of-loop primary-action ranking (judge a matured
+experiment > start a new experiment) since no bug was found in `/api/health`
+or the audit log and no experiment had freshly matured beyond what session
+#2 already checked (KNOWN BROKEN #10/#20 remain backlog-drain-gated,
+unchanged since session #2's own check hours earlier).
+
+PRE-REGISTERED HYPOTHESIS (stated before running, REASONING STANDARD #10,
+full text in the script's own docstring): an aggregate month-over-month
+BUILD in non-OECD crude-exporter TOTCRUDE closing stocks predicts a
+NEGATIVE forward return in crude oil ETFs (BNO/Brent proxy, USO/WTI
+proxy) over 20d/60d; a DRAW predicts a positive one. Direction chosen from
+the plain supply/demand mechanism, not fit to the data.
+
+PRIOR (stated before running): LOW-MODERATE, ~25-30% confidence this
+clears a strict bar. Second-order reasoning (REASONING STANDARD #5) argues
+against it: OPEC+ producer stock/output trends are already tracked
+near-real-time by professional oil desks (tanker-tracking, satellite,
+OPEC's own monthly reports) — JODI's ~2-month-lagged official release is,
+if anything, STALE information by the time it publishes. Tested anyway
+because gate 1 just validated the underlying data reconciles to EIA for
+the one checkable country, and this is the root's own pre-filed next step.
+
+UNIVERSE SELECTION (data-quality-first pass, run and logged BEFORE any
+price fetch or return calculation — REASONING STANDARD #7): surveyed
+TOTCRUDE coverage for all 96 non-OECD JODI REF_AREAs in the archive.
+Exactly 5 have COMPLETE (zero missing/zero-value points) TOTCRUDE history
+spanning the full 2009-01..2026-04 archive window: Saudi Arabia (SA),
+Nigeria (NG), Algeria (DZ), Brunei (BN), Taiwan (TW). The root's
+originally-named motivating examples FAIL this bar and are EXCLUDED,
+stated honestly rather than forced to fit: UAE (AE) stopped reporting
+TOTCRUDE after 2018-12 (36/120 nonzero even before that); India (IN)
+reports TOTCRUDE with many literal-zero months, not credible as a real
+closing-stock level for a refiner of India's size. Taiwan (TW) has
+complete data but is a refiner/importer, not a net crude exporter —
+excluded to keep the universe consistent with the pre-registered
+supply-side (producer-withholding) mechanism. UNIVERSE = SA, NG, DZ, BN,
+chosen entirely by this criterion before any result was looked at.
+
+METHODOLOGY: per-country MoM level delta, z-scored against its own
+TRAILING 36-month window (no lookahead — mirrors the COT-index
+trailing-window convention in `cot_gate2_test.py`/`cftc_tff_gate2_test.py`).
+Composite = mean of available country z-scores where >=3 of 4 countries
+have a valid reading. Bucket: BUILD (composite z > 0) / DRAW (z <= 0), a
+plain sign split, no threshold tuned post hoc. Publish lag: JODI's own
+documented ~2-month release lag — entry anchor is the first trading bar
+strictly after (period end-of-month + 60 calendar days), reusing
+`find_entry_index` and the Newey-West HAC test byte-for-byte from
+`cftc_tff_gate2_test.py` (EDGE DOCTRINE #3: reuse, don't re-derive), lag
+re-tuned to monthly spacing (`round(horizon/21)` vs that script's weekly
+`round(horizon/5)`). NEW LEFT-CENSORING GUARD (not needed in the weekly
+CFTC scripts, whose history postdates every symbol's listing): BNO's price
+history only starts 2010-06-02, well after the JODI archive's 2009-01
+start; periods whose publish_date precedes an asset's first available bar
+are dropped entirely rather than silently entered at the IPO bar.
+HORIZONS 20/60 trading days. ASSETS BNO/USO. Comparisons counted for
+Bonferroni: 2 assets x 2 horizons = 4 (BUILD-vs-complement and
+DRAW-vs-complement are mirror images under a 2-bucket split — only one
+direction per (asset, horizon) is independent) — bar = 0.05/4 = 0.0125.
+
+RESULT (live run, `python3 scripts/jodi_gate2_test.py`, composite built
+over 171 usable months, 2012-02..2026-04):
+
+  BNO +20d: build mean -0.381% (n=84) vs draw +1.887% (n=87);
+            HAC t=-1.536, p=0.1245
+  BNO +60d: build mean +1.692% (n=84) vs draw +2.846% (n=85);
+            HAC t=-0.494, p=0.6214
+  USO +20d: build mean -1.079% (n=84) vs draw +1.383% (n=87);
+            HAC t=-1.481, p=0.1385
+  USO +60d: build mean +0.511% (n=84) vs draw +1.244% (n=85);
+            HAC t=-0.334, p=0.7381
+
+VERDICT: FAILS gate 2. All 4 comparisons point the pre-registered
+direction (build < draw) — a mild, consistent signal of the right SIGN —
+but none clear even an uncorrected 0.05 bar, let alone the pre-stated
+Bonferroni bar of 0.0125. Per REASONING STANDARD #4 (distrust in
+proportion to what was tried, but also don't manufacture significance
+where none exists): this is a clean null, not an ambiguous middle case
+like the OCC/TLT disjoint-replication entries earlier this week — the
+strongest single result (BNO +20d, p=0.1245) is nowhere close to even a
+naive 0.05 threshold. Consistent with the pre-stated LOW-MODERATE prior:
+the second-order story (JODI is stale by the time it publishes) holds up.
+KILLED at gate 2, `datacore/signal_ladder.json`'s `jodi_oil_stocks` entry
+updated (status `gate1_pass`->`killed`, `current_gate` 1->2, full numbers
+in the note). Nothing traded or sold on this candidate. Gate 1's own
+finding is unaffected — the archive remains a real, EIA-consistent free
+data source (EDGE DOCTRINE #1 value realized) even though no tradeable
+signal resulted from this construction.
+
+RATCHET: 15 new tests in `test_jodi_gate2.py` (pure-function, no network,
+mirrors `test_usaspending_gate2.py`'s `importlib.util` loading pattern for
+`scripts/` modules): `period_end_date` month-end/leap-year/December-wrap
+cases, `build_deltas` first-period-skip and unsorted-input handling,
+`zscore_trailing` warm-up-period and zero-variance-returns-None (never a
+fabricated zero) cases, `build_composite`'s minimum-countries-present
+threshold via a synthetic JODI fixture file, `compute_forward_returns`'s
+LEFT-censoring guard (synthetic pre-BNO-listing period dropped) and
+RIGHT-censoring guard (horizon dropped, not the whole row) as two distinct
+cases, bucket-sign-matches-z, and `summarize`/`hac_significance` sanity on
+a synthetic dataset with a known injected effect. GATES: fresh container
+needed `pip3 install -r requirements.txt` + `openpyxl` (same recurring
+environment gap prior sessions have logged, not a code issue) before any
+gate would run. `python3 -m pytest -q`: 1143 passed, 2 skipped — exactly
++15 over the session-start baseline (1128 passed after session #2's own
++7), zero regressions. `npx tsc --noEmit`/`npm run build`/`npm run
+visual` not run: zero `.ts`/`.tsx` files touched this session, matching
+the standing precedent for pure-Python-plus-JSON-note changes (most
+recently session #2's own entry above). `datacore/signal_ladder.json`
+edited via a single-line surgical replacement (not a full `json.dump`
+re-serialize, which was tried first and reverted after it reformatted
+every unrelated root's single-line entry into multi-line — `git diff
+--stat` confirms the final diff is 1 line changed, not 395).
+
+BACKTEST: N/A — this is GATE 2 (SIGNAL layer) statistical research on a
+still-unconfirmed-then-killed candidate, never traded, no scoring/sizing/
+threshold value or trading decision touched.
+
+Version bumped 1.0.605 -> 1.0.606 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still `95e37d6`/session #2's own merge).
+`package-lock.json` resynced via `npm install --package-lock-only`, diff
+confirms only the two version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — pure statistical-methodology
+research on an existing datacore root, reusing existing gate-2 machinery;
+no new data stream, archive, or /data-facing surface.
+
+NEXT (queued, not this session): the JODI root's ladder path is now
+closed at gate 2 (killed) — no further gate-3+ work is warranted on this
+construction. A future session could revisit with a materially different
+construction (e.g. per-country tests instead of a composite, or a longer
+Brunei/Nigeria/Algeria-only history once more producers reach clean
+data quality) but that would be a fresh pre-registration, not a re-run.
+AUDIT REGISTER (staleness/constitutional) remains overdue — now flagged
+a fourth time across three sessions' records — the next session with no
+more-concrete queued item available should run the staleness pass first,
+unchanged recommendation from the last two sessions.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity, with tests/gates/live-verification all completed. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both evidence-gated waits confirmed unchanged by session #2 hours
+earlier; no LIVENESS ALARM; no new audit-log bug found this session). One
+logical change, one PR, per PROMOTION RULE 5.
+
 ## 2026-08-06 (scheduled-routine session #2) [PIPELINE] — JODI oil-stocks GATE 1 workup closed: the 2026-07-07 "definitional gap" was a wrong-product-key bug, not a real data mismatch (v1.0.605, T-DATACORE)
 
 TERRITORY: T-DATACORE (`scripts/jodi_eia_reconcile.py`, `test_jodi_eia_reconcile.py`,
