@@ -3,6 +3,159 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-06 (scheduled-routine session #2) [PIPELINE] — JODI oil-stocks GATE 1 workup closed: the 2026-07-07 "definitional gap" was a wrong-product-key bug, not a real data mismatch (v1.0.605, T-DATACORE)
+
+TERRITORY: T-DATACORE (`scripts/jodi_eia_reconcile.py`, `test_jodi_eia_reconcile.py`,
+`datacore/signal_ladder.json`) + `package.json` version bump (SHARED, last,
+per MERGE-ORDER PROTOCOL). No `.ts`/`.tsx` files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/` listed (23 files).
+Branch `claude/dazzling-planck-md4esc` — HEAD was already identical to
+`origin/main` at session start (a prior firing of this same scheduled
+routine earlier today had already merged PR #702/v1.0.604), so per the
+"already-merged PR" instruction the branch was reset to `origin/main`
+before starting fresh work. Live `/api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM, KNOWN
+BROKEN has no unresolved critical item (items #10/#20 are both evidence-
+gated waits, not active breaks — see below). Last 10 tagged entries at
+session start: PRODUCT/RULE-REVIEW/PIPELINE/PRODUCT/RESEARCH/REPAIR/
+REPAIR/PRODUCT/RESEARCH/REPAIR — well under the 7-of-10 thrash bar, no
+STARVED streak.
+
+MATURED-EXPERIMENT CHECK (SESSION BUDGET priority: judge a matured
+experiment before starting a new one): queried `/api/diag/shadow` per
+KNOWN BROKEN #10/#20's own NEXT STEP — the 2026-08-05 `checkShadowBackfill`
+fix (v1.0.596) DID fire for the first time (`SHADOW-BACKFILL` audit line,
+2026-08-05T22:01:46Z, `updated: 501` of 12,514 records) and
+`labeled_by_horizon` now shows real data (40 wins/127 losses per horizon)
+instead of all-zero. NOT YET a full readiness bar: `max_records=500`/run
+x 1 run/day means the 12.5k backlog will take ~25 days to catch up, and
+`rejected_masterkill` (item #20's target bucket, 140 records) still has
+zero entries in `win_rate_by_decision` — the fix works, but there isn't
+enough freshly-labeled history in that specific bucket yet. Not a new
+break, not actionable today; left as-is for a future session to re-check
+once more backlog has drained. No PR needed for this observation alone.
+
+PICKING THE ACTION (EDGE DOCTRINE axis (a), BUILD DATA): checked whether
+the axis (a) named examples (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends) had unclaimed work.
+All are already built at least to gate 1; the two `gate2_pending` roots
+with a concrete next step (USAspending, CFTC COT/TLT momentum) are both
+explicitly time-gated by their own prior sessions' filed NEXT steps
+(re-run no earlier than ~2026-08-15 / need ~15-20 more weekly COT
+reports) — re-running either today would just reproduce last time's
+"not yet enough calendar time" result, not new information. Widened the
+search to "add more as found" per EDGE DOCTRINE #1's own license and
+found `jodi_oil_stocks` in `datacore/signal_ladder.json`: `gate1_pending`,
+`current_gate: 0`, untouched since 2026-07-07 (~1 month idle) — its own
+note names an unfinished task ("reconciling JODI's stock definition
+against EIA remains the open gate-1 workup") that is fully executable
+today using two already-archived, already-trusted git artifacts
+(`datacore/eia/weekly_series.json`, `datacore/jodi/primary_stocks.json`)
+— no network call, no calendar wait, no external ground truth needed.
+
+PRIOR (stated before running, Reasoning Standard #10): the 2026-07-07
+first look compared JODI's `US|CRUDEOIL` series alone against EIA
+commercial-stocks + SPR and found JODI ~19% below the EIA total for one
+month (2026-04). Expected this to be a fixable product-code selection
+issue rather than real data disagreement: JODI's `TOTCRUDE` product
+(`CRUDEOIL + OTHERCRUDE`, JODI's broader "closing stock" concept) should
+reconcile far more closely against EIA's total, because IEA/JODI
+methodology counts condensate/other-crude blending stocks that a narrow
+"crude oil only" comparison excludes. Estimated ~70% confidence this
+single product-key swap would close most of the gap; the remaining risk
+was that the true cause is a real SPR-non-disclosure or lease-stock
+issue that no product-key swap would fix.
+
+METHOD: wrote `scripts/jodi_eia_reconcile.py` (committed, reusable — the
+prior one-off analysis never got compiled into code, exactly the EDGE
+DOCTRINE #3 gap this session closes) — `monthly_avg()` collapses EIA's
+weekly points into calendar-month averages to match JODI's monthly
+cadence; `reconcile()` computes the level gap (mean, stdev, % of EIA
+total, full-history and recent-24-month) and `mom_delta_correlation()`
+(month-over-month CHANGE correlation, the honest test when levels carry
+a possible definitional offset) for a given JODI product key vs EIA
+commercial+SPR; `verdict()` applies a rule stated BEFORE running:
+GATE1_PASS requires |mean level gap| <= 10% of the EIA total AND MoM
+delta correlation >= 0.5.
+
+RESULT (292 overlapping months for CRUDEOIL, 2002-01..2026-04; 208 for
+TOTCRUDE, 2009-01..2026-04, `US|OTHERCRUDE` only starts reporting in 2009):
+  US|CRUDEOIL:  full-history mean diff -10.8% (stdev 28,831 kbbl),
+                recent-24mo -17.6% (stdev 8,467), MoM corr 0.734/0.674
+                -> GATE1_FAIL (gap exceeds the 10% bar, and WORSENING —
+                the earliest month (2002-01) shows -7.2%, growing to
+                -18.9% by the latest month (2026-04); not a stable
+                offset, unlike TOTCRUDE below).
+  US|TOTCRUDE:  full-history mean diff -1.2% (stdev 31,076 kbbl),
+                recent-24mo -6.1% (stdev 9,951), MoM corr 0.735/0.620
+                -> GATE1_PASS. A 5-year-bucket breakdown shows the
+                TOTCRUDE gap drifting from +3.7% (2005-09) through
+                +2.2%/-1.5%/-3.8% to -6.3% (2025+) — real, slow,
+                monotonic drift (plausibly the shale-era growth in
+                lease/pipeline-fill stocks JODI's broader concept
+                captures more of over time), but never close to
+                violating the pass bar in any 5-year window checked.
+
+PRIOR UPDATE: confirmed directionally (TOTCRUDE reconciles far better
+than CRUDEOIL), and more decisively than the ~70%-confidence estimate —
+the full-history level gap is nearly zero (-1.2%), not just "closer."
+The original 2026-07-07 finding was correctly diagnosed as "not a data
+error" but mis-filed as an open definitional question; it was actually
+a wrong-product-key bug with a clean fix, once the right comparator
+(EIA's own already-archived, already-trusted series) was checked
+properly instead of eyeballed on one month.
+
+HONEST CAVEAT (carried into `signal_ladder.json`, not resolved by this
+pass): this reconciliation only covers the ONE country with an
+independent, high-quality comparator (the US, via EIA). JODI's actual
+hypothesis value per its original filing is non-OECD stock visibility
+(Saudi Arabia/UAE/India) where no EIA-equivalent exists and never will —
+a US GATE1_PASS establishes "JODI measures a real, EIA-consistent
+quantity where we CAN check it," not "JODI's non-OECD figures are
+equally trustworthy." That gap is structural, not closable by more
+analysis of archived data, and is stated explicitly in both the ladder
+note and the script's own docstring so a future SIGNAL (gate 2) session
+doesn't over-trust the non-OECD legs.
+
+LADDER UPDATE: `datacore/signal_ladder.json`'s `jodi_oil_stocks` entry:
+`gate1_pending`/`current_gate:0` -> `gate1_pass`/`current_gate:1`, full
+numbers and the non-OECD caveat in the note, `source_ref` points at this
+entry + the new script. NEXT: SIGNAL gate 2 — non-OECD stock BUILDS
+(month-over-month, not levels) vs forward Brent/USO returns, per the
+root's original hypothesis; use `US|TOTCRUDE`-equivalent product keys
+(`TOTCRUDE`, not `CRUDEOIL` alone) for any country in the gate-2 build,
+this session's own finding about why that matters.
+
+RATCHET: `test_jodi_eia_reconcile.py` (NEW, 7 tests, pure-function/no-
+network, mirrors the `test_jodi_oil.py` synthetic-fixture style):
+`monthly_avg` multi-point averaging, `mom_delta_correlation` zero-variance
+short-circuit (constant deltas -> undefined correlation, `None`, not a
+crash or a fake 1.0) and a perfect-correlation positive case,
+`reconcile`'s insufficient-sample guard, and three `verdict()` cases
+(clean pass, large-stable-offset fail, small-gap-but-uncorrelated fail —
+proving the level-gap bar and the correlation bar are BOTH required,
+neither alone is sufficient). GATES (A/B-verified via `git stash`):
+baseline (pre-change) `python3 -m pytest -q` 1121 passed, 2 skipped;
+post-change 1128 passed, 2 skipped — exactly +7, zero regressions
+(baseline required `pip3 install -r requirements.txt` + `openpyxl` in
+this session's fresh container, not a code issue). `npx tsx --test
+server/*.test.ts` 983
+passed, 8 failed — all 8 pre-existing and unrelated to this PR's diff
+(`aircraftTiling`, `apiKeyAccounts`, `compression`, `gdeltEvents`,
+`owmTiles`, `seafloorTiles`, `securityMiddleware` test files, plus the
+already-documented pmtiles-magic-byte baseline check) — this PR touches
+zero `.ts`/`.tsx` files, so `npx tsc --noEmit`/`npm run build` were not
+re-run (same precedent as the 2026-08-05 `instrument_selector.py`
+RULE-REVIEW entry). BACKTEST: N/A — this is a DATA-layer (gate 1)
+reconciliation of an already-archived, already-trusted comparator pair;
+no scoring/sizing/threshold value or trading decision changed.
+
+STARVED: no — the queue (waiting-on-calendar-time gate 2 re-runs) was
+correctly deferred rather than force-run early; this session filled the
+time with a genuinely actionable, previously-idle gate-1 item instead.
+
 ## 2026-08-06 (scheduled-routine PRODUCT session) [PIPELINE] — settlement-stress composite's readiness gate checked the wrong archive, permanently locking 13 production dates as false zero-overlap findings before the OTC ingredient existed (v1.0.604, T-DATACORE)
 
 TERRITORY: T-DATACORE (`server/settlementStress.ts`, `server/settlementStress.test.ts`)
