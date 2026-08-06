@@ -52,6 +52,28 @@
  * ZERO INCREMENTAL COST: no network calls of its own — it only joins
  * files its three ingredient pollers already wrote locally. Runs off the
  * same boot-poll cadence as the rest of the datacore battery.
+ *
+ * FOUND 2026-08-06 (this session, T-DATACORE): the 07-27 fix above made
+ * `computeComposite` correct, but `refreshSettlementStress`'s own
+ * readiness gate (below) still checked ONLY the CNMS archive
+ * (`readArchivedDay`) before locking a date in as processed. Since
+ * finrathreshold's population is OTC-only by FINRA's own schema, CNMS
+ * (exchange-listed) is essentially always present regardless of whether
+ * the OTC ingredient the join actually needs (ORF) exists for that date —
+ * so the gate was a no-op in practice. Live production evidence
+ * (`/api/data/archive/stats`, `/api/diag/archive`): the ORF archive's
+ * earliest file is 2026-07-20 (its poller only ever ships a rolling
+ * lookback, no auto-backfill), yet `datacore/settlementstress/` holds 13
+ * files dated 2026-06-25 through 2026-07-14 — every one before ORF
+ * existed at all — each permanently archived at 0 bytes. Those 13 dates
+ * are DATA-MISSING artifacts, not genuine "checked, no 3-way overlap"
+ * findings; `unconfirmedEmptyDates()` below flags them (and any future
+ * recurrence) so a gate-2 read never mistakes them for real evidence.
+ * FIX: the gate now requires the ORF archive specifically (the ingredient
+ * that actually matters for an OTC-only join), so a date is only ever
+ * locked in once real OTC short-vol data existed for it — a transient ORF
+ * outage on a future date can no longer permanently corrupt that date's
+ * result the way the 13 legacy dates were corrupted at launch.
  */
 import fs from "fs";
 import path from "path";
@@ -302,21 +324,58 @@ export function _resetSettlementStressForTests(): void {
 /** One refresh pass: for every archived threshold date not yet processed
  *  (oldest first, capped per call so a poll never does unbounded work),
  *  attempt the join. A date is marked archived (and thus never retried)
- *  ONLY when its short-vol day AND covering FTD period are both already
- *  archived by their own pollers — otherwise it's left for the next pass
- *  once those catch up. Returns the list of dates newly archived. */
+ *  ONLY when its OTC short-vol day (ORF — the ingredient that actually
+ *  matters, since finrathreshold's population is OTC-only) AND covering
+ *  FTD period are both already archived by their own pollers — otherwise
+ *  it's left for the next pass once those catch up. Checking CNMS here
+ *  instead (pre-2026-08-06) was a no-op gate: CNMS is exchange-listed and
+ *  therefore almost always present regardless of whether OTC data existed
+ *  for the date, which is how 13 production dates got permanently locked
+ *  in as false zero-overlap results before the ORF archive existed at all
+ *  (see module docstring). Returns the list of dates newly archived. */
 export function refreshSettlementStress(baseDir?: string, maxDates = 30): string[] {
   const done: string[] = [];
   const candidates = listThresholdDates(baseDir).filter((d) => !isCompositeArchived(d, baseDir));
   for (const date of candidates.slice(0, maxDates)) {
-    const svRows = readArchivedDay(date, baseDir);
+    const orfRows = readOrfArchivedDay(date, baseDir);
     const ftdRows = readFtdPeriod(periodForDate(date), baseDir);
-    if (!svRows.length || !ftdRows.length) continue; // ingredients not caught up yet — retry later
+    if (!orfRows.length || !ftdRows.length) continue; // ingredients not caught up yet — retry later
     const rows = computeComposite(date, baseDir);
     archiveComposite(date, rows, baseDir);
     done.push(date);
   }
   return done;
+}
+
+/** Archived composite dates that are 0 bytes AND predate the earliest
+ *  currently-archived ORF date — i.e. dates the pre-2026-08-06 gate
+ *  locked in as "empty" before the OTC ingredient it needed existed at
+ *  all. Not genuine "checked, no 3-way overlap" findings: a future gate-2
+ *  read of datacore/settlementstress/ (or any other consumer) should
+ *  exclude these rather than counting them as true negatives. If ORF is
+ *  never backfilled to cover them, they stay flagged forever — an honest
+ *  "never actually checked," not a silent gap. */
+export function unconfirmedEmptyDates(baseDir?: string): string[] {
+  const dir = outDir(baseDir);
+  let files: string[];
+  try { files = fs.readdirSync(dir); } catch { return []; }
+  let orfDates: string[];
+  try {
+    orfDates = fs.readdirSync(path.join(baseDir || archiveBaseDir(), "finrashortvolotc"))
+      .map((f) => f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/))
+      .filter((m): m is RegExpMatchArray => !!m)
+      .map((m) => m[1]);
+  } catch { orfDates = []; }
+  const earliestOrf = orfDates.length ? orfDates.sort()[0] : null;
+  const out: string[] = [];
+  for (const f of files) {
+    const m = f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl$/);
+    if (!m) continue;
+    const date = m[1];
+    if (fs.statSync(path.join(dir, f)).size !== 0) continue;
+    if (!earliestOrf || date < earliestOrf) out.push(date);
+  }
+  return out.sort();
 }
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
