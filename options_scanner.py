@@ -356,14 +356,22 @@ def _fetch_options_chain(ticker: str, price: float,
         for occ, snap in all_snapshots.items():
             quote  = snap.get("latestQuote", {})
             greeks = snap.get("greeks", {})
-            body   = occ[len(ticker):]
-            if len(body) < 15:
+            # BUG FIX 2026-08-06 (KNOWN BROKEN, audit log evidence): was
+            # occ[len(ticker):], which breaks for adjusted-contract roots
+            # (e.g. "IONQ1..." after a corporate action) carrying extra
+            # characters vs. the plain ticker — the slice landed one char
+            # short, corrupting C/P and strike (observed live in
+            # options_execution.py's identical pattern: int("P00037000")
+            # crash). Anchor from the END instead — fixed-width regardless
+            # of root length, same pattern already used in this file's own
+            # ATM-IV lookup below (occ_sym[-8:]).
+            if len(occ) < 15:
                 continue
 
-            exp_raw  = "20" + body[:6]
+            exp_raw  = "20" + occ[-15:-9]
             exp_date = f"{exp_raw[:4]}-{exp_raw[4:6]}-{exp_raw[6:8]}"
-            opt_type = "call" if body[6] == "C" else "put"
-            strike   = int(body[7:]) / 1000
+            opt_type = "call" if occ[-9] == "C" else "put"
+            strike   = int(occ[-8:]) / 1000
 
             bid = float(quote.get("bp", 0) or 0)
             ask = float(quote.get("ap", 0) or 0)

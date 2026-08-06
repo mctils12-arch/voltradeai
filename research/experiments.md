@@ -41634,3 +41634,164 @@ are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
 under threshold). One logical change (one new script + its test + the
 two bookkeeping files describing this exact result), one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-06 (scheduled-routine session #2, market-hours) [REPAIR] — T-BOT — OCC option-symbol parsing bug found via live audit log and fixed: front-anchored slice broke on adjusted-contract roots (v1.0.608)
+
+TERRITORY: T-BOT (options_execution.py, options_scanner.py + new
+test_occ_symbol_parsing.py — the options stack sits with T-BOT's
+trading-logic territory, not T-DATACORE or T-CLIENT). package.json/
+package-lock.json version bump is the only SHARED-file edit, last
+commit, minimal. research/open_questions.md (new KNOWN BROKEN #29) and
+this experiments.md entry are the standard research/* bookkeeping.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+tail — last 10 tagged entries (2026-08-03 #6 through 2026-08-06 #1):
+4 [REPAIR], 2 [RESEARCH], 3 [PRODUCT], 1 [PIPELINE] — thrash ratio 4/10,
+well under the 7/10 escalation threshold, no meta-problem to address.
+`research/open_questions.md` KNOWN BROKEN section — items #10 and #20
+remain the only open entries, both already evidence-blocked pending
+live TIER-KILL/shadow data accumulation, neither actionable this
+session. `research/wishlist.md` top — no PROGRESS FLOOR/STARVED stall
+notice (last [PIPELINE]/[RESEARCH] shipped within days, well inside the
+14-day floor). Live `/api/health`: status ok, bot active, drawdownPct
+0.0, alpaca ACTIVE, scanner 0 consecutiveFailures, liveness.dark:false —
+no LIVENESS ALARM. Live `/api/data/layers`: server_version 1.0.607,
+matches `origin/main` HEAD (255293c/#705) — deploy current, no lag.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET, "fix a bug seen in audit
+logs" is the top-priority primary action, ahead of judging a matured
+experiment or starting new research. Queried `/api/diag/audit?
+limit=100&token=$DIAG_TOKEN` (live, DIAG_TOKEN present in session env)
+and tallied entry types: T2-FAIL (11 of 100) stood out. Inspecting those
+11: most were expected/self-explanatory rejections (Alpaca "insufficient
+options buying power" — a real, structural CSP-vs-buying-power tension
+covered by existing KNOWN BROKEN items, not a code bug; "No liquid
+options contracts" — a working liquidity filter doing its job) — but one
+entry was a genuine bug, not a working-as-intended rejection: `"IONQ: No
+options contracts available for this ticker (exception: invalid literal
+for int() with base 10: 'P00037000')"`. An uncaught-inside-the-loop
+Python exception masquerading as "chain unavailable" is exactly the
+class of silent-failure bug the REPAIR MANDATE and this session's own
+instructions prioritize.
+
+READ BEFORE WRITE: read `options_execution.py`'s `_fetch_option_chain`
+(lines 501-639) in full before touching it. The OCC-symbol parse at line
+587 (`sym_body = occ_symbol[len(ticker):]`) computes the date/type/
+strike suffix by stripping `len(ticker)` characters off the FRONT of the
+symbol. Traced the exact string that would produce `'P00037000'` as the
+failed `int()` argument: if the real OCC root for this contract carries
+one extra character beyond the plain ticker (OCC's own adjusted-contract
+convention after a corporate action, e.g. "IONQ1..." instead of "IONQ")
+the front-slice lands one character short — `sym_body[6]` (expected to
+be the C/P flag) is actually the last digit of the date, and
+`sym_body[7:]` (expected to be the bare 8-digit strike) is actually
+`"P00037000"` — the C/P flag concatenated with the full strike. Hand-
+verified this reconstruction character-by-character against the live
+error string before writing any fix, not assumed. Grepped every call
+site of both `_fetch_option_chain` (options_execution.py) and its sister
+function `_fetch_options_chain` (options_scanner.py, same parsing bug at
+lines 359-366) — both are pure-Python internal calls (`select_contract`,
+`_run_diag_fetch`, several scanner strategies, `vol_surface.py`,
+`sim_trading_day_v2.py`); neither function's signature changed, so no
+bot.ts RPC/subprocess caller needed updating (CLAUDE.md's
+both-languages call-site check, satisfied trivially here since the fix
+is internal to the parse, not the interface). Noticed
+`options_scanner.py` already had the CORRECT pattern in a different
+function (its ATM-IV lookup, `occ_sym[-8:]`) — anchoring from the END of
+the symbol is immune to root-length quirks since date/type/strike are
+always fixed-width from the right regardless of root. Reused that
+existing, already-proven pattern rather than inventing a new one.
+
+WHAT SHIPPED: `options_execution.py`'s `_fetch_option_chain` and
+`options_scanner.py`'s `_fetch_options_chain` both now parse
+`exp_date`/`opt_type`/`strike` anchored from the end of `occ_symbol`
+(`occ_symbol[-15:-9]`, `occ_symbol[-9]`, `occ_symbol[-8:]`) instead of
+slicing by `len(ticker)` from the front. Comments at both sites explain
+why (the exact live failure mode) so a future session doesn't rediscover
+this from scratch. Does NOT touch order-submission internals
+(`submit_options_order`, raw HTTP order POST paths) — FROZEN PATHS
+respected; this is chain-parsing/instrument-selection logic only, which
+CLAUDE.md explicitly permits changing ("you may change WHAT gets
+traded... never HOW orders are transmitted"). Not a threshold/rule
+change (no RULE REVIEW evidence gate applies) — a straightforward
+parsing-correctness bug fix restoring intended behavior.
+
+RATCHET: `test_occ_symbol_parsing.py` (NEW, 4 tests) — one adjusted-root
+case + one plain-root case per function. A/B-verified via `git stash -u
+-- options_execution.py options_scanner.py`: the two adjusted-root tests
+reproduce the EXACT live crash on pre-fix code (`assertEqual(len(
+contracts), 1)` fails with `0 != 1`, captured log shows `int() base 10:
+'P00037000'` — the identical string from the live audit log) and pass
+post-fix (contracts parse correctly: `strike=37.0`, `opt_type="put"`,
+`exp_date="2026-08-21"`); the two plain-root tests pass unchanged on
+both sides of the stash, confirming no regression on the common
+(non-adjusted) case. Mirrors the existing test style/mocking pattern in
+`test_options_chain_diagnosability.py` (`@patch("options_execution.
+requests.get")`, `MagicMock(status_code=200, json=lambda: ...)`) rather
+than inventing a new harness.
+
+GATES: environment note — this session's container started with no
+Python deps installed (`ModuleNotFoundError` cascade on `pytest`,
+`numpy`, then `openpyxl`); installed `requirements.txt` +
+`requirements-dev.txt` + `openpyxl` per the documented recurring
+clean-container gap (prior 2026-07/08 sessions' entries, same fix).
+`python3 -m pytest test_occ_symbol_parsing.py -q`: 4/4 pass. Full suite
+`python3 -m pytest -q`: 1150 passed, 1 skipped, 0 failed (1146 baseline
++ 4 new, zero regressions). `npx tsc --noEmit`/`npm run build` not run —
+zero `.ts`/`.tsx` files touched, matching the standing reasoning prior
+[REPAIR] sessions have used for pure-Python parsing fixes with unchanged
+function signatures.
+
+BACKTEST: N/A — this restores intended chain-fetch behavior (a contract
+that should have been visible to the scanner/CSP selector was being
+silently dropped for the whole ticker due to an uncaught parse
+exception); it changes no scoring, sizing, or threshold value, so
+PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply. The live
+effect should show up as this specific `T2-FAIL` message no longer
+recurring for tickers with adjusted-contract roots — a future session
+should spot-check `/api/diag/audit?type=T2-FAIL` for this.
+
+Version bumped 1.0.607 -> 1.0.608 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 255293c/#705). `package-lock.json` resynced via
+`npm install --package-lock-only`, diff confirms only the two
+version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none — pure bug fix internal to the options
+chain-fetch parse, no new archive, no new entity-graph join, no
+/data-facing surface.
+
+`research/open_questions.md` gained KNOWN BROKEN item #29 (FOUND+FIXED
+same session, following the #23-#28 precedent for this shape of entry)
+with the full root-cause trace and the audit-log evidence string, so a
+future session hitting a similar "chain unavailable + weird exception"
+symptom has the pattern on file.
+
+MARKET-HOURS NOTE (per this session's own instructions): this run
+occurred during market hours. The fix itself is a narrowly-scoped,
+low-risk parsing-correctness repair (not touching order-submission
+internals, fully test-covered, A/B-verified) — but per the instruction's
+explicit guidance, the PR should NOT be merged until after 4:00 PM ET
+today unless it is fixing a critical live break. This is a real, evidenced
+bug but not a LIVENESS ALARM or an active trading-loop break (the
+scanner correctly falls through to other tickers when one chain fetch
+fails) — so normal merge timing applies, noted in the PR description.
+
+NEXT (queued, not this session): (1) spot-check `/api/diag/audit?
+type=T2-FAIL` in a few days for absence of the specific `int()` parse
+error. (2) KNOWN BROKEN #10/#20 remain correctly evidence-blocked,
+untouched. (3) per the AUDITS & DEBT register, the STALENESS/
+CONSTITUTIONAL audits' last-run dates should be checked by the next
+session whose fall-through reaches the research tier (not reached this
+session — the primary REPAIR action filled capacity given the
+market-hours merge-timing constraint made falling through to a second
+PR less valuable than usual for this run).
+
+STARVED: no — this was the session's one primary action (a genuine,
+live-evidenced REPAIR per SESSION BUDGET's top priority), matched to
+capacity, with tests/gates completed and an A/B-verified ratchet. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both evidence-blocked; no LIVENESS ALARM). One logical change (two
+call sites of the same parsing bug + their shared new test file + the
+two bookkeeping files describing this exact result), one PR, per
+PROMOTION RULE 5.

@@ -3610,6 +3610,47 @@
     test's own logic. Small, single-file, single-PR scope; tag
     [REPAIR] when taken.~~
 
+29. **[FOUND + FIXED 2026-08-06, v1.0.608, scheduled-routine REPAIR
+    session] OCC option-symbol parsing broke on adjusted-contract roots,
+    silently killing options chain fetches for the affected ticker.**
+    Live `/api/diag/audit?type=T2-FAIL` showed: `"IONQ: No options
+    contracts available for this ticker (exception: invalid literal for
+    int() with base 10: 'P00037000')"`. Root cause:
+    `options_execution._fetch_option_chain` and
+    `options_scanner._fetch_options_chain` both parsed OCC symbols
+    (`root + YYMMDD + C/P + 8-digit strike`) by slicing
+    `occ_symbol[len(ticker):]` — stripping the FRONT `len(ticker)`
+    characters to isolate the date/type/strike suffix. OCC's own
+    adjusted-contract convention (roots gaining an extra character after
+    a corporate action, e.g. `IONQ1...` instead of the plain `IONQ`)
+    makes that slice land one character short, so the parsed "strike"
+    substring absorbed the C/P flag character itself (`'P00037000'`
+    instead of `'00037000'`) and `int()` threw — the exception was
+    caught by the surrounding `except Exception`, which reported the
+    whole chain as unavailable for that ticker (not just the one
+    malformed contract). FIX: parse anchored from the END of the OCC
+    symbol instead (`occ_symbol[-8:]` for strike, `occ_symbol[-9]` for
+    C/P, `occ_symbol[-15:-9]` for the date) — fixed-width regardless of
+    root length, immune to this class of root-symbol quirk. This is the
+    same pattern `options_scanner.py`'s own ATM-IV lookup
+    (`_fetch_atm_iv`-adjacent code, `occ_sym[-8:]`) already used
+    successfully; the two buggy call sites just hadn't been made to
+    match it. Mechanical parsing fix, not a threshold/rule change — no
+    RULE REVIEW evidence gate applies; does not touch order-submission
+    internals (FROZEN). RATCHET: new `test_occ_symbol_parsing.py` (4
+    tests) — A/B-verified via `git stash`: the two adjusted-root cases
+    reproduce the exact live `int("P00037000")` crash on pre-fix code
+    (0 contracts returned, error logged) and pass post-fix (1 contract,
+    correct strike/type/expiry); the two plain-root cases pass
+    unchanged both ways (no regression on the common case). Full gate:
+    `python3 -m pytest -q` 1150 passed, 1 skipped, 0 failed (1146
+    baseline + 4 new). **NEXT**: no further action required — this was
+    a complete find-and-fix within one session; a future session
+    checking `/api/diag/audit?type=T2-FAIL` a few days out can confirm
+    the specific `"invalid literal for int()"` message no longer
+    recurs (other T2-FAIL reasons — insufficient buying power, no
+    liquid contracts — are unrelated, expected, and not this bug).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

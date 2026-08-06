@@ -583,13 +583,22 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
                 greeks = snap.get("greeks", {})
                 
                 # Parse OCC symbol: AAPL260418C00250000
-                # ticker + YYMMDD + C/P + 8-digit strike (strike * 1000)
-                sym_body = occ_symbol[len(ticker):]
-                if len(sym_body) >= 15:
-                    exp_str = "20" + sym_body[:6]  # YYYYMMDD
+                # root + YYMMDD + C/P + 8-digit strike (strike * 1000).
+                # BUG FIX 2026-08-06 (KNOWN BROKEN, audit log evidence): this
+                # used to slice off len(ticker) chars from the FRONT, which
+                # breaks for adjusted-contract roots (e.g. "IONQ1..." after a
+                # corporate action) that carry extra characters vs. the plain
+                # ticker — the slice landed one char short, corrupting C/P
+                # and strike (observed live: int("P00037000") crash). The
+                # date/type/strike fields are fixed-width from the END of
+                # the symbol regardless of root length, so anchor there
+                # instead — the same pattern already used successfully in
+                # options_scanner.py's ATM-IV lookup (occ_sym[-8:]).
+                if len(occ_symbol) >= 15:
+                    exp_str = "20" + occ_symbol[-15:-9]  # YYYYMMDD
                     exp_date = f"{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}"
-                    opt_type = "call" if sym_body[6] == "C" else "put"
-                    strike = int(sym_body[7:]) / 1000
+                    opt_type = "call" if occ_symbol[-9] == "C" else "put"
+                    strike = int(occ_symbol[-8:]) / 1000
                     
                     bid = float(quote.get("bp", 0) or 0)
                     ask = float(quote.get("ap", 0) or 0)
