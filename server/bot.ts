@@ -3553,7 +3553,23 @@ print(json.dumps(get_auto_fix_params()))
       // pure equity percentage. See options_execution.py's cash_available
       // comment for the full evidence trail (repeated T2-FAIL "insufficient
       // options buying power" rejections on the same ticker every cycle).
-      const cashAvailable = parseFloat(acct.cash || "0");
+      // WRONG-FIELD BUG FOUND + FIXED 2026-08-06 (RECURRENCE — the 2026-07-31
+      // fix above did not actually resolve the symptom it was written for):
+      // this used acct.cash, but Alpaca's own live rejections name a DIFFERENT
+      // account field — "insufficient options buying power for cash-secured
+      // put" (verified live 2026-08-06, DRAM/VZ, /api/diag/audit — same
+      // symptom class the 07-31 fix targeted, still recurring 6 days later).
+      // Alpaca's account object carries a dedicated `options_buying_power`
+      // field (confirmed via Alpaca API docs, distinct from `cash` and from
+      // `buying_power`'s equity-margin figure) that already accounts for
+      // collateral committed to open short-option positions the way `cash`
+      // does not — so this internal affordability pre-check could pass on
+      // capital Alpaca's real order-submission check would reject,
+      // submitting a doomed order every cycle. Prefer options_buying_power;
+      // fall back to cash only when the account response omits the field
+      // (e.g. an account not options-approved, or a test double).
+      const optionsBp = parseFloat(acct.options_buying_power);
+      const cashAvailable = Number.isFinite(optionsBp) ? optionsBp : parseFloat(acct.cash || "0");
       const lastEquity = parseFloat(acct.last_equity || "100000");
       const dailyPnlPct = ((equity - lastEquity) / lastEquity) * 100;
 

@@ -3678,6 +3678,52 @@ sleeve across regime splits (gate 3 evidence); no threshold change ships
 without it per RULE REVIEW. One threshold at a time; rollback trigger =
 sleeve underperforms 100%-equity baseline on rolling 60d Sharpe.
 
+CORRECTION 2026-08-06 (scheduled-routine [REPAIR] session, v1.0.608):
+this LADDER PATH is infeasible as written — `backtest_v2.py`'s own
+docstring states options/CSP legs are not simulated at all (found by the
+2026-07-29 stretch-mode-sizing session, which flagged this exact
+correction as queued and unclaimed for a week; see that session's NEXT
+list). Correct path per that finding: shadow_portfolio counterfactual
+logging (the pattern already built for open_questions.md item #20's
+`rejected_masterkill` bucket) — log what a capital-starved CSP candidate
+would have done, accumulate outcomes, read
+`get_shadow_stats()["win_rate_by_decision"]` once enough history exists.
+NOT BUILT this session (this session instead found and fixed a separate,
+more direct bug — see below); still queued for a future session as its
+own small filing.
+ALSO FOUND + FIXED 2026-08-06 (same session, v1.0.608, PR pending):
+the "structurally starved" story above was itself incomplete. The
+2026-07-31 LIVE-CAPITAL CAP fix (which threaded `acct.cash` into
+`options_execution.py`'s `cash_available` parameter specifically to stop
+this exact class of rejection) did not actually resolve it — live
+`/api/diag/audit` 2026-08-06 showed the SAME symptom recurring 6 days
+later (T2-FAIL "insufficient options buying power for cash-secured put",
+DRAM/VZ, alongside KILL-WARN "Free BP below 10%: 0.0%"). Root cause:
+`acct.cash` is the wrong field. Alpaca's account object carries a
+dedicated `options_buying_power` field (confirmed against Alpaca's API
+docs) that reflects collateral already committed to open short-option
+positions the way raw cash does not — Alpaca's own rejection message
+names exactly this field. Using cash let `server/bot.ts`'s internal
+affordability pre-check pass on capital Alpaca's real order-submission
+check would reject, submitting a doomed order every cycle regardless of
+whether a cash sleeve exists. Fixed in `server/bot.ts`: `cashAvailable`
+now prefers `acct.options_buying_power`, falling back to `acct.cash`
+only when the field is absent/non-numeric. This is a mechanical
+wrong-field bug (matching Alpaca's own documented account schema to the
+value our code already intended to check), not a threshold/policy
+change — no RULE-REVIEW gate applies, same class as the 2026-07-29
+stretch-mode fix. RECURRENCE NOTE (CLAUDE.md HEALTH OF THE LOOP #4): this
+is the second fix attempt at this exact symptom (07-31, now 08-06) — if
+T2-FAIL "insufficient options buying power" recurs a third time after
+this ships, per CLAUDE.md that is an architecture smell and the next
+session must stop patching and file structural work in wishlist.md
+instead of attempting a third patch. A future session should check
+`/api/diag/audit?type=T2-FAIL` a few days out to confirm this actually
+holds, and separately check whether real capital scarcity (not a field
+bug) is still the dominant CSP blocker — which is exactly the
+distinguishing question the still-unbuilt shadow_portfolio counterfactual
+logger above would answer with real evidence instead of inference.
+
 RELATED SMALL DEFECT (separate fix PR): options_execution.py's
 no-affordable-puts error prints "smallest strike $0 needs $0" when the
 fetched chain simply had NO puts at/below price (min(default=0) leaks

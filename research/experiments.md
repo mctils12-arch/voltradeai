@@ -41634,3 +41634,181 @@ are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
 under threshold). One logical change (one new script + its test + the
 two bookkeeping files describing this exact result), one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-06 (scheduled-routine session #2) [REPAIR] — T-BOT — CSP capital-check wrong-field bug: cash_available used acct.cash, Alpaca's own rejections check acct.options_buying_power (v1.0.608)
+
+TERRITORY: T-BOT (server/bot.ts outside frozen paths — order-submission
+internals/submit_options_order untouched; only WHICH capital figure
+feeds the CSP affordability pre-check changed). package.json/
+package-lock.json version bump + research/open_questions.md's CSP
+CAPITAL ALLOCATION entry correction are the only SHARED-file edits,
+last, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/experiments.md
+tail — last 10 tagged entries: REPAIR/REPAIR/PRODUCT/RESEARCH/REPAIR/
+REPAIR/PRODUCT/RESEARCH/PRODUCT/PIPELINE — 4/10 REPAIR, well under the
+7/10 thrash-escalation threshold, no meta-problem to address.
+open_questions.md KNOWN BROKEN section — both remaining items (#10, #20)
+correctly evidence-blocked, neither actionable this session. wishlist.md
+top — no PROGRESS FLOOR/STARVED stall notices. Live `/api/health`:
+status ok, bot active, drawdownPct 0.0, alpaca ACTIVE, scanner 0
+consecutiveFailures, liveness.dark:false — no LIVENESS ALARM. Live
+`/api/data/layers`: server_version 1.0.607, matches origin/main HEAD
+(255293c/#705) — deploy current, no lag.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET, "fix a bug seen in audit
+logs" outranks judging a matured experiment or starting new research.
+`/api/diag/audit?limit=50&token=$DIAG_TOKEN` (live) showed, in the most
+recent ~40 minutes of trading: repeated `T2-FAIL` "DRAM/VZ: Alpaca
+rejected: insufficient options buying power for cash-secured put
+(required: $4181-4467, available: 0)" on three separate scan cycles
+(19:42, 19:48, 19:55), each paired with `KILL-WARN` "Free BP below 10%:
+0.0%". This is the exact symptom class the CSP CAPITAL ALLOCATION open
+question (filed 2026-07-28) and the 2026-07-31 LIVE-CAPITAL CAP fix
+(v1.0.5xx, threaded `acct.cash` into `options_execution.py`'s
+`cash_available` param specifically to stop this) both already document
+— but it was still live and recurring, 6 days after that fix shipped.
+
+READ BEFORE WRITE: read `options_execution.py`'s `_select_sell_put()` in
+full (the affordability filter, the 2026-07-31 LIVE-CAPITAL CAP
+comment, the 2026-07-29 stretch-mode effective_budget fix) and traced
+every call site of `select_contract()` across both languages per
+CLAUDE.md's own warning about Python/bot.ts signature drift — found 4
+call sites in `server/bot.ts` (CSP dispatch at ~3675, tail-hedge
+BUY_PUT at ~3750, and two more at ~4224/evaluate_and_execute), only ONE
+of which (the SELL_CSP dispatch, correctly — the others are debit buys
+that don't need a capital cap) threads `cash_available`. That path was
+intact, so the wiring itself wasn't the gap. Read `server/bot.ts`'s
+`cashAvailable` computation (line 3556, just above the SELL_CSP
+dispatch): `const cashAvailable = parseFloat(acct.cash || "0")`.
+Cross-checked what `risk_kill_switch.py`'s own "Free BP" warning (firing
+in the SAME audit window, at 0.0%) actually measures — Alpaca's
+`buying_power` field, a genuinely different metric from `cash`.
+Suspecting `cash` was simply the wrong proxy for "can this specific CSP
+actually clear," fetched Alpaca's own account-object API reference
+(WebFetch, `docs.alpaca.markets/reference/getaccount-1`) rather than
+guessing a field name from training memory (this codebase's Alpaca
+integration predates my training cutoff's certainty and CLAUDE.md
+explicitly warns against patching from assumption) — confirmed Alpaca's
+account schema carries a DEDICATED `options_buying_power` field,
+distinct from both `cash` and `buying_power`, that reflects collateral
+already committed to open short-option positions. Alpaca's own live
+rejection message ("insufficient OPTIONS buying power") names exactly
+this field. `acct.cash` does not track option-collateral commitments
+the way `options_buying_power` does, so the internal affordability
+pre-check could see plenty of "cash" and pass a strike through to
+Alpaca's real order-submission check, which then correctly rejected it
+against the true (zero) remaining options buying power — a doomed
+order submitted every cycle regardless of whether a cash sleeve exists,
+independent of the CSP CAPITAL ALLOCATION question's own hypothesis.
+
+WHAT SHIPPED: `server/bot.ts` — `cashAvailable` now computed as
+`Number.isFinite(parseFloat(acct.options_buying_power)) ?
+parseFloat(acct.options_buying_power) : parseFloat(acct.cash || "0")`
+— prefers the field Alpaca's own check uses, falls back to the old
+`cash` behavior only when the account response omits the field (e.g. a
+non-options-approved account or a test double), so this can't regress
+any caller that currently relies on the fallback. No other file
+changed — order-submission internals (`submit_options_order`, the raw
+HTTP POST path) untouched; this only changes WHICH capital figure feeds
+an existing filter, per FROZEN PATHS' explicit allowance ("you may
+change WHAT gets traded... never HOW orders are transmitted").
+
+RATCHET: `server/optionsCapitalCheckFix.test.ts` (NEW, 3 tests, static
+source-text assertions mirroring the `optionsSlotRaceFix.test.ts`
+precedent's style since `bot.ts` has no exported/testable internals for
+this logic) — pins (1) the capital computation reads
+`acct.options_buying_power` before `cashAvailable` is assigned, (2) the
+fallback to `acct.cash` fires only when `Number.isFinite` on the parsed
+options-BP value is false, (3) `cashAvailable` (not raw `acct.cash`)
+still flows into the CSP dispatch payload's `cash` field. A/B-verified
+via `git stash push -- server/bot.ts`: 2/3 fail against the pre-fix
+code (the first test's marker-based slice initially matched the WRONG
+occurrence of a duplicated `alpaca("/v2/account")` call earlier in the
+file — caught and fixed to use a unique nearby marker before trusting
+the A/B result), all 3 pass post-fix.
+
+GATES: `npm install` (node_modules was environment-empty at session
+start — same recurring gap prior sessions have logged; installed to get
+a real gate, all 487 packages resolved clean). `npx tsx --test
+server/*.test.ts scripts/*.test.ts`: 1067 total (3 new), 1066 passed, 1
+failed — the pre-existing pmtiles magic-byte baseline failure (confirmed
+unrelated: zero `client/public/tiles/*` touched). Before `npm install`,
+7 additional test FILES failed on `ERR_MODULE_NOT_FOUND` for `express`
+etc. — confirmed via re-run these were the environment gap, not this
+change (unrelated files: aircraftTiling/apiKeyAccounts/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware, none touching
+CSP/options/capital logic). `npx tsc --noEmit`: 86 errors both before
+and after via `git stash` A/B; `diff` confirms every line byte-identical
+except line-number shifts from the added lines (zero new errors). `npm
+run build` clean (pre-existing chunk-size/astronomy-engine warnings
+only, unchanged). Python gate not re-run: zero `.py` files touched.
+
+BACKTEST: N/A — mechanical wrong-field bug fix (matches Alpaca's
+documented account schema to the value the 07-31 fix already intended
+to check), not a new threshold or sizing policy; same class as the
+2026-07-11 MAX_OPTIONS_POSITIONS and 2026-07-29 stretch-mode-budget
+fixes, neither of which needed a Sharpe/drawdown comparison either.
+Live effect is directly observable via `/api/diag/audit` (T2-FAIL
+"insufficient options buying power" should stop recurring on capital
+the account genuinely has available, though it may still fire correctly
+when options buying power really is exhausted) over the coming days —
+a future session should check this before declaring the symptom closed.
+
+Version bumped 1.0.607 -> 1.0.608 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 255293c/#705). `package-lock.json` resynced via
+`npm install --package-lock-only`, diff confirms only the two
+version-string lines changed.
+
+RECURRENCE HANDLING (CLAUDE.md HEALTH OF THE LOOP #4): this is the
+SECOND fix attempt at this exact live symptom — the 2026-07-31
+LIVE-CAPITAL CAP fix was the first, and it did not hold (recurred 6
+days later). Per the recurrence rule this session did NOT blindly patch
+again — it performed a fresh root-cause trace (verified against
+Alpaca's own API docs rather than assumption) and found a genuinely
+distinct mechanism (wrong account field, not "no cash_available
+threading at all" — that part of the 07-31 fix was correct). Flagged
+explicitly, in both this entry and the corrected open_questions.md CSP
+CAPITAL ALLOCATION entry: if T2-FAIL "insufficient options buying
+power" recurs a THIRD time after this ships, CLAUDE.md's RECURRENCE
+ESCALATES rule applies in full — the next session must NOT attempt a
+third patch and must instead treat this as an architecture smell and
+file structural work in wishlist.md.
+
+CROSS-SYSTEM INTEGRATION: none new — this is an internal risk/capital
+check fix within the existing CSP/options execution path; no new data
+stream, archive, or /data-facing surface.
+
+`research/open_questions.md`'s CSP CAPITAL ALLOCATION entry updated
+(same PR, minimal diff): (1) corrected the LADDER PATH away from the
+now-confirmed-infeasible backtest_v2 ablation toward the
+shadow_portfolio counterfactual-logging pattern (a correction the
+2026-07-29 session flagged as queued a week ago and no session had yet
+picked up — done as documentation only this session, not built, kept
+distinct from this session's own PR scope); (2) recorded this session's
+wrong-field finding and fix, with the recurrence-escalation flag above.
+
+NEXT (queued, not this session): (1) build the shadow_portfolio
+counterfactual logger for capital-starved CSP candidates (mirroring
+`tiered_strategy.py`'s `log_masterkill_csp_shadow`/`rejected_masterkill`
+precedent) — the correct LADDER PATH for the CSP CAPITAL ALLOCATION
+question, still unbuilt, now correctly documented instead of pointing
+at an infeasible backtest. (2) check `/api/diag/audit?type=T2-FAIL` a
+few days after this deploys — the wrong-field bug should stop causing
+doomed submissions, but genuine capital scarcity (the original
+CSP-starvation hypothesis) may still produce some rejections; a future
+session should distinguish the two once real evidence accumulates via
+item (1)'s logger. (3) if this recurs a third time, RECURRENCE
+ESCALATES — stop patching, file architecture-smell work in
+wishlist.md instead. (4) `finra_short_volume`'s follow-up hypothesis
+(HIGH_SHORT vs full-population baseline, regime-split) from the prior
+session remains queued, untouched.
+
+STARVED: no — this was the session's one primary action ([REPAIR] per
+SESSION BUDGET's top category, a live audit-log-visible bug with a
+concrete root cause traced and fixed), matched to capacity, fall-through
+not reached this session (one logical PR per PROMOTION RULE 5). No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
+under threshold).
