@@ -3402,6 +3402,32 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-spin { animation: vt-streams-spin 1s linear infinite; }
 @keyframes vt-streams-spin { to { transform: rotate(360deg); } }
 
+/* ── Macro regime dashboard (#/data/macro — PRODUCT session, 2026-08-06).
+   Reuses the vt-filings/vt-shortvol shell; card grid follows the
+   vt-quality-grid auto-fit precedent. ──────────────────────────────── */
+.vt-macro-section { display: flex; flex-direction: column; gap: 8px; }
+.vt-macro-sectionhead { font-weight: 600; color: var(--text-secondary); }
+.vt-macro-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px;
+}
+.vt-macro-card {
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 12px 11px; display: flex; flex-direction: column; gap: 6px;
+}
+.vt-macro-cardhead { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.vt-macro-label { font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.vt-macro-cadence {
+  font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-tertiary); white-space: nowrap;
+}
+.vt-macro-valrow { display: flex; align-items: baseline; gap: 8px; }
+.vt-macro-val { font-family: var(--font-mono); font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.vt-macro-delta { font-family: var(--font-mono); font-size: 11.5px; }
+.vt-macro-delta.up { color: var(--accent-green, #4ade80); }
+.vt-macro-delta.down { color: var(--accent-orange, #ff8a5a); }
+.vt-macro-spark { display: block; }
+.vt-macro-foot { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
+
 /* ── Data quality dashboard (#/data/quality — MAP V2 ROADMAP R6(b),
    2026-07-30). Reuses the vt-filings and vt-streams-body shell. ──────── */
 .vt-quality-section { display: flex; flex-direction: column; gap: 8px; }

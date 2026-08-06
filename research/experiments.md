@@ -41634,3 +41634,178 @@ are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
 under threshold). One logical change (one new script + its test + the
 two bookkeeping files describing this exact result), one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-06 (scheduled-routine PRODUCT session, second of the day) [PRODUCT] — T-CLIENT — macro regime series gets its /data UI: FRED + European cluster, both gate-1-passed since July with no client view, joined onto one dashboard (v1.0.608)
+
+TERRITORY: T-CLIENT (client/src/pages/macro.tsx new; client/src/pages/
+datamap.tsx wiring; client/src/index.css new `.vt-macro-*` block;
+scripts/visual_check.mjs harness registration — all client/visual-tooling
+paths). package.json version bump is the only SHARED-file edit, last
+commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full. research/ open_questions.md
+KNOWN BROKEN section: only #10 (dead SCORE_BAND_MAX/MAX_CHANGE_PCT config)
+and #20 (tiered_strategy master_kill_switch design question) remain open,
+both already evidence-blocked/counterfactual-logged, neither a LIVENESS
+ALARM. wishlist.md top: no PROGRESS FLOOR/STARVED stall notices. Live
+`/api/health`: status ok, bot active, drawdownPct 0.0, alpaca ACTIVE,
+scanner 0 consecutiveFailures, liveness.dark:false — no LIVENESS ALARM,
+no critical trading-loop break. This is the second scheduled PRODUCT
+session today; the first (earlier this same UTC day) shipped the FINRA
+short-volume GATE 2 run (v1.0.607, prior entry above) — chose a distinct,
+non-duplicate action for this session.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (b)
+— build product UI/UX, RAW overlays freely, SIGNALS gate-2-locked — as
+one of four in-scope actions. Read `datacore/signal_ladder.json` (39
+roots) for gate1_pass roots with no client UI yet: `fred_macro_series`
+(31-series FRED regime archive, gate 1 PASSED 2026-07-05, 10/10 exact
+match vs FRED's own fredgraph.csv export) and
+`eu_macro_ecb_eurostat_bundesbank` (5-series ECB/Eurostat/Bundesbank
+cluster, gate 1 PASSED 2026-07-07) were the only two gate1_pass roots
+with a live, serving API route (`/api/data/macro`, `/api/data/eu-macro`
+— both verified present in server/routes.ts) and zero client page
+(`ls client/src/pages/` has no macro.tsx/fred.tsx, unlike midas.tsx/
+cot.tsx/cropConditions.tsx/appStoreRankings.tsx/githubOrgActivity.tsx
+which already closed this same gap for their own roots). Chose this over
+gate-2 ladder work: today's earlier session already ran a GATE 2 test
+(finra_short_volume); the other gate1_pass roots screened for gate-2
+readiness were all calendar-blocked (13F ~Oct-Nov 2026, App Store ~90d
+history to 2026-10-30, github_org 1-2 days old) per that session's own
+NEXT notes — a genuinely ready, non-duplicate, high-value action this
+session was the shipped-data-no-UI gap on the regime-input feed, the
+same class of gap midas.tsx (#265) and atsSummary.tsx already closed.
+
+READ BEFORE WRITE: read server/fredMacro.ts and server/euMacro.ts in
+full (FredSeriesSnapshot/EuSeriesSnapshot shapes: id/key, label, cadence,
+unit, latest{d,v}, prev{d,v}, history[]; the license:"restricted" filter
+in buildMacroPayload that excludes VIX/ICE BofA/UMich from the public
+route — confirmed unaffected, this session touches zero server files) and
+the two live route handlers in server/routes.ts (`/api/data/macro`,
+`/api/data/eu-macro`) before writing the client fetch code, so the
+client's TypeScript interfaces match the real payload shape rather than a
+guessed one. Read cot.tsx (Sparkline component, sparkline/delta pattern)
+and cropConditions.tsx/streams.tsx (`.vt-filings-*`/`.vt-shortvol-*` shell
+reuse, `.vt-quality-grid` auto-fit CSS precedent) as the closest existing
+templates before writing any new component or CSS — reused the shell
+classes directly, wrote only the new `.vt-macro-*` card-grid block that
+has no existing equivalent. Read the datamap.tsx wiring pattern for the
+7 existing page-wide launchers (state hook + hashchange listener entry +
+render block + panel launcher button) end to end before adding the 8th,
+matching the exact 4-point wiring shape rather than partially replicating
+it.
+
+WHAT SHIPPED: `client/src/pages/macro.tsx` (new) — `#/data/macro`. Fetches
+both `/api/data/macro` and `/api/data/eu-macro` in parallel, unions their
+series into one `Card[]` shape tagged by group ("US — FRED" / "Europe"),
+renders a searchable/filterable card grid (label, latest value+date,
+delta vs prior reading, inline SVG sparkline — no charting dependency,
+mirrors cot.tsx's Sparkline). Honesty states handled explicitly and
+independently per feed: FRED `enabled:false` (no FRED_API_KEY) shows its
+own reason string while the keyless EU cluster still renders; either
+feed's `warming_up` gets its own message; the footer states the
+licensing exclusion (VIX/ICE BofA/UMich stay internal-only) and the
+REGIME INPUT framing ("conditions other readings, never traded or sold
+alone") up front in the header, not buried. PRECISION FIX (caught in
+this session's own visual self-review, not by a later session): the
+initial delta computation used the same 2-decimal `fmtVal` for the delta
+as for the value itself, which rounded EUR/USD's real +0.003 move to
+"+0.00" — displaying a nonzero-colored delta next to a value that read as
+unchanged, a real (if minor) honesty bug for a feed whose whole job is
+carrying provenance/freshness faithfully. Added `fmtDelta()`: widens
+decimal precision only as far as needed to show a genuinely nonzero
+digit (2 decimals first, then 3, up to 5, checked via
+`Number(delta.toFixed(n))===0`), never further than needed, and suppresses
+the badge entirely for an exact-zero delta instead of showing a
+misleadingly-colored "+0.00". `client/src/index.css`: new
+`.vt-macro-section`/`.vt-macro-grid`/`.vt-macro-card`/`.vt-macro-valrow`/
+`.vt-macro-delta`/`.vt-macro-spark`/`.vt-macro-foot` block, following the
+existing `.vt-quality-grid` auto-fit(minmax(...)) precedent — no other
+CSS touched. `client/src/pages/datamap.tsx`: import + `LineChart` icon
+import + `macroOpen` state + hashchange-listener entry + render block +
+panel-top launcher button, the same 4-point pattern as the 7 other
+page-wide dashboards (streams/quality/signals/pipeline-health/grid-stress/
+crop-conditions/app-store/github-activity). `scripts/visual_check.mjs`:
+registered `macro: { route: "/app#/data/macro", map: false }` in PAGES
+(Phase 5 ratchet — every new page-wide view must pass the harness before
+shipping) + fixture payloads for both `/api/data/macro` and
+`/api/data/eu-macro` matching the real production shape (4 FRED + 2 EU
+series, deliberately including a small-magnitude EUR/USD series so the
+fmtDelta fix above is actually exercised by the fixture, not just by
+hand-checking in a browser).
+
+GATES: `npx tsc --noEmit` — A/B-verified via `git stash -u`: 83 errors
+both before and after this change (identical set; zero errors reference
+macro.tsx or any touched file). `npm run build` clean both before/after.
+`npx tsx --test server/*.test.ts scripts/*.test.ts`: 1064 total, 1063
+passed, 1 failed — the pre-existing pmtiles magic-byte baseline failure
+(same one the prior session today flagged as unrelated; zero
+`client/public/tiles/*` files touched this session either). VISUAL
+HARNESS (PROMOTION RULE 6, all three canonical widths): `node
+scripts/visual_check.mjs --page macro` — 0 hard failures at 390/768/1440;
+screenshots self-reviewed (card grid reflows correctly narrow-to-wide,
+sparklines render, delta colors correct after the fmtDelta fix, no
+overflow/clipping on the new page itself). Full-suite run (`node
+scripts/visual_check.mjs`, all ~24 pages) also 0 hard failures on a clean
+run — an earlier concurrent run (multiple headless-Chrome instances
+launched back-to-back while diagnosing this) intermittently failed the
+UNRELATED `data` (main map) page's perf gates in two different ways on
+two different attempts (768px TTI once, 1440px frame-time once), which
+is the signature of CPU-contention flakiness rather than a real
+regression — confirmed by killing stray chromium processes and re-running
+both baseline (`git stash`) and branch cleanly in isolation: both passed
+identically (median 183ms/p95 350ms at 1440px on this branch, matching
+baseline exactly). Documented here so a future session doesn't re-chase
+the same flake: don't run multiple visual_check.mjs invocations
+concurrently on this box, the map perf gates are sensitive to shared CPU.
+Python gates not re-run: zero `.py` files touched.
+
+BACKTEST: N/A — pure client UI over two already-live, already-gate-1-
+passed RAW display routes; no scoring/sizing/threshold value touched, no
+trading-relevant server path touched.
+
+`datacore/signal_ladder.json`: both `fred_macro_series` and
+`eu_macro_ecb_eurostat_bundesbank` entries updated — `last_update_date`
+to 2026-08-06, note appended with "UI SHIPPED" text, status/current_gate
+unchanged at gate1_pass/1 (a UI ship is not a gate transition).
+
+Version bumped 1.0.607 -> 1.0.608 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping — found it had actually been
+stale in this session's first fetch attempt (a multi-ref `git fetch
+origin claude/lucid-keller-eej0un main` failed silently on the
+nonexistent first ref and left origin/main un-updated), corrected with a
+plain `git fetch origin main` before trusting it. `origin/main` HEAD
+matched this branch's base (255293c/#705) — no advance to account for.
+Noted for awareness, not a blocker: PR #706 (a different branch,
+`claude/eloquent-dijkstra-k128c1`, opened by a concurrent/different
+session) already claims v1.0.608 in its own title — per the standing
+MERGE-ORDER PROTOCOL this is an expected, handled collision class
+("first-merged wins, the duplicate salvages its unique delta"), not
+something this session should react to.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a UI-only follow-up on two
+already-integrated regime-conditioning feeds (both already read inside
+bot_engine.py's regime classification per their own module docstrings);
+no new archive, no new entity-graph join, no new server route.
+
+NEXT (queued, not this session): (1) github_org_engineering_momentum's
+GATE 2 (queued by 2026-08-05, deferred again 2026-08-06 morning session,
+still correctly deferred — archive too young). (2) the FINRA follow-up
+hypothesis filed this morning. (3) KNOWN BROKEN #10/#20 remain correctly
+evidence-blocked. (4) AUDITS & DEBT register: STALENESS/CONSTITUTIONAL
+audit last-run dates should be checked by the next session whose
+fall-through reaches the research tier (not checked this session either
+— PRIMARY action filled capacity). (5) a genuinely-ready gate-2 candidate
+remains the highest-value NEXT product action once one exists.
+
+STARVED: no — this was the session's one primary action (a genuine
+shipped-data-no-UI product gap closed per this session's own option (b)
+instructions), matched to capacity, with tests/gates/visual-harness/
+self-reviewed-screenshots all completed, including catching and fixing a
+real precision/honesty bug in its own delta display before shipping. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both evidence-blocked; no LIVENESS ALARM; today's earlier session
+already covered the ready gate-2 candidate, so this session correctly
+chose a different, non-duplicate action). One logical change (one new
+page + its wiring + its CSS + its harness registration + ladder
+bookkeeping), one PR, per PROMOTION RULE 5.

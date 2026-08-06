@@ -73,6 +73,9 @@ const PAGES = {
   // GitHub org engineering-momentum watchlist (2026-08-05) — same
   // Phase 5 ratchet rule as streams/gridstress/appstorerankings above.
   githubactivity: { route: "/app#/data/github-activity", map: false },
+  // Macro regime series — FRED + European cluster (2026-08-06) — same
+  // Phase 5 ratchet rule as streams/gridstress/githubactivity above.
+  macro: { route: "/app#/data/macro", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -445,6 +448,48 @@ const FIXTURES = {
       { t: "org_week", key: "2026-07-27|PagerDuty", ticker: "PD", org: "PagerDuty", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 12, commits: 29, uniqueActorsSample: 9, actorSampleCapped: false, rt: "2026-08-03" },
       { t: "org_week", key: "2026-07-27|jfrog", ticker: "FROG", org: "jfrog", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 6, commits: null, uniqueActorsSample: null, actorSampleCapped: false, rt: "2026-08-03" },
       { t: "org_week", key: "2026-07-20|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2026-07-20", weekEnd: "2026-07-26", mergedPRs: 35, commits: 102, uniqueActorsSample: 33, actorSampleCapped: true, rt: "2026-07-27" },
+    ],
+  },
+  // Macro regime series — FRED + European cluster (2026-08-06, RAW
+  // display, exercises both the "US disabled" and "series with history"
+  // card states at once is not needed here since FRED is enabled in this
+  // fixture; a real deploy without FRED_API_KEY hits the enabled:false
+  // branch, which has its own layout-only text state, no chart to check).
+  "/api/data/macro": {
+    kind: "raw",
+    enabled: true,
+    source: "FRED API — Source: FRED, Federal Reserve Bank of St. Louis (fixture)",
+    attribution: "Source: FRED, Federal Reserve Bank of St. Louis",
+    time: 1785928979602,
+    note: "Values as currently published by FRED (fixture).",
+    series: [
+      { id: "DGS10", label: "10-Year Treasury", cadence: "daily", unit: "%",
+        latest: { d: "2026-08-05", v: 4.28 }, prev: { d: "2026-08-04", v: 4.24 },
+        history: [{ d: "2026-07-22", v: 4.11 }, { d: "2026-07-29", v: 4.18 }, { d: "2026-08-04", v: 4.24 }, { d: "2026-08-05", v: 4.28 }] },
+      { id: "T10Y2Y", label: "10Y–2Y Spread", cadence: "daily", unit: "%",
+        latest: { d: "2026-08-05", v: 0.42 }, prev: { d: "2026-08-04", v: 0.39 },
+        history: [{ d: "2026-07-22", v: 0.31 }, { d: "2026-07-29", v: 0.35 }, { d: "2026-08-04", v: 0.39 }, { d: "2026-08-05", v: 0.42 }] },
+      { id: "UNRATE", label: "Unemployment Rate", cadence: "monthly", unit: "%",
+        latest: { d: "2026-07-01", v: 4.1 }, prev: { d: "2026-06-01", v: 4.0 },
+        history: [{ d: "2026-05-01", v: 3.9 }, { d: "2026-06-01", v: 4.0 }, { d: "2026-07-01", v: 4.1 }] },
+      { id: "CPIAUCSL", label: "CPI (All Items)", cadence: "monthly", unit: "index",
+        latest: { d: "2026-07-01", v: 318.2 }, prev: { d: "2026-06-01", v: 317.5 },
+        history: [{ d: "2026-05-01", v: 316.9 }, { d: "2026-06-01", v: 317.5 }, { d: "2026-07-01", v: 318.2 }] },
+    ],
+  },
+  "/api/data/eu-macro": {
+    kind: "raw",
+    source: "European macro cluster — ECB Data Portal + Eurostat + Deutsche Bundesbank (fixture)",
+    attribution: "per-series (each series carries its required attribution string)",
+    time: 1785928979602,
+    note: "REGIME INPUT feed (never a direct signal) (fixture).",
+    series: [
+      { key: "ECB_EURUSD", source: "ecb", label: "EUR/USD reference rate", cadence: "daily", unit: "USD", attribution: "Source: ECB statistics.",
+        latest: { d: "2026-08-05", v: 1.087 }, prev: { d: "2026-08-04", v: 1.084 },
+        history: [{ d: "2026-08-01", v: 1.079 }, { d: "2026-08-04", v: 1.084 }, { d: "2026-08-05", v: 1.087 }] },
+      { key: "DE_BUND10Y", source: "bbk", label: "10Y Bund yield (Svensson)", cadence: "daily", unit: "%", attribution: "Source: Deutsche Bundesbank",
+        latest: { d: "2026-08-05", v: 2.41 }, prev: { d: "2026-08-04", v: 2.38 },
+        history: [{ d: "2026-08-01", v: 2.33 }, { d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.41 }] },
     ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry

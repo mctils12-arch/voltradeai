@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, LineChart } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -35,6 +35,7 @@ import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
+import MacroView from "./macro";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2391,6 +2392,12 @@ export default function DataMapPage() {
   const [cropCondOpen, setCropCondOpen] = useState(() => window.location.hash === "#/data/crop-conditions");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
+  // Macro regime dashboard (#/data/macro) — same overlay pattern (PRODUCT
+  // session, 2026-08-06): FRED + European macro cluster, both gate-1-passed
+  // with no client view until now, are national/regime-wide aggregates,
+  // not spatial layers, so this launches from the panel top like the
+  // other page-wide dashboards above.
+  const [macroOpen, setMacroOpen] = useState(() => window.location.hash === "#/data/macro");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2721,6 +2728,7 @@ export default function DataMapPage() {
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
+      setMacroOpen(window.location.hash === "#/data/macro");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -11637,6 +11645,9 @@ export default function DataMapPage() {
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
+      {macroOpen && (
+        <MacroView onBack={() => { window.location.hash = "#/data"; setMacroOpen(false); }} />
+      )}
 
       {/* EARTH TWIN E1 remainder: persistent LIVE/HISTORICAL badge, outside
           the Time Machine panel — see the historicalAtMs effect above.
@@ -12199,6 +12210,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/github-activity"; setGithubActivityOpen(true); }}>
               <GitBranch size={13} /> GitHub engineering momentum
               <span className="vt-streams-launch-sub">weekly merged-PR &amp; commit counts, 15 devtools tickers · RAW</span>
+            </button>
+            {/* Macro regime dashboard launcher (2026-08-06): FRED (31 US
+                series) + European macro cluster, both gate-1-passed and
+                national/regime-wide, not spatial layers, so this launches
+                from the panel top like the other page-wide dashboards. */}
+            <button type="button" className="vt-streams-launch" data-vt-macro-launch
+                    onClick={() => { window.location.hash = "#/data/macro"; setMacroOpen(true); }}>
+              <LineChart size={13} /> Macro regime series
+              <span className="vt-streams-launch-sub">US + European rates, labor, inflation &amp; liquidity · RAW regime input</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
