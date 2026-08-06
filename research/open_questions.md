@@ -5739,6 +5739,45 @@ the ladder before belief.)
    in large caps; the residual edge, if any, is in the illiquid tail
    (EDGE DOCTRINE #2). GATE 1: our parsed ratios vs FINRA's own
    monthly aggregates on a sampled month.
+   UPDATE 2026-08-06 (scheduled-routine PRODUCT session) — GATE 2 FIRST
+   PASS RUN: FAIL against the pre-registered bar. Full design + result in
+   experiments.md's 2026-08-06 entry and scripts/finra_shortvol_gate2.ts's
+   own header (day-clustered HIGH_SHORT/NEUTRAL/LOW_SHORT buckets, 16
+   weekly Wednesdays 2026-01-07..2026-04-22, n=16 day-clusters). The
+   +20d HIGH-LOW spread alone clears significance (day-clustered t=2.279
+   > crit=2.131 at df=15) but the pre-stated monotonic-ordering
+   requirement (HIGH>NEUTRAL>LOW or the reverse, on BOTH horizons) is
+   NOT met: NEUTRAL was the WORST-performing bucket at both +5d
+   (-0.358%, below LOW_SHORT's -0.180%) and +20d (-1.652%, below
+   LOW_SHORT's -0.705%) — a U-shape, not a monotonic short-ratio
+   gradient. Per this candidate's own pre-stated ladder rule (the
+   composite bar governs, not any single significant piece — Reasoning
+   Standard #4's anti-fishing discipline), this is a FAIL, not a PASS
+   fished out of the HIGH-LOW contrast alone. NOT marked `killed` in
+   signal_ladder.json (status set to `gate2_fail` instead, current_gate
+   2) — unlike occ_options_volume/cftc_tff_positioning/jodi_oil_stocks
+   (each closed only after a SECOND confirming test, e.g. a disjoint
+   replication or a sign-reversal), this is a single first attempt whose
+   failure mode is specific and informative, not a clean directional
+   refutation. FOLLOW-UP HYPOTHESIS (pre-registered here for whichever
+   future session takes it, not chased this session per the no-fishing
+   rule): the U-shape suggests HIGH_SHORT and LOW_SHORT (the two
+   distributional EXTREMES among liquid names) may share a composition
+   confound NEUTRAL doesn't — e.g. both extremes over-index on
+   high-beta/momentum/story names (heavily shorted momentum plays at
+   one end, heavily-traded low-short-interest momentum plays at the
+   other) while NEUTRAL captures "boring middle" names that
+   underperformed in this specific Jan-Apr 2026 window regardless of
+   short pressure. A future gate-2 retest should (a) test HIGH_SHORT
+   against a FULL-POPULATION mean/random-entry baseline (Reasoning
+   Standard #3) rather than a three-bucket ordering design that assumes
+   monotonicity, and (b) regime-split per Reasoning Standard #2 (Jan-Apr
+   2026 window was Sunday-fungible only if verified against roughly
+   BULL/CAUTION texture, not re-verified for this run) before trusting
+   the raw HIGH-LOW contrast's t=2.279 as anything more than
+   informational. Discount further per Reasoning Standard #4: this is
+   the FIRST test of this exact bucket design, so the +20d contrast's
+   significance is not yet confirmed out-of-sample.
 2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
    keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
    the disaggregated report, which is also the analytically richer

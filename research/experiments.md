@@ -41446,3 +41446,191 @@ completed. No higher-priority queued item was skipped (KNOWN BROKEN's
 open items are evidence-blocked, not actionable; no LIVENESS ALARM; no
 audit-log bug found this session). One logical change (client UI only,
 zero server/runtime path touched), one PR, per PROMOTION RULE 5.
+
+## 2026-08-06 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — finra_short_volume GATE 2 first-pass run: pre-registered composite bar FAILS, informative U-shaped anomaly filed for follow-up (v1.0.607)
+
+TERRITORY: T-DATACORE (scripts/finra_shortvol_gate2.ts + .test.ts new;
+research/open_questions.md + datacore/signal_ladder.json bookkeeping on
+this exact change). package.json/package-lock.json version bump is the
+only SHARED-file edit, last commit, minimal.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+tail — last 10 tagged entries: 4 [REPAIR]/3 [PRODUCT]/2 [RESEARCH]/1
+[PIPELINE], thrash ratio 4/10, well under the 7/10 escalation threshold;
+open_questions.md KNOWN BROKEN section — only #10 (dead SCORE_BAND_MAX/
+MAX_CHANGE_PCT config) and #20 (tiered_strategy master_kill_switch design
+question) remain open, both already evidence-blocked/counterfactual-
+logged per prior sessions, neither a LIVENESS ALARM or actionable this
+session; wishlist.md top — no PROGRESS FLOOR/STARVED stall notices).
+Live `/api/health`: status ok, bot active, drawdownPct 0.0, alpaca
+ACTIVE, scanner 0 consecutiveFailures, liveness.dark:false — no LIVENESS
+ALARM, no critical trading-loop break blocking product work. Live
+`/api/data/layers`: server_version 1.0.606, matches origin/main HEAD
+(28f3fb4/#704) — deploy is current, no lag to account for.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (a)
+— advancing a datacore/ pipeline through its next ladder gate, explicitly
+stating "gate 1 ground-truth validation and gate 2 signal testing ARE
+product work" — as one of the four in-scope actions. Read
+`datacore/signal_ladder.json` in full (39 roots): 17 sit at `gate1_pass`
+with gate 2 unattempted. Screened each for genuine READINESS (not just
+gate-1-passed status) rather than defaulting to the most recently queued
+NEXT item (github_org_engineering_momentum's v1 API mirror/gate-2, queued
+by the immediately preceding 2026-08-05 session) — most gate1_pass roots
+are explicitly time-blocked on calendar depth not yet elapsed (13F: next
+usable cut ~Oct-Nov 2026; App Store rankings: ~90d needed, earliest
+2026-10-30; fleet-utilization: archive-retention fix only shipped
+2026-08-02, insufficient days since; crop-conditions/NRC/github-activity/
+EIA-930: all gate-1-passed within the last 2-6 days, far too new). Live-
+checked `/api/data/streams` for actual archive depth rather than trusting
+the ladder file's own text: `finrashortvol`'s `backfill_done.json` marker
+shows a ONE-TIME DEEP BACKFILL already completed 2026-07-05 — 512
+day-files spanning 750 calendar days of REAL HISTORY (not just 32 days of
+forward accumulation since gate 1 passed) — the only gate1_pass root with
+genuinely deep, already-realized history sitting completely untested at
+gate 2. Chose this: highest expected value among ready candidates, a
+real GATE 2 signal-layer action (not UI/scaffolding), on a root whose own
+wishlist.md entry (BUILD ORDER 5 #1) states a specific pre-registered
+PRIOR (P(gate-2 pass) ~35%) and hypothesis text, so the test design could
+be pre-committed against an existing, not self-authored, prior.
+
+READ BEFORE WRITE: read `server/finraShortVolume.ts` in full (parser,
+archive dedup, the module's own `FLOOR_TOTAL_VOL`/`TOP_CAP` selection
+constants already used by its `summarize()` view, `deepBackfillIfSparse`)
+before writing any test script — reused `FLOOR_TOTAL_VOL` directly via
+import rather than re-declaring the same number (CLAUDE.md's own
+"before hardcoding any number, check ... the parameter almost always
+already exists" instruction, applied to a TypeScript module instead of
+system_config.py). Read `scripts/occ_volume_gate2.ts` and
+`scripts/occ_volume_gate2_clustered.ts` in full (the most recent, most
+methodologically mature gate-2 precedent — day-clustered t-test, weekly
+sampling, symmetric bucket construction, Yahoo fetch/toSeries/fwdReturn
+helpers) and `scripts/statsUtils.ts` (the `clusterMeanTTest`/`tCrit005`/
+`survivesAtCrit005` helpers compiled out of the OCC candidate's own
+2026-08-03 lesson: a naive pooled per-row Welch t overstates significance
+when the same tickers recur across days). Reused all of these directly
+by import rather than reimplementing — this script applies the
+day-clustered method from its FIRST run, not as a second-pass correction
+the way OCC needed (Reasoning Standard #4, applied proactively).
+Live-verified FINRA's CDN still serves 2026-01-07's file (200, correct
+header) before committing to the sample window — this script fetches
+each sample date directly from `cdn.finra.org` (same URL pattern as the
+production poller) rather than reading the Railway volume's archive,
+which a fresh session container has no access to.
+
+WHAT SHIPPED: `scripts/finra_shortvol_gate2.ts` (new) — pre-registered
+(comment header written before any results existed) GATE 2 test:
+short_ratio = short_vol/total_vol per (symbol, trade date) on FINRA's
+CNMS file; universe = symbols with total_vol >= FLOOR_TOTAL_VOL (500,000,
+reused not reinvented); three day-level buckets by rank (HIGH_SHORT/
+LOW_SHORT = top/bottom 40, NEUTRAL = middle 40 as the Reasoning Standard
+#3 base-rate control); forward return via Yahoo adjusted close at +5/+20
+trading days; sample = 16 weekly Wednesdays 2026-01-07..2026-04-22 (the
+same SAMPLE_START/SAMPLE_WEEKS values as occ_volume_gate2.ts, chosen
+deliberately for comparable BULL/CAUTION/NEUTRAL regime texture per
+Reasoning Standard #2, not imported from that file since this is a
+conceptually distinct root). DIRECTION stated as genuinely ambiguous
+before running (not assumed): the academic short-interest literature
+predicts HIGH short interest -> LOWER forward returns ("shorts are
+informed"), while the wishlist's own "extremes ... precede reversals"
+framing predicts the opposite (squeeze); this dataset (daily EXECUTION-
+volume ratio, not published total short interest/days-to-cover) is not
+the same instrument either literature was built on, so the script
+pre-registers a two-tailed test with a monotonic-ordering requirement in
+EITHER consistent direction, not a one-tailed bet on either narrative.
+`scripts/finra_shortvol_gate2.test.ts` (new) — 5 unit tests on the pure
+`bucketDay()` function (FLOOR_TOTAL_VOL filtering, HIGH/LOW ranking
+correctness, bucket-size capping at both the small- and large-universe
+regimes, no-overlap/neutral-sits-between invariant, division-by-zero
+safety on a total_vol=0 row) — no network, all pass, this is the
+PROMOTION RULE 2 ratchet for the new pure logic.
+
+RESULT (live run, `npx tsx scripts/finra_shortvol_gate2.ts`, 16/16
+sample days had data, 1,469 unique tickers needed, 1,390 priced/79
+failed — Yahoo delisting/symbol-mismatch noise, consistent with the OCC
+precedent's own fetch-failure rate):
+
+  +5d:  HIGH_SHORT mean=+0.585%  NEUTRAL mean=-0.358%  LOW_SHORT mean=-0.180%
+        day-clustered spread (HIGH-LOW)=+0.723%, t=1.535 (df=15,
+        crit=2.131) -> does not clear significance alone
+  +20d: HIGH_SHORT mean=+1.456%  NEUTRAL mean=-1.652%  LOW_SHORT mean=-0.705%
+        day-clustered spread (HIGH-LOW)=+2.244%, t=2.279 (df=15,
+        crit=2.131) -> CLEARS significance alone
+
+PRE-STATED VERDICT (composite bar: monotonic ordering in EITHER
+consistent direction on BOTH horizons AND |t20|>crit): FAIL. The
+ordering condition is not met at either horizon — NEUTRAL is the WORST
+performer at both +5d (below LOW_SHORT) and +20d (below LOW_SHORT), a
+U-shape rather than a monotonic short-ratio gradient. Per Reasoning
+Standard #4's anti-fishing discipline, the composite pre-registered bar
+governs the verdict, not the significant HIGH-LOW piece taken alone —
+reporting a PASS by discarding the ordering requirement after seeing the
+data would be exactly the post-hoc rationalization CLAUDE.md's REASONING
+STANDARD #10 exists to prevent. Full honest-anomaly writeup + a
+pre-registered follow-up hypothesis (test HIGH_SHORT against a
+full-population baseline instead of an ordering-dependent 3-bucket
+design; regime-split before trusting the raw contrast) filed in
+open_questions.md's FINRA entry, not chased this session.
+
+`datacore/signal_ladder.json`'s `finra_short_volume` entry updated:
+status `gate1_pass` -> `gate2_fail` (current_gate 1 -> 2), NOT `killed`
+— unlike occ_options_volume/cftc_tff_positioning/jodi_oil_stocks (each
+only marked `killed` after a SECOND confirming test, e.g. a disjoint
+replication or a clean sign-reversal), this is a single first attempt
+whose failure mode (a specific, informative ordering-condition break) is
+not a clean directional refutation. A future session may re-test with
+the follow-up design filed above before this is more permanently closed.
+
+GATES: `npx tsx --test scripts/finra_shortvol_gate2.test.ts` 5/5 pass.
+`npx tsx --test server/*.test.ts scripts/*.test.ts`: full suite run,
+1061 total (5 new), 1060 passed, 1 failed — the pre-existing pmtiles
+magic-byte baseline failure (confirmed unrelated: zero
+`client/public/tiles/*` files touched this session). `npx tsc --noEmit`:
+A/B-verified via `git stash -u` — 86 errors both before and after,
+`diff` confirms byte-identical output. `npm run build` not re-run
+(research-script-only change, no client/ or server RUNTIME path
+touched — server/finraShortVolume.ts itself was read-only this session,
+only its already-exported `FLOOR_TOTAL_VOL`/`fetchShortVolDay`/
+`ShortVolRow` were imported, zero lines changed in that file; matches
+the standing reasoning prior [RESEARCH]/[PIPELINE] sessions have used
+for pure scripts/ changes). Python gate not re-run: zero `.py` files
+touched.
+
+BACKTEST: N/A — this is GATE 2 (SIGNAL layer) statistical research, no
+trading involved, no scoring/sizing/threshold value touched, no runtime
+path imported (the script reads live data directly from FINRA's CDN and
+Yahoo, entirely separate from `server/finraShortVolume.ts`'s own
+production poller/archive).
+
+Version bumped 1.0.606 -> 1.0.607 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 28f3fb4/#704).
+
+CROSS-SYSTEM INTEGRATION: none new — pure GATE 2 statistical research on
+an existing, already-gate-1-passed datacore root; no new archive, no new
+entity-graph join, no new /data-facing surface (this hypothesis was
+never RAW-displayed as a signal and still isn't — `finrashortvol`'s
+existing `/data` surface, if any, continues to show only the RAW
+top-ratio view per the module's own `confidence_model`, unaffected).
+
+NEXT (queued, not this session): (1) the follow-up hypothesis filed in
+open_questions.md — retest HIGH_SHORT vs a full-population baseline,
+regime-split, before trusting the raw +20d contrast. (2)
+github_org_engineering_momentum's v1 API mirror + gate 2 (queued by the
+2026-08-05 session, correctly deferred again this session in favor of a
+genuinely-ready gate-2 candidate rather than a near-mechanical repeat —
+still valid, still queued). (3) KNOWN BROKEN #10/#20 remain correctly
+evidence-blocked, untouched. (4) per the AUDITS & DEBT register, the
+STALENESS/CONSTITUTIONAL audits' last-run dates should be checked by the
+next session whose fall-through reaches the research tier (not checked
+this session — PRIMARY action filled full capacity).
+
+STARVED: no — this was the session's one primary action (a genuine GATE
+2 ladder-advancement per this session's own instructions), matched to
+capacity, with tests/gates all completed and an honest (not inflated)
+verdict recorded even though it did not confirm the stated PRIOR. No
+higher-priority queued item was skipped (KNOWN BROKEN's two open items
+are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
+under threshold). One logical change (one new script + its test + the
+two bookkeeping files describing this exact result), one PR, per
+PROMOTION RULE 5.
