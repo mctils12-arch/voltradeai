@@ -35,7 +35,7 @@ import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, a
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
-import { vesselStreamEnabled, bootVesselStream } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth } from "./vesselStream";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
@@ -800,7 +800,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const layers = ((datacoreLayers as any).layers || []).map((l: any) =>
       // vessels/fires go live automatically the moment their key exists
       l.id === "vessels"
-        ? { ...l, status: vesselStreamEnabled() ? "live" : "awaiting_key" }
+        // [repair 2026-08-06] same defect class as the trains override
+        // below: key-presence alone claimed "live" through socket outages.
+        ? (() => {
+            if (!vesselStreamEnabled()) return { ...l, status: "awaiting_key" };
+            const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now());
+            return vh.down
+              ? { ...l, status: "down", status_note: "AIS socket down/silent — reconnect watchdog active; auto-recovers" }
+              : l;
+          })()
       : l.id === "fires"
         ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
       // [REPAIR 2026-07-05, audit defect #2] trains health override: the
@@ -1034,6 +1042,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const vesselStatics: Map<string, { shiptype: number | null; destination: string | null; name: string | null }> = new Map();
   let vesselSocket: WSClient | null = null;
   let vesselSocketUp = 0;
+  // last frame of ANY type from aisstream — the liveness signal the health
+  // verdict + reconnect watchdog run on (repair 2026-08-06)
+  let vesselLastMsgAt = 0;
 
   function ensureVesselStream(): boolean {
     const key = process.env.AISSTREAM_KEY || "";
@@ -1057,6 +1068,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }));
       });
       ws.on("message", (buf: any) => {
+        vesselLastMsgAt = Date.now();
         try {
           const m = JSON.parse(buf.toString());
           const meta = m.MetaData || {};
@@ -1148,11 +1160,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (sinceUnchanged(hit.data, req.query.since)) {
       return res.json({ unchanged: true, time: hit.data.time, count: hit.data.count });
     }
+    // feed honesty (repair 2026-08-06): a dead socket must never serve
+    // aging positions stamped with a current time — the payload carries the
+    // health verdict and the NEWEST DATA time so stale is visibly stale.
+    const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, now);
     res.json({
       enabled: true,
       source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
       kind: "raw",
       warming_up: hit.data.count === 0 && now - vesselSocketUp < 30_000,
+      feed_down: vh.down || undefined,
+      feed_silent_s: vh.silentMs != null ? Math.round(vh.silentMs / 1000) : undefined,
+      last_message_at: vesselLastMsgAt || undefined,
       ...hit.data,
     });
   });
@@ -1164,6 +1183,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // hours every 30min; roll raw days older than the retention window into
   // per-entity track summaries every 6h. All on the Railway volume.
   setInterval(() => {
+    // RECONNECT WATCHDOG (repair 2026-08-06, full-code-review, verified):
+    // ensureVesselStream previously had exactly two callers — one-shot boot
+    // and the visitor-driven route — so an overnight socket drop with no
+    // traffic left the archive dark until a human opened the map (a
+    // Priority-1 gap: it never refills). Runs BEFORE the empty early-return
+    // below, every 60s, regardless of whether any positions are held.
+    // Zombie half-open sockets (readyState 1, silent past threshold) are
+    // terminated first so the redial actually happens.
+    try {
+      if (vesselStreamEnabled()) {
+        const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now());
+        if (vh.zombie) {
+          console.error("[datacore] aisstream zombie socket — silent " + Math.round((vh.silentMs || 0) / 1000) + "s, redialing");
+          try { vesselSocket?.terminate(); } catch {}
+          vesselSocket = null;
+        }
+        ensureVesselStream();
+      }
+    } catch {}
     try {
       if (vesselPositions.size === 0) return;
       const pts: any[] = [];
