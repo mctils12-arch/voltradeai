@@ -103,12 +103,28 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    domain). SIGNAL: cross-sectional HFT-colonization score
    (cancel/trade ratio) = a FILTER protecting EDGE DOCTRINE #2 (which
    small caps are already colonized by fast money).
-6. **CBOE daily stats** — cdn.cboe.com probed 200 (daily P/C ratios
-   JSON to 2020; VIX_History.csv 1990→present; per-expiry VX futures
-   settle CSVs = free VIX term structure). License: informational
-   use; resale needs Cboe license. SIGNAL: total P/C zero edge;
-   equity-vs-index P/C spread × small-cap short volume is the
-   residual. VX curve replaces any need for CME.
+6. **CBOE daily stats [RE-PROBED 2026-08-07 — put/call half DEAD, VX-curve
+   half harder than described, BUILT the live replacement instead: see
+   server/cboeVix.ts]** — the P/C ratio archive this entry originally
+   named (`cdn.cboe.com/resources/options/volume_and_call_put_ratios/
+   *.csv`) returns HTTP 200 but every file's `Last-Modified` header is
+   Fri, 30 Oct 2020 — a frozen legacy archive, not a live feed (this
+   entry's "JSON to 2020" phrasing was more prescient than intended).
+   The per-expiry "VX futures settle CSVs" lead resolves to
+   `soq_vxs_<date>.csv`, which turned out to be SPXW variance-strip
+   inputs behind the VIX calculation, not a simple futures curve — not
+   built. What IS live and keyless at that same cdn.cboe.com host:
+   `api/global/us_indices/daily_prices/<TICKER>_History.csv` for
+   VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX, all confirmed same-day-updating.
+   BUILT (v1.0.609, server/cboeVix.ts + /api/data/vix-term-structure):
+   daily term structure + two derived ratios, archived. GATE 1 (DATA):
+   CBOE's VIX close matched FRED's independent VIXCLS series exactly
+   for 3/3 dates checked. License: informational use; resale needs
+   Cboe license. SIGNAL: framed RAW/regime-feature only, gate-locked —
+   the original P/C-spread hypothesis is now moot (its data source is
+   dead); this stream's real candidate use is a cleaner regime-vol
+   input than the existing VXX-ratio proxy (KNOWN BROKEN #20), not
+   attempted this session.
 7. **Nasdaq threshold list** — nasdaqtrader.com daily pipe-delimited
    probed 200, date-substituted URLs archive. NYSE's equivalent API
    is DEAD headless (500s + bot check) — FINRA thresholdList covers

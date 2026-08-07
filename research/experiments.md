@@ -41826,3 +41826,167 @@ pipeline candidate existed this session that the prior session hadn't
 already correctly screened out one day earlier). One logical change
 (one new v1 API route + its license/docs/agent-tool bookkeeping + tests
 + one ladder-entry note), one PR, per PROMOTION RULE 5.
+
+## 2026-08-07 (scheduled-routine session #2) [PIPELINE] — T-DATACORE — Cboe VIX term structure (VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX) built end-to-end after the census's "cboe_daily_stats" target was re-probed and found dead (v1.0.609)
+
+REPAIR CHECK FIRST (per Repair Mandate): `/api/health` — all subsystems
+ok, `bot.status: active`, `liveness.dark: false`, drawdown 0.0%. Scanned
+KNOWN BROKEN in open_questions.md: no unresolved critical item — #10/#20
+were the only "not fully closed" entries and both are now genuinely
+gated on freshly-labeled shadow history accumulating after the
+2026-08-05 backfill-interval fix (v1.0.596), confirmed still working
+this session (`/api/diag/audit?type=SHADOW-BACKFILL` shows nightly runs
+2026-08-05 and 2026-08-06, `/api/diag/shadow` now shows real
+`labeled_by_horizon` counts: 105 wins/229 losses, up from the 0/0 that
+motivated the fix) — nothing new to do there, correctly not a repair
+session. Last 10 experiments.md entries: 3 REPAIR / 3 PRODUCT / 2
+RESEARCH / 2 PIPELINE — well under the 7/10 thrash bar, no STARVED
+streak.
+
+PRIOR (stated before building, per REASONING STANDARD #10): expected the
+EDGE-DOCTRINE-named axis (a) list to be fully built already (it mostly
+was — JODI/EDGAR-Form4/USAspending/CFTC-COT/FDA-calendar all show
+`status: built` in `scripts/data_stream_registry_check.py`), so the
+session's real target was whichever `candidate_unbuilt` the registry
+script's own `--unbuilt` output pointed at next. That script (built
+2026-08-03, #685) named `cboe_daily_stats` as the top ranked-but-unbuilt
+candidate, carried over from the census (`data_census.md` #6, probed
+2026-07-06) with the note "keyless, licensing-clean for the uncrowded
+P/C-spread signal." Prior: expected a same-day build, same shape as
+occVolume.ts/secFtd.ts.
+
+WHAT ACTUALLY HAPPENED (prior falsified, REASONING STANDARD #10): the
+census's exact URLs were never recorded (prose only), so this session
+re-probed from scratch. `cdn.cboe.com/resources/options/
+volume_and_call_put_ratios/{equitypc,indexpcarchive,pcratioarchive,
+totalpc}.csv` all return HTTP 200 (confirming the original 2026-07-06
+probe wasn't wrong) but `curl -I` shows every one carries
+`Last-Modified: Fri, 30 Oct 2020` — a FROZEN legacy archive that stopped
+updating ~5.75 years ago, not a live feed. A nightly poller would poll a
+dead file forever; this is not a repeat of OCC's "rolling window, data
+ages off" pattern (rescuable by archiving), it's a source CBOE itself
+has abandoned. The census's "VX curve" half was chased next: the live
+VIX-futures-settlement page resolves to `soq_vxs_<date>.csv` (verified
+via a headless Playwright probe of the Cloudflare-protected Next.js
+market-statistics page, after direct `curl`/plain-Chromium attempts hit
+a TLS-layer connection reset most likely from this sandbox's outbound
+proxy) — but that file turned out to be the SPXW variance-strip inputs
+behind the VIX INDEX calculation itself (a wide options-surface CSV,
+`Class,ExpirationDate,Strike,PutCall,Premium,...`), not a simple VX
+futures contract curve. Parsing that into a term structure is a
+materially harder, different root than described — deferred, not
+attempted this session (BUILD-FIRST honesty: the free version here
+would cost real additional session time for an unclear result; noted
+rather than forced).
+
+PIVOT (same cdn.cboe.com host, found via `WebSearch` after the direct
+guesses above 403'd): `cdn.cboe.com/api/global/us_indices/daily_prices/
+<TICKER>_History.csv` for VIX1D/VIX9D/VIX/VIX3M/VIX6M (OHLC) and VVIX
+(close-only) — all keyless HTTP 200, and genuinely live (`Last-Modified`
+same UTC day as the probe for all six, verified via `curl -I`). This is
+Cboe's own official volatility-index family, not a third-party mirror.
+
+GATE 1 (DATA) — verified against an external truth source before
+building anything downstream, per the ROOT VALIDATION LADDER: pulled
+FRED's independently-published `VIXCLS` series
+(`fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS`) for
+2026-08-03/04/05 and compared to CBOE's own `VIX_History.csv` close for
+the same three dates — exact match all three (15.86/16.50/15.81 both
+sources, both dates). Two independent publishers agreeing to the cent
+is strong gate-1 evidence for a source this session had not touched
+before.
+
+BUILT (own PR, v1.0.609): `server/cboeVix.ts` — fetches all six tenors,
+merges into per-date records floored at 2022-05-16 (VIX1D's inception,
+so every archived record has all six values populated — a partial day
+on any one tenor is dropped rather than null-padded or fabricated,
+verified by a dedicated test), computes two derived ratios
+(`vix_vix3m_ratio` = vix/vix3m, contango vs backwardation;
+`vix9d_vix_ratio` = front-end stress vs the 30d level — arithmetic on
+public official values, not an inference/estimate, so labeled RAW like
+OCC's origin-split rather than gated as a SIGNAL). Archive: one plain
+JSONL file PER YEAR (not per day like occVolume/wikiAttention — this
+stream's payload is ~200 bytes/day, so a per-day file scheme would be
+thousands of tiny files for zero benefit), day-level dedup, prior-year
+files gzipped once the calendar rolls over (with a reopen-on-late-append
+path if a backfill day ever lands in an already-gzipped year — tested).
+4h poll, eager boot (KNOWN BROKEN #9 precedent). Route:
+`/api/data/vix-term-structure`, RAW framing, explicit note that the
+ratios carry no predictive/regime claim yet (gate-locked). Manifest:
+`datacore/manifests/cboevix.json` (full envelope, passes the existing
+`manifests.test.ts` forward-enforcement test unmodified). Registry
+housekeeping in the SAME PR (compiled-knowledge correction, not a
+separate logical change — it's the direct record of what this session's
+build attempt found): `scripts/data_stream_registry_check.py`'s
+`cboe_daily_stats` entry marked `declined_dead_source` with the frozen-
+archive/SOQ-detour trace; new `cboe_vix_term_structure` entry marked
+`built`; `research/data_census.md` #6 updated in place with the same
+correction (script `--unbuilt` output re-verified clean, exit 0, no
+drift).
+
+CROSS-SYSTEM INTEGRATION (per the human directive): bot_engine.py's
+regime classifier currently derives its own vol proxy from a VXX ETF
+ratio (the same mechanism KNOWN BROKEN #20 already flags as coarser
+than the system's own Markov regime classification). This archive is a
+real candidate for a cleaner regime-vol input — Cboe's own multi-tenor
+term structure instead of a single ETF ratio — but wiring it into
+`bot_engine.py` or `system_config.py` is a RULE REVIEW change requiring
+its own evidence gate and is explicitly NOT done this session (GATE 1
+only; SIGNAL/LOGIC gates come later, once enough archive history
+exists to test the hypothesis honestly). Filed here rather than invented
+silently, per the CROSS-SYSTEM INTEGRATION PRINCIPLE's honesty clause.
+
+RATCHET: `server/cboeVix.test.ts`, 12 tests covering CSV parsing (both
+OHLC and close-only shapes, verbatim fixtures from the live 2026-08-07
+probe), the floor-date + partial-day-drop merge logic, the URL builder,
+day-level dedup archive round-trip through disk (including a fresh-
+process re-seed-from-disk case), the year-file gzip sweep, the reopen-
+a-gzipped-past-year append path, and two `refreshCboeVix` end-to-end
+cases (happy path via a fake fetch, and a single-tenor HTTP failure
+degrading to a clean no-op rather than throwing or fabricating a
+partial day). `test_data_stream_registry_check.py` (8 tests, pre-
+existing) still passes unmodified against the edited CANDIDATES table.
+
+GATES: `npx tsx --test server/*.test.ts` 1062 passed, 1 failed — the
+failure is `gridTiles.test.ts`'s PMTiles-magic-byte check, confirmed
+pre-existing and unrelated via `git stash` (same failure on unmodified
+HEAD, large tile binaries not fully materialized in this container).
+`npx tsc --noEmit` 86 errors, byte-identical count to the `git stash`
+baseline (my one near-miss — a `for...of` over a `Map.keys()` iterator
+in `mergeTenors`, same TS2802 class as ~15 pre-existing hits elsewhere —
+was rewritten as `Array.from(...).forEach(...)` before commit, so the
+new file adds zero new tsc errors). `npm run build` clean. Full
+`python3 -m pytest -q` could not run in this container — no
+`requirements.txt` packages are installed (fresh sandbox, confirmed via
+`pip list`), and collection INTERNALERROR's on `voltrade_daemon.py`'s
+own import-time `sys.exit(2)` guard; verified via `git stash` that this
+is identical on unmodified HEAD, not caused by this change. Ran the one
+Python file actually touched in isolation instead:
+`python3 -m pytest -q test_data_stream_registry_check.py` — 8/8 passed.
+Version bumped 1.0.608 -> 1.0.609 (PROMOTION RULE 4) in `package.json` +
+both version fields in `package-lock.json` (root `version` and the
+`packages[""].version`, which was already lagging one version behind at
+session start — synced both, same recurring lag noted in the 2026-08-03
+entry above).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+BACKTEST: N/A — zero trading logic, scoring, sizing, or execution path
+touched; new data-archive pipeline only, explicitly not wired into any
+decision this session (see CROSS-SYSTEM INTEGRATION above).
+
+NEXT (queued, not this session): once the archive has enough history
+(the ~90-day bar other gate-1-passed-but-unvalidated streams in this
+file use), a future session can (a) test whether
+`vix_vix3m_ratio`/`vix9d_vix_ratio` extremes correlate with the
+existing regime classifier's own transitions (candidate SIGNAL-gate
+step, or candidate regime-input replacement for KNOWN BROKEN #20's
+VXX-ratio proxy — either needs its own RULE REVIEW evidence, not
+assumed here); (b) if a session wants the harder VX-futures-curve root
+later, `soq_vxs_<date>.csv`'s SPXW variance-strip schema is now
+characterized above as the starting point, not a blind re-probe.
+
+STARVED: no — this was the session's one primary action ([PIPELINE] per
+SESSION BUDGET); fall-through not reached (one logical PR, per
+PROMOTION RULE 5). Market open at commit time; `/api/health` re-checked
+clean before finishing, no LIVENESS ALARM.

@@ -163,10 +163,25 @@ CANDIDATES = [
 
     # --- Probed, viable, simply not yet built (lower rank / needs a build decision) ---
     {"id": "cboe_daily_stats", "name": "CBOE daily put/call ratios + VX curve",
-     "edge_doctrine_named": False, "status": "candidate_unbuilt",
+     "edge_doctrine_named": False, "status": "declined_dead_source",
      "manifest_keys": [], "layer_ids": [],
-     "note": "probed 200 keyless; total P/C is crowded, equity-vs-index P/C spread x small-cap short volume "
-             "is the residual claim; resale of raw series needs a Cboe license"},
+     "note": "RE-PROBED 2026-08-07 (scheduled-routine session, build attempt): the put/call ratio archive "
+             "(cdn.cboe.com/resources/options/volume_and_call_put_ratios/*.csv) returns HTTP 200 but every "
+             "file carries Last-Modified: Fri, 30 Oct 2020 (verified via curl -I) — a FROZEN legacy archive, "
+             "not a live feed; a nightly poller would poll a dead file forever. The 'VX curve' half resolves "
+             "to soq_vxs_<date>.csv, which turned out to be SPXW variance-strip inputs behind the VIX "
+             "calculation (a wide options-surface file), not a simple futures curve — a different, harder "
+             "root, not attempted. Superseded by cboe_vix_term_structure below, which is what the live "
+             "cdn.cboe.com data actually supports today."},
+    {"id": "cboe_vix_term_structure", "name": "CBOE VIX1D/VIX9D/VIX/VIX3M/VIX6M + VVIX term structure",
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["cboevix"], "layer_ids": [],
+     "note": "server/cboeVix.ts, built 2026-08-07 (scheduled-routine session) after cboe_daily_stats above "
+             "turned out dead. cdn.cboe.com/api/global/us_indices/daily_prices/<T>_History.csv, keyless, "
+             "confirmed live (Last-Modified same-day). GATE 1 (DATA) cross-check: CBOE's own VIX close "
+             "matched FRED's independent VIXCLS series exactly for 3/3 dates checked. RAW/regime-feature "
+             "framing only; candidate cleaner replacement for the VXX-ratio regime proxy behind KNOWN "
+             "BROKEN #20, not wired into trading logic this session."},
     {"id": "dtcc_sbsdr", "name": "DTCC swap data repository",
      "edge_doctrine_named": False, "status": "candidate_unbuilt",
      "manifest_keys": [], "layer_ids": [],
