@@ -562,6 +562,12 @@ export interface CelestialSkyOptions {
   getView: () => SkyView;
   /** minimum ms between ephemeris updates (default 1000 = 1 Hz per spec). */
   updateIntervalMs?: number;
+  /** Fired when THIS canvas's WebGL context is lost (driver reset — the
+   *  Iris Xe field evidence, 2026-08-05 case file). Without a handler the
+   *  sky died permanently as a blank canvas while the map recovered. The
+   *  recovery model is dispose→remount by the parent's pitch lifecycle —
+   *  never in-place GL resurrection. */
+  onContextLost?: () => void;
 }
 
 export interface CelestialSkyHandle {
@@ -693,6 +699,19 @@ export function mountCelestialSky(
     canvas.style.height = "100%";
     canvas.style.pointerEvents = "none"; // the sky never eats map gestures
     container.appendChild(canvas);
+    // Context-loss handling (repair 2026-08-06, GL-loss case file): a driver
+    // reset kills every context on the page; MapLibre restores ITS context
+    // in place, but this one had no handler and stayed a dead blank canvas
+    // for the rest of the session. preventDefault marks the context
+    // restorable to the browser; recovery is dispose→remount via the
+    // parent's pitch lifecycle (a fresh context, never resurrected GL
+    // objects — resurrection on a mid-reset-episode driver is how restart
+    // loops start, the round-15 auto-reload lesson).
+    canvas.addEventListener?.("webglcontextlost", (e) => {
+      try { e.preventDefault(); } catch {}
+      renderFailed = true; // stops the render loop safely (existing latch)
+      try { opts.onContextLost?.(); } catch {}
+    });
   } catch { renderFailed = true; return inert(); }
 
   let gl: WebGL2RenderingContext | null = null;
