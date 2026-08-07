@@ -1,0 +1,23 @@
+{
+ "stream": "cboevix",
+ "storage": "one plain JSONL per YEAR under <archive>/cboevix/ (payload ~200 bytes/day — a per-day file scheme would be thousands of tiny files for no benefit); day-level dedup; prior-year files gzipped once the calendar year rolls over",
+ "written_by": "server/cboeVix.ts refreshCboeVix (4h poll, eager boot per KNOWN BROKEN #9 precedent)",
+ "source": "cdn.cboe.com/api/global/us_indices/daily_prices/<TICKER>_History.csv — keyless CSV, probed live 2026-08-07 (VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX all HTTP 200, Last-Modified within the probing session's UTC day, i.e. genuinely live). Full history published from each tenor's inception (VIX1D 2022-05-13 is the youngest) — unlike OCC/rolling-window sources, CBOE does not prune this, so the archive's value is resilience + a proprietary derived-ratio record, not rescue-before-it-ages-off. GATE 1 (DATA) cross-check this session: CBOE's own VIX close matched FRED's independently-published VIXCLS series exactly for 2026-08-03/04/05 (15.86/16.50/15.81, both sources, both dates). The census's original target (put/call ratio CSVs under volume_and_call_put_ratios/) was found FROZEN since 2020-10-30 (Last-Modified header, verified live) — declined as a dead source; a VX-futures-curve alternative resolved to SOQ variance-strip data, a different and harder root, not built this session.",
+ "license": "Cboe informational use (page footer); redistribution of the raw series needs Cboe permission — bot-internal archive + gated derived signals OK, same posture as occvolume",
+ "attribution": "Cboe Global Markets volatility indices",
+ "schema_version": 1,
+ "field_map": {
+  "date": "trading date, floored at 2022-05-16 (VIX1D's first full trading day) so every record has all six tenors populated — no null-padding",
+  "vix1d/vix9d/vix/vix3m/vix6m": "Cboe's own 1-day/9-day/30-day/3-month/6-month expected-volatility indices (close)",
+  "vvix": "Cboe VVIX — volatility of VIX itself (close)",
+  "vix_vix3m_ratio": "vix/vix3m — <1 normal contango, >=1 backwardation (stress); derived, not published by Cboe",
+  "vix9d_vix_ratio": "vix9d/vix — front-end stress relative to the 30-day level; derived, not published by Cboe"
+ },
+ "confidence_model": "RAW official index levels + two straightforward derived ratios, shown as reference data only. Not wired into bot_engine.py's regime classification or any trading decision — gate-locked pending a future SIGNAL-layer session (candidate cleaner replacement for the VXX-ratio regime proxy behind KNOWN BROKEN #20, not attempted this session).",
+ "geo_fields": [],
+ "entity_key": "date (one record per trading day)",
+ "sentiment": null,
+ "started": "2026-08-07",
+ "cadence": "daily source, Cboe close of business; 4h poll",
+ "_note": "Universal archive envelope (approved 2026-07-04). EDGE DOCTRINE axis (a) build-first pipeline, scheduled-routine session 2026-08-07 — see research/experiments.md same-date entry for the full CBOE dead-end trace (frozen P/C archive, SOQ variance-strip detour) that led here."
+}

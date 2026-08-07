@@ -87,6 +87,7 @@ import { bootAirQualityPoll, latestAirQuality, airQualityEnabled } from "./airQu
 import { bootSatellitesPoll, satellitesResponse } from "./satellites";
 import { bootCropConditionsPoll, latestConditions, cropConditionsEnabled } from "./cropConditions";
 import { bootOccPoll, latestOcc } from "./occVolume";
+import { bootCboeVixPoll, latestCboeVix } from "./cboeVix";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
@@ -3008,6 +3009,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.top.length,
       note: "top underlyings by cleared volume with customer/market-maker put-call splits (qty counts each clearing side; totals halved); source keeps only a rolling 2-year window — this archive is the durable copy; origin-split signals stay gate-locked until ladder validation",
       top: hit.top,
+    });
+  });
+
+  // Cboe VIX term structure (RAW — build-first pipeline, scheduled-routine
+  // session 2026-08-07; census's original "cboe_daily_stats" target turned
+  // out frozen/oversized, this is the live keyless replacement). Serves
+  // the poller's cached latest day + a 30-day recent window.
+  bootCboeVixPoll();
+  app.get("/api/data/vix-term-structure", (_req, res) => {
+    const hit = latestCboeVix();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "Cboe volatility indices", warming_up: true, latest: null, recent: [] });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "Cboe Global Markets — VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close",
+      attribution: "Cboe Global Markets volatility indices",
+      time: hit.at,
+      latest: hit.latest,
+      recent: hit.recent,
+      note: "term-structure levels and two derived ratios (vix/vix3m, vix9d/vix) shown as reference data; any predictive/regime claim stays gate-locked until ladder SIGNAL-layer validation — not wired into any trading decision today",
     });
   });
 
