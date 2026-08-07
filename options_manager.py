@@ -135,6 +135,28 @@ def _get_option_snapshot(occ_symbol: str) -> dict:
     return {}
 
 
+
+def rolled_position_state(pos_state: dict, new_credit, now_date=None, now_iso=None) -> dict:
+    """Fresh state for a ROLLED short leg (repair 2026-08-06, full-code-review
+    finding, adversarially verified): the old leg's initial_credit /
+    max_profit_target / highest_value must NOT survive the roll — profit
+    targets would compute against a basis the new leg never had. Identity
+    fields (ticker, qty, strategy tags) carry over; economics restart at the
+    price the new leg actually sold for. Pure function, unit-tested."""
+    fresh = {
+        **pos_state,
+        "entry_date": now_date or time.strftime("%Y-%m-%d"),
+        "entry_timestamp": now_iso or datetime.now().isoformat(),
+    }
+    nc = float(new_credit or 0)
+    if nc > 0:
+        fresh["entry_price"] = nc
+        fresh["initial_credit"] = nc
+        fresh["max_profit_target"] = nc * PROFIT_TARGET_PCT
+        fresh["highest_value"] = nc
+    return fresh
+
+
 def _parse_occ_symbol(occ_symbol: str) -> dict:
     """
     Parse an OCC symbol into components.
@@ -363,6 +385,10 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
                        f"for ${best_new['net_credit']:+.2f}/contract net credit"),
             "new_symbol": best_new["occ_symbol"],
             "net_credit": best_new["net_credit"],
+            # ROLL BASIS REPAIR 2026-08-06: the price the NEW leg was
+            # submitted at — the fresh position's credit basis. Without it
+            # the caller cloned the OLD leg's economics into the new state.
+            "new_credit": new_limit,
         }
 
     except Exception as e:
@@ -788,10 +814,19 @@ def manage_options_positions(equity: float = 100000) -> dict:
     ]
 
     if not options_positions:
-        # Clean stale state entries
-        if state:
-            _save_options_state({})
-        return {"actions": [], "positions_checked": 0, "options_state": {}}
+        # Clean stale state entries — but NEVER the convexity overlay's
+        # markers (repair 2026-08-06, full-code-review finding, adversarially
+        # verified): when the ONLY held options are the QQQ tail-hedge puts,
+        # they are filtered out above and this branch used to wipe the WHOLE
+        # state file — destroying the strategy/managed_by markers that
+        # _run_convexity_overlay (bot_engine.py) and the filter above both
+        # re-identify the hedge legs by. Orphaned hedge puts then get managed
+        # as ordinary positions on the next cycle. Preserve every
+        # convexity-managed entry; drop only the truly stale rest.
+        preserved = {k: v for k, v in state.items() if k in convexity_symbols}
+        if state != preserved:
+            _save_options_state(preserved)
+        return {"actions": [], "positions_checked": 0, "options_state": preserved}
 
     positions_checked = 0
 
@@ -957,7 +992,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 # Update state to new symbol
                 new_sym = roll_result.get("new_symbol")
                 if new_sym:
-                    state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d"), "entry_timestamp": datetime.now().isoformat()}
+                    state[new_sym] = rolled_position_state(pos_state, roll_result.get("new_credit"))
                 state.pop(occ_symbol, None)
                 continue
             else:
@@ -996,7 +1031,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     })
                     new_sym = roll_result.get("new_symbol")
                     if new_sym:
-                        state[new_sym] = {**pos_state, "entry_date": time.strftime("%Y-%m-%d"), "entry_timestamp": datetime.now().isoformat()}
+                        state[new_sym] = rolled_position_state(pos_state, roll_result.get("new_credit"))
                     state.pop(occ_symbol, None)
                     continue
                 else:

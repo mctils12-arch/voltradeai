@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.614)
+## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.616)
 
 TERRITORY: T-CLIENT (`client/src/pages/vixTermStructure.tsx` new,
 `client/src/pages/datamap.tsx` launcher/routing wiring,
@@ -48,7 +48,7 @@ module's own docstring frames the six levels + two ratios as RAW
 arithmetic, not an inference) and a concretely-queued gap, ranking above
 starting fresh research per SESSION BUDGET.
 
-BUILT (own PR, v1.0.614): `client/src/pages/vixTermStructure.tsx` — new
+BUILT (own PR, v1.0.616): `client/src/pages/vixTermStructure.tsx` — new
 `#/data/vix-term-structure` overlay view, same shell/wiring recipe as
 `githubOrgActivity.tsx`/`cropConditions.tsx` (RAW framing restated in the
 header, warming-up/error/empty states, external-source link). Shows the
@@ -138,6 +138,29 @@ updated to match, pushed. Neither incoming commit touched
 `vixTermStructure.tsx`, `datamap.tsx`, or `visual_check.mjs`, so no
 re-verification beyond a fresh `tsc --noEmit`/`npm run build`/test-suite
 pass was needed — all clean, identical to the pre-this-merge run.
+
+MERGE (3 of 3): the "Auto-merge Claude PRs" check failed a second time
+with the identical `GraphQL: Pull Request has merge conflicts` message —
+`origin/main` had advanced twice more in the few minutes it took to
+resolve MERGE 2 (eb32eb4 v1.0.614 options-roll-basis repair, 735563c
+v1.0.615 options-convexity-state repair; both from the same full-code-
+review fix train as MERGE 2's commits, both touching `options_manager.py`,
+neither touching client files or `research/experiments.md`), landing
+another `package.json` version collision (this PR's own 1.0.614 pick from
+MERGE 2 collided head-on with eb32eb4 independently claiming the same
+number). Same resolution pattern: `options_manager.py` auto-merged
+cleanly, `package.json` bumped past the new tip to 1.0.616 (both
+`package-lock.json` version fields synced), this entry's own version
+references updated a second time. `tsc --noEmit`/`npm run build`/full
+node test suite re-run clean, identical to every prior run in this PR.
+NOTE for future PRODUCT/PIPELINE sessions in this repo: the
+"Auto-merge Claude PRs" CI check merges on green regardless of market
+hours (it does not read or honor a PR body's deploy-timing note), and
+with several concurrent sessions landing PRs every few minutes, a
+`package.json` version collision on the FIRST merge attempt is close to
+guaranteed for any PR that sits open more than a couple of minutes —
+budget for at least one MERGE-ORDER PROTOCOL re-resolution as routine,
+not exceptional.
 
 VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
 vixtermstructure` run twice (once pre-merge, once post-merge onto
