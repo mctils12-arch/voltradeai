@@ -757,69 +757,6 @@ async function trackClosedTrades() {
 
     // Adjust strategy weights based on recent performance
     adjustStrategyWeights();
-
-    // Self-improving: feed closed trades back to ML training data
-    //
-    // FIX 2026-04-20 (Bug #25b): Only write records with real pnl_pct.
-    // Previously every record had pnl_pct=0 (sentinel for unknown), which
-    // ML training interpreted as "loss" — poisoning the training set.
-    // Also require entry_features to be present; without features, the
-    // record is useless for training even if pnl_pct is correct.
-    if (tradeResults.length > 0) {
-      try {
-        const feedbackData = tradeResults.slice(0, 20)
-          .filter(t => t.pnlPct !== 0 && t.pnlPct !== null && t.entryFeatures != null)  // skip garbage
-          .map(t => ({
-          ticker: t.ticker,
-          side: t.side,
-          pnl_pct: t.pnlPct,
-          holding_days: t.holdingDays,
-          strategy: t.strategy,
-          score: t.score,
-          rules_score: t.rulesScore || null,
-          ml_score: t.mlScore || null,
-          blended_score: t.score,
-          won: t.pnlPct > 0 ? 1 : 0,
-          instrument: t.instrument || "stock",
-          entry_features: t.entryFeatures || null,   // 52-feature snapshot at entry
-          exit_context: t.exitContext || null,        // Stop phase, R-multiple, ATR at exit
-          timestamp: t.timestamp,
-          // REPAIR 2026-07-11: was hardcoded "1.0.34" (the version at
-          // Bug-25's fix) forever — same bug as track_fill's stamping,
-          // fixed there too. This block is currently dead code (KNOWN
-          // BROKEN #12b: entryFeatures is hardcoded null upstream), but
-          // fixing the stale literal costs nothing and avoids leaving a
-          // second copy of the same bug pattern in the repo.
-          code_version: pkgVersion,
-        }));
-        if (feedbackData.length === 0) {
-          // Nothing worth training on this cycle
-          return;
-        }
-        const fbTmpPath = `/tmp/fb_${Date.now()}.json`;
-        fs.writeFileSync(fbTmpPath, JSON.stringify(feedbackData));
-        execPythonSerialized(`python3 -c "
-import json, os
-try:
-    from storage_config import TRADE_FEEDBACK_PATH
-except ImportError:
-    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-feedback = json.load(open('${fbTmpPath}'))
-os.remove('${fbTmpPath}')
-existing = []
-if os.path.exists(TRADE_FEEDBACK_PATH):
-    try:
-        with open(TRADE_FEEDBACK_PATH) as f:
-            existing = json.load(f)
-    except: pass
-existing.extend(feedback)
-existing = existing[-500:]
-with open(TRADE_FEEDBACK_PATH, 'w') as f:
-    json.dump(existing, f)
-print(json.dumps({'saved': len(feedback), 'total': len(existing)}))
-"`, { timeout: 5000 }).catch(() => {});
-      } catch (err: any) { console.error("[bot]", err?.message || err); }
-    }
   } catch (e: any) {
     audit("LEARN-ERROR", `Track closed trades failed: ${e.message}`);
   }

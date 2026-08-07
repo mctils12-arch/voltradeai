@@ -3,6 +3,137 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-07 (scheduled-routine session #5, market-hours, [REPAIR]) — T-BOT — KNOWN BROKEN #12(b) resolved: the dead `trackClosedTrades` ML-feedback block removed after the live falsifiable signal it was gated on finally fired (v1.0.619)
+
+TERRITORY: T-BOT (`server/bot.ts` — `trackClosedTrades`, non-frozen) +
+new `server/deadFeedbackBlockRemoval.test.ts` + `package.json`/
+`package-lock.json` version bump (SHARED, last, per MERGE-ORDER
+PROTOCOL). No Python files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`research/open_questions.md` read (`research/wishlist.md` not needed —
+primary action found before falling through to it). Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM. Loop-health ratio over the last 10 tagged entries:
+PRODUCT, PIPELINE, PIPELINE, PIPELINE, RULE-REVIEW, RESEARCH, REPAIR,
+PRODUCT, REPAIR, PIPELINE — 2/10 REPAIR, well under the 7/10 thrash bar,
+no meta-problem to action. `git fetch origin main` confirmed this
+branch's starting commit (fcb3a12) is exactly `origin/main`'s tip (a
+stale cached remote-tracking ref briefly showed a diverged `dbe635c` —
+re-fetch and a direct `mcp__github__list_commits` check on `main`
+confirmed fcb3a12 IS the real GitHub tip; the branch itself was never
+actually behind, the local ref cache was just stale in this fresh
+container). No open PR existed yet for this branch.
+
+REPAIR CHECK FIRST (per Repair Mandate): scanned KNOWN BROKEN in
+open_questions.md. Item #12(b) — the `trackClosedTrades` dead-code
+removal gated on D2's live verification ("once a WS exit records a real
+outcome via track_fill, the block is redundant and should be REMOVED")
+— had a concrete, checkable NEXT step from the 2026-07-31 update:
+"check `/api/diag/ml`'s `live_outcome_breakdown` ... the first
+non-orphan bucket appearing is the falsifiable signal." Checked it live
+this session (DIAG_TOKEN present in env): `live_outcome_breakdown:
+{"orphan_exit": 80, "win": 2, "open": 3, "loss": 4}` — 9 real records now
+exist (all `session:"regular"`), up from the 2026-07-31 update's
+all-orphan `{"orphan_exit": 70}`. The falsifiable signal fired; this
+ranked above items #10/#20 (both still blocked on shadow_portfolio
+history accumulating — checked `/api/diag/shadow`: only 334/13,339
+records labeled since the 2026-08-05 backfill fix, 2 days in, nowhere
+near the ~20-trading-day readiness bar those items need) and above
+starting fresh research per SESSION BUDGET ("fix a bug seen in audit
+logs > judge a matured experiment").
+
+INVESTIGATION: rather than trust the live signal alone (item #12's own
+history is full of live-data theories later falsified — see the
+2026-07-31 update reversing the 2026-07-06 "expect within days"
+prediction), traced the actual code. `tradeResults` (server/bot.ts) has
+exactly ONE write site — the `.unshift()` inside `trackClosedTrades` —
+and it hardcodes `entryFeatures: null` unconditionally. D3's own filter
+(`t.entryFeatures != null`, `.filter()` chain a few lines below) can
+therefore never pass a single record, BY CONSTRUCTION, independent of
+live data entirely — a stronger and simpler proof than the live
+win/open/loss counts alone would have given. The 9 real records
+observed live must therefore have come from the OTHER writer
+(`track_fill`, called from `entryFill.ts`'s ETF path,
+`morningFillPayload`, or the regular-hours `fillPayload` — all three
+share `session:"regular"`/`"morning_queue"` tags, so live data alone
+can't further attribute WHICH of the three closed this specific gate;
+not needed, since the item's condition is "a WS exit records a real
+outcome via track_fill" generically, not path-specific). `orphan_exit`
+also grew (+10 since 07-31) — plausibly the options-monitor site
+(~line 4221) that item #12(c) and the options-fill-realism entry
+deliberately leave unfixed pending a quote-based-pricing design
+decision (mislabeling pnl_pct off the underlying instead of the actual
+option premium would violate MEASUREMENT INTEGRITY) — not re-diagnosed
+further this session since it's orthogonal to (b)'s own gate and
+already tracked under (c).
+
+REPAIRED (own PR, v1.0.619): removed the dead `if (tradeResults.length
+> 0) { try { ...feedbackData... } }` block (~62 lines, the
+`TRADE_FEEDBACK_PATH` write keyed on the permanently-false
+`entryFeatures != null` filter) from `trackClosedTrades`.
+`adjustStrategyWeights()` (unrelated, still live and unaffected — it
+reads `tradeResults` directly, not the removed feedback block) and the
+outer `catch` → `audit("LEARN-ERROR", ...)` were left untouched. Per
+CLAUDE.md's STALENESS AUDIT / DEAD CODE POLICY: a permanently-unreachable
+filter left in place reads as active documentation of a real ML-training
+gate to any future session (the block's own comments even said "skip
+garbage" and cited a specific bug-fix history) when it has written zero
+records ever — removing it beats leaving misleading dead code around.
+
+RATCHET: `server/deadFeedbackBlockRemoval.test.ts` (new, 3 tests),
+following the repo's existing static-source-scan pattern
+(`shadowBackfillVisibility.test.ts` precedent) since `trackClosedTrades`
+isn't exported and isn't easily unit-testable in isolation. A/B-verified
+via `git stash`: the first assertion (`entryFeatures != null` absent)
+FAILS against the pre-removal code and PASSES post-removal; the other
+two (strategy-weight adjustment still present; `tradeResults` still has
+exactly one write site hardcoding `entryFeatures: null`) pass both
+before and after, by design — they pin the premise the removal rests on,
+so if a future change ever adds a second write site or lifts the
+hardcoded null, this test's own reasoning gets flagged for
+re-examination instead of silently going stale.
+
+GATES: fresh container needed `npm install` (node_modules absent, same
+recurring environment gap prior sessions have logged — `npm install`
+also synced `package-lock.json`'s two lagging version fields from
+1.0.616 to 1.0.618 as a side effect, matching package.json; left in
+place, same class of fix noted in the 2026-08-07 session #4 entry
+above). `npx tsc --noEmit`: 83 errors, byte-identical to the documented
+baseline, confirmed none reference the removed block or the new test
+file. `npx tsx --test server/*.test.ts`: 1069 tests, 1068 passed, 1
+failed — the failure is `gridTiles.test.ts`'s PMTiles-magic-byte check,
+confirmed pre-existing and unrelated (same container/large-binary
+environment gap logged in the 2026-08-07 session #4 entry). `npm run
+build`: clean. `python3 -m pytest -q`: N/A, zero `.py` files touched,
+and `pytest` isn't installed in this fresh container regardless (same
+pre-existing environment gap). Version bumped 1.0.618 -> 1.0.619
+(read-and-increment at commit time, both `package.json` and both
+`package-lock.json` version fields kept in lockstep).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this removes confirmed-dead code
+with zero observable behavior change (the block wrote nothing before,
+writes nothing now because it's gone); no scoring, sizing, threshold,
+or trading-logic path is touched.
+
+MARKET-HOURS NOTE (per this session's own task instructions): this PR
+is prepared and ready but merge should wait until after 4:00 PM ET
+today unless a critical live break demands otherwise — this is not one
+(dead-code removal, zero live-behavior change, not a break fix).
+
+NEXT: item #12(c) — the options-monitor exit site (~4221) and any exit
+paths beyond the WS monitor (options_manager exits, bot_engine-side
+closes, manual dashboard closes) still record nothing on entry, which
+plausibly explains the continued `orphan_exit` growth observed this
+session. A future session should re-check `/api/diag/ml`'s
+`live_outcome_breakdown` after this fix has had more time live; if
+`orphan_exit` keeps climbing roughly 1:1 with new WS-monitored exits
+while win/open/loss growth stays flat, that's the falsifiable signal
+pointing at the options-monitor site specifically — but wiring an entry
+record there needs the quote-based-pricing design decision (c) already
+gates on, not a quick fix.
+
 ## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.616)
 
 TERRITORY: T-CLIENT (`client/src/pages/vixTermStructure.tsx` new,

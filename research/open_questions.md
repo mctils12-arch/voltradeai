@@ -627,6 +627,47 @@
     trips, the regular/morning entry paths (or the boot-cleanup purge, or
     a ticker-normalization mismatch) need the same trace applied to them
     next.
+    **(b) RESOLVED 2026-08-07 (scheduled-routine session, [REPAIR],
+    v1.0.619, T-BOT):** the falsifiable signal fired. `/api/diag/ml` this
+    session: `live_outcome_breakdown: {"orphan_exit": 80, "win": 2,
+    "open": 3, "loss": 4}` (up from the all-orphan `{"orphan_exit": 70}`
+    the 2026-07-31 update logged) — 9 real-outcome records now exist,
+    all `session:"regular"`, confirming a WS exit HAS matched a track_fill
+    entry and recorded a genuine win/open/loss. (orphan_exit also grew,
+    +10 since 07-31 — plausibly the still-deliberately-unfixed
+    options-monitor site [~4221, see (c) below], not re-diagnosed this
+    session since it doesn't change this item's own gate.) Per this
+    item's own stated condition ("once a WS exit records a real outcome
+    via track_fill, the [D3] block is redundant and should be REMOVED"),
+    that condition is now met — but D3's dead-code status was actually
+    provable by static analysis alone, independent of live data:
+    `tradeResults` (server/bot.ts) has exactly ONE write site
+    (`.unshift()` in `trackClosedTrades`) and it hardcodes
+    `entryFeatures: null` unconditionally, so D3's own filter
+    (`t.entryFeatures != null`) could never pass a single record by
+    construction — the live win/open/loss records came from the OTHER
+    writer (track_fill via entryFill.ts/morningFillPayload/regular fill
+    payload), not from D3. REMOVED the dead block (the
+    `if (tradeResults.length > 0) { try { ...feedbackData... } }` write
+    to `TRADE_FEEDBACK_PATH`, ~62 lines) — `adjustStrategyWeights()`
+    (unrelated, still live) and the outer error-audit catch were left
+    untouched. RATCHET: `server/deadFeedbackBlockRemoval.test.ts` (new, 3
+    tests) — A/B-verified via `git stash` that the first assertion fails
+    against the pre-removal code (finds `entryFeatures != null` still
+    present) and passes post-removal; a third test pins the underlying
+    premise itself (exactly one `tradeResults` write site, still
+    hardcoding `entryFeatures: null`) so if that premise is ever falsified
+    by a future change, this test file's own reasoning is flagged for
+    re-examination rather than silently going stale. Gates: `npx tsc
+    --noEmit` 83 errors, identical to the pre-change baseline (verified
+    none reference the removed block or the new test); `npx tsx --test
+    server/*.test.ts` 1069 tests, 1068 passed, 1 failed (pre-existing
+    `gridTiles.test.ts` PMTiles-magic-byte environment gap, confirmed
+    unrelated, same as prior sessions); `npm run build` clean; Python
+    N/A (zero `.py` files touched). No backtest needed — this removes
+    dead code with zero observable behavior change, not a strategy or
+    threshold change. Item (c) — the options-monitor site and any
+    remaining exit paths beyond WS — stays open below, unchanged.
 
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
