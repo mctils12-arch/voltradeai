@@ -2323,6 +2323,18 @@ def _get_full_universe() -> list:
         return []
 
 
+
+def suppress_entries_on_kill(trades, kill_status):
+    """ENFORCEMENT REPAIR 2026-08-06: a fired kill switch suppresses NEW
+    ENTRY trades — returns ([], suppressed_tickers). Management/exit actions
+    are the caller's separate list and are never touched (closing risk during
+    a halt stays allowed; liquidation depends on it). Not fired -> passthrough.
+    Pure function so the enforcement is unit-testable."""
+    if kill_status and kill_status.get("killed") and trades:
+        return [], [t.get("ticker", "?") for t in trades]
+    return trades, []
+
+
 def scan_market():
     """
     Full market scan — ALL ~11,600 tradeable US stocks, not just top 100.
@@ -3750,6 +3762,7 @@ def _scan_market_inner():
     _timing_log("tier_engine_start")
     tiered_actions = []
     kill_status = None
+    kill_suppressed = []
     tier_stats = {}
     tier_kill_status = None
     if _HAS_TIERED:
@@ -3827,6 +3840,23 @@ def _scan_market_inner():
                 logging.getLogger("bot_engine").warning(
                     f"[TIERS] BLOCKED: {kill_status['kill_reason']}"
                 )
+                # ENFORCEMENT REPAIR 2026-08-06 (full-code-review finding,
+                # adversarially verified): a firing kill switch previously
+                # gated ONLY the tier engine — the scanner-built candidate
+                # trades above were still returned in new_trades and the Node
+                # side executed them BEFORE reading kill_status (which it
+                # only audits). A halt that does not halt new entries is a
+                # mechanism bypass; suppressing them here extends the frozen
+                # machinery's reach without touching it. Management/exit
+                # actions are deliberately NOT suppressed — closing risk
+                # during a halt stays allowed (liquidation logic depends on
+                # it).
+                trades, kill_suppressed = suppress_entries_on_kill(trades, kill_status)
+                if kill_suppressed:
+                    logging.getLogger("bot_engine").warning(
+                        f"[KILL-SWITCH] suppressed {len(kill_suppressed)} scanner entry trade(s) "
+                        f"({', '.join(kill_suppressed[:10])}): {kill_status['kill_reason']}"
+                    )
         except Exception as e:
             import logging
             logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
@@ -3901,6 +3931,7 @@ def _scan_market_inner():
         ],
         "tier_stats": tier_stats,
         "kill_status": kill_status,
+        "kill_suppressed_trades": kill_suppressed,
         "tier_kill_status": tier_kill_status,
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
