@@ -125,7 +125,10 @@ def _get_option_snapshot(occ_symbol: str) -> dict:
                     "gamma": float(greeks.get("gamma", 0) or 0),
                     "theta": float(greeks.get("theta", 0) or 0),
                     "vega": float(greeks.get("vega", 0) or 0),
-                    "iv": float(greeks.get("iv", 0) or 0),
+                    # IV FIELD REPAIR 2026-08-06: impliedVolatility is
+                    # top-level on Alpaca snapshots, not inside greeks
+                    # (options_execution.py:626 pattern).
+                    "iv": float(snap.get("impliedVolatility", 0) or greeks.get("iv", 0) or 0),
                 }
     except Exception as e:
         logger.warning(f"Snapshot fetch failed for {occ_symbol}: {e}")

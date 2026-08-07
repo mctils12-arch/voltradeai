@@ -409,7 +409,15 @@ def _fetch_options_chain(ticker: str, price: float,
                     elif moneyness >= 0.80: delta = -0.08
                     else:                   delta = -0.04
 
-            iv     = float(greeks.get("iv", 0) or 0)
+            # IV FIELD REPAIR 2026-08-06 (full-code-review, adversarially
+            # verified): Alpaca option snapshots carry IV as TOP-LEVEL
+            # impliedVolatility; greeks = {delta,gamma,rho,theta,vega} only.
+            # a greeks-only iv read is ALWAYS 0 here, which zeroed avg_iv on every
+            # contract and made the earnings-IV-crush and high-IV-premium
+            # setup gates (avg_iv >= 0.40 / 0.30) reject every candidate,
+            # every scan, since they shipped. Same read pattern as
+            # options_execution.py:626 and this file's own line ~602.
+            iv     = float(snap.get("impliedVolatility", 0) or greeks.get("iv", 0) or 0)
             # FIELD FIX 2026-05-03 (audit Finding #4): Alpaca OPRA snapshot
             # does NOT return openInterest at the top level, and "volume" at
             # top level is the LAST trade size (1-2 contracts), not daily volume.
