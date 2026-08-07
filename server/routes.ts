@@ -3891,6 +3891,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // USDA NASS crop conditions keyed mirror (same "shipped-data-no-v1-API"
+  // sweep as earnings-language/appstore-rankings/github-activity above).
+  // Reuses the latestConditions() cache /api/data/crop-conditions already
+  // uses — no new computation, no new poller. UNLIKE those three, this
+  // root is itself key-gated server-side (NASS_API_KEY) — a disabled
+  // server surfaces that honestly as 503, not a confusing empty 200.
+  app.get("/api/v1/data/crop-conditions", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      if (!cropConditionsEnabled()) {
+        res.status(503).json({ error: "root disabled — NASS_API_KEY not configured server-side" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions", status: 503, tier: auth.tier });
+        return;
+      }
+      const hit = latestConditions();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/crop-conditions", { latest_week: hit.latest_week, count: hit.rows.length, rows: hit.rows }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/crop-conditions", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

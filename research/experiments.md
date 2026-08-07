@@ -42655,3 +42655,77 @@ follow-cam works incl. 3D curtain; work-PC crashes on the Data tab;
 
 STARVED: yes (D1 is next unblocked slice; mediums from the 08-06
 review also queued).
+
+## 2026-08-07 — [PRODUCT] USDA NASS crop conditions gets its /api/v1 keyed mirror (v1.0.621)
+
+Territory: SHARED (server/apiProduct.ts + server/routes.ts only; no
+client/, datacore/, or bot files touched).
+
+Health check first: no LIVENESS ALARM, no unresolved critical
+KNOWN BROKEN item (open_questions.md's only live entries, #10/#20 on
+the master-kill-switch CSP over-kill, are both explicitly non-blocking
+pending shadow-history accumulation) — proceeded straight to product
+work.
+
+Closed the next instance of the repeated "shipped-data-no-v1-API" gap
+(same pattern as plant-operations/secftd/midas/earnings-language/
+appstore-rankings/github-activity before it): `crop_conditions_usda_nass`
+sits at `gate1_pass` in datacore/signal_ladder.json (10/10 exact match
+vs. USDA's own published Crop Progress bulletin, 2026-08-04) with its
+/data UI already live (client/src/pages/cropConditions.tsx) but no
+external `/api/v1/data/*` mirror — a RAW overlay needs no ladder gate to
+be sold per the RAW OVERLAYS vs SIGNALS standing behavior, so this was
+the fully-specified, lowest-risk next queued item (ahead of fresh
+research per SESSION BUDGET's ranking) over the alternatives: no fresh
+ladder-gate candidate was cleanly single-PR-scoped (FINRA/CFTC/USAspending
+threads all need real research design, not a mechanical mirror), and both
+recent /data UI gaps (Cboe VIX, NRC map layer) already closed this week.
+
+Added, mirroring the earnings-language/appstore-rankings/github-activity
+precedent exactly:
+- `server/apiProduct.ts`: `LICENSE_MARKS["data/crop-conditions"]` marked
+  `resell: "ok"` (USDA NASS QuickStats is public-domain US federal work,
+  same class as CAMD/FTD/MIDAS — NOT conditional like the issuer-authored/
+  platform-ToS-gated mirrors), an `apiMeta().endpoints` entry stating the
+  gate-1-pass/gate-2-not-attempted status, and a `voltrade_crop_conditions`
+  `agentToolSpec()` tool entry.
+- `server/routes.ts`: `GET /api/v1/data/crop-conditions` — same
+  `requireApiKey` → `v1Envelope` → `meterUsage` shape as its precedents,
+  reusing the existing `latestConditions()`/`cropConditionsEnabled()`
+  cache (`bootCropConditionsPoll` already booted earlier in the file) —
+  zero new pollers, zero new computation. ONE difference from the three
+  precedents: this root is itself server-key-gated (`NASS_API_KEY`), so
+  a disabled server now returns an honest 503 ("root disabled —
+  NASS_API_KEY not configured server-side") instead of a confusing empty
+  200, ahead of the usual warming-up 503.
+- `server/apiProduct.test.ts`: route-wiring list + guarded-endpoint-count
+  ratchet bumped to >=12; new dedicated license-mark test (resell:"ok",
+  tool exists, provenance resolves, gate-1-pass/gate-2-not-attempted
+  status travels into the tool description) mirroring the existing
+  per-root test pattern.
+
+VERIFICATION: `npx tsx --test server/apiProduct.test.ts` — 19/19 pass
+(was 17, +2 new assertions counted individually as ok-lines within
+existing tests plus the 1 new dedicated test). Full `npx tsx --test
+server/*.test.ts` — 1003 pass / 8 fail, and the 8 failures (aircraftTiling,
+apiKeyAccounts, compression, gdeltEvents, pmtiles-magic-count,
+owmTiles, seafloorTiles, securityMiddleware) reproduce identically on
+the pristine pre-change tree (`git stash` + rerun) — confirmed
+environmental (missing local tile fixtures / container-specific), not
+caused by this change; none of the 3 touched files appear in that
+failing set. `tsc --noEmit` could not run in this container (missing
+@types/node / invalid local typescript install — pre-existing
+environment gap, unrelated to this diff's 3 files).
+
+No backtest applicable (no strategy/parameter/scoring change — pure
+API-surface addition over an already-live, already-tested cache read).
+
+Version bump only: package.json 1.0.620 -> 1.0.621. package-lock.json
+was already drifted to 1.0.619 before this session (pre-existing, not
+touched here).
+
+Not STARVED-relevant this session (single fully-scoped action); next
+queued items for a future PRODUCT session: the 12 medium + 8 low
+findings from the 2026-08-06 full-code-review filing (experiments.md
+above), and D1 (device-envelope demand ledger) from the DEVICE ENVELOPE
+phase just filed.
