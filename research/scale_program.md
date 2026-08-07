@@ -303,3 +303,69 @@ serialize, smallest-last-commit).
   7. [MEDIUM][terrain] Pitch-58 auto-tilt on toggle inflates visible-tile
      pyramid; tier it (~40-45 weak/software tiers, datamap.tsx:4193-4199).
   CLEAN: toggle-off teardown across all layers checked — no leak class.
+
+## DEVICE ENVELOPE phase (human directive 2026-08-07 — installed this date)
+
+HUMAN DIRECTIVE (message with 5 field screenshots): "can we see for the
+entire system what the demands are and how the website loads and make
+it easier to run on a variety of different phone or pc that might not
+have the ability … but not lose functionality or any part of the site
+functions?" Companion field evidence, same message:
+- WORK PC (the fragile-GPU machine): Task Manager shows 73% of RAM
+  consumed near-idle by 140 background processes (Citrix stack, Cisco
+  Umbrella, DNSCrypt proxy) BEFORE the browser does anything; Iris Xe;
+  Chrome's GPU process is the OS's first kill on pressure → the logged
+  "no-webgl"/context-loss episodes → Data tab crash. The machine class
+  is real and common (locked-down corporate laptops).
+- PHONE (modern Android, 5G): full 3D terrain + follow-cam + curtain
+  runs well. So the ceiling is fine — the FLOOR is the work.
+- Curtain ground-line float: separate defect, fixed same day
+  (lib/air/groundDatum.ts, v1.0.620).
+
+PRINCIPLE (the directive's own words, now the phase's law): adapt COST,
+never CAPABILITY. Every feature exists on every tier; what varies is
+resolution, cadence, cache depth, and fidelity — never the feature set.
+This extends the existing governor doctrine (deviceTier ladder: quality
+levers before pixel levers, all layers stay on) from render resolution
+to the WHOLE system envelope: memory, startup, network, workers.
+
+Slices (each own PR, harness-gated; order = expected value):
+- D1 DEMAND LEDGER — measure before tuning (the "see it digitally"
+  half of the directive). Extend scripts/visual_check.mjs with a
+  demand-matrix mode: each map layer exercised in isolation and in the
+  all-on profile, at 3 emulated tiers (full; 4x CPU throttle @ 1.5dpr;
+  4x + 1dpr + reduced tile cache), recording per cell: median/p95
+  frame ms, JS-heap delta, texture-memory estimate (tile count x tile
+  bytes), network bytes, main-thread long tasks. Output:
+  .visual/demand_profile.json (machine-readable, diffable across
+  versions — a perf regression gate per layer, not just per page) +
+  the layers panel's costTier badges become MEASURED values from this
+  ledger instead of hand-assigned labels (premium honesty: the user
+  sees what each layer costs, from data).
+- D2 MEMORY HEADROOM GOVERNOR — the lever the work PC actually needs
+  (its kills are memory-pressure kills, not slow frames, so the
+  existing frame-time governor never fires before death). Inputs:
+  navigator.deviceMemory, performance.memory heap trend, glLosses
+  count from the boot blackbox. Actions, in order, all reversible and
+  all feature-preserving: shrink MapLibre tile cache sizes, cap
+  raster/DEM texture dimensions, drop devicePixelRatio one notch,
+  shorten poll payload windows (delta polls already exist), dispose
+  offscreen sources aggressively (re-fetch on pan is cheaper than
+  death). A boot on a machine with prior GL losses starts one notch
+  lean and earns its way up after N healthy minutes (inverse of the
+  current crash-then-react).
+- D3 STARTUP LADDER — boot-demand shaping: base map interactive
+  first, then layers hydrate in measured-demand order (cheapest
+  first) with an idle-callback pace on weak tiers, so the first 10s
+  never spikes past the GPU-process kill threshold. No layer is
+  skipped — only sequenced. (The D1 ledger supplies the order.)
+- D4 RANKED-QUEUE INTEGRATION — the 2026-07-31 stability queue items
+  (pmtiles for whole-world layers, delta polls, per-state grid
+  collapse) get demand-ledger numbers attached so future sessions
+  spend effort by measured cost, not vibes.
+Cross-refs: wishlist proposal C (single GL context) remains the
+biggest crash-surface reducer for exactly this machine class — still
+awaiting human approval; EARTH TWIN A1 LOD envelopes are the same
+spine camera-side. Perf-harness measurement debt (flaky gates) noted
+2026-08-06 applies: D1 must land its A/B-vs-main protocol with the
+first PR.
