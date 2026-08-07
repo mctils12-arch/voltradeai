@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.612)
+## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.614)
 
 TERRITORY: T-CLIENT (`client/src/pages/vixTermStructure.tsx` new,
 `client/src/pages/datamap.tsx` launcher/routing wiring,
@@ -48,7 +48,7 @@ module's own docstring frames the six levels + two ratios as RAW
 arithmetic, not an inference) and a concretely-queued gap, ranking above
 starting fresh research per SESSION BUDGET.
 
-BUILT (own PR, v1.0.612): `client/src/pages/vixTermStructure.tsx` — new
+BUILT (own PR, v1.0.614): `client/src/pages/vixTermStructure.tsx` — new
 `#/data/vix-term-structure` overlay view, same shell/wiring recipe as
 `githubOrgActivity.tsx`/`cropConditions.tsx` (RAW framing restated in the
 header, warming-up/error/empty states, external-source link). Shows the
@@ -101,13 +101,15 @@ code). `npm run build`: clean. `python3 -m pytest -q`: could not run,
 no `requirements.txt` packages installed in this fresh container
 (pre-existing environment gap, same as the 2026-08-07 session #2 entry)
 — N/A regardless, since zero Python files were touched this session.
-Version bumped 1.0.611 -> 1.0.612 (PROMOTION RULE 4) in `package.json` +
-both version fields in `package-lock.json` (root `version` and
-`packages[""].version`, which were still lagging at 1.0.610 after the
-intervening `origin/main` merge below — same recurring lag class the
-2026-08-07 session #2 entry already logged, synced both again here).
+Version bumped 1.0.611 -> 1.0.612 pre-merge (PROMOTION RULE 4), then
+read-and-incremented again to 1.0.614 after the second MERGE below
+advanced main to 1.0.613 first — both version fields in
+`package-lock.json` (root `version` and `packages[""].version`, which
+were still lagging at 1.0.610 before this session's first sync) kept in
+lockstep with `package.json` at every bump, same recurring lag class the
+2026-08-07 session #2 entry already logged.
 
-MERGE: `origin/main` advanced mid-session (ebedd7a, v1.0.611, a
+MERGE (1 of 2): `origin/main` advanced mid-session (ebedd7a, v1.0.611, a
 [REPAIR] fixing a fragile-GPU device-tier fail-safe, touching
 `client/src/pages/datamap.tsx` among other files) — per this task's own
 "already-merged branch" guidance this branch had zero unique commits yet
@@ -118,6 +120,24 @@ touched an unrelated section). Re-ran `tsc --noEmit`, `npm run build`,
 the full node test suite, and the visual harness again post-merge to
 confirm nothing regressed from the merge itself — all identical results
 to the pre-merge run.
+
+MERGE (2 of 2, post-PR-open): the repo's "Auto-merge Claude PRs" CI check
+failed on this PR with `GraphQL: Pull Request has merge conflicts` —
+`origin/main` had advanced twice more while the PR sat open (9c1c66d
+v1.0.612 kill-switch-enforcement repair + inline findings-tracker note,
+dbb669a v1.0.613 options-IV-field repair), landing a genuine `package.json`
+version conflict (both sessions independently bumped from a base this
+branch no longer matched) alongside a clean auto-merge on
+`research/experiments.md` (their entries append at a different location
+than this file's own newest-at-top entries, so git's 3-way merge resolved
+it without a conflict marker — investigated to confirm no content loss
+before trusting the auto-merge). Resolved: version bumped past main's new
+tip to 1.0.614 (not 1.0.612 — that number was already claimed by 9c1c66d
+by the time this merge landed), this entry's own version references
+updated to match, pushed. Neither incoming commit touched
+`vixTermStructure.tsx`, `datamap.tsx`, or `visual_check.mjs`, so no
+re-verification beyond a fresh `tsc --noEmit`/`npm run build`/test-suite
+pass was needed — all clean, identical to the pre-this-merge run.
 
 VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
 vixtermstructure` run twice (once pre-merge, once post-merge onto
@@ -42343,3 +42363,50 @@ dead-GPU read => fragile; unknown stays non-fragile), 7-assert ratchet,
 deviceTier battery 17/17. QUEUED: celestialSky has no contextlost
 handler (dies permanently if lost while mounted; exposure bounded by the
 v1.0.557 pitch lifecycle) — add loss->dispose->remount.
+
+## 2026-08-06 — [RESEARCH] Full-code-review fleet: 28 findings, ALL 8 serious ones adversarially confirmed (4 reviewers + 8 verifiers, wf_2302cba6-006)
+
+Human-directed full review after the GL-loss closure. Four lenses
+(server routes / Python trading path / client pages / security); every
+critical+high finding was independently re-verified by an agent
+instructed to REFUTE it against the real code. All 8 survived. Ranked
+by the GOAL priority order:
+1. [FIXED THIS SESSION] KILL-SWITCH ENFORCEMENT BYPASS (bot_engine.py):
+   check_kill_switches gated only the tier engine; scanner-built
+   new_trades returned unconditionally; bot.ts executes new_trades
+   BEFORE reading kill_status (audit-only). Repair: killed branch now
+   routes trades through suppress_entries_on_kill (pure, tested;
+   mgmt/exit actions untouched — closing risk during a halt stays
+   allowed); scan result surfaces kill_suppressed_trades; source
+   ratchet pins the wiring. 7-test battery.
+2. OPTIONS IV DEAD CHANNEL (options_scanner.py:412): iv read from
+   greeks['iv'] — a field Alpaca snapshots don't carry (IV is
+   top-level impliedVolatility; three other repo call sites prove the
+   schema). avg_iv therefore ALWAYS 0 → Setups 1 & 3 (earnings IV
+   crush, high-IV premium sale — 2 of the 3 HIGH_EDGE_SETUPS) have
+   never fired. Same wrong key in options_manager.py:128
+   (display-only). QUEUED NEXT (one-line + regression fixture).
+3. ROLL STATE CORRUPTION (options_manager.py:957,:996): rolled shorts
+   inherit the OLD leg's initial_credit/max_profit_target — profit
+   targets computed against the wrong basis. QUEUED.
+4. CONVEXITY-HEDGE METADATA WIPE (options_manager.py:782-791 vs
+   bot_engine.py:4487-4498): manage_options_positions rewrites
+   voltrade_options_state.json dropping the convexity marker → QQQ
+   tail-hedge puts orphaned from their hedge logic. QUEUED.
+5. AIS RECONNECT GAP (routes.ts:1100/1112/1127): socket death with no
+   visitors = permanent vessel-archive gap (Priority-1 class: archive
+   gaps never refill). QUEUED. Paired honesty defect: vessels layer
+   claims "live" from key-presence alone and serves stale/empty 200s
+   (trains already got the fix pattern, routes.ts:805-816). QUEUED.
+6. CLIENT CRASHES: streams/quality/pipeline-health/signal-ladder pages
+   crash on JSON-bodied 5xx (no r.ok checks); TradeChart crashes the
+   bot dashboard on null pnl/pnlPct (NaN→null through res.json).
+   QUEUED.
+Plus 12 medium + 8 low (unverified, filed): COT partial-fetch freeze,
+rollup deleting unreadable hour files, weather-grid empty-200 cache,
+daily_pnl_pct fabricated kill-switch input, VXX fallback ticker
+mismatch, UnboundLocalError dead code, multi-leg gross-vs-net exit
+math, kill-status fabricated zeros, earnings-day full sizing, CSP
+earnings gate fails open, rounding handing full heat budget, BS
+put-delta branch, SectorHeatmap fabricated -100%, R:R sign, and 4 low
+client papercuts. Full JSON: workflow journal wf_2302cba6-006.
