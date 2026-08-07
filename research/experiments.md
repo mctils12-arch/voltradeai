@@ -42185,3 +42185,50 @@ dead-GPU read => fragile; unknown stays non-fragile), 7-assert ratchet,
 deviceTier battery 17/17. QUEUED: celestialSky has no contextlost
 handler (dies permanently if lost while mounted; exposure bounded by the
 v1.0.557 pitch lifecycle) — add loss->dispose->remount.
+
+## 2026-08-06 — [RESEARCH] Full-code-review fleet: 28 findings, ALL 8 serious ones adversarially confirmed (4 reviewers + 8 verifiers, wf_2302cba6-006)
+
+Human-directed full review after the GL-loss closure. Four lenses
+(server routes / Python trading path / client pages / security); every
+critical+high finding was independently re-verified by an agent
+instructed to REFUTE it against the real code. All 8 survived. Ranked
+by the GOAL priority order:
+1. [FIXED THIS SESSION] KILL-SWITCH ENFORCEMENT BYPASS (bot_engine.py):
+   check_kill_switches gated only the tier engine; scanner-built
+   new_trades returned unconditionally; bot.ts executes new_trades
+   BEFORE reading kill_status (audit-only). Repair: killed branch now
+   routes trades through suppress_entries_on_kill (pure, tested;
+   mgmt/exit actions untouched — closing risk during a halt stays
+   allowed); scan result surfaces kill_suppressed_trades; source
+   ratchet pins the wiring. 7-test battery.
+2. OPTIONS IV DEAD CHANNEL (options_scanner.py:412): iv read from
+   greeks['iv'] — a field Alpaca snapshots don't carry (IV is
+   top-level impliedVolatility; three other repo call sites prove the
+   schema). avg_iv therefore ALWAYS 0 → Setups 1 & 3 (earnings IV
+   crush, high-IV premium sale — 2 of the 3 HIGH_EDGE_SETUPS) have
+   never fired. Same wrong key in options_manager.py:128
+   (display-only). QUEUED NEXT (one-line + regression fixture).
+3. ROLL STATE CORRUPTION (options_manager.py:957,:996): rolled shorts
+   inherit the OLD leg's initial_credit/max_profit_target — profit
+   targets computed against the wrong basis. QUEUED.
+4. CONVEXITY-HEDGE METADATA WIPE (options_manager.py:782-791 vs
+   bot_engine.py:4487-4498): manage_options_positions rewrites
+   voltrade_options_state.json dropping the convexity marker → QQQ
+   tail-hedge puts orphaned from their hedge logic. QUEUED.
+5. AIS RECONNECT GAP (routes.ts:1100/1112/1127): socket death with no
+   visitors = permanent vessel-archive gap (Priority-1 class: archive
+   gaps never refill). QUEUED. Paired honesty defect: vessels layer
+   claims "live" from key-presence alone and serves stale/empty 200s
+   (trains already got the fix pattern, routes.ts:805-816). QUEUED.
+6. CLIENT CRASHES: streams/quality/pipeline-health/signal-ladder pages
+   crash on JSON-bodied 5xx (no r.ok checks); TradeChart crashes the
+   bot dashboard on null pnl/pnlPct (NaN→null through res.json).
+   QUEUED.
+Plus 12 medium + 8 low (unverified, filed): COT partial-fetch freeze,
+rollup deleting unreadable hour files, weather-grid empty-200 cache,
+daily_pnl_pct fabricated kill-switch input, VXX fallback ticker
+mismatch, UnboundLocalError dead code, multi-leg gross-vs-net exit
+math, kill-status fabricated zeros, earnings-day full sizing, CSP
+earnings gate fails open, rounding handing full heat budget, BS
+put-delta branch, SectorHeatmap fabricated -100%, R:R sign, and 4 low
+client papercuts. Full JSON: workflow journal wf_2302cba6-006.
