@@ -91,6 +91,9 @@ export default function SignalLadderView({ onBack }: { onBack: () => void }) {
     setRefreshing(true);
     try {
       const r = await fetch("/api/data/signal-ladder");
+      // crash-guard (repair 2026-08-06): a JSON-bodied 5xx parsed fine and
+      // crashed downstream on missing fields — route errors to the error state.
+      if (!r.ok) throw new Error(String(r.status));
       setData(await r.json());
       setError(false);
     } catch {
