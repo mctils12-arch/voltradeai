@@ -72,6 +72,7 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 // 34% alpha, double-sided, depth-test-no-write), altitude line on the
 // teal→blue→violet ramp, and the selected-flight marker/drop-line/tag.
 import { FlightTrackLayer, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
+import { resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
   CURTAIN_BELOW_TERRAIN_M, type TrackSample,
@@ -3510,6 +3511,17 @@ export default function DataMapPage() {
     return g;
   };
 
+  /** ONE display-datum ground read for trace, curtain, tail and marker
+   *  (repair 2026-08-07 "the line … doesn't follow the terrain"): rendered
+   *  mesh first — it IS what's on screen — own-DEM×exag only where the mesh
+   *  has no tile (contract + rationale in lib/air/groundDatum.ts). */
+  const groundZAt = (map: maplibregl.Map, lo: number, la: number): number =>
+    resolveGroundDisplayZ(
+      groundDisplayAt(map, lo, la),
+      groundElevationSync(lo, la),
+      map.getTerrain() ? terrainExagRef.current : 1,
+    ).g;
+
   /** ONE display-altitude datum (REAL meters, pre-exaggeration) for every
    *  3D renderer — silhouettes, marker, tag, dead-reckoned tail, curtain
    *  top, follow camera (2026-07-21 "the plane gets moved … when it's near
@@ -3659,8 +3671,11 @@ export default function DataMapPage() {
           if (terrainOn) {
             const gDem = groundElevationSync(s.lon, s.lat);
             if (gDem == null) elevPending = true;
-            const g = gDem != null ? gDem * altScale : groundDisplayAt(map, s.lon, s.lat);
+            // DISPLAY datum: rendered mesh first (what the eye sees), own
+            // DEM only off-mesh — resolveGroundDisplayZ, lib/air/groundDatum
+            const g = resolveGroundDisplayZ(groundDisplayAt(map, s.lon, s.lat), gDem, altScale).g;
             groundZ[i] = g;
+            // chart/AGL keep the TRUE ground: DEM sample first, unchanged
             groundM[i] = gDem ?? (altScale > 0 ? g / altScale : g);
           } else {
             groundZ[i] = 0;
@@ -3775,7 +3790,7 @@ export default function DataMapPage() {
         // that vertex, so the wall stays continuous). Still NaN — an honest
         // gap — when the track has no altitude anywhere to hold.
         toAltM: lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la),
-        toGroundZ: terrainOn ? groundDisplayAt(map, lo, la) : 0,
+        toGroundZ: terrainOn ? groundZAt(map, lo, la) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
       });
@@ -3838,14 +3853,14 @@ export default function DataMapPage() {
           // ONE display datum with the silhouettes/curtain (displayAltReal)
           mercX: mm.x, mercY: mm.y,
           altM: Number.isNaN(alt) ? alt : displayAltReal(map, alt, lon, lat),
-          groundZ: terrOn ? groundDisplayAt(map, lon, lat) : 0,
+          groundZ: terrOn ? groundZAt(map, lon, lat) : 0,
           headingDeg: headingDeg ?? 0,
           shape: flightShapeRef.current,
         });
       }
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
-      const gZ = terrainOn ? groundDisplayAt(map, lon, lat) : 0;
+      const gZ = terrainOn ? groundZAt(map, lon, lat) : 0;
       // floating tag above the craft (screen-projected DOM chip, §4) —
       // display meters straight through (layer altScale is pinned 1)
       if (tag) {

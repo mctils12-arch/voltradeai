@@ -42615,3 +42615,43 @@ pmtiles-count failure reproduces on pristine main in this container
 REMAINING from the review: 12 medium + 8 low, unverified, filed above
 with file:line — next sessions verify-then-fix in that order. STARVED:
 yes (mediums queued).
+
+## 2026-08-07 — [REPAIR] Curtain ground-trace datum + [PIPELINE-FILING] DEVICE ENVELOPE phase installed (v1.0.620)
+
+Territory: T-CLIENT. Human field report with 5 screenshots (phone
+follow-cam works incl. 3D curtain; work-PC crashes on the Data tab;
+"the line for the terrain doesn't follow sometimes").
+
+1. FIXED (#722, v1.0.620): ground trace floated above valleys / cut
+   ridges. Cause: trace is custom-GL geometry at precomputed groundZ,
+   NOT RTT-draped; build preferred the fixed-zoom DEM sample over the
+   RENDERED mesh (coarser LOD at distance = a different surface than
+   the one on screen); the moving tail used the OPPOSITE preference →
+   datum jump at the tail seam. Repair: lib/air/groundDatum.ts
+   resolveGroundDisplayZ (pure; mesh-first where a mesh tile exists,
+   own-DEMxexag off-mesh, pending only while the DEM tile is in
+   flight) + ONE groundZAt helper used by track build, live tail,
+   replay marker, tag. Chart/AGL keeps TRUE DEM ground — display
+   datum changed, measurement datum untouched. 7 tests + source
+   ratchet on all four call sites.
+2. DIAGNOSED (no code): work-PC Data-tab crash mechanism completed by
+   the human's Task Manager screenshot — 73% RAM consumed near-idle
+   by 140 corporate background processes (Citrix/Cisco stack) on the
+   Iris Xe machine; Chrome's GPU process is the first OOM kill →
+   "no-webgl" boot probes and the 4-loss episodes already in the
+   blackbox log. The existing frame-time governor can never fire
+   before a memory-pressure kill — wrong lever for this failure
+   class. Phone (modern Android) runs everything well: ceiling fine,
+   floor is the work.
+3. FILED: DEVICE ENVELOPE phase appended to research/scale_program.md
+   (human directive same message: full functionality on weak devices,
+   adapt cost never capability). Slices D1 demand ledger (per-layer
+   measured cost matrix, harness mode, measured costTier badges), D2
+   memory-headroom governor (starts lean after prior GL losses, earns
+   up), D3 startup ladder (sequence, never skip), D4 attach measured
+   numbers to the 2026-07-31 ranked stability queue. Proposal C
+   (single GL context) cross-referenced — still awaiting human
+   approval, biggest crash-surface reducer for this machine class.
+
+STARVED: yes (D1 is next unblocked slice; mediums from the 08-06
+review also queued).
