@@ -64,6 +64,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/midas"), "SEC MIDAS keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/earnings-language"), "SEC 8-K earnings-language keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/appstore-rankings"), "App Store rankings keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/github-activity"), "GitHub org engineering-momentum keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -71,12 +72,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 10, `expected >=10 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 11, `expected >=11 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -131,6 +132,17 @@ test("appstore-rankings license mark: CONDITIONAL resell like earnings-language,
   const tool = spec.tools.find((t: any) => t.name === "voltrade_appstore_rankings");
   assert.ok(tool, "voltrade_appstore_rankings tool must exist");
   assert.deepEqual(tool.returns_provenance, ["data/appstore-rankings"]);
+  assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
+});
+
+test("github-activity license mark: CONDITIONAL resell like earnings-language/appstore-rankings, not ok like the government-produced CAMD/FTD/MIDAS stats; agent tool documents gate-2 as not attempted", () => {
+  assert.equal(LICENSE_MARKS["data/github-activity"].resell, "conditional",
+    "GitHub REST/Search API's public repo activity is a conditional accepted use, not government work product — must not be mismarked resell:ok");
+  assert.ok(LICENSE_MARKS["data/github-activity"].license.includes("GitHub"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t: any) => t.name === "voltrade_github_activity");
+  assert.ok(tool, "voltrade_github_activity tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/github-activity"]);
   assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
 });
 

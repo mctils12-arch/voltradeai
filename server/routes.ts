@@ -3801,6 +3801,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GitHub org engineering-momentum keyed mirror (same "shipped-data-no-v1-
+  // API" sweep as earnings-language/appstore-rankings above — this exact
+  // gap was named as NEXT by the 2026-08-05 session that shipped this
+  // root's /data UI). Reuses the latestGithubActivity() cache
+  // /api/data/github-activity already uses — no new computation, no new
+  // poller. LICENSE: GitHub REST/Search API's aggregated non-personal
+  // metrics are CONDITIONAL accepted use (server/githubOrgActivity.ts
+  // header, verified 2026-07-04) — a metered external mirror is marked
+  // "conditional" like earnings-language/appstore-rankings, not "ok" like
+  // the government-produced CAMD/FTD/MIDAS streams. RAW display: GATE 2
+  // (commit/PR velocity vs forward returns) has not been attempted.
+  app.get("/api/v1/data/github-activity", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestGithubActivity();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/github-activity", { count: hit.records.length, records: hit.records }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/github-activity", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

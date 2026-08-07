@@ -41634,3 +41634,195 @@ are both evidence-blocked; no LIVENESS ALARM; thrash ratio 4/10, well
 under threshold). One logical change (one new script + its test + the
 two bookkeeping files describing this exact result), one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-07 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — github-activity gets its /api/v1 keyed mirror, closing the exact gap the 2026-08-05 UI session named as NEXT (v1.0.608)
+
+TERRITORY: this PR's primary edit is `server/apiProduct.ts` (LICENSE_MARKS
++ apiMeta endpoints + agentToolSpec tools) and `server/routes.ts` (the new
+route handler) — both nominally SHARED per the WORKSTREAM PARTITION table
+(routes.ts is explicitly listed SHARED; apiProduct.ts is the pre-existing
+home of every prior v1-mirror PR, e.g. earnings-language/appstore-rankings,
+so it inherits the same territory). Kept to the minimal edit CLAUDE.md's
+MERGE-ORDER PROTOCOL asks of shared files: one new route block + three
+additive entries, no restructuring of anything else in either file.
+`server/apiProduct.test.ts` (new assertions only) and `datacore/
+signal_ladder.json` (one entry's note/date bumped) round out the change;
+`package.json`/`package-lock.json` version bump is the standard last-commit
+SHARED edit.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ in the
+mandated order (experiments.md tail — last 10 tagged entries: 3 [REPAIR]/
+3 [PRODUCT]/2 [RESEARCH]/2 [PIPELINE], thrash ratio 3/10, well under the
+7/10 escalation threshold; open_questions.md KNOWN BROKEN section — only
+#10 (dead SCORE_BAND_MAX/MAX_CHANGE_PCT config) and #20 (tiered_strategy
+master_kill_switch design question) remain open, both already evidence-
+blocked/counterfactual-logged by prior sessions, neither a LIVENESS ALARM
+nor actionable this session; wishlist.md top block — DATACORE MAXIMUS
+program state, no PROGRESS FLOOR/STARVED stall notice). Live `/api/health`:
+status ok, bot active, drawdownPct 0.0, alpaca ACTIVE, scanner 0
+consecutiveFailures, liveness.dark:false — no LIVENESS ALARM, no critical
+trading-loop break; this scheduled-routine PRODUCT session proceeds with
+product work per its own instructions (DAILY routines own repair duty).
+Branch confirmed in sync with `origin/main` (0 ahead/0 behind) before
+starting.
+
+PRIMARY-ACTION SELECTION: screened `datacore/signal_ladder.json`'s 39
+roots for a genuinely ready GATE 2 candidate first (option (a), the axis
+the last two sessions worked) — found none: every `gate1_pass` root
+gated 2+ sessions ago (finra_short_volume, occ/cftc/jodi families) is
+already `killed`/`gate2_fail`, and the remaining `gate1_pass` roots
+(github_org_engineering_momentum, app_store_rank_review_velocity,
+sec_edgar_13f_institutional_clustering, fleet_utilization_aircraft,
+crop_conditions_usda_nass, nrc_outage_reports, eia930_grid_demand,
+sec_form4_bulk_archive, sec_midas, fred_macro_series, eu_macro_ecb_
+eurostat_bundesbank, entity_map_operator_ticker) are the SAME time-
+blocked-on-calendar-depth set the 2026-08-06 session already screened
+and rejected one day ago — one more day elapsed changes none of those
+verdicts (13F still needs an Oct-Nov 2026 cut; App Store still needs
+~90d, earliest 2026-10-30; github-activity's own module header still
+states its sober prior of real structure for at most a third of the
+panel, and more importantly its archive is 2 days old, nowhere near
+enough weekly rows for a day-clustered test). Rather than force a
+premature GATE 2 run against that same prior, took option (d) — improve
+datacore's API boundary toward spinout-readiness — on a concrete,
+already-queued, correctly-scoped gap: the 2026-08-05 session that shipped
+github-activity's /data UI explicitly logged in its own NEXT list "(1) a
+v1 API mirror for github-activity (/api/v1/data/github-activity), the
+same-shaped gap appstore-rankings closed in its own follow-up session
+(#575) — a future PRODUCT session's near-mechanical repeat" — this is
+that exact follow-up, one day later than the immediately-preceding
+2026-08-06 session (which correctly chose a different, more time-
+sensitive PIPELINE action instead and left this queued a second time).
+This directly serves GOAL priority 3's platform line (API surface
+customers pay for) and matches the SPINOUT-READY DATA LAYER standing
+behavior (signals exposed only through the internal API boundary, the
+bot consuming them the way an external customer would) — every other
+gate-1-shipped RAW stream with a `/data` UI already has its v1 mirror
+except this one and NEW ONES not yet built; this closes the oldest
+remaining gap.
+
+READ BEFORE WRITE: read `server/githubOrgActivity.ts` in full (the
+module's own LICENSING comment block — GitHub REST/Search API's
+aggregated, non-personal metrics are CONDITIONAL accepted use per the
+GitHub API Terms, verified 2026-07-04 — and the exact `GithubActivityRecord`
+shape / `latestGithubActivity()` cache accessor) before writing any route
+code, rather than assuming the shape from the `/api/data/github-activity`
+route's response. Read `server/apiProduct.ts` in full (LICENSE_MARKS,
+`apiMeta()`, `agentToolSpec()`, the `TIER_LIMITS`/`parseApiKeys`/
+`makeRateLimiter` scaffolding) and the `/api/v1/data/appstore-rankings`
+and `/api/v1/data/earnings-language` route blocks in `server/routes.ts`
+(the two most recent, most structurally similar precedents — both reuse
+an existing `latestX()` cache with zero new computation and mark
+`resell: "conditional"` for a non-government-produced public feed) before
+writing anything, then followed that exact pattern rather than inventing
+a new one. Read `server/apiProduct.test.ts` in full (the earnings-
+language/appstore-rankings test pairs — license-mark resell assertion,
+agent-tool provenance assertion, tool-description honesty assertion) so
+the new github-activity tests are structurally identical, not a new
+style. Grepped for `requireApiKey`/`v1Envelope`/`latestGithubActivity`
+call sites before adding any — confirmed `latestGithubActivity` was
+already imported at `routes.ts:112` (from the existing `/api/data/
+github-activity` route), so no new import was needed.
+
+WHAT SHIPPED: `server/apiProduct.ts` — new `LICENSE_MARKS["data/github-
+activity"]` entry (resell: "conditional", citing the module's own
+LICENSING comment rather than re-deriving a license judgment); a new
+`/api/v1/data/github-activity` entry in `apiMeta().endpoints` (stating
+the GATE 2 not-attempted status and the module's own sober prior, mirrored
+into the docs so `/developers` can't drift from reality); a new
+`voltrade_github_activity` tool in `agentToolSpec().tools` (same honesty
+requirement the existing tests already enforce — description must state
+gate-2 status). `server/routes.ts` — new `app.get("/api/v1/data/github-
+activity", ...)` handler, byte-for-byte structurally identical to the
+appstore-rankings handler: `requireApiKey` guard, `latestGithubActivity()`
+cache read (zero new computation, zero new poller — reuses the same
+`bootGithubActivityPoll()` already booted for the RAW `/data` route),
+`503`+`Retry-After` warming-up state, `v1Envelope("data/github-activity",
+...)` response, `meterUsage` on every branch (200/503/500). `server/
+apiProduct.test.ts` — one new test (license mark resell:conditional +
+license text mentions "GitHub" + agent tool exists with correct
+`returns_provenance` + description honesty on "NOT been attempted"),
+plus updated the two existing sweep tests that hardcode endpoint-path
+lists (`meta honesty`, `wiring pinned`) to include the new path and bump
+the `guarded >= 10` -> `guarded >= 11` key-guarded-endpoint-count
+assertion. `datacore/signal_ladder.json` — `github_org_engineering_
+momentum` entry's `note` appended (v1 mirror shipped, `last_update_date`
+bumped to 2026-08-07) — same minimal-bookkeeping pattern every prior
+gate/UI session in this file has used, current_gate/status left
+unchanged (this is an API-surface change, not a ladder-gate advance).
+
+GATES: `npx tsx --test server/apiProduct.test.ts` 18/18 pass (up from 17
+— one net-new test, two existing tests extended in place). Full suite
+`npx tsx --test server/*.test.ts scripts/*.test.ts` A/B-verified via
+`git stash -u` on this session's own container (baseline: 1064 total/
+1063 pass/1 fail; with this session's changes: 1065 total/1064 pass/1
+fail — exactly +1, matching the 1 net-new top-level test), 1 failed both
+before and after — the pre-existing `client/public/tiles/*.pmtiles`
+magic-byte baseline failure every recent session has logged as unrelated
+(confirmed again: zero `client/public/tiles/*` files touched this
+session). `npx tsc --noEmit`: this session's container had zero
+`node_modules` (a fresh checkout, unlike the prior session's container)
+— ran `npm install` first (486 packages, clean), then A/B-verified via
+`git stash -u`: 83 errors both before and after this session's changes,
+confirmed by exact `grep -c "error TS"` count match. `npm run build` not
+re-run — matches
+the standing reasoning prior sessions have used for pure server-route
+changes with zero client/ files touched; attempted a live local server
+boot instead (`npm run dev` equivalent via `tsx server/index.ts`) as an
+extra check beyond the standing pattern, but the scanner's market-data
+pre-warm step hangs indefinitely in this sandboxed container (no live
+Alpaca/market-data network path), so the server never reached its
+`listen()` callback within a reasonable wait — this is a sandbox network
+constraint, not a defect in this session's change (confirmed: the same
+hang would block ANY route smoke test, not just this one, and the boot
+log showed clean startup through `[BOT] STARTUP: Server boot — code_
+version 1.0.608` with no error before the hang). Python gate not re-run:
+zero `.py` files touched.
+
+BACKTEST: N/A — this is a pure API-surface addition (a keyed mirror of
+an already-live, already-cached RAW display route), no scoring/sizing/
+threshold value touched, no new computation, no trading path involved.
+
+Version bumped 1.0.607 -> 1.0.608 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start (still 255293c/#705). `package-lock.json` resynced via
+`npm install --package-lock-only`, diff confirms only the two version-
+string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing, already-
+archived RAW data root through the existing v1 API boundary; no new
+archive, no new entity-graph join, no new poller, no new /data-facing
+surface (the existing `/api/data/github-activity` route and its `#/data/
+github-activity` UI are unaffected, unchanged). The AGENT-GROUNDING tie
+already documented for earnings-language/appstore-rankings extends
+mechanically: an AI agent using `agentToolSpec()`'s tool-calling surface
+can now ground itself in this watchlist's observed weekly engineering
+activity the same way it already could for SEC filings and App Store
+ranks.
+
+NEXT (queued, not this session): (1) the same v1-mirror gap likely
+recurs for future gate-1-shipped RAW roots as they get their own /data
+UI (crop_conditions_usda_nass, nrc_outage_reports, eia930_grid_demand
+all shipped UI recently per the commit log — a future session should
+check each for the same gap before assuming this sweep is complete).
+(2) a `/history` endpoint + trend sparklines for appstore-rankings and
+github-activity, queued by the 2026-08-05 session's NEXT list item (2),
+still unbuilt. (3) GATE 2 work on github_org_engineering_momentum itself
+remains correctly unstarted — archive too young, sober prior unchanged.
+(4) KNOWN BROKEN #10/#20 remain correctly evidence-blocked, untouched.
+(5) per the AUDITS & DEBT register, the STALENESS/CONSTITUTIONAL audits'
+last-run dates should be checked by the next session whose fall-through
+reaches the research tier (not checked this session — PRIMARY action
+filled full capacity).
+
+STARVED: no — this was the session's one primary action, explicitly
+named as one of the four in-scope PRODUCT options ((d), API boundary
+toward spinout-readiness), matched to capacity, with tests/gates all
+completed and an honest accounting of what the sandbox's network
+constraint prevented verifying live. No higher-priority queued item was
+skipped (KNOWN BROKEN's two open items are both evidence-blocked; no
+LIVENESS ALARM; thrash ratio 3/10, well under threshold; no gate-2-ready
+pipeline candidate existed this session that the prior session hadn't
+already correctly screened out one day earlier). One logical change
+(one new v1 API route + its license/docs/agent-tool bookkeeping + tests
++ one ladder-entry note), one PR, per PROMOTION RULE 5.

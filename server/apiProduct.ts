@@ -149,6 +149,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Apple Inc.",
     resell: "conditional",
   },
+  "data/github-activity": {
+    license: "GitHub REST/Search API — public repository activity is CONDITIONAL under the GitHub API Terms (aggregated, non-personal metrics are an accepted use; server/githubOrgActivity.ts LICENSING note, verified 2026-07-04). A metered, resold-to-external-customers mirror has not been separately confirmed as still within that accepted-use envelope, so this stays marked conditional like the earnings-language/appstore-rankings mirrors, not ok like the government-produced CAMD/FTD/MIDAS streams.",
+    attribution: "GitHub, Inc. (public repository activity, aggregated)",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -168,6 +173,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/midas", params: "-", desc: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel data per (date, ticker), quarterly files with a multi-quarter publish lag. Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). RAW, no predictive claim — public-domain US federal data, resell ok. A candidate HFT-colonization filter; gate-2 signal testing not yet attempted (see research/open_questions.md).", preview: "/api/data/microstructure" },
       { path: "/api/v1/data/earnings-language", params: "-", desc: "Most-recent SEC 8-K Item 2.02 (earnings-results) filings: as-filed Exhibit 99 press-release text, resolved ticker, filing/acceptance timestamps (lookahead-free). RAW as-filed display, no predictive claim — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot (research/open_questions.md). Exhibit text is issuer-authored, not government work product — conditional resell, see license_marks.", preview: "/api/data/earnings-language" },
       { path: "/api/v1/data/appstore-rankings", params: "-", desc: "Daily App Store chart rank + rating counts for a 16-app hand-verified consumer watchlist (US/GB/CA storefronts, top-free/top-grossing). RAW display, no predictive claim — GATE 2 (vs company-reported metrics) needs ~90 days of history, not attempted before ~2026-10-30 (research/open_questions.md NEW DATA ROOTS #3). Android excluded (ToS-blocked); rank:null means outside the top 100 that day, never fabricated. Conditional resell, see license_marks.", preview: "/api/data/appstore-rankings" },
+      { path: "/api/v1/data/github-activity", params: "-", desc: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (small-cap devtools through large-cap controls). RAW display, no predictive claim — GATE 2 (does public commit/PR velocity lead or confirm market-priced trends) has NOT been attempted; the module's own sober prior expects real structure for at most a third of the panel. mergedPRs excludes bot-app PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true undercounts). Conditional resell, see license_marks.", preview: "/api/data/github-activity" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -276,6 +282,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/appstore-rankings",
       returns_provenance: ["data/appstore-rankings"],
+    },
+    {
+      name: "voltrade_github_activity",
+      description: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (MDB/NET/DDOG/PLTR-class). RAW display — GATE 2 (does commit/PR velocity lead or confirm market-priced trends) has NOT been attempted, and the module's own sober prior expects real structure for at most a third of the panel, not the whole watchlist.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/github-activity",
+      returns_provenance: ["data/github-activity"],
     },
   ];
   return {
