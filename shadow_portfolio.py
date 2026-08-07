@@ -545,32 +545,46 @@ def backfill_outcomes(max_records: int = 500) -> dict:
     if not backfill_jobs:
         return stats
 
-    # Group by ticker so we batch-fetch one window per ticker (covers all
-    # horizons for that ticker in one Alpaca call).
-    jobs_by_ticker: Dict[str, List[tuple]] = defaultdict(list)
+    # REPAIR 2026-08-07 (KNOWN BROKEN #10/#20 follow-up): this used to group
+    # jobs by TICKER and fetch one Alpaca call per unique ticker, ignoring
+    # _fetch_historical_bars_batch's own ability to fetch up to BATCH_SIZE
+    # (50) tickers in a single call. With ~13k archived shadow records and
+    # only `max_records` new horizon-jobs processed per nightly run, that
+    # per-ticker-call pattern made ticker count (not the Alpaca rate budget)
+    # the effective throughput ceiling, and the array-order scan (oldest
+    # record first) meant decision buckets that started existing later in
+    # the archive's timeline — e.g. rejected_masterkill, first logged
+    # 2026-07-11 per KNOWN BROKEN #3/#20 — sat unreached for months at that
+    # rate. Grouping by WINDOW instead (each job's own window is already
+    # day-granularity via strftime, so jobs entered on the same calendar
+    # day at the same horizon collapse to one key) lets many tickers from
+    # the same scan cycle share one batched call, cutting call count
+    # roughly by the number of tickers sharing a scan cycle instead of
+    # doing one call each. Label OUTPUT is unchanged for every record: each
+    # job still only reads bars strictly after its own entry date, capped
+    # at its own horizon — this only changes how many Alpaca calls it takes
+    # to fetch the same bars, not what _label_from_path computes from them.
+    jobs_by_window: Dict[tuple, List[tuple]] = defaultdict(list)
     for job in backfill_jobs:
-        jobs_by_ticker[job[3]].append(job)
-
-    for ticker, jobs in jobs_by_ticker.items():
-        # Fetch one wide window covering the longest horizon needed
-        max_horizon = max(j[2] for j in jobs)
-        earliest_entry = min(j[5] for j in jobs)
-        latest_entry = max(j[5] for j in jobs)
-        window_start = (earliest_entry - timedelta(days=2)).strftime("%Y-%m-%d")
-        window_end = (latest_entry + timedelta(
-            days=int(max_horizon * HORIZON_CALENDAR_BUFFER) + 3
+        _, _, horizon, _, _, rec_time = job
+        window_start = (rec_time - timedelta(days=2)).strftime("%Y-%m-%d")
+        window_end = (rec_time + timedelta(
+            days=int(horizon * HORIZON_CALENDAR_BUFFER) + 3
         )).strftime("%Y-%m-%d")
+        jobs_by_window[(window_start, window_end)].append(job)
 
+    for (window_start, window_end), jobs in jobs_by_window.items():
+        tickers = sorted(set(j[3] for j in jobs))
         bars_by_ticker = _fetch_historical_bars_batch(
-            [ticker], window_start, window_end
+            tickers, window_start, window_end
         )
-        all_bars = bars_by_ticker.get(ticker, [])
-        if not all_bars:
-            for job in jobs:
-                stats["missing_price"] += 1
-            continue
 
-        for idx, horizon_key, horizon, _, entry_price, rec_time in jobs:
+        for idx, horizon_key, horizon, ticker, entry_price, rec_time in jobs:
+            all_bars = bars_by_ticker.get(ticker, [])
+            if not all_bars:
+                stats["missing_price"] += 1
+                continue
+
             entry_date_str = rec_time.strftime("%Y-%m-%d")
             # Bars at or after entry date — we want trading-day forward window
             forward_bars = [
