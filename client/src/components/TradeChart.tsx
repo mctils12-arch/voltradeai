@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, LineStyle, CrosshairMode, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries } from "lightweight-charts";
 import { apiRequest } from "@/lib/queryClient";
+import { sanitizePosition, fmt } from "@/lib/tradeChartGuards";
 import { RefreshCw, TrendingUp, TrendingDown, Clock, Target, Shield } from "lucide-react";
 
 interface Position {
@@ -40,7 +41,10 @@ const TIMEFRAMES: { label: string; value: Timeframe; bars: number }[] = [
   { label: "1D", value: "1Day", bars: 60 },
 ];
 
-function SingleTradeChart({ position }: { position: Position }) {
+function SingleTradeChart({ position: rawPosition }: { position: Position }) {
+  // one sanitation pass; every numeric read below goes through this view
+  // (crash-guard, repair 2026-08-06 — contract pinned in tradeChartGuards.test.ts)
+  const position = sanitizePosition(rawPosition);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -53,7 +57,7 @@ function SingleTradeChart({ position }: { position: Position }) {
   const [error, setError] = useState<string | null>(null);
   const [lastPrice, setLastPrice] = useState(position.currentPrice);
 
-  const pnlPositive = position.pnlPct >= 0;
+  const pnlPositive = (position.pnlPct ?? 0) >= 0;
   const phaseColors = ["", "#00ffd5", "#fbbf24", "#ff8c00", "#ff4444"];
   const phaseColor = phaseColors[position.phase] || "#00ffd5";
 
@@ -95,24 +99,25 @@ function SingleTradeChart({ position }: { position: Position }) {
       }
       priceLinesRef.current = [];
 
-      // Entry line
-      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+      // Entry line — skipped when the price is unknown (a null price into
+      // createPriceLine is the crash class this repair removes)
+      if (position.entryPrice != null) priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.entryPrice,
         color: "#60a5fa",
         lineWidth: 2,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: `Entry $${position.entryPrice.toFixed(2)}`,
+        title: `Entry $${fmt(position.entryPrice)}`,
       }));
 
       // Stop loss line (red)
-      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+      if (position.stopPrice != null) priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.stopPrice,
         color: "#ff4444",
         lineWidth: 2,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `Stop P${position.phase} $${position.stopPrice.toFixed(2)}`,
+        title: `Stop P${position.phase} $${fmt(position.stopPrice)}`,
       }));
 
       // Take profit line (green) — only if not in Phase 3+
@@ -123,18 +128,18 @@ function SingleTradeChart({ position }: { position: Position }) {
           lineWidth: 2,
           lineStyle: LineStyle.Dotted,
           axisLabelVisible: true,
-          title: `Target $${position.takeProfitPrice.toFixed(2)}`,
+          title: `Target $${fmt(position.takeProfitPrice)}`,
         }));
       }
 
       // Current price line
-      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+      if (position.currentPrice != null) priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: position.currentPrice,
         color: pnlPositive ? "#00ffd5" : "#ff4444",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
-        title: `Now $${position.currentPrice.toFixed(2)}`,
+        title: `Now $${fmt(position.currentPrice)}`,
       }));
 
       chartRef.current.timeScale().fitContent();
@@ -226,7 +231,8 @@ function SingleTradeChart({ position }: { position: Position }) {
     return () => clearInterval(interval);
   }, [loadBars]);
 
-  const riskReward = position.takeProfitPrice
+  const riskReward = (position.takeProfitPrice != null && position.entryPrice != null &&
+      position.stopPrice != null && position.entryPrice - position.stopPrice !== 0)
     ? ((position.takeProfitPrice - position.entryPrice) / (position.entryPrice - position.stopPrice)).toFixed(1)
     : "∞";
 
@@ -250,19 +256,19 @@ function SingleTradeChart({ position }: { position: Position }) {
             color: pnlPositive ? "#00ffd5" : "#ff4444",
           }}>
             {pnlPositive ? <TrendingUp size={10} style={{ display: "inline", marginRight: 3 }} /> : <TrendingDown size={10} style={{ display: "inline", marginRight: 3 }} />}
-            {pnlPositive ? "+" : ""}{position.pnlPct.toFixed(2)}%
+            {position.pnlPct == null ? "—" : `${pnlPositive ? "+" : ""}${position.pnlPct.toFixed(2)}%`}
           </span>
           <span style={{ color: phaseColor, fontSize: 11, padding: "2px 6px", border: `1px solid ${phaseColor}40`, borderRadius: 4 }}>
-            Phase {position.phase} · {position.rMultiple.toFixed(1)}R
+            Phase {position.phase} · {fmt(position.rMultiple, 1)}R
           </span>
         </div>
 
         {/* Stats */}
         <div style={{ display: "flex", gap: 16, fontSize: 11, color: "#8b949e" }}>
-          <span><span style={{ color: "#60a5fa" }}>Entry</span> ${position.entryPrice.toFixed(2)}</span>
-          <span><Shield size={10} style={{ display: "inline", color: "#ff4444", marginRight: 3 }} /><span style={{ color: "#ff4444" }}>Stop</span> ${position.stopPrice.toFixed(2)}</span>
+          <span><span style={{ color: "#60a5fa" }}>Entry</span> ${fmt(position.entryPrice)}</span>
+          <span><Shield size={10} style={{ display: "inline", color: "#ff4444", marginRight: 3 }} /><span style={{ color: "#ff4444" }}>Stop</span> ${fmt(position.stopPrice)}</span>
           {position.takeProfitPrice && (
-            <span><Target size={10} style={{ display: "inline", color: "#00ffd5", marginRight: 3 }} /><span style={{ color: "#00ffd5" }}>Target</span> ${position.takeProfitPrice.toFixed(2)} ({riskReward}:1)</span>
+            <span><Target size={10} style={{ display: "inline", color: "#00ffd5", marginRight: 3 }} /><span style={{ color: "#00ffd5" }}>Target</span> ${fmt(position.takeProfitPrice)}{riskReward != null && ` (${riskReward}:1)`}</span>
           )}
           <span><Clock size={10} style={{ display: "inline", marginRight: 3 }} />{position.daysHeld}d</span>
         </div>
@@ -307,11 +313,11 @@ function SingleTradeChart({ position }: { position: Position }) {
       {/* P&L Bar */}
       <div style={{ padding: "8px 14px", borderTop: "1px solid #21262d", display: "flex", justifyContent: "space-between", fontSize: 11 }}>
         <span style={{ color: "#8b949e" }}>
-          {position.qty} shares · ${Math.abs(position.marketValue || position.qty * position.currentPrice).toLocaleString()}
+          {position.qty} shares · ${Math.abs(position.marketValue || position.qty * (position.currentPrice ?? 0)).toLocaleString()}
         </span>
         <span style={{ color: pnlPositive ? "#00ffd5" : "#ff4444", fontWeight: 700 }}>
-          {pnlPositive ? "+" : ""}${position.pnl.toFixed(2)} P&L
-          {position.highestPnl > 0 && ` · Peak ${position.highestPnl.toFixed(1)}%`}
+          {position.pnl == null ? "— " : `${pnlPositive ? "+" : ""}$${position.pnl.toFixed(2)} `}P&L
+          {position.highestPnl != null && position.highestPnl > 0 && ` · Peak ${fmt(position.highestPnl, 1)}%`}
         </span>
       </div>
     </div>

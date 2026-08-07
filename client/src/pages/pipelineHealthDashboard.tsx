@@ -62,6 +62,9 @@ export default function PipelineHealthDashboardView({ onBack }: { onBack: () => 
     setRefreshing(true);
     try {
       const r = await fetch("/api/data/pipeline-health-dashboard");
+      // crash-guard (repair 2026-08-06): a JSON-bodied 5xx parsed fine and
+      // crashed downstream on missing fields — route errors to the error state.
+      if (!r.ok) throw new Error(String(r.status));
       setData(await r.json());
       setError(false);
     } catch {

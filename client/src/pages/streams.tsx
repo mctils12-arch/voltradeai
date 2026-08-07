@@ -69,6 +69,9 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
     setRefreshing(true);
     try {
       const r = await fetch("/api/data/streams");
+      // crash-guard (repair 2026-08-06): a JSON-bodied 5xx parsed fine and
+      // crashed downstream on missing fields — route errors to the error state.
+      if (!r.ok) throw new Error(String(r.status));
       setInv(await r.json());
       setError(false);
     } catch {
