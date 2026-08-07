@@ -35,6 +35,7 @@ import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
+import VixTermStructureView from "./vixTermStructure";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2394,6 +2395,9 @@ export default function DataMapPage() {
   const [cropCondOpen, setCropCondOpen] = useState(() => window.location.hash === "#/data/crop-conditions");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
+  // Cboe VIX term structure view (#/data/vix-term-structure) — same
+  // overlay pattern (RAW national-market reading, not a spatial layer).
+  const [vixTermOpen, setVixTermOpen] = useState(() => window.location.hash === "#/data/vix-term-structure");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2721,6 +2725,7 @@ export default function DataMapPage() {
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
+      setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11637,6 +11642,9 @@ export default function DataMapPage() {
       {githubActivityOpen && (
         <GithubOrgActivityView onBack={() => { window.location.hash = "#/data"; setGithubActivityOpen(false); }} />
       )}
+      {vixTermOpen && (
+        <VixTermStructureView onBack={() => { window.location.hash = "#/data"; setVixTermOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12202,6 +12210,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/github-activity"; setGithubActivityOpen(true); }}>
               <GitBranch size={13} /> GitHub engineering momentum
               <span className="vt-streams-launch-sub">weekly merged-PR &amp; commit counts, 15 devtools tickers · RAW</span>
+            </button>
+            {/* Cboe VIX term structure launcher (2026-08-07): a national
+                volatility-complex reading, not a spatial layer, so it
+                launches from the panel top like the other page-wide
+                dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-vixterm-launch
+                    onClick={() => { window.location.hash = "#/data/vix-term-structure"; setVixTermOpen(true); }}>
+              <Waves size={13} /> Volatility term structure
+              <span className="vt-streams-launch-sub">VIX1D–VIX6M + VVIX daily close · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));

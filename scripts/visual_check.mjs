@@ -73,6 +73,9 @@ const PAGES = {
   // GitHub org engineering-momentum watchlist (2026-08-05) — same
   // Phase 5 ratchet rule as streams/gridstress/appstorerankings above.
   githubactivity: { route: "/app#/data/github-activity", map: false },
+  // Cboe VIX term structure (2026-08-07) — same Phase 5 ratchet rule as
+  // streams/gridstress/githubactivity above.
+  vixtermstructure: { route: "/app#/data/vix-term-structure", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -446,6 +449,22 @@ const FIXTURES = {
       { t: "org_week", key: "2026-07-27|jfrog", ticker: "FROG", org: "jfrog", weekStart: "2026-07-27", weekEnd: "2026-08-02", mergedPRs: 6, commits: null, uniqueActorsSample: null, actorSampleCapped: false, rt: "2026-08-03" },
       { t: "org_week", key: "2026-07-20|mongodb", ticker: "MDB", org: "mongodb", weekStart: "2026-07-20", weekEnd: "2026-07-26", mergedPRs: 35, commits: 102, uniqueActorsSample: 33, actorSampleCapped: true, rt: "2026-07-27" },
     ],
+  },
+  // Cboe VIX term structure (2026-08-07, RAW display).
+  "/api/data/vix-term-structure": {
+    kind: "raw",
+    source: "Cboe Global Markets — VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close (fixture)",
+    attribution: "Cboe Global Markets volatility indices",
+    time: 1786102149033,
+    latest: {
+      date: "2026-08-06", vix1d: 12.55, vix9d: 12.66, vix: 15.15, vix3m: 18.69, vix6m: 20.91, vvix: 88.72,
+      vix_vix3m_ratio: 0.8106, vix9d_vix_ratio: 0.8356,
+    },
+    recent: [
+      { date: "2026-08-05", vix1d: 13.02, vix9d: 13.4, vix: 15.81, vix3m: 19.02, vix6m: 21.2, vvix: 89.5, vix_vix3m_ratio: 0.8313, vix9d_vix_ratio: 0.8477 },
+      { date: "2026-08-06", vix1d: 12.55, vix9d: 12.66, vix: 15.15, vix3m: 18.69, vix6m: 20.91, vvix: 88.72, vix_vix3m_ratio: 0.8106, vix9d_vix_ratio: 0.8356 },
+    ],
+    note: "GATE 1 (DATA) only — ratios are plain arithmetic, no predictive claim (fixture).",
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry
   // per health bucket + a multi-kind archive so the bar-chart rendering
