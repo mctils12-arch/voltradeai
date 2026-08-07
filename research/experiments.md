@@ -41990,3 +41990,162 @@ STARVED: no — this was the session's one primary action ([PIPELINE] per
 SESSION BUDGET); fall-through not reached (one logical PR, per
 PROMOTION RULE 5). Market open at commit time; `/api/health` re-checked
 clean before finishing, no LIVENESS ALARM.
+
+## 2026-08-07 (scheduled-routine session #3) [REPAIR] — T-BOT — shadow_portfolio's nightly backfill fetched Alpaca bars ONE HTTP CALL PER UNIQUE TICKER, capping real throughput far below the 500-jobs/night budget and starving KNOWN BROKEN #10/#20's queued evidence gate (v1.0.610)
+
+TERRITORY: T-BOT (`shadow_portfolio.py`, `server/bot.ts`'s `checkShadowBackfill`
+call site, `test_shadow_portfolio.py`) + `package.json`/`package-lock.json`
+version bump (SHARED, last, per MERGE-ORDER PROTOCOL). Zero `client/` files
+touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`open_questions.md`, `wishlist.md` read. `git fetch origin main` confirmed
+this branch's PR (#710, v1.0.609) had already merged — per this task's own
+"already-merged branch" instruction, restarted `claude/busy-fermi-11hohu`
+from `origin/main` (fast-forward, no orphaned commits to rebase). Live
+`/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, Alpaca `ACTIVE`, scanner `consecutiveFailures:0` — no
+LIVENESS ALARM. `/api/diag/audit?limit=200` (widest window the probe
+returns): TIER2/TIERS/T2-FAIL/MANIPULATION only, zero KILL-SWITCH,
+COMPLIANCE-WARNING, or TIER-KILL lines. Deployed `server_version` (1.0.609
+via `/api/data/layers`'s package.json) matched `origin/main` exactly before
+this session's changes — no deploy lag. Last 10 tagged session headers
+(most-recent-first): PIPELINE/PRODUCT/PIPELINE/PRODUCT/RESEARCH/PRODUCT/
+REPAIR/REPAIR/PRODUCT/RESEARCH — 2 of 10 REPAIR, well under the 7-of-10
+thrash bar, no STARVED streak flagged.
+
+REPAIR CHECK FIRST (per Repair Mandate): scanned KNOWN BROKEN in
+open_questions.md. Items #10/#20 were the only "not fully closed" entries;
+the immediately-prior session (2026-08-07 session #2, Cboe VIX, v1.0.609)
+had already re-confirmed the 2026-08-05 backfill-interval fix (v1.0.596)
+was running nightly and producing real labels (105 wins/229 losses, up
+from 0/0) — but had not checked whether the SPECIFIC bucket item #20 needs
+(`rejected_masterkill`, the actual queued NEXT step) had any labels yet.
+Checked live: `/api/diag/shadow` shows `by_decision.rejected_masterkill:
+140` but `win_rate_by_decision` has ZERO entry for it (only `taken` n=292
+and `rejected_score` n=42 clear the >=5-labeled-pair display floor) —
+this is a live, checkable instance of exactly the gap #10/#20's own NEXT
+step describes, so this became the session's primary action per SESSION
+BUDGET (fix a bug seen in the audit/diag log ranks above starting a new
+experiment).
+
+ROOT CAUSE (found by reading `shadow_portfolio.py`'s actual current code
+this session, not assumed from memory, per READ BEFORE WRITE): the
+module's own docstring claims `backfill_outcomes: ~3 batch calls per run
+(50 tickers each)`, and `_fetch_historical_bars_batch(tickers, start, end)`
+genuinely supports up to `BATCH_SIZE=50` tickers in ONE Alpaca call
+(chunking internally) — but `backfill_outcomes()` never used that
+capability. It grouped pending jobs by TICKER first
+(`jobs_by_ticker: Dict[str, List[tuple]]`), then called
+`_fetch_historical_bars_batch([ticker], window_start, window_end)` inside
+a `for ticker, jobs in jobs_by_ticker.items()` loop — a single-element
+ticker list, i.e. one full HTTP round trip PER UNIQUE TICKER, every night,
+regardless of how many of those tickers could have shared one batched
+call. With `max_records=500` jobs/night and ~13,161 archived records
+spanning 2026-04-20 to present, `rejected_masterkill` (140 records, first
+logged 2026-07-11 per KNOWN BROKEN #3's fix) sits deep into a
+chronologically-ordered backlog: `backfill_outcomes()` scans `records` in
+stored (oldest-first) order and stops once it has queued 500 NEW jobs,
+skipping already-filled/too-recent ones for free — so each night's
+labeled frontier only advances by the number of genuinely-new eligible
+jobs found, which the per-ticker-call pattern (not the 180/min token
+bucket) was the real bottleneck on. At the observed ~334-records-labeled-
+per-2-nights rate, reaching `rejected_masterkill`'s position in the
+archive (~75% of the way through by date) was many weeks out — the
+queued win-rate check in KNOWN BROKEN #20 would not have become
+answerable for months, independent of how much real market history the
+underlying firings already have.
+
+BUILT (own PR, v1.0.610): `shadow_portfolio.py`'s `backfill_outcomes()`
+now groups pending jobs by (window_start, window_end) instead of by
+ticker — each job already computes its own day-granularity window from
+its own `rec_time` and `horizon`, so jobs entered on the same calendar day
+at the same horizon (the common case: many candidates logged in the same
+scan cycle) collapse to the same window key and share ONE
+`_fetch_historical_bars_batch` call covering all their tickers (itself
+still internally chunked at 50/call). Jobs at different horizons or
+different days keep separate windows, so no record's fetch window is
+silently widened relative to what the old code computed. Label OUTPUT is
+byte-identical to the old code for every record — `_label_from_path` is
+unchanged, and each job still only reads bars strictly after its own
+entry date, capped at its own horizon; only the NUMBER OF HTTP CALLS
+needed to fetch the same bars changed, not what gets computed from them.
+`server/bot.ts`'s `checkShadowBackfill()` call site raised
+`max_records` 500 -> 3000, now safe under the same 120s subprocess
+timeout given the batching fix's much lower call-count-per-job.
+
+MEASUREMENT INTEGRITY NOTE (this file touches shadow_portfolio.py, which
+CLAUDE.md names explicitly as "the counterfactual logger" under MEASUREMENT
+INTEGRITY): stating directly, as required — this change does NOT alter
+the metric's definition, the win/loss threshold, or the path-dependent
+labeling rule in any way; on IDENTICAL historical bar data, every record's
+label, exit_price, exit_reason, and return_pct come out exactly as the
+pre-fix code would have computed them (verified below). The only effect
+is HOW MANY records get labeled per night and in what order the backlog
+is worked through — this cannot bias any win-rate number in either
+direction, only its timeliness. Filed as [REPAIR] rather than
+[RULE-REVIEW] on that basis, but this note documents the before/after
+comparison MEASUREMENT INTEGRITY asks for regardless of tag.
+
+RATCHET: `test_shadow_portfolio.py` gained
+`TestBackfillOutcomesBatching` (3 new tests, all pure-function/mocked —
+`_fetch_historical_bars_batch` monkeypatched, no real Alpaca calls):
+(1) 20 tickers logged the same day/horizon collapse into <=3 batched
+calls (one per horizon) instead of 20 one-per-ticker calls, with every
+ticker still covered; (2) a record whose price path hits the +2% target
+on day 2 labels WIN with `exit_reason:"target"` at all three horizons,
+pinning that labeling output is unchanged; (3) records at different ages
+(90d vs 40d old, one observable at all 3 horizons, one only at
++5d/+10d) keep DISTINCT fetch windows rather than collapsing into one —
+guards against the refactor accidentally widening a record's window via
+over-eager grouping. A/B-VERIFIED via `git stash`: test (1), run against
+the pre-fix code, correctly FAILS (asserts <=3 calls, pre-fix code makes
+20 — confirmed live: `AssertionError: 20 not less than or equal to 3`);
+all 3 new tests pass post-fix. `test_shadow_portfolio.py` full file:
+11/11 passed.
+
+GATES: fresh container needed `pip3 install -r requirements.txt` +
+`openpyxl` (recurring environment gap prior sessions have logged, not a
+code issue) and `npm install` (node_modules absent) before any gate would
+run. `python3 -m pytest -q`: 1146 passed, 2 skipped — exactly +3 over the
+session-start baseline (1143 passed before this session's 3 new tests),
+zero regressions. `npx tsc
+--noEmit`: 83 errors, confirmed byte-identical via `git stash` on both
+sides (same 83 on unmodified HEAD) — zero new errors from this change.
+`npx tsx --test server/*.test.ts`: 1063 tests, 1062 passed, 1 failed —
+the failure is `gridTiles.test.ts`'s PMTiles-magic-byte check, confirmed
+pre-existing and unrelated via `git stash` (identical single-test failure
+on unmodified HEAD; large tile binaries not fully materialized in this
+container, same class of environment gap the 2026-08-07 session #2 entry
+above already logged for its own gates). `npm run build`: clean.
+
+Version bumped 1.0.609 -> 1.0.610 (PROMOTION RULE 4) in `package.json` +
+both version fields in `package-lock.json`; re-fetched `origin/main`
+immediately before bumping, confirmed no advance since this session
+started (still at 7d57985, the same commit this branch was restarted
+from).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+BACKTEST: N/A — zero trading logic, scoring, sizing, or execution path
+touched; this is a throughput fix to an analytics/labeling job that never
+places or influences an order (per its own module docstring, unchanged
+this session). Not a threshold or rule change, so PROMOTION RULE 3's
+Sharpe/drawdown comparison doesn't apply.
+
+NEXT (queued, not this session): once a few more nightly runs at the
+higher `max_records=3000` have executed, a future session should check
+`/api/diag/shadow`'s `win_rate_by_decision.rejected_masterkill` directly —
+this is KNOWN BROKEN #20's own queued NEXT step, now genuinely reachable
+on a timescale of days rather than months. If it still shows zero after
+~1 week, that would point to a DIFFERENT bottleneck (e.g. `_alpaca_bucket`
+rate exhaustion under the new batch pattern, or the 120s subprocess
+timeout truncating a night's run before it reaches the masterkill
+records) and should be diagnosed fresh rather than assumed to be this
+same root cause recurring — RECURRENCE ESCALATES only applies if the
+IDENTICAL fix is needed again, not a new bottleneck this fix exposes.
+
+STARVED: no — this was the session's one primary action ([REPAIR] per
+SESSION BUDGET); fall-through not reached (one logical PR, per PROMOTION
+RULE 5). `/api/health` re-checked clean before finishing, no LIVENESS
+ALARM, drawdown 0.0%.

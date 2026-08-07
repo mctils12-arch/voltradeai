@@ -3274,7 +3274,21 @@ print(json.dumps(result))
   }
 
   // Once per day, backfill shadow portfolio outcomes.
-  // Runs ~3-5 Alpaca batch calls (token-bucketed to stay within 200/min).
+  // Runs a handful of Alpaca batch calls (token-bucketed to stay within
+  // 200/min) — see shadow_portfolio.py's 2026-08-07 window-batching REPAIR
+  // for why this can now process far more than 500 jobs/night safely.
+  //
+  // REPAIR 2026-08-07 (KNOWN BROKEN #10/#20 follow-up): raised 500 -> 3000.
+  // shadow_portfolio.backfill_outcomes() previously fetched Alpaca bars one
+  // HTTP call PER UNIQUE TICKER even though _fetch_historical_bars_batch
+  // supports up to 50 tickers/call — ticker count, not the 180/min token
+  // bucket, was the real throughput ceiling. That PR regrouped fetches by
+  // shared date window instead (same label output, fewer calls), and this
+  // archive-order backlog (~13k records, oldest processed first) meant
+  // decision buckets that started existing later in time — e.g.
+  // rejected_masterkill, first logged 2026-07-11 — wouldn't be reached for
+  // months at the old 500-jobs/night rate. Kept well under the 120s
+  // subprocess timeout given the batching fix's reduced call count.
   //
   // REPAIR 2026-08-05 (KNOWN BROKEN #10/#20 root cause): this was previously
   // inlined inside tier1Reflex(), gated behind `nowHour === 22` — but the
@@ -3294,7 +3308,7 @@ print(json.dumps(result))
     if (nowHour === 22 && !_shadowBackfilledToday) {  // 10pm UTC = 5pm EST
       try {
         const result = await execPythonSerialized(
-          `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(500)))"`,
+          `python3 -c "from shadow_portfolio import backfill_outcomes; import json; print(json.dumps(backfill_outcomes(3000)))"`,
           { timeout: 120000 }  // 2 min cap
         );
         console.log("[SHADOW] Backfill result:", result.stdout);
