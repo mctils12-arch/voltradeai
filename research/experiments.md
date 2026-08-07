@@ -42433,3 +42433,54 @@ math, kill-status fabricated zeros, earnings-day full sizing, CSP
 earnings gate fails open, rounding handing full heat budget, BS
 put-delta branch, SectorHeatmap fabricated -100%, R:R sign, and 4 low
 client papercuts. Full JSON: workflow journal wf_2302cba6-006.
+
+## 2026-08-07 — [REPAIR] Full-code-review fix train COMPLETE: all 6 queued high classes shipped (v1.0.613–618)
+
+Territory: cross-cutting (bot options stack + server feeds + client
+dashboards), sequential single-change PRs per the train protocol.
+Closes the 2026-08-06 review filing above — every numbered high is now
+FIXED, each with its own PR, version, and ratchet tests:
+
+2. IV DEAD CHANNEL → #713 (v1.0.613): top-level impliedVolatility read
+   in scanner + manager; test_options_iv_field.py (4 tests incl.
+   source ratchet: any greeks-only iv read fails the suite). The two
+   never-fired HIGH_EDGE_SETUPS (earnings IV crush, high-IV premium)
+   can now see real IV. WATCH ITEM for a future session: confirm via
+   live scan logs that avg_iv is nonzero and the setups begin to
+   trigger — that's the live-vs-claim check (honesty metric).
+3. ROLL BASIS → #715 (v1.0.614): rolled_position_state (pure) resets
+   entry_price/initial_credit/max_profit_target/highest_value from the
+   NEW credit at both roll sites; test_options_roll_basis.py (6).
+4. CONVEXITY WIPE → #716 (v1.0.615): quiet-cycle state cleanup now
+   preserves convexity entries (state != preserved guard);
+   test_options_convexity_state.py (2, end-to-end through
+   manage_options_positions with mocked broker).
+   [also this train, from the GL investigation: #717 (v1.0.616)
+   celestialSky context-loss remount — sky recovers instead of dying
+   blank; 2 tests]
+5. AIS RECONNECT + HONESTY → #718 (v1.0.617): vesselFeedHealth (pure;
+   zombie = open socket silent >3min on the global firehose), 60s-tick
+   reconnect watchdog placed BEFORE the empty-map early-return (the
+   early-return was why death was invisible), payload carries
+   feed_down/feed_silent_s/last_message_at, layers registry reports
+   status=down honestly. +3 vesselStream tests.
+6. CLIENT CRASHES → #719 (v1.0.618): r.ok checks route JSON-bodied 5xx
+   into the four pages' existing setError cards; TradeChart sanitized
+   via new client/src/lib/tradeChartGuards.ts (finiteOrNull — incl.
+   ""→null since Number("")===0; fmt em-dash never fabricated 0.00;
+   sanitizePosition single pass), price lines null-guarded; 7 tests
+   incl. source ratchets (caught one `as number` regression during
+   development). Typecheck A/B: 83 pre-existing TS errors before and
+   after — zero added; the two TradeChart TS2353s (textColor/
+   scaleMargins) are baseline debt, left for a lightweight-charts
+   typings session.
+
+Train mechanics note (compiled knowledge): patch-per-leg staging +
+merge watchers + stash discipline held one-logical-change-per-PR
+across 7 sequential PRs against racing sessions; gridTiles.test.ts
+pmtiles-count failure reproduces on pristine main in this container
+(missing local tile fixtures — environmental, not code).
+
+REMAINING from the review: 12 medium + 8 low, unverified, filed above
+with file:line — next sessions verify-then-fix in that order. STARVED:
+yes (mediums queued).
