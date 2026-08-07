@@ -4,6 +4,7 @@ import {
   classifyDevice, govInit, govStep, median,
   setOverloaded, isOverloaded, overloadFromState,
   GOV_OVERLOAD_MS, GOV_OVERLOAD_HOLD_MS, GOV_CALM_MS, GOV_CALM_HOLD_MS, GOV_COOLDOWN_MS, GOV_STRETCH_GRACE_MS,
+  isFragileGpu,
 } from "./deviceTier";
 
 const RES_HOLD = GOV_OVERLOAD_HOLD_MS + GOV_STRETCH_GRACE_MS; // resolution waits out the tick-stretch grace
@@ -170,4 +171,20 @@ test("lever order: tick-stretch flag engages before any resolution step (round-1
   assert.equal(d.apply, undefined, "still untouched just inside the grace");
   d = govStep(d.state, 200, atFlag + GOV_STRETCH_GRACE_MS);
   assert.equal(d.apply, 1.75, "pixels sacrificed only after the grace expires");
+});
+
+// ── fragile-GPU classification (repair 2026-08-05) ──────────────────────────
+// Field defect: a "no-webgl" boot probe (Chrome GPU process down — the exact
+// fragile state the mitigations exist for) left INTEGRATED_GPU false and
+// silently DISABLED the tile-cache mitigation on the crashing Iris Xe
+// machine. The affirmative dead-GPU read must classify as fragile; unknown
+// must not.
+test('isFragileGpu: Intel integrated yes, Arc no, dead-GPU probe yes (fail-safe), unknown no', () => {
+  assert.equal(isFragileGpu('Google Inc. (Intel) | ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)'), true, 'the field machine itself');
+  assert.equal(isFragileGpu('Intel | Intel(R) UHD Graphics 630'), true);
+  assert.equal(isFragileGpu('Intel | Intel(R) Arc(TM) A770 Graphics'), false, 'Arc is discrete');
+  assert.equal(isFragileGpu('no-webgl'), true, 'dead GPU process at boot -> mitigations ON, never silently off');
+  assert.equal(isFragileGpu('unavailable'), false, 'unknown stays non-fragile');
+  assert.equal(isFragileGpu('NVIDIA | NVIDIA GeForce RTX 4070'), false);
+  assert.equal(isFragileGpu('Apple | Apple M2'), false, 'Apple integrated is not the fragile class');
 });

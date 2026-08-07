@@ -2253,7 +2253,7 @@ PROPOSALS, cheapest first — approve one or more:
     spaceActive so their buffers/tiles can be evicted, restoring on exit.
     Needs care: hiding is not the same as freeing in MapLibre, so this must
     be MEASURED (renderer info before/after) rather than assumed.
- C. ONE CONTEXT (large, the real architectural answer). EVIDENCE UPDATE
+ C. ONE CONTEXT (large, the real architectural answer). EVIDENCE CLOSURE 2026-08-05 (full case file: experiments.md same date + workflow journal wf_8ab35411-642): the field payload ruled out TDR by the investigation's own pre-registered criterion (healthy 17ms frames at both instrumented losses), cleared the space view as a necessary cause (loss #3 on the plain map 3.8s after load), exonerated the negative-zoom state (lawful MapLibre globe latitude re-normalization above the deliberate -2 floor), and produced direct GPU-process-down evidence (a no-webgl boot probe beside a running map). Nothing remains but the context count. RECOMMENDATION: approve C.  EVIDENCE UPDATE
     2026-07-31: the blackbox report identifies Intel Iris Xe (D3D11) with
     healthy frames and heap at every loss — driver/GPU-process-level
     resets, where each standing context is surface area. TDR and memory

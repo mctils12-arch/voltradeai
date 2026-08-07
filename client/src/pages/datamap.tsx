@@ -44,7 +44,7 @@ import type { AnalystMapCommand } from "@/components/AnalystPane";
 const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
-import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState } from "@/lib/deviceTier";
+import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState, isFragileGpu } from "@/lib/deviceTier";
 import { scaleReading, zoomLabel } from "@/lib/mapScale";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
@@ -610,10 +610,13 @@ function readGpuInfo(): string | null {
   return gpuInfo;
 }
 try {
-  const g = readGpuInfo() ?? "";
-  // Intel HD/UHD/Iris are shared-memory integrated parts (Arc is discrete).
-  // Apple/ARM "integrated" GPUs are not fragile the same way — scope to Intel.
-  INTEGRATED_GPU = /intel/i.test(g) && !/\barc\b/i.test(g);
+  // Classification + the 2026-08-05 no-webgl fail-safe live in
+  // deviceTier.isFragileGpu (ratchet-tested there): an affirmative
+  // dead-GPU boot probe means the machine is IN the fragile state the
+  // shared-memory mitigations exist for — it must get them, not silently
+  // lose them (the 2026-08-05 field payload's Iris Xe machine booted
+  // exactly that way, and the tile-cache mitigation stayed off).
+  INTEGRATED_GPU = isFragileGpu(readGpuInfo() ?? "");
 } catch { /* stays false */ }
 
 /** Rolling frame-interval recorder. THE decisive field for this investigation:

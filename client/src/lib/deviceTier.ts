@@ -187,3 +187,18 @@ export function overloadFromState(st: GovState, now: number, prev: boolean): boo
   if (st.calmSince != null && now - st.calmSince >= 10_000) return false;
   return prev;
 }
+
+/** True when the GPU identity string marks a machine that needs the
+ *  conservative shared-memory mitigations (smaller tile cache, etc.).
+ *  Intel HD/UHD/Iris are shared-memory integrated parts (Arc is discrete;
+ *  Apple/ARM integrated GPUs are not fragile the same way — scoped to
+ *  Intel). FAIL-SAFE (repair 2026-08-05, GL-loss case file): an
+ *  affirmative "no-webgl" probe means Chrome's GPU process was down at
+ *  boot — direct evidence of the fragile-driver state the mitigations
+ *  exist for; those machines must get them, not lose them. An unknown
+ *  probe ("unavailable", empty) stays non-fragile — fail-safe applies
+ *  only to the affirmative dead-GPU read. */
+export function isFragileGpu(gpuInfo: string): boolean {
+  if (gpuInfo === "no-webgl") return true;
+  return /intel/i.test(gpuInfo) && !/\barc\b/i.test(gpuInfo);
+}
