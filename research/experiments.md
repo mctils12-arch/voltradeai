@@ -3,6 +3,207 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-07 (scheduled-routine session #4, [PRODUCT]) — T-CLIENT — Cboe VIX term structure gets its /data UI, closing the shipped-data-no-UI gap the 2026-08-07 session #2 pipeline build left queued (v1.0.616)
+
+TERRITORY: T-CLIENT (`client/src/pages/vixTermStructure.tsx` new,
+`client/src/pages/datamap.tsx` launcher/routing wiring,
+`scripts/visual_check.mjs` PAGES entry + fixture) + `package.json`/
+`package-lock.json` version bump (SHARED, last, per MERGE-ORDER PROTOCOL).
+No Python files touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`research/open_questions.md`, `research/wishlist.md`, `research/
+platform_program.md` read. Live `/api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM. Deployed
+`server_version` (1.0.610 via `/api/data/layers`) matched the branch's
+starting commit exactly (git cache was stale locally — a fresh
+`git fetch origin main` confirmed no divergence at session start). Last
+tagged session headers: REPAIR/PIPELINE/PIPELINE/PRODUCT/PIPELINE — no
+STARVED streak, well under the 7/10 thrash bar.
+
+REPAIR CHECK FIRST (per Repair Mandate): scanned KNOWN BROKEN in
+open_questions.md. Items #10/#20 are the only unresolved entries and both
+are already correctly gated on shadow-history accumulating after the
+immediately-prior session's throughput fix (v1.0.610) — nothing new to
+action there, not a liveness blocker, so per this task's own instruction
+("note it but proceed with product work unless the break blocks you")
+this session proceeded straight to product work.
+
+PRIMARY-ACTION SELECTION: this is a scheduled [PRODUCT] session per its
+own task description — mission is advancing datacore/ pipelines and the
+/data UI. Surveyed `platform_program.md` (queue clear except P5,
+HUMAN-GATED) and the most recent PIPELINE entry (2026-08-07 session #2,
+Cboe VIX term structure, v1.0.609): that build shipped
+`/api/data/vix-term-structure` (server/cboeVix.ts) but explicitly noted
+zero client files touched — a live, checkable shipped-data-no-UI gap,
+the same class this session's own precedents (App Store rankings
+2026-08-05, GitHub org activity 2026-08-05) closed for their own
+pipelines. Live-verified before starting: `curl .../api/data/
+vix-term-structure` returns real archived data (30-day recent window,
+latest 2026-08-06) with zero client references anywhere in `client/src`
+(`grep` confirmed). This is option (b) from the task's own menu (build
+product UI/UX for RAW-labeled data, no ladder gate required since the
+module's own docstring frames the six levels + two ratios as RAW
+arithmetic, not an inference) and a concretely-queued gap, ranking above
+starting fresh research per SESSION BUDGET.
+
+BUILT (own PR, v1.0.616): `client/src/pages/vixTermStructure.tsx` — new
+`#/data/vix-term-structure` overlay view, same shell/wiring recipe as
+`githubOrgActivity.tsx`/`cropConditions.tsx` (RAW framing restated in the
+header, warming-up/error/empty states, external-source link). Shows the
+six tenor levels (VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX) as a tile grid and the
+two derived ratios (vix/vix3m contango-vs-backwardation state,
+vix9d/vix front-end-stress) as composite rows, plus a 20-row recent
+history table. Reused existing CSS verbatim — `.vt-gridstress-grid/-tile/
+-composite*` (grid-stress precedent) for the tiles/composites and
+`.vt-filings-table` for the history table — zero new CSS classes needed,
+per EDGE DOCTRINE #3 (reuse, don't re-derive). Explicit honesty line
+restates the module docstring's own gating: "ratios are plain arithmetic
+… any regime/predictive use stays gated pending SIGNAL-layer validation"
+— this view makes no claim beyond what GATE 1 (DATA) already supports.
+Wired into `datamap.tsx` following the exact githubOrgActivity/appStore
+pattern: import, `vixTermOpen` state (hash-init + hashchange listener),
+launcher button in the page-wide-dashboards row (not a spatial layer,
+matching the crop-conditions/appstore/github precedent), render call.
+`scripts/visual_check.mjs` gained a `vixtermstructure` PAGES entry + a
+deterministic `/api/data/vix-term-structure` fixture (2-day recent
+window, enough to exercise the table + tile rendering without live data).
+
+CROSS-SYSTEM INTEGRATION: none new this session — the cboeVix.ts module
+docstring already logged the KNOWN BROKEN #20 regime-input candidacy at
+build time; this UI is a pure display layer on the existing GATE-1-only
+archive and doesn't change that gating.
+
+RATCHET: no new unit tests (this is a thin display component over an
+already-tested server module — `server/cboeVix.test.ts`'s 12 tests from
+the prior session cover the data layer; the precedent components this
+session copied from, `githubOrgActivity.tsx`/`cropConditions.tsx`, also
+ship without dedicated component tests, relying on the visual harness's
+PAGES entry as their regression gate). The new `vixtermstructure` PAGES
+entry IS the ratchet, per the Phase 5 rule the last 4 precedent sessions
+established: any future regression that breaks this route's render or
+introduces a hard layout failure is caught mechanically the next time
+the harness runs, not just on discovery.
+
+GATES: fresh container needed `npm install` (node_modules absent, same
+recurring environment gap prior sessions have logged) before anything
+would run. `npx tsc --noEmit`: 83 errors, byte-identical count to the
+pre-change baseline (verified both before AND after merging
+`origin/main`'s intervening advance, see MERGE below) — zero new errors,
+confirmed none reference `vixTermStructure.tsx`. `npx tsx --test
+server/*.test.ts`: 1063 tests, 1062 passed, 1 failed — the failure is
+`gridTiles.test.ts`'s PMTiles-magic-byte check, confirmed pre-existing
+and unrelated (same single failure this session's server/routes.ts area
+was untouched, and the 2026-08-07 session #3 entry above already logged
+this identical failure as a container/large-binary environment gap, not
+code). `npm run build`: clean. `python3 -m pytest -q`: could not run,
+no `requirements.txt` packages installed in this fresh container
+(pre-existing environment gap, same as the 2026-08-07 session #2 entry)
+— N/A regardless, since zero Python files were touched this session.
+Version bumped 1.0.611 -> 1.0.612 pre-merge (PROMOTION RULE 4), then
+read-and-incremented again to 1.0.614 after the second MERGE below
+advanced main to 1.0.613 first — both version fields in
+`package-lock.json` (root `version` and `packages[""].version`, which
+were still lagging at 1.0.610 before this session's first sync) kept in
+lockstep with `package.json` at every bump, same recurring lag class the
+2026-08-07 session #2 entry already logged.
+
+MERGE (1 of 2): `origin/main` advanced mid-session (ebedd7a, v1.0.611, a
+[REPAIR] fixing a fragile-GPU device-tier fail-safe, touching
+`client/src/pages/datamap.tsx` among other files) — per this task's own
+"already-merged branch" guidance this branch had zero unique commits yet
+(working-tree-only changes), so the working tree was stashed, the branch
+fast-forwarded onto `origin/main` cleanly, and the stash popped back with
+a clean auto-merge in `datamap.tsx` (no conflicts — the incoming repair
+touched an unrelated section). Re-ran `tsc --noEmit`, `npm run build`,
+the full node test suite, and the visual harness again post-merge to
+confirm nothing regressed from the merge itself — all identical results
+to the pre-merge run.
+
+MERGE (2 of 2, post-PR-open): the repo's "Auto-merge Claude PRs" CI check
+failed on this PR with `GraphQL: Pull Request has merge conflicts` —
+`origin/main` had advanced twice more while the PR sat open (9c1c66d
+v1.0.612 kill-switch-enforcement repair + inline findings-tracker note,
+dbb669a v1.0.613 options-IV-field repair), landing a genuine `package.json`
+version conflict (both sessions independently bumped from a base this
+branch no longer matched) alongside a clean auto-merge on
+`research/experiments.md` (their entries append at a different location
+than this file's own newest-at-top entries, so git's 3-way merge resolved
+it without a conflict marker — investigated to confirm no content loss
+before trusting the auto-merge). Resolved: version bumped past main's new
+tip to 1.0.614 (not 1.0.612 — that number was already claimed by 9c1c66d
+by the time this merge landed), this entry's own version references
+updated to match, pushed. Neither incoming commit touched
+`vixTermStructure.tsx`, `datamap.tsx`, or `visual_check.mjs`, so no
+re-verification beyond a fresh `tsc --noEmit`/`npm run build`/test-suite
+pass was needed — all clean, identical to the pre-this-merge run.
+
+MERGE (3 of 3): the "Auto-merge Claude PRs" check failed a second time
+with the identical `GraphQL: Pull Request has merge conflicts` message —
+`origin/main` had advanced twice more in the few minutes it took to
+resolve MERGE 2 (eb32eb4 v1.0.614 options-roll-basis repair, 735563c
+v1.0.615 options-convexity-state repair; both from the same full-code-
+review fix train as MERGE 2's commits, both touching `options_manager.py`,
+neither touching client files or `research/experiments.md`), landing
+another `package.json` version collision (this PR's own 1.0.614 pick from
+MERGE 2 collided head-on with eb32eb4 independently claiming the same
+number). Same resolution pattern: `options_manager.py` auto-merged
+cleanly, `package.json` bumped past the new tip to 1.0.616 (both
+`package-lock.json` version fields synced), this entry's own version
+references updated a second time. `tsc --noEmit`/`npm run build`/full
+node test suite re-run clean, identical to every prior run in this PR.
+NOTE for future PRODUCT/PIPELINE sessions in this repo: the
+"Auto-merge Claude PRs" CI check merges on green regardless of market
+hours (it does not read or honor a PR body's deploy-timing note), and
+with several concurrent sessions landing PRs every few minutes, a
+`package.json` version collision on the FIRST merge attempt is close to
+guaranteed for any PR that sits open more than a couple of minutes —
+budget for at least one MERGE-ORDER PROTOCOL re-resolution as routine,
+not exceptional.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+vixtermstructure` run twice (once pre-merge, once post-merge onto
+origin/main's advance) — both runs PASS at all three canonical widths
+(390/768/1440), 0 hard failures. Screenshots self-reviewed: tile grid +
+composite rows + history table render cleanly at all three widths,
+header/back-button/RAW-framing/source-link match the existing shell
+exactly, table degrades to the standard `.vt-filings-table` responsive
+pattern at 390px (unchanged from precedent). The touch-target warnings
+present in the harness output (`Sign in`, `About the Bot`, map-panel
+chrome buttons) are pre-existing global nav/panel elements untouched by
+this PR, not introduced by this page — confirmed by their identical
+appearance in the crop-conditions/appstore/github precedent runs' own
+logged output.
+
+BACKTEST: N/A — zero trading logic, scoring, sizing, or execution path
+touched; pure client display layer over an already-RAW-labeled archive
+not wired into any decision.
+
+NEXT (queued, not this session): `server/apiProduct.ts`'s LICENSE_MARKS
+table has no `data/vix-term-structure` entry yet — the same `/api/v1`
+keyed-mirror gap the immediately-prior [PRODUCT] session (2026-08-06,
+#709) closed for `github-activity`. That's a distinct logical change
+(server-side API-product surface, not a /data client view) and is
+correctly left for its own PR per PROMOTION RULE 5, not bundled here.
+Also queued from the pipeline session: once ~90 days of archive history
+exist, test `vix_vix3m_ratio`/`vix9d_vix_ratio` extremes against the
+existing regime classifier's transitions (candidate SIGNAL gate / KNOWN
+BROKEN #20 regime-input replacement) — unchanged, still not attempted.
+
+STARVED: no — this was the session's one primary action ([PRODUCT] per
+the task's own instruction); fall-through not reached (one logical PR,
+per PROMOTION RULE 5, deploy-coupling note below). `/api/health`
+re-checked clean before finishing, no LIVENESS ALARM, drawdown 0.0%.
+
+DEPLOY-COUPLING NOTE: session ran ~09:23 ET, 7 minutes before the 09:30
+ET open — by the time this PR is ready the market will be open. Per the
+task's own instruction ("prefer merging PRs outside 9:30-16:00 ET; if
+working mid-market, prepare the PR and note in it that the merge should
+wait for the close"), this PR is prepared and pushed but the merge itself
+should wait for the 16:00 ET close given it's a T-CLIENT change to a live
+route.
+
 ## 2026-08-06 (scheduled-routine session #3) [PIPELINE] — JODI oil-stocks GATE 2 run: non-OECD stock-build hypothesis KILLED, all 4 comparisons point the pre-registered direction but none clear significance (v1.0.606, T-DATACORE)
 
 TERRITORY: T-DATACORE (`scripts/jodi_gate2_test.py`, `test_jodi_gate2.py`,
