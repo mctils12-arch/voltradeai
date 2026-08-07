@@ -2335,6 +2335,23 @@ def suppress_entries_on_kill(trades, kill_status):
     return trades, []
 
 
+def compute_daily_pnl_pct(acct: dict) -> float:
+    """REPAIR 2026-08-07 (full-code-review finding): today's P&L as a
+    fraction of equity, for check_kill_switches()'s DAILY_LOSS_LIMIT gate.
+    Alpaca's /v2/account response has no `daily_pnl_pct` field — reading it
+    (as the tier-engine call site used to) always hits the `.get()` default
+    of 0, so the -3% daily-loss kill switch could never fire from real
+    losses. Alpaca DOES return `equity` and `last_equity` (prior session's
+    closing equity) — server/bot.ts's recordDailyEquity() already derives
+    daily P&L the same way for the equity-curve chart. Pure function so the
+    fix is unit-testable without a live account call."""
+    equity = float(acct.get("equity", 0) or 0)
+    last_equity = float(acct.get("last_equity", 0) or 0)
+    if last_equity <= 0:
+        return 0.0
+    return (equity - last_equity) / last_equity
+
+
 def scan_market():
     """
     Full market scan — ALL ~11,600 tradeable US stocks, not just top 100.
@@ -3774,7 +3791,7 @@ def _scan_market_inner():
             peak = update_peak_equity(equity)
 
             vxx_r = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
-            daily_pnl = float(acct.get("daily_pnl_pct", 0) or 0) / 100.0
+            daily_pnl = compute_daily_pnl_pct(acct)
             kill_status = check_kill_switches(
                 equity=equity, peak_equity=peak, positions=positions,
                 daily_pnl_pct=daily_pnl, vxx_ratio=vxx_r, buying_power=bp,

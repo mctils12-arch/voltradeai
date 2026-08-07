@@ -3,6 +3,116 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-07 (scheduled-routine session #6, [REPAIR]) — T-BOT — daily-loss kill switch's input was fabricated zero: `check_kill_switches()` could never see a real daily P&L, so DAILY_LOSS_LIMIT (-3%) never had a chance to fire (v1.0.622)
+
+TERRITORY: T-BOT (`bot_engine.py`, non-frozen — the FROZEN mechanism in
+`risk_kill_switch.py` itself is untouched, only its input is fixed) + new
+`test_daily_pnl_pct.py` + `package.json`/`package-lock.json` version bump
+(SHARED, last, per MERGE-ORDER PROTOCOL). No TS files touched (grepped
+`server/` for `daily_pnl_pct` — zero references, no cross-language call
+site to update).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`research/open_questions.md` read (this session's action was found
+before `research/wishlist.md` was needed). Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM. `/api/diag/audit?limit=200`: no fresh error types
+beyond the already-tracked EVENTLOOP-LAG false-alarm class (KNOWN
+BROKEN #18) — no acute repair-from-audit-log candidate this session.
+Loop-health ratio over the last 10 tagged entries (session #5 back
+through the 2026-08-04 stale-stop-state repair): REPAIR, PRODUCT,
+PIPELINE, PIPELINE, PIPELINE, RULE-REVIEW, RESEARCH, REPAIR, PRODUCT,
+REPAIR — 3/10 REPAIR, well under the 7/10 thrash bar. `git fetch origin
+main` twice during the session caught two concurrent merges landing
+live (#722 flight-track repair v1.0.620, #723 USDA NASS /api/v1 mirror
+v1.0.621) — this session's designated branch had already been merged
+and its remote ref deleted, so per this session's own instructions it
+was restarted fresh from `origin/main` (`git checkout -B
+claude/funny-fermat-pzwvm2 origin/main`, re-run after the second
+concurrent merge landed) rather than stacked on stale history.
+
+REPAIR CHECK: no acute audit-log bug found; open_questions.md's live
+KNOWN BROKEN items (#10, #20, #12c) are all explicitly gated on
+shadow-history accumulation or a deferred design decision, not
+actionable yet. Fell through to the next queued item per SESSION
+BUDGET: the 2026-08-06 full-code-review fleet's "12 medium + 8 low,
+unverified, filed" queue (this file, `[REPAIR] Full-code-review fleet`
+entry) — the review's own workflow journal (`wf_2302cba6-006`) wasn't
+on disk in this fresh container, so each candidate needed independent
+re-discovery from the compressed description per READ BEFORE WRITE,
+not a trust-the-summary patch.
+
+FOUND + VERIFIED (own investigation, not trusted from the log text):
+"daily_pnl_pct fabricated kill-switch input." `bot_engine.py`'s tier
+engine (the ONLY call site of `check_kill_switches()` anywhere in the
+codebase — confirmed by grep across `.py`/`.ts`) computed
+`daily_pnl_pct` via `float(acct.get("daily_pnl_pct", 0) or 0) / 100.0`.
+Alpaca's `/v2/account` response has no `daily_pnl_pct` field (confirmed
+against `server/bot.ts:803`'s own `recordDailyEquity()`, which already
+derives daily P&L as `acct.equity - acct.last_equity` for the equity
+chart — the established, working pattern for the same endpoint) — so
+the `.get()` call hit its `0` default on every single cycle, by
+construction, independent of any live data. `risk_kill_switch.py`'s
+`DAILY_LOSS_LIMIT = -0.03` (a real, intended safety gate — Priority 1,
+KEEP THE SYSTEM ALIVE) tracks a ratcheting `min()` of `daily_pnl_pct`
+per trading day; fed a permanent 0.0, `daily_limit_hit` could never
+become true from a real loss. This is a bug fix restoring documented
+intended behavior, not a threshold change — the RULE REVIEW evidence
+gate doesn't apply (the -3% threshold itself is untouched and
+unevaluated by this PR).
+
+REPAIRED (own PR, v1.0.622): extracted `compute_daily_pnl_pct(acct)`
+(pure function, mirrors the `suppress_entries_on_kill` precedent from
+the 2026-08-06 KILL-SWITCH ENFORCEMENT repair) — `(equity -
+last_equity) / last_equity`, guarded against `last_equity <= 0` to
+avoid a divide-by-zero on a malformed/empty account payload. The tier
+engine's call site now reads `daily_pnl = compute_daily_pnl_pct(acct)`
+instead of the dead key. `risk_kill_switch.py` itself (FROZEN
+mechanism) is byte-for-byte untouched — only the input it receives is
+now real.
+
+RATCHET: `test_daily_pnl_pct.py` (new), following the
+`test_kill_switch_enforcement.py` two-class pattern — 7 pure-function
+tests (up/down/flat days, missing/zero `last_equity` never crashes,
+empty dict returns 0, and a pin that a stray implementation reading the
+literal `daily_pnl_pct` key back would fail) + a 2-test source ratchet
+(`bot_engine.py`'s call site must read `compute_daily_pnl_pct(acct)`;
+the dead `acct.get("daily_pnl_pct"` string must not reappear). A/B
+verified via `git stash -- bot_engine.py`: import fails outright
+pre-fix (`compute_daily_pnl_pct` doesn't exist yet) and all 9 pass
+post-fix.
+
+GATES: fresh container needed `pip3 install -r requirements.txt -r
+requirements-dev.txt` (neither numpy/pandas/lightgbm/... nor
+pytest/openpyxl/... were present — same recurring environment gap
+prior sessions have logged, worth noting this session actually paid
+the one-time install cost rather than deferring: both installs
+succeeded cleanly, ~2 min total). `python3 -m pytest -q`: 1177 passed,
+1 skipped, 0 failed (baseline + 9 new, zero regressions). No `.ts`
+files touched, so no `npx tsc`/`npx tsx --test`/`npm run build` gate
+applies to this diff. Version bumped 1.0.621 -> 1.0.622;
+`package-lock.json`'s two version fields (previously drifted to
+1.0.619, pre-existing per the 2026-08-07 USDA NASS entry) synced to
+1.0.622 in the same edit.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this repairs a portfolio-level
+safety gate's input, not a scoring/sizing/entry-selection rule; no
+strategy behavior changes for accounts that never breach -3% in a day
+(the overwhelming common case), and there is no backtest harness for
+the tier engine's `check_kill_switches` wiring specifically (it depends
+on live intraday equity, not a replayable OHLCV series).
+
+NEXT: the review's remaining ~11 medium + 8 low findings are still
+unverified — a future session should independently re-derive each
+(same READ BEFORE WRITE approach used here) rather than trust the
+compressed one-line descriptions, since the source workflow journal
+doesn't persist across containers. Also worth a live check in a few
+days: `/api/diag/audit` for a `DAILY-LOSS` or equivalent kill-switch
+firing on a real down day, now that the input is real — none observed
+yet this session (no relevant audit line existed even under the old
+fabricated-zero input, since it never had a mechanism to fire).
+
 ## 2026-08-07 (scheduled-routine session #5, market-hours, [REPAIR]) — T-BOT — KNOWN BROKEN #12(b) resolved: the dead `trackClosedTrades` ML-feedback block removed after the live falsifiable signal it was gated on finally fired (v1.0.619)
 
 TERRITORY: T-BOT (`server/bot.ts` — `trackClosedTrades`, non-frozen) +
