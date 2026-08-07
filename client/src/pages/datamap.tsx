@@ -5334,6 +5334,16 @@ export default function DataMapPage() {
       if (disposed || handle) return;
       bmark("sky-mount", { pitch: Math.round(map.getPitch()) });
       handle = mountCelestialSky(container, {
+        // repair 2026-08-06 (GL-loss case file): a driver reset used to
+        // leave the sky a dead blank canvas for the session. Dispose the
+        // dead instance immediately, then let the pitch lifecycle remount
+        // a FRESH context after a 5s cool-down — bounded per loss (no tight
+        // recreate loop on a mid-reset-episode driver; round-15 lesson).
+        onContextLost: () => {
+          bmark("sky-context-lost");
+          unmount();
+          window.setTimeout(() => { try { check(); } catch {} }, 5000);
+        },
         getView: () => {
           const c = map.getCenter();
           // maplibre stores the vertical fov on the transform; normalize

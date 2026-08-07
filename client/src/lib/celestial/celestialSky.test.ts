@@ -475,3 +475,50 @@ test("celestialSky rAF loop skips the WebGL draw while document.hidden, catches 
     else (globalThis as { cancelAnimationFrame: unknown }).cancelAnimationFrame = origCancel;
   }
 });
+
+// ── context-loss handling (repair 2026-08-06, GL-loss case file) ────────────
+// A driver reset (Iris Xe field evidence) used to leave the sky a dead blank
+// canvas for the session: no webglcontextlost handler existed. The mount must
+// wire one that (a) preventDefaults so the browser may restore, (b) latches
+// renderFailed so the render loop stops safely, (c) notifies the parent so
+// the pitch lifecycle can dispose→remount a FRESH context.
+test("mount wires webglcontextlost: preventDefault + renderFailed latch + parent notification", () => {
+  const listeners: Record<string, (e: any) => void> = {};
+  const canvasStub = {
+    style: {} as Record<string, string>,
+    className: "",
+    width: 0, height: 0, clientWidth: 800, clientHeight: 600,
+    getContext: () => null, // GL itself unavailable — handler wiring is independent
+    addEventListener(type: string, fn: (e: any) => void) { listeners[type] = fn; },
+    remove() { /* noop */ },
+  };
+  const fakeDoc = {
+    createElement: () => canvasStub,
+    addEventListener() { /* noop */ },
+    removeEventListener() { /* noop */ },
+  } as unknown as Document;
+  const container = {
+    ownerDocument: fakeDoc,
+    appendChild() { /* noop */ },
+    clientWidth: 800, clientHeight: 600,
+  } as unknown as HTMLElement;
+  let lostCalls = 0;
+  const handle = mountCelestialSky(container, {
+    getView: () => ({ timeMs: 0, observerLatDeg: 0, observerLonDeg: 0, lookAzDeg: 0, lookElDeg: 0, fovDeg: 40 }),
+    onContextLost: () => { lostCalls++; },
+  });
+  assert.equal(typeof listeners["webglcontextlost"], "function", "loss listener is wired at mount");
+  let prevented = 0;
+  assert.doesNotThrow(() => listeners["webglcontextlost"]({ preventDefault: () => { prevented++; } }));
+  assert.equal(prevented, 1, "preventDefault called — browser may restore");
+  assert.equal(lostCalls, 1, "parent notified exactly once per loss");
+  assert.equal(handle.getRenderFailed(), true, "render loop latched off");
+  assert.doesNotThrow(() => handle.render(), "render stays a safe no-op after loss");
+  // a loss with a throwing parent callback must not throw either
+  const handle2 = mountCelestialSky(container, {
+    getView: () => ({ timeMs: 0, observerLatDeg: 0, observerLonDeg: 0, lookAzDeg: 0, lookElDeg: 0, fovDeg: 40 }),
+    onContextLost: () => { throw new Error("parent exploded"); },
+  });
+  assert.doesNotThrow(() => listeners["webglcontextlost"]({ preventDefault: () => {} }), "handler swallows parent errors");
+  assert.doesNotThrow(() => handle2.dispose());
+});
