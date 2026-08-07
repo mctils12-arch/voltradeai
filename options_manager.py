@@ -814,10 +814,19 @@ def manage_options_positions(equity: float = 100000) -> dict:
     ]
 
     if not options_positions:
-        # Clean stale state entries
-        if state:
-            _save_options_state({})
-        return {"actions": [], "positions_checked": 0, "options_state": {}}
+        # Clean stale state entries — but NEVER the convexity overlay's
+        # markers (repair 2026-08-06, full-code-review finding, adversarially
+        # verified): when the ONLY held options are the QQQ tail-hedge puts,
+        # they are filtered out above and this branch used to wipe the WHOLE
+        # state file — destroying the strategy/managed_by markers that
+        # _run_convexity_overlay (bot_engine.py) and the filter above both
+        # re-identify the hedge legs by. Orphaned hedge puts then get managed
+        # as ordinary positions on the next cycle. Preserve every
+        # convexity-managed entry; drop only the truly stale rest.
+        preserved = {k: v for k, v in state.items() if k in convexity_symbols}
+        if state != preserved:
+            _save_options_state(preserved)
+        return {"actions": [], "positions_checked": 0, "options_state": preserved}
 
     positions_checked = 0
 
