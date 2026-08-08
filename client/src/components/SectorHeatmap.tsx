@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import { sectorChangePct } from "@/lib/sectorHeatmapGuards";
 
 interface SectorData {
   name: string;
@@ -56,12 +57,15 @@ export default function SectorHeatmap() {
       for (const s of SECTOR_ETFS) {
         const snap = data[s.etf];
         if (snap) {
-          const bar = snap.dailyBar || {};
-          const prev = snap.prevDailyBar || {};
-          const c = bar.c || 0;
-          const pc = prev.c || c;
-          const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;
-          results.push({ name: s.name, etf: s.etf, change: Math.round(change * 100) / 100, marketCap: s.weight });
+          // Before this sector ETF's first trade of the session, dailyBar.c
+          // can be missing while prevDailyBar.c still holds a real close —
+          // sectorChangePct returns null there instead of a fabricated
+          // -100%, and the sector is simply omitted (no data yet), not
+          // shown as crashed.
+          const change = sectorChangePct(snap.dailyBar, snap.prevDailyBar);
+          if (change !== null) {
+            results.push({ name: s.name, etf: s.etf, change, marketCap: s.weight });
+          }
         }
       }
       setSectors(results);
