@@ -5819,6 +5819,54 @@ the ladder before belief.)
    informational. Discount further per Reasoning Standard #4: this is
    the FIRST test of this exact bucket design, so the +20d contrast's
    significance is not yet confirmed out-of-sample.
+   UPDATE 2026-08-08 (scheduled-routine PRODUCT session) — RETEST RUN
+   (scripts/finra_shortvol_gate2_retest.ts), running the exact follow-up
+   pre-registered above: (a) replaced the rank-based NEUTRAL control with
+   a seeded random-entry baseline sample (80 tickers/day, uniformly drawn
+   from the qualifying population, disjoint from HIGH_SHORT — an unbiased
+   full-population-mean estimator bounded for network cost, per Reasoning
+   Standard #3), (b) added a regime split via SPY's trailing 20-trading-
+   day return (UP >= 0 / DOWN < 0) as a stated-upfront coarse proxy for
+   the live bot's 5-level Markov classifier. HIGH_SHORT definition and
+   the 16-weekly-Wednesday sample window (2026-01-07..2026-04-22) were
+   held IDENTICAL to the first pass — a methodology fix on the same
+   period, not a new out-of-sample window.
+   RESULT: POOLED day-clustered +20d spread (HIGH_SHORT mean - baseline
+   mean) = +1.928%, t=1.761, df=15 — does NOT clear the pre-stated
+   crit=2.131 bar. VERDICT: FAIL/INCONCLUSIVE against the primary
+   pre-registered test. +5d pooled: +0.707%, t=1.149, also short of
+   significance. Regime split (diagnostic only, n=8/8, explicitly not a
+   second pass/fail gate given the small per-regime cluster count):
+   UP +20d +2.684%/t=1.558, UP +5d +0.540%/t=0.486, DOWN +20d +1.171%/
+   t=0.827, DOWN +5d +0.875%/t=1.414 — all 4 splits positive
+   (HIGH_SHORT > baseline), none individually significant.
+   INTERPRETATION (Reasoning Standard #4): this is now a SECOND test of
+   this root, but it is a directionally-CONSISTENT near-miss (all 4
+   horizon x regime cells point the same way, unlike the first pass's
+   U-shape reversal), not a clean refutation — the two "second attempt"
+   precedents that got marked `killed` (occ_options_volume,
+   cftc_tff_positioning, jodi_oil_stocks) each needed a sign reversal or
+   a disjoint-window null, not just an underpowered near-miss. Read
+   together with the first pass, the most likely honest story is: the
+   original run's significant HIGH-LOW spread was substantially inflated
+   by the rank-based NEUTRAL bucket's own composition confound (as this
+   entry's own prior UPDATE predicted), and the true HIGH_SHORT-vs-
+   fair-baseline effect is smaller and currently underpowered at n=16
+   clusters rather than zero. NOT marked `killed` in signal_ladder.json
+   (stays `gate2_fail`, current_gate 2).
+   NEXT (pre-registered here for whichever future session takes it, not
+   chased this session per the no-fishing rule): widen the sample to
+   more weekly clusters (e.g. 32 weeks, still keeping the identical
+   HIGH_SHORT/baseline/floor construction) to raise statistical power —
+   at t=1.761 with df=15, a plausible amount of additional data could
+   plausibly cross or fail to cross crit=2.131, and that answer is more
+   informative than re-running the same 16-day window again. If power
+   alone clears the bar, a genuinely disjoint out-of-sample window
+   (mirroring the OCC/CFTC-TFF two-stage precedent) is the step after
+   that, not this one.
+   Source: scripts/finra_shortvol_gate2_retest.ts;
+   scripts/finra_shortvol_gate2_retest.test.ts;
+   research/experiments.md 2026-08-08 entry.
 2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
    keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
    the disaggregated report, which is also the analytically richer

@@ -42839,3 +42839,130 @@ queued items for a future PRODUCT session: the 12 medium + 8 low
 findings from the 2026-08-06 full-code-review filing (experiments.md
 above), and D1 (device-envelope demand ledger) from the DEVICE ENVELOPE
 phase just filed.
+
+## 2026-08-08 — [PIPELINE] finra_short_volume GATE 2 RETEST: random-baseline + regime split, still FAIL but directionally consistent (v1.0.623)
+
+Territory: T-DATACORE (scripts/ + datacore/signal_ladder.json +
+research/open_questions.md only; no client/, server routes, or bot
+files touched).
+
+Health check first: no LIVENESS ALARM. open_questions.md's live
+KNOWN BROKEN entries (#10/#20, master-kill-switch CSP over-kill) remain
+explicitly non-blocking pending shadow-history accumulation — proceeded
+straight to product work.
+
+CHOICE OF ACTION (per the session's own PRODUCT mandate, option (a) —
+advance a datacore/ pipeline through its next ladder gate): scanned
+datacore/signal_ladder.json for gate1_pass/gate2_pending/gate2_fail
+roots with a genuinely reachable next step. Ruled out: crop_conditions_
+usda_nass's own pre-registered gate 2 (condition-delta vs forward grain
+futures) needs multi-year NASS QuickStats history and this session's
+container has no NASS_API_KEY (confirmed via `env`, same gap
+crop_conditions_gate1.ts's header already documented — production has
+the key, this container doesn't); sec_edgar_13f/nrc_outage_reports/
+app_store_rank need more archive time to elapse (Oct-Nov 2026 / a
+quarter / ~2026-10-30 respectively, all stated in their own ladder
+notes); usaspending_contracts' first gate-2 run was already inconclusive
+on a too-young archive 13 days ago, not enough new time elapsed to
+re-run meaningfully. finra_short_volume's 2026-08-06 gate-2 FIRST-PASS
+FAIL, by contrast, left a fully-specified, keyless (no key blocker),
+pre-registered follow-up sitting in open_questions.md verbatim: "(a)
+test HIGH_SHORT against a FULL-POPULATION mean/random-entry baseline...
+(b) regime-split." Ran that exact follow-up rather than inventing a new
+design — same discipline the OCC/CFTC-TFF/JODI two-stage precedents
+used (fix methodology first, on the same window, before ever touching a
+disjoint one).
+
+BUILT: `scripts/finra_shortvol_gate2_retest.ts` (+ 15-test battery in
+`scripts/finra_shortvol_gate2_retest.test.ts`). Reused
+`fetchShortVolDay`/`FLOOR_TOTAL_VOL` (server/finraShortVolume.ts),
+`weeklySampleDays`/`fetchYahooDaily`/`toSeries`/`fwdReturn`
+(scripts/occ_volume_gate2.ts), `clusterMeanTTest`/`tCrit005`/
+`survivesAtCrit005` (scripts/statsUtils.ts) verbatim — zero
+reimplementation of already-battle-tested machinery. New pieces:
+- HIGH_SHORT bucket definition held byte-identical to the 2026-08-06
+  script (top 40 by short_ratio, FLOOR_TOTAL_VOL=500k) — only the
+  CONTROL side changed, isolating exactly the variable the follow-up
+  targeted (Reasoning Standard #1).
+- BASELINE: 80 tickers/day drawn uniformly at random (no replacement)
+  from the qualifying population, disjoint from HIGH_SHORT, via a
+  seeded mulberry32 PRNG (RANDOM_SEED=20260808, a per-day-derived seed
+  so the draw is reproducible, not re-rollable). This operationalizes
+  the follow-up's own "FULL-POPULATION mean/random-entry baseline"
+  language: the qualifying population runs ~2,000-2,400 tickers/day
+  (confirmed via --dry run), so a literal every-ticker fetch across 16
+  days would be several thousand unique Yahoo series — a real cost
+  jump over every prior gate-2 script in this codebase (~1,500 tickers
+  was the previous ceiling). A uniform random sample is an unbiased
+  population-mean estimator regardless of size, stated as the explicit
+  substitution (honesty caveat, not a silent scope narrowing).
+- Regime split: SPY trailing-20-trading-day return, UP (>=0) vs DOWN
+  (<0), a deliberately coarse two-way proxy — NOT a reimplementation of
+  the live bot's 5-level Markov regime classifier (out of scope for a
+  standalone research script), stated in the header per the follow-up's
+  own "roughly BULL/CAUTION texture" framing.
+- Sample window held IDENTICAL to the first pass (16 weekly Wednesdays,
+  2026-01-07..2026-04-22) — a methodology correction on the same
+  period, not a new out-of-sample test (that stays the NEXT step).
+
+RESULT (full run, 1,466 unique tickers incl. SPY, 1,427 fetched/39
+failed — normal Yahoo delist/thin-name attrition, not a script defect):
+  POOLED +20d (primary pre-registered bar): mean spread +1.928%,
+    t=1.761, df=15, crit=2.131 -> does NOT clear. FAIL.
+  POOLED +5d: mean spread +0.707%, t=1.149 -> also short.
+  Regime split (diagnostic only, n=8/8, explicitly not a second
+    pass/fail gate — stated as such BEFORE running given the small
+    per-regime cluster count): UP +20d +2.684%/t=1.558, UP +5d
+    +0.540%/t=0.486, DOWN +20d +1.171%/t=0.827, DOWN +5d +0.875%/
+    t=1.414 — all 4 cells POSITIVE (HIGH_SHORT > baseline), none
+    individually significant at n=8.
+
+VERDICT: FAIL/INCONCLUSIVE against the pre-stated primary bar. But
+qualitatively different from the first pass: instead of a U-shape
+(NEUTRAL below both extremes), every single horizon x regime cell here
+points the same direction. Most likely honest read (Reasoning Standard
+#4): the original run's significant HIGH-LOW spread (t=2.279) was
+substantially a NEUTRAL-bucket composition artifact (exactly what that
+entry's own follow-up predicted), and the real HIGH_SHORT-vs-fair-
+baseline effect is smaller and underpowered at n=16 clusters, not
+zero. This is a SECOND test of the root but not a clean reversal or
+disjoint-window null (the pattern that got occ_options_volume/
+cftc_tff_positioning/jodi_oil_stocks marked `killed`) — stays
+`gate2_fail` in datacore/signal_ladder.json, not `killed`. Updated
+`last_update_date` to 2026-08-08 with the full retest note; updated
+open_questions.md's FINRA entry with the same result plus a
+pre-registered NEXT step (widen to ~32 weekly clusters for power before
+any further conclusion; a genuinely disjoint out-of-sample window is
+the step after THAT, mirroring the OCC/CFTC-TFF precedent) — filed, not
+chased this session (no-fishing discipline).
+
+GATES: `python3 -m pytest -q` 1174 passed, 2 skipped — byte-identical
+to session-start baseline (zero .py files touched). `npx tsx --test
+server/*.test.ts scripts/*.test.ts`: 1098 passed, 1 failed — the failure
+(gridTiles.test.ts's PMTiles-magic-byte check) reproduces identically on
+`git stash` against the pristine pre-change tree (missing local tile
+fixtures, the same container-environment gap prior sessions have logged
+repeatedly, not caused by this change). `npx tsc --noEmit`: 83 errors,
+exact count match against the documented pre-existing baseline — zero
+new errors. `npm run build`: clean.
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+BACKTEST: N/A — this is a SIGNAL-layer (gate 2) research script with no
+trading path, scoring, sizing, or execution touched; `finra_short_volume`
+remains `gate2_fail`, nothing newly traded or sold. Not a threshold/rule
+change, so PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply.
+
+Version bumped 1.0.622 -> 1.0.623 (PROMOTION RULE 4) in `package.json` +
+both version fields in `package-lock.json`; re-fetched `origin/main`
+immediately before bumping, confirmed no advance since this session
+started (still at d456eea, the same commit this branch was restarted
+from).
+
+STARVED: no — this was the session's one primary [PIPELINE] action;
+fall-through not reached (one logical PR, per PROMOTION RULE 5). NEXT
+for whichever future PRODUCT session picks this up: (1) finra_short_
+volume's own widened-sample retest above; (2) the 12 medium + 8 low
+findings from the 2026-08-06 full-code-review filing (still queued, per
+the 2026-08-07 USDA NASS session's own NEXT note); (3) D1 device-
+envelope demand ledger (DEVICE ENVELOPE phase, filed 2026-08-07).
