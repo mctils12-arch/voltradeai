@@ -3,6 +3,136 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-08 (scheduled-routine session) [REPAIR] — T-CLIENT — SectorHeatmap stops fabricating -100% for sectors with no trade yet, closing one of the 2026-08-06 review's queued mediums (v1.0.628, PR #730)
+
+Territory: T-CLIENT (`client/src/components/SectorHeatmap.tsx`,
+`client/src/lib/sectorHeatmapGuards.ts` + its test; no server/, datacore/,
+or bot files touched).
+
+SESSION-START CHECKS: CLAUDE.md read in full; `research/experiments.md`,
+`open_questions.md`, `wishlist.md` read (open_questions.md's live KNOWN
+BROKEN entries #10/#12(c)/#20 all still explicitly non-blocking, unchanged
+since prior sessions). Loop-health ratio over the last 10 tagged entries
+(#729 PRODUCT, #728 PRODUCT, #727 PRODUCT, #726 RESEARCH, #725 RESEARCH,
+#724 REPAIR, #723 PRODUCT, #722 REPAIR, #721 REPAIR, #720 docs): 3/10
+REPAIR, well under the 7/10 thrash bar — no meta-problem to address.
+`/api/health` live: `status:"ok"`, `bot.status:"active"`,
+`equityPeak:110727.04`, `drawdownPct:"0.0"`, `liveness.dark` absent,
+Alpaca `ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM.
+`server_version` via `/api/data/layers` (1.0.627) matched `package.json`
+at session start, confirming no deploy-lag surprise. `/api/diag/audit`
+(30 most recent): routine TIER2/TIER3 scan lines only, nothing actionable.
+
+PICKING THE ACTION: no live bug in the audit log and no matured
+counterfactual-logging experiment ready to judge (the #10/#20 gates are
+still waiting on their own accumulation windows, unchanged), so per
+SESSION BUDGET fell through to the next queued item — and the clearest
+queued item, flagged STARVED across at least 4 prior sessions
+(2026-08-07 REPAIR train, 2026-08-07 PRODUCT crop-conditions, and all
+three 2026-08-08 PRODUCT sessions above), was the "12 medium + 8 low"
+tail of the 2026-08-06 full-code-review filing. Repair work on an
+already-identified, already-adversarially-confirmed finding outranks
+starting fresh research per SESSION BUDGET's ordering, and picking off
+a starved queue item is exactly the roadmap-fits case in step 1. Of the
+list (COT partial-fetch freeze, rollup deleting unreadable hour files,
+weather-grid empty-200 cache, daily_pnl_pct fabricated kill-switch
+input [ALREADY FIXED 2026-08-07, v1.0.622, confirmed by grep before
+picking], VXX fallback ticker mismatch, UnboundLocalError dead code,
+multi-leg gross-vs-net exit math, kill-status fabricated zeros,
+earnings-day full sizing, CSP earnings gate fails open, rounding
+handing full heat budget, BS put-delta branch, SectorHeatmap fabricated
+-100%, R:R sign, 4 low client papercuts), `SectorHeatmap fabricated
+-100%` was the one this session could locate, read, and verify as real
+without the original workflow journal (wf_2302cba6-006, not present in
+this container) — a direct read of `client/src/components/
+SectorHeatmap.tsx` confirmed the exact mechanism on inspection (see
+below), letting this stay single-PR-scoped and read-before-write-honest
+rather than guessing at file:line for the others from memory. The
+remaining ~13 items stay queued for future sessions with the journal or
+a fresh targeted grep.
+
+ROOT CAUSE (read-before-write, this session): `SectorHeatmap.tsx`'s
+per-sector loop computed `const c = bar.c || 0; const pc = prev.c || c;
+const change = pc > 0 ? ((c - pc) / pc) * 100 : 0;`. Before a sector ETF
+prints its first trade of the session, Alpaca's snapshot can carry a
+`dailyBar` with no `c` field while `prevDailyBar.c` still holds
+yesterday's real close — so `c` defaulted to `0`, `pc` resolved to the
+real prior close, and `(0 - pc) / pc * 100` computed exactly `-100`
+every time, rendering a real "no reading yet" state as "this sector
+crashed to zero". The sibling case (no prior close at all) was already
+handled correctly by the same line (`pc` falls back to `c`, giving a
+harmless 0%) — only the current-price-missing direction was broken.
+
+FIX: extracted the math into `client/src/lib/sectorHeatmapGuards.ts`'s
+`sectorChangePct(dailyBar, prevDailyBar)` — pure function, following the
+`tradeChartGuards.ts` precedent from the prior day's crash-fix train
+(#719) exactly (node:test can pin the contract with no DOM). Returns
+`null` when the current price isn't a real finite positive number; the
+component now omits that sector from the results array instead of
+pushing a fabricated reading, consistent with the file's own existing
+"zero rows without an error is a designed state, never a silent empty
+box" honesty comment one level up. The no-prior-close fallback (0%
+change) is preserved byte-for-byte.
+
+RATCHET: `client/src/lib/sectorHeatmapGuards.test.ts` (new, 4 tests) —
+pins the exact -100% failure class (missing/zero/NaN/negative `c` with a
+real prior close all return `null`, never `-100`), the preserved
+no-prior-close-falls-back-to-current-price case, and normal-case percent
+math with rounding. All 4 pass against the new pure function; the old
+inline formula (verified by hand before extracting) would have returned
+`-100` for the first two failure-class tests.
+
+VERIFICATION: `npm install` first (empty `node_modules` in this
+container, `package-lock.json` confirmed untouched by the install via
+`git status` before proceeding — same precedent as prior sessions).
+`npx tsx --test client/src/lib/sectorHeatmapGuards.test.ts` — 4/4 pass.
+Full `npx tsx --test client/src/lib/*.test.ts client/src/lib/**/*.test.ts`
+— 709/709 pass, zero regressions. `npm run build` — clean (the
+pre-existing `astronomy-engine` default-export warning reproduces
+identically, unrelated to this diff's files). `npx tsc --noEmit` could
+not run meaningfully in this container (`Cannot find type definition
+file for 'node'`/`'vite/client'` — missing local `@types/node`/
+TypeScript install, the same pre-existing environment gap documented in
+several prior sessions' entries, e.g. the 2026-08-07 crop-conditions
+session).
+
+VISUAL HARNESS: not run — `/scanner` (where `SectorHeatmap` renders, via
+`client/src/pages/scanner.tsx`) is not registered in `scripts/
+visual_check.mjs`'s `PAGES` map; it is a bot-dashboard page, not a
+`/data` page, and carries no harness ratchet today (same documented gap
+as the TradeChart crash-guard fix, #719, which also touched a
+bot-dashboard component with no PAGES entry). Not addressed this
+session — out of scope for a single-logical-change PR; flagged here so
+a future PRODUCT/T-CLIENT session can decide whether the bot dashboard
+warrants its own harness registration.
+
+No backtest applicable (pure client display-honesty fix — no scoring,
+sizing, or trading-decision code touched; `SectorHeatmap` is a
+read-only informational widget on the scanner page, not wired into any
+order path).
+
+Version bump: `package.json` + `package-lock.json` (both occurrences —
+top-level and `packages[""]`) 1.0.627 -> 1.0.628. Both files were in
+sync at session start.
+
+STARVED: yes — 13 of the original 14 named medium/low findings from the
+2026-08-06 review remain unclaimed (the daily_pnl_pct one was already
+fixed 2026-08-07), plus the 4 low client papercuts, plus D1
+(device-envelope demand ledger) from the DEVICE ENVELOPE phase, plus
+`entity_map_operator_ticker`'s UI shape and `nrc_outage_reports`'s
+dedicated dashboard from the 2026-08-08 PRODUCT sessions' own queues.
+Next queued item for a future REPAIR session: continue down the
+2026-08-06 review list — `kill-status fabricated zeros` and `VXX
+fallback ticker mismatch` are both GOAL-priority-2/1-relevant (measurement
+integrity / regime-classification correctness) and worth prioritizing
+over the lower-severity items once their file:line locations are
+re-derived (this session's targeted grep for a VXX-ticker-fallback
+mismatch across `bot_engine.py`/`macro_data.py`/`options_scanner.py`
+did not turn up an obvious match — the finding may be more subtle or in
+a file not yet checked, e.g. `risk_kill_switch.py`'s VXX sector-class
+map or a Yahoo-fallback path in `backtest_v2.py`; needs either the
+original workflow journal or a fresh dedicated pass).
+
 ## 2026-08-08 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT — US macro cluster (FRED, 28 series) gets its /data UI (v1.0.627)
 
 Territory: T-CLIENT (`client/src/pages/fredMacro.tsx` new, `client/src/pages/
