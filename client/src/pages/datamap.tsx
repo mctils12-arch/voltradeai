@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -38,6 +38,7 @@ import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
+import FredMacroView from "./fredMacro";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2409,6 +2410,10 @@ export default function DataMapPage() {
   // pattern (RAW as-filed reading, not a spatial layer; gate1_pass since
   // 2026-07-05, no client view until now).
   const [filings13fOpen, setFilings13fOpen] = useState(() => window.location.hash === "#/data/filings13f");
+  // US macro regime cluster view (#/data/fred-macro) — same overlay pattern
+  // (RAW regime-input reading, not a spatial layer; gate1_pass since
+  // 2026-07-05, no client view until now).
+  const [fredMacroOpen, setFredMacroOpen] = useState(() => window.location.hash === "#/data/fred-macro");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2739,6 +2744,7 @@ export default function DataMapPage() {
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
+      setFredMacroOpen(window.location.hash === "#/data/fred-macro");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11688,6 +11694,9 @@ export default function DataMapPage() {
       {filings13fOpen && (
         <Institutional13FView onBack={() => { window.location.hash = "#/data"; setFilings13fOpen(false); }} />
       )}
+      {fredMacroOpen && (
+        <FredMacroView onBack={() => { window.location.hash = "#/data"; setFredMacroOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12279,6 +12288,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/filings13f"; setFilings13fOpen(true); }}>
               <Landmark size={13} /> Institutional holdings (13F)
               <span className="vt-streams-launch-sub">quarterly manager filings, top holdings by value · RAW</span>
+            </button>
+            {/* US macro regime cluster launcher (2026-08-08): FRED national
+                readings, not a spatial layer, so it launches from the panel
+                top like the other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-fredmacro-launch
+                    onClick={() => { window.location.hash = "#/data/fred-macro"; setFredMacroOpen(true); }}>
+              <Percent size={13} /> US macro cluster (FRED)
+              <span className="vt-streams-launch-sub">28 series — rates, curve, labor, inflation, activity · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
