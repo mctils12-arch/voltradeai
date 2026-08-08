@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -36,6 +36,7 @@ import CropConditionsView from "./cropConditions";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
+import EuMacroView from "./euMacro";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2399,6 +2400,10 @@ export default function DataMapPage() {
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
   // overlay pattern (RAW national-market reading, not a spatial layer).
   const [vixTermOpen, setVixTermOpen] = useState(() => window.location.hash === "#/data/vix-term-structure");
+  // European macro cluster view (#/data/eu-macro) — same overlay pattern
+  // (RAW regime-input reading, not a spatial layer; gate1_pass since
+  // 2026-07-07, no client view until now).
+  const [euMacroOpen, setEuMacroOpen] = useState(() => window.location.hash === "#/data/eu-macro");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2727,6 +2732,7 @@ export default function DataMapPage() {
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
+      setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11670,6 +11676,9 @@ export default function DataMapPage() {
       {vixTermOpen && (
         <VixTermStructureView onBack={() => { window.location.hash = "#/data"; setVixTermOpen(false); }} />
       )}
+      {euMacroOpen && (
+        <EuMacroView onBack={() => { window.location.hash = "#/data"; setEuMacroOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12244,6 +12253,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/vix-term-structure"; setVixTermOpen(true); }}>
               <Waves size={13} /> Volatility term structure
               <span className="vt-streams-launch-sub">VIX1D–VIX6M + VVIX daily close · RAW</span>
+            </button>
+            {/* European macro cluster launcher (2026-08-08): ECB/Eurostat/
+                Bundesbank regime-input reading, not a spatial layer, so it
+                launches from the panel top like the other page-wide
+                dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-eumacro-launch
+                    onClick={() => { window.location.hash = "#/data/eu-macro"; setEuMacroOpen(true); }}>
+              <Euro size={13} /> European macro cluster
+              <span className="vt-streams-launch-sub">EUR/USD, €STR, ECB balance sheet, EA20 IP, Bund 10Y · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));

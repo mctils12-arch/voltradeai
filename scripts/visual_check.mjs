@@ -76,6 +76,10 @@ const PAGES = {
   // Cboe VIX term structure (2026-08-07) — same Phase 5 ratchet rule as
   // streams/gridstress/githubactivity above.
   vixtermstructure: { route: "/app#/data/vix-term-structure", map: false },
+  // European macro cluster — ECB/Eurostat/Bundesbank regime input
+  // (2026-08-08) — same Phase 5 ratchet rule as streams/vixtermstructure
+  // above.
+  eumacro: { route: "/app#/data/eu-macro", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -465,6 +469,30 @@ const FIXTURES = {
       { date: "2026-08-06", vix1d: 12.55, vix9d: 12.66, vix: 15.15, vix3m: 18.69, vix6m: 20.91, vvix: 88.72, vix_vix3m_ratio: 0.8106, vix9d_vix_ratio: 0.8356 },
     ],
     note: "GATE 1 (DATA) only — ratios are plain arithmetic, no predictive claim (fixture).",
+  },
+  "/api/data/eu-macro": {
+    kind: "raw",
+    source: "European macro cluster — ECB Data Portal + Eurostat + Deutsche Bundesbank (fixture)",
+    attribution: "per-series (each series carries its required attribution string)",
+    time: 1786102149033,
+    note: "REGIME INPUT feed (never a direct signal). Sources revise in place (fixture).",
+    series: [
+      { key: "ECB_EURUSD", source: "ecb", label: "EUR/USD reference rate", cadence: "daily", unit: "USD", attribution: "Source: ECB statistics.",
+        latest: { d: "2026-08-06", v: 1.0852 }, prev: { d: "2026-08-05", v: 1.0839 },
+        history: [{ d: "2026-08-04", v: 1.0821 }, { d: "2026-08-05", v: 1.0839 }, { d: "2026-08-06", v: 1.0852 }] },
+      { key: "ECB_ESTR", source: "ecb", label: "€STR (euro short-term rate)", cadence: "daily", unit: "%", attribution: "Source: ECB statistics.",
+        latest: { d: "2026-08-06", v: 2.9 }, prev: { d: "2026-08-05", v: 2.9 },
+        history: [{ d: "2026-08-04", v: 2.9 }, { d: "2026-08-05", v: 2.9 }, { d: "2026-08-06", v: 2.9 }] },
+      { key: "ECB_BS_TOTAL", source: "ecb", label: "Eurosystem balance sheet (total assets)", cadence: "weekly", unit: "EUR millions", attribution: "Source: ECB statistics.",
+        latest: { d: "2026-08-01", v: 6412000 }, prev: { d: "2026-07-25", v: 6398000 },
+        history: [{ d: "2026-07-18", v: 6385000 }, { d: "2026-07-25", v: 6398000 }, { d: "2026-08-01", v: 6412000 }] },
+      { key: "EU_INDPROD", source: "eurostat", label: "EA20 industrial production (SCA, 2021=100)", cadence: "monthly", unit: "index", attribution: "Source: Eurostat, sts_inpr_m",
+        latest: { d: "2026-06-01", v: 101.3 }, prev: { d: "2026-05-01", v: 100.9 },
+        history: [{ d: "2026-04-01", v: 100.4 }, { d: "2026-05-01", v: 100.9 }, { d: "2026-06-01", v: 101.3 }] },
+      { key: "DE_BUND10Y", source: "bbk", label: "10Y Bund yield (Svensson, listed Federal securities)", cadence: "daily", unit: "%", attribution: "Source: Deutsche Bundesbank",
+        latest: { d: "2026-08-06", v: 2.42 }, prev: { d: "2026-08-05", v: 2.4 },
+        history: [{ d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.4 }, { d: "2026-08-06", v: 2.42 }] },
+    ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry
   // per health bucket + a multi-kind archive so the bar-chart rendering

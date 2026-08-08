@@ -43203,3 +43203,85 @@ queued items for a future PRODUCT session: the 12 medium + 8 low
 findings from the 2026-08-06 full-code-review filing (experiments.md
 above), and D1 (device-envelope demand ledger) from the DEVICE ENVELOPE
 phase just filed.
+
+## 2026-08-08 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT — European macro cluster gets its /data UI (v1.0.625)
+
+Territory: T-CLIENT (client/src/pages/euMacro.tsx new, client/src/pages/
+datamap.tsx wiring, scripts/visual_check.mjs harness registration; no
+server/, datacore/, or bot files touched).
+
+Health check first: no LIVENESS ALARM. open_questions.md KNOWN BROKEN
+has 3 unresolved items (#10 SCORE_BAND dead config, #12(c) ML-feedback
+non-WS exit paths, #20 master-kill-switch CSP over-kill) — all three are
+explicitly non-blocking, gated on evidence/backfill accumulation rather
+than an open bug, so product work proceeded per this routine's own
+instructions (product sessions don't preempt DAILY repair duty; nothing
+here blocked this session). Thrash ratio over the last ~16 entries: well
+under the 7/10 REPAIR escalation bar (self-reported 3-4/10 in the two
+most recent sessions) — no meta-problem flag warranted.
+
+Scanned datacore/signal_ladder.json's 39 roots for `gate1_pass` entries
+with backend built but literally zero client surface (the (b) UI-build
+option in this routine's instructions). Two candidates: `fleet_utilization_
+aircraft` (server/fleetUtilization.ts + /api/data/fleet-utilization, no
+page) and `eu_macro_ecb_eurostat_bundesbank` (server/euMacro.ts +
+/api/data/eu-macro, no page — confirmed via grep, zero references outside
+routes.ts/euMacro.ts/the two hypothesis-doc mentions). Picked EU macro:
+its gate-1 pass is over a month old (2026-07-07, "all 5 curated series
+live end-to-end matched the pre-deploy workup exactly") vs. fleet-
+utilization's admitted data immaturity (its own ladder note: "a real
+trailing-4-week baseline can't exist before ~2026-08-31" — a UI today
+would just show near-empty history). EU macro is the fully-specified,
+mature, single-PR-scoped choice; fleet-utilization stays queued for
+~2026-08-31+.
+
+Built `client/src/pages/euMacro.tsx` (#/data/eu-macro): tile grid (one
+per series — EUR/USD, €STR, Eurosystem balance sheet total assets, EA20
+industrial production, 10Y Bund) showing latest value + delta-vs-prev +
+cadence, mirroring the Cboe VIX term-structure tile-grid precedent
+exactly; below it, a series-picker tab row (ATS/OTC leaderboard tab
+precedent, `vt-filings-filters`) driving a single history table, since
+the 5 series have incompatible cadences (daily/weekly/monthly) and can't
+share one date-indexed table the way VIX's 6 same-cadence series do.
+Zero new CSS — 100% reuse of `vt-filings-*`/`vt-gridstress-tile*` classes,
+continuing every precedent page's "no new styles needed" pattern. RAW
+display only (`kind:"raw"`): every value is the source's own published
+level; explicitly restated in the page copy that this is a REGIME INPUT
+feed per euMacro.ts's own docstring, never a standalone traded signal —
+no ladder gate implied or claimed.
+
+Wired into `client/src/pages/datamap.tsx` following the crop-conditions/
+App-Store/GitHub-activity/VIX pattern exactly: import, `euMacroOpen`
+state + hash-sync effect (`#/data/eu-macro`), render block, and a
+page-wide launcher button (not a map layer — a national/regime reading,
+not a spatial point layer, same reasoning as its four precedents).
+
+Registered in `scripts/visual_check.mjs` (DESIGN.md enforcement harness,
+PROMOTION RULES #6 mandatory for client/ PRs): new `eumacro` PAGES entry
++ a deterministic `/api/data/eu-macro` fixture (5-series realistic
+snapshot). Ran `npm run build` (clean, no new TS errors — the ~90
+pre-existing `tsc --noEmit` errors across server/bot.ts et al. are
+unrelated to this diff's 3 files and are already the documented
+non-blocking CI check) then `node scripts/visual_check.mjs --page
+eumacro` at all three canonical widths: 0 hard failures at 390/768/1440.
+Screenshots reviewed against DESIGN.md: tile grid reflows to a single
+column on phone width, tab row wraps cleanly, table stays legible: no
+overlap, no truncation beyond the pre-existing global "software renderer"
+GPU-notice toast that reproduces identically on the VIX/crop-conditions
+screenshots (confirmed by re-running both) — not caused by this change.
+
+No backtest applicable (no strategy/parameter/scoring change — pure
+client UI addition over an already-live, already-gate-1-passed cache
+read, mirroring RAW OVERLAYS vs SIGNALS: an already-validated raw level
+needs no ladder gate to display).
+
+Version bump: package.json + package-lock.json 1.0.624 -> 1.0.625 (both
+files were in sync at session start — no drift carried forward).
+
+Not STARVED-relevant this session (single fully-scoped action). Next
+queued items for a future PRODUCT session: fleet_utilization_aircraft's
+/data UI once its 2026-08-31 trailing-4-week baseline exists; the
+sec_edgar_13f_institutional_clustering / sec_form4_bulk_archive /
+nrc_outage_reports gate1_pass roots still without a standalone /data
+page (NRC has a map-layer toggle only, no dedicated dashboard); the 12
+medium + 8 low findings from the 2026-08-06 full-code-review filing.
