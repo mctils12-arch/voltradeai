@@ -83,6 +83,9 @@ const PAGES = {
   // Institutional 13F-HR holdings (2026-08-08) — same Phase 5 ratchet rule
   // as streams/vixtermstructure/eumacro above.
   filings13f: { route: "/app#/data/filings13f", map: false },
+  // US macro regime cluster — FRED, 28 public series (2026-08-08) — same
+  // Phase 5 ratchet rule as streams/eumacro/filings13f above.
+  fredmacro: { route: "/app#/data/fred-macro", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -495,6 +498,43 @@ const FIXTURES = {
       { key: "DE_BUND10Y", source: "bbk", label: "10Y Bund yield (Svensson, listed Federal securities)", cadence: "daily", unit: "%", attribution: "Source: Deutsche Bundesbank",
         latest: { d: "2026-08-06", v: 2.42 }, prev: { d: "2026-08-05", v: 2.4 },
         history: [{ d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.4 }, { d: "2026-08-06", v: 2.42 }] },
+    ],
+  },
+  // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
+  // display). Fixture covers one series per category so the harness
+  // exercises every fmtVal unit branch (%, index, claims, thousands,
+  // $M/$B, $/bbl) and the category-header grouping.
+  "/api/data/macro": {
+    kind: "raw",
+    source: "FRED API — Source: FRED, Federal Reserve Bank of St. Louis (fixture)",
+    attribution: "Source: FRED, Federal Reserve Bank of St. Louis",
+    time: 1786207476120,
+    note: "Values as currently published by FRED (revisions overwrite here; our archive keeps every vintage as-seen).",
+    series: [
+      { id: "DGS10", label: "10-Year Treasury", cadence: "daily", unit: "%",
+        latest: { d: "2026-08-06", v: 4.69 }, prev: { d: "2026-08-05", v: 4.63 },
+        history: [{ d: "2026-08-04", v: 4.61 }, { d: "2026-08-05", v: 4.63 }, { d: "2026-08-06", v: 4.69 }] },
+      { id: "STLFSI4", label: "St. Louis Fed Stress Index", cadence: "weekly", unit: "index",
+        latest: { d: "2026-07-31", v: -0.5063 }, prev: { d: "2026-07-24", v: -0.481 },
+        history: [{ d: "2026-07-17", v: -0.45 }, { d: "2026-07-24", v: -0.481 }, { d: "2026-07-31", v: -0.5063 }] },
+      { id: "ICSA", label: "Initial Jobless Claims", cadence: "weekly", unit: "claims",
+        latest: { d: "2026-08-01", v: 199000 }, prev: { d: "2026-07-25", v: 203000 },
+        history: [{ d: "2026-07-18", v: 208000 }, { d: "2026-07-25", v: 203000 }, { d: "2026-08-01", v: 199000 }] },
+      { id: "CPIAUCSL", label: "CPI (All Items)", cadence: "monthly", unit: "index",
+        latest: { d: "2026-06-01", v: 332.568 }, prev: { d: "2026-05-01", v: 331.9 },
+        history: [{ d: "2026-04-01", v: 331.2 }, { d: "2026-05-01", v: 331.9 }, { d: "2026-06-01", v: 332.568 }] },
+      { id: "HOUST", label: "Housing Starts", cadence: "monthly", unit: "thousands",
+        latest: { d: "2026-06-01", v: 1427 }, prev: { d: "2026-05-01", v: 1389 },
+        history: [{ d: "2026-04-01", v: 1352 }, { d: "2026-05-01", v: 1389 }, { d: "2026-06-01", v: 1427 }] },
+      { id: "M2SL", label: "M2 Money Stock", cadence: "monthly", unit: "$B",
+        latest: { d: "2026-06-01", v: 23155.2 }, prev: { d: "2026-05-01", v: 23081.4 },
+        history: [{ d: "2026-04-01", v: 23002.1 }, { d: "2026-05-01", v: 23081.4 }, { d: "2026-06-01", v: 23155.2 }] },
+      { id: "WALCL", label: "Fed Balance Sheet", cadence: "weekly", unit: "$M",
+        latest: { d: "2026-08-05", v: 6748567 }, prev: { d: "2026-07-29", v: 6739210 },
+        history: [{ d: "2026-07-22", v: 6731500 }, { d: "2026-07-29", v: 6739210 }, { d: "2026-08-05", v: 6748567 }] },
+      { id: "DCOILWTICO", label: "WTI Crude Spot", cadence: "daily", unit: "$/bbl",
+        latest: { d: "2026-08-03", v: 81.96 }, prev: { d: "2026-07-31", v: 80.4 },
+        history: [{ d: "2026-07-29", v: 79.8 }, { d: "2026-07-31", v: 80.4 }, { d: "2026-08-03", v: 81.96 }] },
     ],
   },
   // Institutional 13F-HR holdings (2026-08-08, RAW display). Two filings:

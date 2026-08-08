@@ -3,6 +3,118 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-08 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT — US macro cluster (FRED, 28 series) gets its /data UI (v1.0.627)
+
+Territory: T-CLIENT (`client/src/pages/fredMacro.tsx` new, `client/src/pages/
+datamap.tsx` wiring, `scripts/visual_check.mjs` harness registration; no
+`server/`, `datacore/`, or bot files touched).
+
+SESSION-START CHECKS: CLAUDE.md read in full; research/experiments.md,
+open_questions.md, wishlist.md read. Branch note: this session's designated
+branch `claude/lucid-keller-acowf0` had no remote ref (the prior PR from it,
+#728, was already merged and the branch deleted) — restarted it fresh from
+`origin/main` per the merged-PR protocol, confirmed `git fetch --prune`
+showed `origin/main` at `431e56e` (#728) matching local HEAD exactly, zero
+unmerged prior commits to carry forward. Health check: `/api/health` live
+— `status:"ok"`, `bot.status:"active"`, `alpaca.account_status:"ACTIVE"`,
+`liveness.dark` absent/false, `scanner.consecutiveFailures:0` — no
+LIVENESS ALARM. open_questions.md's only live KNOWN BROKEN entries
+(#10 SCORE_BAND dead config, #12(c) ML-feedback non-WS exit paths, #20
+master-kill-switch CSP over-kill) are all explicitly non-blocking per the
+last several sessions' re-checks — product work proceeded, nothing here
+blocked this session.
+
+PICKING THE ACTION: continued the exact pattern the last 6 PRODUCT sessions
+have been closing (crop-conditions, App Store rankings, GitHub activity,
+VIX term structure, EU macro, 13F-HR): scanned `datacore/signal_ladder.json`'s
+`gate1_pass` roots for backend-built-but-zero-client-surface gaps via
+`grep -rl <keyword> client/src/`. Four candidates remained: `fleet_
+utilization_aircraft` (still correctly gated to ~2026-08-31 per its own
+trailing-4-week-baseline note — untouched), `entity_map_operator_ticker`
+(a 44/69-mapped operator->ticker lookup table, not itself a standalone
+dashboard-shaped feed — lower value as a page), `nrc_outage_reports`
+(already has a map-layer toggle, per its own ladder note — a UI gap only
+in the "dedicated dashboard" sense, lower priority than a fully-ungapped
+root), and `fred_macro_series` (28 public FRED series behind `/api/data/
+macro`, live since 2026-07-05, `FRED_API_KEY` confirmed set in Railway,
+zero client references anywhere — confirmed via `grep -rl fred client/src/`
+returning nothing beyond a coincidental substring hit). FRED macro was the
+clear pick: fully gapless, mature (gate-1 passed over a month ago), and a
+direct structural twin of the EU-macro page just shipped — verified live
+via `curl https://voltradeai.com/api/data/macro` before building: 28
+public series returned with real current values (VIX/HY-OAS/UMich sentiment
+correctly absent — `buildMacroPayload` excludes `license:"restricted"`
+series server-side per `server/fredMacro.ts`'s own licensing note, so no
+client-side gating logic was needed for that boundary).
+
+Built `client/src/pages/fredMacro.tsx` (#/data/fred-macro): the eu-macro
+tile-grid + series-picker-history-table shape, extended with category
+section headers (Rates & curve / Financial stress / Labor / Inflation /
+Activity / Money & liquidity / Commodities & dollar) reusing the data-
+quality dashboard's `vt-quality-section`/`vt-quality-section-head` classes
+verbatim — needed because 28 series in one flat tile grid (vs. eu-macro's
+5) would be unreadable without grouping. Category labels are a client-side
+display-only map mirroring `server/fredMacro.ts`'s own `FRED_SERIES`
+section comments — no ladder or licensing logic duplicated. `fmtVal`/
+`fmtDelta` handle all 7 unit kinds present in the live payload (%, index,
+claims, thousands, $/bbl, $M, $B), normalizing `$M`/`$B` through a shared
+`fmtBillions` helper that auto-scales to $B or $T (verified by hand-
+computation before building the harness fixture: M2SL $23,155.2B ->
+"$23.16T", WALCL $6,748,567M -> "$6.75T", RSAFS $768,553M -> "$768.6B" —
+all correctly legible instead of showing raw six/seven-digit numbers).
+RAW display only (`kind:"raw"`): page copy states this is a REGIME INPUT
+feed per the module's own docstring, never a standalone traded signal, and
+explicitly notes the restricted series are excluded server-side. Zero new
+CSS beyond the existing `vt-filings-*`/`vt-gridstress-tile*`/`vt-quality-
+section*` classes — 100% reuse, continuing every precedent page's pattern.
+
+Wired into `datamap.tsx` following the 13F/EU-macro/VIX pattern exactly:
+import, `Percent` icon added to the shared lucide import list, `fredMacroOpen`
+state + hash-sync effect (`#/data/fred-macro`), render block, and a page-
+wide launcher button (not a map layer — national macro readings aren't
+spatial, same reasoning as EU macro/VIX/13F).
+
+Registered in `scripts/visual_check.mjs`: new `fredmacro` PAGES entry + a
+deterministic `/api/data/macro` fixture with one series per category (8
+series spanning all 7 unit kinds) so the harness exercises every `fmtVal`
+branch and the category-grouping logic, not just the happy path. `npm
+install` was needed first (empty `node_modules` in this container;
+`package-lock.json` untouched by the install — confirmed via `git status`
+before proceeding). `npm run build` clean (the pre-existing astronomy-engine
+default-export warning reproduces identically, unrelated to this diff's
+files). `node scripts/visual_check.mjs --page fredmacro`: 0 hard failures
+at 390/768/1440. Screenshots reviewed against DESIGN.md: category headers
++ tiles reflow to a single column on phone, 2-column on tablet, section
+labels stay legible; dollar-scale formatting ($23.16T, $6.75T, 199K, 1.43M)
+renders correctly. The touch-target and "clipped control: Institutional
+holdings (13F)" soft warnings reproduce byte-identically on a fresh
+`eumacro` harness run in the same container (confirmed via direct A/B) —
+pre-existing/environmental, not caused by this change. `npx tsc --noEmit`:
+86 errors, byte-identical to the documented baseline (zero new; none in
+`fredMacro.tsx` or the touched `datamap.tsx`/`visual_check.mjs` lines —
+checked by grepping the error list for those filenames). `npx tsx --test
+server/*.test.ts`: 1069/1070 pass, the 1 failure (`gridTiles.test.ts`
+pmtiles-magic-count) is the same documented environmental fixture gap
+from prior sessions — untouched by this diff (no server files changed).
+
+No backtest applicable (no strategy/parameter/scoring change — pure client
+UI addition over an already-live, already-gate-1-passed cache read,
+mirroring RAW OVERLAYS vs SIGNALS: an already-validated raw level needs no
+ladder gate to display).
+
+Version bump: package.json + package-lock.json (both `"version"` fields —
+the lockfile carries it twice, at the top level and under `packages[""]`)
+1.0.626 -> 1.0.627. Both files were in sync at session start.
+
+Not STARVED-relevant this session (single fully-scoped action). Next
+queued items for a future PRODUCT session: `entity_map_operator_ticker`'s
+UI shape needs its own design thought (it's a lookup table feeding the
+Everything Graph, not a tile-grid dashboard — may belong on `graph.tsx`
+rather than a standalone page); `nrc_outage_reports`'s dedicated dashboard
+(currently map-layer-only); `fleet_utilization_aircraft` once its
+~2026-08-31 baseline exists; the 12 medium + 8 low findings from the
+2026-08-06 full-code-review filing (still unclaimed as of this session).
+
 ## 2026-08-08 (scheduled-routine session, market-hours) [PRODUCT] — T-CLIENT — SEC 13F-HR institutional holdings gets its /data UI (v1.0.626)
 
 Territory: T-CLIENT (`client/src/pages/edgar13f.tsx` new, `client/src/pages/
