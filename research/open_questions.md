@@ -8077,6 +8077,101 @@ pure summarize/spread aggregation — no network) + `strategies/mean_reversion.p
 Full session log, gate results, and version bump in `research/experiments.md`,
 2026-08-08 entry.
 
+**UPDATE 2026-08-08 (scheduled-routine session #2, [RESEARCH]) — this
+entry's own filed NEXT step's INDEPENDENT-RE-DRAW analog, run against
+STRICT_RSI specifically: MIXED, and the spread-widening half of the
+original claim does NOT replicate.**
+
+`scripts/illiquid_universe_probe_threshold_ablation_redraw.py` (new)
+drew a THIRD, genuinely independent illiquid/moderate NASDAQ Capital
+Market sample (`sample_stride=43` — distinct from both the 2026-07-24
+original draw's 40 and the 2026-07-28 redraw's 41; zero ticker overlap
+with the 2026-07-24 pinned lists, verified programmatically) and ran
+BASELINE vs. STRICT_RSI ONLY (DEEP_DROP/VOLUME_WEIGHTED already refuted
+their own priors on the original sample, out of scope here per
+Reasoning Standard #4) via the unmodified `run_variant`/`summarize_variant`/
+`mean_reversion_spread` machinery from the threshold-ablation script,
+substituting the fresh draw's tickers. Candidate screening only found
+6 moderate names (target 7) before the 46-candidate pool was exhausted —
+disclosed honestly, a smaller-than-usual moderate group, not silently
+padded.
+
+RESULT (mean_reversion mean_sharpe; illiquid n=10, moderate n=6):
+
+  BASELINE:    illiquid -0.022 (6/10, 185 trades) | moderate +0.004 (3/6, 98 trades)  | spread -0.026
+  STRICT_RSI:  illiquid +0.030 (6/10, 144 trades) | moderate +0.180 (4/6,  76 trades)  | spread -0.150
+
+TWO findings, stated separately (Reasoning Standard #4 — not spun
+together into one verdict):
+
+1. STRICT_RSI's illiquid-OWN-Sharpe improvement direction REPRODUCES:
+   -0.022 -> +0.030 here (+0.052) vs. the original sample's +0.269 ->
+   +0.308 (+0.039) — same sign, comparable magnitude, third-for-third
+   with the original and (directionally) the pattern this specific
+   half of the claim needed.
+2. The illiquid-vs-moderate SPREAD-WIDENING claim — the OTHER half of
+   the original finding, and the one that would matter most for a
+   future RULE-REVIEW ship (the whole point of tightening thresholds
+   for an ILLIQUID-specific edge is that it helps illiquid relative to
+   the alternative, not that it helps mean_reversion in general) —
+   does NOT reproduce, and goes the WRONG way: baseline spread on this
+   draw was already near-flat (-0.026, itself a stark contrast to the
+   original's +0.492 and the 07-28 redraw's own baseline spread of
+   +0.260 — see that update above), and STRICT_RSI widened it further
+   AGAINST illiquid (-0.150) because moderate's own mean_reversion
+   Sharpe jumped far more under the tightened thresholds (+0.004 ->
+   +0.180, a 45x move on a thin n=6 sample) than illiquid's did.
+
+HONEST READING: this is exactly the "smaller-sample-artifact" outcome
+Reasoning Standard #4 flagged as a live possibility when the original
+finding shipped ("a +0.039 Sharpe delta on n=10 tickers... could
+partly be a smaller-sample artifact this script cannot distinguish
+from a genuine selectivity gain") — one axis of the claim held up,
+the other did not, and the one that failed is the more load-bearing
+one for any future ship decision. A SEPARATE, not-in-scope-for-this-
+entry observation worth flagging plainly rather than burying: this
+draw's BASELINE illiquid-vs-moderate spread (-0.026) is also much
+weaker than either prior draw's baseline spread (+0.492, +0.260) —
+one data point out of three showing the underlying illiquid>moderate
+edge itself near-vanishing, not just the STRICT_RSI variant. That is
+a separate question from this entry's own (STRICT_RSI-specific) scope
+and is not adjudicated here, but a future session revisiting the base
+edge's own robustness should know a third draw exists with this
+reading before assuming the 07-24/07-28 pattern is settled.
+
+VERDICT: STRICT_RSI does NOT clear this step cleanly. Per this entry's
+own filed NEXT ("run STRICT_RSI specifically through steps 1-3's own
+discipline... before it would be eligible for a dedicated RULE-REVIEW
+PR"), a split result on the FIRST of three named steps is not grounds
+to proceed to steps 2-3 (train/test split, formal significance test)
+with any expectation of confirmation — but per Reasoning Standard #4
+("distrust your own results in proportion to how many things you
+tried"), it is also only ONE re-draw, not a clean kill of the
+illiquid-own-Sharpe half. STRICT_RSI stays NOT eligible for any
+RULE-REVIEW PR. A future session may still run steps 2-3 if it wants a
+fuller picture, but should not expect this candidate to look stronger
+than it does here — the spread-widening claim this variant would need
+to actually justify a threshold change is the one that just failed to
+replicate.
+
+No `strategies/mean_reversion.py` DEFAULT_THRESHOLDS change — none was
+ever proposed to ship from this thread. RATCHET: 5 new tests in
+`test_illiquid_universe_probe_threshold_ablation_redraw.py` (sample-
+stride independence from both prior draws, draw_groups screening +
+overlap-flagging with a mocked NASDAQ/backtest_v2 fetch, wiring checks
+that the reused run_variant/summarize_variant/mean_reversion_spread are
+the SAME functions the original threshold-ablation script defines, not
+copies that could drift) — A/B-verified (moving the new script aside
+makes collection fail with `FileNotFoundError`, matching pre-fix
+behavior; restoring it passes). `python3 -m pytest -q`: 1198 passed, 1
+skipped (1193 baseline + 5 new, zero regressions). No `.ts`/`.tsx`
+files touched.
+
+Reproducibility artifact: `scripts/illiquid_universe_probe_threshold_ablation_redraw.py`
++ `test_illiquid_universe_probe_threshold_ablation_redraw.py`. Full
+session log and version bump in `research/experiments.md`, 2026-08-08
+session #2 entry.
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean

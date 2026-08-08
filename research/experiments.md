@@ -3,6 +3,158 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-08 (scheduled-routine session #2, [RESEARCH]) — T-BOT — STRICT_RSI mean_reversion variant's INDEPENDENT-RE-DRAW check: spread-widening claim does NOT replicate (v1.0.624)
+
+TERRITORY: T-BOT (`scripts/illiquid_universe_probe_threshold_ablation_redraw.py`,
+new; no `strategies/`/`bot_engine.py`/`system_config.py` edits — this is a
+pure research probe, reusing prior session's `strategies/mean_reversion.py`
+`thresholds=` override unchanged) + `test_illiquid_universe_probe_threshold_ablation_redraw.py`
++ `research/open_questions.md` + `package.json`/`package-lock.json` version
+bump (SHARED, last, per MERGE-ORDER PROTOCOL). Zero client/server/TS files
+touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `research/experiments.md`,
+`open_questions.md`, `wishlist.md` all read. Loop-health ratio over the last
+10 tagged entries at session start: RESEARCH, REPAIR, REPAIR, PRODUCT,
+PIPELINE, PIPELINE, PIPELINE, RULE-REVIEW, RESEARCH, REPAIR — 3/10 REPAIR,
+well under the 7/10 thrash bar; no meta-problem to address. `/api/health`
+live: `status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. No KNOWN BROKEN item was
+newly actionable (checked the two live-gated entries, both still waiting
+on shadow-history accumulation per their own stated timelines, same as the
+prior session's re-check a few hours earlier).
+
+BRANCH STATE: this session's designated branch (`claude/busy-fermi-496ln7`)
+carried the prior session's PR #725, which GitHub confirmed already
+`merged: true` into `main` (list_pull_requests's `merged` field read false
+in one query but `pull_request_read`'s `get` method — the authoritative
+one — confirmed `merged: true`, `merged_by: github-actions[bot]`,
+`merged_at: 2026-08-08T02:56:51Z`). Per this task's own protocol for an
+already-merged designated branch: `git checkout -B claude/busy-fermi-496ln7
+origin/main` (after `git fetch origin main`, which needed a retry — the
+first fetch attempt returned a stale `168c2cb` HEAD despite the merge
+having happened seconds earlier; the second fetch picked up `28df4b6`
+correctly) to restart the branch from latest main before starting new work.
+
+ENVIRONMENT NOTE (not a code finding, logged so a future session doesn't
+re-diagnose): this session's sandbox had neither `pytest` nor any of
+`requirements.txt`/`requirements-dev.txt`'s packages (numpy/pandas/
+openpyxl/etc.) pre-installed — `python3 -m pytest -q` failed outright
+(`No module named pytest`), and after installing pytest, full-suite
+collection hit an `INTERNALERROR` because `voltrade_daemon.py` calls
+`sys.exit(2)` at import time when `numpy`/`pandas` are missing. Both
+`pip3 install -r requirements.txt` and `pip3 install -r requirements-dev.txt`
+were run before any gate could execute; this is standard environment setup,
+not a repo defect, and is logged only so a future session recognizes the
+same symptom immediately instead of re-investigating it as a possible bug.
+
+PICKING THE ACTION (SESSION BUDGET fall-through step 1 — next queued item
+from open_questions.md): the prior session's own STRICT_RSI ablation entry
+(closed a few hours earlier this same day) filed an explicit, scoped NEXT:
+"run STRICT_RSI specifically through steps 1-3's own discipline
+(independent re-draw, train/test split, bootstrap/permutation significance
+test on the improvement) before it would be eligible for a dedicated
+RULE-REVIEW PR." This is a queued, well-scoped, low-risk continuation of an
+already-disciplined ladder path (lower risk of duplicating unfiled work
+than starting a fresh hypothesis) — chosen over other open threads (the
+TLT momentum and OCC put-skew candidates in open_questions.md are both
+already closed with negative replication results; no other queued item was
+as immediately actionable). Picked step 1 (INDEPENDENT RE-DRAW) as this
+session's scope, matching the established one-ladder-step-per-session
+precedent from the original entry's own history (each of steps 1-3 got
+its own dated session).
+
+PRIOR, stated before running (Reasoning Standard #10): if STRICT_RSI's
+improvement (illiquid Sharpe +0.269->+0.308, spread +0.492->+0.548 on the
+original pinned sample) reflects a real selectivity gain rather than a
+small-sample artifact, a fresh non-overlapping draw should show the SAME
+DIRECTION on both halves of the claim. Counter-prior (Reasoning Standard
+#4): fewer trades under a tightened variant mechanically raises per-trade
+Sharpe-estimate variance — a second draw showing a different or reversed
+pattern is an equally honest, expected-possible outcome.
+
+METHOD: `scripts/illiquid_universe_probe_threshold_ablation_redraw.py`
+(new) draws a THIRD independent illiquid/moderate sample via
+`sample_stride=43` (distinct from the original's 40 and the 2026-07-28
+redraw's 41 — verified zero overlap with the original pinned lists
+programmatically), screened via `illiquid_universe_probe_redraw.py`'s
+`screen_and_bucket()` reused unchanged, then runs BASELINE and STRICT_RSI
+ONLY (DEEP_DROP/VOLUME_WEIGHTED already refuted their own priors, out of
+scope) via `illiquid_universe_probe_threshold_ablation.py`'s
+`run_variant`/`summarize_variant`/`mean_reversion_spread` reused unchanged
+with the fresh tickers substituted. Screening found only 6 moderate names
+(target 7) before the 46-candidate pool (33 usable after 13 screened-out)
+was exhausted — disclosed honestly as a smaller-than-usual comparison
+group, not silently padded to 7.
+
+RESULT (mean_reversion mean_sharpe; illiquid n=10, moderate n=6):
+
+  BASELINE:    illiquid -0.022 (6/10, 185 trades) | moderate +0.004 (3/6, 98 trades) | spread -0.026
+  STRICT_RSI:  illiquid +0.030 (6/10, 144 trades) | moderate +0.180 (4/6,  76 trades) | spread -0.150
+
+VERDICT (Reasoning Standard #4, stated as plainly as the finding): MIXED,
+and the more load-bearing half of the claim did NOT replicate. (1)
+STRICT_RSI's illiquid-OWN-Sharpe improvement direction reproduces:
+-0.022 -> +0.030 (+0.052) here vs. the original's +0.269 -> +0.308
+(+0.039) — same sign, comparable magnitude, third-for-third on this axis.
+(2) The illiquid-vs-moderate SPREAD-WIDENING claim — the half that would
+actually justify a future threshold ship, since the point of an
+illiquid-specific re-tune is helping illiquid RELATIVE to the alternative,
+not mean_reversion in general — does NOT reproduce and reverses: this
+draw's baseline spread was already near-flat (-0.026, vs. the original's
++0.492 and the 07-28 redraw's own +0.260), and STRICT_RSI widened it
+FURTHER AGAINST illiquid (-0.150) because moderate's own mean_reversion
+Sharpe jumped far more under the tightened thresholds (+0.004 -> +0.180,
+a 45x move on a thin n=6 sample) than illiquid's did (+0.052).
+
+HONEST READING: this is the exact "smaller-sample-artifact" outcome the
+original entry's own caveats flagged as a live possibility ("a +0.039
+Sharpe delta on n=10 tickers... could partly be a smaller-sample artifact
+this script cannot distinguish from a genuine selectivity gain"). A
+SEPARATE observation flagged but NOT adjudicated this session (out of this
+entry's own scope): this draw's BASELINE illiquid-vs-moderate spread
+(-0.026) is itself much weaker than either prior draw's baseline spread
+(+0.492, +0.260) — one data point out of three now showing the underlying
+illiquid>moderate edge (not just STRICT_RSI) near-vanishing. Filed in
+open_questions.md for a future session that wants to revisit the base
+edge's own robustness, not resolved here.
+
+STRICT_RSI stays NOT eligible for any RULE-REVIEW PR. `strategies/
+mean_reversion.py`'s `DEFAULT_THRESHOLDS` (the live values) remain
+byte-for-byte unchanged — no threshold, config, or strategy change ships
+from this session.
+
+RATCHET: `test_illiquid_universe_probe_threshold_ablation_redraw.py` (5
+new tests: sample-stride independence from both prior draws;
+`draw_groups()` screening + overlap-flagging against a mocked NASDAQ-
+candidates/`backtest_v2.fetch_bars` fetch, including the empty-candidates
+edge case; wiring checks pinning that the reused `run_variant`/
+`summarize_variant`/`mean_reversion_spread` are the SAME function objects
+the original threshold-ablation script defines, not copies that could
+drift). A/B-verified: moving the new script aside makes pytest collection
+fail with `FileNotFoundError` (pre-fix), restoring it passes (post-fix).
+GATES: `python3 -m pytest -q` — 1198 passed, 1 skipped (1193 baseline + 5
+new, zero regressions). No `.ts`/`.tsx` files touched, so `npx tsc
+--noEmit`/`npm run build`/visual harness were not re-run (matches the
+prior session's own precedent for a Python-only research probe). Version
+bumped 1.0.623 -> 1.0.624 (`package.json` + `package-lock.json`).
+BACKTEST: N/A in the PROMOTION-RULE-3 sense — this is a research probe
+producing counterfactual evidence, not a strategy/parameter change; no
+live default was touched, so there is nothing to compare against current
+main's Sharpe/drawdown.
+
+NEXT: per this entry's own scoped ladder step, a future session COULD run
+steps 2-3 (train/test split, formal bootstrap/permutation significance
+test) if it wants the fuller picture this entry's parent NEXT named — but
+should not expect STRICT_RSI to look stronger there than it does here; the
+claim that would need to survive (spread-widening) already failed to
+replicate once. Separately, the newly-observed weak baseline spread on
+this third draw is worth a future session's attention on its own terms
+(see open_questions.md UPDATE for the full framing) before treating the
+base illiquid mean_reversion edge as settled by the 07-24/07-28 pair
+alone.
+
 ## 2026-08-08 (scheduled-routine session, [RESEARCH]) — T-BOT — EDGE DOCTRINE axis (b): illiquid-universe mean_reversion re-thresholding ablation, LADDER PATH step 4 (v1.0.623)
 
 TERRITORY: T-BOT (`strategies/mean_reversion.py`, non-frozen) + new
