@@ -3,6 +3,218 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-08 (scheduled-routine session, [RESEARCH]) — T-BOT — EDGE DOCTRINE axis (b): illiquid-universe mean_reversion re-thresholding ablation, LADDER PATH step 4 (v1.0.623)
+
+TERRITORY: T-BOT (`strategies/mean_reversion.py`, non-frozen) + new
+`scripts/illiquid_universe_probe_threshold_ablation.py` +
+`test_mean_reversion_thresholds.py` +
+`test_illiquid_universe_probe_threshold_ablation.py` + `package.json`/
+`package-lock.json` version bump (SHARED, last, per MERGE-ORDER
+PROTOCOL). Zero client/server/TS files touched — grepped `server/` for
+any cross-language caller of `mean_reversion.score`; none exists (it is
+Python-only, called from `bot_engine.py` and `backtest_v2.py`).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE, REASONING
+STANDARD, ROOT VALIDATION LADDER, RULE REVIEW, MEASUREMENT INTEGRITY
+sections especially, per this task's own framing). `research/`
+directory listed (23 files + directives/). `git status` clean on
+`claude/dazzling-planck-idgxzh`, `git log` confirmed HEAD matched
+`origin/main` exactly (d456eea, v1.0.622) before this session's changes
+— no deploy lag, no concurrent-merge restart needed. Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM.
+
+REPAIR CHECK FIRST (per Repair Mandate): scanned KNOWN BROKEN in
+open_questions.md — the only live (non-RESOLVED) entries are #10/#20/#12c,
+all previously confirmed gated on shadow-history accumulation, not
+actionable yet. Re-checked both live via `/api/diag/shadow` (DIAG_TOKEN
+present in this session's env) and `/api/data/archive/stats`: (a)
+`win_rate_by_decision.rejected_masterkill` is STILL empty (0 of 140
+`by_decision` records cross the >=5-labeled floor) — expected per the
+2026-08-07 session #3 fix's own stated "~1 week" checkpoint (v1.0.610
+shipped 2026-08-07, this session is one day later, not yet due for a
+re-diagnosis); (b) `settlementstress`'s composite archive is STILL 13
+files / 0 bytes, unchanged from the 2026-08-06 session's own filed
+falsifiable prediction — but `secftd`'s newest period is still
+`202607a` (SEC has not yet published `202607b`; `finrathreshold`/
+`finrashortvolotc` both already have coverage through 2026-08-07, so the
+FTD half-month publication is confirmed as the sole remaining blocker,
+not a new bug). Neither is actionable this session; both re-confirmations
+are recorded here so a future session doesn't re-derive the same "not
+yet due" conclusion from scratch. Loop-health ratio over the last 10
+tagged entries at session start: REPAIR, REPAIR, PRODUCT, PIPELINE,
+PIPELINE, PIPELINE, RULE-REVIEW, RESEARCH, REPAIR, PRODUCT — 3/10 REPAIR,
+well under the 7/10 thrash bar.
+
+PICKING THE ACTION: this session's own prompt named four EDGE DOCTRINE
+axes. Checked axis (a) first via `scripts/data_stream_registry_check.py`
+(the compiled-knowledge registry built specifically so this question
+doesn't need re-deriving by hand each session): every named example
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends) is already `built` or `declined_*` with a
+documented replacement (Google Trends -> Wikimedia pageviews); the
+remaining `candidate_unbuilt`/`blocked_*` entries all need either a
+human registration/key or a volume-budget decision, not a same-session
+build. Axis (b) was the clear next unblocked lane: `research/
+open_questions.md`'s 2026-07-24 illiquid mean_reversion entry (gated on
+the fill-realism fix this task's own prompt flagged as a prerequisite —
+that fix shipped 2026-07-23, v1.0.480) already has steps 1 (independent
+re-draw), 2 (train/test split), and 3 (significance test) CLOSED, plus a
+2026-08-01 regime-conditioned check — and its own filed step 4
+("illiquid-tuned re-thresholding... its own RULE-REVIEW-gated effort
+with counterfactual evidence") sat open and fully scoped. Continuing an
+already-disciplined ladder path beats starting a fresh hypothesis from
+zero (lower risk of duplicating unfiled work, and the ladder's own prior
+steps are the counterfactual-evidence groundwork step 4 needs).
+
+PRIOR (Reasoning Standard #10, stated in the script's own docstring
+before running): three theory-motivated variants, each touching exactly
+ONE of `mean_reversion.score()`'s three input axes (RSI / 5d-drop /
+volume-ratio) — not a combinatorial grid, per Reasoning Standard #4's
+"prefer fewer, theory-motivated tests." Shared theory: the live
+thresholds were tuned against the bot's actual liquid mega-cap universe,
+so a microcap's noisier price/volume series may cross those bands on
+routine noise rather than genuine exhaustion — tightening (STRICT_RSI,
+DEEP_DROP) should raise selectivity and Sharpe. VOLUME_WEIGHTED (lower
+bar + higher weight, betting volume is the load-bearing "sellers
+exhausted" marker) was flagged as the more speculative variant.
+
+PREREQUISITE BUILT: `strategies/mean_reversion.py` gained an optional
+`thresholds=` override on `score()` (new `DEFAULT_THRESHOLDS` dict,
+`{**DEFAULT_THRESHOLDS, **thresholds}` merge) — a pure parametrization
+with ZERO behavior change for any existing caller, since neither
+`bot_engine.py`'s `deep_score` nor `backtest_v2.py`'s `score_candidate`
+passes the new kwarg. This let the research harness monkeypatch variant
+thresholds via `strategies.mean_reversion.score` (picked up live by
+`backtest_v2.py`'s per-call `from strategies import mean_reversion`,
+same cached module object) WITHOUT touching `backtest_v2.py` — the
+MEASUREMENT-INTEGRITY-named backtest engine — at all, and without
+changing any live default. Chose this over an alternative (duplicating
+backtest_v2's simulation loop inside the research script) specifically
+to avoid touching measurement/ruler code and to avoid a second,
+possibly-drifting reimplementation of the simulation logic.
+
+METHOD: `scripts/illiquid_universe_probe_threshold_ablation.py` (new)
+reuses the ORIGINAL 2026-07-24 pinned ILLIQUID(n=10)/MODERATE(n=7) lists
+and `run_group()`/`summarize()` unchanged from `illiquid_universe_probe.py`
+(momentum out of scope — already reproduced cleanly with no sign
+instability). Baseline re-run FRESH in this script's own execution (not
+the cached 07-24 numbers) for exact bar-fetch-timing comparability
+against the three variants.
+
+RESULT (mean_reversion mean_sharpe; illiquid_minus_moderate is the same
+spread step 3 significance-tested):
+
+  BASELINE:         illiquid +0.269 (9/10, 146 trades) | moderate -0.223 (3/7, 114 trades) | spread +0.492
+  STRICT_RSI:        illiquid +0.308 (8/10,  98 trades) | moderate -0.240 (1/7,  82 trades) | spread +0.548
+  DEEP_DROP:          illiquid +0.142 (7/10,  86 trades) | moderate -0.394 (0/7,  74 trades) | spread +0.536
+  VOLUME_WEIGHTED:    illiquid +0.134 (6/10, 192 trades) | moderate -0.025 (3/7, 156 trades) | spread +0.159
+
+VERDICT (Reasoning Standard #4 — stated plainly, not spun stronger than
+the numbers support): the prior was only PARTLY confirmed. STRICT_RSI is
+the one variant that improved BOTH the illiquid group's own absolute
+Sharpe (+0.269 -> +0.308) AND the illiquid-vs-moderate spread (+0.492 ->
++0.548) — the predicted direction. DEEP_DROP refuted half its own prior:
+it widened the spread (+0.536) but LOWERED illiquid's own absolute
+Sharpe (+0.142) — deepening the drop bands nearly halved illiquid's
+trade count (146 -> 86) without the survivors being better on average.
+VOLUME_WEIGHTED, the flagged-speculative variant, underperformed on BOTH
+metrics (+0.134 illiquid Sharpe, +0.159 spread, worse than baseline on
+the spread) — lowering the volume bar let in ~46 more trades that
+diluted rather than sharpened the signal, opposite of the "volume is the
+load-bearing marker" story.
+
+HONEST CAVEATS: ONE pinned sample, no independent re-draw of the
+variants, no train/test split, no significance test on the STRICT_RSI
+improvement itself — a +0.039 Sharpe delta on n=10 tickers has not been
+tested against noise the way the baseline's own spread was in step 3;
+fewer trades under a tightened variant also mechanically raises
+per-trade Sharpe-estimate variance, so part of the improvement could be
+a smaller-sample artifact this script cannot distinguish from a genuine
+selectivity gain. Combinations of variants were deliberately NOT run
+(would reopen the multiple-hypothesis-fishing problem the one-axis-at-
+a-time design was chosen to avoid).
+
+NO THRESHOLD, CONFIG, OR STRATEGY CHANGE SHIPS FROM THIS SESSION —
+`DEFAULT_THRESHOLDS` (the live values) are byte-for-byte unchanged; this
+is the counterfactual evidence the original entry's own step 4 asked
+for, not the re-tuning itself. Per RULE REVIEW, any actual threshold
+ship needs its own dedicated PR with a logged rollback trigger — not
+bundled with this research session.
+
+RATCHET: `test_mean_reversion_thresholds.py` (6 tests, 48 subtests) pins
+the default (no-override) path byte-identical to an independent oracle
+copy of the pre-refactor hardcoded logic across a 15-case grid spanning
+every RSI/drop/volume band, plus the override mechanism itself (partial
+override, unknown-key tolerance, full variant dict).
+`test_illiquid_universe_probe_threshold_ablation.py` (10 tests) pins the
+monkeypatch lifecycle (patched during the call, restored after —
+including on exception, so a crashed run_group() call can't leak a
+patched `mean_reversion.score` into any OTHER script sharing the
+process), the explicit-override-wins-over-variant merge contract, pure
+summarize/spread aggregation, and a structural check that each VARIANTS
+entry touches exactly one input axis. A/B-verified via `git stash push
+-- strategies/mean_reversion.py`: the pre-fix combined run of both new
+test files reports `39 failed, 9 passed` (pytest's subtest-inclusive
+count — most failures are `TypeError`s on the unsupported `thresholds`
+kwarg or an `AttributeError` on the missing `DEFAULT_THRESHOLDS`); the
+independent-oracle test (`test_matches_pre_refactor_oracle_on_representative_grid`)
+and the pure-aggregation tests that never touch the refactor correctly
+still pass pre-fix, as they should. Post-fix, both files' full 16 test
+methods (54 subtests) pass.
+
+GATES: fresh container needed `pip3 install -r requirements.txt -r
+requirements-dev.txt` (recurring environment gap prior sessions have
+logged). `python3 -m pytest -q`: 1193 passed, 1 skipped, 4 warnings
+(pre-existing scipy/regime-detector warnings, unrelated) — up from the
+session-start baseline of 1177 passed (confirmed by re-running the full
+suite with `git stash push -- strategies/mean_reversion.py` and the two
+new test files untracked-hidden: 1177 passed, 1 skipped), i.e. exactly
++16 new tests, zero regressions. Zero `client/`/`server/` files touched,
+so no `npx tsc --noEmit` / `npx tsx --test` / `npm run build` gate
+applies to this diff (sanity: not run, per PROMOTION RULE 1's own scope
+of "existing tests," and this session's own territory check above
+already confirmed zero cross-language call sites exist for
+`mean_reversion.score`).
+
+BACKTEST: this touches `strategies/mean_reversion.py`, a live-wired
+scoring module — but the change is a parametrization only (optional
+kwarg, unused by every existing caller), not a threshold or logic
+change, so PROMOTION RULE 3's Sharpe/drawdown-not-worse-than-main
+comparison does not apply the way it would to an actual strategy change.
+The ablation's OWN backtest results are the deliverable (see RESULT
+above) — reported as exploratory research evidence, explicitly not
+shipped as any live change, with the improvement's own significance
+untested per the HONEST CAVEATS.
+
+Version bumped 1.0.622 -> 1.0.623 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping (byte-identical to session-start
+HEAD, `d456eea`, no advance).
+
+VISUAL VERIFICATION: N/A — zero `client/` files touched.
+
+NEXT (queued, not this session): (1) if this thread is picked up
+further — not required, step 5 is the ladder's real gate — a future
+session should run STRICT_RSI specifically through steps 1-3's own
+discipline (independent re-draw, train/test split, bootstrap/permutation
+significance test on the improvement) before it would be eligible for a
+dedicated RULE-REVIEW PR. (2) Regardless of (1), step 5 (LOGIC-gate
+ablation of the UNMODIFIED thresholds against the live bot's actual
+`deep_score`/`tier1_csp_core` candidate path, not this ETF-rotation-style
+backtest engine — per KNOWN BROKEN #10's note that `backtest_v2.py`
+doesn't model the full candidate-selection path) remains the ladder's
+real next gate. (3) `rejected_masterkill` win-rate and the
+`settlementstress` composite (both re-checked this session, both
+correctly still not-yet-due) — see the REPAIR CHECK note above for
+exactly what a future session should check and when.
+
+STARVED: no — this was the session's one primary action (SESSION
+BUDGET's "start a new experiment," axis (b) chosen over (a)/(c)/(d) per
+the reasoning above); fall-through not reached (one logical PR, per
+PROMOTION RULE 5). `/api/health` re-checked clean before finishing, no
+LIVENESS ALARM, drawdown 0.0%.
+
 ## 2026-08-07 (scheduled-routine session #6, [REPAIR]) — T-BOT — daily-loss kill switch's input was fabricated zero: `check_kill_switches()` could never see a real daily P&L, so DAILY_LOSS_LIMIT (-3%) never had a chance to fire (v1.0.622)
 
 TERRITORY: T-BOT (`bot_engine.py`, non-frozen — the FROZEN mechanism in
