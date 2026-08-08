@@ -7966,6 +7966,117 @@ synthetic-step-function inputs with known right answers, plus an
 integration test against synthetic long-history bars, before being run
 against the real per-ticker trade histories above).
 
+UPDATE 2026-08-08 (scheduled-routine session, [RESEARCH], EDGE DOCTRINE
+axis (b)) — LADDER PATH step 4 (illiquid-tuned RE-THRESHOLDING) run: MIXED
+result, one variant improves both the illiquid group's own Sharpe AND the
+illiquid-vs-moderate spread, two do not. Step 4 CLOSED as "checked," not
+"a threshold change ready to ship." Step 5 (LOGIC-gate ablation against
+the live bot's actual deep_score/tier1_csp_core path) remains fully open.
+
+PRIOR, stated before running (full text in the script's own docstring):
+three theory-motivated variants, each touching exactly ONE of
+mean_reversion.score()'s three input axes (RSI / 5d-drop / volume-ratio),
+not a combinatorial grid — Reasoning Standard #4 discipline. Shared
+theory: the live thresholds (20/30/40 RSI bands, -10/-5/-3 5d-drop bands,
+2/1.5 volume-ratio bands) were tuned against the bot's actual liquid
+mega-cap universe, so a microcap's noisier price/volume series may cross
+those bands on routine noise, not genuine exhaustion — tightening should
+raise selectivity and Sharpe. Expected STRICT_RSI and DEEP_DROP to both
+improve the illiquid group; VOLUME_WEIGHTED (lower bar + higher weight,
+betting volume is the load-bearing "sellers exhausted" marker) was flagged
+as the more speculative of the three.
+
+PREREQUISITE BUILT (own PR, v1.0.623): `strategies/mean_reversion.py`
+gained an optional `thresholds=` override on `score()` (new
+`DEFAULT_THRESHOLDS` dict; `{**DEFAULT_THRESHOLDS, **thresholds}` merge) —
+a pure parametrization with ZERO behavior change for any existing caller
+(`bot_engine.py`'s `deep_score`, `backtest_v2.py`'s `score_candidate`),
+since neither passes the new kwarg. This let the research harness
+monkeypatch variant thresholds via `strategies.mean_reversion.score`
+(picked up live by `backtest_v2.py`'s per-call `from strategies import
+mean_reversion` since it's the same cached module object) without
+touching `backtest_v2.py` — the MEASUREMENT-INTEGRITY-named backtest
+engine — at all, and without changing any live default. Verified
+byte-identical to the pre-refactor hardcoded logic via an independent
+oracle copy in `test_mean_reversion_thresholds.py` (6 tests, 48 subtests
+across a 15-case grid spanning every branch) and A/B'd via `git stash`
+(pre-fix: 39 of the new tests across both new test files fail outright —
+`thresholds` kwarg doesn't exist yet; post-fix: all pass).
+
+METHOD: `scripts/illiquid_universe_probe_threshold_ablation.py` (new)
+reuses the ORIGINAL 2026-07-24 pinned ILLIQUID(n=10)/MODERATE(n=7) lists
+and `run_group()`/`summarize()` unchanged from `illiquid_universe_probe.py`
+— momentum out of scope (already reproduced cleanly with no sign
+instability, doesn't need this scrutiny per the significance-test step's
+own scoping note). Baseline was re-run FRESH in this script's own
+execution (not the cached 07-24 numbers) so baseline and all three
+variants share identical bar-fetch timing (today's 4y window runs
+~2 weeks later than the original, so absolute numbers drift slightly —
+expected, not a bug).
+
+RESULT (mean_reversion mean_sharpe; illiquid_minus_moderate is the same
+spread step 3 significance-tested):
+
+  BASELINE:         illiquid +0.269 (9/10, 146 trades) | moderate -0.223 (3/7, 114 trades) | spread +0.492
+  STRICT_RSI:        illiquid +0.308 (8/10,  98 trades) | moderate -0.240 (1/7,  82 trades) | spread +0.548
+  DEEP_DROP:          illiquid +0.142 (7/10,  86 trades) | moderate -0.394 (0/7,  74 trades) | spread +0.536
+  VOLUME_WEIGHTED:    illiquid +0.134 (6/10, 192 trades) | moderate -0.025 (3/7, 156 trades) | spread +0.159
+
+VERDICT, stated as plainly as the finding (Reasoning Standard #4 — the
+prior was only PARTLY confirmed, not spun stronger than the numbers
+support): STRICT_RSI is the one variant that improved BOTH the illiquid
+group's own absolute Sharpe (+0.269 -> +0.308, ~15% higher, on 33% fewer
+but presumably higher-conviction trades) AND the illiquid-vs-moderate
+spread (+0.492 -> +0.548) — the direction the prior predicted. DEEP_DROP
+REFUTED half its own prior: it widened the spread (+0.536, moderate
+degraded more than illiquid did) but LOWERED illiquid's own absolute
+Sharpe to +0.142 — deepening the drop bands cut illiquid's trade count
+nearly in half (146 -> 86) and the ones it kept were, on this reading, not
+better on average. VOLUME_WEIGHTED, the flagged-speculative variant,
+underperformed on BOTH metrics (+0.134 illiquid Sharpe, +0.159 spread —
+worse than baseline on the spread) — lowering the volume bar let in ~46
+more trades (146 -> 192) that diluted rather than sharpened the signal,
+the opposite of the "volume is the load-bearing marker" story.
+
+HONEST CAVEATS (Reasoning Standard #4/#7, same discipline as steps 1-3):
+this is ONE pinned sample, no independent re-draw of the variants, no
+train/test split, no significance test on the STRICT_RSI improvement
+itself — a +0.039 Sharpe delta on n=10 tickers is a small effect that
+has not been tested against noise the way the baseline's illiquid-vs-
+moderate spread was in step 3. Fewer trades under a tightened variant
+also mechanically raises per-trade variance in the resulting Sharpe
+estimate — the improvement could partly be a smaller-sample artifact
+rather than a genuine selectivity gain, and this script does not
+distinguish the two. Not run: any combination of variants (deliberately,
+per the one-axis-at-a-time discipline stated in the prior — combining
+STRICT_RSI with the other two would reopen the multiple-hypothesis-
+fishing problem this design was chosen to avoid).
+
+NO THRESHOLD, CONFIG, OR STRATEGY CHANGE SHIPS FROM THIS ENTRY —
+`strategies/mean_reversion.py`'s DEFAULT_THRESHOLDS (the live values) are
+byte-for-byte unchanged; this is the counterfactual evidence the original
+entry's own step 4 asked for ("re-tuning would be its own RULE-REVIEW-
+gated effort with counterfactual evidence, not assumed here"), not the
+re-tuning itself. NEXT for a future session, if this thread is picked up
+further (not required — step 5 is the ladder's actual gate): run
+STRICT_RSI specifically through steps 1-3's own discipline (independent
+re-draw, train/test split, bootstrap/permutation significance test on the
+improvement) before it would be eligible for a dedicated RULE-REVIEW PR;
+absent that, step 5 (LOGIC-gate ablation of the UNMODIFIED thresholds
+against the live bot's actual `deep_score`/`tier1_csp_core` candidate
+path, not this ETF-rotation-style backtest engine — per KNOWN BROKEN
+#10's note that `backtest_v2.py` doesn't model the full candidate-
+selection path) remains the ladder's real next gate regardless of
+whether STRICT_RSI is ever pursued further.
+
+Reproducibility artifact: `scripts/illiquid_universe_probe_threshold_ablation.py`
++ `test_illiquid_universe_probe_threshold_ablation.py` (12 tests: monkeypatch-
+lifecycle including exception-safety, variant-definition axis-purity,
+pure summarize/spread aggregation — no network) + `strategies/mean_reversion.py`
+(`DEFAULT_THRESHOLDS` + `thresholds=` param) + `test_mean_reversion_thresholds.py`.
+Full session log, gate results, and version bump in `research/experiments.md`,
+2026-08-08 entry.
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
