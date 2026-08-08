@@ -80,6 +80,9 @@ const PAGES = {
   // (2026-08-08) — same Phase 5 ratchet rule as streams/vixtermstructure
   // above.
   eumacro: { route: "/app#/data/eu-macro", map: false },
+  // Institutional 13F-HR holdings (2026-08-08) — same Phase 5 ratchet rule
+  // as streams/vixtermstructure/eumacro above.
+  filings13f: { route: "/app#/data/filings13f", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -492,6 +495,38 @@ const FIXTURES = {
       { key: "DE_BUND10Y", source: "bbk", label: "10Y Bund yield (Svensson, listed Federal securities)", cadence: "daily", unit: "%", attribution: "Source: Deutsche Bundesbank",
         latest: { d: "2026-08-06", v: 2.42 }, prev: { d: "2026-08-05", v: 2.4 },
         history: [{ d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.4 }, { d: "2026-08-06", v: 2.42 }] },
+    ],
+  },
+  // Institutional 13F-HR holdings (2026-08-08, RAW display). Two filings:
+  // one focused (holdings present) and one over the FOCUSED_MAX_HOLDINGS
+  // cap (summary-only) so the harness exercises both card states.
+  "/api/data/filings13f/history": {
+    kind: "raw",
+    source: "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05) (fixture)",
+    days: 45,
+    count: 2,
+    focused_cap: 250,
+    filings: [
+      {
+        accession: "0001234567-26-000123", filedAt: "2026-08-05T00:00:00.000Z", cik: "0001234567",
+        indexUrl: "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000123/",
+        managerCik: "0001234567", managerName: "Example Capital Management LLC",
+        periodOfReport: "2026-06-30", submissionType: "13F-HR",
+        entryTotal: 42, valueTotal: 812500000, otherManagersCount: 0,
+        holdingsOmitted: false,
+        holdings: [
+          { issuer: "EXAMPLE SMALLCAP CORP", titleOfClass: "COM", cusip: "123456789", value: 45000000, shares: 900000, sharesType: "SH", putCall: null, discretion: "SOLE" },
+          { issuer: "SAMPLE MICROCAP INC", titleOfClass: "COM", cusip: "987654321", value: 22000000, shares: 500000, sharesType: "SH", putCall: null, discretion: "SOLE" },
+        ],
+      },
+      {
+        accession: "0009876543-26-000456", filedAt: "2026-08-04T00:00:00.000Z", cik: "0009876543",
+        indexUrl: "https://www.sec.gov/Archives/edgar/data/9876543/000987654326000456/",
+        managerCik: "0009876543", managerName: "Mega Institutional Advisors Inc",
+        periodOfReport: "2026-06-30", submissionType: "13F-HR",
+        entryTotal: 3800, valueTotal: 412000000000, otherManagersCount: 2,
+        holdingsOmitted: true, holdings: null,
+      },
     ],
   },
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — one entry
