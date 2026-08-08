@@ -3,6 +3,119 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-08 (scheduled-routine session, market-hours) [PRODUCT] — T-CLIENT — SEC 13F-HR institutional holdings gets its /data UI (v1.0.626)
+
+Territory: T-CLIENT (`client/src/pages/edgar13f.tsx` new, `client/src/pages/
+datamap.tsx` wiring, `scripts/visual_check.mjs` harness registration; no
+`server/`, `datacore/`, or bot files touched).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`,
+`open_questions.md`, `wishlist.md` all read. Loop-health ratio over the
+last 10 tagged entries: PIPELINE, PRODUCT, PIPELINE, REPAIR, RESEARCH,
+RESEARCH, REPAIR, REPAIR, PRODUCT, PRODUCT — 3/10 REPAIR, well under the
+7/10 thrash bar; no meta-problem to address. `/api/health` live:
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. `/api/diag/audit` (40 most
+recent entries): routine TIER2/TIER3/MANIPULATION/QUEUE lines only, no
+error/exception audit type — nothing actionable there. open_questions.md's
+only live KNOWN BROKEN entries (#10/#12(c)/#20) are all explicitly
+non-blocking, gated on shadow-history accumulation, unchanged since the
+last few sessions' re-checks.
+
+PICKING THE ACTION: no bug in the audit log, no matured experiment ready
+to judge (the two gated KNOWN BROKEN items are still waiting on their own
+stated accumulation windows). Fell through to the next queued PRODUCT
+item, continuing the exact pattern the last 5+ PRODUCT sessions have been
+closing (crop-conditions, App Store rankings, GitHub activity, VIX term
+structure, EU macro): scanned `datacore/signal_ladder.json`'s `gate1_pass`
+roots for backend-built-but-zero-client-surface gaps. Two candidates
+matched CLAUDE.md's "12 medium + 8 low from the 2026-08-06 review" /
+build-order queue: `sec_edgar_13f_institutional_clustering` and
+`sec_form4_bulk_archive`. Form 4 was already ruled out — `client/src/
+pages/filings.tsx` (#/data/filings) already covers it, confirmed by
+reading the file (it fetches `/api/data/insider/history`, the Form 4
+archive). 13F was confirmed genuinely gapless: `server/edgar13f.ts` +
+`/api/data/filings13f` + `/api/data/filings13f/history` have been live
+since 2026-07-05 (gate 1 DATA passed) with a `grep -rl filings13f client/
+src/` returning zero hits — the fully-specified, single-PR-scoped choice.
+`fleet_utilization_aircraft` (the other UI-gap candidate named in the
+2026-08-08 EU-macro session's own NEXT) stays correctly queued for
+~2026-08-31 per its own trailing-4-week baseline gate, untouched this
+session.
+
+Built `client/src/pages/edgar13f.tsx` (#/data/filings13f): a filings-list
+table (Manager · Period · Filed · Positions · Value · SEC link) mirroring
+the Form-4 `filings.tsx` precedent's table shape, with a click-to-select
+master-detail pattern (borrowed from the EU-macro series-picker precedent)
+that renders the selected filing's top holdings (Issuer · Class · Value ·
+Shares · Discretion) below — `read13FHistory`'s existing `topHoldings=25`
+trim is used as-is, no new server computation. The `holdingsOmitted`
+mega-manager-cap state (>250 positions, per `FOCUSED_MAX_HOLDINGS`) gets
+its own honest empty-state message rather than showing a misleadingly
+empty holdings table. RAW display only (`kind:"raw"`): every value is the
+filing's own as-reported number; the page copy states gate 1 passed /
+gate 2 (new-position clustering vs. forward returns) not attempted, no
+predictive claim. Zero new CSS — 100% reuse of `vt-filings-*` classes,
+continuing every precedent page's pattern exactly.
+
+Wired into `datamap.tsx` following the EU-macro/VIX/GitHub-activity
+pattern exactly: import, `filings13fOpen` state + hash-sync effect
+(`#/data/filings13f`), overlay render block, and a page-wide launcher
+button (not a map layer — manager filings aren't spatial, same reasoning
+as EU macro/VIX/App Store/GitHub).
+
+Registered in `scripts/visual_check.mjs`: new `filings13f` PAGES entry +
+a deterministic `/api/data/filings13f/history` fixture with two filings
+(one focused/with holdings, one over-cap/summary-only) so the harness
+exercises both card states. `npm install` was needed first (`node_modules`
+was empty in this container). `npm run build` clean (the pre-existing
+astronomy-engine default-export warning reproduces identically on a
+pristine `git stash` build — confirmed, unrelated to this diff).
+`node scripts/visual_check.mjs --page filings13f`: 0 hard failures at
+390/768/1440, screenshots reviewed against DESIGN.md — table reflows to
+stacked cards on phone, header wraps cleanly, holdings sub-table renders
+correctly on selection. The one non-zero-hard-failure item worth logging
+honestly: a `[FAIL] data-scale` TTI-gate miss appeared on one `--page data`
+run with this diff applied; a same-container A/B (pristine `git stash`
+rebuild, rerun) reproduced a *different* hard failure on the identical
+unmodified code (`data@1440px p95 frame 467ms > 350ms gate`) — different
+failure class, same page, same container, zero code difference — which
+confirms this is pre-existing perf-gate flakiness under this container's
+variable CPU load, not a regression from a static launcher button added
+to an already-open side panel. `npx tsc --noEmit`: 86 errors, byte-
+identical count to the `git stash`-verified baseline (zero new). `npx tsx
+--test server/*.test.ts`: 1069/1070 pass; the 1 failure
+(`gridTiles.test.ts` pmtiles-magic-count) reproduces on pristine main in
+this container per the 2026-08-07 fix-train entry's own note (missing
+local tile fixtures, environmental). `python3 -m pytest -q` (after
+installing `openpyxl`/`numpy`/`pandas`, absent in this container same as
+the 2026-08-08 #2 session's own environment note): 1193 passed, 2 skipped,
+0 failed — no python files touched by this diff, run anyway per PROMOTION
+RULE 1.
+
+No backtest applicable (no strategy/parameter/scoring change — pure
+client UI addition over an already-live, already-gate-1-passed cache
+read; RAW OVERLAYS vs SIGNALS: an already-validated raw as-filed feed
+needs no ladder gate to display).
+
+Version bump: package.json + package-lock.json (both the top-level and
+the nested `packages[""]` entry — the second one is easy to miss, caught
+by diffing the prior session's own version-bump commit before editing)
+1.0.625 -> 1.0.626.
+
+MARKET-HOURS NOTE (per this scheduled run's own instructions): this PR is
+prepared but should NOT be merged until after 4:00 PM ET today unless it
+fixes a critical live break — it does not; this is a pure additive UI
+change with zero server/bot-path touch, so it carries no urgency to merge
+early.
+
+Not STARVED-relevant this session (single fully-scoped action). Next
+queued items for a future PRODUCT session: `fleet_utilization_aircraft`'s
+/data UI once its 2026-08-31 baseline exists; the 12 medium + 8 low
+findings from the 2026-08-06 full-code-review filing (still unclaimed);
+the FINRA short-volume gate-2 regime-split follow-up filed 2026-08-06.
+
 ## 2026-08-08 (scheduled-routine session #2, [RESEARCH]) — T-BOT — STRICT_RSI mean_reversion variant's INDEPENDENT-RE-DRAW check: spread-widening claim does NOT replicate (v1.0.624)
 
 TERRITORY: T-BOT (`scripts/illiquid_universe_probe_threshold_ablation_redraw.py`,

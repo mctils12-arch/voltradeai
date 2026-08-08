@@ -37,6 +37,7 @@ import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
 import EuMacroView from "./euMacro";
+import Institutional13FView from "./edgar13f";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2404,6 +2405,10 @@ export default function DataMapPage() {
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-07, no client view until now).
   const [euMacroOpen, setEuMacroOpen] = useState(() => window.location.hash === "#/data/eu-macro");
+  // Institutional 13F-HR holdings view (#/data/filings13f) — same overlay
+  // pattern (RAW as-filed reading, not a spatial layer; gate1_pass since
+  // 2026-07-05, no client view until now).
+  const [filings13fOpen, setFilings13fOpen] = useState(() => window.location.hash === "#/data/filings13f");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2733,6 +2738,7 @@ export default function DataMapPage() {
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
+      setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11679,6 +11685,9 @@ export default function DataMapPage() {
       {euMacroOpen && (
         <EuMacroView onBack={() => { window.location.hash = "#/data"; setEuMacroOpen(false); }} />
       )}
+      {filings13fOpen && (
+        <Institutional13FView onBack={() => { window.location.hash = "#/data"; setFilings13fOpen(false); }} />
+      )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />
       )}
@@ -12262,6 +12271,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/eu-macro"; setEuMacroOpen(true); }}>
               <Euro size={13} /> European macro cluster
               <span className="vt-streams-launch-sub">EUR/USD, €STR, ECB balance sheet, EA20 IP, Bund 10Y · RAW</span>
+            </button>
+            {/* Institutional 13F-HR holdings launcher (2026-08-08): manager
+                filings aren't a spatial layer, so it launches from the
+                panel top like the other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-filings13f-launch
+                    onClick={() => { window.location.hash = "#/data/filings13f"; setFilings13fOpen(true); }}>
+              <Landmark size={13} /> Institutional holdings (13F)
+              <span className="vt-streams-launch-sub">quarterly manager filings, top holdings by value · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
