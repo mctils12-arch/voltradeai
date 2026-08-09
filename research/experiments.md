@@ -44421,3 +44421,183 @@ yet, this closes a latent future gap, not an active one).
 STARVED: no — this session's single fully-scoped action (diagnose + fix +
 regression test + full gate run + version bump) consumed its own
 capacity; no higher-priority queued item was skipped to do it.
+
+## 2026-08-09 (scheduled-routine session #5) [PRODUCT] — T-DATACORE — OCC options-volume closes the next instance of the "shipped-data-no-v1-API" gap (v1.0.634)
+
+TERRITORY: T-DATACORE (`server/apiProduct.ts`, `server/routes.ts`'s
+`/api/v1` block, `server/apiProduct.test.ts`) + `package.json`/
+`package-lock.json` version bump (SHARED, last commit, per MERGE-ORDER
+PROTOCOL). Solo session, no concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/
+(experiments.md tail, open_questions.md KNOWN BROKEN section,
+data_census.md, platform_program.md). KNOWN BROKEN in open_questions.md
+has no unresolved item that blocks or preempts product work — the
+remaining non-resolved entries are either human-gated threshold-judgment
+calls (#20, master_kill_switch design question) or gated on future
+accumulated history (#12's shadow-history win-rate check), neither a live
+break. Live `/api/health`: `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM, no repair preempts this
+session. Loop-health ratio over the last 10 tagged entries (#735 REPAIR,
+#734 PRODUCT, #733 REPAIR, #732 PIPELINE, #731 PIPELINE, #730 REPAIR,
+#729 PRODUCT, #728 PRODUCT, #727 REPAIR, #726 RESEARCH): 4/10 REPAIR,
+under the 7/10 thrash bar. `origin/main` HEAD (a4f94e1, v1.0.633) matched
+local exactly — no version drift.
+
+PICKING THE ACTION: dispatched a read-only reconnaissance agent (Explore
+subagent) to survey every research/*.md program charter's RESUME
+STATE/NEXT sections plus the live codebase, specifically to avoid
+re-suggesting the three date/human-blocked items already named in #735's
+own NEXT notes (fleet_utilization_aircraft /data UI blocked to 08-31,
+usaspending_contracts gate-2 re-run blocked to 08-15, DTCC SBSDR blocked
+on a human volume-budget decision) and to verify which "still needs a
+standalone page" queue notes were stale (sec_form4_bulk_archive and
+sec_edgar_13f_institutional_clustering both already shipped pages,
+confirmed independently by `ls client/src/pages/`). The agent's top
+candidate — a new CDC/SEER county-cancer-rate hazard layer — is a
+real, well-spec'd, larger multi-file build (new ingest script + polygon
+map layer + dossier integration) but not something this session could
+finish AND fully verify (visual harness, county-polygon ecological-
+fallacy guard, cross-join correctness) inside one budget; picked instead
+its #2-ranked candidate: closing the next instance of the recurring
+"shipped-data-no-v1-API" gap, this time for OCC options volume. This
+is the exact same mechanical, well-precedented pattern the 2026-08-01/
+08-02/08-05/08-07 sessions already executed once per stream (plant-
+operations, secftd, midas, earnings-language, appstore-rankings,
+github-activity, crop-conditions) — SPINOUT-READY DATA LAYER standing
+behavior, option (d) of this session type's menu. Verified directly
+(read `server/apiProduct.ts` in full, `grep`'d `server/routes.ts`'s
+`/api/v1` block) that OCC was indeed still missing, alongside VIX term
+structure, SEC 13F, and NRC reactor status the agent also flagged —
+picked OCC specifically because it already has a completed, documented
+BOTH-gates history (gate 1 PASSED v1.0.580; gate 2 KILLED v1.0.585, with
+a reversed-direction offshoot that also failed independent out-of-sample
+replication, 2026-08-05) to state honestly in the mirror's docs, unlike
+VIX/13F/NRC whose gate status I had not yet independently re-verified
+this session — one logical change, not four bundled into one PR.
+
+READ BEFORE WRITE: read `server/apiProduct.ts` in full (LICENSE_MARKS,
+`apiMeta()`, `agentToolSpec()`) and the exact secftd/midas `/api/v1`
+route blocks in `server/routes.ts` (3767-3807) as the literal template —
+same `requireApiKey`/`v1Envelope`/`meterUsage` 200/503/500 shape, same
+`Retry-After` warming-up response. Read `server/occVolume.ts`'s
+`latestOcc()` return shape (`{at, report_date, top, underlyings}`)
+directly rather than assuming it matched the existing `/api/data/
+occ-volume` route's field names — it does (verified against
+`routes.ts:3034-3050`'s own JSON shape), so the new `/api/v1/stats/
+occ-volume` mirrors the same fields with no new computation and no new
+poller (`bootOccPoll()`/`latestOcc()` already imported at
+`routes.ts:89`, no new import needed). Read `occVolume.ts`'s own header
+license note ("OCC informational use; redistribution needs OCC
+permission ... raw resale needs review") before choosing the
+LICENSE_MARKS `resell` value — this is NOT public-domain US-gov data
+like CAMD/FTD/MIDAS (`resell: "ok"`); it is the SAME conditional class
+as earnings-language/appstore-rankings/github-activity, and the new
+test explicitly pins that distinction (mirrors the existing
+crop-conditions test's inverse pin) so a future session can't silently
+flip it to "ok" by copy-paste habit from the more common gov-data
+pattern. Cross-checked `datacore/signal_ladder.json`'s `occ_options_
+volume` entry (`status: "killed"`) and open_questions.md's 2026-08-05
+disjoint-replication UPDATE before writing the endpoint/tool
+descriptions, so the v1 docs state GATE 1 PASSED + GATE 2 KILLED
+explicitly — the same honesty-in-the-tool-description discipline the
+existing midas/earnings-language/appstore-rankings tests already
+enforce, extended to a new, harsher case (this stream has an actual
+gate-2 kill to disclose, not just an unattempted status).
+
+SHIPPED (v1.0.634): `server/apiProduct.ts` gained a `"stats/occ-volume"`
+LICENSE_MARKS entry (resell: "conditional"), an `apiMeta()` endpoint
+entry (preview `/api/data/occ-volume`, states GATE 1 PASSED / GATE 2
+KILLED plainly), and a `voltrade_occ_volume_stats` agent tool
+(`returns_provenance: ["stats/occ-volume"]`, description states both
+gate outcomes). `server/routes.ts` gained `GET /api/v1/stats/
+occ-volume` (requireApiKey + v1Envelope + meterUsage, same 503-warming-
+up / 500-error shape as its neighbors), inserted between the midas and
+earnings-language blocks. No `/developers` client change needed — that
+page renders entirely off `apiMeta()` data (verified: `client/src/pages/
+developers.tsx:174` maps `meta.endpoints`, no hardcoded endpoint list),
+confirmed working live in the `npm run build` output (no client diff in
+this PR at all, so the VISUAL VERIFICATION requirement does not apply).
+
+RATCHET: `server/apiProduct.test.ts` gained a new test pinning the
+"conditional not ok" resell distinction and the honesty requirement
+that both "KILLED" and "GATE 1" appear in the tool description (mirrors
+the existing crop-conditions/midas tests' pattern of pinning a specific
+honesty phrase, not just existence). Updated the three existing
+cross-cutting tests that enumerate all live v1 paths (`meta honesty`,
+`wiring pinned` path list + guarded-count floor 12->13) so they now
+also require `/api/v1/stats/occ-volume` — these three would have failed
+had the new route been forgotten from any of them, closing the same
+"added an endpoint, forgot to update the enumeration test" gap a
+sloppier PR could have left open.
+
+GATES: `npx tsx --test server/apiProduct.test.ts`: 21/21 passed (was 20
+before this session's one new test). Full `npx tsx --test server/
+*.test.ts`: 1091 tests, 1090 passed, 1 failed — the same pre-existing
+`gridTiles.test.ts` PMTiles-magic-byte failure confirmed via `git stash`
+A/B on unmodified HEAD (missing local tile fixtures, same class prior
+sessions have logged, unrelated to this diff). `npx tsc --noEmit`: 86
+errors, byte-identical to the pre-existing baseline (confirmed via the
+same stash A/B), zero mentions of `apiProduct`/`routes.ts`/this
+session's files. `npm run build`: clean (same pre-existing
+`astronomy-engine` default-export warning + chunk-size warnings only).
+No `.py` files touched — no pytest gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this adds a keyed API mirror over
+an already-live, already-cached RAW archive; it changes no trading
+decision, no signal, no scoring path, and makes zero change to what any
+existing map layer or `/api/data/*` consumer renders (same pattern the
+plant-operations/secftd/midas/earnings-language/appstore-rankings/
+github-activity/crop-conditions sessions already established as
+BACKTEST N/A).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or scoring path — `/api/v1/stats/occ-volume` is a new read
+route over the SAME poller/cache (`bootOccPoll()`/`latestOcc()`) the
+existing public `/api/data/occ-volume` route already serves; no new
+network fetch, no new server load beyond the metering write already
+shared by every other `/api/v1` call. The only externally-visible
+change: API-key holders (still invite-only preview keys per
+`apiMeta().auth`) can now pull OCC's daily cleared-volume archive
+through the versioned, licensed, metered product surface instead of
+only the unauthenticated public preview — directly advances the
+SPINOUT-READY DATA LAYER standing behavior (datacore/ signals flow only
+through the internal API boundary) without touching anything the bot
+or any current UI reads.
+
+Version 1.0.633 -> 1.0.634 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD, zero drift — both `package.json` and
+`package-lock.json`'s two version fields were in sync at session start).
+
+NEXT (queued, not this session): VIX term structure, SEC 13F, and NRC
+reactor status all still lack their own `/api/v1` keyed mirrors — a
+future PRODUCT session picking the "shipped-data-no-v1-API" queue back
+up should re-verify each stream's current gate status directly (as this
+session did for OCC) before writing its endpoint/tool description, not
+assume from this entry. The CDC/SEER county-cancer-rate hazard layer
+(research/location_context_engine.md, first queued 2026-07-15, still
+unbuilt — confirmed zero hits for cdc/seer/cancer across `client/src/
+lib/mapIcons.ts`, `server/dossier.ts`, `datacore/layers.json`) is a
+real, larger, fully-spec'd next candidate (needs its own multi-file PR
++ visual harness run, county-polygon display only per the charter's own
+ecological-fallacy guard). The FINRA short-volume GATE 2 retest
+(open_questions.md, filed 2026-08-06 alongside v1.0.607 — full-
+population baseline instead of the ordering-dependent 3-bucket design,
+plus a regime split) is a small, well-defined script reusing
+`scripts/statsUtils.ts`'s existing day-clustered t-test helpers, no
+calendar/human gate. The D1 DEMAND LEDGER device-envelope harness
+instrumentation (research/scale_program.md, flagged STARVED twice
+already per `experiments.md`'s own prior entries) remains the next
+unblocked T-CLIENT infrastructure slice if a future session's fall-
+through reaches that program.
+
+MARKET STATUS: Sunday, market closed all day — no merge-timing
+restriction from the PRODUCT-session PR guidance (only applies when
+working mid-market); this PR merges once CI is green, no wait needed.
+
+STARVED: no — this session's single fully-scoped action (survey +
+diagnose + build + wire + test + version bump) consumed its own
+capacity; no higher-priority queued item was skipped to do it (the
+CDC/SEER layer was consciously deferred to its own properly-scoped
+session, not skipped due to starvation).

@@ -62,6 +62,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/plant-operations"), "EPA CAMD keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/secftd"), "SEC FTD keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/midas"), "SEC MIDAS keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/stats/occ-volume"), "OCC options volume keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/earnings-language"), "SEC 8-K earnings-language keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/appstore-rankings"), "App Store rankings keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/github-activity"), "GitHub org engineering-momentum keyed mirror shipped — must be a live endpoint");
@@ -73,12 +74,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 12, `expected >=12 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 13, `expected >=13 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -112,6 +113,18 @@ test("midas license mark: public-domain US-gov data resells freely; agent tool d
   assert.ok(tool, "voltrade_midas_stats tool must exist");
   assert.deepEqual(tool.returns_provenance, ["stats/midas"]);
   assert.ok(tool.description.includes("not a validated trading signal"), "honesty: gate-2 status must travel with the tool description");
+});
+
+test("occ-volume license mark: OCC informational-use terms are CONDITIONAL resell, not ok like the government-produced CAMD/FTD/MIDAS stats; agent tool documents the gate-2 kill honestly", () => {
+  assert.equal(LICENSE_MARKS["stats/occ-volume"].resell, "conditional",
+    "OCC's own terms require permission for raw bulk resale — must not be mismarked resell:ok like the SEC/EPA public-domain streams");
+  assert.ok(LICENSE_MARKS["stats/occ-volume"].license.includes("OCC"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t: any) => t.name === "voltrade_occ_volume_stats");
+  assert.ok(tool, "voltrade_occ_volume_stats tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["stats/occ-volume"]);
+  assert.ok(tool.description.includes("KILLED"), "honesty: gate-2's killed status must travel with the tool description, not just the raw archive framing");
+  assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must also travel with the tool description");
 });
 
 test("earnings-language license mark: issuer-authored exhibit text is CONDITIONAL resell, unlike the government-produced CAMD/FTD/MIDAS stats; agent tool documents the incomplete gate-2 status", () => {

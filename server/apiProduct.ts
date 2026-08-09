@@ -139,6 +139,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Securities and Exchange Commission (MIDAS)",
     resell: "ok",
   },
+  "stats/occ-volume": {
+    license: "The Options Clearing Corporation (OCC) daily cleared-volume report — OCC informational-use terms, NOT US government work product like the CAMD/FTD/MIDAS streams above; redistribution needs OCC permission (bot-internal display + gated derived signals accepted, raw bulk resale needs separate OCC review, unresolved).",
+    attribution: "The Options Clearing Corporation (OCC) daily volume",
+    resell: "conditional",
+  },
   "data/earnings-language": {
     license: "SEC EDGAR 8-K Item 2.02 filing record is public, but each filing's Exhibit 99 press-release TEXT is issuer-authored — NOT U.S. government work product like the CAMD/FTD/MIDAS datasets above. Displayed as-filed for research/transparency use; bulk resale of the extracted text has not been separately rights-cleared.",
     attribution: "Filing company (per record) via SEC EDGAR",
@@ -176,6 +181,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/plant-operations", params: "-", desc: "Per-facility power-plant utilization ground truth (sum grossLoad MW-days, sum operating hours) from EPA's own unit-level CEMS reporting, TX pilot scope, quarterly cadence. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/plant-operations" },
       { path: "/api/v1/stats/secftd", params: "-", desc: "SEC CNS fails-to-deliver leaderboard: newest settlement date's top fail balances (>=100k share floor, stated). A level, not a daily flow, published on a 2.5-4.5 week SEC lag. RAW, no predictive claim — public-domain US federal data, resell ok.", preview: "/api/data/ftd" },
       { path: "/api/v1/stats/midas", params: "-", desc: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel data per (date, ticker), quarterly files with a multi-quarter publish lag. Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). RAW, no predictive claim — public-domain US federal data, resell ok. A candidate HFT-colonization filter; gate-2 signal testing not yet attempted (see research/open_questions.md).", preview: "/api/data/microstructure" },
+      { path: "/api/v1/stats/occ-volume", params: "-", desc: "OCC daily cleared options volume, top underlyings by customer/market-maker put-call split (qty counts each clearing side; totals halved). GATE 1 (DATA) PASSED 2026-08-03 (0 diff vs. OCC's own published June-2026 monthly total across 21 trading days). GATE 2 (SIGNAL) on the customer call/put-skew hypothesis was KILLED 2026-08-03/08-05 (the pre-registered direction reversed and a reversed-direction offshoot also failed disjoint out-of-sample replication) — not a validated trading signal. RAW display + archive only, no predictive claim. OCC informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/occ-volume" },
       { path: "/api/v1/data/earnings-language", params: "-", desc: "Most-recent SEC 8-K Item 2.02 (earnings-results) filings: as-filed Exhibit 99 press-release text, resolved ticker, filing/acceptance timestamps (lookahead-free). RAW as-filed display, no predictive claim — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot (research/open_questions.md). Exhibit text is issuer-authored, not government work product — conditional resell, see license_marks.", preview: "/api/data/earnings-language" },
       { path: "/api/v1/data/appstore-rankings", params: "-", desc: "Daily App Store chart rank + rating counts for a 16-app hand-verified consumer watchlist (US/GB/CA storefronts, top-free/top-grossing). RAW display, no predictive claim — GATE 2 (vs company-reported metrics) needs ~90 days of history, not attempted before ~2026-10-30 (research/open_questions.md NEW DATA ROOTS #3). Android excluded (ToS-blocked); rank:null means outside the top 100 that day, never fabricated. Conditional resell, see license_marks.", preview: "/api/data/appstore-rankings" },
       { path: "/api/v1/data/github-activity", params: "-", desc: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (small-cap devtools through large-cap controls). RAW display, no predictive claim — GATE 2 (does public commit/PR velocity lead or confirm market-priced trends) has NOT been attempted; the module's own sober prior expects real structure for at most a third of the panel. mergedPRs excludes bot-app PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true undercounts). Conditional resell, see license_marks.", preview: "/api/data/github-activity" },
@@ -274,6 +280,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/midas",
       returns_provenance: ["stats/midas"],
+    },
+    {
+      name: "voltrade_occ_volume_stats",
+      description: "OCC daily cleared options volume: top underlyings by customer/market-maker put-call split (quantity counts each clearing side, from the Options Clearing Corporation's own daily volume report). Public-domain-adjacent but OCC-permission-conditional resell — not U.S. government work product like the SEC MIDAS/FTD tools above. GATE 1 (DATA) PASSED — verified 0 difference against OCC's own published monthly total. GATE 2 (SIGNAL): the customer call/put-skew hypothesis was KILLED (pre-registered direction reversed, and the reversed direction also failed independent out-of-sample replication) — RAW overlay only, not a validated trading signal.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/occ-volume",
+      returns_provenance: ["stats/occ-volume"],
     },
     {
       name: "voltrade_earnings_language",

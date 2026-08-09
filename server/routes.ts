@@ -3806,6 +3806,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // OCC daily options cleared volume keyed mirror (same "shipped-data-
+  // no-v1-API" sweep as plant-operations/secftd/midas above). Reuses the
+  // latestOcc() cache /api/data/occ-volume already uses — no new
+  // computation, no new poller. UNLIKE the government-produced CAMD/FTD/
+  // MIDAS streams, OCC's own terms require permission for raw bulk resale
+  // (server/apiProduct.ts LICENSE_MARKS) — conditional, not ok. GATE 1
+  // (DATA) passed 2026-08-03; GATE 2 (the customer put/call-skew
+  // hypothesis) was KILLED — this mirror serves the RAW archive only, no
+  // predictive claim.
+  app.get("/api/v1/stats/occ-volume", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestOcc();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/occ-volume", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/occ-volume", {
+        report_date: hit.report_date,
+        underlyings: hit.underlyings,
+        count: hit.top.length,
+        top: hit.top,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/occ-volume", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/occ-volume", status: 500, tier: auth.tier });
+    }
+  });
+
   // SEC 8-K Item 2.02 earnings-language keyed mirror (same "shipped-data-
   // no-v1-API" sweep as plant-operations/secftd/midas above). Reuses the
   // latestEarnings8Ks() cache /api/data/earnings-language already uses — no
