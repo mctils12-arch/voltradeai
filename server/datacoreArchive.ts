@@ -310,6 +310,7 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
     }
     for (const [day, files] of Object.entries(byDay)) {
       const tracks: RollupTracks = {};
+      let allReadOk = true;
       for (const f of files) {
         try {
           const fp = path.join(dir, f);
@@ -318,7 +319,20 @@ export function rollupOldDays(baseDir?: string, nowMs?: number): number {
             if (!line) continue;
             accumulateTrackLine(tracks, line);
           }
-        } catch (e: any) { console.error("[archive] rollup read:", e?.message || e); }
+        } catch (e: any) {
+          console.error("[archive] rollup read:", e?.message || e);
+          allReadOk = false;
+        }
+      }
+      // An unreadable/corrupt hour file must never be silently discarded —
+      // hold the WHOLE day back (no summary write, no deletion) and retry
+      // next run rather than deleting raw data that was never actually
+      // rolled into the summary (audit finding: rollup was previously
+      // deleting every file in the day group unconditionally, including
+      // ones that failed to read).
+      if (!allReadOk) {
+        console.error(`[archive] rollup: skipping ${kind}/${day} (unreadable file), retry next run`);
+        continue;
       }
       const out = emitDaySummary(tracks, day);
       try {
@@ -392,8 +406,17 @@ export async function rollupOldDaysAsync(baseDir?: string, nowMs?: number): Prom
       }
       for (const [day, files] of Object.entries(byDay)) {
         const tracks: RollupTracks = {};
+        let allReadOk = true;
         for (const f of files) {
-          await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => accumulateTrackLine(tracks, line));
+          const ok = await streamJsonlLines(path.join(dir, f), f.endsWith(".gz"), (line) => accumulateTrackLine(tracks, line));
+          if (!ok) allReadOk = false;
+        }
+        // Same fix as the sync path above: a file streamJsonlLines couldn't
+        // read (corrupt gzip, vanished mid-scan) must hold the whole day
+        // back instead of being deleted unrolled.
+        if (!allReadOk) {
+          console.error(`[archive] rollup (async): skipping ${kind}/${day} (unreadable file), retry next run`);
+          continue;
         }
         const out = emitDaySummary(tracks, day);
         try {
@@ -484,13 +507,22 @@ export async function recentTrackAsync(kind: ArchiveKind, id: string,
  * propagate through pipe() to the readline iterator and would crash the
  * process. Shared by recentTrackAsync + rollupOldDaysAsync.
  */
-export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: string) => void): Promise<void> {
-  return new Promise<void>((resolve) => {
+export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: string) => void): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
     let src: fs.ReadStream;
-    try { src = fs.createReadStream(fp); } catch { resolve(); return; }
+    try { src = fs.createReadStream(fp); } catch { resolve(false); return; }
     const input = isGz ? src.pipe(zlib.createGunzip()) : src;
     const rl = readline.createInterface({ input, crlfDelay: Infinity });
-    const bail = () => { try { rl.close(); } catch {} resolve(); };
+    // Return value: true = the file streamed to completion with no error;
+    // false = it bailed partway (corrupt/truncated gz, vanished file) — a
+    // caller that deletes source files after reading MUST treat false as
+    // "do not delete, this file was not fully accounted for" (see the
+    // rollupOldDaysAsync fix this return value exists for).
+    // resolve(false) BEFORE rl.close(): readline's close() emits its
+    // 'close' event synchronously, so calling it first would let the
+    // rl.on("close", ...) handler below win the promise with resolve(true)
+    // — found via this fix's own regression test.
+    const bail = () => { resolve(false); try { rl.close(); } catch {} };
     src.on("error", bail);
     if (input !== src) (input as NodeJS.ReadableStream).on("error", bail);
     // readline.Interface re-emits its input stream's 'error' on ITSELF too
@@ -504,7 +536,7 @@ export function streamJsonlLines(fp: string, isGz: boolean, onLine: (line: strin
     // too, same PR.
     rl.on("error", bail);
     rl.on("line", (line) => { if (line) onLine(line); });
-    rl.on("close", () => resolve());
+    rl.on("close", () => resolve(true));
   });
 }
 

@@ -44251,3 +44251,173 @@ without anyone re-checking.
 STARVED: no — this session's single fully-scoped action (build + wire +
 harness-register + test + version bump) consumed its own capacity; no
 higher-priority queued item was skipped to do it.
+
+## 2026-08-09 (scheduled-routine session #4, during market hours) [REPAIR] — T-DATACORE — rollup was silently deleting unreadable/corrupt hour files instead of holding them back for retry (v1.0.633)
+
+TERRITORY: T-DATACORE (`server/datacoreArchive.ts`'s rollup/stream-read
+internals, no bot/strategy/routes files touched) + `package.json`/
+`package-lock.json` version bump (SHARED, last commit, per MERGE-ORDER
+PROTOCOL). Solo session, no concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full. Loop-health ratio over the
+last 10 tagged entries (#734 PRODUCT, #733 REPAIR, #732 PIPELINE, #731
+PIPELINE, #730 REPAIR, #729 PRODUCT, #728 PRODUCT, #727 REPAIR, #726
+RESEARCH, #725 RESEARCH): 3/10 REPAIR, well under the 7/10 thrash bar — no
+meta-problem to address. Live `/api/health` (voltradeai-production.up.
+railway.app): `status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. `/api/diag/audit?limit=30`:
+routine TIER2/TIER3 scan lines only (11,956-stock scans every ~3-5min,
+2-6 candidates each), nothing actionable. Local `package.json` (1.0.632)
+matched `origin/main`'s HEAD exactly — no version drift to reconcile.
+
+PICKING THE ACTION: no acute bug in the audit log and no matured
+counterfactual/gate-2 experiment ready to judge this session, so per
+SESSION BUDGET fell through to the queued "12 medium + 8 low" tail of the
+2026-08-06 full-code-review filing (this file's own top-of-tail register
+still names it the largest unclaimed backlog). Of the remaining unlocated/
+unverified items (VXX fallback ticker mismatch, multi-leg gross-vs-net exit
+math, earnings-day full sizing, CSP earnings gate fails open, rounding
+handling full heat budget, BS put-delta branch, R:R sign, COT
+partial-fetch freeze, rollup deleting unreadable hour files, weather-grid
+empty-200 cache, UnboundLocalError dead code, 4 low client papercuts),
+picked "rollup deleting unreadable hour files" — it is the one item on the
+list that maps directly onto GOAL Priority 1's own named failure mode
+("archive gaps never refill"), so it outranks the others by the GOAL
+priority order even though none of them had been triaged for severity yet.
+
+PRIOR (stated before reading the code, per REASONING STANDARD #10):
+expected the defect to be in the per-file try/catch inside
+`rollupOldDays`/`rollupOldDaysAsync` — specifically, that a caught read
+error was logged but the file was never excluded from the subsequent
+unconditional delete loop. Did not know in advance whether the async path
+shared the exact same shape or a different one (it uses `streamJsonlLines`,
+a different code path than the sync gunzipSync/readFileSync calls).
+
+FOUND (own investigation, read-before-write on the actual current code):
+confirmed the prior exactly. `rollupOldDays` (datacoreArchive.ts,
+`## compression + rollup` section) groups hour files by day, accumulates
+each into an in-memory `tracks` map inside a per-file try/catch that only
+`console.error`s on failure, then — AFTER the accumulation loop, regardless
+of whether any file's try/catch had fired — unconditionally
+`fs.unlinkSync`s every file in that day's group and writes the (now
+partial, missing that file's records) summary. A corrupt or truncated hour
+file's data was silently dropped from the summary AND the only raw copy of
+it was deleted in the same pass — permanent, unrecoverable data loss with
+no audit trail beyond a `console.error` line. `rollupOldDaysAsync` had the
+identical bug via a different mechanism: its per-file reads go through
+`streamJsonlLines`, whose `bail()` (called on any stream/gunzip/readline
+"error" event) silently `resolve()`s with zero lines processed and no
+signal to the caller that anything went wrong — so the caller had no way
+to know a file needed to be excluded from deletion even in principle.
+
+REPAIRED (v1.0.633): `rollupOldDays`/`rollupOldDaysAsync` now track an
+`allReadOk` flag across the per-file loop; if any file in a day's group
+failed to read/decompress, the WHOLE day is skipped (no summary write, no
+deletion, `console.error`'d) and naturally retried on the next rollup pass
+— safer than a partial-day fix (a retry that only re-reads the surviving
+files would have overwritten the first, correct partial summary with a
+second, differently-partial one at the same day-summary path). To make
+this possible on the async path, `streamJsonlLines`'s signature changed
+from `Promise<void>` to `Promise<boolean>` (`true` = streamed to
+completion, `false` = bailed on an error) — checked all 6 other call
+sites (`recentTrackAsync`, `queryEngine.ts:readJsonlDayAsync`,
+`secMidas.ts`, 2 in `datacoreArchive.test.ts`) and all `await` it without
+consuming the return value, so widening the return type is a strictly
+additive, non-breaking change; none needed updates.
+
+SUBTLE SECOND BUG FOUND WHILE WRITING THE REGRESSION TEST (not part of the
+original review finding — found by the test, not by inspection): my first
+attempt at `streamJsonlLines`'s `bail()` called `rl.close()` BEFORE
+`resolve(false)`. `readline.Interface.close()` emits its own `"close"`
+event SYNCHRONOUSLY inside the call — and the function's `rl.on("close",
+() => resolve(true))` handler was already registered, so that handler fired
+and won the promise with `resolve(true)` before the intended
+`resolve(false)` ever ran (`Promise` only honors the first `resolve()`
+call). This would have made the whole async-path fix silently inert
+(`allReadOk` would have stayed `true` even on a genuinely corrupt file) —
+caught immediately because the new regression test asserted the return
+value directly, not just "did not throw" (the pre-existing
+`streamJsonlLines` tests only asserted no crash/hang, which is why this
+ordering bug had never surfaced before). Fixed by resolving before closing:
+`const bail = () => { resolve(false); try { rl.close(); } catch {} };`.
+LESSON for future sessions touching this function or copies of it (7 other
+files share the same `rl`/readline-error pattern per the existing code
+comment): event-ordering bugs like this do not show up from "does it
+crash" tests — they need a test that checks the actual returned/observed
+value, not just successful completion.
+
+RATCHET: `server/datacoreArchive.test.ts` gained 3 new tests — sync rollup
+holds back an entire day (no delete, no summary) when one hour file in
+that day is corrupt garbage bytes; async `rollupOldDaysAsync` does the
+same; `streamJsonlLines` returns `false` (not just "doesn't throw") on a
+corrupt gzip file. All three fail against the pre-fix code (verified via
+this session's own iteration: the first version of the async-path test
+failed against my own initial fix, precisely because of the
+close-before-resolve ordering bug above — a real A/B, not just written
+after the fact). The two pre-existing `streamJsonlLines` tests ("resolves…
+on a truncated/corrupt gzip file" / "still yields every line of a
+genuinely valid gzip file") continue to pass unmodified — the fix adds no
+false-negative on the good-file path.
+
+GATES: fresh container needed `npm install` (empty `node_modules`, same
+recurring sandbox gap prior sessions have logged). `npx tsx --test
+server/datacoreArchive.test.ts`: 24/24 passed (was 22/24 before the
+close-ordering fix above, confirming the new tests actually exercise the
+bug). Full `npx tsx --test server/*.test.ts`: 1089/1090 passed; the sole
+failure (`gridTiles.test.ts` pmtiles magic-byte count) reproduces
+identically via `git stash` on unmodified HEAD — confirmed
+pre-existing/environmental (missing local tile fixtures), same class prior
+sessions have logged, not this diff. `npx tsc --noEmit`: 86 errors,
+byte-identical count via `git stash` A/B to the pre-existing baseline, zero
+mentions of `datacoreArchive`/this session's lines. `npm run build`: clean
+(pre-existing `astronomy-engine` default-export warning + chunk-size
+warnings only, unrelated). No `.py` files touched — no pytest gate
+applies. No `client/src` files touched — VISUAL VERIFICATION requirement
+does not apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this repairs the position-archive
+rollup/retention maintenance job; it does not touch
+`bot_engine.py`/`system_config.py`/any strategy or scoring file, and does
+not change any trading decision or signal.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or scoring path — `compressOldHours(Async)`/`rollupOldDays
+(Async)` are archive-retention maintenance only, called from
+`server/routes.ts`'s periodic maintenance ticks, never from any scan/score/
+order path. The only effect: a corrupt or truncated hour file (disk
+error, container restart mid-write, future format change) now blocks
+deletion of its ENTIRE day's raw files instead of having its own data
+silently discarded — directly relevant to GOAL Priority 1's "archive gaps
+never refill" clause. A day that never manages to fully read will now
+accumulate raw files indefinitely rather than losing data; no session has
+observed this actually happening in production (no corrupt files found in
+the live archive this session), so this is a latent-defect fix, not a
+recovery from an already-lost gap — the gap this closes is a future one,
+not a past one already suffered.
+
+Version 1.0.632 -> 1.0.633 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD before bumping, zero drift).
+
+NEXT (queued, not this session): the remaining unlocated/unverified items
+from the 2026-08-06 full-code-review filing: VXX fallback ticker mismatch
+(still unlocated after two prior sessions' targeted greps); multi-leg
+gross-vs-net exit math; earnings-day full sizing; CSP earnings gate fails
+open; rounding handling full heat budget; BS put-delta branch; R:R sign;
+COT partial-fetch freeze; weather-grid empty-200 cache; UnboundLocalError
+dead code; 4 low client papercuts. Also unclaimed: `sec_form4_bulk_archive`
+still without a standalone `/data` page; `fleet_utilization_aircraft`'s
+`/data` UI (blocked to 2026-08-31); `usaspending_contracts`'s gate-2
+re-run (unblocks 2026-08-15); DTCC SBSDR's standing volume-budget decision
+for the human; item #20 in open_questions.md's `rejected_masterkill`
+win-rate check (gated on accumulated shadow history).
+
+PR NOTE (per this run's own instructions): this session ran during market
+hours — the PR is prepared and ready (all gates green) but should not be
+merged until after 4:00 PM ET today unless a human decides otherwise; this
+fix is not a critical live break (no corrupt files observed in production
+yet, this closes a latent future gap, not an active one).
+
+STARVED: no — this session's single fully-scoped action (diagnose + fix +
+regression test + full gate run + version bump) consumed its own
+capacity; no higher-priority queued item was skipped to do it.

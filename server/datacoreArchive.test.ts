@@ -181,6 +181,61 @@ test("rollup summarizes days beyond retention into track records and deletes raw
   assert.ok(rec.bbox[0] <= 40 && rec.bbox[2] >= 41, "bbox spans samples");
 });
 
+// [REPAIR, 2026-08-06 full-code-review finding "rollup deleting unreadable
+// hour files"] rollupOldDays previously unlinked every file in a day's
+// group unconditionally, even ones that had thrown while being read/
+// decompressed a moment earlier — a corrupt hour file's data was silently
+// dropped from the summary AND the raw evidence deleted in the same pass.
+// Archive gaps never refill (GOAL Priority 1), so an unreadable file must
+// block deletion of its whole day, not get silently discarded.
+test("rollup holds back (does not delete) a day containing an unreadable hour file", () => {
+  const base = tmp();
+  const now = Date.now();
+  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  archiveAircraft([cruise("good1", 40, -100)], SITES, base, oldMs);
+  archiveAircraft([cruise("good1", 41, -101)], SITES, base, oldMs + 10 * 60_000);
+  const dir = path.join(base, "aircraft");
+  const realFile = fs.readdirSync(dir)[0];
+  const day = realFile.slice(0, 10);
+  const realHour = realFile.slice(11, 13);
+  const corruptHour = realHour === "00" ? "01" : "00"; // guaranteed distinct from the real file's hour
+  // a second hour file for the SAME day, corrupted (garbage bytes, not a
+  // real gzip stream) so gunzipSync throws on read.
+  fs.writeFileSync(path.join(dir, `${day}-${corruptHour}.jsonl.gz`), Buffer.from("not gzip"));
+  const before = fs.readdirSync(dir).sort();
+  const rolled = rollupOldDays(base, now);
+  assert.equal(rolled, 0, "the whole day is held back, not partially rolled");
+  assert.deepEqual(fs.readdirSync(dir).sort(), before, "no raw file deleted while one is unreadable");
+  assert.ok(!fs.existsSync(path.join(base, "aircraft_tracks")), "no summary written for an unread day");
+});
+
+test("rollupOldDaysAsync holds back a day containing an unreadable hour file", async () => {
+  const base = tmp();
+  const now = Date.now();
+  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  archiveAircraft([cruise("good2", 40, -100)], SITES, base, oldMs);
+  const dir = path.join(base, "aircraft");
+  const realFile = fs.readdirSync(dir)[0];
+  const day = realFile.slice(0, 10);
+  const realHour = realFile.slice(11, 13);
+  const corruptHour = realHour === "00" ? "01" : "00";
+  fs.writeFileSync(path.join(dir, `${day}-${corruptHour}.jsonl.gz`), Buffer.from("not gzip"));
+  const before = fs.readdirSync(dir).sort();
+  const rolled = await rollupOldDaysAsync(base, now);
+  assert.equal(rolled, 0, "the whole day is held back, not partially rolled");
+  assert.deepEqual(fs.readdirSync(dir).sort(), before, "no raw file deleted while one is unreadable");
+});
+
+test("streamJsonlLines reports false on a corrupt gzip file, without throwing", async () => {
+  const base = tmp();
+  const fp = path.join(base, "corrupt.jsonl.gz");
+  fs.writeFileSync(fp, Buffer.from("not gzip"));
+  const lines: string[] = [];
+  const ok = await streamJsonlLines(fp, true, (l) => lines.push(l));
+  assert.equal(ok, false);
+  assert.equal(lines.length, 0);
+});
+
 test("archiveStats reports files and bytes for volume monitoring", () => {
   const base = tmp();
   archiveAircraft([cruise("stat1")], SITES, base, Date.now());
