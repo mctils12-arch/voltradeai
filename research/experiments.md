@@ -43937,3 +43937,170 @@ human.
 STARVED: no — this was the session's one primary action, matched to
 capacity; no queued higher-priority item was skipped (KNOWN BROKEN clean,
 no LIVENESS ALARM, no thrash).
+
+## 2026-08-09 (scheduled-routine session #3) [REPAIR] — T-BOT — `/api/monitoring/overview`'s drawdown proximity/status was permanently fabricated: read a Python field that never existed, and the proximity formula was separately inverted (v1.0.631)
+
+TERRITORY: T-BOT (`server/bot.ts`'s `/api/monitoring/overview` handler,
+non-frozen — no order-submission path touched; `server/drawdownGuard.ts` +
+its test — the pure-function home already established for exactly this
+class of drawdown logic) + `package.json`/`package-lock.json` version bump
+(SHARED, last commit, per MERGE-ORDER PROTOCOL). Solo session, no
+concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`
+tail + `research/open_questions.md`/`wishlist.md` skimmed for anything
+newly matured (nothing — `usaspending_contracts` gate-2 re-run stays
+blocked to 2026-08-15, DTCC SBSDR stays blocked on the human's volume-
+budget decision, `fleet_utilization_aircraft`'s `/data` UI stays blocked
+to 2026-08-31). Loop-health ratio over the last 10 tagged entries (#732
+PIPELINE, #731 PIPELINE, #730 REPAIR, #729 PRODUCT, #728 PRODUCT, #727
+PRODUCT, #726 RESEARCH, #725 RESEARCH, #724 REPAIR, #723 PRODUCT): 2/10
+REPAIR, well under the 7/10 thrash bar — no meta-problem to address. Live
+`/api/health`: `status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. `/api/diag/audit?limit=30`
+(DIAG_TOKEN present in this session's env): routine TIER2/TIER3 scan lines
+only (11,956-stock scans completing every ~5min, 2-5 candidates each),
+nothing actionable.
+
+PICKING THE ACTION: no acute bug in the audit log and no matured
+counterfactual/gate-2 experiment ready to judge, so per SESSION BUDGET
+fell through to the queued "12 medium + 8 low" tail of the 2026-08-06
+full-code-review filing (this file's own top-of-file register names
+`kill-status fabricated zeros` and `VXX fallback ticker mismatch` as the
+two next-priority items, both flagged GOAL-priority-1/2-relevant). The
+prior 2026-08-08 session's targeted grep for a VXX-ticker-fallback
+mismatch had NOT turned up an obvious match; this session instead traced
+`kill-status fabricated zeros` from scratch (the original workflow
+journal `wf_2302cba6-006` is not present in this container, so — per READ
+BEFORE WRITE — every candidate location needed independent verification,
+not a trust-the-summary patch).
+
+PRIOR (stated before reading the code, per REASONING STANDARD #10):
+expected the fabricated zero to live in `risk_kill_switch.py`'s
+`get_kill_status()` or `get_kill_switch_status()` themselves (a bare
+`except: return 0`-class bug, same shape as the already-fixed
+`daily_pnl_pct`/`SectorHeatmap` findings) — did NOT expect the bug to be a
+field that never existed anywhere in the codebase at all.
+
+FOUND (own investigation): `server/bot.ts`'s `/api/monitoring/overview`
+handler (line ~2492, `requireOwner`-gated, the file's own comment
+describes it as "Used for dashboard + alerting") computed
+`const dd = ks.result.current_dd_pct || 0` from
+`risk_kill_switch.get_kill_switch_status()`'s JSON output. Grepped
+`current_dd_pct` across the ENTIRE repo (`.py`/`.ts`) — the only match in
+the whole codebase was this one read site. `get_kill_switch_status()`
+(risk_kill_switch.py:708) returns `peak_equity`, `consecutive_losses`,
+`daily_pnl_pct`, three threshold constants, and `min_free_bp` — it has no
+"current drawdown" field and, by design, cannot compute one: the
+persisted kill-switch state file never stores current equity (only
+`peak_equity`), and `get_kill_switch_status()` takes no equity argument.
+So `dd` was `0` on every single call, unconditionally — not "usually 0,"
+structurally always 0. Downstream: `proximity_pct = ((-20 - dd) / -20) *
+100` evaluated to a constant `100` and `status` (`dd <= -15 ? CRITICAL :
+dd <= -10 ? WARNING : OK`) evaluated to a constant `"OK"` — this dashboard
+section could never report anything but "100% proximity, OK" regardless
+of the account's real drawdown. SEPARATE bug in the same 4-line block,
+found while fixing the first (REASONING STANDARD #1 — traced the formula
+two steps instead of patching the input in isolation): the proximity
+formula was itself inverted — at `dd=0` (no drawdown) it evaluates to
+100%, and at `dd=-20` (AT the kill threshold) it evaluates to 0% — exactly
+backwards from "how close to the kill threshold." This second bug had
+never been observable, because the first bug pinned `dd` at the one input
+value (`0`) where the inverted formula's output (100) happens to look
+like a plausible-if-alarming number instead of visibly broken — shipping
+a fix for bug 1 alone would have newly exposed bug 2 as a LOUDER, more
+dangerous lie (a real drawdown would have shown DECREASING proximity as
+the account got closer to the kill threshold). Also confirmed the
+hardcoded `-20`/`-15`/`-10` breakpoints never matched the account's real,
+live kill threshold: `state.maxDrawdownPct` (`server/bot.ts:395`) defaults
+to `-10`, not `-20` — this block was float-typo-adjacent to a THIRD stale
+assumption, not just the two logic bugs.
+
+REPAIRED (v1.0.631): rather than growing `risk_kill_switch.py`'s
+dashboard-only `get_kill_switch_status()` a new equity-dependent field (it
+is explicitly documented "Non-mutating — safe to call frequently" with no
+equity input, and touching it risks brushing up against
+`risk_kill_switch.py`'s FROZEN mechanism boundary for no benefit), reused
+the ALREADY-VALIDATED, ALREADY-LIVE Node-side mechanism instead:
+`server/drawdownGuard.ts`'s `evaluateDrawdown` (the 2026-07-07-incident
+guard that is the REAL, currently-enforcing Tier-1 drawdown kill switch —
+`state.equityPeak` / `state.maxDrawdownPct`, called at `bot.ts:1004` and
+`:2956`) is now called read-only (no peak mutation, no kill trigger — this
+route must stay a pure status read) inside `/api/monitoring/overview`
+against a fresh `alpaca("/v2/account")` read. New pure function
+`drawdownStatus(drawdownPct, maxDrawdownPct)` in the same file derives
+`proximity_pct`/`status` off the REAL configured threshold (proportional
+50%/75% WARNING/CRITICAL bands, not hardcoded absolute percentages) with
+the formula corrected (`(drawdownPct / maxDrawdownPct) * 100`, clamped to
+[0,100] — 0% at no drawdown, 100% AT the threshold). An invalid/garbage
+equity read now reports `status: "UNKNOWN"` with `null` fields, honestly,
+never a fabricated "OK" (same "never coerce missing to a reassuring
+number" discipline as the SectorHeatmap/daily_pnl_pct fixes). The separate
+Python `get_kill_switch_status()` call stays, unmodified, feeding
+`overview.kill_switches` (its own fields — `peak_equity`,
+`consecutive_losses`, `daily_pnl_pct`, thresholds — were never wrong, only
+this route's *derived* drawdown block was).
+
+RATCHET: `server/drawdownGuard.test.ts` gained 4 new tests (alongside the
+existing 3, all still passing) — pins zero-drawdown reads to `OK`/0%
+proximity (not the old constant 100%), the kill threshold itself to
+100% proximity/`CRITICAL`, the WARNING/CRITICAL bands scaling off an
+arbitrary real threshold (both `-10` and a looser `-20` case, proving the
+bands are NOT hardcoded), and proximity clamping beyond the threshold.
+
+GATES: fresh container needed `npm install` (empty `node_modules`, same
+recurring sandbox gap prior sessions have logged; confirmed via `git
+status` that only `package-lock.json`'s two version fields moved, to
+1.0.630 matching `package.json` at the time — no dependency drift).
+`npx tsx --test server/drawdownGuard.test.ts`: 7/7 passed. Full `npx tsx
+--test server/*.test.ts`: 1086/1087 passed; the sole failure
+(`gridTiles.test.ts`, pmtiles magic-byte count) reproduces identically via
+`git stash` on unmodified HEAD — confirmed pre-existing/environmental
+(missing local tile fixtures), same class prior sessions have logged, not
+this diff. `npx tsc --noEmit`: 83 errors, byte-identical via `git stash`
+A/B to the pre-existing baseline (Buffer.trim/downlevelIteration/pngjs
+typings, zero mentions of `drawdownGuard`/this session's `bot.ts` lines).
+`npm run build`: clean (pre-existing `astronomy-engine` default-export
+warning only, unrelated). No `.py` files touched — no pytest gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this repairs an owner-only monitoring
+dashboard's DISPLAY of drawdown status; it does not touch
+`bot_engine.py`/`system_config.py`/any strategy file, and does not change
+what the live kill switch DOES (the Tier-1/account-route call sites that
+actually move the peak and fire the kill are untouched — this route
+remains read-only, mirroring their inputs without their side effects).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on the trading loop
+or scoring path — `/api/monitoring/overview` is a `requireOwner` read
+endpoint with no client-side consumer found in `client/src` (grepped;
+its own code comment says "Used for dashboard + alerting," implying an
+external monitor/human curl target, not the in-app UI) and no writer role
+in any decision path. The only effect: a human or external alerting script
+polling this endpoint during a real drawdown will now see the real number
+and a real status instead of a permanently fabricated "100% proximity,
+OK" — directly relevant to GOAL Priority 1 (KEEP THE SYSTEM ALIVE) and
+Priority 2 (measurement integrity) per the review's own ranking of this
+finding class.
+
+Version 1.0.630 -> 1.0.631 (read-and-increment at commit time).
+
+NEXT (queued, not this session): `VXX fallback ticker mismatch` remains
+the other GOAL-priority-1/2-relevant item from the 2026-08-06 review,
+still unlocated (prior session's targeted grep across
+`bot_engine.py`/`macro_data.py`/`options_scanner.py` found no obvious
+match — may need the original workflow journal or a wider file sweep
+including `risk_kill_switch.py`'s own VXX sector-class map or a
+Yahoo-fallback path in `backtest_v2.py`). Also still unclaimed: `multi-leg
+gross-vs-net exit math`, `earnings-day full sizing`, `CSP earnings gate
+fails open`, `rounding handing full heat budget`, `BS put-delta branch`,
+`R:R sign`, `COT partial-fetch freeze`, `rollup deleting unreadable hour
+files`, `weather-grid empty-200 cache`, `UnboundLocalError dead code`, plus
+4 low client papercuts (2026-08-06 review); `sec_form4_bulk_archive` /
+`nrc_outage_reports` still without a standalone `/data` dashboard page;
+`usaspending_contracts`'s gate-2 re-run (unblocks 2026-08-15); DTCC SBSDR's
+standing volume-budget decision for the human.
+
+STARVED: yes — the review's queue (listed above) is far from empty, and
+this session's own capacity ended after one self-contained fix; a future
+session should continue down that list.
