@@ -43766,3 +43766,174 @@ clustering / sec_form4_bulk_archive / nrc_outage_reports still without a
 standalone /data page, the 12 medium + 8 low findings from the 2026-08-06
 full-code-review filing, and usaspending_contracts's gate-2 re-run
 (unblocks 2026-08-15).
+
+## 2026-08-09 (scheduled-routine EDGE session #2) [PIPELINE] — T-DATACORE — sea-state/shipping-lane hypothesis's gate-2 join built, live-probed honesty finding: nearest station != wave-reporting station (v1.0.630)
+
+TERRITORY: T-DATACORE (server/buoyPortProximity.ts + test, scripts/
+buoy_port_proximity_probe.ts — "future entity/graph modules," the join
+class portDwell.ts/entityGraph.ts already occupy) + datacore/
+signal_ladder.json (SHARED, minimized one-entry note update) + package.json
+(SHARED, version bump only) + research/* (last commit, this entry only).
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + PROMOTION
+RULES). `/api/health` on production: `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, `drawdownPct:"0.0"` — no LIVENESS ALARM. Walked
+every numbered KNOWN BROKEN entry in open_questions.md end to end: #1-#19,
+#21-#28 all RESOLVED/FIXED; #10 and #20 remain open but both are
+evidence-logging-built, awaiting live accumulation (non-blocking, already
+triaged in prior sessions, not touched here). Nothing critical unfixed —
+NOT a [REPAIR] session. Loop-health ratio over the 10 tagged entries
+immediately before this one: 3/10 REPAIR (PRODUCT x3, PIPELINE x2,
+REPAIR x3, RESEARCH x2 — well under the 7+ thrash
+trigger). Only one other session had logged today before this one
+(2026-08-09 EIA-930 gate-2 kill, v1.0.629, #731) — no duplicate territory
+risk.
+
+AXIS SURVEY (per the routine's own brief, all four options considered):
+axis (a)'s named examples (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends/pytrends) are ALL
+already built or correctly declined — re-confirmed by walking
+datacore/signal_ladder.json's full 36-root list and research/
+data_census.md's CENSUS MASTER RANKING (11 items, 10 built/declined, the
+11th — DTCC SBSDR — repeatedly logged as blocked on a human volume-budget
+decision, not a build task). Axis (b) (illiquid-universe capacity-
+constrained research) already ran its available steps through
+2026-07-28/29 per prior sessions' own notes; its next step (a RULE-REVIEW-
+gated re-thresholding / LOGIC-gate ablation) is explicitly flagged in
+those sessions as "higher-risk, strategy-adjacent work better suited to a
+dedicated session," not this routine's typical scope. Axis (c)
+(foreign-field import) and axis (d) (compile recurring reasoning into
+code) converge on the SAME concrete opportunity: research/
+open_questions.md's MARINE/BUOY HAZARD-ADJACENT HYPOTHESES section
+already carries a FOREIGN-FIELD IMPORT (sea-state as a shipping-cost/
+insurance-exposure proxy, explicitly tagged "marine forecasting
+technique" when filed 2026-07-08) whose own ladder text names its gate-2
+blocker as "(a) the join [and] (b) archive depth" — (a) is pure,
+zero-token-cost code, buildable today regardless of archive depth,
+exactly the "deliverable is a script, not an analysis" instruction in
+this routine's own brief. Chose this over inventing a new hypothesis from
+scratch: EDGE DOCTRINE #3 says compile what's already been reasoned about
+into code rather than re-deriving; this hypothesis was reasoned about a
+month ago and never advanced.
+
+PRIOR (stated before building, REASONING STANDARD #10): expected the
+mechanical join itself to be uneventful — the 9 portDwell.ts ports already
+have verified coordinates, NDBC has ~889 global stations, so SOME station
+should sit within a generous search radius of each US port; did not
+expect the join to surface anything interesting on its own (a pure
+geometry problem). No prediction was made about whether the matched
+station would actually carry a wave-height reading — that question was
+not even framed until the live probe forced it.
+
+WHAT SHIPPED: `server/buoyPortProximity.ts` — reused the 9 ports already
+in `portDwell.ts`/`datacore/sites/strategic_sites.json` as the join
+target, recognizing they already cover exactly the "Gulf of Mexico
+(Houston), mid-Atlantic (NY/NJ, Norfolk, Charleston, Savannah), West
+Coast approaches (LA, Long Beach, Oakland, Seattle)" spread the
+hypothesis's own text names — no new, independently-unverified chokepoint
+coordinate list was hardcoded. `buoysNearPort`/`nearestBuoyPerPort` take
+an optional station-capability `filter` (default: any station);
+`buoyPortProximityReport` is the top-level gate-1 summary (matched ports,
+honest per-port null when nothing qualifies within `MAX_JOIN_KM=300`, a
+coarser "same approach" radius than portDwell's 5km port-arrival fence).
+`scripts/buoy_port_proximity_probe.ts` runs the REAL `fetchBuoys()`
+against the live NDBC feed and the REAL `portsFromSites()` against the
+real registry — neither reimplemented, mirroring the
+`nrc_gate1_registry_match.ts` precedent's "reconcile two things we
+already control" pattern.
+
+LIVE-PROBED HONESTY FINDING (this session, `npx tsx scripts/
+buoy_port_proximity_probe.ts` against the real feed, 828 stations): the
+naive "nearest station, any kind" join technically PASSED — 9/9 ports
+matched, 0.5-25km out. But checking what those 9 matched stations
+actually report (`PFXC1`, `MHRN6`, `FPKG1`, `MGPT2`, `OMHC1`, `EBSW1`,
+`CHTS1`, `SWPV2`) found `waveHeight: null` on every single one — they are
+harbor/C-MAN coastal gauges (wind/tide instruments), not open-ocean wave
+buoys. Geographic nearness alone silently answered the WRONG question for
+a hypothesis specifically about significant wave height. Per the PREMIUM
+EXPERIENCE STANDARD's "premium presentation of wrong numbers is fraud
+with good typography" spirit (applied here to internal research
+plumbing, not a user-facing number, but the same honesty discipline),
+did not ship the naive result as the gate-1 answer. Added `hasWaveHeight`
+as a first-class filter predicate and re-ran: of NDBC's 155
+wave-reporting stations (out of 828 total), all 9 ports DO have a
+genuine wave buoy within 300km — 6-232km out (LA/Long Beach share buoy
+46256 at 5.8-7.9km; Houston's nearest true wave sensor, 42358, is 232km
+out in the Gulf, the outlier). `buoy_port_proximity_probe.ts` now prints
+BOTH views side by side so the gap between "a station is nearby" and "a
+useful station is nearby" stays visible rather than collapsing into one
+number. Filed the general lesson in open_questions.md: any future
+proximity join against a heterogeneous multi-sensor station network must
+filter on which fields a candidate actually reports before trusting
+"nearest" — flagged as a reusable warning for `space_weather_swpc` and
+`usgs_water_gauges`, the other raw_only station-network roots with an
+unattempted join in their own ladder notes.
+
+RATCHET: `server/buoyPortProximity.test.ts`, 13 tests, all pure (no
+fs/network) — exact-coordinate 0km match, cross-country exclusion (using
+a real NDBC station id/coordinate as the far fixture, not an invented
+one), nearest-first sorting among several candidates, null-lat/lon rows
+skipped (never coerced to distance 0), per-port honest null when nothing
+qualifies, the matched/unmatched partition covering every port exactly
+once, an empty-buoy-list edge case, the MAX_JOIN_KM radius boundary, and
+4 new tests pinning the `hasWaveHeight` filter's behavior (including the
+"closer non-wave station loses to a farther wave-reporting one" case that
+mirrors the live finding, and a regression guard that the new optional
+`filter` parameter doesn't change any existing unfiltered call's output).
+Two of the synthetic fixtures use REAL NDBC station coordinates (46026
+off San Francisco; 42035/42019 in the Galveston area) with distances
+independently verified via a standalone haversine calc before writing the
+assertions, not eyeballed.
+
+GATES: `npm install` (node_modules was empty at session start, same
+recurring sandbox gap prior sessions have logged) — 486 packages, clean.
+`npx tsx --test server/buoyPortProximity.test.ts` — 13/13 passed.
+`npm run test:node` (full server suite) — 1082/1083 passed; the sole
+failure (`gridTiles.test.ts`, "expected the state+national tiles, found
+3", a `client/public/tiles/*.pmtiles` binary-asset count check) is
+unrelated to this change — reproduces identically on files this PR never
+touches, consistent with the recurring large-binary-asset sandbox gaps
+prior sessions have logged (e.g. the pytest `voltrade_daemon.py`
+INTERNALERROR class). `npx tsc --noEmit` shows 86 pre-existing errors
+(Buffer.trim/downlevelIteration/pngjs typings) across files this PR never
+touched (bot.ts, epaCamd.ts, shadowFleet.ts, etc.) and zero errors
+mentioning `buoyPortProximity` — confirmed pre-existing, not introduced
+here. Live smoke test: `npx tsx scripts/buoy_port_proximity_probe.ts`
+against the real production NDBC feed and real port registry (output
+captured above) — verdict PASS on both the any-station and
+wave-reporting views.
+
+BACKTEST: N/A — pure geographic-join infrastructure, no
+`bot_engine.py`/`system_config.py`/strategy file touched, no trading
+decision affected. PROMOTION RULE 3's Sharpe/drawdown comparison doesn't
+apply.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or scoring path — this module is not imported by
+`bot_engine.py`, `server/bot.ts`, or any strategy file, and ships no new
+`/data` route or UI (this is gate-1/gate-2-infrastructure code, not a
+raw-overlay display — no new predictive or as-is claim is being surfaced
+to users). The only effect is informational: `ndbc_buoys`'s ladder entry
+now documents a built, live-verified join and a specific, dated
+next-attempt floor (2026-10-06) instead of "not attempted, blocked."
+
+NEXT (queued, not this session): once the buoy archive clears ~90 days
+(2026-10-06) AND the port-dwell archive has enough history for the same
+window, a future session can attempt the actual gate-2 statistical test
+— pre-registered per REASONING STANDARD #10 BEFORE running it, following
+the same day-clustered / Bonferroni-corrected discipline the CFTC-TFF,
+FINRA, OCC, and EIA-930 gate-2 sessions already established, using
+`hasWaveHeight`-filtered buoys only. Separately: the `space_weather_swpc`
+and `usgs_water_gauges` roots should get the same sensor-capability-filter
+check before any future proximity join against them is trusted, per the
+lesson filed above. Other unclaimed items carried forward from
+2026-08-08/09: fleet_utilization_aircraft's /data UI (blocked to
+2026-08-31), sec_form4_bulk_archive / nrc_outage_reports still without a
+standalone /data page, the 12 medium + 8 low findings from the 2026-08-06
+full-code-review filing, usaspending_contracts's gate-2 re-run (unblocks
+2026-08-15), and DTCC SBSDR's standing volume-budget decision for the
+human.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity; no queued higher-priority item was skipped (KNOWN BROKEN clean,
+no LIVENESS ALARM, no thrash).
