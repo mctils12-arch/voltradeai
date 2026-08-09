@@ -44601,3 +44601,211 @@ diagnose + build + wire + test + version bump) consumed its own
 capacity; no higher-priority queued item was skipped to do it (the
 CDC/SEER layer was consciously deferred to its own properly-scoped
 session, not skipped due to starvation).
+
+## 2026-08-09 (scheduled-routine session #6) [REPAIR] — T-BOT — earnings-proximity position sizing fails OPEN on a data-lookup failure, not just when earnings are confirmed distant (v1.0.635)
+
+TERRITORY: T-BOT (`position_sizing.py`, `test_earnings_scalar_fail_closed.py`,
+`test_silent_except_ratchet.py`'s per-file pin) + `package.json`/
+`package-lock.json` version bump (SHARED, last commit, per MERGE-ORDER
+PROTOCOL). Solo session, no concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main` showed
+local was one PR behind (`807ab0e`, v1.0.634, PR #736 OCC options-volume,
+already merged) — reset the working branch onto `origin/main` before
+starting so this session builds on the true latest state, not a stale base.
+`research/experiments.md` tail, `open_questions.md`'s KNOWN BROKEN section,
+and `research/wishlist.md`'s DATACORE MAXIMUS header read in full. Loop-
+health ratio over the last 10 tagged entries by file order (#729 PRODUCT
+github-activity v1.0.608, #730 PIPELINE VIX term structure v1.0.609, #731
+REPAIR shadow-backfill throughput v1.0.610, #732 REPAIR full-code-review fix
+train v1.0.613-618, #733 REPAIR curtain/device-envelope v1.0.620, #734
+PRODUCT crop-conditions v1.0.621, #735(equiv) PRODUCT euMacro /data UI
+v1.0.625, #628 PIPELINE EIA-930 gate 2 v1.0.629, #630 PIPELINE sea-state
+gate-2 v1.0.630, #631 REPAIR monitoring-overview drawdown v1.0.631, #632
+PRODUCT NRC reactor /data page v1.0.632, #633 REPAIR rollup v1.0.633, #634
+PRODUCT OCC v1.0.634): 4 REPAIR / 4 PRODUCT / 2 PIPELINE in the most recent
+10 tagged entries — under the 7/10 thrash bar, no meta-problem to address.
+`/api/health` live: `status:"ok"`, `bot.status:"active"`,
+`equityPeak:110727.04`, `drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM.
+`/api/diag/audit?type=audit&limit=40`: routine TIER2/TIER3 scan lines only
+(11,956-stock scans firing every ~2min per the market-time cadence),
+nothing actionable — no live bug surfaced in the audit log itself this
+session, and no matured counterfactual-logging experiment was ready to
+judge (KNOWN BROKEN #10/#20's shadow win-rate checks remain gated on
+accumulated history, unchanged since prior sessions).
+
+PICKING THE ACTION: with no live bug in the audit log and no matured
+experiment, fell through to SESSION BUDGET step 1 — the "12 medium + 8 low"
+2026-08-06 full-code-review tail is the largest standing queued backlog,
+independently confirmed STARVED across at least 5 prior sessions'
+NEXT-notes (each naming the same unclaimed list: VXX fallback ticker
+mismatch, multi-leg gross-vs-net exit math, earnings-day full sizing, CSP
+earnings gate fails open, rounding handling full heat budget, BS put-delta
+branch, R:R sign, COT partial-fetch freeze, UnboundLocalError dead code, 4
+low client papercuts — the workflow journal `wf_2302cba6-006` that
+originally filed these with exact file:line detail is not present in this
+container, so each session must independently re-locate an item before
+claiming it, same constraint every predecessor session noted). Targeted
+greps this session located two real, well-scoped candidates in the same
+earnings-data-reliability family: `csp_universe.py::_score_earnings`
+(reads `earnings_cal.get(ticker, 99)` against a calendar that silently
+becomes `{}` on any `_fetch_earnings_calendar` failure — "CSP earnings gate
+fails open") and `position_sizing.py::_earnings_scalar` (reads
+`get_earnings_date()`, which collapses "confirmed no earnings" and "lookup
+failed" into the same `None` — "earnings-day full sizing"). Picked the
+`position_sizing.py` one: it has strictly larger, more clearly load-bearing
+blast radius (read-before-write traced 3 live call sites: `calculate_
+position`'s Kelly-scalar composition, `options_execution.py::_dynamic_
+options_size`'s options sizing, and `options_execution.py::_check_earnings_
+guard`'s boolean blocking gate for CSP/QQQ-convexity entries — all three
+inherit the same shared function, so one fix closes the gap everywhere it
+manifests instead of just one call site), and per CLAUDE.md's "one logical
+change per commit" rule the `csp_universe.py` sibling finding stays queued,
+separately, for a future session rather than bundling both into this PR.
+
+READ BEFORE WRITE: read `position_sizing.py`'s full EARNINGS PROXIMITY
+section (`get_earnings_date`, `_earnings_scalar`) this session before
+touching it. Traced every call site of `_earnings_scalar` and
+`get_earnings_date` via grep across the whole repo (not from memory) —
+confirmed `_earnings_scalar` is called from exactly 3 places
+(`position_sizing.py:941` inside `calculate_position`,
+`position_sizing.py:1137` for reasoning-string display, and twice more in
+`options_execution.py`: `_check_earnings_guard:100` and `_dynamic_options_
+size:161`/`:229`), and `get_earnings_date` from exactly 3 places, all
+inside `position_sizing.py` itself (no `.ts` caller anywhere — the RPC/
+subprocess boundary CLAUDE.md warns about does not apply here since
+`position_sizing.py` is invoked from `bot.ts` only via its JSON CLI modes
+`single`/`batch`/`halt_check`/`earnings_check`, never by internal function
+name). Confirmed `_fetch_earnings_calendar` (a *different*, Alpaca-stub
+function three names above in the same file, currently dead/always-empty —
+NOT the yfinance-based one this fix touches) was not the one in scope, to
+avoid confusing the two same-domain-different-function names in this file.
+Ran yfinance live in this sandbox first to try to directly observe the
+failure mode (`pip install yfinance`, called `.calendar` for AAPL/NVDA/
+TSLA) — got `SSLError: Recv failure: Connection reset by peer` on all
+three, consistent with prior sessions' logged sandbox-yfinance-network gap
+(this sandbox's egress, not evidence about Railway production reliability
+either way) — so this fix is justified by the CODE'S OWN STRUCTURE (any
+exception, of any origin, collapses to the same permissive `None`), not by
+a live-observed production failure count.
+
+ROOT CAUSE: `get_earnings_date()`'s `try/except Exception: return None`
+made "yfinance genuinely found nothing scheduled" and "yfinance couldn't be
+queried at all" indistinguishable — both produced `None`. `_earnings_
+scalar()`'s `if earnings_date is None: return 1.0  # Unknown = no
+adjustment` then treated an unqueryable data source identically to a
+confirmed quiet week: any import error, network failure, rate limit, or
+unrecognized response shape from yfinance defaulted this feature to zero
+risk reduction, silently, on the exact code path meant to shrink a
+position's size ahead of an earnings gap. The malformed-date branch
+(`except Exception: return 1.0` inside the days-to-earnings parsing) had
+the identical shape one level down.
+
+FIX (v1.0.635): new `_fetch_earnings_date_with_status(ticker)` returns
+`(date_or_None, lookup_ok)` — `lookup_ok=False` only on the genuine
+exception path (does not cache failures, so a transient hiccup retries
+next call instead of pinning "unknown" for the 12h window; a clean "no
+earnings field found" result still caches as `ok=True`). `get_earnings_
+date()` becomes a thin backward-compatible wrapper (unpacks the tuple,
+returns just the date) — its own 2 external call sites (reasoning-string
+display, CLI `earnings_check` mode) needed zero changes. `_earnings_
+scalar()` now branches on `lookup_ok`: confirmed-clean stays `1.0`
+(unchanged), lookup-failure and malformed-date both now return `0.85` —
+the same mild-caution tier the code already uses for "5-7 days out,"
+not a new arbitrary threshold and not the harshest tier. This is
+deliberately NOT a RULE REVIEW threshold retune: none of the four
+evidenced tiers (0.35/0.60/0.85/1.0 for known-date cases) changed; the fix
+only gives the previously-unhandled "we don't actually know" branch a
+value instead of accidentally inheriting the most permissive tier by
+default. Per the risk-threshold-change discipline anyway: prior value was
+1.0, new value is 0.85, ROLLBACK TRIGGER logged in the code's own docstring
+— if live audit reasoning shows the lookup-failed branch firing often
+enough to materially throttle trade volume with no corresponding gap-loss
+evidence, revert to 1.0 for that specific branch.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `_earnings_scalar`'s output
+multiplies into `calculate_position`'s `final_pct` (position size for every
+stock/ETF trade) and separately into `options_execution._dynamic_options_
+size`'s `dynamic_pct` (options position size) — a lower scalar on the
+previously-invisible failure path means slightly smaller positions
+whenever the earnings lookup fails, nothing else. `_check_earnings_guard`'s
+boolean gate is UNCHANGED in outcome for both its thresholds (`scalar >=
+0.6` and `scalar >= 0.85` both still evaluate True at 0.85, same as they
+did at 1.0) — the fix does not newly block any options/QQQ-convexity entry
+that previously passed; it only tightens the continuous sizing multiplier,
+not the binary allow/deny gate. No sector-concentration, correlation-
+block, or drawdown-halt interaction — this scalar is independent of those
+and composes multiplicatively with them exactly as it did before.
+
+RATCHET: new `test_earnings_scalar_fail_closed.py` (8 tests) — A/B-verified
+via `git stash` on `position_sizing.py` alone: all 8 fail against pre-fix
+code (5 with `AttributeError: has no attribute '_fetch_earnings_date_with_
+status'` since the function didn't exist yet, 3 with wrong-value assertions
+against the old always-1.0/always-permissive behavior), all 8 pass post-fix.
+Covers: end-to-end yfinance-exception path via a fake `sys.modules
+["yfinance"]` (no network dependency, deterministic), the confirmed-clean
+vs. lookup-failed distinction at the new helper's level, both outcomes
+through `_earnings_scalar` directly, all four known-date tiers unchanged,
+malformed-date-string fail-closed, and `get_earnings_date`'s backward-
+compatible bare-string return. Fixing this also DROPPED `position_sizing.
+py`'s silent-except-handler count from 4 to 3 (two `except Exception:
+return 1.0`-shaped handlers became explicit, distinguishable returns) —
+`test_silent_except_ratchet.py`'s per-file pin for `position_sizing.py`
+lowered from 4 to 3 in the same commit, per that test's own instruction
+("Silent-handler count DROPPED below its pin (good!) — tighten the ratchet
+... so the improvement can't regress").
+
+GATES: `python3 -m pytest -q test_earnings_scalar_fail_closed.py test_
+options_sizer_csp_bucket.py test_position_sizing_null_pnl.py`: 16/16 passed
+(8 new + 8 pre-existing in the two files that touch adjacent
+`position_sizing`/options-sizing surface, confirming no interaction with
+the 2026-07-29 bucket-selection fix or the 2026-07-28 null-pnl fix). Full
+`python3 -m pytest -q` (fresh container needed `pip install pytest numpy
+pandas scipy lightgbm openpyxl yfinance` first — same recurring clean-
+container gap prior sessions have logged): 1225 passed, 3 skipped, 0
+failed (was 1224 passed/1 failed before the ratchet-pin update above; the
+sole failure was the self-correcting ratchet test itself, not a real
+regression). No `.ts`/`.tsx` files touched — `npx tsc --noEmit`/`npm run
+build`/VISUAL VERIFICATION do not apply (confirmed via `git status
+--short`: only `position_sizing.py`, `test_earnings_scalar_fail_closed.py`,
+`test_silent_except_ratchet.py`, `package.json`, `package-lock.json`
+changed).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this does not change any of the four
+evidenced earnings-proximity thresholds (0.35/0.60/0.85/1.0), any other
+scalar, or any entry/exit rule; it only assigns a value to a previously-
+unhandled data-failure branch that had no deliberate value before (it
+inherited `1.0` by omission, not by design). No sizing behavior changes
+for any trade where the earnings-date lookup actually succeeds, confirmed
+or malformed alike being the only two branches touched.
+
+MARKET STATUS: session ran during active market hours (multiple live TIER2
+scans observed in the audit log throughout, ~19:00-20:20 UTC) — per the
+2026-08-09 session #4 precedent (PR prepared but not merged until after
+4:00 PM ET on a market-hours session for a comparable-blast-radius REPAIR),
+this PR is prepared and ready (all gates green) but merge should wait until
+after 4:00 PM ET today unless a human decides otherwise. Unlike that
+precedent's archive-retention fix, however, this DOES touch a live sizing
+multiplier on every trade — flagged more prominently for the human's
+weekly review, not just deferred by default.
+
+NEXT (queued, not this session): `csp_universe.py::_score_earnings`'s
+sibling "CSP earnings gate fails open" finding (the `_fetch_earnings_
+calendar` Finnhub-based function in `options_scanner.py` silently returns
+`{}` on any failure, and every ticker then defaults to `earnings_cal.get
+(ticker, 99)` → score 100 → "no earnings concern") remains unclaimed —
+same shape as this session's fix, different file/data-source, deliberately
+NOT bundled into this PR. Also still unclaimed from the 2026-08-06 filing:
+VXX fallback ticker mismatch (still unlocated after three prior sessions'
+targeted greps — this session did not attempt it), multi-leg gross-vs-net
+exit math, rounding handling full heat budget, BS put-delta branch, R:R
+sign, COT partial-fetch freeze, UnboundLocalError dead code, 4 low client
+papercuts. VIX term structure / SEC 13F / NRC reactor status still lack
+`/api/v1` keyed mirrors per session #5's own NEXT note (unchanged, not
+re-verified this session).
+
+STARVED: no — this session's single fully-scoped action (diagnose + fix +
+regression test + full-suite gate run + ratchet-pin correction + version
+bump) consumed its own capacity; no higher-priority queued item was
+skipped to do it.

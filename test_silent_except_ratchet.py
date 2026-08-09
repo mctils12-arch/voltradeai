@@ -73,7 +73,7 @@ BASELINE = {
     "options_execution.py": 6,
     "options_manager.py": 10,
     "options_scanner.py": 14,
-    "position_sizing.py": 4,
+    "position_sizing.py": 3,
     "probability_engine.py": 1,
     "risk_kill_switch.py": 12,
     "shadow_portfolio.py": 8,
