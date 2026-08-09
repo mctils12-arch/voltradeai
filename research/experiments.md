@@ -44104,3 +44104,150 @@ standing volume-budget decision for the human.
 STARVED: yes — the review's queue (listed above) is far from empty, and
 this session's own capacity ended after one self-contained fix; a future
 session should continue down that list.
+
+## 2026-08-09 (scheduled-routine PRODUCT session #2) [PRODUCT] — T-CLIENT — NRC reactor status gets its standalone /data dashboard page (v1.0.632)
+
+Territory: T-CLIENT (new `client/src/lib/nrcReactorStatus.ts` +
+`.test.ts`, `client/src/pages/nrcReactorStatus.tsx`, wiring in
+`client/src/pages/datamap.tsx`, harness registration in
+`scripts/visual_check.mjs` — no server/, bot, or Python files touched).
+
+HEALTH CHECK FIRST (per this routine's own instructions): `/api/health`
+live — `status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark:
+false`. No LIVENESS ALARM. Thrash ratio over the last 10 tagged entries
+(2 PRODUCT/2 PIPELINE/2 REPAIR/2 RESEARCH-adjacent, well under 7/10) —
+no meta-problem flag. `open_questions.md` KNOWN BROKEN's remaining
+unresolved items (#10 SCORE_BAND dead config, #12(c) ML-feedback non-WS
+exit paths, #20 master-kill-switch CSP over-kill) are all explicitly
+non-blocking for product work.
+
+CHOSEN ACTION: option (b) from this routine's menu — build product UI
+for an already-gate1-passed root. `research/experiments.md`'s own NEXT
+queue has named the same item across at least 3 prior sessions
+(2026-08-06, 2026-08-08, 2026-08-09 earlier today): "sec_edgar_13f_
+institutional_clustering / sec_form4_bulk_archive / nrc_outage_reports
+gate1_pass roots still without a standalone /data page."
+
+READ BEFORE WRITE caught two of the three as STALE before writing any
+code: `client/src/pages/edgar13f.tsx` (Institutional13FView,
+`#/data/filings13f`) already ships, wired into `datamap.tsx` and dated
+2026-08-08 in its own header comment — the 13F gap the queue kept citing
+had already been closed by the same-day session that built it, and the
+queue text was never updated after. `client/src/pages/filings.tsx`
+(FilingsView, `#/data/filings`, "the full Form 4 insider-transactions
+view") also already ships and is wired in — grepped `client/src/pages/`
+for existing files before assuming either needed building (`ls
+client/src/pages/ | grep -i "edgar\|form4\|13f\|nrc"` found `edgar13f.tsx`
+and no nrc file). Only `nrc_outage_reports` was genuinely still missing a
+dedicated page: `server/nrcReactorStatus.ts`'s `/api/data/nrc-reactor-
+status` route (GATE 1 DATA passed 2026-08-04) only ever got a map-layer
+consumer (`datamap.tsx`'s `nrc_reactor_status` toggle, marker layer +
+legend) — grepped `datamap.tsx` for `nrcStatusOpen|NrcView|ReactorStatus`
+and found no full-view state, confirming the gap was real, not stale
+queue text.
+
+BUILT: `client/src/lib/nrcReactorStatus.ts` — pure helpers
+(`statusRank`, `sortPlantsByStatus`, `statusCounts`) split out of the
+page component specifically so they get a real behavioral unit test
+(`nrcReactorStatus.test.ts`, 8 cases: rank ordering, tie-breaking by
+ascending avgPower then name, null-avgPower-sorts-last, no-mutation,
+status tallying including an unrecognized-status fold-into-unknown case)
+rather than the source-inspection style `datamap.*.test.ts` uses for
+JSX-heavy wiring (matching the existing split precedent: `mapIcons.ts`/
+`deviceTier.ts` hold pure logic, `.tsx` pages hold presentation).
+`client/src/pages/nrcReactorStatus.tsx` (NrcReactorStatusView,
+`#/data/nrc-reactor-status`) — fetches the already-live
+`/api/data/nrc-reactor-status` route (no new server code — the `plants`
+field with per-unit joins was already served, just never consumed by a
+page), renders a worst-status-first sortable table (Outage/Reduced/
+Unknown/Full filter chips with live counts, reusing `nrcReactorStatusColor`
+from `mapIcons.ts` so the page and the map layer can never disagree on
+what a status color means — same "one source of truth" discipline as
+the SYMBOLS NOT DOTS directive), click-to-expand per-plant unit
+breakdown (same interaction as `edgar13f.tsx`'s click-to-expand
+holdings). Reuses the `vt-filings-*` CSS shell exclusively — zero new
+styles, continuing every precedent page's pattern.
+
+WIRING PATTERN CHOICE: NRC already has a map layer (unlike the
+non-spatial VIX/FRED/eu-macro/13F clusters, which launch from the panel-
+top launcher list) — so this page is a complement to the map markers,
+not a replacement launch surface. Followed `methane_plumes`'s precedent
+instead (also a spatial layer with a per-asset ranked-table full view):
+an "Open reactor status — sortable table, worst status first →" button
+appears inside the `nrc_reactor_status` layer's own inline panel row
+when the layer is toggled on, not in the top launcher list.
+
+SEPARATE GAP FOUND + FIXED IN THE SAME PR (small, same file, directly
+adjacent to what this session touched): `scripts/visual_check.mjs`'s
+`/api/data/layers` fixture was missing the `nrc_reactor_status` entry
+entirely — the same class of gap the R15 (2026-07-07) and 2026-07-25
+sessions found and fixed for 9 other layers (the file's own comments at
+both sites already document "every toggleable registry layer must
+appear in this fixture"). Meant the toggle-consistency/self-see/legend-
+parity batteries have never exercised this layer since it shipped
+2026-08-04. Added the missing entry (matching `datacore/layers.json`'s
+real `group`/`costTier`/`source` fields) — one line, zero behavior
+change to any non-test code.
+
+GATES: fresh container needed `npm install` (empty `node_modules`, same
+recurring sandbox gap prior sessions have logged); `git status` after
+confirmed zero `package-lock.json` drift beyond this session's own
+intentional version bump. `npx tsx --test client/src/lib/
+nrcReactorStatus.test.ts`: 8/8 passed. Full `npx tsx --test
+client/src/lib/*.test.ts client/src/pages/*.test.ts`: 187/187 passed.
+Full `npx tsx --test server/*.test.ts`: 1086/1087 passed — the sole
+failure (`gridTiles.test.ts` pmtiles magic-byte count) reproduces
+identically on unmodified HEAD (confirmed via `git stash`), same
+pre-existing environmental gap (missing local tile fixtures) the
+2026-08-09 (#1) session logged this same day, not this diff. `npx tsc
+--noEmit`: 86 errors, byte-identical count via `git stash` A/B to the
+pre-existing baseline, none referencing any file this session touched.
+`npm run build`: clean (pre-existing `astronomy-engine` default-export
+warning + chunk-size warnings only, unrelated). `node scripts/
+visual_check.mjs --page nrcreactorstatus` at 390/768/1440: 0 hard
+failures; screenshots reviewed against DESIGN.md — mobile stacks to
+cards cleanly via the existing `data-l` pattern, filter chips and the
+worst-first sort render correctly (fixture: one plant per status tier),
+tablet/desktop tables are clean with no overlap/truncation. The only
+warnings (nav touch-target sizes, the software-renderer GPU toast, one
+"clipped control" on the layers panel) reproduce identically on
+`fredmacro`'s own screenshots (re-ran to confirm) — pre-existing global
+baseline noise, not caused by this diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client UI addition over an
+already-live, already-gate-1-passed cache read (RAW OVERLAYS vs SIGNALS:
+raw overlays need no ladder gate to display); no `bot_engine.py`/
+`system_config.py`/strategy/scoring file touched.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop. The only effect is a new read-only client view over an
+already-served, already-cached endpoint — no new server load (the route
+and its 6h poll already ran for the map layer), no change to what any
+existing layer/page renders. The outage-adjacent SIGNAL hypothesis
+(unplanned power drops vs. operator returns) remains gate-2-locked and
+untouched by this PR — this page makes zero predictive claim, matching
+the RAW OVERLAYS discipline.
+
+Version 1.0.631 -> 1.0.632 (read-and-increment at commit time, both
+`package.json` and `package-lock.json`'s two version fields — both were
+in sync at session start, no drift carried forward).
+
+NEXT (queued, not this session): the 12 medium + 8 low findings from the
+2026-08-06 full-code-review filing remain the largest unclaimed backlog
+(VXX fallback ticker mismatch still unlocated; multi-leg gross-vs-net
+exit math; earnings-day full sizing; CSP earnings gate fails open;
+rounding handling full heat budget; BS put-delta branch; R:R sign; COT
+partial-fetch freeze; rollup deleting unreadable hour files;
+weather-grid empty-200 cache; UnboundLocalError dead code; 4 low client
+papercuts). `fleet_utilization_aircraft`'s /data UI stays blocked to its
+2026-08-31 trailing-4-week baseline; `sec_edgar_13f_institutional_
+clustering`'s gate 2 needs a second quarterly filing period (~Oct-Nov
+2026); `usaspending_contracts`'s gate-2 re-run unblocks 2026-08-15. A
+future PRODUCT session picking the queue's "standalone /data page" line
+again should re-verify against `ls client/src/pages/` first — this
+session's own experience shows that line had gone stale twice over
+without anyone re-checking.
+
+STARVED: no — this session's single fully-scoped action (build + wire +
+harness-register + test + version bump) consumed its own capacity; no
+higher-priority queued item was skipped to do it.
