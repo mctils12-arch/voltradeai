@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
-import { evaluateDrawdown } from "./drawdownGuard";
+import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
@@ -2486,18 +2486,22 @@ print(json.dumps(get_shadow_stats()))
         `python3 -c "from risk_kill_switch import get_kill_switch_status; import json; print(json.dumps(get_kill_switch_status()))"`,
         { timeout: 5000 }
       );
-      if (ks.success) {
-        overview.kill_switches = ks.result;
-        // Compute drawdown proximity
-        const dd = ks.result.current_dd_pct || 0;
-        overview.drawdown = {
-          current_pct: dd,
-          kill_threshold_pct: -20,
-          proximity_pct: Math.max(0, Math.min(100, ((-20 - dd) / -20) * 100)),
-          status: dd <= -15 ? "CRITICAL" : dd <= -10 ? "WARNING" : "OK",
-        };
-      }
+      if (ks.success) overview.kill_switches = ks.result;
     } catch {}
+
+    // Drawdown proximity — REPAIR 2026-08-09 (see drawdownGuard.ts
+    // drawdownStatus docstring): computed from the same validated
+    // equity/peak the live Tier-1 kill switch uses, not a Python status
+    // field that never existed.
+    try {
+      const acct = await alpaca("/v2/account");
+      const dd = evaluateDrawdown(acct.equity, state.equityPeak, state.maxDrawdownPct);
+      overview.drawdown = dd.valid
+        ? drawdownStatus(dd.drawdownPct!, state.maxDrawdownPct)
+        : { current_pct: null, kill_threshold_pct: state.maxDrawdownPct, proximity_pct: null, status: "UNKNOWN" };
+    } catch {
+      overview.drawdown = { current_pct: null, kill_threshold_pct: state.maxDrawdownPct, proximity_pct: null, status: "UNKNOWN" };
+    }
 
     // ML status
     try {

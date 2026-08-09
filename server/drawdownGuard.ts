@@ -42,3 +42,30 @@ export function evaluateDrawdown(
   const drawdownPct = ((equity - newPeak) / newPeak) * 100;
   return { valid: true, equity, newPeak, drawdownPct, kill: drawdownPct <= maxDrawdownPct };
 }
+
+export interface DrawdownStatus {
+  current_pct: number;
+  kill_threshold_pct: number;
+  proximity_pct: number;
+  status: "OK" | "WARNING" | "CRITICAL";
+}
+
+/**
+ * Monitoring-dashboard view of a validated drawdown reading ([REPAIR]
+ * 2026-08-09 — /api/monitoring/overview previously derived this from a
+ * `current_dd_pct` field `get_kill_switch_status()` never returns, so `dd`
+ * silently defaulted to 0 every call and this always reported "OK" /100%
+ * proximity regardless of the real number; the proximity formula was also
+ * inverted (0% drawdown computed as 100% proximity to the kill threshold).
+ * Now takes the SAME validated equity/peak the live Tier-1 kill switch
+ * actually acts on (evaluateDrawdown above), so a real breach is visible
+ * here too.
+ */
+export function drawdownStatus(drawdownPct: number, maxDrawdownPct: number): DrawdownStatus {
+  const proximityRaw = maxDrawdownPct < 0 ? (drawdownPct / maxDrawdownPct) * 100 : 0;
+  const proximity_pct = Math.max(0, Math.min(100, proximityRaw));
+  const status: DrawdownStatus["status"] =
+    drawdownPct <= maxDrawdownPct * 0.75 ? "CRITICAL" :
+    drawdownPct <= maxDrawdownPct * 0.5 ? "WARNING" : "OK";
+  return { current_pct: drawdownPct, kill_threshold_pct: maxDrawdownPct, proximity_pct, status };
+}
