@@ -634,24 +634,27 @@ def _fetch_earnings_calendar() -> dict:
         return _earnings_cache
 
 
-def get_earnings_date(ticker: str) -> str:
+def _fetch_earnings_date_with_status(ticker: str):
     """
-    Get the next earnings date for a ticker.
-    Returns ISO date string or None if unknown.
-    Uses yfinance (already a dependency) as the source.
+    Look up the next earnings date for a ticker.
+    Returns (date_iso_str_or_None, lookup_ok). lookup_ok=False means the
+    source could not be queried at all (yfinance import/network/parse
+    failure) — the caller must NOT treat that the same as a confirmed
+    "no earnings scheduled" result (see _earnings_scalar). Cached 12h,
+    but only when the lookup actually succeeded — a failure retries on
+    the next call instead of pinning "unknown" for half a day.
     """
+    cache_key = f"earnings_{ticker}"
+    if cache_key in _earnings_cache:
+        cached = _earnings_cache[cache_key]
+        if cached.get("fetched", 0) > time.time() - 43200:  # 12h cache
+            return cached.get("date"), cached.get("ok", True)
+
     try:
-        # Check cache first
-        cache_key = f"earnings_{ticker}"
-        if cache_key in _earnings_cache:
-            cached = _earnings_cache[cache_key]
-            if cached.get("fetched", 0) > time.time() - 43200:  # 12h cache
-                return cached.get("date")
-        
         import yfinance as yf
         t = yf.Ticker(ticker)
         cal = t.calendar
-        
+
         if cal is not None:
             # yfinance returns different formats depending on version
             if isinstance(cal, dict):
@@ -659,42 +662,71 @@ def get_earnings_date(ticker: str) -> str:
                 dates = cal.get("Earnings Date", [])
                 if dates:
                     date_str = str(dates[0])[:10]  # YYYY-MM-DD
-                    _earnings_cache[cache_key] = {"date": date_str, "fetched": time.time()}
-                    return date_str
+                    _earnings_cache[cache_key] = {"date": date_str, "fetched": time.time(), "ok": True}
+                    return date_str, True
             elif hasattr(cal, 'columns'):
                 # DataFrame format
                 if "Earnings Date" in cal.columns:
                     date_str = str(cal["Earnings Date"].iloc[0])[:10]
-                    _earnings_cache[cache_key] = {"date": date_str, "fetched": time.time()}
-                    return date_str
-        
-        _earnings_cache[cache_key] = {"date": None, "fetched": time.time()}
-        return None
+                    _earnings_cache[cache_key] = {"date": date_str, "fetched": time.time(), "ok": True}
+                    return date_str, True
+
+        # yfinance answered without raising but had no earnings-date
+        # field — a confirmed "nothing scheduled" result, cache it.
+        _earnings_cache[cache_key] = {"date": None, "fetched": time.time(), "ok": True}
+        return None, True
     except Exception:
-        return None
+        return None, False
+
+
+def get_earnings_date(ticker: str) -> str:
+    """
+    Get the next earnings date for a ticker.
+    Returns ISO date string or None if unknown (either confirmed no
+    upcoming earnings, or the lookup failed — see _earnings_scalar for
+    the distinction that matters for position sizing).
+    Uses yfinance (already a dependency) as the source.
+    """
+    date, _lookup_ok = _fetch_earnings_date_with_status(ticker)
+    return date
 
 
 def _earnings_scalar(ticker: str) -> float:
     """
     Reduce position size near earnings.
-    
+
     > 7 days out:  1.0x (no adjustment)
     5-7 days out:  0.85x (slight caution)
     2-4 days out:  0.60x (significant reduction)
     0-1 days out:  0.35x (high risk — near coin flip)
-    
+
+    FAIL-CLOSED 2026-08-09 (2026-08-06 full-code-review finding
+    "earnings-day full sizing"): a failed earnings-date lookup (yfinance
+    import/network/parse error) used to fall through to the same 1.0x
+    as a confirmed quiet week — every scalar composed with this one
+    (calculate_position's Kelly sizing, options_execution's
+    _dynamic_options_size, and _check_earnings_guard's boolean gate)
+    silently trusted a data-source hiccup as "no earnings risk." A
+    lookup that could not be completed now gets the same mild caution
+    as the 5-7-day-out tier instead of full size. A lookup that
+    completed and genuinely found nothing scheduled is unchanged at
+    1.0x — that is still a real signal, not a data gap. Rollback
+    trigger: if live audit reasoning shows this branch firing so often
+    it materially throttles trade volume with no corresponding gap-loss
+    prevention evidence, revert to 1.0x for the lookup-failed case.
+
     Returns scalar and days_to_earnings for logging.
     """
-    earnings_date = get_earnings_date(ticker)
-    
+    earnings_date, lookup_ok = _fetch_earnings_date_with_status(ticker)
+
     if earnings_date is None:
-        return 1.0  # Unknown = no adjustment
-    
+        return 1.0 if lookup_ok else 0.85  # confirmed clean vs. couldn't determine
+
     try:
         now = datetime.now()
         earn_dt = datetime.strptime(earnings_date, "%Y-%m-%d")
         days_to = (earn_dt - now).days
-        
+
         if days_to < 0:
             return 1.0  # Earnings already passed
         elif days_to <= 1:
@@ -706,7 +738,7 @@ def _earnings_scalar(ticker: str) -> float:
         else:
             return 1.0   # Far enough out
     except Exception:
-        return 1.0
+        return 0.85  # malformed date is also "can't determine", not "confirmed safe"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
