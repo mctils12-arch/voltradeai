@@ -8778,3 +8778,75 @@ validate/derive pipeline and the date-cutoff `$where` clause, 3 in
 `test_cftc_tff_tlt_disjoint.py` pinning the new script's orchestration —
 no-data/no-price short-circuits and window-bounds wiring). Full gate
 results and version bump in experiments.md 2026-08-05.
+
+## [KILLED 2026-08-09 — filed same session] EIA-930 weather-adjusted demand residual vs XLI (industrial-sector returns): GATE 2 FAILS on sign disagreement + no significance; secular demand-growth trend diagnosed as the construction flaw
+
+CONTEXT: `server/gridDemand.ts`'s own docstring pre-registered this exact
+gate-2 plan since the module was built (2026-07-06): "weather-adjusted
+regional demand residuals ... nowcast industrial activity ... gate 2 =
+demand residual vs industrial-sector returns." `scripts/eia930_gate2.py`
+(new, this session) ran it: US48 daily demand regressed on national
+degree-days (CPC HDD/CDD, equal-weighted across 48 states) + weekday +
+month dummies, fit on 2019-2021 training data only, applied out-of-sample
+to a residual index for 2022-present; smoothed (10-day trailing mean),
+scored via a causal trailing-504-day percentile; weekly entries (last
+scored day per ISO week); single pre-registered symbol XLI (the ETF the
+source hypothesis names); horizons 20d/60d. Pre-stated pass bar: sign
+agreement on both horizons AND at least one comparison clearing a
+Bonferroni 0.0125 bar.
+
+RESULT: REJECTED, and not narrowly — the sign came back BACKWARDS on both
+horizons (extreme_low, not extreme_high, had the better forward return):
+
+  20d: extreme_high +0.891% (n=54) vs extreme_low +3.614% (n=6)
+  60d: extreme_high +2.619% (n=50) vs extreme_low +5.374% (n=6)
+
+Neither direction clears even an uncorrected 0.05 significance bar (best
+p=0.24, extreme_low 20d, HAC lag=4 weeks) — a small-sample noisy read, not
+a confident reversal like the OCC/TFF-TLT candidates filed earlier.
+
+DIAGNOSIS (REASONING STANDARD #2/#7, not a search for a fix to rerun this
+session — REASONING STANDARD #4): the smoothed residual is NOT stationary
+over the validation window. Yearly mean: 0.037 (2022) -> 0.041 (2023) ->
+0.060 (2024) -> 0.083 (2025) -> 0.104 (2026-YTD) — a persistent, roughly
+monotonic climb. Plausible real cause: US electricity demand growth since
+2022 has been unusually driven by data-center/AI load and electrification,
+which a model trained only on 2019-2021 weather+calendar patterns has no
+way to anticipate — the residual is absorbing real secular growth, not
+(only) short-horizon economic-activity noise. Mechanically, this starves
+the extreme_low bucket: only 6 of 241 weekly entries scored at or below
+the 10th trailing percentile (a stationary series would produce ~24), so
+the extreme_low mean forward return is an n=6 read with essentially no
+statistical power — exactly the kind of thin-bucket artifact that can flip
+sign by chance, which is consistent with (though does not by itself prove)
+the wrong-sign result being noise rather than a real reversed effect.
+
+WHY NOT RE-RUN THIS SESSION WITH A DETRENDED CONSTRUCTION: doing so
+immediately after seeing this exact failure mode would be look-then-decide
+fishing (REASONING STANDARD #4) — the fix must be pre-registered fresh,
+in a session that has not seen this run's numbers influence its design
+choices beyond the documented diagnosis.
+
+LADDER PATH for a future session (own PR, fresh pre-registration, do not
+reuse this run's numbers to pick parameters after the fact):
+  1. Add an explicit secular-trend term to the regression (e.g. a linear
+     or piecewise-annual trend variable, or refit the weather/calendar
+     coefficients on a ROLLING trailing window instead of a single frozen
+     2019-2021 fit) so the residual stops absorbing multi-year demand
+     growth.
+  2. Re-run the identical bucket/percentile/HAC machinery this script
+     already provides (its functions are decomposed and unit-tested
+     specifically so a future script can reuse fit_and_residualize's
+     interface with a different design matrix) against a genuinely fresh
+     validation window or the same 2022-present window, stated clearly as
+     which.
+  3. If bucket sizes come back closer to the ~10%/~10% the percentile
+     design assumes, treat that as a necessary (not sufficient) precondition
+     before trusting any sign/significance result — the imbalance itself
+     was diagnostic evidence, not just an inconvenience.
+  4. Only after a construction that produces balanced buckets ALSO clears
+     the same pass bar does this move to `gate2_pass` candidate status.
+
+Source: this session's `research/experiments.md` entry;
+`scripts/eia930_gate2.py`; `test_eia930_gate2.py`;
+`datacore/signal_ladder.json` `eia930_grid_demand` entry.
