@@ -4712,6 +4712,47 @@ R6. **Dashboards from monitoring we already emit (charter directive
   N/5/20-day shipping-sector or single-operator returns vs. a same-
   universe random-entry baseline — not attempted, blocked on (a) the
   join and (b) archive depth (started today).
+  **UPDATE 2026-08-09 (scheduled-routine EDGE session, [PIPELINE], v1.0.630):
+  join (a) BUILT.** `server/buoyPortProximity.ts` — re-read the hypothesis's
+  own "Gulf of Mexico, mid-Atlantic, West Coast approaches" join target and
+  recognized it as exactly the geographic spread of the 9 imagery-verified
+  ports already in `portDwell.ts` (Houston=Gulf; NY/NJ/Norfolk/Charleston/
+  Savannah=mid-Atlantic; LA/Long Beach/Oakland/Seattle=West Coast), so this
+  reuses that already-verified coordinate set instead of hardcoding a new,
+  independently-unverified chokepoint list (Suez/Hormuz-style). Two exported
+  join functions (`nearestBuoyPerPort`/`buoysNearPort`, both take an
+  optional station-capability `filter`) + a top-level `buoyPortProximityReport`.
+  MAX_JOIN_KM=300 (buoys sit tens-to-a-couple-hundred km offshore, unlike
+  the 5km port-arrival fence `portDwell.ts` uses for actual vessel visits).
+  13 tests, synthetic + 2 real-NDBC-coordinate sanity fixtures, all pure
+  (no fs/network).
+  LIVE-PROBED HONESTY FINDING, same session (`scripts/
+  buoy_port_proximity_probe.ts` against the real NDBC feed + real registry):
+  the naive "nearest station, any kind" join technically PASSED (9/9 ports
+  matched, 0.5-25km) — but EVERY one of those 9 nearest stations turned out
+  to be a harbor/C-MAN gauge reporting `waveHeight: null`, not an
+  open-ocean wave buoy. Geographic nearness alone answered the wrong
+  question for a sea-state hypothesis specifically about WVHT. Added a
+  `hasWaveHeight` filter and re-ran: all 9 ports DO have a genuine
+  wave-reporting NDBC station within 300km once you filter for the right
+  sensor (6.5km-232km out, e.g. LA/Long Beach share buoy 46256 at 6-8km;
+  Houston's nearest true wave buoy, 42358, is 232km out in the Gulf).
+  Filed as the reusable lesson: any future proximity join against a
+  heterogeneous station network (weather buoys, C-MAN, other multi-sensor
+  feeds) must filter on which fields a candidate actually reports before
+  trusting "nearest" — a repeat-pattern warning for `space_weather_swpc`
+  and `usgs_water_gauges`, the other raw_only station-network roots with
+  unattempted joins, so a future session doesn't rediscover this the hard
+  way.
+  STILL NOT DONE: (b) archive depth. Both archives are ~1 month deep
+  (buoys since 2026-07-08, port-dwell since 2026-07-03) — far short of
+  this repo's other gate-2 minimum-history precedents (CFTC's 156-week
+  trailing window, the ~90-day bars used elsewhere). Per REASONING
+  STANDARD #4, did NOT attempt a thin-N statistical test this session —
+  earliest reasonable attempt is ~2026-10-06 (90 days from the buoy
+  archive's start). A future session should check archive depth via
+  `/api/data/streams` before running gate 2, exactly the same discipline
+  the eia930/finra/occ/cftc-tff gate-2 sessions already established.
 - **Pressure-tendency (PTDY) as a fast-moving-storm precursor.** A rapid
   negative PTDY swing across a cluster of Gulf/Atlantic buoys is a
   classical marine-forecasting precursor to a fast-developing storm
