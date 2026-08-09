@@ -43640,3 +43640,129 @@ sec_edgar_13f_institutional_clustering / sec_form4_bulk_archive /
 nrc_outage_reports gate1_pass roots still without a standalone /data
 page (NRC has a map-layer toggle only, no dedicated dashboard); the 12
 medium + 8 low findings from the 2026-08-06 full-code-review filing.
+
+## 2026-08-09 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE — EIA-930 grid demand GATE 2: pre-registered weather-adjusted-residual/XLI test FAILS, secular demand-growth trend diagnosed as the cause (v1.0.629)
+
+Territory: T-DATACORE (new `scripts/eia930_gate2.py` + `test_eia930_gate2.py`,
+`datacore/cpc/degree_days.json` refresh, `datacore/signal_ladder.json`
+entry update — no server/, client/, or bot files touched).
+
+HEALTH CHECK FIRST (per this routine's own instructions): `/api/health`
+live — `status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark:
+false`. No LIVENESS ALARM. `open_questions.md` KNOWN BROKEN has the same 3
+unresolved, explicitly non-blocking items the 2026-08-08 session logged
+(#10 SCORE_BAND dead config, #12(c) ML-feedback non-WS exit paths, #20
+master-kill-switch CSP over-kill) — none block product work. Thrash ratio
+over the last 10 entries: 3 REPAIR / 10, well under the 7/10 escalation
+bar — no meta-problem flag warranted.
+
+CHOSEN ACTION: option (a) from this routine's menu — advance a datacore/
+pipeline through its next ladder gate. Scanned `datacore/signal_ladder.json`
+for `current_gate:1` roots not blocked on calendar time (fleet_utilization_
+aircraft needs its 2026-08-31 baseline; sec_edgar_13f needs a second
+quarterly filing period, ~Oct-Nov 2026; usaspending_contracts's gate-2
+re-run is dated no earlier than 2026-08-15 per its own NEXT note — all three
+genuinely blocked, not skipped). `eia930_grid_demand` was gate-1-passed
+2026-07-31 with its gate-2 test ALREADY SPECIFIED VERBATIM in
+`server/gridDemand.ts`'s own docstring ("gate 2 = demand residual vs
+industrial-sector returns") — fully unblocked, no external dependency
+missing, so this session ran it rather than inventing a new hypothesis.
+
+PRE-REGISTRATION (written into `scripts/eia930_gate2.py`'s module docstring
+BEFORE any result was seen, REASONING STANDARD #10): US48 daily demand
+regressed on NOAA CPC degree days (HDD/CDD, national = equal-weighted mean
+across 48 CONUS state series — documented approximation, not further
+population-weighted nationally) + 6 weekday + 11 month dummies, fit on
+2019-2021 training data only, frozen coefficients applied out-of-sample
+2022-present. Residual smoothed (10-day trailing mean), scored via a
+causal trailing-504-day percentile (same style as the existing COT-index
+transform elsewhere in this repo — never a look-ahead full-sample
+percentile). Weekly entries (last scored day per ISO week, matching every
+other gate-2 script's weekly cadence, chosen because daily entries at a
+20-60 trading-day horizon would overlap almost completely). Single
+pre-registered symbol: XLI (Industrial Select Sector SPDR) — the ETF the
+source hypothesis names, not chosen after comparing candidates. Horizons
+20d/60d. PASS BAR stated up front: sign agreement on both horizons AND at
+least one comparison clearing a Bonferroni-corrected p<0.0125 (0.05/4:
+2 buckets x 2 horizons, same correction convention as
+`cftc_tff_gate2_test.py`).
+
+DATA: fetched fresh — EIA-930 US48 daily demand (Eastern-timezone
+convention) via `api.eia.gov/v2/electricity/rto/daily-region-data`, single
+call, 2019-01-01 through 2026-08-07, 2,776 rows, zero gaps, zero rejects.
+`scripts/cpc_degree_days.py` re-run to refresh `datacore/cpc/degree_days.json`
+through 2026-08-06 (was stale at 2026-07-03) before building the design
+matrix — committed as part of this PR since it's the same already-tracked
+artifact refreshed by its own existing script, not a new file.
+
+RESULT: FAILED the pre-stated pass bar. Both horizons show the WRONG-SIGN
+ordering (extreme_low beat extreme_high): 20d +3.61% (n=6) vs +0.89%
+(n=54); 60d +5.37% (n=6) vs +2.62% (n=50) — and neither direction clears
+even an uncorrected 0.05 bar (best p=0.24, extreme_low 20d). Per REASONING
+STANDARD #4/#7, investigated WHY rather than stopping at "no effect":
+the smoothed residual carries a persistent multi-year upward trend (yearly
+mean 0.037 in 2022 -> 0.041 -> 0.060 -> 0.083 -> 0.104 in 2026) — plausibly
+real secular demand growth (data-center/electrification load) the
+2019-2021-trained weather+calendar model can't explain — which starves the
+trailing-percentile extreme_low bucket (only 6/241 weekly entries scored
+<=10th percentile, vs the ~24 a stationary residual would produce) and
+breaks the trailing-window percentile's implicit stationarity assumption.
+This is a CONSTRUCTION-level failure diagnosis, not a claim the underlying
+economic idea is false — logged honestly as the layer-of-death mechanism
+per the REPAIR MANDATE's "localize the fault" spirit, applied here to a
+research script rather than production code. Per REASONING STANDARD #4,
+did NOT modify the bucket/percentile construction and re-run this session
+(that would be exactly the look-then-decide anti-pattern) — filed as a
+specific, different follow-up design in open_questions.md instead.
+
+`datacore/signal_ladder.json`'s `eia930_grid_demand` entry updated:
+`status: gate1_pass -> killed`, `current_gate: 1 -> 2`, full note replacing
+the "not yet attempted" placeholder. RAW `/api/data/grid-demand` display
+and archive are UNAFFECTED (raw overlays carry no predictive claim; this
+was always a SIGNAL-layer question, never a display gate).
+
+RATCHET: `test_eia930_gate2.py` (new, 23 tests, zero network calls,
+`importlib.util` loading pattern matching `test_usaspending_gate2.py`) —
+design-matrix column/dummy construction, regression residual correctness
+(a synthetic perfect-linear-fit case asserts near-zero residual),
+percentile-lookback seeding/ranking, weekly-entry ISO-week selection and
+validation-start filtering, bucket assignment, no-lookahead entry-index
+selection with right-censoring, and the Newey-West HAC test's degenerate/
+clear-separation cases plus the PASS-bar evaluator's sign-disagreement,
+Bonferroni-pass, and Bonferroni-fail branches.
+
+GATES: `python3 -m pytest -q test_eia930_gate2.py test_cpc_degree_days.py`
+26/26 passed. Full-repo `python3 -m pytest -q` could not run in this
+container — collection hits `INTERNALERROR` on `voltrade_daemon.py`'s own
+import-time `sys.exit(2)` guard (missing daemon-only env in this sandbox);
+verified via `git stash` that this is byte-identical on unmodified HEAD,
+not caused by this change (same pre-existing gap the 2026-08-07 session #3
+and others logged). No TypeScript/client files touched — `tsc`/`npm run
+build`/`npm run visual` not applicable.
+
+BACKTEST: N/A — pure statistical SIGNAL-gate screen over historical
+archive/API data, no `bot_engine.py`/`system_config.py`/strategy file
+touched; PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or scoring path. The only effect is informational: this
+root's ladder status moves from "gate 1 passed, gate 2 unattempted" to
+"gate 2 killed, construction-level cause diagnosed" in
+`datacore/signal_ladder.json` and `/api/data/signal-ladder` (which reads
+that file directly, so the killed status is live-visible without a
+separate deploy step beyond the merge itself).
+
+Version 1.0.628 -> 1.0.629 (read-and-increment at commit time).
+
+NEXT (queued, not this session, per REASONING STANDARD #4's anti-fishing
+discipline): a future session could re-test with a DIFFERENT, pre-
+registered construction that explicitly detrends the residual (e.g. add a
+linear or piecewise year term to the regression, or use a shorter/adaptive
+trailing baseline instead of a fixed 2019-2021 fit) — but that is a fresh
+pre-registration, not a same-session tweak-and-rerun of this one. Other
+unclaimed items carried forward from 2026-08-08: fleet_utilization_
+aircraft's /data UI (blocked to 2026-08-31), sec_edgar_13f_institutional_
+clustering / sec_form4_bulk_archive / nrc_outage_reports still without a
+standalone /data page, the 12 medium + 8 low findings from the 2026-08-06
+full-code-review filing, and usaspending_contracts's gate-2 re-run
+(unblocks 2026-08-15).
