@@ -39,6 +39,7 @@ import VixTermStructureView from "./vixTermStructure";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
+import NrcReactorStatusView from "./nrcReactorStatus";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2414,6 +2415,12 @@ export default function DataMapPage() {
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-05, no client view until now).
   const [fredMacroOpen, setFredMacroOpen] = useState(() => window.location.hash === "#/data/fred-macro");
+  // NRC daily reactor status full view (#/data/nrc-reactor-status) — same
+  // "open full view" overlay pattern as methane_plumes below (a spatial
+  // layer whose per-asset ranked table doesn't belong in the layer-toggle
+  // sidebar); complements the nrc_reactor_status map layer, not a
+  // replacement for it.
+  const [nrcStatusOpen, setNrcStatusOpen] = useState(() => window.location.hash === "#/data/nrc-reactor-status");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -2745,6 +2752,7 @@ export default function DataMapPage() {
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
+      setNrcStatusOpen(window.location.hash === "#/data/nrc-reactor-status");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -11530,6 +11538,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "nrc_reactor_status" && on && (
+          // Same pattern as methane_plumes below: a sortable per-plant
+          // status table doesn't belong in a layer-toggle sidebar — this
+          // complements the map layer's markers, it doesn't replace them.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/nrc-reactor-status"; setNrcStatusOpen(true); }}>
+              Open reactor status — sortable table, worst status first →
+            </button>
+          </div>
+        )}
         {l.id === "methane_plumes" && on && (
           // Same pattern as insider/earnings/shortvol/attention/cot/graph:
           // a per-asset ranked stat table doesn't belong in a layer-toggle
@@ -11696,6 +11715,9 @@ export default function DataMapPage() {
       )}
       {fredMacroOpen && (
         <FredMacroView onBack={() => { window.location.hash = "#/data"; setFredMacroOpen(false); }} />
+      )}
+      {nrcStatusOpen && (
+        <NrcReactorStatusView onBack={() => { window.location.hash = "#/data"; setNrcStatusOpen(false); }} />
       )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />

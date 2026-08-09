@@ -86,6 +86,11 @@ const PAGES = {
   // US macro regime cluster — FRED, 28 public series (2026-08-08) — same
   // Phase 5 ratchet rule as streams/eumacro/filings13f above.
   fredmacro: { route: "/app#/data/fred-macro", map: false },
+  // NRC daily reactor status — sortable per-plant table (2026-08-09,
+  // closes the "sec_form4_bulk_archive / nrc_outage_reports still without
+  // a standalone /data page" queue item — NRC was the one still genuinely
+  // missing) — same Phase 5 ratchet rule as streams/fredmacro above.
+  nrcreactorstatus: { route: "/app#/data/nrc-reactor-status", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -138,6 +143,12 @@ const FIXTURES = {
       // above for the precedent this repeats.
       { id: "nukefacilities", name: "Nuclear facilities (fuel cycle)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "67 fuel-cycle/production facilities, building-trefoil symbols by category." },
       { id: "faa_airports", name: "FAA airport status", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "FAA National Airspace System Status (public domain)", description: "Ground stops/delays/closures, rolling snapshot." },
+      // [REPAIR, found alongside this session's NRC dashboard page]: this
+      // toggleable registry layer (datacore/layers.json) was missing from
+      // this fixture, same class of gap the R15 (2026-07-07) and
+      // 2026-07-25 fixes closed for 9 other layers — the toggle-
+      // consistency/self-see/legend-parity batteries never exercised it.
+      { id: "nrc_reactor_status", name: "US nuclear reactor status (NRC, daily)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "U.S. NRC daily Power Reactor Status Reports (nrc.gov, public domain, keyless)", description: "Percent-of-rated-thermal-power per operating unit, joined onto the nuclear-plant registry." },
       { id: "border_waits", name: "CBP land-border wait times", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "CBP Border Wait Times (public domain)", description: "Hourly wait times at US land ports of entry." },
       { id: "nucleartests", name: "Nuclear tests 1945–1998 (time machine)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "SIPRI / Johnston archive nuclear explosions catalog", description: "2,027 located tests, emplacement symbols, year-slider scrub." },
       { id: "radiation", name: "Ambient radiation (gamma)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "BfS · Health Canada · STUK/FMI · EPA RadNet", description: "Observed gamma dose-rate monitors, four national networks." },
@@ -897,6 +908,33 @@ const FIXTURES = {
   "/api/data/powerplants": {
     kind: "raw",
     ...JSON.parse(readFileSync(path.join(ROOT, "datacore", "powerplants", "us_power_plants.json"), "utf8")),
+  },
+  // NRC daily reactor status full view (2026-08-09) — one plant per status
+  // tier (full/reduced/outage/unknown) so the filter chips, worst-first
+  // sort, and per-unit expand-on-click all get exercised at 390px; a
+  // multi-unit plant (Beaver Valley) exercises the units-breakdown table.
+  "/api/data/nrc-reactor-status": {
+    kind: "raw",
+    source: "U.S. NRC Power Reactor Status Reports (public domain, US government data) (fixture)",
+    attribution: "U.S. Nuclear Regulatory Commission (NRC)",
+    time: 1, date: "2026-08-09", count: 5,
+    note: "daily percent-of-rated-thermal-power per operating unit (NRC unit granularity, not plant); outage-adjacent signals stay gate-locked until ladder validation",
+    rows: [],
+    plantCount: 4,
+    plants: [
+      { idx: 1, name: "Beaver Valley", lat: 40.622, lon: -80.434, mw: 1836, owner: "Energy Harbor",
+        units: [{ unit: "Beaver Valley 1", power: 100 }, { unit: "Beaver Valley 2", power: 100 }],
+        avgPower: 100, status: "full" },
+      { idx: 2, name: "Palo Verde", lat: 33.3881, lon: -112.8646, mw: 3937, owner: "Arizona Public Service",
+        units: [{ unit: "Palo Verde 1", power: 55 }],
+        avgPower: 55, status: "reduced" },
+      { idx: 3, name: "Diablo Canyon", lat: 35.2116, lon: -120.8551, mw: 2256, owner: "PG&E",
+        units: [{ unit: "Diablo Canyon 1", power: 0 }],
+        avgPower: 0, status: "outage" },
+      { idx: 4, name: "Waterford 3", lat: 29.9942, lon: -90.4696, mw: 1250, owner: "Entergy",
+        units: [{ unit: "Waterford 3", power: null }],
+        avgPower: null, status: "unknown" },
+    ],
   },
 };
 
