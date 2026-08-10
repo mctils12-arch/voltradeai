@@ -3782,6 +3782,44 @@
     (the invisible mid-scan RSS peak) or a live-container escalation to
     the human instead of a third guess.
 
+    **FOLLOW-UP 2026-08-10, v1.0.638, scheduled-routine session**: checked
+    exactly this — live `/api/diag/audit?type=TIER3-DIAG&limit=50` showed
+    the same "Multiple API sources down" message firing hourly through at
+    least 08:02 UTC, 5+ hours after v1.0.637 deployed (confirmed live via
+    `server_version: "1.0.637"`) — the fix did NOT clear the symptom.
+    Per this item's own instruction, did NOT attempt a third
+    latency-tuning guess. Instead found a genuine, code-evidenced
+    OBSERVABILITY gap adjacent to (but distinct from) the RSS-peak one in
+    (c): `/api/diag/scanner`'s `dataSourceErrors` stayed `{}` on every
+    live poll this session, which — per KNOWN BROKEN #5/REPAIR
+    2026-07-06 pt.2 — should mean no enrichment fetcher raised an
+    exception, but `deep_score()`'s `_run_diag_fetch` wrapper only
+    catches exceptions raised INSIDE `fn()`; the `.result(timeout=15)`
+    call that bounds each of the 5 fetchers sits OUTSIDE that wrapper, at
+    deep_score()'s own call site, and was caught by a bare `except
+    Exception: pass` — so a fetcher that times out (the exact failure
+    mode the 15s-budget-vs-19-sequential-calls diagnosis in this item's
+    FIX SHIPPED section describes) has never once been distinguishable
+    from a fetcher that succeeded. `dataSourceErrors: {}` was never proof
+    the fetchers were healthy. FIX (v1.0.638, own PR, bot_engine.py only):
+    all 5 `.result(timeout=15)` except-clauses now capture
+    `TimeoutError`/any exception into `_diag`, guarded by `not in _diag`
+    so a more specific exception `_run_diag_fetch` already captured is
+    never overwritten. RATCHET: new `test_deep_score_timeout_diag_
+    capture.py` (6 tests, source-shape + behavioral A/B on the exact
+    ThreadPoolExecutor/.result() idiom); `test_silent_except_ratchet.py`'s
+    `bot_engine.py` pin lowered 77 -> 72 (5 handlers stopped being silent).
+    Full suite: 1234 passed, 3 skipped, 0 failed. This is purely a
+    visibility fix — it changes no scoring/sizing behavior and does not
+    itself claim to resolve KNOWN BROKEN #29; it exists so the NEXT
+    session checking `/api/diag/scanner` after this deploys gets a real
+    answer (`dataSourceErrors` populated with `TimeoutError: ...` entries
+    if that's the mechanism, still `{}` if fetchers are failing some
+    other silent way — e.g. an internal per-field catch inside
+    `get_alt_data_score()`/`get_macro_snapshot()` itself, unaffected by
+    this fix, remains the next candidate per item (b) above) instead of
+    another blind guess.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

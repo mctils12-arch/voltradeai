@@ -702,7 +702,12 @@ def deep_score(ticker, quick_result, _diag=None):
     return values below are byte-identical whether or not _diag is passed.
     KNOWN BROKEN #5's 2026-07-04 audit added cache-freshness monitoring for
     these 5 sources but never captured the actual exception; this closes
-    that gap (REPAIR 2026-07-06 pt.2).
+    that gap (REPAIR 2026-07-06 pt.2). REPAIR 2026-08-10 (KNOWN BROKEN #29
+    follow-up) extended this to also capture concurrent.futures.TimeoutError
+    at each source's own `.result(timeout=15)` call — previously invisible
+    to _diag since that exception is raised outside the fn() call
+    _run_diag_fetch wraps, so a fetcher that never returns in time looked
+    identical to one that succeeded.
     """
     detail = get_stock_details(ticker, _diag=_diag)
     if not detail or "error" in detail:
@@ -777,26 +782,43 @@ def deep_score(ticker, quick_result, _diag=None):
         _f_alt      = _pool.submit(_fetch_alt)
         _f_social   = _pool.submit(_fetch_social)
         _f_finnhub  = _pool.submit(_fetch_finnhub)
+        # REPAIR 2026-08-10 (KNOWN BROKEN #29 follow-up): a fetcher that runs
+        # past its own 15s budget raises concurrent.futures.TimeoutError HERE,
+        # at the .result() call site — outside the fn() call _run_diag_fetch
+        # wraps — so it was never recorded into _diag. dataSourceErrors could
+        # (and, live, did — see /api/diag/scanner staying {} across a 40+
+        # hour "Multiple API sources down" window) look clean even while every
+        # single fetch was timing out, because a slow-but-eventually-successful
+        # underlying call is indistinguishable from a fast failure once both
+        # are silently swallowed. `"x" not in _diag` guard: a genuine exception
+        # raised inside fn() re-raises through .result() unchanged, and
+        # _run_diag_fetch already recorded that one — this only fills the gap
+        # for TimeoutError, never overwrites a more specific inner capture.
         try:
             macro, news_sent = _f_macro.result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            if _diag is not None and "macro" not in _diag:
+                _diag["macro"] = f"{type(e).__name__}: {str(e)[:150]}"
         try:
             intel = _f_intel.result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            if _diag is not None and "intel" not in _diag:
+                _diag["intel"] = f"{type(e).__name__}: {str(e)[:150]}"
         try:
             alt = _f_alt.result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            if _diag is not None and "alt" not in _diag:
+                _diag["alt"] = f"{type(e).__name__}: {str(e)[:150]}"
         try:
             social = _f_social.result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            if _diag is not None and "social" not in _diag:
+                _diag["social"] = f"{type(e).__name__}: {str(e)[:150]}"
         try:
             finnhub = _f_finnhub.result(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            if _diag is not None and "finnhub" not in _diag:
+                _diag["finnhub"] = f"{type(e).__name__}: {str(e)[:150]}"
     finally:
         _pool.shutdown(wait=False)
 

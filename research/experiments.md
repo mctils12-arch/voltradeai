@@ -3,6 +3,155 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine session) [REPAIR] — T-BOT — deep_score()'s enrichment-fetch TIMEOUT path was invisible to the exact diagnostic KNOWN BROKEN #29's fix depends on (v1.0.638)
+
+TERRITORY: T-BOT (`bot_engine.py`, `test_deep_score_timeout_diag_capture.py`,
+`test_silent_except_ratchet.py`'s pin) — no client/, datacore/, or
+routes.ts touched.
+
+PRIOR: CLAUDE.md read in full. `research/experiments.md` and
+`research/open_questions.md` read (open_questions.md's KNOWN BROKEN
+section end-to-end, since it's the standing repair queue). `git log`/
+`git fetch origin main` confirmed local already at `origin/main` HEAD
+(`911589e`, v1.0.637, PR #739 — the alt_data.py FRED/GDELT
+parallelization repair — already merged, no rebase needed). Loop-health
+ratio over the last 10 commit-message tags (this session's own
+predecessor first): #739 repair, #738 product, #737 repair, #736
+product, #735 repair, #734 product, #733 repair, #732 pipeline, #731
+pipeline, #730 repair: 5 repair / 3 product / 2 pipeline — under the
+7/10 thrash bar, no meta-problem. Live health (`curl
+https://voltradeai.com/api/health`): `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM.
+
+PICKING THE ACTION: #739's own NEXT note (KNOWN BROKEN #29, filed as
+"FOUND + PARTIAL FIX", explicitly not "resolved") gave this session a
+concrete, dated check to run: query `/api/diag/audit?type=TIER3-DIAG`
+a few hours after v1.0.637 deployed and see whether "Multiple API
+sources down: ['polygon', 'wikipedia', 'gdelt', 'fred']" stopped firing.
+Ran it. RESULT: still firing hourly through at least 08:02 UTC —
+5+ hours post-deploy (deploy confirmed live at 03:00:47 UTC via the
+commit timestamp; server_version confirmed "1.0.637" via
+`/api/data/layers` at session start) — unchanged from the pre-fix
+pattern. Per #29's own NEXT instruction ("if they persist unchanged...
+RECURRENCE ESCALATES applies... stop threshold/latency-tuning this class
+of fix... instead of a third guess"), did NOT attempt another
+latency-based patch to alt_data.py or macro_data.py.
+
+READ BEFORE WRITE: polled `/api/diag/scanner` three times live this
+session (15s apart) — `dataSourceErrors: {}` on every poll, `degraded:
+false`, `consecutiveFailures: 0`. Per KNOWN BROKEN #5 / REPAIR
+2026-07-06 pt.2 (`_run_diag_fetch`, bot_engine.py), that field is
+supposed to mean "none of deep_score()'s 5 enrichment fetchers raised an
+exception this cycle" — but reading `_run_diag_fetch`'s actual body
+(bot_engine.py:675-689) and its 5 call sites inside `deep_score()`
+(bot_engine.py:715-763) showed it only wraps the `fn()` call itself.
+The `.result(timeout=15)` call that bounds each of the 5
+`ThreadPoolExecutor` futures lives OUTSIDE `_run_diag_fetch`, directly
+in `deep_score()`'s try block (bot_engine.py:780-798 pre-fix), and was
+caught by a bare `except Exception: pass` with zero capture into `_diag`
+— the exact silent-broad-except shape KNOWN BROKEN #5's original audit
+targeted, reintroduced one call-site level up. A fetcher that never
+completes within its 15s budget (the precise failure mode #739's own
+diagnosis describes: 19 sequential HTTP calls vs. a 15s ceiling, now
+reduced but not proven eliminated) raises
+`concurrent.futures.TimeoutError` at `.result()`, not inside `fn()` —
+so `dataSourceErrors` staying `{}` was never evidence the fetchers
+succeeded, only that none of them raised an exception INSIDE the
+wrapped call specifically. This is a genuine, code-evidenced
+observability gap, not a guess: it directly explains why the previous
+session's own diagnostic ("dataSourceErrors was `{}` ... not strong
+evidence either way") had to hedge — the tool it was checking could not
+have shown a timeout even if every fetcher were timing out every cycle.
+
+FIX (v1.0.638): all 5 `.result(timeout=15)` except-clauses in
+`deep_score()` (macro/intel/alt/social/finnhub) now capture their
+exception into `_diag` — `if _diag is not None and "<name>" not in
+_diag: _diag["<name>"] = f"{type(e).__name__}: {str(e)[:150]}"`. The
+`not in _diag` guard is deliberate: a genuine exception raised inside
+`fn()` is already captured by `_run_diag_fetch` and re-raises unchanged
+through `.result()`, so this only fills the gap for `TimeoutError`
+(never previously captured anywhere) and never overwrites a more
+specific inner capture with a byte-identical or differently-worded
+duplicate. Zero change to any returned score/value — confirmed by
+inspection (this only adds a diagnostic write inside an
+already-existing except branch; the branch's prior behavior of leaving
+`macro`/`intel`/`alt`/`social`/`finnhub` at their pre-initialized `{}`
+defaults on any exception is unchanged).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero effect on scoring, sizing,
+or any trading decision — this only writes into a dict already
+surfaced read-only via `/api/diag/scanner` (REPAIR 2026-07-06 pt.2's own
+precedent: "Visibility only... return values below are byte-identical
+whether or not _diag is passed"). The only downstream consumer is a
+human/future-session reading that probe. Directly serves GOAL priority 2
+(protect the integrity of learning / honest measurement) by making an
+existing diagnostic tool actually capable of showing what it claims to
+show, rather than serving a new hypothesis about the trading loop
+itself.
+
+RATCHET: new `test_deep_score_timeout_diag_capture.py` (6 tests) — 2
+source-shape checks (no bare `except Exception: pass` directly after
+any `.result(timeout=15)` call; all 5 sites guard with `"<name>" not in
+_diag`) + 4 behavioral tests reproducing the exact
+`ThreadPoolExecutor`/`.result()` idiom deep_score uses, A/B-proving: the
+old bare-except pattern loses all trace of a timeout, the fixed pattern
+captures `TimeoutError`'s type+message, and the fixed pattern never
+clobbers an entry a prior (simulated) `_run_diag_fetch` capture already
+set. Also dropped `bot_engine.py`'s silent-except count from 77 to 72
+(5 handlers stopped being silent) —
+`test_silent_except_ratchet.py`'s pin lowered in the same commit per
+that ratchet's own instruction, mirroring the 2026-08-09 #6
+`position_sizing.py` precedent for the identical class of improvement.
+
+GATES: `python3 -m pytest -q test_deep_score_timeout_diag_capture.py
+test_deep_score_source_diag.py test_deep_score_parallel_fetch_timeout.py
+test_deep_score_guard_decision.py test_silent_except_ratchet.py`: 22/22
+passed. Full `python3 -m pytest -q` (fresh container needed `pip install
+pytest numpy pandas scipy lightgbm openpyxl yfinance` first — same
+recurring clean-container gap prior sessions have logged): 1234 passed,
+3 skipped, 0 failed. No `.ts`/`.tsx` files touched (`git status
+--short`: only `bot_engine.py`, `test_deep_score_timeout_diag_capture.py`
+(new), `test_silent_except_ratchet.py`, `package.json`,
+`package-lock.json` changed) — `npx tsc --noEmit`/`npm run
+build`/VISUAL VERIFICATION do not apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or entry/exit
+logic changed; this only adds exception capture inside an
+already-existing except branch whose behavior (leave the value at its
+`{}` default) is unchanged. Same BACKTEST-N/A class as the 2026-08-09
+#6 earnings-scalar visibility-adjacent fix.
+
+MARKET STATUS: session ran ~11:00 UTC Monday (market not yet open,
+NYSE opens 13:30 UTC) — no merge-timing restriction from prior
+market-hours-PR precedent; this also touches no live sizing/scoring
+path, unlike that precedent's earnings-scalar fix.
+
+NEXT (queued, not this session): the actual question KNOWN BROKEN #29
+opened — is `deep_score()`'s enrichment fetch the real cause of the
+40+ hour "Multiple API sources down" pattern — is STILL open. Whichever
+session catches this next should deploy this fix, wait a few hours, and
+re-check `/api/diag/scanner`'s `dataSourceErrors`: if `TimeoutError`
+entries now appear for macro/alt/etc., that confirms the timeout
+mechanism and the next move is investigating WHY (network egress from
+Railway specifically, a genuinely slow/rate-limited upstream, or
+something else) rather than another sizing tweak; if `dataSourceErrors`
+stays `{}` even after this fix ships, the failure is happening via
+internal per-field catches INSIDE `get_alt_data_score()`/
+`get_macro_snapshot()` themselves (item (b) from KNOWN BROKEN #29's own
+text: wiki:1, short_interest:2, congress:1, patent:1, ftd:2 sequential
+calls not yet threaded with diagnostics) — that would be the next
+scoped PR, not a repeat of this one. The `csp_universe.py` "CSP earnings
+gate fails open" finding (2026-08-09 #6's NEXT note), SEC 13F / NRC
+reactor status `/api/v1` mirrors (2026-08-10 VIX session's NEXT note),
+and the rest of the 2026-08-06 code-review tail remain queued,
+unclaimed, unchanged by this session.
+
+STARVED: no — this session's single fully-scoped action (live-check the
+queued follow-up + diagnose the observability gap it exposed + fix +
+ratchet + full-suite gate run + version bump) consumed its own capacity;
+no higher-priority queued item was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine session) [REPAIR] — T-BOT — alt_data.py's FRED/GDELT fetchers parallelized after live evidence showed a 40+ hour "Multiple API sources down" MEDIUM risk-sizing haircut firing continuously (v1.0.637)
 
 Territory: T-BOT (`alt_data.py`, `test_alt_data_parallel_fetch.py`,
