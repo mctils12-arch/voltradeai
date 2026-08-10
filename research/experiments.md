@@ -3,6 +3,154 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine session #6) [REPAIR] — T-BOT (shadow_portfolio.py) — KNOWN BROKEN #10's queued change_pct evidence query finally runs against real labeled shadow data, now that the backfill bug is confirmed fixed and durable (v1.0.642, PR #744)
+
+TERRITORY: T-BOT (shadow_portfolio.py is bot-side learning-data infrastructure
+called from bot_engine.py's deep_score(); no client/ or datacore/ files
+touched). SHARED touch kept minimal per MERGE-ORDER PROTOCOL: package.json +
+package-lock.json version bump only (read-and-increment at commit time —
+origin/main was at v1.0.641/PR #743, confirmed via fresh `git fetch origin
+main`, no rebase needed) and this experiments.md entry.
+
+SESSION-START CHECKS: CLAUDE.md read in full (scheduled routine). Live health
+(`curl https://voltradeai.com/api/health`): `status:"ok"`, `bot.status:
+"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`, `liveness.dark`
+absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM.
+Loop-health ratio over the last 10 tagged git log entries (#744 this session
+not yet counted, starting from #743 back through #734): 5 REPAIR / 5 PRODUCT
+— under the 7/10 thrash bar, no meta-problem.
+
+FOLLOW-UP CHECK FIRST (per SESSION BUDGET's "fix a bug seen in audit logs"
+ranking above starting fresh work): re-checked the prior session's own
+KNOWN BROKEN #29 "RESOLVED PENDING CONTINUED MONITORING" disposition. Live
+`/api/diag/audit?type=TIER3-DIAG&limit=50&token=$DIAG_TOKEN` (production,
+current time 20:17Z) still shows NO "Multiple API sources down" line since
+2026-08-10T08:02:33Z — the clean streak now spans ~12 hours past the prior
+session's own 15:31Z check, through the current time. `/api/diag/scanner`
+reads `dataSourceErrors: {}`, consistent with continued health. No recurrence
+— nothing to act on here, the prior session's disposition holds; not
+re-opening or re-logging it as its own action since there's no new evidence
+to add beyond "still clean."
+
+PICKING THE ACTION: no live bug in the audit log (checked above). Per
+SESSION BUDGET's next tier ("judge a matured experiment"), re-read KNOWN
+BROKEN #10 and #20 in `research/open_questions.md` in full — both have been
+gated for months on shadow_portfolio's backfill-never-ran bug (root-caused
+and fixed 2026-08-05, v1.0.596) accumulating enough freshly-labeled history.
+Queried live `/api/diag/shadow?token=$DIAG_TOKEN`: `total_records: 14972`,
+oldest `2026-04-20` (112+ days, past the 90-day bar both items set),
+`win_rate_by_decision` now POPULATED for the first time (`taken`:
+36.5%/37.9%/31.9% win rate at +5d/+10d/+20d; `rejected_score`: 28.3%/28.3%/
+29.5%) — confirms the 2026-08-05 fix is durable and producing real labels,
+not a one-time fluke. `rejected_masterkill` (140 records, item #20's bucket)
+still has zero labeled records at any horizon — item #20's specific NEXT
+step is not yet answerable, left untouched this session. Item #10's NEXT
+step (win rate for |change_pct|>35 candidates vs. the rest) IS now
+answerable in principle, but the query itself didn't exist anywhere —
+`get_shadow_stats()` had no change_pct-band breakdown, only the
+decision/regime buckets. Picked building + running that query as this
+session's action: a well-scoped, single-function "judge a matured
+experiment" step with an explicit hypothesis already stated by item #10
+itself, not a fresh cold-start research angle.
+
+READ BEFORE WRITE: read `shadow_portfolio.py` end-to-end this session
+(`log_candidate`, `get_shadow_stats`, the record schema, `FORWARD_HORIZONS_DAYS`)
+before adding anything. Confirmed `features["change_pct_today"]` is the
+correct field (matches `ml_model_v2.py`'s `FEATURE_COLS` and
+`bot_engine.py`'s `deep_score()` write-through) and that `system_config.py`'s
+`MAX_CHANGE_PCT` (=35.0, `BASE_CONFIG`) has no import-cycle risk from
+`shadow_portfolio.py` (checked `system_config.py`'s own imports — stdlib
+only). Read `server/diag.ts` and the pinned `server/diag.test.ts` "shadow
+probe... reuses get_shadow_stats() unchanged" test in full before deciding
+where to add the query: that test scans `get_shadow_stats()`'s own function
+body (up to the next `\ndef `) for literal "ticker"/"symbol" tokens and
+requires the TS probe to call `get_shadow_stats()` verbatim — so the new
+query needed to (a) live inside a function whose text never mentions
+ticker/symbol and (b) not require any `server/*.ts` change. Solved by
+defining `_change_pct_band_stats()` as its own top-level function BEFORE
+`get_shadow_stats()` in the file (outside the test's scan window) and
+merging its result into `get_shadow_stats()`'s returned dict as one new key
+— the existing `"shadow"` diag probe (built 2026-08-03 explicitly to
+unblock this item) now serves it with zero TS changes.
+
+BUILD (v1.0.642): `shadow_portfolio.py` — new `_change_pct_band_stats(records,
+min_n=5)`: imports `MAX_CHANGE_PCT` live from `system_config.BASE_CONFIG`
+(falls back to 35.0 only if the import itself fails, not as a silent
+threshold override), filters to `decision == "taken"` records only (a
+rejected candidate never got a real outcome under the bot's actual exit
+rules, so including it would corrupt the comparison item #10 asked for),
+splits by `abs(features["change_pct_today"]) > threshold`, and computes win
+rate per horizon in each band (same `n >= min_n` suppression pattern
+`get_shadow_stats()`'s existing `win_rate_by_decision` already uses).
+`get_shadow_stats()` gains one new key, `win_rate_by_change_pct_band`,
+wrapping the above. No other output field touched.
+
+RATCHET: new `test_shadow_change_pct_band.py` (8 tests): threshold pulled
+live from `system_config.BASE_CONFIG` (not re-hardcoded), boundary behavior
+pinned (exactly-at-threshold lands in "at_or_under", not "over"), negative
+`change_pct` uses absolute value, only "taken" records count (rejected
+decisions excluded even with identical change_pct/outcome), win rate
+suppressed below `min_n` and present at/above it, missing `change_pct_today`
+feature defaults to 0.0 (matches `log_candidate`'s own float-coercion
+convention), and an end-to-end `get_shadow_stats()` wiring test using the
+real file-backed log (temp-dir override, same pattern
+`test_shadow_portfolio.py`'s existing tests use). A/B-verified via `git
+stash`: all 8 fail on pre-fix code (`AttributeError`/`AssertionError`, the
+function/key don't exist yet), pass post-fix.
+
+GATES: `python3 -m pytest -q` (full suite, this sandbox needed `numpy`/etc.
++ `openpyxl` installed first — not present by default here): 1243 passed, 2
+skipped (1235 baseline + 8 new, zero regressions). `npx tsx --test
+server/diag.test.ts`: 12/12 passed, including the pinned shadow-probe wiring
+test, confirming it survives the `get_shadow_stats()` body edit unmodified.
+`npx tsx --test server/*.test.ts`: 1027/1035 passed; the 8 failures
+(`aircraftTiling`, `apiKeyAccounts`, `compression`, `gdeltEvents`,
+pmtiles-magic-byte, `owmTiles`, `seafloorTiles`, `securityMiddleware`) are
+pre-existing sandbox-environment gaps, confirmed unrelated by `git status`
+showing zero `.ts`/`.tsx` files touched this session (only
+`shadow_portfolio.py`, the new test file, and the two package files
+changed). `npx tsc --noEmit` and `npm run build` not independently re-run
+given the zero-`.ts`-touched fact and matching precedent from other
+pure-Python sessions this queue has logged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure read-only diagnostic query over an
+already-collected archive; adds a new observable field, changes no
+scoring/sizing/threshold value or trading decision.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the trading
+loop today — this is visibility only, same class as the TIER-KILL/
+instrument_selector shadow-visibility precedents. If/when
+`over_threshold`'s "taken" `n` clears the existing `min_n=5` floor at each
+horizon, the chain becomes real: a future session reads the win rate split
+-> if `over_threshold` trades lose more often than `at_or_under_threshold`
+ones, that's counterfactual evidence FOR wiring `MAX_CHANGE_PCT` into
+`bot_engine.py`'s actual candidate filter (a separate, evidence-cited RULE
+REVIEW PR, one change at a time, with a logged rollback trigger) -> if not,
+that's evidence FOR deleting the four dead `system_config.py` keys
+(`SCORE_BAND_MAX`, `SCORE_BAND_OPTIMAL_LO/HI`, `MAX_CHANGE_PCT`) as
+misleading dead-code documentation per the STALENESS AUDIT. Neither decision
+is made this session — this PR only builds the instrument to make it,
+matching this item's own multi-session evidence-gate discipline.
+
+QUERIED LIVE THIS SESSION (pre-deploy, informational only — v1.0.642 has not
+shipped yet as of this log): could not yet check the actual
+`win_rate_by_change_pct_band` split live since the code has not deployed;
+that check is explicitly the NEXT step for whichever session (this one,
+continuing, or the next scheduled one) picks this back up after PR #744
+merges and Railway redeploys.
+
+NEXT: (1) after v1.0.642 deploys, query
+`/api/diag/shadow?token=$DIAG_TOKEN` and read `win_rate_by_change_pct_band`
+— if `over_threshold`'s `n` has cleared 5 at any horizon, that's the actual
+answer to KNOWN BROKEN #10's multi-month-old question; if not yet, note the
+current `n` and let more live cycles accumulate. (2) KNOWN BROKEN #20's
+`rejected_masterkill` bucket still has zero labeled records — a future
+session should re-check `/api/diag/shadow`'s `win_rate_by_decision` for that
+key specifically once more time has passed; no action needed until it has
+enough. (3) KNOWN BROKEN #29 remains RESOLVED PENDING CONTINUED MONITORING,
+now with a longer confirmed-clean window (~12h past the prior session's own
+check) — still no recurrence, still no action needed unless it reappears.
+
 ## 2026-08-10 (scheduled-routine PRODUCT session #5) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — SEC 13F-HR institutional holdings gets its /api/v1 keyed mirror, closing the queue's last "shipped-data-no-v1-API" gap, with the response-shape decision the prior two sessions flagged made deliberately (v1.0.641)
 
 TERRITORY: same SHARED pattern as the 2026-08-07 github-activity, 2026-08-09
