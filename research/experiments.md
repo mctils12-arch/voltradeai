@@ -3,6 +3,183 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine PRODUCT session #5) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — SEC 13F-HR institutional holdings gets its /api/v1 keyed mirror, closing the queue's last "shipped-data-no-v1-API" gap, with the response-shape decision the prior two sessions flagged made deliberately (v1.0.641)
+
+TERRITORY: same SHARED pattern as the 2026-08-07 github-activity, 2026-08-09
+OCC, and 2026-08-10 VIX/NRC sessions before it — primary edit is
+`server/apiProduct.ts` (LICENSE_MARKS + apiMeta endpoint + agentToolSpec
+tool, all additive) and `server/routes.ts` (one new route block, inserted
+immediately after the nrc-reactor-status v1 route). Both nominally SHARED
+per the WORKSTREAM PARTITION table; kept to the minimal additive edit the
+MERGE-ORDER PROTOCOL asks of shared files. `server/apiProduct.test.ts` (new
+assertions only) and `package.json`/`package-lock.json` (version bump, last
+commit) round out the change. Solo session; `git fetch origin main` at
+start showed local already at `origin/main` HEAD (`1e40504`, v1.0.640, PR
+#742 — the KNOWN BROKEN #29 monitoring judgment, docs-only — already
+merged), no rebase needed.
+
+SESSION-START CHECKS: CLAUDE.md read in full (this is a scheduled
+[PRODUCT] session per the routine's own instructions). `research/
+open_questions.md`'s full KNOWN BROKEN section read this session — every
+numbered item RESOLVED or FIXED; item #20 is a standing NEXT note (RULE
+REVIEW judgment call, not a currently-broken system) and item #29 (the
+diagnostic-visibility fix) was itself judged RESOLVED PENDING CONTINUED
+MONITORING by this session's immediate predecessor, off live evidence, no
+code change — nothing here blocks or preempts PRODUCT work. `research/
+experiments.md`'s three most recent entries read in full (the #29
+monitoring judgment, the NRC v1 mirror, and the deep_score timeout-
+diagnostic REPAIR). Live health (`curl https://voltradeai.com/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. Loop-health ratio over the
+last 10 tagged entries by git log (this session's own predecessors first):
+#742 REPAIR, #741 PRODUCT, #740 REPAIR, #739 REPAIR, #738 PRODUCT, #737
+REPAIR, #736 PRODUCT, #735 REPAIR, #734 PRODUCT, #733 REPAIR: 6 REPAIR / 4
+PRODUCT — under the 7/10 thrash bar, no meta-problem.
+
+PICKING THE ACTION: per the task's own menu (advance a datacore/ pipeline;
+build /data UI; propose a new root; improve datacore's API boundary) and
+SESSION BUDGET's fall-through order, checked open_questions.md and
+experiments.md's tail for a queued item first. Both the 2026-08-10 VIX and
+NRC sessions' own NEXT notes named the exact same unclaimed item: "SEC 13F
+still lacks its own /api/v1 keyed mirror — the next session picking this
+queue back up should design the response shape deliberately (full holdings
+vs. a top-25-style trim) rather than copy this session's flat-record
+pattern blindly." That is a real, well-scoped "improve datacore's API
+boundary" PRODUCT action with an explicit design decision attached, not a
+copy-paste job — picked over starting a fresh open_questions.md item cold.
+
+READ BEFORE WRITE: read `server/edgar13f.ts` end-to-end this session (not
+assumed from the NRC session's summary) — confirmed `latest13FFilings()`
+caches untrimmed `Filing13F[]` (full `Holding13F[]` tables for "focused"
+managers holding <=`FOCUSED_MAX_HOLDINGS`=250 positions; mega-managers over
+that cap archive as `holdingsOmitted=true` summary-only records, a
+deliberate hypothesis-driven cap per the module's own EDGE-DOCTRINE #2
+docstring, not a bandwidth trim). `trimHoldings(f, top=25)` is applied only
+by the RAW display route (`/api/data/filings13f`, `server/routes.ts:1892-
+1905`) at request time — the cache itself and the archive on disk both
+keep the full table. Read the full existing `/api/v1` block in
+`server/routes.ts` (every route through the newest, nrc-reactor-status) and
+`server/apiProduct.ts` end-to-end before adding anything, to match the
+established envelope/license/metering/test pattern exactly. Confirmed via
+grep that `latest13FFilings`, `read13FHistory`, `trimHoldings`, and
+`FOCUSED_MAX_HOLDINGS` are already imported into `server/routes.ts` (line
+106) — this PR adds zero new fetches, zero new pollers, reusing the exact
+cache object the RAW route already reads.
+
+THE RESPONSE-SHAPE DECISION: chose FULL holdings tables (every stored
+position up to the archive's own FOCUSED_MAX_HOLDINGS=250 cap), NOT
+re-trimmed to the RAW route's top-25-by-value display convention.
+Reasoning: the top-25 trim exists for UI display bandwidth on the free
+/data map, not because 25 is some meaningful data boundary — a paying API
+customer's value proposition IS the actual filed positions, and the 250
+cap is already a deliberate, disclosed, hypothesis-driven bound (mega-
+manager index-hugging tables are capacity-irrelevant to the "fish where
+whales can't" small-cap-clustering hypothesis this stream targets, EDGE
+DOCTRINE #2) rather than an arbitrary display limit invented for this
+endpoint. Shipping a second silent trim on top of the first would leave a
+paying customer looking at 25 positions out of a filing that might hold
+150, with no way to get the rest — worse than the free RAW route offers
+today. `holdingsOmitted` mega-manager summaries still omit their holdings
+table entirely (unchanged, correctly — that omission is not a UI-bandwidth
+decision, it is the archive's own stated cap).
+
+BUILD (v1.0.641): `server/apiProduct.ts` — new `LICENSE_MARKS["data/
+13f-holdings"]` (resell: "conditional" — 13F-HR filings are submitted by
+the reporting institutional manager, not authored or computed by the SEC
+itself like the CAMD/FTD/MIDAS/crop-conditions/NRC streams, so this does
+NOT get the "ok" mark those government-produced streams carry; same
+posture as the issuer-authored earnings-language stream, chosen by
+analogy since neither Form 4 nor 13F has an existing standalone v1 license
+determination in this file to copy verbatim); new `apiMeta()` endpoint
+entry documenting the full-holdings response-shape decision and gate-1-
+pass/gate-2-not-attempted honestly; new `agentToolSpec()` tool
+(`voltrade_thirteenf_holdings` — `voltrade_13f_holdings` was tried first
+and rejected by the existing `/^voltrade_[a-z_]+$/` agent-tool-name test,
+which forbids digits; renamed to spell out "thirteenf" rather than loosen
+the regex, since the regex itself is a deliberate agent-safety guard, not
+a happenstance gap) documenting both the full-table shape and the 45-day-
+lag-stale-when-public honesty note from the module's own docstring.
+`server/routes.ts` — new `GET /api/v1/data/13f-holdings` route, same shape
+as the VIX/OCC/NRC routes immediately above it: `requireApiKey` guard,
+503-on-cold-cache with `Retry-After`, `v1Envelope("data/13f-holdings",
+{count, focused_cap, filings}, hit.at)` on success (returns the cache's
+untrimmed `filings` array directly, no `trimHoldings()` call — the
+deliberate part of this session's shape decision), `meterUsage` on every
+branch (503/200/500).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(conditional-resell + full-holdings-shape-documented + gate-2-honesty,
+mirroring the earnings-language test's pattern since both share the
+issuer/filer-submitted-not-government-authored conditional-resell
+reasoning) plus updates to the three existing cross-cutting tests that
+enumerate all live v1 paths (`meta honesty`, `wiring pinned` path list +
+guarded-count floor 15->16). These three would have failed had the new
+route been forgotten from any of them — the same "added an endpoint,
+forgot the enumeration test" gap every prior mirror session's PR has
+closed proactively.
+
+GATES: `npx tsx --test server/apiProduct.test.ts`: 23/23 passed (was 22
+before this session's one new test). Full `npx tsx --test server/*.test.ts`:
+1094 tests, 1093 passed, 1 failed (`gridTiles.test.ts`'s PMTiles-magic-byte
+check) — confirmed byte-identical via `git stash` A/B on unmodified HEAD,
+same recurring clean-container fixture gap prior sessions have logged
+repeatedly for this exact test. `npx tsc --noEmit`: 83 errors, confirmed
+byte-identical via the same stash A/B; zero mentions of this session's
+`apiProduct.ts`/`routes.ts` additions. `npm run build`: clean (same
+pre-existing `astronomy-engine`/chunk-size warnings only). No `.py` files
+touched — no pytest gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this adds a keyed API mirror over an
+already-live, already-cached RAW archive; it changes no trading decision,
+no signal, no scoring path, and makes zero change to what the existing
+`/api/data/filings13f` route or any current UI renders. Same BACKTEST-N/A
+class the plant-operations/secftd/midas/earnings-language/appstore-
+rankings/github-activity/crop-conditions/OCC/VIX/NRC v1-mirror sessions
+already established.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or scoring path — this PR does not wire the 13F archive into
+any scoring or sizing decision, only exposes the already-RAW-displayed
+archive through the versioned, metered, licensed product surface, at a
+richer (full-holdings) shape than the free display route. Directly
+advances the SPINOUT-READY DATA LAYER standing behavior (datacore/ signals
+flow only through the internal API boundary) without touching anything
+the bot or any current UI reads. Closes the queue's last named "shipped-
+data-no-v1-API" gap (OCC/VIX/NRC/13F were the four named candidates across
+the 2026-08-09/08-10 sessions; all four now have live v1 mirrors).
+
+Version 1.0.640 -> 1.0.641 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD, zero drift — both `package.json` and
+`package-lock.json`'s version fields, including the nested `packages[""]`
+entry, were in sync at session start).
+
+MARKET STATUS: session ran Monday ~18:00-18:30 UTC (14:00-14:30 ET,
+mid-session — NYSE open 9:30-16:00 ET). Per the PRODUCT-session PR
+guidance ("prefer merging PRs outside 9:30-16:00 ET; if working mid-market,
+prepare the PR and note in it that the merge should wait for the close"),
+this PR is prepared and gates-green but should wait to merge until after
+4:00 PM ET today. Touches zero live sizing/scoring path — lower urgency
+for the human's weekly review, same as the NRC session's own note, but the
+merge-timing deference still applies.
+
+NEXT (queued, not this session): the "shipped-data-no-v1-API" sweep named
+by the 2026-08-07 through 2026-08-10 sessions is now CLOSED — no further
+named candidates remain in that specific queue. The CDC/SEER
+county-cancer-rate hazard layer (research/location_context_engine.md,
+still unbuilt) and the FINRA short-volume GATE 2 retest (open_questions.md,
+filed 2026-08-06) remain the two other standing PRODUCT/RESEARCH
+candidates named by prior sessions, unchanged. The `csp_universe.py` "CSP
+earnings gate fails open" finding and the rest of the 2026-08-06
+code-review tail remain queued for a dedicated T-BOT session, unchanged.
+KNOWN BROKEN #29's re-check (a few days out, per the 2026-08-10 session
+#4's own NEXT note) also remains queued, unchanged.
+
+STARVED: no — this session's single fully-scoped action (read both
+candidate files, make the response-shape decision, build + wire + test +
+gate run + version bump) consumed its own capacity; no higher-priority
+queued item was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine session #4) [REPAIR] — research/open_questions.md + research/experiments.md only, no code — KNOWN BROKEN #29 ("Multiple API sources down" MEDIUM haircut) judged RESOLVED PENDING CONTINUED MONITORING off live evidence (v1.0.640)
 
 TERRITORY: docs-only session — `research/open_questions.md` (item #29's

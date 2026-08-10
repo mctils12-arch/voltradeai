@@ -69,6 +69,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/crop-conditions"), "USDA NASS crop conditions keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/vix-term-structure"), "Cboe VIX term structure keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/nrc-reactor-status"), "NRC reactor status keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/13f-holdings"), "SEC 13F-HR institutional holdings keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -76,12 +77,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 15, `expected >=15 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 16, `expected >=16 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -197,6 +198,18 @@ test("vix-term-structure license mark: Cboe informational-use terms are CONDITIO
   assert.ok(tool, "voltrade_vix_term_structure tool must exist");
   assert.deepEqual(tool.returns_provenance, ["stats/vix-term-structure"]);
   assert.ok(tool.description.includes("GATE 1 (DATA) PASSED"), "honesty: gate-1-pass status must travel with the tool description");
+  assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
+});
+
+test("13f-holdings license mark: manager-submitted filings are CONDITIONAL resell like earnings-language, not ok like the government-produced CAMD/FTD/MIDAS/crop-conditions/NRC stats; agent tool documents the full-holdings response-shape decision and gate-2 as unattempted", () => {
+  assert.equal(LICENSE_MARKS["data/13f-holdings"].resell, "conditional",
+    "13F-HR filings are submitted by the reporting institutional manager, not authored or computed by the SEC itself — must not be mismarked resell:ok like the CAMD/FTD/MIDAS/crop-conditions/NRC streams");
+  assert.ok(LICENSE_MARKS["data/13f-holdings"].license.includes("13F-HR"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t: any) => t.name === "voltrade_thirteenf_holdings");
+  assert.ok(tool, "voltrade_thirteenf_holdings tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/13f-holdings"]);
+  assert.ok(tool.description.includes("full"), "honesty: the deliberate full-holdings (not top-25-trimmed) response shape must travel with the tool description");
   assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
 });
 

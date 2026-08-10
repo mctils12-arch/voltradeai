@@ -4015,6 +4015,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC EDGAR 13F-HR institutional holdings keyed mirror (same "shipped-
+  // data-no-v1-API" sweep as plant-operations/secftd/midas/occ-volume/
+  // earnings-language/appstore-rankings/github-activity/crop-conditions/
+  // vix-term-structure/nrc-reactor-status above). Reuses the
+  // latest13FFilings() cache /api/data/filings13f already uses — no new
+  // fetch, no new poller (boot13FPoll() already called earlier). RESPONSE
+  // SHAPE DECISION (flagged unresolved by the 2026-08-10 VIX/NRC sessions'
+  // own NEXT notes, made deliberately this session): returns FULL holdings
+  // tables (up to the FOCUSED_MAX_HOLDINGS=250 per-filing cap the archive
+  // itself already applies), NOT re-trimmed to the RAW route's top-25-by-
+  // value UI display convention — a paying API consumer's value IS the
+  // actual filed positions, and the 250 cap is already a deliberate
+  // hypothesis-driven bound (mega-manager index-hugging tables archive as
+  // holdingsOmitted summary records), not a display-bandwidth trim invented
+  // for this endpoint. GATE 1 (DATA) passed via the parser's hand-checked
+  // field extraction against two real filings (edgar13f.test.ts); GATE 2
+  // (new-position clustering vs 60-90d forward returns) not attempted —
+  // RAW display only. Filings are submitted by the reporting manager, not
+  // SEC-authored — conditional resell like earnings-language, not ok like
+  // the CAMD/FTD/MIDAS/crop-conditions/NRC government-produced streams.
+  app.get("/api/v1/data/13f-holdings", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latest13FFilings();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/13f-holdings", {
+        count: hit.filings.length,
+        focused_cap: FOCUSED_MAX_HOLDINGS,
+        filings: hit.filings,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
