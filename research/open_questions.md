@@ -3651,6 +3651,137 @@
     test's own logic. Small, single-file, single-PR scope; tag
     [REPAIR] when taken.~~
 
+29. **[FOUND + PARTIAL FIX 2026-08-10, v1.0.637, scheduled-routine
+    session] Live `/api/diag/audit?type=TIER3-DIAG` (production) showed
+    `"Multiple API sources down: ['polygon', 'wikipedia', 'gdelt',
+    'fred']"` firing on every entry across a 40+ hour window (at least
+    2026-08-08 02:59 through 2026-08-10 02:17 UTC) — this MEDIUM problem
+    auto-fires `reduce_position_size(0.6x)` (`diagnostics.py`'s
+    `check_system_health`), a real, silent, sustained risk-sizing
+    haircut, not cosmetic.** Same symptom shape as the already-resolved
+    KNOWN BROKEN #21 (`wikipedia`/`gdelt`/`fred` cache existence-checks
+    in `diagnostics.py:360-365`), now with `polygon`'s macro cache also
+    joining the down list — investigated fresh this session rather than
+    assumed to be the same root cause recurring (RECURRENCE ESCALATES).
+    EVIDENCE GATHERED (session had HTTP diag access only, no shell/log
+    access to the live container):
+    - `/api/diag/timings` showed a real, non-trivial `deep_score` phase
+      duration (27.57s) in the most recent scan — ruling out "deep_score
+      never runs this cycle" as the sole explanation (unlike #21's
+      original mechanism, where the phase was near-instant because the
+      guard short-circuited it).
+    - `/api/diag/daemon` showed live `rss_mb: 157.9` against the
+      `_deep_score_guard_decision` thresholds re-tuned by #21's own fix
+      (skip=550MB/trim=400MB) — well clear of both, so that specific
+      historical guard should not be the (sole) blocker now, though its
+      value AT THE MOMENT deep_score() actually runs (mid-scan peak, not
+      the idle-time snapshot this probe captures) could not be checked
+      from outside — `_log_mem_phase` only prints to stderr (Railway
+      activity log), not to the DB-backed audit table `/api/diag/audit`
+      reads, so this specific value stays invisible to a token-only
+      session. Flagging as a real visibility gap, not fixing this
+      session (would be its own scoped PR).
+    - `/api/diag/scanner`'s `dataSourceErrors` (captures `_run_diag_fetch`
+      exceptions for macro/intel/alt/social/finnhub and
+      `get_stock_details`) was `{}` at the one point-in-time this session
+      checked it — but that field reflects only the MOST RECENT scan
+      cycle, not an accumulated history, so a single empty reading is not
+      strong evidence either way for a 40-hour pattern (logged here so a
+      future session doesn't over-read one snapshot the way this one
+      almost did).
+    - Locally reproduced `python3 -c "import macro_data;
+      macro_data.get_macro_snapshot()"` with zero network access
+      available in this sandbox: completes cleanly and writes its cache
+      file, confirming no import-time or unguarded-exception bug in
+      `macro_data.py` itself — every fetch branch degrades to a default
+      and `_save_cache()` always fires.
+    - READ BEFORE WRITE of `alt_data.py`'s `get_alt_data_score()` (the
+      only caller of `get_wiki_attention`/`get_fred_macro`/
+      `get_geopolitical_risk`) found a genuine, concrete structural bug:
+      it made ~19 SEQUENTIAL blocking HTTP requests per call — 7 for
+      FRED (`FRED_SERIES`, one `requests.get(timeout=10)` per series) and
+      5 for GDELT (`RISK_QUERIES`, one `requests.get(timeout=8)` per
+      query PLUS an explicit `time.sleep(0.3)` between each, worst case
+      ~41s alone) — but `bot_engine.py`'s `deep_score()` only budgets
+      each of its 5 parallel enrichment fetchers 15s total
+      (`_f_alt.result(timeout=15)`) before giving up. Under any real
+      per-call latency (not just worst-case timeouts), 19 sequential
+      external calls cannot reliably fit in a 15s window, so `alt` (and
+      therefore the wiki/gdelt/fred cache writes nested inside it) would
+      almost never complete before `deep_score()`'s caller gives up —
+      independent of whether the underlying calls ultimately succeed or
+      fail.
+    FIX SHIPPED (own PR, v1.0.637): parallelized the two sequential inner
+    loops in `alt_data.py` — `get_fred_macro()`'s 7 series and
+    `get_geopolitical_risk()`'s 5 GDELT queries now fetch concurrently
+    (`ThreadPoolExecutor`) instead of sequentially, cutting each
+    function's latency from "sum of N calls" toward "the slowest single
+    call". GDELT's result assembly (`active_risks`/`top_headline`) still
+    folds results back in the original `RISK_QUERIES` order after all
+    futures complete, so behavior is byte-identical to the old sequential
+    code, only faster — proven by
+    `test_partial_failure_still_fills_remaining_series` and
+    `test_result_assembly_order_independent_of_completion_order`. RATCHET:
+    new `test_alt_data_parallel_fetch.py` (4 tests) — A/B-verified via
+    `git stash`: the 2 latency-bound tests FAIL on pre-fix code (elapsed
+    time scales with call count, e.g. 3.5s for 7 series at a 0.5s/call
+    fake vs. the <=2.6s bound) and pass post-fix; the 2 correctness tests
+    pass unchanged on both, confirming this is a pure latency fix with no
+    behavior change. Incidentally dropped `alt_data.py`'s
+    `test_silent_except_ratchet.py` silent-handler count from 9 to 8 (the
+    FRED fetch's except block gained a debug-log call as part of the
+    restructure) — pin lowered in the same commit per that ratchet's own
+    rule.
+    GATES: `python3 -m pytest -q` — 1233 passed, 1 skipped (1232 baseline
+    + new alt_data tests + ratchet re-count, zero regressions). No
+    `.ts`/`.tsx` files touched (Python-only change; `bot.ts`'s only
+    reference to `alt_data.py` is a static filename in an existence-check
+    list, unaffected), so `npx tsc --noEmit`/`npx tsx --test`/
+    `npm run build` were not re-run this session.
+    BACKTEST: N/A per PROMOTION RULE 3 — this changes network-call timing
+    only; every value `get_fred_macro()`/`get_geopolitical_risk()` can
+    return is computed identically to before (proven by the correctness
+    tests), so no scoring/sizing/threshold behavior changes.
+    DOWNSTREAM CHAIN (REASONING STANDARD #1): if this fix is the (or a)
+    real cause, its effect should ripple as: `alt`'s wiki/short/congress/
+    patent/ftd/fred sub-scores stop defaulting to `{}` more often ->
+    `alt_score` (and via it `deep_score`'s combined score) starts using
+    real alt-data signal instead of a silent zero on more candidates ->
+    the `reduce_position_size(0.6x)` MEDIUM auto-fix should stop firing
+    continuously -> ML feedback records `deep_score` produces going
+    forward carry real alt-data features instead of defaults, affecting
+    training data quality (GOAL priority 2). None of this changes what
+    the alt-data signals THEMSELVES mean or how they're scored — purely
+    restores their intended reachability.
+    HONESTLY UNRESOLVED — do not mark this item closed without checking:
+    (a) this fix targets ONE concretely code-evidenced defect (the 15s
+    budget vs. 19 sequential calls mismatch) found by reading the actual
+    call graph, not a live traceback — this session could not get
+    process-level visibility into the running container (stderr-only
+    `_log_mem_phase`, ephemeral `/tmp` across the ~5 redeploys this
+    session observed in the recent git log, and free-API rate-limiting
+    are all still-open alternative or compounding explanations, NOT
+    ruled out); (b) `get_alt_data_score()` still makes several other
+    non-loop sequential calls (wiki:1, short_interest:2, congress:1,
+    patent:1, ftd:2 = 7 more) that were NOT touched this session — if the
+    fix below doesn't fully resolve it, those are the next candidates,
+    single-PR-scoped, not bundled; (c) the `_pre_deep_score` guard's
+    mid-scan peak RSS (item's own EVIDENCE GATHERED note above) remains
+    genuinely invisible from outside the container — surfacing it into
+    the DB-backed audit trail (mirroring the `tier_kill_status` /
+    `TIER-KILL` precedent from item #3/#20) would be the natural next
+    visibility PR if this fix alone doesn't clear the symptom.
+    **NEXT for whichever session catches this next**: query
+    `/api/diag/audit?type=TIER3-DIAG&limit=50&token=$DIAG_TOKEN` a few
+    hours after v1.0.637 deploys — if `polygon`/`wikipedia`/`gdelt`/
+    `fred` stop appearing together in the "Multiple API sources down"
+    message, this was (at least a major part of) the cause; if they
+    persist unchanged, this fix did not address the real mechanism and
+    RECURRENCE ESCALATES applies to whichever session finds that out —
+    stop threshold/latency-tuning this class of fix and pursue (c) above
+    (the invisible mid-scan RSS peak) or a live-container escalation to
+    the human instead of a third guess.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

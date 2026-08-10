@@ -3,6 +3,146 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine session) [REPAIR] — T-BOT — alt_data.py's FRED/GDELT fetchers parallelized after live evidence showed a 40+ hour "Multiple API sources down" MEDIUM risk-sizing haircut firing continuously (v1.0.637)
+
+Territory: T-BOT (`alt_data.py`, `test_alt_data_parallel_fetch.py`,
+`test_silent_except_ratchet.py`'s pin — no client/, datacore/, or
+routes.ts touched).
+
+PRIOR: CLAUDE.md read in full this session, with focus on EDGE DOCTRINE
+per the scheduled-task prompt (its four axes: free-data pipeline build,
+capacity-constrained/illiquid-universe research, foreign-field import,
+compiling recurring reasoning into code). `research/open_questions.md`
+KNOWN BROKEN read start-to-finish; items #10/#12/#20 confirmed
+non-blocking/unchanged, matching the 2026-08-08 session's own note.
+Live `/api/health` and `/api/diag/audit` checked per the task's explicit
+instruction to verify system health before choosing a doctrine axis —
+this is what surfaced the finding below and turned the session into a
+[REPAIR] session per the Repair Mandate ("if any critical item remains
+unfixed, this session becomes a [REPAIR] session") instead of the
+originally-planned EDGE DOCTRINE pipeline build.
+
+HYPOTHESIS STATED BEFORE INVESTIGATING (REASONING STANDARD #10): given
+KNOWN BROKEN #21's precedent (deep_score's enrichment silently disabled,
+found and fixed across three rounds in July), a live recurrence of the
+same "Multiple API sources down" symptom is MORE LIKELY to be a new,
+different mechanism than the same one recurring untouched — #21's fixes
+(mem_rss accuracy, guard re-tuning) were verified live at the time and
+nothing since then touched that code path. Expected finding: either a
+genuinely external cause (rate limiting / outage) or a different,
+undiagnosed code-level gate. Actual finding (below): a third option —
+a latency-budget mismatch neither hypothesis anticipated.
+
+FINDING: `/api/diag/audit?type=TIER3-DIAG&limit=200&token=$DIAG_TOKEN`
+(production) showed `"Multiple API sources down: ['polygon',
+'wikipedia', 'gdelt', 'fred']"` on all 18 entries returned, spanning
+2026-08-08 02:59 UTC through 2026-08-10 02:17 UTC (40+ hours, multiple
+daemon restarts per `/api/diag/audit`'s STARTUP/SHUTDOWN entry volume
+in the same window). This MEDIUM problem
+(`diagnostics.py:check_system_health`) auto-fires
+`reduce_position_size(0.6x)` — a real, sustained risk-sizing haircut,
+not a cosmetic warning.
+
+DIAGNOSIS (full evidence chain, HTTP-diag-only — no shell/log access to
+the live container this session):
+- `/api/diag/timings` showed a real 27.57s `deep_score` phase duration
+  in the most recent scan, ruling out "deep_score never runs" as the
+  sole mechanism (unlike #21's original cause, where the guard made this
+  phase near-instant).
+- `/api/diag/daemon` showed live `rss_mb: 157.9`, well clear of the
+  `_deep_score_guard_decision` thresholds #21's fix established
+  (skip=550MB/trim=400MB) — but this is an idle-time snapshot, not the
+  value at the moment deep_score() actually runs mid-scan; `_log_mem_phase`
+  prints to stderr only (Railway activity log), invisible to this
+  session's DB-backed `/api/diag/audit` access. Flagged as an open
+  visibility gap in open_questions.md item #29, not fixed this session.
+- `/api/diag/scanner`'s `dataSourceErrors` was `{}` at the one
+  point-in-time checked — informative only about the single most recent
+  scan, not the 40-hour pattern; logged as a caveat so a future session
+  doesn't over-read one snapshot.
+- Locally reproduced `python3 -c "import macro_data;
+  macro_data.get_macro_snapshot()"` with no network access in this
+  sandbox: completed cleanly, wrote its cache file — ruling out an
+  import-time or unguarded-exception bug in `macro_data.py`.
+- READ BEFORE WRITE of `alt_data.py`'s `get_alt_data_score()` (the only
+  caller of the three functions diagnostics.py checks) found the real
+  mechanism: ~19 SEQUENTIAL blocking HTTP requests per call — 7 for FRED
+  (`FRED_SERIES`, `timeout=10` each) and 5 for GDELT (`RISK_QUERIES`,
+  `timeout=8` each PLUS an explicit `time.sleep(0.3)` between every
+  call, worst case ~41s alone) — against `deep_score()`'s 15s total
+  budget per enrichment fetcher (`_f_alt.result(timeout=15)`). Under any
+  realistic per-call latency (not just worst-case timeouts), 19
+  sequential external calls routinely exceed a 15s window.
+
+FIX (own PR, v1.0.637): parallelized `get_fred_macro()`'s 7-series loop
+and `get_geopolitical_risk()`'s 5-query loop in `alt_data.py` using
+`ThreadPoolExecutor` — each function's latency drops from "sum of N
+calls" toward "the slowest single call". GDELT's result assembly
+(`active_risks`/`top_headline`) still folds results back in the
+original `RISK_QUERIES` order after all futures complete, so output is
+byte-identical to the old sequential code, only faster.
+
+RATCHET: new `test_alt_data_parallel_fetch.py` (4 tests) — A/B-verified
+via `git stash`: the 2 latency-bound tests (fake `requests.get` sleeps
+0.5s per call) FAIL on pre-fix code (3.50s for 7 series vs. the 2.625s
+bound; 4.01s for 5 GDELT queries vs. the 2.4s bound — both scale with
+call count as expected of sequential code) and PASS post-fix; the 2
+correctness tests (partial-failure resilience, completion-order
+independence) pass unchanged on both, proving zero behavior change.
+Incidentally dropped `alt_data.py`'s silent-broad-except count (per
+`test_silent_except_ratchet.py`) from 9 to 8 — the FRED fetch's except
+block gained a debug-log call as part of the restructure (a real
+improvement, not new debt) — pin lowered from 9 to 8 in the same commit
+per that ratchet's own "count dropped, lower the pin" rule (same
+precedent as KNOWN BROKEN #21's 2026-07-14 fix).
+
+GATES: `python3 -m pytest -q` — 1233 passed, 1 skipped (1232 baseline +
+4 new tests, zero regressions from the parallelization or the ratchet
+pin edit). No `.ts`/`.tsx` files touched (Python-only change;
+`server/bot.ts`'s only reference to `alt_data.py` is a static filename
+in an existence-check list, unaffected by internal function changes) —
+`npx tsc --noEmit`/`npx tsx --test`/`npm run build` not re-run.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this changes network-call timing
+only; every value the two fixed functions can return is computed
+identically to before (proven by the correctness tests), so no
+scoring/sizing/threshold behavior changes, no trading decision affected.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): if this is the (or a) real
+cause, effect ripples as: `alt`'s wiki/short/congress/patent/ftd/fred
+sub-scores stop defaulting to `{}` on more candidates -> `alt_score`
+(and `deep_score`'s combined score) uses real alt-data signal instead
+of a silent zero more often -> the `reduce_position_size(0.6x)`
+auto-fix should stop firing continuously -> ML feedback records
+`deep_score` produces going forward carry real alt-data features
+instead of defaults (GOAL priority 2, learning-data integrity). Does
+NOT change what the alt-data signals themselves mean or how they're
+scored — restores intended reachability only.
+
+HONESTLY UNRESOLVED, filed as open_questions.md KNOWN BROKEN item #29
+(not closed): this fix targets ONE concretely code-evidenced defect
+found by reading the call graph, not a live traceback — this session
+had no process-level visibility into the running container. Ephemeral
+`/tmp` across the ~5 redeploys visible in the recent git log,
+free-API rate-limiting, and the invisible mid-scan RSS peak noted above
+all remain open alternative-or-compounding explanations, NOT ruled out.
+`get_alt_data_score()` still makes 7 more non-loop sequential calls
+(wiki/short_interest/congress/patent/ftd) not touched this session —
+next candidates if this fix doesn't fully clear the symptom, one PR at
+a time per PROMOTION RULE 5.
+
+NEXT: query `/api/diag/audit?type=TIER3-DIAG&limit=50&token=$DIAG_TOKEN`
+a few hours after v1.0.637 deploys — if polygon/wikipedia/gdelt/fred
+stop co-occurring in "Multiple API sources down", this was a major part
+of the cause; if unchanged, RECURRENCE ESCALATES applies to whichever
+session finds that out.
+
+STARVED: no — system-health-check-surfaced [REPAIR] work outranked the
+originally-planned EDGE DOCTRINE pipeline build per the Repair Mandate;
+this session's full capacity went to diagnosing and fixing this one
+finding start-to-finish (investigation + fix + tests + two-round gate
+verification + filing), not split across multiple queued items.
+
 ## 2026-08-08 (scheduled-routine session) [REPAIR] — T-CLIENT — SectorHeatmap stops fabricating -100% for sectors with no trade yet, closing one of the 2026-08-06 review's queued mediums (v1.0.628, PR #730)
 
 Territory: T-CLIENT (`client/src/components/SectorHeatmap.tsx`,
