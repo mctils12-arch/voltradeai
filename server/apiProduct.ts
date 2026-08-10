@@ -169,6 +169,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Cboe Global Markets volatility indices",
     resell: "conditional",
   },
+  "stats/nrc-reactor-status": {
+    license: "U.S. Nuclear Regulatory Commission Power Reactor Status Reports — public domain (US federal government work), same class as the CAMD/FTD/MIDAS/crop-conditions streams above.",
+    attribution: "U.S. Nuclear Regulatory Commission (NRC)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -192,6 +197,7 @@ export function apiMeta() {
       { path: "/api/v1/data/github-activity", params: "-", desc: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (small-cap devtools through large-cap controls). RAW display, no predictive claim — GATE 2 (does public commit/PR velocity lead or confirm market-priced trends) has NOT been attempted; the module's own sober prior expects real structure for at most a third of the panel. mergedPRs excludes bot-app PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true undercounts). Conditional resell, see license_marks.", preview: "/api/data/github-activity" },
       { path: "/api/v1/data/crop-conditions", params: "-", desc: "Most-recent week's USDA NASS national weekly condition ratings (5 classes via short_desc) for corn + soybeans, Monday releases in season. GATE 1 (DATA) PASSED 2026-08-04 (0pp difference vs. USDA's own published Crop Progress bulletin) — condition-DELTA signals stay gate-2-locked (research/open_questions.md), this endpoint mirrors the validated raw levels only. Requires the server's NASS_API_KEY to be configured; returns 503 if not. Public-domain US federal data, freely resellable.", preview: "/api/data/crop-conditions" },
       { path: "/api/v1/stats/vix-term-structure", params: "-", desc: "Cboe VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close term structure plus two derived ratios (vix/vix3m contango-vs-backwardation, vix9d/vix front-end stress), latest day + a 30-day recent window. GATE 1 (DATA) PASSED 2026-08-07 (exact match vs. FRED's independent VIXCLS series for 3/3 spot-checked dates) — RAW/regime-feature framing only, no predictive claim; gate-2 signal testing not attempted. Cboe informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/vix-term-structure" },
+      { path: "/api/v1/stats/nrc-reactor-status", params: "-", desc: "Daily percent-of-rated-thermal-power per operating NRC reactor unit (unit granularity), plus a per-plant join (units grouped onto the WRI/HIFLD registry's lat/lon, mean power bucketed into full/reduced/outage/unknown) for the newest reporting day. GATE 1 (DATA) PASSED 2026-08-04 (registry-match check, see scripts/nrc_gate1_registry_match.ts). RAW display only — outage-adjacent SIGNAL hypothesis stays gate-2-locked (research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES). Public-domain US federal data, freely resellable.", preview: "/api/data/nrc-reactor-status" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -328,6 +334,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/vix-term-structure",
       returns_provenance: ["stats/vix-term-structure"],
+    },
+    {
+      name: "voltrade_nrc_reactor_status",
+      description: "Daily percent-of-rated-thermal-power for every operating U.S. NRC-licensed reactor unit, from the NRC's own Power Reactor Status Reports, plus a per-plant join (units grouped onto the registry's plant lat/lon, mean reported power bucketed into full/reduced/outage/unknown — a single-unit outage at an otherwise-full multi-unit plant reads as 'reduced,' with the unit-level detail preserved, never collapsed away). GATE 1 (DATA) PASSED — units matched against the WRI/HIFLD plant registry. RAW display — the outage-adjacent SIGNAL hypothesis (research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES) has NOT been gate-2 tested. Public-domain US federal data, freely resellable.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/nrc-reactor-status",
+      returns_provenance: ["stats/nrc-reactor-status"],
     },
   ];
   return {

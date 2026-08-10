@@ -3,6 +3,184 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — NRC reactor status gets its /api/v1 keyed mirror, closing the last of the three "shipped-data-no-v1-API" gaps named by the 2026-08-10 VIX session (v1.0.639)
+
+TERRITORY: same SHARED pattern as the 2026-08-07 github-activity,
+2026-08-09 OCC, and 2026-08-10 VIX sessions before it — primary edit is
+`server/apiProduct.ts` (LICENSE_MARKS + apiMeta endpoint + agentToolSpec
+tool, all additive) and `server/routes.ts` (one new route block, inserted
+immediately after the vix-term-structure v1 route). Both nominally SHARED
+per the WORKSTREAM PARTITION table; kept to the minimal additive edit the
+MERGE-ORDER PROTOCOL asks of shared files. `server/apiProduct.test.ts`
+(new assertions only) and `package.json`/`package-lock.json` (version
+bump, last commit) round out the change. Solo session; `git fetch origin
+main` at start showed local already at `origin/main` HEAD (`e281009`,
+v1.0.638, PR #740 — the deep_score timeout-diagnostic REPAIR — already
+merged), no rebase needed.
+
+SESSION-START CHECKS: CLAUDE.md read in full (this is a scheduled
+[PRODUCT] session per the routine's own instructions). `research/
+open_questions.md`'s full KNOWN BROKEN section read this session — every
+numbered item RESOLVED or FIXED; item #20's most recent update (2026-08-05
+session #2) is a NEXT note, not an open break, and item #29 (referenced by
+the two most recent REPAIR entries) is a diagnosability improvement with
+its own queued follow-up, not a currently-broken system. `research/
+experiments.md` tail read (both 2026-08-10 REPAIR entries: the alt_data.py
+FRED/GDELT parallelization and the deep_score timeout-diagnostic capture
+fix). Live health (`curl https://voltradeai.com/api/health`): `status:
+"ok"`, `bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM; nothing blocked or preempted this PRODUCT session.
+Loop-health ratio over the last 10 tagged entries by git log (this
+session's own predecessors first): #740 REPAIR, #739 REPAIR, #738
+PRODUCT, #737 REPAIR, #736 PRODUCT, #735 REPAIR, #734 PRODUCT, #733
+REPAIR, #732 PIPELINE, #731 PIPELINE: 5 REPAIR / 3 PRODUCT / 2 PIPELINE —
+under the 7/10 thrash bar, no meta-problem.
+
+PICKING THE ACTION: the 2026-08-10 VIX-mirror session's own NEXT note
+named the two remaining "shipped-data-no-v1-API" candidates explicitly:
+SEC 13F and NRC reactor status, and flagged that 13F needs "the response
+shape designed deliberately (full holdings vs. the top-25 precedent
+`trimHoldings` already establishes)" — a real design decision, not a
+copy-the-pattern job. Read both `server/edgar13f.ts` and `server/
+nrcReactorStatus.ts` in full this session before picking (per READ BEFORE
+WRITE and the VIX session's own precedent of reading all candidates
+before choosing). Confirmed: `edgar13f.ts`'s `latest13FFilings()` cache
+holds untrimmed `Filing13F[]` with nested `Holding13F[]` tables and no
+existing top-N convention applied at the cache layer itself (`trimHoldings`
+exists but is applied per-caller, not baked into the cache) — genuinely
+needs the shape decision the prior session flagged, so it stays queued for
+its own dedicated session rather than a rushed default. `nrcReactorStatus.
+ts`'s `latestReactorStatus()` cache, by contrast, is a flat `{at, date,
+rows, plants}` shape — `rows` (unit-level `ReactorStatusRow[]`) and
+`plants` (`joinToPlants()`'s per-plant aggregation, already used by the
+live `/api/data/nrc-reactor-status` RAW route and the 2026-08-08 /data UI
+session) — no new design decision, same "read the existing cache, mirror
+it" job the VIX/OCC sessions already did. Picked NRC reactor status for
+exactly that reason: smaller, well-scoped, matches established precedent
+without inventing a new response-shape convention. SEC 13F remains queued,
+unclaimed, explicitly NOT attempted this session (one logical change per
+PR) — a future session should make the top-25-vs-full-holdings call
+deliberately, not by default.
+
+READ BEFORE WRITE: read `server/nrcReactorStatus.ts` end-to-end (`fetchReactorStatus`,
+`joinToPlants`, `archiveReactorStatus`, `refreshReactorStatus`,
+`bootReactorStatusPoll`) before touching anything; confirmed via grep that
+`bootReactorStatusPoll`/`latestReactorStatus` are already imported into
+`server/routes.ts` (line 91) and the poller already boots at the existing
+`/api/data/nrc-reactor-status` RAW route (line ~3108) — this PR adds zero
+new fetches, zero new pollers, reusing the exact same cache object the
+public RAW route and the 2026-08-08 /data UI both already read. Read the
+full existing `/api/v1` block in `server/routes.ts` (every route from
+`/api/v1/meta` through `/api/v1/stats/vix-term-structure`, the newest
+addition) and `server/apiProduct.ts` end-to-end before adding anything, to
+match the established envelope/license/metering/test pattern exactly.
+Confirmed the RAW route's own header comment: GATE 1 (DATA) PASSED
+2026-08-04 (`scripts/nrc_gate1_registry_match.ts`, registry-match check),
+outage-adjacent SIGNAL hypothesis stays gate-2-locked
+(`research/open_questions.md` POWER-PLANT SIGNAL HYPOTHESES) — carried
+forward into this mirror's docs verbatim rather than re-asserted from
+memory.
+
+BUILD (v1.0.639): `server/apiProduct.ts` — new `LICENSE_MARKS["stats/
+nrc-reactor-status"]` (resell: "ok" — NRC Power Reactor Status Reports are
+US federal government work, same class as CAMD/FTD/MIDAS/crop-conditions,
+NOT conditional like OCC/Cboe/issuer-authored-text streams); new
+`apiMeta()` endpoint entry documenting GATE 1 PASSED / gate-2 not-attempted
+honestly, same phrasing discipline as every prior mirror; new
+`agentToolSpec()` tool (`voltrade_nrc_reactor_status`) describing both the
+unit-level and per-plant join shapes, including the "single-unit outage at
+an otherwise-full multi-unit plant reads as reduced, not outage, with
+unit-level detail preserved" nuance from `joinToPlants()`'s own docstring
+so an agent consuming the tool doesn't misread a partial outage as a full
+one. `server/routes.ts` — new `GET /api/v1/stats/nrc-reactor-status`
+route, same shape as the VIX/OCC routes immediately above it:
+`requireApiKey` guard, 503-on-cold-cache with `Retry-After`,
+`v1Envelope("stats/nrc-reactor-status", {date, count, rows, plantCount,
+plants}, hit.at)` on success (mirrors the RAW route's own field set,
+minus the presentation-only `kind`/`source`/`attribution`/`note` fields
+`v1Envelope` already supplies from `LICENSE_MARKS`), `meterUsage` on every
+branch (503/200/500).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(license-mark resell:"ok" + tool existence + GATE 1 PASSED/gate-2-
+unattempted honesty phrases, mirroring the crop-conditions/plant-
+operations/secftd/midas "public-domain, resell ok" tests' pattern rather
+than the OCC/Cboe/earnings-language "conditional" tests') plus updates to
+the three existing cross-cutting tests that enumerate all live v1 paths
+(`meta honesty`, `wiring pinned` path list + guarded-count floor 14->15)
+— these three would have failed had the new route been forgotten from any
+of them, same "added an endpoint, forgot the enumeration test" gap every
+prior mirror session's PR has also closed proactively. One test-writing
+correction caught by actually running the suite (not assumed): the first
+draft of the new dedicated test asserted `LICENSE_MARKS[...].license.
+includes("NRC")`, which failed because the license string spells out "U.S.
+Nuclear Regulatory Commission" without the bare acronym — fixed to check
+`.attribution.includes("NRC")` instead (the attribution field does carry
+the acronym), same live-verify-don't-assume discipline CLAUDE.md's READ
+BEFORE WRITE asks for, applied to the test code itself.
+
+GATES: `npx tsx --test server/apiProduct.test.ts`: 22/22 passed (was 20
+before this session's one new test + the vix session's own addition
+already counted). Full `npx tsx --test server/*.test.ts` (fresh container
+needed `npm install` first — empty `node_modules` at session start, same
+recurring clean-container gap prior sessions have logged): 1093 tests,
+1092 passed, 1 failed (`gridTiles.test.ts`'s PMTiles-magic-byte check) —
+confirmed byte-identical via `git stash` A/B on unmodified HEAD (same
+class of local-fixture/container gap prior sessions have logged
+repeatedly for this exact test). `npx tsc --noEmit`: 86 errors, confirmed
+byte-identical via the same stash A/B; zero mentions of `apiProduct`/this
+session's `routes.ts` additions. `npm run build`: clean (same
+pre-existing `astronomy-engine` default-export warning + chunk-size
+warnings only). No `.py` files touched — no pytest gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this adds a keyed API mirror over an
+already-live, already-cached RAW archive; it changes no trading decision,
+no signal, no scoring path, and makes zero change to what the existing
+`/api/data/nrc-reactor-status` route or the 2026-08-08 /data map/UI
+renders. Same BACKTEST-N/A class the plant-operations/secftd/midas/
+earnings-language/appstore-rankings/github-activity/crop-conditions/
+OCC/VIX v1-mirror sessions already established.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or scoring path — this PR does not wire the NRC archive into
+any scoring or sizing decision, only exposes the already-RAW-displayed,
+already-gate-1-verified archive through the versioned, metered, licensed
+product surface. Directly advances the SPINOUT-READY DATA LAYER standing
+behavior (datacore/ signals flow only through the internal API boundary)
+without touching anything the bot or any current UI reads.
+
+Version 1.0.638 -> 1.0.639 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD, zero drift — both `package.json` and
+`package-lock.json`'s two version fields were in sync at session start).
+
+MARKET STATUS: session ran Monday ~13:00-14:00 UTC (NYSE opens 13:30 UTC
+— straddled the open). Per the PRODUCT-session PR guidance ("prefer
+merging PRs outside 9:30-16:00 ET; if working mid-market, prepare the PR
+and note in it that the merge should wait for the close"), this PR is
+prepared and gates-green but should wait to merge until after 4:00 PM ET
+today. Unlike the 2026-08-09 earnings-scalar precedent, this touches zero
+live sizing/scoring path — lower urgency to flag for the human's weekly
+review, but the merge-timing deference still applies per the guidance's
+own wording.
+
+NEXT (queued, not this session): SEC 13F still lacks its own `/api/v1`
+keyed mirror — the next session picking this queue back up should design
+the response shape deliberately (full holdings vs. a top-25-style trim)
+rather than copy this session's flat-record pattern blindly, per this
+session's own read of `edgar13f.ts`. The CDC/SEER county-cancer-rate
+hazard layer (research/location_context_engine.md, still unbuilt) and the
+FINRA short-volume GATE 2 retest (open_questions.md, filed 2026-08-06)
+remain the two other standing PRODUCT/RESEARCH candidates named by prior
+sessions, unchanged. The `csp_universe.py` "CSP earnings gate fails open"
+finding and the rest of the 2026-08-06 code-review tail remain queued for
+a dedicated T-BOT session, unchanged.
+
+STARVED: no — this session's single fully-scoped action (survey two
+candidates + pick one + read-before-write + build + wire + test + gate
+run + version bump) consumed its own capacity; no higher-priority queued
+item was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine session) [REPAIR] — T-BOT — deep_score()'s enrichment-fetch TIMEOUT path was invisible to the exact diagnostic KNOWN BROKEN #29's fix depends on (v1.0.638)
 
 TERRITORY: T-BOT (`bot_engine.py`, `test_deep_score_timeout_diag_capture.py`,
