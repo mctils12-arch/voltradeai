@@ -174,6 +174,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Nuclear Regulatory Commission (NRC)",
     resell: "ok",
   },
+  "data/13f-holdings": {
+    license: "SEC EDGAR 13F-HR institutional-holdings filings — the EDGAR full-text record is public, but each filing (manager identity, holdings table: issuer/CUSIP/shares/value/discretion) is submitted by the reporting institutional manager, NOT authored or computed by the SEC itself like the CAMD/FTD/MIDAS/crop-conditions/NRC streams above; redistribution rights for a resold bulk mirror have not been separately confirmed, same posture as the issuer-authored earnings-language stream.",
+    attribution: "SEC EDGAR 13F-HR filings (per reporting institutional manager)",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -198,6 +203,7 @@ export function apiMeta() {
       { path: "/api/v1/data/crop-conditions", params: "-", desc: "Most-recent week's USDA NASS national weekly condition ratings (5 classes via short_desc) for corn + soybeans, Monday releases in season. GATE 1 (DATA) PASSED 2026-08-04 (0pp difference vs. USDA's own published Crop Progress bulletin) — condition-DELTA signals stay gate-2-locked (research/open_questions.md), this endpoint mirrors the validated raw levels only. Requires the server's NASS_API_KEY to be configured; returns 503 if not. Public-domain US federal data, freely resellable.", preview: "/api/data/crop-conditions" },
       { path: "/api/v1/stats/vix-term-structure", params: "-", desc: "Cboe VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close term structure plus two derived ratios (vix/vix3m contango-vs-backwardation, vix9d/vix front-end stress), latest day + a 30-day recent window. GATE 1 (DATA) PASSED 2026-08-07 (exact match vs. FRED's independent VIXCLS series for 3/3 spot-checked dates) — RAW/regime-feature framing only, no predictive claim; gate-2 signal testing not attempted. Cboe informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/vix-term-structure" },
       { path: "/api/v1/stats/nrc-reactor-status", params: "-", desc: "Daily percent-of-rated-thermal-power per operating NRC reactor unit (unit granularity), plus a per-plant join (units grouped onto the WRI/HIFLD registry's lat/lon, mean power bucketed into full/reduced/outage/unknown) for the newest reporting day. GATE 1 (DATA) PASSED 2026-08-04 (registry-match check, see scripts/nrc_gate1_registry_match.ts). RAW display only — outage-adjacent SIGNAL hypothesis stays gate-2-locked (research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES). Public-domain US federal data, freely resellable.", preview: "/api/data/nrc-reactor-status" },
+      { path: "/api/v1/data/13f-holdings", params: "-", desc: "Most-recent SEC EDGAR 13F-HR institutional holdings filings: manager identity, filing period, and the FULL as-filed holdings table (issuer, CUSIP, shares, value, discretion) for focused managers holding <=250 positions — mega-managers over that cap return a summary-only record (holdingsOmitted=true) instead of an index-hugging wall of rows, the same hypothesis-driven FOCUSED_MAX_HOLDINGS cap the archive itself applies. Unlike the /data map's top-25-by-value UI display trim, this endpoint returns every stored position for a focused filing. RAW as-filed display, no predictive claim — GATE 2 (new small-cap position clustering vs 60-90d forward returns; the 45-day filing lag is modeled honestly, holdings are stale when public) NOT attempted. Filings are submitted by the reporting manager, not government-authored — conditional resell, see license_marks.", preview: "/api/data/filings13f" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -341,6 +347,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/nrc-reactor-status",
       returns_provenance: ["stats/nrc-reactor-status"],
+    },
+    {
+      name: "voltrade_thirteenf_holdings",
+      description: "Most-recent SEC EDGAR 13F-HR institutional holdings filings: manager identity, filing period, and the full as-filed holdings table (issuer, CUSIP, shares, value, investment discretion) for focused managers holding <=250 positions — mega-managers over that cap return a summary-only record (holdingsOmitted=true) rather than an index-hugging wall of rows, the same hypothesis-driven cap the archive itself applies (EDGE DOCTRINE: fish where whales can't). Unlike the /data map's top-25-by-value display trim, this tool returns every stored position for a focused filing. RAW as-filed display, no predictive claim — GATE 2 (does new small-cap position clustering by capacity-constrained managers precede 60-90 day outperformance; the 45-day filing lag is modeled honestly, holdings are stale when public) has NOT been attempted. Filings are submitted by the reporting manager, not government-authored like the SEC MIDAS/FTD tools above — conditional resell.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/13f-holdings",
+      returns_provenance: ["data/13f-holdings"],
     },
   ];
   return {
