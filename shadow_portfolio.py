@@ -717,6 +717,52 @@ def load_shadow_data(
     )
 
 
+def _change_pct_band_stats(records: List[dict], min_n: int = 5) -> dict:
+    """
+    KNOWN BROKEN #10's queued evidence check (research/open_questions.md):
+    system_config.py's MAX_CHANGE_PCT ("Skip stocks already up/down 35%+")
+    is read nowhere in the trading path — a dead gate that LOOKS live to
+    anyone reading system_config.py. Rather than guess, split "taken"
+    shadow records by whether |change_pct_today| exceeds that same
+    threshold (imported live, not re-hardcoded, so a future threshold
+    edit updates this query too) and compare win rate on each side, per
+    horizon. Only "taken" records carry a real outcome under the bot's
+    actual exit rules — this is the natural experiment of what the dead
+    gate would have skipped, using data that already exists because the
+    gate never fired.
+    """
+    try:
+        from system_config import BASE_CONFIG
+        threshold = float(BASE_CONFIG.get("MAX_CHANGE_PCT", 35.0))
+    except Exception:
+        threshold = 35.0
+
+    bands: Dict[str, list] = {"over_threshold": [], "at_or_under_threshold": []}
+    for r in records:
+        if r.get("decision") != "taken":
+            continue
+        cp = abs(float(r.get("features", {}).get("change_pct_today", 0) or 0))
+        bands["over_threshold" if cp > threshold else "at_or_under_threshold"].append(r)
+
+    by_band = {}
+    for band_name, recs in bands.items():
+        win_rate = {}
+        for h in FORWARD_HORIZONS_DAYS:
+            key = f"+{h}d"
+            wins = sum(1 for r in recs
+                       if isinstance(r.get("outcomes", {}).get(key), dict)
+                       and r["outcomes"][key].get("label") == 1)
+            losses = sum(1 for r in recs
+                         if isinstance(r.get("outcomes", {}).get(key), dict)
+                         and r["outcomes"][key].get("label") == 0)
+            total = wins + losses
+            if total >= min_n:
+                win_rate[key] = {"win_rate": round(wins / total * 100, 1), "n": total}
+        by_band[band_name] = {"candidate_count": len(recs), "win_rate": win_rate}
+
+    return {"threshold": threshold, "by_band": by_band}
+
+
 def get_shadow_stats() -> dict:
     """
     Summary stats for dashboards / health checks.
@@ -784,6 +830,7 @@ def get_shadow_stats() -> dict:
         "by_regime":             dict(by_regime),
         "labeled_by_horizon":    labeled_by_horizon,
         "win_rate_by_decision":  win_rate_by_decision,
+        "win_rate_by_change_pct_band": _change_pct_band_stats(records),
     }
 
 
