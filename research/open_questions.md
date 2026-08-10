@@ -3820,6 +3820,56 @@
     this fix, remains the next candidate per item (b) above) instead of
     another blind guess.
 
+    **RESOLVED (pending continued monitoring) 2026-08-10, scheduled-
+    routine session, [REPAIR] — this session's own action, no code
+    change, judging the matured live diagnostic**: ran exactly the check
+    this item's own NEXT note asked for. Live `/api/diag/audit?
+    type=TIER3-DIAG&limit=50&token=$DIAG_TOKEN` (production,
+    `server_version: "1.0.639"`) shows the "Multiple API sources down:
+    ['polygon', 'wikipedia', 'gdelt', 'fred']" line has NOT fired since
+    2026-08-10T08:02:33Z — zero occurrences across at least 7 consecutive
+    hourly Tier 3 cycles through 15:31:13Z (confirmed those cycles
+    genuinely ran and reached the diagnostics step, via `/api/diag/
+    audit?type=TIER3`'s "Starting strategic scan..."/"Strategic scan
+    complete" pairs at 11:21, 12:20, 13:20/31, 14:31, 15:31 — the
+    diagnostics call is step 3 of that same handler, so a clean run
+    without a TIER3-DIAG line means `diagnostics.py` genuinely reported
+    "healthy," not that the cycle silently skipped). `/api/diag/scanner`
+    also reads `dataSourceErrors: {}` on the current point-in-time scan,
+    consistent with (not separately proof of) fetchers now completing
+    inside the 15s budget rather than timing out.
+    HONEST CAVEAT (per this item's own HONESTLY UNRESOLVED discipline):
+    the clean streak's start (between 08:02Z and 11:21Z) sits BEFORE
+    v1.0.638 deployed (11:18:48Z, confirmed via PR #740's merge
+    timestamp) — that PR is a pure diagnostics-visibility change with no
+    fetch-behavior difference, so it cannot be the cause of the symptom
+    clearing. It sits roughly 5-8 hours AFTER v1.0.637 deployed
+    (03:00:47Z, PR #739's merge timestamp) — the actual parallelization
+    fix — rather than immediately, which is a real gap this session does
+    not paper over: a delayed take-effect (e.g., first-successful-fetch-
+    after-deploy warming a cache that the health check reads) is
+    plausible but NOT confirmed, and a coincidental independent recovery
+    of polygon/wikipedia/gdelt/fred's own upstream availability in the
+    same window cannot be ruled out from outside the container. No
+    `TimeoutError` entries were ever actually captured in
+    `dataSourceErrors` by v1.0.638's new capture path during this
+    session's observation window — the diagnostic addition never got a
+    chance to prove or disprove the timeout mechanism specifically,
+    because the symptom had already stopped by the time this session
+    checked.
+    DISPOSITION: marking RESOLVED PENDING CONTINUED MONITORING rather
+    than fully CLOSED — v1.0.637's fix is the best-evidenced, code-
+    grounded explanation on offer and the timing is consistent with (if
+    not conclusively proof of) it being the fix, so no further guess is
+    warranted right now (per this item's own "stop threshold/latency-
+    tuning this class of fix" instruction once a session lacks fresh
+    positive evidence to act on). A future session should re-check
+    `/api/diag/audit?type=TIER3-DIAG` after several more days; per
+    RECURRENCE ESCALATES, if "Multiple API sources down" reappears, that
+    is grounds for a root-cause session (the invisible mid-scan RSS peak
+    in (c), or a live-container escalation to the human), not a third
+    latency guess.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

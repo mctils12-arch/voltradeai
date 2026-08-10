@@ -3,6 +3,119 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-10 (scheduled-routine session #4) [REPAIR] — research/open_questions.md + research/experiments.md only, no code — KNOWN BROKEN #29 ("Multiple API sources down" MEDIUM haircut) judged RESOLVED PENDING CONTINUED MONITORING off live evidence (v1.0.640)
+
+TERRITORY: docs-only session — `research/open_questions.md` (item #29's
+own record) + this entry + `package.json`/`package-lock.json` version
+bump (SHARED, last, per MERGE-ORDER PROTOCOL). No `.ts`/`.py` files
+touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+showed local already at `origin/main` HEAD (`23249cc`, v1.0.639, PR
+#741, NRC reactor `/api/v1` mirror — already merged), no rebase needed.
+`research/experiments.md`'s three 2026-08-10 entries read in full (VIX
+`/api/v1` PRODUCT v1.0.636, alt_data.py parallelization REPAIR v1.0.637,
+deep_score timeout-capture REPAIR v1.0.638) plus this session's own NRC
+predecessor (v1.0.639). `open_questions.md`'s full KNOWN BROKEN section
+read — every numbered item RESOLVED/FIXED except #20 (a standing NEXT
+note, not an open break) and #29 (the live item this session judges).
+Loop-health ratio, last 10 tagged git-log entries (newest first): #741
+PRODUCT NRC-v1 v1.0.639, #740 REPAIR deep_score-timeout v1.0.638, #739
+REPAIR alt_data-parallel v1.0.637, #738 PRODUCT VIX-v1 v1.0.636, #737
+REPAIR earnings-scalar v1.0.635, #736 PRODUCT OCC-v1 v1.0.634, #735
+REPAIR rollup v1.0.633, #734 PRODUCT NRC-page v1.0.632, #733 REPAIR
+monitoring-overview v1.0.631, #732 PIPELINE sea-state-gate2 v1.0.630: 5
+REPAIR / 4 PRODUCT / 1 PIPELINE — under the 7/10 thrash bar, no
+meta-problem. Live `/api/health`: `status:"ok"`, `bot.status:"active"`,
+`equityPeak:110727.04`, `drawdownPct:"0.0"`, `liveness.dark` absent,
+Alpaca `ACTIVE`, scanner `consecutiveFailures:0` — no LIVENESS ALARM.
+
+PICKING THE ACTION: per SESSION BUDGET's own priority order ("judge a
+matured experiment" outranks "start a new experiment" and "research new
+ideas"), KNOWN BROKEN #29's own text names an exact, dated, still-open
+follow-up check: v1.0.638's session left "the NEXT session checking
+`/api/diag/scanner` after this deploys gets a real answer" as unclaimed
+work, and that fix had been live for multiple hours by this session's
+start (v1.0.638 merged 2026-08-10T11:18:48Z per `mcp__github__list_
+commits`; this session started ~16:00Z, 4.7h later). Ran the check
+instead of picking a fresh queue item.
+
+EVIDENCE: `curl "https://voltradeai.com/api/diag/scanner?token=$DIAG_
+TOKEN"` -> `dataSourceErrors: {}` (single point-in-time snapshot, weak
+alone per this item's own prior-session caution against over-reading
+one reading). `curl "https://voltradeai.com/api/diag/audit?type=TIER3-
+DIAG&limit=50&token=$DIAG_TOKEN"` -> the last "Multiple API sources
+down: ['polygon', 'wikipedia', 'gdelt', 'fred']" line is timestamped
+2026-08-10T08:02:33Z — nothing since, across 8+ hours. Confirmed this
+isn't just Tier 3 silently not running: `/api/diag/audit?type=TIER3`
+shows real "Starting strategic scan..."/"Strategic scan complete" pairs
+at 11:21, 12:20, 13:20/31, 14:31, 15:31Z — diagnostics is step 3 of that
+same handler (`server/bot.ts:4536-4556`), so 7 consecutive clean hourly
+cycles without a TIER3-DIAG line means `diagnostics.py` genuinely
+reported "healthy" each time, not that the check was skipped.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a cleared MEDIUM haircut means
+`reduce_position_size(0.6x)` has stopped firing on this trigger, so
+position sizes for cycles since ~08:xxZ are no longer being silently
+shrunk by this specific mechanism — a real, if modest, live-behavior
+change with no code diff behind it (the fix already shipped in
+v1.0.637; this session only confirms its effect). No interaction with
+any other sizing scalar, gate, or kill switch.
+
+HONEST CAVEAT (see the full write-up filed directly on item #29 in
+`open_questions.md`, not duplicated here): the clean streak's start
+sits BEFORE v1.0.638 deployed (so that pure-visibility PR cannot be the
+cause) and 5-8 hours AFTER v1.0.637 deployed (03:00:47Z) rather than
+immediately — consistent with, but not conclusive proof of, v1.0.637
+being the fix; an independent upstream recovery of polygon/wikipedia/
+gdelt/fred in the same window cannot be ruled out from outside the
+container, and v1.0.638's new TimeoutError capture never got a chance
+to fire during this observation window either way. Marked RESOLVED
+PENDING CONTINUED MONITORING, not fully CLOSED — full disposition and
+the RECURRENCE ESCALATES trigger for a future session are in
+`open_questions.md` item #29 directly.
+
+RATCHET: N/A — no code changed, nothing to regression-test. This is a
+live-evidence judgment call, the "judge a matured experiment" step of
+SESSION BUDGET, not a code fix.
+
+GATES: N/A — no `.py`/`.ts`/`.tsx` files touched (confirmed via `git
+status --short`: only `research/open_questions.md`, this entry,
+`package.json`, `package-lock.json`). No pytest/tsc/build/visual-harness
+gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or entry/exit
+code changed this session (v1.0.637 already carries its own N/A
+justification); this session only reads and records live evidence about
+a fix that already shipped.
+
+MARKET STATUS: session ran during active market hours (~16:00 UTC / 12:00
+PM ET Monday, multiple live TIER2/TIER3 cycles observed throughout the
+audit window checked). Per the routine's own instruction for market-hours
+runs, this PR is prepared and ready but should wait to merge until after
+4:00 PM ET today unless a human decides otherwise — it changes no code
+and fixes no critical live break (the system is healthy), so there is
+no urgency argument for an early merge.
+
+NEXT (queued, not this session): re-check `/api/diag/audit?
+type=TIER3-DIAG` in a few days — if "Multiple API sources down" stays
+silent, item #29 can be fully CLOSED; if it reappears, RECURRENCE
+ESCALATES applies (root-cause session, not a third latency guess) per
+the disposition filed on the item itself. Also still unclaimed, named by
+this session's immediate predecessors and unchanged: SEC 13F `/api/v1`
+keyed mirror (needs its own full-holdings-vs-top-25 response-shape
+decision, per the 2026-08-10 NRC/VIX sessions' NEXT notes); the CDC/SEER
+county-cancer-rate hazard layer (research/location_context_engine.md,
+still unbuilt); the FINRA short-volume GATE 2 retest (open_questions.md,
+filed 2026-08-06); the `csp_universe.py` "CSP earnings gate fails open"
+sibling finding (2026-08-09 #6's NEXT note) and the rest of the
+2026-08-06 code-review tail, both queued for a dedicated T-BOT session.
+
+STARVED: no — this session's single fully-scoped action (live-check the
+queued follow-up + write up the honest evidence, positive and negative +
+version bump) consumed its own capacity; no higher-priority queued item
+was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — NRC reactor status gets its /api/v1 keyed mirror, closing the last of the three "shipped-data-no-v1-API" gaps named by the 2026-08-10 VIX session (v1.0.639)
 
 TERRITORY: same SHARED pattern as the 2026-08-07 github-activity,
