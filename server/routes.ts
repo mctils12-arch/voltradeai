@@ -3981,6 +3981,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // NRC daily Power Reactor Status Reports keyed mirror (same "shipped-
+  // data-no-v1-API" sweep as plant-operations/secftd/midas/occ-volume/
+  // earnings-language/appstore-rankings/github-activity/crop-conditions/
+  // vix-term-structure above). Reuses the latestReactorStatus() cache
+  // /api/data/nrc-reactor-status already uses — no new computation, no new
+  // poller. Public-domain US federal data (same class as CAMD/FTD/MIDAS/
+  // crop-conditions) — resell "ok", not "conditional" like the OCC/Cboe/
+  // issuer-authored streams above. GATE 1 (DATA) passed 2026-08-04
+  // (registry-match check); the outage-adjacent SIGNAL hypothesis stays
+  // gate-2-locked — RAW display only, no predictive claim.
+  app.get("/api/v1/stats/nrc-reactor-status", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestReactorStatus();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/nrc-reactor-status", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/nrc-reactor-status", {
+        date: hit.date,
+        count: hit.rows.length,
+        rows: hit.rows,
+        plantCount: hit.plants.length,
+        plants: hit.plants,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/nrc-reactor-status", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/nrc-reactor-status", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
