@@ -3952,6 +3952,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Cboe VIX term structure keyed mirror (same "shipped-data-no-v1-API"
+  // sweep as plant-operations/secftd/midas/occ-volume/earnings-language/
+  // appstore-rankings/github-activity/crop-conditions above). Reuses the
+  // latestCboeVix() cache /api/data/vix-term-structure already uses — no
+  // new computation, no new poller. UNLIKE the government-produced CAMD/
+  // FTD/MIDAS/crop-conditions streams, Cboe's own informational-use terms
+  // require permission for raw bulk resale (server/apiProduct.ts
+  // LICENSE_MARKS) — conditional, not ok, same posture as OCC. GATE 1
+  // (DATA) passed 2026-08-07 (exact match vs. FRED's independent VIXCLS
+  // series); gate-2 signal testing not attempted — RAW/regime-feature
+  // display only, no predictive claim.
+  app.get("/api/v1/stats/vix-term-structure", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestCboeVix();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/vix-term-structure", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/vix-term-structure", { latest: hit.latest, recent: hit.recent }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/vix-term-structure", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/vix-term-structure", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
