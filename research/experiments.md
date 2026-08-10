@@ -44809,3 +44809,162 @@ STARVED: no — this session's single fully-scoped action (diagnose + fix +
 regression test + full-suite gate run + ratchet-pin correction + version
 bump) consumed its own capacity; no higher-priority queued item was
 skipped to do it.
+
+## 2026-08-10 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — Cboe VIX term structure gets its /api/v1 keyed mirror, closing one more of the three named "shipped-data-no-v1-API" gaps (v1.0.636)
+
+TERRITORY: same SHARED pattern as the 2026-08-07 github-activity and
+2026-08-09 (#5) OCC sessions before it — primary edit is
+`server/apiProduct.ts` (LICENSE_MARKS + apiMeta endpoint + agentToolSpec
+tool, all additive) and `server/routes.ts` (one new route block,
+inserted immediately after the crop-conditions v1 route). Both are
+nominally SHARED per the WORKSTREAM PARTITION table; kept to the minimal
+additive edit the MERGE-ORDER PROTOCOL asks of shared files — no
+restructuring of anything else in either file. `server/apiProduct.test.ts`
+(new assertions only) and `package.json`/`package-lock.json` (version
+bump, last commit) round out the change. Solo session, `git fetch origin
+main` at start showed local already at `origin/main` HEAD (`1e11ed0`,
+v1.0.635, PR #737 earnings-scalar fix, already merged) — no rebase
+needed.
+
+SESSION-START CHECKS: CLAUDE.md read in full (this is a scheduled
+[PRODUCT] session — datacore/ pipelines + the /data section, per the
+routine's own instructions). `research/experiments.md` tail (the
+2026-08-09 #6 earnings-scalar REPAIR entry) and `open_questions.md`'s
+full KNOWN BROKEN section (all 28 numbered items — every one RESOLVED or
+FIXED, nothing open) read this session. Loop-health ratio over the last
+10 tagged entries by git log (this session's own predecessor first):
+#737 REPAIR earnings-scalar v1.0.635, #736 PRODUCT OCC-v1 v1.0.634, #735
+REPAIR rollup v1.0.633, #734 PRODUCT NRC-reactor-UI v1.0.632, #733 REPAIR
+monitoring-overview v1.0.631, #732 PIPELINE sea-state-gate2 v1.0.630,
+#731 PIPELINE EIA-930-gate2-kill v1.0.629, #730 REPAIR SectorHeatmap
+v1.0.628, #729 PRODUCT US-macro-UI v1.0.627, #728 PRODUCT SEC-13F-UI
+v1.0.626: 4 REPAIR / 4 PRODUCT / 2 PIPELINE — under the 7/10 thrash bar,
+no meta-problem. Live health (`curl https://voltradeai.com/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM; a critical trading-loop item
+would still not have preempted this PRODUCT session per the routine's own
+instructions, but there wasn't one anyway. KNOWN BROKEN's clean state
+means the repair queue genuinely has nothing new to hand this session —
+consistent with, not contradicted by, the still-open code-review tail
+(VXX ticker mismatch etc.) which lives in `open_questions.md`'s separate
+2026-08-06 filing, outside the KNOWN BROKEN numbered list, and stays
+correctly unclaimed for a dedicated T-BOT session.
+
+PICKING THE ACTION: with KNOWN BROKEN clean and no live audit-log bug,
+went straight to `research/experiments.md`'s own most recent NEXT note
+(2026-08-09 session #5, restated unchanged by #6): "VIX term structure,
+SEC 13F, and NRC reactor status all still lack their own `/api/v1` keyed
+mirrors... re-verify each stream's current gate status directly... before
+writing its endpoint/tool description, not assume from this entry." Read
+all three source modules this session (`server/cboeVix.ts`,
+`server/edgar13f.ts`, `server/nrcReactorStatus.ts`) before picking one,
+per that instruction and per READ-BEFORE-WRITE — confirmed none of the
+three has server-side key-gating (all keyless upstream sources, unlike
+crop-conditions' NASS_API_KEY 503 path), so the choice came down to scope
+and data-shape simplicity. Picked Cboe VIX term structure: its cache
+shape (`latestCboeVix()` -> `{at, latest, recent}`, a flat 8-field OHLC-
+style record + a 30-day window) is the smallest and most self-contained
+of the three — `edgar13f.ts`'s filings carry nested holdings tables and a
+FOCUSED_MAX_HOLDINGS cap that would need its own v1 response-shape
+decision (trim to top-N like the existing `latest13FFilings`/25-holding
+precedent, or serve full summaries?), and `nrcReactorStatus.ts`'s
+plant-join carries its own name-reconciliation caveats — both are
+legitimate next candidates but larger-than-minimal for a single mirror
+PR. SEC 13F and NRC reactor status remain queued, unclaimed, explicitly
+NOT attempted this session (one logical change per PR).
+
+READ BEFORE WRITE: read `server/cboeVix.ts`'s full header comment (GATE 1
+cross-check already documented: CBOE's own VIX close matched FRED's
+independent VIXCLS series exactly for 2026-08-03/04/05) and every
+exported function before touching anything; confirmed via grep that
+`latestCboeVix` and `bootCboeVixPoll` are already imported into
+`server/routes.ts` (line 90) and the poller is already booted at the
+existing `/api/data/vix-term-structure` route (line 3057) — this PR adds
+zero new fetches, zero new pollers, reusing the exact same cache object
+the public RAW route already reads. Read the full existing `/api/v1`
+block in `server/routes.ts` (every route from `/api/v1/meta` through
+`/api/v1/data/crop-conditions`) and `server/apiProduct.ts` end-to-end
+before adding anything, to match the established envelope/license/
+metering/test pattern exactly rather than inventing a variant of it.
+
+BUILD (v1.0.636): `server/apiProduct.ts` — new `LICENSE_MARKS["stats/
+vix-term-structure"]` (resell: "conditional", same posture as OCC — Cboe
+informational-use terms, not US government work product like the
+CAMD/FTD/MIDAS/crop-conditions streams); new `apiMeta()` endpoint entry
+documenting GATE 1 PASSED / gate-2 not-attempted honestly; new
+`agentToolSpec()` tool (`voltrade_vix_term_structure`) with the same
+honesty phrasing. `server/routes.ts` — new `GET /api/v1/stats/vix-term-
+structure` route, same shape as the OCC/MIDAS/secftd routes immediately
+above it: `requireApiKey` guard, 503-on-cold-cache with `Retry-After`,
+`v1Envelope("stats/vix-term-structure", { latest, recent }, hit.at)` on
+success, `meterUsage` on every branch (503/200/500).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(license-mark resell:"conditional" + tool existence + GATE 1 PASSED/
+gate-2-not-attempted honesty phrases, mirroring the crop-conditions/OCC
+tests' pattern exactly) plus updates to the three existing cross-cutting
+tests that enumerate all live v1 paths (`meta honesty`, `wiring pinned`
+path list + guarded-count floor 13->14) — these three would have failed
+had the new route been forgotten from any of them, same "added an
+endpoint, forgot the enumeration test" gap the 2026-08-07/08-09 sessions'
+PRs also closed proactively.
+
+GATES: `npx tsx --test server/apiProduct.test.ts`: 21/21 passed (was 20
+before this session's one new test). Full `npx tsx --test server/
+*.test.ts`: 1033 tests, 1025 passed, 8 failed — confirmed byte-identical
+via `git stash` A/B on unmodified HEAD (aircraftTiling, apiKeyAccounts,
+compression, gdeltEvents, gridTiles PMTiles-magic-byte, owmTiles,
+seafloorTiles, securityMiddleware — all pre-existing local-fixture/
+container gaps, unrelated to this diff, same class prior sessions have
+logged). `npx tsc --noEmit`: 83 errors, confirmed byte-identical via the
+same stash A/B (this container needed a fresh `npm install` first — empty
+`node_modules` at session start, same recurring clean-container gap prior
+sessions have logged); zero mentions of `apiProduct`/this session's
+`routes.ts` additions. `npm run build`: clean (same pre-existing
+`astronomy-engine` default-export warning + chunk-size warnings only). No
+`.py` files touched — no pytest gate applies.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this adds a keyed API mirror over an
+already-live, already-cached RAW archive; it changes no trading decision,
+no signal, no scoring path, and makes zero change to what the existing
+`/api/data/vix-term-structure` route or any map layer renders. Same
+BACKTEST-N/A class the plant-operations/secftd/midas/earnings-language/
+appstore-rankings/github-activity/crop-conditions/occ-volume v1-mirror
+sessions already established.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or scoring path — `bot_engine.py`'s regime classifier still
+derives its own vol proxy from the VXX ETF ratio (KNOWN BROKEN #20,
+unchanged); this PR does not wire the Cboe archive into any scoring or
+sizing decision, only exposes the already-RAW-displayed archive through
+the versioned, metered, licensed product surface. Directly advances the
+SPINOUT-READY DATA LAYER standing behavior (datacore/ signals flow only
+through the internal API boundary) without touching anything the bot or
+any current UI reads.
+
+Version 1.0.635 -> 1.0.636 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD, zero drift — both `package.json` and
+`package-lock.json`'s two version fields were in sync at session start).
+
+MARKET STATUS: session ran Sunday evening ET (00:10 UTC Monday at
+session start) — market closed all day, no merge-timing restriction from
+the PRODUCT-session PR guidance.
+
+NEXT (queued, not this session): SEC 13F and NRC reactor status still
+lack their own `/api/v1` keyed mirrors — the next session picking this
+queue back up should design the 13F response shape deliberately (full
+holdings vs. the top-25 precedent `trimHoldings` already establishes)
+rather than copy this session's flat-record pattern blindly. The CDC/
+SEER county-cancer-rate hazard layer (research/location_context_engine.md,
+still unbuilt, confirmed zero hits again this session) and the FINRA
+short-volume GATE 2 retest (open_questions.md, filed 2026-08-06) remain
+the two other standing PRODUCT/RESEARCH candidates named by the prior
+session, unchanged. The `csp_universe.py` "CSP earnings gate fails open"
+sibling finding (2026-08-09 #6's own NEXT note) and the rest of the
+2026-08-06 code-review tail remain queued for a dedicated T-BOT session.
+
+STARVED: no — this session's single fully-scoped action (survey three
+candidates + pick one + read-before-write + build + wire + test + gate
+run + version bump) consumed its own capacity; no higher-priority queued
+item was skipped to do it.
