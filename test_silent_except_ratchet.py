@@ -48,7 +48,7 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 # in the same commit (delete the entry at zero). Never raise a pin.
 BASELINE = {
     "alpaca_feed.py": 1,
-    "alt_data.py": 9,
+    "alt_data.py": 8,
     "analyze.py": 32,
     "backtest_v2.py": 1,
     "backup_to_github.py": 2,

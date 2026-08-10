@@ -8,6 +8,7 @@ import time
 import re
 import requests
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "")
@@ -143,7 +144,7 @@ def get_fred_macro() -> dict:
     result = {}
     start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
 
-    for name, series_id in FRED_SERIES.items():
+    def _fetch_series(name, series_id):
         try:
             url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
             resp = requests.get(url, timeout=10)
@@ -153,11 +154,25 @@ def get_fred_macro() -> dict:
                 for line in reversed(lines[1:]):
                     parts = line.split(",")
                     if len(parts) >= 2 and parts[1].strip() and parts[1].strip() != ".":
-                        result[name] = float(parts[1].strip())
-                        break
+                        return name, float(parts[1].strip())
         except Exception as _fred_err:
             import logging
             logging.getLogger("voltrade.alt_data").debug(f"FRED fetch failed for {series_id}: {_fred_err}")
+        return name, None
+
+    # PERF FIX 2026-08-10 (KNOWN BROKEN — see open_questions.md): the 7
+    # series were fetched sequentially (worst case 7x10s), and this whole
+    # function is one of ~19 sequential HTTP calls get_alt_data_score() used
+    # to make inside deep_score()'s 15s-per-fetcher executor budget —
+    # routinely blowing that budget, so the FRED cache almost never got
+    # written from a normal cycle. Each series writes its own dict key, so
+    # fetching concurrently doesn't change the result, only the latency.
+    with ThreadPoolExecutor(max_workers=len(FRED_SERIES)) as _pool:
+        futures = [_pool.submit(_fetch_series, name, sid) for name, sid in FRED_SERIES.items()]
+        for fut in as_completed(futures):
+            name, value = fut.result()
+            if value is not None:
+                result[name] = value
 
     # Derived signals
     yc = result.get("yield_curve")
@@ -206,7 +221,7 @@ def get_geopolitical_risk() -> dict:
 
     total_risk_articles = 0
 
-    for query in RISK_QUERIES:
+    def _fetch_query(query):
         try:
             url = f"https://api.gdeltproject.org/api/v2/doc/doc?query={requests.utils.quote(query)}&mode=artlist&maxrecords=5&format=json&sourcelang=eng"
             resp = requests.get(url, timeout=8)
@@ -220,19 +235,34 @@ def get_geopolitical_risk() -> dict:
                 date_str = str(a.get("seendate", ""))[:8]
                 if date_str >= cutoff:
                     recent.append(a)
-
-            if len(recent) >= 3:
-                risk_type = query.split()[0]
-                result["active_risks"].append(risk_type)
-                total_risk_articles += len(recent)
-
-                if not result["top_headline"] and recent:
-                    result["top_headline"] = recent[0].get("title", "")[:100]
+            return query, recent
         except Exception:
-            continue
+            return query, []
 
-        # Rate limit — don't hammer GDELT
-        time.sleep(0.3)
+    # PERF FIX 2026-08-10 (KNOWN BROKEN — see open_questions.md): 5 queries
+    # were fetched sequentially with an explicit 0.3s courtesy sleep between
+    # each (worst case ~41s) — one more contributor to get_alt_data_score()
+    # routinely blowing deep_score()'s 15s per-fetcher budget. Fetch
+    # concurrently (worker cap kept modest, still polite to GDELT) but fold
+    # results back in the ORIGINAL RISK_QUERIES order below, so
+    # active_risks/top_headline are byte-identical to the old sequential
+    # behavior — only the latency changes, not which risk "wins" ties.
+    _query_results = {}
+    with ThreadPoolExecutor(max_workers=3) as _pool:
+        futures = {_pool.submit(_fetch_query, q): q for q in RISK_QUERIES}
+        for fut in as_completed(futures):
+            q, recent = fut.result()
+            _query_results[q] = recent
+
+    for query in RISK_QUERIES:
+        recent = _query_results.get(query, [])
+        if len(recent) >= 3:
+            risk_type = query.split()[0]
+            result["active_risks"].append(risk_type)
+            total_risk_articles += len(recent)
+
+            if not result["top_headline"] and recent:
+                result["top_headline"] = recent[0].get("title", "")[:100]
 
     if total_risk_articles > 20:
         result["risk_level"] = "extreme"
