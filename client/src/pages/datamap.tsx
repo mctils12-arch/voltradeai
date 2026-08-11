@@ -1475,6 +1475,13 @@ const LegendPanel = memo(function LegendPanel({
                     })()}
                   </>
                 )}
+                {enabled.timezones && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(167,139,250,0.9)" }} /> Time zone border</span>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(251,178,76,0.9)" }} /> Date line / ocean zones</span>
+                    <span className="vt-legend-note">clocks change where these lines cross — merged where rules are identical today; simplified, approximate near borders (ODbL)</span>
+                  </>
+                )}
                 {enabled.vessels && (
                   <>
                     <LegendIcon icon={VESSEL_ICON.tanker} color={VESSEL_COLOR.tanker} label="Tanker" />
@@ -6796,6 +6803,67 @@ export default function DataMapPage() {
         failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
     );
   }, [enabled.boundaries, mapReady, setStatus]);
+
+  // ── TIME ZONE LINES (human directive 2026-08-11: "have the time zones
+  // as a line on the map... have a toggle for it in the layer"). Static
+  // client asset (client/public/tz — timezone-boundary-builder 2025b
+  // innerlines compile, ODbL): solid violet = borders between LAND zones
+  // whose clocks differ today; dashed amber = the International Date Line
+  // + ocean nautical-zone meridians. Approximate near borders (simplified
+  // for display) — the registry description says so. Auto-on for
+  // zone-crossing flights + curtain/slider crossing marks are the next
+  // slice (needs the tz-lookup dep). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.timezones) {
+      try {
+        if (map.getLayer("tz-borders")) map.removeLayer("tz-borders");
+        if (map.getLayer("tz-dateline")) map.removeLayer("tz-dateline");
+        if (map.getSource("tz-lines")) map.removeSource("tz-lines");
+      } catch {}
+      setStatus("timezones", "off");
+      return;
+    }
+    setStatus("timezones", "loading");
+    return runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/tz/timezone_lines.json", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!map.getSource("tz-lines")) {
+          map.addSource("tz-lines", { type: "geojson", data: d as any } as any);
+        }
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        if (!map.getLayer("tz-borders")) {
+          map.addLayer({
+            id: "tz-borders", type: "line", source: "tz-lines",
+            filter: ["==", ["get", "kind"], "border"],
+            paint: {
+              "line-color": "rgba(167,139,250,0.6)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 8, 1.8],
+            },
+          } as any, firstMarker?.id);
+        }
+        if (!map.getLayer("tz-dateline")) {
+          map.addLayer({
+            id: "tz-dateline", type: "line", source: "tz-lines",
+            filter: ["==", ["get", "kind"], "dateline"],
+            paint: {
+              "line-color": "rgba(251,178,76,0.7)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 2, 1.0, 8, 2.0],
+              "line-dasharray": [2, 2],
+            },
+          } as any, firstMarker?.id);
+        }
+        setStatus("timezones", "active", d?.features?.length,
+          "zones merged where rules are identical today; simplified for display — approximate near borders (ODbL)");
+      },
+      (failures) => setStatus("timezones", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+  }, [enabled.timezones, mapReady, setStatus]);
 
   // ── state/province borders (RAW; Natural Earth 1:50m admin-1 lines,
   // PUBLIC DOMAIN — sprint W3 2026-07-17). Same self-hosted pattern as

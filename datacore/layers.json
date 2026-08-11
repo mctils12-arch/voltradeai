@@ -2614,6 +2614,17 @@
    "field": false
   },
   {
+   "id": "timezones",
+   "name": "Time zone lines",
+   "kind": "raw",
+   "status": "live",
+   "group": "base",
+   "costTier": "light",
+   "description": "Where clocks change: borders between land time zones (solid) and the International Date Line / ocean nautical-zone meridians (dashed). Compiled from timezone-boundary-builder 2025b (ODbL), zones merged where rules are identical TODAY and simplified for display \u2014 lines are approximate near borders, not survey-grade. Static client asset \u2014 zero server cost.",
+   "source": "timezone-boundary-builder 2025b (ODbL) \u2014 innerlines compile, self-hosted",
+   "field": false
+  },
+  {
    "id": "boundaries_admin1",
    "name": "State / province borders",
    "kind": "raw",
