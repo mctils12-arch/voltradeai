@@ -772,6 +772,19 @@ const HIST_MAX_YEAR = 2026;
 // 2026-07-12/13/15 entries) — mirrors server/dossier.ts's own
 // HAZARD_RADIUS_KM_DEFAULT (50) and HAZARD_RADIUS_KM_MAX (200); presets
 // only, no free-form input, since the server clamps to [1, 200] anyway.
+// Trip-quality chip prefixes (server classifier: aircraftTrips.ts QC-1).
+// [repair 2026-08-11] the chip rendered a bare "⚠" for everything the
+// classifier did not call "complete", so a 26-minute cruise-altitude
+// coverage pass looked like a broken 26-minute FLIGHT (human: "so many logs
+// but they dont follow the rules a flight"). The classifier was right all
+// along — this says what it decided, in words. "complete" gets no prefix.
+const TRIP_QUALITY_LABEL: Record<string, string> = {
+  taxi_only: "TAXI ONLY · ",
+  partial_start: "PARTIAL (joined mid-air) · ",
+  partial_both: "PASS-THROUGH (no takeoff/landing seen) · ",
+  signal_lost_airborne: "SIGNAL LOST AIRBORNE · ",
+};
+
 const HAZARD_RADIUS_PRESETS_KM = [10, 25, 50, 100, 200];
 const HAZARD_RADIUS_KM_DEFAULT = 50;
 const ALL_OFF = typeof window !== "undefined" && window.sessionStorage?.getItem("vt-layers-all-off") === "1";
@@ -12544,7 +12557,10 @@ export default function DataMapPage() {
           clockRef={flightClockRef}
           onClockChange={updateFlightMarker}
           onPhoneExpand={() => setDetailMin(true)}
-          sourceNote={`ADS-B track (our archive + live)${enabled.terrain ? "" : " · ground: Terrain Tiles DEM"}`}
+          historical={tripReplay != null}
+          sourceNote={tripReplay != null
+            ? `archived trip${enabled.terrain ? "" : " · ground: Terrain Tiles DEM"}`
+            : `ADS-B track (our archive + live)${enabled.terrain ? "" : " · ground: Terrain Tiles DEM"}`}
         />
       )}
       {fpsDebug && <FpsChip />}
@@ -13341,7 +13357,7 @@ export default function DataMapPage() {
                                     }
                                     void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
                                   }}>
-                            {t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toLocaleString(undefined, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })} · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
+                            {TRIP_QUALITY_LABEL[String(t.quality)] || ""}{d0.toLocaleString(undefined, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })} · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
                             {t.from_airport?.id && t.to_airport?.id ? ` · ${t.from_airport.id}→${t.to_airport.id}${t.verified ? " ✓" : ""}` : t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
                           </button>
                         );

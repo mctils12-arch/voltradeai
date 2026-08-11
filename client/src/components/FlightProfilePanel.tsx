@@ -49,6 +49,12 @@ export interface FlightProfilePanelProps {
   onPhoneExpand?: () => void;
   /** track source note for the title row (honesty label). */
   sourceNote?: string;
+  /** true = replaying a CLOSED archived trip. History has no live edge, so
+   *  the axis is the trip's own t0..t1. [repair 2026-08-11] the video-editor
+   *  domain always extended to NOW — correct for a live track, but it
+   *  squeezed a 90-minute trip flown 10h ago into the leftmost ~13% of the
+   *  chart (human: "i want it to fill the whole altitude time graph"). */
+  historical?: boolean;
 }
 
 const CW = 1000;
@@ -63,11 +69,44 @@ export function replaySpeed(spanSec: number): number {
   return Math.max(1, spanSec / 80);
 }
 
+/** The chart's right-hand time edge. A LIVE track's axis grows to wall-clock
+ *  now (new fixes keep arriving); a CLOSED archived trip ends at its own last
+ *  fix. Pure so the rule is testable: feeding a 10-hour-old 90-minute trip
+ *  the live rule squeezed it into ~13% of the chart (2026-08-11 report). */
+export function profileEdgeSec(historical: boolean | undefined, t1Sec: number, nowSec: number): number {
+  return historical ? t1Sec : Math.max(t1Sec, nowSec);
+}
+
 // LOCAL TIME (human directive 2026-08-11: "normal time not zulu... based
 // on where you are"): display converts to the VIEWER's zone; storage stays
 // epoch. Aviation convention keeps a small Z readout beside the title clock.
-const localT = (tSec: number) =>
-  new Date(tSec * 1000).toLocaleTimeString(undefined, { hour12: false });
+// [2026-08-11 follow-up] an unlabeled local time is ambiguous — the human
+// asked "where are the time zones", so the viewer's zone is named next to
+// the clock (EDT/CET/...). Falls back silently if Intl has no short name.
+// Intl.DateTimeFormat construction is one of the slower browser APIs and
+// this runs on every clock paint (1/sec live, per-frame while replaying) —
+// build it ONCE. The zone abbreviation only changes across a DST boundary,
+// so it is cached per UTC-day rather than recomputed per call.
+const TZ_FMT: Intl.DateTimeFormat | null = (() => {
+  try { return new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }); }
+  catch { return null; }
+})();
+let tzCacheDay = -1;
+let tzCacheVal = "";
+const tzShort = (d: Date): string => {
+  const day = Math.floor(d.getTime() / 86_400_000);
+  if (day === tzCacheDay) return tzCacheVal;
+  try {
+    tzCacheVal = TZ_FMT?.formatToParts(d).find((x) => x.type === "timeZoneName")?.value || "";
+  } catch { tzCacheVal = ""; }
+  tzCacheDay = day;
+  return tzCacheVal;
+};
+const localT = (tSec: number) => {
+  const d = new Date(tSec * 1000);
+  const z = tzShort(d);
+  return d.toLocaleTimeString(undefined, { hour12: false }) + (z ? ` ${z}` : "");
+};
 const zuluT = (tSec: number) => new Date(tSec * 1000).toISOString().slice(11, 19) + "Z";
 
 export default function FlightProfilePanel({
@@ -79,9 +118,10 @@ export default function FlightProfilePanel({
   onClockChange,
   onPhoneExpand,
   sourceNote,
+  historical,
 }: FlightProfilePanelProps) {
   const [playing, setPlaying] = useState(false);
-  const [live, setLive] = useState(true);
+  const [live, setLive] = useState(!historical);
   // desktop remembers collapsed/expanded (layout memory, human 2026-07-20);
   // phones stay collapsed by default
   const [expanded, setExpanded] = useState<boolean>(() => {
@@ -123,7 +163,7 @@ export default function FlightProfilePanel({
   const tailRef = useRef<SVGLineElement | null>(null);
   const axisEndRef = useRef<HTMLSpanElement | null>(null);
   const liveEdgeRef = useRef(t1);
-  const extOf = () => Math.max(span, liveEdgeRef.current - t0);
+  const extOf = () => (historical ? span : Math.max(span, liveEdgeRef.current - t0));
   /** time → x under the DISPLAY domain (t0 → live edge). */
   const XT = (t: number) => ((t - t0) / extOf()) * CW;
 
@@ -241,7 +281,7 @@ export default function FlightProfilePanel({
   const paintLiveEdge = () => {
     if (samples.length < 2) return;
     const nowSec = Date.now() / 1000;
-    liveEdgeRef.current = Math.max(t1, nowSec);
+    liveEdgeRef.current = profileEdgeSec(historical, t1, nowSec);
     const sx = span / extOf();
     // smooth the per-second compression ("glitchy as it comes in"): a
     // linear 1s CSS transition on the group transform makes the domain
@@ -274,9 +314,9 @@ export default function FlightProfilePanel({
         dot.setAttribute("cy", String(Y(lastS.gap ? 0 : lastS.altM)));
         dot.style.display = lastS.gap ? "none" : "";
       }
-      if (ck) ck.textContent = localT(nowSec);
+      if (ck) ck.textContent = localT(historical ? t1 : nowSec);
     }
-    if (axisEndRef.current) axisEndRef.current.textContent = localT(nowSec);
+    if (axisEndRef.current) axisEndRef.current.textContent = localT(historical ? t1 : nowSec);
   };
 
   // live mode: the edge ticks every second (clock even while collapsed —
@@ -324,12 +364,12 @@ export default function FlightProfilePanel({
       const c = clockRef.current;
       c.t += dt * speed;
       if (c.t >= t1) {
-        // reached "now" → snap back to live (the handoff's live-site rule)
+        // live track: reaching "now" snaps back to live (handoff rule).
+        // archived trip: there is no live to snap to — stop at the end.
         c.t = t1;
-        c.live = true;
         c.playing = false;
         setPlaying(false);
-        setLive(true);
+        if (!historical) { c.live = true; setLive(true); }
       }
       paintHead(c.t);
       onClockChange?.();
