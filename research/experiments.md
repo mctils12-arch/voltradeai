@@ -47102,3 +47102,36 @@ verified once at deploy time can still be wrong on a cycle longer than
 the verification window — 179 seconds, in this case.
 
 BACKTEST: N/A (feed status honesty; no trading logic).
+
+## 2026-08-11 [REPAIR] OPS FINDING — a second logical change pushed onto a branch with an OPEN PR gets squashed under the first one's title (no code change)
+
+MY ERROR, filed against myself so the loop learns it. Sequence: PR
+#777 (trip-replay axis + chip labels, v1.0.663) was open and in CI. A
+scheduled check-in then found a real defect in the AIS honesty fix
+(v1.0.664) and I committed + pushed it — onto the SAME branch, which
+is #777's head. CI auto-squash-merged #777 with BOTH commits under the
+trip-replay title.
+
+COST: not correctness (both changes are tested and both are on main
+and correct) — ATTRIBUTION, which PROMOTION RULES #5 exists to
+protect. main's history now shows one squash titled "archived-trip
+replay…" that also silently contains the AIS status-honesty fix, and
+package.json jumped 663→664 inside a single merge, so code_version
+attribution cannot separate the two changes' live results.
+
+THE RULE, absent from the ops notes until now: a session's working
+branch is a SHARED RESOURCE while a PR is open on it. Before starting
+ANY new logical change, check for an open PR on the branch; if one
+exists, either wait for the merge and restart from origin/main, or
+create a differently-named branch for the new work. "One logical
+change per PR" is not only about what you edit — it is about WHEN you
+push relative to the open PR's lifecycle. The window between "PR
+opened" and "automerge fires" is minutes; a check-in that fires inside
+that window is exactly the trap.
+
+Note the near-miss quality: the same automerge speed that makes this
+loop productive is what removed any chance to correct the branch — by
+the time I checked, it had already merged. Detection has to be BEFORE
+the push, not after.
+
+BACKTEST: N/A (process finding, no code change).
