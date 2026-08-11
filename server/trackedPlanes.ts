@@ -170,7 +170,8 @@ export async function pollTrackedOnce(
   const res = await fetchImpl(batchUrl(registry.planes.map((p) => p.reg)), { headers });
   if (!res.ok) throw new Error(`adsb.lol reg batch ${res.status}`);
   const raw = await res.json();
-  const points = mapPointAircraft(raw, "ac") as AircraftPoint[];
+  // tracked poller uses the adsb.lol reg-batch endpoint (batchUrl) — tag it
+  const points = mapPointAircraft(raw, "ac", "adsblol") as AircraftPoint[];
   const byReg = new Map<string, AircraftPoint>();
   for (const p of points) {
     const reg = normalizeReg((p as any).registration);

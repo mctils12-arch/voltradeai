@@ -3,6 +3,61 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-11 [PIPELINE] — T-DATACORE — GNSS integrity passthrough, Phase 1 (falsification gate) + Phase 2 (the writer) (v1.0.662)
+
+TERRITORY: T-DATACORE (`server/aircraftTiling.ts`, `server/datacoreArchive.ts`,
+`server/globalScopes.ts`, `server/trackedPlanes.ts` + their tests). SHARED
+touch minimal: `package.json` version bump only, read-and-increment at commit.
+
+WHY NOW: the aircraft feed carries per-aircraft navigation-integrity/accuracy
+fields; `mapPointAircraft` discarded them at ingest. The archive never stored
+them → the time series is unbackfillable, so the writer is the ship-blocking
+phase (an archive gap never refills — CLAUDE.md Priority 1).
+
+PHASE 1 GATE — PASS (re-ran the cheap checks against live adsb.lol before
+building; my numbers vs the inherited claims, side by side):
+- Field presence: 100% (n=775 airborne, Baltic+NY+Paris) vs inherited 100%.
+  Every hypothesized readsb name is real: nic/nac_p/nac_v/sil/sil_type/rc/
+  gva/sda/nic_baro, position-source `type` (adsb_icao|mlat|tisb_*|mode_s),
+  per-field `mlat[]`/`tisb[]`, last-known-good gpsOkLat/Lon/Before + seen_pos.
+- Zero-integrity (nic==0), cruise ≥25k ft: BALTIC 83% (15/18) vs control
+  NY 0.0% (0/169), Paris 0.0% (0/92). Inherited: 69% vs 0.4% — same
+  direction, my Baltic higher on a small (n=18) sample; NOT a wide-margin
+  disagreement. All-airborne Baltic 63%.
+- Altitude gradient (the load-bearing detail): BALTIC 0% ground → 60% (10-25k)
+  → 83% (25-35k, 35k+), monotonic. Control INVERTED/absent (NY 6.6% ground →
+  0% cruise). Reproduces.
+- Broadcast-vs-ground split of degraded rows: BALTIC 17/19 = 89% are
+  `type:mlat` (ground-computed) vs inherited 91-96%. Confirms constraint 2 is
+  load-bearing (the signal-carrying rows are overwhelmingly ground-derived);
+  also a second-order check — mlat geometry IMPROVES with altitude, so
+  worsening integrity at altitude argues against a pure ground-computation
+  artifact. Per-row origin IS determinable (gate condition met).
+- License: adsb.lol verbatim — "This database is made available under the Open
+  Database License: http://opendatacommons.org/licenses/odbl/1.0/." ODbL 1.0
+  permits commercial use under share-alike + attribution + provenance
+  separation. Gate PASS.
+
+PHASE 2 — THE WRITER (shipped this PR): AircraftPoint extended with the
+integrity fields, the origin discriminator (`pos_type`, kept strictly separate
+from the ICAO model `type`=a.t — a real naming trap), mlat/tisb derivation
+markers, last-known-good block, and a per-row `provider` tag (adsblol|
+airplaneslive|adsbfi) so an ODbL adsb.lol-only subset is one provable filter.
+Un-discard lives in `mapPointAircraft` (schema-drift-safe coercers: missing/
+garbage/renamed → null, a reported 0 survives, never a crash). Both archive
+writers persist via ONE `aircraftIntegrityFields` serializer that enforces
+NULL-IS-NOT-ZERO (strict null check; never `x || undefined`, which would drop
+a real 0 and manufacture the signal). Live path unaffected (additive, no new
+I/O/awaits). Tests (+11): integrity/origin/provenance carried; pos_type≠type;
+reported-0 kept + absent→null (map AND archive layers); schema drift → null
+no-throw; round-trip on real shape with nulls preserved; provider subset
+separable; originOfPosType decode. Server suite: my additions pass, the only
+2 reds (pmtiles fixtures, datamap registry ratchet) pre-exist without the diff.
+COST (measured, real NY sample): +115 B/row raw but +7 B/row gzipped (+23%) —
+≈+3.5 MB/day gz at 500k rows/day; latency negligible. Backtest n/a (datacore).
+NEXT: Phase 3 read/query path (numerator+denominator, origin split, no bare
+rates), Phase 4 adversarial verification.
+
 ## 2026-08-11 (scheduled-routine session) [RESEARCH] — T-BOT (scripts/, research/open_questions.md) — illiquid mean_reversion ladder's LADDER PATH step 5 (LOGIC-gate ablation against the live bot's actual candidate path): the pinned illiquid/moderate ticker groups are almost entirely invisible to scan_market()'s universe filter, independent of any mean_reversion scoring question (v1.0.643)
 
 TERRITORY: T-BOT (a research probe over `bot_engine.py`/`backtest_v2.py`

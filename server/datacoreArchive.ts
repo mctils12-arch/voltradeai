@@ -56,6 +56,76 @@ export interface AircraftPoint {
   type?: string | null;      // ICAO type designator when the feed provides it
   category?: string | null;  // ADS-B emitter category when provided
   registration?: string | null; // tail number when broadcast (plane-tracking T1, 2026-08-08)
+  // ── Navigation integrity / accuracy (readsb/tar1090 v2 broadcast/derived
+  //    fields; GNSS-integrity passthrough 2026-08-11). NAMES THE OBSERVATION,
+  //    not a cause: these record measured navigation-integrity/accuracy — low
+  //    values have several candidate causes (RF interference, receiver
+  //    geometry, avionics faults, coverage). Every field is NULLABLE and a
+  //    reported 0 is a real category distinct from null (silence); the writer
+  //    keeps that distinction. The archive never stored these before, so the
+  //    series cannot be backfilled — capture starts now. ──
+  nic?: number | null;       // Navigation Integrity Category (0 = unknown/no containment)
+  nac_p?: number | null;     // Navigation Accuracy Category — position
+  nac_v?: number | null;     // Navigation Accuracy Category — velocity
+  sil?: number | null;       // Source Integrity Level
+  sil_type?: string | null;  // SIL basis ("perhour" | "persample" | "unknown")
+  rc?: number | null;        // Radius of Containment (m)
+  gva?: number | null;       // Geometric Vertical Accuracy
+  sda?: number | null;       // System Design Assurance
+  nic_baro?: number | null;  // barometric-altitude integrity
+  // ORIGIN discriminator (constraint: aircraft-broadcast vs ground-derived
+  // must travel with the row). pos_type is the readsb position source:
+  //   adsb_icao / adsb_icao_nt / adsr_icao / adsb_other = aircraft-broadcast
+  //   mlat = ground-computed (multilateration);  tisb_* = ground-derived (TIS-B)
+  //   mode_s = Mode-S (no ADS-B position). See ORIGIN_OF_POS_TYPE decode.
+  pos_type?: string | null;
+  mlat_fields?: string[] | null; // field names multilateration-derived (ground-computed), not broadcast
+  tisb_fields?: string[] | null; // field names sourced from TIS-B (ground-derived)
+  // Last-known-good position the feed still reports after a position-lock loss
+  lkg_lat?: number | null;   // gpsOkLat
+  lkg_lon?: number | null;   // gpsOkLon
+  lkg_before?: number | null;// gpsOkBefore (seconds the LKG fix was last valid)
+  seen_pos?: number | null;  // age (s) of the last position (feed seen_pos)
+  // Provenance — which upstream served this row. Persisted as a real field so
+  // an adsb.lol-only (ODbL) subset is a single filter and is provable; never
+  // inferred later. adsblol | airplaneslive | adsbfi.
+  provider?: string | null;
+}
+
+/** ORIGIN decode for pos_type — the ONE place broadcast vs ground-derived is
+ *  defined, so every API/export/UI reads the same table. "unknown" for an
+ *  absent or unrecognised value (honest: never guessed). */
+export function originOfPosType(posType: string | null | undefined): "broadcast" | "ground" | "mode_s" | "unknown" {
+  if (!posType) return "unknown";
+  if (posType.startsWith("adsb") || posType.startsWith("adsr")) return "broadcast";
+  if (posType === "mlat" || posType.startsWith("tisb")) return "ground";
+  if (posType === "mode_s") return "mode_s";
+  return "unknown";
+}
+
+/** Navigation-integrity / origin / provenance block for the aircraft archive
+ *  JSONL. Short-key decode (single source of truth):
+ *    ni nic · np nac_p · nv nac_v · si sil · st sil_type · rc rc · gv gva ·
+ *    sd sda · nb nic_baro · pt pos_type · ml mlat-derived fields · tb tis-b
+ *    fields · kla/klo last-known-good lat/lon · kb gpsOkBefore(s) · sp seen_pos
+ *    age(s) · pv provider.
+ *  NULL-IS-NOT-ZERO: every numeric uses a STRICT null check, so a reported 0
+ *  is written as 0 and only a genuinely-absent field is omitted. NEVER
+ *  `x || undefined` here — that would drop a real 0 and manufacture the exact
+ *  integrity signal this archive exists to record. Empty mlat/tisb arrays are
+ *  omitted (row-level origin already lives in pt); they carry meaning only
+ *  when non-empty. */
+export function aircraftIntegrityFields(p: AircraftPoint): Record<string, unknown> {
+  const num = (x: number | null | undefined) => (x == null ? undefined : x);
+  const arr = (x: string[] | null | undefined) => (x && x.length ? x : undefined);
+  return {
+    ni: num(p.nic), np: num(p.nac_p), nv: num(p.nac_v), si: num(p.sil),
+    st: p.sil_type ?? undefined, rc: num(p.rc), gv: num(p.gva), sd: num(p.sda),
+    nb: num(p.nic_baro), pt: p.pos_type ?? undefined,
+    ml: arr(p.mlat_fields), tb: arr(p.tisb_fields),
+    kla: num(p.lkg_lat), klo: num(p.lkg_lon), kb: num(p.lkg_before),
+    sp: num(p.seen_pos), pv: p.provider ?? undefined,
+  };
 }
 
 export interface VesselPoint {
@@ -164,6 +234,7 @@ export function archiveAircraftAt(
       h: p.heading == null ? undefined : Math.round(p.heading),
       ty: p.type || undefined, ca: p.category || undefined,
       rg: p.registration || undefined,
+      ...aircraftIntegrityFields(p),
     });
     const arr = byHour.get(key) || [];
     arr.push(line);
@@ -209,6 +280,8 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
       // over history needs the registration IN the archive — the FAA spine
       // only covers matched US hexes
       rg: p.registration || undefined,
+      // integrity/origin/provenance (schema_version 3, additive, 2026-08-11)
+      ...aircraftIntegrityFields(p),
     }));
   }
   try { appendLines("aircraft", lines, base, new Date(now)); } catch (e: any) {

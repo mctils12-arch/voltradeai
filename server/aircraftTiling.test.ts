@@ -390,3 +390,62 @@ test("routes.ts wiring: aircraft route uses planDiscs/fetchDiscs/tilingEnvelope 
     "tiling is opt-in by presence of a FULL explicit bbox (backward compat)");
   assert.ok(handler.includes("${tiled ?"), "cache key must separate tiled and legacy snapshots");
 });
+
+// ── GNSS integrity passthrough (2026-08-11): mapPointAircraft must now CARRY
+//    the navigation-integrity/accuracy fields it used to discard, with the
+//    null-is-not-zero rule and schema-drift resilience. ──
+const RAW_FULL = {
+  hex: "4cada4", flight: "RYR8779 ", r: "EI-IFV", lat: 57.0, lon: 12.6,
+  alt_baro: 12425, alt_geom: 13000, gs: 306, track: 327, t: "B38M", category: "A3",
+  nic: 8, nac_p: 10, nac_v: 2, sil: 3, sil_type: "perhour", rc: 186, gva: 2, sda: 2,
+  nic_baro: 1, type: "adsb_icao", mlat: [], tisb: [], seen_pos: 0.4,
+  gpsOkLat: 56.9, gpsOkLon: 12.5, gpsOkBefore: 3.2,
+};
+
+test("mapPointAircraft carries integrity + origin + provenance", () => {
+  const [p] = mapPointAircraft({ ac: [RAW_FULL] }, "ac", "adsblol");
+  assert.equal(p.nic, 8); assert.equal(p.nac_p, 10); assert.equal(p.nac_v, 2);
+  assert.equal(p.sil, 3); assert.equal(p.sil_type, "perhour"); assert.equal(p.rc, 186);
+  assert.equal(p.gva, 2); assert.equal(p.sda, 2); assert.equal(p.nic_baro, 1);
+  assert.equal(p.pos_type, "adsb_icao");
+  assert.equal(p.lkg_lat, 56.9); assert.equal(p.lkg_lon, 12.5); assert.equal(p.lkg_before, 3.2);
+  assert.equal(p.seen_pos, 0.4);
+  assert.equal(p.provider, "adsblol");
+});
+
+test("mapPointAircraft: pos_type is a.type, NOT a.t (the model designator)", () => {
+  const [p] = mapPointAircraft({ ac: [{ ...RAW_FULL, t: "B738", type: "mlat" }] }, "ac", "adsblol");
+  assert.equal(p.type, "B738", "ICAO model designator stays on `type`");
+  assert.equal(p.pos_type, "mlat", "position-source discriminator lands on pos_type");
+});
+
+test("mapPointAircraft: a REPORTED 0 survives, a MISSING field is null (never 0)", () => {
+  // nic:0 is a real integrity category — must be kept as 0, not dropped
+  const [zero] = mapPointAircraft({ ac: [{ ...RAW_FULL, nic: 0, nac_p: 0, sil: 0 }] }, "ac", "adsblol");
+  assert.equal(zero.nic, 0); assert.equal(zero.nac_p, 0); assert.equal(zero.sil, 0);
+  // absent fields → null (silence), NEVER 0
+  const bare = { hex: "abc123", flight: "X", lat: 1, lon: 2, alt_baro: 30000 };
+  const [n] = mapPointAircraft({ ac: [bare] }, "ac", "adsblol");
+  for (const k of ["nic", "nac_p", "nac_v", "sil", "sil_type", "rc", "gva", "sda", "nic_baro",
+                   "pos_type", "mlat_fields", "tisb_fields", "lkg_lat", "lkg_lon", "lkg_before", "seen_pos"]) {
+    assert.equal(n[k], null, `${k} must be null when absent, not 0/undefined`);
+    assert.notEqual(n[k], 0, `${k} must never fabricate a 0 from silence`);
+  }
+});
+
+test("mapPointAircraft: schema drift (garbage/renamed fields) → null, never a crash", () => {
+  const junk = { hex: "z", flight: "Y", lat: 1, lon: 2, alt_baro: 30000,
+    nic: "eight", nac_p: null, sil: {}, mlat: "notanarray", tisb: 5, type: 99,
+    gpsOkLat: "n/a", seen_pos: NaN };
+  let p: any;
+  assert.doesNotThrow(() => { [p] = mapPointAircraft({ ac: [junk] }, "ac", "adsblol"); });
+  assert.equal(p.nic, null); assert.equal(p.nac_p, null); assert.equal(p.sil, null);
+  assert.equal(p.mlat_fields, null); assert.equal(p.tisb_fields, null);
+  assert.equal(p.pos_type, null); assert.equal(p.lkg_lat, null); assert.equal(p.seen_pos, null);
+});
+
+test("mapPointAircraft: mlat/tisb derivation arrays pass through (string-filtered)", () => {
+  const [p] = mapPointAircraft({ ac: [{ ...RAW_FULL, mlat: ["lat", "lon", 7], tisb: ["alt_baro"] }] }, "ac", "adsblol");
+  assert.deepEqual(p.mlat_fields, ["lat", "lon"], "non-string entries dropped");
+  assert.deepEqual(p.tisb_fields, ["alt_baro"]);
+});
