@@ -38,7 +38,7 @@ import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, a
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
-import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus } from "./vesselStream";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
@@ -807,11 +807,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         // [repair 2026-08-06] same defect class as the trains override
         // below: key-presence alone claimed "live" through socket outages.
         ? (() => {
-            if (!vesselStreamEnabled()) return { ...l, status: "awaiting_key" };
-            const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now());
-            return vh.down
-              ? { ...l, status: "down", status_note: "AIS socket down/silent — reconnect watchdog active; auto-recovers" }
-              : l;
+            // [repair 2026-08-11] healthy branch previously returned the
+            // STATIC entry — whose registry value is "awaiting_key" — so a
+            // healthy keyed feed showed "needs API key". Decision extracted
+            // to vesselLayerStatus (pure, tested).
+            const enabled = vesselStreamEnabled();
+            const vh = enabled
+              ? vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now(), undefined, vesselSocketUp)
+              : null;
+            return { ...l, ...vesselLayerStatus(enabled, vh) };
           })()
       : l.id === "fires"
         ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
@@ -1046,6 +1050,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const vesselStatics: Map<string, { shiptype: number | null; destination: string | null; name: string | null }> = new Map();
   let vesselSocket: WSClient | null = null;
   let vesselSocketUp = 0;
+  // frame-visibility diagnostics (repair 2026-08-11): the Aug-5 outage was
+  // an OPEN socket with zero frames ever — indistinguishable from healthy
+  // without these. frames counts every ws message; parsed counts frames that
+  // yielded a usable position/static; the odd-frame sample surfaces schema
+  // changes or aisstream error payloads directly in the route response.
+  let vesselFrames = 0;
+  let vesselParsed = 0;
+  let vesselLastOddFrame = "";
   // last frame of ANY type from aisstream — the liveness signal the health
   // verdict + reconnect watchdog run on (repair 2026-08-06)
   let vesselLastMsgAt = 0;
@@ -1073,12 +1085,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       ws.on("message", (buf: any) => {
         vesselLastMsgAt = Date.now();
+        vesselFrames++;
         try {
           const m = JSON.parse(buf.toString());
           const meta = m.MetaData || {};
           const mmsi = String(meta.MMSI || "");
-          if (!mmsi) return;
+          if (!mmsi) { vesselLastOddFrame = String(buf).slice(0, 300); return; }
+          vesselParsed++;
           if (m.MessageType === "ShipStaticData") {
+            vesselParsed++;
             const s = m.Message?.ShipStaticData || {};
             vesselStatics.set(mmsi, {
               shiptype: s.Type ?? null,
@@ -1088,7 +1103,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             if (vesselStatics.size > 30_000) vesselStatics.clear();
             return;
           }
-          if (m.MessageType !== "PositionReport") return;
+          if (m.MessageType !== "PositionReport") {
+            // unknown/unexpected frame type — keep a truncated sample so a
+            // schema change upstream is diagnosable from the route, not logs
+            vesselLastOddFrame = String(buf).slice(0, 300);
+            return;
+          }
           const pos = m.Message?.PositionReport || {};
           const lat = pos.Latitude ?? meta.latitude;
           const lon = pos.Longitude ?? meta.longitude;
@@ -1167,7 +1187,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // feed honesty (repair 2026-08-06): a dead socket must never serve
     // aging positions stamped with a current time — the payload carries the
     // health verdict and the NEWEST DATA time so stale is visibly stale.
-    const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, now);
+    const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, now, undefined, vesselSocketUp);
     res.json({
       enabled: true,
       source: "aisstream.io (AIS, terrestrial receivers — mid-ocean coverage gaps are inherent)",
@@ -1176,6 +1196,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       feed_down: vh.down || undefined,
       feed_silent_s: vh.silentMs != null ? Math.round(vh.silentMs / 1000) : undefined,
       last_message_at: vesselLastMsgAt || undefined,
+      feed_frames: vesselFrames,
+      feed_parsed: vesselParsed,
+      feed_odd_frame: (vesselFrames > 0 && vesselParsed === 0 && vesselLastOddFrame) || undefined,
       ...hit.data,
     });
   });
@@ -1197,7 +1220,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // terminated first so the redial actually happens.
     try {
       if (vesselStreamEnabled()) {
-        const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now());
+        const vh = vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now(), undefined, vesselSocketUp);
         if (vh.zombie) {
           console.error("[datacore] aisstream zombie socket — silent " + Math.round((vh.silentMs || 0) / 1000) + "s, redialing");
           try { vesselSocket?.terminate(); } catch {}

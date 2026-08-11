@@ -42,13 +42,36 @@ export function vesselFeedHealth(
   lastMsgAtMs: number,
   nowMs: number,
   silentThresholdMs: number = VESSEL_SILENT_THRESHOLD_MS,
+  connectedAtMs: number = 0,
 ): VesselFeedHealth {
   const connected = readyState === 1;
-  const silentMs = lastMsgAtMs > 0 ? Math.max(0, nowMs - lastMsgAtMs) : null;
+  // [repair 2026-08-11] the 08-06 version could not flag a socket that
+  // connected but NEVER delivered a frame (no timestamp -> no zombie
+  // verdict -> "healthy" forever). That exact state ran in prod for days:
+  // open socket, valid key (aisstream provably closes bad keys within
+  // seconds), zero frames ever — most plausibly aisstream's one-connection
+  // -per-key rule starving us, invisible to a lastMsg-only check. Fix: with
+  // no frame ever, the CONNECT time is the silence clock — a firehose
+  // subscription that delivers nothing for the whole threshold is down.
+  const sinceMs = lastMsgAtMs > 0 ? lastMsgAtMs : connectedAtMs > 0 ? connectedAtMs : 0;
+  const silentMs = sinceMs > 0 ? Math.max(0, nowMs - sinceMs) : null;
   const zombie = connected && silentMs !== null && silentMs > silentThresholdMs;
-  // never-received-a-frame while "connected" counts as down once the
-  // threshold has passed since we cannot distinguish it from a dead pipe —
-  // but with no frame ever and no timestamp, only disconnection is provable
   const down = !connected || zombie;
   return { connected, silentMs, zombie, down };
+}
+
+/** Pure layer-panel status for the vessels registry entry — extracted so the
+ *  live/awaiting_key/down decision is unit-testable (the 08-06 rewrite's
+ *  healthy branch returned the STATIC registry entry unchanged, and the
+ *  static value is "awaiting_key" — so a healthy feed with a key present
+ *  showed "needs API key" in the panel and misled a whole outage diagnosis).
+ */
+export function vesselLayerStatus(
+  enabled: boolean,
+  vh: VesselFeedHealth | null,
+): { status: string; status_note?: string } {
+  if (!enabled) return { status: "awaiting_key" };
+  if (vh && vh.down)
+    return { status: "down", status_note: "AIS socket down/silent — reconnect watchdog active; auto-recovers" };
+  return { status: "live" };
 }

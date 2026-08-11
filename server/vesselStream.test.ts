@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, VESSEL_SILENT_THRESHOLD_MS } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, VESSEL_SILENT_THRESHOLD_MS } from "./vesselStream";
 
 // KNOWN BROKEN #9: the aisstream websocket connected lazily, only on the
 // first /api/data/vessels request, so every deploy left the vessels layer
@@ -60,4 +60,30 @@ test("vesselFeedHealth: never-received-a-frame -> silentMs null; only disconnect
   assert.equal(fresh.down, false);
   const never = vesselFeedHealth(null, 0, now);
   assert.equal(never.down, true, "no socket at all is down");
+});
+
+// ── repair 2026-08-11: never-a-frame blind spot + layer-status honesty ──
+test("vesselFeedHealth: connected socket that NEVER delivered a frame goes zombie once the connect-time silence passes the threshold", () => {
+  const t0 = 1_000_000;
+  // 08-06 behavior (no connectedAt): permanently healthy — the prod outage
+  const legacy = vesselFeedHealth(1, 0, t0 + 10 * 60_000);
+  assert.equal(legacy.down, false, "without connect-time the blind spot is unfixable — documents the old hole");
+  // with connect-time: silent since connect > threshold => zombie + down
+  const vh = vesselFeedHealth(1, 0, t0 + 10 * 60_000, undefined, t0);
+  assert.equal(vh.zombie, true);
+  assert.equal(vh.down, true);
+  // inside the threshold it is still warming up, not down
+  const young = vesselFeedHealth(1, 0, t0 + 60_000, undefined, t0);
+  assert.equal(young.down, false);
+  // a real frame timestamp always wins over connect-time
+  const framed = vesselFeedHealth(1, t0 + 9 * 60_000, t0 + 10 * 60_000, undefined, t0);
+  assert.equal(framed.down, false);
+});
+
+test("vesselLayerStatus: healthy keyed feed reports LIVE — never the static registry value", () => {
+  const healthy = { connected: true, silentMs: 5_000, zombie: false, down: false };
+  assert.deepEqual(vesselLayerStatus(true, healthy), { status: "live" });
+  assert.equal(vesselLayerStatus(false, null).status, "awaiting_key");
+  const dead = { connected: false, silentMs: null, zombie: false, down: true };
+  assert.equal(vesselLayerStatus(true, dead).status, "down");
 });
