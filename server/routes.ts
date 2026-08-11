@@ -82,6 +82,7 @@ import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL }
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
 import { floodZoneAt } from "./femaFlood";
 import { latestPfas } from "./pfas";
+import { latestCancerRates, countyFipsAt } from "./cdcCancer";
 import { bootEuLoadPoll, latestLoad, euLoadEnabled } from "./euLoad";
 import { bootEuGenerationMixPoll, latestGenMix, euGenerationMixEnabled } from "./euGenerationMix";
 import { bootEuDayAheadPricesPoll, latestPrices as latestEuPrices, euDayAheadPricesEnabled } from "./euDayAheadPrices";
@@ -3068,6 +3069,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // NCI State Cancer Profiles county-level cancer incidence + mortality
+  // (RAW/FACTUAL hazard layer, public domain; Location Context Engine —
+  // research/location_context_engine.md hazard layer #5, the last one
+  // queued on that file's list). Static artifact (server/cdcCancer.ts +
+  // scripts/cdc_cancer_rates.py), no boot poll — NCI republishes on a
+  // multi-year cadence. Response is a ready-to-render GeoJSON
+  // FeatureCollection (one Feature per US county, geometry from Census
+  // TIGER cartographic boundaries) — every feature carries has_data so an
+  // NCI-uncovered county (Puerto Rico, a handful of boundary edge cases)
+  // renders honestly instead of vanishing. COUNTY-LEVEL AGGREGATE ONLY —
+  // see meta.caveat; never a per-address/point claim.
+  app.get("/api/data/cancer-rates", (_req, res) => {
+    const hit = latestCancerRates();
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({
+      kind: "raw",
+      source: hit.meta.source,
+      attribution: hit.meta.attribution,
+      predictive: false,
+      caveat: hit.meta.caveat,
+      built_at: hit.meta.built_at,
+      gate1: hit.meta.gate1,
+      county_count: hit.meta.county_count,
+      health: hit.health,
+      geojson: hit.geo,
+    });
+  });
+
   bootGridStressPoll();
   app.get("/api/data/grid-stress", (_req, res) => {
     if (!gridStressEnabled()) {
@@ -4168,6 +4197,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // here rather than read synchronously like superfund/waterViolators;
     // buildDossier itself stays a pure/sync function over the resolved value.
     const floodZone = anchorLat != null && anchorLon != null ? await floodZoneAt(anchorLat, anchorLon) : null;
+    // CDC/SEER county cancer-rate point-in-county lookup — same "per-point
+    // spatial query against a free public service, internally cached" shape
+    // as floodZone above (server/cdcCancer.ts's countyFipsAt), not a
+    // pre-cached bulk archive; awaited here so buildDossier stays pure/sync.
+    const cancerCounty = anchorLat != null && anchorLon != null ? await countyFipsAt(anchorLat, anchorLon) : null;
     res.set("Cache-Control", "public, max-age=300");
     const result = buildDossier(graph, {
       entity,
@@ -4183,6 +4217,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       quakes: (datacoreQuakeHistory as any).quakes ?? [],
       nuclearTests: (datacoreNuclearTests as any).tests ?? [],
       floodZone,
+      cancerCounty,
     });
     res.json(graph ? result : { ...result, warming_up: true, note: "first graph build in progress — nearest_sites/hazards still available, graph/contracts pending" });
   });

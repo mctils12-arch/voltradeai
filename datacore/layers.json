@@ -341,6 +341,17 @@
    "field": false
   },
   {
+   "id": "cancerrates",
+   "name": "County cancer rates (NCI State Cancer Profiles)",
+   "kind": "raw",
+   "status": "live",
+   "group": "hazards",
+   "costTier": "moderate",
+   "source": "National Cancer Institute, State Cancer Profiles (statecancerprofiles.cancer.gov) — SEER+NPCR county of residence data, public domain",
+   "description": "Age-adjusted cancer incidence and mortality rates (cases/deaths per 100,000, All Cancer Sites combined, 2018-2022) for 3,143 US counties, choropleth-filled by incidence rate. COUNTY-LEVEL AGGREGATE STATISTIC ONLY — describes the whole county's reported population, never a specific address or resident (ecological fallacy guard); displayed at the county polygon, never as a point. Counties with no NCI record (Puerto Rico, a handful of boundary edge cases) render as 'no data', not a false zero. Suppressed cells (fewer than 16 reported records) show as null, not zero. Click a county for its incidence and mortality rate, trend, and confidence interval. GATE 1 cross-checked at build time against CDC's own separately-published national headline figures (scripts/cdc_cancer_rates.py). Rebuilt session-side on NCI's own multi-year publication cadence, not a live poll.",
+   "field": true
+  },
+  {
    "id": "radiation",
    "name": "Ambient radiation (gamma)",
    "kind": "raw",
