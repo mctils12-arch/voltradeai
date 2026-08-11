@@ -133,14 +133,20 @@ function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date
 }
 
 export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
-                                baseDir?: string, nowMs?: number): number {
+                                baseDir?: string, nowMs?: number,
+                                // tracked-plane poller (2026-08-08): override
+                                // the adaptive thinning so a followed tail
+                                // number keeps EVERY polled fix, ground taxi
+                                // included — the human's "track all the data
+                                // nonstop". Additive; undefined = unchanged.
+                                intervalMsOverride?: number): number {
   const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   const t = Math.floor(now / 1000);
   const lines: string[] = [];
   for (const p of points) {
     if (p.lat == null || p.lon == null || !p.icao24) continue;
-    if (!shouldWrite(`a:${p.icao24}`, aircraftIntervalMs(p, sites), now)) continue;
+    if (!shouldWrite(`a:${p.icao24}`, intervalMsOverride ?? aircraftIntervalMs(p, sites), now)) continue;
     lines.push(JSON.stringify({
       t, i: p.icao24, c: p.callsign || undefined,
       la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
