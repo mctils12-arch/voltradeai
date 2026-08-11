@@ -78,7 +78,7 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 import { FlightTrackLayer, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
 import { resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
-  buildTrackSamples, trimToCurrentFlight, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
+  buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
   CURTAIN_BELOW_TERRAIN_M, type TrackSample,
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
@@ -3904,7 +3904,11 @@ export default function DataMapPage() {
         const altScale = terrainOn ? terrainExagRef.current : 1;
         // display = the CURRENT flight (archive gaps + parked dwells split
         // flights; the newest wins) — the archive itself keeps everything
-        const flight = trimToCurrentFlight(raw);
+        // CURTAIN TRUTH (recon-proven 2026-08-11): a range replay IS the
+        // requested window — never re-trim it; otherwise prefer the newest
+        // block WITH airborne fixes so a parked plane still shows its last
+        // flight (the taxi-sliver bug that read as "curtain disappeared").
+        const flight = activeTrailRangeRef.current ? raw : trimToCurrentFlightWithAirborne(raw);
         const { samples, altMin, altMax } = buildTrackSamples(flight);
         const n = samples.length;
         const merc = new Float32Array(n * 2);
@@ -4245,10 +4249,16 @@ export default function DataMapPage() {
    *  can show live freshness. ([REPAIR 2026-07-05]: the trail was fetched
    *  ONCE at selection and never again — a static snapshot while the
    *  aircraft kept moving; see the refresh effect below.) */
+  /** the active trip-replay window — the 30s card refresh MUST pass it
+   *  through (recon-proven 2026-08-11: the no-range refresh silently
+   *  clobbered a clicked replay within <=30s, reverting the curtain to the
+   *  trimmed recent read: trailLen 581->500 with zero user input) */
+  const activeTrailRangeRef = useRef<{ from: number; to: number } | null>(null);
   const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string,
       range?: { from: number; to: number }):
       Promise<{ note: string; lastT?: number }> => {
     if (!mapRef.current) return { note: "" };
+    activeTrailRangeRef.current = range ?? null;
     try {
       // plane-tracking T3: a range replays ONE archived trip (server slices
       // the raw window); the no-range path is the legacy recent read.
@@ -4424,7 +4434,8 @@ export default function DataMapPage() {
       // skip the fetch while backgrounded (matches the fleet-poll hidden
       // gate — no point hammering a tiny endpoint no one is looking at)
       if (document.hidden) return;
-      const { note, lastT } = await showTrail(detailTrailKind, detailTrailId);
+      const { note, lastT } = await showTrail(detailTrailKind, detailTrailId,
+        activeTrailRangeRef.current ?? undefined);
       setDetail((prev) => prev && prev.trailId === detailTrailId
         ? { ...prev, trailNote: note || prev.trailNote, trailLastT: lastT ?? prev.trailLastT }
         : prev);
@@ -12443,14 +12454,6 @@ export default function DataMapPage() {
         }}
         followActive={flightFollow}
       />
-      {/* hint bar — plane view only, where the orbit mouse scheme differs
-          from the map's native gestures (base map needs no hint: the mouse
-          works the way every map works) */}
-      {detail?.kind === "aircraft" && flightProfile && !spaceActive && (
-        <div className="vt-map-hintbar" aria-hidden>
-          DRAG ROTATE · RIGHT-DRAG PAN · DBL-CLICK RECENTER · SPACE PLAY
-        </div>
-      )}
       {/* ALTITUDE / TIME profile (handoff §3) — mounts with an open flight
           card; the 2D twin of the 3D curtain, sharing its clock with the
           marker and card readouts. */}

@@ -3939,14 +3939,6 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   .vt-map-page[data-vt-analyst-open="true"] .vt-nav-cluster { display: none; }
 }
 
-/* ── hint bar (top-center; hidden under 860px per the handoff) ────────── */
-.vt-map-hintbar {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
-  font-size: 9px; letter-spacing: 0.6px; color: var(--flight-ink-dim); white-space: nowrap;
-  background: rgba(9, 15, 27, 0.5); padding: 4px 10px; border-radius: 99px;
-  pointer-events: none; font-family: var(--font-body);
-}
-@media (max-width: 860px) { .vt-map-hintbar { display: none; } }
 
 /* ── flight card additions (aircraft detail card, handoff §2) ─────────── */
 .vt-flight-badge {
