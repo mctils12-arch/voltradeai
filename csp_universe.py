@@ -520,8 +520,20 @@ def _score_put_skew(ticker: str, surface_cache: Dict[str, Optional[Dict]]) -> fl
         return 35.0
 
 
-def _score_earnings(ticker: str, earnings_cal: Dict[str, int]) -> float:
-    """Earnings proximity penalty. Closer = more gap risk."""
+def _score_earnings(ticker: str, earnings_cal: Dict[str, int],
+                     lookup_ok: bool = True) -> float:
+    """Earnings proximity penalty. Closer = more gap risk.
+
+    lookup_ok=False means the Finnhub calendar fetch itself failed this
+    scan (network error, timeout, bad response) — every ticker would
+    otherwise silently default through the "no earnings concern" branch
+    below, which is the CSP earnings gate failing OPEN on a data outage
+    instead of failing closed. Route those tickers to the same mild-
+    caution tier the "15-30 days out" case already uses (80.0) rather
+    than the fully-permissive 100.0 the missing-key default implies.
+    """
+    if not lookup_ok:
+        return 80.0   # calendar fetch failed this scan — mild caution, not "no concern"
     days = earnings_cal.get(ticker, 99)
     if days <= 2:
         return 0.0    # reject — way too close
@@ -633,11 +645,14 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
     iv_rank_cache: Dict[str, Optional[float]] = {}
     surface_cache: Dict[str, Optional[Dict]] = {}
 
-    # Pull earnings calendar once
+    # Pull earnings calendar once. earnings_lookup_ok distinguishes a
+    # genuine fetch failure from a calendar that legitimately has nobody
+    # reporting soon — see _score_earnings()'s lookup_ok handling below.
     earnings_cal: Dict[str, int] = {}
+    earnings_lookup_ok = False
     try:
-        from options_scanner import _fetch_earnings_calendar
-        earnings_cal = _fetch_earnings_calendar(days_ahead=30) or {}
+        from options_scanner import _fetch_earnings_calendar_with_status
+        earnings_cal, earnings_lookup_ok = _fetch_earnings_calendar_with_status(days_ahead=30)
     except Exception as e:
         logger.debug(f"earnings calendar fetch failed: {e}")
 
@@ -725,7 +740,7 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
     for idx, (ticker, price, volume, dollar_volume) in enumerate(sorted_candidates):
         full_scoring = idx < deep_score_limit
         liquidity = _score_liquidity(ticker, price, volume, dollar_volume)
-        earnings = _score_earnings(ticker, earnings_cal)
+        earnings = _score_earnings(ticker, earnings_cal, lookup_ok=earnings_lookup_ok)
         stability = _score_stability(ticker, price, snap_data)
         historical = _score_historical(ticker)
         if full_scoring:
