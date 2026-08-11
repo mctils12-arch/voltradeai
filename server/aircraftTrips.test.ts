@@ -90,3 +90,19 @@ test("tripsCoverage states the raw-retention bound and the thinning caveat", () 
   assert.match(c.note, /retained 7 days/);
   assert.match(c.note, /lower bounds/);
 });
+
+test("fullTrackAsync collapses same-second poller+backfill duplicates, keeping the altitude-bearing fix", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "dedupe-"));
+  const dir = path.join(base, "aircraft");
+  mkdirSync(dir, { recursive: true });
+  const t0 = Math.floor(Date.parse("2026-08-08T10:00:00Z") / 1000);
+  writeFileSync(path.join(dir, "2026-08-08-10.jsonl"), [
+    { t: t0, i: "ab8c8e", la: 41.92, lo: -72.70 },              // poller fix, no altitude
+    { t: t0, i: "ab8c8e", la: 41.9221, lo: -72.7071, al: 594 }, // backfill same second, altitude
+    { t: t0 + 30, i: "ab8c8e", la: 41.93, lo: -72.69, al: 800 },
+  ].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const pts = await fullTrackAsync("aircraft", "ab8c8e", base);
+  assert.equal(pts.length, 2, "same-second duplicate collapsed");
+  assert.equal(pts[0].al, 594, "the altitude-bearing fix wins");
+  rmSync(base, { recursive: true, force: true });
+});

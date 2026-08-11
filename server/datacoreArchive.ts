@@ -132,6 +132,48 @@ function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date
   fs.appendFileSync(fp, lines.join("\n") + "\n");
 }
 
+/** TRACE BACKFILL writer (2026-08-08, nonstop tracker phase 2): archive
+ *  fixes that carry their OWN timestamps (a fetched day-trace spans many
+ *  hours), bucketed into the correct hour files. Append-only like every
+ *  other writer; caller is responsible for not re-writing ranges it already
+ *  backfilled (read-side t-dedupe in aircraftTrips.fullTrackAsync makes
+ *  accidental overlap harmless — same-second same-hex fixes collapse). */
+export function archiveAircraftAt(
+  fixes: Array<AircraftPoint & { tSec: number }>, baseDir?: string,
+): number {
+  const base = baseDir || archiveBaseDir();
+  const byHour = new Map<string, string[]>();
+  for (const p of fixes) {
+    if (p.lat == null || p.lon == null || !p.icao24 || !Number.isFinite(p.tSec)) continue;
+    const d = new Date(p.tSec * 1000);
+    const key = d.toISOString().slice(0, 13);
+    const line = JSON.stringify({
+      t: Math.floor(p.tSec), i: p.icao24, c: p.callsign || undefined,
+      la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
+      al: p.altitude_m == null ? undefined : Math.round(p.altitude_m),
+      g: p.on_ground || undefined,
+      v: p.velocity_ms == null ? undefined : Math.round(p.velocity_ms),
+      h: p.heading == null ? undefined : Math.round(p.heading),
+      ty: p.type || undefined, ca: p.category || undefined,
+      rg: p.registration || undefined,
+    });
+    const arr = byHour.get(key) || [];
+    arr.push(line);
+    byHour.set(key, arr);
+  }
+  let n = 0;
+  for (const [, lines] of Array.from(byHour.entries())) {
+    try {
+      const at = new Date(lines.length ? JSON.parse(lines[0]).t * 1000 : Date.now());
+      appendLines("aircraft", lines, base, at);
+      n += lines.length;
+    } catch (e: any) {
+      console.error("[archive] aircraft backfill append:", e?.message || e);
+    }
+  }
+  return n;
+}
+
 export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
                                 baseDir?: string, nowMs?: number,
                                 // tracked-plane poller (2026-08-08): override

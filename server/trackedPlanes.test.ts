@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   normalizeReg, loadRegistry, saveRegistry, addTracked, removeTracked,
-  batchUrl, pollTrackedOnce, registryPath, TRACKED_CAP,
+  batchUrl, pollTrackedOnce, registryPath, TRACKED_CAP, traceUrl, parseTrace,
   type TrackedRegistry,
 } from "./trackedPlanes";
 
@@ -86,4 +86,36 @@ test("pollTrackedOnce: upstream error throws (caller treats a cycle as a missed 
     () => pollTrackedOnce({ planes: [{ reg: "N843S", added_at: 1 }] }, fetchImpl, {}, 1),
     /503/,
   );
+});
+
+test("traceUrl: tar1090 sharding by the LAST two hex chars", () => {
+  assert.equal(traceUrl("AB8C8E"), "https://globe.adsb.lol/data/traces/8e/trace_full_ab8c8e.json");
+});
+
+test("parseTrace: real trace shape -> timestamped fixes (ground + altitude + junk rows)", () => {
+  // mirrors the live N843S payload probed 2026-08-08
+  const d = {
+    icao: "ab8c8e", r: "N843S", t: "FA7X", desc: "DASSAULT Falcon 7X",
+    timestamp: 1786442744.117,
+    trace: [
+      [0.0, 41.922134, -72.707083, "ground", 12.5, 270.0],
+      [60.5, 41.930000, -72.700000, 1950, 180.2, 92.1],
+      [null, null],                              // junk row survives silently
+      [120.9, 41.940000, -72.690000, null],      // altitude gap stays null
+    ],
+  };
+  const fixes = parseTrace(d);
+  assert.equal(fixes.length, 3);
+  assert.equal(fixes[0].on_ground, true);
+  assert.equal(fixes[0].altitude_m, null, "ground rows carry no altitude");
+  assert.equal(fixes[0].tSec, 1786442744.117);
+  assert.equal(fixes[1].altitude_m, Math.round(1950 * 0.3048));
+  assert.equal(fixes[1].registration, "N843S");
+  assert.equal(fixes[2].altitude_m, null, "null altitude stays null, never fabricated");
+});
+
+test("parseTrace: missing/garbage payloads -> empty, never a throw", () => {
+  assert.deepEqual(parseTrace(null), []);
+  assert.deepEqual(parseTrace({}), []);
+  assert.deepEqual(parseTrace({ timestamp: "x", trace: [[0, 1, 2, 3]] }), []);
 });

@@ -141,8 +141,20 @@ export async function fullTrackAsync(
     });
   }
   pts.sort((a, b) => a.t - b.t);
+  // t-dedupe (backfill 2026-08-08): the 30s poller and the day-trace
+  // backfill both write this hex — a same-second duplicate is the same
+  // physical fix; keep the one with altitude when they differ.
+  const dedup: ArchivedFix[] = [];
+  for (const p of pts) {
+    const last = dedup[dedup.length - 1];
+    if (last && last.t === p.t) {
+      if (last.al == null && p.al != null) dedup[dedup.length - 1] = p;
+      continue;
+    }
+    dedup.push(p);
+  }
   const cap = opts.maxPoints ?? 20_000;
-  return pts.length > cap ? pts.slice(-cap) : pts;
+  return dedup.length > cap ? dedup.slice(-cap) : dedup;
 }
 
 /** The honest coverage statement every trips response carries. */

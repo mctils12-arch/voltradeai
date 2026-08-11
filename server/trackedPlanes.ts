@@ -16,8 +16,69 @@
 
 import fs from "fs";
 import path from "path";
-import { archiveAircraft, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
+import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
+
+// ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
+// turn on we have the data all over the world not just the 250nm") ─────────
+// globe.adsb.lol serves each aircraft's COMPLETE current-day track as heard
+// by the whole worldwide receiver network (tar1090 trace_full — verified
+// live: N843S = 1,252 points vs our 30s poll samples). Every backfill cycle
+// merges that global-fidelity trace into our archive, so a tracked plane's
+// day is complete from its first broadcast ANYWHERE — not just while inside
+// our polls. Read-side t-dedupe (fullTrackAsync) makes overlap harmless.
+export const TRACE_BACKFILL_MS = 15 * 60_000;
+
+export function traceUrl(hex: string): string {
+  const h = hex.toLowerCase();
+  return `https://globe.adsb.lol/data/traces/${h.slice(-2)}/trace_full_${h}.json`;
+}
+
+/** Parse a tar1090 trace payload into timestamped fixes. Trace point layout
+ *  (tar1090 docs): [offset_s, lat, lon, alt_ft|"ground"|null, gs_kt, track,
+ *  flags, vert_rate, aircraft?, source, geom_alt, geom_rate, roll, ...] —
+ *  only the fields our archive line carries are read; unknowns stay null. */
+export function parseTrace(d: any): Array<AircraftPoint & { tSec: number }> {
+  const base = Number(d?.timestamp);
+  const trace: any[] = Array.isArray(d?.trace) ? d.trace : [];
+  if (!Number.isFinite(base) || !trace.length) return [];
+  const hex = String(d?.icao || "").toLowerCase();
+  const reg = d?.r ? String(d.r).trim() : null;
+  const type = d?.t ? String(d.t).trim() : null;
+  const out: Array<AircraftPoint & { tSec: number }> = [];
+  for (const p of trace) {
+    if (!Array.isArray(p) || p.length < 4) continue;
+    const [off, lat, lon, alt] = p;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const ground = alt === "ground";
+    out.push({
+      tSec: base + Number(off || 0),
+      icao24: hex, registration: reg, type,
+      callsign: typeof p[8]?.flight === "string" ? p[8].flight.trim() : undefined,
+      lat, lon,
+      altitude_m: ground || alt == null || !Number.isFinite(alt) ? null : Math.round(alt * 0.3048),
+      on_ground: ground,
+      velocity_ms: Number.isFinite(p[4]) ? Math.round(p[4] * 0.5144) : null,
+      heading: Number.isFinite(p[5]) ? p[5] : null,
+      category: null,
+    });
+  }
+  return out;
+}
+
+/** Fetch + parse one hex's current-day global trace. Returns [] on any
+ *  failure (a missed backfill is just retried next cycle). */
+export async function fetchDayTrace(
+  hex: string, fetchImpl: typeof fetch, headers: Record<string, string>,
+): Promise<Array<AircraftPoint & { tSec: number }>> {
+  try {
+    const res = await fetchImpl(traceUrl(hex), {
+      headers: { ...headers, Referer: "https://globe.adsb.lol/" },
+    });
+    if (!res.ok) return [];
+    return parseTrace(await res.json());
+  } catch { return []; }
+}
 
 export const TRACKED_CAP = 20;
 export const TRACKED_POLL_MS = 30_000;
@@ -30,6 +91,10 @@ export interface TrackedPlane {
   hex?: string | null;         // learned from the first live fix
   last_seen?: number | null;   // unix ms of the newest fix we archived
   last_pos?: { la: number; lo: number; al: number | null } | null;
+  /** unix SEC high-water mark of the day-trace backfill — each cycle only
+   *  archives trace points newer than this (small overlap is collapsed by
+   *  the read-side t-dedupe) */
+  backfilled_to?: number | null;
   note?: string;
 }
 
@@ -161,6 +226,32 @@ export function startTrackedPoller(deps: {
   const timer = setInterval(() => { void tick(); }, TRACKED_POLL_MS);
   (timer as any).unref?.();
   void tick(); // first cycle immediately — "when their signal pops up"
+  // day-trace backfill: global-network fidelity for every tracked plane
+  const backfill = async () => {
+    if (stopped) return;
+    for (const tp of registry.planes) {
+      if (!tp.hex) continue; // no hex learned yet — nothing to trace
+      try {
+        const fixes = await fetchDayTrace(tp.hex, deps.fetchImpl, deps.headers);
+        const mark = tp.backfilled_to ?? 0;
+        const fresh = fixes.filter((f) => f.tSec > mark - 60); // 60s overlap; read-dedupe collapses
+        if (!fresh.length) continue;
+        const n = archiveAircraftAt(fresh, deps.baseDir);
+        const newest = fresh[fresh.length - 1].tSec;
+        registry = {
+          planes: registry.planes.map((p) => (p.reg === tp.reg ? { ...p, backfilled_to: newest } : p)),
+        };
+        saveRegistry(registry, deps.baseDir);
+        deps.onCycle?.(n, fresh.length);
+      } catch (e: any) {
+        console.error("[tracked-planes] backfill:", tp.reg, e?.message || e);
+      }
+    }
+  };
+  const backfillTimer = setInterval(() => { void backfill(); }, TRACE_BACKFILL_MS);
+  (backfillTimer as any).unref?.();
+  const firstBackfill = setTimeout(() => { void backfill(); }, 60_000); // after the poller learns hexes
+  (firstBackfill as any).unref?.();
   return {
     getRegistry: () => registry,
     mutate: (fn) => {
@@ -170,6 +261,6 @@ export function startTrackedPoller(deps: {
       saveRegistry(registry, deps.baseDir);
       return true;
     },
-    stop: () => { stopped = true; clearInterval(timer); },
+    stop: () => { stopped = true; clearInterval(timer); clearInterval(backfillTimer); clearTimeout(firstBackfill); },
   };
 }
