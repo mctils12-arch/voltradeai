@@ -116,6 +116,7 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
+import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -1235,6 +1236,14 @@ interface LegendPanelProps {
    *  filter, then focuses (one path for search hits + group members). */
   onFindSat: (index: number) => void;
   seafloorConfShares: Record<string, Record<string, number>>;
+  /** plane-tracking T3 (2026-08-08): watchlist mutation tick (memo must
+   *  re-render on store changes), snapshot search, and watched-plane open.
+   *  Both callbacks are ref-backed useCallback([]) in the parent — stable
+   *  identities per the memo contract. onFindPlane returns a miss note or
+   *  null on success. */
+  wlTick: number;
+  onFindPlane: (q: string) => string | null;
+  onOpenWatched: (p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => void;
 }
 
 const LegendPanel = memo(function LegendPanel({
@@ -1246,7 +1255,10 @@ const LegendPanel = memo(function LegendPanel({
   satGroup, satGroupCount, satGroupOrbits, satArcInfo, applySatGroup,
   setSatGroupOrbits, onFindSat,
   seafloorConfShares,
+  wlTick, onFindPlane, onOpenWatched,
 }: LegendPanelProps) {
+  // plane search feedback is legend-local state (memo-safe)
+  const [airSearchMiss, setAirSearchMiss] = useState<string | null>(null);
   return (
     <div className="vt-legend" data-vt-legend>
       <button className="vt-legend-head" aria-expanded={legendOpen}
@@ -1291,6 +1303,49 @@ const LegendPanel = memo(function LegendPanel({
                     {airFilter && (
                       <span className="vt-legend-note">showing only callsigns {airFilter}* (broadcast flight IDs — the operator's ICAO code; charters/GA under other callsigns won't match)</span>
                     )}
+                    {/* plane-tracking T3 (2026-08-08): find a plane by tail
+                        number / callsign / hex / type over the CURRENT
+                        snapshot, and the persistent watchlist. Parent handles
+                        the map/card actions via ref-backed stable callbacks. */}
+                    <input
+                      className="vt-filter-input"
+                      style={{ width: "100%", marginTop: 6 }}
+                      placeholder="Find plane: tail number, callsign, hex or type…"
+                      aria-label="Find plane"
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        const q = (e.target as HTMLInputElement).value.trim();
+                        if (!q) return;
+                        setAirSearchMiss(onFindPlane(q));
+                      }}
+                    />
+                    {airSearchMiss && <span className="vt-legend-note">{airSearchMiss}</span>}
+                    {(() => {
+                      void wlTick;
+                      const wl = getWatchlist();
+                      if (!wl.length) return null;
+                      return (
+                        <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }} data-testid="plane-watchlist">
+                          <span className="vt-legend-note">Watchlist ({wl.length}) — ● broadcasting now, ○ archive only:</span>
+                          {wl.map((p) => {
+                            const label = p.reg || p.callsign || p.hex;
+                            return (
+                              <span key={p.hex} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                                <button
+                                  className="vt-satfinder-chip"
+                                  title="tap to fly to it if broadcasting, or open its archived trips"
+                                  onClick={() => onOpenWatched(p)}>
+                                  {label}
+                                </button>
+                                <button aria-label={`remove ${label} from watchlist`}
+                                        className="vt-satfinder-chip" style={{ padding: "0 6px" }}
+                                        onClick={() => unwatchPlane(p.hex)}>✕</button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
                 {enabled.vessels && (
@@ -3208,6 +3263,31 @@ export default function DataMapPage() {
   // the card readouts (they can never disagree). live=true → pinned to the
   // newest fix; false → replaying history at clock.t.
   const flightClockRef = useRef<FlightClock>({ t: 0, live: true, playing: false });
+  // plane-tracking T3 (2026-08-08): watchlist re-render tick + per-card trips
+  const [wlTick, setWlTick] = useState(0);
+  useEffect(() => subscribeWatchlist(() => setWlTick((t) => t + 1)), []);
+  const [cardTrips, setCardTrips] = useState<{ hex: string; trips: any[]; coverageNote: string; error?: boolean } | null>(null);
+  const [tripReplay, setTripReplay] = useState<number | null>(null); // start_t of the replayed trip
+  useEffect(() => {
+    // trips arrive async after an aircraft card opens; hex change resets
+    const hex = detail?.kind === "aircraft" ? String(detail.trailId || "") : "";
+    setCardTrips(null);
+    setTripReplay(null);
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return;
+    let gone = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/data/aircraft/trips/${hex.toLowerCase()}`);
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (!gone) setCardTrips({ hex: hex.toLowerCase(), trips: d.trips || [], coverageNote: d.coverage?.note || "" });
+      } catch {
+        if (!gone) setCardTrips({ hex: hex.toLowerCase(), trips: [], coverageNote: "", error: true });
+      }
+    })();
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.kind === "aircraft" ? detail?.trailId : null]);
   const [flightProfile, setFlightProfile] = useState<{
     samples: TrackSample[]; groundM: Float32Array; altMin: number; altMax: number;
   } | null>(null);
@@ -4023,16 +4103,21 @@ export default function DataMapPage() {
    *  can show live freshness. ([REPAIR 2026-07-05]: the trail was fetched
    *  ONCE at selection and never again — a static snapshot while the
    *  aircraft kept moving; see the refresh effect below.) */
-  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string):
+  const showTrail = async (kind: "aircraft" | "vessels" | "trains", id: string,
+      range?: { from: number; to: number }):
       Promise<{ note: string; lastT?: number }> => {
     if (!mapRef.current) return { note: "" };
     try {
-      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}`);
+      // plane-tracking T3: a range replays ONE archived trip (server slices
+      // the raw window); the no-range path is the legacy recent read.
+      const qs = range ? `?from=${Math.floor(range.from)}&to=${Math.ceil(range.to)}` : "";
+      const r = await fetch(`/api/data/track/${kind}/${encodeURIComponent(id)}${qs}`);
       const d = await r.json();
       const raw = (d.points || []) as TrackPoint[];
       bmark("track-loaded", { kind, pts: raw.length });
       archivedTrackRef.current = { kind, id, raw };
-      const followed = kind === "aircraft" && airCrumbsRef.current.id === id;
+      // a historical trip replay never merges the live tail — it is history
+      const followed = kind === "aircraft" && airCrumbsRef.current.id === id && !range;
       const merged = followed ? mergeTrackWithCrumbs(raw, airCrumbsRef.current.crumbs) : raw;
       let lastT: number | undefined;
       if (followed) {
@@ -4064,6 +4149,74 @@ export default function DataMapPage() {
    *  `dossierKey`, not trailId/title (see the Detail interface note). Fails
    *  silently like every other async card enrichment (owner/timeline above) —
    *  a dossier that never arrives just leaves that section absent. */
+
+  // ── plane-tracking T3 bridges (2026-08-08) ────────────────────────────────
+  // LegendPanel is a memo boundary, so it gets STABLE callbacks; the live
+  // machinery they need is reached through refs. showTrail is re-created per
+  // render but closes over refs only — the mirror keeps the callback fresh.
+  const showTrailRef = useRef(showTrail);
+  showTrailRef.current = showTrail;
+  /** assigned inside the aircraft wiring effect where the click handler
+   *  lives — the search/watchlist paths reuse the exact plane-click path */
+  const airClickRef = useRef<((p: any, lngLat: any) => void | Promise<void>) | null>(null);
+  const findPlaneCb = useCallback((q: string): string | null => {
+    const Q = q.trim().toUpperCase();
+    const rows: any[] = airPayloadRef.current || [];
+    const hit = rows.find((a) => String(a.registration || "").toUpperCase() === Q)
+      || rows.find((a) => String(a.callsign || "").toUpperCase() === Q)
+      || rows.find((a) => String(a.icao24 || "").toUpperCase() === Q)
+      || rows.find((a) => String(a.registration || "").toUpperCase().startsWith(Q))
+      || rows.find((a) => String(a.callsign || "").toUpperCase().startsWith(Q))
+      || rows.find((a) => String(a.type || "").toUpperCase() === Q);
+    if (!hit) {
+      return `no "${Q}" in the current snapshot — the live feed covers the viewport area (pan/zoom to search elsewhere); watched planes stay reachable via their archive`;
+    }
+    try { mapRef.current?.easeTo({ center: [hit.lon, hit.lat], zoom: Math.max(mapRef.current.getZoom(), 8.5), duration: 900 }); } catch {}
+    void airClickRef.current?.({
+      cls: classifyAircraft(hit.type, hit.category),
+      callsign: hit.callsign || hit.icao24, icao24: hit.icao24,
+      reg: hit.registration, type: hit.type || "",
+      alt: hit.altitude_m, ground: !!hit.on_ground, heading: hit.heading ?? 0,
+      kts: hit.velocity_ms == null ? null : Math.round(hit.velocity_ms * 1.944),
+      category: hit.category ?? null,
+    }, { lng: hit.lon, lat: hit.lat });
+    return null;
+  }, []);
+  const openWatchedCb = useCallback((p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => {
+    const rows: any[] = airPayloadRef.current || [];
+    const live = rows.find((a) => String(a.icao24 || "").toLowerCase() === p.hex);
+    if (live) {
+      try { mapRef.current?.easeTo({ center: [live.lon, live.lat], zoom: Math.max(mapRef.current.getZoom(), 8.5), duration: 900 }); } catch {}
+      void airClickRef.current?.({
+        cls: classifyAircraft(live.type, live.category),
+        callsign: live.callsign || live.icao24, icao24: live.icao24,
+        reg: live.registration, type: live.type || "",
+        alt: live.altitude_m, ground: !!live.on_ground, heading: live.heading ?? 0,
+        kts: live.velocity_ms == null ? null : Math.round(live.velocity_ms * 1.944),
+        category: live.category ?? null,
+      }, { lng: live.lon, lat: live.lat });
+      return;
+    }
+    // off-snapshot: an archive-backed card — trips + trail still work
+    const label = p.reg || p.callsign || p.hex;
+    setDetail({
+      kind: "aircraft",
+      title: `✈ ${label}`,
+      subtitle: `${p.type || "aircraft"} · not currently broadcasting`,
+      facts: [
+        { label: "Reg", value: p.reg || "—" },
+        { label: "Country (ICAO alloc)", value: countryFromIcao24(p.hex) ?? countryFromRegistration(p.reg) ?? "—" },
+        { label: "ICAO24", value: p.hex },
+      ],
+      sourceTag: "ARCHIVE",
+      body: "This watched plane is not in the current live snapshot (outside the viewport feed area, on the ground without ADS-B, or out of coverage). Trips and the trail come from our own archive.",
+      trailId: p.hex, trailKind: "aircraft",
+      links: [{ label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${p.hex.toUpperCase()}` }],
+    } as Detail);
+    void showTrailRef.current("aircraft", p.hex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchDossier = async (
     dossierKey: string, entityId: string | null, lat: number, lon: number, radiusKm?: number,
   ) => {
@@ -7921,6 +8074,7 @@ export default function DataMapPage() {
         const { note, lastT } = await showTrail("aircraft", p.icao24);
         setDetail(prev => prev && prev.trailId === p.icao24 ? { ...prev, trailNote: note, trailLastT: lastT } : prev);
     };
+    airClickRef.current = onAircraftClickProps; // arm the search/watchlist bridge (T3)
     const stopWire = wire();
     // E3 picking above the hand-off zoom: custom layers have no
     // queryRenderedFeatures (the satellite-picking precedent) — CPU nearest
@@ -12578,6 +12732,7 @@ export default function DataMapPage() {
               satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
               applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
               onFindSat={findSat} seafloorConfShares={seafloorConfShares}
+              wlTick={wlTick} onFindPlane={findPlaneCb} onOpenWatched={openWatchedCb}
             />
           </div>
         )}
@@ -12823,6 +12978,54 @@ export default function DataMapPage() {
               <div><div className="lbl">VERT SPD</div><div className="val" data-flight-stat="vs">—</div></div>
             </div>
           )}
+          {/* plane-tracking T3 (2026-08-08): watch toggle + archived trips.
+              wlTick re-renders on watchlist mutation from anywhere. */}
+          {detail.kind === "aircraft" && detail.trailId && (() => {
+            void wlTick;
+            const hex = String(detail.trailId);
+            const watched = isWatched(getWatchlist(), hex);
+            return (
+              <div className="vt-card-trips" data-testid="plane-watch-trips">
+                <button
+                  className={`vt-satfinder-chip${watched ? " vt-satfinder-chip-on" : ""}`}
+                  onClick={() => {
+                    if (watched) unwatchPlane(hex);
+                    else watchPlane({ hex, callsign: detail.title.replace(/^✈ /, ""), reg: detail.facts?.find((f) => f.label === "Reg")?.value || null, type: detail.facts?.find((f) => f.label === "Aircraft")?.value || null });
+                  }}>
+                  {watched ? "★ Watched — tap to remove" : "☆ Watch this plane"}
+                </button>
+                {cardTrips && cardTrips.hex === hex.toLowerCase() && (
+                  cardTrips.error ? (
+                    <span className="vt-legend-note">trip history unavailable right now</span>
+                  ) : cardTrips.trips.length === 0 ? (
+                    <span className="vt-legend-note">no archived trips in the last 7 days (raw-fix retention window)</span>
+                  ) : (
+                    <div className="vt-trips-list">
+                      <span className="vt-legend-note">Trips — our own archive, last 7 days ({cardTrips.trips.length}):</span>
+                      {cardTrips.trips.slice(0, 8).map((t: any) => {
+                        const d0 = new Date(t.start_t * 1000);
+                        const durMin = Math.round(t.duration_s / 60);
+                        const on = tripReplay === t.start_t;
+                        return (
+                          <button key={t.start_t}
+                                  className={`vt-satfinder-chip${on ? " vt-satfinder-chip-on" : ""}`}
+                                  title={`${t.fixes} archived fixes · ${(t.callsigns || []).join("/") || "no callsign"} · durations are lower bounds (thinned sampling)`}
+                                  onClick={() => {
+                                    setTripReplay(on ? null : t.start_t);
+                                    void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
+                                  }}>
+                            {d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
+                            {t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
+                          </button>
+                        );
+                      })}
+                      {cardTrips.trips.length > 8 && <span className="vt-legend-note">+{cardTrips.trips.length - 8} older within the window</span>}
+                    </div>
+                  )
+                )}
+              </div>
+            );
+          })()}
           {detail.kind === "aircraft" && flightProfile && (
             <button
               className={`vt-flight-follow${flightFollow ? " on" : ""}`}
