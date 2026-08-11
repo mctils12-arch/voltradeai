@@ -11,6 +11,7 @@ import type { ContractTxn } from "./usaSpending";
 import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
 import type { PfasSystem } from "./pfas";
+import type { CountyLookupResult } from "./cdcCancer";
 
 const node = (over: Partial<GraphNode>): GraphNode => ({
   id: "x", type: "company", label: "x", attrs: {}, ...over,
@@ -246,6 +247,49 @@ test("flood_zone with ready:true and zone:null (genuinely outside NFHL's mapped 
   const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { floodZone: fz });
   assert.equal(out.hazards!.flood_zone.ready, true);
   assert.equal(out.hazards!.flood_zone.zone, null);
+});
+
+// CDC/SEER county cancer-rate point-in-county lookup (research/
+// location_context_engine.md hazard layer #5) — pre-fetched by routes.ts,
+// same injected-plain-value convention as flood_zone above.
+const cancerCounty = (over: Partial<CountyLookupResult>): CountyLookupResult => ({
+  fips: "01001", county_name: "Autauga County", state_code: "AL",
+  rate: { fips: "01001", county: "Autauga County", state: "Alabama",
+    incidence_rate: 459.8, incidence_ci: [437.4, 483.1], incidence_avg_annual_count: 330,
+    incidence_trend: "stable", incidence_suppressed: false,
+    mortality_rate: 153.8, mortality_ci: [141.2, 167.2], mortality_avg_annual_count: 114,
+    mortality_trend: "falling", mortality_suppressed: false },
+  source: "FCC Census Block Conversions API", ready: true, ...over,
+});
+
+test("cancer_county passes through opts.cancerCounty unchanged when an anchor exists", () => {
+  const g = graphFixture([], []);
+  const cc = cancerCounty({ fips: "48201", county_name: "Harris County" });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { cancerCounty: cc });
+  assert.deepEqual(out.hazards!.cancer_county, cc);
+});
+
+test("cancer_county defaults to ready:false/fips:null (not looked up) when opts.cancerCounty isn't passed, never crashes", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, {});
+  assert.equal(out.hazards!.cancer_county.ready, false);
+  assert.equal(out.hazards!.cancer_county.fips, null);
+});
+
+test("cancer_county with ready:true, real fips, but rate:null (suppressed/uncovered county) is preserved, not collapsed to 'not looked up'", () => {
+  const g = graphFixture([], []);
+  const cc = cancerCounty({ rate: null });
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, { cancerCounty: cc });
+  assert.equal(out.hazards!.cancer_county.ready, true);
+  assert.equal(out.hazards!.cancer_county.fips, "01001");
+  assert.equal(out.hazards!.cancer_county.rate, null);
+});
+
+test("hazards.caveat states the ecological-fallacy guard for cancer_county", () => {
+  const g = graphFixture([], []);
+  const out = buildDossier(g, { lat: ANCHOR.lat, lon: ANCHOR.lon }, {});
+  assert.match(out.hazards!.caveat, /county/i);
+  assert.match(out.hazards!.caveat, /ecological fallacy/i);
 });
 
 test("radius_km param is honored and clamped to [1, HAZARD_RADIUS_KM_MAX]", () => {

@@ -426,7 +426,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty";
   title: string;
   subtitle: string;
   body: string;
@@ -505,6 +505,7 @@ interface DossierPayload {
     quakes: DossierHazardSection;
     nuclear_tests: DossierHazardSection;
     flood_zone: DossierFloodZone;
+    cancer_county: DossierCancerCounty;
   } | null;
 }
 
@@ -526,6 +527,27 @@ interface DossierFloodZone {
   base_flood_elevation_ft: number | null;
   meaning: string | null;
   source_citation: string | null;
+  ready: boolean;
+}
+
+/** Mirrors server/cdcCancer.ts's CountyLookupResult — "which county is
+ *  this point IN, and what does NCI's published data say about that whole
+ *  county" — a point-in-county lookup at the anchor, same shape family as
+ *  DossierFloodZone above. rate is null either when the county genuinely
+ *  has no NCI record (suppressed, or outside NCI's coverage e.g. Puerto
+ *  Rico) or when the lookup hasn't resolved — `ready` disambiguates. */
+interface DossierCancerCounty {
+  fips: string | null;
+  county_name: string | null;
+  state_code: string | null;
+  rate: {
+    incidence_rate: number | null;
+    incidence_trend: string | null;
+    incidence_suppressed: boolean;
+    mortality_rate: number | null;
+    mortality_trend: string | null;
+    mortality_suppressed: boolean;
+  } | null;
   ready: boolean;
 }
 
@@ -788,7 +810,7 @@ const LAYER_GROUP: Record<string, string> = {
   plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
-  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards",
+  radiation: "hazards", nukeaccidents: "hazards", floodzones: "hazards", pfas: "hazards", cancerrates: "hazards",
   fires: "environmental", surfacewater: "environmental", forest: "environmental",
   nightlights: "environmental",
   methane_plumes: "environmental",
@@ -889,6 +911,24 @@ function militaryNationTint(nation?: string | null): string {
   let h = 0;
   for (let i = 0; i < nation.length; i++) h = (h * 31 + nation.charCodeAt(i)) & 0xffff;
   return MILITARY_NATION_RAMP[h % MILITARY_NATION_RAMP.length];
+}
+
+// County cancer-rate choropleth (research/location_context_engine.md hazard
+// layer #5) — a sequential ramp (light->dark, standard epidemiology
+// cartography convention) on age-adjusted incidence rate per 100,000. Fixed
+// round-number bands (not data-quantile bins) so the legend reads the same
+// across rebuilds. "No data" (has_data:false, or a suppressed county) is a
+// distinct neutral slate, never folded into the lightest "low rate" band —
+// a missing reading must never look like a good reading.
+const CANCER_RATE_NO_DATA = "#334155";
+const CANCER_RATE_STOPS: Array<[number, string]> = [
+  [0, "#ffffb2"], [350, "#fed976"], [425, "#feb24c"], [475, "#fd8d3c"], [525, "#f03b20"], [600, "#bd0026"],
+];
+function cancerRateColor(rate: number | null | undefined): string {
+  if (rate == null) return CANCER_RATE_NO_DATA;
+  let color = CANCER_RATE_STOPS[0][1];
+  for (const [stop, c] of CANCER_RATE_STOPS) { if (rate >= stop) color = c; else break; }
+  return color;
 }
 
 // GRID VISION national rollout — one OSM-derived PMTiles per state (built by
@@ -1667,6 +1707,21 @@ const LegendPanel = memo(function LegendPanel({
                   <span key={b.label} className="vt-legend-chip"><i style={{ background: b.color }} /> {b.label}</span>
                 ))}
                 <span className="vt-legend-note">(color = count of distinct PFAS compounds detected, a fact — not a concentration or health-risk tier; EPA UCMR 5, 2023-2025 monitoring)</span>
+              </div>
+            </div>
+          )}
+          {enabled.cancerrates && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">County Cancer Rates</div>
+              <div className="vt-legend-items">
+                {CANCER_RATE_STOPS.map(([stop, color], i) => (
+                  <span key={stop} className="vt-legend-chip">
+                    <i style={{ background: color }} />
+                    {i === 0 ? `< ${CANCER_RATE_STOPS[1][0]}` : i === CANCER_RATE_STOPS.length - 1 ? `≥ ${stop}` : `${stop}–${CANCER_RATE_STOPS[i + 1][0]}`}
+                  </span>
+                ))}
+                <span className="vt-legend-chip"><i style={{ background: CANCER_RATE_NO_DATA }} /> No NCI record</span>
+                <span className="vt-legend-note">(color = age-adjusted incidence rate per 100,000, NCI State Cancer Profiles 2018-2022 — a COUNTY-LEVEL AGGREGATE statistic, never a claim about any specific address or resident)</span>
               </div>
             </div>
           )}
@@ -9175,6 +9230,92 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.pfas, mapReady, mapSettled, setStatus]);
 
+  // ── County cancer rates (RAW/FACTUAL hazard layer; NCI State Cancer
+  // Profiles, public domain — location_context_engine.md's last queued
+  // hazard layer). Choropleth FILL by county polygon (server/cdcCancer.ts
+  // pre-joins geometry + rate into one ready GeoJSON FeatureCollection) —
+  // deliberately NOT points/centroids: a county rate is an aggregate about
+  // the whole county, and rendering it as a point would imply a location-
+  // specific claim the data doesn't support (ecological fallacy guard).
+  // Static artifact, rebuilt session-side on NCI's own multi-year cadence
+  // — no boot poll. ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.cancerrates) {
+      try {
+        if (map.getLayer("cancerrates-fill")) map.removeLayer("cancerrates-fill");
+        if (map.getLayer("cancerrates-outline")) map.removeLayer("cancerrates-outline");
+        if (map.getSource("cancerrates")) map.removeSource("cancerrates");
+      } catch {}
+      setStatus("cancerrates", "off");
+      return;
+    }
+    if (!mapSettled) { setStatus("cancerrates", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("cancerrates", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/cancer-rates", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!d.geojson?.features?.length) throw new Error("no county geometry in response");
+        if (map.getSource("cancerrates")) return;
+        map.addSource("cancerrates", {
+          type: "geojson",
+          data: d.geojson,
+          attribution: "NCI State Cancer Profiles, public domain",
+        } as any);
+        map.addLayer({
+          id: "cancerrates-fill", type: "fill", source: "cancerrates",
+          paint: {
+            "fill-color": [
+              "case",
+              ["==", ["get", "incidence_rate"], null], CANCER_RATE_NO_DATA,
+              ["step", ["get", "incidence_rate"],
+                CANCER_RATE_STOPS[0][1],
+                CANCER_RATE_STOPS[1][0], CANCER_RATE_STOPS[1][1],
+                CANCER_RATE_STOPS[2][0], CANCER_RATE_STOPS[2][1],
+                CANCER_RATE_STOPS[3][0], CANCER_RATE_STOPS[3][1],
+                CANCER_RATE_STOPS[4][0], CANCER_RATE_STOPS[4][1],
+                CANCER_RATE_STOPS[5][0], CANCER_RATE_STOPS[5][1],
+              ],
+            ],
+            "fill-opacity": opacityOf("cancerrates") / 100,
+          },
+        } as any);
+        map.addLayer({
+          id: "cancerrates-outline", type: "line", source: "cancerrates",
+          paint: { "line-color": "rgba(255,255,255,0.12)", "line-width": 0.5 },
+        } as any);
+        detach = attachLayerInteractions(map, "cancerrates-fill", (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const label = (n: string | null) => n || "not stated";
+          setDetail({
+            kind: "cancercounty",
+            title: p.county || "County",
+            subtitle: p.state ? `${p.state}${p.has_data ? "" : " · no NCI record"}` : (p.has_data ? "" : "no NCI record"),
+            body: p.has_data
+              ? `Age-adjusted incidence: ${p.incidence_rate != null ? `${p.incidence_rate} per 100,000 (trend: ${label(p.incidence_trend)})` : "suppressed (fewer than 16 reported records)"}\n` +
+                `Age-adjusted mortality: ${p.mortality_rate != null ? `${p.mortality_rate} per 100,000 (trend: ${label(p.mortality_trend)})` : "suppressed (fewer than 16 reported records)"}\n\n` +
+                `2018-2022, All Cancer Sites combined, all races/sexes/ages. COUNTY-LEVEL AGGREGATE STATISTIC ` +
+                `ONLY — describes this county's whole reported population, NOT any specific address or resident ` +
+                `(ecological fallacy). NCI State Cancer Profiles, public domain.`
+              : `No NCI record for this county (outside NCI's US county coverage, e.g. Puerto Rico, or a ` +
+                `boundary edge case). Not a "zero risk" reading — simply no published data here.`,
+          });
+        });
+        const h = d.health;
+        setStatus("cancerrates", "active", d.county_count,
+          `NCI State Cancer Profiles — ${Number(d.county_count).toLocaleString()} US counties${h?.suspect ? ` (${h.suspect} quarantined by the data-quality gate)` : ""} · county-level aggregate, not a point claim`);
+      },
+      (failures) => setStatus("cancerrates", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.cancerrates, mapReady, mapSettled, setStatus]);
+
   // ── FEMA flood hazard zones (RAW; location_context_engine.md hazard layer
   // #3 — "the closest direct Zillow parallel"). Raster overlay rendered LIVE
   // by FEMA's own public ArcGIS MapServer (hazards.fema.gov, CORS-open,
@@ -13254,8 +13395,13 @@ export default function DataMapPage() {
             // empty hazardCats section would be.
             const floodZone = dos.hazards?.flood_zone;
             const showFloodZone = Boolean(floodZone?.ready);
+            // cancer_county is the same point-lookup shape as flood_zone —
+            // render once ready; a real fips with rate:null (suppressed or
+            // outside NCI coverage) is still real content, not withheld.
+            const cancerCounty = dos.hazards?.cancer_county;
+            const showCancerCounty = Boolean(cancerCounty?.ready && cancerCounty.fips);
             const hasContent = Boolean(companyNode) || insiderEdges.length > 0 || callsAtEdges.length > 0
-              || contracts.length > 0 || nearestSites.length > 0 || hazardsReady || showFloodZone;
+              || contracts.length > 0 || nearestSites.length > 0 || hazardsReady || showFloodZone || showCancerCounty;
             if (!hasContent) return null;
             return (
               <div>
@@ -13364,6 +13510,28 @@ export default function DataMapPage() {
                       </>
                     ) : (
                       <p className="vt-site-card-trail">Outside FEMA's mapped NFHL footprint (unstudied, not a low-risk claim).</p>
+                    )}
+                  </div>
+                )}
+                {showCancerCounty && (
+                  <div>
+                    <p className="vt-site-card-trail" style={{ fontWeight: 600 }}>
+                      County cancer rate — {cancerCounty!.county_name || cancerCounty!.fips}{cancerCounty!.state_code ? `, ${cancerCounty!.state_code}` : ""}:
+                    </p>
+                    {cancerCounty!.rate ? (
+                      <>
+                        <p className="vt-site-card-trail">
+                          Incidence: {cancerCounty!.rate.incidence_rate != null ? `${cancerCounty!.rate.incidence_rate} per 100,000 (${cancerCounty!.rate.incidence_trend || "trend not stated"})` : "suppressed (fewer than 16 records)"}
+                        </p>
+                        <p className="vt-site-card-trail">
+                          Mortality: {cancerCounty!.rate.mortality_rate != null ? `${cancerCounty!.rate.mortality_rate} per 100,000 (${cancerCounty!.rate.mortality_trend || "trend not stated"})` : "suppressed (fewer than 16 records)"}
+                        </p>
+                        <p className="vt-site-card-trail" style={{ paddingLeft: 8 }}>
+                          COUNTY-LEVEL AGGREGATE — not a claim about this exact point or resident. NCI State Cancer Profiles, 2018-2022.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="vt-site-card-trail">No NCI record for this county (outside NCI's US county coverage, e.g. Puerto Rico).</p>
                     )}
                   </div>
                 )}

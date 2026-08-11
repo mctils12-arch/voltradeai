@@ -46361,3 +46361,223 @@ WATCH ITEM next session: confirm on prod that aircraft_tracked.json
 exists on the volume and N843S hour-lines are accumulating at ~30s
 cadence (archive/stats + a trips/:hex read), and that the poller's
 one-request cycle shows no adsb.lol pushback in logs.
+
+## 2026-08-11 (2) (scheduled-routine session) [PRODUCT] — T-DATACORE + T-CLIENT (datacore/cdc_cancer/, scripts/cdc_cancer_rates.py, server/cdcCancer.ts, server/dossier.ts, client/src/pages/datamap.tsx) — CDC/SEER county cancer-rate choropleth, closing the last hazard layer on location_context_engine.md's list (v1.0.651)
+
+TERRITORY: T-DATACORE (new datacore/cdc_cancer/ pipeline + scripts/
+cdc_cancer_rates.py + server/cdcCancer.ts) + T-CLIENT (datamap.tsx
+choropleth layer + legend + dossier card + scripts/visual_check.mjs
+fixtures). SHARED touches kept minimal per MERGE-ORDER PROTOCOL:
+server/dossier.ts + server/routes.ts (the existing hazard cross-join
+both files already own, extended not restructured), datacore/layers.json
+(one new registry entry), package.json/package-lock.json (version bump +
+drift correction, last commit), research/location_context_engine.md +
+this entry. Solo session.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+local branch already at `origin/main` HEAD (`275fa4f`/v1.0.650/PR #754,
+the nonstop plane tracker docs entry) — no rebase needed. `research/
+open_questions.md`'s KNOWN BROKEN section read in full: nothing newly
+actionable — item #20 stays a logged design/threshold judgment awaiting
+more `rejected_masterkill` shadow data, item #29 is RESOLVED PENDING
+CONTINUED MONITORING off live evidence, no CRITICAL unfixed item. Live
+health (`curl https://voltradeai.com/api/health`): `status:"ok"`,
+`bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM. Per the PRODUCT-session routine, proceeded straight
+to product work (repair queue had nothing actionable to preempt it).
+
+PICKING THE ACTION: `research/location_context_engine.md` (the human-
+directed Location Context Engine program, 2026-07-11) explicitly names
+its own "Next concrete step" and has tracked exactly one remaining
+hazard layer — CDC/SEER county cancer rates — as queued across SIX prior
+session STATUS entries (2026-07-13, 2026-07-15 x2, 2026-07-25 x2, plus
+the original spec) without anyone claiming it. Every other item on that
+file's hazard-layer list (Superfund, EPA water violators, FEMA flood
+zones, PFAS) already shipped end-to-end (data + map + dossier join).
+Picked as this session's single highest-value PRODUCT action: gate-1
+data validation AND product UI in one well-scoped pipeline, directly
+matching the session prompt's option (a)+(b).
+
+DATA SOURCE RESEARCH (this session, live-verified): NCI's State Cancer
+Profiles (statecancerprofiles.cancer.gov) publishes a documented,
+keyless CSV export (`output=1` query param) for county-level age-adjusted
+cancer incidence AND mortality rates — the same underlying SEER+NPCR
+federal surveillance data CDC's own U.S. Cancer Statistics (USCS)
+product publishes, just via NCI's site instead of CDC WONDER (which has
+no direct county-level CSV/API — SEER*Stat only). Verified live via
+direct `curl`: 3,144 data rows each (incidence + mortality), 5-digit
+FIPS keys, a national aggregate row (FIPS 00000), and an explicit
+suppression marker (`*`) for area-sex-race categories under 16 reported
+records — public domain, no key, no scraping.
+
+READ BEFORE WRITE: read server/pfas.ts, server/femaFlood.ts, and
+server/dossier.ts in full before writing anything (the three files this
+build's shape is modeled on). Read server/dataQuality.ts for the shared
+validateRecord/coordValid/partitionValid/freshnessStatus/layerHealth
+helpers every hazard layer already reuses. Read server/routes.ts's
+`/api/data/dossier` handler and every existing hazard-layer route
+(`/api/data/superfund`, `/api/data/pfas`) before adding the new route and
+extending the dossier route. Grepped every call site of `buildDossier`
+(one, in routes.ts) and every place `DossierHazards`/`HazardSection`
+types are consumed (dossier.test.ts, datamap.tsx) before extending them.
+Confirmed `topojson-client` is ALREADY a project dependency
+(client/src/components/DataWorldMap.tsx uses it for the landing globe's
+land topology) — reused rather than adding a new dependency.
+
+BUILD:
+1. DATA (ROOT VALIDATION LADDER gate 1): `scripts/cdc_cancer_rates.py`
+   parses both CSV exports (pure `parse_csv`/`row_to_record`/`parse_name`
+   functions, no I/O in the parse path — network isolated to `fetch()`,
+   replayable via `--incidence-csv`/`--mortality-csv` for offline runs
+   and tests), joins incidence+mortality by FIPS, and GATE-1 cross-checks
+   the pulled national aggregate row against `CDC_NATIONAL_REFERENCE`
+   (446.9/146.0 per 100k, CDC's own separately-published USCS national
+   headline figures looked up this session) — a build that drifts beyond
+   10% ABORTS (`sys.exit(1)`, old artifact untouched) rather than
+   shipping unverified data. This session's real build: national
+   incidence 448.6 (0.38% diff), national mortality 145.4 (0.41% diff) —
+   PASS. 3,143 counties, 0 quarantined (one bad-FIPS-format guard exists
+   and is tested, just never triggered on the real pull). Suppressed
+   cells (9 counties in the real incidence file, e.g. Kenedy County TX
+   population ~400) become `null`, never a false zero — the CSV's own `*`
+   marker maps through `_num()` to `None`.
+2. GEOMETRY: `datacore/cdc_cancer/counties-10m.topo.json` — US Census
+   1:10m cartographic county boundaries, committed verbatim via the
+   `us-atlas` npm package (ISC license; Census data itself public
+   domain), fetched live this session (842KB, 3,231 county geometries
+   keyed by 5-digit FIPS `id`, verified live via direct download + a
+   Python structural check before committing).
+3. SERVER (`server/cdcCancer.ts`): `countyFromRecord`/`parseCountyRates`
+   re-validate at serve time (FIPS pattern, rate bounds 0-5000 as a
+   sanity ceiling only — NOT a plausibility filter, since real small
+   counties legitimately post rates well above the national figure, e.g.
+   Union County FL at 1215/100k) — defense in depth matching every other
+   hazard layer's contract. `countyGeometry`/`joinGeometryAndRates` merge
+   topology + rates by FIPS: a geometry with no rate match (89 of 3,231 —
+   Puerto Rico's 72xxx FIPS range, since "Data for United States does not
+   include Puerto Rico" per NCI's own footnote, plus a handful of
+   territory/historical-FIPS edge cases live-diffed this session) is KEPT
+   with `has_data:false`, never dropped — a missing county-shaped hole in
+   the choropleth would read as "zero risk here", the exact false claim
+   the ecological-fallacy guard forbids. `countyFipsAt(lat, lon)` — the
+   point-in-county lookup for the dossier — uses FCC's free, keyless
+   Census Block Conversions API (`geo.fcc.gov/api/census/area`,
+   live-verified this session against Harris County TX), cached ~1km
+   grid, `ready` flag, same never-cache-a-failure contract as
+   femaFlood.ts's floodZoneAt.
+4. DOSSIER (`server/dossier.ts` + `server/routes.ts`): `cancer_county`
+   added to `/api/data/dossier`'s `hazards` object — a POINT-IN-COUNTY
+   lookup, same shape family as `flood_zone` (NOT a radius list like
+   superfund/pfas/waterviolators/quakes/nuclear_tests), because "which
+   county is this point in, and what does NCI say about that whole
+   county" is categorically different from "how many things are within
+   N km" — collapsing it into a radius-count shape would itself invite
+   the ecological-fallacy misread this layer exists to prevent.
+   `routes.ts` awaits `countyFipsAt` exactly like it already awaits
+   `floodZoneAt`, keeping `buildDossier` pure/sync.
+5. CLIENT (`client/src/pages/datamap.tsx`): rendered as a MapLibre `fill`
+   choropleth (NOT points/centroids — explicitly forbidden by this file's
+   own location_context_engine.md rule, "do not ship as a point layer"),
+   fixed round-number color bands (350/425/475/525/600 per 100k, not
+   data-quantile bins, so the legend reads the same across future
+   rebuilds), a distinct neutral slate for `has_data:false`/suppressed
+   counties. Registered `field:true` in datacore/layers.json (unlike the
+   point hazard layers before it, which are `field:false`) — a fill
+   layer genuinely benefits from the existing user-adjustable opacity
+   slider infrastructure (`opacityOf`/`setFieldOpacity`) to see the
+   basemap underneath, a real UX win the point layers didn't need.
+   Legend section uses the plain `<i style={{background}}>` swatch
+   pattern (militaryNationTint/INES-severity precedent) — the DESIGN.md
+   SDF-icon-registry rule governs POINT symbols, not fill color ramps.
+   Dossier card section mirrors `showFloodZone`'s render pattern exactly.
+
+RATCHET AGAINST A KNOWN REPAIR CLASS: the R15 (2026-07-07, powergrid) and
+2026-07-25 (9 layers) sessions both had to REPAIR the same omission —
+a new registry layer shipped without a matching entry in
+`scripts/visual_check.mjs`'s hand-curated `FIXTURES["/api/data/layers"]`
+list, so the self-see/toggle-consistency/legend-parity harness batteries
+never actually exercised it. This session added `cancerrates` to that
+fixture list AND a `/api/data/cancer-rates` route fixture (two features:
+one `has_data:true`, one `has_data:false`) in the SAME PR, per the
+precedent those two repair sessions established, rather than repeating
+the gap a third time.
+
+GATES: `python3 -m pytest -q` (full suite): 1283 passed, 3 skipped, 0
+failed (16 new in `test_cdc_cancer_rates.py`, zero regressions).
+`npx tsx --test server/*.test.ts`: 1132 passed, 1 pre-existing failure
+unrelated to this change (`gridTiles.test.ts`'s "every client/public/
+tiles/*.pmtiles has the PMTiles magic" — confirmed via `git stash` this
+fails identically on pristine `origin/main`, a pre-existing environment/
+checkout gap, not touched or claimed by this session; 20 new in
+`server/cdcCancer.test.ts`, 4 new in `server/dossier.test.ts`).
+`npx tsc --noEmit -p .`: identical 10 pre-existing baseline errors
+before/after (confirmed via `git stash` diff, same lines just shifted —
+none reference the new files). `npm run build`: succeeds. `datacore/
+layers.json` validated (`server/layersRegistry.test.ts` 24/24,
+`server/layersWiring.test.ts` — the LAYER_GROUP ratchet — 1/1).
+
+VISUAL VERIFICATION (Promotion Rule 6): `npm run build && node scripts/
+visual_check.mjs --page data` at 390/768/1440px — 0 hard failures at all
+three widths (`failures: []` in `.visual/results.json` for every
+record), legend-parity `ok:15 used / 17 entries` at all three widths
+(unaffected by this PR since `cancerrates` isn't in DEFAULT_ON — it
+renders correctly when toggled, same as every other non-default hazard
+layer). Touch-target warnings present (nav/panel-chrome buttons) are
+pre-existing UI debt unrelated to this change — none reference
+`cancerrates` or "County Cancer" specifically. Screenshots reviewed
+(`.visual/data-legend-1440.png`, `.visual/data-fields-1440.png`): panel
+and legend render without layout breakage; the new section sits below
+the fold in these particular screenshot modes (same as several other
+hazard-layer legend entries), consistent with the self-see battery's own
+pass (which specifically checks off-screen/occluded/missing toggles and
+found none for `cancerrates`).
+
+BACKTEST: N/A per PROMOTION RULE 3 — RAW/FACTUAL display layer, no
+trading rule, parameter, sizing, or scoring logic touched anywhere in
+this PR.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): none into the trading loop —
+this is a product-only surface (GOAL priority 3, platform line). Into the
+Everything Graph / dossier: `cancer_county` is additive to `hazards`
+(new field, existing fields byte-identical), so no existing dossier
+consumer's shape changes. Into the visual harness: `cancerrates` joining
+`FIXTURES["/api/data/layers"]` means the self-see/toggle-consistency/
+legend-parity batteries now cover one more layer on every future run —
+strictly additive coverage, no existing check's pass/fail behavior
+changes.
+
+VERSION: 1.0.650 -> 1.0.651 (read-and-increment at commit time; also
+corrected `package-lock.json`'s two version fields, which had drifted to
+a stale `1.0.649` — one PR behind `package.json`'s `1.0.650`, same drift
+class the 2026-08-11 CSP-earnings-gate session found and fixed for a
+different pair of files earlier the same day).
+
+MARKET STATUS: session ran ~13:00-13:45 UTC (~09:00-09:45 ET), inside
+the 9:30 ET regular-hours window as of merge time — per the PRODUCT/
+REPAIR-session PR guidance this PR's merge should wait for the close
+(16:00 ET) rather than merging mid-market; noted in the PR description.
+
+NEXT (queued, not this session): Location Context Engine's hazard-layer
+list (research/location_context_engine.md) is now COMPLETE (superfund,
+water violators, flood zones, PFAS, cancer rates) — future sessions
+picking up that file should look to cross-join expansion (the "layer of
+all layers" dossier already composes all five; a future direction is
+richer cross-category correlation, e.g. surfacing a county's cancer-rate
+context alongside its PFAS/superfund hits in one synthesized read) rather
+than a new standalone hazard layer. The CDC/SEER GATE-1 reference
+constants (`CDC_NATIONAL_REFERENCE` in scripts/cdc_cancer_rates.py) are
+dated 2026-08-11 — a future rebuild session should re-confirm CDC's own
+USCS headline figures haven't advanced to a newer data year before
+assuming a gate-1 divergence is a real regression rather than a stale
+reference. The FINRA short-volume GATE 2 retest (open_questions.md,
+filed 2026-08-06) and the rest of the 2026-08-06 T-BOT code-review tail
+(VXX fallback mismatch, multi-leg gross-vs-net exit math, BS put-delta
+branch, R:R sign, COT partial-fetch freeze) remain unclaimed for a
+dedicated T-BOT session.
+
+STARVED: no — this session's single fully-scoped action (data-source
+research + read-before-write + gate-1 pipeline + server join + dossier
+extension + client choropleth + legend + visual-harness-fixture ratchet
++ full gate run) consumed its own capacity; no higher-priority queued
+item was skipped to do it.

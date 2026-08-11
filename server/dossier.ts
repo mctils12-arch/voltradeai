@@ -33,6 +33,7 @@ import type { SuperfundSite } from "./superfund";
 import type { WaterViolator } from "./waterViolators";
 import type { FloodZoneResult } from "./femaFlood";
 import type { PfasSystem } from "./pfas";
+import type { CountyLookupResult } from "./cdcCancer";
 import sitesJson from "../datacore/sites/strategic_sites.json";
 
 export const NEAREST_SITES_CAP = 5;
@@ -59,6 +60,13 @@ const FLOOD_ZONE_SOURCE = "FEMA National Flood Hazard Layer (NFHL), public domai
 const FLOOD_ZONE_NOT_LOOKED_UP: FloodZoneResult = {
   zone: null, subtype: null, sfha: null, base_flood_elevation_ft: null,
   meaning: null, source_citation: null, source: FLOOD_ZONE_SOURCE, ready: false,
+};
+
+const CANCER_COUNTY_SOURCE = "FCC Census Block Conversions API (geo.fcc.gov), county FIPS lookup";
+/** Mirrors FLOOD_ZONE_NOT_LOOKED_UP above — "opts.cancerCounty wasn't
+ *  passed at all" (no anchor, or routes.ts didn't await the lookup). */
+const CANCER_COUNTY_NOT_LOOKED_UP: CountyLookupResult = {
+  fips: null, county_name: null, state_code: null, rate: null, source: CANCER_COUNTY_SOURCE, ready: false,
 };
 
 export interface QuakeRow { d: string; pl: string; lat: number; lon: number; dep?: number | null; m?: number }
@@ -96,6 +104,15 @@ export interface DossierHazards {
    *  zone:null = genuinely outside NFHL's mapped footprint (a real answer,
    *  not a gap). See server/femaFlood.ts. */
   flood_zone: FloodZoneResult;
+  /** Point-in-county lookup at the exact anchor, same shape convention as
+   *  flood_zone: "which county is this point IN, and what does NCI's
+   *  published data say about that whole county" — never a per-point
+   *  value (ecological-fallacy guard, research/location_context_engine.md).
+   *  ready:false = not looked up / lookup failed; ready:true + fips:null =
+   *  genuinely outside FCC's coverage (rare); ready:true + fips set +
+   *  rate:null = a real county with no NCI record (suppressed or excluded,
+   *  e.g. Puerto Rico) — all three are honest, distinct states. */
+  cancer_county: CountyLookupResult;
   caveat: string;
 }
 
@@ -182,6 +199,9 @@ export function buildDossier(
      *  before calling buildDossier) — keeps this function pure/sync like
      *  every other hazard source here; null = not looked up (no anchor). */
     floodZone?: FloodZoneResult | null;
+    /** Pre-fetched (routes.ts awaits server/cdcCancer.ts's countyFipsAt
+     *  before calling buildDossier), same convention as floodZone above. */
+    cancerCounty?: CountyLookupResult | null;
   } = {},
 ): DossierResult {
   const hops = Math.max(0, Math.min(3, params.hops ?? DEFAULT_HOPS));
@@ -267,16 +287,21 @@ export function buildDossier(
         (t, km) => ({ id: `${t.d}:${t.n}`, label: t.n, km: Math.round(km * 10) / 10,
           detail: { date: t.d, country: t.c, yield_kt: t.kt ?? null } })),
       flood_zone: opts.floodZone ?? FLOOD_ZONE_NOT_LOOKED_UP,
+      cancer_county: opts.cancerCounty ?? CANCER_COUNTY_NOT_LOOKED_UP,
       caveat: "RAW cross-join within radius_km of the clicked point, each category from its own "
         + "already-validated layer (superfund.ts/waterViolators.ts/quake_history.json/nuclear_tests.json/"
         + "femaFlood.ts — "
         + "see each layer's own route for full source/date/data-quality-gate detail). total_within is the "
         + `true count inside the radius; hits is capped at ${HAZARD_CAP} nearest, capped=true means more `
         + "exist. A count of nearby records is a FACT, not a risk score — no impact/safety claim is made "
-        + "or implied here (that would be an unvalidated SIGNAL). flood_zone is different in shape: a "
-        + "point-in-polygon lookup AT the anchor itself (FEMA's own FLD_ZONE/SFHA_TF fields), not a "
-        + "radius count — null zone with ready:true means the point is outside NFHL's mapped footprint, "
-        + "never a 'minimal risk' claim.",
+        + "or implied here (that would be an unvalidated SIGNAL). flood_zone and cancer_county are "
+        + "different in shape: point-in-polygon lookups AT the anchor itself, not a radius count. "
+        + "flood_zone: null zone with ready:true means the point is outside NFHL's mapped footprint, "
+        + "never a 'minimal risk' claim. cancer_county: a COUNTY-LEVEL AGGREGATE statistic (NCI State "
+        + "Cancer Profiles) describing the whole county the point falls in — never a claim about this "
+        + "exact point, address, or resident (ecological fallacy); null rate with a real fips means the "
+        + "county exists but has no NCI record (suppressed for confidentiality, or outside NCI's US "
+        + "county coverage, e.g. Puerto Rico).",
     };
   }
 

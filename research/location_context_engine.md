@@ -257,3 +257,53 @@ hiding the exact case the toggle is for. Full trace + A/B perf-harness
 verification in experiments.md, same date. Superfund-pts/wv-pts symbols
 were already closed 2026-07-24 (separate entry above). Only CDC/SEER
 cancer rates remains queued from this file's hazard-layer list.
+
+STATUS 2026-08-11: CDC/SEER COUNTY CANCER RATES SHIPPED (hazard layer #5,
+scheduled-routine PRODUCT session) — closing the last item on this file's
+hazard-layer list, queued across six prior session entries (07-13, 07-15
+x2, 07-25) before this build. Full trace in experiments.md, same date;
+summary:
+1. DATA (ROOT VALIDATION LADDER gate 1): `scripts/cdc_cancer_rates.py`
+   pulls NCI State Cancer Profiles' own CSV export (statecancerprofiles.
+   cancer.gov, public domain SEER+NPCR data, no key) for county-of-
+   residence age-adjusted incidence AND mortality rates (All Cancer
+   Sites, 2018-2022). GATE 1 cross-checks the pulled national aggregate
+   row against CDC's own separately-published USCS national headline
+   figures (446.9/146.0 per 100k) — a build that drifts beyond 10%
+   ABORTS rather than shipping unverified data; this session's build
+   passed at 0.38%/0.41% divergence. 3,143 counties, 0 quarantined.
+2. GEOMETRY: US Census county cartographic boundaries (1:10m, via the
+   `us-atlas` npm package — ISC license, Census data itself public
+   domain), committed verbatim as `datacore/cdc_cancer/counties-10m.
+   topo.json` (842KB) and converted to GeoJSON server-side with
+   topojson-client (already a project dependency — the same library
+   client/src/components/DataWorldMap.tsx already uses for the landing
+   globe's land topology).
+3. ECOLOGICAL FALLACY GUARD (this file's own non-negotiable rule):
+   rendered as a county-polygon CHOROPLETH fill, never points/centroids
+   — a fixed-band sequential color ramp on incidence rate, a distinct
+   neutral "no NCI record" color for the 89 geometries NCI's export
+   doesn't cover (Puerto Rico, boundary edge cases) rather than dropping
+   them (a hole would read as "zero risk", the exact false claim this
+   layer must not make). Every dossier/card/legend surface states the
+   county-level-aggregate caveat verbatim.
+4. DOSSIER CROSS-JOIN: `cancer_county` added to `/api/data/dossier`'s
+   `hazards`, same point-lookup shape convention as `flood_zone` (not a
+   radius list) — "which county is this point IN" via FCC's free Census
+   Block API (geo.fcc.gov, no key), cached ~1km grid, `ready` flag.
+5. UI: `cancerrates` toggle in the hazards group, `field:true` (user-
+   adjustable opacity slider — genuinely useful for a fill layer over
+   the basemap, unlike the point layers before it), full legend band
+   swatches, dossier card section mirroring flood_zone's render pattern.
+`scripts/visual_check.mjs` fixture list updated (layers-list entry +
+`/api/data/cancer-rates` route fixture with a has_data:true/false pair)
+so the self-see/toggle-consistency/legend-parity batteries actually
+exercise this layer going forward — the R15 (2026-07-07) and 2026-07-25
+sessions both had to REPAIR this exact omission for earlier layers;
+this session did not repeat it. 20 new server tests (server/cdcCancer.
+test.ts) + 4 new dossier.test.ts cases + 16 new Python tests
+(test_cdc_cancer_rates.py). Location Context Engine's hazard-layer list
+(superfund, water violators, flood zones, PFAS, cancer rates) is now
+COMPLETE; remaining file items are the dossier UI polish debt already
+filed (superfund-pts/wv-pts symbol consolidation — already closed
+2026-07-24) and future cross-join expansion, not new hazard layers.

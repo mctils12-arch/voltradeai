@@ -160,6 +160,7 @@ const FIXTURES = {
       { id: "radiation", name: "Ambient radiation (gamma)", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "BfS · Health Canada · STUK/FMI · EPA RadNet", description: "Observed gamma dose-rate monitors, four national networks." },
       { id: "nukeaccidents", name: "Nuclear accidents & incidents", kind: "raw", status: "live", group: "hazards", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "46 accident/incident sites 1949–2024, INES-tinted." },
       { id: "pfas", name: "PFAS drinking-water detections (EPA UCMR 5)", kind: "raw", status: "live", group: "hazards", costTier: "moderate", source: "U.S. EPA UCMR 5, public domain", description: "3,417 water systems with a detected PFAS compound." },
+      { id: "cancerrates", name: "County cancer rates (NCI State Cancer Profiles)", kind: "raw", status: "live", field: true, group: "hazards", costTier: "moderate", source: "National Cancer Institute, State Cancer Profiles, public domain", description: "County-level incidence/mortality choropleth, 3,143 US counties." },
       { id: "methane_plumes", name: "Methane plumes (GEM GMET)", kind: "raw", status: "live", group: "environmental", costTier: "moderate", source: "Global Energy Monitor GMET (CC BY 4.0)", description: "Satellite methane-plume detections, nearest-asset match." },
       { id: "coal_mine_features", name: "Coal mine boundaries & infrastructure (GEM)", kind: "raw", status: "live", group: "environmental", costTier: "light", source: "Global Energy Monitor (CC BY 4.0)", description: "Mine boundary polygons + point infrastructure features." },
       // freshness (Phase 5, three of the five fixture health states so the
@@ -766,6 +767,20 @@ const FIXTURES = {
       { pwsid: "FX0000001", name: "Fixture Water System", lat: 39.1, lon: -94.6, n_analytes_detected: 2,
         population_served: 12000, detections: [{ contaminant: "PFOA", max_value: 12.4, units: "ng/L", n_detections: 3, last_detected: "2024-11-01" }] },
     ],
+  },
+  "/api/data/cancer-rates": {
+    kind: "raw", predictive: false, source: "NCI State Cancer Profiles (fixture)",
+    caveat: "COUNTY-LEVEL AGGREGATE STATISTIC ONLY (fixture)", built_at: "2026-08-11T00:00:00Z",
+    gate1: { passed: true }, county_count: 2, health: { suspect: 0, freshness: "public domain" },
+    geojson: {
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", id: "20177", properties: { fips: "20177", county: "Fixture County", state: "Kansas", has_data: true, incidence_rate: 450.0, incidence_trend: "stable", mortality_rate: 145.0, mortality_trend: "falling" },
+          geometry: { type: "Polygon", coordinates: [[[-95.8, 39.0], [-95.6, 39.0], [-95.6, 39.2], [-95.8, 39.2], [-95.8, 39.0]]] } },
+        { type: "Feature", id: "20179", properties: { fips: "20179", county: "No-Data Fixture County", state: "Kansas", has_data: false, incidence_rate: null, incidence_trend: null, mortality_rate: null, mortality_trend: null },
+          geometry: { type: "Polygon", coordinates: [[[-95.6, 39.0], [-95.4, 39.0], [-95.4, 39.2], [-95.6, 39.2], [-95.6, 39.0]]] } },
+      ],
+    },
   },
   "/api/data/radiation": {
     kind: "raw", predictive: false, source: "BfS · Health Canada · STUK/FMI · EPA RadNet (fixture)",
