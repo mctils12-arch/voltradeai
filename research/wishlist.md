@@ -2425,3 +2425,42 @@ full-detail Europe re-cut) serve from R2; the client change is one
 base-URL constant. Until decided, wave 3 is NOT blocked from BUILDING
 (extracts + stats are cheap to produce and archive) — only from
 SHIPPING the tiles to users.
+
+## 2026-08-08 — GLOBAL ALL-CIVIL LIVE ADS-B (paid) — build-first analysis attached
+
+HUMAN ASK (2026-08-08): "track planes all the time so we have the adsb
+data... every time a plane turns on we have the data all over the world
+not just the 250nm."
+
+WHAT WE BUILT FREE FIRST (shipped same day, the build-first ladder):
+1. Nonstop per-tail tracker (#753): any named plane polled 24/7, one
+   batched request; every fix archived.
+2. Day-trace backfill (#756): each tracked plane's COMPLETE current-day
+   global-network track (tar1090 trace_full, verified 1,252 points for
+   N843S) merged into our archive every 15 min — full world coverage
+   for planes we care about, at native network fidelity.
+3. Global scopes archiver (this PR): mil + LADD + PIA — the only scopes
+   adsb.lol serves globally (verified against their OpenAPI spec; no
+   all-aircraft endpoint exists) — ~1,000+ aircraft worldwide archived
+   continuously, volume-guarded.
+4. ACCUMULATION substitute: every day these run, our own archive of
+   tracked + global-scope + viewport traffic deepens — time turns the
+   free feeds into the paid product for the planes that matter to us.
+
+WHAT ONLY MONEY BUYS: live positions for ALL ~10-20k airborne civil
+aircraft simultaneously. Free providers structurally cannot offer it
+(radius-capped queries); ADSBExchange sells exactly this
+(commercial API, global firehose). Price: ADSBExchange Enterprise API
+from ~$100/mo (rate-limited tiers) — needs a quote for the firehose.
+ALSO NOTE adsblol/globe_history GitHub dumps (free, ODbL): full global
+per-day history tarballs — a future ingestion pipeline could give us
+PAST global data without paying; assets are multi-GB/day so selective
+per-hex extraction needs design (not built yet; filed as the free
+deepening path before any spend).
+
+RECOMMENDATION: do not buy yet. The per-tail tracker + trace backfill
+covers named-plane use cases completely; global scopes cover the
+highest-signal traffic (military). Buy only if a validated signal needs
+the full civil firehose (e.g. airport-level traffic counts as an
+economic indicator — that hypothesis should pass ladder gate 2 on
+sampled data first).
