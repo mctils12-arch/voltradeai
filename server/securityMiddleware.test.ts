@@ -421,3 +421,42 @@ test("index.ts mounts security middleware before routes register", () => {
   assert.ok(src.includes('app.use("/api/auth/login"'), "strict limiter on login path");
   assert.ok(src.includes('app.use("/api/auth/register"'), "strict limiter on register path");
 });
+
+// ── AUTH ISOLATION (field lockout 2026-08-11) ───────────────────────────────
+// The owner's sign-in 429'd ("Too many requests" ON the login page): auth
+// actions shared the api bucket + the scraping velocity scorer, so the same
+// household IP's busy map tabs starved the login POST. Auth now has its own
+// small rate lane and is exempt from the scraping scorer — while
+// createStrictAuthLimiter keeps owning real attempt-counting and lockouts.
+
+test("auth isolation: a FULL api bucket never 429s the login path; auth lane keeps its own ceiling", async () => {
+  _resetRateLimit();
+  const tiny = { api: { windowMs: 60_000, max: 3 }, auth: { windowMs: 60_000, max: 5 },
+                 tiles: { windowMs: 60_000, max: 100 }, default: { windowMs: 60_000, max: 100 } };
+  const s = await serve((app) => {
+    app.use(globalRateLimit(() => 1000, tiny as any));
+    app.all(/.*/, (_q, r) => r.send("ok"));
+  });
+  try {
+    for (let i = 0; i < 4; i++) await fetch(`http://127.0.0.1:${s.port}/api/data/aircraft`);
+    const data = await fetch(`http://127.0.0.1:${s.port}/api/data/aircraft`);
+    assert.equal(data.status, 429, "api bucket genuinely full");
+    const login = await fetch(`http://127.0.0.1:${s.port}/api/auth/login`, { method: "POST" });
+    assert.equal(login.status, 200, "login must never starve behind map polling (the 2026-08-11 lockout)");
+    for (let i = 0; i < 6; i++) await fetch(`http://127.0.0.1:${s.port}/api/auth/login`, { method: "POST" });
+    const over = await fetch(`http://127.0.0.1:${s.port}/api/auth/login`, { method: "POST" });
+    assert.equal(over.status, 429, "the auth lane still has its own ceiling");
+  } finally {
+    await s.close();
+  }
+});
+
+test("routeClass: auth paths classify to the auth lane; antiScraping scoped() exempts them", async () => {
+  const { routeClass } = await import("./rateLimit");
+  assert.equal(routeClass("/api/auth/login"), "auth");
+  assert.equal(routeClass("/api/auth/reset-confirm"), "auth");
+  assert.equal(routeClass("/api/data/aircraft"), "api");
+  const { scoped } = await import("./antiScraping");
+  assert.equal(scoped("/api/auth/login"), false, "scraping scorer must never gate sign-in");
+  assert.equal(scoped("/api/data/aircraft"), true, "data surface stays scored");
+});
