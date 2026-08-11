@@ -36,11 +36,20 @@ export const GLOBAL_LIMITS: Record<string, RouteClassLimit> = {
   tiles: { windowMs: 60_000, max: 3000 },
   // API/data endpoints: dashboards poll; /data map hydrates many layers.
   api: { windowMs: 60_000, max: 1200 },
+  // AUTH ISOLATION (field lockout 2026-08-11: the owner's login 429'd —
+  // "Too many requests" ON THE SIGN-IN PAGE): auth actions previously
+  // shared the api bucket, so the same household IP's busy map tabs
+  // (phone + two PCs poll /api hard) starved the login POST. Auth gets
+  // its OWN small lane: 30/min is far beyond any human's clicking and
+  // far below useful brute force — and createStrictAuthLimiter (wired in
+  // index.ts) still owns real attempt-counting and lockouts on top.
+  auth: { windowMs: 60_000, max: 30 },
   // Everything else (pages, static assets).
   default: { windowMs: 60_000, max: 2000 },
 };
 
 export function routeClass(path: string): keyof typeof GLOBAL_LIMITS {
+  if (path.startsWith("/api/auth/")) return "auth";
   if (path.startsWith("/tiles")) return "tiles";
   if (path.startsWith("/api")) return "api";
   return "default";

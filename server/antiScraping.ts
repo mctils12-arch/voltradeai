@@ -57,6 +57,12 @@ export const AS_CONFIG = {
  *  exempt so a tile-heavy map never scores as a scraper. Honeypots live under
  *  /api so they are always in scope. */
 export function scoped(path: string): boolean {
+  // AUTH EXEMPTION (field lockout 2026-08-11): velocity accumulated by the
+  // same IP's map polling was throttling the login POST. Auth abuse is
+  // owned by createStrictAuthLimiter (attempt counting + lockouts) and the
+  // dedicated auth rate-limit lane — the scraping scorer must never gate a
+  // human's sign-in because their other tabs are busy.
+  if (path.startsWith("/api/auth/")) return false;
   return path.startsWith("/api");
 }
 
