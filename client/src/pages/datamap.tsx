@@ -583,10 +583,26 @@ function bmark(step: string, extra: Record<string, unknown> = {}): void {
   bbMark(BOOT_STORE, BOOT_STARTED_AT, Date.now(), step, extra);
 }
 bmark("module-eval", { safe: BOOT_SAFE, prevCrashed: BOOT_REPORT.prevCrashed, streak: BOOT_REPORT.consecutive });
-if (BOOT_REPORT.prevCrashed) {
+if (BOOT_REPORT.prevCrashed || BOOT_REPORT.prevEndedAbruptly) {
+  // SILENT capture (human directive 2026-08-08: no startup popup). The full
+  // report — formerly behind the popup's copy button — goes to the console
+  // AND localStorage so it stays one paste away when someone asks for it;
+  // recovery behavior (safe mode) is unchanged, just quiet.
+  const payload = JSON.stringify({
+    report: lastCrashReport(BOOT_STORE),
+    boot: {
+      prevCrashed: BOOT_REPORT.prevCrashed,
+      prevEndedAbruptly: BOOT_REPORT.prevEndedAbruptly,
+      prevAliveMs: BOOT_REPORT.prevAliveMs,
+      prevSurvivedMs: BOOT_REPORT.prevSurvivedMs,
+      prevTrail: BOOT_REPORT.prevTrail,
+    },
+    glLosses: (() => { try { return JSON.parse(window.localStorage.getItem("vt-gl-loss-log") ?? "[]"); } catch { return []; } })(), // = GL_LOSS_LOG_KEY (declared below — TDZ)
+    safeMode: BOOT_SAFE, streak: BOOT_REPORT.consecutive, ua: navigator.userAgent,
+  }, null, 1);
+  try { window.localStorage.setItem("vt-last-crash-payload", payload); } catch { /* console below */ }
   // eslint-disable-next-line no-console
-  console.error("[VT BOOT] previous boot never became healthy",
-    { survivedMs: BOOT_REPORT.prevSurvivedMs, streak: BOOT_REPORT.consecutive, trail: BOOT_REPORT.prevTrail });
+  console.error("[VT CRASH REPORT]", payload);
 }
 
 const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
@@ -2104,7 +2120,6 @@ export default function DataMapPage() {
   // from never mounting them.
   const [mapSettled, setMapSettled] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [crashNoticeDismissed, setCrashNoticeDismissed] = useState(false);
   // BOOT HEALTH + HEARTBEAT. Two separate jobs, deliberately not conflated:
   //  · the 20s wall-clock timer declares the BOOT healthy. It must not depend on
   //    map "idle" — tiles can be slow or fail entirely (they never load at all in
@@ -12073,65 +12088,11 @@ export default function DataMapPage() {
           <span>Loading map…</span>
         </div>
       )}
-      {/* CRASH RECOVERY BANNER (2026-07-30): the previous boot never became
-          healthy — most likely the renderer was killed (OOM) or the tab died,
-          neither of which runs any of our code, so this is the first moment we
-          can say anything about it. Reduced mode is already applied; the report
-          is one click away because the human's copy-paste is the only channel
-          that reaches a real GPU from here. */}
-      {(BOOT_REPORT.prevCrashed || BOOT_REPORT.prevEndedAbruptly) && !crashNoticeDismissed && (
-        <div className="vt-gl-lost" role="status">
-          <div className="vt-gl-lost-card">
-            <strong>{BOOT_REPORT.prevCrashed ? "Recovered from a crash" : "Last session ended unexpectedly"}</strong>
-            <p>
-              The last session stopped responding{(() => {
-                const ms = BOOT_REPORT.prevCrashed ? BOOT_REPORT.prevSurvivedMs : BOOT_REPORT.prevAliveMs;
-                return ms != null ? ` after ${Math.round(ms / 1000)}s` : "";
-              })()}
-              {BOOT_REPORT.consecutive > 1 ? ` (${BOOT_REPORT.consecutive} times in a row)` : ""}.
-              {BOOT_SAFE ? " The map is running in reduced mode (flat projection) so it can start cleanly." : ""}
-              {BOOT_REPORT.prevTrail.length
-                ? ` Last thing it did: ${String(BOOT_REPORT.prevTrail[BOOT_REPORT.prevTrail.length - 1]?.step ?? "?")}.`
-                : ""}
-            </p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-              <button onClick={() => {
-                const payload = JSON.stringify({
-                  report: lastCrashReport(BOOT_STORE),
-                  // the full boot verdict — a late renderer kill leaves no
-                  // context-loss snapshot, so these fields (how long the dead
-                  // session lived, that it never closed cleanly) can be the
-                  // ONLY evidence of it (live gap found 2026-07-31)
-                  boot: {
-                    prevCrashed: BOOT_REPORT.prevCrashed,
-                    prevEndedAbruptly: BOOT_REPORT.prevEndedAbruptly,
-                    prevAliveMs: BOOT_REPORT.prevAliveMs,
-                    prevSurvivedMs: BOOT_REPORT.prevSurvivedMs,
-                    prevTrail: BOOT_REPORT.prevTrail,
-                  },
-                  glLosses: (() => { try { return JSON.parse(window.localStorage.getItem("vt-gl-loss-log") ?? "[]"); } catch { return []; } })(),
-                  safeMode: BOOT_SAFE, streak: BOOT_REPORT.consecutive, ua: navigator.userAgent,
-                }, null, 1);
-                try { void navigator.clipboard?.writeText(payload); } catch { /* console below */ }
-                // eslint-disable-next-line no-console
-                console.error("[VT CRASH REPORT]", payload);
-                setCrashNoticeDismissed(true);
-              }}>Copy crash report</button>
-              <button
-                style={{ background: "transparent", border: "1px solid rgba(148,163,184,.4)", color: "#cbd5e1" }}
-                onClick={() => {
-                  resetAll(BOOT_STORE, ["vt-map-globe", "vt-terrain-exag", "vt-map-preset", "vt-map-fs", "vt-field-opacity"]);
-                  window.location.reload();
-                }}
-              >Reset view &amp; reload</button>
-              <button
-                style={{ background: "transparent", border: "1px solid rgba(148,163,184,.4)", color: "#cbd5e1" }}
-                onClick={() => setCrashNoticeDismissed(true)}
-              >Dismiss</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* CRASH RECOVERY is silent now (human directive 2026-08-08: no
+          startup popup): the report auto-writes to the console and
+          localStorage 'vt-last-crash-payload' at module eval; safe mode
+          still applies quietly and surfaces as a one-line note in the
+          layers panel beside the version-skew banner. */}
       {mapError && (
         <div className="vt-map-skeleton">
           <div className="vt-gl-lost-card" role="alert">
@@ -12201,6 +12162,13 @@ export default function DataMapPage() {
               <div className="vt-skew-note" role="status">
                 Site updated to v{versionSkew} (you're on v{CLIENT_VERSION}) —
                 reload the page to enable the newest layers.
+              </div>
+            )}
+            {BOOT_SAFE && !BOOT_QS.get("reset") && (
+              <div className="vt-skew-note" role="status">
+                Reduced mode: the last visit ended during startup, so this one
+                boots flat-projection for a clean start. Nothing is disabled —
+                the globe returns after a healthy session.
               </div>
             )}
             {/* Site-wide unit system (human directive 2026-07-13): every

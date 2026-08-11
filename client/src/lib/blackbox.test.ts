@@ -152,3 +152,38 @@ test("resetAll clears recorder state AND the caller's preference keys", () => {
     assert.equal(s.getItem(k), null, `${k} cleared`);
   }
 });
+
+test("closing the tab DURING startup is a navigation, not a crash (2026-08-08 field false positive)", () => {
+  // the human's payload: healthy trail to first-idle, tab closed at 10.0s —
+  // a hair before the ~10.2s healthy-idle mark — and the next visit booted
+  // into safe mode with a crash banner. pagehide (→ closeCleanly) must
+  // disarm the boot marker: real crashes never fire pagehide.
+  const s = mem();
+  bootBegin(s, 1000, "b1");
+  mark(s, 1000, 3200, "first-idle");
+  closeCleanly(s); // pagehide before bootComplete
+  const r2 = bootBegin(s, 60_000, "b2");
+  assert.equal(r2.prevCrashed, false, "graceful exit before the healthy mark is not a crash");
+  assert.equal(r2.consecutive, 0);
+  assert.equal(shouldRunSafe(r2), false, "no safe mode after a deliberate close");
+});
+
+test("a REAL startup death (no pagehide) is still detected after the false-positive fix", () => {
+  const s = mem();
+  bootBegin(s, 1000, "b1");
+  mark(s, 1000, 1600, "map-create");
+  // no closeCleanly, no bootComplete: GPU death / OOM kill runs nothing
+  const r2 = bootBegin(s, 60_000, "b2");
+  assert.equal(r2.prevCrashed, true, "real crashes must keep being detected");
+  assert.equal(r2.consecutive, 1);
+});
+
+test("SOURCE RATCHET: the crash popup stays deleted; the silent capture stays wired (human directive 2026-08-08)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../pages/datamap.tsx", import.meta.url), "utf-8");
+  assert.ok(!src.includes("Copy crash report"), "the startup crash popup came back — the human asked for it gone");
+  assert.ok(!src.includes("Recovered from a crash"), "crash-banner JSX reappeared");
+  assert.ok(src.includes('window.localStorage.setItem("vt-last-crash-payload"'),
+    "silent crash-payload capture removed — the report must stay one paste away");
+  assert.ok(src.includes("[VT CRASH REPORT]"), "console capture removed");
+});
