@@ -28,7 +28,15 @@ import zlib from "zlib";
 import readline from "readline";
 import { pipeline } from "stream/promises";
 
-export const RAW_RETENTION_DAYS = 7;
+// 7 -> 30 (human directive 2026-08-11: "store all the data some how for up
+// to a month for all planes... this should be for all thing track like
+// boats plane"). Applies to every archive kind. Expected effect: raw
+// (gzipped after ~2h) grows to roughly 4x the 7-day steady state; the
+// global-scopes volume guard (1 GiB floor) pauses the fastest writer
+// first, and the human's stated future direction is MORE storage, never
+// offloading — so retention rises now and the guard is the safety.
+// Rollup past this window still runs (coarse per-day polylines).
+export const RAW_RETENTION_DAYS = 30;
 export type ArchiveKind = "aircraft" | "vessels" | "trains";
 
 // Strategic sites (lat, lon) — near these we keep full resolution. Loaded

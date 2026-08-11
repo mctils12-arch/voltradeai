@@ -86,8 +86,8 @@ test("fullTrackAsync reads ALL retained days (not 48h), keeps c/al/g, respects t
 
 test("tripsCoverage states the raw-retention bound and the thinning caveat", () => {
   const c = tripsCoverage();
-  assert.equal(c.raw_days, 7);
-  assert.match(c.note, /retained 7 days/);
+  assert.equal(c.raw_days, 30);
+  assert.match(c.note, /retained 30 days/);
   assert.match(c.note, /lower bounds/);
 });
 

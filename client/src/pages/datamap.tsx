@@ -13229,10 +13229,10 @@ export default function DataMapPage() {
                   cardTrips.error ? (
                     <span className="vt-legend-note">trip history unavailable right now</span>
                   ) : cardTrips.trips.length === 0 ? (
-                    <span className="vt-legend-note">no archived trips in the last 7 days (raw-fix retention window)</span>
+                    <span className="vt-legend-note">no archived trips in the last 30 days (raw-fix retention window)</span>
                   ) : (
                     <div className="vt-trips-list">
-                      <span className="vt-legend-note">Trips — our own archive, last 7 days ({cardTrips.trips.length}):</span>
+                      <span className="vt-legend-note">Trips — our own archive, last 30 days ({cardTrips.trips.length}):</span>
                       {cardTrips.trips.slice(0, 8).map((t: any) => {
                         const d0 = new Date(t.start_t * 1000);
                         const durMin = Math.round(t.duration_s / 60);
