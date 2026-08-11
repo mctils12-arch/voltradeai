@@ -46828,3 +46828,55 @@ promised, pending).
    stands.
 
 STARVED: no (queue: curtain-on-video, QC-2 airports, TIME MACHINE T-1).
+
+## 2026-08-11 [REPAIR] — AIS vessel feed dark since ~Aug 5: open-socket-zero-frames blind spot closed, layer status honesty fixed, feed made self-diagnosing (v1.0.658)
+
+TERRITORY: T-DATACORE (vesselStream.ts + its routes.ts consumers).
+Trigger: the human asked "what happened to the ais api key".
+
+DIAGNOSIS TRAIL (the misdirections matter): (1) the /data panel said
+"awaiting API key" -> first (wrong) conclusion: key vanished from
+Railway. Human corrected: key still set. (2) /api/data/vessels said
+enabled:true — key IS visible to the server; the panel label was a BUG:
+the 08-06 health rewrite's healthy branch returned the STATIC registry
+entry, whose stored status is "awaiting_key" — a healthy keyed feed
+displayed "needs key" and derailed the diagnosis. (3) The route's
+honesty fields settled the real state: feed_silent_s ABSENT = zero
+frames ever received on an OPEN socket. (4) A bogus-key probe against
+wss://stream.aisstream.io shows invalid keys are CLOSED within ~3s —
+so an open silent socket means the key is VALID and aisstream is
+accepting-but-starving us. Prime suspect: aisstream's one-connection-
+per-key rule (something else holds the slot) or an account-side limit;
+neither is provable from our side. Archive stopped ~Aug 5 — BEFORE the
+08-06 watchdog shipped, so the original death was the known
+no-redial-after-close defect; every boot since reconnects into
+silence the watchdog cannot see: its own comment admitted "with no
+frame ever and no timestamp, only disconnection is provable."
+
+FIX (one subsystem, three legs, all tested): (a) vesselFeedHealth
+gains connectedAtMs — a connected socket with NO frame ever goes
+zombie once the CONNECT time passes the silence threshold, so the
+watchdog terminates+redials and the status turns honestly "down";
+(b) layer-panel decision extracted to pure vesselLayerStatus() —
+healthy now returns "live", never the static registry value; (c)
+frame-visibility diagnostics in the route: feed_frames/feed_parsed
+counters + a truncated sample of the last unparseable frame, so a
+future schema change or error payload is diagnosable from the public
+route without log access. +3 tests (one documents the old blind spot
+explicitly).
+
+WHAT ONLY THE HUMAN CAN DO, requested: log into aisstream.io and
+check the key's status; REGENERATING the key (then updating Railway)
+instantly evicts any other connection holding the slot — the cleanest
+fix if the one-connection rule is the cause. ~6 days of vessel
+archive are permanently gone (Priority-1 class: gaps never refill);
+shadow-fleet and port-dwell products are starved the same span.
+
+RECURRENCE NOTE (HEALTH OF THE LOOP rule 4): this is the SECOND
+repair on this subsystem in 5 days (08-06 #718, today). If the feed
+dies again after the key regeneration, the next session must do
+root-cause architecture work (e.g. connection telemetry to aisstream
+support, or the paid-tier/alternative-provider wishlist path), not a
+third patch.
+
+BACKTEST: N/A (data feed plumbing; no trading logic).
