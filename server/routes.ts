@@ -27,8 +27,9 @@ import datacoreBoundariesAdmin1 from "../datacore/boundaries/ne_50m_admin1_lines
 import { version as pkgVersion } from "../package.json";
 import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
-  recentTrackCached, archiveStats,
+  recentTrackCached, archiveStats, archiveBaseDir,
 } from "./datacoreArchive";
+import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1241,11 +1242,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const id = String(req.params.id || "").slice(0, 24);
     if (!id) return res.status(400).json({ error: "id required" });
     try {
+      // plane-tracking T2: ?from=&to= (unix sec) replays a SPECIFIC archived
+      // trip over the whole raw window — the default path keeps the legacy
+      // 48h/500-point recent read untouched.
+      const fromSec = parseInt(String(req.query.from || ""), 10);
+      const toSec = parseInt(String(req.query.to || ""), 10);
+      if (Number.isFinite(fromSec) && Number.isFinite(toSec) && toSec > fromSec) {
+        const fixes = await fullTrackAsync(kind, id, archiveBaseDir(),
+          { fromSec, toSec, maxPoints: 2000 });
+        return res.json({ kind, id, points: fixes.map((f) => ({ t: f.t, la: f.la, lo: f.lo, al: f.al ?? undefined })),
+                          count: fixes.length, range: { from: fromSec, to: toSec },
+                          note: fixes.length === 0 ? "no archived positions in this range (raw fixes retained 7 days)" : undefined });
+      }
       const points = await recentTrackCached(kind, id);
       res.json({ kind, id, points, count: points.length,
                  note: points.length === 0 ? "no archived positions yet for this id (archive began 2026-07-03)" : undefined });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "track read failed" });
+    }
+  });
+
+  // Plane-tracking T2 (human directive 2026-08-08): per-plane trip history
+  // sessionized from the raw archive. Expensive whole-window scan -> 5-min
+  // TTL per-hex cache (32-entry FIFO).
+  const tripsCache = new Map<string, { at: number; data: any }>();
+  app.get("/api/data/aircraft/trips/:hex", async (req, res) => {
+    const hex = String(req.params.hex || "").toLowerCase().slice(0, 6);
+    if (!/^[0-9a-f]{6}$/.test(hex)) return res.status(400).json({ error: "icao24 hex required" });
+    const hit = tripsCache.get(hex);
+    if (hit && Date.now() - hit.at < 300_000) return res.json(hit.data);
+    try {
+      const fixes = await fullTrackAsync("aircraft", hex, archiveBaseDir(), {});
+      const trips = splitTrips(fixes);
+      const data = {
+        hex, trips, trip_count: trips.length,
+        coverage: tripsCoverage(),
+        source: "our own ADS-B archive (adsb.lol et al., as-broadcast)", kind: "raw",
+      };
+      tripsCache.set(hex, { at: Date.now(), data });
+      if (tripsCache.size > 32) {
+        const oldest = Array.from(tripsCache.entries()).sort((a, b) => a[1].at - b[1].at)[0];
+        if (oldest) tripsCache.delete(oldest[0]);
+      }
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "trips read failed" });
     }
   });
 
