@@ -181,7 +181,12 @@ export function mapPointAircraft(raw: any, arrKey: string): any[] {
     return {
       icao24: a.hex,
       callsign: String(a.flight || "").trim(),
-      origin_country: a.r || "",
+      // `r` is the aircraft REGISTRATION (tail number, e.g. N8667D) in the
+      // readsb schema — it was mislabeled origin_country from 2026-07-03
+      // until 2026-08-08 and displayed as "Country" on the flight card
+      // (identity repair, plane-tracking T1). Country now comes from the
+      // icao24 hex allocation client-side (lib/air/planeIdentity).
+      registration: a.r || "",
       lon: a.lon,
       lat: a.lat,
       altitude_m: altFt == null ? null : Math.round(altFt * 0.3048),

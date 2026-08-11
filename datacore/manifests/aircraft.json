@@ -5,7 +5,7 @@
  "source": "adsb.lol (ODbL 1.0; primary) + airplanes.live + adsb.fi (non-commercial fallbacks)",
  "license": "ODbL 1.0 (primary); fallbacks personal/non-commercial \u2014 monetization tripwire applies",
  "attribution": "adsb.lol + airplanes.live + adsb.fi",
- "schema_version": 1,
+ "schema_version": 2,
  "field_map": {
   "t": "unix sec UTC",
   "i": "icao24 hex (entity key)",
@@ -17,7 +17,8 @@
   "v": "ground speed m/s, rounded (omitted when unknown)",
   "h": "heading deg",
   "ty": "ICAO type",
-  "ca": "emitter category"
+  "ca": "emitter category",
+  "rg": "registration/tail number as broadcast (schema v2 2026-08-08, additive; omitted when not broadcast)"
  },
  "confidence_model": "as-broadcast ADS-B; no inference applied at archive time",
  "geo_fields": [
