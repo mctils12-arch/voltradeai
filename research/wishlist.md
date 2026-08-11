@@ -2464,3 +2464,63 @@ highest-signal traffic (military). Buy only if a validated signal needs
 the full civil firehose (e.g. airport-level traffic counts as an
 economic indicator — that hypothesis should pass ladder gate 2 on
 sampled data first).
+
+## ⚠️ BLOCKED-FOR-MIKE — AIS VESSEL FEED DARK SINCE 2026-08-05 (escalated 2026-08-11; RECURRENCE RULE TRIGGERED — two code fixes have not restored it, the remaining lever is the aisstream ACCOUNT, which only you can touch)
+
+WHAT IS LOST, measured (not estimated): the vessel archive's newest file
+is `vessels/2026-08-05-13.jsonl.gz` while `aircraft` is current to
+`2026-08-11-22` — so **~6.4 days of global AIS positions were never
+recorded**. Per CLAUDE.md Priority 1, "an archive gap never refills":
+this is permanently missing history, and every further day compounds it.
+Downstream, everything AIS-derived is silently degraded — shadowFleet /
+shadowstats (dark-ship), portdwell, vessel tracks, and the vessels layer
+(live count 0).
+
+WHY THIS IS ESCALATED RATHER THAN PATCHED AGAIN. CLAUDE.md's
+"RECURRENCE ESCALATES" rule: an issue already marked fixed that breaks
+again may NOT be patched a third time — two failed fixes on one
+subsystem is an architecture/environment smell that gets proposed as
+structural work here.
+- Fix #1 (2026-08-06): reconnect watchdog + last-frame liveness tracking.
+- Fix #2 (2026-08-11, v1.0.658, PR #769, a CONCURRENT session — not this
+  one): correctly identified that fix #1 was blind to a socket that
+  never receives a first frame (no frame -> no timestamp -> no zombie
+  verdict), made the watchdog redial on connect-time silence, fixed the
+  panel status, and added feed_frames/feed_parsed instrumentation.
+Both fixes are sound. Neither restored data flow.
+
+EVIDENCE THE REMAINING CAUSE IS THE ACCOUNT, NOT OUR CODE (verified live
+by me 2026-08-11 against prod v1.0.661, two samples 45 s apart):
+`count=0 frames=0 parsed=0`, and `feed_silent_s` RESETS each cycle
+(14 s -> 60 s), i.e. the watchdog IS redialing every 60 s and each fresh
+socket receives ZERO frames — a clean reconnect loop with no data.
+PR #769's own probe result is the key discriminator: a deliberately
+bogus key gets CLOSED by aisstream within seconds, so a socket that
+stays OPEN and silent means **our key is accepted and then starved**.
+Their stated suspicion, which the reset-pattern above is consistent
+with: a **one-concurrent-connection-per-key limit**, with our slot held
+by something else (a leaked connection from an earlier container, or
+more than one instance/replica dialing the same key).
+
+WHAT ONLY YOU CAN DO (any one of these likely resolves it):
+1. Log in to aisstream.io and check the account/key state: is the key
+   still active, is there a concurrent-connection cap, is there a
+   quota/abuse flag or a "connection already in use" indication?
+2. REGENERATE the key and update AISSTREAM_KEY in Railway. If the cause
+   is a stale server-side session holding our one allowed connection, a
+   new key sidesteps it immediately.
+3. Confirm whether Railway is running MORE THAN ONE instance/replica of
+   the service. If so, every replica dials the same key and they starve
+   each other — that is an architecture question (single-dialer
+   election, or a dedicated worker) and I will build the fix once the
+   replica count is known. Please state the replica count.
+4. If aisstream has become unreliable for our use, say so and I will do
+   the BUILD-FIRST provider survey for a terrestrial-AIS alternative
+   (the last survey is at wishlist.md ~line 1376; ODbL/commercial terms
+   must clear the MONETIZATION TRIPWIRE, same as the ADS-B chain).
+
+UNTIL RESOLVED — honest state: the vessels layer reads 0 and the panel
+now says so (PR #769 fixed the "needs API key" mislabel). No fabricated
+positions are served. The SAR dark-ship validation idea filed in
+open_questions.md the same day is BLOCKED behind this: there is no live
+AIS to validate against while the feed is dark.
