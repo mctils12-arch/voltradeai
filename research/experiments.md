@@ -46935,3 +46935,15 @@ innerlines + 5.5KB dateline measured in-session; tz-lookup CC0 for
 crossings — curtain color breaks + slider marks + auto-on toggle);
 TIME MACHINE T-1 window endpoint -> T-2 selectors -> T-3 MultiTrack
 curtain fleet -> T-4 vessels parity (earth_twin charter). STARVED: no.
+
+## 2026-08-11 (5) — [PRODUCT] Time zone lines shipped (#774, v1.0.661)
+
+Territory: T-CLIENT + layers.json (SHARED, one entry). First timezone
+slice: self-hosted 0.88MB innerlines asset (tz-boundary-builder 2025b
+ODbL, merged-today + 5% simplify, 129 features: land borders + date
+line/ocean meridians), registry toggle (base group), violet/amber
+styling, honesty note in status + legend. Zero server cost.
+REMAINING (task open): crossing slice — @photostructure/tz-lookup
+(CC0) dep, curtain color breaks + slider marks + auto-on for
+zone-crossing flights; then TIME MACHINE T-1. Day closed at 12 merged
+PRs (v1.0.654-661).
