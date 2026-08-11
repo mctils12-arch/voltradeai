@@ -47,6 +47,7 @@ export interface AircraftPoint {
   heading: number | null;
   type?: string | null;      // ICAO type designator when the feed provides it
   category?: string | null;  // ADS-B emitter category when provided
+  registration?: string | null; // tail number when broadcast (plane-tracking T1, 2026-08-08)
 }
 
 export interface VesselPoint {
@@ -148,6 +149,10 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
       v: p.velocity_ms == null ? undefined : Math.round(p.velocity_ms),
       h: p.heading == null ? undefined : Math.round(p.heading),
       ty: p.type || undefined, ca: p.category || undefined,
+      // rg added 2026-08-08 (schema_version 2, additive): tail-number search
+      // over history needs the registration IN the archive — the FAA spine
+      // only covers matched US hexes
+      rg: p.registration || undefined,
     }));
   }
   try { appendLines("aircraft", lines, base, new Date(now)); } catch (e: any) {

@@ -115,6 +115,7 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // altitude curtain reach the plane's CURRENT position instead of ending at
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
+import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -7802,7 +7803,7 @@ export default function DataMapPage() {
             rank: rankOf(String(a.icao24 || a.callsign || "")),
             heading: a.heading ?? 0,
             callsign: a.callsign || a.icao24, icao24: a.icao24,
-            country: a.origin_country, type: a.type || "",
+            reg: a.registration, type: a.type || "",
             alt: a.altitude_m, ground: !!a.on_ground,
             kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
           },
@@ -7879,10 +7880,14 @@ export default function DataMapPage() {
         setDetail({
           kind: "aircraft",
           title: `✈ ${p.callsign}`,
-          subtitle: `${cls}${p.type ? ` · ${p.type}` : ""} · ${p.country || "—"}`,
+          subtitle: `${cls}${p.reg ? ` · ${p.reg}` : ""} · ${typeInfo(p.type).label || p.type || "—"}`,
           facts: [
-            { label: "Type", value: p.type || "—" },
-            { label: "Country", value: p.country || "—" },
+            // identity repair 2026-08-08: readsb `r` is the REGISTRATION —
+            // it rendered as "Country" here for a month. Country now decodes
+            // from the icao24 allocation block (labeled, honest null).
+            { label: "Aircraft", value: typeInfo(p.type).label || p.type || "—" },
+            { label: "Reg", value: p.reg || "—" },
+            { label: "Country (ICAO alloc)", value: countryFromIcao24(p.icao24) ?? countryFromRegistration(p.reg) ?? "—" },
             { label: "ICAO24", value: String(p.icao24 || "—") },
           ],
           sourceTag: "ADS-B",
@@ -7978,7 +7983,7 @@ export default function DataMapPage() {
       void onAircraftClickProps({
         cls: classifyAircraft(a.type, a.category),
         callsign: a.callsign || a.icao24, icao24: a.icao24,
-        country: a.origin_country, type: a.type || "",
+        reg: a.registration, type: a.type || "",
         alt: a.altitude_m, ground: !!a.on_ground, heading: a.heading ?? 0,
         kts: a.velocity_ms == null ? null : Math.round(a.velocity_ms * 1.944),
       }, ll);
