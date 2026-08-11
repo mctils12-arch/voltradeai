@@ -112,3 +112,18 @@ test('parseLayout: container dims (cw/ch) survive round-trip; absent stays absen
   const bad = parseLayout(JSON.stringify({ p: { pos: { left: 100, top: 50, cw: -5, ch: "x" } } }));
   assert.deepEqual(bad.p, { pos: { left: 100, top: 50 } });
 });
+
+test("restore clamp uses the RENDERED panel size — a remembered bottom-corner spot cannot strand the card off-screen (2026-08-11 DETAILS fix)", () => {
+  // old behavior: only the 80x60 grip corner had to stay visible, so a
+  // 352x480 card restored at the bottom-left rendered as one floating row
+  const cw = 1440, ch = 900;
+  const remembered = { left: 10, top: ch - 70 }; // legal under the old grip clamp
+  const dragClamp = clampPos(remembered, cw, ch); // no element size = drag semantics
+  assert.equal(dragClamp.top, ch - 70, "drags keep grip-corner freedom");
+  const restoreClamp = clampPos(remembered, cw, ch, 352, 480);
+  assert.equal(restoreClamp.top, ch - 480, "restore pulls the card fully on-screen");
+  assert.equal(restoreClamp.left, 10);
+  // a panel LARGER than the container pins to 0, never negative
+  const huge = clampPos({ left: 500, top: 500 }, 300, 200, 400, 400);
+  assert.deepEqual(huge, { left: 0, top: 0 });
+});

@@ -92,10 +92,19 @@ export function parseLayout(raw: string | null | undefined): PanelLayout {
 
 /** Clamp a container-relative position so the panel's grip corner stays
  *  reachable inside a container of the given size. Pure. */
-export function clampPos(pos: PanelPos, cw: number, ch: number): PanelPos {
+export function clampPos(pos: PanelPos, cw: number, ch: number, ew?: number, eh?: number): PanelPos {
+  // DETAILS-stranding fix (recon-proven 2026-08-11): restores pass the
+  // panel's RENDERED size so the WHOLE panel stays on-screen — the old
+  // grip-corner-only clamp let a remembered bottom-left spot mount the
+  // 352px x <=60vh card almost fully clipped, leaving just its DETAILS row
+  // floating over the scale bar. Drags (no ew/eh) keep grip-corner freedom
+  // so a panel can still be pushed mostly out of the way on purpose; the
+  // restore snap-back is what ends the stranded state.
+  const keepX = ew && ew > 0 ? ew : PANEL_KEEP_X;
+  const keepY = eh && eh > 0 ? eh : PANEL_KEEP_Y;
   return {
-    left: Math.max(0, Math.min(Math.max(0, cw - PANEL_KEEP_X), pos.left)),
-    top: Math.max(0, Math.min(Math.max(0, ch - PANEL_KEEP_Y), pos.top)),
+    left: Math.max(0, Math.min(Math.max(0, cw - keepX), pos.left)),
+    top: Math.max(0, Math.min(Math.max(0, ch - keepY), pos.top)),
   };
 }
 
@@ -161,7 +170,7 @@ export function applyPanelPos(el: HTMLElement | null, id: string): boolean {
       (Math.abs(box.width - src.cw) > 1 || Math.abs(box.height - src.ch) > 1)) {
     src = { left: src.left * (box.width / src.cw), top: src.top * (box.height / src.ch) };
   }
-  const p = clampPos(src, box.width, box.height);
+  const p = clampPos(src, box.width, box.height, el.offsetWidth || undefined, el.offsetHeight || undefined);
   freezeWidth(el);
   el.style.left = `${p.left}px`;
   el.style.top = `${p.top}px`;

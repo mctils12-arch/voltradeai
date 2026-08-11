@@ -10,7 +10,7 @@ import {
   sampleAt,
   headingAt,
   distMeters,
-  trimToCurrentFlight,
+  trimToCurrentFlight, trimToCurrentFlightWithAirborne,
   TRACK_DENSIFY_M,
   TRACK_MAX_SAMPLES,
   RAMP_LO,
@@ -195,4 +195,41 @@ test('trimToCurrentFlight: never-airborne track keeps only the trailing hour; sh
   // clean continuous flight untouched (same array back)
   const clean = [mk(0, 3000), mk(300, 3100), mk(600, 3200)];
   assert.equal(trimToCurrentFlight(clean), clean, 'no-trim returns the input array');
+});
+
+// ── trimToCurrentFlightWithAirborne (curtain-truth repair 2026-08-11) ───────
+// Recon run 6 proved the "curtain disappeared" reports were a parked plane
+// whose newest post-landing block (a 1-minute taxi sliver) was all the map
+// ever received, while the altitude chart showed the whole flight.
+
+test("parked plane: the last FLIGHT draws, with the trailing ground fixes kept for continuity", () => {
+  const HOUR = 3600;
+  const flight = [
+    { t: 0, la: 40.0, lo: -74.0, al: null },        // taxi out
+    { t: 60, la: 40.1, lo: -74.1, al: 3000 },
+    { t: 120, la: 40.5, lo: -74.5, al: 11000 },
+    { t: 180, la: 40.9, lo: -74.9, al: 400 },
+  ];
+  // landing dwell + parked-for-hours tail (the newest "current flight" block)
+  const parked = [1000, 1000 + HOUR, 1000 + 2 * HOUR].map((t) => ({ t, la: 41.0, lo: -75.0, al: null }));
+  const raw = [...flight, ...parked];
+  const cur = trimToCurrentFlight(raw);
+  assert.ok(!cur.some((p) => p.al != null), "precondition: plain trim yields the ground-only sliver");
+  const out = trimToCurrentFlightWithAirborne(raw);
+  assert.ok(out.some((p) => p.al === 11000), "the flight is back in the draw set");
+  assert.equal(out[out.length - 1].t, 1000 + 2 * HOUR, "trailing ground fixes kept to the parked position");
+});
+
+test("currently-airborne plane: identical to trimToCurrentFlight (no behavior change live)", () => {
+  const raw = [
+    { t: 0, la: 40, lo: -74, al: null },
+    { t: 60, la: 40.1, lo: -74.1, al: 5000 },
+    { t: 120, la: 40.2, lo: -74.2, al: 9000 },
+  ];
+  assert.deepEqual(trimToCurrentFlightWithAirborne(raw), trimToCurrentFlight(raw));
+});
+
+test("pure ground log (never airborne anywhere): unchanged old behavior", () => {
+  const raw = [0, 60, 120].map((t) => ({ t, la: 40, lo: -74, al: null }));
+  assert.deepEqual(trimToCurrentFlightWithAirborne(raw), trimToCurrentFlight(raw));
 });

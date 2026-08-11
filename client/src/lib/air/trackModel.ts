@@ -105,6 +105,27 @@ export const FLIGHT_PARKED_KEEP_SEC = 60 * 60;
  *     the takeoff);
  *  3. never airborne at all → the trailing FLIGHT_PARKED_KEEP_SEC.
  */
+
+/** CURTAIN TRUTH (repro-proven 2026-08-11, recon run 6): for a plane that
+ *  LANDED hours ago, trimToCurrentFlight's newest block is the post-landing
+ *  taxi/parked sliver — the altitude chart showed the flight while the map
+ *  curtain got 253 ground samples (sub-pixel beyond ~z11), reading as "the
+ *  curtain disappeared". When the newest block never flew, re-trim from the
+ *  newest AIRBORNE fix so the last flight draws, and keep the trailing
+ *  ground fixes for continuity to the parked position. A track with no
+ *  airborne fix anywhere (pure ground log) keeps the old behavior. */
+export function trimToCurrentFlightWithAirborne(raw: RawTrackPoint[]): RawTrackPoint[] {
+  const cur = trimToCurrentFlight(raw);
+  if (cur.some((p) => p.al != null)) return cur;
+  let k = -1;
+  for (let i = raw.length - 1; i >= 0; i--) {
+    if (raw[i].al != null) { k = i; break; }
+  }
+  if (k < 0) return cur;
+  const flight = trimToCurrentFlight(raw.slice(0, k + 1));
+  return flight.concat(raw.slice(k + 1));
+}
+
 export function trimToCurrentFlight(raw: RawTrackPoint[]): RawTrackPoint[] {
   const pts = raw.filter((p) => p != null && Number.isFinite(p.t));
   if (pts.length < 2) return raw;
