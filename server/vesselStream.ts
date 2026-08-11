@@ -69,9 +69,35 @@ export function vesselFeedHealth(
 export function vesselLayerStatus(
   enabled: boolean,
   vh: VesselFeedHealth | null,
+  neverFramed?: boolean,
 ): { status: string; status_note?: string } {
   if (!enabled) return { status: "awaiting_key" };
+  // [repair 2026-08-11 round 2, caught by a live check-in] the watchdog
+  // redials every ~3 min, and each redial RESET the silence clock — so a
+  // feed that has never delivered a single frame read "live" for 179 of
+  // every 180 seconds. That is the exact "dead feed advertising live"
+  // failure mode the trains override exists to prevent. Frames-ever is
+  // process-scoped and immune to the redial cycle, so it decides first.
+  if (neverFramed)
+    return {
+      status: "down",
+      status_note: "connected to aisstream but ZERO frames received since startup — key is valid (bad keys are closed in seconds); upstream is accepting and not sending. Reconnect watchdog active.",
+    };
   if (vh && vh.down)
     return { status: "down", status_note: "AIS socket down/silent — reconnect watchdog active; auto-recovers" };
   return { status: "live" };
+}
+
+/** True when the process has received NO aisstream frame at all and the
+ *  silence threshold has passed since its FIRST connect — deliberately not
+ *  the latest redial, which resets every few minutes. */
+export function vesselNeverFramed(
+  framesEver: number,
+  firstConnectAtMs: number,
+  nowMs: number,
+  silentThresholdMs: number = VESSEL_SILENT_THRESHOLD_MS,
+): boolean {
+  if (framesEver > 0) return false;
+  if (firstConnectAtMs <= 0) return false; // never connected yet — not a verdict
+  return nowMs - firstConnectAtMs > silentThresholdMs;
 }

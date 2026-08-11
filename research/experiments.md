@@ -47002,3 +47002,103 @@ REMAINING (task open): crossing slice — @photostructure/tz-lookup
 (CC0) dep, curtain color breaks + slider marks + auto-on for
 zone-crossing flights; then TIME MACHINE T-1. Day closed at 12 merged
 PRs (v1.0.654-661).
+
+## 2026-08-11 [REPAIR] — archived-trip replay: the axis stretched to wall-clock now; trip chips said "⚠" instead of what the classifier decided; local clock unlabeled (v1.0.663)
+
+TERRITORY: T-CLIENT. Human report on a live session, four complaints:
+"halfway thru it switch to the other log and stops playing", "i want it
+to fill the whole altitude time graph", "its still in zulu time and
+where are the time zones", "so many logs but they dont follow the rules
+a flight".
+
+SUPERSESSION (constitution: first-merged wins, salvage the unique
+delta). Two concurrent sessions landed while this one diagnosed:
+- #770 (v1.0.659) fixed the log-swap — same root cause found here
+  independently (the 30s track refresh re-fetched the RECENT track with
+  no range, so mid-replay the samples swapped, the playhead fell past
+  the new end, and snap-back-to-live killed playback). THEIR fix is
+  better than the one drafted here: they pass activeTrailRangeRef so
+  the replay still refreshes WITHIN its own window; this session's
+  draft simply skipped the refresh. Dropped mine, kept theirs.
+- #772 (v1.0.660) shipped local time in the panel. A units.ts-based
+  time-zone PREFERENCE (toggle + formatters + tests) was drafted here
+  and DELETED rather than shipped alongside — two parallel time
+  systems is exactly the rule-debt the audits exist to prevent. If a
+  UTC/local toggle is wanted it is a separate proposal, not a
+  duplicate mechanism.
+
+WHAT WAS STILL BROKEN ON MAIN (this PR):
+1. AXIS DOMAIN. The video-editor timeline always extends to NOW —
+   correct for a live track, wrong for closed history: a 90-minute trip
+   flown 10h ago drew in the leftmost ~13% of the chart. Fixed by a
+   `historical` prop feeding one pure rule (profileEdgeSec: live => now,
+   history => its own last fix), plus: no snap-back-to-live at the end
+   of history (there is no live to snap to), and the axis/clock end at
+   t1. VERIFIED BY PROBE before the supersession rebase: axis
+   12:13:18Z–13:43:18Z (the trip's own 90 min, not stretched to a 10h
+   span) and playback still running at t+38s across the refresh tick.
+2. TRIP CHIPS. Every non-"complete" classification rendered as a bare
+   "⚠", so a cruise-altitude coverage pass looked like a broken
+   26-minute FLIGHT. The QC-1 classifier was RIGHT — the UI just never
+   said what it decided. Now: TAXI ONLY / PARTIAL (joined mid-air) /
+   PASS-THROUGH (no takeoff/landing seen) / SIGNAL LOST AIRBORNE.
+   The human's "they dont follow the rules a flight" was a correct
+   reading of a mislabeled UI, not a data defect.
+3. LOCAL CLOCK UNLABELED. #772's local time answered "not zulu" but
+   not "where are the time zones" — an unlabeled local time is
+   ambiguous. The viewer's zone abbreviation now sits next to the
+   clock. Found and fixed a real smell while doing it: the formatter
+   was being constructed per call (Intl.DateTimeFormat is among the
+   slowest browser APIs, and this paints per rAF frame during replay)
+   — now built once and day-cached.
+
+PERF-GATE HONESTY. Three of five harness runs failed the 1440 p95 gate
+(367/383/417/483ms vs 350). NOT attributed to this change, and the
+reason is structural rather than a hunch: the perf window runs at
+scripts/visual_check.mjs:1399 and the first flight-card interaction at
+:2265, so FlightProfilePanel is NOT MOUNTED while frames are sampled —
+the changed code is provably outside the measured path. Machine load
+averaged 4+ throughout from work outside this session. A rebuilt-main
+baseline run passed. Same MEASUREMENT-DEBT flake class already filed
+2026-07-20 and 2026-07-31; the zero-cost battery passed every run.
+
+BACKTEST: N/A (client UX; no trading logic).
+
+## 2026-08-11 [REPAIR] — round 2 on the AIS honesty fix: the redial cycle was masking a never-alive feed (v1.0.664)
+
+Found by this session's own scheduled check-in on #769 — the kind of
+follow-up the PR-watch cadence exists for. Live prod read:
+feed_frames 0, feed_silent_s 179, panel status "LIVE".
+
+THE HOLE IN MY OWN FIX. #769 made a never-a-frame socket go zombie by
+running the silence clock from CONNECT time. It works — the watchdog
+terminates and redials about every 3 minutes. But each redial RESETS
+that clock, so the layer read "live" for 179 of every 180 seconds
+while zero ships had ever arrived. That is precisely the "empty feed
+that claims live status" failure mode the trains override was built
+for; my fix caught the zombie and then handed the panel back its lie
+on the next redial.
+
+FIX: frames-ever is process-scoped and immune to the redial cycle, so
+it decides first. vesselNeverFramed(framesEver, FIRST-connect, now) —
+deliberately the first connect of the process, never the latest socket
+— and vesselLayerStatus consults it before the health verdict. The
+WATCHDOG keeps its per-socket clock (redial cadence unchanged at ~3
+min; making it 60s would hammer aisstream and could worsen the
+suspected one-connection-per-key starvation). +2 tests, one pinning
+the exact masking behavior.
+
+DIAGNOSIS UNCHANGED, now stated with more force: an open socket that
+has delivered ZERO frames since startup, with a key aisstream would
+close in seconds if it were invalid, means upstream is accepting us
+and not sending. The status note now says exactly that instead of the
+generic "socket down/silent". Still the human's move: regenerate the
+aisstream key (evicts anything holding the key's single connection
+slot) and update Railway.
+
+METHOD NOTE worth keeping: this was caught because the check-in
+re-read the LIVE endpoint rather than trusting the merge. A fix
+verified once at deploy time can still be wrong on a cycle longer than
+the verification window — 179 seconds, in this case.
+
+BACKTEST: N/A (feed status honesty; no trading logic).

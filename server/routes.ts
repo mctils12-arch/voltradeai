@@ -39,7 +39,7 @@ import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, a
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
-import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, vesselNeverFramed } from "./vesselStream";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
@@ -816,7 +816,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const vh = enabled
               ? vesselFeedHealth(vesselSocket?.readyState ?? null, vesselLastMsgAt, Date.now(), undefined, vesselSocketUp)
               : null;
-            return { ...l, ...vesselLayerStatus(enabled, vh) };
+            const never = enabled && vesselNeverFramed(vesselFrames, vesselFirstConnectAt, Date.now());
+            return { ...l, ...vesselLayerStatus(enabled, vh, never) };
           })()
       : l.id === "fires"
         ? { ...l, status: firmsEnabled() ? "live" : "awaiting_key" }
@@ -1056,6 +1057,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // without these. frames counts every ws message; parsed counts frames that
   // yielded a usable position/static; the odd-frame sample surfaces schema
   // changes or aisstream error payloads directly in the route response.
+  // FIRST connect of this process — never reset by the watchdog's redials,
+  // so "no frames ever" cannot be masked by a fresh socket (round-2 fix)
+  let vesselFirstConnectAt = 0;
   let vesselFrames = 0;
   let vesselParsed = 0;
   let vesselLastOddFrame = "";
@@ -1074,6 +1078,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       vesselSocket = ws;
       ws.on("open", () => {
         vesselSocketUp = Date.now();
+        if (!vesselFirstConnectAt) vesselFirstConnectAt = vesselSocketUp;
         ws.send(JSON.stringify({
           APIKey: key,
           // GLOBAL coverage. Honest limit (stated in the layer panel):
@@ -1198,6 +1203,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       feed_silent_s: vh.silentMs != null ? Math.round(vh.silentMs / 1000) : undefined,
       last_message_at: vesselLastMsgAt || undefined,
       feed_frames: vesselFrames,
+      feed_never_framed: vesselNeverFramed(vesselFrames, vesselFirstConnectAt, now) || undefined,
       feed_parsed: vesselParsed,
       feed_odd_frame: (vesselFrames > 0 && vesselParsed === 0 && vesselLastOddFrame) || undefined,
       ...hit.data,
