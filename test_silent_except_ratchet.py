@@ -72,7 +72,7 @@ BASELINE = {
     "ml_toggle.py": 1,
     "options_execution.py": 6,
     "options_manager.py": 10,
-    "options_scanner.py": 14,
+    "options_scanner.py": 13,
     "position_sizing.py": 3,
     "probability_engine.py": 1,
     "risk_kill_switch.py": 12,

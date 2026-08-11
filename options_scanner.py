@@ -72,7 +72,7 @@ except ImportError:
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
 
 logger = logging.getLogger("options_scanner")
@@ -634,10 +634,14 @@ def _fetch_iv_rank(ticker: str) -> Optional[float]:
 
 
 
-def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:
+def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str, int], bool]:
     """
     Fetch earnings calendar from Finnhub.
-    Returns {ticker: days_to_earnings} for all companies reporting within days_ahead.
+    Returns ({ticker: days_to_earnings}, lookup_ok). lookup_ok is False only
+    when the Finnhub request/parse itself failed (network error, bad
+    response, timeout) — callers need this distinguished from a genuinely
+    empty calendar (lookup_ok=True, result={}) so a fetch failure doesn't
+    get silently read as "nobody has earnings soon" by every caller.
     """
     result: Dict[str, int] = {}
     try:
@@ -659,8 +663,20 @@ def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:
                 except Exception:
                     pass
     except Exception:
-        pass
-    return result
+        return result, False
+    return result, True
+
+
+def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:
+    """
+    Backward-compatible wrapper over _fetch_earnings_calendar_with_status()
+    for callers that only need the calendar itself (a lookup failure and a
+    genuinely empty calendar both surface as {} here — callers who need to
+    distinguish the two, e.g. CSP earnings scoring, should call
+    _fetch_earnings_calendar_with_status() directly instead).
+    """
+    cal, _ok = _fetch_earnings_calendar_with_status(days_ahead=days_ahead)
+    return cal
 
 
 def _fetch_price(ticker: str) -> Optional[float]:

@@ -46147,3 +46147,191 @@ past ADS-B data, all in the map.
 
 STARVED: no (both human directives complete; queue: 12 mediums,
 DEVICE ENVELOPE D2/D3, wishlist proposal C awaiting human).
+
+## 2026-08-11 (scheduled-routine session) [REPAIR] — T-BOT (csp_universe.py, options_scanner.py) + SHARED version bump — CSP earnings gate fails open on a Finnhub calendar fetch failure, the sibling finding the 2026-08-09 earnings-scalar fix left unclaimed (v1.0.649, PR #752)
+
+TERRITORY: T-BOT (`csp_universe.py`, `options_scanner.py`,
+`test_csp_earnings_gate_fail_closed.py`) + `test_silent_except_ratchet.py`
+(pin correction, same file the finding touches) + `package.json`/
+`package-lock.json` (SHARED, version bump, last commit per MERGE-ORDER
+PROTOCOL). Solo session.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`
+showed local (`claude/busy-fermi-g3nv6j`, reset from a prior merged PR)
+already at `origin/main` HEAD (`0d1599b`, v1.0.648, PR #751, plane-
+tracking suite wrap-up) — no rebase needed. `research/experiments.md`
+tail and `open_questions.md`'s KNOWN BROKEN section read (both confirmed
+clean — no open numbered items — consistent with the 2026-08-10 session's
+own note that the repair queue had nothing new to hand). Loop-health
+ratio over the last 10 tagged PRs by git log (#742 REPAIR KNOWN-BROKEN-29
+v1.0.640, #743 PRODUCT SEC-13F-v1 v1.0.641, #744 REPAIR KNOWN-BROKEN-10
+v1.0.642, #745 RESEARCH illiquid-mean-reversion v1.0.643, #746 REPAIR
+crash-popup v1.0.644, #747 PIPELINE D1-demand-ledger v1.0.645, #748
+REPAIR+PRODUCT aircraft-registration v1.0.646, #749 PRODUCT trip-history
+v1.0.647, #750 PRODUCT watchlist v1.0.648, #751 docs/PRODUCT-wrap
+v1.0.648): 3-4 REPAIR / 4-5 PRODUCT / 1 PIPELINE / 1 RESEARCH — under the
+7/10 thrash bar, no meta-problem. Live health
+(`curl https://voltradeai.com/api/health`): `status:"ok"`,
+`bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM. `/api/diag/audit` requires an owner token this
+session doesn't hold (`{"error":"unauthorized"}`) — no live audit-log bug
+surfaced or ruled out directly, consistent with prior sessions' access
+limitation note in `open_questions.md` item #4.
+
+PICKING THE ACTION: with KNOWN BROKEN clean and no live audit-log access,
+went to the standing code-review backlog every recent T-BOT-adjacent
+session has named but left unclaimed: the 2026-08-09 #6 session's own NEXT
+note explicitly identified `csp_universe.py::_score_earnings`'s "CSP
+earnings gate fails open" finding as the direct sibling of the
+`position_sizing.py` earnings-scalar bug it had just fixed (v1.0.635) —
+same shape, different file/data-source — and deliberately did not bundle
+it into that PR. No later session had claimed it as of this session's
+start (grepped `research/experiments.md` for "CSP earnings gate" — only
+the original 2026-08-09 filing and its own restatements came up, no fix
+entry). Well-scoped, real correctness bug, matches a proven fix pattern —
+picked it as this session's single highest-value action.
+
+READ BEFORE WRITE: read `csp_universe.py::_score_earnings` and its one
+call site (`_layer2_score`, line 728) and `options_scanner.py::
+_fetch_earnings_calendar` in full this session before touching either.
+Grepped every caller of `_fetch_earnings_calendar` across the repo (not
+from memory): `csp_universe.py` (the one in scope), `options_scanner.py`
+itself (the earnings-IV-crush setup at line 1753 — an empty calendar
+there just means "no IV-crush candidates found," already fail-safe, not
+a bug), and `sim_trading_day_v2.py` (a smoke test that WARNs on empty,
+already tolerant). Also found `position_sizing.py:617`'s own, unrelated,
+same-named `_fetch_earnings_calendar()` (an already-dead Alpaca stub, per
+the 2026-08-09 session's own note distinguishing it from the yfinance-
+based function that session fixed) — confirmed via import path
+(`csp_universe.py` imports from `options_scanner`, not `position_sizing`)
+that this session's fix touches only the correct, live Finnhub-based
+function.
+
+ROOT CAUSE: `_fetch_earnings_calendar()`'s outer `try/except Exception:
+pass` made "Finnhub genuinely has nobody reporting in the window" and
+"the request/parse itself failed" indistinguishable — both produced `{}`.
+`_score_earnings()`'s `earnings_cal.get(ticker, 99)` then treated a
+missing ticker in either case identically: `days=99` -> the `else`
+branch -> `100.0` ("no earnings concern"), the single most permissive
+score in the 0/10/50/80/100 tier ladder. Any Finnhub outage, rate limit,
+or malformed response therefore gave every CSP candidate in that scan the
+maximum earnings-safety score, silently, on the exact factor meant to
+penalize proximity to an earnings gap.
+
+FIX (v1.0.649): new `_fetch_earnings_calendar_with_status(days_ahead)`
+returns `(calendar, lookup_ok)` — `lookup_ok=False` only on the genuine
+outer-exception path (does not cache a failure; a transient hiccup just
+gets nothing cached and retries next scan). `_fetch_earnings_calendar()`
+becomes a thin backward-compatible wrapper (unpacks the tuple, returns
+just the dict) — its two other call sites needed zero changes.
+`_layer2_score()` now calls the `_with_status` variant and threads
+`earnings_lookup_ok` through to `_score_earnings(ticker, earnings_cal,
+lookup_ok=earnings_lookup_ok)`, which gains a `lookup_ok: bool = True`
+parameter (defaults True for any caller not yet updated): `lookup_ok=
+False` returns `80.0` unconditionally — the same mild-caution tier
+already used for "15-30 days out" — instead of falling through to the
+99-day default's `100.0`. A confirmed-successful fetch that legitimately
+found nobody reporting soon for a given ticker is UNCHANGED (still
+`100.0`); this is deliberately not a RULE REVIEW threshold retune — none
+of the five existing tier values (0/10/50/80/100) changed, only the
+previously-unhandled "we don't actually know" branch stopped inheriting
+the most permissive one by default. Rollback trigger (per the risk-
+threshold-change discipline, stated here since this composite-score
+factor feeds trade selection): if live evidence shows the lookup-failure
+branch firing often enough to meaningfully suppress CSP candidate volume
+with no corresponding gap-loss evidence recovered, revert the `80.0` to
+`100.0` for that specific branch.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `earnings` is one of 7 factors
+in `_layer2_score`'s composite (`0.10 * earnings`, 10% weight) AND gates
+a hard `if earnings <= 10: continue` rejection filter. Fetch-failure
+tickers now score 80 (unchanged from before at the filter boundary — 100
+and 80 both clear `> 10`), so the REJECTION filter's behavior is
+identical pre/post fix; only the composite score for every candidate in
+an affected scan drops by `0.10 * (100 - 80) = 2.0` points during a
+Finnhub outage, a proportionate nudge rather than a blocking change. No
+interaction with liquidity/stability/historical/IV-rank/VRP/skew scoring,
+sizing, or the master-kill-switch machinery — this factor is independent
+and composes additively into the same weighted sum it always has.
+
+RATCHET: 10 new tests in `test_csp_earnings_gate_fail_closed.py` — unit
+coverage of `_score_earnings`'s lookup_ok branching (failure -> 80
+regardless of stale dict contents; confirmed-empty -> 100 unchanged;
+default-True backward compat; all five day-tiers unchanged when
+lookup_ok=True), `_fetch_earnings_calendar_with_status`'s exception ->
+`(*, False)` and success -> `(*, True)` paths (mocked `requests.get`, no
+network dependency), the backward-compatible wrapper, and one
+`_layer2_score`-level wiring test proving a fetch failure actually reaches
+`_score_earnings` as `lookup_ok=False` (required a `tmp_path`-isolated
+`SCORES_CACHE_PATH` — first draft reused a fixed `/tmp` path across two
+debug invocations and silently short-circuited through
+`_layer2_score`'s own on-disk cache on the second run, a caching gotcha
+worth noting for future sessions instrumenting this function directly).
+A/B-verified via `git stash`: 8 of the 10 fail on pre-fix code (the
+expected `AttributeError` for the `_with_status` function not existing
+yet, or wrong-value assertions against the old always-permissive
+behavior); the 2 backward-compatibility tests correctly still pass
+pre-fix (nothing about default/unqualified-caller behavior changed).
+Fixing this also DROPPED `options_scanner.py`'s silent-broad-except count
+from 14 to 13 (the old `except Exception: pass` became a distinguishable
+`except Exception: return result, False`) —
+`test_silent_except_ratchet.py`'s per-file pin lowered 14 -> 13 in the
+same commit, per that test's own self-correcting instruction (mirrors the
+2026-08-09 session's identical ratchet-tightening for `position_sizing.py`
+3->4->3... — same mechanism, this session's file).
+
+GATES: `python3 -m pytest -q test_silent_except_ratchet.py
+test_csp_earnings_gate_fail_closed.py test_csp_universe_layer2_prefetch.py
+test_csp_universe_layer1_stats.py test_options_scanner_surface_score_scan_budget.py
+test_options_scanner_surface_score_dead_compute.py`: 36/36 passed (10 new
++ 26 pre-existing in directly-adjacent files, confirming no interaction
+with the 2026-07-19 Layer-2-prefetch instrument or the surface-score
+tests). Full `python3 -m pytest -q` (fresh container needed
+`pip install pytest numpy pandas scipy lightgbm openpyxl yfinance requests`
+first — same recurring clean-container gap prior sessions have logged):
+1267 passed, 3 skipped, 0 failed. No `.ts`/`.tsx` files touched
+(confirmed via `git status --short`: only `csp_universe.py`,
+`options_scanner.py`, `test_csp_earnings_gate_fail_closed.py`,
+`test_silent_except_ratchet.py`, `package.json`, `package-lock.json`
+changed) — `npx tsc --noEmit`/`npm run build`/VISUAL VERIFICATION do not
+apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — none of the five existing earnings-
+proximity tiers changed, no sizing/entry/exit rule changed; this only
+assigns a value (`80.0`) to a previously-unhandled data-fetch-failure
+branch that had inherited `100.0` by omission, not by design. No sizing
+behavior changes for any scan where the Finnhub calendar fetch actually
+succeeds, confirmed-empty or populated alike.
+
+VERSION DRIFT NOTE: `package.json` was at `1.0.648` (matching
+`origin/main` HEAD) but `package-lock.json`'s two version fields had
+drifted to a stale `1.0.643` (last touched by PR #745, three PRs behind
+HEAD — apparently not every intervening PR re-ran an npm command that
+touches the lockfile's own version field). Not something this session
+introduced; corrected in the same commit rather than compounding it
+further — both files now read `1.0.649`.
+
+MARKET STATUS: session ran ~07:00 ET (pre-market, before the 9:30 ET
+open) — no merge-timing restriction from the PRODUCT/REPAIR-session PR
+guidance (only applies mid-market); this PR merges once CI is green.
+
+NEXT (queued, not this session): the rest of the 2026-08-06 code-review
+tail remains unclaimed — VXX fallback ticker mismatch (still unlocated
+after several prior sessions' targeted greps), multi-leg gross-vs-net
+exit math, rounding handling full heat budget, BS put-delta branch, R:R
+sign, COT partial-fetch freeze, UnboundLocalError dead code, 4 low client
+papercuts. The CDC/SEER county-cancer-rate hazard layer
+(research/location_context_engine.md, still unbuilt) and the FINRA
+short-volume GATE 2 retest (open_questions.md, filed 2026-08-06) remain
+the two standing PRODUCT/RESEARCH candidates named by recent sessions.
+Plane-tracking's own filed NEXT items (registration-based archive search
+endpoint, watched-plane notifications, trips >7d rollup) and the
+DEVICE ENVELOPE D2/D3 device-envelope harness slices remain queued for
+T-CLIENT sessions.
+
+STARVED: no — this session's single fully-scoped action (locate the
+unclaimed sibling finding + read-before-write + diagnose + fix + 10 new
+tests + ratchet-pin correction + full-suite gate run + version-drift
+correction) consumed its own capacity; no higher-priority queued item was
+skipped to do it.
