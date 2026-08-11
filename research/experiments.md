@@ -46766,3 +46766,33 @@ trips now render from backfilled density (curtain replay of a
 1,252-point day); (3) rollup pressure: 7-day retention at global-scope
 volume means bigger hour files — compress/rollup timings may need a
 look. STARVED: no.
+
+## 2026-08-11 — [PRODUCT] 30-day retention + trip-replay UX shipped (#760/#761, v1.0.654-655); TIME MACHINE v2 designed
+
+Territory: server archive + T-CLIENT. Human directives (with screenshot
+of the tracker working live): month-long storage for all tracked kinds;
+past-log click zooms to the flight's area with curtain + follow; Time
+Machine needs a real time scale and all-plane curtains; neutral search
+example.
+
+1. #760: RAW_RETENTION_DAYS 7->30 (all kinds; prior 7 since 07-03;
+   rollback trigger = free space trending under the 1GiB guard before
+   rollup relief). Politeness: global scopes 60s->120s after prod
+   showed adsb.lol failing over to airplanes.live + pia errors (all
+   our pollers share one Railway IP). Coverage notes interpolate the
+   constant.
+2. #761: trip chip fitBounds to the trip's own bbox (maxZoom 11), THEN
+   curtain replay; follow-in-replay confirmed already-working by
+   construction (rig reads the shared flight clock — same code path as
+   live); placeholder N843S->N123AB.
+3. TIME MACHINE v2 design filed in earth_twin_program.md (A3
+   deepening): T-1 hex-multiplexed window endpoint (one stream pass
+   per hour file, viewport-bounded, honest N-of-M caps), T-2
+   window/step selectors, T-3 MultiTrackLayer batched curtain fleet
+   (one GL layer), T-4 vessels parity. Two scope questions posed to
+   the human in-session; SCALE-lawful defaults declared absent answers.
+
+WATCH: volume growth under 30-day retention (guard at 1GiB floor;
+free was 3.6GB at ship); feed-error banner class on the aircraft layer
+(provider pressure — politeness change should reduce it, verify next
+session). STARVED: no (T-1 is next unblocked).

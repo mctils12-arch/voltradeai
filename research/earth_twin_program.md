@@ -1289,3 +1289,37 @@ Every body: real position or absent — never decorative placement.
   live-map DOM canvas composited over the Moon's near-field patch;
   occlusion was real geometry, compression was NOT the cause,
   "Earth + Moon always true" verified to hold for position AND size).
+
+## TIME MACHINE v2 (human directive 2026-08-11 — A3 time-axis deepening; design filed, first slice next)
+
+DIRECTIVE (verbatim intent): the Time Machine "just shows dots — it
+should have a time scale so mins or hours different thing to choose
+from, and when on it shows the curtains for all planes and the path
+tracked"; applies to every tracked kind (planes now, boats same
+machinery); backed by the 30-day raw retention shipped v1.0.654.
+
+DESIGN:
+- T-1 WINDOW ENDPOINT (server): /api/data/aircraft/window?bbox=&from=
+  &to=&zoom= — every hex with fixes in the window∩bbox, per-hex point
+  arrays, LOD-decimated by zoom (SCALE S1 law: viewport-bounded, never
+  the power grid in Albania), per-response caps stated honestly
+  (returned N of M hexes — zoom in). Same reader family as
+  fullTrackAsync but hex-multiplexed in ONE stream pass per hour file
+  (not per-hex scans — a window read must not be O(hexes) file walks).
+- T-2 SCRUBBER CONTROLS (client): window selector (1h/6h/24h/7d/30d)
+  x step selector (1min/5min/15min/1h) replacing the fixed hours-back
+  slider; playback speed unchanged; LIVE badge/return unchanged.
+- T-3 CURTAIN FLEET (client): a MultiTrackLayer batching N track
+  geometries into one buffer/draw (FlightTrackLayer's geometry fn per
+  hex, concatenated — one GL layer, not N layers; drape-order and
+  context-restore rules inherited). Zoom-tiered cap on simultaneous
+  curtains (fallback: draped 2D paths for the rest) with the honest
+  "showing N of M" note. The replay dots ride the same window payload.
+- T-4 VESSELS PARITY: same endpoint shape + scrubber for vessels
+  (paths, no altitude curtains — depth later per ships×bathymetry
+  idea in scale_program).
+OPEN QUESTIONS FOR THE HUMAN (asked in-session 2026-08-11): (a) cap
+preference — at wide zooms, prefer MORE curtains at lower fidelity or
+FEWER at full fidelity? (b) does "all planes" include the global
+mil/ladd/pia archive at world zoom (thousands) or in-viewport traffic
+only (the SCALE-lawful default I will build absent an answer)?
