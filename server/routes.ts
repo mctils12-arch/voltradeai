@@ -31,6 +31,7 @@ import {
 } from "./datacoreArchive";
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
+import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1265,6 +1266,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!reg) return res.status(400).json({ error: "invalid tail number" });
     trackedPoller.mutate((r) => removeTracked(r, reg));
     res.json({ ok: true, planes: trackedPoller.getRegistry().planes });
+  });
+
+  // GLOBAL SCOPES ARCHIVER (human directive 2026-08-08 "all over the
+  // world"): mil/ladd/pia — the only globally-served free scopes (verified
+  // against adsb.lol's OpenAPI: no all-aircraft endpoint exists) — archived
+  // every 60s, ~1,000+ aircraft worldwide/cycle, volume-guarded so the
+  // bot's state writes always outrank archive growth. All-civil global
+  // live is paid-only (wishlist entry with build-first analysis).
+  const globalScopes = startGlobalScopes({
+    fetchImpl: fetch,
+    headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+    sites: ARCHIVE_SITES,
+  });
+  app.get("/api/data/aircraft/global_scopes", (_req, res) => {
+    const st = globalScopes.getStatus();
+    res.json({
+      status: st, scopes: GLOBAL_SCOPES, poll_s: GLOBAL_POLL_MS / 1000,
+      source: "adsb.lol global scope endpoints (ODbL) — military / LADD / PIA",
+      note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_low_disk true = archiving paused to protect bot state writes",
+    });
   });
 
   // Recent trail for one entity (serves the client's track-on-click).
