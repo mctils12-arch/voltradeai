@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, VESSEL_SILENT_THRESHOLD_MS } from "./vesselStream";
+import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, vesselNeverFramed, VESSEL_SILENT_THRESHOLD_MS } from "./vesselStream";
 
 // KNOWN BROKEN #9: the aisstream websocket connected lazily, only on the
 // first /api/data/vessels request, so every deploy left the vessels layer
@@ -86,4 +86,28 @@ test("vesselLayerStatus: healthy keyed feed reports LIVE — never the static re
   assert.equal(vesselLayerStatus(false, null).status, "awaiting_key");
   const dead = { connected: false, silentMs: null, zombie: false, down: true };
   assert.equal(vesselLayerStatus(true, dead).status, "down");
+});
+
+// ── round 2 (2026-08-11): the redial cycle was masking a never-alive feed ──
+test("vesselNeverFramed: a feed that has never delivered a frame stays flagged ACROSS redials", () => {
+  const t0 = 5_000_000;
+  const past = t0 + VESSEL_SILENT_THRESHOLD_MS + 1_000;
+  assert.equal(vesselNeverFramed(0, t0, past), true, "no frames ever, past the threshold since FIRST connect");
+  // the watchdog redialing 10s ago must NOT reset this verdict — that reset
+  // is exactly what made the panel read "live" 179s out of every 180s
+  assert.equal(vesselNeverFramed(0, t0, past + 10 * 60_000), true);
+  // one real frame ever clears it permanently (health takes over from there)
+  assert.equal(vesselNeverFramed(1, t0, past), false);
+  // inside the threshold it is warming up, not a verdict
+  assert.equal(vesselNeverFramed(0, t0, t0 + 1_000), false);
+  // never connected at all: no verdict to give
+  assert.equal(vesselNeverFramed(0, 0, past), false);
+});
+
+test("vesselLayerStatus: never-framed outranks a freshly-redialed healthy socket", () => {
+  const freshlyConnected = { connected: true, silentMs: 5_000, zombie: false, down: false };
+  assert.equal(vesselLayerStatus(true, freshlyConnected, true).status, "down",
+    "zero frames since startup can never be reported as live");
+  assert.match(vesselLayerStatus(true, freshlyConnected, true).status_note || "", /ZERO frames/);
+  assert.equal(vesselLayerStatus(true, freshlyConnected, false).status, "live");
 });

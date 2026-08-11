@@ -47063,3 +47063,42 @@ baseline run passed. Same MEASUREMENT-DEBT flake class already filed
 2026-07-20 and 2026-07-31; the zero-cost battery passed every run.
 
 BACKTEST: N/A (client UX; no trading logic).
+
+## 2026-08-11 [REPAIR] — round 2 on the AIS honesty fix: the redial cycle was masking a never-alive feed (v1.0.664)
+
+Found by this session's own scheduled check-in on #769 — the kind of
+follow-up the PR-watch cadence exists for. Live prod read:
+feed_frames 0, feed_silent_s 179, panel status "LIVE".
+
+THE HOLE IN MY OWN FIX. #769 made a never-a-frame socket go zombie by
+running the silence clock from CONNECT time. It works — the watchdog
+terminates and redials about every 3 minutes. But each redial RESETS
+that clock, so the layer read "live" for 179 of every 180 seconds
+while zero ships had ever arrived. That is precisely the "empty feed
+that claims live status" failure mode the trains override was built
+for; my fix caught the zombie and then handed the panel back its lie
+on the next redial.
+
+FIX: frames-ever is process-scoped and immune to the redial cycle, so
+it decides first. vesselNeverFramed(framesEver, FIRST-connect, now) —
+deliberately the first connect of the process, never the latest socket
+— and vesselLayerStatus consults it before the health verdict. The
+WATCHDOG keeps its per-socket clock (redial cadence unchanged at ~3
+min; making it 60s would hammer aisstream and could worsen the
+suspected one-connection-per-key starvation). +2 tests, one pinning
+the exact masking behavior.
+
+DIAGNOSIS UNCHANGED, now stated with more force: an open socket that
+has delivered ZERO frames since startup, with a key aisstream would
+close in seconds if it were invalid, means upstream is accepting us
+and not sending. The status note now says exactly that instead of the
+generic "socket down/silent". Still the human's move: regenerate the
+aisstream key (evicts anything holding the key's single connection
+slot) and update Railway.
+
+METHOD NOTE worth keeping: this was caught because the check-in
+re-read the LIVE endpoint rather than trusting the merge. A fix
+verified once at deploy time can still be wrong on a cycle longer than
+the verification window — 179 seconds, in this case.
+
+BACKTEST: N/A (feed status honesty; no trading logic).
