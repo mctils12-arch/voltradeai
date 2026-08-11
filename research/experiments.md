@@ -46796,3 +46796,35 @@ WATCH: volume growth under 30-day retention (guard at 1GiB floor;
 free was 3.6GB at ship); feed-error banner class on the aircraft layer
 (provider pressure — politeness change should reduce it, verify next
 session). STARVED: no (T-1 is next unblocked).
+
+## 2026-08-11 (2) — [REPAIR] Owner login lockout + [PRODUCT] trip quality QC-1 (#764/#765, v1.0.656-657)
+
+Territory: server middleware + aircraft modules + card chips. Human
+reports (login screenshot + trip-log observations; curtain video
+promised, pending).
+
+1. LOGIN LOCKOUT (#764): the owner's sign-in 429'd — /api/auth/* shared
+   the global api bucket (1200/min/IP; phone + 2 PCs behind one
+   household IP poll the map hard) AND the antiScraping velocity
+   scorer. Auth now has its own isolated lane (30/min) and is exempt
+   from the scraping scorer; createStrictAuthLimiter (lockouts,
+   backoff) unchanged and still owns auth abuse; frozen auth.ts
+   untouched. +2 tests incl. full-api-bucket-never-starves-login.
+2. TRIP QC-1 (#765): shape-only classifier — complete / taxi_only
+   ("thats not a flight") / partial_start / signal_lost_airborne
+   (logged, NEVER asserted as a crash — coverage dies more than planes
+   do) / partial_both. Test-caught: cruise-only pass used its own
+   10,800m min as "ground" -> QC_GROUND_PLAUSIBLE_MAX_M 4600 gate.
+   quality+basis on the API; TAXI/⚠ markers + tooltip basis on chips.
+   QC-2 FILED: OurAirports (~80k fields with elevations, CC0) to name
+   endpoints + verify field elevation (the directive's second half).
+3. CURTAIN FAR-ZOOM CUTOFF (user report, video pending): paintTrack
+   has no zoom gate — prime suspect is the globe transition (~z5)
+   clipping the custom layer's projection. Investigation resumes on
+   the video; filed here so it survives the session boundary.
+4. Harness note: two runs failed two DIFFERENT gates (terrain-switch
+   click timing, all-off TTI) with pristine main passing between them —
+   the loaded-container flake class again; measurement-debt filing
+   stands.
+
+STARVED: no (queue: curtain-on-video, QC-2 airports, TIME MACHINE T-1).
