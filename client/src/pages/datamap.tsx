@@ -1285,7 +1285,7 @@ function TrackedPlanesPanel({ onOpen }: {
       <div style={{ display: "flex", gap: 4, width: "100%" }}>
         <input
           className="vt-filter-input" style={{ flex: 1 }}
-          placeholder="Tail number, e.g. N843S"
+          placeholder="Tail number, e.g. N123AB"
           aria-label="Add tail number to nonstop tracking"
           value={reg}
           onChange={(e) => setReg(e.target.value)}
@@ -13243,6 +13243,18 @@ export default function DataMapPage() {
                                   title={`${t.fixes} archived fixes · ${(t.callsigns || []).join("/") || "no callsign"} · durations are lower bounds (thinned sampling)`}
                                   onClick={() => {
                                     setTripReplay(on ? null : t.start_t);
+                                    if (!on && Array.isArray(t.bbox) && t.bbox.length === 4) {
+                                      // 2026-08-11 directive: a past log zooms to WHERE the
+                                      // flight happened, then the curtain draws there. maxZoom
+                                      // keeps short hops from slamming to street level; follow
+                                      // works during replay exactly like live (same clock rig).
+                                      try {
+                                        mapRef.current?.fitBounds(
+                                          [[t.bbox[0], t.bbox[1]], [t.bbox[2], t.bbox[3]]],
+                                          { padding: 90, duration: 1200, maxZoom: 11 },
+                                        );
+                                      } catch { /* bad bbox — replay still loads */ }
+                                    }
                                     void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
                                   }}>
                             {d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
