@@ -29,6 +29,12 @@ const ROOT = path.resolve(__dirname, "..");
 const DIST = path.join(ROOT, "dist", "public");
 const OUT = path.join(ROOT, ".visual");
 const SOFT = process.argv.includes("--soft");
+// DEVICE ENVELOPE D1 (scale_program.md, human directive 2026-08-07):
+// `--demand` runs the per-layer demand matrix instead of the visual
+// battery — each layer measured in isolation at emulated CPU tiers,
+// ledger written to .visual/demand_profile.json (diffable across
+// versions). Measurement tool, not a gate: it never fails the build.
+const DEMAND = process.argv.includes("--demand");
 
 const WIDTHS = [
   { w: 390, h: 844, label: "phone", touch: true },
@@ -1135,6 +1141,171 @@ const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
 })()`;
 
 // ── main ───────────────────────────────────────────────────────────────────
+// ── DEVICE ENVELOPE D1: per-layer demand matrix (scale_program.md) ─────────
+// Boots the map with ALL layers off (the harness's own vt-layers-all-off
+// escape), samples a baseline window, then toggles each measured layer ON
+// alone, samples, toggles it back OFF — at each emulated CPU tier. Fixture
+// data only (deterministic, diffable); SwiftShader numbers are relative
+// regression signals, never on-device budgets.
+const DEMAND_TIERS = [
+  { key: "full", cpu: 1 },
+  { key: "throttled4x", cpu: 4 }, // the weak-laptop stand-in (work-PC class)
+];
+const DEMAND_LAYERS = [
+  // default-on set + the cost-budget battery's real toggleables — every id
+  // verified wired via clickSwitchVerified; fixture-empty layers still
+  // measure (renderedFeatures says how much data backed the number)
+  "aircraft", "places", "powerplants", "trains", "sites",
+  "terrain", "weather", "weather_temp", "weather_wind",
+  "rivergauges", "alerts", "surfacewater", "forest", "boundaries",
+];
+const DEMAND_SAMPLE_MS = 3000;
+
+async function demandSample(page) {
+  return page.evaluate(async (windowMs) => {
+    const map = window.__vtMap;
+    const heap = () => {
+      try { return performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null; }
+      catch { return null; }
+    };
+    const netKB = () => {
+      try {
+        return performance.getEntriesByType("resource")
+          .reduce((s, e) => s + (e.transferSize || 0), 0) / 1024;
+      } catch { return null; }
+    };
+    let longTasks = 0;
+    let obs = null;
+    try {
+      obs = new PerformanceObserver((l) => { longTasks += l.getEntries().length; });
+      obs.observe({ entryTypes: ["longtask"] });
+    } catch {}
+    // camera wiggle so the window measures RENDER demand, not an idle map
+    try { map?.easeTo({ center: [-97.6, 38.4], zoom: map.getZoom(), duration: windowMs * 0.9 }); } catch {}
+    const deltas = [];
+    let last = performance.now();
+    const t0 = last;
+    await new Promise((res) => {
+      const tick = (t) => {
+        deltas.push(t - last);
+        last = t;
+        if (t - t0 >= windowMs) return res();
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    try { obs?.disconnect(); } catch {}
+    deltas.sort((a, b) => a - b);
+    const q = (p) => Math.round(deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * p))] * 10) / 10;
+    let rendered = null;
+    try { rendered = map ? map.queryRenderedFeatures().length : null; } catch {}
+    return {
+      medianMs: deltas.length ? q(0.5) : null,
+      p95Ms: deltas.length ? q(0.95) : null,
+      heapMB: heap(), netKB: netKB(), longTasks, renderedFeatures: rendered,
+    };
+  }, DEMAND_SAMPLE_MS);
+}
+
+async function bootDemandPage(browser, port, cpu) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  await page.route("**/*", (route) => {
+    const u = route.request().url();
+    if (u.startsWith(`http://127.0.0.1:${port}`)) return route.continue();
+    return route.abort();
+  });
+  // all-off boot: the baseline is the empty map, same escape the
+  // zero-cost battery uses
+  await page.addInitScript(() => { try { sessionStorage.setItem("vt-layers-all-off", "1"); } catch {} });
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpu });
+  await page.goto(`http://127.0.0.1:${port}/app#/data`, { waitUntil: "load", timeout: 30000 });
+  for (let i = 0; i < 60; i++) {
+    if (await page.evaluate(() => !document.querySelector(".vt-map-skeleton"))) break;
+    await page.waitForTimeout(250);
+  }
+  await page.waitForTimeout(2000);
+  await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  for (let round = 0; round < 6; round++) {
+    const btn = page.locator('.vt-layer-group-head[aria-expanded="false"]').first();
+    if (!(await btn.count())) break;
+    await btn.click().catch(() => {});
+    await page.waitForTimeout(100);
+  }
+  const flip = async (id, on) => {
+    const sw = page.locator(`[data-vt-layer="${id}"] [role="switch"]`).first();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const cur = await sw.getAttribute("aria-checked").catch(() => null);
+      if (cur === String(on)) return true;
+      await page.evaluate((lid) => {
+        document.querySelector(`[data-vt-layer="${lid}"]`)?.scrollIntoView({ block: "center" });
+      }, id).catch(() => {});
+      await sw.click({ timeout: 3000 }).catch(() => {});
+      for (let i = 0; i < 8; i++) {
+        await page.waitForTimeout(150);
+        if ((await sw.getAttribute("aria-checked").catch(() => null)) === String(on)) return true;
+      }
+    }
+    return false;
+  };
+  return { ctx, page, flip };
+}
+
+async function runDemandMatrix(browser, port) {
+  const { demandCell, buildLedger } = await import("./demandProfile.mjs");
+  const version = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
+  const cells = [];
+  const skipped = [];
+  for (const tier of DEMAND_TIERS) {
+    // SELF-HEALING (first live run 2026-08-08: SwiftShader's renderer died
+    // 4 layers in — the matrix meets the weak-machine failure mode it
+    // measures): the browser context is rebooted on death and the sweep
+    // continues from the next layer; the death itself is recorded per
+    // layer, which is demand data in its own right.
+    let sess = await bootDemandPage(browser, port, tier.cpu);
+    let baseline = await demandSample(sess.page);
+    console.log(`[demand] tier=${tier.key} baseline median=${baseline.medianMs}ms p95=${baseline.p95Ms}ms heap=${baseline.heapMB?.toFixed?.(0) ?? "n/a"}MB`);
+    for (const id of DEMAND_LAYERS) {
+      try {
+        if (!(await sess.flip(id, true))) {
+          skipped.push(`${id}@${tier.key}: toggle never landed`);
+          console.log(`[demand] SKIP ${id} @ ${tier.key} — toggle not wired/visible`);
+          continue;
+        }
+        await sess.page.waitForTimeout(1500); // settle: fetch + first paint
+        const s = await demandSample(sess.page);
+        cells.push(demandCell(id, tier.key, baseline, s));
+        console.log(`[demand] ${id} @ ${tier.key}: median=${s.medianMs}ms (base ${baseline.medianMs}) p95=${s.p95Ms}ms heapΔ=${s.heapMB != null && baseline.heapMB != null ? (s.heapMB - baseline.heapMB).toFixed(1) : "n/a"}MB feats=${s.renderedFeatures}`);
+        if (!(await sess.flip(id, false))) skipped.push(`${id}@${tier.key}: restore-to-off failed — later cells may be contaminated`);
+        await sess.page.waitForTimeout(600);
+      } catch (e) {
+        const msg = String(e?.message || e).split("\n")[0];
+        skipped.push(`${id}@${tier.key}: browser died mid-cycle (${msg}) — rebooted, continued`);
+        console.log(`[demand] DIED at ${id} @ ${tier.key}: ${msg} — rebooting context`);
+        try { await sess.ctx.close(); } catch {}
+        sess = await bootDemandPage(browser, port, tier.cpu);
+        baseline = await demandSample(sess.page);
+        console.log(`[demand] tier=${tier.key} re-baseline median=${baseline.medianMs}ms heap=${baseline.heapMB?.toFixed?.(0) ?? "n/a"}MB`);
+      }
+    }
+    try { await sess.ctx.close(); } catch {}
+  }
+  const ledger = buildLedger(version, cells, {
+    layers: DEMAND_LAYERS, skipped,
+    sampleSeconds: DEMAND_SAMPLE_MS / 1000,
+    tiers: DEMAND_TIERS.map((t) => t.key),
+    renderer: "SwiftShader (headless) — relative regression signal only",
+  });
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(path.join(OUT, "demand_profile.json"), JSON.stringify(ledger, null, 1));
+  console.log(`\n[demand] ledger written: .visual/demand_profile.json (${cells.length} cells, ${skipped.length} skipped)`);
+  if (skipped.length) console.log("[demand] bounded coverage — skipped: " + skipped.join("; "));
+  const top = ledger.cells.slice(0, 5).map((c) => `${c.layer}@${c.tier} +${(c.medianMs - c.baselineMedianMs).toFixed(1)}ms`).join(", ");
+  console.log("[demand] most demanding: " + top);
+}
+
 async function main() {
   if (!existsSync(DIST)) {
     console.error("dist/public missing — run `npm run build` first");
@@ -1164,6 +1335,13 @@ async function main() {
   const srv = await startServer();
   const port = srv.address().port;
   mkdirSync(OUT, { recursive: true });
+
+  if (DEMAND) {
+    // measurement mode: matrix only, never gates, exit 0 unless it crashed
+    try { await runDemandMatrix(browser, port); }
+    finally { await browser.close(); srv.close(); }
+    return;
+  }
 
   const results = [];
   for (const [name, cfg] of Object.entries(PAGES)) {
