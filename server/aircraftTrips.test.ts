@@ -1,0 +1,92 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { splitTrips, fullTrackAsync, tripsCoverage, TRIP_GAP_SEC, type ArchivedFix } from "./aircraftTrips";
+
+const fix = (t: number, extra: Partial<ArchivedFix> = {}): ArchivedFix =>
+  ({ t, la: 40 + t / 1e6, lo: -95 + t / 1e6, al: 9000, c: "SWA762", ...extra });
+
+// ── splitTrips ──────────────────────────────────────────────────────────────
+
+test("one continuous airborne track is one trip, newest-first ordering fields intact", () => {
+  const fixes = [0, 60, 120, 180, 240].map((s) => fix(1000 + s));
+  const trips = splitTrips(fixes);
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].fixes, 5);
+  assert.equal(trips[0].duration_s, 240);
+  assert.deepEqual(trips[0].callsigns, ["SWA762"]);
+  assert.equal(trips[0].max_alt_m, 9000);
+});
+
+test("a gap > 45 min splits into two trips, newest first", () => {
+  const a = [0, 60, 120].map((s) => fix(1000 + s));
+  const b = [0, 60, 120].map((s) => fix(1000 + 120 + TRIP_GAP_SEC + 60 + s, { c: "SWA100" }));
+  const trips = splitTrips([...a, ...b]);
+  assert.equal(trips.length, 2);
+  assert.ok(trips[0].start_t > trips[1].start_t, "newest trip first");
+  assert.deepEqual(trips[0].callsigns, ["SWA100"]);
+});
+
+test("a >=15min ground dwell inside an airborne track splits; the dwell's last fix leads the next trip in", () => {
+  const leg1 = [0, 60, 120].map((s) => fix(1000 + s));
+  const dwell = [180, 600, 1080].map((s) => fix(1000 + s, { al: null, g: true }));
+  const leg2 = [1140, 1200, 1260].map((s) => fix(1000 + s));
+  const trips = splitTrips([...leg1, ...dwell, ...leg2]);
+  assert.equal(trips.length, 2);
+  const older = trips[1], newer = trips[0];
+  assert.equal(older.end_t, 1000 + 1080, "trip 1 ends at the dwell");
+  assert.equal(newer.start_t, 1000 + 1080, "dwell's last fix is the takeoff lead-in");
+});
+
+test("a parked transponder alone (never airborne) is one ground track, not many trips", () => {
+  const parked = [0, 1200, 2400, 3600].map((s) => fix(1000 + s, { al: null, g: true }));
+  const trips = splitTrips(parked);
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].max_alt_m, null, "no altitude ever seen -> honest null");
+});
+
+test("segments below the minimum fix count are dropped as noise", () => {
+  const lone = [fix(1000), fix(1000 + TRIP_GAP_SEC + 100)];
+  assert.equal(splitTrips(lone).length, 0);
+});
+
+test("empty input -> empty output", () => {
+  assert.deepEqual(splitTrips([]), []);
+});
+
+// ── fullTrackAsync (real files in a temp archive) ───────────────────────────
+
+test("fullTrackAsync reads ALL retained days (not 48h), keeps c/al/g, respects time bounds", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "trips-"));
+  const dir = path.join(base, "aircraft");
+  mkdirSync(dir, { recursive: true });
+  const mk = (day: string, hour: string, rows: object[]) =>
+    writeFileSync(path.join(dir, `${day}-${hour}.jsonl`), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const t3d = Math.floor(Date.parse("2026-08-05T10:00:00Z") / 1000);
+  const t1d = Math.floor(Date.parse("2026-08-07T10:00:00Z") / 1000);
+  mk("2026-08-05", "10", [
+    { t: t3d, i: "abe872", c: "SWA762", la: 37.3, lo: -102.7, al: 11000 },
+    { t: t3d + 60, i: "ffffff", c: "OTHER1", la: 1, lo: 1, al: 5000 }, // other hex filtered out
+  ]);
+  mk("2026-08-07", "10", [
+    { t: t1d, i: "abe872", c: "SWA100", la: 38.0, lo: -100.0, g: true },
+  ]);
+  const all = await fullTrackAsync("aircraft", "abe872", base);
+  assert.equal(all.length, 2, "3-day-old fix included — recentTrack's 48h cap does not apply");
+  assert.equal(all[0].c, "SWA762");
+  assert.equal(all[1].g, true);
+  assert.equal(all[1].al, null);
+  const bounded = await fullTrackAsync("aircraft", "abe872", base, { fromSec: t1d - 3600 });
+  assert.equal(bounded.length, 1, "time bound excludes the older day");
+  assert.equal(bounded[0].c, "SWA100");
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("tripsCoverage states the raw-retention bound and the thinning caveat", () => {
+  const c = tripsCoverage();
+  assert.equal(c.raw_days, 7);
+  assert.match(c.note, /retained 7 days/);
+  assert.match(c.note, /lower bounds/);
+});
