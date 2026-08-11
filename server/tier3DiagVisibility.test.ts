@@ -40,6 +40,12 @@ test("wiring pinned: the audit call site still includes the issue count for a qu
   assert.ok(block.includes("diagReport.problems?.length || 0"), "count must survive alongside the new detail, not be replaced by it");
 });
 
+test("wiring pinned: the audit call site includes node process uptime (KNOWN BROKEN #29 follow-up — distinguishes a fresh-boot cache-cold-start from a genuinely sustained API outage)", () => {
+  const block = tier3DiagBlock();
+  assert.ok(block.includes("process.uptime()"), "must read process.uptime() into the audited detail");
+  assert.ok(block.includes("node_uptime_s="), "audited string must label the uptime field so it reads clearly in the audit log");
+});
+
 test("TIER3-DIAG detail-building never throws on a malformed/missing problems array", () => {
   // Direct behavioral check of the exact expression bot.ts uses, since bot.ts
   // itself isn't importable as a module (side-effecting orchestrator).

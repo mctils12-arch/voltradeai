@@ -3870,6 +3870,96 @@
     in (c), or a live-container escalation to the human), not a third
     latency guess.
 
+    **UPDATE 2026-08-11 (scheduled-routine session, [RESEARCH]) —
+    RECURRENCE CONFIRMED, but root-caused to a DIFFERENT, non-regressing
+    mechanism; not a failure of the v1.0.637 fix.** Live
+    `/api/diag/audit?type=TIER3-DIAG&limit=500&token=$DIAG_TOKEN` (per
+    this item's own "re-check after several more days" instruction)
+    showed the exact "Multiple API sources down: ['polygon', 'wikipedia',
+    'gdelt', 'fred']" line firing 10 times between 2026-08-11T02:51:26Z
+    and 2026-08-11T08:03:23Z — a real recurrence after the 2026-08-10
+    disposition's clean streak (confirmed through 15:31Z that day), which
+    per RECURRENCE ESCALATES would normally forbid another latency-tuning
+    patch and demand root-cause analysis instead.
+    Cross-referencing `git log` commit timestamps against the recurrence
+    window found a tight correlation instead of a blind coincidence: six
+    PRs merged (each triggering a Railway redeploy) at 02:49:08, 05:08:31,
+    05:13:05, 05:35:18, 05:40:16, 06:00:41 UTC that morning (the
+    plane-tracking-suite PRODUCT session) — the first TIER3-DIAG warning
+    fired at 02:51:26Z, *two minutes* after the 02:49:08 deploy, and the
+    warnings continued clustered exactly through the multi-deploy burst,
+    stopping ~2 hours after the last deploy (06:02) with zero recurrences
+    across the 12+ hours since (confirmed clean through this session's own
+    check at ~20:17Z). `diagnostics.py`'s api-down check
+    (`diagnostics.py:358-366`) is pure `os.path.exists()` on cache files
+    under `CACHE_DIR` — and `storage_config.py`'s own module docstring
+    states this outright: `CACHE_DIR = "/tmp/voltrade_alt_cache"` is
+    documented as "Temporary cache (fine to lose on redeploy)" — every one
+    of those six redeploys wipes `/tmp` and therefore every one of these
+    caches, requiring a fresh deep_score cycle to rebuild each before the
+    health check can pass again. A cluster of 6 redeploys in ~3 hours
+    plausibly never gave the caches a clean window to rebuild before the
+    next wipe.
+    HONEST CAVEAT (this item's own discipline): this is a strong
+    correlation (timing alignment down to single-digit minutes, repeated
+    across 6 independent deploy events, not one lucky coincidence) but
+    still NOT direct proof — this session had no live-container access to
+    literally confirm `/tmp/voltrade_alt_cache` was empty during the
+    window. It does NOT retroactively confirm or refute whether v1.0.637's
+    parallelization fix is also still doing its job on top of this; the
+    two mechanisms (deploy-triggered cache wipe vs. sequential-call
+    latency budget) are independent and both plausible contributors to
+    any given occurrence.
+    WHY THIS IS NOT A RULE-REVIEW-GATED FIX: `reduce_position_size(0.6x)`
+    is a real risk-sizing auto-fix, so changing WHEN/WHETHER it fires
+    would need RULE REVIEW's counterfactual-logging evidence gate. This
+    session shipped no such change. What it shipped is pure observability
+    (v1.0.658, own PR, `server/bot.ts` only): the `TIER3-DIAG` audit line
+    now includes `node_uptime_s=${Math.round(process.uptime())}` in the
+    message, so the NEXT time this fires, a session can tell "just booted
+    minutes ago" from "long-running but still degraded" directly from the
+    audit log instead of reconstructing deploy timestamps from git log by
+    hand (as this session had to). This mirrors the exact precedent this
+    item's own history already set (v1.0.638's `dataSourceErrors`
+    capture): build visibility before guessing at another behavior change.
+    RATCHET: `server/tier3DiagVisibility.test.ts` gained 1 new test
+    (A/B-verified via `git stash` — fails pre-fix on the missing
+    `process.uptime()`/`node_uptime_s=` text, passes post-fix); the 3
+    pre-existing tests in that file still pass unchanged. Full gates:
+    `python3 -m pytest -q` 1287 passed, 3 skipped (untouched, Python-only
+    baseline, this PR touches no .py files); `npx tsx --test
+    server/*.test.ts` 1061 passed, 9 pre-existing failures byte-identical
+    via `git stash` on `bot.ts`+the changed test file alone
+    (aircraftTiling/apiKeyAccounts/cdcCancer/compression/gdeltEvents/
+    owmTiles/seafloorTiles/securityMiddleware/pmtiles-magic — none touch
+    TIER3-DIAG or diagnostics-adjacent code); `npx tsc --noEmit` 3 errors,
+    byte-identical via `git stash` (pre-existing vite/tsconfig config
+    warnings, unrelated); `npm run build` clean (`dist/index.cjs` 14.9mb).
+    No client/ files touched — VISUAL VERIFICATION does not apply.
+    BACKTEST: N/A — pure audit-log observability addition, changes no
+    scoring/sizing/threshold value or trading decision; `auto_fix:
+    "reduce_position_size"` still fires on exactly the same condition as
+    before, unchanged.
+    DISPOSITION: item stays RESOLVED PENDING CONTINUED MONITORING, not
+    reopened as a fresh root-cause item — the recurrence has a
+    well-evidenced, non-regressing explanation (deploy-churn cache
+    cold-start, a known/intentional tradeoff per storage_config.py's own
+    docstring) distinct from "the v1.0.637 fix stopped working."
+    **NEXT for whichever session catches the next occurrence**: read the
+    new `node_uptime_s` value directly off the `TIER3-DIAG` audit line.
+    Low uptime (minutes, matching a recent deploy) confirms this
+    deploy-churn explanation without needing git-log archaeology; a HIGH
+    uptime (hours+, no recent deploy) would mean this cache-wipe theory
+    does NOT explain that occurrence and RECURRENCE ESCALATES applies for
+    real — pursue (c)'s invisible mid-scan RSS peak or a live-container
+    escalation next, not another latency guess. Separately, if this
+    deploy-churn pattern turns out to be the dominant real-world cause
+    (likely, given this repo's very active autonomous-session redeploy
+    cadence), a future session could consider — WITH counterfactual
+    evidence per RULE REVIEW, not blindly — whether `reduce_position_size`
+    should have a short post-boot grace window before firing on the api
+    check specifically; not proposed or built this session.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

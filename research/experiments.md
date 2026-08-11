@@ -46828,3 +46828,123 @@ promised, pending).
    stands.
 
 STARVED: no (queue: curtain-on-video, QC-2 airports, TIME MACHINE T-1).
+
+## 2026-08-11 (4) (scheduled-routine session) [RESEARCH] — T-BOT (server/bot.ts TIER3-DIAG audit line only) — judged KNOWN BROKEN #29's matured "resolved pending monitoring" disposition, found a real recurrence, root-caused it to deploy-churn cache cold-start rather than a fix regression, shipped observability (v1.0.658)
+
+TERRITORY: T-BOT (`server/bot.ts`'s TIER3-DIAG audit call site only, no
+trading-decision path touched) + `package.json` version bump (SHARED,
+last commit). Solo session, no concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+local branch already at `origin/main` HEAD (`c87c40a`/v1.0.657/PR #766)
+— no rebase needed, re-verified immediately before the version bump
+too. `research/open_questions.md`'s KNOWN BROKEN section read in full.
+Loop-health ratio over the last 10 tagged entries (bottom-up): [REPAIR+
+PRODUCT] 08-11(2, login lockout + trip QC-1, multi-tag counts once),
+[PRODUCT] 08-11 (30-day retention), [PRODUCT] 08-08(3, global ADS-B),
+[REPAIR] 08-11(3, BS put-delta), [PRODUCT] 08-11(2, CDC cancer),
+[PRODUCT] 08-08(2, nonstop tracker), [REPAIR] 08-11 (CSP earnings gate),
+[PRODUCT+REPAIR+PIPELINE] 08-08 (plane suite, multi-tag counts once),
+[PRODUCT] 08-10 (VIX v1 API), [REPAIR] 08-09(6, earnings-proximity) —
+5/10 REPAIR-tagged, well under the 7/10 thrash bar; no meta-problem.
+Live `/api/health` (voltradeai.com): `status:"ok"`, `bot.status:
+"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark:false` — no LIVENESS ALARM, Alpaca ACTIVE, scanner
+`consecutiveFailures:0`. `server_version` via `/api/data/layers`:
+`1.0.657`, matches `origin/main` HEAD — deploy current.
+
+PICKING THE ACTION: pulled `/api/diag/audit?limit=100&token=$DIAG_TOKEN`
+— nothing new or alarming (T2-FAIL rejections, MANIPULATION detections,
+KILL-WARN low-buying-power, POS-WARN, EVENTLOOP-LAG all already-known
+patterns, consistent with normal operation). No fresh bug to fix, so
+per SESSION BUDGET fell to "judge a matured experiment": open_questions.
+md KNOWN BROKEN #29 (alt_data.py parallelization fix, v1.0.637) was
+marked "RESOLVED PENDING CONTINUED MONITORING" by the 2026-08-10
+session with an explicit NEXT STEP — "re-check `/api/diag/audit?
+type=TIER3-DIAG` after several more days."
+
+WHAT I FOUND: `/api/diag/audit?type=TIER3-DIAG&limit=500&token=
+$DIAG_TOKEN` showed the "Multiple API sources down: ['polygon',
+'wikipedia', 'gdelt', 'fred']" line fired 10 times between
+2026-08-11T02:51:26Z and 08:03:23Z — a genuine recurrence after the
+2026-08-10 clean streak (confirmed through 15:31Z that day), which per
+RECURRENCE ESCALATES would normally forbid another latency-tuning patch
+and demand root-cause analysis. Before assuming the v1.0.637 fix had
+regressed, cross-referenced `git log` commit timestamps against the
+window (REASONING STANDARD #4 — distrust the first plausible story):
+found six PRs merged in that exact window (02:49:08, 05:08:31, 05:13:05,
+05:35:18, 05:40:16, 06:00:41 UTC — the plane-tracking-suite PRODUCT
+session), each triggering a Railway redeploy. The first TIER3-DIAG
+warning fired 2 minutes after the first of those deploys, and the
+warnings tracked the multi-deploy burst exactly, stopping ~2 hours after
+the last one — zero recurrences across the 12+ hours since (confirmed
+clean via this session's own check ~20:17Z). READ BEFORE WRITE of
+`diagnostics.py`'s api-down check (lines 358-366): pure
+`os.path.exists()` on cache files under `CACHE_DIR`. `storage_config.py`
+confirms `CACHE_DIR = "/tmp/voltrade_alt_cache"` is documented BY ITS
+OWN DOCSTRING as "Temporary cache (fine to lose on redeploy)" — every
+one of those six redeploys wipes `/tmp`, requiring a fresh deep_score
+cycle to rebuild each cache before the health check can pass again, and
+a 3-hour cluster of 6 redeploys plausibly never gave the caches a clean
+window. This is a strong correlation, not literal proof (no live-
+container access to directly confirm the cache dir was empty) — logged
+honestly as such, per this item's own established discipline.
+
+WHY NO RULE-REVIEW-GATED FIX SHIPPED: `reduce_position_size(0.6x)` is a
+real risk-sizing auto-fix; changing when/whether it fires needs RULE
+REVIEW's counterfactual-logging evidence gate, which this session does
+not have. Instead shipped pure observability, mirroring this exact
+item's own established precedent (v1.0.638's `dataSourceErrors`
+capture): `server/bot.ts`'s TIER3-DIAG audit line now includes
+`node_uptime_s=${Math.round(process.uptime())}`, so the next occurrence
+tells "just booted" from "long-running but still degraded" straight off
+the audit log instead of git-log archaeology.
+
+RATCHET: `server/tier3DiagVisibility.test.ts` gained 1 new test,
+A/B-verified via `git stash -- server/bot.ts` (fails pre-fix on the
+missing `process.uptime()`/`node_uptime_s=` text, passes post-fix); the
+3 pre-existing tests in that file pass unchanged both before and after.
+
+GATES (fresh container — `npm ci` and `pip install pytest numpy pandas
+scipy lightgbm openpyxl yfinance requests` needed first, same recurring
+clean-container gap prior sessions have logged): `python3 -m pytest -q`
+1287 passed, 3 skipped (baseline unchanged — no `.py` files touched);
+`npx tsx --test server/*.test.ts` 1061 passed, 9 pre-existing failures
+(aircraftTiling/apiKeyAccounts/cdcCancer/compression/gdeltEvents/
+owmTiles/seafloorTiles/securityMiddleware/pmtiles-magic), byte-identical
+via `git stash` on the full working tree — none touch TIER3-DIAG or
+diagnostics-adjacent code; `npx tsc --noEmit` 3 errors, byte-identical
+via `git stash` (pre-existing vite/tsconfig config warnings, unrelated
+to the change); `npm run build` clean (`dist/index.cjs` 14.9mb). No
+client/ files touched — VISUAL VERIFICATION does not apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure audit-log observability
+addition; `auto_fix: "reduce_position_size"` still fires on exactly the
+same condition as before, no scoring/sizing/threshold value changed.
+
+VERSION: 1.0.657 -> 1.0.658 (read-and-increment at commit time, verified
+against a fresh `git fetch origin main` immediately before bumping —
+still at PR #766's HEAD, no intervening merge).
+
+NEXT (open_questions.md #29, updated in place this session): whichever
+session catches the next "Multiple API sources down" occurrence should
+read the new `node_uptime_s` field off the TIER3-DIAG audit line first —
+low uptime confirms the deploy-churn explanation, high uptime with no
+recent deploy means this theory does NOT explain that occurrence and
+RECURRENCE ESCALATES applies for real (pursue the invisible mid-scan RSS
+peak or a live-container escalation, not another latency guess). If
+deploy-churn is confirmed as the dominant real-world driver (plausible,
+given this repo's active autonomous redeploy cadence), a future session
+could evaluate — WITH counterfactual evidence per RULE REVIEW, not
+blindly — a short post-boot grace window before `reduce_position_size`
+fires on the api check specifically; not proposed or built this session.
+Standing queue unchanged: curtain-on-video (blocked on human-provided
+footage), QC-2 airports (OurAirports elevation join), TIME MACHINE T-1
+(hex-multiplexed window endpoint).
+
+STARVED: no — this session's single fully-scoped action (judge the
+matured disposition + read-before-write trace + deploy-timestamp
+cross-reference + honest correlation-vs-proof distinction + observability
+fix + regression test with A/B verification + full gate run + version
+bump) consumed its own capacity; no higher-priority queued item was
+skipped to do it.

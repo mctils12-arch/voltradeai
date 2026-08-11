@@ -4551,7 +4551,17 @@ print(json.dumps(run_diagnostics()))
         const detail = (diagReport.problems || [])
           .map((p: any) => `[${String(p.severity || "?").toUpperCase()}] ${p.system || "?"}: ${p.message || ""}`)
           .join(" | ");
-        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues: ${detail}`);
+        // node_uptime_s (open_questions.md KNOWN BROKEN #29, 2026-08-11
+        // follow-up): the "Multiple API sources down" api problem checks
+        // /tmp cache file existence (diagnostics.py, intentionally
+        // ephemeral-on-redeploy per storage_config.py's own docstring) —
+        // a fresh boot has empty caches by design, not a real API outage,
+        // and a rapid cluster of redeploys was found to correlate with a
+        // burst of this exact warning. Surfacing how long THIS process has
+        // been alive lets a future session tell "just booted" from "long-
+        // running but still degraded" without reconstructing deploy
+        // timestamps from git log by hand every time this recurs.
+        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues (node_uptime_s=${Math.round(process.uptime())}): ${detail}`);
       }
     } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
 
