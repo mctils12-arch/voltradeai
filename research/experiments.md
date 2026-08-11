@@ -3,6 +3,226 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-11 (scheduled-routine session) [RESEARCH] — T-BOT (scripts/, research/open_questions.md) — illiquid mean_reversion ladder's LADDER PATH step 5 (LOGIC-gate ablation against the live bot's actual candidate path): the pinned illiquid/moderate ticker groups are almost entirely invisible to scan_market()'s universe filter, independent of any mean_reversion scoring question (v1.0.643)
+
+TERRITORY: T-BOT (a research probe over `bot_engine.py`/`backtest_v2.py`
+live constants and behavior; no client/ or datacore/ files touched).
+SHARED touch kept minimal per MERGE-ORDER PROTOCOL: `package.json` +
+`package-lock.json` version bump only (read-and-increment at commit
+time — `git fetch origin main` confirmed local already at `origin/main`
+HEAD, `6afd963`/v1.0.642/PR #744, no rebase needed) plus this
+experiments.md entry and the open_questions.md append.
+
+SESSION-START CHECKS: CLAUDE.md read in full (scheduled routine). Live
+health (`curl https://voltradeai.com/api/health`): `status:"ok"`,
+`bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`
+— no LIVENESS ALARM. `open_questions.md`'s full KNOWN BROKEN section (all
+29 numbered items) read this session: #10's NEXT step (this session's
+own predecessor, v1.0.642) is DEPLOYED and now gated purely on live
+shadow-history accumulating (`over_threshold` `candidate_count: 0` as of
+this session's own live check — nothing actionable, noted not acted on);
+#20's `rejected_masterkill` bucket still has zero labeled records, same
+gate; #29 re-checked live via `/api/diag/audit?type=TIER3-DIAG` — no
+"Multiple API sources down" line since 2026-08-10T08:02:33Z, ~18h clean
+as of this session's check (02:36Z 2026-08-11), consistent with the
+prior two sessions' own re-confirmations, disposition unchanged
+(RESOLVED PENDING CONTINUED MONITORING). Nothing in KNOWN BROKEN is
+newly actionable — this session is not a [REPAIR] session per the Repair
+Mandate's own condition ("if any CRITICAL item remains unfixed"); nothing
+critical and unfixed was found.
+
+PICKING THE ACTION: this session's own prompt named four EDGE DOCTRINE
+axes. Checked axis (a) via `scripts/data_stream_registry_check.py --unbuilt`
+first (the compiled-knowledge registry built specifically so this
+question doesn't need re-deriving by hand): every named example
+(Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends) is `built` or `declined_gate1_fail` with a
+documented replacement; the 11 remaining `candidate_unbuilt`/`blocked_*`
+entries all need a human free-API-key registration or a volume-budget
+decision, not a same-session build — axis (a) has no unblocked lane
+today. Axis (b) was the clear next unblocked lane, same reasoning the
+2026-08-08 sessions used: `open_questions.md`'s 2026-07-24 illiquid
+mean_reversion entry has steps 1-4 CLOSED (independent re-draw,
+train/test split, significance test, regime check, and a threshold-
+ablation + its own independent re-draw, the last of which found the
+STRICT_RSI variant's spread-widening half does NOT replicate) — its own
+filed step 5 ("LOGIC-gate ablation of the UNMODIFIED thresholds against
+the live bot's actual deep_score/tier1_csp_core candidate path, not this
+ETF-rotation-style backtest engine") sat open and fully scoped, the
+ladder's real remaining gate regardless of the STRICT_RSI thread's own
+outcome. Continuing an already-disciplined ladder path beats starting a
+fresh hypothesis from zero.
+
+PRIOR, stated before running: expected step 5 to test whether
+`deep_score()`'s 20%-weight blend of `mean_reversion_score` with
+momentum/VRP/squeeze/volume/macro/news dilutes the illiquid-vs-moderate
+Sharpe edge steps 1-4 found in strategy-isolated backtests. Read
+`bot_engine.py`'s `deep_score()` (lines ~1009-1152) before running
+anything, confirming that blend exists exactly as expected
+(`mean_reversion_score * 0.20` among five weighted components). But
+READ BEFORE WRITE of `scan_market()` (the function that actually builds
+the candidate list `deep_score()` runs on) surfaced a PRIOR, more basic
+gate the original prior hadn't considered: `bot_engine.py:2746`'s
+`if c < MIN_PRICE or v < _min_vol: continue` — a candidate that fails
+this hard skip never reaches `deep_score()` to have its mean_reversion
+component blended at all. Updated the session's actual test to check
+this gate FIRST, since a fail there makes the blend-dilution question
+moot for that candidate.
+
+READ BEFORE WRITE: read `bot_engine.py:195-205` (module constants
+`MIN_VOLUME=500000`/`MIN_PRICE=5`, confirmed NOT regime-adaptive unlike
+`MIN_SCORE` — used directly, unconditionally, in `scan_market()`) and
+lines 2708-2754 (the quick-score loop itself, confirming `v` is the
+CURRENT day's Alpaca snapshot `dailyBar.v`, a single day, not a trailing
+average) before writing anything. Read `scripts/illiquid_universe_probe.py`
+end-to-end to confirm the exact pinned ILLIQUID/MODERATE/LIQUID ticker
+lists and how the original "illiquid" bucketing was defined (trailing
+252d average share VOLUME only, via `backtest_v2.py`'s own
+`liquidity_cost_pct()` tier boundaries — no price screen at all), which
+is what predicted this session's price-driven finding below once tested.
+Read `backtest_v2.py`'s `fetch_bars`/`_yahoo_bars`/`_alpaca_bars` (lines
+114-183) to pick the right fetch entry point (`fetch_bars`, Alpaca-first/
+Yahoo-fallback/disk-cached — "identical data to live" per its own
+docstring — not `_yahoo_bars` directly, which the original probe script
+used only because Alpaca creds aren't available in a repo-only sandbox).
+Read `test_illiquid_universe_probe_threshold_ablation_redraw.py` for the
+established test-file convention (`importlib.util.spec_from_file_location`
+module loading, object-identity pins on reused pinned lists/functions)
+before writing the new test file, to match it rather than invent a
+variant.
+
+BUILD (v1.0.643): `scripts/illiquid_universe_probe_universe_gate.py`
+(new) — imports `MIN_PRICE`/`MIN_VOLUME` live from `bot_engine` and
+`ILLIQUID`/`MODERATE`/`LIQUID` live from `illiquid_universe_probe` (all
+by reference, not copied, so this check can never silently drift from
+either the live filter or the exact candidates steps 1-4 evaluated).
+`passes_universe_gate()` mirrors `scan_market()`'s skip condition exactly
+(inverted to a pass/fail boolean, inclusive at the threshold). `check_ticker()`
+fetches via `backtest_v2.fetch_bars` (injectable `fetch_fn` for offline
+tests) and computes last close + trailing-20-trading-day average volume
+— a 20-day average rather than `scan_market()`'s own single-day check,
+deliberately the MORE GENEROUS reading (a single low-volume day would
+only make the illiquid group look worse, not better, so this doesn't
+stack the deck toward the finding below). `check_group()` aggregates
+pass/fail counts and rate per ticker group. Pure read-only diagnostic —
+no strategy, threshold, or config value changed anywhere in the repo.
+
+RESULT (live run, 2026-08-11, via `backtest_v2.fetch_bars`'s Yahoo
+fallback — no Alpaca creds in this sandbox):
+  ILLIQUID (n=10): 0/10 pass (0.0%) — AXG $2.57/166k vol, CISO $0.26/
+    119k, DYAI $1.00/228k, EPOW $0.55/222k, GALT $3.12/490k, NRXP
+    $3.35/1.17M (volume alone clears), PROF $7.34/117k (price alone
+    clears), SNOA $1.29/197k, TRAW $0.54/117k, WNW $2.68/139k.
+  MODERATE (n=7): 1/7 pass (14.3%) — only IMNM ($25.69/1.05M); the other
+    6 fail on price alone despite clearing the 1-5M share/day volume
+    bucket that defined "moderate" membership (CRDF $1.03, KTTA $0.47,
+    ONCY $0.80, SXTP $1.13, VIVO $3.94, ZCMD $1.14).
+  LIQUID (n=7): 7/7 pass (100%) — AAPL/MSFT/NVDA/AMD/AMZN/CAT/GE, as
+    expected for the bot's own liquid anchor universe.
+
+VERDICT, stated as plainly as the finding (Reasoning Standard #4): 1 of
+17 tickers across the ILLIQUID+MODERATE groups this ladder has tested
+since 2026-07-24 would ever reach `deep_score()` in the live bot today.
+`MIN_PRICE` ($5), not `MIN_VOLUME`, is the dominant exclusion filter —
+most of these names clear or nearly clear the volume bucket that defined
+their group but are simply too cheap, a dimension the original draw's
+liquidity-only bucketing never screened for by design (avoiding a
+market-cap data-field dependency). This closes the ladder's step 5 with
+a NEGATIVE-FOR-SHIPPING verdict on a more fundamental axis than the
+blend-dilution question the session's own prior expected to test: the
+candidates never reach `deep_score()`'s weighted blend to be diluted in
+the first place. Steps 1-4's Sharpe/significance findings are not
+invalidated as a backtest-only result, but they describe a market
+segment structurally unreachable by the live trading system as currently
+gated — REASONING STANDARD #6 (costs and frictions first) applies here
+one level up: an edge that can't be traded isn't tradeable regardless of
+how real its isolated backtest signature is.
+
+NO STRATEGY/THRESHOLD/CONFIG CHANGE SHIPS FROM THIS ENTRY. The one path
+that WOULD make this edge actionable — loosening `MIN_PRICE`/`MIN_VOLUME`
+to admit sub-$5 microcaps — is explicitly flagged as a SEPARATE, larger,
+riskier RULE-REVIEW decision (spread/fill-realism at these sizes even
+after the 2026-07-23 tiered-cost fix, halt/manipulation exposure specific
+to sub-$5 names, Yahoo-fallback data-source staleness) that this entry
+does not propose and a future session should not treat as an automatic
+follow-on.
+
+RATCHET: new `test_illiquid_universe_probe_universe_gate.py` (15 tests):
+object-identity pins on `MIN_PRICE`/`MIN_VOLUME` (vs. `bot_engine`) and
+`ILLIQUID`/`MODERATE`/`LIQUID` (vs. `illiquid_universe_probe`) so a
+future edit to either source can't silently desync this check;
+`passes_universe_gate()` boundary tests (exactly-at-threshold passes,
+matching `scan_market()`'s strict-less-than skip; just-under on price
+only / volume only / both fails; `None` inputs fail closed);
+`check_ticker()` no-data handling, trailing-20-day-window correctness (a
+low-volume day OUTSIDE the window must not drag the average down),
+last-close-not-first selection; `check_group()` aggregation counts/rate.
+A/B-verified: moved the new script aside — collection fails with
+`FileNotFoundError` (pre-fix-equivalent absence) — restored it, all 15
+pass.
+
+GATES: this sandbox needed `numpy`/`pandas`/`scipy`/`openpyxl`/`pytest`
+installed first (not present by default — same recurring clean-container
+gap prior sessions have logged). `python3 -m pytest -q` (full suite):
+1254 passed, 3 skipped, 3 failed. The 3 failures
+(`test_macro_snapshot_spy_dedup.py`, missing `yfinance` module in this
+sandbox) confirmed PRE-EXISTING and UNRELATED via `git stash -u` A/B on
+unmodified HEAD — identical 3 failures, identical `ModuleNotFoundError`,
+before this session's two new files existed. No `.ts`/`.tsx` files
+touched (pure Python research script + two markdown docs), so
+`npx tsc --noEmit`/`npx tsx --test`/`npm run build` were not re-run,
+matching precedent from other pure-Python sessions this queue has
+logged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure read-only diagnostic over live
+market data (current price/volume snapshots via the same fetch path the
+backtest engine already uses); changes no scoring/sizing/threshold value
+or trading decision; ships no strategy/config change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop today — `strategies/mean_reversion.py`'s DEFAULT_THRESHOLDS
+and `bot_engine.py`'s `MIN_PRICE`/`MIN_VOLUME` are both byte-for-byte
+unchanged. If a future session pursues the MIN_PRICE/MIN_VOLUME
+loosening question this finding surfaces, the downstream chain would be
+real and wide: admitting sub-$5/sub-500k-volume names into `scan_market()`
+changes the ENTIRE scanned universe (not just mean_reversion candidates)
+-> changes candidate counts across every strategy score in `deep_score()`
+-> changes position counts/sizing/sector-concentration exposure per
+REASONING STANDARD #1's own "variables interact" discipline -> changes
+`shadow_portfolio.py`'s candidate-logging population -> changes ML
+training data composition. None of that is triggered by this entry
+itself, which changes nothing live — flagged so a future session
+proposing that change reads it as the systemic decision it would be, not
+a narrow threshold tweak.
+
+Version 1.0.642 -> 1.0.643 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD via `git fetch origin main`, zero drift).
+
+MARKET STATUS: session ran shortly after 02:00 UTC 2026-08-11 (Monday,
+pre-market) — no merge-timing restriction from the PRODUCT-session PR
+guidance (this is a RESEARCH session; no client/ or trading-decision
+files touched).
+
+NEXT: this ladder's steps 1-5 are now all CLOSED. No further step is
+queued for this specific illiquid/moderate mean_reversion thread. The
+open question this session surfaced (whether `MIN_PRICE`/`MIN_VOLUME`
+should ever be loosened to admit sub-$5 microcaps) is explicitly NOT
+queued as an automatic follow-on — a future session picking it up should
+treat it as its own fresh EDGE DOCTRINE axis (b) hypothesis with its own
+prior and cost/frictions-first analysis (REASONING STANDARD #6), per the
+open_questions.md update's own NEXT note. KNOWN BROKEN #10's
+`over_threshold` change_pct band (v1.0.642) and #20's `rejected_masterkill`
+bucket both remain gated on more live shadow-history accumulating, no
+action needed until they clear `min_n=5` at some horizon. #29 remains
+RESOLVED PENDING CONTINUED MONITORING, ~18h clean as of this session,
+still no recurrence.
+
+STARVED: no — this session's single fully-scoped action (axis check +
+read-before-write + build + live-run + regression tests + full-suite
+gate run + open_questions.md update + version bump) consumed its own
+capacity; no higher-priority queued item was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine session #6) [REPAIR] — T-BOT (shadow_portfolio.py) — KNOWN BROKEN #10's queued change_pct evidence query finally runs against real labeled shadow data, now that the backfill bug is confirmed fixed and durable (v1.0.642, PR #744)
 
 TERRITORY: T-BOT (shadow_portfolio.py is bot-side learning-data infrastructure

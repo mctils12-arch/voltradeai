@@ -8432,6 +8432,132 @@ Reproducibility artifact: `scripts/illiquid_universe_probe_threshold_ablation_re
 session log and version bump in `research/experiments.md`, 2026-08-08
 session #2 entry.
 
+**UPDATE 2026-08-11 (scheduled-routine session, [RESEARCH], EDGE DOCTRINE
+axis (b), v1.0.643) — LADDER PATH step 5 (LOGIC-gate ablation against the
+live bot's actual candidate path) run: the entire ILLIQUID group and all
+but one MODERATE ticker are INVISIBLE to the live bot regardless of any
+mean_reversion scoring/threshold question — this closes the ladder with a
+negative-for-shipping verdict on a different, more fundamental axis than
+steps 1-4 tested.**
+
+WHY THIS STEP EXISTS: every prior step (1-4) called
+`backtest_v2.run_backtest(ticker, "mean_reversion", ...)` directly on the
+pinned ticker lists — bypassing the gate every real live candidate must
+clear first. `bot_engine.py`'s `scan_market()` quick-score pass hard-skips
+any ticker with `c < MIN_PRICE or v < MIN_VOLUME` (bot_engine.py:2746,
+`MIN_PRICE=$5`/`MIN_VOLUME=500,000` module constants, bot_engine.py:200-201)
+BEFORE `deep_score()` — and therefore `mean_reversion.score()` — ever runs
+on it. Steps 1-4 never checked whether the pinned candidates could pass
+this gate. This step asks that question directly, importing MIN_PRICE/
+MIN_VOLUME live from `bot_engine.py` (not copied) so the check cannot
+silently drift from the actual live filter.
+
+METHOD: `scripts/illiquid_universe_probe_universe_gate.py` (new) imports
+the ORIGINAL ILLIQUID(n=10)/MODERATE(n=7)/LIQUID(n=7) lists verbatim from
+`illiquid_universe_probe.py` (object-identity-pinned in tests, not
+re-typed) and fetches each ticker's current bars via
+`backtest_v2.fetch_bars` (Alpaca-first/Yahoo-fallback — the same data
+source class `scan_market()`'s own Alpaca snapshot approximates). Checks
+latest close against `MIN_PRICE` and the trailing-20-trading-day average
+volume against `MIN_VOLUME` — a 20-day average, not `scan_market()`'s own
+single-day volume check, deliberately chosen as the MORE GENEROUS reading
+(a single low-volume day would only make the illiquid group look worse,
+so this is not a stacked deck against the finding below).
+
+RESULT (live run, 2026-08-11):
+  ILLIQUID (n=10): 0/10 pass (0.0%). Every ticker fails on price, volume,
+    or both — AXG $2.57/166k vol, CISO $0.26/119k, DYAI $1.00/228k, EPOW
+    $0.55/222k, GALT $3.12/490k, NRXP $3.35/1.17M (volume clears, price
+    doesn't), PROF $7.34/117k (price clears, volume doesn't), SNOA
+    $1.29/197k, TRAW $0.54/117k, WNW $2.68/139k.
+  MODERATE (n=7): 1/7 pass (14.3%) — only IMNM ($25.69/1.05M). The other
+    6 fail on price alone (most are sub-$2 biotech names despite clearing
+    the 1-5M share/day volume bucket that defined "moderate" in the
+    original 2026-07-24 draw: CRDF $1.03, KTTA $0.47, ONCY $0.80, SXTP
+    $1.13, VIVO $3.94, ZCMD $1.14).
+  LIQUID (n=7): 7/7 pass (100%) — AAPL/MSFT/NVDA/AMD/AMZN/CAT/GE, as
+    expected for the bot's own liquid anchor universe.
+
+Combined: 1 of 17 tickers across the ILLIQUID+MODERATE groups this
+multi-session ladder has been testing since 2026-07-24 (IMNM alone) would
+ever reach `deep_score()` in the live bot today. MIN_PRICE ($5) is the
+dominant exclusion filter, not MIN_VOLUME — most of these names clear or
+nearly clear the volume bucket that defined their group membership but
+are simply too cheap, a dimension the original 2026-07-24 draw's
+liquidity-only bucketing (by design, to avoid needing a market-cap data
+field) never screened for.
+
+VERDICT, stated as plainly as the finding (Reasoning Standard #4): steps
+1-4's entire Sharpe/significance/regime/re-threshold investigation,
+however carefully each step was executed, describes a market segment
+that is — and was, throughout every one of those sessions — already
+gated out of the live trading system by an EXISTING, unrelated filter.
+This is a different and more fundamental failure mode than the
+hypothesis this step originally set out to test (whether `deep_score()`'s
+20%-weight blend with momentum/VRP/squeeze/volume would dilute an
+otherwise-real mean_reversion edge) — the blend-dilution question is now
+moot, because the candidates never reach `deep_score()` to be blended in
+the first place. No strategy, threshold, or config change ships from
+this entry — this is a pure read-only diagnostic.
+
+WHAT THIS DOES NOT SAY: it does not say the illiquid mean_reversion edge
+found in steps 1-4 is false — the backtest-only finding stands as
+measured (illiquid > moderate is real within the strategy-isolated
+methodology those steps used). It says the finding is CURRENTLY
+UNACTIONABLE for the live bot without a SEPARATE, larger decision:
+loosening `MIN_PRICE`/`MIN_VOLUME` themselves to admit sub-$5 penny/
+microcap names. That is its own RULE REVIEW-gated threshold change, with
+its own well-known risks this entry does not currently assess (spread/
+fill realism at these volumes even after the 2026-07-23 tiered-cost fix,
+halt/manipulation exposure specific to sub-$5 names, staleness of the
+Yahoo-fallback data source at this size) — NOT a natural extension of
+this finding, a materially different and riskier decision that would
+need its own evidence gate before any wishlist/RULE-REVIEW proposal.
+
+RATCHET: new `test_illiquid_universe_probe_universe_gate.py` (15 tests):
+MIN_PRICE/MIN_VOLUME/ILLIQUID/MODERATE/LIQUID pinned by object identity
+to the live `bot_engine`/`illiquid_universe_probe` sources (not copies);
+`passes_universe_gate()` boundary behavior (exactly-at-threshold passes,
+matching `scan_market()`'s own strict-less-than skip condition; just-under
+on either axis independently and combined fails); `check_ticker()`
+no-data handling, trailing-20-day-window correctness (a low-volume day
+OUTSIDE the window must not drag the average down), last-close (not
+first) selection; `check_group()` aggregation counts and rate. A/B-verified
+by moving the new script aside (`FileNotFoundError` on collection,
+matching pre-fix absence) and restoring it (all 15 pass).
+
+GATES: `python3 -m pytest -q` (full suite, this sandbox needed `numpy`/
+`pandas`/`scipy`/`openpyxl`/`pytest` installed first — not present by
+default here, same recurring clean-container gap prior sessions have
+logged): 1254 passed, 3 skipped, 3 failed — the 3 failures are
+`test_macro_snapshot_spy_dedup.py` (missing `yfinance` module in this
+sandbox), confirmed pre-existing and unrelated via `git stash -u` A/B on
+unmodified HEAD (same 3 failures, same error, before this session's
+files existed). No `.ts`/`.tsx` files touched (pure Python + two research
+docs), so `npx tsc --noEmit`/`npx tsx --test`/`npm run build` were not
+re-run, matching precedent from other pure-Python sessions this queue has
+logged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure read-only diagnostic over live
+market data; changes no scoring/sizing/threshold value or trading
+decision; ships no strategy/config change.
+
+NEXT: this ladder's steps 1-5 are now all CLOSED (step 5 as "checked,
+negative-for-shipping," matching step 4's own "checked, not a threshold
+change ready to ship" disposition). No further step is queued for this
+specific illiquid/moderate mean_reversion thread unless a future session
+wants to pursue the separate, larger MIN_PRICE/MIN_VOLUME loosening
+question this update surfaced — which should be treated as its own fresh
+EDGE DOCTRINE axis (b) hypothesis with its own prior/ladder path, not an
+automatic follow-on to this one. If a future session revisits it: start
+by pricing the SPECIFIC new risks named above (spread/fill realism,
+halt/manipulation exposure, data-source staleness at sub-$5 sizes) before
+any backtest, per REASONING STANDARD #6 (costs and frictions first).
+
+Reproducibility artifact: `scripts/illiquid_universe_probe_universe_gate.py`
++ `test_illiquid_universe_probe_universe_gate.py`. Full session log and
+version bump in `research/experiments.md`, 2026-08-11 entry.
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
