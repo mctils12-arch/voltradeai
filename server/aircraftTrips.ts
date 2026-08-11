@@ -36,6 +36,33 @@ export interface Trip {
   bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
   quality: TripQuality;      // QC-1 shape classification (2026-08-11)
   quality_basis: string;     // the honest one-line reason
+  /** QC-2 (2026-08-11): airport verification — a COMPLETE flight takes off
+   *  from a field and lands at one, at plausible field elevation. */
+  is_flight: boolean;        // false = ground log (taxi/parked), not a flight
+  verified: boolean;         // both endpoints airport+elevation confirmed
+  from_airport?: { id: string; n: string; dist_km: number; el: number | null } | null;
+  to_airport?: { id: string; n: string; dist_km: number; el: number | null } | null;
+}
+
+/** injectable airport resolver (server/airportsIndex.nearestAirport in prod) */
+export type NearestAirportFn = (la: number, lo: number) =>
+  ({ id: string; n: string; dist_km: number; el: number | null } | null);
+
+/** baro-vs-field tolerance: pressure offsets + reference-point elevation
+ *  spread on big fields */
+export const QC_FIELD_ELEV_TOLERANCE_M = 350;
+
+/** Pure: does an endpooint fix agree with a field? grounded always agrees;
+ *  an altitude agrees when within tolerance of the published elevation;
+ *  a field without published elevation can't disagree (null = unverifiable,
+ *  not wrong). */
+export function endpointAgreesWithField(
+  f: ArchivedFix, ap: { el: number | null } | null,
+): boolean {
+  if (!ap) return false;
+  if (f.g || f.al == null) return true;
+  if (ap.el == null) return true;
+  return Math.abs(f.al - ap.el) <= QC_FIELD_ELEV_TOLERANCE_M;
 }
 
 /** Pure: sorted fixes -> trips. Split on hard time gaps and on qualifying
@@ -47,6 +74,7 @@ export function splitTrips(
   gapSec = TRIP_GAP_SEC,
   dwellSec = TRIP_GROUND_DWELL_SEC,
   minFixes = TRIP_MIN_FIXES,
+  nearest?: NearestAirportFn,
 ): Trip[] {
   if (!fixes.length) return [];
   const segs: ArchivedFix[][] = [];
@@ -94,7 +122,20 @@ export function splitTrips(
       if (f.c) calls.add(f.c);
     }
     const qc = classifyTrip(s);
+    // QC-2 airport verification: resolve both endpoints against the field
+    // catalog. Only trips whose SHAPE already says the end is low/ground
+    // can verify — an endpoint at cruise has no landing to confirm.
+    const fromAp = nearest ? nearest(s[0].la, s[0].lo) : null;
+    const toAp = nearest ? nearest(s[s.length - 1].la, s[s.length - 1].lo) : null;
+    const isFlight = qc.quality !== "taxi_only";
+    const verified = isFlight && qc.quality === "complete"
+      && endpointAgreesWithField(s[0], fromAp)
+      && endpointAgreesWithField(s[s.length - 1], toAp);
     trips.push({
+      is_flight: isFlight,
+      verified,
+      from_airport: fromAp,
+      to_airport: toAp,
       start_t: s[0].t,
       end_t: s[s.length - 1].t,
       duration_s: s[s.length - 1].t - s[0].t,

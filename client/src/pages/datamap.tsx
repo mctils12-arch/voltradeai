@@ -13229,11 +13229,14 @@ export default function DataMapPage() {
                   cardTrips.error ? (
                     <span className="vt-legend-note">trip history unavailable right now</span>
                   ) : cardTrips.trips.length === 0 ? (
-                    <span className="vt-legend-note">no archived trips in the last 30 days (raw-fix retention window)</span>
+                    <span className="vt-legend-note">no archived flights in the last 30 days (raw-fix retention window)</span>
                   ) : (
                     <div className="vt-trips-list">
-                      <span className="vt-legend-note">Trips — our own archive, last 30 days ({cardTrips.trips.length}):</span>
-                      {cardTrips.trips.slice(0, 8).map((t: any) => {
+                      {/* QC-2 (2026-08-11): FLIGHTS only — "a plane could get
+                          turned on and just taxi... that is not a flight".
+                          Ground logs collapse into one honest count line. */}
+                      <span className="vt-legend-note">Flights — our own archive, last 30 days ({cardTrips.trips.filter((t: any) => t.is_flight !== false).length}):</span>
+                      {cardTrips.trips.filter((t: any) => t.is_flight !== false).slice(0, 8).map((t: any) => {
                         const d0 = new Date(t.start_t * 1000);
                         const durMin = Math.round(t.duration_s / 60);
                         const on = tripReplay === t.start_t;
@@ -13257,12 +13260,21 @@ export default function DataMapPage() {
                                     }
                                     void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
                                   }}>
-                            {t.quality === "taxi_only" ? "TAXI · " : t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
-                            {t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
+                            {t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
+                            {t.from_airport?.id && t.to_airport?.id ? ` · ${t.from_airport.id}→${t.to_airport.id}${t.verified ? " ✓" : ""}` : t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
                           </button>
                         );
                       })}
-                      {cardTrips.trips.length > 8 && <span className="vt-legend-note">+{cardTrips.trips.length - 8} older within the window</span>}
+                      {(() => {
+                        const fl = cardTrips.trips.filter((t: any) => t.is_flight !== false);
+                        const ground = cardTrips.trips.length - fl.length;
+                        return (
+                          <>
+                            {fl.length > 8 && <span className="vt-legend-note">+{fl.length - 8} older flights within the window</span>}
+                            {ground > 0 && <span className="vt-legend-note">+{ground} ground log{ground > 1 ? "s" : ""} (ADS-B on, never flew — not flights)</span>}
+                          </>
+                        );
+                      })()}
                     </div>
                   )
                 )}
