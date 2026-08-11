@@ -165,6 +165,15 @@ export function heartbeat(s: Storage, aliveMs: number, lastStep: string): void {
 }
 export function closeCleanly(s: Storage): void {
   try { s.removeItem(HEARTBEAT); } catch { /* fine */ }
+  // FALSE-POSITIVE FIX (human field payload 2026-08-08: a HEALTHY trail —
+  // first-idle at 2.2s — closed at 10.0s, a hair before the ~10.2s
+  // healthy-idle mark, was recorded as a boot death and put the next visit
+  // in safe mode with a crash banner). pagehide fires on NAVIGATION and tab
+  // close; real crashes (GPU-process death, OOM renderer kill, hard hang)
+  // never run it. A graceful exit before bootComplete is therefore not a
+  // crash — disarm the marker too. Accepted cost: a crash after a bfcache
+  // freeze/resume goes unrecorded (the gl-loss log still covers GL deaths).
+  try { s.removeItem(IN_PROGRESS); } catch { /* fine */ }
 }
 
 /** Reduced configuration is warranted when the previous boot(s) died young. */
