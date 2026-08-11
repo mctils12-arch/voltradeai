@@ -46914,3 +46914,24 @@ stops = real bug found by recon), timezone lines (863KB innerlines
 compile from tz-boundary-builder measured in-session + 5.5KB date
 line; @photostructure/tz-lookup CC0 88KB for crossings, ~5% border
 caveat labeled). STARVED: no.
+
+## 2026-08-11 (4) — [PRODUCT] Altitude/time panel v2 shipped (#772, v1.0.660)
+
+Territory: T-CLIENT. Docked bottom bar (drag/scale/lock chrome removed);
+diff-aware setFlightProfile + 1s-linear transition on the live-edge
+compression (the two recon-identified glitch sources); video-editor
+scrub (domain tick runs in both modes — scrub holds the head, data
+keeps building; fixes the stale-sx recon bug); local-time display with
+compact Z secondary (storage stays epoch). Harness 0 hard failures.
+
+DAY TOTAL (2026-08-11): #760 30-day retention + politeness, #761 trip
+zoom/follow, #762 TM design docs, #764 auth rate-lane (owner lockout),
+#765 trip QC-1, #766 docs, #768 QC-2 airports verification, #770
+curtain truth (recon), #771 docs, #772 panel v2 — 10 merged PRs,
+v1.0.654-660.
+
+REMAINING QUEUE (plans in hand): timezone lines (compiled 863KB
+innerlines + 5.5KB dateline measured in-session; tz-lookup CC0 for
+crossings — curtain color breaks + slider marks + auto-on toggle);
+TIME MACHINE T-1 window endpoint -> T-2 selectors -> T-3 MultiTrack
+curtain fleet -> T-4 vessels parity (earth_twin charter). STARVED: no.
