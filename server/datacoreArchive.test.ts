@@ -14,6 +14,7 @@ import {
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
+  originOfPosType,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -384,4 +385,97 @@ test("readArchiveDay: limit caps rows and sets truncated honestly rather than si
   assert.equal(full!.rows.length, 10);
   assert.equal(full!.truncated, false);
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+// ── GNSS integrity passthrough (2026-08-11): the archive must persist the
+//    integrity/origin/provenance fields and round-trip them on REAL data,
+//    with the null-is-not-zero guarantee. ──
+const readAircraftLines = (base: string): any[] => {
+  const dir = path.join(base, "aircraft");
+  const out: any[] = [];
+  for (const f of fs.readdirSync(dir)) {
+    for (const ln of fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter(Boolean)) {
+      out.push(JSON.parse(ln));
+    }
+  }
+  return out;
+};
+
+test("integrity fields round-trip through the archive (nulls stay null)", () => {
+  const base = tmp();
+  const t0 = Date.now();
+  const p: any = {
+    ...cruise("intg01"),
+    nic: 8, nac_p: 10, nac_v: 2, sil: 3, sil_type: "perhour", rc: 186, gva: 2, sda: 2,
+    nic_baro: 1, pos_type: "adsb_icao", mlat_fields: null, tisb_fields: null,
+    lkg_lat: 56.9, lkg_lon: 12.5, lkg_before: 3.2, seen_pos: 0.4, provider: "adsblol",
+  };
+  assert.equal(archiveAircraft([p], SITES, base, t0), 1);
+  const [r] = readAircraftLines(base);
+  assert.equal(r.ni, 8); assert.equal(r.np, 10); assert.equal(r.nv, 2); assert.equal(r.si, 3);
+  assert.equal(r.st, "perhour"); assert.equal(r.rc, 186); assert.equal(r.gv, 2); assert.equal(r.sd, 2);
+  assert.equal(r.nb, 1); assert.equal(r.pt, "adsb_icao");
+  assert.equal(r.kla, 56.9); assert.equal(r.klo, 12.5); assert.equal(r.kb, 3.2); assert.equal(r.sp, 0.4);
+  assert.equal(r.pv, "adsblol");
+  // null derivation arrays are omitted, not stored as [] or 0
+  assert.ok(!("ml" in r) && !("tb" in r), "empty/null mlat/tisb arrays omitted");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("NULL IS NOT ZERO: a reported 0 persists as 0; an absent field is omitted, never 0", () => {
+  const base = tmp();
+  const t0 = Date.now();
+  // reported zero-integrity (the signal-carrying case) MUST survive as 0
+  const zero: any = { ...cruise("zero01"), nic: 0, nac_p: 0, sil: 0, pos_type: "mlat", provider: "adsblol" };
+  // total silence — every integrity field null
+  const silent: any = { ...cruise("silent1", 46, -29), nic: null, nac_p: null, sil: null,
+    pos_type: null, provider: "adsblol" };
+  assert.equal(archiveAircraft([zero], SITES, base, t0), 1);
+  assert.equal(archiveAircraft([silent], SITES, base, t0 + 6 * 60_000), 1);
+  const rows = readAircraftLines(base);
+  const rz = rows.find((r) => r.i === "zero01");
+  const rs = rows.find((r) => r.i === "silent1");
+  assert.strictEqual(rz.ni, 0, "reported nic=0 must be stored as 0");
+  assert.strictEqual(rz.np, 0); assert.strictEqual(rz.si, 0);
+  // the crux: a null field must be ABSENT from the JSON, never serialized as 0
+  for (const k of ["ni", "np", "si", "pt"]) {
+    assert.ok(!(k in rs), `null field ${k} must be omitted, not written`);
+  }
+  // and prove no stringified line ever turned a null into a literal 0 key
+  const dir = path.join(base, "aircraft");
+  for (const f of fs.readdirSync(dir)) {
+    const raw = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const ln of raw.split("\n").filter(Boolean)) {
+      const o = JSON.parse(ln);
+      // any integrity key present must reflect a real value we set, never a fabricated 0
+      if (o.i === "silent1") assert.ok(o.ni === undefined && o.np === undefined && o.si === undefined);
+    }
+  }
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("provenance filter: an adsb.lol-only subset is separable by the provider field", () => {
+  const base = tmp();
+  const t0 = Date.now();
+  archiveAircraft([{ ...cruise("lol1"), provider: "adsblol" } as any], SITES, base, t0);
+  archiveAircraft([{ ...cruise("live1", 46, -29), provider: "airplaneslive" } as any], SITES, base, t0 + 6 * 60_000);
+  archiveAircraft([{ ...cruise("fi1", 47, -28), provider: "adsbfi" } as any], SITES, base, t0 + 12 * 60_000);
+  const rows = readAircraftLines(base);
+  const lolOnly = rows.filter((r) => r.pv === "adsblol");
+  assert.equal(lolOnly.length, 1);
+  assert.equal(lolOnly[0].i, "lol1");
+  assert.ok(rows.every((r) => r.pv), "every archived row carries a provider tag");
+  assert.ok(!lolOnly.some((r) => r.pv === "airplaneslive" || r.pv === "adsbfi"),
+    "the adsb.lol subset contains no non-commercial-provider rows");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("originOfPosType decodes broadcast vs ground-derived (the one decode table)", () => {
+  assert.equal(originOfPosType("adsb_icao"), "broadcast");
+  assert.equal(originOfPosType("adsr_icao"), "broadcast");
+  assert.equal(originOfPosType("mlat"), "ground");
+  assert.equal(originOfPosType("tisb_trackfile"), "ground");
+  assert.equal(originOfPosType("mode_s"), "mode_s");
+  assert.equal(originOfPosType(null), "unknown");
+  assert.equal(originOfPosType("something_new"), "unknown");
 });

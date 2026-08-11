@@ -75,7 +75,8 @@ export async function pollGlobalScopesOnce(
     try {
       const res = await fetchImpl(scopeUrl(scope), { headers });
       if (!res.ok) { status.per_scope[scope] = -1; continue; } // -1 = fetch failed this cycle
-      const pts = mapPointAircraft(await res.json(), "ac") as AircraftPoint[];
+      // scopes are always adsb.lol (scopeUrl → api.adsb.lol) — tag provenance
+      const pts = mapPointAircraft(await res.json(), "ac", "adsblol") as AircraftPoint[];
       status.per_scope[scope] = pts.length;
       for (const p of pts) {
         if (seen.has(p.icao24)) continue; // scopes overlap (mil ∩ ladd)

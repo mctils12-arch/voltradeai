@@ -162,10 +162,24 @@ export interface DiscProvider {
   url: (lat: number, lon: number, radiusNm: number) => string;
 }
 
+// Schema-drift-resilient coercers (GNSS integrity passthrough 2026-08-11): a
+// field that disappears upstream, or arrives with an unexpected type or a new
+// enum value, degrades to null (or passes a string through) — never a crash
+// and never a fabricated value. A reported 0 survives (0 is a real integrity
+// category); only absence/garbage becomes null.
+const numOrNull = (x: any): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
+const strOrNull = (x: any): string | null => (typeof x === "string" && x ? x : null);
+const strArrOrNull = (x: any): string[] | null =>
+  Array.isArray(x) ? x.filter((s: any) => typeof s === "string") : null;
+
 /** readsb point-query record -> the unified aircraft shape the client and
  *  the position archive consume (extracted verbatim from routes.ts so every
- *  disc maps identically and the mapping is unit-testable). */
-export function mapPointAircraft(raw: any, arrKey: string): any[] {
+ *  disc maps identically and the mapping is unit-testable).
+ *
+ *  `provider` tags each row with the upstream that served it (adsblol |
+ *  airplaneslive | adsbfi) so the ODbL adsb.lol-only subset is a single
+ *  provable filter — provenance is a real field, never inferred later. */
+export function mapPointAircraft(raw: any, arrKey: string, provider?: string): any[] {
   return ((raw?.[arrKey] as any[]) || []).slice(0, 10000).map((a: any) => {
     // alt_baro drops out of readsb rows for stretches while alt_geom (GNSS
     // altitude — also a real broadcast field) stays present; a null here
@@ -195,6 +209,28 @@ export function mapPointAircraft(raw: any, arrKey: string): any[] {
       heading: a.track ?? null,
       type: a.t || null,                    // ICAO type designator (e.g. B738, C172)
       category: a.category || null,          // ADS-B emitter category (A1..A7)
+      // ── GNSS integrity passthrough (2026-08-11): the fields this map used
+      //    to discard. `a.type` is the readsb POSITION-SOURCE discriminator
+      //    (adsb_icao/mlat/tisb_*/mode_s) — NOT `a.t` (the ICAO model above);
+      //    it maps to pos_type, kept strictly separate. Every field coerces to
+      //    null on absence/garbage (schema-drift safe); a reported 0 survives. ──
+      nic: numOrNull(a.nic),
+      nac_p: numOrNull(a.nac_p),
+      nac_v: numOrNull(a.nac_v),
+      sil: numOrNull(a.sil),
+      sil_type: strOrNull(a.sil_type),
+      rc: numOrNull(a.rc),
+      gva: numOrNull(a.gva),
+      sda: numOrNull(a.sda),
+      nic_baro: numOrNull(a.nic_baro),
+      pos_type: strOrNull(a.type),
+      mlat_fields: strArrOrNull(a.mlat),
+      tisb_fields: strArrOrNull(a.tisb),
+      lkg_lat: numOrNull(a.gpsOkLat),
+      lkg_lon: numOrNull(a.gpsOkLon),
+      lkg_before: numOrNull(a.gpsOkBefore),
+      seen_pos: numOrNull(a.seen_pos),
+      provider: provider || null,
     };
   }).filter((a: any) => a.lat != null && a.lon != null);
 }
@@ -278,7 +314,7 @@ export async function fetchDiscs(plan: DiscPlan, deps: TiledFetchDeps): Promise<
         const raw: any = await r.json();
         backoffClear(p.key);
         sources.add(p.label);
-        return mapPointAircraft(raw, p.arr);
+        return mapPointAircraft(raw, p.arr, p.key);
       } catch (e: any) {
         backoffBump(p.key);
         const cause = e?.cause?.code || e?.cause?.message || "";
