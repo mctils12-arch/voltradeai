@@ -3,6 +3,222 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-11 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (scripts/finra_shortvol_gate2_retest.ts) — finra_short_volume GATE 2 RETEST: population-baseline + regime-split design PASSES its own pre-registered bar, thin margin, effect concentrated in NEUTRAL-regime days (v1.0.643)
+
+TERRITORY: T-DATACORE (research-only script under `scripts/`, imports from
+`server/finraShortVolume.ts` and the sibling `scripts/occ_volume_gate2.ts`/
+`scripts/finra_shortvol_gate2.ts`/`scripts/statsUtils.ts`, touches zero
+runtime path). SHARED touch kept minimal per MERGE-ORDER PROTOCOL:
+`package.json`/`package-lock.json` version bump, this `experiments.md`
+entry, `research/open_questions.md`'s FINRA entry, and `datacore/
+signal_ladder.json`'s `finra_short_volume` row — all research bookkeeping,
+last commit. Solo session, `git fetch origin main` at start showed local
+already at `origin/main` HEAD (`6afd963`, v1.0.642, PR #744, already
+merged) — no rebase needed.
+
+SESSION-START CHECKS: CLAUDE.md read in full (scheduled [PRODUCT] session
+per the routine's own instructions — datacore/ pipelines and the /data
+section). Live health (`curl https://voltradeai.com/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM; nothing in KNOWN BROKEN
+(`open_questions.md`, all 29 numbered items resolved/monitoring, none
+open) that would preempt PRODUCT work. `research/experiments.md`'s tail
+(the 2026-08-10 #6 KNOWN BROKEN #10 shadow-query entry) and the last ~10
+tagged entries by git log (5 REPAIR / 5 PRODUCT over #734-#744, `#744`
+this session's own predecessor) read — under the 7/10 thrash bar, no
+meta-problem.
+
+PICKING THE ACTION: with KNOWN BROKEN clean and no live audit-log bug,
+surveyed the two standing NEXT-note candidates repeated across the last
+several PRODUCT sessions' own tails: (1) the CDC/SEER county-cancer-rate
+hazard layer (`research/location_context_engine.md`) — a RAW overlay, no
+ladder gating needed, but a larger multi-file UI build (county polygons +
+ecological-fallacy display guard + visual harness at 3 widths); (2) the
+FINRA short-volume GATE 2 RETEST (`research/open_questions.md`, filed
+2026-08-06 alongside the first pass's own FAIL) — explicitly flagged by
+the 2026-08-09 session's own NEXT note as "a small, well-defined script
+reusing `scripts/statsUtils.ts`'s existing day-clustered t-test helpers,
+no calendar/human gate." Picked the retest: this session's own task
+description explicitly names "(a) advance a datacore/ pipeline through
+its next ladder gate (gate 1 ground-truth validation and gate 2 signal
+testing ARE product work)" as valid PRODUCT work, and this is exactly
+that — a pre-registered follow-up test on an existing gate-2-attempted
+root, not a cold-start hypothesis. The CDC/SEER layer remains queued,
+unclaimed, for a session that can also run the VISUAL VERIFICATION harness
+(one logical change per PR — bundling a larger UI build with this
+research script would violate that).
+
+READ BEFORE WRITE: read `scripts/finra_shortvol_gate2.ts` (the first-pass
+script) end-to-end, `scripts/occ_volume_gate2.ts` (the sibling root whose
+`fetchYahooDaily`/`toSeries`/`fwdReturn`/`weeklySampleDays`/`ymdCompact`
+helpers both FINRA scripts reuse, not reimplement), `scripts/statsUtils.ts`
+(the day-clustered t-test machinery, built specifically off the
+occ_options_volume 2026-08-03 pooled-t overstatement lesson), and
+`server/finraShortVolume.ts` (`fetchShortVolDay`/`FLOOR_TOTAL_VOL`/
+`ShortVolRow`) before writing anything. Confirmed via grep that no
+existing script already computes a per-day regime label from SPY/VXX
+before deciding to build the python bridge below. Found `backtest_v2.py`'s
+own `regime_series()` (its header: "Regime series from SPY + VXX, same
+inputs as live macro_data") — the EXACT function the production backtest
+engine uses, itself delegating to `regime_util.classify_regime_5level`
+(the file whose own header documents a real historical bug: three
+different modules once had three different copies of the VXX/SPY
+threshold logic that drifted out of sync, fixed by centralizing here) —
+and confirmed it only imports stdlib (`json`/`os`/`time`/`urllib.request`/
+`datetime`), so a python3 subprocess call from the TS script (payload:
+JSON `{spy:{date,close}, vxx:{date,close}}` via stdin) reuses the
+production classifier verbatim instead of writing a fourth copy of the
+same thresholds. Verified live in this sandbox first (`python3 -c "from
+regime_util import classify_regime; ..."`) before writing the bridge.
+
+PRE-REGISTERED DESIGN (stated in the script's own header before running,
+Reasoning Standard #10) — both fixes the 2026-08-06 entry's own follow-up
+named: (a) POPULATION BASELINE: split each day's qualifying universe
+(same `FLOOR_TOTAL_VOL`=500,000 liquidity floor, imported not redefined)
+into HIGH_SHORT (top `BUCKET_SIZE`=40 by short_ratio, imported from the
+first-pass script, not redefined) vs. "the rest." Fetching full-population
+forward returns proved genuinely infeasible (`--dry` run confirmed
+~2,000-2,400 qualifying tickers/DAY at this floor — full pricing would
+mean tens of thousands of Yahoo fetches across 16 days); documented as an
+honest limitation in the script's own header and this entry, not silently
+downgraded — the population mean is instead estimated from a SEEDED
+random sample (`RNG_SEED=20260811`, mulberry32, fixed before any fetch,
+one deterministic pass through the RNG in day order, no re-rolling) of 40
+tickers drawn from "the rest" each day (same per-day network-cost order as
+the first pass's NEUTRAL bucket, but now a genuine random draw across the
+FULL remaining range instead of a fixed middle-ranked slice — the actual
+fix for the diagnosed "boring middle" composition confound). No monotonic-
+ordering requirement (2 groups instead of 3 removes the concept). PASS bar:
+single two-tailed day-clustered t-test on the HIGH-vs-population-sample
+spread at +20d (the pre-declared more-theory-relevant horizon, matching
+the first pass's own choice), `|t| > tCrit005(df)`. +5d reported
+informationally only. (b) REGIME SPLIT: real 5-level labels
+(PANIC/BEAR/CAUTION/NEUTRAL/BULL) per sample day via the python bridge
+above — reported as the window's actual texture, and as an INFORMATIONAL-
+ONLY subgroup breakdown (explicitly NOT a second confirmatory test, stated
+before running) given n=16 total days makes per-regime subgroups too thin
+to trust as their own test (Reasoning Standard #4).
+
+BUILD: `scripts/finra_shortvol_gate2_retest.ts` — `splitPopulationAndTop`
+(pure, unit-tested), `mulberry32`/`sampleWithoutReplacement` (pure, seeded,
+unit-tested), `computeSpread` (pure, unit-tested), `regimeLabelsFor` (the
+python bridge, subprocess-dependent, not unit-tested — network/subprocess
+gated same as the FINRA/Yahoo fetches), and `main()` orchestrating the
+full run. `scripts/finra_shortvol_gate2_retest.test.ts` — 9 new tests
+covering the liquidity floor, HIGH_SHORT ranking/capping, spread sign and
+null-guard, RNG determinism, and sampling correctness (no repeats, caps at
+pool size, reproducible across independent same-seed runs).
+
+RUN (this session, live, `npx tsx scripts/finra_shortvol_gate2_retest.ts`):
+`--dry` first (network-cost sizing, per the script's own convention) —
+16/16 sample days had FINRA data, ~2,000-2,400 qualifying/day, 1,005
+unique tickers needed for the full run's price lookups (HIGH_SHORT +
+population sample across 16 days). Full run: regime bridge returned
+`data_quality:"ok"` off 383 days of real SPY/VXX history (2024-10-14
+through 2026-04-24, enough for a genuine trailing 200-day MA) — regime
+composition across the 16 sample days: BULL=4, NEUTRAL=7, CAUTION=3,
+BEAR=2 (verified, not the first pass's unverified "Sunday-fungible"
+assumption — the window does have real bull/bear representation, not just
+neutral/caution). Price fetch: 980/1,005 tickers fetched (25 failures,
+same 2-3% Yahoo miss rate class prior sessions have logged, not
+investigated further per that precedent). RESULT: `+5d horizon (n_days=16,
+df=15, crit=2.131): spread=1.042% t=1.443 SURVIVES=false`; `+20d horizon
+(n_days=16, df=15, crit=2.131): spread=2.330% t=2.245 SURVIVES=true`.
+VERDICT per the pre-stated single-test bar: **PASS**. REGIME SPLIT
+(informational, run same session): BULL n=4 t=0.495 (too thin), NEUTRAL
+n=7 t=3.212 spread=+4.743%, CAUTION n=3 t=1.062 (too thin), BEAR n=2
+t=-56.632 (2-point artifact, too thin) — almost all of the +20d effect
+concentrates in the 7 NEUTRAL-regime days; BULL is flat.
+
+INTERPRETATION (Reasoning Standard #4 — distrust in proportion to what
+was tried, demand out-of-sample confirmation before believing anything):
+this is a REAL pass on its own pre-registered bar, not a fished result —
+one test, stated before running, no threshold or bucket-size tuning after
+seeing data. But the margin is thin: t=2.245 clears crit=2.131 by almost
+exactly the same amount the FIRST pass's now-abandoned HIGH-LOW contrast
+did (t=2.279) before failing on ordering — this design fixed the diagnosed
+structural flaw and the fixed version happens to also clear significance,
+which is modestly encouraging but not strong evidence on its own. The
+regime-split finding is the more informative output of this session: the
+effect is NOT uniform across market conditions the way the first pass's
+"Sunday-fungible" framing implicitly assumed — it looks concentrated in
+NEUTRAL-regime days specifically, a genuinely new, more specific
+hypothesis this session deliberately did NOT chase further (one
+pre-registered test per session, no follow-up fishing within the same PR).
+Per this repo's own established bar for calling a root's direction
+resolved (occ_options_volume/cftc_tff_positioning/jodi_oil_stocks each
+needed a SECOND confirming test, disjoint from the first, before being
+marked `killed` in either direction) — the symmetric standard applies to a
+PASS too: this does not yet license gate-3 (LOGIC/backtest ablation) work.
+`datacore/signal_ladder.json`'s `finra_short_volume` row updated to
+`gate2_pass` (accurate — it did clear its pre-stated bar) but the full
+thin-margin + regime-concentration caveat travels in the row's own `note`
+field, not left implicit, so a future session reading the ladder snapshot
+alone gets the honest picture, not just a bare status flip.
+
+RATCHET: 9 new tests in `scripts/finra_shortvol_gate2_retest.test.ts`,
+all passing (`npx tsx --test scripts/finra_shortvol_gate2_retest.test.ts`
+— 9/9). These cover every pure function the script's statistical result
+depends on except the network/subprocess-bound pieces (FINRA/Yahoo
+fetches, the python regime bridge), same testability boundary the
+sibling `occ_volume_gate2.ts`/`finra_shortvol_gate2.ts` scripts already
+established (their own bucketing logic unit-tested, their own network
+calls not).
+
+GATES: `npx tsx --test scripts/finra_shortvol_gate2_retest.test.ts`: 9/9
+passed. `npx tsc --noEmit`: confirmed zero errors attributable to the new
+file (`grep`-isolated from the full error list — this container's
+pre-existing error count, same class prior sessions have logged for a
+fresh `npm install`, is unrelated to this diff). `python3 -c "import
+json; json.load(open('datacore/signal_ladder.json'))"`: valid JSON after
+the edit. No `.py` production files touched — no pytest gate applies. No
+`.tsx`/`client/` files touched — VISUAL VERIFICATION does not apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a GATE 2 (SIGNAL) research
+script with no trading involved (explicit in the root's own gate
+definition: "predictive power is measured statistically, with no trading
+involved"); it changes no scoring, sizing, or entry/exit rule, and touches
+no runtime path. The signal_ladder.json status flip is bookkeeping, not a
+behavior change.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or any live scoring/sizing path today — this PR is a
+standalone research script plus its own result recorded in research/
+bookkeeping. The only thing that changes is what a FUTURE session sees
+when it reads `signal_ladder.json`/`open_questions.md`: this root now
+reads `gate2_pass` (with its thin-margin/regime-concentration caveat)
+instead of `gate2_fail`, which changes what that future session is
+justified in doing next — specifically, it still may NOT skip straight to
+wiring this into `bot_engine.py`'s candidate filter (that would skip the
+required replication step this entry names) but MAY spend a session on
+the disjoint-window replication this entry recommends.
+
+Version 1.0.642 -> 1.0.643 (read-and-increment at commit time; confirmed
+against `origin/main` HEAD, zero drift — both `package.json` and
+`package-lock.json`'s two version fields were in sync at session start).
+
+MARKET STATUS: session ran overnight/early-morning UTC (00:xx-00:xx UTC
+2026-08-11, i.e. evening ET the prior day) — market closed, no
+merge-timing restriction from the PRODUCT-session PR guidance.
+
+NEXT (queued, not this session): the disjoint-window REPLICATION this
+entry's own interpretation requires — a future session should pick a
+sample window entirely after this one (not reusing Jan-Apr 2026 again,
+per Reasoning Standard #4's out-of-sample discipline) and, per this
+session's regime-concentration finding, explicitly report NEUTRAL-vs-other
+regime composition and split from the start rather than as an
+after-the-fact observation. Only after a confirming replication should a
+future session consider gate-3 (LOGIC) backtest-ablation work for this
+root. The CDC/SEER county-cancer-rate hazard layer and the FINRA-sibling
+`csp_universe.py` "CSP earnings gate fails open" T-BOT finding both remain
+queued, unclaimed, unchanged from prior sessions' NEXT notes.
+
+STARVED: no — this session's single fully-scoped action (survey two
+candidates + pick one + read-before-write + design + build + live run +
+interpret honestly + update research bookkeeping + version bump) consumed
+its own capacity; no higher-priority queued item was skipped to do it.
+
 ## 2026-08-10 (scheduled-routine session #6) [REPAIR] — T-BOT (shadow_portfolio.py) — KNOWN BROKEN #10's queued change_pct evidence query finally runs against real labeled shadow data, now that the backfill bug is confirmed fixed and durable (v1.0.642, PR #744)
 
 TERRITORY: T-BOT (shadow_portfolio.py is bot-side learning-data infrastructure

@@ -6079,6 +6079,55 @@ the ladder before belief.)
    informational. Discount further per Reasoning Standard #4: this is
    the FIRST test of this exact bucket design, so the +20d contrast's
    significance is not yet confirmed out-of-sample.
+   UPDATE 2026-08-11 (scheduled-routine PRODUCT session) — RETEST RUN,
+   both follow-up fixes applied: `scripts/finra_shortvol_gate2_retest.ts`,
+   same 16-Wednesday window (2026-01-07..2026-04-22, chosen for direct
+   comparability, not re-picked). (a) Population baseline: HIGH_SHORT
+   (top 40/day) vs. a seeded random sample (RNG_SEED=20260811, fixed
+   before any fetch, mulberry32) of 40 tickers drawn from the REST of
+   that day's qualifying universe (~2,000-2,400 names/day at the
+   FLOOR_TOTAL_VOL floor — true full-population pricing was not
+   network-feasible in a research-script sandbox run, so this is an
+   estimate via random sample, stated as a limitation, not the literal
+   population mean) — this removes the fixed-middle-bucket confound the
+   first pass diagnosed. No monotonic-ordering requirement (2 groups, not
+   3). (b) Regime split: real 5-level regime labels computed by
+   `backtest_v2.py`'s own `regime_series()` (called live via a python3
+   subprocess from the TS script — reused, not reimplemented a third
+   time; regime_util.py's own header names that exact duplication as a
+   bug this repo already fixed once) — composition BULL=4/NEUTRAL=7/
+   CAUTION=3/BEAR=2 days, so the window was NOT purely NEUTRAL/CAUTION as
+   assumed, it has real BULL and BEAR representation too, now verified
+   rather than assumed. RESULT: pre-registered single test PASSES —
+   day-clustered +20d spread +2.330%, t=2.245 > crit=2.131 (df=15); +5d
+   informational only, t=1.443, does not clear. MARGIN IS THIN (t=2.245
+   is barely past crit, the same order of significance as the first
+   pass's now-abandoned HIGH-LOW contrast at t=2.279) — this is a real
+   pass on its own pre-stated bar, not strong evidence. REGIME-SPLIT
+   FINDING (informational only, n=16 total days — NOT a second
+   confirmatory test, explicitly not treated as one): almost all of the
+   effect concentrates in the 7 NEUTRAL-regime days (t=3.212, +4.743%
+   mean spread); BULL is flat (t=0.495, n=4); BEAR's huge |t|=56.6 off
+   n=2 days is a small-sample artifact, not a real read (both n<5 groups
+   explicitly flagged too thin to interpret even informationally in the
+   script's own output). This raises a genuinely new, more specific
+   hypothesis this session did NOT chase (Reasoning Standard #4 — one
+   test at a time): the effect may be NEUTRAL-regime-specific rather than
+   universal, which would explain why the first pass's cruder 3-bucket
+   design (pooling all regimes together) produced a fragile, ordering-
+   inconsistent result. NEXT STEP (not this session): per this repo's own
+   established bar (occ_options_volume/cftc_tff_positioning/jodi_oil_
+   stocks each required a SECOND confirming test before any directional
+   call), this single retest PASS does not yet license gate-3 (LOGIC/
+   backtest) work — a REPLICATION on a disjoint sample window (a future
+   session should pick one AFTER today, not reuse Jan-Apr 2026 again) is
+   the next required step, and that replication should explicitly report
+   its own regime composition and NEUTRAL-vs-other split from the start,
+   now that this session's finding suggests where to look. `datacore/
+   signal_ladder.json`'s `finra_short_volume` entry updated to
+   `gate2_pass` with this full caveat carried in its `note` field (not a
+   bare status flip) so the thin margin and regime-concentration finding
+   travel with the status, not just in this file.
 2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
    keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
    the disaggregated report, which is also the analytically richer
