@@ -46581,3 +46581,151 @@ research + read-before-write + gate-1 pipeline + server join + dossier
 extension + client choropleth + legend + visual-harness-fixture ratchet
 + full gate run) consumed its own capacity; no higher-priority queued
 item was skipped to do it.
+
+## 2026-08-11 (3) (scheduled-routine session) [REPAIR] — T-BOT (analyze.py) — "BS put-delta branch", the last unlocated medium from the 2026-08-06 full-code-review filing: black_scholes' near-expiry/zero-vol fallback used call-only logic for puts (v1.0.652)
+
+TERRITORY: T-BOT (`analyze.py`'s pure Black-Scholes helper, no order-
+submission path touched) + `package.json`/`package-lock.json` version
+bump (SHARED, last commit, per MERGE-ORDER PROTOCOL). Solo session, no
+concurrent-session conflict observed.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `git fetch origin main`:
+local branch already at `origin/main` HEAD (`0ccebb1`/v1.0.651/PR #755,
+the CDC/SEER cancer-rate choropleth) — no rebase needed. `research/
+open_questions.md`'s KNOWN BROKEN section read in full: nothing newly
+actionable (item #20 stays a logged design/threshold judgment, item #29
+RESOLVED PENDING CONTINUED MONITORING). Loop-health ratio over the last
+10 tagged entries (reading `## ` headers bottom-up in experiments.md):
+[REPAIR] 08-09(3), [PRODUCT] 08-09(2), [REPAIR] 08-09(4), [PRODUCT]
+08-09(5), [REPAIR] 08-09(6), [PRODUCT] 08-10, [PRODUCT+REPAIR+PIPELINE]
+08-08 (multi-tag, counted once), [REPAIR] 08-11 (CSP earnings gate),
+[PRODUCT] 08-08(2), [PRODUCT] 08-11(2, CDC cancer) — 4/10 REPAIR, well
+under the 7/10 thrash bar; no meta-problem to address. Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0` — no LIVENESS ALARM. `server_version` via
+`/api/data/layers`: `1.0.651`, matching `origin/main` HEAD — deploy
+current, no lag to account for.
+
+PICKING THE ACTION: no acute bug visible without a DIAG_TOKEN in this
+session's env, and nothing in open_questions.md matured to a judgeable
+gate-2 result today, so per SESSION BUDGET fell through to the standing
+queued tail of the 2026-08-06 full-code-review filing (`wf_2302cba6-006`,
+not present in this container — per READ BEFORE WRITE, re-derived from
+the current code rather than trusted from memory). Of the 8 remaining
+unclaimed items (VXX fallback ticker mismatch — unlocated after 4 prior
+sessions' targeted greps, skipped again this session rather than
+re-attempting the same failed search; multi-leg gross-vs-net exit math;
+rounding handling full heat budget; BS put-delta branch; R:R sign; COT
+partial-fetch freeze; UnboundLocalError dead code; 4 low client
+papercuts), "BS put-delta branch" had the clearest, most literal name
+match to a real code shape (a Black-Scholes function with an option-type
+branch), so it was investigated first — found, confirmed, and fixed in
+this session's single pass.
+
+READ BEFORE WRITE: read `analyze.py`'s `black_scholes()` (used to
+compute price/delta/gamma/vega/theta/prob_itm) end to end before editing.
+Grepped every call site of `black_scholes` across the repo: `vol_surface.
+py` has its own independent `bs_price`/`bs_delta`/`bs_prob_itm` (already
+correct — its near-expiry/zero-vol fallback already branches on
+`opt_type` for both delta and the ITM test) confirming this is a
+duplicated-logic bug in `analyze.py`'s copy specifically, not a shared
+helper. `analyze.py`'s own 4 in-file call sites: `build_bull_call_spread`
+(call only, unaffected), `build_bear_put_spread` (put — affected),
+`build_short_straddle` (both legs — call side unaffected, put side
+affected), `build_iron_condor` (both legs — put side affected), plus the
+GEX gamma-approximation call site (only reads `bs['gamma']`, which stays
+0 in this fallback branch for both option types — unaffected). Traced
+these into their live callers: `build_bear_put_spread`/`build_iron_condor`
+run inside `analyze_ticker()`, which is invoked both by the site's
+`/api/analyze` endpoint (`server/routes.ts`'s `scanSingleTicker` and the
+ticker-detail route) AND by `server/bot.ts`'s 12am-2am earnings-research
+loop (`python3 analyze.py <ticker> --mode=scan`, which resolves to
+`analyze_ticker` since `SCAN` is a distinct top-level branch checked
+against `sys.argv[1]`, not the `--mode` flag) — so this bug reaches both
+the user-facing options-analysis page and the bot's own `RESEARCH`-tagged
+earnings-alert audit line (`options_edge` derived from `prob_profit`).
+
+THE BUG: the `T <= 0.001 or sigma <= 0` intrinsic-value fallback branch
+(hit at extreme near-expiry — under ~8.6 minutes to expiry — or whenever
+IV data is missing/zero) computed `delta` and `prob_itm` with pure
+call-shaped logic (`1.0 if S > K else 0.0` / `100.0 if S > K else 0.0`)
+regardless of `option_type`. Verified live via direct execution before
+touching the code: `black_scholes(90, 110, 0.0005, 0.05, 0.2, 'put')` (a
+deep-ITM put, S=90 < K=110, $20 intrinsic) returned `delta: 0.0,
+prob_itm: 0.0` — a put that WILL finish in the money reporting zero
+delta and zero probability of finishing ITM, exactly backwards. A deep-
+OTM put (`S=120, K=110`) returned `delta: 1.0, prob_itm: 100.0` — also
+exactly backwards. `build_bear_put_spread`/`build_iron_condor` feed
+`bs_p["prob_itm"]`/`bs_sp["prob_itm"]` straight into `prob_profit`, which
+feeds `composite_score` — so a same-day-expiry or missing-IV put leg
+could score as certain-to-lose when it was actually certain-to-win, or
+vice versa.
+
+FIX (mechanical, restores the already-correct call behavior's symmetric
+counterpart for puts — not a threshold/rule change, no RULE REVIEW gate
+applies): the fallback branch now computes `delta`/`prob_itm` per
+`option_type`, mirroring `vol_surface.py`'s already-correct fallback —
+call: `delta = 1.0 if S > K else 0.0`, `prob_itm` same (unchanged); put:
+`delta = -1.0 if S < K else 0.0`, `prob_itm = 100.0 if S < K else 0.0`
+(new).
+
+RATCHET: `test_analyze_bs_put_delta.py` (new, 4 tests) — ITM/OTM put
+near-expiry, ITM put at zero-sigma (independent of T), plus a call-branch
+pin so a future edit to the shared branch can't silently break calls
+instead. A/B-verified via `git stash -- analyze.py`: 3 of the 4 fail
+against pre-fix code (the call-branch pin passes both before and after,
+confirming it isn't a tautology), all 4 pass post-fix.
+
+GATES: `python3 -m pytest -q` (full suite, fresh container needed
+`pip install pytest numpy pandas scipy lightgbm openpyxl yfinance
+requests` first — same recurring clean-container gap prior sessions have
+logged): 1287 passed, 3 skipped, 0 failed (4 new, zero regressions). No
+`.ts`/`.tsx` files touched (confirmed via `git status --short`: only
+`analyze.py`, `test_analyze_bs_put_delta.py`, `package.json`,
+`package-lock.json` changed) — `npx tsc --noEmit`/`npm run build`/VISUAL
+VERIFICATION do not apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a mechanical correctness
+fix to a Black-Scholes helper restoring the same call/put symmetry the
+non-fallback path (and `vol_surface.py`'s independent copy) already had;
+no sizing/entry/exit threshold or trading rule changed. Confined to an
+edge-case branch (T<=0.001 or sigma<=0) of a function not on the live
+trading-decision path (`bot_engine.py`/`options_scanner.py`/
+`tiered_strategy.py` don't import `analyze.py`'s `black_scholes`) — it
+feeds `/api/analyze` display output and the bot's `RESEARCH`-audited
+earnings-alert `options_edge` line, not order placement.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a put-leg spread's `prob_itm`
+flips → `prob_profit` (composite of both legs) flips → `composite_score`
+(the displayed/ranked score for that spread) flips → a user or the
+earnings-alert audit line reading that score for a put-heavy structure
+(bear put spread, or the put side of an iron condor) at 0DTE or with
+missing IV data would have seen an inverted confidence signal. No
+downstream chain into live order sizing or the trading loop itself
+(confirmed no caller reaches `bot_engine.py`'s scan path).
+
+VERSION: 1.0.651 -> 1.0.652 (read-and-increment at commit time, verified
+against a fresh `git fetch origin main` immediately before bumping).
+
+MARKET STATUS: session ran ~16:00 UTC (~12:00 ET), inside the 9:30 ET
+regular-hours window as of PR open — per the PRODUCT/REPAIR-session PR
+guidance this PR's merge should wait for the close (16:00 ET) rather than
+merging mid-market; noted in the PR description.
+
+NEXT (queued, not this session): 7 items remain from the 2026-08-06
+full-code-review filing — VXX fallback ticker mismatch (still unlocated
+after 4 prior sessions' targeted greps), multi-leg gross-vs-net exit
+math, rounding handling full heat budget, R:R sign, COT partial-fetch
+freeze, UnboundLocalError dead code, 4 low client papercuts. The FINRA
+short-volume GATE 2 retest (open_questions.md, filed 2026-08-06) and
+Location Context Engine's cross-join expansion (research/
+location_context_engine.md, its hazard-layer list now complete per the
+2026-08-11(2) session) remain queued for future PIPELINE/PRODUCT
+sessions.
+
+STARVED: no — this session's single fully-scoped action (locate the
+unclaimed finding + read-before-write + call-site trace into live
+callers + diagnose + fix + 4 new regression tests with A/B verification
++ full-suite gate run + version bump) consumed its own capacity; no
+higher-priority queued item was skipped to do it.

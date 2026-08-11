@@ -133,8 +133,14 @@ def norm_pdf(x):
 def black_scholes(S, K, T, r, sigma, option_type='call'):
     if T <= 0.001 or sigma <= 0:
         intrinsic = max(S - K, 0) if option_type == 'call' else max(K - S, 0)
-        return {"price": round(intrinsic, 2), "delta": 1.0 if S > K else 0.0,
-                "gamma": 0, "vega": 0, "theta": 0, "prob_itm": 100.0 if S > K else 0.0}
+        if option_type == 'call':
+            delta = 1.0 if S > K else 0.0
+            prob_itm = 100.0 if S > K else 0.0
+        else:
+            delta = -1.0 if S < K else 0.0
+            prob_itm = 100.0 if S < K else 0.0
+        return {"price": round(intrinsic, 2), "delta": delta,
+                "gamma": 0, "vega": 0, "theta": 0, "prob_itm": prob_itm}
     d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
     d2 = d1 - sigma * math.sqrt(T)
     if option_type == 'call':
