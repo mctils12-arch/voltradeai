@@ -1,6 +1,6 @@
 // Plane-tracking T2 (human directive 2026-08-08): per-plane TRIP history
 // from our own archive. Splits a hex's archived fixes into flights and
-// serves them honestly bounded: raw fixes survive RAW_RETENTION_DAYS (7),
+// serves them honestly bounded: raw fixes survive RAW_RETENTION_DAYS (30),
 // so trips reach back at most that far — the coverage note says so rather
 // than implying a full history. Sessionization reconciles the two existing
 // splitters (fleetUtilization.foldSessions' 45-min airborne gap;

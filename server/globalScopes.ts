@@ -19,7 +19,12 @@ import { mapPointAircraft } from "./aircraftTiling";
 
 export const GLOBAL_SCOPES = ["mil", "ladd", "pia"] as const;
 export type GlobalScope = (typeof GLOBAL_SCOPES)[number];
-export const GLOBAL_POLL_MS = 60_000;
+// 60s -> 120s (2026-08-11): with the viewport discs + tracked poller +
+// these scopes all leaving one Railway IP, prod showed adsb.lol partially
+// failing over to airplanes.live and pia fetches erroring — provider
+// pressure is real. Half the global cadence costs little (mil/ladd/pia
+// membership changes slowly); the viewport chain keeps its own backoff.
+export const GLOBAL_POLL_MS = 120_000;
 export const MIN_FREE_BYTES = 1_073_741_824; // 1 GiB headroom for the bot
 
 export function scopeUrl(scope: GlobalScope): string {
