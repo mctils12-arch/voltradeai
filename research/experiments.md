@@ -46880,3 +46880,37 @@ support, or the paid-tier/alternative-provider wishlist path), not a
 third patch.
 
 BACKTEST: N/A (data feed plumbing; no trading logic).
+
+## 2026-08-11 (3) — [REPAIR+PRODUCT] Ultracode recon workflow -> curtain truth + QC-2 airports (#768/#770, v1.0.658-659)
+
+Territory: T-CLIENT + server aircraft modules. Method note (compiled
+knowledge): a 4-agent recon workflow (hint/DETAILS mapper, altitude-
+panel mapper, timezone researcher, BROWSER REPRODUCER with relay-to-
+prod + SwiftShader playwright) turned four vague symptom reports into
+instrumented root causes in one pass — 638k subagent tokens, 6 repro
+scripts, 30+ screenshots. The reproducer EXONERATED the curtain
+renderer across z3-z10 x globe+mercator x bearing x pitch x terrain x
+rapid-pan before any fix was written: the failures were geometry-
+feeding bugs, exactly the class a fix-the-renderer guess would have
+missed.
+
+1. #768 QC-2: 72,403-field OurAirports catalog (elevations, CC0)
+   bundled + grid index; trips carry is_flight / verified /
+   from_airport / to_airport (both ends <=6km of a field AND end
+   altitude within 350m of field elevation); card shows a FLIGHTS
+   list, ground logs collapsed. R14 class avoided via repoDataPath +
+   build copy-list entry. CI note: first run died on a GitHub RUNNER
+   TLS error (changes job, CAfile:none) — infra, re-kick fixed.
+2. #770 curtain truth: trimToCurrentFlightWithAirborne (parked plane
+   draws its last FLIGHT, not the 1-min taxi sliver); the 30s card
+   refresh no longer clobbers a clicked trip replay (activeTrailRange
+   threaded); DETAILS stranding fixed (restore clamp by rendered
+   panel size); DRAG-ROTATE hint line deleted.
+
+QUEUED NEXT (recon plans in hand, scratchpad/recon_results.txt):
+panel v2 (dock + append-only live path — the glitch is a full
+6k-sample rebuild per poll; scrub keeps stale scale(sx) when live tick
+stops = real bug found by recon), timezone lines (863KB innerlines
+compile from tz-boundary-builder measured in-session + 5.5KB date
+line; @photostructure/tz-lookup CC0 88KB for crossings, ~5% border
+caveat labeled). STARVED: no.
