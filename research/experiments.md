@@ -46729,3 +46729,40 @@ unclaimed finding + read-before-write + call-site trace into live
 callers + diagnose + fix + 4 new regression tests with A/B verification
 + full-suite gate run + version bump) consumed its own capacity; no
 higher-priority queued item was skipped to do it.
+
+## 2026-08-08 (3) — [PRODUCT] Global ADS-B coverage within free limits COMPLETE (#756 trace backfill, #758 global scopes; v1.0.652-653)
+
+Territory: server aircraft modules (+ routes smallest-last). Human
+directive: "track planes all the time... every time a plane turn on we
+have the data all over the world not just the 250nm... look at past
+logs and display them on the map."
+
+DESIGN FINDINGS (probed live before building — all reproducible):
+- adsb.lol OpenAPI: NO all-aircraft endpoint; radius queries capped
+  250nm; global-in-one-request scopes = /v2/mil (362 ac at probe),
+  /v2/ladd (691), /v2/pia (7).
+- globe.adsb.lol tar1090 trace_full serves ANY hex's complete
+  current-day worldwide track (N843S: 1,252 points, Referer header
+  needed, gzip). THE unlock for tracked planes.
+- adsblol/globe_history GitHub dumps: full global per-day history,
+  free ODbL, multi-GB tars — future past-data ingestion path, filed
+  in wishlist (not built; selective extraction needs design).
+
+SHIPPED:
+- #756: archiveAircraftAt hour-bucketed backfill writer; parseTrace/
+  fetchDayTrace/backfilled_to high-water; 15-min cycle merges each
+  tracked plane's full global day-trace; read-side same-second dedupe
+  (altitude-bearing fix wins). Tracked planes now have complete
+  worldwide days from first broadcast.
+- #758: mil/ladd/pia archived every 60s (~1,000+ ac worldwide/cycle),
+  overlap-deduped; VOLUME GUARD pauses under 1GiB free (bot state
+  outranks archive; unreadable statfs fails OPEN), state-change
+  logged; /api/data/aircraft/global_scopes honest status. Wishlist:
+  ADSBExchange all-civil firehose analyzed, recommendation DON'T BUY.
+
+WATCH ITEMS next session: (1) archive/stats growth rate under global
+scopes — verify the guard math against actual volume size; (2) N843S
+trips now render from backfilled density (curtain replay of a
+1,252-point day); (3) rollup pressure: 7-day retention at global-scope
+volume means bigger hour files — compress/rollup timings may need a
+look. STARVED: no.
