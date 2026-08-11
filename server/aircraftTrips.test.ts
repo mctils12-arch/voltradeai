@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { splitTrips, fullTrackAsync, tripsCoverage, TRIP_GAP_SEC, type ArchivedFix } from "./aircraftTrips";
+import { splitTrips, fullTrackAsync, tripsCoverage, classifyTrip, TRIP_GAP_SEC, type ArchivedFix } from "./aircraftTrips";
 
 const fix = (t: number, extra: Partial<ArchivedFix> = {}): ArchivedFix =>
   ({ t, la: 40 + t / 1e6, lo: -95 + t / 1e6, al: 9000, c: "SWA762", ...extra });
@@ -105,4 +105,50 @@ test("fullTrackAsync collapses same-second poller+backfill duplicates, keeping t
   assert.equal(pts.length, 2, "same-second duplicate collapsed");
   assert.equal(pts[0].al, 594, "the altitude-bearing fix wins");
   rmSync(base, { recursive: true, force: true });
+});
+
+// ── QC-1 trip quality (human directive 2026-08-11) ──────────────────────────
+
+test("classifyTrip: a real flight — ground, climb, cruise, descend, ground — is complete", () => {
+  const s = [
+    fix(0, { al: null, g: true }), fix(60, { al: 300 }), fix(120, { al: 5000 }),
+    fix(180, { al: 9000 }), fix(240, { al: 2000 }), fix(300, { al: null, g: true }),
+  ];
+  assert.equal(classifyTrip(s).quality, "complete");
+});
+
+test("classifyTrip: taxi-around with ADS-B on is NOT a flight", () => {
+  const s = [fix(0, { al: null, g: true }), fix(60, { al: null, g: true }), fix(120, { al: null, g: true })];
+  const q = classifyTrip(s);
+  assert.equal(q.quality, "taxi_only");
+  // low hops under the airborne threshold also stay taxi_only
+  const hop = [fix(0, { al: 200 }), fix(60, { al: 350 }), fix(120, { al: 210 })];
+  assert.equal(classifyTrip(hop).quality, "taxi_only");
+});
+
+test("classifyTrip: first-seen-at-cruise is partial_start (coverage began mid-flight)", () => {
+  const s = [fix(0, { al: 10000 }), fix(60, { al: 9000 }), fix(120, { al: 400 }), fix(180, { al: null, g: true })];
+  assert.equal(classifyTrip(s).quality, "partial_start");
+});
+
+test("classifyTrip: last-seen-at-altitude is signal_lost_airborne — logged, never asserted as a crash", () => {
+  const s = [fix(0, { al: null, g: true }), fix(60, { al: 4000 }), fix(120, { al: 11000 })];
+  const q = classifyTrip(s);
+  assert.equal(q.quality, "signal_lost_airborne");
+  assert.match(q.basis, /never asserted/);
+});
+
+test("classifyTrip: airborne at both ends is a pass through coverage (partial_both)", () => {
+  const s = [fix(0, { al: 11000 }), fix(60, { al: 11500 }), fix(120, { al: 10800 })];
+  assert.equal(classifyTrip(s).quality, "partial_both");
+});
+
+test("splitTrips carries quality + basis on every trip", () => {
+  const fixes = [
+    fix(0, { al: null, g: true }), fix(60, { al: 5000 }), fix(120, { al: 9000 }), fix(180, { al: null, g: true }),
+  ];
+  const trips = splitTrips(fixes);
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].quality, "complete");
+  assert.ok(trips[0].quality_basis.length > 0);
 });

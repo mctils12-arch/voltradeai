@@ -34,6 +34,8 @@ export interface Trip {
   max_alt_m: number | null;
   callsigns: string[];
   bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  quality: TripQuality;      // QC-1 shape classification (2026-08-11)
+  quality_basis: string;     // the honest one-line reason
 }
 
 /** Pure: sorted fixes -> trips. Split on hard time gaps and on qualifying
@@ -91,6 +93,7 @@ export function splitTrips(
       if (f.la > maxLa) maxLa = f.la;
       if (f.c) calls.add(f.c);
     }
+    const qc = classifyTrip(s);
     trips.push({
       start_t: s[0].t,
       end_t: s[s.length - 1].t,
@@ -101,6 +104,8 @@ export function splitTrips(
       max_alt_m: maxAlt,
       callsigns: Array.from(calls),
       bbox: [minLon, minLa, maxLon, maxLa],
+      quality: qc.quality,
+      quality_basis: qc.basis,
     });
   }
   return trips.sort((a, b) => b.start_t - a.start_t); // newest first
@@ -155,6 +160,59 @@ export async function fullTrackAsync(
   }
   const cap = opts.maxPoints ?? 20_000;
   return dedup.length > cap ? dedup.slice(-cap) : dedup;
+}
+
+// ── TRIP QUALITY (human directive 2026-08-11: "for it to be one log it
+// need a take off airport and a landing one... planes might turn on adsb
+// and just taxi around thats not a flight or they might crash we need a
+// way to identify these anomaly") ──────────────────────────────────────────
+// QC-1 classifies from the track's OWN shape — no external data needed:
+// a real flight starts low/ground, climbs, and returns low/ground; a track
+// that begins or ends AT ALTITUDE is coverage that started late or a
+// signal lost airborne. HONESTY RULE: "signal_lost_airborne" is exactly
+// that — receiver coverage ends far more often than aircraft do; this
+// module never claims a crash. QC-2 (filed) adds OurAirports (~80k fields
+// with elevations, public domain) to name the endpoints and verify field
+// elevation.
+export type TripQuality =
+  | "complete"              // low/ground at both ends with real altitude between
+  | "taxi_only"             // never meaningfully above its own low point
+  | "partial_start"         // first seen already at altitude (coverage began mid-flight)
+  | "signal_lost_airborne"  // last seen at altitude — coverage loss OR anomaly, unresolvable from here
+  | "partial_both";         // airborne at both ends (a pass through our coverage)
+
+/** meters above the trip's own minimum that counts as "really airborne" */
+export const QC_AIRBORNE_ABOVE_MIN_M = 300;
+/** no airport on Earth sits above ~4,400m MSL (La Paz, Daocheng); a trip
+ *  whose LOWEST fix is higher than this never came near any possible
+ *  ground — its "low point" is cruise, not a landing (test-caught: a
+ *  cruise-only pass classified its own minimum as ground) */
+export const QC_GROUND_PLAUSIBLE_MAX_M = 4600;
+
+export function classifyTrip(fixes: ArchivedFix[]): { quality: TripQuality; basis: string } {
+  const alts = fixes.map((f) => (f.g ? null : f.al)).filter((a): a is number => a != null);
+  if (!alts.length) {
+    return { quality: "taxi_only", basis: "no airborne altitude ever broadcast — ground movement only" };
+  }
+  const minAl = Math.min(...alts);
+  const maxAl = Math.max(...alts);
+  if (maxAl - minAl < QC_AIRBORNE_ABOVE_MIN_M && minAl <= QC_GROUND_PLAUSIBLE_MAX_M) {
+    return { quality: "taxi_only", basis: `altitude never rose ${QC_AIRBORNE_ABOVE_MIN_M}m above the track's own low point` };
+  }
+  const groundPlausible = minAl <= QC_GROUND_PLAUSIBLE_MAX_M;
+  const lowAt = (f: ArchivedFix) => !!f.g || f.al == null
+    || (groundPlausible && f.al <= minAl + QC_AIRBORNE_ABOVE_MIN_M);
+  const startLow = lowAt(fixes[0]);
+  const endLow = lowAt(fixes[fixes.length - 1]);
+  if (startLow && endLow) return { quality: "complete", basis: "low/ground at both ends with real altitude between" };
+  if (!startLow && endLow) return { quality: "partial_start", basis: "first seen already at altitude — coverage began mid-flight" };
+  if (startLow && !endLow) {
+    return {
+      quality: "signal_lost_airborne",
+      basis: "last fix at altitude — receiver coverage ends far more often than aircraft do; logged as an anomaly, never asserted as one",
+    };
+  }
+  return { quality: "partial_both", basis: "airborne at both ends — a pass through our coverage window" };
 }
 
 /** The honest coverage statement every trips response carries. */
