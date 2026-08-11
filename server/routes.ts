@@ -32,6 +32,7 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
+import { nearestAirport } from "./airportsIndex";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1330,7 +1331,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (hit && Date.now() - hit.at < 300_000) return res.json(hit.data);
     try {
       const fixes = await fullTrackAsync("aircraft", hex, archiveBaseDir(), {});
-      const trips = splitTrips(fixes);
+      // QC-2: verify endpoints against the OurAirports catalog (fixed-wing
+      // fields only — proximity to a heliport is not a landing)
+      const trips = splitTrips(fixes, undefined, undefined, undefined,
+        (la, lo) => nearestAirport(la, lo, 6, ["L", "M", "S", "W"]));
       const data = {
         hex, trips, trip_count: trips.length,
         coverage: tripsCoverage(),
