@@ -9374,3 +9374,142 @@ would be its gate-1 source.
   the standard dark-vessel detector. Under verification.
 - No evidence he covers PMTiles, COG, USD, deck.gl, or Google Earth
   Studio (a widely-miscredited video is by @afoviz, not him).
+
+## 2026-08-11 (same session, APPEND) — the 5 Bilawal-derived build candidates, ADVERSARIALLY VERIFIED: verdicts, and the errors the refuters caught
+
+Method: 5 verify agents (live probes + file:line reads) then 3 independent
+refuters per surviving candidate, each on one lens (data reality /
+honesty+ladder / cost+license), instructed to default to REFUTED unless
+they positively confirmed. 17 agents. That harsh bar means "refuted" often
+= "needs a condition", NOT "wrong" — the distinction is recorded per item.
+0 of 5 passed all three lenses clean. Three of my own optimistic reads
+were corrected. That is the harness working, not failing.
+
+### 1. GPS-INTERFERENCE FROM ADS-B — PHENOMENON REAL AND REPRODUCED; ONE HONESTY CONDITION IS NON-NEGOTIABLE
+CONFIRMED INDEPENDENTLY (refuter 1 re-probed rather than trusting):
+integrity fields are present and dense in our EXISTING chain — nic
+100.0% of 1341 rows, rc 100.0%, sil_type 99.2%, sil/nac_p 98.1%, nac_v
+94.2%, sda 92.2%, nic_baro 81.2%, gva 79.8%. Discrimination reproduces
+weeks apart: Baltic 55/20 r250 at FL330+ = 69.1% nic==0 vs control
+NYC+Paris FL330+ = 0.4%. Altitude gradient is monotone in the Baltic
+(0% on the ground -> 69.1% at FL330+) and INVERTED in the control — the
+innocent baseline sits at the surface, the anomaly at cruise, which is
+the physical line-of-sight signature. Persistence across snapshots
+~150 s apart with the same airframes by hex. readsb also ships a free
+same-aircraft before/after: gpsOkBefore/gpsOkLat/gpsOkLon on 19.4% of
+Baltic rows vs 0.1% of 1128 control rows. Eastern Med is currently a
+clean NEGATIVE (5-6%) — honest, and a good control.
+WHERE WE ALL GOT IT WRONG (refuters 2+3, both REFUTED, correctly):
+**91.7-96.4% of the nic==0 rows carry `mlat:["lat","lon","nic","rc"]`** —
+readsb declaring that nic and rc in that row were computed by the ground
+network's MULTILATERATION solver, not broadcast by the aircraft. So the
+proposed "RAW OVERLAY (broadcast field)" label would be FACTUALLY FALSE
+on exactly the rows carrying the signal. Any build MUST split mlat rows
+from true broadcast rows and label the aggregator-derived ones as such
+(PREMIUM EXPERIENCE STANDARD (c): "premium presentation of wrong numbers
+is fraud with good typography").
+LICENSE CONDITION: adsb.fi's terms, fetched live, read "personal,
+non-commercial use only. You may not license, sell, rent, or lease any
+part of the data or the service" — and adsb.fi is live in our chain. Any
+SOLD surface must derive from adsb.lol alone (ODbL, share-alike attaches
+to a derived database). MONETIZATION TRIPWIRE re-run required.
+NO BACKFILL: datacoreArchive's AircraftPoint + archiveAircraft use an
+explicit short-key whitelist that never carried integrity fields, so
+history is unrecoverable — accumulation starts the day a passthrough
+merges. Every day not shipped is a permanently missing day of a dataset
+nobody sells.
+VERDICT: the strongest find of the scan. Build it as (a) a passthrough +
+archive-field commit, (b) an altitude-conditioned, distinct-airframe-
+gated aggregator binned on the gpsOk TRANSITION LOCUS (where GPS was
+actually lost, 14-199 km behind current position), (c) surfaced with
+mlat-aware provenance; aggregate zones stay behind ladder gate 2.
+
+### 2. SENTINEL-1 SAR FOR DARK SHIPS — THE PIPELINE WORKS, THE VALIDATION LOGIC DOES NOT
+CONFIRMED, impressively: CDSE OData anonymous 200 with real S1 products;
+OAuth succeeded using CDSE_CLIENT_ID/SECRET **already in our env**;
+Process API returned real orthorectified VV sigma0 (1440x1600, 5.16 s);
+and a CFAR-style detector REPRODUCED across a 60-step threshold sweep
+(43->24 clusters, median extent 221->111 m, max <=475 m) once land was
+masked. Cost is structurally $0: quota 30,000 PU/month with NO overage
+provisioned, so exhaustion 429s rather than invoices; license clean
+(Copernicus free/full/open, commercial permitted, attribution string
+already implemented in-repo).
+KILLED ON LOGIC (refuter 2, correctly): SAR CANNOT resolve the confound
+we actually have. Our own code says it — shadowFleet.ts:11-13 and the
+route's own source string: aisstream aggregates TERRESTRIAL receivers
+seeing ~40-60 nm offshore, so mid-ocean is dark TO US. A vessel
+broadcasting normally beyond that horizon produces the SAME gap event
+AND the same SAR return as a genuinely dark vessel. SAR separates "ship
+present" from "empty water"; our confound is "ship present,
+transmitting, unheard". Zero discriminating power for the named
+ambiguity. It is also saturated: ~1 target per 22-29 km^2, so P(>=1 SAR
+target near an interpolated position) ~ 1.
+WHAT WOULD ACTUALLY WORK (filed, not built): validate against a
+SATELLITE-AIS-derived truth set, or restrict the test to inside
+terrestrial coverage where "should have been heard" is defensible, and
+score with a matched-control design (same box, same hour, vessels NOT in
+gap) rather than presence alone.
+ALSO: BLOCKED behind the AIS outage escalated in wishlist.md today —
+there is no live AIS to validate while the feed is dark.
+
+### 3. WATER MASK FOR "DRAIN THE WATER ONLY" — THE OBVIOUS FIX WOULD MAKE US LESS HONEST
+The mask data is real and free: Natural Earth ocean+lakes, public
+domain, keyless, and a hand-rolled point-in-polygon classified every
+gate case correctly (Badwater LAND, Dutch polder LAND, Qattara LAND,
+Caspian/Superior/Dead Sea/Aral WATER). reearth's watermask is real
+(65,536-byte 256x256 grid proven) but ships only inside quantized-mesh
+on an EPSG:4326 TMS grid MapLibre 5.24 cannot read, and carries ODbL.
+THE TRAP (refuter 2, REFUTED — and this is the important finding):
+masking would convert an ADMITTED ARTIFACT into an AFFIRMATIVE FALSE
+DEPTH NUMBER. Our depth ramp reads the global AWS terrarium DEM as
+depth; over inland water at z>=9 that DEM returns the WATER SURFACE, not
+the bed. Probed: South Caspian (true ~1,025 m) returns a flat -29.00 m
+at z9/z11/z12; Dead Sea flat -412.00 m; Lake Superior +183.02 m. And
+Natural Earth's ocean polygon CONTAINS the Caspian. So post-mask the
+legend would assert "~29 m Coastal" for a 1,025 m sea — a legend-backed
+depth claim read off a surface elevation. Today it is disclosed as a
+land-tint bug; masking would launder it into a confident wrong number.
+COST also refuted: masking the global DEM means self-hosting one —
+measured 4.4-6.2 GB at z0-8 from our own pmtiles sample (111 KB/tile at
+z7-8), and every hosting path is billed or blocked (no git-lfs here).
+HONEST FIX (already filed as option (b) in ocean_quality_notes.md:44-49,
+now independently confirmed as the right one): drop the GEBCO WMS over
+land and render a native hillshade on seafloor-dem. No new hosting, no
+false depths, and it fixes the human's actual complaint.
+
+### 4. SUBMARINE CABLES — SHIPPABLE, BUT MY OWN COVERAGE NUMBER WAS 42% LOW AND THE NOAA PATH IS NOT CLEAN
+Refuters caught a BROKEN PROBE in the verify agent's own evidence: it
+concluded "seamark:type=cable_submarine = 0 ways, THIS IS THE COMPLETE
+SET" from a malformed colon-key query. Live Overpass on one snapshot
+(timestamp_osm_base 2026-08-11T22:26:58Z, so no "data changed" escape):
+that tag returns **8,722 ways**, and 642 of the original 655 ways carry
+it. Real union ~292,166 km vs the claimed 169,074 km; restricted
+conservatively to unambiguous TELECOM only it is +894 ways / +70,371 km
+= **+42%**, moving coverage vs TeleGeography's 1.5M km benchmark from
+11.3% to ~16.0%. Root cause of the miss: 888 of those ways use
+location=underwater instead of submarine=yes.
+LICENSE: OSM/ODbL holds and is commercially clean. **NOAA
+MarineCadastre does NOT** — its InPort lineage (fetched, 92,257 bytes)
+lists NASCA (a private trade association asserting "(c) 2009 NASCA"),
+cable-industry vendors, ICPC, Packet Clearing House, and STATE
+contributions; state works are not covered by 17 USC 105, so the
+"US-federal therefore public domain" analogy to our SEC/EIA/USGS layers
+is FALSE. Do not use it.
+VERDICT: ship OSM-only, ODbL-attributed, with the CORRECTED number
+(~292k km union / ~16% of global cable km) and an explicit note that
+83% of the geometry is Europe/NE-Atlantic so Asia, Africa, South America
+and the Pacific will look near-empty. Unlabeled, it would mislead.
+
+### 5. GAUSSIAN SPLATS — DEAD, now with the number that closes it
+The capture source does not exist and cannot be made to exist for the
+assets we track. Best example in the 431,035-scene free MegaScenes
+corpus for ANY asset class we cover: "Electrical_substation,_Ivanovo" at
+**2 registered images / 64 points**. Best named US substation on
+Wikimedia Commons: 14 files across 3 visits. A splat needs ~10^2-10^3
+overlapping ground photos of one article. This is structural, not a
+sampling accident: substations are fenced, refineries private, US port
+terminals MTSA-restricted. Combined with the SkyFall-GS license+
+hallucination kill filed earlier today, the splat lane is closed on
+evidence from both ends (no ground capture; no lawful/honest
+satellite-only substitute). glTF remains the answer where a model is
+warranted.
