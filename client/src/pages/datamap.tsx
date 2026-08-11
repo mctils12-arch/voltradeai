@@ -13240,7 +13240,7 @@ export default function DataMapPage() {
                         return (
                           <button key={t.start_t}
                                   className={`vt-satfinder-chip${on ? " vt-satfinder-chip-on" : ""}`}
-                                  title={`${t.fixes} archived fixes · ${(t.callsigns || []).join("/") || "no callsign"} · durations are lower bounds (thinned sampling)`}
+                                  title={`${t.quality ? `[${String(t.quality).replace(/_/g, " ")}] ${t.quality_basis || ""} · ` : ""}${t.fixes} archived fixes · ${(t.callsigns || []).join("/") || "no callsign"} · durations are lower bounds (thinned sampling)`}
                                   onClick={() => {
                                     setTripReplay(on ? null : t.start_t);
                                     if (!on && Array.isArray(t.bbox) && t.bbox.length === 4) {
@@ -13257,7 +13257,7 @@ export default function DataMapPage() {
                                     }
                                     void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
                                   }}>
-                            {d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
+                            {t.quality === "taxi_only" ? "TAXI · " : t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
                             {t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
                           </button>
                         );
