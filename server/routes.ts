@@ -30,6 +30,7 @@ import {
   recentTrackCached, archiveStats, archiveBaseDir,
 } from "./datacoreArchive";
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
+import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
@@ -1230,6 +1231,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     preserveWeeklyBeforeRollup().catch((e) => console.error("[fleet-weekly]", e?.message || e))
       .finally(() => { rollupOldDaysAsync().catch(() => {}); });
   }, 6 * 3600_000).unref?.();
+
+  // NONSTOP PLANE TRACKER (human directive 2026-08-08): named tail numbers
+  // polled server-side 24/7 — one batched adsb.lol registration request per
+  // 30s cycle regardless of count, every fix archived with thinning
+  // overridden (viewport-independent: the viewport archive only records
+  // what someone happened to be looking at). Registry persists on the
+  // volume; seeded with the human's N843S.
+  const trackedPoller = startTrackedPoller({
+    fetchImpl: fetch,
+    headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+    sites: ARCHIVE_SITES,
+  });
+  app.get("/api/data/aircraft/tracked", (_req, res) => {
+    const r = trackedPoller.getRegistry();
+    res.json({
+      planes: r.planes, count: r.planes.length, cap: TRACKED_CAP,
+      poll_s: TRACKED_POLL_MS / 1000,
+      source: "adsb.lol registration query (ODbL), one batched request per cycle",
+      note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began",
+    });
+  });
+  app.post("/api/data/aircraft/tracked/:reg", (req, res) => {
+    const reg = normalizeReg(req.params.reg);
+    if (!reg) return res.status(400).json({ error: "invalid tail number" });
+    const ok = trackedPoller.mutate((r) => addTracked(r, reg));
+    if (!ok) return res.status(409).json({ error: `tracked list is full (${TRACKED_CAP}) — remove one first` });
+    res.json({ ok: true, reg, planes: trackedPoller.getRegistry().planes });
+  });
+  app.delete("/api/data/aircraft/tracked/:reg", (req, res) => {
+    const reg = normalizeReg(req.params.reg);
+    if (!reg) return res.status(400).json({ error: "invalid tail number" });
+    trackedPoller.mutate((r) => removeTracked(r, reg));
+    res.json({ ok: true, planes: trackedPoller.getRegistry().planes });
+  });
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —

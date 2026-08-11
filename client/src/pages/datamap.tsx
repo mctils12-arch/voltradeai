@@ -1184,6 +1184,93 @@ function FpsChip() {
   return <div className="vt-fps-chip" aria-label="Frames per second (debug)">{fps} fps</div>;
 }
 
+/** NONSTOP TRACKED PLANES (human directive 2026-08-08: "something in the
+ *  layers to search for planes and track all the data... nonstop when there
+ *  signal pops up"): the server polls these tail numbers 24/7 and archives
+ *  every fix — no viewer required. This panel block (inside the aircraft
+ *  layer row) manages that server registry: add a tail, see last-signal
+ *  freshness honestly, open a plane via the parent's watched-plane path. */
+function TrackedPlanesPanel({ onOpen }: {
+  onOpen: (p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => void;
+}) {
+  const [reg, setReg] = useState("");
+  const [rows, setRows] = useState<Array<{ reg: string; hex?: string | null; last_seen?: number | null; last_pos?: { la: number; lo: number; al: number | null } | null }>>([]);
+  const [cap, setCap] = useState(20);
+  const [err, setErr] = useState<string | null>(null);
+  const load = async () => {
+    try {
+      const r = await fetch("/api/data/aircraft/tracked");
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      setRows(d.planes || []);
+      setCap(d.cap ?? 20);
+      setErr(null);
+    } catch { setErr("tracked list unavailable"); }
+  };
+  useEffect(() => {
+    void load();
+    const t = window.setInterval(() => { void load(); }, 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const add = async () => {
+    const q = reg.trim();
+    if (!q) return;
+    try {
+      const r = await fetch(`/api/data/aircraft/tracked/${encodeURIComponent(q)}`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) { setErr(d?.error || "add failed"); return; }
+      setReg("");
+      setErr(null);
+      setRows(d.planes || []);
+    } catch { setErr("add failed — network"); }
+  };
+  const remove = async (tail: string) => {
+    try {
+      const r = await fetch(`/api/data/aircraft/tracked/${encodeURIComponent(tail)}`, { method: "DELETE" });
+      const d = await r.json();
+      if (r.ok) setRows(d.planes || []);
+    } catch { /* next 30s refresh corrects */ }
+  };
+  const ago = (ms?: number | null): string => {
+    if (ms == null) return "awaiting first signal";
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
+  };
+  return (
+    <div className="vt-field-controls" role="group" aria-label="Nonstop tracked planes" data-testid="tracked-planes">
+      <span className="vt-legend-note">
+        Track planes 24/7 by tail number — the server records every broadcast fix
+        whenever the signal is up, even with nobody watching ({rows.length}/{cap}):
+      </span>
+      <div style={{ display: "flex", gap: 4, width: "100%" }}>
+        <input
+          className="vt-filter-input" style={{ flex: 1 }}
+          placeholder="Tail number, e.g. N843S"
+          aria-label="Add tail number to nonstop tracking"
+          value={reg}
+          onChange={(e) => setReg(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void add(); }}
+        />
+        <button className="vt-satfinder-chip" onClick={() => void add()}>+ Track</button>
+      </div>
+      {err && <span className="vt-legend-note">{err}</span>}
+      {rows.map((p) => (
+        <span key={p.reg} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+          <button
+            className={`vt-satfinder-chip${p.last_seen != null && Date.now() - p.last_seen < 120_000 ? " vt-satfinder-chip-on" : ""}`}
+            disabled={!p.hex}
+            title={p.hex ? "open — flies to it if broadcasting, archive card if dark" : "no signal seen yet since tracking began"}
+            onClick={() => { if (p.hex) onOpen({ hex: String(p.hex).toLowerCase(), reg: p.reg }); }}>
+            {p.reg} · {ago(p.last_seen)}
+          </button>
+          <button aria-label={`stop tracking ${p.reg}`} className="vt-satfinder-chip"
+                  style={{ padding: "0 6px" }} onClick={() => void remove(p.reg)}>✕</button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function LegendIcon({ icon, color, label }: { icon: string; color: string; label: string }) {
   return (
     <span className="vt-legend-item" data-vt-icon={icon}>
@@ -11372,6 +11459,9 @@ export default function DataMapPage() {
             {l.description}
             <span className="vt-layer-desc-src">Source: {l.source}</span>
           </div>
+        )}
+        {l.id === "aircraft" && on && (
+          <TrackedPlanesPanel onOpen={openWatchedCb} />
         )}
         {l.id === "terrain" && on && (
           <div className="vt-field-controls" role="group" aria-label="Terrain relief controls">
