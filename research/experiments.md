@@ -46335,3 +46335,29 @@ unclaimed sibling finding + read-before-write + diagnose + fix + 10 new
 tests + ratchet-pin correction + full-suite gate run + version-drift
 correction) consumed its own capacity; no higher-priority queued item was
 skipped to do it.
+
+## 2026-08-08 (2) — [PRODUCT] Nonstop plane tracker (#753, v1.0.650)
+
+Territory: server aircraft modules + T-CLIENT panel row (+ routes
+smallest-last). Human directive: "track all the data the adsb data
+nonstop when there signal pops up... use this plane n843s".
+
+Structural gap closed: the viewport archive only recorded planes some
+viewer happened to be looking at. server/trackedPlanes.ts polls a
+persistent volume registry of tail numbers (seeded N843S — verified
+live during design: Falcon 7X, hex ab8c8e, /v2/reg probe) every 30s
+with ONE batched adsb.lol registration request (cap 20), archiving
+every fix via archiveAircraft's new additive intervalMsOverride (15s —
+beats cruise-75s/ground-5min thinning; taxi survives). Dark planes age
+last_seen honestly; recording resumes on first signal. Endpoints
+GET/POST/DELETE /api/data/aircraft/tracked(:reg); layers-panel
+"Track planes 24/7" block in the aircraft row (freshness chips,
+awaiting-first-signal disabled state, open via T3 watched path).
+7 tests incl. a cycle against the real probed payload shape.
+Compounding: tracked fixes densify T2 trips + curtain replays; the
+registry is server-side so phone and work PC share one list.
+
+WATCH ITEM next session: confirm on prod that aircraft_tracked.json
+exists on the volume and N843S hour-lines are accumulating at ~30s
+cadence (archive/stats + a trips/:hex read), and that the poller's
+one-request cycle shows no adsb.lol pushback in logs.
