@@ -9236,3 +9236,141 @@ reuse this run's numbers to pick parameters after the fact):
 Source: this session's `research/experiments.md` entry;
 `scripts/eia930_gate2.py`; `test_eia930_gate2.py`;
 `datacore/signal_ladder.json` `eia930_grid_demand` entry.
+## 2026-08-11 — COMPETITIVE + TECHNIQUE SCAN: Bilawal Sidhu (ex-Google Maps/Earth PM) — what to take, what to refuse [RESEARCH, filed artifact]
+
+Human asked: look at his YouTube/site/GitHub and find what we could
+integrate. Three parallel research agents (YouTube 88-video inventory,
+GitHub, site/newsletter/talks) + my own direct verification of every
+load-bearing claim. Everything below marked VERIFIED was fetched/probed
+this session, not taken from a snippet.
+
+### THE HEADLINE — he is building OUR product, and open-sourcing it in 7 days
+VERIFIED from the repo README (raw.githubusercontent):
+github.com/bilawalsidhu/gods-eye-view — "Live open source spatial
+intelligence on a photorealistic 3D globe": live flights, vessels,
+submarine cables, thermal imagery, public camera feeds. 663 stars, 2
+commits, NO CODE YET, **public code release 2026-08-18**, license
+UNDECLARED. Formerly named **WorldView** — the same name as our own
+research/worldview_globe.md charter. His companion video did 734K views;
+the Iran 4D-replay application did 1.9M (his biggest). Newsletter
+~36k subs at spatialintelligence.ai ("Map the World").
+
+HIS STACK (VERIFIED from his own video description + build post):
+CesiumJS + **Google Photorealistic 3D Tiles** (he was its PM) + OpenSky
+Network + **ADS-B Exchange** + CelesTrak TLE + OSM (particle system for
+vehicle flow) + public CCTV projected onto building geometry. Custom
+shaders: CRT scanline / NVG / FLIR thermal / cel-shade. Built in a
+weekend with 8 parallel coding agents.
+
+OUR POSITION vs HIM — the "use, don't compete" thesis holds, measurably:
+- His basemap is RENTED and metered (Google Photorealistic 3D Tiles is a
+  session-billed Enterprise SKU). Ours is free MapLibre. He has a cost
+  floor we don't.
+- He has NO ARCHIVE and NO INFERENCE LAYER — his globe is a live viewer.
+  Ours (VERIFIED live via /api/data/archive/stats, 2026-08-11): **57
+  archive kinds, 5,300 files, 1.11 GB compressed, some series to 2019**.
+  His own strongest thesis ("fuse them on a timeline") is the thing our
+  archive enables and his live-only build cannot.
+- His differentiator over us is the photoreal 3D base + sensor-look
+  shaders, i.e. presentation, not data.
+
+### ⚠️ TWO COMPLIANCE/DIRECTIVE TRAPS — do NOT copy his choices
+1. **His aesthetic is already REJECTED by our own directive.** Our
+   research/worldview_globe.md (human master directive 2026-07-08) says
+   verbatim: "The globe is a real full sphere; no CRT bezel, no
+   FLIR/NVG/targeting cosplay." That is exactly his signature look. Any
+   future session tempted by his repo must not ship sensor-mode shaders.
+2. **His ADS-B provider is a monetization trap.** He uses **ADS-B
+   Exchange**; our compliance record (wishlist.md ~line 1240) already
+   establishes **adsb.lol (ODbL) is the only monetization-lawful free
+   provider** in our chain, with airplanes.live/adsb.fi non-commercial.
+   Reading his code must not cause a provider swap. MONETIZATION
+   TRIPWIRE applies.
+
+### VERIFIED DEAD — the most seductive-looking option, killed on two grounds
+**SkyFall-GS** (ECCV 2026, github.com/jayin92/Skyfall-GS) builds
+navigable photoreal 3D cities from SATELLITE IMAGERY ALONE — which we
+have. He covers it (video VWdmXlRpL84, 237K views). It is DEAD for us:
+(a) LICENSE — it inherits the Inria gaussian-splatting license; I fetched
+LICENSE_inria.md, verbatim: "THE USER CANNOT USE, EXPLOIT OR DISTRIBUTE
+THE SOFTWARE FOR COMMERCIAL PURPOSES WITHOUT PRIOR AND EXPLICIT CONSENT
+OF LICENSORS," and derivatives inherit it. We sell API + subscriptions →
+disqualified.
+(b) HONESTY — its close-up detail is DIFFUSION-GENERATED (FLUX prior),
+i.e. hallucinated texture presented photorealistically. That is the exact
+inverse of our tier-3/4 rule (inferred output must be visually
+unmistakable as inferred). A photoreal invented city fails
+"DATA IS NEVER MADE UP" even if relicensed.
+This also means the general splat lane stays where orbital_models.md left
+it (0 candidates), for a NEW reason: the free satellite-only path exists
+but is license- AND honesty-blocked.
+
+### BEST CONCRETE FIND — free 3D buildings (his rented photoreal, our free answer)
+**Overture Maps buildings** (VERIFIED from docs.overturemaps.org):
+**ODbL** ("published under the ODbL license"), FREE on AWS S3 + Azure in
+Parquet, monthly releases (current 2026-07-22.0), fuses OSM + Esri
+Community Maps + authoritative national/municipal + ML roofprints
+(Microsoft, Google Open Buildings), and carries a **height** attribute
+plus building parts. We have **NO building layer today** (grepped
+datamap.tsx: no fill-extrusion buildings).
+WHY IT MATTERS: this serves EARTH TWIN's "buildings/roads gain detail by
+distance" line at $0 with ZERO new runtime dependency (MapLibre
+fill-extrusion + our own PMTiles per SCALE S2), and ODbL is a license we
+already operate under for adsb.lol. It is the honest free substitute for
+the Google photoreal tiles we deliberately left unwired (session-billed
+cost risk, wishlist.md).
+LADDER: raw overlay (footprint + published height), no gating needed;
+honesty note must state height provenance (OSM-tagged vs ML-estimated)
+and that ML roofprints are estimates.
+NEXT SLICE (not built this session): Overture buildings → our tiling →
+fill-extrusion with height, provenance label per source, LOD envelope.
+
+### HIS TRANSFERABLE METHOD — "absence is signal" (the real idea worth stealing)
+His strongest repeated thesis is not a tool, it is a method: derive
+signal from what STOPS broadcasting. Concretely he ships GPS-jamming
+maps from degraded aircraft navigation-confidence broadcasts, military
+activity from airspace GAPS, and dark-vessel transits from AIS going
+quiet. All free, all derived, nobody sells them.
+STATUS THIS SESSION: a 5-candidate adversarial verification workflow is
+in flight on exactly this (GPS-interference from the ADS-B fields we
+already pull; free Sentinel-1 SAR as ladder-gate-1 ground truth for our
+UNVALIDATED shadowFleet dark-ship signal; free water mask for the
+human's "drain water only" defect; lawful free submarine cables; splat
+runtime viability). Verdicts + refutations to be appended when it lands.
+Note for that entry: our shadowFleet signal appears in research only as
+a PERF story (O(n^2) fix), never validated against external truth — SAR
+would be its gate-1 source.
+
+### OTHER VERIFIED ITEMS (no action recommended now, recorded so nobody re-derives)
+- **IODA internet-outage API** (Georgia Tech): keyless and LIVE — I
+  queried it successfully (per-ASN alerts with entity/level/value). BUT
+  the payload's own copyright reads "Copyright (c) 2021-2025 Georgia
+  Tech Research Corporation. All Rights Reserved" and no public
+  commercial-use terms were findable. So: technically trivial, LEGALLY
+  UNCLEAR → a human decision item before any build, not a green light.
+  (He uses internet blackouts as a layer in the Iran replay.)
+- **reearth/reearth-terrain** (MIT) serves Mapterhorn DEM as
+  quantized-mesh + Terrain-RGB + Terrarium AND Protomaps water polygons.
+  My first probe 404'd on guessed paths; the real templates are
+  /{tileset}/{format}/{data_type}/{z}/{x}/{y}.* — under verification as
+  the water-mask source for the drain defect.
+- **Apple Maps hybrid lesson** (his best architectural insight,
+  reverse-engineered in FycMZySPG9Y): Apple scaled 3DGS to 350+ cities
+  by keeping cheap textured MESH for flat surfaces and using splats ONLY
+  for hard geometry. If we ever revisit 3D fidelity, hybrid-by-feature
+  is the scaling pattern — not splat-everything.
+- **KHR_gaussian_splatting (Khronos) + Niantic SPZ (MIT)** are now the
+  splat interchange standards ("the JPEG moment for 3D", his framing).
+  Relevant only if the splat lane ever reopens; SPZ is ~10x smaller than
+  PLY and MIT-licensed.
+- **MapLibre is at v6.3.0** (npm dist-tags verified 2026-08-11); we are
+  pinned ^5.24.0. His stack is Cesium so this is unrelated to him, but
+  the gap is now two majors and the v4→v5 custom-layer projection churn
+  is documented — any bump is its own PR with harness coverage.
+- **Free SAR is real and he uses it**: Sentinel-1 via
+  dataspace.copernicus.eu, global ~12-day revisit, his words "it's even
+  free". Our EDGE DOCTRINE already names Sentinel-2 optical; SAR is a
+  DIFFERENT capability (all-weather, night, sees through cloud) and is
+  the standard dark-vessel detector. Under verification.
+- No evidence he covers PMTiles, COG, USD, deck.gl, or Google Earth
+  Studio (a widely-miscredited video is by @afoviz, not him).
