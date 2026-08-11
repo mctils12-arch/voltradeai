@@ -4001,11 +4001,14 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 
 /* ── altitude/time profile (handoff §3; bottom bar) ───────────────────── */
 .vt-flight-profile {
-  position: absolute; left: 16px; right: 176px; bottom: 16px; z-index: 10;
-  padding: 12px 16px 10px;
+  /* DOCKED bottom bar (human directive 2026-08-11: "pined to the bottom" —
+     a video-editor timeline, not a floating card) */
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+  padding: 10px 16px 8px;
   background: var(--flight-panel); border: 1px solid var(--flight-panel-border);
-  border-radius: 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  border-left: 0; border-right: 0; border-bottom: 0;
+  border-radius: 0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.4);
   color: var(--flight-ink); font-family: var(--font-body);
 }
 .vt-map-page[data-vt-panel-open="true"] .vt-flight-profile { right: 508px; }
@@ -4058,7 +4061,7 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
    (the preset switch moved to the top-left 2026-07-21 and no longer lifts) */
 .vt-map-page.vt-profile-open .vt-nuke-timebar { bottom: 252px; }
 @media (max-width: 767px) {
-  .vt-flight-profile { left: 8px; right: 8px; bottom: 8px; }
+  .vt-flight-profile { left: 0; right: 0; bottom: 0; }
   .vt-flight-legend { display: none; }
   .vt-flight-chart { height: 84px; }
 }

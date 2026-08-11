@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUnits, subscribeUnits } from "@/lib/units";
 import { sampleAt, type TrackSample } from "@/lib/air/trackModel";
-import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { getPanelPrefs, savePanelPrefs } from "@/lib/panelLayout";
 
 export interface FlightClock {
   /** epoch seconds the marker/card/profile display right now. */
@@ -63,7 +63,12 @@ export function replaySpeed(spanSec: number): number {
   return Math.max(1, spanSec / 80);
 }
 
-const utc = (tSec: number) => new Date(tSec * 1000).toISOString().slice(11, 19) + "Z";
+// LOCAL TIME (human directive 2026-08-11: "normal time not zulu... based
+// on where you are"): display converts to the VIEWER's zone; storage stays
+// epoch. Aviation convention keeps a small Z readout beside the title clock.
+const localT = (tSec: number) =>
+  new Date(tSec * 1000).toLocaleTimeString(undefined, { hour12: false });
+const zuluT = (tSec: number) => new Date(tSec * 1000).toISOString().slice(11, 19) + "Z";
 
 export default function FlightProfilePanel({
   samples,
@@ -88,29 +93,10 @@ export default function FlightProfilePanel({
   const [, setUnitsTick] = useState(0);
   useEffect(() => subscribeUnits(() => setUnitsTick((v) => v + 1)), []);
 
-  // drag/lock/remembered placement (panelLayout lib — same chrome as the
-  // cards and the nav cluster)
+  // DOCKED (human directive 2026-08-11: "pined to the bottom"): the panel
+  // is a fixed bottom bar now — the drag/scale/lock chrome and remembered
+  // free position are gone (a video-editor timeline lives at the bottom).
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [locked, setLocked] = useState<boolean>(() => !!getPanelPrefs("flight-profile").locked);
-  const lockedRef = useRef(locked);
-  lockedRef.current = locked;
-  const drag = useMemo(
-    () => panelDragProps("flight-profile", () => rootRef.current, () => lockedRef.current,
-      { defaultOrigin: "bottom left" }),
-    [],
-  );
-  const toggleLock = () =>
-    setLocked((v) => { const n = !v; savePanelPrefs("flight-profile", { locked: n }); return n; });
-  // panel SCALE (human 2026-07-20: "scale them up or down to fit your
-  // screen") — remembered CSS transform; the bottom bar grows upward from
-  // its bottom-left anchor so it never sinks below the viewport.
-  const [pScale, setPScale] = useState<number>(() => clampScale(getPanelPrefs("flight-profile").scale));
-  const bumpScale = (dir: number) => setPScale(stepPanelScale("flight-profile", dir));
-  useEffect(() => {
-    const el = rootRef.current;
-    if (el && !applyPanelPos(el, "flight-profile")) clearPanelPos(el);
-    applyPanelScale(el, "flight-profile", "bottom left");
-  }, [expanded, pScale]);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<SVGGElement | null>(null);
@@ -247,7 +233,7 @@ export default function FlightProfilePanel({
       dot.setAttribute("cy", s && !s.gap ? String(Y(s.altM)) : String(Y(0)));
       dot.style.display = s && !s.gap ? "" : "none";
     }
-    if (ck) ck.textContent = utc(tSec);
+    if (ck) ck.textContent = localT(tSec);
   };
 
   /** One live-edge tick: extend the axis to NOW, compress the sample
@@ -257,7 +243,14 @@ export default function FlightProfilePanel({
     const nowSec = Date.now() / 1000;
     liveEdgeRef.current = Math.max(t1, nowSec);
     const sx = span / extOf();
-    dataGRef.current?.setAttribute("transform", `scale(${sx} 1)`);
+    // smooth the per-second compression ("glitchy as it comes in"): a
+    // linear 1s CSS transition on the group transform makes the domain
+    // growth continuous instead of stepping
+    const g = dataGRef.current;
+    if (g) {
+      if (!g.style.transition) g.style.transition = "transform 1s linear";
+      g.style.transform = `scale(${sx}, 1)`;
+    }
     const lastS = samples[samples.length - 1];
     const tail = tailRef.current;
     if (tail) {
@@ -272,22 +265,37 @@ export default function FlightProfilePanel({
         tail.style.display = "none";
       }
     }
-    const ph = playheadRef.current, dot = phDotRef.current, ck = clockElRef.current;
-    if (ph) ph.setAttribute("transform", `translate(${CW},0)`);
-    if (dot) {
-      dot.setAttribute("cy", String(Y(lastS.gap ? 0 : lastS.altM)));
-      dot.style.display = lastS.gap ? "none" : "";
+    // the head/clock belong to the live edge ONLY while pinned live — a
+    // scrubbed head is re-placed by the caller under the new domain
+    if (clockRef.current.live) {
+      const ph = playheadRef.current, dot = phDotRef.current, ck = clockElRef.current;
+      if (ph) ph.setAttribute("transform", `translate(${CW},0)`);
+      if (dot) {
+        dot.setAttribute("cy", String(Y(lastS.gap ? 0 : lastS.altM)));
+        dot.style.display = lastS.gap ? "none" : "";
+      }
+      if (ck) ck.textContent = localT(nowSec);
     }
-    if (ck) ck.textContent = utc(nowSec);
-    if (axisEndRef.current) axisEndRef.current.textContent = utc(nowSec);
+    if (axisEndRef.current) axisEndRef.current.textContent = localT(nowSec);
   };
 
   // live mode: the edge ticks every second (clock even while collapsed —
   // the SVG refs are simply absent then); scrub/replay stops the ticking
+  // VIDEO-EDITOR DOMAIN (recon-found bug 2026-08-11: this tick stopped
+  // while scrubbed, so geometry rebuilds left a stale scale(sx) and a
+  // drifting playhead mapping): it now runs in BOTH modes — the axis keeps
+  // extending to NOW and new data keeps building; only the HEAD differs
+  // (live = pinned to the edge; scrubbed = held at c.t, re-placed under
+  // the growing domain each tick).
   useEffect(() => {
-    if (!live) return;
-    paintLiveEdge();
-    const iv = window.setInterval(() => { if (!document.hidden) paintLiveEdge(); }, 1000);
+    const tick = () => {
+      if (document.hidden) return;
+      paintLiveEdge();
+      const c = clockRef.current;
+      if (!c.live) paintHead(c.t);
+    };
+    tick();
+    const iv = window.setInterval(tick, 1000);
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, expanded, t1, paths]);
@@ -402,9 +410,7 @@ export default function FlightProfilePanel({
 
   return (
     <div ref={rootRef} className={`vt-flight-profile${expanded ? "" : " vt-flight-profile-min"}`} data-vt-flight-profile>
-      <div className="vt-flight-profile-top" {...drag}
-           style={{ cursor: locked ? undefined : "grab", touchAction: "none" }}
-           title={locked ? "Position locked" : "Drag to move · double-click to reset · spot is remembered"}>
+      <div className="vt-flight-profile-top">
         <button className="vt-flight-play" data-vt-flight-play onClick={togglePlay}
                 aria-label={playing ? "Pause replay" : "Replay track"} title="Play / pause — Space">
           {playing ? (
@@ -414,7 +420,7 @@ export default function FlightProfilePanel({
           )}
         </button>
         <div className="vt-flight-profile-title">
-          ALTITUDE / TIME <span className="vt-flight-clock" ref={clockElRef}>{utc(clockRef.current.live ? t1 : clockRef.current.t)}</span>
+          ALTITUDE / TIME <span className="vt-flight-clock" ref={clockElRef}>{localT(clockRef.current.live ? t1 : clockRef.current.t)}</span>{" "}<span className="vt-flight-profile-src">({zuluT(clockRef.current.live ? t1 : clockRef.current.t)})</span>
           <span className="vt-flight-profile-src"> · {sourceNote || "ADS-B track (our archive + live)"}</span>
           {!live && (
             <button className="vt-flight-live-btn" onClick={backToLive} title="Snap back to the latest position">
@@ -428,24 +434,6 @@ export default function FlightProfilePanel({
           <span><b />AGL BAND</span>
           {hasHeld && <span><i className="alt-hold" />ALT HOLD (carried, not fresh)</span>}
         </div>
-        <button className="vt-flight-profile-toggle" data-vt-scale-down aria-label="Shrink panel"
-                title="Smaller (size is remembered)" onClick={() => bumpScale(-1)}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="10" r="6" /><path d="M14.5 14.5 20 20M7.5 10h5" /></svg>
-        </button>
-        <button className="vt-flight-profile-toggle" data-vt-scale-up aria-label="Enlarge panel"
-                title="Bigger (size is remembered)" onClick={() => bumpScale(1)}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="10" r="6" /><path d="M14.5 14.5 20 20M10 7.5v5M7.5 10h5" /></svg>
-        </button>
-        <button className={`vt-flight-profile-toggle vt-lock-btn${locked ? " on" : ""}`} aria-pressed={locked}
-                aria-label={locked ? "Unlock panel position" : "Lock panel position"}
-                title={locked ? "Position locked — click to unlock" : "Lock position"}
-                onClick={toggleLock}>
-          {locked ? (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 11V7a4 4 0 0 1 8 0v4" /><rect x="5" y="11" width="14" height="9" rx="1.5" /></svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 11V7a4 4 0 0 1 7.6-1.7" /><rect x="5" y="11" width="14" height="9" rx="1.5" /></svg>
-          )}
-        </button>
         <button className="vt-flight-profile-toggle" aria-expanded={expanded}
                 aria-label={expanded ? "Collapse altitude profile" : "Expand altitude profile"}
                 onClick={() => {
@@ -504,10 +492,10 @@ export default function FlightProfilePanel({
             </svg>
           </div>
           <div className="vt-flight-axis">
-            <span>{utc(t0)}</span>
+            <span>{localT(t0)}</span>
             {/* right edge = the live clock while pinned (ticks via ref);
                 a paused/replaying chart shows the last real fix time */}
-            <span ref={axisEndRef}>{utc(t1)}</span>
+            <span ref={axisEndRef}>{localT(t1)}</span>
           </div>
         </>
       )}

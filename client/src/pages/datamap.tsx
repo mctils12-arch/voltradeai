@@ -4001,7 +4001,17 @@ export default function DataMapPage() {
         trackSamplesRef.current = n >= 2
           ? { id, samples, altMin: dMin, altMax: dMax, merc, groundZ, groundM, altDisp }
           : null;
-        setFlightProfile(n >= 2 ? { samples, groundM, altMin, altMax } : null);
+        // DIFF-AWARE (glitch fix 2026-08-11): an unchanged track must not
+        // re-identity the profile — the panel rebuilds every SVG path on new
+        // identities, and the 30s refresh fired that for nothing.
+        setFlightProfile((prev) => {
+          if (n < 2) return null;
+          if (prev && prev.samples.length === samples.length
+              && prev.samples[0]?.t === samples[0]?.t
+              && prev.samples[prev.samples.length - 1]?.t === samples[samples.length - 1]?.t
+              && prev.altMin === altMin && prev.altMax === altMax) return prev;
+          return { samples, groundM, altMin, altMax };
+        });
         updateFlightTail();
       } catch (err) {
         // the click card still works without the 3D track — but a swallowed
@@ -13263,7 +13273,7 @@ export default function DataMapPage() {
                                     }
                                     void showTrail("aircraft", hex, on ? undefined : { from: t.start_t, to: t.end_t });
                                   }}>
-                            {t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toISOString().slice(5, 16).replace("T", " ")}Z · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
+                            {t.quality && t.quality !== "complete" ? "⚠ " : ""}{d0.toLocaleString(undefined, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })} · {durMin >= 60 ? `${Math.floor(durMin / 60)}h${String(durMin % 60).padStart(2, "0")}` : `${durMin}m`}
                             {t.from_airport?.id && t.to_airport?.id ? ` · ${t.from_airport.id}→${t.to_airport.id}${t.verified ? " ✓" : ""}` : t.max_alt_m != null ? ` · ${fmtMeters(t.max_alt_m)}` : ""}
                           </button>
                         );
