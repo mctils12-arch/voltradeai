@@ -46093,3 +46093,57 @@ STARVED: no — this session's single fully-scoped action (survey three
 candidates + pick one + read-before-write + build + wire + test + gate
 run + version bump) consumed its own capacity; no higher-priority queued
 item was skipped to do it.
+
+## 2026-08-08 — [PRODUCT] Plane-tracking suite COMPLETE (T1-T3, #748/#749/#750, v1.0.646-648) + [REPAIR] crash-popup false positive (#746, v1.0.644) + [PIPELINE] DEVICE ENVELOPE D1 demand ledger (#747, v1.0.645)
+
+Territory: T-CLIENT + server aircraft modules (+ routes.ts smallest-last).
+Human directives same day: (a) remove the startup crash popup; (b) track
+planes by tail number/type/manufacturer/country, watchlist, trips +
+past ADS-B data, all in the map.
+
+1. CRASH POPUP (#746): removed; ROOT CAUSE was a false positive — a tab
+   closed before the ~10.2s healthy-idle mark was recorded a boot death
+   (their payload: healthy trail, closed at 10.0s). closeCleanly
+   (pagehide) now disarms the boot marker; real crashes (no pagehide)
+   still detected. Report auto-captures to console + localStorage
+   vt-last-crash-payload; safe mode explains itself in the panel banner
+   slot. +3 blackbox tests incl. popup-stays-deleted ratchet.
+2. D1 DEMAND LEDGER (#747): visual_check --demand measures 14 layers x
+   2 CPU tiers in isolation; self-healing after SwiftShader died 4
+   layers into the first run. FIRST LEDGER: weather_wind/weather_temp
+   +183..300ms over baseline at BOTH tiers — 3-4x everything else
+   combined (aircraft 3507 feats: +17ms). The GIBS raster fields are
+   optimization target #1 for D4.
+3. PLANE TRACKING:
+   - T1 (#748): readsb `r` = REGISTRATION was mislabeled origin_country
+     since 2026-07-03 (flight card showed tail numbers as "Country" for
+     a month — honesty class). r->registration end-to-end + archived as
+     rg (schema v2 additive); lib/air/planeIdentity.ts decode tables
+     (ICAO hex-alloc country ~90 ranges, reg-prefix country, type->
+     mfr/model ~170) all honest-null outside tables; card shows
+     Aircraft/Reg/Country(ICAO alloc). 8 tests + ratchets.
+   - T2 (#749): server/aircraftTrips.ts splitTrips (45-min gap OR
+     >=15-min ground dwell with airborne on both sides; dwell's last
+     fix leads next trip) reconciling foldSessions+trimToCurrentFlight;
+     fullTrackAsync over the whole 7-day raw window; GET /api/data/
+     aircraft/trips/:hex (5-min TTL cache, honest coverage note);
+     track endpoint ?from=&to= trip replay (legacy path byte-identical).
+     8 tests incl. real temp-archive multi-day read.
+   - T3 (#750): lib/air/watchlist.ts (localStorage, 50 cap, subscribe);
+     card watch-toggle + trips chips (fmtMeters, lower-bound labeling,
+     tap = curtain replay via range); legend find-a-plane search
+     (reg/callsign/hex/type, honest viewport-coverage miss note) +
+     watchlist chips (fly-to live / ARCHIVE card when dark). LegendPanel
+     memo contract kept: primitive tick + 2 ref-backed useCallback([])
+     bridges reusing the real plane-click path. 4 tests.
+   NEXT (filed): registration-based archive search endpoint (rg is in
+   new lines now — a /find over archived hexes joins rg + FAA spine);
+   watched-plane notifications (appears/goes-dark); trips >7d once the
+   rollup carries more than coarse polylines.
+4. Perf-gate note: the data@1440 p95 gate flaked all day on this box
+   (383-433ms vs 350 gate; pristine-main A/B failed identically —
+   demand-matrix chromium fleets loading the container). Measurement
+   debt already filed 2026-08-06 stands.
+
+STARVED: no (both human directives complete; queue: 12 mediums,
+DEVICE ENVELOPE D2/D3, wishlist proposal C awaiting human).
