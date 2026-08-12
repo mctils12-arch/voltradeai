@@ -48037,3 +48037,129 @@ correctly reporting `False` would mean stop patching this check's timing
 entirely and redesign the underlying `os.path.exists()` cache check
 (section 4) instead — the section-4/section-1 duplication v1.0.667 already
 flagged as the likely next structural step.
+
+## 2026-08-12 (3) (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (server/datacoreArchive.ts, server/gnssIntegrityQuery.ts + tests) — GNSS-integrity Phase 4 blocker found and fixed: the archive reader silently starved bbox-scoped queries by exhausting the row budget on the FIRST hour file (v1.0.685)
+
+TERRITORY: T-DATACORE. SHARED touch minimal and last: package.json +
+package-lock.json version bump only (read-and-increment at commit time;
+this session's `npm install` also synced package-lock.json's own
+`version` field from a stale 1.0.670 to match package.json — a 2-line,
+honest drift fix, not a dependency change).
+
+SESSION-START CHECKS (PRODUCT-session directive): CLAUDE.md read in full.
+Live health (`curl https://voltradeai.com/api/health`): `status:"ok"`,
+`bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent (false), Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three position feeds (aircraft/vessels/
+trains) `dead:false`. KNOWN BROKEN scan: item #29's RECURRENCE #2 was
+found and fixed by an EARLIER session today (v1.0.675, see the entry
+immediately above this one) — nothing else in KNOWN BROKEN is open and
+unfixed. Loop-health ratio on the last 10 tagged entries: 4 REPAIR / 4
+PRODUCT / 2 PIPELINE — well under the 7+ thrash threshold. No blocking
+break; proceeded with PRODUCT/PIPELINE work per the session directive.
+
+PRIMARY-ACTION SELECTION: checked platform_program.md (queue clear
+except human-gated P5) and research/open_questions.md's most recent
+entries. The 2026-08-11 Bilawal-derived candidate scan's item 1 (GPS
+interference from ADS-B) was the strongest surviving find of that
+17-agent adversarial pass, and its writer (Phase 2, v1.0.662) and
+read/query path (Phase 3, v1.0.662 later that day) had already shipped
+— NEXT, per that entry, was "Phase 4: an actual gate-2 statistical run
+using this probe once enough archive days accumulate." That is squarely
+"(a) advance a datacore/ pipeline through its next ladder gate" from
+this session's directive, and by 2026-08-12 the writer had >24h of
+history — a live attempt at that exact Phase 4 run was the chosen
+primary action.
+
+WHAT HAPPENED ON THE FIRST LIVE ATTEMPT (this is the actual finding):
+`/api/diag/gnss_integrity?days=2026-08-11,2026-08-12&bbox=53,60,17,24
+&limit=50000&token=...` (Baltic bbox, lamin/lamax/lomin/lomax per the
+probe's documented param order) returned `cells: []` — zero rows in
+either altitude band or origin, for BOTH days. The identical call with
+no bbox on the same day/limit returned rich, populated cells (16 band×
+origin combinations, thousands of rows). Before concluding "no GNSS
+anomaly this window" (which would have been a false negative reported
+as a real result — exactly the kind of thing RULE 10 "distrust your own
+results" exists to catch), read the actual reader.
+
+ROOT CAUSE (read `readGnssIntegrityWindow` → `readArchiveDay` before
+writing anything, per READ BEFORE WRITE): the aircraft archive stores
+one file PER HOUR (`YYYY-MM-DD-HH.jsonl(.gz)`, confirmed via
+`/api/data/archive/stats` — `aircraft` dir has 187 files for 8 days,
+i.e. ~24/day). `readArchiveDay` opens `archiveDayFiles()`'s file list IN
+ORDER and stops the instant `rows.length >= limit` — so any `limit`
+smaller than the day's true row count (this feed logs on the order of
+500k rows/day per the earlier v1.0.662 entry's cost measurement) reads
+only the FIRST few hours of UTC and never opens the rest. bbox filtering
+then happens downstream in `aggregateGnssIntegrity`, over whatever
+partial, front-loaded sample the reader handed it. Baltic local
+daytime traffic sits at UTC+2/+3 — squarely in the LATER hours a
+50,000-row cap (at ~500k rows/day, roughly the first 2-3 hours) never
+reaches. The bug is not specific to Baltic: ANY bbox whose traffic
+doesn't happen to fall in hours 00-0X UTC would silently read as "zero
+signal" regardless of whether the real signal is there — and even the
+unscoped (global) query has the same defect one layer down: its cells
+describe a few early hours, not the day, just without a stark empty
+result to reveal it.
+
+FIX: new `readArchiveDayEvenSample()` (server/datacoreArchive.ts,
+additive — `readArchiveDay` itself is UNTOUCHED, so the "archive" diag
+probe and every other caller keep their exact existing contract and
+tests). It lists the same hour files via the now-exported
+`archiveDayFiles()`, but spreads the row budget EVENLY across them
+(`perFileLimit = ceil(limit / files.length)`) instead of exhausting it
+file-by-file — every hour contributes a bounded slice, so a downstream
+bbox filter sees a representative sample of the WHOLE day. For a
+single-file (day-granularity) stream this collapses to identical
+behavior to `readArchiveDay` (files.length===1). `readGnssIntegrityWindow`
+now calls this instead of `readArchiveDay` — the only caller changed;
+`truncated` now honestly means "at least one hour exceeded its even
+share" rather than "we stopped partway through the day."
+
+RATCHET (+4 new tests, all new):
+- `datacoreArchive.test.ts`: `readArchiveDayEvenSample` spreads budget
+  across 3 hour files (asserts rows come from ALL THREE hours, not just
+  the first — the exact defect class); falls back to identical
+  single-file behavior on a day-granularity stream; unknown-stream/
+  no-files-for-day parity with `readArchiveDay`.
+- `gnssIntegrityQuery.test.ts`: reproduces the LIVE bug directly — hour
+  00 gets 50 non-Baltic rows, hour 06 gets 3 Baltic rows, bbox+limit=10
+  (far smaller than hour00 alone); asserts the 3 Baltic rows are still
+  counted. This test FAILS against the pre-fix `readArchiveDay` call
+  (verified by temporarily pointing it at the old function before
+  finalizing — the same starvation the live probe hit) and PASSES
+  post-fix.
+- All 4 new tests pass; existing `readArchiveDay`/`readGnssIntegrityWindow`
+  tests pass UNCHANGED (no behavior change to the function they exercise).
+
+GATES: `npm install` first (container had no `node_modules` —
+environment gap, not a dependency change; confirmed via `git diff
+package-lock.json` showing only the stale-version-string sync noted
+above, zero package additions/removals). `npx tsx --test server/*.test.ts`:
+1217 passed, 2 failed (pmtiles-magic-byte + LAYER_GROUP-registry —
+A/B-verified via `git stash` to be the same 2 pre-existing failures on
+unmodified `origin/main`, unrelated to this diff; baseline was 1213
+before this PR's 4 new tests, 1213+4=1217, exact match). `npm run check`
+(tsc): 83 errors, A/B-verified via `git stash` to be byte-identical
+before/after (same count the 2026-08-12 v1.0.675 entry recorded as
+baseline). `npm run build`: clean. No `.tsx`/client files touched —
+VISUAL VERIFICATION does not apply (server-only). Python suite not run
+(pytest not installed in this container; zero `.py` files changed by
+this diff — CI's Python job covers it).
+
+BACKTEST: N/A per PROMOTION RULE 3 — datacore read-path infrastructure
+fix, no scoring/sizing/trading logic touched.
+
+HONEST CAVEAT: could not re-run the live `/api/diag/gnss_integrity`
+Baltic-bbox probe against this fix before merge — it only exists on this
+branch, and production still runs the pre-fix reader until deploy. The
+Phase 4 gate-2 statistical run itself (Baltic vs. control, band×origin
+cell comparison) is STILL NOT DONE — this PR only removes the
+infrastructure blocker that made the first live attempt return a false
+"zero signal." NEXT (whoever picks this back up, after this deploys):
+re-run the exact call from this session (`/api/diag/gnss_integrity?
+days=<recent dates>&bbox=53,60,17,24&limit=50000&token=$DIAG_TOKEN` vs.
+the same call with a control bbox, e.g. NY+Paris `35,55,-80,10`) and log
+the actual cell counts here — that is the real Phase 4 result this
+session set out to produce and didn't reach, because the tool it needed
+didn't work yet.

@@ -14,7 +14,7 @@ import {
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
-  originOfPosType,
+  readArchiveDayEvenSample, originOfPosType,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -384,6 +384,55 @@ test("readArchiveDay: limit caps rows and sets truncated honestly rather than si
   const full = await readArchiveDay("usaspending", "2026-07-05", base, 100);
   assert.equal(full!.rows.length, 10);
   assert.equal(full!.truncated, false);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// readArchiveDayEvenSample (2026-08-12): fixes the live symptom that blocked
+// the GNSS-integrity Phase 4 gate-2 read (research/open_questions.md, the
+// 2026-08-11 Bilawal-scan finding #1) — a bbox-scoped query over a busy
+// hour-file stream must not have its whole row budget consumed by the
+// FIRST hour file it opens, or any region whose traffic concentrates in a
+// later UTC hour becomes invisible regardless of whether the signal exists.
+test("readArchiveDayEvenSample: spreads the row budget evenly across hour files instead of exhausting the first one", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  const hourLines = (h: number) =>
+    Array.from({ length: 20 }, (_, i) => JSON.stringify({ i: `h${h}-${i}` })).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05-00.jsonl"), hourLines(0));
+  fs.writeFileSync(path.join(dir, "2026-07-05-01.jsonl"), hourLines(1));
+  fs.writeFileSync(path.join(dir, "2026-07-05-02.jsonl"), hourLines(2));
+  const r = await readArchiveDayEvenSample("aircraft", "2026-07-05", base, 9);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 9, "ceil(9/3 files) = 3 rows per file * 3 files");
+  assert.equal(r!.truncated, true, "each file had more rows than its even share");
+  const hoursRepresented = new Set(r!.rows.map((x: any) => x.i.split("-")[0]));
+  assert.deepEqual([...hoursRepresented].sort(), ["h0", "h1", "h2"],
+    "the old file-by-file readArchiveDay would have returned only h0 rows at this limit");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDayEvenSample: falls back to readArchiveDay's own behavior on a single-file (day-granularity) stream", async () => {
+  const base = tmp();
+  const dir = path.join(base, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = Array.from({ length: 10 }, (_, i) => JSON.stringify({ aid: `a${i}` })).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl"), lines);
+  const r = await readArchiveDayEvenSample("usaspending", "2026-07-05", base, 3);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 3);
+  assert.equal(r!.truncated, true);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDayEvenSample: unknown stream returns null; no files for the day returns empty non-null", async () => {
+  const base = tmp();
+  assert.equal(await readArchiveDayEvenSample("neverexistedstream", "2026-07-05", base), null);
+  fs.mkdirSync(path.join(base, "usaspending"), { recursive: true });
+  const r = await readArchiveDayEvenSample("usaspending", "2026-01-01", base);
+  assert.ok(r);
+  assert.deepEqual(r!.rows, []);
+  assert.equal(r!.truncated, false);
   fs.rmSync(base, { recursive: true, force: true });
 });
 

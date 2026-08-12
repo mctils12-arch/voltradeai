@@ -719,7 +719,7 @@ export function clearTrackCache(): void {
  * per-stream naming table here) means a new stream needs zero changes
  * to this reader to become readable.
  */
-function archiveDayFiles(dir: string, day: string): string[] {
+export function archiveDayFiles(dir: string, day: string): string[] {
   const exact = [`${day}.jsonl`, `${day}.jsonl.gz`]
     .map((f) => path.join(dir, f)).filter((fp) => fs.existsSync(fp));
   if (exact.length) return exact;
@@ -753,6 +753,52 @@ export async function readArchiveDay(
     await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
       if (rows.length >= limit) { truncated = true; return; }
       try { rows.push(JSON.parse(line)); } catch {}
+    });
+  }
+  return { dir, files: files.map((f) => path.basename(f)), rows, truncated };
+}
+
+/**
+ * Same contract as readArchiveDay, but for hour-granularity streams
+ * (aircraft/vessels/trains) the row budget is spread EVENLY across the
+ * day's hour files instead of exhausted file-by-file in chronological
+ * order. FOUND 2026-08-12 (scheduled-routine PRODUCT session), diagnosing
+ * why the GNSS-integrity Phase 4 gate-2 read (research/open_questions.md
+ * item 1 of the 2026-08-11 Bilawal scan) returned zero cells for a Baltic
+ * bbox despite a healthy global (no-bbox) read on the same day/limit:
+ * readArchiveDay reads each stream's hour files IN ORDER and stops the
+ * instant `rows.length >= limit` — so any limit smaller than a busy
+ * feed's full-day row count silently degrades to "the first N hours of
+ * UTC only" (hours 00-02ish at aircraft's real volume). A region whose
+ * live local-daytime traffic falls in LATER UTC hours (Baltic ≈ UTC+2/3)
+ * is then invisible to any bbox-scoped query, not because the signal
+ * isn't there but because the reader never reached the hour files that
+ * would contain it. Same bias applies, less visibly, to any unscoped
+ * (global) query too — its cells silently describe a few early hours,
+ * not the day. Spreading the budget per-file (perFileLimit =
+ * ceil(limit/fileCount)) instead of per-day means every hour contributes
+ * a bounded slice, so a bbox filter applied downstream (or any per-day
+ * aggregate) sees a representative sample of the WHOLE day rather than
+ * a truncated prefix of it. `truncated` now means "at least one hour's
+ * own file exceeded its even share", a more honest signal than "we
+ * stopped partway through the day".
+ */
+export async function readArchiveDayEvenSample(
+  stream: string, day: string, baseDir?: string, limit = 20_000,
+): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, stream);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
+  const files = archiveDayFiles(dir, day);
+  if (!files.length) return { dir, files: [], rows: [], truncated: false };
+  const perFileLimit = Math.max(1, Math.ceil(limit / files.length));
+  const rows: any[] = [];
+  let truncated = false;
+  for (const fp of files) {
+    let fileCount = 0;
+    await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
+      if (fileCount >= perFileLimit) { truncated = true; return; }
+      try { rows.push(JSON.parse(line)); fileCount++; } catch {}
     });
   }
   return { dir, files: files.map((f) => path.basename(f)), rows, truncated };

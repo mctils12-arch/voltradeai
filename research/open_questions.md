@@ -9628,6 +9628,22 @@ gated aggregator binned on the gpsOk TRANSITION LOCUS (where GPS was
 actually lost, 14-199 km behind current position), (c) surfaced with
 mlat-aware provenance; aggregate zones stay behind ladder gate 2.
 
+**PROGRESS 2026-08-12:** Phase 1 (ground-truth validation) and Phase 2
+(the archive writer) shipped 2026-08-11 (v1.0.662); Phase 3 (read/query
+path, `/api/diag/gnss_integrity`) shipped later the same day. The FIRST
+live attempt at Phase 4 (the actual Baltic-vs-control gate-2 statistical
+run) found and fixed an infrastructure blocker instead of producing a
+result: the archive reader the probe used exhausted its row cap on the
+day's FIRST hour file, so a bbox scoped to a region whose real traffic
+sits in later UTC hours (Baltic ≈ UTC+2/3) silently read as zero signal
+regardless of ground truth. Fixed in `readArchiveDayEvenSample`
+(server/datacoreArchive.ts, v1.0.685, own PR) — full trace in
+experiments.md. Phase 4 itself (the actual statistical comparison) is
+STILL NOT DONE — still the next step for whoever picks this back up,
+now unblocked, after the fix deploys and via `/api/diag/gnss_integrity?
+days=<dates>&bbox=53,60,17,24&limit=50000&token=$DIAG_TOKEN` (Baltic) vs.
+a control bbox.
+
 ### 2. SENTINEL-1 SAR FOR DARK SHIPS — THE PIPELINE WORKS, THE VALIDATION LOGIC DOES NOT
 CONFIRMED, impressively: CDSE OData anonymous 200 with real S1 products;
 OAuth succeeded using CDSE_CLIENT_ID/SECRET **already in our env**;
