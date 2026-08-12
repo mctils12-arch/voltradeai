@@ -78,7 +78,7 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 // 34% alpha, double-sided, depth-test-no-write), altitude line on the
 // teal→blue→violet ramp, and the selected-flight marker/drop-line/tag.
 import { FlightTrackLayer, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
-import { resolveGroundDisplayZ } from "@/lib/air/groundDatum";
+import { holdGroundZ, resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
   CURTAIN_BELOW_TERRAIN_M, type TrackSample,
@@ -3841,12 +3841,37 @@ export default function DataMapPage() {
    *  (repair 2026-08-07 "the line … doesn't follow the terrain"): rendered
    *  mesh first — it IS what's on screen — own-DEM×exag only where the mesh
    *  has no tile (contract + rationale in lib/air/groundDatum.ts). */
-  const groundZAt = (map: maplibregl.Map, lo: number, la: number): number =>
-    resolveGroundDisplayZ(
+  /**
+   * LAW I + LAW V FIX (2026-08-12) — "the plane at the end disappears when I
+   * move the camera".
+   *
+   * resolveGroundDisplayZ has THREE outcomes, not two: mesh, dem, and
+   * PENDING. `pending` means neither the rendered mesh nor our own DEM has
+   * answered for this position yet — and it returns g:0. Throwing the
+   * source away and using that 0 silently renders "I don't know the ground
+   * here" as "the ground is at sea level".
+   *
+   * That is camera-coupled, which is the Law I violation: `groundDisplayAt`
+   * calls map.queryTerrainElevation(), which only answers where MESH TILES
+   * ARE CURRENTLY LOADED, and which tiles are loaded is a function of camera
+   * position, angle and zoom. Orbit to a new angle -> the mesh under the
+   * aircraft unloads -> our DEM for that spot may not be fetched yet ->
+   * pending -> the anchor snaps from real terrain height to 0 -> the tail
+   * quad degenerates and the aircraft at the end of the track vanishes.
+   * Hold still and it comes back. That is the whole symptom.
+   *
+   * `fallbackG` is the caller's last-known-good ground in the SAME display
+   * datum. Law V: render last-known state, swap when the real value lands —
+   * never substitute a fabricated zero for a value that has not arrived.
+   */
+  const groundZAt = (map: maplibregl.Map, lo: number, la: number, fallbackG?: number): number => {
+    const r = resolveGroundDisplayZ(
       groundDisplayAt(map, lo, la),
       groundElevationSync(lo, la),
       map.getTerrain() ? terrainExagRef.current : 1,
-    ).g;
+    );
+    return holdGroundZ(r, fallbackG).g;
+  };
 
   /** ONE display-altitude datum (REAL meters, pre-exaggeration) for every
    *  3D renderer — silhouettes, marker, tag, dead-reckoned tail, curtain
@@ -4152,7 +4177,7 @@ export default function DataMapPage() {
         // that vertex, so the wall stays continuous). Still NaN — an honest
         // gap — when the track has no altitude anywhere to hold.
         toAltM: lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la),
-        toGroundZ: terrainOn ? groundZAt(map, lo, la) : 0,
+        toGroundZ: terrainOn ? groundZAt(map, lo, la, st.groundZ[li]) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
       });
