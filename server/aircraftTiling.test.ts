@@ -413,6 +413,21 @@ test("mapPointAircraft carries integrity + origin + provenance", () => {
   assert.equal(p.provider, "adsblol");
 });
 
+test("mapPointAircraft: adsb_version is carried — the equipage control for low integrity", () => {
+  // Older avionics report lower integrity categories BY DESIGN, so `version`
+  // is the only field that separates "interference" from "old aircraft".
+  // Without it on the row the control cannot be re-run on archived history.
+  const [p] = mapPointAircraft({ ac: [{ ...RAW_FULL, version: 2 }] }, "ac", "adsblol");
+  assert.equal(p.adsb_version, 2, "readsb `version` lands on adsb_version");
+  // version 0 is a REAL equipage class (earliest ADS-B), not silence
+  const [v0] = mapPointAircraft({ ac: [{ ...RAW_FULL, version: 0 }] }, "ac", "adsblol");
+  assert.equal(v0.adsb_version, 0, "a reported version 0 survives — it is the oldest class, not absence");
+  // absent → null, and it must never collide with the ICAO model designator
+  const [none] = mapPointAircraft({ ac: [{ hex: "abc123", lat: 1, lon: 2, alt_baro: 30000, t: "B738" }] }, "ac", "adsblol");
+  assert.equal(none.adsb_version, null);
+  assert.equal(none.type, "B738", "adsb_version never shadows the model designator");
+});
+
 test("mapPointAircraft: pos_type is a.type, NOT a.t (the model designator)", () => {
   const [p] = mapPointAircraft({ ac: [{ ...RAW_FULL, t: "B738", type: "mlat" }] }, "ac", "adsblol");
   assert.equal(p.type, "B738", "ICAO model designator stays on `type`");

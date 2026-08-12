@@ -407,7 +407,7 @@ test("integrity fields round-trip through the archive (nulls stay null)", () => 
   const p: any = {
     ...cruise("intg01"),
     nic: 8, nac_p: 10, nac_v: 2, sil: 3, sil_type: "perhour", rc: 186, gva: 2, sda: 2,
-    nic_baro: 1, pos_type: "adsb_icao", mlat_fields: null, tisb_fields: null,
+    nic_baro: 1, adsb_version: 2, pos_type: "adsb_icao", mlat_fields: null, tisb_fields: null,
     lkg_lat: 56.9, lkg_lon: 12.5, lkg_before: 3.2, seen_pos: 0.4, provider: "adsblol",
   };
   assert.equal(archiveAircraft([p], SITES, base, t0), 1);
@@ -415,6 +415,7 @@ test("integrity fields round-trip through the archive (nulls stay null)", () => 
   assert.equal(r.ni, 8); assert.equal(r.np, 10); assert.equal(r.nv, 2); assert.equal(r.si, 3);
   assert.equal(r.st, "perhour"); assert.equal(r.rc, 186); assert.equal(r.gv, 2); assert.equal(r.sd, 2);
   assert.equal(r.nb, 1); assert.equal(r.pt, "adsb_icao");
+  assert.equal(r.av, 2, "adsb_version (equipage control) is archived under `av`");
   assert.equal(r.kla, 56.9); assert.equal(r.klo, 12.5); assert.equal(r.kb, 3.2); assert.equal(r.sp, 0.4);
   assert.equal(r.pv, "adsblol");
   // null derivation arrays are omitted, not stored as [] or 0

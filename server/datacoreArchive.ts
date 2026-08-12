@@ -73,6 +73,12 @@ export interface AircraftPoint {
   gva?: number | null;       // Geometric Vertical Accuracy
   sda?: number | null;       // System Design Assurance
   nic_baro?: number | null;  // barometric-altitude integrity
+  // ADS-B version (0/1/2) — the EQUIPAGE CONTROL. Older avionics report
+  // lower integrity categories by design, so without this field archived
+  // alongside, "low integrity" can never be separated from "old aircraft"
+  // on historical rows. Live check that killed the confound: every degraded
+  // Baltic row reported version 2, same as the healthy control population.
+  adsb_version?: number | null;
   // ORIGIN discriminator (constraint: aircraft-broadcast vs ground-derived
   // must travel with the row). pos_type is the readsb position source:
   //   adsb_icao / adsb_icao_nt / adsr_icao / adsb_other = aircraft-broadcast
@@ -108,9 +114,9 @@ export function originOfPosType(posType: string | null | undefined): ArchiveOrig
 /** Navigation-integrity / origin / provenance block for the aircraft archive
  *  JSONL. Short-key decode (single source of truth):
  *    ni nic · np nac_p · nv nac_v · si sil · st sil_type · rc rc · gv gva ·
- *    sd sda · nb nic_baro · pt pos_type · ml mlat-derived fields · tb tis-b
- *    fields · kla/klo last-known-good lat/lon · kb gpsOkBefore(s) · sp seen_pos
- *    age(s) · pv provider.
+ *    sd sda · nb nic_baro · av adsb_version (equipage control) · pt pos_type ·
+ *    ml mlat-derived fields · tb tis-b fields · kla/klo last-known-good
+ *    lat/lon · kb gpsOkBefore(s) · sp seen_pos age(s) · pv provider.
  *  NULL-IS-NOT-ZERO: every numeric uses a STRICT null check, so a reported 0
  *  is written as 0 and only a genuinely-absent field is omitted. NEVER
  *  `x || undefined` here — that would drop a real 0 and manufacture the exact
@@ -123,7 +129,7 @@ export function aircraftIntegrityFields(p: AircraftPoint): Record<string, unknow
   return {
     ni: num(p.nic), np: num(p.nac_p), nv: num(p.nac_v), si: num(p.sil),
     st: p.sil_type ?? undefined, rc: num(p.rc), gv: num(p.gva), sd: num(p.sda),
-    nb: num(p.nic_baro), pt: p.pos_type ?? undefined,
+    nb: num(p.nic_baro), av: num(p.adsb_version), pt: p.pos_type ?? undefined,
     ml: arr(p.mlat_fields), tb: arr(p.tisb_fields),
     kla: num(p.lkg_lat), klo: num(p.lkg_lon), kb: num(p.lkg_before),
     sp: num(p.seen_pos), pv: p.provider ?? undefined,

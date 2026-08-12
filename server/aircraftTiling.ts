@@ -223,6 +223,15 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
       gva: numOrNull(a.gva),
       sda: numOrNull(a.sda),
       nic_baro: numOrNull(a.nic_baro),
+      // EQUIPAGE CONTROL (added 2026-08-11, second pass): readsb `version` is
+      // the aircraft's ADS-B version (0/1/2). It belongs with the integrity
+      // block because it is the ONLY way to rule out the leading innocent
+      // explanation for low integrity — older avionics report lower
+      // categories by design. Verified on live Baltic data: all 53 degraded
+      // rows reported version 2, the same modern class as 79 of 95 healthy
+      // rows, which is what killed the equipage confound. Without it in the
+      // row the control cannot be re-run on archived history at all.
+      adsb_version: numOrNull(a.version),
       pos_type: strOrNull(a.type),
       mlat_fields: strArrOrNull(a.mlat),
       tisb_fields: strArrOrNull(a.tisb),
