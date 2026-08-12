@@ -495,12 +495,33 @@ export class AirLayer implements CustomLayerInterface {
     this.now = opts.now ?? (() => performance.now());
   }
 
-  onAdd(map: MapLibreMap, _gl: AnyGl): void {
+  /** Cached GL context so `dispose()` needs no arguments (Law IV). */
+  private glRef: AnyGl | null = null;
+
+  onAdd(map: MapLibreMap, gl: AnyGl): void {
     this.map = map;
+    // Law IV: cache the context so dispose() can free GL objects without the
+    // caller holding a `gl`. MapLibre only hands one to onAdd/onRemove/render,
+    // so a no-arg teardown is impossible without this.
+    this.glRef = gl;
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
     this.dropGlObjects(gl);
+    this.map = null;
+  }
+
+  /**
+   * Law IV explicit teardown. Delegates to the layer's own onRemove path
+   * using the cached context, so a view unmount (or the harness's
+   * toggle-on/toggle-off leak assertion) can free everything without
+   * holding a `gl`. Idempotent — onRemove nulls every handle, and GL
+   * deletes on a lost context are no-ops.
+   */
+  dispose(): void {
+    const gl = this.glRef;
+    this.glRef = null;
+    if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
     this.map = null;
   }
 
@@ -837,3 +858,13 @@ export class AirLayer implements CustomLayerInterface {
     this.uProjFallback = gl.getUniformLocation(p, 'u_projection_fallback_matrix');
   }
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// AIR_INST_STRIDE is 8 floats per aircraft:
+//   12,000 x 8 x 4B = 384 KB of instance data, plus the shared glyph
+//   geometry buffers (fixed size, not per-feature).
+// 12,000 is ~3.4x the busiest observed live render (3,507 aircraft at
+// 1440px in the visual harness), so the cap is a runaway guard rather than
+// a working limit. Above it, downsample by importance — never truncate.
+export const maxFeatures = 12000;
+export const vramBudget = 4; // MB
