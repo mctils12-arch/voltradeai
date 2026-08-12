@@ -405,6 +405,36 @@ class TestSizePctParameter(unittest.TestCase):
             "stretch mode must not exceed cash_available",
         )
 
+    def test_sell_put_no_otm_strikes_gives_honest_error_not_zero_strike(self):
+        """
+        BUG FIX 2026-08-12 regression: when the fetched chain has zero puts
+        struck at or below the current price, `puts` (the strike<=price
+        candidate list) is empty — `min(..., default=0)` used to silently
+        paper over that, producing "smallest strike $0 needs $0 ... but max
+        affordable per-position is $X ... Underlying too expensive" (seen
+        live on KORU via /api/diag/audit?type=T2-FAIL 2026-08-12: "smallest
+        strike $0 needs $0, but max affordable per-position is $2,189").
+        That message is false — the underlying wasn't too expensive, the
+        chain simply had no OTM/ATM puts. This must now fail with an
+        honest "no OTM puts available" message that names the real cause,
+        and must never mention a $0 strike.
+        """
+        from options_execution import _select_sell_put
+        # Every put in the chain is struck ABOVE the current price ($19.89,
+        # matching the live KORU case) — none satisfy `strike <= price`.
+        contracts = [
+            {"occ_symbol": "KORU260918P00025000", "option_type": "put",
+             "strike": 25.0, "bid": 5.10, "ask": 5.40, "mid": 5.25,
+             "delta": -0.65, "gamma": 0.02, "theta": -0.03, "iv": 0.55,
+             "volume": 50, "open_interest": 200, "expiry": "2026-09-18",
+             "days_to_expiry": 37},
+        ]
+        result = _select_sell_put(contracts, 19.89, 109462, "KORU", 0.0136)
+        self.assertIsNotNone(result.get("error"))
+        self.assertNotIn("$0", result["error"])
+        self.assertNotIn("too expensive", result["error"])
+        self.assertIn("No OTM puts available", result["error"])
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEST 6: Options Manager — DTE Exit Logic

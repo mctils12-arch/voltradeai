@@ -895,6 +895,20 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     effective_budget = affordable_budget
 
     if not affordable_puts:
+        # BUG FIX 2026-08-12: `puts` (strike <= price candidates) can itself
+        # be empty — e.g. the fetched chain simply has no OTM/ATM puts for
+        # this ticker. The old code let `min(..., default=0)` silently paper
+        # over that case, producing the nonsensical "smallest strike $0
+        # needs $0 ... Underlying too expensive" message (seen live on KORU/
+        # HYG in /api/diag/audit type=T2-FAIL). Distinguish "no candidate
+        # puts in the chain" from "cheapest candidate still unaffordable" —
+        # they are different failure modes with different fixes.
+        if not puts:
+            return {"error": (
+                f"No OTM puts available for {ticker}: {len(all_puts_any_type)} "
+                f"put(s) in the fetched chain, none struck at or below the "
+                f"current price ${price:.2f}."
+            )}
         # GRACEFUL DEGRADATION 2026-05-22: instead of failing, check if there's
         # ANY strike we could afford even by stretching the budget to the
         # MAX_POSITION_PCT cap (typically 8%). The idea is: this ticker might
@@ -902,7 +916,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         # the trade entirely, try the lowest strike available. The
         # _enforce_exposure_cap allocator at the tier-engine level will scale
         # back if we collectively exceed the total budget anyway.
-        smallest_strike = min((p.get("strike", 0) for p in puts), default=0)
+        smallest_strike = min(p.get("strike", 0) for p in puts)
         stretch_ceiling = equity * 0.20
         # Same live-capital cap applied to the stretch ceiling — otherwise
         # stretch mode "succeeds" at picking a strike the account still
