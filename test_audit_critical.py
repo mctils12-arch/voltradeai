@@ -620,6 +620,57 @@ class TestRenderingMotionLaw(unittest.TestCase):
             "`maxFeatures` and `vramBudget` and implement `dispose()`.\n  " + "\n  ".join(missing),
         )
 
+    # Directories that render but are NOT layer modules — pages and
+    # components. Every KNOWN Law I violation lives here, and the LAYER_DIRS
+    # check above is structurally blind to them: an enforcement rule that
+    # cannot see the file containing the violations is not enforcement.
+    # (Gap found 2026-08-12 by an adversarial review of this very file.)
+    #
+    # These cannot be fixed by fiat — each belongs to the layer PR that owns
+    # it, and removing them is the Rendering & Motion Overhaul's remaining
+    # work. So this is a RATCHET, not a gate: the count may only ever go
+    # DOWN. A new violation fails the build; removing one fails the build
+    # too, with instructions to lower the number. That is what makes the
+    # broken pool shrink monotonically instead of drifting.
+    VIEW_DIRS = ["client/src/pages", "client/src/components"]
+    LAW_I_KNOWN_VIOLATIONS = 10
+
+    def test_law_I_view_violations_ratchet_down_only(self):
+        """Law I debt in pages/components may shrink, never grow."""
+        pattern = re.compile(r"""\.on\(\s*['"](%s)['"]""" % "|".join(self.FORBIDDEN_EVENTS))
+        found = []
+        for d in self.VIEW_DIRS:
+            root = self._repo(d)
+            self.assertTrue(os.path.isdir(root), f"view directory missing: {d}")
+            for path in sorted(glob.glob(os.path.join(root, "**", "*.ts*"), recursive=True)):
+                if path.endswith((".test.ts", ".test.tsx")):
+                    continue
+                with open(path, encoding="utf-8") as f:
+                    for lineno, line in enumerate(f, 1):
+                        # finditer, NOT search: two handlers on one line is a
+                        # real pattern in this codebase, and search() would
+                        # count them as one — which let a deliberately
+                        # injected violation slip past this ratchet during
+                        # its own negative test.
+                        for m in pattern.finditer(line):
+                            rel = os.path.relpath(path, os.path.dirname(__file__))
+                            found.append(f"{rel}:{lineno} '{m.group(1)}'")
+        n = len(found)
+        listing = "\n  ".join(found)
+        if n > self.LAW_I_KNOWN_VIOLATIONS:
+            self.fail(
+                f"Law I: {n} map-event handlers in pages/components, up from the "
+                f"known {self.LAW_I_KNOWN_VIOLATIONS}. A NEW violation was added. Events may set a "
+                f"target; the rAF loop in client/src/render/frameCore.ts interpolates "
+                f"toward it.\n  " + listing
+            )
+        if n < self.LAW_I_KNOWN_VIOLATIONS:
+            self.fail(
+                f"Law I debt dropped to {n} (was {self.LAW_I_KNOWN_VIOLATIONS}) — good. Lower "
+                f"LAW_I_KNOWN_VIOLATIONS to {n} so the ratchet holds and the win cannot "
+                f"silently regress.\n  Remaining:\n  " + (listing or "(none)")
+            )
+
     def test_render_core_constants_are_law_not_tune_values(self):
         """CLAUDE.md states the frameCore/tileCore/zoomInput constants are
         law: changing one is a constitutional amendment, not a tune. Pin the

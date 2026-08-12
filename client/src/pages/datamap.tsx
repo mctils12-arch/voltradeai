@@ -4247,6 +4247,15 @@ export default function DataMapPage() {
       }
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
+      // `altScale` was referenced below (AGL readout, and the follow-camera
+      // elevation) but only ever DECLARED inside paintTrack's scope — a
+      // ReferenceError at runtime, flagged by tsc as TS2304 at three sites
+      // and long dismissed as pre-existing noise. The follow site sits
+      // inside `try {} catch {}`, so the throw was SILENTLY SWALLOWED and
+      // that fallback jumpTo has simply never executed; the AGL branch threw
+      // out of its readout. Declared here, in the scope that uses it, with
+      // the same definition paintTrack uses.
+      const altScale = terrainOn ? terrainExagRef.current : 1;
       const gZ = terrainOn ? groundZAt(map, lon, lat) : 0;
       // floating tag above the craft (screen-projected DOM chip, §4) —
       // display meters straight through (layer altScale is pinned 1)
