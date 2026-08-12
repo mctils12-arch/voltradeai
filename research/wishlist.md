@@ -2524,3 +2524,163 @@ now says so (PR #769 fixed the "needs API key" mislabel). No fabricated
 positions are served. The SAR dark-ship validation idea filed in
 open_questions.md the same day is BLOCKED behind this: there is no live
 AIS to validate against while the feed is dark.
+
+### ✅ 2026-08-12 UPDATE — ROOT CAUSE FOUND: PROVIDER-SIDE OUTAGE AT AISSTREAM. **DO NOT ROTATE THE KEY.** Human actions 1–3 above are now known-futile; action 4 is the live one.
+
+(Append-only: everything above stands as written on 2026-08-11 and was
+correct on its evidence. This entry supersedes its RECOMMENDED ACTIONS.)
+
+A human-supplied runbook ("AIS DEAD-AIR RUNBOOK — key rotation is step 6,
+not step 1") ordered the diagnosis cheapest-discriminating-test-first and
+warned that rotating the key destroys the evidence for every other
+hypothesis. Running that ladder resolved it **without any account action.**
+
+**THE FINDING.** aisstream.io stopped delivering frames to everyone on
+2026-08-05. It is not our key, not our payload, not our deployment, and
+not replica contention. Independent, unrelated users report our exact
+symptom, on their own keys, from their own machines:
+
+- **aisstream/issues#269, "Stream silent since 2026-08-05"** (opened
+  08-10, still open, no maintainer reply): *"Since 2026-08-05 ~13:31 UTC
+  our client (wss://stream.aisstream.io/v0/stream) connects, sends the
+  subscription, and receives zero messages indefinitely."* Our archive's
+  last vessel file is `vessels/2026-08-05-13.jsonl.gz` — **the same hour,
+  a different operator.**
+- **#272** (08-11): *"no messages ever arrive — not even a single
+  PositionReport. I've tested this from two completely different network
+  environments and with three different API keys."* Worldwide bbox,
+  documented ~300 msg/s, actual zero. **This kills key rotation and every
+  account-flag theory on its own.**
+- **#263** (08-07): a brand-new account and a brand-new key receive
+  nothing. Rotation cannot help.
+- At least ten more filed 08-07 → 08-11 (#262 "Subscription accepted,
+  zero frames delivered", #264 "Zero frames - please fix", #266, #267,
+  #268, #270, #271, #273 "Alternate feed?"). No maintainer response on
+  any of them. Upstream **aisstream/aisstream#15** (opened 2026-03-13,
+  still open) is the same failure predating this outage.
+
+**THE LADDER, CLOSED.**
+
+| Step | Result |
+|---|---|
+| 1. Standalone off-Railway probe w/ current key | Not runnable in-session (key is Railway-only, correctly). **Moot** — #272 already ran it with 3 keys on 2 networks, and #263 with a fresh account: zero frames. |
+| 2. Coordinate ordering | **PASS.** We send `[[[-90,-180],[90,180]]]` — byte-identical to the spec's worldwide example. The third-party doc claiming longitude-first is wrong; aisstream's own docs show `[[[lat, long],[lat, long]]]`. |
+| 3. Nesting depth | **PASS.** Three levels: `BoundingBoxes → [corner1, corner2] → [lat, lon]`. |
+| 4. Filter fields | **PASS.** `FiltersShipMMSI` absent. `FilterMessageTypes: ["PositionReport","ShipStaticData"]` — both valid names, and PositionReport *is* the firehose. |
+| — | **The whole payload is unchanged since 2026-07-03** (`git log -L` on server/routes.ts) and delivered frames for a month. Nothing of ours changed on Aug 5; no deploy that day touched the vessel path. |
+| 5. Replica count | **ANSWERED WITHOUT YOU: exactly one dialer**, confirmed two independent ways. (a) Measured: 14 consecutive polls of `/api/data/vessels` over 60s show a single strictly-monotonic silence clock (8→64s, frames=0); two replicas would interleave two independent counters. (b) Declared: `railway.json` sets `"numReplicas": 1`. **The starvation theory is dead and the single-dialer guard is cancelled — don't build it.** |
+| 6. Account state | Moot — see #272/#263. |
+| 7. Rotate | **DO NOT.** Proven futile by two independent reporters, and it would destroy the evidence trail for no gain. |
+
+Also re-verified against aisstream's own docs (runbook claims 1 and 2,
+both confirmed): *"the subscription message must be sent within 3 seconds
+of creating your websocket... or your connection will be closed"* — we
+send on `open`, so a socket that stays open proves our subscription was
+accepted; and there is **no documented per-key concurrent-connection
+limit**.
+
+**WHAT SHIPPED THIS SESSION (v1.0.667, PR #782):** the runbook's build
+item 1 — a **feed dead-air watchdog** on all three continuous position
+feeds, throughput-based rather than connection-based, wired into
+`/api/health`. It reads the archive on disk, the one clock a redial, a
+restart, or a deploy cannot reset. Against this outage it fires the same
+morning instead of on day seven. It makes **no** causal claim, so it is
+not a third patch under RECURRENCE ESCALATES.
+
+**NOT BUILT, DELIBERATELY:** the single-dialer guard (step 5 says one
+replica — the runbook itself gates it on replicas > 1), and the
+subscription-assertion logger (its value was in catching a malformed
+payload; steps 2–4 plus a month of working frames plus twelve independent
+reporters have exonerated our payload, so touching the AIS socket now
+would be churn against a disproven hypothesis).
+
+**WHAT IS ACTUALLY LEFT — your action 4, now evidence-backed.** aisstream
+has been silent for its entire user base for 7 days with no maintainer
+response, and other operators are already asking for alternates (#273).
+The BUILD-FIRST survey for a second AIS source is filed separately below.
+
+**WHAT ONLY YOU CAN STILL DO (optional, low priority now):** if you want
+the upstream signal amplified, add our reproduction to
+aisstream/issues#269 — our archive timestamp corroborates their
+13:31 UTC start from an independent deployment. I did not post to a
+third-party repository on my own.
+
+## BUILD-FIRST SURVEY — a second AIS source (filed 2026-08-12; triggered by the aisstream outage above)
+
+Not a purchase request. **Cost: $0.** Both candidates below are free,
+need no registration, and clear the MONETIZATION TRIPWIRE — filed here
+because adding a provider to a monetizable path is a licensing decision,
+and because the honest coverage trade-off is a judgement call.
+
+BUILD-FIRST step 1 (do we already receive the raw material?): no — AIS
+raw material is receiver-network output we do not own. Step 2
+(accumulation): irrelevant, the gap is live coverage. Step 3 (inference):
+refused — inferring vessel positions would be fabricating data. Step 4
+(is the raw material genuinely inaccessible free?): **no, it is not.**
+Two national authorities publish live AIS openly and commercially.
+
+**CANDIDATE 1 — Fintraffic / Digitraffic (Finland). Strongest.**
+- Live AIS: MQTT-over-WebSocket `wss://meri.digitraffic.fi:443/mqtt`,
+  plus REST `https://meri.digitraffic.fi/api/ais/v1/locations` and vessel
+  metadata at `/api/ais/v1/vessels`.
+- Licence, quoted from their terms: **CC 4.0 BY** — *"It gives the right
+  to distribute, remix, tweak, and build upon our data, even
+  commercially, as long as you credit the source."* Required attribution
+  string: *"Source: Fintraffic / digitraffic.fi, license CC 4.0 BY"*.
+- **We already ingest Digitraffic** for the trains layer under the same
+  licence — same provider, same terms, a pattern already proven in
+  production. This is the lowest-integration-risk option we have.
+- Coverage: Finnish waterways only.
+
+**CANDIDATE 2 — Kystverket (Norwegian Coastal Administration).**
+- Live AIS: open raw NMEA stream at `153.44.253.27:5631`, **no
+  registration**. BarentsWatch additionally offers developer API
+  endpoints.
+- Licence: **NLOD** (Norwegian Licence for Open Government Data) —
+  commercial use permitted with attribution.
+- Coverage: Norwegian economic zone + Svalbard/Jan Mayen protection
+  zones. Excludes fishing vessels <15 m and recreational craft <45 m.
+- Note the split: the *open* component needs no registration; a *closed*
+  component (small-vessel data) requires an application and carries
+  "must not be used for anything other than the stated purpose and will
+  not be distributed to third parties" — **that restricted tier must
+  never enter a monetizable path.** Take the open tier only.
+
+**RULED OUT — AISHub.** Free, but it is a data-*sharing* co-op: access
+is conditioned on contributing a receiver's feed. We operate no AIS
+receiver hardware, so we cannot pay the entry price in kind. (An
+unrelated project reached the same conclusion independently —
+koala73/worldmonitor#6227, "AIS has no fallback... AISHub ruled out".)
+
+**RULED OUT for now — MarineTraffic / VesselFinder / Spire / VesselAPI.**
+Commercial products. Per BUILD-FIRST these may not even enter this list
+until the free path is built and found materially worse. It has not been
+built yet.
+
+**THE HONEST TRADE-OFF.** Neither candidate is global; aisstream's pitch
+was worldwide terrestrial coverage. Together they cover the Baltic and
+the Norwegian Sea, not the world. So this is **not** a replacement — it
+is a floor: real, licensed, live vessel positions in two regions instead
+of a fully dark archive in all of them, and an archive that keeps
+recording somewhere while the provider question resolves. It also removes
+the single-point-of-failure that just cost 7 days.
+
+**CROSS-SYSTEM TIE (CROSS-SYSTEM INTEGRATION PRINCIPLE — real, not
+decorative).** The Baltic is exactly where the GNSS-integrity passthrough
+(v1.0.662–667) is looking for navigation-integrity degradation. Finnish
+and Norwegian AIS would put *vessel* GNSS behaviour in the same box where
+we are already measuring *aircraft* GNSS behaviour — two independent
+receiver populations over one geography. That is a genuine
+cross-validation opportunity for the integrity series, not a showcase
+link: an interference finding visible in both populations is far harder
+to explain away as an avionics or equipage artifact. Filed as a
+hypothesis, not a claim — it needs the ROOT VALIDATION LADDER like
+anything else.
+
+**RECOMMENDATION.** Build Candidate 1 (Digitraffic AIS) as a first
+[PIPELINE] slice: same provider and licence we already run for trains,
+zero cost, zero registration, and it restores *some* vessel archive
+recording immediately. Then Candidate 2. Keep the aisstream adapter in
+place and unmodified — when the provider recovers, worldwide coverage
+returns for free, and the dead-air watchdog (v1.0.667) will now say so
+the same morning either way.
