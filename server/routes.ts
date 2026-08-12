@@ -32,6 +32,7 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
+import { readWindow, WINDOW_MAX_SPAN_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -1346,6 +1347,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                  note: points.length === 0 ? "no archived positions yet for this id (archive began 2026-07-03)" : undefined });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "track read failed" });
+    }
+  });
+
+  // TIME MACHINE T-1 (earth_twin_program.md, human directive 2026-08-11):
+  // every aircraft that moved through THIS viewport in THIS time window,
+  // per-hex point arrays for the curtain fleet — ONE hex-multiplexed stream
+  // pass per hour file, LOD-decimated by zoom (SCALE S1), caps stated
+  // honestly in the response. 30s TTL cache on quantized params.
+  const windowCache = new Map<string, { at: number; data: any }>();
+  app.get("/api/data/aircraft/window", async (req, res) => {
+    try {
+      const parts = String(req.query.bbox || "").split(",").map(Number);
+      const from = parseInt(String(req.query.from || ""), 10);
+      const to = parseInt(String(req.query.to || ""), 10);
+      const zoom = Math.max(0, Math.min(22, parseFloat(String(req.query.zoom || "")) || 5));
+      if (parts.length !== 4 || parts.some((x) => !Number.isFinite(x))) {
+        return res.status(400).json({ error: "bbox=w,s,e,n required" });
+      }
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+        return res.status(400).json({ error: "from/to (unix seconds, to > from) required" });
+      }
+      if (to - from > WINDOW_MAX_SPAN_SEC) {
+        return res.status(400).json({ error: `window too large (max ${WINDOW_MAX_SPAN_SEC / 86400} days — the raw archive's retention)` });
+      }
+      const [w, s, e, n] = parts;
+      const key = [w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
+                   Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom)].join("|");
+      const hit = windowCache.get(key);
+      if (hit && Date.now() - hit.at < 30_000) return res.json(hit.data);
+      const data = await readWindow({ bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom });
+      windowCache.set(key, { at: Date.now(), data });
+      if (windowCache.size > 32) {
+        const oldest = windowCache.keys().next().value;
+        if (oldest !== undefined) windowCache.delete(oldest);
+      }
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "window read failed" });
     }
   });
 
