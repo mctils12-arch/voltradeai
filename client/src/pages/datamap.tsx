@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -116,7 +116,9 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
-import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl } from "@/lib/celestial/apolloSites";
+import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl,
+  getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
+  APOLLO_NEAR_SIDE_ONLY_NOTE } from "@/lib/celestial/apolloSites";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -2215,6 +2217,7 @@ export default function DataMapPage() {
         scale: getCelestialScale(),
         // B3: orbit-ellipse polylines per the persisted toggle
         orbitPaths: getOrbitPathsPref(),
+        apolloSites: getApolloSitesPref(),
         // 2026-07-18 scene toggles (persisted): panorama/grid/trails/labels
         milkyWay: getMilkyWayPref(),
         eclipticGrid: getEclipticGridPref(),
@@ -2264,6 +2267,8 @@ export default function DataMapPage() {
       const offScale = subscribeCelestialScale(() => { try { handle.setScale(getCelestialScale()); } catch {} });
       // B3: orbit-paths toggle applies live
       const offOrbits = subscribeOrbitPathsPref(() => { try { handle.setOrbitPaths(getOrbitPathsPref()); } catch {} });
+      // Apollo landing-site markers toggle applies live (2026-08-12)
+      const offApollo = subscribeApolloSitesPref(() => { try { handle.setApolloSites(getApolloSitesPref()); } catch {} });
       // 2026-07-18 scene toggles apply live while mounted
       const offGalaxy = subscribeMilkyWayPref(() => { try { handle.setMilkyWay(getMilkyWayPref()); } catch {} });
       const offGrid = subscribeEclipticGridPref(() => { try { handle.setEclipticGrid(getEclipticGridPref()); } catch {} });
@@ -2420,6 +2425,8 @@ export default function DataMapPage() {
   }, [simIsReal]);
   const [celOrbits, setCelOrbitsView] = useState(getOrbitPathsPref());
   useEffect(() => subscribeOrbitPathsPref(() => setCelOrbitsView(getOrbitPathsPref())), []);
+  const [celApollo, setCelApolloView] = useState(getApolloSitesPref());
+  useEffect(() => subscribeApolloSitesPref(() => setCelApolloView(getApolloSitesPref())), []);
   // SPACE VIEW VISUAL UPGRADE (2026-07-18): the scene toggles' panel view
   // (stores of record in lib/celestial/spaceAssets.ts — persisted).
   const [celGalaxy, setCelGalaxyView] = useState(getMilkyWayPref());
@@ -12810,7 +12817,7 @@ export default function DataMapPage() {
                   {/* reference "N/7 ON" family: our five SPACE FRAME handle
                       toggles (orbits · trails · galaxy · grid · labels) —
                       rotation + time are the sim clock, sats a separate layer */}
-                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock].filter(Boolean).length}/6 ON
+                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock, celApollo].filter(Boolean).length}/7 ON
                   {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
               </button>
@@ -12905,6 +12912,11 @@ export default function DataMapPage() {
                       status: celOrbits
                         ? "on — full ellipses Mercury–Neptune + 9 moons, real ephemeris"
                         : "off — orbit ellipses hidden" },
+                    { key: "apollo", name: "Apollo sites", icon: <Flag size={15} />,
+                      on: celApollo, toggle: () => setApolloSitesPref(!celApollo),
+                      status: celApollo
+                        ? `on — 6 flag markers at the published NASA landing coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view (${APOLLO_NEAR_SIDE_ONLY_NOTE})`
+                        : "off — Apollo flag markers hidden" },
                     { key: "trails", name: "Motion trails", icon: <Waypoints size={15} />,
                       on: celTrails, toggle: () => setMotionTrailsPref(!celTrails),
                       status: celTrails
@@ -12952,6 +12964,40 @@ export default function DataMapPage() {
                       </button>
                     </div>
                   ))}
+                  {/* APOLLO FLY-TO CHIPS (2026-08-12). Without these the
+                      only way to reach a landing site is to CLICK a marker
+                      you can already see — and the markers are invisible
+                      whenever the far side faces the camera, which is most
+                      of the time. Six chips make every site reachable from
+                      the panel regardless of the Moon's current orientation.
+                      Shown only in the space view, where flying means
+                      something. data-vt-control, never data-vt-layer. */}
+                  {celApollo && spaceActive && (
+                    <div className="vt-field-controls" role="group"
+                         aria-label="Fly to an Apollo landing site" data-vt-control="celestial_apollo_sites">
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {APOLLO_SITES.map((site) => (
+                          <button
+                            key={site.id}
+                            className="vt-preset-pill"
+                            data-vt-apollo-flyto={site.id}
+                            aria-label={`Fly to the ${site.mission} landing site`}
+                            title={site.region}
+                            onClick={() => {
+                              try { spaceHandleRef.current?.flyToSite(site.id); } catch {}
+                            }}>
+                            ⚑ {site.mission.replace("Apollo ", "A")}
+                          </button>
+                        ))}
+                      </span>
+                      <span className="vt-field-note">
+                        Click a mission to fly to its landing site — {APOLLO_NEAR_SIDE_ONLY_NOTE}.
+                      </span>
+                      <span className="vt-field-note">
+                        {APOLLO_IMAGERY_NOTE}
+                      </span>
+                    </div>
+                  )}
                   <div className="vt-field-controls" role="note" aria-label="Space frame notes">
                     <span className="vt-field-note" style={{ fontFamily: "var(--font-mono)", color: "var(--accent-orange)" }}>
                       planet rotation &amp; time-warp: the one Simulation time clock below · live satellites: their own layer above.
@@ -12960,7 +13006,7 @@ export default function DataMapPage() {
                       orbits: full ellipses Mercury–Neptune + the Moon + Io, Europa, Ganymede, Callisto, Titan,
                       Triton, Phobos, Deimos (JPL mean elements), drawn in whatever compression the slider is set to.
                       Milky Way: 8k panorama © Solar System Scope (CC-BY 4.0, solarsystemscope.com), aligned to the
-                      real galactic plane. Ecliptic grid off by default. All six settings persist.
+                      real galactic plane. Ecliptic grid off by default. Apollo sites: the six crewed landing coordinates (NASA/LPI published), flag markers on the Moon's face. All seven settings persist.
                     </span>
                     <span className="vt-field-note">
                       {SPACE_IMAGERY_CREDIT}. Textures load only in the space view (progressive tiers;
