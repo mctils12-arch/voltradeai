@@ -32,11 +32,19 @@
  *      measurement.
  *
  * Pure aggregator (aggregateGnssIntegrity) + a thin async multi-day reader
- * (readGnssIntegrityWindow) built on the existing readArchiveDay/
- * streamJsonlLines primitives — no new I/O primitive, no new archive
- * format. Backs the "gnss_integrity" diag probe (server/bot.ts / diag.ts).
+ * (readGnssIntegrityWindow) built on the existing readArchiveDayEvenSample/
+ * streamJsonlLines primitives — no new I/O format. Backs the
+ * "gnss_integrity" diag probe (server/bot.ts / diag.ts).
+ *
+ * READER CHOICE (2026-08-12): uses readArchiveDayEvenSample, not the plain
+ * readArchiveDay every other archive probe uses — a bbox-scoped query over
+ * this feed's real daily volume needs a sample spread across the WHOLE day,
+ * not the first N chronological hours (see readArchiveDayEvenSample's own
+ * doc comment for the live symptom this fixes: a Baltic bbox silently
+ * returning zero cells because a straight per-day row cap never got past
+ * the day's early UTC hours, when Baltic local traffic is overnight-quiet).
  */
-import { readArchiveDay, originOfPosType, type ArchiveOrigin } from "./datacoreArchive";
+import { readArchiveDayEvenSample, originOfPosType, type ArchiveOrigin } from "./datacoreArchive";
 
 /** Minimal shape this module reads off an archived aircraft JSONL row —
  *  the short-key schema `aircraftIntegrityFields`/`archiveAircraft` write
@@ -144,7 +152,7 @@ export async function readGnssIntegrityWindow(
   const daysMissing: string[] = [];
   let truncated = false;
   for (const day of days) {
-    const result = await readArchiveDay("aircraft", day, baseDir, perDayLimit);
+    const result = await readArchiveDayEvenSample("aircraft", day, baseDir, perDayLimit);
     if (!result || result.files.length === 0) { daysMissing.push(day); continue; }
     daysRead.push(day);
     if (result.truncated) truncated = true;
