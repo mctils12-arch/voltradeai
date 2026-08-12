@@ -56,6 +56,15 @@ export const DIAG_PROBES = [
   // (counts, win rates, decision/regime labels) — no ticker, no price,
   // same posture as the "ml" probe.
   "shadow",
+  // ADDED 2026-08-12 (scheduled-routine PRODUCT session): GNSS integrity
+  // passthrough PHASE 3 — the read/query path over the aircraft archive's
+  // nic/pos_type fields (Phase 1 ground-truth + Phase 2 writer shipped
+  // 2026-08-11, v1.0.662). Returns ONLY band x origin AGGREGATE COUNTS
+  // (n_total/n_zero/distinct_airframes) computed server-side by
+  // gnssIntegrityQuery.ts's aggregateGnssIntegrity — no per-row lat/lon,
+  // tail number, or callsign leaves this endpoint. See the "gnss_integrity"
+  // case in bot.ts for the days/bbox/limit query params.
+  "gnss_integrity",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
