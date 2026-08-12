@@ -47631,3 +47631,53 @@ batched buffers), T-4 vessels parity — recipes in the charter. Open
 human questions (cap preference at wide zoom; mil/ladd/pia at world
 zoom) still unanswered; T-1 built the SCALE-lawful viewport-bounded
 default.
+
+## 2026-08-12 — [PRODUCT] NAC per-site imagery: Apollo hardware in real pixels (v1.0.673)
+
+Territory: T-CLIENT. Human: "can you see the Rover? is there more
+imagery? the tracks the flag?" — the honest WAC answer was no
+(hardware sub-pixel at ~76-100 m/px); the shipped answer is now yes:
+Trek hosts a dedicated LROC NAC mosaic strip per landing site, and we
+stream it as a finer detail tier when the camera dives past WAC's
+ceiling inside a strip.
+
+Discovery (all probed live, curl evidence this session): the Trek
+catalog moved — searchRaster pins paging server-side, but
+searchItems?rows=10000 sweeps the full 9,358-item index; it lists
+LRO_NAC_Apollo{11,12,14,15}_Mosaic_p (z≤15; A12/A15 declare a z16
+matrix but 404 it), LRO_NAC_Apollo16_Mosaic_p + NAC_DTM_APOLLO17_
+MOSAIC_120CM (z≤14). PNG gray+alpha, same default028mm EQ convention
+as WAC; out-of-strip/beyond-maxZ = clean 404. The z15 tile at
+Tranquility Base RESOLVES the Eagle descent stage, the foot trail to
+Little West Crater, and the experiment packages (fetched, verified by
+eye, sent to the human).
+
+Change: lroc.ts APOLLO_NAC_SITES registry (per-site scheme+bbox+
+credit, catalog-verbatim bboxes) + nacSiteFor + NAC_ACTIVATE_PX_PER_
+DEG (=WAC z8 px/deg — activation means "the screen demands more than
+WAC has"). moonTiles.ts blitTile now copies REAL source alpha (byte-
+identical for opaque JPEG sources) + MoonTileDeps.minZ (NAC managers
+plan from z10 — a coarse strip tile is one 404, not a fallback).
+moonSurface.ts sampleDetail alpha-gates (<8 → null) — this also FIXES
+the pre-existing hole bug where an unfetched tile region sampled as
+solid black; renderMoonSurfaceRows accepts ordered detail TIERS
+[NAC, WAC] with per-pixel fallthrough to base. spaceFrame.ts lazy
+per-site NAC managers, tier compose at the patch call site, credit
+swap to the site's NAC line when resident, NAC fields in the
+moonPatch stats (honest resolution readout), eviction/dispose wired.
+apolloSites.ts card note updated: NAC streams now — and states what
+each tier can and cannot resolve (flag ~1 m = edge of resolution;
+shadows documented at 12/16/17, Apollo 11's fell at ascent).
+
+Honesty: NASA/ASU public-domain mosaics streamed as-is — no
+enhancement, no annotation of pixels; transparent strip margins fall
+through to WAC then base (never black, never invented); per-site
+resolution stated in the credit (~0.5 for z15 sites, ~1.2-1.3 for
+A16/A17).
+
+Tests: lroc.test.ts +4 (registry pins vs live probes, nacSiteFor
+containment for all six + negatives, activation threshold, NAC-vs-WAC
+resolution ratio ≥100×); moonSurface.test.ts +2 (alpha-gated sampling;
+tier-order render: NAC where opaque, WAC under NAC holes, base beyond
+— plus single-overlay back-compat); moonTiles.test.ts +1 (blit
+preserves alpha 0). Celestial suites 134/134.
