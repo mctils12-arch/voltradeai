@@ -282,11 +282,31 @@ def check_model_health() -> dict:
 
 # ── Self-Diagnostic ML System ─────────────────────────────────────────────────
 
-def run_diagnostics() -> dict:
+API_CHECK_GRACE_PERIOD_S = 1800  # 30 min: KNOWN BROKEN #29 recurrence 2026-08-12 —
+# a fresh container boot wipes ephemeral /tmp, so polygon/wikipedia/gdelt/fred's
+# cache files are genuinely absent until the first post-restart Tier 2 scan
+# writes them (get_alt_data_score()/get_macro_snapshot() are only called from
+# deep_score(), never from this check itself). Without a grace period, section
+# 4 below flags a false "Multiple API sources down" MEDIUM problem — and fires
+# its real reduce_position_size(0.6x) auto-fix off a signal that means "no scan
+# has run yet," not "sources are down" — on every redeploy, independent of the
+# v1.0.637/638 within-scan-latency fixes for this same message (see
+# research/open_questions.md KNOWN BROKEN #29). 30 min covers at least one full
+# Tier 2 cycle at its fastest cadence (15 min, TIER2_INTERVAL in system_config.py
+# terms / getTier2Interval() in bot.ts).
+
+
+def run_diagnostics(server_uptime_s: float = None) -> dict:
     """
     Full self-diagnostic scan.
     Checks all systems, identifies problems, and recommends fixes.
     Returns a health report with actionable recommendations.
+
+    server_uptime_s: seconds since the calling Node process booted, passed by
+    bot.ts (process.uptime()). None (unknown — a caller that doesn't pass it)
+    preserves the original always-on behavior; this is deliberately NOT a
+    threshold/rule change to what "down" means, only to how soon the API-down
+    check is trusted after a restart it cannot yet have recovered from.
     """
     report = {
         "timestamp": datetime.now().isoformat(),
@@ -366,13 +386,26 @@ def run_diagnostics() -> dict:
     }
     failed_apis = [name for name, ok in api_checks.items() if not ok]
     if len(failed_apis) >= 3:
-        report["problems"].append({
-            "system": "api",
-            "severity": "medium",
-            "message": f"Multiple API sources down: {failed_apis}",
-            "auto_fix": "reduce_position_size",
-            "fix_params": {"multiplier": 0.6},
-        })
+        within_restart_grace = (
+            server_uptime_s is not None and server_uptime_s < API_CHECK_GRACE_PERIOD_S
+        )
+        if within_restart_grace:
+            report["warnings"].append({
+                "system": "api",
+                "message": (
+                    f"Multiple API sources down: {failed_apis} "
+                    f"(server up {round(server_uptime_s)}s < "
+                    f"{API_CHECK_GRACE_PERIOD_S}s restart grace — not yet a problem)"
+                ),
+            })
+        else:
+            report["problems"].append({
+                "system": "api",
+                "severity": "medium",
+                "message": f"Multiple API sources down: {failed_apis}",
+                "auto_fix": "reduce_position_size",
+                "fix_params": {"multiplier": 0.6},
+            })
     elif failed_apis:
         report["warnings"].append({
             "system": "api",
@@ -459,7 +492,7 @@ def run_diagnostics() -> dict:
     return report
 
 
-def get_auto_fix_params() -> dict:
+def get_auto_fix_params(server_uptime_s: float = None) -> dict:
     """
     Run diagnostics and return actionable parameters the AI engine should use.
     Called every scan cycle.
@@ -471,7 +504,7 @@ def get_auto_fix_params() -> dict:
         "problems_summary": str,
     }
     """
-    report = run_diagnostics()
+    report = run_diagnostics(server_uptime_s=server_uptime_s)
 
     params = {
         "position_size_multiplier": 1.0,

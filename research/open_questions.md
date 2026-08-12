@@ -3870,6 +3870,98 @@
     in (c), or a live-container escalation to the human), not a third
     latency guess.
 
+    **RECURRENCE 2026-08-12, scheduled-routine [REPAIR] session, v1.0.667
+    — root cause found, is DIFFERENT from v1.0.637/638's, no third latency
+    guess needed.** Session-start health check (per its own instructions)
+    found `/api/diag/audit?type=TIER3-DIAG` firing "Multiple API sources
+    down: ['polygon', 'wikipedia', 'gdelt', 'fred']" on every hourly Tier 3
+    cycle since 2026-08-12T00:22:31Z (`server_version: "1.0.665"`, only 4
+    TIER3-DIAG records existed at all — a fresh recurrence, not a
+    continuation of the Aug-08/10 incident). Per RECURRENCE ESCALATES this
+    became a root-cause session rather than a third guess.
+    DIAGNOSIS (all via live token-gated probes + read-before-write of
+    `diagnostics.py`/`server/bot.ts`/`getTier2Interval()`): `/api/health`
+    showed `uptime_s: 7818` — the container had rebooted ~00:25 UTC,
+    minutes before the first TIER3-DIAG line. `/api/diag/audit?type=TIER2`
+    showed the LAST Tier 2 scan before the reboot at 23:58:56Z on 08-11 and
+    ZERO Tier 2 scans since — `scheduleTier2()`'s own gate
+    (`isAnyWindow = clock.is_open || (etH >= 4 && etH < 20)`, bot.ts) skips
+    Tier 2 entirely from ~8pm ET to 4am ET. `deep_score()`/
+    `get_alt_data_score()`/`get_macro_snapshot()` (the only writers of
+    wiki_*/gdelt_risk.json/fred_macro_expanded.json/macro_cache.json) are
+    only ever called from Tier 2. So: ephemeral `/tmp` wiped by the
+    restart + Tier 2 structurally dark until 4am ET => the caches were
+    genuinely, expectedly absent, and `diagnostics.py`'s section-4 API
+    check (`os.path.exists()`, no age-awareness, no restart grace) flagged
+    it as a "problem" and fired its real `reduce_position_size(0.6x)`
+    auto-fix anyway — off a signal that means "no scan has had the
+    chance to write these yet," not "sources are down." THIS mechanism is
+    independent of and additional to the v1.0.637 (within-scan fetch
+    latency) / v1.0.638 (timeout-capture visibility) fixes — it explains
+    why the symptom can recur on ANY redeploy regardless of whether those
+    fixes are still working, and it is a DIFFERENT root cause than either,
+    not a failure of them (their own within-scan mechanism was never
+    re-tested this session — `/api/diag/scanner`'s `dataSourceErrors` read
+    `{}`, consistent with no timeouts, not proof either way). One more
+    contributing fact worth recording: this same section-4 check
+    substantially DUPLICATES `check_cache_freshness()`'s already
+    age-aware, already-lenient (`critical: False`, "self-heals on first
+    scan cycle") treatment of the same macro/fred/gdelt files one function
+    above it — an architecture smell (two inconsistent mechanisms
+    checking the same files) noted here but NOT resolved this session
+    (out of scope for a minimal, evidenced fix; a future STALENESS AUDIT
+    could fold section 4 into section 1's model).
+    IMPACT WHILE UNFIXED: overnight-only, so tonight's occurrence never
+    actually touched live sizing (Tier 2's own diag-check, the only path
+    that writes `state.positionSizeMultiplier`, is gated by the same
+    `isAnyWindow` and therefore never ran to read the bad value — only the
+    audit log carried the false MEDIUM line, hourly, all night). But
+    Tier 2's diag-check (bot.ts:3362-3383, `get_auto_fix_params()`) shares
+    the exact same section-4 mechanism and DOES run during market hours —
+    any daytime redeploy that outlasts the grace window below before the
+    first post-restart Tier 2 scan completes would apply a real, false
+    0.6x sizing haircut to live candidates. That daytime case (not the
+    overnight one caught live tonight) is the actual GOAL-priority-2 risk
+    this fix closes.
+    FIX (own PR, v1.0.667, `diagnostics.py` + `server/bot.ts`):
+    `run_diagnostics()`/`get_auto_fix_params()` gained an optional
+    `server_uptime_s` param (default `None`, preserving the original
+    always-on behavior for any caller that doesn't pass it — not a
+    silent behavior change). `bot.ts` passes `process.uptime()` at both
+    call sites (Tier 2's diag-check and Tier 3's full-diagnostics call)
+    plus the owner-facing `/api/bot/diagnostics` route. New
+    `API_CHECK_GRACE_PERIOD_S = 1800` (30 min — covers at least one full
+    Tier 2 cycle at its fastest 15-min cadence): within the grace window,
+    a >=3-sources-down reading becomes a `warnings` entry instead of a
+    `problems`+auto_fix entry; past it, behavior is unchanged from before.
+    This is a diagnostics-accuracy bug fix restoring the self-heal
+    treatment `EXPECTED_CACHE_FRESHNESS`'s own comment already documents
+    as intended, not a new threshold policy — same precedent as KNOWN
+    BROKEN #3's fix, so PROMOTION RULE 3's Sharpe/drawdown gate is N/A
+    (this changes no scoring/sizing VALUE, only how soon a stale-input
+    warning is trusted after a restart it cannot yet have recovered from).
+    RATCHET: 6 new tests in `test_diagnostic_false_positives.py`
+    (`TestApiCheckRestartGracePeriod`) — A/B-verified via `git stash`: 5 of
+    6 fail against pre-fix code (`AttributeError`/`TypeError` on the new
+    param, or the wrong problems/warnings split), the 6th (unknown-uptime
+    preserves original behavior) correctly passes on both, proving the
+    default path is untouched. GATES: `python3 -m pytest -q` 1295 passed,
+    2 skipped (0 regressions); `npx tsx --test server/*.test.ts` 1084
+    passed, 10 failed — A/B'd via `git stash`: identical 10 failures on
+    unmodified `origin/main` (pmtiles-magic-byte/tiling/security-middleware
+    class, this sandbox's pre-existing baseline, confirmed unrelated);
+    `npx tsc --noEmit` 83 errors both before and after (byte-identical
+    error set via `git stash`, only line-number shifts from the 1 added
+    line + one pre-existing union-member-ordering cosmetic diff); `npm run
+    build` clean. No `.tsx`/client files touched — VISUAL VERIFICATION
+    does not apply (T-BOT/server territory only).
+    NEXT: a future session should confirm live, a few days out, that
+    TIER3-DIAG's "Multiple API sources down" no longer fires on the
+    overnight/post-restart pattern (it may still legitimately fire if
+    sources are ACTUALLY down for >30 min after Tier 2 resumes — that
+    case is unchanged and correct). The noted section-4/section-1
+    duplication is a good STALENESS AUDIT candidate, not urgent.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

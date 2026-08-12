@@ -3,6 +3,93 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 (scheduled-routine session) [REPAIR] — T-BOT (diagnostics.py + server/bot.ts) — KNOWN BROKEN #29 recurrence: restart-grace period for the API-down check, a genuinely different root cause from v1.0.637/638 (v1.0.667)
+
+TERRITORY: T-BOT. Trigger: this routine's own session-start instruction
+("first check system health and open_questions.md KNOWN BROKEN — if any
+critical item remains unfixed, this session becomes a [REPAIR] session").
+
+PRIOR STATE CHECKED FIRST: `/api/health` clean (`status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false` — no
+LIVENESS ALARM). Scanned KNOWN BROKEN top-to-bottom; the only item not
+already RESOLVED/monitoring-only was #29, disposed "RESOLVED PENDING
+CONTINUED MONITORING" on 2026-08-10. Live `/api/diag/audit?
+type=TIER3-DIAG` showed it firing again, every hourly cycle since
+2026-08-12T00:22:31Z — a recurrence, invoking RECURRENCE ESCALATES
+(HEALTH OF THE LOOP rule 4: patching again forbidden, root-cause session
+required).
+
+PRIOR: expected either (a) the v1.0.637 within-scan-latency fix had
+genuinely stopped working (same root cause recurring — would mean
+escalating to the human per RECURRENCE ESCALATES, no third guess), or
+(b) a different mechanism was in play. Root-cause tracing (uptime_s vs.
+TIER3-DIAG first-occurrence timestamp, TIER2 audit history, `bot.ts`'s
+`isAnyWindow` Tier-2 gate, `diagnostics.py`'s two independent cache-check
+mechanisms) found (b): a container restart (~00:25 UTC) wiped ephemeral
+`/tmp` while Tier 2 — the only caller that writes the checked cache
+files — is structurally dark from ~8pm-4am ET. `diagnostics.py`'s
+section-4 API check (raw `os.path.exists()`, no age-awareness, no
+restart grace) can't distinguish "never had a chance to write yet" from
+"actually down," and fires its real `reduce_position_size(0.6x)`
+auto-fix regardless — independent of and additional to whatever
+v1.0.637/638 fixed. See open_questions.md KNOWN BROKEN #29's
+2026-08-12 update for the full diagnosis, live evidence, and fix
+detail (own PR, v1.0.667): optional `server_uptime_s` param (default
+`None`, backward-compatible) threaded from `bot.ts`'s `process.uptime()`
+into `diagnostics.py`; a >=3-sources-down reading within a 30-min
+post-restart grace window becomes a warning instead of a
+problem+auto_fix. Restores the self-heal treatment
+`EXPECTED_CACHE_FRESHNESS`'s own comment already documents as intended
+— not a threshold/rule change, so PROMOTION RULE 3 backtest gate is N/A
+(same precedent as KNOWN BROKEN #3's fix).
+
+CONFIRMED HYPOTHESIS: yes — the restart+overnight-Tier2-dark timing
+correlation was exact (first bad TIER3-DIAG line landed ~3 min before
+`/api/health`'s own computed boot time), and the mechanism (raw
+existence check with no age/grace awareness, duplicating a stricter
+sibling check one function above it) is fully explained by the code,
+not inferred from timing alone.
+
+RATCHET: 6 new tests, `test_diagnostic_false_positives.py::
+TestApiCheckRestartGracePeriod`, A/B-verified via `git stash` (5/6 fail
+pre-fix with the exact expected errors, the 6th correctly passes both
+ways — proving the no-uptime-passed default path is untouched).
+
+GATES: `python3 -m pytest -q` 1295 passed, 2 skipped, 0 failed (this
+sandbox needed `pip3 install -r requirements.txt` + `pytest` +
+`openpyxl` first — numpy/pandas/pytest weren't preinstalled here; once
+installed, full baseline is clean). `npx tsx --test server/*.test.ts`
+1084 passed, 10 failed — A/B'd via `git stash`: identical 10 failures on
+unmodified `origin/main` (pmtiles-magic-byte/tiling/security-middleware
+class; this sandbox's own pre-existing baseline flake, unrelated —
+`npm install` was also needed here, node_modules was essentially empty
+at session start). `npx tsc --noEmit`: 83 errors before and after,
+byte-identical error set via `git stash` (only a 1-line shift from the
+added line + one pre-existing cosmetic union-member-ordering diff).
+`npm run build` clean. No `.tsx`/client files touched, so VISUAL
+VERIFICATION does not apply.
+
+MERGE-ORDER NOTE: `origin/main` had advanced to v1.0.666 (PR #781,
+unrelated ADS-B equipage work) between this session's start and its
+first push — branch was reset to `origin/main` and version
+read-and-incremented to 1.0.667 at commit time per MERGE-ORDER PROTOCOL,
+not planned ahead.
+
+BACKTEST: N/A per PROMOTION RULE 3 (diagnostics-accuracy fix, no
+scoring/sizing/threshold value changes — see above).
+
+NEXT: re-check `/api/diag/audit?type=TIER3-DIAG` in a few days to
+confirm the overnight/post-restart pattern is gone (a genuine >30-min
+outage after Tier 2 resumes should still correctly fire — unchanged).
+The section-4/section-1 duplicate-mechanism smell noted in
+open_questions.md is a fair STALENESS AUDIT candidate, not urgent.
+Session ended here (single fully-scoped REPAIR action per RECURRENCE
+ESCALATES; no PRIMARY fall-through attempted this session per the
+Repair Mandate's priority over new pipeline/research work).
+
+STARVED: no — the KNOWN BROKEN scan at session start surfaced the one
+action this session needed to do; nothing higher-value was skipped.
+
 ## 2026-08-12 (same session, APPEND) — Phase 3 probe verified live in production post-merge (v1.0.665 deployed)
 
 PR #779 merged; Railway deploy confirmed (`/api/data/layers` `server_version`
