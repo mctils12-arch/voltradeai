@@ -116,6 +116,7 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
+import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl } from "@/lib/celestial/apolloSites";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -2158,6 +2159,7 @@ export default function DataMapPage() {
     spaceActiveRef.current = false;
     setSpaceActive(false);
     setSpaceFocus(null); // body card never outlives the space view
+    setSpaceSite(null); // site card neither
     const container = mapContainer.current;
     const handle = spaceHandleRef.current;
     spaceHandleRef.current = null;
@@ -2224,6 +2226,7 @@ export default function DataMapPage() {
         getTimeRate: () => getSimClock().rate,
         // body card: fly-to opens it, release/fly-home closes it
         onFocusBody: (id) => setSpaceFocus(id),
+        onFocusSite: (id) => setSpaceSite(id),
         getMapSeam: () => {
           const c = map.getCenter();
           return { zoom: map.getZoom(), minZoom: map.getMinZoom(), centerLatDeg: c.lat, centerLonDeg: c.lng };
@@ -2433,6 +2436,8 @@ export default function DataMapPage() {
   // #bodycard). Focus comes from the frame's onFocusBody; the card's
   // values re-read every second while open (live true distances).
   const [spaceFocus, setSpaceFocus] = useState<string | null>(null);
+  // Apollo landing-site card (2026-08-12): follows the frame's onFocusSite
+  const [spaceSite, setSpaceSite] = useState<string | null>(null);
   const [spaceCard, setSpaceCard] = useState<import("@/lib/celestial/spaceFrame").BodyCardInfo | null>(null);
   useEffect(() => {
     if (!spaceActive || !spaceFocus) { setSpaceCard(null); return; }
@@ -13121,6 +13126,48 @@ export default function DataMapPage() {
           </div>
         </div>
       )}
+      {/* APOLLO LANDING SITE CARD (2026-08-12): opens from the flag markers
+          drawn on the Moon's face; same chrome family as the body card.
+          Facts are published NASA mission records; the imagery note states
+          exactly what our streamed mosaic can and cannot resolve. */}
+      {spaceActive && spaceSite && (() => {
+        const site = APOLLO_SITES.find((s) => s.id === spaceSite);
+        if (!site) return null;
+        return (
+          <div className="vt-site-card vt-space-card" role="dialog"
+               aria-label={`${site.mission} landing site`} data-vt-apollo-card>
+            <div className="vt-site-card-head">
+              <div style={{ flex: "1 1 auto", minWidth: 132 }}>
+                <div className="vt-site-card-title">⚑ {site.mission}</div>
+                <div className="vt-site-card-cat">{site.region} · LANDED {site.landed_utc}</div>
+              </div>
+              <div className="vt-card-head-actions">
+                <button className="vt-icon-btn" aria-label="Close site card"
+                        onClick={() => setSpaceSite(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="vt-card-detbody om-sb">
+              <div className="vt-card-facts">
+                <div className="vt-card-fact"><div className="vt-card-fact-l">Moonwalkers</div><div className="vt-card-fact-v">{site.crew_surface.join(" · ")}</div></div>
+                <div className="vt-card-fact"><div className="vt-card-fact-l">In orbit (CMP)</div><div className="vt-card-fact-v">{site.cmp}</div></div>
+                <div className="vt-card-fact"><div className="vt-card-fact-l">EVAs</div><div className="vt-card-fact-v">{site.evas} · {site.eva_hours.toFixed(1)} h total</div></div>
+                <div className="vt-card-fact"><div className="vt-card-fact-l">Farthest from LM</div><div className="vt-card-fact-v">{fmtKm(site.max_eva_km)}{site.rover ? " (by rover)" : " (on foot)"}</div></div>
+                <div className="vt-card-fact"><div className="vt-card-fact-l">Coordinates</div><div className="vt-card-fact-v">{site.lat.toFixed(4)}°, {site.lon.toFixed(4)}°E</div></div>
+              </div>
+              <p style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)", margin: "8px 0 4px" }}>{site.note}</p>
+              <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: 0 }}>
+                {APOLLO_IMAGERY_NOTE} Max-EVA distance is the documented farthest point, not the traverse path — real digitized traverses are a filed follow-up.
+              </p>
+              <a href={lrocFeaturedUrl(site.id)} target="_blank" rel="noreferrer"
+                 style={{ fontSize: 10.5, display: "inline-block", marginTop: 6 }}>
+                LROC NAC imagery of this site (hardware + tracks visible) ↗
+              </a>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Detail card — side card on desktop, bottom sheet on phone */}
       {satFollowing && (

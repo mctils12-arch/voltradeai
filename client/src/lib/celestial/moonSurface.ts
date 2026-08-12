@@ -72,6 +72,29 @@ export function surfaceLonLat(
   return { lonDeg: Math.atan2(by, bx) * RAD - wDeg, latDeg: Math.asin(bz) * RAD };
 }
 
+/** Inverse of surfaceLonLat: selenographic (lonDeg +E, latDeg) -> world-space
+ *  outward unit normal, in the SAME node-frame/W factorisation (Apollo-site
+ *  markers, 2026-08-12 — the forward/inverse pair round-trips by test). */
+export function normalFromLonLat(
+  lonDeg: number,
+  latDeg: number,
+  X: Vec3,
+  Y: Vec3,
+  Z: Vec3,
+  wDeg: number,
+): Vec3 {
+  const lon = (lonDeg + wDeg) / RAD;
+  const lat = latDeg / RAD;
+  const cx = Math.cos(lat) * Math.cos(lon);
+  const cy = Math.cos(lat) * Math.sin(lon);
+  const cz = Math.sin(lat);
+  const nx = X.x * cx + Y.x * cy + Z.x * cz;
+  const ny = X.y * cx + Y.y * cy + Z.y * cz;
+  const nz = X.z * cx + Y.z * cy + Z.z * cz;
+  const L = Math.hypot(nx, ny, nz) || 1;
+  return { x: nx / L, y: ny / L, z: nz / L };
+}
+
 /** A streamed high-res detail window over part of the sphere (from the tile
  *  mosaic). lon measured CONTINUOUSLY from lonMin so a seam-crossing window
  *  stays monotonic; latMax at the north edge. */

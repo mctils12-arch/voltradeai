@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   raySphereNearT,
-  surfaceLonLat,
+  surfaceLonLat, normalFromLonLat as exportedNormalFromLonLat,
   sampleDetail,
   renderMoonSurfaceRows,
   type DetailOverlay,
@@ -293,4 +293,18 @@ test("B6 shadowFactor omitted ≡ 1 (fully sunlit patch, byte-identical)", () =>
   renderMoonSurfaceRows(a.view, base, null, a.out, 0, 40);
   renderMoonSurfaceRows(b.view, base, null, b.out, 0, 40);
   assert.deepEqual(Array.from(a.out), Array.from(b.out));
+});
+
+test("normalFromLonLat (module export) round-trips surfaceLonLat with a nontrivial frame + W (Apollo markers 2026-08-12)", () => {
+  const s = Math.SQRT1_2;
+  const X2 = { x: s, y: s, z: 0 };
+  const Y2 = { x: -s, y: s, z: 0 };
+  const Z2 = { x: 0, y: 0, z: 1 };
+  for (const [lon, lat] of [[23.47297, 0.67408], [-23.42157, -3.01239], [30.77168, 20.1908], [-179, 60]] as const) {
+    const n = exportedNormalFromLonLat(lon, lat, X2, Y2, Z2, 137.5);
+    const back = surfaceLonLat(n, X2, Y2, Z2, 137.5);
+    const dLon = ((back.lonDeg - lon + 540) % 360) - 180;
+    assert.ok(Math.abs(dLon) < 1e-9 && Math.abs(back.latDeg - lat) < 1e-9, `${lon},${lat} -> ${back.lonDeg},${back.latDeg}`);
+    assert.ok(Math.abs(Math.hypot(n.x, n.y, n.z) - 1) < 1e-12, "unit normal");
+  }
 });
