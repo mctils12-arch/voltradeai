@@ -107,7 +107,11 @@ export interface DetailOverlay {
 }
 
 /** In-window nearest texel [r,g,b], or null when the point is outside the
- *  detail window (caller falls back to the base texture). */
+ *  detail window OR its texel is transparent (caller falls back to the next
+ *  tier / the base texture). The alpha gate (NAC tier, 2026-08-12) makes
+ *  mosaic HOLES honest: an unfetched/404 tile region and the transparent
+ *  margin of a NAC strip both have alpha 0 in the stitched buffer — before
+ *  this gate they sampled as solid BLACK instead of falling through. */
 export function sampleDetail(
   ov: DetailOverlay,
   lonDeg: number,
@@ -127,6 +131,7 @@ export function sampleDetail(
   if (tx >= tex.width) tx = tex.width - 1;
   if (ty >= tex.height) ty = tex.height - 1;
   const i = (ty * tex.width + tx) * 4;
+  if (tex.data[i + 3] < 8) return null; // hole / transparent margin
   return [tex.data[i], tex.data[i + 1], tex.data[i + 2]];
 }
 
@@ -204,12 +209,16 @@ export interface MoonSurfaceView {
 export function renderMoonSurfaceRows(
   view: MoonSurfaceView,
   base: TexLike,
-  detail: DetailOverlay | null,
+  detail: DetailOverlay | DetailOverlay[] | null,
   out: Uint8ClampedArray,
   rowStart: number,
   rowEnd: number,
 ): { hits: number } {
   const { bw, bh, originX, originY, stepX, stepY, cx, cy, k, r, u, f, cam, center, radius, X, Y, Z, wDeg, sun } = view;
+  // detail TIERS, finest first (NAC site strip over the WAC mosaic) — each
+  // pixel takes the first tier that actually covers it (alpha-gated), so a
+  // NAC strip's transparent margin falls through to WAC, then the base.
+  const tiers: DetailOverlay[] = Array.isArray(detail) ? detail : detail ? [detail] : [];
   const texOff = (view.texLonOffsetDeg ?? 0) / 360;
   const fullBright = !!view.fullBright;
   const litBlend = Math.max(0, Math.min(1, view.litBlend ?? 0));
@@ -243,7 +252,9 @@ export function renderMoonSurfaceRows(
       nz /= nl;
       const n = { x: nx, y: ny, z: nz };
       const { lonDeg, latDeg } = surfaceLonLat(n, X, Y, Z, wDeg);
-      const rgb = (detail && sampleDetail(detail, lonDeg, latDeg)) || sampleBase(base, lonDeg, latDeg, texOff);
+      let rgb: [number, number, number] | null = null;
+      for (let ti = 0; ti < tiers.length && !rgb; ti++) rgb = sampleDetail(tiers[ti], lonDeg, latDeg);
+      if (!rgb) rgb = sampleBase(base, lonDeg, latDeg, texOff);
       // B6: realistic OFF ⇒ full-bright (no terminator); ON ⇒ lambert × the
       // eclipse/umbra factor (matches the far-sprite shading for zoom continuity).
       const lit = nx * sun.x + ny * sun.y + nz * sun.z;

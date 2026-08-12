@@ -157,7 +157,12 @@ export function blitTile(
       out[di] = tileRgba.data[si];
       out[di + 1] = tileRgba.data[si + 1];
       out[di + 2] = tileRgba.data[si + 2];
-      out[di + 3] = 255;
+      // REAL alpha, not a hardcoded 255 (NAC tier, 2026-08-12): a NAC strip
+      // tile's transparent margin must stay transparent so the alpha-gated
+      // sampler falls through to the WAC tier under it. Opaque JPEG sources
+      // (WAC and every planet mosaic) decode to alpha 255 everywhere, so
+      // this is byte-identical for them.
+      out[di + 3] = tileRgba.data[si + 3];
       di += 4;
       si += 4;
     }
@@ -208,6 +213,9 @@ export interface MoonTileDeps {
   fetchTile?: (url: string, signal: AbortSignal) => Promise<TexImageLike>;
   /** rows per readback band (bounded main-thread task). */
   bandRows?: number;
+  /** coarsest level worth planning (NAC site managers pass ~10 — a z2 tile
+   *  of a landing-site strip is one 404, not a fallback). Default 2. */
+  minZ?: number;
 }
 
 async function defaultFetchTile(url: string, signal: AbortSignal): Promise<TexImageLike> {
@@ -335,7 +343,7 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
   return {
     request(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg): void {
       if (disposed) return;
-      const target = planMoonTarget(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, { scheme });
+      const target = planMoonTarget(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, { scheme, minZ: deps.minZ });
       if (!target) return;
       const key = targetKey(target);
       if (key === builtKey && mosaic) return; // already resident

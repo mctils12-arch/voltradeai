@@ -349,3 +349,50 @@ test("Venus — Maxwell Montes (~65°N, 3.3°E) lands just E of centre, far nort
   assert.ok(x >= matrixWidth(z) / 2, "east of the prime meridian");
   assert.ok(y < matrixHeight(z) / 2, "north of equator");
 });
+
+// ── APOLLO NAC SITE MOSAICS (2026-08-12 — every value probed live) ──────────
+
+test("all six Apollo sites have a NAC scheme; maxZ matches the live probes", async () => {
+  const { APOLLO_NAC_SITES } = await import("./lroc.ts");
+  assert.equal(APOLLO_NAC_SITES.length, 6);
+  const byId = new Map(APOLLO_NAC_SITES.map((s) => [s.id, s]));
+  // A11/12/14/15 serve z15 (A12/A15 declare z16 but 404 it); A16/A17 top at z14
+  for (const id of ["apollo11", "apollo12", "apollo14", "apollo15"]) {
+    assert.equal(byId.get(id)!.scheme.maxZ, 15, id);
+  }
+  for (const id of ["apollo16", "apollo17"]) {
+    assert.equal(byId.get(id)!.scheme.maxZ, 14, id);
+  }
+  for (const s of APOLLO_NAC_SITES) {
+    assert.equal(s.scheme.ext, "png", `${s.id}: NAC strips are gray+alpha PNG`);
+    assert.ok(s.scheme.baseUrl.includes("trek.nasa.gov/tiles/Moon/EQ/"), s.id);
+    assert.match(s.credit, /NAC/);
+  }
+});
+
+test("nacSiteFor: every landing point is inside its own strip; Tycho is in none", async () => {
+  const { nacSiteFor } = await import("./lroc.ts");
+  const { APOLLO_SITES } = await import("./apolloSites.ts");
+  for (const site of APOLLO_SITES) {
+    const hit = nacSiteFor(site.lon, site.lat);
+    assert.ok(hit, `${site.id}: landing point inside a NAC strip`);
+    assert.equal(hit!.id, site.id, `${site.id}: inside its OWN strip`);
+  }
+  assert.equal(nacSiteFor(-11.36, -43.31), null, "Tycho has no Apollo NAC strip");
+  assert.equal(nacSiteFor(170, 0), null, "far side has none");
+});
+
+test("NAC activation threshold = the WAC mosaic's deepest-level px/deg", async () => {
+  const { NAC_ACTIVATE_PX_PER_DEG, tilePxPerDeg, MOON_TREK } = await import("./lroc.ts");
+  assert.equal(NAC_ACTIVATE_PX_PER_DEG, tilePxPerDeg(MOON_TREK.maxZ, MOON_TREK));
+  // z8 → 256 / (180/256) ≈ 364 px/deg — beyond this WAC has nothing finer
+  assert.ok(Math.abs(NAC_ACTIVATE_PX_PER_DEG - 364.09) < 0.1);
+});
+
+test("a NAC scheme's deep tiles resolve sub-meter-class detail the WAC cannot", async () => {
+  const { APOLLO_NAC_SITES, tilePxPerDeg, MOON_TREK } = await import("./lroc.ts");
+  const a11 = APOLLO_NAC_SITES.find((s) => s.id === "apollo11")!;
+  const nacPxPerDeg = tilePxPerDeg(a11.scheme.maxZ, a11.scheme);
+  const wacPxPerDeg = tilePxPerDeg(MOON_TREK.maxZ, MOON_TREK);
+  assert.ok(nacPxPerDeg / wacPxPerDeg >= 100, `NAC ${nacPxPerDeg} vs WAC ${wacPxPerDeg}`);
+});

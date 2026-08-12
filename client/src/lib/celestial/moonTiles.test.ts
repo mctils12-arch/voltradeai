@@ -213,3 +213,24 @@ test("dispose frees everything and stops updates", async () => {
   assert.equal(mgr.current(), null);
   assert.equal((globalThis as any).__vtMoonTileBytes, 0);
 });
+
+// ── alpha preservation (NAC strips are gray+alpha PNG, 2026-08-12) ──────────
+
+test("blitTile copies REAL source alpha — transparent strip margins stay holes", async () => {
+  const { blitTile } = await import("./moonTiles.ts");
+  const tilePx = 2;
+  // 2×2 tile: top-left opaque, top-right transparent
+  const tile = {
+    width: 2, height: 2,
+    data: new Uint8ClampedArray([
+      100, 100, 100, 255,   50, 50, 50, 0,
+      100, 100, 100, 255,  100, 100, 100, 255,
+    ]),
+  };
+  const mosaic = { pxW: 2, pxH: 2 } as any;
+  const out = new Uint8ClampedArray(2 * 2 * 4);
+  blitTile(tile as any, { tile: { z: 1, x: 0, y: 0 }, col: 0, row: 0 }, mosaic, tilePx, out, 0, 2);
+  assert.equal(out[3], 255, "opaque texel keeps alpha 255");
+  assert.equal(out[7], 0, "transparent texel keeps alpha 0 (falls through to the next tier)");
+  assert.equal(out[0], 100);
+});

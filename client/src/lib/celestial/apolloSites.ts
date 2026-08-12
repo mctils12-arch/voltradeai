@@ -89,11 +89,17 @@ export function lrocFeaturedUrl(id: string): string {
   return `https://www.lroc.asu.edu/search?q=${encodeURIComponent(id.replace("apollo", "apollo "))}`;
 }
 
-/** The honesty line every Apollo card carries about OUR imagery. */
+/** The honesty line every Apollo card carries about OUR imagery.
+ *  [2026-08-12] NAC site strips now STREAM live (lroc.APOLLO_NAC_SITES):
+ *  zooming into a site past the WAC ceiling switches to the site's LROC
+ *  NAC mosaic — the note tells the user what each tier can and cannot
+ *  resolve instead of promising a follow-up that already shipped. */
 export const APOLLO_IMAGERY_NOTE =
-  "Our streamed mosaic is LROC WAC (~76–100 m/px) — Apollo hardware is sub-pixel here. " +
-  "The descent stages, experiment packages, rover tracks and foot trails ARE resolved in " +
-  "LROC NAC frames (~0.5 m/px, public domain) — NAC site tiles are a filed follow-up.";
+  "The global mosaic is LROC WAC (~76–100 m/px) — Apollo hardware is sub-pixel there. " +
+  "Zoom into the site: LROC NAC imagery (~0.5–1.3 m/px, public domain) streams in, and the " +
+  "descent stage, experiment packages, rover tracks and foot trails are real resolved pixels. " +
+  "The flag itself (~1 m) stays at the edge of resolution — its shadow is documented in NAC " +
+  "time-series at Apollo 12/16/17; Apollo 11's fell at ascent.";
 
 // ── persisted preference (the orbitPath/scaleModel localStorage pattern) ─────
 // Human directive 2026-08-12: "i want it shown on the moon and a toggle in
