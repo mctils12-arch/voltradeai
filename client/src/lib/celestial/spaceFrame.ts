@@ -250,7 +250,12 @@ import {
 } from "./moonTiles.js";
 // B5 "PLANET SURFACES": the same tile→patch path streams Mars/Mercury/Venus
 // (and the B4 Moon) — trekBody() supplies each body's Trek scheme + credit.
-import { trekBody } from "./lroc.js";
+// NAC SITE TIER (2026-08-12, human: "can you see the Rover? … the tracks
+// the flag?"): when the camera is inside an Apollo landing-site strip and
+// the screen demands more than WAC's deepest level, a per-site LROC NAC
+// mosaic (~0.5 m/px — the descent stages, rover tracks and foot trails are
+// REAL pixels there) streams as a finer detail tier over the WAC mosaic.
+import { trekBody, nacSiteFor, NAC_ACTIVATE_PX_PER_DEG, type NacSite } from "./lroc.js";
 import {
   normalFromLonLat,
   renderMoonSurfaceRows,
@@ -2258,6 +2263,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     }
     return m;
   }
+  // NAC site-strip managers, one per Apollo site actually visited (lazy —
+  // zero cost until the camera dives into a strip past WAC's ceiling).
+  // minZ 10: a coarse tile of a landing-site strip is one 404, never a
+  // useful fallback (the WAC tier below covers those scales).
+  const nacTileManagers = new Map<string, MoonTileManager>();
+  function nacManagerFor(site: NacSite): MoonTileManager {
+    let m = nacTileManagers.get(site.id);
+    if (!m) {
+      m = createMoonTileManager({ scheme: site.scheme, minZ: 10 });
+      m.onUpdate(() => { kick(); });
+      nacTileManagers.set(site.id, m);
+    }
+    return m;
+  }
   const RAD = 180 / Math.PI;
   interface MoonPatchBuf {
     key: string;
@@ -2274,7 +2293,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     bh: number;
     view: MoonSurfaceView;
     base: TexImage;
-    detail: DetailOverlay | null;
+    /** detail tiers, finest first (NAC site strip → WAC) — or one, or none. */
+    detail: DetailOverlay | DetailOverlay[] | null;
     row: number;
     ready: boolean;
     /** unit camera→body direction the buffer was rendered for (motion staleness
@@ -2295,6 +2315,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   // which body the current patch buffers belong to, and its on-screen credit
   let patchBodyId: string | null = null;
   let patchCreditText = "";
+  // NAC tier honesty: which Apollo site strip is streaming (null = WAC only)
+  let nacActiveSiteId: string | null = null;
 
   /** buffer dims fitting MOON_PATCH_*_LONG_PX on the bbox's long side. */
   function patchBufDims(bw: number, bh: number, longPx: number): { bufW: number; bufH: number } {
@@ -2441,15 +2463,37 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     );
     mgr.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
     const mos = mgr.current();
-    const detail: DetailOverlay | null = mos
+    const wacOv: DetailOverlay | null = mos
       ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
       : null;
-    moonCreditOn = !!mos;
-    patchCreditText = trekBody(bodyId)!.credit;
+    // NAC SITE TIER: past WAC's deepest resolution AND inside an Apollo
+    // strip, stream the site's own NAC mosaic as a finer tier. The alpha-
+    // gated sampler falls back to WAC (then base) under the strip's
+    // transparent margin and any still-loading holes — never black, never
+    // invented. Managers for sites the camera has left keep their tiles
+    // until the whole-body eviction (tiny: one strip ≈ one WAC budget).
+    const nacSite = bodyId === "moon" && pxPerSurfDeg > NAC_ACTIVATE_PX_PER_DEG
+      ? nacSiteFor(subPt.lonDeg, subPt.latDeg) : null;
+    let nacMosZ: string = "0";
+    let nacOv: DetailOverlay | null = null;
+    if (nacSite) {
+      const nm = nacManagerFor(nacSite);
+      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+      const nmos = nm.current();
+      if (nmos) {
+        nacOv = { tex: nmos.tex, lonMin: nmos.lonMin, lonSpan: nmos.lonSpan, latMax: nmos.latMax, latSpan: nmos.latSpan };
+        nacMosZ = `${nacSite.id}:${nmos.z}:${nmos.tiles}`;
+      }
+    }
+    const detail: DetailOverlay | DetailOverlay[] | null =
+      nacOv && wacOv ? [nacOv, wacOv] : nacOv ?? wacOv;
+    nacActiveSiteId = nacOv && nacSite ? nacSite.id : null;
+    moonCreditOn = !!(mos || nacOv);
+    patchCreditText = nacOv && nacSite ? nacSite.credit : trekBody(bodyId)!.credit;
     // pose key: what makes the patch pixels change (body id included so a
     // buffer from a different body can never be mistaken for a match)
     const distBucket = Math.round(Math.log(distC) / 0.02);
-    const mosKey = mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0";
+    const mosKey = (mos ? `${mos.z}:${mos.tiles}:${Math.round(mos.lonMin)}` : "0") + `|n${nacMosZ}`;
     const key =
       `${bodyId}|${q2(nCam.x)},${q2(nCam.y)},${q2(nCam.z)}|${distBucket}|${Math.round(wDeg * 2)}` +
       `|${q2(sun.x)},${q2(sun.y)},${q2(sun.z)}|${bx},${by},${bw},${bh}|${mosKey}` +
@@ -2537,6 +2581,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
    *  eviction. Clears only the currently-resident body's mosaic. */
   function evictBodyPatch(): void {
     if (patchBodyId) bodyTileManagers.get(patchBodyId)?.clear();
+    for (const m of Array.from(nacTileManagers.values())) m.clear();
+    nacActiveSiteId = null;
     mpFull = null;
     mpFast = null;
     mpBuilding = null;
@@ -3673,6 +3719,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       moonPatch: (() => {
         const mgr = patchBodyId ? bodyTileManagers.get(patchBodyId) : null;
         const st = mgr ? mgr.stats() : { z: null, tiles: 0, bytes: 0, maxChunkMs: 0 };
+        const nacMgr = nacActiveSiteId ? nacTileManagers.get(nacActiveSiteId) : null;
+        const nst = nacMgr ? nacMgr.stats() : null;
         return {
           active: moonPatchDrewThisFrame,
           full: moonPatchFullThisFrame,
@@ -3684,6 +3732,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           patchMsMax: moonPatchMsMax,
           tileChunkMsMax: st.maxChunkMs,
           credited: moonPatchDrewThisFrame && moonCreditOn,
+          // NAC site tier (null site = WAC only): honest resolution readout
+          nacSite: nacActiveSiteId,
+          nacZ: nst ? nst.z : null,
+          nacTiles: nst ? nst.tiles : 0,
+          nacBytes: nst ? nst.bytes : 0,
         };
       })(),
     };
@@ -4231,6 +4284,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (mpTimer) { clearTimeout(mpTimer); mpTimer = null; }
       for (const m of bodyTileManagers.values()) m.dispose();
       bodyTileManagers.clear();
+      for (const m of Array.from(nacTileManagers.values())) m.dispose();
+      nacTileManagers.clear();
       patchBodyId = null;
       mpFull = null;
       mpFast = null;

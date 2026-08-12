@@ -131,6 +131,77 @@ export function trekBody(id: string): TrekBody | null {
   return TREK_BODIES[id] ?? null;
 }
 
+// ── APOLLO NAC SITE MOSAICS (human 2026-08-12: "can you see the Rover? is
+// there more imagery? the tracks the flag?") ────────────────────────────────
+// Trek hosts a dedicated LROC NAC mosaic strip per landing site — REAL
+// ~0.5 m/px imagery in which the descent stages, experiment packages, rover
+// tracks and foot trails are actually resolved (confirmed by live tile
+// fetch 2026-08-12: the Eagle descent stage + the trail to Little West
+// Crater are visible in the z15 tile at Tranquility Base). Every entry
+// below was probed live on 2026-08-12: WMTSCapabilities.xml + a tile at
+// the landing coordinates. A12/A15 declare a z16 matrix but 404 it — the
+// deepest SERVED level is what maxZ records. Out-of-strip and beyond-maxZ
+// requests 404 cleanly (the manager treats those as holes; the alpha-gated
+// sampler falls back to the WAC tier under them). PNG gray+alpha.
+//
+// HONESTY: these are NASA/ASU-processed public-domain mosaics streamed
+// as-is — we do not enhance, colorize, or annotate the pixels. What you
+// see at max zoom is what LRO photographed.
+
+export interface NacSite {
+  /** apolloSites.ts site id — the join key for markers/cards. */
+  id: string;
+  scheme: TrekScheme;
+  /** product coverage strip (selenographic degrees, from the Trek catalog). */
+  bbox: BboxDeg;
+  credit: string;
+}
+
+const nacScheme = (label: string, maxZ: number): TrekScheme => ({
+  baseUrl: `https://trek.nasa.gov/tiles/Moon/EQ/${label}/1.0.0/default/default028mm`,
+  tilePx: 256,
+  maxZ,
+  ext: "png",
+});
+
+export const APOLLO_NAC_SITES: NacSite[] = [
+  { id: "apollo11", scheme: nacScheme("LRO_NAC_Apollo11_Mosaic_p", 15),
+    bbox: { lonMin: 23.4484977, lonMax: 23.5396839, latMin: 0.1464484, latMax: 1.1149051 },
+    credit: "Apollo 11 site: NASA LRO · LROC NAC ~0.5 m/px · trek.nasa.gov" },
+  { id: "apollo12", scheme: nacScheme("LRO_NAC_Apollo12_Mosaic_p", 15),
+    bbox: { lonMin: -23.4442323, lonMax: -23.3571898, latMin: -3.4713148, latMax: -2.5018766 },
+    credit: "Apollo 12 site: NASA LRO · LROC NAC ~0.5 m/px · trek.nasa.gov" },
+  { id: "apollo14", scheme: nacScheme("LRO_NAC_Apollo14_Mosaic_p", 15),
+    bbox: { lonMin: -17.4900752, lonMax: -17.3907622, latMin: -4.1920876, latMax: -3.2253601 },
+    credit: "Apollo 14 site: NASA LRO · LROC NAC ~0.5 m/px · trek.nasa.gov" },
+  { id: "apollo15", scheme: nacScheme("LRO_NAC_Apollo15_Mosaic_p", 15),
+    bbox: { lonMin: 3.581094, lonMax: 3.689933, latMin: 25.7965264, latMax: 26.7635835 },
+    credit: "Apollo 15 site: NASA LRO · LROC NAC ~0.5 m/px · trek.nasa.gov" },
+  { id: "apollo16", scheme: nacScheme("LRO_NAC_Apollo16_Mosaic_p", 14),
+    bbox: { lonMin: 15.3788327, lonMax: 15.5545346, latMin: -9.6060973, latMax: -8.6616783 },
+    credit: "Apollo 16 site: NASA LRO · LROC NAC ~1.3 m/px · trek.nasa.gov" },
+  { id: "apollo17", scheme: nacScheme("NAC_DTM_APOLLO17_MOSAIC_120CM", 14),
+    bbox: { lonMin: 29.9059014, lonMax: 31.6579562, latMin: 19.3905439, latMax: 21.3035034 },
+    credit: "Apollo 17 site: NASA LRO · LROC NAC ~1.2 m/px · trek.nasa.gov" },
+];
+
+/** px/deg the WAC global mosaic tops out at (its deepest level) — beyond
+ *  this the screen demands more than WAC has, and a NAC site strip (when
+ *  the view is inside one) is the only honest source of more detail. */
+export const NAC_ACTIVATE_PX_PER_DEG = 256 / (180 / 2 ** MOON_TREK.maxZ);
+
+/** The NAC site whose coverage strip contains this surface point, or null.
+ *  All six strips sit well inside ±90° lon (near side), so a plain range
+ *  test needs no wrap handling. */
+export function nacSiteFor(lonDeg: number, latDeg: number): NacSite | null {
+  const lon = normLonDeg(lonDeg);
+  for (const s of APOLLO_NAC_SITES) {
+    if (lon >= s.bbox.lonMin && lon <= s.bbox.lonMax &&
+        latDeg >= s.bbox.latMin && latDeg <= s.bbox.latMax) return s;
+  }
+  return null;
+}
+
 /** columns at level z (MatrixWidth). */
 export function matrixWidth(z: number): number {
   return 2 ** (z + 1);

@@ -308,3 +308,52 @@ test("normalFromLonLat (module export) round-trips surfaceLonLat with a nontrivi
     assert.ok(Math.abs(Math.hypot(n.x, n.y, n.z) - 1) < 1e-12, "unit normal");
   }
 });
+
+// ── alpha-gated multi-tier detail (NAC site strips, 2026-08-12) ─────────────
+
+test("sampleDetail: transparent texels return null (hole → next tier), opaque return color", async () => {
+  const { sampleDetail } = await import("./moonSurface.ts");
+  // 2×1 window: left texel opaque gray 120, right texel transparent
+  const tex = { width: 2, height: 1, data: new Uint8ClampedArray([120, 120, 120, 255, 40, 40, 40, 0]) };
+  const ov = { tex, lonMin: 0, lonSpan: 2, latMax: 1, latSpan: 2 };
+  assert.deepEqual(sampleDetail(ov, 0.5, 0), [120, 120, 120]);
+  assert.equal(sampleDetail(ov, 1.5, 0), null, "alpha 0 = hole, never black");
+});
+
+test("renderMoonSurfaceRows: tier order — NAC texel wins where opaque, WAC under its holes, base beyond both", async () => {
+  const { renderMoonSurfaceRows } = await import("./moonSurface.ts");
+  // camera straight above lon 0/lat 0, tiny 2×1 buffer, full-bright (no sun math)
+  const R = 1;
+  const view = {
+    bw: 2, bh: 1, originX: -0.25, originY: 0, stepX: 0.5, stepY: 1,
+    cx: 0, cy: 0, k: 10, // strong perspective: both pixels hit near sub-point
+    r: { x: 1, y: 0, z: 0 }, u: { x: 0, y: 0, z: 1 }, f: { x: 0, y: -1, z: 0 },
+    cam: { x: 0, y: 3, z: 0 }, center: { x: 0, y: 0, z: 0 }, radius: R,
+    // node frame: X toward camera (lon 0 at sub-point), Z up
+    X: { x: 0, y: 1, z: 0 }, Y: { x: -1, y: 0, z: 0 }, Z: { x: 0, y: 0, z: 1 },
+    wDeg: 0, sun: { x: 0, y: 1, z: 0 }, fullBright: true,
+  };
+  const base = { width: 4, height: 2, data: new Uint8ClampedArray(4 * 2 * 4).fill(10) };
+  // WAC tier: opaque 90 everywhere over a wide window
+  const wac = {
+    tex: { width: 1, height: 1, data: new Uint8ClampedArray([90, 90, 90, 255]) },
+    lonMin: -30, lonSpan: 60, latMax: 30, latSpan: 60,
+  };
+  // NAC tier: same window, LEFT half opaque 200, RIGHT half transparent
+  const nac = {
+    tex: { width: 2, height: 1, data: new Uint8ClampedArray([200, 200, 200, 255, 0, 0, 0, 0]) },
+    lonMin: -30, lonSpan: 60, latMax: 30, latSpan: 60,
+  };
+  const out = new Uint8ClampedArray(2 * 1 * 4);
+  const res = renderMoonSurfaceRows(view as any, base as any, [nac as any, wac as any], out, 0, 1);
+  assert.equal(res.hits, 2, "both rays hit the sphere");
+  // With X toward the camera and Y = Z×X, EAST (+lon) points screen-LEFT:
+  // the left pixel lands at +lon → NAC's transparent right half → WAC 90;
+  // the right pixel lands at −lon → NAC's opaque left half → 200.
+  assert.equal(out[0], 90, "WAC shows under the NAC hole — never black");
+  assert.equal(out[4], 200, "NAC wins where its texel is opaque");
+  // single-overlay call form still works (back-compat)
+  const out2 = new Uint8ClampedArray(2 * 1 * 4);
+  renderMoonSurfaceRows(view as any, base as any, wac as any, out2, 0, 1);
+  assert.equal(out2[0], 90);
+});
