@@ -38,6 +38,8 @@ import {
   tileKey,
   uvSubsetIn,
   vramBudgetBytes,
+  compressedTileBytes,
+  uncompressedTileBytes,
   type ImageBitmapLike,
   type TileId,
   type TileSink,
@@ -740,4 +742,69 @@ test("streamer: selecting the same tile twice does not double-request it", async
   assert.equal(r.urls.length, 1, "an in-flight node must not be re-requested every frame");
   r.streamer.dispose();
   resetMetrics();
+});
+
+// ── the VRAM-accounting default (found 2026-08-12 by the moon-bake recon) ──
+// PR2 defaulted bytesPerTile to the COMPRESSED size. That is the optimistic
+// assumption, and for a memory budget the failure modes are not symmetric:
+// over-estimating evicts a little early (harmless); under-estimating makes
+// evictionPlan believe it has headroom it does not have, so it never evicts
+// and the layer blows the very budget it exists to enforce. On a 256MB
+// mobile budget an 8x under-report is a context loss, not a slowdown.
+
+test("the default tile size assumption is PESSIMISTIC, not optimistic", () => {
+  const src: TileSource = {
+    id: "undeclared",
+    maxLevel: 8,
+    bodyRadius: MOON_RADIUS_KM,
+    url: (t) => `https://cdn.voltradeai.com/${tileKey(t)}.jpg`,
+    // deliberately does NOT declare bytesPerTile
+  };
+  const sink: TileSink = { upload: () => ({}), release: () => {} };
+  const s = new TileStreamer({
+    source: src,
+    sink,
+    now: () => 0,
+    fetchImpl: async () => ({ ok: true, status: 200, blob: async () => ({}) }),
+    decodeImpl: async () => new FakeBitmap(),
+  });
+  s.select({ wanted: [{ id: { level: 1, x: 0, y: 0 }, screenDistance: 0, cameraDistance: 10 }] });
+  const node = s.node({ level: 1, x: 0, y: 0 })!;
+  assert.equal(
+    node.bytes,
+    uncompressedTileBytes(TILE.SIZE_PX),
+    "an undeclared source must be budgeted as RGBA8, the worst case — not as compressed",
+  );
+  assert.equal(node.bytes, compressedTileBytes(TILE.SIZE_PX) * 8, "RGBA8 is exactly 8x a 4bpp compressed tile");
+  s.dispose();
+});
+
+test("a source that declares its size is trusted", () => {
+  const src: TileSource = {
+    id: "declared",
+    maxLevel: 8,
+    bodyRadius: MOON_RADIUS_KM,
+    url: (t) => `https://cdn.voltradeai.com/${tileKey(t)}.ktx2`,
+    bytesPerTile: () => compressedTileBytes(TILE.SIZE_PX),
+  };
+  const sink: TileSink = { upload: () => ({}), release: () => {} };
+  const s = new TileStreamer({
+    source: src,
+    sink,
+    now: () => 0,
+    fetchImpl: async () => ({ ok: true, status: 200, blob: async () => ({}) }),
+    decodeImpl: async () => new FakeBitmap(),
+  });
+  s.select({ wanted: [{ id: { level: 2, x: 1, y: 1 }, screenDistance: 0, cameraDistance: 10 }] });
+  assert.equal(s.node({ level: 2, x: 1, y: 1 })!.bytes, compressedTileBytes(TILE.SIZE_PX));
+  s.dispose();
+});
+
+test("the mobile budget holds ~8x fewer uncompressed tiles — the number the Law is about", () => {
+  // Law II.7's rationale, quantified. 256MB / 175KB compressed = 1,536
+  // tiles; / 1.4MB uncompressed = 192. This is why the format matters, and
+  // why mis-declaring it silently breaks the budget.
+  const budget = 256 * 1024 * 1024;
+  assert.equal(Math.floor(budget / compressedTileBytes(TILE.SIZE_PX)), 1536);
+  assert.equal(Math.floor(budget / uncompressedTileBytes(TILE.SIZE_PX)), 192);
 });
