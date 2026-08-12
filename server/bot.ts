@@ -3366,7 +3366,7 @@ print(json.dumps(result))
         const { stdout: diagOut } = await execPythonSerialized(`python3 -c "
 from diagnostics import get_auto_fix_params
 import json
-print(json.dumps(get_auto_fix_params()))
+print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime())})))
 "`, { timeout: 15000 });
         const diagParams = JSON.parse(diagOut.trim());
         state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
@@ -4579,7 +4579,7 @@ print(json.dumps(scan_for_manipulation()))
       const { stdout: diagFull } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics
 import json
-print(json.dumps(run_diagnostics()))
+print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())})))
 "`, { timeout: 15000 });
       const diagReport = JSON.parse(diagFull.trim());
       if (diagReport.overall_status !== "healthy") {
@@ -6274,8 +6274,9 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
       const { stdout } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics, get_auto_fix_params
 import json
-report = run_diagnostics()
-params = get_auto_fix_params()
+uptime = ${Math.round(process.uptime())}
+report = run_diagnostics(server_uptime_s=uptime)
+params = get_auto_fix_params(server_uptime_s=uptime)
 print(json.dumps({'report': report, 'auto_fix': params}))
 "`, { timeout: 15000 });
       res.json(JSON.parse(stdout.trim()));

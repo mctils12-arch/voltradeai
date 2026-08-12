@@ -386,5 +386,92 @@ class TestExtendedApiHealthChecks(unittest.TestCase):
                 self.assertNotIn("finnhub", problem["message"])
 
 
+# ── 8. Restart grace period for the >=3-sources-down check (KNOWN BROKEN #29
+# recurrence, 2026-08-12) — a fresh container boot wipes ephemeral /tmp, so
+# wikipedia/gdelt/fred's cache files are genuinely absent until the first
+# post-restart Tier 2 scan writes them. Without a grace period this fires a
+# false "Multiple API sources down" problem (with a real reduce_position_size
+# auto-fix) on every redeploy, independent of whether sources are actually
+# reachable.
+
+
+class TestApiCheckRestartGracePeriod(unittest.TestCase):
+    """server_uptime_s gates the >=3-failed-sources problem, not the warning."""
+
+    def setUp(self):
+        import diagnostics
+        self.diagnostics = diagnostics
+        self._orig_cache_dir = diagnostics.CACHE_DIR
+        self._tmp_dir = tempfile.mkdtemp(prefix="voltrade_grace_test_")
+        diagnostics.CACHE_DIR = self._tmp_dir
+        # Empty CACHE_DIR alone makes wikipedia/gdelt/fred all fail (>=3),
+        # regardless of polygon/sec_edgar's real state on the test machine.
+
+    def tearDown(self):
+        self.diagnostics.CACHE_DIR = self._orig_cache_dir
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def _api_problems(self, report):
+        return [p for p in report["problems"]
+                if p.get("system") == "api" and "Multiple API sources down" in p.get("message", "")]
+
+    def _api_warnings(self, report):
+        return [w for w in report["warnings"]
+                if w.get("system") == "api" and "Multiple API sources down" in w.get("message", "")]
+
+    def test_within_grace_period_is_warning_not_problem(self):
+        """Just booted (uptime << grace period): no auto-fix problem, just a warning."""
+        report = self.diagnostics.run_diagnostics(server_uptime_s=100)
+        self.assertEqual(len(self._api_problems(report)), 0)
+        warnings = self._api_warnings(report)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("restart grace", warnings[0]["message"])
+
+    def test_after_grace_period_is_a_real_problem(self):
+        """Long-running process, still down: the original problem+auto_fix fires."""
+        report = self.diagnostics.run_diagnostics(
+            server_uptime_s=self.diagnostics.API_CHECK_GRACE_PERIOD_S + 1
+        )
+        problems = self._api_problems(report)
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0]["auto_fix"], "reduce_position_size")
+        self.assertEqual(problems[0]["fix_params"]["multiplier"], 0.6)
+        self.assertEqual(len(self._api_warnings(report)), 0)
+
+    def test_unknown_uptime_preserves_original_always_on_behavior(self):
+        """A caller that doesn't pass server_uptime_s (None) gets the original
+        behavior — never silently softened just because uptime wasn't wired up."""
+        report = self.diagnostics.run_diagnostics()
+        problems = self._api_problems(report)
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0]["fix_params"]["multiplier"], 0.6)
+
+    def test_one_second_before_grace_boundary_is_still_a_warning(self):
+        """uptime just under the grace period is still 'within grace' (< threshold)."""
+        report = self.diagnostics.run_diagnostics(
+            server_uptime_s=self.diagnostics.API_CHECK_GRACE_PERIOD_S - 1
+        )
+        self.assertEqual(len(self._api_problems(report)), 0)
+        self.assertEqual(len(self._api_warnings(report)), 1)
+
+    def test_exactly_at_grace_boundary_is_already_a_problem(self):
+        """uptime == grace period means the grace window has fully elapsed."""
+        report = self.diagnostics.run_diagnostics(
+            server_uptime_s=self.diagnostics.API_CHECK_GRACE_PERIOD_S
+        )
+        self.assertEqual(len(self._api_problems(report)), 1)
+        self.assertEqual(len(self._api_warnings(report)), 0)
+
+    def test_get_auto_fix_params_within_grace_does_not_cut_position_size(self):
+        params = self.diagnostics.get_auto_fix_params(server_uptime_s=100)
+        self.assertEqual(params["position_size_multiplier"], 1.0)
+
+    def test_get_auto_fix_params_after_grace_cuts_position_size(self):
+        params = self.diagnostics.get_auto_fix_params(
+            server_uptime_s=self.diagnostics.API_CHECK_GRACE_PERIOD_S + 1
+        )
+        self.assertLessEqual(params["position_size_multiplier"], 0.6)
+
+
 if __name__ == "__main__":
     unittest.main()
