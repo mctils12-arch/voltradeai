@@ -3,6 +3,41 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 [PRODUCT] — T-CLIENT — flight card "cut off" fix: clip the card + scroll the flights list (v1.0.671)
+
+TERRITORY: T-CLIENT (`client/src/index.css` only). SHARED: package.json bump.
+
+REPORT (human, with screenshot): the aircraft detail card "looks cut off" —
+the Follow button / freshness / DETAILS toggle painted BELOW the rounded card
+onto the bare map. ROOT CAUSE (browser-probe confirmed, reused the diagnostic
+agent's harness): `.vt-site-card` is `max-height:60vh` + flex column but had
+NO `overflow` rule (computed `visible`), and its only scroll region
+(`.vt-card-detbody`) is the LAST child. The archived-flights list
+(`.vt-trips-list`, up to 8 chips) and the stat grid are always-shown children
+ABOVE it, so when head+grid+flights outgrew 60vh the excess spilled outside
+the box. Measured before: card scrollHeight 659 vs clientHeight 538, last
+child bottom 728 vs card bottom 608 — 120px of spill.
+
+FIX (CSS-only, lowest-risk in a 13k-line file — the diagnostic agent's endorsed
+fallback, not a fragile JSX restructure): `overflow:hidden` on `.vt-site-card`
+so nothing can paint past the 60vh box, and make the one unbounded child scroll
+internally — `.vt-trips-list { max-height:24vh; overflow-y:auto; min-height:0 }`
+(+ `.vt-card-trips` flex 0 1 auto/min-height 0). Viewport-relative cap shrinks
+on short screens instead of pushing the always-visible chrome out. Re-probed
+after: card scrollHeight==clientHeight (538), overflow hidden, last child bottom
+607 ≤ card bottom 608 — ZERO spill; flights list + details body scroll
+internally; no render failures, no page errors. Visual harness: only the
+pre-existing SwiftShader perf/TTI flakes (observed ceilings 183ms / ~1.3s), no
+card/trail regression.
+
+CURTAIN (same report, separately investigated): does NOT reproduce in the
+harness — the render path is healthy (16,848 verts, no paint error). The probe
+caught the likely production cause: when the terrain DEM host is unreachable
+the map SILENTLY self-disables terrain after the user tilts in, so the curtain
+builds in the flat datum. Deferred to a follow-up that makes terrain-unreachable
+a loud state + instruments the surviving-sample count — wants confirmation
+against a real archived track first (filed for next session). Backtest n/a.
+
 ## 2026-08-12 (same session, APPEND) [REPAIR] — I TOOK THE SITE DOWN WITH THE WATCHDOG I JUST SHIPPED (v1.0.667 -> v1.0.669)
 
 WHAT HAPPENED. v1.0.667 (the feed dead-air watchdog, entry below) wired
