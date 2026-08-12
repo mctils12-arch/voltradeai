@@ -3,6 +3,126 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 [PRODUCT] — T-CLIENT — RENDERING & MOTION OVERHAUL, PRs 1/2/4 + the Law article (v1.0.676-678)
+
+TERRITORY: T-CLIENT (`client/src/render/**` new, `client/src/pages/datamap.tsx`
+3 edits). SHARED: CLAUDE.md (Amendment 6), package.json, research/*.
+
+DIRECTIVE: the human's ten-PR "Rendering & Motion Overhaul" work order plus the
+companion "Article: Rendering & Motion Law". Diagnosis (the human's, and it is
+correct): moon tile fuzz, satellite pulsing, the aircraft curtain glitch and
+layer flicker on zoom are ONE bug appearing four times — visual state driven by
+discrete events (zoomend/moveend/data ticks/tile arrival) instead of by a
+continuous per-frame loop. Every layer grew its own loading and animation
+logic, so fixes overlap and re-break each other.
+
+PRIOR (stated before starting, per REASONING STANDARD 10): I expected the ten
+PRs to be mostly mechanical migration work onto a new shared core, with the
+core itself the hard part. WRONG in an interesting direction — the core went in
+cleanly, and the expensive discovery was that FIVE of the ten PRs rest on
+premises that do not match this codebase. Concretely I expected `uTerminator`
+to exist, expected the moon to be a GPU tile pyramid, and expected satellite
+pulsing to be unfixed. All three were wrong.
+
+SHIPPED
+- PR1 (v1.0.676) `client/src/render/frameCore.ts` + `perfMetrics.ts` +
+  `perfHud.ts` + `zoomInput.ts`. One rAF loop per view; fixed-step spring
+  integration (4ms sub-step) with dt clamped to 100ms BEFORE accumulating and
+  sub-steps capped at 8 with the remainder DROPPED; deterministic
+  INPUT->SIM->STREAM->RENDER order so streaming prefetches from an
+  already-advanced target; O(1) spring wake so a settled spring is never
+  iterated; hidden-tab pause that RESETS the accumulator rather than catching
+  up; one sampled clock per frame. `?perf=1` HUD built FIRST on purpose. Zoom
+  reworked onto log(altitude) with wheel and pinch normalized into the same
+  delta by construction. CLAUDE.md Amendment 6 installs Laws I-V verbatim.
+- PR2 (v1.0.677) `tileCore.ts` — the source-AND-sink-agnostic raster streamer.
+  The ready-gate (PENDING->...->RESIDENT, drawable only in FADING/RESIDENT,
+  `drawableFor()` hands back the nearest ready ancestor + UV subset so a layer
+  is STRUCTURALLY unable to draw an unready tile); the epoch guard checked in
+  three places; SSE LOD with proven-non-thrashing hysteresis; coarse-first
+  request ordering; abort + bounded retry with full jitter; upload budget
+  capped by count AND time; LRU-by-camera-distance eviction to 90% with the
+  base pinned; capability-based device tiering reusing the existing
+  `classifyDevice()`.
+- PR4 (v1.0.678) Earth base config. The real fix is
+  `raster-fade-duration: 0 -> 300` — it was 0 for "perceived speed", which is
+  exactly the hard-pop failure mode the work order names.
+
+FOUR BUGS THE TESTS FOUND (none found by reading):
+1. `clampAltKm(Infinity)` returned the MINIMUM altitude — a `!isFinite` guard
+   swallowing +Inf — so overflowing the zoom-out would have slammed the camera
+   onto the surface instead of pinning it at the top of the envelope. Same
+   fault in two sibling clamps.
+2. `pinchToLogDelta(1)` returned `-0`, which is not `=== 0` under Object.is, so
+   a caller testing for a no-op gesture would miss the scale-1 case.
+3. tileCore's transition table refused PENDING->PENDING, so evicting an
+   already-pending node was silently rejected — a node that cannot be reset is
+   a node that cannot be freed, i.e. a leak with a state machine in front of it.
+4. First frame after start/resume has dt=0 and integrates nothing. Correct, but
+   non-obvious; now pinned by its own test.
+
+TEN VERIFIED FINDINGS against the work order, full detail in
+`research/rendering_motion_overhaul.md` (new; the program's resume state).
+The five that change what future sessions should do:
+- NO THREE.JS. The directive's raster sections are written in three.js
+  vocabulary; this is MapLibre + hand-written WebGL2 custom layers.
+- THE MOON IS NOT A GPU TILE PYRAMID. `uTerminator`/`uFade` exist nowhere;
+  `moonSurface.ts` CPU-ray-casts the sphere patch and samples a stitched 2048²
+  mosaic per pixel. PR3 as written cannot be applied and needs a design
+  decision first.
+- PR5's occlusion culling is ALREADY DONE (`orbital/occlusion.ts`, unit-tested,
+  shader-mirrored) and PR5's pulsing already has a documented, tested fix
+  (the GLIDE system + `tickAnchorFromEpoch`, labelled "pulse fix" in-source).
+  Per RECURRENCE ESCALATES, the next session must CONFIRM the symptom on live
+  before rewriting a working subsystem on a stale premise.
+- PR6's stated root cause is false of `flightTrackLayer.ts`, which builds
+  STATIC_DRAW buffers once and registers no map handlers. The curtain glitch is
+  real but comes from elsewhere — localize before coding.
+- `setPrefetchZoomDelta` does not exist in MapLibre (Mapbox API, 0 occurrences
+  in the bundle); MapLibre's `wheelZoomRate` default is already 1/450; and
+  `tileSize: 512` would make the Esri-256px base map BLURRIER, not sharper.
+  Three of PR4's seven items are therefore not applicable, recorded in
+  `mapBaseConfig.ts` rather than silently dropped.
+
+GATES: 173 new tests across `client/src/render/**` (frameCore 29, zoomInput 27,
+perfHud 14, tileCore 47, mapBaseConfig 9 — plus the counts fold into the suite
+total). Full client suite `npx tsx --test 'client/src/lib/**/*.test.ts'
+'client/src/render/*.test.ts'` — 889 passed, 0 failed. `npm run build` clean.
+`npx tsc --noEmit` — 86 errors, byte-identical to baseline before the datamap
+edits (ZERO new; all pre-existing, and CI runs tsc with `|| true`). Visual
+harness `node scripts/visual_check.mjs --page data` at 390/768/1440 — all three
+PASS, 0 hard failures, screenshots reviewed against DESIGN.md (full-viewport
+map, no overlay covering content, controls reachable at 390px).
+
+CORRECTION TO MY OWN EARLIER MEASUREMENT: PR1's commit message records "720
+pass / 5 fail" as the client-suite baseline. That was wrong — `node_modules`
+was not yet installed in this container and five suites were failing on missing
+deps, not on real defects. With dependencies installed the suite is 889/889.
+
+BACKTEST: N/A per PROMOTION RULE 3 — client rendering only, no scoring, sizing
+or measurement code touched.
+
+HONEST CAVEATS. (1) PRs 1 and 2 add NO runtime behavior — nothing consumes
+`render/` yet except PR4's config module. The contract lands first and the
+migrations follow one layer per PR; that is deliberate for attribution, but it
+does mean the user-visible bugs are NOT yet fixed. Only PR4's crossfade is
+live-visible. (2) The acceptance number is nowhere near met: harness frame p95
+is 67ms @390 / 183ms @768 / 217ms @1440 against a 16.7ms target. That is
+headless SwiftShader, not a GPU, so it is not the Galaxy S24 number and must
+not be reported as one — but it is 4-13x over budget and no real S24-class
+measurement exists in CI yet. (3) Two Law II.8 violations are being ACCEPTED
+for now and are tracked, not hidden: the Earth base fetches Esri and the moon
+fetches NASA Trek, both at runtime. Neither can be fixed before the RunPod
+pyramid bake and a CDN exist, and pointing either at a CDN that does not exist
+would blank the surface. (4) All ten PRs are sequenced COMMITS on the single
+authorized branch rather than ten pull requests — only one branch was
+authorized for this work, so commit-level attribution is the best available.
+
+STARVED: yes — PRs 3 and 5-10 remain queued with a recommended resume order
+(PR8 first, since it is the only remaining PR whose premise is fully confirmed
+and it gates two of PR10's assertions; PR10 strictly last, since its static
+assertions would fail the build against every layer today).
+
 ## 2026-08-12 [PRODUCT] — T-CLIENT — flight card "cut off" fix: clip the card + scroll the flights list (v1.0.671)
 
 TERRITORY: T-CLIENT (`client/src/index.css` only). SHARED: package.json bump.
