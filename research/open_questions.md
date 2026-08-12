@@ -3962,6 +3962,91 @@
     case is unchanged and correct). The noted section-4/section-1
     duplication is a good STALENESS AUDIT candidate, not urgent.
 
+    **RECURRENCE #2 2026-08-12, scheduled-routine [REPAIR] session, v1.0.675
+    — v1.0.667's own fix confirmed live to have failed the exact case it was
+    built for; root cause is a wrong grace-period VALUE, not a wrong
+    mechanism, so this is a correction, not a third guess.** Session-start
+    audit-log check (`/api/diag/audit?type=TIER3-DIAG&limit=50`) found
+    "Multiple API sources down" firing hourly from 2026-08-12T00:22:31Z
+    through at least 07:42:09Z (10 consecutive TIER3-DIAG entries), then
+    silent from 08:xx onward. Cross-checked against PR #783's own merge
+    timestamp (`merged_at: 2026-08-12T03:04:17Z`, v1.0.667): the false
+    problem kept firing for 3+ MORE hours (05:42, 06:42, 07:42Z) after that
+    fix was live in production, clearing only once `/api/diag/audit?type=
+    TIER3` showed Tier 2 cycles actually resuming (08:0x UTC = 4am ET,
+    matching `isAnyWindow`'s own dark-window boundary in `server/bot.ts`
+    exactly). v1.0.667's `API_CHECK_GRACE_PERIOD_S = 1800` (30 min) assumed
+    a restart is followed by Tier 2 running again "soon" — but a restart
+    landing inside the 8pm-4am ET dark window (this one landed at ~00:22
+    UTC = 8:22pm ET, right at the window's own start) leaves Tier 2
+    genuinely unable to run for up to ~8 hours, not 30 minutes. The
+    diagnosis in v1.0.667 was right about the MECHANISM; the fix chose the
+    wrong DURATION for it, because a flat clock can't represent "however
+    long it takes for the next scheduled Tier 2 run," which varies from
+    minutes (daytime redeploy) to hours (overnight redeploy).
+    FIX (own PR, v1.0.675, `diagnostics.py` + `server/bot.ts`, T-BOT
+    territory): replaced the clock-based question ("has enough TIME passed
+    to assume Tier 2 ran?") with the real one ("HAS Tier 2 run since this
+    boot?"). New module-level `tier2CompletedSinceBoot` flag in `bot.ts`,
+    set `true` immediately after `tier2Intelligence()` returns successfully
+    (both the scheduled `scheduleTier2()` path and the manual
+    `/api/bot/tier2-scan` trigger route) — `false` from boot until then,
+    regardless of elapsed wall-clock time. Threaded through as a new
+    `tier2_ran_since_boot: bool = None` param on `run_diagnostics()` /
+    `get_auto_fix_params()` (default `None` = fully backward compatible,
+    falls back to the old `server_uptime_s` clock check unchanged — a
+    caller that doesn't pass it regresses to nothing, per this repo's
+    existing pattern for `server_uptime_s` itself). `False` always grants
+    grace no matter how large `server_uptime_s` is (the exact case that
+    broke tonight); `True` always denies grace no matter how small
+    `server_uptime_s` is (Tier 2 had its one real chance — no more excuses
+    for a genuinely down source). `API_CHECK_GRACE_PERIOD_S` (30 min)
+    stays as the fallback for any caller that can't report Tier 2 state.
+    RATCHET: 3 new tests in `test_diagnostic_false_positives.py`
+    (`test_tier2_not_yet_run_is_grace_even_hours_past_uptime_clock` —
+    pins `server_uptime_s=8*3600, tier2_ran_since_boot=False` as still a
+    warning, the exact scenario that fired live tonight;
+    `test_tier2_already_ran_is_a_real_problem_even_seconds_after_boot`;
+    `test_get_auto_fix_params_threads_tier2_ran_since_boot_through`) — all
+    6 pre-existing tests in that class still pass unmodified (the
+    `tier2_ran_since_boot=None` default path is byte-identical to the old
+    behavior, verified by leaving those assertions untouched).
+    GATES: this sandbox started with no Python deps installed at all
+    (`numpy`/`pandas`/`lightgbm`/`openpyxl` all missing — a fresh-session
+    environment gap, not a regression); `pip3 install -r requirements.txt`
+    + `openpyxl` resolved it. `python3 -m pytest -q` — 1298 passed, 2
+    skipped, 0 failed (was 1295/2/0 at v1.0.667; +3 new tests). `npx tsc
+    --noEmit` — 83 errors, A/B'd via `git stash` to be byte-identical
+    before/after (pre-existing baseline, matches the number PR #783 itself
+    recorded). `npx tsx --test server/*.test.ts` — 1213 tests, 2 failed,
+    A/B'd via `git stash` to be the identical 2 failures on unmodified
+    `origin/main` (pmtiles-magic-byte + LAYER_GROUP-registry class,
+    pre-existing sandbox baseline, unrelated). `npm run build` clean. No
+    `.tsx`/client files touched — VISUAL VERIFICATION does not apply
+    (T-BOT/server territory only, same precedent as PR #783).
+    BACKTEST: N/A per PROMOTION RULE 3 — this is a diagnostics-accuracy fix
+    that changes WHEN a stale-cache warning is trusted after a restart,
+    not any scoring/sizing VALUE a healthy-Tier-2 system produces.
+    HONEST CAVEAT: this session could not force a live overnight-restart
+    replay (no shell access to the production container, and deliberately
+    not restarting production to test a diagnostics fix — that would be a
+    self-inflicted false positive to chase a true one). Confidence rests on
+    (a) the code-level fix being a direct, mechanical translation of the
+    now-twice-confirmed-live root cause into the one signal that's actually
+    true regardless of clock time, and (b) the new tests pinning the exact
+    failure mode this session observed. NEXT for whichever session catches
+    this: after v1.0.675 deploys, confirm across at least one full
+    overnight window (any redeploy landing after ~8pm ET) that "Multiple
+    API sources down" either doesn't fire at all pre-4am-ET, or if it does
+    fire, it's because `tier2_ran_since_boot` was somehow `True` already
+    (an inconsistency worth its own session) — not because grace expired
+    early again. If it recurs a THIRD time with grace correctly reporting
+    `False`, RECURRENCE ESCALATES applies at full force: stop patching this
+    check's timing entirely and consider whether the underlying
+    `os.path.exists()` cache check (section 4) should be redesigned instead
+    of gated, per the section-4/section-1 duplication smell v1.0.667 itself
+    already flagged.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
