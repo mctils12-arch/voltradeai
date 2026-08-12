@@ -409,6 +409,16 @@ void main() {
  * The satellite GPU point layer. Construct once, `map.addLayer(layer)`, then
  * feed it worker output via `updatePositions(buf, meta)`.
  */
+/**
+ * Law IV feature cap for this layer, hoisted above the class so the field
+ * initializer can reference it. Re-exported at the bottom of the file as
+ * `maxFeatures` (the name PR10's contract assertion checks for).
+ *   15,000 x 11 floats x 4B = 660 KB of instance data.
+ * Sits above the ~10k active CelesTrak catalog, so it is a runaway guard
+ * rather than a working limit.
+ */
+export const SAT_MAX_FEATURES = 15000;
+
 export class SatLayer implements CustomLayerInterface {
   readonly id: string;
   readonly type = 'custom' as const;
@@ -446,7 +456,15 @@ export class SatLayer implements CustomLayerInterface {
   private shapeCodes: Float32Array | null = null;
   private shapeDirty = false;
   private total = 0;
-  private renderCap: number | null = null;
+  // Law IV (PR8b): the declared cap is ARMED BY DEFAULT. `setRenderCap`
+  // has existed as a "defensive" lever since O1 but NOTHING EVER CALLED IT,
+  // so the layer rendered whatever the worker handed it — an uncapped
+  // catalog is exactly the unbounded render Law IV forbids. Defaulting to
+  // SAT_MAX_FEATURES (15,000) sits above the ~10k active CelesTrak
+  // catalog, so this changes nothing in normal use and only bites if the
+  // catalog or a future group query runs away. getCounts() already reports
+  // capped/rendered/total, so the cap can never be silent.
+  private renderCap: number | null = SAT_MAX_FEATURES;
   private meta: PositionMeta | null = null;
   // PERF: seconds of tick time skipped (no forced repaint) since the last
   // actual repaint — see shouldSkipTickRepaint / MAX_GROUND_TRACK_SPEED_MPS.
@@ -1037,5 +1055,5 @@ export class SatLayer implements CustomLayerInterface {
 // vramBudget adds headroom for the program, the shape buffer and driver
 // padding. 15,000 is the work order's MAX_INSTANCES and sits above the
 // ~10k active CelesTrak catalog, so the cap does not bite in normal use.
-export const maxFeatures = 15000;
+export const maxFeatures = SAT_MAX_FEATURES;
 export const vramBudget = 4; // MB

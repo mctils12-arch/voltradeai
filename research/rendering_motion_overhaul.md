@@ -34,9 +34,10 @@ onto it.
 | 6 | Aircraft trail / curtain (Law I) | **PREMISE NOT LOCALIZED — see below** |
 | 7 | Radar (Law III) | not started |
 | 8a | Law IV contract: budgets declared + `dispose()` on all 5 GL layers | **SHIPPED** v1.0.679 |
-| 8b | Law IV runtime: bounded archive queries + wire `applyFeatureCap` | not started — next |
-| 9 | Freshness (Law V) | not started |
-| 10 | Self-see harness assertions | **MUST BE LAST** — would fail the build today |
+| 8b | Law IV runtime: caps armed + enforced | **SHIPPED** v1.0.680 (bounded archive queries still open → 8c) |
+| 9 | Freshness (Law V) | **SHIPPED** v1.0.682 — OWM root cause found and fixed |
+| 10a | Self-see STATIC assertions (Law I + Law IV + constants + hysteresis) | **SHIPPED** v1.0.681 — in CI |
+| 10b | Self-see RUNTIME assertions (#2 unready draws, #3 p95, #4 heap) | blocked — see notes |
 
 PRs 1 and 2 add NO runtime behavior. Nothing consumes `render/` yet except
 PR4's `mapBaseConfig`. That is deliberate: the contract lands first, the
@@ -236,3 +237,62 @@ branch `claude/rendering-motion-overhaul-x0efmb` (only one branch was
 authorized for this work). Each commit is one logical change with its own
 message, so commit-level attribution is preserved even though they arrive as
 one pull request rather than ten.
+
+---
+
+## SESSION 2 ADDENDUM (2026-08-12) — PRs 8a/8b/9/10a shipped
+
+**F12. THE SATELLITE CAP WAS A LEVER NOBODY PULLED.** `satLayer.setRenderCap`
+has existed since O1 with full honest accounting (`getCounts()` reports
+capped/rendered/total). A grep for callers across the entire client returns
+NOTHING — it defaulted to `null` and the layer rendered the whole worker
+output. PR8b armed it with the declared `maxFeatures`. Reused rather than
+rebuilt, per READ BEFORE WRITE.
+
+**F13. THE OPENWEATHERMAP NON-RENDER, ROOT-CAUSED.** Not upstream, not the
+key. `setProjection()` (globe/flat toggle) rebuilds the MapLibre style, which
+wipes imperatively-added sources and layers. The weather effect's dep array
+excludes anything a style rebuild changes, and nothing listened for
+`styledata` — so the sole recovery path was a 10-minute `setInterval`. Toggle
+the globe with weather on → the layer is gone for up to ten minutes while the
+panel reads "active". **A retry cannot fix this because the retry IS the
+ten-minute timer.** Fixed by reconciling presence on `styledata`.
+  - Second bug found while fixing it: the guard was `if (!map.getSource(...))`
+    — SOURCE only. A half-built pair (source present, layer missing) read as
+    healthy forever, drew nothing, and was never repaired.
+
+**F14. THE LAW I VIOLATIONS ARE NOT IN THE LAYERS.** All ten live in
+`datamap.tsx` and `MapNavCluster.tsx`, which are pages/components, not layer
+modules. `client/src/lib/{orbital,air,celestial}` has ZERO. This is what made
+PR10a's static assertion shippable immediately rather than last.
+
+**F15. CI DOES NOT RUN THE CLIENT TESTS OR THE VISUAL HARNESS.** `ci.yml`
+runs the python pytest set, `tsc --noEmit || true`, `npm run build`, and the
+docker build. So `client/src/**/*.test.ts` and `npm run visual` are
+session-time gates, NOT merge gates. That is why PR10a's assertions were
+placed in `test_audit_critical.py` (which CI does run) rather than in the
+visual harness. Any future assertion intended as a MERGE GATE must go
+somewhere CI executes.
+
+### What 10b still needs
+- **#2 (no unready node drawn)** — not yet meaningful: no layer consumes
+  tileCore, so there are no nodes to audit. Lands with the first migration.
+- **#3 (p95 < 16.7ms)** — cannot be honestly gated on headless SwiftShader,
+  which runs 4-13× over budget for reasons unrelated to our code. Needs a
+  real S24-class measurement path; that is its own piece of work.
+- **#4 (heap/texture return to baseline)** — needs forced GC
+  (`--js-flags=--expose-gc`) in the visual harness.
+
+### Remaining queue, in recommended order
+1. **8c** — bounded archive queries (aircraft/vessels/trains/chokepoints
+   query by viewport bbox + time window instead of unbounded selects). The
+   remaining half of the memory story; a client-fetch + server-route change.
+2. **Trail decimation** — `MIN_POINT_SPACING_M` with `tzMarkIdx` remapped
+   alongside, done where the track is ASSEMBLED. PR8b deliberately only
+   REPORTS the over-cap trail because decimating inside `buildTrackVertices`
+   would desync the v1.0.671 timezone marks.
+3. **The moon bake → PR3** (F2 + F11) — unblocks the last Law II.8 violation
+   and revives `tileSize: 512` + `transformRequest`.
+4. **PR7 radar** — premise unverified.
+5. **PRs 5/6** — need live confirmation first (F6/F7/F8).
+6. **10b** once the above land.

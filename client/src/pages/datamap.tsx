@@ -4,7 +4,8 @@ import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satell
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
 import "maplibre-gl/dist/maplibre-gl.css";
-import { applyWheelZoomRate, baseMapMotionOptions, baseRasterPaint } from "@/render/mapBaseConfig";
+import { applyWheelZoomRate, baseMapMotionOptions, baseRasterPaint, RASTER_FADE_MS } from "@/render/mapBaseConfig";
+import { FreshnessTracker, needsReconcile } from "@/render/freshness";
 import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
@@ -555,6 +556,11 @@ interface DossierCancerCounty {
   } | null;
   ready: boolean;
 }
+
+/** Law V: the weather chain's own freshness clock. Module-level so it
+ *  survives effect re-runs — an age that resets whenever React re-runs the
+ *  effect is not an age, it is a render counter. */
+const wxFreshness = new FreshnessTracker("weather");
 
 const IMAGERY_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -7697,31 +7703,68 @@ export default function DataMapPage() {
     if (!anyOn) return;
     if (!map || !mapReady) return;
     let stop = false;
+    // LAW V ROOT-CAUSE FIX (2026-08-12) — the OpenWeatherMap non-render.
+    //
+    // These layers are added imperatively, and `setProjection()` (the
+    // globe/flat toggle) REBUILDS THE STYLE, which wipes every imperatively
+    // added source and layer. This effect's deps don't include anything a
+    // style rebuild changes, and nothing listened for `styledata` — so the
+    // ONLY thing that re-added them was the 10-minute interval below. Toggle
+    // the globe with weather on and the layer vanished for up to ten minutes
+    // while the panel still said "active". That is the non-render, and it is
+    // not fixable by a retry: the retry IS the ten-minute timer.
+    //
+    // Presence is now RECONCILED against map state (see needsReconcile) and
+    // re-applied on `styledata`. This does not violate Law I: `styledata` is
+    // a lifecycle event — the map telling us it threw our layers away — not
+    // a camera event, and re-adding is restoration, not animation. The
+    // drape-order guard already reconciles on the same event.
+    let providerOk = false;
+    const ensureField = (f: { id: "weather_temp" | "weather_wind"; owm: string }) => {
+      if (!map || !enabled[f.id] || !providerOk) return;
+      const sourcePresent = !!map.getSource(`wx-${f.owm}`);
+      const layerPresent = !!map.getLayer(`wx-${f.owm}`);
+      if (!needsReconcile({ wanted: true, providerOk, sourcePresent, layerPresent })) return;
+      try {
+        // A half-built pair (source without layer, or vice versa) draws
+        // nothing and throws on the next add — tear both down first.
+        if (layerPresent) map.removeLayer(`wx-${f.owm}`);
+        if (sourcePresent) map.removeSource(`wx-${f.owm}`);
+      } catch {}
+      try {
+        map.addSource(`wx-${f.owm}`, {
+          type: "raster",
+          tiles: [`/api/data/wxtile/${f.owm}/{z}/{x}/{y}`],
+          tileSize: 256, maxzoom: 7,
+          attribution: "Weather data © OpenWeatherMap",
+        } as any);
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        map.addLayer({
+          id: `wx-${f.owm}`, type: "raster", source: `wx-${f.owm}`,
+          // registry-native field opacity (default 60%): tiles arrive
+          // alpha-amplified from the proxy; the slider owns the blend.
+          // Law II.1: a nonzero fade, so a re-add resolves rather than pops.
+          paint: { "raster-opacity": opacityOf(f.id) / 100, "raster-fade-duration": RASTER_FADE_MS },
+        } as any, firstMarker?.id);
+      } catch {}
+    };
+    // Re-apply after any style rebuild that discarded our layers.
+    const onStyleData = () => { if (!stop) for (const f of FIELDS) ensureField(f); };
+    map.on("styledata", onStyleData);
     const probe = async () => {
       for (const f of FIELDS) if (enabled[f.id]) setStatus(f.id, "loading");
       try {
         const r = await fetch("/api/data/weather/global/status");
         const d = await r.json();
         if (stop) return;
+        providerOk = d.status === "ok";
+        if (providerOk) wxFreshness.markFresh(); else wxFreshness.markFailure();
         for (const f of FIELDS) {
           if (!enabled[f.id]) continue;
           if (d.status === "ok") {
-            if (!map.getSource(`wx-${f.owm}`)) {
-              map.addSource(`wx-${f.owm}`, {
-                type: "raster",
-                tiles: [`/api/data/wxtile/${f.owm}/{z}/{x}/{y}`],
-                tileSize: 256, maxzoom: 7,
-                attribution: "Weather data © OpenWeatherMap",
-              } as any);
-              const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
-              map.addLayer({
-                id: `wx-${f.owm}`, type: "raster", source: `wx-${f.owm}`,
-                // registry-native field opacity (default 60%): tiles arrive
-                // alpha-amplified from the proxy; the slider owns the blend.
-                paint: { "raster-opacity": opacityOf(f.id) / 100 },
-              } as any, firstMarker?.id);
-            }
-            setStatus(f.id, "active", undefined, "global field · Weather data © OpenWeatherMap");
+            ensureField(f);
+            // Law V: every layer surfaces its own data age.
+            setStatus(f.id, "active", undefined, `global field · ${wxFreshness.describe()} · Weather data © OpenWeatherMap`);
           } else if (d.status === "awaiting_key") {
             removeField(f);
             setStatus(f.id, "awaiting_key");
@@ -7741,7 +7784,7 @@ export default function DataMapPage() {
     };
     probe();
     const iv = window.setInterval(probe, 10 * 60_000);
-    return () => { stop = true; window.clearInterval(iv); };
+    return () => { stop = true; window.clearInterval(iv); map.off("styledata", onStyleData); };
   }, [enabled.weather_temp, enabled.weather_wind, mapReady, setStatus]);
 
   // ── generic live-points wiring (aircraft + vessels share the machinery) ──

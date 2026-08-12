@@ -37,6 +37,7 @@ import { lonLatToMercator } from '../orbital/satBuffer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { MAX_AIR_GLIDE_SEC, airGlideDtSec, mercVelPerSec, shouldGlidePerFrame } from './airGlide.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
+import { applyFeatureCap } from '../../render/layerContract.js';
 import { isOverloaded } from '../deviceTier.js';
 
 /** The 2D↔3D hand-off zoom: symbols below, silhouettes at/above.
@@ -182,12 +183,36 @@ export interface AircraftInstanceInput {
 export interface AirShapeGroup { shape: number; start: number; count: number }
 
 /**
+ * Law IV feature cap, hoisted above its use in buildAircraftInstances and
+ * re-exported at the bottom as `maxFeatures` (the name the contract
+ * assertion checks). 12,000 x AIR_INST_STRIDE(8) x 4B = 384 KB, and ~3.4x
+ * the busiest render actually observed (3,507 at 1440px), so it is a
+ * runaway guard rather than a working limit.
+ */
+export const AIR_MAX_FEATURES = 12000;
+
+/**
  * Pure: aircraft payload rows → packed instance buffer + the index-aligned
  * rows (for CPU picking → the click card) + contiguous per-shape draw
  * groups. Rows are STABLE-sorted by shape so each class renders as one
  * instanced draw over a contiguous range. Rows without a finite position
  * are skipped — nothing rendered from a guessed position.
  */
+/**
+ * Law IV downsample ordering for aircraft. Higher survives the cap.
+ *
+ * Airborne beats on-ground by a wide margin, then altitude breaks ties.
+ * Rationale: the cap only bites during a traffic spike, and a spike is
+ * dominated by ground clutter at major hubs — losing a parked aircraft
+ * costs the user far less than losing an en-route flight. This is a
+ * DOCUMENTED preference, not a neutral sample, and the drop count is
+ * always reported.
+ */
+export function aircraftImportance(a: AircraftInstanceInput): number {
+  if (a.on_ground) return 0;
+  return 1 + Math.max(0, a.altitude_m ?? 0);
+}
+
 export function buildAircraftInstances<T extends AircraftInstanceInput>(
   aircraft: T[],
   opts?: {
@@ -203,12 +228,21 @@ export function buildAircraftInstances<T extends AircraftInstanceInput>(
     displayAlt?: (altM: number, lon: number, lat: number, onGround: boolean) => number;
   },
 ): { inst: Float32Array; rows: T[]; groups: AirShapeGroup[] } {
-  const rows: T[] = [];
+  let rows: T[] = [];
   for (const a of aircraft) {
     if (a == null || !Number.isFinite(a.lon as number) || !Number.isFinite(a.lat as number)) continue;
     if ((a.lat as number) < -85 || (a.lat as number) > 85) continue; // outside mercator
     rows.push(a);
   }
+  // Law IV (PR8b): enforce the declared cap BEFORE packing, so an overflow
+  // costs neither the buffer nor the GPU. Importance keeps AIRBORNE traffic
+  // over ground clutter, then higher altitude first: the realistic overflow
+  // case is a mass of parked/taxiing aircraft at a few big airports, and
+  // dropping those loses far less of the picture than dropping en-route
+  // flights. Never a silent truncation — applyFeatureCap reports the drop
+  // to the perf HUD and the console.
+  const capped = applyFeatureCap("aircraft", rows, { maxFeatures: AIR_MAX_FEATURES }, aircraftImportance);
+  rows = capped.kept;
   rows.sort((a, b) => shapeForCategory(a.category) - shapeForCategory(b.category)); // stable
   const inst = new Float32Array(rows.length * AIR_INST_STRIDE);
   const groups: AirShapeGroup[] = [];
@@ -866,5 +900,5 @@ export class AirLayer implements CustomLayerInterface {
 // 12,000 is ~3.4x the busiest observed live render (3,507 aircraft at
 // 1440px in the visual harness), so the cap is a runaway guard rather than
 // a working limit. Above it, downsample by importance — never truncate.
-export const maxFeatures = 12000;
+export const maxFeatures = AIR_MAX_FEATURES;
 export const vramBudget = 4; // MB
