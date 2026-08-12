@@ -33,7 +33,8 @@ onto it.
 | 5 | Satellites (Law I) | **PREMISE STALE — verify before changing anything** |
 | 6 | Aircraft trail / curtain (Law I) | **PREMISE NOT LOCALIZED — see below** |
 | 7 | Radar (Law III) | not started |
-| 8 | Teardown + budgets, all layers (Law IV) | not started — real and large |
+| 8a | Law IV contract: budgets declared + `dispose()` on all 5 GL layers | **SHIPPED** v1.0.679 |
+| 8b | Law IV runtime: bounded archive queries + wire `applyFeatureCap` | not started — next |
 | 9 | Freshness (Law V) | not started |
 | 10 | Self-see harness assertions | **MUST BE LAST** — would fail the build today |
 
@@ -130,7 +131,10 @@ drape-order/RTT path (`installDrapeOrderGuard`, which re-floats layers on every
 `styledata`), or one of datamap.tsx's own `move` handlers. **Localize before
 writing PR6.**
 
-**F9. NO LAYER EXPORTS THE PR8/PR10 CONTRACT.** `dispose`, `maxFeatures` and
+**F9. NO LAYER EXPORTS THE PR8/PR10 CONTRACT.** *(RESOLVED by PR8a,
+v1.0.679 — all five GL layers now export `maxFeatures`/`vramBudget` and
+implement `dispose()`. PR10's static assertion #5 will now pass against
+them. The finding text below is kept as the record of what was found.)* `dispose`, `maxFeatures` and
 `vramBudget` appear in ZERO of satLayer / flightTrackLayer / airLayer /
 arcLayer / modelLayer. They DO all implement MapLibre's `onRemove`, which is
 the real teardown hook — so PR8 is largely about (a) declaring budgets that do
@@ -165,10 +169,14 @@ after every remaining PR — "the moon looks fuzzy" is not a measurement.
 ## RESUME ORDER (recommended, given the findings — see also F11 below,
 ## which upgrades the Law II.8 work from "blocked" to "tractable")
 
-1. **PR8 first, not last.** It is the only remaining PR whose premise is fully
-   confirmed (F9), it is prerequisite to PR10's assertions #4 and #5, and the
-   leak it addresses is why layers default to off — a product problem, not just
-   a hygiene one.
+1. ~~**PR8 first, not last.**~~ **DONE (8a).** Budgets declared and derived,
+   `dispose()` on every GL layer, the no-silent-caps downsampler built and
+   tested. PR10's assertion #5 now has something to pass against.
+   **NEXT IS 8b:** wire `applyFeatureCap()` into each layer's data path (the
+   caps are declared and tested but NOT yet enforced at runtime), and convert
+   the archive-backed layers (aircraft, vessels, trains, chokepoints) to
+   viewport-bbox + time-window queries instead of unbounded selects. 8b is
+   where the actual memory win lives — 8a made it declarable, not bounded.
 2. **PR6 and PR5 need a localization session each** (F7, F8) before any code
    is written. Confirm the symptom on live with `?perf=1` on, then localize.
    Do not rewrite a documented, tested fix on the strength of a stale premise.
