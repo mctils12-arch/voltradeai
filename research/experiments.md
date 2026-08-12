@@ -47681,3 +47681,57 @@ resolution ratio ≥100×); moonSurface.test.ts +2 (alpha-gated sampling;
 tier-order render: NAC where opaque, WAC under NAC holes, base beyond
 — plus single-overlay back-compat); moonTiles.test.ts +1 (blit
 preserves alpha 0). Celestial suites 134/134.
+
+## 2026-08-12 [PIPELINE] — SECOND AIS SOURCE SHIPPED: Fintraffic/Digitraffic (Finland), verified live before wiring (v1.0.674)
+
+TERRITORY: T-DATACORE. Human asked "can we find a better ais api or
+feed?" after the aisstream provider outage was root-caused.
+
+WHAT WAS ALREADY DONE (MEMORY PROTOCOL — I did not redo it): a sibling
+session had already filed the BUILD-FIRST provider survey in
+wishlist.md and recommended Digitraffic. What the survey did NOT have
+was evidence the candidates work. I probed them before building —
+theory is not gate-1 verification.
+
+PROBE RESULTS (all run this session):
+- FINLAND Digitraffic — WORKS. 849 raw locations + 794 metadata rows.
+  Through the real mapper: 649 fresh fixes, 640 carrying name AND
+  shiptype (98.6%), 145 under way >1kt, 0 invalid positions, fix age
+  p50 73s / p95 427s, bbox lat 58.8-65.8 lon 17.5-29.7 (Gulf of
+  Finland → Gulf of Bothnia). Requires `Accept-Encoding: gzip` (406
+  without it — same quirk as their trains API).
+- NORWAY Kystverket raw TCP 153.44.253.27:5631 — TIMED OUT from this
+  sandbox, whose egress is HTTPS-proxy-only. NOT a verdict on the
+  provider: needs a prod-side probe. Filed, not concluded.
+- DENMARK web.ais.dk — TLS certificate EXPIRED (their side).
+- GLOBAL FISHING WATCH — reachable, 401 (free token needed). Global but
+  AIS-DERIVED and fishing-focused; licence needs the monetization
+  check before it may enter a paid path. Not pursued this session.
+- AISSTREAM — still closes the socket; outage ongoing.
+
+HONEST HEADLINE: there is NO free global replacement. aisstream was
+unusual in giving worldwide terrestrial coverage away. This is a
+FLOOR, not a replacement — and the layer says so rather than implying
+global coverage.
+
+SHIPPED: server/aisFeed.ts (pure mapper + freshness filter, 6 tests
+written against payload shapes copied from the live probe, not
+invented) + a 60s poller in routes.ts feeding the SAME
+vesselPositions/vesselStatics maps the aisstream socket feeds — so the
+route, the archive, the dossier and the map layer consume it with zero
+changes, and the ARCHIVE STARTS RECORDING AGAIN (Priority-1: gaps
+never refill). Route now reports per-source status so "aisstream down,
+digitraffic ok" is visible instead of one blended verdict. AIS
+not-available sentinels (COG 360, SOG 102.3) map to null, never to
+fake values; a real 0.0 kt moored vessel survives (pinned by a test).
+Licence CC 4.0 BY — attribution string exported and carried in the
+source status; same provider and licence we already ship for trains.
+
+OPS LESSON, filed because it nearly cost something: probing with
+`node -e "require('./dist/index.cjs')"` BOOTED A FULL SERVER locally —
+auth bootstrap, bot init, and on exit "cancelling open orders". It was
+harmless only because local Alpaca creds are absent (401). NEVER load
+dist/index.cjs to reach a helper; import the source module in a
+scratch file instead.
+
+BACKTEST: N/A (data ingest; no trading logic).

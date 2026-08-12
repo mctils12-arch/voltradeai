@@ -41,6 +41,7 @@ import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL }
 import { registerAuthRoutes, db } from "./auth";
 import { registerBotRoutes } from "./bot";
 import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, vesselNeverFramed } from "./vesselStream";
+import { mapDigitrafficAis, freshAisFixes, DIGITRAFFIC_AIS_ATTRIBUTION, DIGITRAFFIC_AIS_LOCATIONS_URL, DIGITRAFFIC_AIS_VESSELS_URL } from "./aisFeed";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY } from "./trainsFeed";
@@ -1064,6 +1065,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   let vesselFrames = 0;
   let vesselParsed = 0;
   let vesselLastOddFrame = "";
+  // SECOND AIS SOURCE (2026-08-12): Fintraffic/Digitraffic REST, polled.
+  // aisstream went silent provider-side for its whole user base on 08-05, so
+  // a single websocket was a single point of failure for the entire vessel
+  // product line. This feeds the SAME vesselPositions/vesselStatics maps, so
+  // the route, the archive, the dossier and the map layer all consume it
+  // with no changes. Coverage is Finnish waters only — stated everywhere it
+  // surfaces, never implied to be global. Licence CC 4.0 BY (commercial use
+  // permitted with attribution); we already ingest Digitraffic for trains.
+  let aisFiSource: { status: "ok" | "error" | "never"; count: number; at: number; error?: string } =
+    { status: "never", count: 0, at: 0 };
+  async function fetchDigitrafficAis() {
+    if (backoffActive("digitraffic-ais")) return;
+    try {
+      const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)",
+                   "Digitraffic-User": "voltradeai-datacore", "Accept-Encoding": "gzip" };
+      // metadata is best-effort: positions alone are still honest data
+      const [locRes, vesRes] = await Promise.all([
+        fetch(DIGITRAFFIC_AIS_LOCATIONS_URL, { headers: UA, signal: AbortSignal.timeout(15000) }),
+        fetch(DIGITRAFFIC_AIS_VESSELS_URL, { headers: UA, signal: AbortSignal.timeout(15000) }).catch(() => null),
+      ]);
+      if (!locRes.ok) throw new Error(`digitraffic-ais ${locRes.status}`);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const meta = vesRes && vesRes.ok ? await vesRes.json().catch(() => null) : null;
+      const fixes = freshAisFixes(mapDigitrafficAis(await locRes.json(), meta, nowSec), nowSec);
+      for (const f of fixes) {
+        vesselPositions.set(f.mmsi, {
+          lat: f.lat, lon: f.lon, sog: f.sog, cog: f.cog,
+          name: f.name || f.mmsi, at: f.at * 1000,
+        });
+        if (f.name || f.shiptype != null || f.destination) {
+          vesselStatics.set(f.mmsi, { shiptype: f.shiptype, destination: f.destination, name: f.name });
+        }
+      }
+      backoffClear("digitraffic-ais");
+      aisFiSource = { status: "ok", count: fixes.length, at: Date.now() };
+    } catch (e: any) {
+      backoffBump("digitraffic-ais");
+      aisFiSource = { status: "error", count: 0, at: Date.now(), error: e?.message };
+    }
+  }
   // last frame of ANY type from aisstream — the liveness signal the health
   // verdict + reconnect watchdog run on (repair 2026-08-06)
   let vesselLastMsgAt = 0;
@@ -1154,6 +1195,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // /api/data/vessels request, so every deploy doesn't leave the vessels
   // layer (and its archive recording) cold until someone opens the map.
   bootVesselStream(process.env, ensureVesselStream);
+  // Digitraffic AIS needs no key, so it runs unconditionally: boot now, then
+  // every 60s (their locations endpoint updates continuously; 60s matches the
+  // vessel archive tick so a poll always has fresh data to record).
+  void fetchDigitrafficAis();
+  setInterval(() => { void fetchDigitrafficAis(); }, 60_000).unref?.();
 
   // SCALE S1(b) — vessels delta: short-TTL snapshot per expanded bbox +
   // the aircraft `time`/`since` protocol (the client's sinceRef machinery
@@ -1203,6 +1249,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       feed_down: vh.down || undefined,
       feed_silent_s: vh.silentMs != null ? Math.round(vh.silentMs / 1000) : undefined,
       last_message_at: vesselLastMsgAt || undefined,
+      sources: [
+        { key: "aisstream", coverage: "global (terrestrial)", status: vesselFrames > 0 ? "ok" : "down",
+          note: vesselFrames > 0 ? undefined : "provider-side outage since 2026-08-05 (affects aisstream's entire user base)" },
+        { key: "digitraffic-ais", coverage: "Finnish waters", status: aisFiSource.status,
+          count: aisFiSource.count, attribution: DIGITRAFFIC_AIS_ATTRIBUTION, error: aisFiSource.error },
+      ],
       feed_frames: vesselFrames,
       feed_never_framed: vesselNeverFramed(vesselFrames, vesselFirstConnectAt, now) || undefined,
       feed_parsed: vesselParsed,
