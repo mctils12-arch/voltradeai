@@ -64,6 +64,7 @@ import {
 import { AIR_SILHOUETTES, AIR_SHAPE } from './airLayer.js';
 import { mercatorToSphere, mercatorZFromAltitude } from '../orbital/occlusion.js';
 import { VT_PROJ_ELEV_GLSL } from '../glElev.js';
+import { setGauge } from '../../render/perfMetrics.js';
 
 type AnyGl = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -148,7 +149,45 @@ const wrapOk = (x0: number, x1: number): boolean => Math.abs(x0 - x1) <= 0.5;
  *  - curtain + line: additionally require BOTH ends to have altitude
  *    (honest gaps).
  */
+/**
+ * Law IV feature cap for the trail, in TRAIL POINTS (this layer draws one
+ * selected aircraft's history, not a population).
+ *   512 x FT_VERT_STRIDE(13) x FT_VERTS_PER_SEG(4) x 4B = 106 KB.
+ * Hoisted above its use; re-exported at the bottom as `maxFeatures`.
+ */
+export const FT_MAX_FEATURES = 512;
+
+let lastReportedOverCap = 0;
+
+/** Surface an over-cap trail once per distinct size, so a long archived
+ *  replay is visible in the HUD rather than quietly over budget. */
+export function reportTrackPointCap(points: number): boolean {
+  const over = points > FT_MAX_FEATURES;
+  setGauge("flightTrack.points", points);
+  setGauge("flightTrack.overCap", over ? points - FT_MAX_FEATURES : 0);
+  if (over && points !== lastReportedOverCap) {
+    lastReportedOverCap = points;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[layer:flightTrack] trail has ${points} points, over the ${FT_MAX_FEATURES} cap by ${points - FT_MAX_FEATURES} — buffer exceeds its declared 2MB budget; decimation belongs at track assembly (tzMarkIdx is index-aligned here)`,
+    );
+  }
+  if (!over) lastReportedOverCap = 0;
+  return over;
+}
+
 export function buildTrackVertices(input: TrackGeomInput, altScale: number): Float32Array {
+  // Law IV (PR8b): REPORT an over-cap trail, do NOT silently reshape it.
+  //
+  // Decimating here is a correctness trap, not a convenience: `tzMarkIdx`
+  // indexes INTO these parallel arrays, so dropping samples desyncs the
+  // timezone crossing marks that shipped in v1.0.671. Proper decimation
+  // (MIN_POINT_SPACING_M with the mark indices remapped alongside) belongs
+  // where the track is ASSEMBLED, not here where index alignment is
+  // load-bearing. Until then this surfaces the condition instead of hiding
+  // it — an unreported over-cap trail is exactly the silent degradation
+  // CLAUDE.md's no-silent-caps rule forbids.
+  reportTrackPointCap(Math.min(input.merc.length >> 1, input.altM.length, input.groundZ.length));
   const n = Math.min(
     input.merc.length >> 1,
     input.altM.length,
@@ -860,5 +899,5 @@ export class FlightTrackLayer implements CustomLayerInterface {
 //   512 x 4 x 13 x 4B = 106 KB, plus the tail strip and index buffers.
 // 512 is the work order's TRAIL.MAX_POINTS. maxFeatures counts TRAIL POINTS,
 // not aircraft — this layer draws one selected aircraft's history.
-export const maxFeatures = 512;
+export const maxFeatures = FT_MAX_FEATURES;
 export const vramBudget = 2; // MB
