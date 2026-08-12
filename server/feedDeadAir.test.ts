@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 import {
   parseArchiveHourMs, feedDeadAir, feedDeadAirCheck, newestArchiveHourFile,
   observeFeedDeadAir, FEED_DEAD_AIR_HOURS, CONTINUOUS_FEEDS,
@@ -154,4 +157,30 @@ test("observeFeedDeadAir reports ok when every continuous feed is current", () =
     vessels: ["2026-08-12-02.jsonl"],
   });
   assert.equal(observeFeedDeadAir(AUG12_02Z, base).status, "ok");
+});
+
+// ── the outage this module itself caused, ratcheted shut ─────────────────────
+
+test("RATCHET: the feeds check never flips /api/health's top-level status", () => {
+  // v1.0.667 wired this check so that dead air set `checks.status =
+  // "degraded"`. railway.json health-gates deploys on /api/health, and the
+  // handler maps any non-"ok" top-level status to HTTP 503 — so with the
+  // vessels feed genuinely dead, every new container failed its healthcheck,
+  // never took over, and the whole site served 502 for ~15 minutes with
+  // restartPolicy ALWAYS retrying. A monitoring signal must never be able to
+  // take down the system it monitors. The alarm stays in the payload
+  // (feeds.status / feeds.dead / feeds.detail); it just cannot gate the probe.
+  const src = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const i = src.indexOf("const feedAir = observeFeedDeadAir(");
+  assert.ok(i > 0, "feeds check not found in bot.ts — did it move?");
+  // bound the window to THIS check — the next check (licensing) legitimately
+  // sets checks.status, and a sloppy window would read its assignment as ours
+  const end = src.indexOf("// Check ", i);
+  const block = src.slice(i, end > i ? end : i + 900);
+  assert.doesNotMatch(
+    block, /checks\.status\s*=/,
+    "the feeds dead-air check must not assign checks.status — it would 503 Railway's healthcheck and take the site down",
+  );
+  assert.match(block, /gates_top_level_status:\s*false/,
+    "the feeds block must declare gates_top_level_status:false so this contract is visible in the payload");
 });

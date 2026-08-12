@@ -1304,14 +1304,32 @@ print(json.dumps(data))
     // is the right one. This measures the archive on disk (the one clock a
     // redial, a restart or a deploy cannot reset) and makes no claim about
     // WHY a feed went quiet — see feedDeadAir.ts.
+    //
+    // *** THIS CHECK MUST NEVER FLIP THE TOP-LEVEL `status`. *** Read this
+    // before "fixing" the apparent inconsistency with checks 5/5b/6.
+    // /api/health answers TWO different questions with one payload:
+    //   - to a human/DAILY routine: "is anything wrong?"
+    //   - to Railway: "should this container serve traffic?" — railway.json
+    //     sets healthcheckPath=/api/health, and the handler below maps any
+    //     non-"ok" top-level status to HTTP 503.
+    // A dead INGEST feed does not mean the app cannot serve traffic. When
+    // this check first shipped (v1.0.667) it did flip the top-level status,
+    // and because the vessels feed is genuinely dead, every new container
+    // answered Railway's probe with 503, failed its healthcheck, and never
+    // took over — a monitoring signal took the whole site down (~15 min of
+    // 502s, restartPolicy ALWAYS re-running it). A detector that can kill
+    // the system it watches is worse than no detector.
+    // The alarm stays LOUD without that power: `feeds.status`, `feeds.dead`
+    // and `feeds.detail` are right here in the payload for any routine that
+    // reads it, and the layer panel already reports a down feed to users.
     const feedAir = observeFeedDeadAir(Date.now());
     checks.checks.feeds = {
       status: feedAir.status,
       dead: feedAir.dead,
       feeds: feedAir.feeds,
       ...(feedAir.detail ? { detail: feedAir.detail } : {}),
+      gates_top_level_status: false,
     };
-    if (feedAir.status !== "ok") checks.status = "degraded";
 
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
