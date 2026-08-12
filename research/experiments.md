@@ -48216,3 +48216,115 @@ literal in two spaceFrame call sites).
 RATCHET (rule 3): lroc.test.ts pins the exact desktop-floor case —
 unclamped 1.1° half-span at 754 px/deg returns null (the bug), the
 clamped request plans at z≥10 within budget.
+
+## 2026-08-12 (scheduled-routine session) [PIPELINE] — T-DATACORE (server/datacoreArchive.ts, server/gnssIntegrityQuery.ts + tests) — GNSS-integrity Phase 4 bbox pushdown: a small region was still starved by global row-budget dilution after the temporal fix (v1.0.688, PR #803)
+
+TERRITORY: T-DATACORE. SHARED touch minimal and last (package.json +
+package-lock.json version bump only, read-and-increment at commit time).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Live `/api/health`:
+`status:"ok"`, bot `active`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`,
+all three position feeds (aircraft/vessels/trains) `dead:false`,
+`silent_hours` ~0.28 each. No LIVENESS ALARM. KNOWN BROKEN scan: nothing
+open and unfixed (item #29's RECURRENCE #2 already closed 2026-08-12,
+v1.0.675). Loop-health ratio, last 10 tagged entries: 4 REPAIR / 3
+PRODUCT / 3 PIPELINE — well under the 7+ thrash threshold, no meta-problem.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET, took the next queued item
+from open_questions.md rather than starting new research — the
+2026-08-12 (3) PIPELINE entry (GNSS-integrity Phase 4 blocker fix,
+v1.0.685) explicitly left "the actual Phase 4 gate-2 statistical run" as
+NEXT, unblocked once that fix deployed. Confirmed live `server_version:
+"1.0.687"` via `/api/data/layers` (includes v1.0.685) before attempting it.
+
+WHAT HAPPENED ON THE ACTUAL ATTEMPT (the real finding, same pattern as
+the prior session — read the evidence before trusting a "zero signal"
+result, per REASONING STANDARD #10): ran
+`/api/diag/gnss_integrity?days=2026-08-10,2026-08-11&bbox=53,60,17,24
+&limit=50000&token=$DIAG_TOKEN` (Baltic) and the same with a control bbox
+(NY+Paris, `35,55,-80,10`) — BOTH returned `cells: []`, including the
+control, which should never be empty. Root cause #1 (not a new bug):
+`/api/diag/archive?stream=aircraft&day=2026-08-11` rows carry NO
+integrity fields (`ni`/`nic` etc.) at all — checked commit timestamps,
+the Phase 2 writer (`e530881`, "GNSS integrity passthrough — Phase 2:
+the writer (v1.0.662)") merged 2026-08-11T23:19:18-04:00 = 23:19 UTC, so
+only the last ~41 minutes of 2026-08-11 and none of 2026-08-10 could
+carry the fields — expected, no-backfill-by-design per the original
+Phase-2 entry, not a defect. Re-ran against TODAY (2026-08-12,
+`server_version` already includes the writer for the whole day so far):
+global query returned real, populated cells (14 band×origin
+combinations, tens of thousands of rows) — the pipeline works
+end-to-end for data written after the deploy.
+
+Root cause #2 (the actual finding): the SAME today's-data query, scoped
+to the Baltic bbox, returned only 20 broadcast/cruise rows vs. 3157 for
+the control bbox at the identical row budget (`limit=50000`) — nowhere
+near a usable sample for a gate-2 comparison, and suspiciously thin given
+the region should carry meaningful daytime European traffic. Read
+`readArchiveDayEvenSample` (before writing anything, READ BEFORE WRITE):
+its `perFileLimit` counts EVERY row read toward the per-hour-file budget,
+regardless of whether a downstream bbox filter (`aggregateGnssIntegrity`)
+will keep it. A small bbox is a small fraction of GLOBAL traffic, so
+most of a busy hour file's budget was being spent on rows that get
+thrown away one function later — the same class of defect as the
+temporal starvation bug (v1.0.685) fixed one layer up, but on the
+geography axis instead of the hour axis.
+
+FIX: `readArchiveDayEvenSample` gained an optional `rowFilter` predicate
+(generic, not bbox-specific — reusable for any future caller), applied
+INLINE before a row counts against `perFileLimit`. `streamJsonlLines`
+already reads every line of every file regardless of the budget (never
+aborts a file early — confirmed by re-reading the loop), so this costs
+NO extra I/O; it just redirects the same row budget entirely to rows
+that end up used. `readGnssIntegrityWindow` now builds `bbox` into this
+filter and passes it to the reader, instead of relying on
+`aggregateGnssIntegrity`'s bbox check alone (which still runs too, now a
+harmless no-op on already-filtered rows).
+
+RATCHET: 2 new tests. `datacoreArchive.test.ts` pins the reader-level
+contract directly (8 non-matching rows followed by 2 matching ones,
+`perFileLimit=2` — old semantics would starve the 2 matching rows out
+entirely; new semantics keep both). `gnssIntegrityQuery.test.ts`
+reproduces the LIVE ratio observed today (95 non-Baltic rows preceding 5
+Baltic rows in one hour file, `limit=10`) and asserts all 5 Baltic rows
+survive — this test fails against the pre-fix code path (verified by
+temporarily reverting the `rowFilter` threading before finalizing) and
+passes post-fix.
+
+GATES: container started with no `node_modules` (environment gap, not a
+dependency change — `npm install` only synced `package-lock.json`'s own
+version string, zero package adds/removes, confirmed via `git diff`).
+`npx tsx --test server/datacoreArchive.test.ts server/gnssIntegrityQuery.test.ts`:
+44/44 pass. `npm run test:node` (full suite): 1218/1219 pass, 1 failure
+(`pmtiles magic byte`) A/B-verified via `git stash` to be byte-identical
+on unmodified `main` (pmtiles/R2 migration, environment-dependent,
+unrelated — same failure class the 2026-08-12 CI-gap wishlist entry
+already documents). `npm run check` (tsc): 3 errors, A/B-verified
+identical before/after via `git stash` (NOTE: this is far fewer than the
+83 the two immediately-prior sessions recorded as baseline on the same
+day — re-verified twice via stash, genuinely 3 both before and after
+this diff in THIS container; likely a cache/environment difference
+between sessions rather than a real baseline change, flagging honestly
+rather than silently using either number). `npm run build`: clean. No
+`.tsx`/client files touched — VISUAL VERIFICATION does not apply
+(T-DATACORE, server-only). Python suite not run: zero `.py` files
+changed, `pytest` not installed in this container (same precedent as the
+prior session in this thread). Version bumped 1.0.687 -> 1.0.688
+(read-and-increment at commit time).
+
+BACKTEST: N/A per PROMOTION RULE 3 — datacore read-path infrastructure
+fix, no scoring/sizing/trading logic touched.
+
+HONEST CAVEAT: this PR still does NOT produce the actual Phase 4 gate-2
+statistical result — it removes a second infrastructure blocker to
+running it correctly. The signal (GPS interference from ADS-B integrity
+fields, 2026-08-11 Bilawal-scan candidate #1) remains UNVALIDATED at
+ladder gate 1/2. NEXT (whoever picks this back up, after this deploys
+and a few more days of writer-live archive accumulate): re-run the exact
+Baltic-vs-control comparison from today with a wider date range once
+more post-writer days exist, and this time actually log the cell
+comparison and a verdict here — that is still the real Phase 4 deliverable
+neither this session nor the prior one reached.
+
+PR: https://github.com/mctils12-arch/voltradeai/pull/803
