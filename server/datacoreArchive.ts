@@ -92,10 +92,12 @@ export interface AircraftPoint {
   provider?: string | null;
 }
 
+export type ArchiveOrigin = "broadcast" | "ground" | "mode_s" | "unknown";
+
 /** ORIGIN decode for pos_type — the ONE place broadcast vs ground-derived is
  *  defined, so every API/export/UI reads the same table. "unknown" for an
  *  absent or unrecognised value (honest: never guessed). */
-export function originOfPosType(posType: string | null | undefined): "broadcast" | "ground" | "mode_s" | "unknown" {
+export function originOfPosType(posType: string | null | undefined): ArchiveOrigin {
   if (!posType) return "unknown";
   if (posType.startsWith("adsb") || posType.startsWith("adsr")) return "broadcast";
   if (posType === "mlat" || posType.startsWith("tisb")) return "ground";

@@ -3,6 +3,98 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 (scheduled-routine session) [PIPELINE] — T-DATACORE — GNSS integrity passthrough, Phase 3 (the read/query path) (v1.0.665)
+
+TERRITORY: T-DATACORE (new `server/gnssIntegrityQuery.ts` + test, plus
+`server/bot.ts`/`server/diag.ts` to wire a new token-gated diag probe).
+SHARED touch minimal: `package.json` version bump only, read-and-increment
+at commit (branch HEAD == origin/main HEAD, no rebase needed).
+
+SESSION-START CHECKS (this is a [PRODUCT] scheduled routine): CLAUDE.md
+read in full. Live health (`/api/health`): `status:"ok"`, `bot.status:
+"active"`, `liveness.dark` absent, Alpaca `ACTIVE`, drawdown 0% — no
+LIVENESS ALARM. KNOWN BROKEN header + open PR list checked (no open PR on
+this session's branch — safe to push per the 2026-08-11 ops finding two
+entries below). Nothing critical-and-unfixed blocked product work.
+
+WHY THIS ACTION: the 2026-08-11 PIPELINE entry (two below) shipped Phase 1
+(ground-truth validation against live snapshots — passed) and Phase 2 (the
+archive writer, v1.0.662) for the GNSS-integrity passthrough, and named its
+own NEXT step explicitly: "Phase 3 read/query path (numerator+denominator,
+origin split, no bare rates)". The same-day adversarial-verification pass
+(also below) called this "the strongest find of the scan" and forced the
+exact shape Phase 3 had to take: 91.7-96.4% of the anomalous nic==0 rows
+carry `mlat` fields (ground-computed by the receiver network's
+multilateration solver, not broadcast by the aircraft), so any aggregate
+that doesn't split by origin conflates two different phenomena. No
+concurrent session had touched this — confirmed via grep for
+gnssIntegrity/gpsInterference/integrityStats before starting.
+
+WHAT SHIPPED: `server/gnssIntegrityQuery.ts` — a pure aggregator
+(`aggregateGnssIntegrity`) that buckets archived aircraft rows into
+altitude-band (ground/low <10kft/mid 10-25kft/cruise >=25kft/unknown) ×
+origin (broadcast/ground/mode_s/unknown, via the existing
+`originOfPosType` decode) cells, each carrying `n_total` (denominator:
+rows with a present `ni` reading) and `n_zero` (numerator: nic==0) TOGETHER
+— the module has no code path that returns a bare rate. Rows missing `ni`
+are excluded from every denominator (absence is not a zero). A thin async
+multi-day reader (`readGnssIntegrityWindow`) sits on top, built entirely on
+the existing `readArchiveDay`/`streamJsonlLines` primitives — no new
+archive I/O format. Wired as a new token-gated diag probe
+(`/api/diag/gnss_integrity?days=...&bbox=...&limit=...`, registered in
+`diag.ts`'s `DIAG_PROBES` whitelist) so a future session can run the actual
+gate-2 statistical comparison (e.g. Baltic bbox vs. a control bbox) without
+re-deriving counts by hand from raw `archive`-probe rows every time
+(EDGE DOCTRINE #3: compile the reasoning into code once). The probe returns
+ONLY aggregate counts — no per-row lat/lon/tail/callsign — a smaller
+exposure than the existing `archive` probe it sits next to.
+
+VERIFIED LIVE (read-only, via the already-deployed generic `archive` probe,
+before building — confirms the writer is genuinely producing integrity
+fields in production, not just in the PR that claimed it): `/api/diag/
+archive?stream=aircraft&day=2026-08-12&limit=50` returns rows with
+`ni/np/nv/si/rc/gv/sd/nb/pt` populated (e.g. `pt:"adsb_icao"` broadcast
+rows alongside `pt:"mlat", ml:["...","nic","rc"]` ground-derived rows) —
+the schema-version-3 writer (v1.0.662) is live and archiving as designed.
+2026-08-11's earlier hours (00-06 UTC, before that day's deploy) predictably
+lack the fields — expected, not a defect (the archive is honest that it
+cannot backfill what it never wrote, per KNOWN STATE).
+
+TESTS (+11, all new): `gnssIntegrityQuery.test.ts` covers band assignment
+(ground-flag priority, threshold boundaries, unknown-on-missing-altitude),
+bbox filtering (including rows missing lat/lon), the no-bare-rate
+numerator/denominator contract, the origin split (the exact broadcast-vs-
+mlat-vs-tisb-vs-mode_s-vs-unknown case the adversarial verification forced),
+altitude-band separability, distinct-airframe counting, and the multi-day
+reader's honest `days_missing` reporting + truncation surfacing. Added one
+test to `diag.test.ts` following the existing per-probe convention (asserts
+the probe is whitelisted, wired, validates its params, calls the shared
+reader, and never echoes per-row fields back). Full suite:
+`npm run test:node` 1177/1179 pass — the 2 reds (pmtiles fixtures,
+datamap registry ratchet) are the same pre-existing, diff-independent
+failures the 2026-08-11 Phase 2 entry already documented; my additions are
+clean. `npm run check` (tsc): zero errors attributable to any file this PR
+touches (grep-confirmed against the pre-existing unrelated errors already
+present on a clean `npm install` in this container — Buffer/downlevelIteration/
+pngjs-types issues untouched by this diff). Python suite not run locally
+(pytest not installed in this container and zero .py files changed by this
+diff) — CI's Python job covers it.
+
+BACKTEST: N/A (datacore read/query infrastructure; no trading logic, no
+strategy/parameter change).
+
+NEXT (not built this session, still queued from the 2026-08-11 verdict):
+Phase 4 — an actual gate-2 statistical run using this probe once enough
+archive days accumulate (writer went live 2026-08-11; as of this session
+there is well under 24h of history, too thin for a real Baltic-vs-control
+comparison — a future session should call `/api/diag/gnss_integrity` with
+a multi-week `days` list and both a Baltic and a control `bbox`, and log
+the actual band/origin cell counts here). The verified verdict's proposed
+zone-level aggregator (binned on the gpsOk "transition locus" — where GPS
+was actually lost, 14-199km behind the current position) is a distinct,
+more ambitious future build on top of this read path, not required for
+Phase 3 itself.
+
 ## 2026-08-11 [PIPELINE] — T-DATACORE — GNSS integrity passthrough, Phase 1 (falsification gate) + Phase 2 (the writer) (v1.0.662)
 
 TERRITORY: T-DATACORE (`server/aircraftTiling.ts`, `server/datacoreArchive.ts`,

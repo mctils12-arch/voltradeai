@@ -11,6 +11,7 @@ import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay } from "./datacoreArchive";
+import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
@@ -2293,6 +2294,46 @@ print(json.dumps(s))
             files: result.files, count: result.rows.length, truncated: result.truncated,
             rows: result.rows.map((r) => sanitizeDiag(r)),
           });
+        }
+        case "gnss_integrity": {
+          // ADDED 2026-08-12 (scheduled-routine PRODUCT session): GNSS
+          // integrity passthrough PHASE 3, the read/query path. Phase 1
+          // (ground-truth validation) and Phase 2 (the archive writer)
+          // shipped 2026-08-11 (v1.0.662) — every check since has had to
+          // hand-derive band/origin counts from raw "archive" probe rows.
+          // This probe runs the compiled aggregator (gnssIntegrityQuery.ts)
+          // server-side instead, over N archived days, and returns ONLY
+          // band x origin count cells (n_total/n_zero/distinct_airframes)
+          // — no per-row lat/lon/tail data leaves this endpoint, a smaller
+          // exposure than the "archive" probe already token-gates.
+          // `days` = comma-separated YYYY-MM-DD, capped at 21 (three weeks)
+          // to bound one call's read volume; `bbox` = "lamin,lamax,lomin,lomax"
+          // (optional — omit to aggregate globally); `limit` = per-day row
+          // cap passed through to readArchiveDay (readGnssIntegrityWindow's
+          // default), capped at 50,000.
+          const daysParam = String(req.query.days || "").trim();
+          const days = daysParam.split(",").map((d) => d.trim()).filter(Boolean).slice(0, 21);
+          if (!days.length || !days.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))) {
+            return res.status(400).json({ error: "invalid days (expected comma-separated YYYY-MM-DD, max 21)" });
+          }
+          let bbox: Bbox | undefined;
+          const bboxParam = String(req.query.bbox || "").trim();
+          if (bboxParam) {
+            const parts = bboxParam.split(",").map(Number);
+            if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+              return res.status(400).json({ error: "invalid bbox (expected lamin,lamax,lomin,lomax)" });
+            }
+            bbox = { lamin: parts[0], lamax: parts[1], lomin: parts[2], lomax: parts[3] };
+          }
+          const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20000"), 10) || 20000, 1), 50_000);
+          const result = await readGnssIntegrityWindow(days, bbox, undefined, limit);
+          return res.json(sanitizeDiag({
+            probe: "gnss_integrity",
+            days_requested: days, days_read: result.days_read, days_missing: result.days_missing,
+            bbox: bbox || null,
+            rows_scanned: result.rows_scanned, truncated: result.truncated,
+            cells: result.cells,
+          }));
         }
         case "shadow": {
           // ADDED 2026-08-03 (scheduled-routine session): read-only

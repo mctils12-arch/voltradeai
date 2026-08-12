@@ -192,3 +192,24 @@ test("shadow probe (2026-08-03): wired, reuses get_shadow_stats() unchanged, san
   assert.ok(!/\bticker\b|\bsymbol\b/.test(statsBody.replace(/#.*$/gm, "")),
     "get_shadow_stats() must stay aggregate-only (no per-ticker fields) — this probe has no additional filtering beyond sanitizeDiag");
 });
+
+test("gnss_integrity probe (2026-08-12, GNSS integrity Phase 3): wired, validates days/bbox, aggregates via the shared reader, never leaks per-row fields", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("gnss_integrity"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./gnssIntegrityQuery"') && bot.includes("readGnssIntegrityWindow"),
+    "gnss_integrity probe must reuse the shared readGnssIntegrityWindow aggregator, not re-derive counts inline");
+  const start = bot.indexOf('case "gnss_integrity"');
+  const end = bot.indexOf('case "shadow"', start);
+  assert.ok(start > 0 && end > start, "gnss_integrity probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(/\\d\{4\}-\\d\{2\}-\\d\{2\}/.test(block), "days param must be validated as YYYY-MM-DD");
+  assert.ok(block.includes(".slice(0, 21)"), "days must be capped (bounded read volume per call)");
+  assert.ok(block.includes("readGnssIntegrityWindow("), "must call the shared reader/aggregator");
+  assert.ok(block.includes("sanitizeDiag"), "gnss_integrity probe must pass the sanitizer like every other probe");
+  assert.ok(!/\bla\b.*:.*row|row\.la\b/.test(block), "response shape must not echo per-row lat/lon back to the caller");
+  const mod = fs.readFileSync(path.join(here, "gnssIntegrityQuery.ts"), "utf8");
+  assert.ok(mod.includes("n_total") && mod.includes("n_zero"),
+    "the aggregator must expose numerator (n_zero) and denominator (n_total) together — never a bare rate");
+  assert.ok(mod.includes("originOfPosType"),
+    "the aggregator must split by origin (broadcast vs ground-derived) per the 2026-08-11 adversarial-verification finding");
+});
