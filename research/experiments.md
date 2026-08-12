@@ -3,6 +3,78 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 (scheduled-routine session, market-hours) [REPAIR] — T-BOT (options_execution.py) — CSP no-affordable-puts error stops claiming a $0 strike, closing the 2026-07-28 "RELATED SMALL DEFECT" (v1.0.684, PR #797)
+
+Territory: T-BOT. Session start per SESSION BUDGET: read CLAUDE.md, this
+file, open_questions.md, wishlist.md. Loop-health ratio on the last 10
+tagged entries: 5 REPAIR / 3 PRODUCT / 2 PIPELINE — well under the 7+
+thrash bar, no meta-problem override. `/api/health` clean (server/db/
+alpaca/python/scanner all ok, bot active, `liveness.dark: false`,
+0 dead feeds). Per SESSION BUDGET, checked the live audit log next
+(primary action = "fix a bug seen in audit logs") and found one within
+the first 80 entries.
+
+WHAT I FOUND: `/api/diag/audit?token=$DIAG_TOKEN` showed repeated
+`T2-FAIL` lines for KORU: `"All available puts exceed position budget
+for KORU: smallest strike $0 needs $0, but max affordable per-position
+is $2,189 ... cash_available=$35,165. Underlying too expensive at
+$19.89 for this account."` — internally inconsistent: $19.89 is well
+under the $21.89 a $2,189 budget could afford, so "too expensive" is
+false on its own numbers. Grepping the message text found this exact
+defect ALREADY DIAGNOSED, not yet fixed: `research/open_questions.md`'s
+2026-07-28 CSP CAPITAL ALLOCATION entry names it as a "RELATED SMALL
+DEFECT" seen previously on HYG — `min((p.get("strike", 0) for p in
+puts), default=0)` silently defaults to a fake $0 strike whenever
+`puts` (the `strike <= price` candidate list) is itself empty, i.e. the
+fetched chain has zero OTM/ATM puts for that ticker. That's a different,
+more mundane failure mode ("no candidate puts in the chain") than "every
+candidate is unaffordable" — the pre-fix code collapsed both into one
+misleading message.
+
+FIX: `options_execution.py::_select_sell_put()` now checks `if not
+puts:` before computing `smallest_strike`, returning `"No OTM puts
+available for {ticker}: N put(s) in the fetched chain, none struck at
+or below the current price ${price}"` — naming the real cause instead
+of a fabricated $0 strike and a false "too expensive" claim. The
+graduated-degradation stretch path below (cheapest strike still exceeds
+even the 20%-of-equity stretch ceiling) is untouched — that's the
+correct place for a genuine "too expensive" message and still emits
+one when `puts` is non-empty.
+
+RATCHET: new `test_sell_put_no_otm_strikes_gives_honest_error_not_zero_
+strike` in `test_options_fixes.py`, built from the live KORU shape (put
+chain entirely struck above the current price). A/B-verified via `git
+stash`: fails against pre-fix code, reproducing the exact live "$0"
+message; passes post-fix. `python3 -m pytest -q`: 1305 passed, 2
+skipped, 0 failed (1300 baseline + 5 new/changed in
+`TestSizePctParameter`, zero regressions). No `.ts`/`.tsx` files
+touched and no call-site signature change (`_select_sell_put`'s only
+callers, `csp_universe.py`/`tiered_strategy.py`, are both Python), so
+`tsc`/`npm run build`/visual harness gates don't apply — same
+precedent as the 2026-08-12 diagnostics.py [REPAIR] entry below.
+Version bumped package.json 1.0.683 -> 1.0.684 (read-and-increment at
+commit time).
+
+BACKTEST: N/A per PROMOTION RULE 3 — diagnostic-error-message fix
+only; the function's affordability decision and every non-empty-`puts`
+code path are byte-identical before and after, so no scoring/sizing/
+trading logic changed for any candidate this function already accepts
+or rejects.
+
+MARKET-HOURS NOTE: this scheduled run occurred during market hours
+(session start ~16:00 UTC / 12:00pm ET). Per the task's own instruction
+and since this is a diagnostic-message fix, not a critical live break,
+PR #797 is flagged to hold merge until after 4:00 PM ET rather than
+auto-merging under the AUTONOMY AUTHORIZATION's "CI green + promotion
+rules satisfied" clause.
+
+NEXT: the sibling live occurrence on HYG (2026-07-28) and the broader
+CSP CAPITAL ALLOCATION open question (should the bot reserve a cash
+sleeve for options collateral?) in the same open_questions.md entry
+remain open — this PR closes only the diagnostic-message defect, not
+the underlying capital-allocation research question, which still needs
+a backtest_v2 ablation before any threshold change per RULE REVIEW.
+
 ## 2026-08-12 [PRODUCT] — T-CLIENT — RENDERING & MOTION OVERHAUL session 2: PRs 8a/8b/9/10a (v1.0.679-682, PR #795)
 
 TERRITORY: T-CLIENT. SHARED: package.json, test_audit_critical.py, research/*.
