@@ -2528,6 +2528,26 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   max-height: 24vh; overflow-y: auto; overscroll-behavior: contain;
   min-height: 0;
 }
+
+/* ── DETAILS EXPANSION (2026-08-12, live report: "the log data is smashed up
+   to where you can't read it ... when you click DETAILS it should drop down
+   bigger so you can read it") ─────────────────────────────────────────────
+   The 60vh cap above was applied in EVERY state. Collapsed that is right —
+   a popup must not fill the screen. Expanded it was the bug: head + stats +
+   watch + a 24vh flights list + Follow + freshness consume nearly the whole
+   60vh, so .vt-card-detbody inherited a ~60px sliver and the facts became an
+   unreadable scroll box with its own scrollbar.
+   Fix: the cap is now STATE-DEPENDENT. Compact when closed, tall when the
+   user has explicitly asked for more, and the flights list yields its space
+   to the details body rather than competing with it. */
+.vt-site-card:not(.vt-card-closed) { max-height: 85vh; }
+.vt-site-card:not(.vt-card-closed) .vt-trips-list { max-height: 13vh; }
+/* The details body is the growth region once open — it takes the slack
+   instead of being the only thing squeezed. */
+.vt-site-card:not(.vt-card-closed) .vt-card-detbody {
+  flex: 1 1 auto;
+  min-height: 132px;
+}
 @keyframes vt-card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .vt-site-card-head {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -2604,7 +2624,15 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border-top: 1px solid rgba(120, 168, 255, 0.1);
   padding: 12px 14px 16px;
 }
-.vt-card-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+/* Auto-fit rather than a hard 2-up: at the card's 352px width a label like
+   "COUNTRY (ICAO ALLOC)" wrapped to three lines in a ~150px column. This
+   drops to a single column when the content needs it, and stays 2-up when
+   it fits. */
+.vt-card-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px 16px;
+}
 .vt-card-fact { min-width: 0; }
 .vt-card-fact-l {
   font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em;
@@ -2617,6 +2645,7 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   .vt-site-card:not(.vt-site-card-min) {
     left: 0; right: 0; top: auto; bottom: 0; width: auto;
     max-height: 74dvh;
+    /* expanded sheet may take more of the screen — the user asked for it */
     border-radius: 16px 16px 0 0; border-bottom: none;
     background: rgba(11, 19, 34, 0.96);
     box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.5);
@@ -2629,6 +2658,7 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     touch-action: none; flex: 0 0 auto;
   }
   .vt-card-handle i { width: 38px; height: 4px; border-radius: 2px; background: #33507f; display: block; }
+  .vt-site-card:not(.vt-site-card-min):not(.vt-card-closed) { max-height: 88dvh; }
   /* collapsed sheet (1c): header + chips only — the handle expands it */
   .vt-card-closed .vt-card-actions,
   .vt-card-closed .vt-card-details-toggle { display: none; }
