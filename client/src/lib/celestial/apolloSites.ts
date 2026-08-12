@@ -94,3 +94,57 @@ export const APOLLO_IMAGERY_NOTE =
   "Our streamed mosaic is LROC WAC (~76–100 m/px) — Apollo hardware is sub-pixel here. " +
   "The descent stages, experiment packages, rover tracks and foot trails ARE resolved in " +
   "LROC NAC frames (~0.5 m/px, public domain) — NAC site tiles are a filed follow-up.";
+
+// ── persisted preference (the orbitPath/scaleModel localStorage pattern) ─────
+// Human directive 2026-08-12: "i want it shown on the moon and a toggle in
+// the layers under celestial". The markers shipped in v1.0.668 with no way
+// to turn them off; this is that switch, and it lives with its data the way
+// orbitPath.ts hosts its own.
+//
+// DEFAULT ON. These are documented survey coordinates drawn on a real
+// imagery mosaic — RAW geometry with a stated source, not a prediction, so
+// no ladder gate applies (same reasoning as orbit paths).
+
+export const APOLLO_SITES_PREF_KEY = "vt.celestial.apolloSites";
+
+export function readApolloSitesPref(): boolean {
+  try {
+    const raw = globalThis.localStorage?.getItem(APOLLO_SITES_PREF_KEY);
+    if (raw === "0") return false;
+    if (raw === "1") return true;
+  } catch { /* no storage — default */ }
+  return true;
+}
+
+let apolloOn: boolean = readApolloSitesPref();
+const apolloListeners = new Set<() => void>();
+
+export function getApolloSitesPref(): boolean {
+  return apolloOn;
+}
+
+export function setApolloSitesPref(on: boolean): void {
+  if (on === apolloOn) return;
+  apolloOn = on;
+  try {
+    globalThis.localStorage?.setItem(APOLLO_SITES_PREF_KEY, on ? "1" : "0");
+  } catch { /* best-effort */ }
+  for (const fn of Array.from(apolloListeners)) {
+    try { fn(); } catch { /* listener owns its errors */ }
+  }
+}
+
+export function subscribeApolloSitesPref(fn: () => void): () => void {
+  apolloListeners.add(fn);
+  return () => { apolloListeners.delete(fn); };
+}
+
+/** All six sites are on the NEAR side (the Earth-facing hemisphere) — that
+ *  is a fact about Apollo, not a limitation of ours: every mission needed a
+ *  direct Earth radio link from the surface. So markers are invisible
+ *  whenever the far side faces the camera, and the toggle's status line says
+ *  so rather than leaving the user to wonder why an enabled layer is blank.
+ *  Max |lon| across the six sites is ~31°, i.e. all well inside ±90°. */
+export const APOLLO_NEAR_SIDE_ONLY_NOTE =
+  "all 6 sites are on the near side (Earth-facing) — every mission needed a direct " +
+  "Earth radio link, so none are on the far side; rotate to the Earth-facing hemisphere to see them";

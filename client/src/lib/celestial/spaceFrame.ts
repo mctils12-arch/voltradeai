@@ -258,7 +258,7 @@ import {
   type MoonSurfaceView,
   type DetailOverlay,
 } from "./moonSurface.js";
-import { APOLLO_SITES } from "./apolloSites.js";
+import { APOLLO_SITES, getApolloSitesPref } from "./apolloSites.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -1353,6 +1353,9 @@ export interface SpaceFrameOptions {
   /** B3 initial orbit-paths visibility (default: the persisted preference —
    *  ON on first run). */
   orbitPaths?: boolean;
+  /** Apollo landing-site flag markers on the Moon (default: the persisted
+   *  preference — ON). Human directive 2026-08-12. */
+  apolloSites?: boolean;
   /** Space-view visual toggles (defaults: the persisted preferences). */
   milkyWay?: boolean;
   /** Real bright-star point layer (Yale BSC). Default: the persisted pref (ON). */
@@ -1409,6 +1412,8 @@ export interface SpaceFrameHandle {
   /** B3: toggle the orbit-ellipse polylines (cached lines restyle, never
    *  resample, on scale changes — the charter's slider rule). */
   setOrbitPaths(on: boolean): void;
+  /** toggle the Apollo landing-site flag markers on the Moon. */
+  setApolloSites(on: boolean): void;
   setMilkyWay(on: boolean): void;
   /** toggle the real bright-star point layer (Yale BSC). */
   setStars(on: boolean): void;
@@ -1642,6 +1647,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   // and only RE-LAID-OUT when the compression slider moves (memoized per c).
   // Resampled only when the sim clock drifts past the staleness window. ──
   let orbitsOn = opts.orbitPaths ?? getOrbitPathsPref();
+  let apolloSitesOn = opts.apolloSites ?? getApolloSitesPref();
   interface OrbitEntry {
     line: OrbitPolyline;
     /** heliocentric lines: compressed layout memo (satellite lines never
@@ -3246,7 +3252,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     {
       const moonDrawnS = drawn.find((x) => x.id === "moon");
       const moonPos = pos["moon"];
-      if (moonDrawnS && moonPos && !moonDrawnS.behind && moonDrawnS.discPx >= 56) {
+      // apolloSitesOn (2026-08-12): the panel toggle. When off, nothing is
+      // drawn AND siteRects stays empty, so the click hit-test cannot fire
+      // on invisible markers.
+      if (apolloSitesOn && moonDrawnS && moonPos && !moonDrawnS.behind && moonDrawnS.discPx >= 56) {
         const R = radiusM("moon");
         const Zs = norm3(axisEclOfDate("moon", timeMs));
         const Xs = norm3(equatorNodeDirEclOfDate("moon", timeMs));
@@ -4110,6 +4119,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       orbitsOn = on;
       lastInputAt = performance.now();
       kick(); // paths appear (sampling streams in) or vanish next frame
+    },
+    setApolloSites(on: boolean): void {
+      if (on === apolloSitesOn) return;
+      apolloSitesOn = on;
+      lastInputAt = performance.now();
+      kick(); // flags appear or vanish next frame
     },
     setMilkyWay(on: boolean): void {
       if (on === milkyOn) return;
