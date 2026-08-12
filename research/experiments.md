@@ -48163,3 +48163,35 @@ the same call with a control bbox, e.g. NY+Paris `35,55,-80,10`) and log
 the actual cell counts here — that is the real Phase 4 result this
 session set out to produce and didn't reach, because the tool it needed
 didn't work yet.
+
+## 2026-08-12 — [REPAIR] Time zone lines toggle permanently "reload to enable" (v1.0.686)
+
+Territory: T-CLIENT (one line) + research/. Found because the human
+asked "where the toggle for on and off in the layers?" — the honest
+answer was that the toggle existed and had never worked.
+
+ROOT CAUSE: #774 shipped the tz-lines layer with full wiring + the
+registry entry (group "base") but no LAYER_GROUP declaration in
+datamap.tsx. The panel's unwired guard (R15) treats absence from
+LAYER_GROUP as "registry newer than bundle" and renders the toggle
+disabled with "reload to enable" — a reload no reload fixes. The R15
+regression ratchet (server/layersWiring.test.ts) catches EXACTLY this
+and fails on main — but CI never runs test:node (pytest + tsc-soft +
+build only), so #774 merged green. Two-layer failure: a missing
+declaration AND a ratchet outside the CI gate.
+
+FIX: LAYER_GROUP += timezones:"base" (the ratchet goes green).
+Verified end-to-end in a driven browser against the built bundle:
+toggle flips, "129 timezones" active, borders (solid) + dateline/
+nautical meridians (dashed) draw. Screenshots sent to the human.
+
+FILED: wishlist.md frozen-path proposal — add `npm run test:node` to
+ci.yml's node-build job (workflows frozen, human approval), plus a
+PROMOTION RULES reading fix (rule 1 names pytest only, which is how
+this slipped local gates too) and the gridTiles.test.ts R2-migration
+cleanup that currently fails in any fresh clone.
+
+RATCHET note (rule 3, repairs ship with a regression test): the test
+already exists and already catches this — the missing piece is CI
+running it, which is the wishlist proposal. No new test needed; the
+defect is unrepresentable once test:node gates merges.
