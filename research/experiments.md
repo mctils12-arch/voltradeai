@@ -47813,3 +47813,130 @@ correctly reporting `False` would mean stop patching this check's timing
 entirely and redesign the underlying `os.path.exists()` cache check
 (section 4) instead — the section-4/section-1 duplication v1.0.667 already
 flagged as the likely next structural step.
+
+## 2026-08-12 (3) [PRODUCT] — T-DATACORE/T-CLIENT — submarine telecom/power
+cables: OSM ODbL raw overlay, corrected coverage number (v1.0.676)
+
+Territory: cross-cuts T-DATACORE (new datacore/ pipeline) and T-CLIENT
+(new /data map layer) — one logical feature, shipped together per the
+WORKSTREAM PARTITION rule that a cross-territory change belongs wholly to
+the session owning its primary work, not split. Scheduled-routine PRODUCT
+session; system health at start was clean (`/api/health`: bot active,
+liveness.dark false, drawdown 0.0%, no dead feeds) — no repair item
+blocked product work.
+
+PRIMARY ACTION: research/open_questions.md's "Bilawal-derived build
+candidates" scan (2026-08-11) verdicted item 4 (submarine cables)
+SHIPPABLE — OSM's `way["seamark:type"="cable_submarine"]` tag is ODbL,
+commercially clean, and a prior probe's 169,074 km figure was a live-
+verified 42% undercount from a malformed query. Nothing existed for this
+in the repo (`grep -rl "cable_submarine"` returned zero hits before this
+PR). Built it end to end: pipeline, API route, and map layer/legend, in
+one PR (RAW overlay — no interpreted claim, so no ladder gating applies
+per the RAW OVERLAYS vs SIGNALS rule).
+
+WHAT SHIPPED:
+- `scripts/submarine_cables_build.py` — manual quarterly-refresh builder
+  (same pattern as `military_installations_build.py`), global Overpass
+  query tiled into 17 world regions (a single global query connection-
+  resets/times out on both public mirrors — verified live, twice). Added
+  two resilience layers past the military-installations precedent,
+  because this dataset is far larger and hit real live failures during
+  the build: (1) per-tile disk cache (`/tmp/voltradeai_submarine_cables_
+  cache`, keyed by bbox hash) so a killed/restarted run resumes past
+  completed tiles instead of re-fetching from scratch; (2) auto-split-on-
+  failure — a tile that fails is halved along its longer dimension and
+  each half retried recursively (up to depth 3, floor 4°), rather than
+  the whole region being silently dropped. Both paid off live: 4 of 17
+  top-level tiles failed outright on the first attempt (`HTTP 504` from
+  the kumi mirror) and fully recovered via splitting — `failed_leaf_
+  regions: 0` in the final artifact. Length is computed via haversine on
+  the FULL-resolution source polyline before any simplification;
+  rendered geometry is Douglas-Peucker-simplified (~1.5 km tolerance,
+  disclosed in the artifact) purely for map display.
+- `datacore/submarine_cables.json` — 8,661 way segments, ~278,123 km
+  union, 18.5% of the ~1.5M km TeleGeography industry benchmark (a cited
+  reference number, not an ingested dataset). Category split: telecom
+  1,376, power 1,624, mixed 22, other 25, **unclassified 5,614 (64.8%)**.
+  HONEST FINDING, not a classifier bug: traced the unclassified majority
+  to its actual tag sets (via the fetch cache, no re-query needed) —
+  4,801 of them are Finnish Väylä-sourced Baltic geometry tagged
+  `submarine=yes`/`seamark:type=cable_submarine` with NO
+  `seamark:cable_submarine:category` or `communication`/`power` tag at
+  all; a further 496 carry only the bare `seamark:type` tag. The source
+  simply doesn't carry a category for these — `classify_category()`
+  correctly returns "unclassified" rather than guessing, and the
+  artifact's provenance banner now states this explicitly (segment count
+  + %, largest contributor named) so nobody reads a mostly-gray legend as
+  a data gap in OUR pipeline.
+- `NOAA MarineCadastre` — evaluated and REJECTED (per the filed research):
+  its InPort lineage traces to NASCA (a private trade association,
+  "© 2009 NASCA") plus cable-industry vendors and state contributions not
+  covered by 17 USC 105 — not the same public-domain footing as our SEC/
+  EIA/USGS federal layers. Documented in the artifact's own
+  `provenance.rejected_source`, not just in research notes, so the reason
+  survives independent of this file.
+- `server/routes.ts` — `GET /api/data/submarine_cables`, same shape as
+  the `military_installations` route (kind:"raw", predictive:false,
+  banner/attribution/provenance passthrough).
+- `datacore/layers.json` — new `submarine_cables` registry entry:
+  group "facilities", `field:false` (default off — heavy, thousands of
+  segments), `renderKind:"vector"`, provenance block with `commercialOk:
+  true` and the Europe/NE-Atlantic coverage-concentration caveat baked
+  into `description` (not just the API response) so it's visible from
+  the registry alone.
+- `client/src/pages/datamap.tsx` — new render effect (GeoJSON `line`
+  layer, `line-color` = category tint, `line-opacity` reduced for
+  `disused`), detail-card click handler, legend section (5 category
+  swatches + a coverage-concentration note), `Cable` icon (lucide-react,
+  confirmed present at the installed `^0.453.0` range before importing),
+  and the `LAYER_GROUP`/icon-map wiring every new layer needs to avoid
+  the R15 "reload to enable" guard.
+
+RATCHET: `test_submarine_cables_build.py` (19 tests) — haversine against
+a known NY-London great-circle distance, Douglas-Peucker endpoint/corner-
+preservation + collapse behavior, `classify_category` across every real
+tag combination observed in the live data (telecom/power/mixed/mooring/
+disused/no-tags), and `fetch_region`'s cache-hit + auto-split + give-up-
+below-floor behavior with the network mocked out (`monkeypatch`). All
+network-free — CI never touches Overpass. `server/submarineCables.test.ts`
+(4 tests, node:test) — full per-cable schema, provenance honesty
+(NOAA-rejection reason text, non-zero corrected total, `fetch_gaps`
+field), registry entry shape, and default-off wiring.
+
+GATES: `python3 -m pytest -q` — 1317 passed, 2 skipped (1298/2 baseline +
+19 new, zero regressions). `npx tsx --test server/*.test.ts` — 1217
+tests, 1215 pass, 2 fail; the 2 failures are the SAME pre-existing class
+noted in the last several PRs (pmtiles-magic-byte + one LAYER_GROUP-
+registry gap) — A/B'd via `git stash`: the LAYER_GROUP failure is
+`timezones` (left behind by today's earlier PR #786, unrelated to this
+change) reproducing identically on unmodified `origin/main`; my own new
+`submarine_cables` LAYER_GROUP entry is present and not implicated.
+`npx tsc --noEmit` — 83 errors, matching the documented pre-existing
+baseline exactly (`grep -i "submarine\|Cable" tsc_out.log` = 0 hits: this
+PR added zero new type errors). `npm run build` clean (1823 modules,
+`dist/index.cjs` 17.0mb, no new warnings). VISUAL VERIFICATION
+(`node scripts/visual_check.mjs --page data`, all 3 canonical widths):
+0 hard failures, PASS at 390/768/1440 — the pre-existing touch-target/
+clipped-control warnings are unrelated nav-chrome items, unchanged by
+this PR (the new layer defaults off, so it doesn't appear in these
+screenshots at all).
+
+BACKTEST: N/A per PROMOTION RULE 3 — static reference-geography ingest,
+no scoring/sizing/trading logic touched.
+
+FOLLOW-UP FOUND, NOT FIXED (own item, different territory): the tsx test
+run surfaced a live `timezones` LAYER_GROUP gap (test #679, R15 class) —
+a registry layer added by an earlier T-CLIENT session today (#786) that
+never got its `LAYER_GROUP` entry, leaving it permanently "reload to
+enable" in production right now. One-line fix, but out of scope for this
+PR (different feature, would violate ONE-LOGICAL-CHANGE); flagging here
+so the next session picks it up immediately rather than rediscovering it.
+
+NEXT: `scripts/submarine_cables_build.py` is a candidate for the same
+manual-quarterly-refresh cadence as military installations — no
+scheduler needed. A future session could improve the unclassified 65%
+by cross-referencing cable NAMES against a curated telecom-cable name
+list (e.g. TeleGeography's public cable directory) for an inferred (not
+guessed-from-OSM-tags) secondary classification, clearly labeled as
+inferred if built.

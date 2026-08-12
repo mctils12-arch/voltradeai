@@ -9681,7 +9681,20 @@ now independently confirmed as the right one): drop the GEBCO WMS over
 land and render a native hillshade on seafloor-dem. No new hosting, no
 false depths, and it fixes the human's actual complaint.
 
-### 4. SUBMARINE CABLES — SHIPPABLE, BUT MY OWN COVERAGE NUMBER WAS 42% LOW AND THE NOAA PATH IS NOT CLEAN
+### 4. SUBMARINE CABLES — SHIPPED 2026-08-12 (v1.0.676, scheduled-routine PRODUCT session) — see experiments.md
+SHIPPED: `scripts/submarine_cables_build.py` (OSM `seamark:type=cable_submarine`,
+global, tiled + auto-split-on-failure + disk-cached Overpass fetch),
+`datacore/submarine_cables.json` (8,661 way segments, ~278,123 km union,
+18.5% of the TeleGeography ~1.5M km benchmark — supersedes both this
+research's own live-verified number below AND the original undercount it
+corrected), `/api/data/submarine_cables` route, and a `submarine_cables`
+RAW map layer (facilities group, default off, colour = category). Full
+build trace, live numbers, and the honest classification-gap finding
+(65% of segments carry no category tag at all in the source — mostly
+Finnish Väylä-sourced Baltic geometry, disclosed in the artifact's
+provenance banner rather than guessed into telecom/power) are in
+experiments.md. Original research preserved below for context.
+
 Refuters caught a BROKEN PROBE in the verify agent's own evidence: it
 concluded "seamark:type=cable_submarine = 0 ways, THIS IS THE COMPLETE
 SET" from a malformed colon-key query. Live Overpass on one snapshot

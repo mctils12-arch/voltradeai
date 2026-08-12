@@ -286,6 +286,28 @@
    }
   },
   {
+   "id": "submarine_cables",
+   "name": "Submarine cables",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "heavy",
+   "source": "OpenStreetMap contributors (\u00a9 OpenStreetMap contributors, ODbL)",
+   "description": "Submarine telecom and power cable routes as catalogued on OpenStreetMap (way[\"seamark:type\"=\"cable_submarine\"], global). Filed 2026-08-11 (research/open_questions.md) after a prior probe undercounted this tag with a malformed query; this is the corrected live figure, re-derived on each manual refresh \u2014 see the /api/data/submarine_cables response's provenance block for the current total length and coverage vs. the industry (TeleGeography) benchmark. OSM digitization concentrates heavily in Europe / the NE Atlantic (~83% of geometry) \u2014 Asia, Africa, South America and the Pacific look sparse here as a mapping-coverage gap in the SOURCE, not a claim those regions have few cables. Colour by cable category (telecom / power / mixed / other / unclassified) as OSM tags it; route geometry is simplified for rendering (Douglas-Peucker), length_km per cable is computed from the full-resolution source. Static reference dataset, manual quarterly refresh (scripts/submarine_cables_build.py). RAW \u2014 no capacity, traffic, or ownership claims.",
+   "field": false,
+   "altitudeRef": "surface",
+   "time": {
+    "mode": "static"
+   },
+   "renderKind": "vector",
+   "provenance": {
+    "license": "OpenStreetMap ODbL (attribution required)",
+    "commercialOk": true,
+    "coverage": "global, heavily concentrated in Europe / NE Atlantic (~83% of mapped geometry) \u2014 other regions undermapped in the source, not evidence of fewer cables",
+    "confidence": "verified"
+   }
+  },
+  {
    "id": "superfund",
    "name": "Superfund sites (EPA NPL)",
    "kind": "raw",

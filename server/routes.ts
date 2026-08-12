@@ -18,6 +18,7 @@ import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
+import datacoreSubmarineCables from "../datacore/submarine_cables.json";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -3048,6 +3049,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       no_cross_ties: true,
       count: d.count,
       installations: d.installations,
+      provenance: d.provenance,
+    });
+  });
+
+  // Submarine telecom/power cables — STATIC REFERENCE GEOGRAPHY (filed
+  // 2026-08-11, research/open_questions.md "Bilawal-derived build
+  // candidates" item 4; built by scripts/submarine_cables_build.py, same
+  // manual-quarterly-refresh pattern as military_installations above).
+  // OSM `seamark:type=cable_submarine`, ODbL, commercially clean — NOAA
+  // MarineCadastre was evaluated and rejected (see the artifact's
+  // provenance.rejected_source). RAW/FACTUAL: route geometry and category
+  // as OSM catalogues them, no capacity/traffic/ownership claims.
+  app.get("/api/data/submarine_cables", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    const d: any = datacoreSubmarineCables;
+    res.json({
+      kind: "raw", predictive: false,
+      source: "OpenStreetMap contributors (ODbL)",
+      attribution: d.provenance?.attribution,
+      banner: d.provenance?.banner,
+      count: d.count,
+      cables: d.cables,
       provenance: d.provenance,
     });
   });

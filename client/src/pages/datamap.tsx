@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Cable } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -824,6 +824,7 @@ const LAYER_GROUP: Record<string, string> = {
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
+  submarine_cables: "facilities",
   plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
   coal_mine_features: "environmental",
   superfund: "hazards", nucleartests: "hazards", quakehistory: "hazards", waterviolators: "hazards",
@@ -928,6 +929,21 @@ function militaryNationTint(nation?: string | null): string {
   let h = 0;
   for (let i = 0; i < nation.length; i++) h = (h * 31 + nation.charCodeAt(i)) & 0xffff;
   return MILITARY_NATION_RAMP[h % MILITARY_NATION_RAMP.length];
+}
+
+// Submarine cable category colour — telecom vs power vs mixed vs other, as
+// classify_category() in scripts/submarine_cables_build.py tags each way
+// (documented OSM tags only, never guessed). Disused cables render at
+// reduced opacity in the render effect below, not via a separate colour.
+const CABLE_CATEGORY_COLOR: Record<string, string> = {
+  telecom: "#4d9fff",
+  power: "#fbb24c",
+  mixed: "#c084fc",
+  other: "#7c8794",
+  unclassified: "#5a6472",
+};
+function cableCategoryColor(category?: string | null): string {
+  return CABLE_CATEGORY_COLOR[category || "unclassified"] || CABLE_CATEGORY_COLOR.unclassified;
 }
 
 // County cancer-rate choropleth (research/location_context_engine.md hazard
@@ -1796,6 +1812,19 @@ const LegendPanel = memo(function LegendPanel({
                     label={n === "United States of America" ? "United States" : n} />
                 ))}
                 <span className="vt-legend-note">colour = operator nation (reference palette, not a threat board) · shield symbols at low zoom, boundaries at high zoom · Officially published installation locations. Sources: US DoD open data, OpenStreetMap contributors (© OpenStreetMap contributors), and cited government publications. Reference geography only — current as of retrieval date; not operational information.</span>
+              </div>
+            </div>
+          )}
+          {enabled.submarine_cables && (
+            <div className="vt-legend-sec">
+              <div className="vt-legend-sec-head">Submarine cables</div>
+              <div className="vt-legend-items">
+                <span className="vt-legend-chip"><i style={{ background: CABLE_CATEGORY_COLOR.telecom }} /> Telecom</span>
+                <span className="vt-legend-chip"><i style={{ background: CABLE_CATEGORY_COLOR.power }} /> Power</span>
+                <span className="vt-legend-chip"><i style={{ background: CABLE_CATEGORY_COLOR.mixed }} /> Telecom + power</span>
+                <span className="vt-legend-chip"><i style={{ background: CABLE_CATEGORY_COLOR.other }} /> Other</span>
+                <span className="vt-legend-chip"><i style={{ background: CABLE_CATEGORY_COLOR.unclassified }} /> Unclassified</span>
+                <span className="vt-legend-note">colour = cable category as OSM tags it · dimmer line = marked disused · route as digitized in OSM (not a survey path), concentrated in Europe/NE Atlantic in the source · © OpenStreetMap contributors (ODbL)</span>
               </div>
             </div>
           )}
@@ -10222,6 +10251,96 @@ export default function DataMapPage() {
     return () => { stopLoad(); detach(); };
   }, [enabled.military_installations, mapReady, mapSettled, setStatus]);
 
+  // ── Submarine cables (RAW; STATIC REFERENCE GEOGRAPHY, filed 2026-08-11 —
+  // research/open_questions.md "Bilawal-derived build candidates" item 4).
+  // OSM seamark:type=cable_submarine, ODbL — a prior probe undercounted this
+  // tag with a malformed query and claimed 169,074 km; the artifact's
+  // provenance carries the corrected live total + coverage vs. the
+  // TeleGeography industry benchmark, read from the API response, never
+  // hardcoded here. Colour = cable category (telecom/power/mixed/other/
+  // unclassified) as OSM tags it — disused cables render dimmer, same
+  // colour (status, not a different category). Geometry is the build
+  // script's Douglas-Peucker-simplified polyline (render only; length_km
+  // per feature is computed from the full-resolution source). DEFAULT OFF
+  // (heavy — thousands of way segments). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const clear = () => {
+      try {
+        if (map.getLayer("submarine-cables-line")) map.removeLayer("submarine-cables-line");
+        if (map.getSource("submarine-cables")) map.removeSource("submarine-cables");
+      } catch {}
+    };
+    if (!enabled.submarine_cables) { clear(); setStatus("submarine_cables", "off"); return; }
+    if (!mapSettled) { setStatus("submarine_cables", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("submarine_cables", "loading");
+    let detach = () => {};
+    const stopLoad = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/api/data/submarine_cables", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted || !Array.isArray(d.cables)) throw new Error("no cables");
+        if (map.getSource("submarine-cables")) return;
+        map.addSource("submarine-cables", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: d.cables.map((c: any) => ({
+              type: "Feature",
+              geometry: c.geometry,
+              properties: {
+                id: c.id, name: c.name, category: c.category, disused: !!c.disused,
+                length_km: c.length_km, source_url: c.source_url,
+                tint: cableCategoryColor(c.category),
+              },
+            })),
+          } as any,
+          attribution: "© OpenStreetMap contributors",
+        } as any);
+        map.addLayer({
+          id: "submarine-cables-line", type: "line", source: "submarine-cables",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": ["get", "tint"],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 6, 1.1, 10, 1.8],
+            "line-opacity": ["case", ["get", "disused"], 0.35, 0.75],
+          },
+        } as any);
+        const onClick = (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          const catLabel = ({ telecom: "Telecom", power: "Power", mixed: "Telecom + power", other: "Other",
+                              unclassified: "Unclassified" } as Record<string, string>)[p.category] || "Unclassified";
+          setDetail({
+            kind: "submarine_cable",
+            title: p.name || "Submarine cable (unnamed segment)",
+            subtitle: `${catLabel}${p.disused ? " · disused" : ""}`,
+            stats: [
+              { label: "Category", value: catLabel },
+              { label: "Status", value: p.disused ? "Disused" : "Active/unspecified" },
+              { label: "Length (this segment)", value: p.length_km != null ? `${Number(p.length_km).toLocaleString()} km` : "—" },
+            ],
+            sourceTag: "OSM ODbL",
+            body: `Submarine cable route as catalogued on OpenStreetMap (way segment, not necessarily a full system end-to-end).\n` +
+                  `Category: ${catLabel}${p.disused ? " (marked disused)" : ""}\n` +
+                  `Segment length: ${p.length_km != null ? `${Number(p.length_km).toLocaleString()} km` : "not computed"}\n\n` +
+                  `Route as digitized in OSM (waypoints, not a survey path); rendered geometry is simplified for display. ` +
+                  `Source: © OpenStreetMap contributors (ODbL).`,
+            sourceUrl: p.source_url,
+          } as any);
+        };
+        const d1 = attachLayerInteractions(map, "submarine-cables-line", onClick);
+        detach = () => { d1(); };
+        setStatus("submarine_cables", "active", d.count,
+          `${d.count.toLocaleString()} way segments${d.provenance?.total_length_km ? `, ~${Math.round(d.provenance.total_length_km).toLocaleString()} km union (${d.provenance.coverage_pct_of_telegeography_benchmark}% of the ~1.5M km TeleGeography benchmark)` : ""} — © OpenStreetMap contributors (ODbL) · concentrated in Europe/NE Atlantic in the source data`);
+      },
+      (failures) => setStatus("submarine_cables", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { stopLoad(); detach(); };
+  }, [enabled.submarine_cables, mapReady, mapSettled, setStatus]);
+
   // ── nuclear accidents & radiological incidents (RAW/FACTUAL; Wikidata CC0,
   // 46 curated events through a quality gate. Hazard-triangle-trefoil symbols
   // tinted by official INES level where catalogued (never inferred; unrated =
@@ -11608,6 +11727,7 @@ export default function DataMapPage() {
     id === "border_waits" ? <Milestone size={15} /> :
     id === "coal_mine_features" ? <Mountain size={15} /> :
     id === "military_installations" ? <Shield size={15} /> :
+    id === "submarine_cables" ? <Cable size={15} /> :
     id === "trains" ? <TrainFront size={15} /> :
     id === "fires" ? <Flame size={15} /> :
     id === "methane_plumes" ? <Cloud size={15} /> :
