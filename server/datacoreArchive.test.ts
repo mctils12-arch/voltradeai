@@ -425,6 +425,26 @@ test("readArchiveDayEvenSample: falls back to readArchiveDay's own behavior on a
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+test("readArchiveDayEvenSample: rowFilter is applied BEFORE a row counts against perFileLimit, so the budget is spent on matching rows", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  // One hour file: 8 non-matching rows followed by 2 matching rows. With
+  // perFileLimit=2 counted BEFORE filtering, the 2 matching rows would
+  // never be reached (budget exhausted on the non-matching prefix) — this
+  // is exactly the live density problem readGnssIntegrityWindow hit.
+  const lines = [
+    ...Array.from({ length: 8 }, (_, i) => JSON.stringify({ i: `no${i}`, region: "elsewhere" })),
+    ...Array.from({ length: 2 }, (_, i) => JSON.stringify({ i: `yes${i}`, region: "target" })),
+  ].join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05-00.jsonl"), lines);
+  const r = await readArchiveDayEvenSample("aircraft", "2026-07-05", base, 2, (row: any) => row.region === "target");
+  assert.ok(r);
+  assert.equal(r!.rows.length, 2, "both matching rows counted, not starved by the non-matching prefix");
+  assert.ok(r!.rows.every((row: any) => row.region === "target"));
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 test("readArchiveDayEvenSample: unknown stream returns null; no files for the day returns empty non-null", async () => {
   const base = tmp();
   assert.equal(await readArchiveDayEvenSample("neverexistedstream", "2026-07-05", base), null);
