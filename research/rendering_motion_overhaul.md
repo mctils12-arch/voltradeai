@@ -31,7 +31,7 @@ onto it.
 | 3 | Moon surface migration | **BLOCKED — re-scope required, see below** |
 | 4 | Earth base (MapLibre) config | **SHIPPED** v1.0.678 (3 of 7 items not applicable) |
 | 5 | Satellites (Law I) | **PREMISE STALE — verify before changing anything** |
-| 6 | Aircraft trail / curtain (Law I) | **PREMISE NOT LOCALIZED — see below** |
+| 6 | Aircraft trail / curtain (Law I) | **OPEN — 6 causes eliminated, 2 candidates, see F16** |
 | 7 | Radar (Law III) | not started |
 | 8a | Law IV contract: budgets declared + `dispose()` on all 5 GL layers | **SHIPPED** v1.0.679 |
 | 8b | Law IV runtime: caps armed + enforced | **SHIPPED** v1.0.680 (bounded archive queries still open → 8c) |
@@ -296,3 +296,58 @@ somewhere CI executes.
 4. **PR7 radar** — premise unverified.
 5. **PRs 5/6** — need live confirmation first (F6/F7/F8).
 6. **10b** once the above land.
+
+
+---
+
+## F16 — THE CURTAIN CUT-OFF: SIX ELIMINATIONS, NO FIX (2026-08-12)
+
+The human supplied live evidence: an ARCHIVED flight (complete data), where
+the altitude/time chart draws the FULL profile while the map trail cuts off
+at a fixed distance. Same data, two renderers, one truncates — **this is a
+render-side truncation, not missing data.** Do not re-investigate the data
+path.
+
+### Eliminated, with the evidence — do not re-derive these
+
+| # | Hypothesis | Killed by |
+|---|-----------|-----------|
+| 1 | "Trail rebuilt on camera events" (the work order's stated cause) | `flightTrackLayer` builds `gl.bufferData(..., STATIC_DRAW)` once and registers ZERO map handlers |
+| 2 | Array-length mismatch in `n = Math.min(merc>>1, altM, groundZ)` | `merc`, `altDisp` and `groundZ` are all allocated `Float32Array(n)` in datamap.tsx (~3988-4046) |
+| 3 | 16-bit index overflow past ~16k segments | indices are `Uint32Array`, drawn with `gl.UNSIGNED_INT` |
+| 4 | `TRACK_MAX_SAMPLES = 6000` truncating the route | it sets DENSIFICATION SPACING (`total / (MAX - fixes.length)`), so the whole route stays covered, just coarser |
+| 5 | Vertex-buffer overflow silently dropping the tail (typed-array writes past `length` are silent no-ops) | counted exactly: the 4 emission groups write `((n-1)*3 + marks) * 4` vertices = exactly `maxSegs * FT_VERTS_PER_SEG`, and `out.slice(0, o)` trims correctly |
+| 6 | Data truncation | an archived flight has complete samples, and the chart proves it |
+
+### The two survivors
+
+**(a) Segment-skip guards** in `buildTrackVertices` — `wrapOk` (skips any
+segment whose normalized-mercator Δx > 0.5) and the three
+`Number.isNaN(altM[i]) continue` statements. **Leading candidate:** the
+human's test flight is labelled *SIGNAL LOST AIRBORNE*, which is exactly the
+condition that produces a NaN altitude run. Note all three emission groups
+(curtain, altitude line, marks) skip on NaN while the GROUND TRACE does not
+("draws through altitude gaps") — so if this is it, the ground trace should
+continue past the cut-off while the curtain and altitude line stop. **That
+asymmetry is itself a diagnostic: look at whether the thin ground line
+survives past where the curtain dies.**
+
+**(b) Globe horizon / occlusion culling** in the vertex shader
+(`mercatorToSphere` / `mercatorZFromAltitude` from `orbital/occlusion`).
+
+### The discriminating test (cheap, needs a human at the map)
+
+Rotate the globe and watch the cut-off point.
+- **Moves with the camera** → (b), horizon culling.
+- **Stays pinned to the same ground position** → (a), a segment skip.
+
+Second, independent check: does the thin ground trace continue past the point
+where the curtain stops? If yes → the NaN guard, conclusively.
+
+### Separate real bug found while investigating (NOT the cut-off)
+
+`altScale` is referenced but UNDEFINED at `datamap.tsx:4261` (×2) and `:4298`
+— `tsc` TS2304, previously dismissed as pre-existing noise. It sits in the
+**AGL readout**, not the trail geometry, so it does not cause the cut-off,
+but the flight card's AGL number is computed from an undefined variable.
+Deserves its own PR.
