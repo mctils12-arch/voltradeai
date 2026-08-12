@@ -252,11 +252,13 @@ import {
 // (and the B4 Moon) — trekBody() supplies each body's Trek scheme + credit.
 import { trekBody } from "./lroc.js";
 import {
+  normalFromLonLat,
   renderMoonSurfaceRows,
   surfaceLonLat,
   type MoonSurfaceView,
   type DetailOverlay,
 } from "./moonSurface.js";
+import { APOLLO_SITES } from "./apolloSites.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -1370,6 +1372,9 @@ export interface SpaceFrameOptions {
   /** focus notifications for the parent's body card: a body id when a
    *  fly-to targets it, null on release/fly-home (card closes). */
   onFocusBody?: (id: string | null) => void;
+  /** Apollo site focus (2026-08-12): a site id when a marker is clicked,
+   *  null on release/fly-home — the parent's site card follows it. */
+  onFocusSite?: (id: string | null) => void;
   /** the body registry (default: defaultBodyRegistry() — Sun/Moon/Earth +
    *  the 8 planets). Must contain exactly one emissive body (the light
    *  source) and at most one mapAnchor body. */
@@ -1390,6 +1395,9 @@ export interface SpaceFrameHandle {
   /** log-space fly to a body, arriving at the FRAME_DISC_FRACTION framing
    *  with the look-back offset (the place you left hangs beside the target). */
   flyTo(id: string): void;
+  /** fly to an Apollo landing site: camera lands on the site's local
+   *  vertical inside the surface-patch band so real imagery fills the view. */
+  flyToSite(siteId: string): void;
   /** fly home to the seam and hand the camera back to the map. */
   flyHome(): void;
   /** wheel/pinch/button impulse — multiplies camera distance (exponential
@@ -1519,6 +1527,9 @@ export interface SpaceFrameState {
   };
   /** clickable label text boxes as drawn (label→fly-to hit targets). */
   labelRects: { id: string; x: number; y: number; w: number; h: number }[];
+  /** Apollo landing-site markers as drawn (click → site card + fly-to).
+   *  Circular hit targets; empty whenever the Moon face is not showing. */
+  siteRects: { id: string; x: number; y: number; r: number }[];
   anchor: (EarthAnchor & { subLatDeg: number; subLonDeg: number }) | null;
   bodies: SpaceFrameBodyState[];
   /** B4: the focused-close Moon surface patch (real LROC tiles). Inactive
@@ -3222,6 +3233,80 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       }
     }
 
+    // ── APOLLO LANDING SITES (2026-08-12: "points like we have on the
+    // earth... click them, info + zoom"). Coordinates are published NASA
+    // values (apolloSites.ts honesty contract). Drawn over BOTH moon modes:
+    // perspective projectPoint in the near patch band, the sprite's
+    // orthographic normal map at disc range. Hidden behind the limb (true
+    // horizon test in patch range, hemisphere test at disc range), when the
+    // Moon is behind the camera, occluded by a nearer disc, or when its
+    // disc is too small for markers to mean anything. Hit targets go to
+    // siteRects for onClick.
+    const siteRects: SpaceFrameState["siteRects"] = [];
+    {
+      const moonDrawnS = drawn.find((x) => x.id === "moon");
+      const moonPos = pos["moon"];
+      if (moonDrawnS && moonPos && !moonDrawnS.behind && moonDrawnS.discPx >= 56) {
+        const R = radiusM("moon");
+        const Zs = norm3(axisEclOfDate("moon", timeMs));
+        const Xs = norm3(equatorNodeDirEclOfDate("moon", timeMs));
+        const Ys = norm3(cross(Zs, Xs));
+        const wDegS = iauPrimeMeridianDeg("moon", timeMs);
+        const toCamV = sub(camPos, moonPos);
+        const distCS = len3(toCamV);
+        const toCamN = scale3(toCamV, 1 / (distCS || 1));
+        const patchMode = distCS < MOON_PATCH_ACTIVATE_RADII * R;
+        const horizonCos = R / Math.max(R, distCS);
+        for (const site of APOLLO_SITES) {
+          const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, wDegS);
+          const facing = n.x * toCamN.x + n.y * toCamN.y + n.z * toCamN.z;
+          if (patchMode ? facing < horizonCos + 0.02 : facing <= 0.02) continue;
+          let sx: number, sy: number;
+          if (patchMode) {
+            const wp = add(moonPos, scale3(n, R));
+            const pp = projectPoint(wp, camPos, basis, kNow, cx, cy);
+            if (!Number.isFinite(pp.x) || pp.depth <= 0) continue;
+            sx = pp.x; sy = pp.y;
+          } else {
+            const r = moonDrawnS.discPx / 2;
+            sx = moonDrawnS.p.x + r * (n.x * basis.r.x + n.y * basis.r.y + n.z * basis.r.z);
+            sy = moonDrawnS.p.y - r * (n.x * basis.u.x + n.y * basis.u.y + n.z * basis.u.z);
+          }
+          if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
+          if (occludedByNearerDisc({ id: "moon", x: sx, y: sy, layoutDistM: moonDrawnS.layoutDistM },
+              onScreen.map((b) => ({ id: b.id, x: b.p.x, y: b.p.y, discPx: b.discPx, layoutDistM: b.layoutDistM })))) continue;
+          // glyph: a small flag — mast + pennant + base dot (SYMBOLS NOT
+          // DOTS: the shape says "crewed landing site" at a glance)
+          ctx.save();
+          ctx.strokeStyle = "rgba(255,255,255,0.95)";
+          ctx.fillStyle = "rgba(255,209,102,0.95)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(sx, sy - 11);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - 11);
+          ctx.lineTo(sx + 7, sy - 8.5);
+          ctx.lineTo(sx, sy - 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.fill();
+          if (moonDrawnS.discPx >= 140) {
+            ctx.font = "9px var(--font-mono, monospace)";
+            ctx.textAlign = "left";
+            ctx.fillStyle = "rgba(223,232,245,0.92)";
+            ctx.fillText(site.mission, sx + 9, sy - 2);
+          }
+          ctx.restore();
+          siteRects.push({ id: site.id, x: sx, y: sy, r: 10 });
+        }
+      }
+    }
+
     // markers + labels (near→far so close bodies claim label space first);
     // stacking runs on the label ANCHORS (right of each disc/marker), box-
     // aware — a big disc's label can collide with a distant body's label.
@@ -3550,6 +3635,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         texturedThisFrame: texturedIds.slice(),
       },
       labelRects,
+      siteRects,
       anchor: anchorOut,
       bodies: drawn.map((d) => ({
         id: d.id,
@@ -3875,11 +3961,35 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (Math.abs(orbitVelYaw) > ORBIT_INERTIA_EPS_DEG || Math.abs(orbitVelPitch) > ORBIT_INERTIA_EPS_DEG) kick();
     }
   };
+  /** Apollo site fly-to (2026-08-12): land on the site's local vertical
+   *  INSIDE the surface-patch band so real imagery fills the view, then
+   *  notify the parent's site card. toDir/toDist given explicitly, so
+   *  clamp to the zoom floor ourselves (beginFlight bypasses its arrival
+   *  clamp when both are provided). */
+  const flyToSiteImpl = (siteId: string): void => {
+    const site = APOLLO_SITES.find((s) => s.id === siteId);
+    if (!site) return;
+    const Zs = norm3(axisEclOfDate("moon", timeMs));
+    const Xs = norm3(equatorNodeDirEclOfDate("moon", timeMs));
+    const Ys = norm3(cross(Zs, Xs));
+    const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, iauPrimeMeridianDeg("moon", timeMs));
+    const R = radiusM("moon");
+    beginFlight("moon", { toDir: n, toDist: Math.max(MIN_ZOOM_RADII * R, 1.35 * R) });
+    opts.onFocusSite?.(siteId);
+  };
   const onClick = (e: MouseEvent): void => {
     if (dragMoved >= 4 || exited || !lastState) return;
     const rect = container.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+    // Apollo site markers first (2026-08-12): they sit ON the Moon's face,
+    // so the body-disc hit test below would swallow them
+    for (const sr of lastState.siteRects || []) {
+      if (Math.hypot(mx - sr.x, my - sr.y) <= sr.r) {
+        flyToSiteImpl(sr.id);
+        return;
+      }
+    }
     // label text boxes fly to their body first (reference: "click a label
     // to fly to that body") — small, specific targets beat disc proximity
     for (const lr of lastState.labelRects) {
@@ -3977,6 +4087,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       if (exited || !defById.has(id)) return;
       if (id === anchorDef.id) return flyHome();
       beginFlight(id);
+    },
+    flyToSite(siteId: string): void {
+      flyToSiteImpl(siteId);
     },
     flyHome,
     nudgeZoom(deltaY: number): void {

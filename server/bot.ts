@@ -11,6 +11,7 @@ import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
 import { readArchiveDay } from "./datacoreArchive";
+import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
@@ -1292,6 +1293,25 @@ print(json.dumps(data))
       consecutiveFailures: tier2ConsecutiveFailures,
     };
     if (scannerDegraded(tier2ConsecutiveFailures)) checks.status = "degraded";
+
+    // Check 5c: FEED DEAD AIR (2026-08-12, AIS dead-air runbook). Checks 5
+    // and 5b cover the TRADING loop going dark; nothing covered the INGEST
+    // feeds going dark, and that blind spot cost ~6.6 days of global ship
+    // positions. The AIS socket reconnected successfully every 60s the
+    // whole time — dial ok, socket open, subscription accepted, zero
+    // frames — so every connection-based signal read healthy while the
+    // archive recorded nothing. Uptime was the wrong variable; throughput
+    // is the right one. This measures the archive on disk (the one clock a
+    // redial, a restart or a deploy cannot reset) and makes no claim about
+    // WHY a feed went quiet — see feedDeadAir.ts.
+    const feedAir = observeFeedDeadAir(Date.now());
+    checks.checks.feeds = {
+      status: feedAir.status,
+      dead: feedAir.dead,
+      feeds: feedAir.feeds,
+      ...(feedAir.detail ? { detail: feedAir.detail } : {}),
+    };
+    if (feedAir.status !== "ok") checks.status = "degraded";
 
     // Check 6: data-provider licensing (monetization tripwire, CLAUDE.md
     // KNOWN STATE 2026-07-03) — non-commercial providers must leave the
