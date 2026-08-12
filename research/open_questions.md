@@ -4560,6 +4560,33 @@ for any future "known endpoint moved" case in this repo.
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- **/api/health IS RAILWAY'S DEPLOY GATE — A CHECK THAT DEGRADES IT CAN
+  TAKE THE SITE DOWN** (bit us 2026-08-12, ~15 min of 502s, self-inflicted
+  by v1.0.667's feed dead-air check; fixed in v1.0.669). The handler ends
+  `const httpCode = checks.status === "ok" ? 200 : 503`, and `railway.json`
+  (FROZEN) sets `healthcheckPath: "/api/health"` with
+  `restartPolicyType: ALWAYS`. So ANY check that sets
+  `checks.status = "degraded"` makes every newly-deployed container fail
+  its healthcheck and never take over — the old container is already gone,
+  so the whole site serves 502, and unrelated concurrent deploys fall into
+  the same trap behind you. Transient degradations (Alpaca 401, slow DB)
+  have survived this only because they clear before the next deploy; a
+  PERMANENT one (a provider outage with no ETA) converts a data outage
+  into a permanent deploy outage. RULE: a new health check may report
+  freely inside its own block, but must not touch the top-level `status`
+  unless the app genuinely cannot serve traffic. `feeds` carries
+  `gates_top_level_status: false` to make that contract visible in the
+  payload, with a ratchet test in `feedDeadAir.test.ts`.
+  OPEN QUESTION (not fixed, deliberately — it is a shared-semantics change
+  affecting the alpaca/database/python checks and must not ride along with
+  an outage fix): WHICH checks should gate the platform probe at all? The
+  honest split is probably "can this container serve HTTP?" (server, db)
+  gates the probe, while everything diagnostic (broker reachability, feed
+  freshness, scanner health, licensing) reports without gating. Diagnosing
+  this class fast: `npm run build` at main HEAD, then boot `dist/index.cjs`
+  locally — if it builds and serves, the fault is routing/healthcheck, not
+  the code.
+
 - BRANCH RESET AUTO-CLOSES OPEN PRs (bit us 2026-07-16: the two live
   repairs in PR #498 silently stranded): force-pushing the branch to
   EQUAL main (the supersession reset step) makes an open PR's diff

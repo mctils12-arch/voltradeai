@@ -3,6 +3,161 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 (same session, APPEND) [REPAIR] — I TOOK THE SITE DOWN WITH THE WATCHDOG I JUST SHIPPED (v1.0.667 -> v1.0.669)
+
+WHAT HAPPENED. v1.0.667 (the feed dead-air watchdog, entry below) wired
+its verdict into `/api/health` and let it set `checks.status =
+"degraded"`. That handler ends with `const httpCode = checks.status ===
+"ok" ? 200 : 503`, and `railway.json` sets
+`healthcheckPath: "/api/health"` with `restartPolicyType: ALWAYS`. The
+vessels feed IS dead, so the check fired correctly — and every newly
+deployed container therefore answered Railway's probe with 503, failed
+its healthcheck, never took over, and the site served 502. Roughly 15
+minutes of total downtime (~02:50Z to ~03:0xZ), and PR #781 (an unrelated
+concurrent session's Apollo-sites feature) deployed into the same trap
+behind me. Fixed in v1.0.669 (PR #784).
+
+HOW I FOUND IT — the sequence matters, because my first instinct was
+wrong. On seeing the 502 I suspected the deploy was simply mid-build, then
+suspected the concurrent v1.0.666 (which had been pushed directly to main
+with no PR and therefore no CI). Both were wrong. What settled it was
+NOT reasoning about the diff — it was two cheap mechanical checks:
+`npm run build` at main HEAD (succeeded, so not a compile failure) and
+booting `dist/index.cjs` locally (booted and served `/api/health` fine, so
+not a crash loop). That left "the container is alive but Railway won't
+route to it", which points at the healthcheck, which pointed at
+railway.json, which named the exact endpoint I had just edited.
+
+THE ACTUAL LESSON, which is bigger than this bug. `/api/health` answers
+two different questions with one payload: to a human or a DAILY routine,
+"is anything wrong?"; to Railway, "should this container serve traffic?".
+Those are not the same question, and the 200/503 mapping silently welds
+them together. A dead INGEST feed is a real fault of the first kind and
+not of the second. By conflating them I built a monitor that could kill
+the system it monitors — strictly worse than no monitor, and a direct
+Priority-1 violation committed in the name of a Priority-1 alarm.
+
+Note the pre-existing landmine this exposed: any check that degrades the
+top-level status will fail a deploy healthcheck for as long as its
+condition holds. Transient ones (Alpaca 401, a slow database) have gotten
+away with it because they clear. Mine could not clear — aisstream is down
+provider-side indefinitely — so it converted a permanent data-outage into
+a permanent deploy-outage. Filed as an open question rather than fixed
+here: which checks SHOULD gate the platform probe is a shared-semantics
+decision affecting alpaca/database/python too, and changing that mapping
+in the same PR as an outage fix would be exactly the bundling CLAUDE.md
+forbids.
+
+RATCHET (CLAUDE.md "REPAIRS MUST RATCHET"): `feedDeadAir.test.ts` now
+reads `bot.ts`, isolates the feeds block (bounded at the next `// Check `
+so the licensing check's legitimate `checks.status` assignment cannot be
+misread as ours) and fails if anything in that block assigns
+`checks.status` or if the `gates_top_level_status: false` declaration is
+removed. It was verified to genuinely fail before the window was bounded
+correctly, so the assertion is proven live rather than assumed.
+
+WHAT I DID NOT DO: revert. A revert would have restored service equally
+fast but discarded a detector whose DETECTION logic was never wrong — the
+vessels feed is dead and the watchdog said so accurately. The defect was
+in what the verdict was allowed to gate, which is a one-line blast radius.
+Forward-fix was the smaller, more honest change.
+
+## 2026-08-12 [REPAIR] — T-DATACORE — AIS dead-air ladder run to root cause (provider-side), + the feed dead-air watchdog (v1.0.667)
+
+TERRITORY: T-DATACORE (new `server/feedDeadAir.ts` + test). SHARED touch
+minimal: `server/bot.ts` `/api/health` block + `package.json` version,
+read-and-increment at commit. Concurrent session was live in T-DATACORE
+the same hour (v1.0.666, ADS-B version field in `datacoreArchive.ts`) —
+avoided collision by adding new files only and importing `archiveBaseDir`
+read-only rather than editing that file.
+
+SESSION START: CLAUDE.md read in full. Human handed back two old prompts
+("I gave you one of these before but I don't know which one") — resolved
+from repo history: the GNSS integrity build prompt is the one previously
+run (Phases 1+2 in v1.0.662, Phase 3 in v1.0.665, and a concurrent
+session shipping v1.0.666 on it right now). The AIS dead-air runbook had
+**zero** repo footprint — nothing in research/, no code, and its content
+post-dates the 2026-08-11 escalation (it corrects "6.4 days" to "~7").
+So: AIS was the untouched one, and it is also the Priority-1 item (the
+archive has not recorded a vessel position since 2026-08-05).
+
+WHY THIS ACTION: CLAUDE.md Priority 1 — "an archive gap never refills".
+The escalation at the top of wishlist.md was 1 day old, blocked on human
+account actions, and every hour compounded the loss.
+
+THE FINDING (full evidence trail in wishlist.md's 2026-08-12 UPDATE):
+**aisstream.io is down provider-side for its entire user base since
+2026-08-05, and none of our three suspected causes is real.** Independent
+operators report the identical symptom on their own keys —
+aisstream/issues#269 quotes silence beginning "2026-08-05 ~13:31 UTC",
+and our last vessel file is `vessels/2026-08-05-13.jsonl.gz`, the same
+hour from a different deployment. #272 tested three keys on two networks
+(zero frames); #263 a brand-new account (zero frames); ten more filed
+08-07 → 08-11; no maintainer reply on any. Upstream aisstream#15, open
+since 2026-03-13, is the same failure predating the outage.
+
+PRIOR STATED BEFORE TESTING (REASONING STANDARD #10): I expected the
+concurrent-session hypothesis (one-connection-per-key starvation from
+multiple replicas) to be the most likely cause, because the reset pattern
+in the 08-11 escalation fits it well. **It was wrong.** 14 consecutive
+polls of `/api/data/vessels` over 60s returned a single strictly
+monotonic silence clock (8→64s, frames=0); two replicas would interleave
+two independent counters. Exactly one dialer. The starvation theory is
+dead, and with it the single-dialer guard that was queued to be built.
+
+LADDER STEPS 2–4 also came back clean and, more usefully, came back
+*unchanged*: `git log -L` on `server/routes.ts` shows the subscription
+payload has not been edited since 2026-07-03 and delivered frames for a
+month; it is byte-identical to aisstream's own worldwide example
+(`[[[-90,-180],[90,180]]]`, lat-first, three levels), `FiltersShipMMSI`
+absent, `FilterMessageTypes` broad. No deploy on Aug 5 touched the vessel
+path. Nothing of ours changed when the data stopped.
+
+WHAT SHIPPED (v1.0.667, PR #782): `server/feedDeadAir.ts` — throughput
+liveness for the three continuously-ingested position feeds, wired into
+`/api/health` as check 5c. The systemic finding is that a reconnect loop
+which SUCCEEDS is indistinguishable from health: dial ok, socket open,
+subscription accepted, zero frames, green light, six and a half days
+gone. Uptime was the wrong variable. It reads the ARCHIVE ON DISK, not an
+in-process counter, because every prior attempt was defeated by a clock
+reset — fix #1 (08-06) had no timestamp to age without a first frame;
+fix #2 (08-11) reset its clock on every 3-minute redial; both reset on
+deploy. Against this outage it fires the same morning instead of day
+seven. It asserts nothing about causation, which is why it is not a third
+patch under RECURRENCE ESCALATES.
+
+TESTS (+13, all new): the Aug-5 production state verbatim (aircraft and
+trains at hour 2026-08-12-02, vessels frozen at 2026-08-05-13 → only
+vessels flagged); same-morning firing; threshold boundary; empty-dir is
+loud not silent (the vessels dir REACHES that state when raw hours roll
+up after ~7 days — staleness would have gone invisible exactly as the
+outage worsened); UTC filename parsing; newest-by-HOUR not by
+lexicographic order or mtime; and an assertion that the alarm text names
+no cause. `npm run test:node` 1191/1193 — the 2 reds are the known
+pre-existing pmtiles-fixture and datamap-ratchet failures, diff-
+independent. tsc error count identical with and without the diff (83→83).
+
+BACKTEST: N/A — ingest monitoring, no trading logic or parameter change.
+
+NOT BUILT, DELIBERATELY (anti-churn): the single-dialer guard (one
+replica measured; the runbook gates it on >1) and the subscription-
+assertion logger (its value was catching a malformed payload — steps 2–4,
+a month of working frames, and twelve independent reporters have
+exonerated ours; touching the AIS socket now would be churn against a
+disproven hypothesis).
+
+ALSO FILED: a BUILD-FIRST survey for a second AIS source (wishlist.md).
+Two free, registration-free, commercially-licensed national feeds clear
+the MONETIZATION TRIPWIRE — Fintraffic/Digitraffic (CC 4.0 BY, "even
+commercially", and we already ingest Digitraffic for trains) and
+Kystverket (NLOD, open stream, open tier only). Honest limit: regional,
+not global — a floor, not a replacement. Cross-tie filed as a hypothesis:
+Baltic vessel GNSS would be an independent receiver population over the
+same box the aircraft integrity series is measuring.
+
+STARVED: yes — the Digitraffic AIS pipeline slice is queued and unbuilt,
+and the episodic-feed cadence table for extending the watchdog beyond the
+three position feeds is filed rather than built.
 ## 2026-08-12 (scheduled-routine session) [REPAIR] — T-BOT (diagnostics.py + server/bot.ts) — KNOWN BROKEN #29 recurrence: restart-grace period for the API-down check, a genuinely different root cause from v1.0.637/638 (v1.0.667)
 
 TERRITORY: T-BOT. Trigger: this routine's own session-start instruction
