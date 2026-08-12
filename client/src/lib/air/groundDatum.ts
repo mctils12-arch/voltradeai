@@ -31,3 +31,32 @@ export function resolveGroundDisplayZ(
   if (gDem != null && Number.isFinite(gDem)) return { g: gDem * altScale, source: "dem" };
   return { g: 0, source: "pending" };
 }
+
+/**
+ * Hold the last-known-good ground rather than rendering a fabricated zero.
+ *
+ * `resolveGroundDisplayZ` has THREE outcomes and the third is the one that
+ * bites: `pending` means neither the rendered mesh nor our own DEM has
+ * answered for this position yet, and it carries `g: 0`. Using that 0 as if
+ * it were a measurement renders "unknown ground" as "sea level".
+ *
+ * That matters because the mesh half is CAMERA-COUPLED —
+ * map.queryTerrainElevation() only answers where mesh tiles are currently
+ * loaded, and which tiles are loaded depends on camera position, angle and
+ * zoom. So a pure camera move can flip a position from mesh-known to
+ * pending, snapping its ground anchor from real terrain height to 0. For the
+ * flight tail that degenerates the quad and the aircraft at the end of the
+ * track disappears until the camera stops and tiles reload.
+ *
+ * Law V: render last-known state, swap when the real value lands. Never
+ * substitute a fabricated zero for a value that has not arrived.
+ */
+export function holdGroundZ(
+  resolved: { g: number; source: "mesh" | "dem" | "pending" },
+  fallbackG?: number | null,
+): { g: number; held: boolean } {
+  if (resolved.source === "pending" && fallbackG != null && Number.isFinite(fallbackG)) {
+    return { g: fallbackG, held: true };
+  }
+  return { g: resolved.g, held: false };
+}
