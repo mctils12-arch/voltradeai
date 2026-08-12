@@ -3,6 +3,39 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 (same session, APPEND) — Phase 3 probe verified live in production post-merge (v1.0.665 deployed)
+
+PR #779 merged; Railway deploy confirmed (`/api/data/layers` `server_version`
+flipped 1.0.664 -> 1.0.665, ~2 min after merge). First live call,
+`/api/diag/gnss_integrity?days=2026-08-12&limit=5000` (5000 rows scanned,
+truncated=true — one partial day, global-scopes + tracked-plane + viewport
+traffic mixed):
+
+- `cruise|broadcast`: n_zero=0 / n_total=1417 (365 airframes) — clean.
+- `cruise|ground`: n_zero=32 / n_total=32 (8 airframes) — every single
+  mlat/tisb-derived cruise row reports nic==0. Expected and mechanically
+  explained, not itself evidence of interference: readsb's multilateration
+  solver doesn't independently compute a containment radius the way the
+  aircraft's own GNSS receiver does, so ground-derived rows report nic==0
+  close to by construction. This is exactly why the aggregator splits by
+  origin — a pooled cruise figure here would have read "2.2% zero-integrity
+  at cruise" and hidden that literally 100% of the ground-derived slice
+  drives it while the broadcast slice (the only rows a real interference
+  finding could rest on) is 0%.
+- `low|ground` and `mid|ground` are similarly saturated (77/82, 42/42) —
+  same mechanism, consistent across bands.
+- `low|broadcast` (55/2417) and `mid|broadcast` (1/757) are the only
+  slices with non-trivial broadcast-origin nic==0 counts today; too small
+  and too undifferentiated by region (this call had no bbox) to say
+  anything about a specific zone yet.
+
+CONCLUSION: the probe works end-to-end against real production data and
+the origin split is not a hypothetical safeguard — on the very first live
+call it is the difference between a near-100%-ground-derived artifact and
+a real broadcast-side reading. Confirms the Phase 4 NEXT note below: a
+real finding needs a `bbox` comparison (candidate region vs. control) and
+more accumulated days, not a global single-day pull.
+
 ## 2026-08-12 (scheduled-routine session) [PIPELINE] — T-DATACORE — GNSS integrity passthrough, Phase 3 (the read/query path) (v1.0.665)
 
 TERRITORY: T-DATACORE (new `server/gnssIntegrityQuery.ts` + test, plus
