@@ -119,6 +119,7 @@ import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/
 import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl,
   getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
   APOLLO_NEAR_SIDE_ONLY_NOTE } from "@/lib/celestial/apolloSites";
+import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -3464,7 +3465,15 @@ export default function DataMapPage() {
   }, [detail?.kind === "aircraft" ? detail?.trailId : null]);
   const [flightProfile, setFlightProfile] = useState<{
     samples: TrackSample[]; groundM: Float32Array; altMin: number; altMax: number;
+    tzMarks: { t: number; label: string }[];
   } | null>(null);
+  // tz-crossing cache (computeTzCrossings walks every densified sample —
+  // an unchanged track must not re-pay the zone lookups every 30s repaint)
+  const tzXCacheRef = useRef<{ key: string; val: TzCrossing[] } | null>(null);
+  // AUTO-ON guard (human 2026-08-11: "it come on automatically if your
+  // click on plane and it passes a time zone"): enables once per selected
+  // flight, so the user turning the layer off afterwards STAYS off
+  const tzAutoRef = useRef<string | null>(null);
   // Follow-aircraft camera lock (handoff flight card): target tracks the
   // craft, heading/tilt/zoom stay the user's. Ref mirrors state for the
   // per-frame rig getter.
@@ -3943,6 +3952,18 @@ export default function DataMapPage() {
         const flight = activeTrailRangeRef.current ? raw : trimToCurrentFlightWithAirborne(raw);
         const { samples, altMin, altMax } = buildTrackSamples(flight);
         const n = samples.length;
+        // TIME-ZONE CROSSINGS (human 2026-08-11): where the local clock
+        // changed along this track — curtain marks + slider marks + the
+        // layer auto-on all read this one computation (cached per track).
+        let tzX: TzCrossing[] = [];
+        if (n >= 2) {
+          const tzKey = `${n}|${samples[0].t}|${samples[n - 1].t}`;
+          if (tzXCacheRef.current?.key === tzKey) tzX = tzXCacheRef.current.val;
+          else {
+            tzX = computeTzCrossings(samples);
+            tzXCacheRef.current = { key: tzKey, val: tzX };
+          }
+        }
         const merc = new Float32Array(n * 2);
         const altM = new Float32Array(n);
         const groundZ = new Float32Array(n);
@@ -4022,6 +4043,7 @@ export default function DataMapPage() {
           // exaggeration so the seal survives stretched relief; a flat
           // sea-level base (terrain off) has nothing to seal against
           drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (altScale > 0 ? altScale : 1) : 0,
+          tzMarkIdx: tzX.length ? tzX.map((c) => c.idx) : undefined,
         } : null;
         // altScale 1: every input above is ALREADY in display meters
         layer.setTrack(input, 1);
@@ -4042,8 +4064,17 @@ export default function DataMapPage() {
               && prev.samples[0]?.t === samples[0]?.t
               && prev.samples[prev.samples.length - 1]?.t === samples[samples.length - 1]?.t
               && prev.altMin === altMin && prev.altMax === altMax) return prev;
-          return { samples, groundM, altMin, altMax };
+          return {
+            samples, groundM, altMin, altMax,
+            tzMarks: tzX.map((c) => ({ t: c.t, label: c.label })),
+          };
         });
+        // AUTO-ON: a crossing flight turns the tz map lines on, once per
+        // selection — a later manual OFF is respected for this flight
+        if (tzX.length && id && tzAutoRef.current !== id) {
+          tzAutoRef.current = id;
+          setEnabled((s) => (s.timezones ? s : { ...s, timezones: true }));
+        }
         updateFlightTail();
       } catch (err) {
         // the click card still works without the 3D track — but a swallowed
@@ -12569,6 +12600,7 @@ export default function DataMapPage() {
           clockRef={flightClockRef}
           onClockChange={updateFlightMarker}
           onPhoneExpand={() => setDetailMin(true)}
+          tzMarks={flightProfile.tzMarks}
           historical={tripReplay != null}
           sourceNote={tripReplay != null
             ? `archived trip${enabled.terrain ? "" : " · ground: Terrain Tiles DEM"}`

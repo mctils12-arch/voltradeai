@@ -30,6 +30,8 @@ import {
   TRACE_RGBA,
   TRACE_WIDTH_PX,
   ALT_LINE_WIDTH_PX,
+  TZ_MARK_RGBA,
+  TZ_MARK_WIDTH_PX,
   altRampColor,
 } from './trackModel.js';
 
@@ -99,6 +101,29 @@ test('altitude gaps: trace continues (real position history), curtain + line bre
 test('antimeridian jumps split every geometry honestly', () => {
   const v = buildTrackVertices(input2({ merc: new Float32Array([0.01, 0.4, 0.99, 0.4]) }), 1);
   assert.equal(v.length, 0, 'no quad bridges the antimeridian');
+});
+
+test('tz-crossing marks: one vertical amber ribbon per valid index, drawn last', () => {
+  const exag = 1.3;
+  const v = buildTrackVertices(input2({ tzMarkIdx: [1] }), exag);
+  assert.equal(v.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG, 4, 'trace + curtain + line + mark');
+  // mark quad = the LAST quad; ribbon endpoints share x/y, differ in z
+  const a = vertAt(v, 12); // ribbon vertex at endpoint A (bottom)
+  const b = vertAt(v, 14); // ribbon vertex at endpoint B (top)
+  assert.equal(a[0], b[0], 'vertical: same mercX');
+  assert.equal(a[1], b[1], 'vertical: same mercY');
+  near(a[2], 390 - CURTAIN_BELOW_TERRAIN_M * exag, 1e-3, 'mark bottom = curtain base');
+  near(b[2], 2000 * exag, 1e-3, 'mark top = flight altitude');
+  assert.equal(a[8], TZ_MARK_WIDTH_PX, 'mark ribbon width');
+  near(a[9], TZ_MARK_RGBA[0], 1e-6, 'amber r');
+  near(a[12], TZ_MARK_RGBA[3], 1e-6, 'mark alpha 0.9');
+});
+
+test('tz marks skip out-of-range and altitude-gap indices honestly', () => {
+  const gap = buildTrackVertices(input2({ altM: new Float32Array([1000, NaN]), tzMarkIdx: [1] }), 1);
+  assert.equal(gap.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG, 1, 'gap index adds no mark (trace only)');
+  const oob = buildTrackVertices(input2({ tzMarkIdx: [-1, 7] }), 1);
+  assert.equal(oob.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG, 3, 'out-of-range indices add nothing');
 });
 
 test('quad indices never cross a quad boundary', () => {
