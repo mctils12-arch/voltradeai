@@ -4,6 +4,7 @@ import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satell
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
 import "maplibre-gl/dist/maplibre-gl.css";
+import { applyWheelZoomRate, baseMapMotionOptions, baseRasterPaint } from "@/render/mapBaseConfig";
 import {
   registerIcons, classifyAircraft, classifyVessel, velocityEndpoint, iconDataURL,
   AIRCRAFT_ICON, VESSEL_ICON, SITE_ICON, AIRCRAFT_CLASS_LABEL, VESSEL_CLASS_LABEL,
@@ -3111,6 +3112,12 @@ export default function DataMapPage() {
           // round-17 "square tiles building" regression without crash relief,
           // revert to 8 and pursue proposal C instead.
           maxTileCacheZoomLevels: INTEGRATED_GPU ? 5 : 8,
+          // Rendering & Motion Law (Law II) — fadeDuration (symbol fade),
+          // maxTileCacheSize (hard tile ceiling, the integrated-GPU
+          // context-loss lever above only bounds LEVELS, not total tiles)
+          // and refreshExpiredTiles. Reasoning lives with the constants in
+          // render/mapBaseConfig.ts, not inline.
+          ...baseMapMotionOptions(),
           style: {
             version: 8,
             ...(startGlobe ? { projection: { type: "globe" } } : {}),
@@ -3120,11 +3127,15 @@ export default function DataMapPage() {
             },
             layers: [
               { id: "bg", type: "background", paint: { "background-color": "#050a13" } },
-              // Perceived speed + color: tiles land instantly (no 300ms fade
-              // that reads as "loading"), with a gentle saturation/contrast
-              // lift so satellite imagery pops like a premium earth viewer.
+              // Rendering & Motion Law II.1. This was `raster-fade-duration:
+              // 0` for perceived speed — but a tile appearing instantly at
+              // full opacity over its upscaled parent is a HARD POP on every
+              // zoom step, which is exactly what the moon/base "flicker on
+              // zoom" report describes. RASTER_FADE_MS turns the snap into a
+              // resolve; the parent is always present underneath, so the fade
+              // costs no blankness. Saturation/contrast lift unchanged.
               { id: "imagery", type: "raster", source: "imagery",
-                paint: { "raster-fade-duration": 0, "raster-saturation": 0.18, "raster-contrast": 0.12 } },
+                paint: baseRasterPaint({ "raster-saturation": 0.18, "raster-contrast": 0.12 }) },
             ],
           },
           center: [-96.77, 37.5],
@@ -3146,6 +3157,10 @@ export default function DataMapPage() {
         // the bottom") — see vt-map-statusbar below. MapLibre's
         // ScaleControl is retired so there is exactly one scale readout.
         mapRef.current = map;
+        // One zoom feel across the Earth base and the celestial views. No-op
+        // against MapLibre 5.24 (its default is already 1/450) — it exists so
+        // the two cannot drift apart silently if either side is retuned.
+        applyWheelZoomRate(map as any);
         // Perf-harness hook (scripts/visual_check.mjs drives pans through this).
         (window as any).__vtMap = map;
         // DRAPE-ORDER GUARD (terrain lag root cause, probe-proven
