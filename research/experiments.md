@@ -47735,3 +47735,81 @@ dist/index.cjs to reach a helper; import the source module in a
 scratch file instead.
 
 BACKTEST: N/A (data ingest; no trading logic).
+
+## 2026-08-12 (2) [REPAIR] — KNOWN BROKEN #29 RECURRENCE #2: v1.0.667's own fix confirmed live to fail the exact case it targeted; grace-period VALUE was wrong, not the mechanism (v1.0.675, T-BOT)
+
+Territory: T-BOT (`diagnostics.py`, `server/bot.ts` outside frozen paths).
+Scheduled-routine session budget: session-start `/api/health` was clean
+(bot active, no dead feeds, `liveness.dark: false`), loop-health ratio on
+the last 10 tagged entries was 3/10 [REPAIR] (well under the 7+ thrash
+threshold, no meta-problem to address). Per SESSION BUDGET, checked the
+live audit log next — exactly the "fix a bug seen in audit logs" primary
+action — and found one.
+
+WHAT I FOUND: `/api/diag/audit?type=TIER3-DIAG&limit=50` showed "Multiple
+API sources down: ['polygon', 'wikipedia', 'gdelt', 'fred']" firing hourly
+from 2026-08-12T00:22:31Z through 07:42:09Z, clearing only once Tier 2
+resumed at 4am ET (08:00 UTC). PR #783 (v1.0.667, KNOWN BROKEN #29's own
+prior RECURRENCE fix, merged 2026-08-12T03:04:17Z) was ALREADY LIVE for
+the last 3+ hours of that window — its 30-minute `API_CHECK_GRACE_PERIOD_S`
+had long since elapsed while Tier 2 was still structurally dark
+(`isAnyWindow` gates it 8pm-4am ET in `server/bot.ts`, a window up to ~8
+hours, not 30 minutes). The MECHANISM v1.0.667 diagnosed was correct; the
+fix's chosen DURATION was not — a flat clock cannot represent "however
+long until the next scheduled Tier 2 run," which ranges from minutes
+(daytime redeploy) to hours (overnight redeploy).
+
+FIX: replaced the clock-based question with the real one. `bot.ts` gained
+`tier2CompletedSinceBoot` (false from boot, set true immediately after
+`tier2Intelligence()` returns successfully — both the scheduled
+`scheduleTier2()` path and the manual `/api/bot/tier2-scan` trigger),
+threaded as a new `tier2_ran_since_boot: bool = None` param into
+`diagnostics.py`'s `run_diagnostics()`/`get_auto_fix_params()`. `False`
+grants grace regardless of elapsed time (the exact overnight case that
+broke); `True` denies grace regardless of elapsed time (Tier 2 had its one
+real chance). `None` (any caller not updated) falls back to the old
+`server_uptime_s` clock check unchanged — fully backward compatible.
+`API_CHECK_GRACE_PERIOD_S` (30 min) stays only as that fallback's value.
+
+Full diagnosis, live evidence trail, and disposition filed in
+`research/open_questions.md` KNOWN BROKEN #29 (RECURRENCE #2).
+
+RATCHET: 3 new tests in `test_diagnostic_false_positives.py`, the key one
+(`test_tier2_not_yet_run_is_grace_even_hours_past_uptime_clock`) pinning
+`server_uptime_s=8*3600, tier2_ran_since_boot=False` as still a warning —
+the precise scenario that fired live tonight and that a flat-clock-only
+fix cannot pass. All 6 pre-existing tests in that class pass unmodified
+(the `None`-default path is untouched).
+
+GATES: this sandbox started with zero Python deps installed (`numpy`/
+`pandas`/`lightgbm`/`openpyxl` all missing — an environment gap, not a
+regression; `pip3 install -r requirements.txt` + `openpyxl` resolved it).
+`python3 -m pytest -q` — 1298 passed, 2 skipped, 0 failed (1295/2/0 at
+v1.0.667 baseline + 3 new tests). `npx tsc --noEmit` — 83 errors, A/B'd
+via `git stash` to be byte-identical before/after (matches the number PR
+#783 itself recorded as baseline). `npx tsx --test server/*.test.ts` —
+1213 tests, 2 failed, A/B'd via `git stash` to be the identical 2 failures
+on unmodified `origin/main` (pmtiles-magic-byte + LAYER_GROUP-registry
+class, pre-existing sandbox baseline, unrelated). `npm run build` clean.
+No `.tsx`/client files touched — VISUAL VERIFICATION does not apply
+(T-BOT/server territory only, same precedent as PR #783). Version bumped
+package.json 1.0.674 -> 1.0.675 (read-and-increment at commit time).
+
+BACKTEST: N/A per PROMOTION RULE 3 — diagnostics-accuracy fix only; no
+scoring/sizing VALUE changes for a healthy Tier 2 system, only WHEN a
+stale-cache warning is trusted after a restart.
+
+HONEST CAVEAT: could not force a live overnight-restart replay from this
+session (no container shell access, and deliberately did not restart
+production just to test a diagnostics fix — that would manufacture the
+exact false positive being fixed). Confidence rests on the fix being a
+direct, mechanical translation of the now-twice-confirmed-live root cause
+into the one signal that's true regardless of clock time, plus the new
+test pinning the exact failure mode observed live tonight. NEXT: confirm
+after v1.0.675 deploys, across a redeploy landing after ~8pm ET, that
+"Multiple API sources down" no longer survives the overnight dark window.
+Per RECURRENCE ESCALATES, a THIRD recurrence with `tier2_ran_since_boot`
+correctly reporting `False` would mean stop patching this check's timing
+entirely and redesign the underlying `os.path.exists()` cache check
+(section 4) instead — the section-4/section-1 duplication v1.0.667 already
+flagged as the likely next structural step.

@@ -472,6 +472,37 @@ class TestApiCheckRestartGracePeriod(unittest.TestCase):
         )
         self.assertLessEqual(params["position_size_multiplier"], 0.6)
 
+    def test_tier2_not_yet_run_is_grace_even_hours_past_uptime_clock(self):
+        """CONFIRMED LIVE 2026-08-12: a restart landing in bot.ts's ~8pm-4am ET
+        Tier-2-dark window leaves the flat 30-min uptime clock elapsed hours
+        before Tier 2 gets its first chance to run. tier2_ran_since_boot=False
+        must keep this a warning no matter how large server_uptime_s is."""
+        report = self.diagnostics.run_diagnostics(
+            server_uptime_s=8 * 3600, tier2_ran_since_boot=False
+        )
+        self.assertEqual(len(self._api_problems(report)), 0)
+        warnings = self._api_warnings(report)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Tier 2 has not completed a scan", warnings[0]["message"])
+
+    def test_tier2_already_ran_is_a_real_problem_even_seconds_after_boot(self):
+        """Once Tier 2 has completed a scan since boot, the caches had their
+        one real chance to be written — tier2_ran_since_boot=True must not be
+        softened by a small server_uptime_s."""
+        report = self.diagnostics.run_diagnostics(
+            server_uptime_s=5, tier2_ran_since_boot=True
+        )
+        problems = self._api_problems(report)
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0]["fix_params"]["multiplier"], 0.6)
+        self.assertEqual(len(self._api_warnings(report)), 0)
+
+    def test_get_auto_fix_params_threads_tier2_ran_since_boot_through(self):
+        params = self.diagnostics.get_auto_fix_params(
+            server_uptime_s=8 * 3600, tier2_ran_since_boot=False
+        )
+        self.assertEqual(params["position_size_multiplier"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

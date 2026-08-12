@@ -3404,7 +3404,7 @@ print(json.dumps(result))
         const { stdout: diagOut } = await execPythonSerialized(`python3 -c "
 from diagnostics import get_auto_fix_params
 import json
-print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime())})))
+print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime())}, tier2_ran_since_boot=${tier2CompletedSinceBoot ? "True" : "False"})))
 "`, { timeout: 15000 });
         const diagParams = JSON.parse(diagOut.trim());
         state.positionSizeMultiplier = diagParams.position_size_multiplier || 1.0;
@@ -4617,7 +4617,7 @@ print(json.dumps(scan_for_manipulation()))
       const { stdout: diagFull } = await execPythonSerialized(`python3 -c "
 from diagnostics import run_diagnostics
 import json
-print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())})))
+print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())}, tier2_ran_since_boot=${tier2CompletedSinceBoot ? "True" : "False"})))
 "`, { timeout: 15000 });
       const diagReport = JSON.parse(diagFull.trim());
       if (diagReport.overall_status !== "healthy") {
@@ -5966,6 +5966,13 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // Cleared on successful scan. Grows with consecutive failures (60s → 120s → 240s,
   // capped at 600s) so a thread-exhaustion crash loop can't hammer the daemon.
   let tier2ConsecutiveFailures = 0;
+  // KNOWN BROKEN #29 (2026-08-12, v1.0.667 recurrence fix, live-disproven same
+  // day): diagnostics.py's API-down check reads caches that ONLY a completed
+  // Tier 2 scan writes. A flat post-restart uptime clock is wrong because
+  // scheduleTier2()'s isAnyWindow gate below can leave Tier 2 dark for up to
+  // ~8 hours (8pm-4am ET) — this flag reports the real, unbounded-by-a-clock
+  // fact ("has Tier 2 had its one chance yet") instead of guessing a duration.
+  let tier2CompletedSinceBoot = false;
 
   // TIER 1: Reflex (every 45 seconds) — positions, stops, order execution
   setInterval(async () => {
@@ -6047,6 +6054,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       const interval = getTier2Interval();
       audit("TIER2", `Starting scan (interval: ${Math.round(interval / 60000)}min based on market time)`);
       await tier2Intelligence(clock.is_open, etH);
+      tier2CompletedSinceBoot = true;
     } catch (err: any) {
       schedulerThrew = true;
       const msg = String(err?.message || err);
@@ -6300,9 +6308,9 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     res.json({ message: "Tier 2 intelligence scan starting..." });
     alpaca("/v2/clock").then(async (clock: any) => {
       const etH = getETHour();
-      try { await tier2Intelligence(clock.is_open, etH); } finally { tier2Running = false; }
+      try { await tier2Intelligence(clock.is_open, etH); tier2CompletedSinceBoot = true; } finally { tier2Running = false; }
     }).catch(async () => {
-      try { await tier2Intelligence(false, getETHour()); } finally { tier2Running = false; }
+      try { await tier2Intelligence(false, getETHour()); tier2CompletedSinceBoot = true; } finally { tier2Running = false; }
     });
   });
 
@@ -6313,8 +6321,9 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
 from diagnostics import run_diagnostics, get_auto_fix_params
 import json
 uptime = ${Math.round(process.uptime())}
-report = run_diagnostics(server_uptime_s=uptime)
-params = get_auto_fix_params(server_uptime_s=uptime)
+tier2_ran = ${tier2CompletedSinceBoot ? "True" : "False"}
+report = run_diagnostics(server_uptime_s=uptime, tier2_ran_since_boot=tier2_ran)
+params = get_auto_fix_params(server_uptime_s=uptime, tier2_ran_since_boot=tier2_ran)
 print(json.dumps({'report': report, 'auto_fix': params}))
 "`, { timeout: 15000 });
       res.json(JSON.parse(stdout.trim()));

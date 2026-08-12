@@ -282,31 +282,40 @@ def check_model_health() -> dict:
 
 # ── Self-Diagnostic ML System ─────────────────────────────────────────────────
 
-API_CHECK_GRACE_PERIOD_S = 1800  # 30 min: KNOWN BROKEN #29 recurrence 2026-08-12 —
-# a fresh container boot wipes ephemeral /tmp, so polygon/wikipedia/gdelt/fred's
-# cache files are genuinely absent until the first post-restart Tier 2 scan
-# writes them (get_alt_data_score()/get_macro_snapshot() are only called from
+API_CHECK_GRACE_PERIOD_S = 1800  # 30 min: fallback only — see tier2_ran_since_boot
+# below for the real fix. KNOWN BROKEN #29 recurrence 2026-08-12: a fresh
+# container boot wipes ephemeral /tmp, so polygon/wikipedia/gdelt/fred's cache
+# files are genuinely absent until the first post-restart Tier 2 scan writes
+# them (get_alt_data_score()/get_macro_snapshot() are only called from
 # deep_score(), never from this check itself). Without a grace period, section
 # 4 below flags a false "Multiple API sources down" MEDIUM problem — and fires
 # its real reduce_position_size(0.6x) auto-fix off a signal that means "no scan
-# has run yet," not "sources are down" — on every redeploy, independent of the
-# v1.0.637/638 within-scan-latency fixes for this same message (see
-# research/open_questions.md KNOWN BROKEN #29). 30 min covers at least one full
-# Tier 2 cycle at its fastest cadence (15 min, TIER2_INTERVAL in system_config.py
-# terms / getTier2Interval() in bot.ts).
+# has run yet," not "sources are down." A flat 30-minute clock is WRONG for
+# this: bot.ts's scheduleTier2() gates Tier 2 entirely dark from ~8pm-4am ET
+# (isAnyWindow), so a restart landing in that window leaves the false problem
+# firing for up to ~8 hours, not 30 minutes — CONFIRMED LIVE 2026-08-12
+# (v1.0.667 deployed 03:04 UTC; "Multiple API sources down" kept firing hourly
+# through 07:42 UTC, clearing only once Tier 2 resumed at 4am ET/08:00 UTC and
+# wrote fresh caches — the fix's own grace window had elapsed hours earlier).
+# 30 min stays as the fallback for callers that can't report Tier 2 state.
 
 
-def run_diagnostics(server_uptime_s: float = None) -> dict:
+def run_diagnostics(server_uptime_s: float = None, tier2_ran_since_boot: bool = None) -> dict:
     """
     Full self-diagnostic scan.
     Checks all systems, identifies problems, and recommends fixes.
     Returns a health report with actionable recommendations.
 
     server_uptime_s: seconds since the calling Node process booted, passed by
-    bot.ts (process.uptime()). None (unknown — a caller that doesn't pass it)
-    preserves the original always-on behavior; this is deliberately NOT a
-    threshold/rule change to what "down" means, only to how soon the API-down
-    check is trusted after a restart it cannot yet have recovered from.
+    bot.ts (process.uptime()). None (unknown) falls back to the always-on
+    behavior for the caches check when tier2_ran_since_boot is also unknown.
+
+    tier2_ran_since_boot: whether bot.ts's Tier 2 loop has completed at least
+    one scan since this server process booted — the caches this check reads
+    are only ever written from inside a Tier 2 scan. False means the caches'
+    absence proves nothing (Tier 2 hasn't had its one chance yet, however long
+    that takes — the true fix for the 8-hour overnight-dark-window case above).
+    None (a caller that doesn't pass it) falls back to the uptime clock.
     """
     report = {
         "timestamp": datetime.now().isoformat(),
@@ -386,16 +395,24 @@ def run_diagnostics(server_uptime_s: float = None) -> dict:
     }
     failed_apis = [name for name, ok in api_checks.items() if not ok]
     if len(failed_apis) >= 3:
-        within_restart_grace = (
-            server_uptime_s is not None and server_uptime_s < API_CHECK_GRACE_PERIOD_S
-        )
+        if tier2_ran_since_boot is False:
+            within_restart_grace = True
+            grace_reason = "Tier 2 has not completed a scan since this restart yet"
+        elif tier2_ran_since_boot is None and server_uptime_s is not None:
+            within_restart_grace = server_uptime_s < API_CHECK_GRACE_PERIOD_S
+            grace_reason = (
+                f"server up {round(server_uptime_s)}s < "
+                f"{API_CHECK_GRACE_PERIOD_S}s restart grace"
+            )
+        else:
+            within_restart_grace = False
+            grace_reason = ""
         if within_restart_grace:
             report["warnings"].append({
                 "system": "api",
                 "message": (
                     f"Multiple API sources down: {failed_apis} "
-                    f"(server up {round(server_uptime_s)}s < "
-                    f"{API_CHECK_GRACE_PERIOD_S}s restart grace — not yet a problem)"
+                    f"({grace_reason} — not yet a problem)"
                 ),
             })
         else:
@@ -492,7 +509,7 @@ def run_diagnostics(server_uptime_s: float = None) -> dict:
     return report
 
 
-def get_auto_fix_params(server_uptime_s: float = None) -> dict:
+def get_auto_fix_params(server_uptime_s: float = None, tier2_ran_since_boot: bool = None) -> dict:
     """
     Run diagnostics and return actionable parameters the AI engine should use.
     Called every scan cycle.
@@ -504,7 +521,7 @@ def get_auto_fix_params(server_uptime_s: float = None) -> dict:
         "problems_summary": str,
     }
     """
-    report = run_diagnostics(server_uptime_s=server_uptime_s)
+    report = run_diagnostics(server_uptime_s=server_uptime_s, tier2_ran_since_boot=tier2_ran_since_boot)
 
     params = {
         "position_size_multiplier": 1.0,
