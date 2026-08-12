@@ -190,6 +190,33 @@ export const APOLLO_NAC_SITES: NacSite[] = [
  *  the view is inside one) is the only honest source of more detail. */
 export const NAC_ACTIVATE_PX_PER_DEG = 256 / (180 / 2 ** MOON_TREK.maxZ);
 
+/** coarsest NAC level worth planning — a z<10 tile of a landing-site strip
+ *  is one 404, never a useful fallback (the WAC tier covers those scales). */
+export const NAC_MIN_Z = 10;
+
+/** Largest REQUEST half-span (deg) whose mosaic fits the pixel budget at
+ *  the level `wantPxPerDeg` demands from this scheme. planMoonTarget backs
+ *  OFF zoom levels to fit a too-wide bbox — but a NAC manager's minZ floor
+ *  turns "too wide at z10" into NO mosaic at all. Found 2026-08-12 by
+ *  arithmetic before it shipped wrong on anyone's screen: at the Moon's
+ *  1.02R floor a 1440px-wide viewport demands a cover span of ~13 z10
+ *  tiles per axis vs the 8 the 2048px budget allows — the NAC tier never
+ *  resolved on desktop, while narrow phone viewports happened to fit.
+ *  Clamping the REQUESTED span keeps the finest level always plannable;
+ *  the alpha-gated sampler falls back to WAC outside the smaller window. */
+export function fitHalfSpanDeg(
+  wantPxPerDeg: number,
+  s: TrekScheme,
+  minZ: number,
+  maxPx = 2048,
+): number {
+  const z = zoomForResolution(wantPxPerDeg, s, minZ);
+  const tilesPerAxis = Math.max(3, Math.floor(maxPx / s.tilePx));
+  // tilesForBbox pads each axis by up to 2 tiles for partial edges
+  // (nCols = floor(span/dpt) + 2), so the span budget is (N−2) tiles
+  return ((tilesPerAxis - 2) * degPerTile(z)) / 2;
+}
+
 /** The NAC site whose coverage strip contains this surface point, or null.
  *  All six strips sit well inside ±90° lon (near side), so a plain range
  *  test needs no wrap handling. */
