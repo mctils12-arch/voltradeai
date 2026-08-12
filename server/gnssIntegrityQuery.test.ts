@@ -172,3 +172,31 @@ test("readGnssIntegrityWindow: a bbox region whose traffic is concentrated in a 
   assert.equal(matched, 3, "all 3 Baltic rows from the later hour file must be counted");
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+// 2026-08-12 (same session, live follow-on): the FIRST real Baltic-vs-
+// control run after the fix above still came back thin (20 rows vs.
+// 3157 for a control box at the same budget) — even-sampling by hour
+// fixed the temporal bias but not the geographic one: a small bbox is a
+// small slice of GLOBAL traffic, so most of the per-file budget was
+// still spent on rows the bbox filter would discard downstream. This
+// pins the fix: passing bbox through as a rowFilter means a tiny region
+// gets the FULL row budget instead of a diluted share of it.
+test("readGnssIntegrityWindow: a bbox gets the full row budget, not a share diluted by out-of-bbox global traffic", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  // One hour file: 95 rows of unrelated global traffic, then 5 Baltic rows.
+  const balticBbox = { lamin: 53, lamax: 60, lomin: 17, lomax: 24 };
+  const globalRows = Array.from({ length: 95 }, (_, i) =>
+    `{"t":${i},"i":"g${i}","la":40.7,"lo":-74,"al":9000,"ni":8,"pt":"adsb_icao"}`);
+  const balticRows = Array.from({ length: 5 }, (_, i) =>
+    `{"t":${i},"i":"bal${i}","la":55,"lo":20,"al":9000,"ni":0,"pt":"adsb_icao"}`);
+  fs.writeFileSync(path.join(dir, "2026-08-11-00.jsonl"), [...globalRows, ...balticRows].join("\n") + "\n");
+  // limit=10, far smaller than the 95 non-Baltic rows preceding the
+  // Baltic ones — without pushdown, the budget exhausts before the
+  // Baltic rows are ever reached.
+  const r = await readGnssIntegrityWindow(["2026-08-11"], balticBbox, base, 10);
+  const matched = r.cells.reduce((s, c) => s + c.n_total, 0);
+  assert.equal(matched, 5, "all 5 Baltic rows counted despite 95 non-Baltic rows preceding them in the file");
+  fs.rmSync(base, { recursive: true, force: true });
+});

@@ -782,9 +782,25 @@ export async function readArchiveDay(
  * a truncated prefix of it. `truncated` now means "at least one hour's
  * own file exceeded its even share", a more honest signal than "we
  * stopped partway through the day".
+ *
+ * `rowFilter` (added 2026-08-12, same session, live follow-on): the FIRST
+ * live Phase-4 run after the fix above still returned a near-empty Baltic
+ * sample (20 broadcast/cruise rows vs. 3157 for a much larger US+Europe
+ * control box, at the SAME row budget) — not starved by hour anymore, but
+ * diluted by geography: a small bbox is a small fraction of GLOBAL
+ * traffic, so most of the per-file budget was still being spent on rows
+ * a downstream bbox filter (aggregateGnssIntegrity) would discard anyway.
+ * `streamJsonlLines` already reads every line of every file regardless of
+ * the budget (it never aborts a file early — see the loop below), so
+ * applying the filter INLINE, before a row counts against `perFileLimit`,
+ * costs no extra I/O and lets the same row budget go entirely to rows
+ * that will actually be used. Optional and generic (a plain predicate,
+ * not a bbox-specific type) so this reader stays reusable for any future
+ * caller/stream.
  */
 export async function readArchiveDayEvenSample(
   stream: string, day: string, baseDir?: string, limit = 20_000,
+  rowFilter?: (row: any) => boolean,
 ): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
   const base = baseDir || archiveBaseDir();
   const dir = path.join(base, stream);
@@ -798,7 +814,11 @@ export async function readArchiveDayEvenSample(
     let fileCount = 0;
     await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
       if (fileCount >= perFileLimit) { truncated = true; return; }
-      try { rows.push(JSON.parse(line)); fileCount++; } catch {}
+      let row: any;
+      try { row = JSON.parse(line); } catch { return; }
+      if (rowFilter && !rowFilter(row)) return;
+      rows.push(row);
+      fileCount++;
     });
   }
   return { dir, files: files.map((f) => path.basename(f)), rows, truncated };
