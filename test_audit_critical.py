@@ -497,3 +497,178 @@ class TestBacktestV2Engine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RENDERING & MOTION LAW (CLAUDE.md Amendment 6) — mechanical enforcement.
+#
+# "Prose in CLAUDE.md is not enforcement." These are the STATIC halves of
+# the self-see harness assertions (work-order PR10 #1 and #5), placed here
+# rather than in the visual harness because THIS FILE IS RUN BY CI and the
+# visual harness is not. A layer that violates Law I or drops the Law IV
+# contract now fails the merge, instead of being noticed by a human later.
+#
+# The runtime halves (#2 no unready tile draws, #3 p95 frame time, #4 heap
+# returns to baseline on toggle) live in the visual harness and are NOT
+# here: #2 is not yet meaningful (no layer consumes tileCore yet) and #3
+# cannot be honestly gated on a headless SwiftShader software rasterizer,
+# which runs 4-13x over the 16.7ms budget for reasons that have nothing to
+# do with our code.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import glob
+import re
+
+
+class TestRenderingMotionLaw(unittest.TestCase):
+    """Static enforcement of Laws I and IV over the layer directories."""
+
+    # Directories whose contents render. Adding a new one here is how a new
+    # family of layers opts into the law.
+    LAYER_DIRS = [
+        "client/src/lib/orbital",
+        "client/src/lib/air",
+        "client/src/lib/celestial",
+    ]
+
+    # Forbidden as triggers for geometry/texture/position updates (Law I).
+    FORBIDDEN_EVENTS = ["zoomend", "moveend", "idle", "move", "zoom", "rotate", "pitch", "dragend"]
+
+    def _repo(self, *parts):
+        return os.path.join(os.path.dirname(__file__), *parts)
+
+    def _layer_sources(self):
+        """Every non-test .ts file under the layer directories."""
+        out = []
+        for d in self.LAYER_DIRS:
+            for path in sorted(glob.glob(self._repo(d, "*.ts"))):
+                if path.endswith(".test.ts"):
+                    continue
+                out.append(path)
+        return out
+
+    def test_layer_dirs_exist(self):
+        """Guard the guard: a renamed directory must not silently disable
+        every assertion below by matching zero files."""
+        for d in self.LAYER_DIRS:
+            self.assertTrue(os.path.isdir(self._repo(d)), f"layer directory missing: {d}")
+        self.assertGreater(len(self._layer_sources()), 10, "layer source glob matched suspiciously few files")
+
+    def test_law_I_no_map_event_handlers_in_layers(self):
+        """Law I — nothing visual may be recomputed on a map event.
+
+        Events may set a TARGET; the one rAF loop in client/src/render/
+        frameCore.ts interpolates toward it. A layer registering its own
+        map-event handler is how the four bugs this overhaul exists to fix
+        got there in the first place.
+        """
+        # `.on("move")` / `.on('moveend')` — the registration form.
+        pattern = re.compile(r"""\.on\(\s*['"](%s)['"]""" % "|".join(self.FORBIDDEN_EVENTS))
+        violations = []
+        for path in self._layer_sources():
+            with open(path, encoding="utf-8") as f:
+                for lineno, line in enumerate(f, 1):
+                    m = pattern.search(line)
+                    if m:
+                        rel = os.path.relpath(path, os.path.dirname(__file__))
+                        violations.append(f"{rel}:{lineno} registers a '{m.group(1)}' handler")
+        self.assertEqual(
+            violations,
+            [],
+            "Law I (CLAUDE.md — RENDERING & MOTION LAW): no visual state may be "
+            "recomputed in a map-event handler. Events set a target; the rAF loop "
+            "in client/src/render/frameCore.ts interpolates toward it.\n  "
+            + "\n  ".join(violations),
+        )
+
+    def _layer_modules(self):
+        """Files whose NAME declares them a layer. This is deliberately a
+        naming rule rather than a hardcoded list, so a new `*Layer.ts` is
+        bound by the contract the moment it is created."""
+        return [p for p in self._layer_sources() if os.path.basename(p).endswith("Layer.ts")]
+
+    def test_layer_modules_found(self):
+        mods = self._layer_modules()
+        self.assertGreaterEqual(len(mods), 5, f"expected the known *Layer.ts modules, found {len(mods)}")
+
+    def test_law_IV_every_layer_declares_budgets_and_teardown(self):
+        """Law IV — every layer declares a max feature count and a VRAM
+        budget, and implements explicit teardown.
+
+        A layer that leaks on toggle is why layers default to off. The
+        budgets are checked for EXISTENCE here; their arithmetic is checked
+        against each layer's own stride constants in
+        client/src/render/layerContract.test.ts.
+        """
+        missing = []
+        for path in self._layer_modules():
+            rel = os.path.relpath(path, os.path.dirname(__file__))
+            with open(path, encoding="utf-8") as f:
+                src = f.read()
+            if not re.search(r"^export const maxFeatures\b", src, re.M):
+                missing.append(f"{rel}: no `export const maxFeatures`")
+            if not re.search(r"^export const vramBudget\b", src, re.M):
+                missing.append(f"{rel}: no `export const vramBudget`")
+            # dispose() is a method on the layer class, not a module export —
+            # that is where the GL handles live.
+            if not re.search(r"^\s*dispose\s*\(\s*\)\s*:", src, re.M):
+                missing.append(f"{rel}: no `dispose()` teardown method")
+        self.assertEqual(
+            missing,
+            [],
+            "Law IV (CLAUDE.md — RENDERING & MOTION LAW): every layer must declare "
+            "`maxFeatures` and `vramBudget` and implement `dispose()`.\n  " + "\n  ".join(missing),
+        )
+
+    def test_render_core_constants_are_law_not_tune_values(self):
+        """CLAUDE.md states the frameCore/tileCore/zoomInput constants are
+        law: changing one is a constitutional amendment, not a tune. Pin the
+        load-bearing ones so a silent retune fails CI and has to become an
+        explicit amendment instead."""
+        expected = {
+            "client/src/render/frameCore.ts": [
+                ("MAX_DT_MS", "100"),
+                ("SPRING_STEP_MS", "4"),
+                ("MAX_SUBSTEPS", "8"),
+                ("FRAME_BUDGET_MS", "16.7"),
+            ],
+            "client/src/render/tileCore.ts": [
+                ("SIZE_PX", "512"),
+                ("SSE_SPLIT_PX", "2.0"),
+                ("SSE_MERGE_PX", "1.0"),
+                ("MAX_INFLIGHT", "8"),
+                ("MAX_UPLOADS_PER_FRAME", "2"),
+                ("PINNED_BASE_LEVEL", "0"),
+            ],
+            "client/src/render/zoomInput.ts": [
+                ("WHEEL_RATE", r"1 / 450"),
+                ("ALT_MIN_KM", "0.1"),
+                ("ALT_MAX_KM", "30000"),
+            ],
+        }
+        for rel, pairs in expected.items():
+            path = self._repo(rel)
+            self.assertTrue(os.path.exists(path), f"{rel} missing — the shared render contract must exist")
+            with open(path, encoding="utf-8") as f:
+                src = f.read()
+            for name, value in pairs:
+                self.assertRegex(
+                    src,
+                    rf"{name}:\s*{re.escape(value)}\b",
+                    f"{rel}: {name} is no longer {value}. These constants are LAW "
+                    "(CLAUDE.md — RENDERING & MOTION LAW); changing one is an amendment, "
+                    "not a tune. If the change is intended, amend CLAUDE.md and this test together.",
+                )
+
+    def test_hysteresis_gap_cannot_be_closed(self):
+        """Law II.3 — hysteresis is mandatory. A split threshold at or below
+        the merge threshold reintroduces the split/merge thrash the gap
+        exists to prevent, and would pass a naive 'constant exists' check."""
+        with open(self._repo("client/src/render/tileCore.ts"), encoding="utf-8") as f:
+            src = f.read()
+        split = float(re.search(r"SSE_SPLIT_PX:\s*([\d.]+)", src).group(1))
+        merge = float(re.search(r"SSE_MERGE_PX:\s*([\d.]+)", src).group(1))
+        self.assertGreater(split, merge, "SSE split must exceed merge or LOD thrashes")
+        # A freshly split child has half its parent's sse; if that lands below
+        # the merge threshold it immediately merges back — an infinite cycle.
+        self.assertGreaterEqual(split / 2, merge, "split/merge thresholds admit a split-then-merge cycle")
