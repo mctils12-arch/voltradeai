@@ -313,14 +313,14 @@ export class ZoomInput {
 
   private currentSpread(): number {
     if (this.pointers.size !== 2) return 0;
-    const [a, b] = [...this.pointers.values()];
-    return spread(a, b);
+    const vals = Array.from(this.pointers.values());
+    return spread(vals[0], vals[1]);
   }
 
   private currentCentroid(): ZoomAnchor {
     if (this.pointers.size !== 2) return { x: 0, y: 0 };
-    const [a, b] = [...this.pointers.values()];
-    return centroid(a, b);
+    const vals = Array.from(this.pointers.values());
+    return centroid(vals[0], vals[1]);
   }
 
   private applyLogDelta(deltaLog: number, anchor: ZoomAnchor, nowMs: number): ZoomChange | null {

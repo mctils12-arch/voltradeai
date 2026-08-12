@@ -455,7 +455,13 @@ export class FrameLoop {
   dispose(): void {
     this.stop();
     this.regs = [];
-    for (const s of this.springs) if (s._loop === this) s._loop = null;
+    // forEach rather than for-of throughout this file: the repo's tsconfig
+    // has no `target`, so iterating a Set/Map with for-of trips TS2802.
+    // forEach needs no downlevelIteration and allocates nothing, which
+    // matters in integrateSprings — that one runs every frame.
+    this.springs.forEach((s) => {
+      if (s._loop === this) s._loop = null;
+    });
     this.springs.clear();
     this.awake.clear();
     this.samples.length = 0;
@@ -551,11 +557,13 @@ export class FrameLoop {
     if (plan.steps === 0) return;
 
     const h = FRAME.SPRING_STEP_MS / 1000;
-    for (const spring of this.awake) {
+    // Deleting from a Set inside its own forEach is safe: a removed entry
+    // is simply not revisited.
+    this.awake.forEach((spring) => {
       let alive = true;
       for (let i = 0; i < plan.steps && alive; i++) alive = spring.step(h);
       if (!alive) this.awake.delete(spring);
-    }
+    });
   }
 
   private recordSample(ms: number): void {
