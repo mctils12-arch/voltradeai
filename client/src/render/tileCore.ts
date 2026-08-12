@@ -523,7 +523,35 @@ export interface TileSource {
   readonly bodyRadius: number;
   /** Bytes a tile of this source occupies once uploaded. Defaults to a
    *  4bpp compressed 512² with mips. */
+  /**
+   * VRAM a single uploaded tile of this source occupies, in bytes.
+   *
+   * DECLARE THIS. The default is deliberately PESSIMISTIC (uncompressed
+   * RGBA8 + mips) because this number is the only input to the Law IV
+   * eviction budget, and the failure modes are not symmetric:
+   *   - over-estimate  -> evict sooner than strictly necessary (a little
+   *     extra re-fetching, no user-visible break)
+   *   - under-estimate -> evictionPlan believes it has headroom it does
+   *     not have, never evicts, and the layer blows the VRAM budget it
+   *     was written to enforce. On a 256MB mobile budget an 8x
+   *     under-report is a context loss, not a slowdown.
+   * A source that genuinely ships compressed tiles should say so via
+   * `compressedTileBytes()`.
+   */
   bytesPerTile?(): number;
+}
+
+/** Convenience for a source that ships 4bpp compressed tiles WITH baked
+ *  mips (ETC1S / BC1 / ETC2-RGB). Use this rather than hand-computing, so
+ *  the mip factor cannot be forgotten. */
+export function compressedTileBytes(tileSizePx = TILE.SIZE_PX): number {
+  return textureBytes(tileSizePx, tileSizePx, "compressed4bpp", true);
+}
+
+/** Convenience for a source that ships JPEG/PNG decoded to RGBA8 with
+ *  runtime-generated mips — the no-Basis fallback path. */
+export function uncompressedTileBytes(tileSizePx = TILE.SIZE_PX): number {
+  return textureBytes(tileSizePx, tileSizePx, "rgba8", true);
 }
 
 export interface TileSink {
@@ -593,7 +621,10 @@ export class TileStreamer {
 
   constructor(opts: TileStreamerOptions) {
     this.opts = opts;
-    this.bytesPerTile = opts.source.bytesPerTile?.() ?? textureBytes(TILE.SIZE_PX, TILE.SIZE_PX, "compressed4bpp", true);
+    // Pessimistic default — see TileSource.bytesPerTile. Assuming the
+    // COMPRESSED size here (as this originally did) under-reports an
+    // uncompressed source by 8x and silently disables the eviction budget.
+    this.bytesPerTile = opts.source.bytesPerTile?.() ?? uncompressedTileBytes(TILE.SIZE_PX);
     this.budgetBytes = vramBudgetBytes(opts.lowPower ?? false);
     this.maxInflight = opts.maxInflight ?? STREAM.MAX_INFLIGHT;
   }
