@@ -28,16 +28,23 @@
 //      constant sea-level base, never clamped to the top).
 //   b. DOUBLE-SIDED: gl.disable(CULL_FACE) — a single-sided strip is
 //      back-face-culled the moment the camera tilts past its plane.
-//   c. TRANSPARENT GEOMETRY MUST NOT WRITE DEPTH, BUT MUST TEST IT:
-//      MapLibre gives '2d' custom layers NO depth interaction at all
-//      (painter: DepthMode.disabled above the opaque cutoff), while the
-//      terrain mesh DOES write real depth into the main framebuffer — so
-//      this layer explicitly sets gl.enable(DEPTH_TEST) + depthFunc(LEQUAL)
-//      + depthMask(false) + depthRange(0,1) each frame. The curtain depth-
-//      tests against the terrain (ridges in front occlude it correctly,
-//      the below-ground overlap hides inside the mountain) and never
-//      z-fights it (no writes). The painter's setDirty() after custom
-//      render re-syncs MapLibre's own state tracking.
+//   c. TRANSPARENT GEOMETRY MUST NEITHER WRITE DEPTH NOR TEST IT.
+//      CORRECTED 2026-08-12 — this bullet previously claimed the layer
+//      "must test" depth and set depthRange(0,1) to do so. That was the
+//      bug, not the fix, and it caused three separate live reports.
+//      MapLibre's opaque pass never leaves real geometry depth in the
+//      buffer: every layer draws through getDepthModeForSublayer, whose
+//      DEGENERATE [d,d] range writes a per-layer CONSTANT. Custom '2d'
+//      layers are handed that same degenerate range precisely so their
+//      fragments compare equal and are never clipped. Overriding it to
+//      (0,1) gave our fragments real perspective depth against those flat
+//      constants, which killed everything past a fixed camera distance —
+//      a horizontal screen-space cut through the curtain. Depth is now
+//      untouched in BOTH the terrain and no-terrain cases. Cost: the
+//      curtain X-rays through ridges instead of being occluded by them.
+//      That is the correct trade for a translucent analysis overlay, and
+//      it is what the terrain branch has already been doing since
+//      2026-07-20. See the full derivation at the render() call site.
 //
 // Vertex layout, gap/antimeridian rules, GLOBE far-side fragment-discard
 // and the constant-pixel-width ribbon extrusion are the proven arcLayer
@@ -666,22 +673,53 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.lastMainMatrix.set(pd0.mainMatrix as ArrayLike<number>);
     this.lastTransition = pd0.projectionTransition;
 
-    // THE CRITICAL FIX (c), amended 2026-07-20 (probe-bisected): WITHOUT
-    // terrain the depth buffer is the normal cleared-far one — depth-test
-    // LEQUAL works and costs nothing. WITH terrain enabled MapLibre leaves
-    // NO usable depth for '2d' custom layers (every fragment failed: the
-    // trail was invisible, census 223 vs 2,502) — so the test is SKIPPED
-    // there: the curtain X-rays through ridges rather than vanishing.
-    // Never writes depth either way. MapLibre re-syncs its own tracked GL
-    // state after custom layers via setDirty().
+    // DEPTH: NEVER TESTED, NEVER WRITTEN, AND THE RANGE IS LEFT ALONE.
+    // (Root-caused 2026-08-12 from a 25-frame screen recording; this is the
+    // third repair of ONE uncorrected cause, so the reasoning is recorded in
+    // full rather than compressed.)
+    //
+    // The premise the previous version rested on — "WITHOUT terrain the depth
+    // buffer is the normal cleared-far one" — is FALSE. MapLibre's opaque
+    // pass does not leave real geometry depth in the buffer at all. Each
+    // layer draws through painter.getDepthModeForSublayer, which returns a
+    // DEGENERATE range [d, d] with d = 1 - ((1+layerIndex)*numSublayers +
+    // n)*2^-16, so the buffer ends up holding a per-layer CONSTANT near 1.0
+    // across the whole screen. That degenerate range is exactly the contract
+    // that lets '2d' custom layers coexist: their fragments are forced to
+    // depth d, LEQUAL compares equal everywhere, and nothing is ever clipped.
+    //
+    // `gl.depthRange(0, 1)` broke that contract. It gave our fragments TRUE
+    // perspective depth (z ~ 1 - nearZ/dist) which was then LEQUAL-compared
+    // against those flat constants, so a fragment survived only where
+    // dist <= nearZ/(1 - d). A constant view-space distance projects to a
+    // HORIZONTAL SCREEN LINE, so the track was cut by a fixed screen-space
+    // band and everything beyond it was killed.
+    //
+    // That is why it read as "vanishes on rotate": nothing about the layer
+    // changed with bearing. Rotation merely swept the track's screen line
+    // into and out of the surviving band, and when the line ran near
+    // horizontal ABOVE the cut, the entire curtain disappeared at once.
+    // Measured across the recording: the track's topmost pixel sat at
+    // y = 362-371 in EVERY frame while its x spanned 280-777 — a hard,
+    // bearing-invariant horizontal cut, with a 9px spread where a rotating
+    // world endpoint would have traced 100px+ of ellipse.
+    //
+    // The control that makes this decisive: airLayer / satLayer / arcLayer
+    // touch NO depth state, and in the very frames where this track is cut
+    // their symbols blanket the full viewport at full opacity. Any
+    // projection-level cause (far plane, drape/RTT order, globe cull, LOD)
+    // would have taken them too. Only the layer that overrode depthRange
+    // was affected.
+    //
+    // The terrain-ON branch was the same bug at 100% (census 223 vs 2,502);
+    // the 2026-07-20 patch disabled the test there and left this branch on
+    // the false premise. Both branches now do the same correct thing.
+    // MapLibre re-syncs its own tracked GL state after custom layers via
+    // setDirty(), so leaving depthRange untouched is safe.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    const terrainOn = !!(this.map && (this.map as unknown as { getTerrain?: () => unknown }).getTerrain?.());
-    if (terrainOn) gl.disable(gl.DEPTH_TEST);
-    else gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);
-    gl.depthRange(0, 1);
     // THE CRITICAL FIX (b): double-sided — never back-face-culled.
     gl.disable(gl.CULL_FACE);
 

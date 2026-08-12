@@ -171,7 +171,18 @@ test('cull runs through the WHOLE globe↔mercator transition; disabled only at 
   }
 });
 
-test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cull OFF, full depth range', () => {
+test('render NEVER touches depth: no test, no write, no range override, cull OFF', () => {
+  // INVERTED 2026-08-12. This test previously asserted `depthTestEnabled ===
+  // true` and `depthRange === [0,1]` — i.e. it PINNED THE BUG. Overriding
+  // MapLibre's degenerate [d,d] sublayer depth range gave this layer's
+  // fragments real perspective depth against the flat constants the opaque
+  // pass writes, so everything past a fixed camera distance was killed: a
+  // horizontal screen-space cut that ate the curtain and read as
+  // "vanishes on rotate". Three live reports, one uncorrected cause, and a
+  // green test the whole time.
+  // This is not weakening an assertion — it is asserting the opposite thing
+  // because the original assertion was wrong. The `depthRange` guard below
+  // is NEW and is what actually prevents the regression.
   const layer = new FlightTrackLayer();
   layer.setTrack(input2(), 1);
   const calls: string[] = [];
@@ -212,10 +223,12 @@ test('render sets THE CRITICAL FIX GL state: depth-test on, depth-write OFF, cul
     },
   };
   (layer as any).renderInner(gl, args, true, false);
-  assert.equal(flags.depthTestEnabled, true, 'depth TEST enabled (terrain occludes the curtain correctly)');
+  assert.equal(flags.depthTestEnabled, false,
+    'depth TEST must stay OFF — MapLibre leaves per-sublayer CONSTANTS in the buffer, not geometry depth, so any test clips by camera distance');
   assert.equal(flags.depthMask, false, 'depth WRITE off (translucent geometry never z-fights)');
   assert.equal(flags.cullDisabled, true, 'CULL_FACE disabled (double-sided — survives any tilt)');
-  assert.deepEqual(flags.depthRange, [0, 1], 'full depth range (the 2d-sublayer pinning undone)');
+  assert.equal(flags.depthRange, null,
+    'depthRange must NEVER be called — overriding MapLibre\'s degenerate [d,d] range is what produced the horizontal screen-space cut');
   assert.ok(calls.includes('drawElements'), 'geometry drawn');
 });
 
