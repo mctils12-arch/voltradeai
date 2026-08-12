@@ -47560,3 +47560,39 @@ crossing EDT→CDT, Phoenix→Denver winter no-crossing/summer crossing,
 jitter confirmation, track-end commit, GMT-offset parsing, label
 fallback); flightTrackLayer.test.ts +2 (mark quad geometry/color/width,
 gap+out-of-range skip). Air suites 99/99.
+
+## 2026-08-12 — [PIPELINE] TIME MACHINE T-1: hex-multiplexed window endpoint (v1.0.672)
+
+Territory: T-DATACORE (server) + one minimal SHARED routes.ts edit.
+First slice of the TIME MACHINE v2 design (earth_twin_program.md,
+human directive 2026-08-11: "just shows dots — it should have a time
+scale … shows the curtains for all planes and the path tracked").
+
+Change: NEW server/aircraftWindow.ts — readWindow(bbox, from, to,
+zoom): every hex with fixes in window∩bbox, per-hex [t,la,lo,al]
+arrays. ONE stream pass per hour file multiplexes ALL hexes (charter
+rule: never O(hexes) file walks); files stream NEWEST-FIRST under a
+file budget so a 30-day request degrades to "newest K hours, honestly
+labeled" (coverage.scanned_from/complete in the response). LOD
+decimation by zoom (SCALE S1: z≥9 all fixes, z≥7 60s, z≥5 300s, z≥3
+600s, else 900s; track end always survives). Same-second t-dedupe
+altitude-wins (fullTrackAsync rule). Caps stated honestly: 300 hexes
+("returned N of M — zoom in"), 600 pts/hex (newest kept, truncated
+flag), 60k total, 192 files. Route GET /api/data/aircraft/window with
+validation, 30d span cap, 30s TTL cache on quantized params. Module is
+kind-generic (vessels = T-4 parity, no altitude → paths not curtains).
+
+Tests: server/aircraftWindow.test.ts 13 — window∩bbox filtering,
+one-pass multiplexing + rg/c/ty metadata, same-second dedupe, LOD
+decimation (spacing + end-survival pins), honest hex cap + note,
+per-hex newest-kept truncation, newest-first file budget with partial
+coverage reporting, gz parity, empty/inverted-window honesty, default
+caps pin. Uses the REAL archiveAircraftAt writer so the wire format
+stays truth-coupled.
+
+NEXT: T-2 scrubber selectors (window 1h/6h/24h/7d/30d × step
+1min/5min/15min/1h), T-3 MultiTrackLayer curtain fleet (one GL layer,
+batched buffers), T-4 vessels parity — recipes in the charter. Open
+human questions (cap preference at wide zoom; mil/ladd/pia at world
+zoom) still unanswered; T-1 built the SCALE-lawful viewport-bounded
+default.
