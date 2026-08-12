@@ -396,3 +396,25 @@ test("a NAC scheme's deep tiles resolve sub-meter-class detail the WAC cannot", 
   const wacPxPerDeg = tilePxPerDeg(MOON_TREK.maxZ, MOON_TREK);
   assert.ok(nacPxPerDeg / wacPxPerDeg >= 100, `NAC ${nacPxPerDeg} vs WAC ${wacPxPerDeg}`);
 });
+
+test("NAC plan-fit clamp: the desktop-floor case plans at the finest level instead of nothing", async () => {
+  const { APOLLO_NAC_SITES, fitHalfSpanDeg, NAC_MIN_Z } = await import("./lroc.ts");
+  const { planMoonTarget, MOON_MOSAIC_MAX_PX } = await import("./moonTiles.ts");
+  const a11 = APOLLO_NAC_SITES.find((s) => s.id === "apollo11")!;
+  // the 2026-08-12 desktop hole: Moon floor (1.02R) on a 1440px viewport
+  // demands ~754 px/deg over a ~1.1° half-span — too wide for z10's tile
+  // budget, and the minZ floor forbids backing off ⇒ planMoonTarget = null
+  const pxPerDeg = 754;
+  const wideHalf = 1.1;
+  const broken = planMoonTarget(23.47297, 0.67408, pxPerDeg, wideHalf,
+    { scheme: a11.scheme, minZ: NAC_MIN_Z, maxPx: MOON_MOSAIC_MAX_PX });
+  assert.equal(broken, null, "unclamped desktop request cannot plan (the bug)");
+  // the clamp shrinks the REQUEST to what the budget fits at the wanted z
+  const half = fitHalfSpanDeg(pxPerDeg, a11.scheme, NAC_MIN_Z, MOON_MOSAIC_MAX_PX);
+  assert.ok(half > 0.3 && half < wideHalf, `clamped half-span ${half}`);
+  const t = planMoonTarget(23.47297, 0.67408, pxPerDeg, Math.min(wideHalf, half),
+    { scheme: a11.scheme, minZ: NAC_MIN_Z, maxPx: MOON_MOSAIC_MAX_PX });
+  assert.ok(t, "clamped request plans");
+  assert.ok(t!.z >= NAC_MIN_Z, `plans at z${t!.z} (finest that meets the demand)`);
+  assert.ok(t!.mosaic.pxW <= MOON_MOSAIC_MAX_PX && t!.mosaic.pxH <= MOON_MOSAIC_MAX_PX);
+});

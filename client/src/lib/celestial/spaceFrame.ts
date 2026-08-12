@@ -246,6 +246,7 @@ import {
 // texels; the surface patch shows real 100 m/px imagery where the eye looks).
 import {
   createMoonTileManager,
+  MOON_MOSAIC_MAX_PX,
   type MoonTileManager,
 } from "./moonTiles.js";
 // B5 "PLANET SURFACES": the same tile→patch path streams Mars/Mercury/Venus
@@ -255,7 +256,7 @@ import {
 // the screen demands more than WAC's deepest level, a per-site LROC NAC
 // mosaic (~0.5 m/px — the descent stages, rover tracks and foot trails are
 // REAL pixels there) streams as a finer detail tier over the WAC mosaic.
-import { trekBody, nacSiteFor, NAC_ACTIVATE_PX_PER_DEG, type NacSite } from "./lroc.js";
+import { trekBody, nacSiteFor, fitHalfSpanDeg, NAC_ACTIVATE_PX_PER_DEG, NAC_MIN_Z, type NacSite } from "./lroc.js";
 import {
   normalFromLonLat,
   renderMoonSurfaceRows,
@@ -2271,7 +2272,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   function nacManagerFor(site: NacSite): MoonTileManager {
     let m = nacTileManagers.get(site.id);
     if (!m) {
-      m = createMoonTileManager({ scheme: site.scheme, minZ: 10 });
+      m = createMoonTileManager({ scheme: site.scheme, minZ: NAC_MIN_Z });
       m.onUpdate(() => { kick(); });
       nacTileManagers.set(site.id, m);
     }
@@ -2478,7 +2479,11 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     let nacOv: DetailOverlay | null = null;
     if (nacSite) {
       const nm = nacManagerFor(nacSite);
-      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+      // plan-fit clamp (fitHalfSpanDeg): the request span must FIT the tile
+      // budget at the demanded level, or the minZ floor turns it into no
+      // mosaic at all (the 1440px-desktop hole, 2026-08-12)
+      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg,
+        Math.min(coverHalfDeg, fitHalfSpanDeg(pxPerSurfDeg, nacSite.scheme, NAC_MIN_Z, MOON_MOSAIC_MAX_PX)));
       const nmos = nm.current();
       if (nmos) {
         nacOv = { tex: nmos.tex, lonMin: nmos.lonMin, lonSpan: nmos.lonSpan, latMax: nmos.latMax, latSpan: nmos.latSpan };

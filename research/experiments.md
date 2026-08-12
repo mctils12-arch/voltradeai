@@ -48195,3 +48195,24 @@ RATCHET note (rule 3, repairs ship with a regression test): the test
 already exists and already catches this — the missing piece is CI
 running it, which is the wishlist proposal. No new test needed; the
 defect is unrepresentable once test:node gates merges.
+
+## 2026-08-12 — [REPAIR] NAC plan-fit clamp: the desktop hole (v1.0.687)
+
+Territory: T-CLIENT. Found by arithmetic while demonstrating the NAC
+feature (v1.0.673), before any user hit it: at the Moon's 1.02R zoom
+floor a 1440px-wide viewport demands a cover span of ~13 z10 tiles per
+axis, but the 2048px mosaic budget allows 8 — and the NAC managers'
+minZ floor forbids planMoonTarget's usual back-off, so the plan
+returned null and the NAC tier NEVER resolved on desktop widths.
+Narrow phone viewports happened to fit, masking it.
+
+FIX: lroc.fitHalfSpanDeg — clamp the REQUESTED half-span to what the
+tile budget fits at the demanded level ((N−2) tiles per axis; the −2
+absorbs tilesForBbox's partial-edge padding). The alpha-gated sampler
+falls back to WAC outside the smaller window, so a partial NAC patch
+is strictly better than none. NAC_MIN_Z hoisted to lroc (was a
+literal in two spaceFrame call sites).
+
+RATCHET (rule 3): lroc.test.ts pins the exact desktop-floor case —
+unclamped 1.1° half-span at 754 px/deg returns null (the bug), the
+clamped request plans at z≥10 within budget.
