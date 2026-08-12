@@ -461,12 +461,33 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.id = opts.id ?? 'flight-track-3d';
   }
 
-  onAdd(map: MapLibreMap, _gl: AnyGl): void {
+  /** Cached GL context so `dispose()` needs no arguments (Law IV). */
+  private glRef: AnyGl | null = null;
+
+  onAdd(map: MapLibreMap, gl: AnyGl): void {
     this.map = map;
+    // Law IV: cache the context so dispose() can free GL objects without the
+    // caller holding a `gl`. MapLibre only hands one to onAdd/onRemove/render,
+    // so a no-arg teardown is impossible without this.
+    this.glRef = gl;
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
     this.dropGlObjects(gl);
+    this.map = null;
+  }
+
+  /**
+   * Law IV explicit teardown. Delegates to the layer's own onRemove path
+   * using the cached context, so a view unmount (or the harness's
+   * toggle-on/toggle-off leak assertion) can free everything without
+   * holding a `gl`. Idempotent — onRemove nulls every handle, and GL
+   * deletes on a lost context are no-ops.
+   */
+  dispose(): void {
+    const gl = this.glRef;
+    this.glRef = null;
+    if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
     this.map = null;
   }
 
@@ -832,3 +853,12 @@ export class FlightTrackLayer implements CustomLayerInterface {
     this.cachedVariant = variant;
   }
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// The trail is a quad strip: FT_VERT_STRIDE(13) floats x FT_VERTS_PER_SEG(4)
+// per segment.
+//   512 x 4 x 13 x 4B = 106 KB, plus the tail strip and index buffers.
+// 512 is the work order's TRAIL.MAX_POINTS. maxFeatures counts TRAIL POINTS,
+// not aircraft — this layer draws one selected aircraft's history.
+export const maxFeatures = 512;
+export const vramBudget = 2; // MB

@@ -239,8 +239,15 @@ export class ArcLayer implements CustomLayerInterface {
     this.defaultWidthPx = opts.widthPx ?? ARC_DEFAULT_WIDTH_PX;
   }
 
-  onAdd(map: MapLibreMap, _gl: AnyGl): void {
+  /** Cached GL context so `dispose()` needs no arguments (Law IV). */
+  private glRef: AnyGl | null = null;
+
+  onAdd(map: MapLibreMap, gl: AnyGl): void {
     this.map = map;
+    // Law IV: cache the context so dispose() can free GL objects without the
+    // caller holding a `gl`. MapLibre only hands one to onAdd/onRemove/render,
+    // so a no-arg teardown is impossible without this.
+    this.glRef = gl;
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
@@ -252,6 +259,20 @@ export class ArcLayer implements CustomLayerInterface {
     this.indexBuffer = null;
     this.cachedVariant = null;
     this.dirty = this.verts != null;
+    this.map = null;
+  }
+
+  /**
+   * Law IV explicit teardown. Delegates to the layer's own onRemove path
+   * using the cached context, so a view unmount (or the harness's
+   * toggle-on/toggle-off leak assertion) can free everything without
+   * holding a `gl`. Idempotent — onRemove nulls every handle, and GL
+   * deletes on a lost context are no-ops.
+   */
+  dispose(): void {
+    const gl = this.glRef;
+    this.glRef = null;
+    if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
     this.map = null;
   }
 
@@ -419,3 +440,11 @@ export class ArcLayer implements CustomLayerInterface {
     this.uProjFallback = gl.getUniformLocation(p, 'u_projection_fallback_matrix');
   }
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// ARC_VERT_STRIDE(13) floats x ARC_VERTS_PER_SEG(4) per segment. Orbit arcs
+// are drawn for selected/followed objects, not the whole catalog, so the
+// working set is single digits; 256 is a runaway guard well above any real
+// selection.
+export const maxFeatures = 256;
+export const vramBudget = 2; // MB

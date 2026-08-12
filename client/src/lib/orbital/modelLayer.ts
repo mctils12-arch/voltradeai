@@ -164,8 +164,15 @@ export class SatModelLayer implements CustomLayerInterface {
     this.id = opts.id ?? 'orbital-sat-model';
   }
 
-  onAdd(map: MapLibreMap, _gl: AnyGl): void {
+  /** Cached GL context so `dispose()` needs no arguments (Law IV). */
+  private glRef: AnyGl | null = null;
+
+  onAdd(map: MapLibreMap, gl: AnyGl): void {
     this.map = map;
+    // Law IV: cache the context so dispose() can free GL objects without the
+    // caller holding a `gl`. MapLibre only hands one to onAdd/onRemove/render,
+    // so a no-arg teardown is impossible without this.
+    this.glRef = gl;
   }
 
   onRemove(_map: MapLibreMap, gl: AnyGl): void {
@@ -180,6 +187,20 @@ export class SatModelLayer implements CustomLayerInterface {
     this.program = null;
     this.bufPos = this.bufNor = this.bufCol = null;
     this.cachedVariant = null;
+    this.map = null;
+  }
+
+  /**
+   * Law IV explicit teardown. Delegates to the layer's own onRemove path
+   * using the cached context, so a view unmount (or the harness's
+   * toggle-on/toggle-off leak assertion) can free everything without
+   * holding a `gl`. Idempotent — onRemove nulls every handle, and GL
+   * deletes on a lost context are no-ops.
+   */
+  dispose(): void {
+    const gl = this.glRef;
+    this.glRef = null;
+    if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
     this.map = null;
   }
 
@@ -475,3 +496,11 @@ export class SatModelLayer implements CustomLayerInterface {
     this.uProjFallback = gl.getUniformLocation(p, 'u_projection_fallback_matrix');
   }
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// Per-form mesh buffers (position/normal/colour), one set per distinct
+// satellite form rather than per instance. Meshes are the heaviest thing
+// this renderer uploads, hence the larger budget against a much smaller
+// feature cap.
+export const maxFeatures = 64;
+export const vramBudget = 8; // MB

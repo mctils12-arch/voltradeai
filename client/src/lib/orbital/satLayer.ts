@@ -752,6 +752,19 @@ export class SatLayer implements CustomLayerInterface {
     this.map = null;
   }
 
+  /**
+   * Law IV explicit teardown. satLayer already caches `this.gl` in onAdd,
+   * so this simply routes to the existing onRemove path (which also clears
+   * the glide timer — the one non-GL resource this layer owns).
+   * Idempotent: onRemove nulls every handle.
+   */
+  dispose(): void {
+    const gl = this.gl;
+    if (gl) this.onRemove(null as unknown as MapLibreMap, gl);
+    this.gl = null;
+    this.map = null;
+  }
+
   // --- Public API (parent wiring) -----------------------------------------
 
   /**
@@ -1016,3 +1029,13 @@ export class SatLayer implements CustomLayerInterface {
     return sh;
   }
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// Derived, not chosen to look reasonable. Position/velocity/shape pack to
+// SAT_STRIDE(7) + 3 velocity + 1 shape = 11 floats per satellite:
+//   15,000 x 11 x 4B = 660 KB of instance data.
+// vramBudget adds headroom for the program, the shape buffer and driver
+// padding. 15,000 is the work order's MAX_INSTANCES and sits above the
+// ~10k active CelesTrak catalog, so the cap does not bite in normal use.
+export const maxFeatures = 15000;
+export const vramBudget = 4; // MB
