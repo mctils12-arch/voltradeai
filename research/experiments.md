@@ -3,6 +3,110 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-12 [PRODUCT] — T-CLIENT — RENDERING & MOTION OVERHAUL session 2: PRs 8a/8b/9/10a (v1.0.679-682, PR #795)
+
+TERRITORY: T-CLIENT. SHARED: package.json, test_audit_critical.py, research/*.
+Continues the same-day session-1 entry below (PRs 1/2/4, v1.0.676-678).
+
+PRIOR (stated before starting): I expected PR8 to mean writing teardown from
+scratch across five layers, and PR10's assertions to be unshippable until
+most of the overhaul landed. BOTH WRONG, in opposite directions — teardown
+already existed everywhere (only the NAME and the budgets were missing), and
+PR10's static assertions were shippable immediately because the Law I
+violations turned out to live in pages, not layers.
+
+SHIPPED
+- 8a (v1.0.679): layerContract.ts + `maxFeatures`/`vramBudget`/`dispose()` on
+  all five WebGL layers. Budgets DERIVED from each layer's own stride
+  constant, with a test asserting both that the worst case fits AND that the
+  budget is not >1000x it (a budget with unlimited headroom is a decoration).
+- 8b (v1.0.680): the caps now bite. Aircraft capped BEFORE packing with a
+  documented importance ordering (airborne over ground clutter, then
+  altitude) — a test proves 100 en-route flights all survive a 12,000-strong
+  ground-clutter overflow.
+- 10a (v1.0.681): Laws I and IV enforced by CI.
+- 9 (v1.0.682): Law V + the OpenWeatherMap root cause.
+
+FOUR FINDINGS (F12-F15, detail in research/rendering_motion_overhaul.md)
+- F12: `satLayer.setRenderCap` has existed since O1 with full honest
+  accounting and NOTHING EVER CALLED IT — a grep for callers across the whole
+  client returns nothing. It defaulted to null, so the layer rendered the
+  entire worker output. Armed the existing lever rather than building a
+  second mechanism (READ BEFORE WRITE: the parameter almost always exists).
+- F13: THE OPENWEATHERMAP NON-RENDER, ROOT-CAUSED. `setProjection()` (the
+  globe toggle) rebuilds the MapLibre style, wiping imperatively-added
+  sources/layers. The owning effect's dep array excludes anything a style
+  rebuild changes and nothing listened for `styledata`, so the SOLE recovery
+  path was a 10-minute setInterval. Toggle the globe with weather on and the
+  layer is gone for up to ten minutes while the panel reads "active". A RETRY
+  CANNOT FIX THIS BECAUSE THE RETRY IS THE TIMER. Second bug found while
+  fixing it: the guard checked only `getSource`, so a half-built pair (source
+  present, layer missing) read as healthy forever and was never repaired.
+- F14: all ten Law I violations are in datamap.tsx / MapNavCluster.tsx —
+  PAGES, not layer modules. client/src/lib/{orbital,air,celestial} has ZERO.
+  That is what made 10a shippable immediately instead of last.
+- F15: CI runs NEITHER the client tsx tests NOR the visual harness — only the
+  python pytest set, tsc (with `|| true`), the client build and the docker
+  build. Any assertion intended as a MERGE GATE must live somewhere CI
+  executes; that is why 10a went into test_audit_critical.py.
+
+CURTAIN (PR6) — SIX ELIMINATIONS, NO FIX. The human supplied live evidence
+(screenshot, archived flight): the altitude/time chart draws the COMPLETE
+profile while the map trail cuts off. Same data, two renderers — so this is a
+render-side truncation, not missing data. Eliminated with evidence:
+  1. "rebuilt on camera events" (the work order's stated cause) — false;
+     STATIC_DRAW buffers, zero map handlers in flightTrackLayer.
+  2. array-length mismatch in `n = Math.min(merc>>1, altM, groundZ)` — all
+     three are allocated Float32Array(n) in datamap.
+  3. 16-bit index overflow — indices are Uint32Array drawn with UNSIGNED_INT.
+  4. TRACK_MAX_SAMPLES(6000) truncating — it adjusts DENSIFICATION SPACING,
+     so the whole route stays covered, just coarser.
+  5. vertex-buffer overflow silently dropping the tail — counted it: the four
+     emission groups write exactly ((n-1)*3 + marks)*4 vertices, which is
+     exactly the allocation, and `out.slice(0,o)` trims correctly.
+  6. data truncation — an archived flight has complete samples.
+SURVIVING CANDIDATES: (a) the segment-skip guards — `wrapOk` (mercator dx >
+0.5) and the three `Number.isNaN(altM[i])` continues, noting the human's test
+flight is labelled SIGNAL LOST AIRBORNE, exactly the condition producing a
+NaN run; (b) globe horizon/occlusion culling in the shader.
+DISCRIMINATING TEST (cheap, needs a human at the map): rotate the globe and
+watch the cut-off point. Moves with the camera -> (b). Stays pinned to the
+same ground position -> (a).
+
+SEPARATE REAL BUG FOUND, NOT YET FIXED: `altScale` is referenced but
+UNDEFINED at datamap.tsx:4261 (x2) and 4298 — tsc TS2304, previously written
+off as pre-existing noise. It is in the AGL READOUT, not the trail geometry,
+so it is not the cut-off, but the flight card's AGL number is computed from
+an undefined variable. Own PR.
+
+GATES: client suite 923/923 pass 0 fail. Python CI set 137 passed 1 skipped
+(131/1 baseline + 6 new). `npm run build` clean. `npx tsc --noEmit` 86
+errors, byte-identical to baseline (zero new). Visual harness 390/768/1440
+all PASS, 0 hard failures, aircraft counts identical pre/post-cap (1,607 /
+3,036 / 3,507) — the intended result for a runaway guard.
+
+BACKTEST: N/A per PROMOTION RULE 3 — client rendering only.
+
+OPS NOTE worth keeping: PR #793 auto-merged mid-session at v1.0.679 (CI
+auto-merges `claude/` branches), which left #795 `mergeable_state: dirty`
+against a squash of its own earlier state. Resolved by merging origin/main
+and taking our side after VERIFYING the branch was a strict superset (main
+held nothing the branch lacked). Both PRs merged; main is v1.0.682.
+
+HONEST CAVEATS. (1) Of the four headline bugs the overhaul exists to fix,
+only the OpenWeatherMap one is fixed. Moon fuzz, satellite pulsing and the
+aircraft curtain are all still live — the first needs a design decision, the
+second needs live confirmation before touching a working subsystem, the third
+is six eliminations deep with no fix. (2) The 16.7ms target remains 4-13x
+away on the only continuous measurement available, and that measurement is
+headless SwiftShader, not a Galaxy S24. (3) PR9's root cause is mechanically
+verified in source but NOT reproduced live — the harness does not exercise a
+projection toggle with weather on. (4) Law IV's bounded-archive-query half
+(8c) is untouched; 8a/8b bounded the RENDER, not the FETCH.
+
+STARVED: yes — 8c, trail decimation, the moon bake -> PR3, PR7, PRs 5/6
+pending live confirmation, and 10b all remain queued.
+
 ## 2026-08-12 [PRODUCT] — T-CLIENT — RENDERING & MOTION OVERHAUL, PRs 1/2/4 + the Law article (v1.0.676-678)
 
 TERRITORY: T-CLIENT (`client/src/render/**` new, `client/src/pages/datamap.tsx`
