@@ -57,6 +57,8 @@ import {
   TRACE_ABOVE_TERRAIN_M,
   TRACE_RGBA,
   TRACE_WIDTH_PX,
+  TZ_MARK_RGBA,
+  TZ_MARK_WIDTH_PX,
   altRampColor,
 } from './trackModel.js';
 import { AIR_SILHOUETTES, AIR_SHAPE } from './airLayer.js';
@@ -111,6 +113,11 @@ export interface TrackGeomInput {
    *  mesh) and 0 with terrain OFF (a flat sea-level base has no ridges to
    *  seal against). Default: CURTAIN_BELOW_TERRAIN_M. */
   drapeBelowM?: number;
+  /** sample indices where the local UTC offset changed (tzCrossings.ts) —
+   *  each gets a vertical amber mark line through the curtain, ground to
+   *  altitude ("display it on … the curtain as a different color line",
+   *  human 2026-08-11). Indices without altitude are skipped honestly. */
+  tzMarkIdx?: number[];
 }
 
 /** Pure: index buffer for `segCount` independent quads (two triangles each;
@@ -147,7 +154,8 @@ export function buildTrackVertices(input: TrackGeomInput, altScale: number): Flo
     input.altM.length,
     input.groundZ.length,
   );
-  const maxSegs = Math.max(0, n - 1) * 3;
+  const marks = input.tzMarkIdx ?? [];
+  const maxSegs = Math.max(0, n - 1) * 3 + marks.length;
   const out = new Float32Array(maxSegs * FT_VERTS_PER_SEG * FT_VERT_STRIDE);
   let o = 0;
   const put = (
@@ -217,6 +225,20 @@ export function buildTrackVertices(input: TrackGeomInput, altScale: number): Flo
     const cb = altRampColor(altM[i + 1], altMin, altMax);
     ribbon(ax, ay, altM[i] * altScale, bx, by, altM[i + 1] * altScale,
       ALT_LINE_WIDTH_PX, [ca[0], ca[1], ca[2], 1], [cb[0], cb[1], cb[2], 1]);
+  }
+  // 4) tz-crossing marks: a vertical screen-extruded ribbon at the crossing
+  // sample, curtain base → the flight path (the ribbon extrusion works for
+  // vertical segments too — self/other differ only in z, so dirPx is the
+  // screen-projected vertical and the normal offsets sideways). Drawn last
+  // so the amber sits over the curtain fill it annotates.
+  for (const mi of marks) {
+    if (!(mi >= 0 && mi < n)) continue;
+    if (Number.isNaN(altM[mi])) continue; // honest: no altitude, no mark line
+    const x = merc[mi * 2], y = merc[mi * 2 + 1];
+    const top = altM[mi] * altScale;
+    const bot = groundZ[mi] - curtainDrop;
+    if (top <= bot) continue;
+    ribbon(x, y, bot, x, y, top, TZ_MARK_WIDTH_PX, TZ_MARK_RGBA, TZ_MARK_RGBA);
   }
   return o === out.length ? out : out.slice(0, o);
 }

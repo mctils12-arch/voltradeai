@@ -290,6 +290,16 @@ export const ALT_LINE_WIDTH_PX = 4;
 /** ground trace ribbon width, px (handoff: "width ~3 px"). */
 export const TRACE_WIDTH_PX = 3;
 
+/** TIME-ZONE CROSSING mark (human 2026-08-11: "display it on the slider and
+ *  the curtain as a different color line"): amber #ffcc66 — off the
+ *  teal→violet altitude ramp AND off the tz map-line palette's context, so
+ *  the vertical mark reads as an event, not track data. */
+export const TZ_MARK_RGBA: [number, number, number, number] =
+  [0xff / 255, 0xcc / 255, 0x66 / 255, 0.9];
+
+/** tz crossing mark ribbon width, px. */
+export const TZ_MARK_WIDTH_PX = 2.5;
+
 /**
  * Altitude (m MSL) → [r,g,b] on the handoff ramp, min→max normalized across
  * the visible track, linear in two halves (lo→mid then mid→hi).

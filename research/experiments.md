@@ -47502,3 +47502,61 @@ the time I checked, it had already merged. Detection has to be BEFORE
 the push, not after.
 
 BACKTEST: N/A (process finding, no code change).
+
+## 2026-08-12 — [PRODUCT] Apollo landing sites on the Moon (v1.0.666, PR #781)
+
+Territory: T-CLIENT. Human directive: "have the moon landing have points
+like we have on the earth with symbols that when you click them it gives
+info on the site and zooms in on it and if its tracks like the path they
+took highlight it."
+
+Change: client/src/lib/celestial/apolloSites.ts (6 sites, published
+NASA/LPI selenographic coordinates + mission facts, honesty contract in
+header); moonSurface.ts normalFromLonLat (exact inverse of surfaceLonLat
+in the shared node-frame/W factorisation — round-trip pinned at real
+Apollo coordinates, W=137.5°, nontrivial frame); spaceFrame.ts flag-glyph
+markers in BOTH moon render modes (perspective patch + orthographic
+sprite) with horizon/hemisphere facing test + nearer-disc occlusion,
+disc≥56px activation, labels at ≥140px, click → beginFlight(toDir/toDist)
+onto the site's local vertical + onFocusSite; datamap.tsx Apollo card
+(crew/CMP/EVAs/farthest-from-LM via fmtKm/coords/note + WAC-vs-NAC
+honesty note + LROC link).
+
+Honesty: max-EVA distance labeled "documented farthest point, not the
+traverse path"; no fabricated traverse polylines (citable digitized
+sources = filed follow-up in open_questions.md); WAC ~76–100 m/px cannot
+resolve hardware — stated on every card; NAC per-site tiles filed
+(Trek catalog endpoints moved, probes 404'd).
+
+Result: celestial suites 81/81; typecheck 83=baseline; build green;
+visual harness 2 initial hard failures A/B'd as box flakes (methane
+passed pristine-main same box; data re-ran on Apollo tree p95 350ms/0
+fails). Rebased over #779/#780, version-collision resolved to 1.0.666.
+
+## 2026-08-12 — [PRODUCT] Time-zone crossings: curtain marks + slider marks + auto-on (v1.0.671, PR follows #781)
+
+Territory: T-CLIENT. Completes the 2026-08-11 directive whose map-lines
+half shipped in #774: "if it passed a time zone display it on the slider
+and the curtain as a different color line … it come on automatically if
+your click on plane and it passes a time zone."
+
+Change: NEW client/src/lib/air/tzCrossings.ts — crossing = change in
+LOCAL UTC OFFSET between consecutive fixes (what a clock experiences;
+same-offset zone renames are honestly NOT crossings), zone identity from
+@photostructure/tz-lookup (CC0, 88KB, timezone-boundary-builder data),
+offsets from Intl AT THE FIX'S OWN TIME (DST-correct for the flight's
+day), 2-sample confirmation kills border jitter. flightTrackLayer:
+TrackGeomInput.tzMarkIdx → vertical amber (#ffcc66) ribbon through the
+curtain at each crossing (skips altitude gaps honestly).
+FlightProfilePanel: tzMarks prop → amber dashed vertical + offset-change
+label ("EDT → CDT"), positioned OUTSIDE the compressing data group and
+re-placed by the live-edge tick (no text distortion); legend chip.
+datamap: one cached computeTzCrossings per track feeds curtain + slider +
+auto-on (setEnabled timezones, once per selected flight so manual OFF
+sticks).
+
+Tests: tzCrossings.test.ts 8 (DST-awareness Jan-vs-Aug, NYC→Chicago one
+crossing EDT→CDT, Phoenix→Denver winter no-crossing/summer crossing,
+jitter confirmation, track-end commit, GMT-offset parsing, label
+fallback); flightTrackLayer.test.ts +2 (mark quad geometry/color/width,
+gap+out-of-range skip). Air suites 99/99.

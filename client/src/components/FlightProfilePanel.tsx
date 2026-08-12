@@ -55,6 +55,10 @@ export interface FlightProfilePanelProps {
    *  squeezed a 90-minute trip flown 10h ago into the leftmost ~13% of the
    *  chart (human: "i want it to fill the whole altitude time graph"). */
   historical?: boolean;
+  /** time-zone crossings along the track (tzCrossings.ts; human 2026-08-11:
+   *  "if it passed a time zone display it on the slider") — amber vertical
+   *  marks with the offset-change label. */
+  tzMarks?: { t: number; label: string }[];
 }
 
 const CW = 1000;
@@ -119,6 +123,7 @@ export default function FlightProfilePanel({
   onPhoneExpand,
   sourceNote,
   historical,
+  tzMarks,
 }: FlightProfilePanelProps) {
   const [playing, setPlaying] = useState(false);
   const [live, setLive] = useState(!historical);
@@ -161,6 +166,9 @@ export default function FlightProfilePanel({
   // held at the last broadcast, drawn dashed — never passed off as data).
   const dataGRef = useRef<SVGGElement | null>(null);
   const tailRef = useRef<SVGLineElement | null>(null);
+  // tz marks sit OUTSIDE dataG (text must not distort under the domain
+  // compression) — repositioned by ref alongside the tail each tick
+  const tzMarkRefs = useRef<(SVGGElement | null)[]>([]);
   const axisEndRef = useRef<HTMLSpanElement | null>(null);
   const liveEdgeRef = useRef(t1);
   const extOf = () => (historical ? span : Math.max(span, liveEdgeRef.current - t0));
@@ -303,6 +311,12 @@ export default function FlightProfilePanel({
         tail.style.display = "";
       } else {
         tail.style.display = "none";
+      }
+    }
+    // tz-crossing marks ride the same growing domain as the playhead
+    if (tzMarks?.length) {
+      for (let i = 0; i < tzMarks.length; i++) {
+        tzMarkRefs.current[i]?.setAttribute("transform", `translate(${XT(tzMarks[i].t)},0)`);
       }
     }
     // the head/clock belong to the live edge ONLY while pinned live — a
@@ -473,6 +487,7 @@ export default function FlightProfilePanel({
           <span><i className="terr" />TERRAIN</span>
           <span><b />AGL BAND</span>
           {hasHeld && <span><i className="alt-hold" />ALT HOLD (carried, not fresh)</span>}
+          {!!tzMarks?.length && <span><i className="tz-x" />TZ CROSSING</span>}
         </div>
         <button className="vt-flight-profile-toggle" aria-expanded={expanded}
                 aria-label={expanded ? "Collapse altitude profile" : "Expand altitude profile"}
@@ -525,6 +540,20 @@ export default function FlightProfilePanel({
                   held at the last broadcast (never drawn as solid data) */}
               <line ref={tailRef} stroke="#4da3ff" strokeWidth="2" strokeDasharray="4 5"
                     opacity="0.55" style={{ display: "none" }} />
+              {/* TZ CROSSINGS (human 2026-08-11: "display it on the slider"):
+                  amber vertical mark + offset-change label at each committed
+                  crossing — outside dataG so the label never distorts; the
+                  live-edge tick re-places them under the growing domain */}
+              {tzMarks?.map((m, i) => (
+                <g key={`${m.t}-${m.label}`}
+                   ref={(el) => { tzMarkRefs.current[i] = el; }}
+                   transform={`translate(${XT(m.t)},0)`}>
+                  <line x1="0" y1={PAD_T} x2="0" y2={CH - PAD_B}
+                        stroke="#ffcc66" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.85" />
+                  <text x="0" y={PAD_T + 8} fontSize="7.5" fill="#ffcc66"
+                        textAnchor="middle" fontFamily="var(--font-mono)">{m.label}</text>
+                </g>
+              ))}
               <g ref={playheadRef}>
                 <line x1="0" y1="0" x2="0" y2={CH} stroke="rgba(223,232,245,.85)" strokeWidth="1" />
                 <circle ref={phDotRef} cx="0" cy="0" r="4" fill="#fff" stroke="#4da3ff" strokeWidth="2" />
