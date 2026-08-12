@@ -162,7 +162,8 @@ after every remaining PR — "the moon looks fuzzy" is not a measurement.
 
 ---
 
-## RESUME ORDER (recommended, given the findings)
+## RESUME ORDER (recommended, given the findings — see also F11 below,
+## which upgrades the Law II.8 work from "blocked" to "tractable")
 
 1. **PR8 first, not last.** It is the only remaining PR whose premise is fully
    confirmed (F9), it is prerequisite to PR10's assertions #4 and #5, and the
@@ -181,12 +182,44 @@ after every remaining PR — "the moon looks fuzzy" is not a measurement.
 ## OUTSTANDING LAW VIOLATIONS ACCEPTED FOR NOW (tracked, not hidden)
 
 - **Law II.8, twice.** The Earth base fetches Esri World_Imagery at runtime;
-  the moon fetches NASA Trek at runtime. Both need the RunPod bake + a CDN
-  before they can be fixed, and pointing either at a CDN that does not exist
-  would blank the surface entirely. This is the single largest outstanding
-  item in the whole overhaul.
+  the moon fetches NASA Trek at runtime.
 - **Law IV**, every layer (F9).
 - **Law I**, ten handlers (F10).
+
+### CORRECTION 2026-08-12 (same session) — F11: THE CDN ALREADY EXISTS
+
+My first pass through this file said Law II.8 "needs the RunPod bake + a CDN
+before it can be fixed" and that pointing at a CDN "that does not exist" would
+blank the surface. **That was wrong, and too pessimistic.** Verified:
+
+- A **Cloudflare R2 bucket is already in production use.** `server/routes.ts`
+  (~line 779) serves `/tiles-r2/:name`, streaming PMTiles range requests from
+  `R2_PUBLIC_URL` (default `pub-4d65a892936747ada1c67a1f00e286c8.r2.dev`)
+  through our own origin — added 2026-07-31 for the GRID VISION world rollout.
+- That route already sets `cache-control: public, max-age=86400, immutable`
+  and streams rather than buffers. The work order's CDN requirements
+  (CORS-avoidance via same-origin, immutable cache headers, no domain
+  sharding) are already satisfied by this path. Only `max-age` differs
+  (86400 vs the work order's 31536000) and it is content-addressed enough to
+  raise safely.
+- The moon's base texture is ALREADY self-hosted: `client/public/space/
+  moon_8k.jpg` (5.1MB) and `2k_moon.jpg`. So Law II.2's "pinned base level"
+  already has its asset on our origin — it is the DETAIL tiles that go
+  upstream to NASA Trek.
+- `client/public/tiles/` and `client/public/imagery/sites/` exist as
+  self-hosted asset roots.
+
+**Consequence: Law II.8 is not blocked on infrastructure. It is blocked only
+on BAKED CONTENT.** The bucket, the passthrough route, the cache headers and
+the allowlist pattern all exist and are proven in production. Resolving Law
+II.8 means (a) running the RunPod pyramid bake, (b) uploading to the existing
+bucket, (c) widening the `/tiles-r2/` allowlist regex beyond `*.pmtiles`, and
+(d) repointing the source URL. That is a tractable pipeline job, not a
+prerequisite platform build.
+
+This also revives the work order's `tileSize: 512` and `transformRequest`
+items (F5, and PR4 item 3): both become correct the moment our own 512px
+pyramid is in the bucket.
 
 ## BRANCH NOTE
 
