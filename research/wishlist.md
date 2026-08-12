@@ -2684,3 +2684,35 @@ recording immediately. Then Candidate 2. Keep the aisstream adapter in
 place and unmodified — when the provider recovers, worldwide coverage
 returns for free, and the dead-air watchdog (v1.0.667) will now say so
 the same morning either way.
+
+## 2026-08-12 — CI GAP: the Node test suite (incl. the R15 wiring ratchet) never runs in CI [FROZEN-PATH PROPOSAL]
+
+FOUND VIA A USER-REPORTED BUG: the human asked where the Time zone
+lines toggle was — the layer shipped in #774 with wiring + registry
+entry but no `LAYER_GROUP` declaration in datamap.tsx, so the panel
+rendered its toggle permanently disabled as "reload to enable" (the
+exact R15 powergrid defect class). The regression ratchet built for
+this (`server/layersWiring.test.ts`) FAILS on that state, exactly as
+designed — but it never ran: `.github/workflows/ci.yml` runs pytest,
+`tsc --noEmit || true`, and the build. It never runs
+`npm run test:node` (`tsx --test server/*.test.ts`), so every Node-side
+ratchet is CI-invisible. The layer merged green and sat broken on
+desktop production until the human tripped over it (one-line fix
+shipped same day).
+
+PROPOSAL (workflows are FROZEN — human approval needed): add one step
+to the `node-build` job in ci.yml, after `npm ci`:
+
+    - name: Node test suite (ratchets + server units)
+      run: npm run test:node
+
+COST: ~1–2 min per CI run (1,213 tests). One pre-existing failure must
+be resolved first or excluded: `server/gridTiles.test.ts` expects the
+state+national pmtiles in `client/public/tiles/`, which were migrated
+to R2 (2026-07-31) — that test is environment-dependent now and should
+either be updated to check the R2 manifest instead, or skipped when the
+files are absent (it fails in any fresh clone today, another thing CI
+never saw). Until approved, sessions MUST treat `npm run test:node` as
+part of the local promotion gate (PROMOTION RULES name pytest only —
+that reading let this slip; an amendment adding test:node to rule 1 is
+part of this proposal).

@@ -828,6 +828,12 @@ const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", boundaries_admin1: "base", places: "base",
+  // [REPAIR 2026-08-12] timezones shipped #774 with wiring + registry entry
+  // but no LAYER_GROUP entry — the R15 defect exactly (permanent "reload to
+  // enable", dead toggle; found when the human asked where the toggle was).
+  // The layersWiring ratchet catches this but CI never runs test:node —
+  // proposal filed in wishlist.md (workflows are frozen).
+  timezones: "base",
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
