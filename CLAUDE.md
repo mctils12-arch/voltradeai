@@ -771,3 +771,202 @@ experiments.md.
   conventions stay fixed in both systems: knots (vessels/aircraft/
   wind), hPa (barometric), MW, Kelvin (fire radiative power), µSv/h,
   quake magnitude.
+
+## RENDERING & MOTION LAW (Amendment 6, human-approved 2026-08-12)
+
+Installed verbatim from the human's "Article: Rendering & Motion Law"
+directive, which also ordered the ten-PR Rendering & Motion Overhaul.
+Binding on every layer, every PR, RETROACTIVE ON TOUCH — if a session
+modifies a layer, that layer must be brought into compliance before
+merge.
+
+### Why this article exists
+
+Moon tile fuzz, satellite pulsing, the glitching curtain behind the
+aircraft, layer flicker on zoom, and popup jump are not five bugs. They
+are one bug appearing five times:
+
+> **Visual state is being driven by discrete events (`zoomend`,
+> `moveend`, data tick, tile arrival) instead of by a continuous
+> per-frame loop.**
+
+Every layer implemented its own loading and animation logic
+independently. That is why fixes keep overlapping and re-breaking each
+other — there is no shared contract for them to conform to. This
+article is that contract.
+
+### Law I — The Frame Law
+
+**Nothing visual may be recomputed on a map event. Ever.**
+
+- Forbidden as triggers for geometry, texture, or position updates:
+  `zoomend`, `moveend`, `zoom`, `move`, `rotate`, `pitch`, `dragend`,
+  `idle`, and any data-tick callback.
+- Permitted: one `requestAnimationFrame` loop per view. Events may set
+  a *target*; the loop interpolates toward it.
+- Every animated quantity is a damped spring or lerp toward a target,
+  never a direct assignment.
+- Corollary: if a layer looks correct when still and wrong when moving,
+  it is violating Law I. That is the entire diagnosis.
+
+Specific consequences:
+- **Satellite pulsing** — SGP4 positions arrive on a tick; render must
+  interpolate between the last two propagated states per frame, not
+  snap on arrival. Propagate ahead, never behind.
+- **Aircraft curtain glitch** — the trail is world-space geometry. It
+  is built once and transformed by the camera. It is never rebuilt on a
+  camera event.
+
+### Law II — Raster Tile Law
+
+Applies to: Moon surface, Earth satellite base, NOAA radar, NASA GIBS,
+terrain/DEM, any future image-tile layer.
+
+1. **Never render an unready tile.** Parent stays visible until the
+   child is decoded *and* GPU-uploaded, then crossfade 150–300ms. No
+   exceptions.
+2. **The base level is pinned.** One global low-res texture loads at
+   startup and is never evicted. There is never a blank region, only a
+   softer one.
+3. **LOD is screen-space error, not integer zoom.**
+   `sse = (tileGeometricError * viewportHeight) / (distance * 2*tan(fov/2))`
+   Split above 2px, merge below 1px. Hysteresis is mandatory.
+4. **Prefetch from the target, not the current position.** Zoom targets
+   are already a spring; select tiles from the spring's destination plus
+   one level further in the direction of travel, plus a one-tile ring
+   for pan.
+5. **Decode off the main thread.** `fetch` → `createImageBitmap` in a
+   Worker → transfer → upload. Max 2 texture uploads per frame, queue
+   the rest.
+6. **Every request is abortable.** `AbortController` on all tile
+   fetches; cancel on frustum exit or LOD supersession. Max 8 in flight.
+7. **Pre-baked imagery ships as KTX2/Basis (ETC1S).** 4–6× less VRAM.
+   This matters more than any other single item on the S24.
+8. **Runtime never touches an upstream WMTS.** All tiles come from our
+   CDN. Upstream is a bake-time input only.
+9. **Filtering:** `LinearMipmapLinear`, mipmaps generated once at
+   upload, anisotropy at the renderer's maximum.
+
+### Law III — Animated Raster Law
+
+Radar is not one pyramid, it is N pyramids playing in sequence, and it
+is currently the most expensive layer on the map.
+
+- Frames are pre-composited at bake time into a single loop set, not
+  assembled client-side.
+- Frame *n+1* is fully resident before frame *n* finishes its dwell. If
+  it is not, the loop holds on *n* rather than showing a partial frame.
+- The loop never re-fetches on repeat. One pass, then it plays from
+  cache.
+
+### Law IV — Memory Law
+
+- Every layer declares a hard VRAM/heap budget and a max feature count,
+  and downsamples above it rather than degrading.
+- Every layer implements explicit teardown: dispose geometry, textures,
+  buffers, workers, and timers on toggle-off. A layer that leaks on
+  toggle is why layers default to off; fix the leak, then reconsider
+  the default.
+- LRU eviction by distance from camera. The pinned base level is exempt.
+- Budgets: ~256MB mobile, ~768MB desktop, chosen from renderer
+  capabilities at load — never from user-agent sniffing.
+- Archive-backed layers query by viewport + time window. No unbounded
+  selects. The archive grows forever; the render must not.
+
+### Law V — Freshness Law
+
+- Provider failover must never block first paint. Render last-known
+  cached state immediately, swap when live data lands.
+- Every layer surfaces its own data age in the UI. A layer that cannot
+  say how old it is may not claim to be live.
+- A provider chain that falls through to its last option logs the
+  failure loudly. Silent degradation is the reason staleness recurs.
+- Any bug that has appeared twice gets a root-cause fix, not a retry.
+  This applies by name to the OpenWeatherMap non-render.
+
+### Definition of done — any layer PR
+
+A layer PR does not merge unless all of these are true:
+
+- [ ] No visual state updates in any map-event handler (Law I)
+- [ ] Animated values are springs/lerps toward a target, not assignments
+- [ ] Raster: parent held until child ready, then crossfaded
+- [ ] Raster: tiles served from our CDN, KTX2 where pre-baked
+- [ ] All network requests abortable and aborted on irrelevance
+- [ ] Explicit teardown implemented and verified on toggle-off
+- [ ] Declared feature/VRAM cap with downsample behavior above it
+- [ ] Data age exposed in UI; failover does not block first paint
+- [ ] Occlusion culling if the layer renders on or around a sphere
+- [ ] Complies with Standing UI Law (no popup covers another element;
+      draggable; never off-page; screen-size aware)
+- [ ] 60fps held on Galaxy S24 with the layer on
+
+### Mechanical enforcement — extend the self-see harness
+
+Prose in CLAUDE.md is not enforcement. These assertions are part of the
+harness so CI blocks regressions rather than a human noticing them later:
+
+1. **Static:** grep for `on('zoomend'|'moveend'|'idle'|'move'|'rotate'|
+   'pitch')` in any file under the layers directory → fail with a
+   pointer to Law I.
+2. **Runtime:** during a scripted zoom from max altitude to surface,
+   assert zero frames render a tile whose state is not FADING/RESIDENT.
+3. **Runtime:** assert frame time p95 stays under 16.7ms across a
+   scripted pan + zoom + tilt sequence per layer, headless at S24
+   viewport (412×915, DPR 3 capped to 2).
+4. **Runtime:** toggle every layer on then off; assert heap and GPU
+   texture count return to within 5% of baseline. Run with forced GC or
+   the test flakes.
+5. **Static:** assert every layer module exports `dispose()` and
+   declares `maxFeatures` and `vramBudget`.
+
+Assertions 2 and 4 are the high-value pair — they would have caught the
+moon fuzz and the mobile layer crashes pre-merge.
+
+### The shared implementation — do not re-implement any of this
+
+`client/src/render/` is the contract's code. A layer that rolls its own
+loop, its own wheel handling, or its own tile cache is in violation even
+if it happens to look right:
+
+- `frameCore.ts` — the one rAF loop, fixed-step springs, priority
+  ordering (INPUT→SIM→STREAM→RENDER), dt clamping, hidden-tab pause.
+  `FRAME`/`SPRING`/`PRIORITY` constants live here and are law, not tune
+  values: changing one is an amendment.
+- `zoomInput.ts` — the one zoom model. log(altitude), wheel and pinch
+  normalized into the same delta, cursor/centroid anchoring, Pointer
+  Events only. `ZOOM` constants are law.
+- `perfMetrics.ts` / `perfHud.ts` — the `?perf=1` instrument. Layers
+  publish gauges/counters; the HUD reads them. Build and read this
+  before claiming any rendering change worked.
+- `tileCore.ts` — the one raster streamer (Law II): SSE LOD with
+  hysteresis, the PENDING→…→RESIDENT ready-gate, epoch guards, abortable
+  requests, budgeted uploads, LRU/VRAM eviction with a pinned base.
+  `TILE`/`STREAM`/`CACHE` constants are law.
+
+### RunPod: what it is and is not for
+
+**Not for serving.** No runtime tile serving, no live request path. Cold
+starts, per-hour cost, and an extra network hop would make the problem
+worse. The CDN serves; the pod bakes. Use it for batch bakes, then spin
+it down: (1) the Moon pyramid (LROC WAC → quadtree → 512² tiles →
+`basisu` ETC1S with mips baked in → KTX2 → CDN; `basisu` is CPU-parallel
+more than GPU-bound, so prioritize cores, fast disk and uplink);
+(2) radar loop pre-composition (Law III); (3) aircraft 3D asset bakes
+(decimation, LOD chain, livery → KTX2, optimized glTF); (4) genuinely
+GPU-bound platform work — tower-detector training/inference, LightGBM
+sweeps. Categories 1–3 permanently remove latency from the client; that
+is the highest-leverage use of the pod.
+
+### STACK NOTE (recorded 2026-08-12, factual)
+
+The directive's raster sections are written in three.js vocabulary
+(`KTX2Loader`, `renderer.capabilities.getMaxAnisotropy()`,
+`logarithmicDepthBuffer`, `generateMipmaps`). This repo has no three.js:
+the map is MapLibre GL and the celestial/orbital views are hand-written
+WebGL2 custom layers. The LAWS are implemented in their substance against
+the actual stack — the same ready-gate, the same SSE LOD, the same epoch
+guards, the same anisotropy/mip rules through raw GL calls
+(`EXT_texture_filter_anisotropic`, `WEBGL_compressed_texture_*`). Where a
+named three.js API appears in the article, read it as "the equivalent
+capability", not as an import.
