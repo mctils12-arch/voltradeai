@@ -129,7 +129,7 @@ import {
   getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
 } from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
-import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, siteLocalTime } from "@/lib/meteors";
+import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, meteorCoverageVerdict, siteLocalTime, fmtBlastAlt, fmtEntrySpeed } from "@/lib/meteors";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -11297,27 +11297,31 @@ export default function DataMapPage() {
               month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
             });
             const site = siteLocalTime(tSec, Number(p.la), Number(p.lo));
-            const altM = p.alt != null && p.alt !== "null" ? Number(p.alt) * 1000 : null;
-            const velKmh = p.vel != null && p.vel !== "null" ? Number(p.vel) * 3600 : null;
+            const altKm = p.alt != null && p.alt !== "null" ? Number(p.alt) : null;
+            const velKms = p.vel != null && p.vel !== "null" ? Number(p.vel) : null;
             const hdg = p.hdg != null && p.hdg !== "null" ? Number(p.hdg) : null;
             const imp = Number(p.imp);
+            const sys = getUnits();
+            const verdict = meteorCoverageVerdict(tSec, Number(p.la), Number(p.lo));
             setDetail({
               kind: "meteor",
               title: `Meteor blast · ${String(p.date).slice(0, 10)}`,
               subtitle: `Your time: ${yourTime} (${String(p.date).slice(11, 16)} UTC` +
                         `${site ? ` · ${site} at the site` : ""})`,
+              // short labels + compact values (2026-08-13: the long forms
+              // truncated to "106299…" in the chip row); "—" = not published
               stats: [
-                { label: "Blast energy", value: `${imp} kt TNT` },
-                { label: "Blast alt", value: altM != null ? fmtMeters(altM) : "not published" },
-                { label: "Entry speed", value: velKmh != null ? fmtKmh(velKmh) : "not published" },
-                { label: "Traveling", value: hdg != null ? `${Math.round(hdg)}° ${compassPoint(hdg)}` : "not published" },
+                { label: "Blast", value: `${imp} kt` },
+                { label: "Altitude", value: fmtBlastAlt(altKm, sys) },
+                { label: "Speed", value: fmtEntrySpeed(velKms, sys) },
+                { label: "Heading", value: hdg != null ? `${Math.round(hdg)}° ${compassPoint(hdg)}` : "—" },
               ],
               sourceTag: "NASA/JPL CNEOS",
-              body: `Flash energy ${p.e} × 10¹⁰ J · blast energy ≈ ${(imp / 15 * 100).toFixed(0)}% of Hiroshima.\n\n` +
+              body: `${verdict.label}\n\n` +
+                    `Flash energy ${p.e} × 10¹⁰ J · blast ≈ ${(imp / 15 * 100).toFixed(0)}% of Hiroshima. ` +
                     `A bolide — a large meteor that exploded in the atmosphere — detected by US Government ` +
-                    `sensors and published by NASA/JPL after the fact. Values as published, no interpretation.\n\n` +
-                    `Coverage links are SEARCHES built from the event date + region, not curated stories — ` +
-                    `events over land and cities usually have sightings; remote-ocean events usually have none.`,
+                    `sensors, published by NASA/JPL after the fact. "—" = not published by NASA, never invented.\n\n` +
+                    `Coverage links are searches and report browsers, not curated stories.`,
               links: meteorCoverageLinks(String(p.date), Number(p.la), Number(p.lo)),
               dossierKey: `meteor:${p.date}:${Date.now()}`,
             });
