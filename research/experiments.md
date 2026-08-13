@@ -49454,3 +49454,27 @@ was skipped: no LIVENESS ALARM, loop-health ratio healthy, KNOWN BROKEN's
 open items are both correctly gated on data accumulation (unchanged since
 the prior session's confirmation). One logical change, one PR, per
 PROMOTION RULE 5.
+
+## 2026-08-13 — [REPAIR] Floating legend swallowed the wheel — zoom/space entry dead under it (v1.0.699)
+
+Territory: T-CLIENT. Human, within hours of #812 deploying: "i cant
+see space it wont let me zoom out." Repro (headless, this build):
+wheel over the map = space entry fine; wheel with the cursor over the
+NEW floating legend = the overflow-y legend body consumed every event
+— 272px × 46vh of the lower-left map where zooming silently did
+nothing. My #812 regression: the panel-embedded legend never sat
+over the map, so the hazard didn't exist until the float shipped.
+
+FIX: nested-scroll arbitration — pure nestedScrollConsumes() in
+panelLayout (9 test pins: no-overflow never consumes, mid-scroll
+consumes both ways, ends hand off directionally) + a native
+non-passive wheel listener on the float that re-dispatches
+non-consumed events onto the map canvas (same deltas/anchor), so
+MapLibre zoom AND the space seam accumulator receive them. Verified
+headless: wheel-over-legend now enters space; the nav-button hold
+path unaffected.
+
+RATCHET: the pure helper is pinned; the R15-class lesson repeats —
+overlays that sit ON the map must arbitrate scroll, and the harness
+has no wheel-over-overlay probe (candidate assertion filed with the
+CI wishlist entry rather than a new harness mode mid-repair).
