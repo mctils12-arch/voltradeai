@@ -3,6 +3,67 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 [PRODUCT] — T-CLIENT — realistic-lighting toggle reaches the Moon and every planet (v1.0.691)
+
+TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`) + one new server-side
+source-ratchet test. SHARED: package.json bump only.
+
+REPORT (human): "another toggle to turn off the [day/night shading] — this
+doesn't work on the moon right now, when you toggle this it only works on the
+earth. i want this feature to work on all planets… the missions are on the
+dark side and even when we get it working you would not be able to see them,
+that's why i want a toggle."
+
+DIAGNOSIS — a WIRING gap, not a rendering gap. Two different subsystems share
+the words "day/night": (a) the Earth-map `daynight` registry layer, a geojson
+terminator fill over the FLAT MAP (datamap.tsx ~5646) — the only switch the
+user could find; (b) the space view's B6 sun-driven body lighting, whose
+persisted pref (`vt-celestial-realistic`, spaceAssets.ts:275) and frame handle
+(`setRealisticLighting`) shipped with the B6 pass but were NEVER driven by any
+UI. Verified by reading that the pref already reaches EVERY body: the Moon's
+close-up surface patch (`fullBright: !realistic`, spaceFrame:2347 →
+moonSurface:261 `fullBright ? 1 : lambert…`) and every textured sphere —
+planets + the Moon's disc (spaceFrame:2674/2796 → textureSphere:291
+`lightCam && !fullBright`). So the feature existed and was unreachable.
+
+FIX: the missing wire — import the pref trio; pass `realisticLighting` into
+enterSpace; subscribe live (`setRealisticLighting`); panel view state; a
+CELESTIAL row ("Realistic lighting", counter 7→8). OFF = even-lit inspection
+mode, which is exactly what makes dark-side/far-side landing sites visible —
+the human's stated reason for wanting it. Copy states what OFF means and that
+the geometry is HIDDEN, not faked. Also: the Earth-map `daynight` status line
+now says it shades THIS MAP only and names the space-view toggle, so the
+confusion that produced this report cannot recur from the UI itself.
+
+BUG FOUND EN ROUTE: `offApollo` (subscribeApolloSitesPref at space-view mount)
+was never called in `spaceCleanupRef` — every enter/exit orphaned a listener
+that then fired into a disposed handle. Released with the new subscription.
+
+GATES: server 1223/1224 (the 1 red — pmtiles fixture magic — pre-exists on
+clean main, confirmed by stash-and-rerun in an earlier session), client
+960/960, build clean, my files typecheck clean (the datamap tsc errors are
+pre-existing and only shifted by added lines). Browser drive (real Chromium,
+built bundle): row present, copy names Moon+planets, counter reads /8, and
+clicking the switch persists the pref — the UI→pref half proven live; the
+pref→every-body half proven by the new source ratchets + the existing
+moonSurface fullBright test. NOTE: the sandbox stub server cannot boot the
+map far enough to enter the space view, so the on-screen shading delta was
+NOT visually confirmed here — stated rather than claimed.
+
+TESTS (+5, new server/celestialToggleWiring.test.ts): every space-frame pref
+has a panel row that calls its setter; every subscription is released in
+cleanup (makes the offApollo leak class unrepresentable); the lighting row
+names Moon+planets and says what OFF means without implying faked physics;
+the realistic flag reaches BOTH the Moon patch and the textured spheres (so a
+refactor can never silently make lighting Earth-only again); the daynight
+status line points at the space-view toggle. Backtest n/a.
+
+NEXT (same report, separate PR): the lunar-missions layer — more missions incl.
+Chang'e, mission tracks, clickable + labeled. Research workflow running
+(real published coordinates + adversarial verification + citable traverse
+data) because apolloSites.ts's honesty contract forbids drawn traverses
+without a citable digitized source.
+
 ## 2026-08-12 [PRODUCT] — T-CLIENT — RENDERING & MOTION OVERHAUL session 2: PRs 8a/8b/9/10a (v1.0.679-682, PR #795)
 
 TERRITORY: T-CLIENT. SHARED: package.json, test_audit_critical.py, research/*.
