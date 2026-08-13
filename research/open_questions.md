@@ -1,5 +1,73 @@
 # Open Questions
 
+## KNOWN BROKEN — AIRCRAFT FEED SERVES ZERO WHILE THE CHAIN REPORTS SUCCESS (found 2026-08-12, live-verified)
+
+SYMPTOM (human report + production probe): the /data map shows "0 aircraft,
+data 12m old" and planes appear only in a small area or not at all.
+
+MEASURED LIVE THIS SESSION, same query to each provider:
+
+| point (lat/lon, 100nm) | adsb.lol | adsb.fi |
+|---|---|---|
+| Atlanta 33.64/-84.43   | **0** | 87  |
+| London  51.47/-0.45    | **0** | 41  |
+| JFK     40.64/-73.78   | **0** | 145 |
+| LAX     34.05/-118.24  | **0** | 222 |
+
+adsb.lol is not erroring. It returns HTTP 200 with a well-formed body:
+`{"ac":[], "msg":"No error", "total":0}`. airplanes.live returns 403 from
+this container (UA or egress — not confirmed as a production condition).
+
+PRODUCTION CONFIRMS THE CONSEQUENCE:
+`GET https://voltradeai.com/api/data/aircraft?lamin=33&lamax=35&lomin=-85&lomax=-83`
+-> `{"aircraft": [], "source": "adsb.lol (ADS-B, community)",
+    "tiling": {"discs":1,"needed":1,"cappedAt":8,"bboxCovered":true}}`
+
+ROOT CAUSE (high confidence, one line of reasoning): the provider chain in
+server/routes.ts falls through on ERRORS, not on EMPTY-BUT-SUCCESSFUL
+responses. adsb.lol answering `200 total:0 msg:"No error"` is scored as a
+SUCCESS, so adsb.fi and airplanes.live are never tried. `bboxCovered:true`
+then honestly reports that the tiling covered the bbox — it did; the
+provider just had nothing in it.
+
+This is a LAW V violation by name: "a provider chain that falls through to
+its last option logs the failure loudly. Silent degradation is the reason
+staleness recurs." Here the chain does not even fall through, and nothing is
+logged, because zero-with-no-error is indistinguishable from a genuinely
+empty sky.
+
+WHY IT LOOKS LIKE A RENDERING BUG: the human reported it as "planes only
+render for a small area". Viewport tiling IS separately bounded
+(MAX_DISCS_PER_REFRESH=8 x 250nm discs, so a wide zoom genuinely cannot be
+fully covered) — but that is a second-order limit. Right now the first-order
+problem is that the primary provider returns nothing anywhere.
+
+THE FIX IS NOT "ZERO MEANS FAILURE". Zero is legitimate over ocean, poles and
+empty airspace. Proposed rule instead:
+1. If the primary returns zero for a disc, try the next provider for the SAME
+   disc. If that returns >0, use it AND log the primary as degraded at error
+   level (Law V's loud-fallthrough requirement).
+2. Track consecutive zero-while-others-nonzero per provider; demote after N.
+3. Surface the acting provider + degradation in the layer's status line, so
+   "0 aircraft" is never ambiguous between "empty sky" and "dead provider".
+
+COMPLIANCE TRAP — DO NOT SKIP: adsb.fi and airplanes.live are in
+server/providerCompliance.ts's NON_COMMERCIAL_AIRCRAFT_PROVIDERS. adsb.lol is
+the ONLY provider lawful under monetization. So a fallthrough that silently
+runs on adsb.fi while billing is enabled trips the MONETIZATION TRIPWIRE and
+degrades /api/health by design. Any fix must either (a) keep the fallback
+strictly as a visible degraded state, or (b) resolve why adsb.lol is empty.
+Resolving adsb.lol is the better outcome and should be tried first — this may
+be an account/feeder-status condition on their side, which is a HUMAN lever
+like the aisstream one, not a code fix.
+
+NEXT: (1) determine whether adsb.lol is empty for everyone or only for us
+(check from a different egress / ask adsb.lol); (2) implement the
+zero-with-fallthrough rule with loud logging; (3) surface acting-provider in
+the UI. Do NOT simply swap the primary to adsb.fi — that is the compliance
+tripwire.
+
+
 ## KNOWN BROKEN — fix these first (repair mandate)
 
 1. **[RESOLVED 2026-07-03 — backtest_v2.py]** ~~Backtest engine missing.~~
