@@ -1,3 +1,33 @@
+
+## ✅ RESOLVED 2026-08-12 — R2 WRITE PATH VERIFIED WORKING (was blocking the moon bake)
+
+The only missing piece was `R2_ENDPOINT` (the S3 API base, built from the
+Cloudflare ACCOUNT ID). The human supplied it; verified same session with a
+full put/get/delete round trip.
+
+FACTS, so nobody re-derives them:
+- endpoint: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` — set in the
+  CLAUDE CODE ENVIRONMENT, not Railway. The bake runs in an agent session;
+  Railway only ever needs `R2_PUBLIC_URL` for public reads.
+- bucket: **`voltrade-tiles`** (NOT `voltradeai-tiles` — that guess 403s and
+  reads like a permissions problem when it is a typo).
+- the token is BUCKET-SCOPED: `list_buckets` returns AccessDenied. That is
+  NORMAL. `head_bucket` + object ops on `voltrade-tiles` all work.
+- the account id is NOT the access key id and NOT the `pub-<hash>` in the
+  public URL. Both are 32 hex chars; both are wrong. Cloudflare also
+  WILDCARDS DNS, so a wrong account id still resolves and fails later at
+  TLS — probing cannot find it.
+- boto3 in this container needs `AWS_CA_BUNDLE=/root/.ccr/ca-bundle.crt`
+  (the outbound HTTPS proxy).
+
+COMPILED: `scripts/r2_verify.py` performs all of the above in ~5s. Run it
+before any bake rather than reasoning about R2 again (EDGE DOCTRINE #3).
+
+CONSEQUENCE: the moon tile bake is no longer blocked on infrastructure. Per
+the 2026-08-12 recon, the recommended first step is still a FREE in-session
+pilot bake (levels 0-5, 2,730 tiles, ~21 min, $0) to prove the whole
+pipeline before any RunPod spend.
+
 # Data / Access Wishlist — human reviews weekly
 
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;

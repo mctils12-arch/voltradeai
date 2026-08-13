@@ -27,7 +27,7 @@ ENV IT READS:
     R2_ENDPOINT                            S3 API base — the one usually missing.
                                            Accepts a full URL or a bare 32-hex
                                            account id.
-    R2_BUCKET                              bucket name (default: voltradeai-tiles)
+    R2_BUCKET                              bucket name (default: voltrade-tiles)
 
 FINDING THE ACCOUNT ID (the value people get stuck on):
     Cloudflare dashboard -> R2 -> your bucket -> Settings -> "S3 API" shows
@@ -35,6 +35,12 @@ FINDING THE ACCOUNT ID (the value people get stuck on):
     dash.cloudflare.com/<ACCOUNT_ID>/r2/overview
     It is NOT the access key id, and NOT the `pub-<hash>` in the public URL —
     both are 32 hex chars and both are wrong. Verified 2026-08-12.
+
+VERIFIED WORKING 2026-08-12 (full put/get/delete round trip against
+`voltrade-tiles`). The token is BUCKET-SCOPED: `list_buckets` returns
+AccessDenied, which is normal and NOT a failure — this script falls back to
+`head_bucket`. An earlier draft treated it as fatal and reported failure on
+a working configuration.
 
 NOTE ON TLS: this container proxies outbound HTTPS. If boto3 raises
 SSLError, pass the proxy CA via AWS_CA_BUNDLE=/root/.ccr/ca-bundle.crt
@@ -49,7 +55,10 @@ import sys
 import time
 
 CA_BUNDLE = "/root/.ccr/ca-bundle.crt"
-DEFAULT_BUCKET = "voltradeai-tiles"
+# VERIFIED 2026-08-12 against production: the bucket is `voltrade-tiles`.
+# Not `voltradeai-tiles` — that guess returns 403 and reads like a
+# permissions problem when it is really a typo.
+DEFAULT_BUCKET = "voltrade-tiles"
 
 
 def env_any(*names: str) -> str | None:
@@ -154,6 +163,23 @@ def main() -> int:
         if args.bucket not in names and names:
             print(f"  WARN: '{args.bucket}' not among them — check --bucket / R2_BUCKET")
             ok = False
+    except botocore.exceptions.ClientError as e:
+        code = e.response.get("Error", {}).get("Code")
+        # A BUCKET-SCOPED R2 token cannot enumerate all buckets — AccessDenied
+        # here is NORMAL and says nothing about whether our own bucket works.
+        # Treating it as fatal made this script report failure on a perfectly
+        # good configuration (caught 2026-08-12 on first real use).
+        if code in ("AccessDenied", "InvalidAccessKeyId", "403"):
+            try:
+                s3.head_bucket(Bucket=args.bucket)
+                print(f"  token is bucket-scoped (cannot list all buckets — normal)")
+                print(f"  '{args.bucket}' reachable")
+            except Exception as inner:
+                print(f"  FAIL: cannot reach '{args.bucket}': {type(inner).__name__}")
+                print("  Check the bucket NAME and that the token is scoped to it.")
+                return 1
+        else:
+            raise
     except botocore.exceptions.ClientError as e:
         err = e.response.get("Error", {})
         print(f"  FAIL: {err.get('Code')} — {str(err.get('Message'))[:100]}")
