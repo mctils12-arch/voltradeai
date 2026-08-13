@@ -323,6 +323,37 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9d. D4 — commented_empty_catch: a `catch` whose body is ONLY a comment.
+#
+# L3 named the masking pattern as a triple, and this is its third layer. A bare
+# `catch {}` at least looks like an oversight; a catch containing
+# `/* readouts must never break the tick */` looks CONSIDERED, so the next
+# reader accepts it and moves on. That exact comment is what kept F-A invisible
+# while it truncated a 135-line tick every frame.
+#
+# Nothing counted these before: `empty_ts_catch`'s regex requires whitespace
+# only, so every comment-bearing swallow sat outside all three existing
+# counters. 112 across 46 files, datamap.tsx leading with 19. Non-increasing —
+# and unlike the others, the fix is usually to LOG rather than to delete, since
+# the comment often records a real reason that simply deserves a log line.
+# ---------------------------------------------------------------------------
+commented_empty_catch=$(python3 - <<'PYEOF'
+import re, subprocess
+files = [f for f in subprocess.run(['git', 'ls-files', '*.ts', '*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f]
+pat = re.compile(r'catch\s*(?:\([^)]*\))?\s*\{\s*(?://[^\n]*|/\*.*?\*/)\s*\}', re.S)
+total = 0
+for f in files:
+    try:
+        total += len(pat.findall(open(f).read()))
+    except OSError:
+        pass
+print(total)
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -389,6 +420,7 @@ if [ "$JSON" = 1 ]; then
   "design_token_drift": $design_token_drift,
   "long_try_empty_catch": $long_try_empty_catch,
   "boundary_any": $boundary_any,
+  "commented_empty_catch": $commented_empty_catch,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -414,6 +446,7 @@ printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "6"   
 printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"      "must stay 0"
 printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
+printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112"   "non-increasing"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"

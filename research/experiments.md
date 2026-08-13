@@ -50221,3 +50221,95 @@ Version 1.0.702 → 1.0.703 (read-and-increment at commit time; lockfile synced)
 NEXT: Q3 — `tsconfig.json` gains `"target": "ES2022"`, verified to clear 29.
 
 STARVED: yes — Q3, Q5–Q13 queued and unclaimed in PROGRAM_STATE.md.
+
+## 2026-08-13 — [REPAIR] Q3: the typecheck was measuring a runtime that doesn't exist — 41 → 12 (v1.0.704)
+
+Territory: shared (`tsconfig.json`) + `server/` test. MASTER PROGRAM Q3.
+
+`tsconfig.json` declared `"lib": ["esnext", "dom", "dom.iterable"]` but **never
+set `"target"`**, so tsc fell back to its ES5 default and rejected `for…of`
+over a Map, Set or NodeList — iteration every runtime and every build path in
+this repo supports. The config said "you may use every esnext API, but you may
+not iterate a Map." That incoherence manufactured 29 errors (23 TS2802 +
+6 TS7006) against a runtime this repo does not produce and has never shipped.
+
+FIX: one line, `"target": "ES2022"`.
+
+WHICH TARGET — chosen by checking, not by preference. The tsconfig is `noEmit`,
+so this target downlevels nothing; it only decides what tsc PERMITS, which
+makes it a promise about the two real build paths. Traced both:
+- server → esbuild (`script/build.ts`), no explicit target, running on
+  `node:20-slim` per the Dockerfile.
+- client → vite 7, whose default `build.target` is
+  `baseline-widely-available` = Chrome/Edge 107, Firefox 104, **Safari 16**.
+
+Safari 16 and node 20 both implement ES2022 in full, so ES2022 is the honest
+ceiling and the client is the binding constraint. Worth recording for the next
+person: under vite 4/5's older `'modules'` default (Safari 14) the correct
+answer would have been **ES2020** — this ceiling moves when vite is upgraded,
+so it is not a set-and-forget value. I measured ES2020 and ES2022 side by side
+before choosing: **identical, 12 errors each**, so the choice was made on the
+runtime evidence rather than on the error count.
+
+RATCHET: `server/tsconfigTarget.test.ts` (new, 3 tests). Pins: (1) a `target`
+is declared at all; (2) it is at or above ES2015, the iteration floor;
+(3) it is NOT ES2023/ES2024/ESNext — because a target that outruns vite's
+build target would let tsc wave through syntax vite hands straight to a browser
+that cannot parse it. The third test is the one that matters long-term: this
+value has a ceiling as well as a floor, and only the floor is obvious.
+
+Pinning is necessary here specifically because **the failure mode is an ABSENT
+key**. Nothing looks wrong at any callsite, nothing looks wrong in the config,
+and 29 errors return silently the moment someone tidies the file. An absent key
+has nowhere to put an explanatory comment — so the test is the comment.
+A/B-verified via `git stash`: 2 of 3 fail with the target removed (the third
+correctly passes vacuously — an absent target is not an over-new one).
+
+NUMBERS: `tsc_errors` **41 → 12**, and with Q4+Q2 the full arc is **83 → 12**.
+`tsc_2304` holds 0. Every other ratchet held. Counters run before writing the
+PR body (L9).
+
+THE RESIDUAL 12 ARE ALL REAL — no phantoms remain, which was the entire point
+of sequencing Q2 and Q3 ahead of T1.6. Itemised in `tsc_baseline.md` §4:
+4 in `server/bot.ts` (state-shape reads the type system says are `undefined` —
+`lastEquity`, `volume`, `instrument`, `rank`), 3 in **FROZEN** `server/billing.ts`
+(Stripe SDK drift on `current_period_end`, plus a genuine crash risk calling
+`.toLowerCase()` on `string | string[]` — a repeated header would throw; must
+be FILED, not fixed), 2 lightweight-charts API drift in `TradeChart.tsx`,
+2 in `datamap.tsx`, 1 missing `@types/pngjs`.
+
+DETECTOR ADDED (§0.7): **D4 — `commented_empty_catch`**, a `catch` whose body
+is ONLY a comment. L3 named the masking pattern as a triple and this is its
+third layer: a bare `catch {}` at least looks like an oversight, but a catch
+containing `/* readouts must never break the tick */` looks CONSIDERED, so the
+next reader accepts it and moves on. That exact comment is what kept F-A
+invisible while it truncated a 135-line tick every frame. Nothing counted these
+before — `empty_ts_catch`'s regex requires whitespace only, so every
+comment-bearing swallow sat outside all three existing counters. **112 across
+46 files**, `datamap.tsx` leading with 19. Non-increasing, and unlike the
+others the right fix is usually to LOG rather than delete, since the comment
+often records a real reason that simply deserves a log line.
+
+GATES: `npx tsc --noEmit` 41 → 12 (buildinfo cleared, L5). `npm run build`
+clean — confirmed explicitly, since a target change is exactly the kind of
+edit that could plausibly affect emit, even though `noEmit` means it cannot.
+`npx tsx --test server/*.test.ts`: **1242/1243 pass**, the single failure the
+pre-existing `gridTiles.test.ts` pmtiles assertion (L8/Q12), untouched here.
+No Python touched. No `client/` source files, so PROMOTION RULE 6 does not
+apply. No backtest (PROMOTION RULE 3 N/A — a typecheck-only config key with no
+runtime effect whatsoever).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): 29 phantoms clear → baseline is 12
+and every entry is genuine → **Q5/T1.6 is unblocked and can pin a number that
+means something.** Pin at 12 non-increasing, NOT at 0: three of the twelve are
+in FROZEN `billing.ts` and cannot be fixed by an autonomous session, so a
+zero-pin would either block the ratchet forever or pressure someone into
+touching a frozen path.
+
+Version 1.0.703 → 1.0.704 (read-and-increment; lockfile synced).
+
+NEXT: Q5/T1.6 — replace `|| true` in `ci.yml` with a hard ratchet at 12.
+`.github/workflows/` is FROZEN; the MASTER PROGRAM is the specific
+authorization and must be cited in the PR body.
+
+STARVED: yes — Q5–Q13 queued and unclaimed.
