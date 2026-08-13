@@ -9797,3 +9797,35 @@ hallucination kill filed earlier today, the splat lane is closed on
 evidence from both ends (no ground capture; no lawful/honest
 satellite-only substitute). glTF remains the answer where a model is
 warranted.
+
+## 2026-08-12 — STALE-TAB DEGRADATION: a tab that outlives many deploys silently loses UI it can't know about; file the visible reload prompt [UX DEBT, filed from a live user report]
+
+OBSERVED (human screenshot, this session): a /data tab left open across
+~30 deploys rendered the layers panel with the signal cards but NONE of
+the toggle groups — the human reasonably asked "what happened to the
+layers". Server was serving all 236 layers (HTTP 200); a fresh load of
+the IDENTICAL production bundle (hash-verified index-FQ5meOeT.js)
+rendered every group. The tab was simply running week-old code +
+week-old in-memory state, through several panel-layout changes and one
+15-minute 502 window. The fix was "refresh" — but nothing TOLD the
+human that.
+
+THE GAP: the bundle already bakes its build version and compares it to
+the registry's server_version (open-tab skew detection, KNOWN STATE) —
+but the reaction is per-row ("reload to enable") at most, and a stale
+tab can degrade in ways that machinery never marks (layout changes,
+removed sections, dead in-memory feeds). At this deploy cadence
+(30+/week is now normal), long-lived tabs are the COMMON case for a
+returning user, not the exception.
+
+PROPOSED (small, for whichever T-CLIENT session picks it up — do NOT
+build blind, the skew detector already exists, extend it): when the
+registry's server_version is N minor versions ahead of the baked build
+version (N=3?), show ONE dismissible toast — "This page is several
+updates old — refresh for the current version" — rate-limited to once
+per session, never auto-reloading (an auto-reload mid-interaction on a
+map product is hostile). The version comparison is already computed;
+this is surfacing an existing verdict, not new machinery.
+
+LADDER: N/A (UX, no data claim). Priority: the deploy cadence makes
+this a weekly-recurrence class of confusion; cheap to close.
