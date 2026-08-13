@@ -48727,3 +48727,35 @@ thread). No higher-priority queued item was skipped: KNOWN BROKEN's two
 open items are both correctly gated on data accumulation and #29 was
 independently re-confirmed clean this session; no LIVENESS ALARM; no
 thrash. One logical change, one PR, per PROMOTION RULE 5.
+
+## 2026-08-13 — [PRODUCT] Large meteors (NASA CNEOS) layer (v1.0.692)
+
+Territory: T-CLIENT + server module + minimal SHARED (routes.ts,
+layers.json). Human flow: "as part of the space weather... is that
+included Meteors" → assessment (SWPC has no meteors; CNEOS fireballs
+probed live) → "show me how it would look" → mockup with REAL events
+in the app design system → 3 revision asks (plain naming — "Large
+meteors"/"Meteor blast", not "fireball" jargon; direction streaks —
+CNEOS vel-comp gives the pre-entry vector for ~60% of events, heading
+= projection onto local east/north; viewer-local time first — browser
+tz beats the requested IP lookup, said so honestly) → coverage-links
+ask (AMS eyewitness browse ±1d + date/region news/video SEARCHES,
+labeled as searches; IMO left out, unreachable when probed) →
+"build it and ship".
+
+Change: server/meteors.ts (parse/heading/merge/store/6h poller,
+store-first Freshness-Law serving), /api/data/meteors route,
+registry entry group environmental + LAYER_GROUP in the SAME commit
+(R15), vt-meteor SDF starburst, meteors.ts client lib (severity ramp,
+compass, streak geometry with cos(lat) correction + pole clamp,
+region-from-tz keywords, coverage links, at-site clock), datamap
+layer effect (symbol + streak line layers, card, legend, honest
+"quiet feed ≠ outage" note at 60d).
+
+Tests 13: real-wire-format parse fixture, heading analytic pins
+(4 axis cases + consistency pin 331.7°), merge/dedupe/revision,
+store round-trip, cadence pin, severity/compass/size bounds, streak
+tail-behind + no-invented-direction + pole clamp, tz-region honesty
+(Etc→null, Gambier stays), link shapes, site-clock JST pin. LIVE
+smoke: booted dist server, real CNEOS pull → 485 events, 291 with
+direction, route serves.

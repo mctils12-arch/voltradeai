@@ -122,6 +122,7 @@ import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl,
   getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
   APOLLO_NEAR_SIDE_ONLY_NOTE } from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
+import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, siteLocalTime } from "@/lib/meteors";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -439,7 +440,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor";
   title: string;
   subtitle: string;
   body: string;
@@ -860,7 +861,7 @@ const LAYER_GROUP: Record<string, string> = {
   floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
-  spaceweather: "environmental",
+  spaceweather: "environmental", meteors: "environmental",
   earthquakes: "environmental",
   volcanoes: "environmental",
   buoys: "environmental",
@@ -1590,7 +1591,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.earthquakes || enabled.volcanoes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.meteors || enabled.earthquakes || enabled.volcanoes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -1628,6 +1629,14 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
                     <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
                     <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
+                  </>
+                )}
+                {enabled.meteors && (
+                  <>
+                    <LegendIcon icon="vt-meteor" color="#7cc4ff" label="Meteor blast < 0.1 kt (common)" />
+                    <LegendIcon icon="vt-meteor" color="#fbb24c" label="0.1 – 1 kt" />
+                    <LegendIcon icon="vt-meteor" color="#ff5a6e" label="≥ 1 kt (rare; Hiroshima ≈ 15)" />
+                    <span className="vt-legend-note">streak = direction of travel, drawn only when NASA publishes the velocity vector; size = flash brightness (log); recorded after the fact — not live</span>
                   </>
                 )}
                 {enabled.volcanoes && (
@@ -11198,6 +11207,126 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.earthquakes, mapReady, setStatus]);
 
+  // ── LARGE METEORS (NASA/JPL CNEOS bolides — human-approved mock
+  // 2026-08-13): starburst symbol (blast), color = blast-energy severity,
+  // size = log flash energy, and a direction streak line ONLY for events
+  // where NASA published the velocity vector. Card: viewer-local time
+  // first, at-site local clock via the tz database, coverage links (AMS
+  // reports + date/region searches — searches, never claimed stories). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.meteors) {
+      try {
+        if (map?.getLayer("meteors-sym")) map.removeLayer("meteors-sym");
+        if (map?.getLayer("meteors-streaks")) map.removeLayer("meteors-streaks");
+        if (map?.getSource("meteors")) map.removeSource("meteors");
+        if (map?.getSource("meteors-streaks")) map.removeSource("meteors-streaks");
+      } catch {}
+      setStatus("meteors", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("meteors", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/meteors");
+        const d = await r.json();
+        if (stop) return;
+        const events: any[] = d.events || [];
+        const pts = {
+          type: "FeatureCollection",
+          features: events.map((ev: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [ev.lo, ev.la] },
+            properties: {
+              t: ev.t, date: ev.date, e: ev.e, imp: ev.imp, alt: ev.alt,
+              vel: ev.vel, hdg: ev.hdg, la: ev.la, lo: ev.lo,
+              color: meteorSeverity(ev.imp).color,
+              size: meteorIconSize(ev.e),
+            },
+          })),
+        };
+        const streaks = {
+          type: "FeatureCollection",
+          features: events.flatMap((ev: any) => {
+            const line = meteorStreak(ev.la, ev.lo, ev.hdg, ev.vel);
+            return line ? [{
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: line },
+              properties: { color: meteorSeverity(ev.imp).color },
+            }] : [];
+          }),
+        };
+        const src: any = map.getSource("meteors");
+        if (src) {
+          src.setData(pts as any);
+          (map.getSource("meteors-streaks") as any)?.setData(streaks as any);
+        } else {
+          map.addSource("meteors-streaks", { type: "geojson", data: streaks as any });
+          map.addLayer({
+            id: "meteors-streaks", type: "line", source: "meteors-streaks",
+            paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.5 },
+          });
+          map.addSource("meteors", { type: "geojson", data: pts as any });
+          map.addLayer({
+            id: "meteors-sym", type: "symbol", source: "meteors",
+            layout: {
+              "icon-image": "vt-meteor",
+              "icon-size": ["get", "size"],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-opacity": 0.92 },
+          });
+          detach = attachLayerInteractions(map, "meteors-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const tSec = Number(p.t);
+            const dt = new Date(tSec * 1000);
+            const yourTime = dt.toLocaleString(undefined, {
+              month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+            });
+            const site = siteLocalTime(tSec, Number(p.la), Number(p.lo));
+            const altM = p.alt != null && p.alt !== "null" ? Number(p.alt) * 1000 : null;
+            const velKmh = p.vel != null && p.vel !== "null" ? Number(p.vel) * 3600 : null;
+            const hdg = p.hdg != null && p.hdg !== "null" ? Number(p.hdg) : null;
+            const imp = Number(p.imp);
+            setDetail({
+              kind: "meteor",
+              title: `Meteor blast · ${String(p.date).slice(0, 10)}`,
+              subtitle: `Your time: ${yourTime} (${String(p.date).slice(11, 16)} UTC` +
+                        `${site ? ` · ${site} at the site` : ""})`,
+              stats: [
+                { label: "Blast energy", value: `${imp} kt TNT` },
+                { label: "Blast alt", value: altM != null ? fmtMeters(altM) : "not published" },
+                { label: "Entry speed", value: velKmh != null ? fmtKmh(velKmh) : "not published" },
+                { label: "Traveling", value: hdg != null ? `${Math.round(hdg)}° ${compassPoint(hdg)}` : "not published" },
+              ],
+              sourceTag: "NASA/JPL CNEOS",
+              body: `Flash energy ${p.e} × 10¹⁰ J · blast energy ≈ ${(imp / 15 * 100).toFixed(0)}% of Hiroshima.\n\n` +
+                    `A bolide — a large meteor that exploded in the atmosphere — detected by US Government ` +
+                    `sensors and published by NASA/JPL after the fact. Values as published, no interpretation.\n\n` +
+                    `Coverage links are SEARCHES built from the event date + region, not curated stories — ` +
+                    `events over land and cities usually have sightings; remote-ocean events usually have none.`,
+              links: meteorCoverageLinks(String(p.date), Number(p.la), Number(p.lo)),
+              dossierKey: `meteor:${p.date}:${Date.now()}`,
+            });
+          });
+        }
+        setStatus("meteors", "active", pts.features.length,
+          `NASA/JPL CNEOS · ${pts.features.length} blasts · ${streaks.features.length} with direction · self-archived`);
+      } catch {
+        if (!stop) setStatus("meteors", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.meteors, mapReady, setStatus]);
+
   // ── USGS volcano alert levels (RAW; elevated volcanoes only, coordinates
   // joined live from the Smithsonian GVP database — see server/
   // usgsVolcanoes.ts). Off by default (reference layer; initial-load
@@ -11760,7 +11889,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

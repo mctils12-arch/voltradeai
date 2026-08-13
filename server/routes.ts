@@ -32,6 +32,7 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
+import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
@@ -2227,6 +2228,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // already-merged #639 stream rather than shipped as a second, colliding
   // spaceWeather.ts module).
   bootSpaceWeatherPoll();
+  // LARGE METEORS (NASA/JPL CNEOS bolides) — 6h poll into a volume-persisted
+  // store; store-first serving (Freshness Law). Sibling of spaceweather.
+  const meteorsPoller = startMeteorsPoller({ fetchImpl: fetch });
+  app.get("/api/data/meteors", (_req, res) => {
+    const snap = meteorsPoller.getSnapshot();
+    res.set("Cache-Control", "public, max-age=300");
+    const newest = snap.events[0]?.t ?? null;
+    const quiet = newest != null && Date.now() / 1000 - newest > METEORS_QUIET_AFTER_DAYS * 86400;
+    res.json({
+      kind: "raw",
+      source: "NASA/JPL CNEOS fireball data (US Government sensors) — public domain",
+      attribution: "NASA/JPL CNEOS",
+      fetched_at: snap.fetched_at,
+      last_error: snap.last_error,
+      count: snap.events.length,
+      with_direction: snap.with_direction,
+      note: "bolides — large meteors that exploded in the atmosphere, published AFTER the fact (a few dozen/yr worldwide); direction only where NASA publishes the velocity vector" +
+        (quiet ? "; newest event is over " + METEORS_QUIET_AFTER_DAYS + " days old — sparse feed, not an outage" : ""),
+      events: snap.events,
+    });
+  });
   app.get("/api/data/spaceweather", (_req, res) => {
     const hit = latestSpaceWeather();
     if (!hit) {
