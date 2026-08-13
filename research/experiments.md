@@ -567,6 +567,74 @@ tests, all gates run, visual harness run. No higher-priority queued item
 was skipped.
 
 
+## 2026-08-13 [REPAIR] — T-CLIENT — moonTiles hardening: LRU cache, no supersede starvation, bounded retry (v1.0.701)
+
+TERRITORY: T-CLIENT (client/src/lib/celestial/moonTiles.ts + its test).
+SHARED: package.json bump only.
+
+WHY: gates the Apollo landing view the human asked for ("the actual render of
+the landings... like Google Earth satellite view"). A 12-agent investigation
+(0 errors, each load-bearing claim adversarially re-checked by two independent
+refutation passes) found three defects in the tile manager that would each
+have ruined the arrival frame, and CORRECTED three of my own earlier
+hypotheses in the process (recorded here because I stated them to the human):
+
+  MY CLAIM 1 (wrong): "the black surface while loading is a missing-tile
+  problem / no ancestor fallback". MEASURED: client/public/space/moon_8k.jpg
+  mean luminance is 145.6 DN and lambertWeight's night floor is 0.05 —
+  145.6 x 0.05 = 7.28, an exact match for the reported 7/255. The dark second
+  is the BASE TEXTURE ON THE NIGHT SIDE rendering correctly, not a hole.
+  MY CLAIM 2 (wrong): "the far/close brightness difference is two materials
+  with different albedo". The lighting math is byte-identical on both paths
+  (same lambertWeight, same 5% floor, same shadowFactor, same approachLitBlend)
+  and the WAC mosaic is DARKER (78.5 DN) than the base (145.6 DN) — i.e. the
+  material step runs OPPOSITE to the reported symptom. The dominant cause of
+  the zoom-out collapse is the PROJECTION swap at the 3.5R gate (perspective
+  ray-cast vs orthographic billboard relocates the surface point under each
+  pixel, snapping the terminator across the disc).
+  MY CLAIM 3 (wrong): "far dark / close fullbright is a bug". It is
+  approachLitBlend, a HUMAN-SET parameter (moved by human direction 2026-07-28
+  and 2026-07-31, pinned by a drift guard against moon.html). Not a bug; must
+  not be "fixed".
+
+SHIPPED (three defects, each with a regression test that fails if reverted):
+1. BLANKET CACHE WIPE -> LRU. `if (tileCache.size > 160) tileCache.clear()`
+   threw away EVERY decoded tile including ones the in-flight mosaic still
+   needed. A descent accumulates ~36 WAC z8 tiles and a NAC z15 plan adds ~56,
+   so crossing the cap mid-approach forced a cold re-fetch of all of them at
+   exactly the arrival frame. Now TILE_CACHE_MAX=512 with front-of-Map (true
+   LRU) eviction; the tiles just fetched for the current target are newest and
+   cannot be the ones dropped.
+2. SUPERSEDE STARVATION. The build bailed unstitched whenever a newer target
+   arrived — correct once something is on screen, fatal during a fly-to, where
+   the target key churns every frame so EVERY pass bailed and current()
+   returned null for the whole descent. The sampler then magnified the
+   4096x2048 base (~2,665 m/texel) onto the arrival view: a featureless grey
+   screen exactly when the user is watching. Now the bail is conditional on
+   `mosaic` already existing — with nothing resident we finish the stitch, and
+   finally{} immediately rebuilds for the fresher pose. This is Law II's "hold
+   the parent" expressed in the stitch step.
+3. SILENT PERMANENT HOLE -> bounded retry + counter. `catch {}` made one 404 or
+   dropped connection permanent for that tile. Now 2 retries with exponential
+   backoff (aborts are never retried), then the give-up is COUNTED in
+   stats().fetchFailures alongside cachedTiles, so a degraded mosaic is
+   observable instead of silent.
+
+TESTS (+4): cache retains tiles across five different mosaics AND stays
+bounded (a blanket clear would drop it to ~0); a moving camera still gets a
+mosaic (the starvation ratchet); an exhausted tile is counted with attempts >
+failures (proving retries ran); a tile that succeeds on retry is NOT counted.
+GATES: client 993/993, build clean. moonTiles' own 12 pre-existing tests still
+pass untouched.
+
+NOT SHIPPED YET (queued, in order): PR1 blit through the buffer's own
+centre+scale transform (kills the floating opaque rectangle), PR2 markers
+project through the terrain's transform (the 200-270px swim), PR4 rAF
+time-budgeted patch pump (the ~550-720ms nested-setTimeout stall), PR10 the
+Apollo landing view (arrival GSD derived so one buffer pixel = one native NAC
+texel; ALSO fixes cancelFlight's 3.2R floor, which currently ejects the camera
+on any stray input during a descent — a real bug independent of the feature).
+
 ## 2026-08-13 [REPAIR] — T-CLIENT — space-view card interaction: a mission click opens ONE card, and cards never cover the layers panel (v1.0.694)
 
 TERRITORY: T-CLIENT (spaceFrame.ts click path, index.css) + the celestial

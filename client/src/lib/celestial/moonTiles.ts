@@ -51,6 +51,17 @@ export const MOON_MAX_TILES = 72;
  *  polite to the service. */
 export const MOON_FETCH_CONCURRENCY = 6;
 
+// Tile-cache + fetch resilience (2026-08-13). Sized so a full approach holds
+// BOTH tiers resident at once: a WAC z8 horizon request plans ~36 tiles and a
+// NAC z15 site strip ~56, so the old 160 cap could be crossed mid-descent —
+// and crossing it wiped everything. 512 leaves generous headroom for several
+// mosaics (a tile is one decoded 256² RGBA image), and eviction is LRU from
+// the front rather than a blanket clear.
+export const TILE_CACHE_MAX = 512;
+/** attempts AFTER the first try, per tile, before falling back to base */
+export const TILE_FETCH_RETRIES = 2;
+export const TILE_RETRY_BASE_MS = 180;
+
 export interface MoonTarget {
   z: number;
   bbox: BboxDeg;
@@ -192,6 +203,10 @@ export interface MoonTileStats {
   maxChunkMs: number;
   building: boolean;
   mainThreadDecode: boolean;
+  /** tiles that exhausted their retries — a silent hole is now a countable one */
+  fetchFailures: number;
+  /** decoded tiles held (LRU); proves the cache is bounded, not unbounded */
+  cachedTiles: number;
 }
 
 export interface MoonTileManager {
@@ -244,7 +259,8 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
   const bandRows = deps.bandRows ?? 32;
   const tilePx = scheme.tilePx;
 
-  const tileCache = new Map<string, TexImageLike>(); // key: z/x/y
+  const tileCache = new Map<string, TexImageLike>(); // key: z/x/y (LRU: insertion-ordered)
+  let tileFetchFailures = 0;
   let mosaic: MoonMosaic | null = null;
   let builtKey = "";
   let building = false;
@@ -281,12 +297,41 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
           const t = missing[next++];
           const k = tkey(t);
           if (tileCache.has(k)) continue;
-          try {
-            const img = await fetchTile(tileUrl(t, scheme), abort.signal);
-            if (disposed) return;
-            if (tileCache.size > 160) tileCache.clear(); // bounded cache
-            tileCache.set(k, img);
-          } catch { /* missing tile → base fallback */ }
+          // BOUNDED RETRY (2026-08-13): a single 404 or dropped connection used
+          // to be a PERMANENT hole for this tile — `catch {}` with no retry, so
+          // that texel fell back to the 4096×2048 base for the life of the
+          // mosaic key. At NAC range that is a ~2,665 m/texel sample magnified
+          // onto a 0.5 m/px screen. Two retries with backoff, then give up and
+          // COUNT it so the failure is observable instead of silent.
+          let img: TexImageLike | null = null;
+          for (let attempt = 0; attempt <= TILE_FETCH_RETRIES; attempt++) {
+            if (disposed || myGen !== gen) return;
+            try {
+              img = await fetchTile(tileUrl(t, scheme), abort.signal);
+              break;
+            } catch (err) {
+              // an aborted fetch is an intentional cancel — never retry it
+              if (abort.signal.aborted || disposed || myGen !== gen) return;
+              if (attempt === TILE_FETCH_RETRIES) { tileFetchFailures++; break; }
+              await new Promise((r) => setTimeout(r, TILE_RETRY_BASE_MS * (1 << attempt)));
+            }
+          }
+          if (disposed || myGen !== gen) return;
+          if (!img) continue; // exhausted → base fallback for this texel only
+          // LRU, not a blanket wipe (2026-08-13). `tileCache.clear()` at >160
+          // threw away EVERY tile including ones the in-flight mosaic still
+          // needed: a descent accumulates ~36 WAC tiles and a NAC plan adds
+          // ~56, so crossing the cap mid-approach forced a cold re-fetch of all
+          // of them at exactly the arrival frame. Map preserves insertion
+          // order, so evicting from the front is true LRU; the tiles just
+          // fetched for the current target are the newest and cannot be the
+          // ones dropped.
+          tileCache.set(k, img);
+          while (tileCache.size > TILE_CACHE_MAX) {
+            const oldest = tileCache.keys().next();
+            if (oldest.done) break;
+            tileCache.delete(oldest.value);
+          }
         }
       };
       await Promise.all(
@@ -297,7 +342,17 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
       // moving), don't waste work stitching this stale mosaic — bail and let
       // finally{} rebuild for the freshest pose, so the FIRST mosaic shown is
       // the one that matches where the camera actually settled.
-      if (pending && targetKey(pending) !== targetKey(target)) return;
+      // SUPERSEDE, BUT NEVER STARVE (2026-08-13). Bailing whenever a newer
+      // target arrived is right once something is already on screen — but
+      // during a fly-to the target key churns every frame, so EVERY pass bailed
+      // unstitched and current() returned null for the entire descent. The
+      // sampler then fell back to the global base (~2,665 m/texel) magnified
+      // onto the arrival view: a featureless grey screen exactly when the user
+      // is watching. If we have NO mosaic yet, finish this one — a slightly
+      // stale mosaic is incomparably better than nothing, and the finally{}
+      // block immediately rebuilds for the fresher pose. This is the "hold the
+      // parent" half of Law II expressed in the stitch step.
+      if (mosaic && pending && targetKey(pending) !== targetKey(target)) return;
       const m = target.mosaic;
       const out = new Uint8ClampedArray(m.pxW * m.pxH * 4);
       // banded readback: blit tiles into the mosaic buffer in row bands, each
@@ -373,6 +428,8 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
         maxChunkMs,
         building,
         mainThreadDecode,
+        fetchFailures: tileFetchFailures,
+        cachedTiles: tileCache.size,
       };
     },
     onUpdate(cb): void {
