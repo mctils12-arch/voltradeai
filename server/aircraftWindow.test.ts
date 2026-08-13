@@ -125,6 +125,41 @@ test("LOD decimation: low zoom thins to the step, the LAST point always survives
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+test("stepSecOverride: T-2 explicit step overrides the zoom-derived LOD default", async () => {
+  const base = tmpBase();
+  const fixes: Array<AircraftPoint & { tSec: number }> = [];
+  for (let k = 0; k < 60; k++) fixes.push(fix("aaaaaa", T0 + k * 30, 40 + k * 0.01, -100, 10000));
+  archiveAircraftAt(fixes, base);
+  // zoom 12 alone would keep every 30s fix (lodStepSec(12) === 0); an
+  // explicit 900s override must thin it anyway.
+  const overridden = await readWindow({
+    bbox: { w: -110, s: 35, e: -90, n: 45 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 12, stepSecOverride: 900, baseDir: base,
+  });
+  assert.equal(overridden.step_sec, 900);
+  const pts = overridden.hexes[0].points;
+  assert.ok(pts.length < 10, `900s override thins 30s fixes (${pts.length})`);
+  for (let k = 1; k < pts.length - 1; k++) {
+    assert.ok(pts[k][0] - pts[k - 1][0] >= 900, "spacing respects the override, not the zoom");
+  }
+  assert.equal(pts[pts.length - 1][0], T0 + 59 * 30, "track end still survives");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("stepSecOverride: 0 forces full fidelity even at a world zoom that would otherwise decimate hardest", async () => {
+  const base = tmpBase();
+  const fixes: Array<AircraftPoint & { tSec: number }> = [];
+  for (let k = 0; k < 5; k++) fixes.push(fix("aaaaaa", T0 + k * 30, 40 + k * 0.01, -100, 10000));
+  archiveAircraftAt(fixes, base);
+  const r = await readWindow({
+    bbox: { w: -110, s: 35, e: -90, n: 45 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 1, stepSecOverride: 0, baseDir: base,
+  });
+  assert.equal(r.step_sec, 0);
+  assert.equal(r.hexes[0].points.length, 5, "override=0 keeps every fix despite zoom 1 (lodStepSec would be 900)");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 test("hex cap is honest: hexes_seen counts everything, the note says zoom in", async () => {
   const base = tmpBase();
   const fixes: Array<AircraftPoint & { tSec: number }> = [];

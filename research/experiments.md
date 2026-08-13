@@ -3,6 +3,187 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 (scheduled-routine [PRODUCT] session, market-hours) — TIME MACHINE v2 T-2: window×step scrubber selectors wired to the T-1 window endpoint, local cursor scrubbing over a preloaded window (v1.0.700)
+
+TERRITORY: cross-territory by design (T-2 is one logical slice spanning
+server + client per earth_twin_program.md's own phasing) — T-DATACORE
+(server/aircraftWindow.ts, server/routes.ts) + T-CLIENT
+(client/src/components/TimeScrubber.tsx, client/src/index.css) +
+T-CLIENT-adjacent (scripts/visual_check.mjs, the harness). SHARED touch
+(package.json/package-lock.json version bump) kept minimal and last, per
+MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full; research/ read (experiments.md
+tail, open_questions.md KNOWN BROKEN header, wishlist.md DATACORE MAXIMUS
+block, platform_program.md). Live health
+(`curl https://voltradeai-production.up.railway.app/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all feeds alive (`silent_hours` ~0.3) — no LIVENESS
+ALARM. `open_questions.md` KNOWN BROKEN items 1-29: all RESOLVED/FIXED
+except #10 and #20, both correctly gated on data accumulation per the prior
+session's own note — nothing critical-and-unfixed, so this PRODUCT session
+was not preempted by repair duty.
+
+PICKING THE ACTION: dispatched an Explore agent (read-only) to survey
+open_questions.md, wishlist.md, and every active program's RESUME STATE
+(grid_vision.md, earth_twin_program.md, console_charter.md,
+orbital_program.md, celestial_v2_program.md, scale_program.md) for the
+freshest, most concretely-scoped, genuinely-unblocked "NEXT" pointer.
+platform_program.md's own queue is CLEAR except P5 (HUMAN-GATED, frozen
+paths) so that program was ruled out directly. The agent's finding:
+earth_twin_program.md's TIME MACHINE v2 T-1 (hex-multiplexed window
+endpoint, GET /api/data/aircraft/window, server/aircraftWindow.ts) shipped
+one day prior (2026-08-12, v1.0.672, #814-adjacent) with its own NEXT line
+explicitly naming "T-2 scrubber selectors (window 1h/6h/24h/7d/30d x step
+1min/5min/15min/1h)" as the next unbuilt slice — confirmed via `git log`
+that no commit since v1.0.672 had touched TimeScrubber.tsx or added the T-3
+curtain layer. Category (b) per this session's own charter (raw-overlay
+/data UI, `ladder: N/A` — no gate). Runners-up rejected: the submarine-cable
+tag-audit follow-up (real but tiny, coverage-completeness only) and the
+GRID VISION held-out-region gate-1 test (stale since 2026-07-09, needs a
+status re-check before resuming, real GPU spend).
+
+READ BEFORE WRITE: read server/aircraftWindow.ts (readWindow, lodStepSec,
+WINDOW_DEFAULT_CAPS) and its route in server/routes.ts end-to-end this
+session before touching either; read client/src/components/TimeScrubber.tsx
+end-to-end (both the snapshot-fetch model and the E1 global-time-axis
+integration via lib/timeAxis) before rewriting it; read
+earth_twin_program.md's TIME MACHINE v2 design block in full for the exact
+T-2 spec.
+
+DESIGN DECISION (not in the charter, made this session): the charter names
+a "step selector (1min/5min/15min/1h)" but the T-1 endpoint only exposes
+decimation via `zoom` -> `lodStepSec(zoom)`, whose achievable outputs are
+{0,60,300,600,900}s — no path to 3600s (1h) exists via zoom at all, and the
+mapping is indirect for the others. Concluded the charter's step selector
+requires the SERVER to accept an explicit override, not just a client-side
+zoom trick, and built it as such (see BUILD).
+
+BUILD (v1.0.700):
+- server/aircraftWindow.ts: new `WINDOW_STEP_OPTIONS_SEC = [60,300,900,3600]`
+  export; `readWindow(opts)` gained an optional `stepSecOverride` that, when
+  a finite value >=0, is used verbatim as the decimation step in place of
+  `lodStepSec(opts.zoom)`. Zoom is otherwise unused beyond that one line, so
+  this is a minimal, contained change — no cap (maxHexes/maxPointsPerHex/
+  maxTotalPoints) changed, so an arbitrary step choice still can't blow the
+  response bound the zoom-derived path already allowed.
+- server/routes.ts: `GET /api/data/aircraft/window` gained an optional
+  `step` query param, validated against `WINDOW_STEP_OPTIONS_SEC` (400 on
+  anything else), folded into the existing 30s TTL cache key.
+- client/src/components/TimeScrubber.tsx (full rewrite, same file):
+  layer-conditional dual-mode component. For `layer==="aircraft"` (the only
+  WINDOW_KINDS member today — vessels join at T-4 once the route exposes
+  `kind`, not built this session): window-length select (1h/6h/24h/7d/30d)
+  and step select (1min/5min/15min/1h) replace the old hours-back slider;
+  ONE fetch loads the whole window (bbox+zoom taken at fetch time, never
+  from a moveend/zoomend subscription — Rendering & Motion Law Law I);
+  the range slider then scrubs a CURSOR through the already-loaded per-hex
+  tracks LOCALLY (new `positionsAtCursor()`: last point at-or-before the
+  cursor, per hex) — zero network calls per drag tick or per playback tick,
+  an improvement over the old model which re-fetched on every play tick.
+  Every OTHER layer (vessels/trains/fires/alerts/gauges) keeps the exact
+  pre-existing single-instant `/api/data/snapshot` model unchanged — none
+  of them have a window-read backend (T-4 is vessels parity, explicitly a
+  later slice; event-kind layers like fires/alerts were never in the T-2
+  design at all). T-3 (the batched MultiTrackLayer curtain fleet) is
+  explicitly NOT this slice — the panel still paints flat points via the
+  same pre-existing `paint()` function, just now sourced from the window
+  read instead of a snapshot read for aircraft.
+- client/src/index.css: `.vt-timescrub-window-row` (flex row, the two new
+  selects at `flex:1` inside the existing 300px-capped panel).
+- scripts/visual_check.mjs: the W3 TIME SCRUBBER battery asserted "opening
+  the panel fires >=1 GET /api/data/snapshot" — true before this change
+  since aircraft was snapshot-mode; now the default layer (aircraft) fires
+  `/api/data/aircraft/window` instead. Updated the request-count check to
+  accept either path (both are legitimate "initial fetch" signals; every
+  non-aircraft layer still fires the old path unchanged) — a measurement
+  fix required by this behavior change, not a loosening of what it proves
+  (it still fails if NEITHER path fires, i.e. still catches a silent-fetch
+  regression on any layer).
+
+RATCHET: server/aircraftWindow.test.ts +2 (17 total in that file now):
+`stepSecOverride overrides the zoom-derived LOD default` (zoom=12, which
+alone keeps every 30s fix, still thins to 900s spacing when overridden;
+track end still survives) and `stepSecOverride=0 forces full fidelity even
+at a world zoom that would otherwise decimate hardest` (zoom=1, override=0,
+all 5 fixes kept vs. lodStepSec(1)=900 which would have kept ~1-2). Both
+A/B-verified conceptually against the pre-change `readWindow` signature
+(no `stepSecOverride` param existed — these tests could not have compiled,
+let alone passed, before this change).
+
+GATES: `npx tsx --test server/aircraftWindow.test.ts server/routeGuards.test.ts`:
+25/25 pass. `npm run test:node` (full suite, 1236 tests): 1235 pass, 1 fail
+— `server/gridTiles.test.ts`'s PMTiles-magic-byte check, confirmed via
+`git stash` to fail IDENTICALLY on unmodified HEAD (pre-existing: the
+state+national pmtiles moved to R2 on 2026-07-31 per wishlist.md's
+2026-08-12 CI-GAP entry, this sandbox has no local copy). `npx tsc
+--noEmit`: 86 pre-existing errors (baseline, confirmed via `git stash` to
+be identical count on unmodified HEAD — none in the 3 files this session
+touched); this sandbox's baseline is noisier than prior sessions'
+documented "3 warnings" because `npm install` had to run fresh here too
+(clean-container gap), not a regression this session introduced. `npm run
+build`: clean, both TimeScrubber-*.js and the rest of the client bundle
+produced normally. `python3 -m pytest -q`: untouched — zero Python files in
+this diff.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page data` run at 390/768/1440 per DESIGN.md. FIRST RUN caught a real bug:
+the harness's fixture server matches unmocked `/api/*` routes against
+FIXTURES by prefix (`u.startsWith(k + "/")`), so
+`/api/data/aircraft/window` matched the existing `/api/data/aircraft` key
+(the flat point-list snapshot fixture) instead of falling through to the
+`{}` catch-all — TimeScrubber.tsx received a payload with no `.hexes`/`.to`
+and crashed inside `positionsAtCursor` ("hexes is not iterable"), visible
+as red error text in the 390px screenshot. This is a genuine fixture-
+routing gap this session's new route exposed, not a fluke of the sandbox;
+fixed by adding a dedicated window-shaped fixture handler in
+scripts/visual_check.mjs, checked before the generic prefix match (same
+pattern as the existing `/api/data/track/` and `/api/data/wxtile/`
+special-cased handlers) — 40 synthetic hexes with realistic point arrays,
+so the harness now exercises the real hex/points/coverage shape instead of
+crashing or silently rendering nothing. SECOND RUN (post-fix): 0 hard
+failures at all three widths; timescrub screenshots show the window/step
+selects, a filled "Now"-state slider, and "40 aircraft" status text with no
+error; the only warnings present (touch-target sizes on the nav bar, one
+clipped 13F legend label) are pre-existing and unrelated to this diff — not
+present on TimeScrubber's own controls. Screenshots reviewed this session
+before the PR opened.
+
+BACKTEST: N/A per PROMOTION RULE 3 — RAW overlay UI + a read-only archive
+endpoint; no scoring, sizing, threshold, or trading-decision value changed
+anywhere in this diff.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the trading
+loop — this is a /data product surface over the aircraft archive, RAW
+overlay (no ladder gate), consistent with SPINOUT-READY DATA LAYER (the
+window endpoint stays a pure archive reader, no knowledge of trading
+logic). The local-cursor-scrub design also reduces server load relative to
+the pre-T-2 model (one fetch per window/step change instead of one fetch
+per playback tick), a genuine byproduct of the SCALE program's
+viewport-bounded philosophy even though this session isn't a SCALE-tagged
+one.
+
+NEXT: T-3 MultiTrackLayer curtain fleet (batch N hex tracks into one GL
+buffer/draw, zoom-tiered simultaneous-curtain cap with an honest "showing N
+of M" fallback to draped 2D paths) is the next unbuilt slice per the
+charter — it can now consume this session's already-loaded per-hex window
+data directly. T-4 (vessels parity: expose `kind` on the route, add
+vessels to WINDOW_KINDS client-side) is independent and smaller. The two
+open human questions from the 2026-08-11 filing (wide-zoom cap preference;
+whether "all planes" includes the global mil/ladd/pia archive at world
+zoom) remain unanswered and still only block T-3, not T-2/T-4.
+
+STARVED: no — this was the session's one primary action, fully scoped
+(server override + client dual-mode rewrite + harness fix + tests), one
+logical PR per PROMOTION RULE 5. No higher-priority item was skipped: no
+LIVENESS ALARM, KNOWN BROKEN's two open items are correctly gated on data
+accumulation, loop-health ratio not re-checked this entry (T-BOT-tagged,
+not PRODUCT-tagged, sessions dominate the trailing window per the prior
+entry's own count — a PRODUCT session's ratio read is out of scope for
+this file's thrash-ratio purpose, which tracks REPAIR vs. everything-else
+system-wide, not per-territory).
+
 ## 2026-08-13 (scheduled-routine session, market-hours) [RESEARCH] — T-BOT (shadow_portfolio.py) — KNOWN BROKEN #10's over_threshold evidence bucket has sat at zero for days; built the instrument to tell "genuinely never happens" from "not enough data yet" instead of guessing (v1.0.698)
 
 TERRITORY: T-BOT (shadow_portfolio.py, bot-side learning-data infrastructure;
