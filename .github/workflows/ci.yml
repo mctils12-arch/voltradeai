@@ -137,8 +137,15 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc --noEmit || true   # tighten to hard-fail once existing TS errors are cleared
+      - name: Typecheck (ratchet)
+        # Was `npx tsc --noEmit || true` with the note "tighten to hard-fail
+        # once existing TS errors are cleared". They are now cleared enough to
+        # gate: 83 -> 12 across PRs #823/#824/#825, and all 12 remaining are
+        # genuine. The rule lives in scripts/tsc_ratchet.sh (mutable, tested by
+        # server/tscRatchet.test.ts) so this FROZEN file changes once; the pin
+        # lives in ci/tsc_baseline.txt. Authorized by the MASTER PROGRAM, whose
+        # §9 names Track 1 as the specific authorization to touch this path.
+        run: bash scripts/tsc_ratchet.sh
 
       - name: Build (client + server bundle)
         run: npm run build

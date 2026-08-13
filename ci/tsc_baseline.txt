@@ -1,0 +1,42 @@
+# ci/tsc_baseline.txt — the pinned `npx tsc --noEmit` baseline.
+#
+# Read by scripts/tsc_ratchet.sh, which CI runs in place of the old
+# `npx tsc --noEmit || true`. Format: `TOTAL <n>`, then one `<code> <count>`
+# line per error code. Comments and blank lines ignored.
+#
+# ── HOW THIS NUMBER GOT HERE ──────────────────────────────────────────────
+# The typecheck ran as `|| true` for months, printing into a log nobody read.
+# The first time anyone ran it (2026-08-13, MASTER PROGRAM T0.0) it reported
+# 83 errors, and two of them were live user-facing bugs. Three sequenced PRs
+# took it to 12:
+#
+#   83  starting point (research/tsc_baseline.md — full triage)
+#   78  #823  fixed 5 TS2304 — `altScale` (F-A) and `e` in focusSat
+#   41  #824  typed execAsync's `opts` — ONE `any` parameter was 42 errors
+#   12  #825  set tsconfig `"target": "ES2022"` — an absent key was 29 errors
+#
+# 86% of the original count was two mechanical causes. That noise is precisely
+# why nobody ever read the list the two real bugs were sitting in.
+#
+# ── WHY THE PIN IS 12 AND NOT 0 ───────────────────────────────────────────
+# All 12 remaining are genuine (itemised in research/tsc_baseline.md §4), but
+# THREE of them are in server/billing.ts, a FROZEN PATH an autonomous session
+# may not edit. Pinning 0 would either block this ratchet forever or pressure
+# a future session into touching a frozen path. So: non-increasing, and lower
+# it as real fixes land.
+#
+# ── LOWERING IT ───────────────────────────────────────────────────────────
+# Fix errors, then reduce these numbers in the same PR. The ratchet is
+# downward-only (MASTER PROGRAM D4): raising a pin is stop condition 2 and
+# needs a human. If CI reports a count that does NOT match this file and your
+# diff cannot explain it, that is an environment divergence, not a regression
+# — do not "fix" it by raising the pin. The script prints a per-code diff on
+# failure so the two cases are distinguishable at a glance.
+
+TOTAL 12
+
+TS2339 6
+TS2345 1
+TS2349 1
+TS2353 3
+TS7016 1

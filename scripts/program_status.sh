@@ -354,6 +354,44 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9e. D5 — conflicting_const: an exported SCREAMING_CASE constant declared in
+# more than one module with DIFFERENT values.
+#
+# Two modules can each be internally consistent and still disagree with each
+# other, and nothing in the type system notices — the names match, so a reader
+# skimming either file sees nothing wrong. Found on its first run:
+#
+#   EARTH_RADIUS_KM      6371 (orbital/geometry.ts) vs 6378.137
+#                        (orbital/satDerived.ts) — mean vs WGS84 equatorial, in
+#                        the SAME orbital module, ~7km apart in satellite
+#                        altitude
+#   EARTH_CIRCUMFERENCE_M  2*PI*6371008.8 (glElev.ts) vs 40075016.686 (lod.ts)
+#                        — ~45km apart, and Web Mercator requires the latter
+#
+# Both are accuracy defects in code whose whole premise is real positions, not
+# style nits. Filed as Q14 rather than fixed here (one logical change per PR).
+# Non-increasing. Constants that legitimately differ belong under distinct
+# names, which is what makes the fix and the ratchet agree.
+# ---------------------------------------------------------------------------
+conflicting_const=$(python3 - <<'PYEOF'
+import re, subprocess, collections
+files = [f for f in subprocess.run(['git', 'ls-files', '*.ts', '*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f and '.test.' not in f]
+vals = collections.defaultdict(set)
+pat = re.compile(r'^export const ([A-Z][A-Z0-9_]{2,})\s*(?::[^=]+)?=\s*([^;\n]+);?\s*$', re.M)
+for f in files:
+    try:
+        src = open(f).read()
+    except OSError:
+        continue
+    for m in pat.finditer(src):
+        vals[m.group(1)].add(m.group(2).strip())
+print(sum(1 for v in vals.values() if len(v) > 1))
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -421,6 +459,7 @@ if [ "$JSON" = 1 ]; then
   "long_try_empty_catch": $long_try_empty_catch,
   "boundary_any": $boundary_any,
   "commented_empty_catch": $commented_empty_catch,
+  "conflicting_const": $conflicting_const,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -447,6 +486,7 @@ printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"   
 printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
 printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112"   "non-increasing"
+printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"

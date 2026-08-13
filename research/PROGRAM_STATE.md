@@ -38,14 +38,16 @@ when you take it, `DONE` with the PR number when it merges.
 | Q2 | `execAsync`/`execPythonSerialized` opts typed `ExecOptions` + encoding pinned (clears 42 errors) | T0.0/T5 | **DONE** — PR #824 |
 | Q3 | `tsconfig.json` gains `"target": "ES2022"` (clears 29) | T0.0 | **DONE** — PR #825 |
 | Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **DONE** — PR #823, session 2 |
-| Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **TODO** ← next, UNBLOCKED — pin at 12 |
+| Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **DONE** — PR #826, pinned at 12 |
 | Q6 | T2.4 — cap DPR in `celestialSky:788` + `spaceFrame:2877` | T2.4 | **TODO** — up to 9× faster moon on a 3× device |
 | Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **TODO** — 5 → 7 files; it will fail, that is the deliverable |
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
-| Q10 | T1.1 — all three suites into CI non-blocking + `visual --soft` | T1.1 | **TODO** — **promoted: this is what arms `server/tsc2304Ratchet.test.ts`, which no CI job runs today** |
+| Q10 | T1.1 — all three suites into CI non-blocking + `visual --soft` | T1.1 | **TODO** ← next — arms all 4 ratchet tests written this session; handle Q12 + Q15 as quarantine entries in the same PR |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
 | Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
+| Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
+| Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight — `oldMs = now - (RETENTION+2)d` plus cadence-spaced samples straddle two UTC days, so 1 rolled day becomes 2 | T1.2 | **TODO** — pre-existing (A/B'd on a clean tree), a ~1h nightly window. MUST be quarantined or fixed as part of Q10 or CI reds every night |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
@@ -68,13 +70,14 @@ empty_ts_catch           495            495          non-increasing
 ts_any                   1250           1252         non-increasing
 boundary_any             233            233          non-increasing
 commented_catch          112            112          non-increasing
+conflicting_const        5              5            non-increasing
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                4              0            MUST increase each session
+detectors                5              0            MUST increase each session
 quarantine_size          0              0            non-increasing
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -142,6 +145,18 @@ and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
 
+**L11 — prose moved one of my own checks for the SECOND time today.** L9 was
+comments containing `` `catch {}` `` inflating `empty_ts_catch`. This time the
+comment in `ci.yml` documenting the old `npx tsc --noEmit || true` line tripped
+my own assertion that the line is gone. Both are the same shape: **a
+source-scraping check cannot tell code from prose about code**, and the most
+natural place to explain a rule is right next to the rule, where the check
+sees it. Fixed properly here by stripping comment lines before asserting —
+narrowing to the assertion's real meaning ("no CI STEP swallows the
+typecheck"), not relaxing it. **Standing guidance: any new source-scraping
+check should strip comments FIRST**, and Q13 (do this for `empty_ts_catch` /
+`ts_any`) is now the second confirmed instance rather than a one-off.
+
 **L10 — the typecheck baseline was 83; it is now 12, and the 12 are all real.**
 Three sequenced PRs (Q4/Q2/Q3) took it there: 5 genuine bugs fixed, 42 errors
 from one `any` parameter, 29 from an absent `tsconfig` target. **86% of what
@@ -204,13 +219,13 @@ the duty. `detectors_registered` reads this table.
 | D2 | `long_try_empty_catch` — a `try` spanning >50 lines whose `catch` body is empty | 2026-08-13 | 3 | live in `program_status.sh` |
 | D3 | `boundary_any` — `: any` in a function's parameter list or return annotation (not bodies) | 2026-08-13 | 233 | live in `program_status.sh` |
 | D4 | `commented_empty_catch` — a `catch` whose body is ONLY a comment (L3's third layer; counted by nothing before) | 2026-08-13 | 112 | live in `program_status.sh` |
+| D5 | `conflicting_const` — an exported SCREAMING_CASE constant declared in 2+ modules with different values | 2026-08-13 | 5 | live in `program_status.sh`; found Q14 on its first run |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
 - `useEffect` with a dependency array omitting a ref it reads
 - registry ids in `layers.json` with no server route; routes with no id
 - `setInterval` callbacks that can outlive their component
-- exported constants duplicated across modules with different values
 - `any` at a module boundary (params and return types only)
 - theme-token literals hardcoded instead of referenced (D11) — *partly covered
   by `design_token_drift`; the off-palette-hex half is not yet built*

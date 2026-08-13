@@ -50313,3 +50313,125 @@ NEXT: Q5/T1.6 — replace `|| true` in `ci.yml` with a hard ratchet at 12.
 authorization and must be cited in the PR body.
 
 STARVED: yes — Q5–Q13 queued and unclaimed.
+
+## 2026-08-13 — [PIPELINE] Q5/T1.6: the typecheck now gates the build (v1.0.705)
+
+Territory: shared (`.github/workflows/ci.yml` — FROZEN PATH, see authorization
+below) + `scripts/`, `ci/`, `server/` test. MASTER PROGRAM Q5 / Track 1.6.
+
+`ci.yml`'s node-build job ran `npx tsc --noEmit || true` with the note "tighten
+to hard-fail once existing TS errors are cleared". It printed into a log nobody
+opened for months, and two live user-facing bugs sat in that output. They are
+now cleared enough to gate: **83 → 12** across PRs #823/#824/#825, and all 12
+remaining are genuine.
+
+FROZEN-PATH AUTHORIZATION: `.github/workflows/` is FROZEN under CLAUDE.md.
+The MASTER PROGRAM §9 names Track 1 as the specific authorization to touch it
+("cite this document in the PR body as `celestial-catalog-mirror.yml` cites its
+approval"), and T1.6 is the named item. Cited in the PR body and in the file.
+
+DESIGN — the frozen file changes by ONE line, once. The rule lives in
+`scripts/tsc_ratchet.sh` (MUTABLE, tested) and the pin in `ci/tsc_baseline.txt`
+(data, with the full 83→12 provenance in its header). `ci.yml` just calls the
+script. Every future adjustment to the gate then happens outside the frozen
+path under test, instead of accumulating edits to a file that is frozen
+precisely because edits to it are dangerous.
+
+TWO GATES, deliberately different in kind:
+1. TOTAL must not exceed the pin. Non-increasing (D4).
+2. **TS2304 must be ZERO always, regardless of the pin** — "Cannot find name"
+   is the one code that is never config noise and never a false positive, and
+   both bugs T0.0 found were TS2304. This gate is independent of the count, so
+   a future session cannot let one in under a generous total.
+
+WHY THE PIN IS 12 AND NOT 0: all 12 are genuine, but THREE are in
+`server/billing.ts`, a FROZEN PATH an autonomous session may not edit (Stripe
+SDK drift, plus a real `.toLowerCase()`-on-`string | string[]` crash risk on a
+repeated header). Pinning 0 would either block the ratchet forever or pressure
+a future session into touching a frozen path to satisfy it. Recorded in the
+baseline file itself so the next reader does not "tidy" it to 0.
+
+FAILURE MODES HANDLED, each tested:
+- tsc cannot run at all → exit 2, NOT a pass. A ratchet that silently stops
+  ratcheting is the drift this program exists to prevent (same lesson as the
+  tsc2304 test's own guard).
+- baseline file missing or malformed → exit 2, never a permissive default.
+- count rose → exit 1 AND print a per-code diff of pinned-vs-actual, because
+  "my diff introduced errors" and "the environment resolves types differently"
+  need opposite responses and look identical from a bare count. Only the first
+  is fixed by fixing code; neither is EVER fixed by raising the pin, which the
+  failure message says explicitly (§12 calls that suppression).
+- count DROPPED → passes, but prints an instruction to lower the pin in the
+  same PR, since an unlowered pin lets the next change quietly give it back.
+
+VERIFIED BY MAKING IT FAIL, four ways — a gate nobody has watched fail is a
+decoration, not a gate: (a) pin lowered to 0 → exit 1 with the diff; (b) a
+per-code mismatch → the diff renders `< TS2339 2` vs `> TS2339 6` as intended;
+(c) baseline absent → exit 2; (d) **a real TS2304 injected into
+`server/liveness.ts`** → exit 1, naming the file:line, reverted immediately and
+confirmed clean. Plus `server/tscRatchet.test.ts` (5 tests) pinning the
+decision logic against synthetic baselines, A/B-verified: with `ci.yml`
+reverted, the "no longer swallows the typecheck" test fails.
+
+SELF-CAUGHT MISTAKE (L11, and the SECOND of its kind today): my own explanatory
+comment in `ci.yml` quotes the old `npx tsc --noEmit || true` line verbatim,
+which tripped my own assertion that the line is gone. Same shape as L9's
+comment-inflated `empty_ts_catch`: **a source-scraping check cannot tell code
+from prose about code, and the most natural place to explain a rule is right
+next to the rule, where the check sees it.** Fixed by stripping comment lines
+before asserting — narrowing to the assertion's real meaning ("no CI STEP
+swallows the typecheck"), not relaxing it, since a comment cannot execute.
+Q13 (strip comments in `empty_ts_catch`/`ts_any`) is now a confirmed pattern
+rather than a one-off.
+
+DETECTOR ADDED (§0.7): **D5 — `conflicting_const`**, an exported
+SCREAMING_CASE constant declared in 2+ modules with DIFFERENT values. Two
+modules can each be internally consistent and still disagree, and nothing in
+the type system notices because the names match. **It found real accuracy
+defects on its first run**, filed as Q14:
+- `EARTH_RADIUS_KM` = 6371 (`orbital/geometry.ts`) vs 6378.137
+  (`orbital/satDerived.ts`) — mean vs WGS84 equatorial, in the SAME orbital
+  module, ~7km apart in satellite altitude.
+- `EARTH_CIRCUMFERENCE_M` = 2π×6371008.8 (`glElev.ts`) vs 40075016.686
+  (`lod.ts`) — ~45km apart, and Web Mercator requires the latter.
+Not fixed here (one logical change per PR); these are accuracy defects in code
+whose stated premise is real positions, so they get their own PR. Baseline 5.
+
+PRE-EXISTING FLAKE FOUND AND FILED (Q15), not caused by this diff:
+`server/datacoreArchive.test.ts`'s two rollup tests began failing at ~23:55 UTC
+having passed at 22:00. A/B-confirmed pre-existing by stashing every change and
+re-running on the clean tree — still 2 failures. Cause is arithmetic, not
+chance: the tests compute `oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000`
+and write cadence-spaced samples, so near UTC midnight those samples straddle
+two UTC days and the expected 1 rolled day becomes 2 (`expected: 1, actual: 2`;
+the sibling asserts 0 and gets 1). Harmless today because node tests are not in
+CI — but **Q10 arms them, and this would then red the build for roughly an hour
+every night**, which is exactly how a new gate loses its credibility. Flagged
+on Q10 as a mandatory quarantine-or-fix alongside Q12.
+
+NUMBERS: `gated_tests` **4 → 4** — deliberately unchanged, and worth being
+precise about: this PR gates the TYPECHECK, not the test suites. Raising
+`gated_tests` is Q10's job. `tsc_errors` 12 (now enforced rather than merely
+observed). `detectors_registered` 4 → 5. All other ratchets held.
+
+GATES: `scripts/tsc_ratchet.sh` exits 0 on the real tree (12 ≤ 12, TS2304 = 0)
+and exits 1/2 on all four induced failures above. `bash -n` clean.
+`npx tsx --test server/*.test.ts`: 1245 pass, 3 fail — the pre-existing
+`gridTiles` pmtiles assertion (L8/Q12) plus the two Q15 rollup tests, all three
+A/B-confirmed pre-existing on a clean tree. `npm run build` unaffected (not
+touched by this change; the ratchet runs before it). No Python. No `client/`
+files, so PROMOTION RULE 6 does not apply. No backtest (PROMOTION RULE 3 N/A —
+CI configuration, no scoring, sizing, threshold, or measurement VALUE).
+
+ROLLBACK TRIGGER, stated per the frozen-path discipline: if CI reports a count
+other than 12 and the diff cannot explain it, that is environment divergence —
+revert `ci.yml`'s one line to `npx tsc --noEmit || true`, keep the script and
+baseline, and investigate. Do NOT raise the pin (stop condition 2).
+
+Version 1.0.704 → 1.0.705 (read-and-increment; lockfile synced).
+
+NEXT: Q10/T1.1 — the three suites into CI, non-blocking first, with Q12 and
+Q15 as its two known quarantine entries. Until it lands, all four ratchet
+tests written today run only when a human types the command.
+
+STARVED: yes — Q6–Q15 queued and unclaimed.
