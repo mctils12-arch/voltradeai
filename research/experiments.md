@@ -48933,3 +48933,162 @@ persisted via the min flag), body scrolls internally (max 46vh) when
 many layers are on, hidden in space view. Same LegendPanel
 component + icon registry — one legend, one source of truth; the
 panel copy is deleted, harness data-vt-legend hook preserved.
+
+## 2026-08-13 (scheduled-routine session) [REPAIR] — CSP cash-budget race: a stale pre-cycle snapshot let every SELL_CSP in a batch pass the same too-generous check (v1.0.696, PR #813)
+
+Territory: T-BOT (server/bot.ts outside frozen paths) + minimal SHARED
+package.json/package-lock.json version bump (last commit, per
+WORKSTREAM PARTITION merge-order protocol).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Live health
+(`GET /api/health`): `status:"ok"`, bot `active`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three feeds `dead:false` — no LIVENESS
+ALARM. Loop-health ratio, last 10 tagged entries before this one (v1.0.675
+REPAIR through v1.0.695 PRODUCT): 4 REPAIR / 4 PIPELINE / 2 PRODUCT — well
+under the 7+ thrash trigger. No STARVED:yes in recent history. wishlist.md
+and open_questions.md both read; no unblocked queued item found (the
+usaspending_contracts ladder trigger fires 2026-08-15, still 2 days out
+per the prior session's own ladder_readiness_check.py).
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET's own ordering ("fix a bug
+seen in audit logs" outranks judging a matured experiment or starting new
+research), checked `/api/diag/audit?limit=100&token=$DIAG_TOKEN` before
+falling through to the queue. Found: 16 T2-FAIL, 16 TIERS, 16 TIER2, 2
+POS-WARN, 2 TIER3, 8 MANIPULATION entries in the last ~2.5h alone. Widened
+to `/api/diag/audit?type=T2-FAIL&limit=200` (spans 2026-08-12T11:10Z
+through 2026-08-13T11:02Z, ~24h): 47/100 most-recent T2-FAIL entries read
+"Alpaca rejected: insufficient options buying power for cash-secured put",
+all against the same two tickers (TLT, CRWV), some pairs seconds apart
+(e.g. CRWV 11:15:31Z then TLT 11:15:34Z) — the same shape KNOWN BROKEN's
+July sessions already fixed once (2026-07-29/07-31, options_execution.py's
+`cash_available` parameter) but clearly still recurring live.
+
+PRIOR (stated before diagnosing, REASONING STANDARD #10): expected either
+(a) the 2026-07-29 fix had regressed/wasn't actually wired into this call
+site, or (b) a second, un-fixed staleness gap existed in the same family —
+favored (b) given `git log`/grep confirmed `cash_available` is still
+threaded through `select_contract` exactly as documented. Confirmed (b):
+see ROOT CAUSE below — the fix from July works correctly per-call, but the
+value it's called with goes stale across a whole batch.
+
+READ BEFORE WRITE: read `options_execution.py`'s full `_select_sell_put`
+(cash_available threading, lines ~873-944) and `submit_options_order`'s
+single-leg branch (lines 2175-2247, confirming the "Alpaca rejected: ..."
+text is Alpaca's own literal rejection message passed through verbatim,
+not something our own pre-check generates) before touching anything. Then
+read `server/bot.ts`'s full TIER DISPATCHER block (lines ~3650-3810) and
+its own 2026-08-03 OPTIONS-SLOT-RACE-FIX comment/pattern (freshPositions
+refetch + local counter, `server/optionsSlotRaceFix.test.ts`) as the
+precedent to mirror, confirming call sites in both languages per the
+READ BEFORE WRITE protocol (bot.ts's inline python one-liner at line 3709
+is the actual caller of `select_contract(..., cash_available=...)`).
+
+ROOT CAUSE (traced this session, not assumed): `cashAvailable` (from
+`acct.cash`) is captured ONCE near the top of the Tier-2 handler, BEFORE
+`executeTrades()` runs (which can itself spend cash on stock buys) and
+BEFORE the tier dispatcher loop that follows. That same single value was
+then reused, unmodified, for the `cash` field of every `SELL_CSP` action's
+payload to `select_contract` for the rest of the cycle — including a
+second or third CSP action in the same `result.tier_actions` batch. This
+is the identical TOCTOU shape the 2026-08-03 slot-cap fix already closed
+for `tierOptionsSlotsUsed` (which DOES re-fetch fresh and increment
+locally) — just left open on the dollar budget. A batch containing both
+TLT and CRWV (or repeated retries of the same ticker across adjacent
+cycles where real cash genuinely hovered ~$6,400, per the audit log's
+"available" figures) meant every affordability check in the batch used
+the same too-generous, un-decremented number, letting each one reach
+Alpaca's own real-time check and get rejected there instead of being
+caught internally beforehand.
+
+FIX (server/bot.ts): immediately before the tier dispatch loop (same spot
+as the existing `freshPositionsForTiers` re-fetch), added a fresh
+`await alpaca("/v2/account")` call and a new `tierCashAvailable` local
+variable seeded from its `cash` field (falling back to the outer
+pre-executeTrades `cashAvailable` if the re-fetch fails, so the budget is
+never `undefined`/`NaN`). The `SELL_CSP` payload now sends
+`cash: tierCashAvailable` instead of the stale `cashAvailable`. On a
+successful submit, `tierCashAvailable -= (parseFloat(r.cash_required) ||
+0)` — mirroring `tierOptionsSlotsUsed++` in the same success branch. The
+inline python submission script (unchanged Python logic) now also copies
+`contract.get('cash_required', 0)` onto the result dict it prints, so the
+TypeScript side has the real collateral amount to decrement by without a
+second round-trip. No Python function signature changed — only the
+already-existing `cash_required` field `select_contract` already computed
+per-contract is now surfaced back to the caller.
+
+RATCHET: `server/cspCashRaceFix.test.ts` (new, 3 tests, source-pattern
+style matching `optionsSlotRaceFix.test.ts`'s established convention for
+this file): (1) the dispatcher fetches a fresh account snapshot and uses
+`tierCashAvailable` (not the stale `cashAvailable`) in the CSP payload;
+(2) the success branch decrements `tierCashAvailable` by `cash_required`
+in the same branch as the existing slot-count increment; (3) the fallback
+to `cashAvailable` on a failed re-fetch is present, so the budget can't go
+undefined. All 3 pass against the fix; A/B-verified via `git stash` that
+all 3 fail against the pre-fix code (the fix genuinely changes behavior,
+not just adds dead code).
+
+GATES: `npx tsx --test server/*.test.ts` (after `npm install` — sandbox
+started with `node_modules` incomplete/missing `tsx`, same recurring
+clean-container gap prior sessions have logged): 1139/1148 pass, 9
+failures. A/B-confirmed via `git stash` that the SAME 9 fail on
+unmodified `main`-branch-equivalent code (aircraftTiling, apiKeyAccounts,
+cdcCancer, compression, gdeltEvents, a pmtiles-magic-byte fixture check,
+owmTiles, seafloorTiles, securityMiddleware — all unrelated to bot.ts or
+options execution; environmental/fixture gaps in this sandbox, not
+regressions from this change) — baseline stash run showed 12 failures
+(the extra 3 being this PR's OWN new tests correctly failing against
+unpatched bot.ts, confirming they test real behavior, not tautologies).
+`npx tsc --noEmit`: unchanged baseline (3 pre-existing vite/client +
+baseUrl warnings, same as documented in multiple prior entries).
+`npm run build`: clean (full vite + esbuild + datacore staging). No
+client/ files touched, so PROMOTION RULE 6's VISUAL VERIFICATION does not
+apply. `python3 -m pytest -q` (after `pip3 install --break-system-packages
+-r requirements.txt -r requirements-dev.txt`, same recurring clean-
+container gap): 1322 passed, 1 skipped — untouched, since zero Python
+logic changed (only the JSON payload into an existing parameter, plus one
+already-computed field surfaced back through the result dict).
+
+BACKTEST: N/A per PROMOTION RULE 3 — mechanical bug fix restoring the
+intended behavior of the existing 2026-07-29 `cash_available` check (a
+documented, already-shipped rule); no scoring, sizing, or threshold VALUE
+changed anywhere. Same posture as the 2026-08-03 OPTIONS-SLOT-RACE-FIX
+precedent this mirrors (also logged N/A for the identical reason). No
+RULE REVIEW evidence gate applies.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): tighter per-order cash gating →
+fewer wasted round-trips to Alpaca that were always going to fail (the
+same ticker retried every ~5-15min scan cycle for 24h+ against a budget
+that never accounted for what the cycle itself had already spent) →
+fewer repeated T2-FAIL audit lines cluttering the signal a future session
+would otherwise have to read through → no change to which tickers are
+selected as CSP candidates, position sizing, or the CSP strategy's own
+economics. Zero interaction with backtest/measurement code (this is an
+EXECUTION-layer fix per the ROOT VALIDATION LADDER, not a DATA/SIGNAL/
+LOGIC/SIZING one).
+
+Version 1.0.695 -> 1.0.696 (read-and-increment at commit time, confirmed
+against `package.json` before starting; the prior session's PR #812 was
+the last merge). Also synced `package-lock.json`'s two `version` fields,
+which `npm install` revealed were stale at `1.0.691` (three releases
+behind `package.json`'s `1.0.695`) — trivial housekeeping noticed
+incidentally while installing deps for this fix, same class as the
+2026-08-12 "lockfile version sync" housekeeping commit; not a separate
+PR since it's a one-line no-behavior-change drift fix bundled with an
+already-required `npm install` step, not a second logical change.
+
+NEXT: a future session should query `/api/diag/audit?type=T2-FAIL` after
+a few days of live data to confirm the "insufficient options buying
+power" rejection count has genuinely dropped relative to "position budget
+exceeded" (the internal, pre-submission rejection this fix should convert
+some of these into instead) — the live effect is only directly observable
+after deploy + several scan cycles, same caveat as the July fix's own
+NEXT note.
+
+STARVED: no — this was the session's one primary action (a bug found via
+its own audit-log check, per SESSION BUDGET's stated priority order), a
+single fully-scoped fix + test + gates. No higher-priority queued item
+was skipped: no LIVENESS ALARM, loop-health ratio healthy, KNOWN BROKEN's
+open items are both correctly gated on data accumulation (unchanged since
+the prior session's confirmation). One logical change, one PR, per
+PROMOTION RULE 5.
