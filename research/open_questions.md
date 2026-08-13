@@ -9644,6 +9644,54 @@ now unblocked, after the fix deploys and via `/api/diag/gnss_integrity?
 days=<dates>&bbox=53,60,17,24&limit=50000&token=$DIAG_TOKEN` (Baltic) vs.
 a control bbox.
 
+**PROGRESS 2026-08-13 (scheduled-routine PRODUCT session) — PHASE 4
+DONE, GATE 2 PASS.** A same-day second bbox-starvation fix
+(`readArchiveDayEvenSample`'s `rowFilter`, v1.0.688, PR #803) landed
+2026-08-12 evening, found via the same session's own attempted Phase 4
+run (thin Baltic counts even with the temporal fix live) — that PR
+itself did not re-verify the fix against a live post-deploy run (deploy
+lag), and separately noted 2026-08-10 had no integrity fields at all
+(writer only went live 2026-08-11 23:19 UTC — no bug, just no data
+yet). This session confirmed `server_version 1.0.688` was live and
+re-ran the identical Baltic-vs-control comparison with the 2 days that
+DO have writer-live data (2026-08-11/12), and, rather than eyeballing
+the JSON by hand a third time (EDGE DOCTRINE #3), compiled it into a
+reusable tool:
+`scripts/gnss_integrity_gate2.ts` (+ `statsUtils.binomialUpperTailP`,
+new exact one-tailed binomial helper, +
+`scripts/gnss_integrity_gate2.test.ts`). Pre-registered method carried
+over unchanged from this entry's 2026-08-11 text: broadcast-origin only
+(excludes mlat-derived rows), band-stratified, exact binomial test
+against the control region's own observed rate as the null, bar
+p<0.01 one-tailed, and — stated in advance per the physical
+line-of-sight hypothesis — a pass requires elevation at cruise/mid and
+NONE at low/ground (elevation everywhere would look like a data
+artifact, not a targeted signature; the script's `gate2Verdict` encodes
+this as an explicit FAIL condition, not just a softer pass).
+**RESULT: PASS.** cruise 3/84 broadcast rows nic==0 (3.6%) vs control
+0.20% (p=0.00065); mid 8/146 (5.5%) vs control 0.26% (p<1e-6); low
+7/295 (2.4%) vs control 2.16% (p=0.46, correctly NOT elevated) — the
+exact predicted pattern, not elevation everywhere. Logged with full
+numbers in `datacore/signal_ladder.json` (`gnss_integrity_adsb`,
+`gate2_pass`) and experiments.md.
+HONEST CAVEATS, not smoothed over: (1) this is a 2-day sample — the
+archive only carries integrity fields since the Phase-2 writer merged,
+so there was no way to test a longer window yet; re-run the script as
+more days accumulate before treating this as durable. (2) This is GATE
+2 (statistical discrimination vs. a control region), not GATE 1
+(external ground truth) — no cross-reference has been run yet against
+an independent jamming-report source (gpsjam.org, OPSGROUP NOTAMs) for
+the same dates/region; that comparison is the honest next step before
+this root could be surfaced as anything stronger than "statistically
+real, mechanism plausible." (3) The MONETIZATION LICENSE CONDITION from
+the original 2026-08-11 entry (adsb.fi personal/non-commercial terms;
+any sold surface must derive from adsb.lol alone) still applies
+unchanged and has not been re-checked this session. NEXT: (a) re-run
+weekly as the archive deepens; (b) gate-1 cross-reference against an
+independent jamming source; (c) if both hold, this becomes the first
+candidate root queued for a RAW-overlay + gated-SIGNAL /data surface
+per the SPINOUT-READY DATA LAYER rule.
+
 ### 2. SENTINEL-1 SAR FOR DARK SHIPS — THE PIPELINE WORKS, THE VALIDATION LOGIC DOES NOT
 CONFIRMED, impressively: CDSE OData anonymous 200 with real S1 products;
 OAuth succeeded using CDSE_CLIENT_ID/SECRET **already in our env**;
