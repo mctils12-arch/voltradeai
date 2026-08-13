@@ -49865,3 +49865,117 @@ RATCHET: the pure helper is pinned; the R15-class lesson repeats —
 overlays that sit ON the map must arbitrate scroll, and the harness
 has no wheel-over-overlay probe (candidate assertion filed with the
 CI wishlist entry rather than a new harness mode mid-repair).
+
+## 2026-08-13 — [PIPELINE] MASTER PROGRAM session 1: T0.0 typecheck triage + T0.1 instrumentation
+
+Territory: shared (`research/*`, `scripts/`) — no runtime code touched, no
+territory-owned file modified. MASTER PROGRAM Day One items 0 and 1.
+
+PRIMARY ACTION — **T0.0, "the highest-yield single action in the program"**:
+ran `npx tsc --noEmit` for the first time. `ci.yml`'s `node-build` job has run
+it as `npx tsc --noEmit || true` on every CI run for months, with the comment
+"tighten to hard-fail once existing TS errors are cleared" — the output has
+been printing into a log nobody opened. **83 errors.** Every one triaged into
+`research/tsc_baseline.md` as bug / noise / dead code.
+
+PRIOR (stated before running, per REASONING STANDARD #10): the audit's §5.1
+said the count was unknown and that `altScale` came out of this pile. I
+expected to confirm F-A's three sites and expected the bulk of the remainder
+to be library-typing noise. Both held — but the sweep also found a defect the
+full static audit missed, which I did not predict.
+
+FINDINGS:
+
+1. **F-A CONFIRMED.** `altScale` is declared once at `datamap.tsx:4089` inside
+   a closure ending at 4234, and used at 4384 (×2) and 4421 in a *different*
+   function — the readout tick, which redeclares `terrainOn` and `gZ` for
+   itself but not `altScale`. TS2304 ×3. (Audit cited 4026/4321/4358; the file
+   has moved, the finding has not.)
+   Worse than "a wrong AGL readout": the throw is caught by
+   `catch { /* readouts must never break the tick */ }` at 4430, so **every
+   statement after 4384 is skipped for that tick** — GND SPD, VERT SPD, and
+   the entire follow-aircraft recenter block at 4412.
+
+2. **NEW — a second bug of the same class, not in the audit.**
+   `datamap.tsx:6889` references `e` inside `const focusSat = (index: number)`,
+   whose only parameter is `index`. An extraction bug: the identical line lives
+   at 6778 inside `onClick(e)` where `e` is real, and came along when the
+   satellite-focus body was extracted for SatFinder reuse (the extraction is
+   documented in the comment at 6803). Consequence: clicking a satellite never
+   stamps `__vtFeatClaim`, so the deferred click-off handler at 3882 —
+   `if (oe?.__vtFeatClaim) { clearTrail(); return; }` — never takes that
+   branch, and the flight curtain / satellite card mis-interact on precisely
+   the click the line exists to handle. Silent, because `catch {}`.
+
+3. **86% of the baseline is two mechanical causes**, which is why "83 errors"
+   was never actionable enough for anyone to start:
+   - 42 × TS2339 `'trim' does not exist on type 'Buffer'`, all in
+     `server/bot.ts`, all from ONE untyped function: `execPythonSerialized`
+     (bot.ts:191) has no declared return type, and with `opts?: any` the
+     `promisify(exec)` overload resolves to the Buffer variant.
+     Runtime-correct today — node's `exec` defaults to utf8.
+   - 29 × TS2802/TS7006 manufactured by a `tsconfig.json` that sets
+     `"lib": ["esnext", …]` but **never sets `target`**, so tsc falls back to
+     its ES5 default and rejects iteration every real build path supports.
+     VERIFIED BY EXPERIMENT, not asserted: adding `"target": "ES2022"` with the
+     incremental cache cleared takes 83 → 54, all 23 TS2802 and all 6 TS7006
+     gone, nothing new appearing. `noEmit` is on and the shipped bundles come
+     from vite/esbuild, so this target describes no artifact we produce.
+
+   METHOD NOTE worth keeping: my first run of that A/B returned an unchanged
+   83 because `"incremental": true` served it from
+   `node_modules/typescript/tsbuildinfo`. I nearly filed a false negative.
+   Delete the buildinfo between runs.
+
+FALL-THROUGH ACTION — **T0.1**: built `scripts/program_status.sh` (16 counters,
+`--json` for CI ratchets, `--no-tsc` to skip the slow path) and
+`research/PROGRAM_STATE.md` (§4.1 resume file: QUEUE / NUMBERS / LEARNED /
+DETECTORS / NEXT). Counters are measured from the tree on every run, so a claim
+can be checked instead of believed — the direct answer to the drift class this
+repo has already suffered (the RunPod bake named as a blocker and never built;
+wishlist items marked "filed above, NOT built").
+
+WHERE THE MEASURED NUMBERS CONTRADICT THE MASTER PROGRAM's §4.2 table (§10
+item 4 requires naming these; §4.2's own rule is that the measured number
+wins):
+- `layers_full_schema` **1/238**, not 8/237. The audit counted the four fields
+  `renderKind`/`time`/`provenance`/`altitudeRef` (9 layers carry those); the
+  counter requires all **five** unenforced fields, and `lod` is on exactly one
+  layer. F-E is worse than stated.
+- `silent_py_handlers` **255/873**, not 308/869 — stricter predicate (body is
+  entirely `pass`/`continue`; a handler that logs is doing its job).
+- `order_post_sites` **6**, not 9 — counts FILES, since a choke point is a
+  module boundary, not a line count.
+- `law_iv_context_files` = **7**, exactly matching the audit's "target 7+".
+  F-B confirmed: `celestialSky.ts` and `spaceFrame.ts` sit outside the
+  `*Layer.ts` predicate `test_audit_critical.py` selects by.
+- `tests_total` 364, not 360. `gated_tests` **4** — as audited.
+- **D12 re-verified independently**: `design_token_drift` = 0; all 13
+  documented `DESIGN.md` tokens match `client/src/index.css` exactly.
+
+DETECTOR ADDED (§0.7 duty): **D1 — `tsc_2304`**, broken out as its own counter
+from `tsc_errors`. TS2304 is the one error code that is never config noise and
+never a false positive — a name is in scope or it is not. Both bugs found today
+are TS2304, both were introduced by ordinary refactors (a closure split, a
+function extraction), and one survived a full static audit. Target 0, currently
+5. This also corrects the ratchet plan: T1.6 must NOT pin 83, because 71 of
+those are phantoms and pinning them invites a future session to clear them by
+suppression — the failure mode §12 names explicitly.
+
+GATES: `bash -n scripts/program_status.sh` clean; script runs to completion in
+both modes and its `detectors_registered` counter correctly self-reads the new
+DETECTORS table (0 → 1). No test suite run and none needed — zero runtime code
+changed, no Python or TypeScript source touched. No backtest (PROMOTION RULE 3
+N/A: no scoring, sizing, threshold, or measurement code). No `client/` files,
+so VISUAL VERIFICATION does not apply. No version bump — docs/tooling only,
+matching the #819 precedent, and deliberately leaving shared `package.json`
+untouched per the WORKSTREAM PARTITION merge-order protocol.
+
+NEXT (queued in PROGRAM_STATE.md, in order): Q2 annotate
+`execPythonSerialized`'s return type (one line, clears 42 errors); Q3 add
+`"target": "ES2022"` (clears 29); Q4 fix the 5 TS2304 real bugs with a
+`tsc_2304` ratchet test; only then Q5/T1.6 pins an honest ~12.
+
+STARVED: yes — Q2 through Q11 are queued and unclaimed. That is the intended
+state per §0.3 condition 5 (the queue must not be empty at session end), not a
+stall.
