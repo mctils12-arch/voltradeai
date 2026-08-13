@@ -48476,3 +48476,193 @@ attempt the gate-1 cross-reference; (3) re-verify the adsb.fi
 non-commercial license condition (MONETIZATION TRIPWIRE) before this
 root is ever considered for a paid surface — none of that happened this
 session and none of it should be assumed done.
+
+## 2026-08-13 (2) (scheduled-routine EDGE session) [PIPELINE] — none of T-DATACORE/T-CLIENT/T-BOT (pure research-tooling script over datacore/signal_ladder.json, no server/trading/client path touched) — compiled the "is this gateN_pending root's re-run condition met yet" question into scripts/ladder_readiness_check.py, ending a recurring manual re-derivation (v1.0.690)
+
+TERRITORY: none of the three partitioned territories — `scripts/
+ladder_readiness_check.py` + `test_ladder_readiness_check.py` are a
+pure research-tooling script/test pair (same class as
+`scripts/data_stream_registry_check.py`, which also sits outside the
+T-DATACORE/T-CLIENT/T-BOT partition since it touches no server runtime
+path). SHARED touch minimal and last per MERGE-ORDER PROTOCOL:
+`datacore/signal_ladder.json` (3 roots gained a `readiness_trigger`
+field + the file's own `_doc` gained the schema description — additive,
+no existing field changed), `package.json` + `package-lock.json`
+(version bump only, read-and-increment at commit time), this entry.
+
+SESSION-START CHECKS (per this routine's own brief): CLAUDE.md read in
+full including the EDGE DOCTRINE. Live health
+(`GET https://voltradeai-production.up.railway.app/api/health`):
+`status:"ok"`, bot `active`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three position feeds `dead:false` — no
+LIVENESS ALARM. KNOWN BROKEN walked end to end (all 29 numbered items):
+#10 and #20 remain open but both are evidence-logging-built and gated
+on live shadow-history accumulation (non-blocking, already triaged);
+#29 is the one item worth an independent live check rather than trusting
+the last session's same-day note, since its own NEXT step explicitly
+asked for confirmation "across at least one full overnight window" after
+v1.0.675 — checked `/api/diag/audit?type=TIER3-DIAG` (production,
+`server_version:"1.0.689"`): last occurrence of "Multiple API sources
+down" was 2026-08-12T07:42:09Z, and `/api/health` showed `uptime_s:8233`
+(~2.3h), meaning THIS session's own restart landed ~00:15 UTC
+2026-08-13 = ~8:15pm ET — squarely inside the 8pm-4am ET dark window
+that broke the check twice before (RECURRENCE/RECURRENCE #2). Confirmed
+via `/api/diag/audit?type=TIER3` that Tier 3 cycles ran clean at 01:18Z
+and 02:18Z with no TIER3-DIAG false-positive line — v1.0.675's fix is
+now live-confirmed against exactly the case it was built for. Nothing
+critical unfixed; NOT a [REPAIR] session. Loop-health ratio, last 10
+tagged entries before this one: 3/10 REPAIR (PRODUCT x3, PIPELINE x4,
+REPAIR x3) — well under the 7+ thrash trigger.
+
+PRIMARY-ACTION SELECTION: this routine's own brief named 4 axes. Axis
+(a) was checked via `python3 scripts/data_stream_registry_check.py
+--unbuilt`: every named example (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends/pytrends) is already
+`built` or `declined_gate1_fail` — matches the standing finding multiple
+prior sessions (2026-07-26, 2026-08-09, 2026-08-11) already reached
+independently; no unblocked lane there today. Axis (b) (illiquid-
+universe capacity-constrained research): the fill-realism prerequisite
+shipped 2026-07-23/v1.0.480 and the ladder's own steps 1-5 (independent
+re-draw, train/test split, significance test, regime check, threshold
+ablation, and the LOGIC-gate ablation against the live bot's actual
+`scan_market()` candidate path) are ALL CLOSED as of the 2026-08-11
+session — its one surfaced open question (loosening `MIN_PRICE`/
+`MIN_VOLUME` to admit sub-$5 microcaps) is explicitly flagged in that
+entry's own NEXT note as "its own fresh EDGE DOCTRINE axis (b)
+hypothesis" requiring a RULE-REVIEW-grade cost/frictions-first workup,
+not a routine-scope pickup. Axis (c)/(d) both pointed at the same
+concrete, well-evidenced opportunity, found by reading (not skimming)
+three gate2_pending roots' full history: `usaspending_contracts`,
+`cftc_cot_positioning`, and `sec_8k_earnings_language` are all correctly
+NOT actionable today (each has an explicit, already-filed, dated re-run
+condition that hasn't matured) — but the exact same "is it unblocked
+yet" question about `usaspending_contracts` alone had been manually
+re-derived and re-stated in this file over a DOZEN separate times across
+sessions from 2026-07-26 through 2026-08-12 (grep count, not an
+estimate: `grep -c "unblocks 2026-08-15"` and its paraphrases across
+this file's tail). That is exactly the EDGE DOCTRINE #3 violation
+pattern named in CLAUDE.md verbatim: "never analyze the same thing twice
+with reasoning — the second occurrence becomes a script." Chose to
+compile it rather than start a new hypothesis from zero, matching the
+2026-08-09 session's own stated reasoning for picking a similar
+already-reasoned-about opportunity over a fresh one.
+
+PRIOR (stated before building, REASONING STANDARD #10): expected
+`usaspending_contracts` to compute as very close to ready (its own NEXT
+note gave a specific date near today) and the other two to compute as
+clearly not ready (COT needs ~15-20 more weekly reports since 2026-07-08,
+only ~5 elapsed; 8-K needs 90 archive-days since 2026-07-04, only ~40
+elapsed) — did not expect the tool itself to surface anything new about
+WHETHER these roots are ready, only to make the arithmetic a fact
+instead of prose. Confirmed exactly as expected (see LIVE RESULT below);
+no surprise finding, this was pure compilation of already-settled
+reasoning into code, not new research.
+
+READ BEFORE WRITE: read `scripts/data_stream_registry_check.py` in full
+(the sibling EDGE-DOCTRINE-compiled-knowledge script) before writing
+anything, to reuse its CLI conventions (`--json`, human report, module-
+level docstring explaining WHY) rather than inventing a new shape, and
+to confirm this new script answers a genuinely different question (axis
+(a)'s "is X built" vs. this one's "is gateN_pending root X's own already-
+filed re-run condition met yet") rather than duplicating it. Read
+`datacore/signal_ladder.json`'s full `_doc` field and all 39 roots'
+current entries before editing, and read the three target roots' full
+research/open_questions.md NEXT-note prose (not just the ladder's one-
+line `note` summary) to transcribe their EXACT stated conditions rather
+than paraphrase or invent new ones — `usaspending_contracts`: "no
+earlier than ~2026-08-15" (open_questions.md item 4); `cftc_cot_
+positioning`: "~15-20 new weekly COT reports" since 2026-07-08
+(open_questions.md COT subsection, itself citing the 2026-07-08 Newey-
+West session); `sec_8k_earnings_language`: ">=90 days of archive" since
+the 2026-07-04 gate-1 ship, OR a second filing quarter (~Oct-Nov 2026,
+left as a documented but not machine-checkable fallback in the
+source_note — this tool does not attempt to compute "second filing
+quarter per company", only the archive-days floor).
+
+BUILT: `datacore/signal_ladder.json` gained an OPTIONAL `readiness_
+trigger` field (documented in the file's own `_doc`, added ONLY to the
+3 roots above, none invented) with three trigger types: `date` (flat
+calendar threshold), `archive_days` (N days since a pipeline's own
+gate-1/archive-start date), `weekly_reports` (an ESTIMATE by elapsed
+time at a stated cadence, explicitly flagged in both the schema doc and
+the script's own output as needing live count verification before being
+trusted — calendar time is not the same fact as "N reports actually
+published", and the tool says so rather than overclaiming). `scripts/
+ladder_readiness_check.py` (new) reads the ladder, evaluates each
+trigger against today's date, and reports READY (with days overdue) or
+WAITING (with days remaining) plus the verbatim `source_note` so nobody
+needs to re-grep prose to see WHY a date was chosen. `--json` for
+machine output, `--ready-only` to filter. Exit code 0 always (an
+informational survey tool, not a CI gate — unlike `data_stream_registry_
+check.py`'s drift-detection exit code, there is no "wrong" state here to
+fail on).
+
+LIVE RESULT (`python3 scripts/ladder_readiness_check.py` against the
+real `datacore/signal_ladder.json`, run 2026-08-13): all 3 WAITING,
+exactly as the stated prior predicted — `usaspending_contracts` 2 days
+until 2026-08-15 (matches the dozen prior hand-computed mentions
+exactly); `cftc_cot_positioning` ~70 days remaining (ESTIMATE: ~5 of 15
+needed weekly reports elapsed); `sec_8k_earnings_language` 50 days
+remaining (40 of 90 needed archive-days elapsed). No root is
+newly-actionable today — this session does NOT claim to have advanced
+any of the three roots' own gate-2 status, only to have made the "is it
+time yet" check reusable so the NEXT session (whichever one it is, as
+soon as ~2026-08-15) doesn't have to re-derive it.
+
+RATCHET: `test_ladder_readiness_check.py` (new, 15 tests): pure-function
+boundary tests on all 3 trigger types (day-before/exact-day/day-after
+for `date`; under/exact/over for `archive_days`; under/exact-cadence for
+`weekly_reports`, including a default-cadence check), an unrecognized-
+type-raises-loud test (never silently returns a wrong answer), and 5
+tests against the REAL live `datacore/signal_ladder.json` (not a
+fixture) pinning `usaspending_contracts`'s exact 2026-08-13 WAITING/
+2026-08-15 READY transition, confirming the 3 wired-up roots are present
+and evaluable, confirming a root WITHOUT a trigger (e.g. the killed
+`grid_vision_tower_detector`) is correctly omitted rather than defaulted
+to some state, and confirming every returned row carries a non-empty
+`source_note` (a schema-shape guard against a future session adding a
+trigger without its provenance).
+
+GATES: this sandbox started with no Python deps installed (`pytest`/
+`numpy`/etc. all missing, the same recurring clean-container gap prior
+sessions have logged); `pip3 install --break-system-packages -r
+requirements.txt -r requirements-dev.txt` resolved it. `python3 -m
+pytest -q test_ladder_readiness_check.py test_data_stream_registry_
+check.py`: 23/23 pass. Full suite `python3 -m pytest -q`: 1322 passed, 1
+skipped, 0 failed (1307 baseline + 15 new). No `.ts`/`.tsx` files
+touched (pure Python + JSON), so `npx tsc --noEmit`/`npx tsx --test`/
+`npm run build`/VISUAL VERIFICATION do not apply, matching the
+established convention for pure-Python-and-docs PRs in this file.
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`
+confirms the hand-edited JSON stayed valid.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a research-tooling
+script and additive JSON metadata; it changes no scoring, sizing,
+threshold, or trading-decision value anywhere in the repo, and computes
+no new signal (the 3 roots' own gate-2 verdicts are byte-for-byte
+unchanged; this tool only reports WHEN to re-attempt them).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or any live decision path — this is purely a session-time-
+saving tool for future EDGE-DOCTRINE work. Its only "downstream effect"
+is that the next session (or this routine's next scheduled firing) that
+runs `python3 scripts/ladder_readiness_check.py` at or after 2026-08-15
+gets a `READY` line for `usaspending_contracts` instead of having to
+re-grep this file's own history for the fifteenth time.
+
+Version 1.0.689 -> 1.0.690 (read-and-increment at commit time; confirmed
+against live `server_version` before starting, zero drift).
+
+MARKET-HOURS / MONETIZATION NOTE: session ran ~02:40 UTC (pre-market);
+zero trading/execution/billing/pricing code touched — no merge-timing
+restriction applies (same category as every other pure-research-tooling
+PR in this file).
+
+STARVED: no — this was the session's one primary action, matched to a
+routine-scope budget (one well-evidenced, already-reasoned-about
+compile-into-code opportunity, not a fresh multi-session research
+thread). No higher-priority queued item was skipped: KNOWN BROKEN's two
+open items are both correctly gated on data accumulation and #29 was
+independently re-confirmed clean this session; no LIVENESS ALARM; no
+thrash. One logical change, one PR, per PROMOTION RULE 5.

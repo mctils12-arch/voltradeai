@@ -4417,6 +4417,13 @@ into the message — seen live on HYG 07-28). Message should distinguish
       overlap) and require the same sign and a nominal p-value that
       clears the Bonferroni bar above before this heads toward LOGIC
       gate 3.
+      [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+      now estimates elapsed weekly-report count since 2026-07-08 via
+      `datacore/signal_ladder.json`'s `cftc_cot_positioning.readiness_
+      trigger` — an ESTIMATE by elapsed calendar time, not a live report
+      count, so still live-verify the actual published-report count
+      before re-running the screen, but no need to re-derive the
+      "how many weeks so far" arithmetic by hand.]
     - **TLT's already-killed single-horizon flash is now quantified, not
       just eyeballed, and the kill verdict is UNCHANGED**: the 20d
       extreme_low deviation this session's screen also caught
@@ -5641,6 +5648,11 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    trigger: >=90 days of archive (5-day horizon N>=30) or a second
    filing quarter per company (unlocks the delta feature). Full trace +
    numbers in experiments.md's 2026-07-12 [RESEARCH] entry.
+   [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+   now tracks the 90-archive-day threshold above mechanically via
+   `datacore/signal_ladder.json`'s `sec_8k_earnings_language.readiness_
+   trigger` (the second-filing-quarter fallback condition is not
+   machine-checkable and stays a manual judgment call).]
    **[V1 API MIRROR SHIPPED 2026-08-02, v1.0.573]** `GET /api/v1/data/
    earnings-language` (server/routes.ts + server/apiProduct.ts) —
    distribution plumbing only, gate 2 above unchanged/still incomplete.
@@ -6921,8 +6933,12 @@ Reasoning Standard #10):
    interpret this run's high_ratio/low_ratio point estimates (-11.4% vs
    -0.4% at 5d) as a finding either direction — n=4 and n=7 are display
    noise, stated here only so a future session doesn't have to re-derive
-   them from the (uncommitted, session-local) `usaspending_gate2_results.json`
-   output.
+   them from the (uncommitted, session-local)
+   `usaspending_gate2_results.json` output.
+   [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+   now tracks the 2026-08-15 date above mechanically via
+   `datacore/signal_ladder.json`'s `usaspending_contracts.readiness_
+   trigger` — check that instead of re-deriving the date by hand.]
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
