@@ -48037,3 +48037,63 @@ correctly reporting `False` would mean stop patching this check's timing
 entirely and redesign the underlying `os.path.exists()` cache check
 (section 4) instead — the section-4/section-1 duplication v1.0.667 already
 flagged as the likely next structural step.
+
+## 2026-08-13 [PIPELINE] Moon bake — our own CDN tile pyramid (v1.0.689)
+
+**Territory:** T-CLIENT-adjacent tooling (`scripts/`, `test_*`) + research/.
+No runtime code touched — the bake is a session-side dev tool.
+
+**Change:** `scripts/moon_bake.py` + `test_moon_bake.py` (19 tests). Bakes the
+LROC WAC global mosaic from the ORIGINAL USGS public-domain source into our R2
+bucket in the exact NASA Trek EQ scheme `lroc.ts` already implements.
+
+**Prior (stated before running):** I expected the bake to be the fix for the
+Moon fuzz the human reported, and expected RunPod to be needed for it.
+
+**Result — BOTH PARTS OF THE PRIOR WERE WRONG, and that is the finding:**
+
+1. *The bake does not fix the fuzz.* Measuring the real `planMoonTarget` via
+   `npx tsx` shows the Moon renders **1–3 zoom levels under what the screen
+   deserves (2×–8× under-resolved)** because `MOON_PATCH_COVER_MARGIN = 2.8`
+   inflates the requested span 2.8× (7.8× area) and the planner then drops
+   whole levels to fit `MOON_MOSAIC_MAX_PX = 2048`. Only **36%** of the
+   mosaic span is ever on screen. Worse, the chosen mosaics land at 1536px /
+   1280px against the 2048px cap — a hysteresis-free cliff that leaves ~25%
+   of the budget unspent while the image is 2× soft, which Law II.3 forbids
+   outright. It is also resolution-*regressive*: a bigger display loses MORE
+   levels. Full table in research/rendering_motion_overhaul.md F17.
+   → This is a separate RULE REVIEW–class threshold change (3b), deliberately
+   NOT bundled here.
+
+2. *RunPod was not needed.* The whole pilot ran in-session on 4 cores for
+   **$0**: download 7.5 min (13.3 MB/s, one time), build 2 min, upload 42 s.
+   The bottleneck is the one-time 5.5 GB source download, which a pod does not
+   remove. Ledger untouched at $43.12.
+
+**Pilot result:** z0–z5, **2,730 tiles, 53 MB**. Verified serving from R2
+(`tiles.json`, `0/0/0`, `5/0/0`, `5/31/63` all 200; unbaked `z6` correctly
+404). Visually verified by restitching 8 independently-baked z1 tiles into a
+coherent seamless globe — near-side maria centred on lon 0, farside cratering
+at the edges, polar illumination gaps preserved as real nodata.
+
+**Honesty rails shipped with it:** every output pixel is an area average of
+real source pixels (no interpolation, no inpainting, no synthetic poles);
+source nodata stays black; the manifest flags upsampled levels. Trek's own z8
+is an upsample of this same 100 m/px product, so our native ceiling is z7 and
+a test pins that we can never advertise resolution the data lacks.
+
+**Cross-language contract:** the bake writes keys in Python; the client
+computes URLs in TypeScript. `test_moon_bake.py` PARSES `lroc.ts` and asserts
+the formulas and the `{z}/{y}/{x}` key order still match — this is exactly the
+silent-runtime-failure class CLAUDE.md's READ BEFORE WRITE rule names, and it
+now fails in CI instead of as a black Moon.
+
+**Not yet wired to the runtime.** `pub-*.r2.dev` sends no
+`access-control-allow-origin` (probed), and Moon tiles need CORS for canvas
+readback. Same-origin passthrough (already exists for pmtiles) is the default
+path and ships next as its own PR; a bucket CORS policy is filed in
+wishlist.md as the better long-term arrangement.
+
+**Rollback trigger:** none applicable — no runtime behaviour changed. The
+tiles are additive objects in R2 under `moon/wac/`; deleting that prefix fully
+reverts.

@@ -28,7 +28,9 @@ onto it.
 |----|-------|-------|
 | 1 | frameCore + perfHud + zoomInput + the Law article | **SHIPPED** v1.0.676 |
 | 2 | tileCore — the raster streamer | **SHIPPED** v1.0.677 |
-| 3 | Moon surface migration | **BLOCKED — re-scope required, see below** |
+| 3 | Moon surface migration | **RE-SCOPED into 3a/3b — see F17/F18** |
+| 3a | Moon bake: our own CDN pyramid (Law II.8) | **PILOT SHIPPED** z0–z5, 2,730 tiles on R2 |
+| 3b | Moon fuzz: cover-margin/LOD budget policy (Law II.3/II.4) | **DIAGNOSED, MEASURED, not yet fixed — F17** |
 | 4 | Earth base (MapLibre) config | **SHIPPED** v1.0.678 (3 of 7 items not applicable) |
 | 5 | Satellites (Law I) | **PREMISE STALE — verify before changing anything** |
 | 6 | Aircraft trail / curtain (Law I) | **OPEN — 6 causes eliminated, 2 candidates, see F16** |
@@ -351,3 +353,137 @@ where the curtain stops? If yes → the NaN guard, conclusively.
 **AGL readout**, not the trail geometry, so it does not cause the cut-off,
 but the flight card's AGL number is computed from an undefined variable.
 Deserves its own PR.
+
+---
+
+## F17 — THE MOON FUZZ IS A BUDGET-POLICY BUG, NOT A TILE-SOURCE BUG (2026-08-13)
+
+**MEASURED, not reasoned.** Ran the real `planMoonTarget` (moonTiles.ts) via
+`npx tsx` across realistic disc sizes and surface spans, with the real
+`MOON_PATCH_COVER_MARGIN = 2.8` from spaceFrame.ts:634:
+
+```
+discPx  spanDeg  pxPerDeg  idealZ  chosenZ  lost  mosaic      visible%
+ 400      20        20        4       4       0   1536x1536     36%
+ 800      20        40        5       4       1   1536x1536     36%
+1200      20        60        6       4       2   1536x1536     36%
+1600      60        27        5       2       3   1280x1024     36%
+2000      20       100        7       4       3   1536x1536     36%
+MOON_MOSAIC_MAX_PX = 2048
+```
+
+The Moon renders **1–3 zoom levels below what the screen deserves — 2× to 8×
+under-resolved** — on every viewport bigger than ~400px of disc. That is the
+fuzz, and the mechanism is arithmetic, not mysterious:
+
+1. `spaceFrame` asks for a span **2.8× wider than the visible disc**
+   (`MOON_PATCH_COVER_MARGIN`), i.e. **7.8× the area**.
+2. `planMoonTarget` then *backs off whole zoom levels* until that inflated
+   mosaic fits `MOON_MOSAIC_MAX_PX = 2048`.
+3. So the visible 36% of the span pays for the invisible 64%, in sharpness.
+
+Two things make it worse than the numbers suggest:
+
+- **The budget is never even spent.** The chosen mosaics land at 1536px and
+  1280px against a 2048px cap: the planner drops a whole level the moment the
+  next step would exceed the cap. That is a hysteresis-free cliff — exactly
+  what Law II.3 forbids ("split above 2px, merge below 1px, hysteresis is
+  mandatory"). A ~25% budget headroom is left unused while the image is 2×
+  soft.
+- **It is resolution-regressive.** Bigger screen ⇒ larger `pxPerDeg` ⇒ larger
+  `idealZ` ⇒ *more* levels lost. The 2000px case loses 3. The Moon gets
+  blurrier the better your display is.
+
+**Law II.4 already prescribes the fix**: prefetch is a *bounded ring around
+the target*, not a blanket span multiplier. Keeping the visible region at
+native resolution and adding a one-tile ring costs ~1 tile per edge instead
+of 6.8× the area.
+
+### What this means for PR 3 — and an honest correction
+
+The moon bake (below) does **NOT** fix this. The bake is a Law II.8 item
+(stop hitting an upstream WMTS at runtime); the fuzz is a Law II.3/II.4
+budget-policy item in `planMoonTarget` + `MOON_PATCH_COVER_MARGIN`. They are
+independent, and shipping the bake alone would have left the fuzz exactly
+where it is. Recording that explicitly because the pre-bake assumption in
+this program was that better tiles would sharpen the Moon; measurement says
+otherwise.
+
+The margin change is a RULE REVIEW–class threshold change: one constant at a
+time, prior value logged, rollback trigger stated. It is NOT bundled with the
+bake.
+
+---
+
+## F18 — MOON BAKE: OUR OWN CDN PYRAMID, PILOT SHIPPED (2026-08-13)
+
+Law II.8 ("Runtime never touches an upstream WMTS. All tiles come from our
+CDN. Upstream is a bake-time input only."). `lroc.ts` points the browser at
+`trek.nasa.gov` on every close Moon frame — a live third-party runtime
+dependency we cannot cache, pre-warm, or survive an outage of.
+
+**`scripts/moon_bake.py`** (+ `test_moon_bake.py`, 19 tests) bakes the same
+imagery from the ORIGINAL USGS source into our R2 bucket.
+
+### Source — probed live, nothing assumed
+
+| field | value |
+|---|---|
+| url | `planetarymaps.usgs.gov/mosaic/Lunar_LRO_LROC-WAC_Mosaic_global_100m_June2013.tif` |
+| bytes | 5,959,263,751 (5.55 GiB), `Accept-Ranges: bytes` (302 → S3) |
+| raster | 109164 × 54582, Byte, 1 band, **uncompressed** |
+| blocks | **109164 × 1 — one-scanline strips, NO overviews** |
+| licence | **Public Domain** (USGS/NASA) |
+
+The strip layout is why the script downloads once and re-reads locally:
+windowed reads cost full scanlines, so only a sequential pass is efficient.
+Download measured 13.3 MB/s ⇒ ~7.5 min, one time.
+
+**Licensing resolved by construction.** Baking from USGS PDS (public domain)
+rather than re-hosting Trek tiles sidesteps the redistribution question
+entirely — re-serving someone else's tiles from our CDN is a stronger claim
+than the runtime hotlinking we do today, and we simply do not need to make it.
+
+### Resolution honesty
+
+Trek's product is "303 ppd" = 109,080 px ⇒ the SAME 100 m/px source. So
+**Trek's deepest level (z8) is already an upsample**, not extra real detail.
+Our native ceiling is **z7** (65536px wide, a true downsample). The manifest
+flags any level above that `"upsampled": true`, and a test pins it — the
+product can never advertise resolution the data does not contain.
+
+### Scheme — deliberately identical to Trek EQ
+
+`MatrixWidth = 2^(z+1)`, `MatrixHeight = 2^z`, 256px, plate carrée,
+TopLeftCorner (−180,+90), key order **`{z}/{y}/{x}`** (row before column).
+Matching exactly means `lroc.ts`'s already-tested math is reused verbatim and
+the switch is a `baseUrl` change. `test_moon_bake.py` **parses lroc.ts** and
+asserts the TypeScript still says what the Python assumes — this is a
+cross-language contract that otherwise fails silently at runtime (404s / black
+Moon), never in CI.
+
+### Pilot result — $0, no RunPod needed
+
+```
+z0..z5   2,730 tiles   53 MB   build 2m   upload 42s
+verified: tiles.json 200, 0/0/0 200, 5/0/0 200, 5/31/63 200, z6 404
+visual:   8 baked z1 tiles restitched → coherent globe, no seams,
+          near-side maria centred on lon 0, polar illumination gaps preserved
+```
+
+The full native set (z0–z7) is **43,690 tiles**; z0–z5 measured ~19 KB/tile,
+so the full set extrapolates to roughly 0.8 GB and a few hours of local CPU.
+**RunPod is not obviously justified** — the pilot ran entirely in-session on 4
+cores, and the bottleneck is the one-time 5.5 GB download, which a pod does
+not remove. Measure the z6/z7 pass locally before spending from the $43.12
+ledger.
+
+### BLOCKER for wiring it up: no CORS on r2.dev
+
+Probed 2026-08-13: `pub-*.r2.dev` returns **no `access-control-allow-origin`
+header**, which is why the pmtiles go through the `/tiles-r2/` same-origin
+passthrough in `server/routes.ts:779`. Moon tiles are read into a canvas
+(`crossOrigin="anonymous"` + `createImageBitmap`), so they need CORS. Two
+paths: (a) extend the same-origin passthrough — works today, no human action,
+costs a Railway hop; (b) set a bucket CORS policy — better, needs the human
+in the Cloudflare dashboard. Filed in wishlist.md; (a) is the default.

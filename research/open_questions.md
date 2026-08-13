@@ -9785,3 +9785,38 @@ hallucination kill filed earlier today, the splat lane is closed on
 evidence from both ends (no ground capture; no lawful/honest
 satellite-only substitute). glTF remains the answer where a model is
 warranted.
+
+## 2026-08-13 — [RENDER] Moon cover-margin burns 87% of the texture budget off-screen
+
+**Status:** DIAGNOSED + MEASURED, fix not yet shipped (rendering overhaul 3b).
+
+`MOON_PATCH_COVER_MARGIN = 2.8` (spaceFrame.ts:634) requests a surface span
+2.8× wider than the visible disc — 7.8× the area — and `planMoonTarget`
+(moonTiles.ts) then backs off whole zoom levels until that inflated mosaic
+fits `MOON_MOSAIC_MAX_PX = 2048`. Measured with the real code via `npx tsx`:
+the Moon runs **1–3 levels under the screen's resolution (2×–8× soft)**, only
+**36%** of the span is ever visible, and the chosen mosaic lands at 1536px
+against a 2048px cap — a hysteresis-free cliff leaving ~25% of the budget
+unspent. Resolution-regressive: bigger display ⇒ more levels lost.
+
+**Testable form:** replacing the blanket 2.8× span multiplier with Law II.4's
+prescription — native resolution over the visible region plus a bounded
+one-tile prefetch ring in the direction of travel — should recover 1–3 zoom
+levels at equal or lower VRAM, with no new fetch stalls on rotate/pan.
+
+**Ladder path:** this is a rendering rule, not a data signal, so it validates
+against the perf harness rather than the signal ladder: (1) assert recovered
+`chosenZ == idealZ` for the measured viewport matrix; (2) assert VRAM at or
+under the current mosaic bytes; (3) assert frame-time p95 < 16.7ms across the
+scripted pan/zoom/tilt at S24 viewport; (4) assert no unready-tile frames
+during a scripted rotate (Law II.1 ready-gate).
+
+**Discipline:** RULE REVIEW class — change ONE constant at a time, log the
+prior value in the commit, state the rollback trigger. The likely order is
+(a) add hysteresis so the planner spends the budget it has, then measure;
+(b) only then reduce the margin. Doing both at once destroys attribution.
+
+**Why it wasn't fixed in the bake PR:** the bake (F18) is Law II.8 — stop
+hitting an upstream WMTS. This is Law II.3/II.4 — budget policy. Independent
+causes, independent PRs; bundling them would have hidden which one moved the
+image.

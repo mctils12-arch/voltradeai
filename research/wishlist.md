@@ -2714,3 +2714,37 @@ recording immediately. Then Candidate 2. Keep the aisstream adapter in
 place and unmodified — when the provider recovers, worldwide coverage
 returns for free, and the dead-air watchdog (v1.0.667) will now say so
 the same morning either way.
+
+---
+
+## 2026-08-13 — R2 BUCKET CORS POLICY (small human action, unblocks Moon-on-our-CDN)
+
+**Ask:** set a CORS policy on the `voltrade-tiles` R2 bucket allowing
+`GET` from our site origin(s).
+
+**Why:** the Moon tile pyramid is now baked and live on R2
+(`moon/wac/{z}/{y}/{x}.jpg`, 2,730 pilot tiles, verified serving). The
+client reads Moon tiles into a canvas for WebGL texture upload, which
+requires a CORS-enabled response. Probed 2026-08-13:
+`pub-4d65a892936747ada1c67a1f00e286c8.r2.dev` returns **no
+`access-control-allow-origin` header** — this is also why the existing
+pmtiles are proxied through `/tiles-r2/` in `server/routes.ts:779`.
+
+**BUILD-FIRST ANALYSIS (per the BUILD-FIRST RULE — this asks for no money,
+only a setting, but the same discipline applies):**
+- *Do we already have the capability?* Yes — a same-origin passthrough
+  route already exists and works. **We are not blocked**; the fallback is
+  built and is the default path.
+- *What does the setting add over the free version?* It removes a Railway
+  hop from every tile: tiles would come straight from Cloudflare's edge
+  instead of transiting our dyno. Lower latency, zero origin bandwidth,
+  and it is the arrangement Law II.8 actually describes ("all tiles come
+  from our CDN").
+- *Cost:* $0. Dashboard setting, ~2 minutes.
+
+**Recommendation:** do it when convenient, not urgently. The passthrough
+ships first and works; this is a latency/bandwidth upgrade, not a blocker.
+
+**Where:** Cloudflare dashboard → R2 → `voltrade-tiles` → Settings → CORS
+Policy. AllowedOrigins = the site origin(s), AllowedMethods = `GET`,
+AllowedHeaders = `*`.
