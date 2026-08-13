@@ -3,6 +3,138 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 (scheduled-routine session, market-hours) [RESEARCH] — T-BOT (shadow_portfolio.py) — KNOWN BROKEN #10's over_threshold evidence bucket has sat at zero for days; built the instrument to tell "genuinely never happens" from "not enough data yet" instead of guessing (v1.0.698)
+
+TERRITORY: T-BOT (shadow_portfolio.py, bot-side learning-data infrastructure;
+no client/ or datacore/ files touched). SHARED touch kept minimal per
+MERGE-ORDER PROTOCOL: package.json + package-lock.json version bump only
+(read-and-increment at commit time — `git fetch origin main` confirmed local
+already at origin/main HEAD, 370f2b3/v1.0.697/PR #814, no rebase needed) plus
+this experiments.md entry.
+
+SESSION-START CHECKS (per this run's own instructions): CLAUDE.md read in
+full. Live health (`curl https://voltradeai-production.up.railway.app/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:
+"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:
+0`, feeds all alive (aircraft/vessels/trains, silent_hours 0.1) — no LIVENESS
+ALARM. Loop-health ratio over the last 10 tagged experiments.md entries
+before this one: 6 PRODUCT / 4 REPAIR — under the 7/10 thrash bar, no
+meta-problem. `open_questions.md`'s KNOWN BROKEN section read in full
+(items 1-29): all but #10 and #20 are RESOLVED/FIXED; #29 is RESOLVED
+PENDING CONTINUED MONITORING with no recurrence since 2026-08-10; nothing
+newly critical-and-unfixed, so this is not a forced [REPAIR] session per the
+Repair Mandate's own condition.
+
+PICKING THE ACTION (SESSION BUDGET tier 2, "judge a matured experiment"):
+KNOWN BROKEN #10's NEXT step (v1.0.642, 2026-08-10) explicitly asked a
+future session to query `/api/diag/shadow` and read
+`win_rate_by_change_pct_band` once the `over_threshold` "taken" bucket
+cleared `min_n=5`. Queried live:
+`total_records: 16511` (up from 14972 on 2026-08-10, 10736 "taken"),
+`win_rate_by_change_pct_band.by_band.over_threshold.candidate_count: 0` —
+still zero, unchanged from the 2026-08-10 and 2026-08-11 checks despite
+~1,500 more shadow records and 3 more days elapsed. Also re-checked #20's
+`rejected_masterkill` bucket (140 records, same as 2026-08-10): still absent
+from `win_rate_by_decision` (below `min_n`), no new evidence, left untouched
+— not this session's action.
+
+WHY THIS BECAME THE ACTION rather than "note the n and wait again" (as the
+last two sessions correctly did): a persistent zero across three independent
+checks spanning days and thousands of new "taken" records is itself
+suspicious — REASONING STANDARD #4 says distrust results in proportion to
+how little was actually tested, and "we never looked at the shape of the
+population, only a single >35 threshold split" is exactly that. Read
+`bot_engine.py:2746-2769` (already read by the 2026-08-11 session, re-read
+this session): `MIN_PRICE`/`MIN_VOLUME` hard-skip candidates before
+`quick_score`, and `_extreme_penalty` soft-penalizes (-15/-30) any survivor
+whose single-day `change_pct` exceeds 30%/50% — plausible that this already
+fully suppresses anything reaching 35%+ among "taken" trades, but "plausible"
+is not evidence, and the alternative (a data/wiring bug silently zeroing
+`change_pct_today` for some population) was never ruled out either.
+
+BUILD (v1.0.698): added `_change_pct_distribution()` to `shadow_portfolio.py`
+— pure descriptive stats (n, max, p50, p95, p99, count_over_20,
+count_over_30) over `|change_pct_today|` for "taken" records, computed
+alongside the existing over/under-threshold split inside
+`_change_pct_band_stats()` and returned as a new `taken_distribution` key.
+Zero behavior change to the existing `by_band`/`threshold` output — purely
+additive. This directly answers, the next time this item is checked, whether
+`over_threshold` is stuck at 0 because taken candidates' `change_pct_today`
+genuinely tops out well below 35 (max/p99 will show it) or because of some
+other defect (max/p99 would then look inconsistent with the >20/>30 counts
+or with visibly volatile tickers in the live blotter) — compiling the
+"why" into code per EDGE DOCTRINE #3 instead of re-deriving it by hand on
+every future recheck.
+
+READ BEFORE WRITE: read `shadow_portfolio.py` end-to-end (log_candidate,
+`_change_pct_band_stats`, `get_shadow_stats`, `FORWARD_HORIZONS_DAYS`) before
+editing; read `server/diag.test.ts`'s pinned "shadow probe... reuses
+get_shadow_stats() unchanged" test (scans `get_shadow_stats()`'s own function
+body, starting at `def get_shadow_stats`, for literal ticker/symbol tokens)
+before deciding where the new helper lives — placed `_change_pct_distribution()`
+as its own top-level function BEFORE `get_shadow_stats()` in the file, same
+placement precedent `_change_pct_band_stats()` itself used on 2026-08-10 to
+satisfy the same pinned test with zero `server/*.ts` changes required.
+
+RATCHET: 6 new tests in `test_shadow_change_pct_band.py` (14 total in that
+file now): empty-when-no-taken-records, max/percentiles reported correctly
+on a small known set, absolute-value handling on a negative change_pct,
+count_over_20/count_over_30 boundary counts on a mixed set, rejected-decision
+records excluded from the distribution the same way they're excluded from
+the band split, and an end-to-end `get_shadow_stats()` wiring assertion
+(temp-dir file-backed log, same pattern the existing wiring test uses).
+A/B-verified via `git stash -- shadow_portfolio.py`: all 6 new tests fail on
+pre-fix code (`taken_distribution` key doesn't exist), pass post-fix; the 7
+pre-existing tests in the same file are unaffected either way.
+
+GATES: `python3 -m pytest -q` (full suite, this sandbox needed `pytest`/
+`numpy`/`pandas`/`lightgbm`/`openpyxl` installed first, not present by
+default here): 1330 passed, 3 skipped, 3 failed — the 3 failures
+(`test_macro_snapshot_spy_dedup.py`, missing `yfinance` module) are a
+pre-existing sandbox-environment gap, confirmed via `git stash` (fail
+identically with this session's diff fully reverted). `npx tsx --test
+server/diag.test.ts`: 13/13 passed, including the pinned shadow-probe wiring
+test, confirming it survives unmodified. `git status --short` shows only
+`shadow_portfolio.py` + `test_shadow_change_pct_band.py` changed (plus the
+version-bump files) — no `.ts`/`.tsx` touched, so `npx tsc --noEmit` and
+`npm run build` were not independently re-run, matching precedent from other
+pure-Python sessions in this queue.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure read-only diagnostic addition over
+an already-collected archive; adds one new observable field, changes no
+scoring/sizing/threshold value or trading decision.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the trading
+loop today — visibility only, same class as the TIER-KILL/`over_threshold`
+band precedents this item has built up across 2026-07-04 through 2026-08-10.
+If the next check shows `taken_distribution.max` sitting well under 35 with
+a healthy `n`, that's real (if unglamorous) evidence the soft
+`_extreme_penalty` already does this dead config's job de facto — the
+correct move per item #10's own fallback becomes retiring the four dead
+`system_config.py` keys (`SCORE_BAND_MAX`, `SCORE_BAND_OPTIMAL_LO/HI`,
+`MAX_CHANGE_PCT`) as misleading documentation rather than waiting
+indefinitely for a threshold split that structurally can't populate. If
+`max`/`p99` instead show values approaching or exceeding 35 while
+`over_threshold.candidate_count` stays 0, that is itself evidence of a
+labeling/threshold-comparison bug worth a dedicated [REPAIR] session.
+Neither conclusion is drawn this session — this PR only builds the
+instrument needed to draw it with evidence next time, matching this item's
+own multi-session discipline (RULE REVIEW: no threshold/config change ships
+without either counterfactual data or a backtest ablation).
+
+MARKET-HOURS NOTE: this run fired during market hours per its own
+instructions — PR left open for human/next-session merge after 4:00 PM ET;
+nothing here touches the trading path (pure diagnostics addition, zero
+scoring/sizing change), so there is no urgency exception to that hold.
+
+NEXT: (1) once this deploys, query `/api/diag/shadow` and read
+`win_rate_by_change_pct_band.taken_distribution` — act per the DOWNSTREAM
+CHAIN branches above (retire the dead keys, or open a dedicated repair
+session, depending on what `max`/`p99` show). (2) KNOWN BROKEN #20's
+`rejected_masterkill` bucket remains gated on more labeled history — no
+action needed until it clears `min_n`. (3) KNOWN BROKEN #29 remains RESOLVED
+PENDING CONTINUED MONITORING, still no recurrence as of this session's check.
+
 ## 2026-08-13 [PRODUCT] — T-CLIENT + datacore — submarine telecom cables: a new RAW OSM overlay, and a correction to the 2026-08-11 coverage-gap research (v1.0.697)
 
 TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + datacore (new

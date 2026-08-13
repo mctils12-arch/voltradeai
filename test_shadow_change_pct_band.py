@@ -96,6 +96,46 @@ class TestChangePctBandStats(unittest.TestCase):
         stats = shadow_portfolio._change_pct_band_stats([rec], min_n=1)
         self.assertEqual(stats["by_band"]["at_or_under_threshold"]["candidate_count"], 1)
 
+    def test_distribution_empty_when_no_taken_records(self):
+        records = [_rec("rejected_score", 50.0, {"+5d": 1})]
+        stats = shadow_portfolio._change_pct_band_stats(records, min_n=1)
+        dist = stats["taken_distribution"]
+        self.assertEqual(dist["n"], 0)
+        self.assertIsNone(dist["max"])
+        self.assertEqual(dist["count_over_20"], 0)
+        self.assertEqual(dist["count_over_30"], 0)
+
+    def test_distribution_reports_max_and_percentiles(self):
+        records = [_rec("taken", v, {"+5d": 1}) for v in [1.0, 5.0, 12.0, 18.0, 25.0]]
+        stats = shadow_portfolio._change_pct_band_stats(records, min_n=1)
+        dist = stats["taken_distribution"]
+        self.assertEqual(dist["n"], 5)
+        self.assertEqual(dist["max"], 25.0)
+        self.assertEqual(dist["p50"], 12.0)
+
+    def test_distribution_uses_absolute_value(self):
+        records = [_rec("taken", -40.0, {"+5d": 1}), _rec("taken", 10.0, {"+5d": 1})]
+        stats = shadow_portfolio._change_pct_band_stats(records, min_n=1)
+        dist = stats["taken_distribution"]
+        self.assertEqual(dist["max"], 40.0)
+        self.assertEqual(dist["count_over_30"], 1)
+
+    def test_distribution_count_over_thresholds(self):
+        records = ([_rec("taken", 15.0, {"+5d": 1})] * 3
+                   + [_rec("taken", 25.0, {"+5d": 1})] * 2
+                   + [_rec("taken", 35.0, {"+5d": 1})])
+        stats = shadow_portfolio._change_pct_band_stats(records, min_n=1)
+        dist = stats["taken_distribution"]
+        self.assertEqual(dist["n"], 6)
+        self.assertEqual(dist["count_over_20"], 3)  # the two 25s + the 35
+        self.assertEqual(dist["count_over_30"], 1)  # only the 35
+
+    def test_distribution_only_counts_taken_records(self):
+        records = [_rec("taken", 5.0, {"+5d": 1}), _rec("rejected_score", 45.0, {"+5d": 1})]
+        stats = shadow_portfolio._change_pct_band_stats(records, min_n=1)
+        self.assertEqual(stats["taken_distribution"]["n"], 1)
+        self.assertEqual(stats["taken_distribution"]["max"], 5.0)
+
 
 class TestGetShadowStatsWiring(unittest.TestCase):
     """Confirms get_shadow_stats() (the function the diag "shadow" probe
@@ -123,6 +163,9 @@ class TestGetShadowStatsWiring(unittest.TestCase):
         self.assertIn("threshold", band)
         self.assertIn("over_threshold", band["by_band"])
         self.assertIn("at_or_under_threshold", band["by_band"])
+        self.assertIn("taken_distribution", band)
+        self.assertEqual(band["taken_distribution"]["n"], 1)
+        self.assertEqual(band["taken_distribution"]["max"], 50.0)
 
 
 if __name__ == "__main__":

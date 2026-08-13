@@ -717,6 +717,40 @@ def load_shadow_data(
     )
 
 
+def _change_pct_distribution(abs_values: List[float]) -> dict:
+    """
+    Descriptive stats over |change_pct_today| for "taken" shadow records.
+
+    Built because _change_pct_band_stats()'s over_threshold band sat at
+    candidate_count: 0 across 10,000+ taken records for multiple days
+    (research/open_questions.md KNOWN BROKEN #10) — without this, a future
+    session re-checking that band can't tell "genuinely never happens
+    among taken candidates" from "not enough data yet, keep waiting."
+    max/p99 answer that directly instead of requiring another blind
+    wait-and-recheck cycle.
+    """
+    n = len(abs_values)
+    if n == 0:
+        return {"n": 0, "max": None, "p50": None, "p95": None, "p99": None,
+                "count_over_20": 0, "count_over_30": 0}
+
+    ordered = sorted(abs_values)
+
+    def _pct(p: float) -> float:
+        idx = min(n - 1, int(round(p * (n - 1))))
+        return ordered[idx]
+
+    return {
+        "n": n,
+        "max": round(ordered[-1], 2),
+        "p50": round(_pct(0.50), 2),
+        "p95": round(_pct(0.95), 2),
+        "p99": round(_pct(0.99), 2),
+        "count_over_20": sum(1 for v in abs_values if v > 20),
+        "count_over_30": sum(1 for v in abs_values if v > 30),
+    }
+
+
 def _change_pct_band_stats(records: List[dict], min_n: int = 5) -> dict:
     """
     KNOWN BROKEN #10's queued evidence check (research/open_questions.md):
@@ -738,10 +772,12 @@ def _change_pct_band_stats(records: List[dict], min_n: int = 5) -> dict:
         threshold = 35.0
 
     bands: Dict[str, list] = {"over_threshold": [], "at_or_under_threshold": []}
+    taken_abs_change_pcts: List[float] = []
     for r in records:
         if r.get("decision") != "taken":
             continue
         cp = abs(float(r.get("features", {}).get("change_pct_today", 0) or 0))
+        taken_abs_change_pcts.append(cp)
         bands["over_threshold" if cp > threshold else "at_or_under_threshold"].append(r)
 
     by_band = {}
@@ -760,7 +796,11 @@ def _change_pct_band_stats(records: List[dict], min_n: int = 5) -> dict:
                 win_rate[key] = {"win_rate": round(wins / total * 100, 1), "n": total}
         by_band[band_name] = {"candidate_count": len(recs), "win_rate": win_rate}
 
-    return {"threshold": threshold, "by_band": by_band}
+    return {
+        "threshold": threshold,
+        "by_band": by_band,
+        "taken_distribution": _change_pct_distribution(taken_abs_change_pcts),
+    }
 
 
 def get_shadow_stats() -> dict:
