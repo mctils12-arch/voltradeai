@@ -49979,3 +49979,142 @@ NEXT (queued in PROGRAM_STATE.md, in order): Q2 annotate
 STARVED: yes — Q2 through Q11 are queued and unclaimed. That is the intended
 state per §0.3 condition 5 (the queue must not be empty at session end), not a
 stall.
+
+## 2026-08-13 — [REPAIR] The TS2304 class: `altScale` (F-A) + a second bug the audit missed (v1.0.702)
+
+Territory: T-CLIENT (`client/src/pages/datamap.tsx`) + the ratchet in
+`server/`. MASTER PROGRAM Day One item 2 (Q4), taken directly from the T0.0
+triage that shipped hours earlier in PR #822.
+
+Both bugs are the same defect: an identifier used outside the block that
+declares it. Both are `TS2304`. Both were printed by `npx tsc --noEmit` on
+every CI run for months, behind `|| true`. Both throw a `ReferenceError` at
+runtime that an empty `catch` swallows. Neither has ever been reported as a
+crash, because neither produces one.
+
+FIX 1 — `altScale` (F-A, confirmed): `datamap.tsx` declares it once at 4089
+inside the flight-track paint closure (ends 4234) and used it at 4384 (×2) and
+4421 in the READOUT TICK, a different function that redeclares `terrainOn` and
+`gZ` for itself but never `altScale`. Recomputed it in the tick from the same
+expression as 4089, using the `terrainOn` already in scope one line above.
+
+The severity is worse than "the AGL readout is wrong", and this is the part
+worth carrying forward: the enclosing `try` runs 135 lines, so the throw at
+4384 skipped EVERY remaining statement in the block — GND SPD, VERT SPD, and
+the entire follow-aircraft recenter at 4412. A TS2304 inside a long `try`
+truncates its block; it does not just break its own line.
+
+FIX 2 — `e` in `focusSat` (NOT in the audit, found by the T0.0 sweep):
+`datamap.tsx:6889` stamps `e.originalEvent.__vtFeatClaim` inside
+`const focusSat = (index: number)`, whose only parameter is `index`. An
+extraction bug — the identical line lives at 6778 inside `onClick(e)` where `e`
+is real, and came along when the satellite-focus body was extracted for the
+SatFinder entrance (the extraction is documented in the comment at 6803).
+Threaded the event through as an OPTIONAL second parameter and passed it at the
+click call site (6800). The SatFinder entrances (2605, 2634, 6964) pass
+nothing and correctly make no claim: a search hit is not a map click and has no
+`originalEvent` to stamp. `focusSatByIndexRef`'s `((index: number) => void)`
+type is unchanged and still satisfied — an optional param is compatible.
+
+LIVE EFFECT: clicking a satellite never stamped `__vtFeatClaim`, so the
+deferred click-off handler at 3882 — `if (oe?.__vtFeatClaim) { clearTrail();
+return; } // curtain goes; the new card stays` — never took that branch. The
+flight curtain and the satellite card mis-interacted on exactly the click the
+line exists to handle.
+
+RATCHET: `server/tsc2304Ratchet.test.ts` (new) runs the full typecheck and
+asserts ZERO TS2304 repo-wide. A/B-verified with `git stash`: against the
+unpatched file it fails and names all five offenders by file:line; against the
+fix it passes. It also asserts that tsc actually RAN — without that, a missing
+`node_modules` would surface as a passing test and the ratchet would silently
+stop ratcheting, which is the exact failure mode this program exists to
+prevent.
+
+SCOPE HONESTY, stated plainly because it changes what the next session must do:
+**this test is not yet enforced by CI.** `node-build` — the only job a `.tsx`
+change triggers — runs `npm ci`, `tsc --noEmit || true` and `npm run build`,
+and invokes no test suite at all. So the ratchet runs today only under
+`npx tsx --test server/*.test.ts`. Putting it in `test_audit_critical.py`
+instead would be WORSE: CI's path filter routes `.py` changes to
+`python-tests` and `.tsx` changes to `node-build`, so a Python-side guard would
+never fire for the TypeScript files it guards. Q10/T1.1 is what arms it, and
+PROGRAM_STATE.md now flags Q10 with that reason.
+
+DETECTOR ADDED (§0.7): **D2 — `long_try_empty_catch`**, a `try` spanning >50
+lines whose `catch` body is empty (a bare comment counts as empty). This is the
+multiplier that turned F-A from cosmetic into functional. Deliberately narrow —
+3 hits repo-wide, and one of them is the altScale block itself
+(`datamap.tsx:4304`, 135 lines); a detector that fires on hundreds of sites
+gets ignored. Baseline 3, non-increasing. It still fires on the altScale block
+after the fix, which is correct: the structure is dangerous whether or not this
+particular identifier is currently wrong.
+
+NUMBERS: `tsc_errors` 83 → 78. **`tsc_2304` 5 → 0, at target.**
+`detectors_registered` 1 → 2. `long_try_empty_catch` baseline 3.
+`empty_ts_catch` 495 and `ts_any` 1252, both held — but only after a correction
+worth recording (L9): the first `program_status.sh` run after writing this fix
+showed `empty_ts_catch` 495 → **497** and `ts_any` 1252 → **1253**. Cause: the
+counters grep raw source, so my own explanatory COMMENTS containing the literal
+`catch {}` (one here, one in the new test) each incremented the count, and the
+test's `catch (err: any)` incremented the other. I had already written a PR body
+claiming `ts_any` was held.
+
+Fixed the CODE, not the ruler — reworded both comments, narrowed the test's
+handler off `unknown` instead of typing it `any`. Teaching the counter to skip
+comments would have been a measurement change that makes the numbers look
+better, which MEASUREMENT INTEGRITY treats as suspect by default and §12 calls
+"reducing counts by suppression"; it is queued as Q13 to land on its own with a
+before/after on identical inputs. Standing lesson: run `program_status.sh`
+BEFORE writing the PR body, not after.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): `altScale` restored → the AGL readout
+computes → the tick no longer aborts at 4384 → GND SPD / VERT SPD populate and
+the follow-aircraft fallback recenter runs again. That last one is the
+non-obvious step: the fallback has been dead whenever terrain is on, so
+follow-mode has been relying entirely on the per-frame rig, with no recovery if
+the rig stalls. The 300ms fallback is designed as exactly that recovery path.
+No scoring, sizing, or measurement code touched; no trading path involved.
+
+GATES: `npx tsc --noEmit` 83 → 78 errors, **TS2304 5 → 0** (buildinfo cleared
+between runs per the L5 note). `npm run build` clean (vite + esbuild + datacore
+staging).
+
+`npx tsx --test server/*.test.ts`: **1236/1237 pass, 1 fail** — and the one
+failure is a genuine finding rather than a flake, so it is logged rather than
+waved off. `server/gridTiles.test.ts` asserts `files.length >= 50` over
+`client/public/tiles/*.pmtiles`; **three exist**, and `git log --all` finds no
+`power_*.pmtiles` ever committed. The assertion has therefore failed since the
+day it was written, invisible because `gated_tests` is 4 and this is not one of
+them. It is untouched by this diff (no tiles, no server files), it confirms A4
+PHASE 2 item 2 ("US-full power grid, boot-fetch-from-Release — *filed above,
+NOT built*"), and it is the first entry Track 1's quarantine file will need,
+since arming the node suite blocking without it would red the build on day one.
+Filed as L8 + Q12 in PROGRAM_STATE.md.
+
+`npm run visual` at 390/768/1440 per PROMOTION RULE 6: the full battery
+reported **1 hard failure** — `data @ 1440: perf p95 frame 467ms > 350ms gate`.
+Implausible on its face (two `const` assignments in a readout tick and one
+optional parameter cannot cost ~284ms of p95 frame time), and the harness's own
+screenshots carry the standing "software renderer, no GPU acceleration"
+notice. Rather than assert that, ran the A/B this repo already has precedent
+for (2026-08-01 shader fix; the 1.0.572 entry above): `git stash`-isolated the
+source change, rebuilt, and ran the isolated `--page data` path both ways —
+**baseline (change stashed): 0 hard failures, p95 317ms; with the change:
+0 hard failures, p95 283ms.** Mine is the faster of the two and both sit under
+the gate, so the 467ms belongs to the full multi-page battery's cold-Chromium
+contention, not to this diff. Reviewed the 390px capture against DESIGN.md:
+symbols-not-dots intact, layer control top-right and collapsed, legend present,
+scale bar and 64px tab bar unchanged — this change alters no layout, only two
+dead code paths.
+
+No Python touched, so `pytest` is unaffected. No backtest (PROMOTION RULE 3
+N/A: no scoring, sizing, threshold, or measurement change).
+
+Version 1.0.701 → 1.0.702 (read-and-increment at commit time; `package-lock`
+was stale at 1.0.700 again and is synced in the same commit).
+
+NEXT: Q2 — annotate `execPythonSerialized`'s return type (`server/bot.ts:191`),
+one line, clears 42 of the remaining 78. Then Q3 (`"target": "ES2022"`, clears
+29), then Q5/T1.6 pins an honest ~7.
+
+STARVED: yes — Q2, Q3, Q5–Q11 queued and unclaimed in PROGRAM_STATE.md.

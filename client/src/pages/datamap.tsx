@@ -4346,6 +4346,15 @@ export default function DataMapPage() {
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
       const gZ = terrainOn ? groundZAt(map, lon, lat) : 0;
+      // SCOPE FIX (T0.0, 2026-08-13): this tick used `altScale` at the AGL
+      // readout and the follow-camera datum below, but the only declaration
+      // lives inside the flight-track paint closure above and is NOT in scope
+      // here — a TS2304 that `tsc --noEmit || true` printed for months. The
+      // resulting ReferenceError was swallowed by the outer
+      // `catch { /* readouts must never break the tick */ }`, which also
+      // skipped every statement after it: GND SPD, VERT SPD, and the whole
+      // follow-aircraft recenter block. Same expression as the paint closure.
+      const altScale = terrainOn ? terrainExagRef.current : 1;
       // floating tag above the craft (screen-projected DOM chip, §4) —
       // display meters straight through (layer altScale is pinned 1)
       if (tag) {
@@ -6797,14 +6806,27 @@ export default function DataMapPage() {
         return;
       }
 
-      focusSat(hit.index);
+      focusSat(hit.index, e);
     };
 
     // ── O6-3: one focus path for BOTH entrances — a map click (above) and a
     // search hit (SatFinder → focusSatByIndexRef). Position/class come from
     // the live buffer; an object with no live position this tick (deep-space,
     // group-filtered) still gets its identity card, honestly un-followed. ──
-    const focusSat = (index: number) => {
+    // SCOPE FIX (T0.0, 2026-08-13): the body below stamps `__vtFeatClaim` on
+    // the click event, but when it was extracted out of `onClick(e)` for the
+    // SatFinder entrance the `e` came with it and lost its binding — a TS2304
+    // swallowed by that line's own empty catch, so satellite clicks silently
+    // never claimed the feature and the click-off handler took the wrong
+    // branch. The event is threaded through as OPTIONAL because the SatFinder
+    // entrances genuinely have none: a search hit is not a map click and has
+    // no `originalEvent` to stamp, so it correctly makes no claim.
+    // Typed structurally rather than `any` so the claim protocol is stated in
+    // the signature (and so this fix does not push the `ts_any` ratchet up).
+    const focusSat = (
+      index: number,
+      e?: { originalEvent?: { __vtFeatClaim?: boolean } },
+    ) => {
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       const g = gp?.[index];
