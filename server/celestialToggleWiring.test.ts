@@ -115,3 +115,35 @@ test("the Earth-map daynight status line points at the space-view lighting toggl
   assert.ok(/Realistic lighting/.test(status),
     "name the CELESTIAL › Realistic lighting toggle so the space-view control is discoverable from the layer the user actually found");
 });
+
+// ── SITE CLAIM (2026-08-13 report: "when i click on Moon Mission it thinks i
+//    am clicking on the moon and pulls up that card"). A marker click flies to
+//    the Moon to reach the site, and that flight used to open the Moon's BODY
+//    card on top of the site card — two cards for one click. The map already
+//    solves this with a feature claim (the more specific selection owns the
+//    click); this is the same rule in the space frame. ──
+test("RATCHET: a site fly-to claims the click and suppresses the body card", () => {
+  const frame = fs.readFileSync(
+    path.join(here, "..", "client", "src", "lib", "celestial", "spaceFrame.ts"), "utf8");
+  assert.ok(/siteClaim\?:\s*boolean/.test(frame),
+    "beginFlight must accept siteClaim — without it a marker click reopens the body card");
+  assert.ok(/if \(o\?\.siteClaim\) opts\.onFocusBody\?\.\(null\)/.test(frame),
+    "a site-claimed flight must CLOSE the body card, not open it");
+  const flyTo = frame.slice(frame.indexOf("const flyToSiteImpl"), frame.indexOf("const flyToSiteImpl") + 900);
+  assert.ok(/siteClaim:\s*true/.test(flyTo),
+    "flyToSiteImpl must claim the click, or clicking a mission marker opens two cards");
+  assert.ok(/onFocusSite\?\.\(siteId\)/.test(flyTo),
+    "the site card is the one card a marker click opens");
+});
+
+test("RATCHET: space cards step aside for the open layers panel (nothing covers anything)", () => {
+  const css = fs.readFileSync(path.join(here, "..", "client", "src", "index.css"), "utf8");
+  const i = css.indexOf('.vt-map-page[data-vt-panel-open="true"] .vt-site-card.vt-space-card');
+  assert.ok(i > 0,
+    "the space cards are right-anchored on the same edge the layers panel owns — they must shift when it opens (the nav cluster and flight profile already do)");
+  const rule = css.slice(i, i + 260);
+  assert.ok(/right:\s*3\d\dpx/.test(rule),
+    "shift must clear the panel width");
+  assert.ok(/:not\(\[style\*="left:"\]\)/.test(css.slice(i - 120, i + 260)),
+    "a card the user dragged carries an inline left/top — their placement must win over ours");
+});
