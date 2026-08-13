@@ -14,7 +14,7 @@ block** (§0.2).
 
 **Q2 — annotate `execPythonSerialized`'s return type** (`server/bot.ts:191`,
 add `: Promise<{ stdout: string; stderr: string }>`). One line, clears 42 of
-the remaining 54 `tsc` errors, unblocks a truthful T1.6 pin. Full reasoning in
+the remaining 49 `tsc` errors, unblocks a truthful T1.6 pin. Full reasoning in
 `research/tsc_baseline.md` §2. Territory T-BOT.
 
 Do **not** start Track 2 or 3 before Q1–Q4 land — §12 names that as a failure
@@ -33,14 +33,15 @@ when you take it, `DONE` with the PR number when it merges.
 | Q1 | `program_status.sh` + `PROGRAM_STATE.md` | T0.1 | **DONE** — this session |
 | Q2 | `execPythonSerialized` return type (clears 42 errors) | T0.0/T5 | **TODO** ← next |
 | Q3 | `tsconfig.json` gains `"target": "ES2022"` (clears 29) | T0.0 | **TODO** — verified effect, see below |
-| Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **TODO** |
+| Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **DONE** — PR #823, session 2 |
 | Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **TODO** — blocked on Q2+Q3 |
 | Q6 | T2.4 — cap DPR in `celestialSky:788` + `spaceFrame:2877` | T2.4 | **TODO** — up to 9× faster moon on a 3× device |
 | Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **TODO** — 5 → 7 files; it will fail, that is the deliverable |
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
-| Q10 | T1.1 — all three suites into CI non-blocking + `visual --soft` | T1.1 | **TODO** |
+| Q10 | T1.1 — all three suites into CI non-blocking + `visual --soft` | T1.1 | **TODO** — **promoted: this is what arms `server/tsc2304Ratchet.test.ts`, which no CI job runs today** |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
+| Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
 
@@ -54,8 +55,8 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 gated_tests              4/364          4/364        must increase (>216)
-tsc_errors               83             83           must decrease
-  of which TS2304        5              5            must reach 0 (always real bugs)
+tsc_errors               78             83           must decrease
+  of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
 bare_except              3              3            non-increasing
 empty_ts_catch           495            495          non-increasing
@@ -66,7 +67,7 @@ law_iv_scanned           5              5            must reach 7 (ctx-acquiring
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                1              0            MUST increase each session
+detectors                2              0            MUST increase each session
 quarantine_size          0              0            non-increasing
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -134,6 +135,18 @@ and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
 
+**L8 — a test in this repo has never passed, and nobody could have known.**
+`server/gridTiles.test.ts` asserts `files.length >= 50` over
+`client/public/tiles/*.pmtiles`. **Three exist.** `git log --all` finds no
+`power_*.pmtiles` ever committed, so the assertion has failed since the day it
+was written — invisible because `gated_tests` is 4 and this is not one of them.
+It is simultaneously: (a) the single concrete proof of the Track 1 thesis, that
+360 ungated tests protect nothing; (b) confirmation of **A4 PHASE 2 item 2**
+("US-full power grid, boot-fetch-from-Release — *filed above, NOT built*") — the
+test asserts the built state and the build never happened; and (c) the first
+entry Track 1's quarantine file will need, since turning the node suite on
+blocking without it would red the build on day one. Queued as Q12.
+
 **L7 — CI's `automerge` job merges any `claude/*` branch when no job
 *failed*.** A skipped job counts as mergeable. So a docs-only PR merges without
 ever running `tsc`, and a green run is not evidence a counter held. Ratchets
@@ -149,13 +162,11 @@ the duty. `detectors_registered` reads this table.
 
 | id | detector | added | baseline | status |
 |---|---|---|---|---|
-| D1 | `tsc_2304` — identifiers used outside their declaring scope, repo-wide, as a counter split out of `tsc_errors` | 2026-08-13 | 5 | live in `program_status.sh` |
+| D1 | `tsc_2304` — identifiers used outside their declaring scope, repo-wide, as a counter split out of `tsc_errors` | 2026-08-13 | 5 | live in `program_status.sh`; **now 0**, pinned by `server/tsc2304Ratchet.test.ts` |
+| D2 | `long_try_empty_catch` — a `try` spanning >50 lines whose `catch` body is empty | 2026-08-13 | 3 | live in `program_status.sh` |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
-- `catch` blocks that swallow a throw inside a `try` spanning >50 lines —
-  **promoted: L4 makes this the highest-value untaken seed**, since block
-  length is exactly what turns one bad line into a dead tick
 - reassuring comments on empty catches (`/* … never … */`) — the L3 third layer
 - `useEffect` with a dependency array omitting a ref it reads
 - registry ids in `layers.json` with no server route; routes with no id

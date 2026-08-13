@@ -236,6 +236,55 @@ if [ -f scripts/visual_check.mjs ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 9b. D2 — long_try_empty_catch: a `try` spanning >50 lines whose `catch` body
+# is empty (a bare comment counts as empty).
+#
+# This is the multiplier that turned F-A from a cosmetic bug into a functional
+# one. `altScale` threw at datamap.tsx:4384, and because the enclosing `try`
+# ran 135 lines, the throw did not break one readout — it skipped EVERY
+# remaining statement in the block, including GND SPD, VERT SPD and the whole
+# follow-aircraft recenter. A short try/catch is a decision; a 135-line one is
+# a blast radius.
+#
+# Deliberately narrow: 3 hits repo-wide, and one of them is the altScale block
+# itself. A detector that fires on hundreds of sites gets ignored, so this one
+# is tuned to name only the blocks where a single bad line can silently take
+# out a whole subsystem. Non-increasing.
+# ---------------------------------------------------------------------------
+long_try_empty_catch=$(python3 - <<'PY'
+import re, subprocess
+files = subprocess.run(['git', 'ls-files', '*.ts', '*.tsx'],
+                       capture_output=True, text=True).stdout.split()
+hits = 0
+for f in files:
+    if '/node_modules/' in f:
+        continue
+    try:
+        src = open(f).read()
+    except OSError:
+        continue
+    for m in re.finditer(r'\btry\s*\{', src):
+        i = m.end() - 1
+        depth = 0
+        for j in range(i, len(src)):
+            if src[j] == '{':
+                depth += 1
+            elif src[j] == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+        else:
+            continue                      # unbalanced — skip rather than guess
+        if src.count('\n', m.start(), j) <= 50:
+            continue
+        if re.match(r'\s*catch\s*(\([^)]*\))?\s*\{\s*(/\*.*?\*/|//[^\n]*)?\s*\}',
+                    src[j + 1:j + 200], re.S):
+            hits += 1
+print(hits)
+PY
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -300,6 +349,7 @@ if [ "$JSON" = 1 ]; then
   "law_iv_context_files": $law_iv_ctx,
   "order_post_sites": $order_post_sites,
   "design_token_drift": $design_token_drift,
+  "long_try_empty_catch": $long_try_empty_catch,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -323,6 +373,7 @@ printf '%-24s %-14s %-12s %s\n' "  layers with lod" "$layers_lod"         "1"   
 printf '%-24s %-14s %-12s %s\n' law_iv_scanned     "$law_iv_scanned"      "5"      "must reach $law_iv_ctx (ctx-acquiring)"
 printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "6"      "must reach 1"
 printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"      "must stay 0"
+printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"
