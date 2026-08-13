@@ -2716,3 +2716,106 @@ never saw). Until approved, sessions MUST treat `npm run test:node` as
 part of the local promotion gate (PROMOTION RULES name pytest only —
 that reading let this slip; an amendment adding test:node to rule 1 is
 part of this proposal).
+
+
+## 2026-08-13 — OPTIONS-SLOT CAP: THIRD RECURRENCE, architecture smell, structural fix proposed [RECURRENCE ESCALATES — human/dedicated-session decision, no code shipped this session]
+
+Cross-referenced from open_questions.md KNOWN BROKEN #30 (full evidence
+trail lives there — this entry carries the structural proposal per
+CLAUDE.md's RECURRENCE ESCALATES rule: "patching it again is FORBIDDEN
+... propose structural work via wishlist.md").
+
+**THE PATTERN.** `MAX_OPTIONS_POSITIONS = 6` in `server/bot.ts` /
+`system_config.py` has now been breached live in production three times,
+each via a genuinely different mechanism:
+1. 2026-07-29 (v1.0.540): a stale local constant (3) never wired to the
+   canonical value (6) — a drifted-constant bug, fixed by hoisting to
+   one module-scope declaration.
+2. 2026-08-03 (v1.0.586): an intra-cycle TOCTOU race — the tier
+   dispatcher trusted a pre-`executeTrades()` positions snapshot — fixed
+   by re-fetching `/v2/positions` fresh immediately before dispatch.
+3. 2026-08-13 (found this session, NOT fixed): a cross-cycle race. CSP
+   orders are Alpaca DAY LIMIT orders (`options_execution.py:
+   submit_options_order`, `time_in_force: "day"`) that return
+   `{"status": "submitted"}` on any 2xx response with **no fill
+   confirmation/poll**. `bot.ts` counts `"submitted"` as slot-consumed
+   the instant it's sent, but that increment lives only in a local
+   variable for that one dispatch loop. The NEXT cycle's "fresh"
+   `/v2/positions` re-fetch (the exact fix #2 shipped) only reflects
+   **filled** orders — a submitted-but-still-resting limit order from
+   the prior cycle is invisible to it. Two cycles a few minutes apart
+   can each correctly see "5 of 6 filled, room for one more," each
+   submit one, and if both later fill, the account ends up at 7.
+   Live-verified: real filled-position count crossed 6→7 today at
+   19:58:36Z, one full ~2-minute scan cycle after crossing 5→6 at
+   19:54:56Z — consistent with this exact race, not a repeat of #1 or
+   #2 (both of which were re-read this session and confirmed still
+   correctly in place).
+
+**WHY THIS IS ARCHITECTURE SMELL, NOT BAD LUCK.** Three fixes, three
+different bugs, same symptom, same subsystem, in 15 days. Each fix
+closed the specific hole it found and was immediately re-opened by a
+different hole in the same design: **cap enforcement is built entirely
+on `/v2/positions` (filled reality) with no concept of "orders currently
+live on the book that could still fill."** Any future change to this
+code that keeps that same shape — "count filled positions, compare to
+6, submit if under" — has the same structural gap and will eventually
+find a fourth hole (order latency variance, a slow contract-selection
+call, Alpaca API lag, etc.). That is the definition of the RECURRENCE
+ESCALATES bar for architecture-level work rather than another surgical
+patch.
+
+**THREE CANDIDATE STRUCTURAL FIXES** (not evaluated against each other
+in depth — that's the deliberate next session's job; listed here so it
+doesn't start from zero):
+
+1. **Count open orders too (cheapest, most surgical).** Before
+   submitting any new SELL_CSP (both `executeTrades()` and the tier
+   dispatcher), also `GET /v2/orders?status=open&asset_class=us_option`
+   and add those to the slot count — a submitted-but-unfilled CSP is a
+   real slot commitment even before it fills. Closes this specific hole
+   with roughly the same shape as the 2026-08-03 fix. Residual risk:
+   still not atomic — two dispatch loops could both read "open orders"
+   in the same instant and both proceed, though the window is far
+   narrower (a single GET, not the multi-minute gap between scan
+   cycles) and `tier2Running`'s mutex already serializes the two
+   dispatch loops that exist today, so in the CURRENT codebase this
+   closes the hole completely; it degrades gracefully (not perfectly)
+   if a future code path adds a third concurrent submitter.
+2. **Poll for fill/reject before counting a slot consumed.** Change
+   `submit_options_order` (or its caller) to poll the order status for
+   a bounded window (Alpaca options can also be checked via
+   `GET /v2/orders/{id}`) before returning, and only increment the slot
+   counter on an actual `filled` status; a still-`new`/`accepted` order
+   after the poll window either gets canceled (freeing the slot
+   honestly) or is explicitly tracked as pending. More correct, more
+   invasive (changes the hot execution path's latency and return
+   contract — every caller of `submit_options_order` would need a
+   status contract review), and closer to FROZEN-PATH territory (order
+   submission internals) — needs care to stay on the "what gets traded"
+   side of that line, not "how orders are transmitted."
+3. **A persisted, cross-cycle slot ledger.** A small reservation table
+   (ticker, order_id, reserved_at, status) written on submit and
+   reconciled against `/v2/positions` + `/v2/orders` on a timer,
+   independent of any single dispatch loop's local variables. Most
+   robust to future code-shape changes (survives even a process
+   restart mid-fill), most work, and the only option that would also
+   give the counterfactual-logging infrastructure (RULE REVIEW) a clean
+   place to record "slot reservation X was denied/starved" for its own
+   evidence trail — arguably the option most aligned with CLAUDE.md's
+   general preference for compiling recurring judgment into durable
+   state rather than re-deriving it (EDGE DOCTRINE #3), even though this
+   is a T-BOT risk-mechanism, not a data pipeline.
+
+**RECOMMENDATION.** Option 1 first (cheap, closes the live hole,
+same-shape as the precedent fix so low review risk), landed as its OWN
+dedicated session with its own regression test asserting the exact
+cross-cycle scenario reproduced here (two sequential dispatch passes,
+mocked `/v2/positions` returning 5 filled + 1 open both times, second
+pass must skip). If a FOURTH recurrence is ever found after Option 1
+ships, that is the trigger for Option 3 — at that point the shape
+itself, not any single check, is confirmed to be the problem.
+
+**NOT A SPEND REQUEST** — no paid capability involved, filed here per
+RECURRENCE ESCALATES' explicit instruction to route repeated-subsystem
+breakage through this file rather than same-day re-patching.

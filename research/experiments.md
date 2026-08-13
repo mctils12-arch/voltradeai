@@ -3,6 +3,123 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 (scheduled-routine session) [RESEARCH] — T-BOT — OPTIONS-SLOT cap breached a THIRD time, THIRD distinct root cause found; RECURRENCE ESCALATES invoked, no code shipped, structural fix proposed in wishlist.md
+
+TERRITORY: T-BOT (server/bot.ts, options_execution.py — read-only this
+session; research/* only files actually changed). SHARED touch: none
+beyond research/*.
+
+SESSION-START CHECKS: CLAUDE.md read in full. Live health (`/api/health`):
+`status:"ok"`, `bot.status:"active"`, `equityPeak` unchanged from prior
+session, `drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`,
+scanner `consecutiveFailures:0`, all feeds alive — no LIVENESS ALARM.
+Loop-health ratio over the last 10 tagged entries before this one: 6
+PRODUCT / 3 REPAIR / 1 RESEARCH — well under the 7/10 thrash bar, no
+meta-problem. `open_questions.md` KNOWN BROKEN #1-29 all RESOLVED except
+#10 and #20 (both correctly gated on data accumulation / RULE REVIEW
+evidence per prior sessions, not newly critical) — no forced-REPAIR
+condition.
+
+PICKING THE ACTION: per SESSION BUDGET's top primary-action category
+("fix a bug seen in audit logs"), queried `/api/diag/audit?limit=80`
+(DIAG_TOKEN present in this session's env). Found `OPTIONS-SLOT-FULL`
+firing live at "(7/6)" for VXUS/UAMY/KWEB — one over the documented
+6-slot `MAX_OPTIONS_POSITIONS` cap. `/api/diag/positions-detail`
+confirmed 7 REAL `us_option` positions held (DRAM/ENB/EWZ/HPE/LUNR/RKLB
+x2), ruling out a display/counting-only artifact.
+
+RECOGNIZED THIS AS A RECURRENCE before investigating further: grepped
+experiments.md for "OPTIONS-SLOT" and found this exact symptom shape
+already fixed twice — 2026-07-29 v1.0.540 (stale local cap constant, 3
+vs. canonical 6) and 2026-08-03 v1.0.586 (intra-cycle race between
+`executeTrades()` and the tier dispatcher, closed by a fresh
+`/v2/positions` re-fetch immediately before dispatch). Per CLAUDE.md's
+RECURRENCE ESCALATES rule, patching this subsystem a third time is
+FORBIDDEN — the session becomes a root-cause analysis, and two
+failed/incomplete fixes on one subsystem routes to a structural
+proposal in wishlist.md rather than same-day patch #4.
+
+READ BEFORE WRITE (root-cause analysis, not a blind assumption of
+"same bug again"): read `server/bot.ts`'s tier dispatcher block
+(~3651-3753) and `executeTrades()` (~4074-4400) end-to-end this session.
+Confirmed BOTH prior fixes are still correctly in place byte-for-byte —
+`MAX_OPTIONS_POSITIONS = 6` at module scope, `countOptionsPositions()`
+shared helper, `freshPositionsForTiers` re-fetch + live
+`tierOptionsSlotsUsed` increment loop all present exactly as the
+2026-08-03 PR left them. So this is NOT either prior bug recurring
+unfixed — it is a third, previously-unexamined hole.
+
+RECONSTRUCTED THE LIVE RACE from `/api/diag/orders?limit=250` (options
+fills only, replayed chronologically as an open/close simulation) cross-
+referenced against `/api/diag/audit` scan-cycle boundaries: the real
+filled-position count crossed 5→6 at 19:54:56Z (ENB, correctly gated by
+the 2026-08-03 fix) and 6→7 at 19:58:36Z (DRAM) roughly one full ~2-
+minute Tier-2 scan cycle later (a fresh scan started 19:56:56Z). Read
+`options_execution.py:submit_options_order` (~line 2175-2247): CSP
+orders are Alpaca DAY LIMIT orders (`time_in_force: "day"`) that return
+`{"status": "submitted"}` on any 2xx HTTP response with NO fill
+confirmation or polling. `bot.ts` treats `"submitted"` as slot-consumed
+immediately in both paths (tier dispatcher `tierOptionsSlotsUsed++` at
+~3745; `executeTrades()` accepts submitted/pending_new/accepted at
+~4380, `optionsSlotsUsed++` at ~4383) — correct within that one
+dispatch loop, but that increment is a local variable that dies with
+the cycle. A day-limit CSP priced for premium can sit unfilled on the
+book for minutes; until it fills, it is invisible to `/v2/positions`,
+so the NEXT cycle's "fresh" re-fetch (the exact mechanism the
+2026-08-03 fix added) undercounts — it sees only what has filled, not
+filled-plus-still-resting-from-last-cycle. Two cycles a few minutes
+apart can each honestly see "room for one more" against a technically-
+fresh-but-incomplete snapshot, each submit one, and both later fill —
+exactly the 19:54/19:58 pattern observed live.
+
+WHY NO CODE SHIPPED THIS SESSION: RECURRENCE ESCALATES is explicit and
+this is its textbook case — three fixes, three different bugs
+(drifted constant → intra-cycle race → cross-cycle fill-latency
+blindness), same symptom, same subsystem, 15 days. Filed instead:
+- `open_questions.md` KNOWN BROKEN #30 — full evidence trail, marked
+  explicitly NOT a LIVENESS/kill-switch issue (paper account, each CSP
+  slot independently capped at 8% of equity, `risk_kill_switch.py`
+  FROZEN mechanisms untouched — a soft position-count limit running 1
+  slot hot, correctly scoped as a repair item not an alarm).
+- `wishlist.md` "OPTIONS-SLOT CAP: THIRD RECURRENCE" — the structural
+  proposal RECURRENCE ESCALATES asks for: three candidate fixes (count
+  live open orders too / poll for fill before counting a slot consumed
+  / a persisted cross-cycle reservation ledger) with tradeoffs, and a
+  recommendation (Option 1 first — cheapest, same shape as the
+  2026-08-03 precedent, low review risk — with Option 3 as the escalation
+  path if a fourth recurrence appears after Option 1 ships).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): no trading-logic value changed
+this session (pure investigation + documentation) — zero interaction
+with scoring, sizing, or the trading loop. The live account continues
+running 1 options slot over its intended cap until a future session
+implements the proposed fix; each individual CSP position is still
+independently risk-capped at 8% of equity, so this is a documented,
+bounded, non-catastrophic soft-limit breach on a paper account, not a
+liveness or capital-preservation issue.
+
+GATES: N/A — zero code files changed this session (research/*.md only).
+
+BACKTEST: N/A — no scoring/sizing/threshold logic touched.
+
+NEXT: a dedicated future session should implement wishlist.md's Option 1
+(count `GET /v2/orders?status=open&asset_class=us_option` alongside
+`/v2/positions` before allowing a new SELL_CSP dispatch in both
+`executeTrades()` and the tier dispatcher), with its own regression test
+reproducing this exact cross-cycle scenario (two sequential dispatch
+passes against a mocked 5-filled+1-open snapshot; the second pass must
+skip). Also worth a live spot-check once RunPod/other unrelated fixes
+have deployed: whether the account's real options count naturally drifts
+back to <=6 as today's 7 positions expire/close, or whether the race
+keeps re-triggering — informs how urgent the fix actually is.
+
+STARVED: no — this was the session's one primary action, fully scoped
+(audit-log-driven bug hunt → root-cause analysis → two filed artifacts
+per RECURRENCE ESCALATES' own required output). No higher-priority item
+was skipped: no LIVENESS ALARM, loop-health ratio healthy, KNOWN
+BROKEN's remaining open items are correctly gated on data
+accumulation/RULE REVIEW evidence, not newly critical.
+
 ## 2026-08-13 (same session, append) — OPS NOTE: PR #818 auto-merged mid-market despite the PR body's "wait for close" note
 
 PR #818 (below) was merged by `github-actions[bot]` at 2026-08-13T19:03:54Z
