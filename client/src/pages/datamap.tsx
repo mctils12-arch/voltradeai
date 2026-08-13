@@ -118,9 +118,16 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
-import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl,
+import {
+  LUNAR_SITES, APOLLO_SITE_IDS, APOLLO_IMAGERY_NOTE, NON_APOLLO_IMAGERY_NOTE,
+  LUNAR_SIDE_NOTE, LUNAR_COVERAGE_NOTE, lrocFeaturedUrl,
+} from "@/lib/celestial/lunarMissions";
+import { KIND_LABEL, OUTCOME_LABEL, siteGlyphDataURL, LEGEND_KINDS, countryColor } from "@/lib/celestial/lunarSymbols";
+// the pref keeps its original storage key (vt.celestial.apolloSites) — renaming
+// it would silently re-enable the layer for everyone who turned it off
+import {
   getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
-  APOLLO_NEAR_SIDE_ONLY_NOTE } from "@/lib/celestial/apolloSites";
+} from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
 import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, siteLocalTime } from "@/lib/meteors";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
@@ -13188,11 +13195,11 @@ export default function DataMapPage() {
                       status: celOrbits
                         ? "on — full ellipses Mercury–Neptune + 9 moons, real ephemeris"
                         : "off — orbit ellipses hidden" },
-                    { key: "apollo", name: "Apollo sites", icon: <Flag size={15} />,
+                    { key: "apollo", name: "Lunar surface missions", icon: <Flag size={15} />,
                       on: celApollo, toggle: () => setApolloSitesPref(!celApollo),
                       status: celApollo
-                        ? `on — 6 flag markers at the published NASA landing coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view (${APOLLO_NEAR_SIDE_ONLY_NOTE})`
-                        : "off — Apollo flag markers hidden" },
+                        ? `on — ${LUNAR_SITES.length} sites, 1959–2025 (Apollo · Luna/Lunokhod · Surveyor · Chang'e · Chandrayaan-3 · SLIM · commercial landers · deliberate impacts) at published coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view — ${LUNAR_SIDE_NOTE}`
+                        : "off — lunar mission markers hidden" },
                     // B6 REALISTIC LIGHTING (2026-08-13 report: "i want this
                     // feature to work on all planets... the missions are on the
                     // dark side and you would not be able to see them, that's
@@ -13265,24 +13272,67 @@ export default function DataMapPage() {
                       something. data-vt-control, never data-vt-layer. */}
                   {celApollo && spaceActive && (
                     <div className="vt-field-controls" role="group"
-                         aria-label="Fly to an Apollo landing site" data-vt-control="celestial_apollo_sites">
-                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {APOLLO_SITES.map((site) => (
-                          <button
-                            key={site.id}
-                            className="vt-preset-pill"
-                            data-vt-apollo-flyto={site.id}
-                            aria-label={`Fly to the ${site.mission} landing site`}
-                            title={site.region}
-                            onClick={() => {
-                              try { spaceHandleRef.current?.flyToSite(site.id); } catch {}
-                            }}>
-                            ⚑ {site.mission.replace("Apollo ", "A")}
-                          </button>
-                        ))}
+                         aria-label="Fly to a lunar mission site" data-vt-control="celestial_apollo_sites">
+                      {/* 35 chips in one flat row is unusable, so they group by
+                          era (collapsed history first, Apollo always open).
+                          These chips are the ONLY way to reach the three
+                          far-side sites (Chang'e 4, Chang'e 6, LADEE) — a
+                          marker you cannot see cannot be clicked. */}
+                      {([
+                        { era: "Apollo (crewed)", test: (s: typeof LUNAR_SITES[number]) => s.kind === "crewed" },
+                        { era: "Soviet & Surveyor", test: (s: typeof LUNAR_SITES[number]) => (s.country === "USSR" || s.id.startsWith("surveyor")) },
+                        { era: "Modern 2013–2025", test: (s: typeof LUNAR_SITES[number]) => new Date(s.date_utc).getUTCFullYear() >= 2013 },
+                        { era: "Impacts", test: (s: typeof LUNAR_SITES[number]) => s.kind === "impactor" && s.country === "USA" },
+                      ]).map((grp) => {
+                        const sites = LUNAR_SITES.filter(grp.test);
+                        if (!sites.length) return null;
+                        return (
+                          <span key={grp.era} style={{ display: "block", marginBottom: 6 }}>
+                            <span className="vt-card-fact-l" style={{ display: "block", marginBottom: 3 }}>{grp.era}</span>
+                            <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {sites.map((site) => (
+                                <button
+                                  key={site.id}
+                                  className="vt-preset-pill"
+                                  data-vt-apollo-flyto={site.id}
+                                  aria-label={`Fly to the ${site.mission} site`}
+                                  title={`${site.region} — ${OUTCOME_LABEL[site.outcome]}`}
+                                  style={{ borderColor: countryColor(site.country) }}
+                                  onClick={() => {
+                                    try { spaceHandleRef.current?.flyToSite(site.id); } catch {}
+                                  }}>
+                                  {site.mission.replace("Apollo ", "A")}{site.near_side ? "" : " · FAR"}
+                                </button>
+                              ))}
+                            </span>
+                          </span>
+                        );
+                      })}
+                      <span className="vt-field-note">
+                        Click a mission to fly to its site — {LUNAR_SIDE_NOTE}.
+                      </span>
+                      {/* LEGEND rendered from the SAME glyph function the map
+                          draws with (SYMBOLS NOT DOTS: every symbol gets a key) */}
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 10, margin: "6px 0 2px" }}>
+                        {LEGEND_KINDS.map((lk) => {
+                          const url = siteGlyphDataURL({ kind: lk.kind, outcome: "landed", country: "USA" });
+                          return (
+                            <span key={lk.kind} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--text-tertiary)" }}>
+                              {url ? <img src={url} width={16} height={16} alt="" aria-hidden /> : null}
+                              {lk.label}
+                            </span>
+                          );
+                        })}
                       </span>
                       <span className="vt-field-note">
-                        Click a mission to fly to its landing site — {APOLLO_NEAR_SIDE_ONLY_NOTE}.
+                        Shape = mission type · colour = country (
+                        {["USA", "USSR", "China", "India", "Japan", "Israel"].map((c, i) => (
+                          <span key={c}>{i ? " · " : ""}<span style={{ color: countryColor(c) }}>{c}</span></span>
+                        ))}
+                        ) · struck through = crashed · dashed ring = position never surveyed.
+                      </span>
+                      <span className="vt-field-note">
+                        {LUNAR_COVERAGE_NOTE}
                       </span>
                       <span className="vt-field-note">
                         {APOLLO_IMAGERY_NOTE}
@@ -13468,15 +13518,25 @@ export default function DataMapPage() {
           Facts are published NASA mission records; the imagery note states
           exactly what our streamed mosaic can and cannot resolve. */}
       {spaceActive && spaceSite && (() => {
-        const site = APOLLO_SITES.find((s) => s.id === spaceSite);
+        const site = LUNAR_SITES.find((s) => s.id === spaceSite);
         if (!site) return null;
         return (
           <div className="vt-site-card vt-space-card" role="dialog"
                aria-label={`${site.mission} landing site`} data-vt-apollo-card>
             <div className="vt-site-card-head">
               <div style={{ flex: "1 1 auto", minWidth: 132 }}>
-                <div className="vt-site-card-title">⚑ {site.mission}</div>
-                <div className="vt-site-card-cat">{site.region} · LANDED {site.landed_utc}</div>
+                <div className="vt-site-card-title">
+                  <span style={{ color: countryColor(site.country) }} aria-hidden>◆</span> {site.mission}
+                </div>
+                <div className="vt-site-card-cat">
+                  {site.region} ·{" "}
+                  {site.outcome === "crashed" ? "CRASHED"
+                    : site.outcome === "impact_intentional" ? "IMPACT"
+                      : site.outcome === "partial" ? "LANDED (tipped over)" : "LANDED"}{" "}
+                  {/* date_is_day_only: LADEE's impact time was never published —
+                      render the date alone rather than invent a timestamp */}
+                  {site.date_is_day_only ? site.date_utc : site.date_utc.slice(0, 10)}
+                </div>
               </div>
               <div className="vt-card-head-actions">
                 <button className="vt-icon-btn" aria-label="Close site card"
@@ -13487,20 +13547,68 @@ export default function DataMapPage() {
             </div>
             <div className="vt-card-detbody om-sb">
               <div className="vt-card-facts">
-                <div className="vt-card-fact"><div className="vt-card-fact-l">Moonwalkers</div><div className="vt-card-fact-v">{site.crew_surface.join(" · ")}</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">In orbit (CMP)</div><div className="vt-card-fact-v">{site.cmp}</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">EVAs</div><div className="vt-card-fact-v">{site.evas} · {site.eva_hours.toFixed(1)} h total</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">Farthest from LM</div><div className="vt-card-fact-v">{fmtKm(site.max_eva_km)}{site.rover ? " (by rover)" : " (on foot)"}</div></div>
+                {/* CREWED sites keep the moonwalker facts; every other kind
+                    would render them as blanks, so those cards show the
+                    operator/outcome instead (34 of 35 sites are not Apollo). */}
+                {site.crew ? (
+                  <>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Moonwalkers</div><div className="vt-card-fact-v">{site.crew.surface.join(" · ")}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">In orbit (CMP)</div><div className="vt-card-fact-v">{site.crew.cmp}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">EVAs</div><div className="vt-card-fact-v">{site.crew.evas} · {site.crew.eva_hours.toFixed(1)} h total</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Farthest from LM</div><div className="vt-card-fact-v">{fmtKm(site.crew.max_eva_km)}{site.crew.rover ? " (by rover)" : " (on foot)"}</div></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Operator</div><div className="vt-card-fact-v">{site.agency}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Country</div><div className="vt-card-fact-v">{site.country}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Type</div><div className="vt-card-fact-v">{KIND_LABEL[site.kind]}{site.rover_name ? ` · ${site.rover_name}` : ""}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Outcome</div><div className="vt-card-fact-v">{OUTCOME_LABEL[site.outcome]}</div></div>
+                  </>
+                )}
                 <div className="vt-card-fact"><div className="vt-card-fact-l">Coordinates</div><div className="vt-card-fact-v">{site.lat.toFixed(4)}°, {site.lon.toFixed(4)}°E</div></div>
+                <div className="vt-card-fact">
+                  <div className="vt-card-fact-l">Hemisphere</div>
+                  <div className="vt-card-fact-v">{site.near_side ? "near side" : "FAR SIDE"}</div>
+                </div>
               </div>
-              <p style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)", margin: "8px 0 4px" }}>{site.note}</p>
-              <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: 0 }}>
-                {APOLLO_IMAGERY_NOTE} Max-EVA distance is the documented farthest point, not the traverse path — real digitized traverses are a filed follow-up.
+              {/* PROVENANCE ROW — every displayed number carries where it came
+                  from and how well it is known (PREMIUM EXPERIENCE STANDARD (c)). */}
+              <p style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-tertiary)", margin: "8px 0 2px" }}>
+                {site.coord_confidence === "surveyed_lro"
+                  ? `Position: hardware located in LRO/LROC imagery${site.uncertainty_m != null ? ` (±${site.uncertainty_m} m)` : ""}.`
+                  : site.coord_confidence === "published_precise"
+                    ? `Position: published${site.uncertainty_m != null ? ` with a stated ±${site.uncertainty_m} m` : ""} — not located in imagery.`
+                    : site.coord_confidence === "catalogued"
+                      ? "Position: mission-era tracking solution, kilometre-scale. This craft has never been found in imagery — the marker is a REPORTED position."
+                      : `Position: impact region only${site.uncertainty_deg != null ? `, ±~${site.uncertainty_deg}° (roughly ${Math.round(site.uncertainty_deg * 30)} km)` : ""} — the crater has never been located.`}
+                {site.attribution_certain === false
+                  ? " The identification of this feature with this mission is LIKELY, not proven."
+                  : ""}
               </p>
-              <a href={lrocFeaturedUrl(site.id)} target="_blank" rel="noreferrer"
+              <p style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)", margin: "6px 0 4px" }}>{site.note}</p>
+              <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: 0 }}>
+                {/* only the six Apollo ids have a NAC strip — nothing else may
+                    imply ~0.5 m/px detail we do not stream for it */}
+                {APOLLO_SITE_IDS.includes(site.id as any) ? APOLLO_IMAGERY_NOTE : NON_APOLLO_IMAGERY_NOTE}
+                {site.crew ? " Farthest-from-LM is the documented farthest point, never a path length." : ""}
+              </p>
+              {site.hardware && site.hardware.length > 0 && (
+                <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: "6px 0 0" }}>
+                  Also surveyed here: {site.hardware.map((hw) =>
+                    `${hw.label} ${hw.lat.toFixed(4)}°, ${hw.lon.toFixed(4)}°E${hw.uncertainty_m != null ? ` (±${hw.uncertainty_m} m)` : ""}`).join(" · ")}.
+                  {" "}Separate surveyed points — no route is drawn between them.
+                </p>
+              )}
+              <a href={site.source_url} target="_blank" rel="noreferrer"
                  style={{ fontSize: 10.5, display: "inline-block", marginTop: 6 }}>
-                LROC NAC imagery of this site (hardware + tracks visible) ↗
+                Source for this coordinate ↗
               </a>
+              {APOLLO_SITE_IDS.includes(site.id as any) && (
+                <a href={lrocFeaturedUrl(site.id)} target="_blank" rel="noreferrer"
+                   style={{ fontSize: 10.5, display: "block", marginTop: 4 }}>
+                  LROC NAC imagery of this site (hardware + tracks visible) ↗
+                </a>
+              )}
             </div>
           </div>
         );

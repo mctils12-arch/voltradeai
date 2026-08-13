@@ -3,6 +3,89 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 [PRODUCT] — T-CLIENT — lunar surface missions layer: 6 Apollo flags → 35 verified sites, symbols by kind/nation/outcome (v1.0.693)
+
+TERRITORY: T-CLIENT (client/src/lib/celestial/**, datamap.tsx). SHARED:
+package.json bump only.
+
+REPORT (human): "i want for the moon to be able to see the stuff on the moon,
+the tracks from past missions, and the point to be clickable on the mission,
+even the new one from china, and have it as a layer for past moon missions."
+
+RESEARCH FIRST (22-agent workflow, 0 errors): every coordinate was gathered
+from primary sources, then ADVERSARIALLY re-verified by independent agents
+hunting the one defect that matters most here — a west/east longitude sign
+flip, which silently teleports a site to the wrong hemisphere. Verified
+verdicts: all confirmed, none corrected, none rejected. One researched site
+(Chandrayaan-2 Vikram) is HELD OUT because only secondary sources
+(Wikipedia/news) carried its coordinate — it ships when a primary NASA/ASU
+URL is verified, not before. The input arrays were themselves truncated
+mid-transfer (Surveyor 5/6/7, Luna 23, Ranger impacts never arrived), so the
+layer states it is a VERIFIED SUBSET, never a complete catalogue.
+
+SHIPPED: `lunarMissions.ts` — 35 sites, 1959–2025: 6 Apollo (LRO-surveyed
+descent stages, Wagner et al. 2017), 10 Soviet (Luna 2/9/13/16/17/20/21/24 +
+Lunokhod 1/2 final parking spots), 2 Surveyor, 4 Chinese (Chang'e 3/4/5/6 —
+including the 2024 FAR-SIDE sample return the human asked for), Chandrayaan-3,
+Luna 25, SLIM, IM-1/IM-2, Blue Ghost, Hakuto-R M1/M2, Beresheet, and 4
+deliberate impacts (LCROSS, GRAIL A/B, LADEE). `lunarSymbols.ts` — SYMBOLS NOT
+DOTS: shape = kind (flag/tripod/rover/sample-return/impact chevron), colour =
+operating nation, fill = outcome (solid intact · struck through crashed · bar
+partial), DASHED HALO = coordinate never surveyed. Legend renders through the
+SAME draw function the canvas uses, so the key cannot drift from the map.
+
+HONESTY MACHINERY (the substance, not decoration):
+- coord_confidence drives rendering AND card copy: surveyed_lro / published_
+  precise / catalogued (km-scale, never found — "REPORTED position") /
+  estimated (Luna 2: impact REGION ±~1° ≈ 30 km, crater never located).
+- attribution_certain=false for Luna 25 — NASA says the new crater is LIKELY
+  Luna 25's; the card says likely, not proven.
+- date_is_day_only for LADEE — its impact TIME was never published, so the
+  card shows the date alone rather than invent a timestamp.
+- NEAR/FAR side is COMPUTED from longitude, replacing a hand-written note
+  ("none are on the far side") that this data made FALSE (Chang'e 4/6, LADEE).
+- Only the six Apollo ids may imply NAC (~0.5 m/px) detail; every other card
+  gets NON_APOLLO_IMAGERY_NOTE saying hardware is below one pixel in WAC.
+
+TRACKS — the honest answer to "the tracks from past missions": NO route line
+ships in this PR. Research found real citable vector traverses exist for
+Apollo 11/12/14 (LROC spatio-temporal mapping) and Apollo 17 (Haase et al.
+2019, 31.34 km mapped, ~±10 m absolute) — those are a follow-up PR with a
+data-prep step. But for the missions users most associate with tracks the
+answer is that the data is NOT obtainable: Apollo 15/16 are mapped by LROC yet
+never released as vector data; Lunokhod 1/2 were digitized by MIIGAiK but the
+archive host is offline and unlicensed; Yutu/Yutu-2 routes exist only as
+figures in paywalled papers. Drawing a line between two surveyed points would
+be a guess, so instead each such card SAYS why no line is drawn, and A15/A16
+ship their surveyed LRV parking coordinates as separate points.
+
+STALENESS: APOLLO_SITES, APOLLO_NEAR_SIDE_ONLY_NOTE, the old imagery note and
+lrocFeaturedUrl were DELETED from apolloSites.ts (which now holds only the
+pref store — its localStorage key `vt.celestial.apolloSites` deliberately
+UNCHANGED, since renaming it would silently re-enable the layer for anyone who
+turned it off). Two arrays on the same ids would drift. Every assertion the
+old test held was PORTED and strengthened (rover history, Apollo anchor
+coords, EVA bounds, imagery notes); the one guard that could not port —
+"near-side claim matches every longitude" — was REPLACED by a stronger test
+covering all 35 sites and catching sign flips. lroc.test.ts's NAC-strip test
+was repointed and gained a negative case (Chang'e 5 must NOT resolve to a
+strip). Nothing was weakened to make this pass.
+
+TESTS (+24): 16 data-integrity (near_side⟺|lon|<90 for all 35; far-side set is
+exactly Chang'e 4/6 + LADEE; https source on every site; crewed⟺crew facts;
+unsurveyed sites must say "reported"; Luna 25 flagged provisional; LADEE
+day-only; China's four present; computed side note; coverage note refuses to
+claim completeness; hardware points are points, not routes; rover missions
+without citable routes say so) + 8 symbol (every kind draws a structurally
+DIFFERENT glyph — mechanical SYMBOLS-NOT-DOTS guard; anchor sits exactly on
+the coordinate; crashed≠partial≠landed; dashed halo only when unsurveyed;
+nation colours; legend covers every drawn kind; no throw on any real site).
+GATES: client 982/982, server 1223/1224 (the 1 red — pmtiles fixture magic —
+pre-exists on clean main), build clean, new modules typecheck clean. Backtest
+n/a. NOT VISUALLY CONFIRMED in-sandbox: the stub server cannot boot the map
+far enough to enter the space view (same limit as v1.0.691) — stated, not
+claimed.
+
 ## 2026-08-13 [PRODUCT] — T-CLIENT — realistic-lighting toggle reaches the Moon and every planet (v1.0.691)
 
 TERRITORY: T-CLIENT (`client/src/pages/datamap.tsx`) + one new server-side

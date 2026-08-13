@@ -372,12 +372,20 @@ test("all six Apollo sites have a NAC scheme; maxZ matches the live probes", asy
 
 test("nacSiteFor: every landing point is inside its own strip; Tycho is in none", async () => {
   const { nacSiteFor } = await import("./lroc.ts");
-  const { APOLLO_SITES } = await import("./apolloSites.ts");
-  for (const site of APOLLO_SITES) {
+  // site data moved to lunarMissions.ts (2026-08-13); only the six crewed
+  // Apollo landings have NAC strips, so this walks those ids
+  const { LUNAR_SITES, APOLLO_SITE_IDS } = await import("./lunarMissions.ts");
+  const apollo = LUNAR_SITES.filter((s) => (APOLLO_SITE_IDS as readonly string[]).includes(s.id));
+  assert.equal(apollo.length, 6, "expected the six crewed Apollo landings");
+  for (const site of apollo) {
     const hit = nacSiteFor(site.lon, site.lat);
     assert.ok(hit, `${site.id}: landing point inside a NAC strip`);
     assert.equal(hit!.id, site.id, `${site.id}: inside its OWN strip`);
   }
+  // a non-Apollo site must NOT resolve to a strip — no other mission streams
+  // NAC imagery, and claiming one would oversell our resolution there
+  const ce5 = LUNAR_SITES.find((s) => s.id === "change5")!;
+  assert.equal(nacSiteFor(ce5.lon, ce5.lat), null, "Chang'e 5 has no Apollo NAC strip");
   assert.equal(nacSiteFor(-11.36, -43.31), null, "Tycho has no Apollo NAC strip");
   assert.equal(nacSiteFor(170, 0), null, "far side has none");
 });

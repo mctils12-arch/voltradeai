@@ -264,7 +264,13 @@ import {
   type MoonSurfaceView,
   type DetailOverlay,
 } from "./moonSurface.js";
-import { APOLLO_SITES, getApolloSitesPref } from "./apolloSites.js";
+import { getApolloSitesPref } from "./apolloSites.js";
+// LUNAR SURFACE MISSIONS (2026-08-13): the six Apollo flags became 35 verified
+// sites across every agency that has reached the Moon. Same marker machinery —
+// the limb/occlusion/projection gates below were already lat/lon-general, so
+// far-side sites (Chang'e 4/6, LADEE) cull correctly with no gate change.
+import { LUNAR_SITES } from "./lunarMissions.js";
+import { drawSiteGlyph, GLYPH_HIT_R } from "./lunarSymbols.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -3317,7 +3323,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         const toCamN = scale3(toCamV, 1 / (distCS || 1));
         const patchMode = distCS < MOON_PATCH_ACTIVATE_RADII * R;
         const horizonCos = R / Math.max(R, distCS);
-        for (const site of APOLLO_SITES) {
+        // label boxes already claimed this frame — the south-polar cluster
+        // (IM-2 −84.8, LCROSS −84.7, Chandrayaan-3 −69.4, Luna 25 −57.9) piles
+        // into an unreadable smear without collision suppression. The MARKER
+        // always draws; only the text yields.
+        const labelBoxes: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+        for (const site of LUNAR_SITES) {
           const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, wDegS);
           const facing = n.x * toCamN.x + n.y * toCamN.y + n.z * toCamN.z;
           if (patchMode ? facing < horizonCos + 0.02 : facing <= 0.02) continue;
@@ -3335,34 +3346,29 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
           if (occludedByNearerDisc({ id: "moon", x: sx, y: sy, layoutDistM: moonDrawnS.layoutDistM },
               onScreen.map((b) => ({ id: b.id, x: b.p.x, y: b.p.y, discPx: b.discPx, layoutDistM: b.layoutDistM })))) continue;
-          // glyph: a small flag — mast + pennant + base dot (SYMBOLS NOT
-          // DOTS: the shape says "crewed landing site" at a glance)
-          ctx.save();
-          ctx.strokeStyle = "rgba(255,255,255,0.95)";
-          ctx.fillStyle = "rgba(255,209,102,0.95)";
-          ctx.lineWidth = 1.4;
-          ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(sx, sy - 11);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(sx, sy - 11);
-          ctx.lineTo(sx + 7, sy - 8.5);
-          ctx.lineTo(sx, sy - 6);
-          ctx.closePath();
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,255,255,0.95)";
-          ctx.fill();
+          // SYMBOLS NOT DOTS: shape = mission kind, colour = operating nation,
+          // fill = outcome, dashed halo = coordinate never surveyed. One
+          // function, shared with the legend, so the key cannot drift.
+          drawSiteGlyph(ctx as any, sx, sy, {
+            kind: site.kind, outcome: site.outcome, country: site.country,
+            coord_confidence: site.coord_confidence,
+          });
           if (moonDrawnS.discPx >= 140) {
+            ctx.save();
             ctx.font = "9px var(--font-mono, monospace)";
             ctx.textAlign = "left";
-            ctx.fillStyle = "rgba(223,232,245,0.92)";
-            ctx.fillText(site.mission, sx + 9, sy - 2);
+            const tw = ctx.measureText(site.mission).width;
+            const box = { x0: sx + 9, y0: sy - 11, x1: sx + 9 + tw, y1: sy + 2 };
+            const clash = labelBoxes.some((b) =>
+              box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0);
+            if (!clash) {
+              labelBoxes.push(box);
+              ctx.fillStyle = "rgba(223,232,245,0.92)";
+              ctx.fillText(site.mission, sx + 9, sy - 2);
+            }
+            ctx.restore();
           }
-          ctx.restore();
-          siteRects.push({ id: site.id, x: sx, y: sy, r: 10 });
+          siteRects.push({ id: site.id, x: sx, y: sy, r: GLYPH_HIT_R });
         }
       }
     }
@@ -4034,7 +4040,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
    *  clamp to the zoom floor ourselves (beginFlight bypasses its arrival
    *  clamp when both are provided). */
   const flyToSiteImpl = (siteId: string): void => {
-    const site = APOLLO_SITES.find((s) => s.id === siteId);
+    // MUST stay on the same array as the marker loop above — markers drawn
+    // from one list and fly-to resolved from another is a silent no-op click.
+    const site = LUNAR_SITES.find((s) => s.id === siteId);
     if (!site) return;
     const Zs = norm3(axisEclOfDate("moon", timeMs));
     const Xs = norm3(equatorNodeDirEclOfDate("moon", timeMs));
