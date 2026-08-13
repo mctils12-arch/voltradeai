@@ -2674,6 +2674,21 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   width: min(280px, calc(100vw - 24px));
   z-index: 12;
 }
+/* STANDING UI LAW — nothing covers anything else (2026-08-13 report: the
+   mission card rendered ON TOP of the open layers panel, garbling both).
+   The panel owns the right edge while it is open, so the space cards step
+   left of it — the same rule the nav cluster and flight profile already
+   follow (right: 348px / 508px above). A card the user has DRAGGED has an
+   inline left/top and is exempt: their placement wins over ours. */
+.vt-map-page[data-vt-panel-open="true"] .vt-site-card.vt-space-card:not([style*="left:"]) {
+  right: 360px;
+}
+@media (max-width: 1100px) {
+  /* not enough room to sit beside the panel: drop below it instead of over it */
+  .vt-map-page[data-vt-panel-open="true"] .vt-site-card.vt-space-card:not([style*="left:"]) {
+    right: 12px; top: auto; bottom: 12px;
+  }
+}
 .vt-site-card.vt-space-card .vt-card-detbody { border-top: none; padding-top: 4px; }
 @media (max-width: 767px) {
   .vt-site-card.vt-space-card { left: 0; right: 0; top: auto; bottom: 0; width: auto; }

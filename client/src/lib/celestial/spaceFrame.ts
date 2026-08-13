@@ -2893,7 +2893,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   // ── flight construction (always from the LIVE pose: cancels any flight
   // in progress first, freezing its blended camera as the new start) ──
-  function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
+  function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean; siteClaim?: boolean }): void {
     cancelFlight();
     // a fly-to lands looking at the target body's centre — drop any
     // zoom-to-cursor / pan look-at offset carried from the prior focus
@@ -2945,8 +2945,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       exitOnArrival: o?.exitOnArrival ?? false,
     };
     // body card hook: a fly-to opens the target's card; flying home (to
-    // the seam) closes it
-    opts.onFocusBody?.(o?.exitOnArrival ? null : toId);
+    // the seam) closes it.
+    // SITE CLAIM (2026-08-13 report: "when i click on Moon Mission it thinks
+    // i am clicking on the moon and pulls up that card"). A marker click flies
+    // to the MOON to reach the site, which used to open the Moon's body card
+    // on top of the site card — two cards for one click. This is the space
+    // equivalent of the map's feature-claim rule (datamap __vtFeatClaim): the
+    // MORE SPECIFIC selection owns the click, so a site fly-to suppresses the
+    // body card entirely. Answers the human's "if i click on the Earth it
+    // doesn't pull up the Earth card, but in space it does".
+    if (o?.siteClaim) opts.onFocusBody?.(null);
+    else opts.onFocusBody?.(o?.exitOnArrival ? null : toId);
     kick();
   }
 
@@ -4049,7 +4058,8 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const Ys = norm3(cross(Zs, Xs));
     const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, iauPrimeMeridianDeg("moon", timeMs));
     const R = radiusM("moon");
-    beginFlight("moon", { toDir: n, toDist: Math.max(MIN_ZOOM_RADII * R, 1.35 * R) });
+    // siteClaim: the site card is the ONE card this click opens (see beginFlight)
+    beginFlight("moon", { toDir: n, toDist: Math.max(MIN_ZOOM_RADII * R, 1.35 * R), siteClaim: true });
     opts.onFocusSite?.(siteId);
   };
   const onClick = (e: MouseEvent): void => {

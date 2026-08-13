@@ -3,6 +3,55 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 [REPAIR] — T-CLIENT — space-view card interaction: a mission click opens ONE card, and cards never cover the layers panel (v1.0.694)
+
+TERRITORY: T-CLIENT (spaceFrame.ts click path, index.css) + the celestial
+ratchet test. SHARED: package.json bump only.
+
+REPORT (human, with screenshot): "when i click on Moon Mission, it thinks I am
+clicking on the moon and pulls up that card, and the mission card covers the
+layer; nothing should cover something else. How did we solve this problem on
+Earth? If I click on the Earth, it doesn't pull up the Earth card, but in
+space it does?"
+
+BUG 1 — TWO CARDS FOR ONE CLICK. The click handler already hit-tests site
+markers FIRST and returns (spaceFrame.ts onClick), so the report's literal
+reading ("it thinks I am clicking on the moon") was not the mechanism. The
+real path: flyToSiteImpl calls beginFlight("moon", ...) to reach the site, and
+beginFlight unconditionally fires opts.onFocusBody(toId) — which opens the
+MOON body card on top of the site card the same click just opened. THE EARTH
+ANSWER the human asked for: the map solves this with a FEATURE CLAIM
+(datamap __vtFeatClaim) — the more specific selection owns the click and the
+base layer does not also respond. Ported that rule to the space frame as
+beginFlight({siteClaim:true}), which CLOSES the body card instead of opening
+it. One click, one card, matching Earth's behaviour.
+
+BUG 2 — CARD OVER PANEL (Standing UI Law: nothing covers another element).
+.vt-site-card.vt-space-card is anchored right:12px — the same edge the layers
+panel occupies — at z-index 12, so it rendered ON TOP of the open panel
+(visible garbling in the screenshot). Fixed with the pattern the page already
+uses for exactly this: .vt-map-page[data-vt-panel-open="true"] shifts the card
+to right:360px, the same way the nav cluster (right:348px) and flight profile
+(right:508px) already step aside. Under 1100px there is no room beside the
+panel, so the card drops below it rather than over it. A card the user has
+DRAGGED carries an inline left/top and is exempt — their placement wins.
+
+TESTS (+2 ratchets in celestialToggleWiring.test.ts): a site fly-to must pass
+siteClaim and the claim must CLOSE the body card (so "two cards for one click"
+cannot come back); the space cards must carry a panel-open shift that clears
+the panel width, with the dragged-card exemption intact.
+
+GATES: client 989/989, build clean. NOT VISUALLY CONFIRMED in-sandbox (the
+stub server cannot enter the space view) — stated, not claimed.
+
+NEXT (the human's Moon-rendering report, sequenced worst-pain-first): the
+brightness collapse on zoom-out is NOT primarily an eviction bug as first
+assumed — at disc range the Moon renders through textureSphere (a different
+material that never touches the WAC mosaic), so keeping the mosaic resident
+cannot fix it alone. The real fix is ONE MATERIAL POLICY across both LOD
+paths, which also subsumes the "black while loading" pop (ancestor fallback +
+crossfade, Law II) . Filed in that order.
+
 ## 2026-08-13 [PRODUCT] — T-CLIENT — lunar surface missions layer: 6 Apollo flags → 35 verified sites, symbols by kind/nation/outcome (v1.0.693)
 
 TERRITORY: T-CLIENT (client/src/lib/celestial/**, datamap.tsx). SHARED:
