@@ -48842,3 +48842,32 @@ tail-behind + no-invented-direction + pole clamp, tz-region honesty
 (Etc→null, Gambier stays), link shapes, site-clock JST pin. LIVE
 smoke: booted dist server, real CNEOS pull → 485 events, 291 with
 direction, route serves.
+
+## 2026-08-13 — [REPAIR] Meteor card readability + verdict-aware coverage links (v1.0.694)
+
+Territory: T-CLIENT. Human live-use report with screenshots: the
+Google News link for a 2016 mid-ocean event returned zero results
+("Some of the links are just too general and dont bring back
+anything… there might not be any in the middle of the ocean ?") and
+the card stat chips truncated ("106299…"). Their ocean intuition was
+exactly right — the design now encodes it.
+
+LINKS v2 (client/src/lib/meteors.ts): per-event coverage VERDICT —
+ocean (no tz region) → "Remote ocean, no witnesses — footage
+unlikely" + links collapse to NASA's record and ONE "search anyway"
+web link (never a wall of dead chips); land+night (plain solar
+hour-angle test, honest approximation) → "sightings likely";
+land+day → "possible". Natural date wording ("August 5 2016", never
+the machine "2016-08-05" that returned nothing), loose month-year
+wording for video searches (how titles are written), and AGE-AWARE
+targets: Google News only while its index still has the event
+(~1 yr), the general web after (news indexes decay; archives don't).
+
+CARD: short labels (Blast/Altitude/Speed/Heading), compact
+unit-aware values via fmtBlastAlt/fmtEntrySpeed ("106k ft", "44k
+mph"), "—" for unpublished (never invented).
+
+Tests: meteors.test.ts rewritten+extended (13) — land-recent links,
+old-event web fallback (the 2016 case pinned), ocean collapse,
+naturalDate/monthYear, nightAtSite solar cases, verdict trio,
+compact-format pins including the exact 106k-ft truncation case.
