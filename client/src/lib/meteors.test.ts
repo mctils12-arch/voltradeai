@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   meteorSeverity, compassPoint, meteorIconSize, meteorStreak,
-  meteorRegion, meteorCoverageLinks, siteLocalTime,
+  meteorRegion, meteorCoverageLinks, meteorCoverageVerdict,
+  naturalDate, naturalMonthYear, nightAtSite, fmtBlastAlt, fmtEntrySpeed,
+  siteLocalTime,
 } from "./meteors";
 
 test("severity ramp matches the approved mock: blue < 0.1, amber to 1, red ≥ 1 kt", () => {
@@ -47,17 +49,63 @@ test("region keywords from the tz database; open ocean honestly yields none", ()
   assert.equal(meteorRegion(-30, -140), "Gambier", "remote Pacific still inside a real zone — usable keyword");
 });
 
-test("coverage links: AMS ±1-day window, searches carry date + region, CNEOS provenance", () => {
-  const links = meteorCoverageLinks("2025-08-19 14:08:48", 30.9, 131.8);
+test("links v2 — land + recent: AMS ±1 day, loose-worded videos, News, CNEOS", () => {
+  const NOW = Date.parse("2025-09-01T00:00:00Z");
+  const links = meteorCoverageLinks("2025-08-19 14:08:48", 30.9, 131.8, NOW);
   assert.equal(links.length, 4);
-  const ams = links[0];
-  assert.match(ams.href, /amsmeteors\.org\/fireballs\/\?start_date=2025-08-18&end_date=2025-08-20/);
-  assert.match(links[1].href, /news\.google\.com\/search\?q=meteor%20fireball%20Tokyo%202025-08-19/);
-  assert.match(links[2].href, /youtube\.com\/results\?search_query=/);
+  assert.match(links[0].href, /amsmeteors\.org\/fireballs\/\?start_date=2025-08-18&end_date=2025-08-20/);
+  // video search uses the LOOSE month-year wording titles actually use
+  assert.match(links[1].href, /youtube\.com\/results\?search_query=meteor%20Tokyo%20August%202025/);
+  // recent event → Google News still has it
+  assert.match(links[2].href, /news\.google\.com\/search\?q=meteor%20fireball%20Tokyo%20August%2019%202025/);
   assert.match(links[3].href, /cneos\.jpl\.nasa\.gov/);
-  // ocean event: searches run date-only (no fabricated region)
-  const ocean = meteorCoverageLinks("2026-08-01 17:43:48", 0, -30);
-  assert.ok(ocean[1].href.includes("2026-08-01"));
+});
+
+test("links v2 — old events skip the decayed news index for the general web (the 2016 report)", () => {
+  const NOW = Date.parse("2026-08-13T00:00:00Z");
+  const links = meteorCoverageLinks("2016-08-05 18:02:00", 30.9, 131.8, NOW);
+  const text = links[2];
+  assert.match(text.href, /www\.google\.com\/search\?q=meteor%20fireball%20Tokyo%20August%205%202016/);
+  assert.match(text.label, /news indexes decay/);
+  assert.ok(!links.some((l) => l.href.includes("news.google.com")), "no dead News link for a 2016 event");
+});
+
+test("links v2 — ocean events collapse to the record + one 'anyway' search, never dead chips", () => {
+  const ocean = meteorCoverageLinks("2016-08-05 18:02:00", 0, -30);
+  assert.equal(ocean.length, 2);
+  assert.match(ocean[0].href, /cneos\.jpl\.nasa\.gov/);
+  assert.match(ocean[1].label, /anyway/);
+  assert.match(ocean[1].href, /www\.google\.com\/search\?q=meteor%20fireball%20August%205%202016/);
+});
+
+test("naturalDate: human wording, never the machine form that returned nothing", () => {
+  assert.equal(naturalDate("2016-08-05 18:02:00"), "August 5 2016");
+  assert.equal(naturalMonthYear("2016-08-05 18:02:00"), "August 2016");
+});
+
+test("nightAtSite: plain solar test — 18:02 UTC is mid-day at 174°W, night at 131°E", () => {
+  const t = Math.floor(Date.parse("2016-08-05T18:02:00Z") / 1000);
+  assert.equal(nightAtSite(t, -174.4), false, "~6:26 solar AM edge...actually daytime side");
+  assert.equal(nightAtSite(t, 131.8), true, "~2:49 solar next-day = dark");
+});
+
+test("verdict: ocean unlikely, land night likely, land day possible", () => {
+  const t = Math.floor(Date.parse("2025-08-19T14:08:48Z") / 1000);
+  assert.equal(meteorCoverageVerdict(t, 0, -30).key, "unlikely");
+  const jp = meteorCoverageVerdict(t, 30.9, 131.8);
+  assert.equal(jp.key, "likely");
+  assert.match(jp.label, /Tokyo/);
+  const day = meteorCoverageVerdict(t, 42.0, -70.5); // 14:08 UTC ≈ 09:26 solar at 70.5W
+  assert.equal(day.key, "possible");
+});
+
+test("compact stat formats fit the chip row (the 106299… truncation fix)", () => {
+  assert.equal(fmtBlastAlt(32.4, "imperial"), "106k ft");
+  assert.equal(fmtBlastAlt(32.4, "metric"), "32 km");
+  assert.equal(fmtBlastAlt(null, "imperial"), "—");
+  assert.equal(fmtEntrySpeed(19.6, "imperial"), "44k mph");
+  assert.equal(fmtEntrySpeed(19.6, "metric"), "20 km/s");
+  assert.equal(fmtEntrySpeed(null, "metric"), "—");
 });
 
 test("site local time via the tz database; nautical zones omit rather than fake", () => {
