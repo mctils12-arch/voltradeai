@@ -1003,6 +1003,40 @@ function startServer() {
         res.writeHead(200, { "content-type": "image/png" });
         return res.end(WX_TILE_PNG);
       }
+      // TIME MACHINE v2 T-2 window fixture (2026-08-13): checked BEFORE the
+      // generic FIXTURES prefix match below, which would otherwise treat
+      // "/api/data/aircraft/window" as a sub-path of the "/api/data/aircraft"
+      // key (u.startsWith(k + "/")) and hand TimeScrubber.tsx the raw
+      // /api/data/aircraft point-list shape instead of a WindowResult — no
+      // `.hexes`, no `.to`, a real crash the first live run of this harness
+      // caught (`w.hexes is not iterable`). A dedicated small window payload
+      // exercises the real hex/points/coverage shape the client reads.
+      if (u.startsWith("/api/data/aircraft/window")) {
+        const params = new URLSearchParams(qs || "");
+        const to = parseInt(params.get("to") || "0", 10) || Math.floor(Date.now() / 1000);
+        const from = parseInt(params.get("from") || String(to - 86400), 10) || to - 86400;
+        const step = parseInt(params.get("step") || "300", 10) || 300;
+        let seed = 7;
+        const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const hexes = [];
+        for (let i = 0; i < 40; i++) {
+          const baseLat = 25 + rnd() * 24, baseLon = -125 + rnd() * 58;
+          const n = 5 + Math.floor(rnd() * 8);
+          const points = [];
+          for (let k = 0; k < n; k++) {
+            const t = from + Math.floor(((to - from) * k) / Math.max(1, n - 1));
+            points.push([t, baseLat + k * 0.05, baseLon + k * 0.05, Math.round(rnd() * 11000)]);
+          }
+          hexes.push({ i: "fx" + i.toString(16), rg: "N" + i + "FX", c: "TST" + i, ty: "B738", points, raw_count: points.length, truncated: false });
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({
+          kind: "aircraft", from, to, zoom: 5, step_sec: step,
+          hexes, hexes_seen: hexes.length,
+          total_points: hexes.reduce((s, h) => s + h.points.length, 0),
+          coverage: { requested_from: from, scanned_from: from, complete: true, files_scanned: 1 },
+        }));
+      }
       // STATEFUL track fixture (trail-refresh ratchet, [REPAIR 2026-07-05]):
       // each call returns one MORE point so a live-refreshing trail visibly
       // grows across the popup's 30s interval; a static-snapshot regression

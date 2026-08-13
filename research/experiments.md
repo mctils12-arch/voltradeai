@@ -128,12 +128,27 @@ produced normally. `python3 -m pytest -q`: untouched — zero Python files in
 this diff.
 
 VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
---page data` run at 390/768/1440 per DESIGN.md, launched before this commit
-and still running (long-running headless Chromium pass under this sandbox's
-software WebGL renderer) — screenshots are reviewed against DESIGN.md and
-the PR is only opened once that pass reports back; this entry is committed
-now (uncommitted-changes gate) with the result to follow as this same
-session's next experiments.md entry once the harness completes.
+--page data` run at 390/768/1440 per DESIGN.md. FIRST RUN caught a real bug:
+the harness's fixture server matches unmocked `/api/*` routes against
+FIXTURES by prefix (`u.startsWith(k + "/")`), so
+`/api/data/aircraft/window` matched the existing `/api/data/aircraft` key
+(the flat point-list snapshot fixture) instead of falling through to the
+`{}` catch-all — TimeScrubber.tsx received a payload with no `.hexes`/`.to`
+and crashed inside `positionsAtCursor` ("hexes is not iterable"), visible
+as red error text in the 390px screenshot. This is a genuine fixture-
+routing gap this session's new route exposed, not a fluke of the sandbox;
+fixed by adding a dedicated window-shaped fixture handler in
+scripts/visual_check.mjs, checked before the generic prefix match (same
+pattern as the existing `/api/data/track/` and `/api/data/wxtile/`
+special-cased handlers) — 40 synthetic hexes with realistic point arrays,
+so the harness now exercises the real hex/points/coverage shape instead of
+crashing or silently rendering nothing. SECOND RUN (post-fix): 0 hard
+failures at all three widths; timescrub screenshots show the window/step
+selects, a filled "Now"-state slider, and "40 aircraft" status text with no
+error; the only warnings present (touch-target sizes on the nav bar, one
+clipped 13F legend label) are pre-existing and unrelated to this diff — not
+present on TimeScrubber's own controls. Screenshots reviewed this session
+before the PR opened.
 
 BACKTEST: N/A per PROMOTION RULE 3 — RAW overlay UI + a read-only archive
 endpoint; no scoring, sizing, threshold, or trading-decision value changed
