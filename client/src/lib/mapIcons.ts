@@ -351,6 +351,23 @@ const shapes: Record<string, () => ImageData> = {
     ctx.quadraticCurveTo(m + 7, s - 3, s - 6, s - 9);
     ctx.stroke();
   }),
+  // meteor blast (CNEOS fireball): 4-point starburst — the terminal flash,
+  // deliberately distinct from vt-quake's 8-ray epicenter. Upright, never
+  // rotated; blast energy drives icon-color, flash energy icon-size; the
+  // direction streak is its own line layer (never baked into the symbol).
+  "vt-meteor": () => draw(S, (ctx, s) => {
+    const m = s / 2;
+    const rO = 14, rI = 4.2;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI / 4) * i - Math.PI / 2;
+      const r = i % 2 ? rI : rO;
+      const x = m + r * Math.cos(a), y = m + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }),
   // earthquake epicenter: center dot + 8-point radiating burst (upright,
   // never rotated — magnitude drives icon-size/icon-color via feature props)
   "vt-quake": () => draw(S, (ctx, s) => {
