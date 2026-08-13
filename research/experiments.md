@@ -3,6 +3,27 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 (same session, append) — OPS NOTE: PR #818 auto-merged mid-market despite the PR body's "wait for close" note
+
+PR #818 (below) was merged by `github-actions[bot]` at 2026-08-13T19:03:54Z
+— ~4 minutes after opening, ~57 minutes before the 16:00 ET close, and
+despite this session's own PR description explicitly asking for the merge
+to wait. The repo evidently has a CI-gated auto-merge workflow that acts
+on green checks regardless of prose in the PR body — a note in the
+description is not a mechanism, only a request a human or a merge-gate
+config would need to read. Filed here as an OPS GOTCHA for future sessions:
+if a genuinely time-sensitive merge-timing preference matters, it needs a
+real mechanism (a draft PR held open, or an explicit hold label if one
+exists) — not a body note — since auto-merge does not read prose. Not
+treated as a violation or an alarm: CLAUDE.md's AUTONOMY AUTHORIZATION
+already permits autonomous merge on green CI; this note is purely so the
+next session doesn't waste time re-writing a "wait for close" line
+expecting it to hold. No corrective action taken this session (post-merge
+`/api/health` checked: `status:"ok"`, live and healthy; deploy-lag
+confirmation left to the next session that touches this area, per the
+existing "always check server_version before assuming a merged fix is
+observable live" routine).
+
 ## 2026-08-13 (scheduled-routine [PRODUCT] session, market-hours) — TIME MACHINE v2 T-2: window×step scrubber selectors wired to the T-1 window endpoint, local cursor scrubbing over a preloaded window (v1.0.700)
 
 TERRITORY: cross-territory by design (T-2 is one logical slice spanning
