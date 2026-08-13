@@ -1323,3 +1323,19 @@ preference — at wide zooms, prefer MORE curtains at lower fidelity or
 FEWER at full fidelity? (b) does "all planes" include the global
 mil/ladd/pia archive at world zoom (thousands) or in-viewport traffic
 only (the SCALE-lawful default I will build absent an answer)?
+
+T-2 SHIPPED 2026-08-13 (v1.0.700, PR #818): TimeScrubber.tsx's aircraft
+layer replaced its hours-back slider with the window/step select pair,
+fetches the T-1 window endpoint once per window/step change, and scrubs
+a CURSOR through the already-loaded per-hex tracks LOCALLY (no fetch per
+drag/playback tick — a design decision beyond the original spec, and a
+genuine improvement over the old per-instant-fetch model). The endpoint
+gained an explicit `step` query param (server/aircraftWindow.ts's
+WINDOW_STEP_OPTIONS_SEC=[60,300,900,3600]) since zoom-derived decimation
+alone has no path to a 1-hour bucket — the charter's step selector could
+not have been built faithfully without this. Full trace in
+experiments.md. NEXT: T-3 (curtain fleet) can now consume this session's
+already-loaded per-hex window data directly; T-4 (vessels parity) needs
+the route to expose `kind` (readWindow already supports it) plus adding
+"vessels" to the client's WINDOW_KINDS set. Both open human questions
+above still only block T-3, not T-2/T-4.
