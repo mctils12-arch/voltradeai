@@ -674,7 +674,36 @@ pinwheel. The same limit applies to every Mercator raster source we stack
 
 This is **not** a bug in the ramp or the palette: it is invented data being
 painted in a region where none exists, which the honesty rails forbid
-regardless of how it looks. Fix in the next commit: declare the sources' real
-latitude `bounds` so nothing paints above 85.051129° — a gap shown as a gap.
-Real polar coverage needs a polar-stereographic source (NASA GIBS publishes
-EPSG:3413 Arctic / EPSG:3031 Antarctic matrix sets); filed as follow-up.
+regardless of how it looks.
+
+### CORRECTION — the obvious fix does NOT work, checked before shipping it
+
+My first instinct was to declare the sources' real latitude `bounds`
+(`[-180, -85.051129, 180, 85.051129]`) so nothing paints in the cap. I read
+MapLibre's implementation before writing it, and it would be a no-op:
+
+```js
+i.bounds && (this.tileBounds = new V(i.bounds, this.minzoom, this.maxzoom))
+hasTile(e){ return !this.tileBounds || this.tileBounds.contains(e.canonical) }
+```
+
+`bounds` only filters WHICH TILES LOAD — and every Mercator tile already lies
+inside ±85.051129° by construction, so nothing would be excluded. The pinwheel
+is not surplus tiles; it is the globe projection FILLING the residual polar cap
+by stretching the edge row across it. Recording the dead end so the next
+session does not re-derive it.
+
+### What actually has to happen
+
+1. **Isolate the layer first.** The seafloor tint, the terrain mesh, and the
+   ocean mesh all consume the SAME terrarium tiles, so the screenshot alone
+   does not identify which one draws the fan. Bisect by toggling each layer at
+   a north-polar camera in the Playwright harness (Chromium is preinstalled)
+   and diffing the captures. Do not fix before this is known.
+2. **Then cover, don't invent.** The honest treatment is a neutral polar-cap
+   mask above the tint, styled and labelled as NO DATA, rather than letting
+   stretched values read as bathymetry.
+3. **Real coverage** needs a polar-stereographic source — NASA GIBS publishes
+   EPSG:3413 (Arctic) and EPSG:3031 (Antarctic) matrix sets. MapLibre cannot
+   mix projections in one map, so this is a genuine piece of work, not a config
+   change. Filed as a follow-up, not attempted here.
