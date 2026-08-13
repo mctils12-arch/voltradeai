@@ -3305,6 +3305,8 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   border: 1px solid rgba(77, 159, 255, 0.2);
   font-family: var(--font-body); font-size: 12.5px;
 }
+.vt-timescrub-window-row { display: flex; gap: 8px; }
+.vt-timescrub-window-row .vt-timescrub-layer { flex: 1; min-width: 0; }
 .vt-timescrub-date {
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   color: var(--accent-bright); text-align: center;

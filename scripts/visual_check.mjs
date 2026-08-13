@@ -1605,13 +1605,18 @@ async function main() {
       }
       // ── W3 TIME SCRUBBER (console charter): [data-vt-timescrub] opens the
       // replay panel. Unlike the analyst pane, opening this panel is EXPECTED
-      // to fire a read-only GET /api/data/snapshot (it fetches an initial
-      // hour on open) — the battery asserts at least one fires, catching a
-      // silent-fetch regression, the mirror image of the analyst's
-      // never-fires assertion.
+      // to fire a read-only GET on open — the battery asserts at least one
+      // fires, catching a silent-fetch regression, the mirror image of the
+      // analyst's never-fires assertion. TIME MACHINE v2 T-2 (2026-08-13):
+      // the default layer (aircraft) now fetches ONE window
+      // (/api/data/aircraft/window) instead of a per-instant snapshot; every
+      // other layer is unchanged, so both paths count.
       let snapshotGets = 0;
       const onSnapshotReq = (r) => {
-        try { if (new URL(r.url()).pathname === "/api/data/snapshot") snapshotGets++; } catch {}
+        try {
+          const p = new URL(r.url()).pathname;
+          if (p === "/api/data/snapshot" || p === "/api/data/aircraft/window") snapshotGets++;
+        } catch {}
       };
       try {
         if (!cfg.map) throw { skip: true };
@@ -1672,7 +1677,7 @@ async function main() {
           }
         }
         if (snapshotGets < 1) {
-          checks.failures.push("timescrub: opening the panel fired zero GET /api/data/snapshot — initial fetch regressed");
+          checks.failures.push("timescrub: opening the panel fired zero GET /api/data/snapshot or /api/data/aircraft/window — initial fetch regressed");
         }
       } catch (e) {
         if (!e?.skip) checks.failures.push("timescrub: driver error — " + (e?.message || e));

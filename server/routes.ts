@@ -33,7 +33,7 @@ import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
-import { readWindow, WINDOW_MAX_SPAN_SEC } from "./aircraftWindow";
+import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -1424,12 +1424,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (to - from > WINDOW_MAX_SPAN_SEC) {
         return res.status(400).json({ error: `window too large (max ${WINDOW_MAX_SPAN_SEC / 86400} days — the raw archive's retention)` });
       }
+      // T-2 step selector: explicit decimation step overriding zoom's
+      // default (earth_twin_program.md TIME MACHINE v2 — "mins or hours
+      // different thing to choose from"). Validated against the fixed
+      // option set so the response stays within the same bound zoom-derived
+      // requests already have.
+      let stepSecOverride: number | undefined;
+      if (req.query.step !== undefined) {
+        const stepRaw = parseInt(String(req.query.step), 10);
+        if (!WINDOW_STEP_OPTIONS_SEC.includes(stepRaw)) {
+          return res.status(400).json({ error: `step must be one of ${WINDOW_STEP_OPTIONS_SEC.join(",")} (seconds)` });
+        }
+        stepSecOverride = stepRaw;
+      }
       const [w, s, e, n] = parts;
       const key = [w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
-                   Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom)].join("|");
+                   Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom),
+                   stepSecOverride ?? "auto"].join("|");
       const hit = windowCache.get(key);
       if (hit && Date.now() - hit.at < 30_000) return res.json(hit.data);
-      const data = await readWindow({ bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom });
+      const data = await readWindow({ bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride });
       windowCache.set(key, { at: Date.now(), data });
       if (windowCache.size > 32) {
         const oldest = windowCache.keys().next().value;
