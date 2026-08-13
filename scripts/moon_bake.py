@@ -194,6 +194,32 @@ def plan_levels(max_z: int, min_z: int = 0) -> list[dict]:
     return out
 
 
+def levels_on_disk(outdir: str, max_probe: int = TREK_MAX_Z) -> list[int]:
+    """Levels that are COMPLETE under `outdir` (every expected tile present).
+
+    The manifest must describe the BUCKET, not the current invocation. Baking a
+    sub-range (`--min-z 6 --max-z 7`) used to overwrite tiles.json with just
+    that range, so the sidecar claimed levels 0-5 did not exist while they were
+    sitting in R2 — the client would have refused to zoom out. Caught on the
+    first real sub-range bake, 2026-08-13. Incomplete levels are excluded
+    rather than advertised, because a half-present level renders as holes.
+    """
+    out = []
+    for z in range(0, max_probe + 1):
+        cols, rows = matrix_size(z)
+        zdir = os.path.join(outdir, str(z))
+        if not os.path.isdir(zdir):
+            continue
+        have = 0
+        for y in range(rows):
+            rowdir = os.path.join(zdir, str(y))
+            if os.path.isdir(rowdir):
+                have += sum(1 for n in os.listdir(rowdir) if n.endswith(".jpg"))
+        if have == cols * rows:
+            out.append(z)
+    return out
+
+
 def manifest(max_z: int, min_z: int = 0, prefix: str = R2_PREFIX) -> dict:
     """The sidecar the client reads to learn what actually exists."""
     levels = plan_levels(max_z, min_z)
@@ -341,13 +367,26 @@ def stage_tiles(work: str, max_z: int, min_z: int, jobs: int, quality: int) -> d
             f"    z{z}: {zt:,} tiles, {zb/1e6:.1f} MB "
             f"({zb/max(1,zt)/1024:.1f} KB avg) in {time.time()-t0:.1f}s"
         )
-    man = manifest(max_z, min_z)
+    write_manifest(outdir)
+    return totals
+
+
+def write_manifest(outdir: str) -> dict:
+    """Write tiles.json describing every COMPLETE level on disk (not just the
+    levels this invocation happened to build — see levels_on_disk)."""
+    present = levels_on_disk(outdir)
+    if not present:
+        raise SystemExit(f"no complete levels under {outdir} — nothing to describe")
+    lo, hi = present[0], present[-1]
+    if present != list(range(lo, hi + 1)):
+        print(f"  WARNING: levels present are non-contiguous: {present}")
+    man = manifest(hi, lo)
     man["baked_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    man["bytes_total"] = totals["bytes"]
+    man["levels_complete"] = present
     with open(os.path.join(outdir, "tiles.json"), "w") as fh:
         json.dump(man, fh, indent=2)
-    print(f"  wrote {outdir}/tiles.json")
-    return totals
+    print(f"  wrote {outdir}/tiles.json  (levels {lo}..{hi}, {man['tiles_total']:,} tiles)")
+    return man
 
 
 def _r2_client():

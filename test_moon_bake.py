@@ -201,3 +201,58 @@ def test_manifest_resolution_matches_the_grid():
     moon_circumference_m = 2 * 3.14159265358979 * 1737400
     for L in man["levels"]:
         assert L["m_per_px"] == pytest.approx(moon_circumference_m / L["px_w"], rel=1e-3)
+
+
+# ── the manifest must describe the BUCKET, not the invocation ──────────────
+# REGRESSION (caught on the first real sub-range bake, 2026-08-13): running
+# `build --min-z 6 --max-z 7` rewrote tiles.json to claim min_z=6, so the
+# sidecar advertised that levels 0-5 did not exist while they were sitting in
+# R2. The manifest is the ONLY thing the client trusts to know what is
+# available, so a manifest that under-reports is a silent product outage.
+
+
+def _fake_level(root, z, complete=True):
+    """Materialise level z's tile tree on disk (optionally one tile short)."""
+    cols, rows = mb.matrix_size(z)
+    n = 0
+    total = cols * rows
+    for y in range(rows):
+        d = os.path.join(root, str(z), str(y))
+        os.makedirs(d, exist_ok=True)
+        for x in range(cols):
+            n += 1
+            if not complete and n == total:
+                continue
+            open(os.path.join(d, f"{x}.jpg"), "wb").close()
+
+
+def test_levels_on_disk_finds_every_complete_level(tmp_path):
+    root = str(tmp_path)
+    for z in (0, 1, 2):
+        _fake_level(root, z)
+    assert mb.levels_on_disk(root, max_probe=3) == [0, 1, 2]
+
+
+def test_an_incomplete_level_is_not_advertised(tmp_path):
+    """A half-present level renders as holes — excluded, never advertised."""
+    root = str(tmp_path)
+    _fake_level(root, 0)
+    _fake_level(root, 1)
+    _fake_level(root, 2, complete=False)  # one tile short
+    assert mb.levels_on_disk(root, max_probe=3) == [0, 1]
+
+
+def test_manifest_covers_all_levels_present_not_just_the_last_bake(tmp_path):
+    root = str(tmp_path)
+    for z in (0, 1, 2, 3):
+        _fake_level(root, z)
+    man = mb.write_manifest(root)
+    assert man["scheme"]["min_z"] == 0, "a sub-range bake must not orphan the lower levels"
+    assert man["scheme"]["max_z"] == 3
+    assert man["levels_complete"] == [0, 1, 2, 3]
+    assert man["tiles_total"] == mb.total_tiles(3)
+
+
+def test_write_manifest_refuses_to_describe_an_empty_tree(tmp_path):
+    with pytest.raises(SystemExit):
+        mb.write_manifest(str(tmp_path))
