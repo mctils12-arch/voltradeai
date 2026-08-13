@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -185,6 +185,13 @@ import {
   getLockHorizonPref, setLockHorizonPref, subscribeLockHorizonPref,
   getMotionTrailsPref, setMotionTrailsPref, subscribeMotionTrailsPref,
   getBodyLabelsPref, setBodyLabelsPref, subscribeBodyLabelsPref,
+  // B6 realistic (sun-driven) lighting — the pref and the frame's
+  // setRealisticLighting have existed since the B6 universal-lighting pass,
+  // but no panel row ever drove them (2026-08-13 report: "this doesn't work
+  // on the moon... it only works on the earth" — the user was toggling the
+  // unrelated Earth-map `daynight` geojson layer). The pref already shades
+  // EVERY body (moon patch, planets, rings); this import is the missing wire.
+  getRealisticLightingPref, setRealisticLightingPref, subscribeRealisticLightingPref,
   SPACE_IMAGERY_CREDIT,
 } from "@/lib/celestial/spaceAssets";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
@@ -2232,6 +2239,10 @@ export default function DataMapPage() {
         // B3: orbit-ellipse polylines per the persisted toggle
         orbitPaths: getOrbitPathsPref(),
         apolloSites: getApolloSitesPref(),
+        // B6: enter with the persisted lighting mode (the frame defaulted to
+        // the same pref internally; passing it explicitly keeps entry state
+        // and the live subscription below reading ONE source)
+        realisticLighting: getRealisticLightingPref(),
         // 2026-07-18 scene toggles (persisted): panorama/grid/trails/labels
         milkyWay: getMilkyWayPref(),
         eclipticGrid: getEclipticGridPref(),
@@ -2283,6 +2294,8 @@ export default function DataMapPage() {
       const offOrbits = subscribeOrbitPathsPref(() => { try { handle.setOrbitPaths(getOrbitPathsPref()); } catch {} });
       // Apollo landing-site markers toggle applies live (2026-08-12)
       const offApollo = subscribeApolloSitesPref(() => { try { handle.setApolloSites(getApolloSitesPref()); } catch {} });
+      // B6 realistic-lighting toggle applies live to EVERY body (2026-08-13)
+      const offRealistic = subscribeRealisticLightingPref(() => { try { handle.setRealisticLighting(getRealisticLightingPref()); } catch {} });
       // 2026-07-18 scene toggles apply live while mounted
       const offGalaxy = subscribeMilkyWayPref(() => { try { handle.setMilkyWay(getMilkyWayPref()); } catch {} });
       const offGrid = subscribeEclipticGridPref(() => { try { handle.setEclipticGrid(getEclipticGridPref()); } catch {} });
@@ -2317,6 +2330,11 @@ export default function DataMapPage() {
       spaceCleanupRef.current = () => {
         offAxis(); offUnits(); offScale(); offOrbits(); offSim();
         offGalaxy(); offGrid(); offLock(); offTrails(); offLabels();
+        // offApollo was created at mount but never released (leak: every
+        // enter/exit of the space view orphaned a listener that then called
+        // into a disposed handle). Released here with the new lighting
+        // subscription — same statement, same lifetime as its siblings.
+        offApollo(); offRealistic();
         window.clearInterval(iv);
         if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = 0; }
         try { delete (window as any).__vtSpace; } catch {}
@@ -2441,6 +2459,8 @@ export default function DataMapPage() {
   useEffect(() => subscribeOrbitPathsPref(() => setCelOrbitsView(getOrbitPathsPref())), []);
   const [celApollo, setCelApolloView] = useState(getApolloSitesPref());
   useEffect(() => subscribeApolloSitesPref(() => setCelApolloView(getApolloSitesPref())), []);
+  const [celRealistic, setCelRealisticView] = useState(getRealisticLightingPref());
+  useEffect(() => subscribeRealisticLightingPref(() => setCelRealisticView(getRealisticLightingPref())), []);
   // SPACE VIEW VISUAL UPGRADE (2026-07-18): the scene toggles' panel view
   // (stores of record in lib/celestial/spaceAssets.ts — persisted).
   const [celGalaxy, setCelGalaxyView] = useState(getMilkyWayPref());
@@ -5747,7 +5767,13 @@ export default function DataMapPage() {
           } as any, firstMarker?.id);
         }
         setStatus("daynight", "active", undefined,
-          "computed ephemeris (display-grade) — shaded side is night NOW · the realistic Sun/Moon/planets render in the sky itself (always on, astronomy-engine)");
+          // DISCOVERABILITY (2026-08-13 report): this layer shades the MAP
+          // only. The user read "always on" and reasonably expected it to
+          // govern the Moon/planets too, then found toggling it did nothing
+          // out there. Name the other switch instead of leaving them to hunt.
+          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP only; " +
+          "day/night on the Moon and planets in the space view is CELESTIAL › Realistic lighting · " +
+          "the Sun/Moon/planets in the sky above the horizon render always (astronomy-engine)");
       } catch { /* style mid-swap — next tick retries */ }
     };
     // B3: recompute cadence follows the sim clock — 60 s at real time (the
@@ -12938,7 +12964,7 @@ export default function DataMapPage() {
                   {/* reference "N/7 ON" family: our five SPACE FRAME handle
                       toggles (orbits · trails · galaxy · grid · labels) —
                       rotation + time are the sim clock, sats a separate layer */}
-                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock, celApollo].filter(Boolean).length}/7 ON
+                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock, celApollo, celRealistic].filter(Boolean).length}/8 ON
                   {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
               </button>
@@ -13038,6 +13064,21 @@ export default function DataMapPage() {
                       status: celApollo
                         ? `on — 6 flag markers at the published NASA landing coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view (${APOLLO_NEAR_SIDE_ONLY_NOTE})`
                         : "off — Apollo flag markers hidden" },
+                    // B6 REALISTIC LIGHTING (2026-08-13 report: "i want this
+                    // feature to work on all planets... the missions are on the
+                    // dark side and you would not be able to see them, that's
+                    // why i want a toggle"). The Earth-map "Day/Night & Moon"
+                    // layer only shades the FLAT MAP; the space view's bodies
+                    // are lit by the B6 sun-driven model, whose pref+handle
+                    // existed with no UI. This row is that switch — and unlike
+                    // the map layer it applies to the Moon, every planet and
+                    // the ring shadows, because that is what the pref already
+                    // drives (spaceFrame fullBright/lambert call sites).
+                    { key: "lighting", name: "Realistic lighting", icon: <SunMedium size={15} />,
+                      on: celRealistic, toggle: () => setRealisticLightingPref(!celRealistic),
+                      status: celRealistic
+                        ? "on — real sun-driven day/night on the Moon and every planet (terminators, phases, eclipse + ring shadows) from the sim-clock ephemeris"
+                        : "off — even-lit inspection mode: bodies render full-bright with no terminator, so night-side features (e.g. far-side + unlit landing sites) stay visible. Lighting geometry is hidden, not faked" },
                     { key: "trails", name: "Motion trails", icon: <Waypoints size={15} />,
                       on: celTrails, toggle: () => setMotionTrailsPref(!celTrails),
                       status: celTrails
