@@ -1,6 +1,6 @@
 import { Express } from "express";
 import { requireAuth, requireOwner } from "./auth";
-import { exec, execFile } from "child_process";
+import { exec, execFile, type ExecOptions } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
@@ -39,8 +39,29 @@ const _pyEnv = {
 // "Command failed" with EMPTY stderr — making root causes impossible to
 // diagnose. 32MB handles any realistic scan output comfortably.
 const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
-const execAsync = (cmd: string, opts?: any) =>
-  _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts });
+// STDOUT TYPED AS STRING (T0.0/Q2, 2026-08-13). `opts` was `any`, which
+// defeated overload resolution on promisify(exec): TypeScript could not tell
+// the string signature from the Buffer one and fell back to Buffer, making
+// every `stdout.trim()` downstream a type error. That was 42 of the 83-error
+// `tsc --noEmit` baseline — 51% of the whole list from this single inference,
+// drowning out the real bugs underneath it (research/tsc_baseline.md §2).
+//
+// Two changes, and neither is a cast. `opts: ExecOptions` removes the `any`
+// that caused the ambiguity, and `encoding: "utf8"` states the encoding that
+// was ALREADY in effect — node's `exec` defaults to utf8 and returns Buffer
+// only when explicitly passed `encoding: 'buffer'` (or null). So the runtime
+// behaviour is unchanged; the type now simply describes it.
+//
+// `encoding` sits AFTER the `...opts` spread deliberately, so it cannot be
+// overridden into the Buffer branch that the 42 call sites would break on.
+// Verified before writing this: no call site in this file — 2 direct
+// `execAsync` callers, 44 `execPythonSerialized` callers — passes `encoding`
+// at all, so this takes nothing away from anyone.
+//
+// A cast would have asserted the same conclusion while leaving the next reader
+// unable to tell whether it had been checked. This way tsc proves it.
+const execAsync = (cmd: string, opts?: ExecOptions) =>
+  _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts, encoding: "utf8" });
 
 // ══════════════════════════════════════════════════════════════════════
 // Python Daemon RPC client (OPTIMIZATION 2026-04-20)
@@ -188,7 +209,7 @@ function isTrivialPython(cmd: string): boolean {
   return true;
 }
 
-async function execPythonSerialized(cmd: string, opts?: any) {
+async function execPythonSerialized(cmd: string, opts?: ExecOptions) {
   const maxWait = opts?.timeout || 30000;
   const hardTimeout = Math.min(opts?.timeout || 90000, 90000);
 

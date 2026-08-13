@@ -285,6 +285,44 @@ PY
 )
 
 # ---------------------------------------------------------------------------
+# 9c. D3 — boundary_any: `: any` appearing in a function's PARAMETER LIST or
+# RETURN ANNOTATION, as opposed to anywhere inside a body.
+#
+# Q2 is the argument for this counter. `execAsync(cmd, opts?: any)` was ONE
+# `any`, on one parameter, of one wrapper function — and it defeated overload
+# resolution on promisify(exec) so thoroughly that 42 downstream `stdout.trim()`
+# calls became type errors. That was 51% of the entire tsc baseline, and its
+# noise is why nobody ever read the list that had two live bugs in it.
+#
+# `ts_any` counts all 1250 occurrences and is far too coarse to act on. An
+# `any` inside a function body is a local shortcut; an `any` on a boundary is a
+# contract the compiler cannot check, and it propagates to every caller. 233
+# across 94 files is a list a session can actually work down. Non-increasing.
+# ---------------------------------------------------------------------------
+boundary_any=$(python3 - <<'PYEOF'
+import re, subprocess
+files = [f for f in subprocess.run(['git', 'ls-files', '*.ts', '*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f]
+# Two shapes cover essentially every declaration style in this tree:
+# `function name(params): ret` and `const name = (params): ret =>`.
+decl = re.compile(r'\b(?:export\s+)?(?:async\s+)?function\s+\w+\s*(\([^)]*\))\s*(:\s*[^{\n]+)?', re.S)
+arrow = re.compile(r'\bconst\s+\w+\s*=\s*(?:async\s*)?(\([^)]*\))\s*(:\s*[^=\n]+)?\s*=>', re.S)
+total = 0
+for f in files:
+    try:
+        src = open(f).read()
+    except OSError:
+        continue
+    for pat in (decl, arrow):
+        for m in pat.finditer(src):
+            sig = (m.group(1) or '') + (m.group(2) or '')
+            total += len(re.findall(r':\s*any\b', sig))
+print(total)
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -350,6 +388,7 @@ if [ "$JSON" = 1 ]; then
   "order_post_sites": $order_post_sites,
   "design_token_drift": $design_token_drift,
   "long_try_empty_catch": $long_try_empty_catch,
+  "boundary_any": $boundary_any,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -374,6 +413,7 @@ printf '%-24s %-14s %-12s %s\n' law_iv_scanned     "$law_iv_scanned"      "5"   
 printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "6"      "must reach 1"
 printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"      "must stay 0"
 printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
+printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"
