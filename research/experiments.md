@@ -48328,3 +48328,151 @@ comparison and a verdict here — that is still the real Phase 4 deliverable
 neither this session nor the prior one reached.
 
 PR: https://github.com/mctils12-arch/voltradeai/pull/803
+
+## 2026-08-13 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (scripts/gnss_integrity_gate2.ts, scripts/statsUtils.ts + tests, datacore/signal_ladder.json, open_questions.md) — GNSS-integrity Phase 4: the actual gate-2 statistical run, done, GATE 2 PASS (v1.0.689)
+
+TERRITORY: T-DATACORE (research analysis script + its stats helper, no
+server runtime path changed). SHARED touch minimal and last: package.json
++ package-lock.json version bump only (read-and-increment at commit
+time), datacore/signal_ladder.json (a single appended line, matching the
+file's existing one-line-per-root style — the first attempt via
+python json.dump reformatted the ENTIRE file with indent=2 and was
+reverted before committing; redone as a surgical single-entry Edit).
+
+SESSION-START CHECKS (PRODUCT-session directive): CLAUDE.md read in
+full, then all of research/ (experiments.md tail, open_questions.md
+KNOWN BROKEN section, platform_program.md, wishlist.md scan). Live
+health (`GET /api/health`): `status:"ok"`, bot `active`,
+`equityPeak:110727.04`, `drawdownPct:"0.0"`, `liveness.dark` absent,
+Alpaca `ACTIVE`, scanner `consecutiveFailures:0`, all three position
+feeds (aircraft/vessels/trains) `dead:false` — no LIVENESS ALARM.
+KNOWN BROKEN scan: nothing open and unfixed. Loop-health ratio on the
+last 10 tagged entries: 4 REPAIR / 3 PRODUCT / 3 PIPELINE — well under
+the 7+ thrash threshold, no meta-problem. platform_program.md's queue
+is clear except P5 (HUMAN-GATED). No blocking break; proceeded with
+PRODUCT/PIPELINE work per the session directive, choosing option (a)
+"advance a datacore/ pipeline through its next ladder gate."
+
+PRIMARY-ACTION SELECTION: two consecutive 2026-08-12 sessions
+explicitly queued the SAME next step — "the actual Phase 4 gate-2
+statistical run" for the gnss_integrity_adsb root — each having found
+and fixed a different infrastructure blocker (temporal starvation
+v1.0.685 PR #800, then geographic/bbox starvation v1.0.688 PR #803)
+without reaching the result itself. Confirmed live `server_version:
+"1.0.688"` via `/api/data/layers` (includes both fixes) before
+attempting.
+
+WHAT HAPPENED: ran the exact pre-registered comparison from the
+2026-08-11 open_questions.md entry — broadcast-origin-only,
+band-stratified, Baltic bbox `53,60,17,24` vs. NY+Paris control bbox
+`35,55,-80,10` — via `curl /api/diag/gnss_integrity?days=2026-08-11,
+2026-08-12&bbox=...&limit=50000&token=$DIAG_TOKEN` for both bboxes.
+BOTH returned real, populated cells this time (Baltic: 874 rows
+scanned, not truncated; control: 66,251 rows scanned, truncated at the
+50,000 row cap — expected, the control region is intentionally much
+busier). Per Reasoning Standard #10 (state the prior before updating)
+and #4 (distrust results in proportion to how many things were eyeballed
+informally), rather than eyeball the JSON by hand a third time — the
+exact failure mode of the two prior sessions was trusting a hand-read
+of raw counts without a real statistical test — this session compiled
+the comparison into a reusable tool per EDGE DOCTRINE #3.
+
+BUILT: `scripts/statsUtils.ts` gained `binomialUpperTailP(k, n, p0)`, an
+exact one-tailed binomial upper-tail test (term-to-term pmf recurrence,
+no factorials/gamma — O(k) cost, stays fast even at n in the tens of
+thousands as long as k is small, true for every rare-event use case this
+was built for) — the file's docstring already scoped it as "small
+reusable statistical helpers for datacore GATE 2 research scripts," so
+this extends an existing shared module rather than duplicating logic a
+third script would need again. 5 new unit tests, including a
+hand-computed Binomial(10,0.5) case and the exact live k/n/p0 triple
+this run produced (n=84, p0=0.0020, k=3 → p<0.001), pinned as a
+regression so a future refactor can't silently break the exact case
+this root depends on.
+
+`scripts/gnss_integrity_gate2.ts` (new) — the Phase 4 harness itself.
+PRE-REGISTERED CRITERIA (carried over unchanged from the 2026-08-11
+open_questions.md entry that first stated them, not invented fresh this
+session): broadcast-origin cells only (91.7-96.4% of raw nic==0 rows in
+the anomalous region carry `mlat`, meaning readsb's ground network
+computed nic/rc for that row, not the aircraft — counting those would
+misattribute a ground-station artifact to the aircraft's own GPS,
+exactly the honesty condition the 2026-08-11 adversarial-verification
+pass required); one-tailed exact binomial test per band against the
+CONTROL region's own observed rate as the null (not a fixed literature
+rate — the control is measured live, same call, same day); significance
+bar p<0.01; and — the part that makes this a real test rather than a
+one-sided fishing expedition — a PASS requires elevation in an
+EXPECTED-elevated band (cruise/mid, per the line-of-sight physical
+hypothesis) AND explicitly FAILS if an EXPECTED-null band (low/ground)
+ALSO shows elevation, because elevation everywhere looks like a data
+artifact, not a targeted jamming signature. `gate2Verdict()` encodes
+this asymmetry in code, not just in a comment. 6 new unit tests,
+including one that reproduces the exact live 2026-08-13 finding
+(cruise+mid elevated, low not) from synthetic cells matching the live
+response shape.
+
+LIVE RESULT (`npx tsx scripts/gnss_integrity_gate2.ts "2026-08-11,
+2026-08-12" "53,60,17,24" "35,55,-80,10"` against server_version
+1.0.688):
+  cruise:  3/84   broadcast nic==0 (3.6%)  vs control 0.20%  p=0.000647  ELEVATED
+  mid:     8/146  broadcast nic==0 (5.5%)  vs control 0.26%  p<1e-6     ELEVATED
+  low:     7/295  broadcast nic==0 (2.4%)  vs control 2.16%  p=0.455    not elevated
+  ground:  0/8    broadcast nic==0 (0%)    vs control 3.18%  p=1.0      not elevated
+GATE-2 VERDICT: PASS. The pattern matches the pre-stated physical
+hypothesis exactly — elevated at cruise and mid altitude, absent at low
+altitude and on the ground, where GPS reception near the surface is
+ordinary in both regions. Attempted a 3-day window (`2026-08-13` added)
+too: that date is not yet archived (`days_missing:["2026-08-13"]`,
+expected — the day is still in progress), so the 2-day result stands as
+the honest current answer, not artificially padded.
+
+RATCHET: 11 new tests total (5 statsUtils, 6 gnss_integrity_gate2), all
+pure-function tests against synthetic data — no live network calls in
+the test suite itself (the live fetch path is a separate, explicitly
+guarded `main()` entrypoint per the finra_shortvol_gate2.ts precedent),
+so CI-style runs stay deterministic and offline.
+
+LOGGED: `datacore/signal_ladder.json` gained a `gnss_integrity_adsb`
+entry (`gate2_pass`, current_gate 2) with the full numbers and honest
+caveats (2-day sample, gate-1 cross-reference against an independent
+jamming source still not done, license condition not re-checked this
+session). `research/open_questions.md`'s 2026-08-11 entry (item 1)
+gained a 2026-08-13 PROGRESS update appending this result in place —
+the entry now honestly traces all three sessions' attempts and where
+each one stopped.
+
+GATES: container started with no `node_modules` (environment gap —
+`npm install` added 487 packages with zero unexpected package.json
+diffs, confirmed via `git diff`). `npx tsx --test scripts/statsUtils.test.ts
+scripts/gnss_integrity_gate2.test.ts`: 15/15 pass. `npm run test:node`
+(full suite): 1218/1219 pass, 1 failure (`pmtiles magic byte`),
+A/B-verified via `git stash` to be the same pre-existing failure on
+unmodified `origin/main` (environment-dependent, unrelated — same
+failure class the prior two sessions in this thread documented). `npm
+run check` (tsc): 83 errors, A/B-verified byte-identical before/after
+via `git stash` (matches the 2026-08-12 (2) session's documented
+baseline exactly — no drift this time). `npm run build`: clean. No
+`.tsx`/client files touched — VISUAL VERIFICATION does not apply
+(T-DATACORE, scripts/-only). Python suite not run: zero `.py` files
+changed, `pytest` not installed in this container (same precedent as
+both prior sessions in this thread). Version bumped 1.0.688 -> 1.0.689
+(read-and-increment at commit time).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a gate-2 SIGNAL-layer
+statistical test script, not trading/scoring/sizing logic. No LOGIC,
+SIZING, or EXECUTION gate is implicated; this root is not traded or
+sold and stays that way until gates 1/3/4/5 are separately attempted.
+
+HONEST CAVEAT (do not let a PASS read as more finished than it is):
+this is GATE 2 only — statistical discrimination against a
+same-day-measured control region. It is NOT gate 1 (no cross-reference
+yet against an independent jamming-report ground truth, e.g. gpsjam.org
+or OPSGROUP NOTAMs for the same dates/region) and the sample is 2 days
+because that is all the writer-live archive that exists yet. NEXT: (1)
+re-run `scripts/gnss_integrity_gate2.ts` weekly as the archive deepens
+to confirm the effect survives a longer window, not just this one; (2)
+attempt the gate-1 cross-reference; (3) re-verify the adsb.fi
+non-commercial license condition (MONETIZATION TRIPWIRE) before this
+root is ever considered for a paid surface — none of that happened this
+session and none of it should be assumed done.
