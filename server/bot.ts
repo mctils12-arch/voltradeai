@@ -3674,6 +3674,29 @@ print(json.dumps(check_weekly_loss(history)))
           Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
         );
 
+        // CSP-CASH-RACE FIX 2026-08-13: same TOCTOU class as the slot-cap fix
+        // directly above, on the DOLLAR budget instead of the position-count
+        // budget. `cashAvailable` (captured once, before executeTrades() ran)
+        // was being reused unchanged for every SELL_CSP in this loop — live
+        // evidence: /api/diag/audit?type=T2-FAIL showed the SAME two tickers
+        // (TLT, CRWV) rejected by Alpaca seconds apart, repeatedly across
+        // 24h+, with "Alpaca rejected: insufficient options buying power"
+        // (our own pre-submission cash_available check passing, then
+        // Alpaca's real-time check failing) making up 47/100 recent T2-FAIL
+        // entries — the 2026-07-29/07-31 cash_available fix closes the
+        // "no live-capital check at all" gap but not this one: a stale,
+        // never-decremented snapshot lets every SELL_CSP in a batch pass the
+        // same too-generous budget. Re-fetch cash fresh here (mirroring
+        // freshPositionsForTiers) and decrement the local running total by
+        // each successful order's actual collateral requirement, so a
+        // second SELL_CSP in the same batch is checked against what's
+        // genuinely left, not what was left before executeTrades and any
+        // earlier CSPs in this very loop.
+        const freshAcctForTiers = await alpaca("/v2/account").catch(() => null);
+        let tierCashAvailable = freshAcctForTiers
+          ? parseFloat(freshAcctForTiers.cash || "0")
+          : cashAvailable;
+
         for (const action of result.tier_actions) {
           if (state.killSwitch) break;
           if (action.action === "SELL_CSP" && tierOptionsSlotsUsed >= MAX_OPTIONS_POSITIONS) {
@@ -3693,7 +3716,7 @@ print(json.dumps(check_weekly_loss(history)))
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
                 price: 0,  // Python will fetch current price
                 equity: equity,
-                cash: cashAvailable,
+                cash: tierCashAvailable,
                 size_pct: action.size_pct,
                 metadata: action.metadata,
               };
@@ -3711,6 +3734,7 @@ if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
     result = submit_options_order(contract)
+    result['cash_required'] = contract.get('cash_required', 0)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
@@ -3719,6 +3743,7 @@ else:
                 if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
+                  tierCashAvailable -= (parseFloat(r.cash_required) || 0);
                 } else {
                   audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
