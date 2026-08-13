@@ -2266,6 +2266,28 @@
    "field": false
   },
   {
+   "id": "submarine_cables",
+   "name": "Submarine telecom cables",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "OpenStreetMap seamark:type=cable_submarine (© OpenStreetMap contributors, ODbL), compiled by scripts/submarine_cables_build.py — NOT NOAA MarineCadastre (its InPort lineage carries non-public-domain private-sector contributions)",
+   "description": "7,464 submarine telecommunications cable segments worldwide (~267,700 km mapped), from OpenStreetMap's seamark:type=cable_submarine tag — the same nautical-chart tag used for both telecom and power interconnectors, so any way ALSO carrying a power tag (1,224 excluded) is dropped as a power cable, not telecom. Disused/retired systems render dashed, never hidden. Click a cable for its name/operator where OSM has mapped one (467 named systems: CANTAT-3, TAT-8, Atlantic Crossing…). HONEST COVERAGE CAVEAT: OSM's cable mapping is heavily skewed to Europe/NE-Atlantic — Asia, Africa, South America and the Pacific will render sparse. That sparseness is OSM mapping completeness, not an absence of cables (TeleGeography's public map cites over 1.5 million km of cable in service globally, so this layer covers roughly a fifth of the real global network). RAW overlay, no predictive claim, no ladder gating.",
+   "field": false,
+   "altitudeRef": "surface",
+   "time": {
+    "mode": "static"
+   },
+   "renderKind": "vector",
+   "provenance": {
+    "license": "OpenStreetMap ODbL (attribution required)",
+    "commercialOk": true,
+    "coverage": "global, skewed heavily to Europe/NE-Atlantic per OSM mapping completeness — not a claim of where cables physically exist",
+    "confidence": "verified"
+   }
+  },
+  {
    "id": "insider",
    "name": "Insider transactions (Form 4)",
    "kind": "raw",

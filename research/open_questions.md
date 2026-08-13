@@ -9829,3 +9829,52 @@ this is surfacing an existing verdict, not new machinery.
 
 LADDER: N/A (UX, no data claim). Priority: the deploy cadence makes
 this a weekly-recurrence class of confusion; cheap to close.
+
+## 2026-08-13 — SUBMARINE CABLES SHIPPED (T-CLIENT+datacore PRODUCT); the 2026-08-11 probe's "+42% / 888 ways from location=underwater" claim does NOT hold up live — corrected numbers + a real, scoped secondary-tag follow-up [PRODUCT]
+
+Shipped `submarine_cables` (client/public/cables/submarine_cables.json,
+scripts/submarine_cables_build.py): 7,464 telecom submarine cable
+segments (~267,700 km), OSM `seamark:type=cable_submarine` minus 1,224
+power-tagged ways. See experiments.md for the full session log; this
+entry is the CORRECTION to the 2026-08-11 "SUBMARINE CABLES" finding
+above (item 4), verified live rather than trusted:
+
+- `seamark:type=cable_submarine`: confirmed 8,722 ways (2026-08-13
+  snapshot) — matches the prior probe's count, as expected.
+- `submarine=yes`: confirmed **7,265 ways total** — LESS than the
+  primary tag, not a superset. The prior probe's "+42% / 888 ways from
+  location=underwater instead of submarine=yes" claim implicitly used
+  `submarine=yes` as the coverage baseline; that baseline itself
+  undercounts relative to the primary tag, so the delta it reported
+  does not describe a real gap in the PRIMARY-TAG-based build this
+  session shipped.
+- The real, tag-verified `location=underwater` + `communication=*`
+  ways NOT already carrying the primary tag (and not power-tagged):
+  **18 ways** — confirmed by an exact Overpass count query. Real, but
+  0.24% of the primary set's 7,464 — not activated in v1
+  (scripts/submarine_cables_build.py's `build_secondary()`, which
+  documents this decision and the exact count rather than silently
+  doing nothing).
+- A SEPARATE, larger, NOT-YET-VERIFIED candidate: `way[submarine=yes]`
+  minus the primary tag minus power-tagged = **1,297 ways** (confirmed
+  live count, exact query in the module docstring). This one is
+  actually worth chasing — genuinely quantified, unlike the vague
+  "+42%" figure it replaces. FOLLOW-UP (scoped): pull ~10-20 real tag
+  sets from that 1,297-way set via Overpass `out tags`, confirm they
+  are telecom-specific (not e.g. ambiguous `submarine=yes` usage on a
+  non-cable feature), then wire it into `build_secondary()` and rerun
+  the build. Ladder: N/A (RAW overlay, no predictive claim) — this is
+  a coverage-completeness question, not a signal-validation one.
+- TeleGeography's "~1.5 million km of cable in service" figure was
+  re-verified via a live web search this session (not re-derived from
+  their site, but independently confirmed as a real, current, publicly
+  cited number as of early 2026 — see PR description for sources)
+  before being printed in the registry description and the built
+  artifact's `_doc`.
+
+LESSON for future ladder-adjacent research write-ups: a same-day probe
+number is not evidence for a build that happens two days later — OSM
+edits continuously, AND (the bigger issue here) the prior probe's delta
+compared against the wrong baseline. Re-verify the load-bearing numbers
+live at build time, not just at research time, even when the research
+is only two days old and was itself adversarially reviewed.
