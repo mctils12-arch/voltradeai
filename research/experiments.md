@@ -48097,3 +48097,52 @@ wishlist.md as the better long-term arrangement.
 **Rollback trigger:** none applicable — no runtime behaviour changed. The
 tiles are additive objects in R2 under `moon/wac/`; deleting that prefix fully
 reverts.
+
+## 2026-08-13 [RULE-REVIEW] Moon fuzz — spend margin before resolution (v1.0.690)
+
+**Territory:** T-CLIENT (`client/src/lib/celestial/`).
+
+**Prior (stated before running):** the 2.8× cover margin was costing
+resolution, and inverting the order of sacrifice would recover most of the
+1–3 lost zoom levels measured in the previous entry.
+
+**Change:** `planMoonTarget` now gives back prefetch margin BEFORE a zoom
+level. New pure exported `spanLadder(want, must, z)` walks the desired span
+down to `must + degPerTile(z)` — the visible region plus a one-tile pan ring
+(Law II.4) — and only after exhausting that ladder does the planner drop a
+level. `MOON_PATCH_COVER_MARGIN` itself is UNCHANGED at 2.8; what changed is
+that the margin is now negotiable instead of mandatory.
+
+**Result:** +9 zoom levels across the 10-case viewport matrix (avg +0.90,
+≈1.9× sharper). 9/10 cases improved, 1 was already optimal, **0 regressed**.
+Full table in rendering_motion_overhaul.md F19.
+
+**Cost, stated honestly:** mosaic VRAM moves 5.2–9.4 MB → 16.8 MB. This is
+not new budget — `MOON_MOSAIC_MAX_PX = 2048` already declared ~16 MB and the
+old planner refused to approach it, dropping a level instead. Spending the
+declared budget is the fix, not a side effect.
+
+**Residual, not claimed as fixed:** some cases remain 1–2 levels under ideal.
+That is bounded by the 2048px mosaic cap and needs per-tile GPU textures (a
+true tileCore migration), not better planning.
+
+**Attribution discipline:** ONE mechanism changed. `MOON_PATCH_COVER_MARGIN`
+was deliberately NOT retuned in the same change — had both moved, neither
+could be credited. Hysteresis (the other half of Law II.3) is also deferred
+for the same reason.
+
+**Backward compatible:** with `minHalfSpanDeg` absent the ladder collapses to
+one rung and behaviour is byte-identical; only the single opted-in call site
+in `spaceFrame` changes. Pinned by a test.
+
+**Verification:** 20 moonTiles tests (8 new, incl. the safety property that
+the window never stops covering the visible disc), 104 celestial tests green,
+**zero new tsc errors** (83 before, 83 after — one pre-existing error merely
+line-shifted, verified by diffing a stashed tree). Visual harness: 0 hard
+failures, but it has NO celestial scenario (F20) — so it does not verify this
+change, and this entry does not pretend it does.
+
+**Rollback trigger:** if live use shows fetch churn or visible tile-pop during
+rotate/pan at close Moon range (the margin existed to absorb exactly that),
+revert by dropping the `visibleHalfDeg` argument at the two `spaceFrame` call
+sites — that alone restores the previous behaviour with no other edit.

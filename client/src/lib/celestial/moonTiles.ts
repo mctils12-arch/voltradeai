@@ -58,43 +58,95 @@ export interface MoonTarget {
   mosaic: MosaicWindow;
 }
 
+/** bbox around a sub-point at a given half-span (lat clamped to the poles). */
+function bboxAround(subLonDeg: number, subLatDeg: number, halfSpanDeg: number): BboxDeg {
+  return {
+    lonMin: subLonDeg - halfSpanDeg,
+    lonMax: subLonDeg + halfSpanDeg,
+    latMin: clampLatDeg(subLatDeg - halfSpanDeg),
+    latMax: clampLatDeg(subLatDeg + halfSpanDeg),
+  };
+}
+
+/** Steps to try, widest first, from the DESIRED prefetch span down to the
+ *  smallest span that still covers what is actually on screen plus a one-tile
+ *  ring (Law II.4: "plus a one-tile ring for pan"). Always ends exactly at the
+ *  floor so the cheapest option is definitely tried. Collapses to `[want]`
+ *  when there is nothing to give back, which is the pre-2026-08-13 behaviour. */
+export function spanLadder(
+  wantHalfDeg: number,
+  mustHalfDeg: number,
+  z: number,
+  steps = 3,
+): number[] {
+  const floor = Math.min(wantHalfDeg, mustHalfDeg + degPerTile(z));
+  if (!(floor < wantHalfDeg)) return [wantHalfDeg];
+  const out = [wantHalfDeg];
+  for (let i = 1; i < steps; i++) {
+    // geometric walk so the first give-backs are small (keep most of the ring)
+    out.push(wantHalfDeg * Math.pow(floor / wantHalfDeg, i / steps));
+  }
+  out.push(floor);
+  return out;
+}
+
 /**
  * Plan the mosaic for a sub-camera point at the given on-screen resolution.
- * Picks the finest native level meeting `pxPerDeg`, then backs OFF one level
- * at a time until the region fits within MOON_MAX_TILES (bounded fetch +
- * memory). `halfSpanDeg` is the mosaic half-width around the sub-point; lat
- * is clamped to the poles. Returns null if nothing resolves (degenerate).
+ *
+ * `halfSpanDeg` is the DESIRED covered half-width (visible region × prefetch
+ * margin). `opts.minHalfSpanDeg` is the half-width that MUST be covered —
+ * what the viewport actually shows. Latitude is clamped to the poles. Returns
+ * null if nothing resolves (degenerate).
+ *
+ * ORDER OF SACRIFICE (changed 2026-08-13 — rendering overhaul 3b, Law II.3/II.4):
+ * resolution is what the user sees; prefetch margin is only an optimisation,
+ * so the margin is given up FIRST and a zoom level only once the minimum span
+ * still will not fit.
+ *
+ * The old planner did the opposite. It held the full 2.8× margin
+ * (MOON_PATCH_COVER_MARGIN — 7.8× the AREA, of which only ~36% of the span is
+ * ever on screen) and dropped whole zoom levels until that inflated mosaic fit
+ * MOON_MOSAIC_MAX_PX. Measured with this exact code on 2026-08-13, that cost
+ * 1–3 levels — a 2×–8× soft Moon — and got *worse on bigger displays*, because
+ * a higher pxPerDeg raises the ideal level while the budget stays fixed.
+ *
+ * BACKWARD COMPATIBLE: with `minHalfSpanDeg` absent the floor equals the
+ * desired span, the ladder collapses to one rung, and this behaves exactly as
+ * before. Only a caller that says what is actually visible gets the recovery.
  */
 export function planMoonTarget(
   subLonDeg: number,
   subLatDeg: number,
   pxPerDeg: number,
   halfSpanDeg: number,
-  opts: { scheme?: TrekScheme; maxTiles?: number; minZ?: number; maxPx?: number } = {},
+  opts: {
+    scheme?: TrekScheme;
+    maxTiles?: number;
+    minZ?: number;
+    maxPx?: number;
+    /** half-span the viewport actually shows — the span may shrink to this
+     *  (plus a one-tile ring) rather than give up a zoom level. */
+    minHalfSpanDeg?: number;
+  } = {},
 ): MoonTarget | null {
   const scheme = opts.scheme ?? MOON_TREK;
   const maxTiles = opts.maxTiles ?? MOON_MAX_TILES;
   const maxPx = opts.maxPx ?? MOON_MOSAIC_MAX_PX;
   const minZ = opts.minZ ?? 2;
-  const latMax = clampLatDeg(subLatDeg + halfSpanDeg);
-  const latMin = clampLatDeg(subLatDeg - halfSpanDeg);
-  const bbox: BboxDeg = {
-    lonMin: subLonDeg - halfSpanDeg,
-    lonMax: subLonDeg + halfSpanDeg,
-    latMin,
-    latMax,
-  };
-  // finest native level whose mosaic fits the pixel/tile budget: start at the
-  // demanded resolution and back off until the stitched mosaic is within
-  // MOON_MOSAIC_MAX_PX (the real GPU bound — coarser levels are never worth
-  // fetching since a finer one that fits always looks better).
+  const want = Math.max(1e-6, halfSpanDeg);
+  const must = Math.min(want, Math.max(0, opts.minHalfSpanDeg ?? want));
+  // finest native level meeting the demanded resolution, then back off — but
+  // only after trying to pay with margin instead (see ORDER OF SACRIFICE).
   let z = zoomForResolution(pxPerDeg, scheme, minZ);
   for (; z >= minZ; z--) {
-    const tiles = tilesForBbox(bbox, z);
-    if (!tiles.length) continue;
-    const mosaic = mosaicWindow(tiles, scheme);
-    if (mosaic && mosaic.pxW <= maxPx && mosaic.pxH <= maxPx && tiles.length <= maxTiles) {
-      return { z, bbox, tiles, mosaic };
+    for (const half of spanLadder(want, must, z)) {
+      const bbox = bboxAround(subLonDeg, subLatDeg, half);
+      const tiles = tilesForBbox(bbox, z);
+      if (!tiles.length) continue;
+      const mosaic = mosaicWindow(tiles, scheme);
+      if (mosaic && mosaic.pxW <= maxPx && mosaic.pxH <= maxPx && tiles.length <= maxTiles) {
+        return { z, bbox, tiles, mosaic };
+      }
     }
   }
   return null;
@@ -195,8 +247,17 @@ export interface MoonTileStats {
 }
 
 export interface MoonTileManager {
-  /** per settled close frame: ensure a mosaic for this sub-point/resolution. */
-  request(subLonDeg: number, subLatDeg: number, pxPerDeg: number, halfSpanDeg: number): void;
+  /** per settled close frame: ensure a mosaic for this sub-point/resolution.
+   *  `visibleHalfSpanDeg` (optional) is the half-span actually on screen — the
+   *  planner shrinks the prefetch margin toward it before giving up a zoom
+   *  level. Omit it for the pre-2026-08-13 behaviour. */
+  request(
+    subLonDeg: number,
+    subLatDeg: number,
+    pxPerDeg: number,
+    halfSpanDeg: number,
+    visibleHalfSpanDeg?: number,
+  ): void;
   /** best resident mosaic (null when none / evicted). */
   current(): MoonMosaic | null;
   /** drop the mosaic + tile cache (zoom-out eviction). */
@@ -341,9 +402,13 @@ export function createMoonTileManager(deps: MoonTileDeps = {}): MoonTileManager 
   }
 
   return {
-    request(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg): void {
+    request(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, visibleHalfSpanDeg): void {
       if (disposed) return;
-      const target = planMoonTarget(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, { scheme, minZ: deps.minZ });
+      const target = planMoonTarget(subLonDeg, subLatDeg, pxPerDeg, halfSpanDeg, {
+        scheme,
+        minZ: deps.minZ,
+        minHalfSpanDeg: visibleHalfSpanDeg,
+      });
       if (!target) return;
       const key = targetKey(target);
       if (key === builtKey && mosaic) return; // already resident

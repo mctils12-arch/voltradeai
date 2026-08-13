@@ -6,14 +6,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   planMoonTarget,
+  spanLadder,
   targetKey,
   tilePlacements,
   blitTile,
   createMoonTileManager,
   MOON_MAX_TILES,
+  MOON_MOSAIC_MAX_PX,
   type TexImageLike,
 } from "./moonTiles.ts";
-import { mosaicWindow, tilesForBbox, MOON_TREK } from "./lroc.ts";
+import { mosaicWindow, tilesForBbox, degPerTile, MOON_TREK } from "./lroc.ts";
 
 // ── planning ────────────────────────────────────────────────────────────────
 
@@ -233,4 +235,146 @@ test("blitTile copies REAL source alpha — transparent strip margins stay holes
   assert.equal(out[3], 255, "opaque texel keeps alpha 255");
   assert.equal(out[7], 0, "transparent texel keeps alpha 0 (falls through to the next tier)");
   assert.equal(out[0], 100);
+});
+
+// ── 3b: margin is spent before resolution (Law II.3/II.4, 2026-08-13) ───────
+//
+// The Moon was rendering 1-3 zoom levels below what the screen deserved
+// (2x-8x soft). Cause: spaceFrame asks for a span 2.8x wider than the visible
+// disc (MOON_PATCH_COVER_MARGIN — 7.8x the AREA, of which only ~36% of the
+// span is ever on screen), and the planner used to hold that whole margin and
+// drop zoom LEVELS until the inflated mosaic fit MOON_MOSAIC_MAX_PX.
+//
+// The fix inverts the order of sacrifice: give back prefetch margin first,
+// down to the visible region plus a one-tile ring, and only then a level.
+// These tests pin both the recovery AND the safety property that makes it
+// legal — the mosaic must never stop covering what is actually on screen.
+
+const MARGIN = 2.8; // spaceFrame.MOON_PATCH_COVER_MARGIN
+
+test("spanLadder collapses to a single rung when there is nothing to give back", () => {
+  // want <= must + ring: no headroom, so behaviour is exactly as before.
+  assert.deepEqual(spanLadder(5, 5, 4), [5]);
+  assert.deepEqual(spanLadder(3, 90, 4), [3]);
+});
+
+test("spanLadder descends and ends exactly at the visible span plus one tile", () => {
+  const want = 56;
+  const must = 10;
+  const z = 5;
+  const rungs = spanLadder(want, must, z);
+  assert.ok(rungs.length >= 2, "a ladder with headroom must offer alternatives");
+  assert.equal(rungs[0], want, "the widest rung is tried first — margin is kept when it fits");
+  assert.equal(
+    rungs[rungs.length - 1],
+    must + degPerTile(z),
+    "the cheapest rung is the visible region plus a one-tile pan ring (Law II.4)",
+  );
+  for (let i = 1; i < rungs.length; i++) {
+    assert.ok(rungs[i] < rungs[i - 1], `ladder must descend: ${rungs[i - 1]} -> ${rungs[i]}`);
+  }
+});
+
+test("the ring floor scales with the level, so coarse levels keep a wider ring", () => {
+  const a = spanLadder(60, 10, 4).at(-1)!;
+  const b = spanLadder(60, 10, 7).at(-1)!;
+  assert.ok(a > b, "a z4 tile spans more degrees than a z7 tile, so its ring is wider");
+});
+
+test("telling the planner what is visible RECOVERS zoom levels", () => {
+  // The measured regression case: a 1200px disc over a 20-deg span used to
+  // land 2 levels under ideal. Pinning that it no longer does.
+  const discPx = 1200;
+  const spanDeg = 20;
+  const pxPerDeg = discPx / spanDeg;
+  const visHalf = spanDeg / 2;
+  const wantHalf = visHalf * MARGIN;
+  const before = planMoonTarget(0, 0, pxPerDeg, wantHalf, {})!;
+  const after = planMoonTarget(0, 0, pxPerDeg, wantHalf, { minHalfSpanDeg: visHalf })!;
+  assert.ok(
+    after.z > before.z,
+    `expected a sharper level once the visible span is known (was z${before.z}, got z${after.z})`,
+  );
+});
+
+test("the recovery holds across the whole viewport matrix, never regressing", () => {
+  let recovered = 0;
+  for (const discPx of [400, 800, 1200, 1600, 2000]) {
+    for (const spanDeg of [20, 60]) {
+      const pxPerDeg = discPx / spanDeg;
+      const visHalf = spanDeg / 2;
+      const wantHalf = visHalf * MARGIN;
+      const before = planMoonTarget(0, 0, pxPerDeg, wantHalf, {})!;
+      const after = planMoonTarget(0, 0, pxPerDeg, wantHalf, { minHalfSpanDeg: visHalf })!;
+      assert.ok(
+        after.z >= before.z,
+        `${discPx}px/${spanDeg}deg REGRESSED: z${before.z} -> z${after.z}`,
+      );
+      recovered += after.z - before.z;
+    }
+  }
+  assert.ok(recovered >= 8, `expected >=8 levels recovered across the matrix, got ${recovered}`);
+});
+
+test("SAFETY: the mosaic never stops covering what is on screen", () => {
+  // The only way shrinking the span could be a bug. If the returned window
+  // ever failed to contain the visible disc, the user would see an untextured
+  // edge — strictly worse than the fuzz this replaces.
+  for (const discPx of [400, 1200, 2000]) {
+    for (const spanDeg of [20, 60]) {
+      for (const lat of [0, 45, -70]) {
+        const pxPerDeg = discPx / spanDeg;
+        const visHalf = spanDeg / 2;
+        const t = planMoonTarget(0, lat, pxPerDeg, visHalf * MARGIN, { minHalfSpanDeg: visHalf })!;
+        assert.ok(t, `no target for ${discPx}/${spanDeg}/${lat}`);
+        const m = t.mosaic;
+        // longitude: the window must span at least the visible arc
+        assert.ok(
+          m.lonSpan >= visHalf * 2 - 1e-9,
+          `lon coverage ${m.lonSpan} < visible ${visHalf * 2} at ${discPx}/${spanDeg}/${lat}`,
+        );
+        // latitude: same, but the poles legitimately clamp the demand
+        const wantLatTop = Math.min(90, lat + visHalf);
+        const wantLatBot = Math.max(-90, lat - visHalf);
+        assert.ok(
+          m.latMax >= wantLatTop - 1e-9,
+          `north edge ${m.latMax} does not reach ${wantLatTop}`,
+        );
+        assert.ok(
+          m.latMax - m.latSpan <= wantLatBot + 1e-9,
+          `south edge ${m.latMax - m.latSpan} does not reach ${wantLatBot}`,
+        );
+      }
+    }
+  }
+});
+
+test("the budget is still respected — recovery may not overspend VRAM", () => {
+  for (const discPx of [400, 1200, 2000]) {
+    for (const spanDeg of [20, 60]) {
+      const pxPerDeg = discPx / spanDeg;
+      const visHalf = spanDeg / 2;
+      const t = planMoonTarget(0, 0, pxPerDeg, visHalf * MARGIN, { minHalfSpanDeg: visHalf })!;
+      assert.ok(t.mosaic.pxW <= MOON_MOSAIC_MAX_PX, `pxW ${t.mosaic.pxW} over cap`);
+      assert.ok(t.mosaic.pxH <= MOON_MOSAIC_MAX_PX, `pxH ${t.mosaic.pxH} over cap`);
+      assert.ok(t.tiles.length <= MOON_MAX_TILES, `tiles ${t.tiles.length} over cap`);
+    }
+  }
+});
+
+test("BACKWARD COMPATIBLE: omitting the visible span changes nothing", () => {
+  // Every pre-existing caller must be byte-identical, so this change cannot
+  // have moved anything except the one call site that opts in.
+  for (const discPx of [400, 900, 1500]) {
+    for (const spanDeg of [15, 45, 75]) {
+      const pxPerDeg = discPx / spanDeg;
+      const wantHalf = (spanDeg / 2) * MARGIN;
+      const plain = planMoonTarget(10, -5, pxPerDeg, wantHalf, {})!;
+      // passing the DESIRED span as the floor is the degenerate case and must
+      // reproduce the old plan exactly
+      const degenerate = planMoonTarget(10, -5, pxPerDeg, wantHalf, { minHalfSpanDeg: wantHalf })!;
+      assert.equal(degenerate.z, plain.z);
+      assert.equal(targetKey(degenerate), targetKey(plain));
+    }
+  }
 });

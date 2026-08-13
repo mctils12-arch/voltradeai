@@ -2461,7 +2461,16 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       horizonDeg,
       Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, ((bboxLongPx / pxPerSurfDeg) / 2) * MOON_PATCH_COVER_MARGIN),
     );
-    mgr.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+    // What the viewport ACTUALLY shows — the same span WITHOUT the prefetch
+    // margin. Telling the planner this lets it pay for the budget with margin
+    // instead of resolution (rendering overhaul 3b, Law II.3/II.4): the 2.8×
+    // margin above is 7.8× the AREA, of which only ~36% of the span is ever on
+    // screen, and holding it cost a measured 1–3 zoom levels of sharpness.
+    const visibleHalfDeg = Math.min(
+      horizonDeg,
+      Math.max(MOON_PATCH_MIN_HALFSPAN_DEG, (bboxLongPx / pxPerSurfDeg) / 2),
+    );
+    mgr.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg, visibleHalfDeg);
     const mos = mgr.current();
     const wacOv: DetailOverlay | null = mos
       ? { tex: mos.tex, lonMin: mos.lonMin, lonSpan: mos.lonSpan, latMax: mos.latMax, latSpan: mos.latSpan }
@@ -2478,7 +2487,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     let nacOv: DetailOverlay | null = null;
     if (nacSite) {
       const nm = nacManagerFor(nacSite);
-      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg);
+      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg, visibleHalfDeg);
       const nmos = nm.current();
       if (nmos) {
         nacOv = { tex: nmos.tex, lonMin: nmos.lonMin, lonSpan: nmos.lonSpan, latMax: nmos.latMax, latSpan: nmos.latSpan };

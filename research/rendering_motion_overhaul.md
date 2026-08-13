@@ -30,7 +30,7 @@ onto it.
 | 2 | tileCore — the raster streamer | **SHIPPED** v1.0.677 |
 | 3 | Moon surface migration | **RE-SCOPED into 3a/3b — see F17/F18** |
 | 3a | Moon bake: our own CDN pyramid (Law II.8) | **PILOT SHIPPED** z0–z5, 2,730 tiles on R2 |
-| 3b | Moon fuzz: cover-margin/LOD budget policy (Law II.3/II.4) | **DIAGNOSED, MEASURED, not yet fixed — F17** |
+| 3b | Moon fuzz: cover-margin/LOD budget policy (Law II.3/II.4) | **SHIPPED** v1.0.690 — +0.90 levels avg, F19 |
 | 4 | Earth base (MapLibre) config | **SHIPPED** v1.0.678 (3 of 7 items not applicable) |
 | 5 | Satellites (Law I) | **PREMISE STALE — verify before changing anything** |
 | 6 | Aircraft trail / curtain (Law I) | **OPEN — 6 causes eliminated, 2 candidates, see F16** |
@@ -487,3 +487,85 @@ passthrough in `server/routes.ts:779`. Moon tiles are read into a canvas
 paths: (a) extend the same-origin passthrough — works today, no human action,
 costs a Railway hop; (b) set a bucket CORS policy — better, needs the human
 in the Cloudflare dashboard. Filed in wishlist.md; (a) is the default.
+
+---
+
+## F19 — 3b SHIPPED: margin is now spent before resolution (2026-08-13)
+
+Fix for F17. `planMoonTarget` now gives back **prefetch margin first** and a
+**zoom level only when the minimum span still will not fit**. Rationale:
+resolution is what the user sees; the cover margin is only an optimisation.
+
+`spanLadder(want, must, z)` (new, exported, pure, tested) walks from the
+desired span down to `must + degPerTile(z)` — the visible region plus a
+**one-tile pan ring**, which is exactly Law II.4's prescription — and always
+ends on that floor so the cheapest option is definitely tried.
+
+### Measured, same matrix as F17
+
+```
+discPx  span  idealZ  beforeZ  afterZ  lostB  lostA   mosaicBefore  mosaicAfter
+ 400     20     4        4        4      0      0     1536x1536     1536x1536
+ 400     60     3        2        3      1      0     1280x1024     2048x2048
+ 800     20     5        4        5      1      0     1536x1536     2048x2048
+ 800     60     4        2        3      2      1     1280x1024     2048x2048
+1200     20     6        4        5      2      1     1536x1536     2048x2048
+1600     60     5        2        3      3      2     1280x1024     2048x2048
+2000     20     7        4        5      3      2     1536x1536     2048x2048
+```
+
+**9 levels recovered across 10 cases (avg +0.90 ⇒ ~1.9× sharper).** Nine of
+ten improved; the tenth was already optimal. No case regressed — pinned by a
+test that asserts `after.z >= before.z` across the whole matrix.
+
+### The VRAM trade, stated honestly
+
+Mosaics move from 5.2–9.4 MB to 16.8 MB. That is **not new budget** — it is
+the budget the code already declared and was failing to spend
+(`MOON_MOSAIC_MAX_PX = 2048`, whose own comment reads "2048² RGBA ≈ 16 MB,
+under the ~4096 mobile texture cap"). The old planner dropped a whole level
+rather than approach its own cap; that unused ~25% headroom while the image
+was 2× soft is precisely the hysteresis-free cliff Law II.3 forbids.
+
+### Residual
+
+Some cases are still 1–2 levels short of ideal. That remainder is bounded by
+the 2048px mosaic cap itself and cannot be recovered by planning — closing it
+needs per-tile GPU textures (a real tileCore migration) rather than one
+stitched mosaic. Not claimed as fixed.
+
+### Safety property (the only way this could be a bug)
+
+If a shrunk span ever failed to cover the visible disc the user would see an
+untextured edge — strictly worse than fuzz. Pinned by a test asserting the
+returned window covers the visible lon/lat extent across disc sizes, spans,
+and latitudes including near-polar clamping.
+
+### Backward compatible
+
+With `minHalfSpanDeg` absent the floor equals the desired span, the ladder
+collapses to one rung, and behaviour is byte-identical. Only the one opted-in
+call site in `spaceFrame` changes. Pinned by a test.
+
+---
+
+## F20 — THE VISUAL HARNESS HAS NO CELESTIAL COVERAGE (2026-08-13)
+
+Found while trying to satisfy PROMOTION RULES item 6 for the 3b change.
+`scripts/visual_check.mjs` `PAGES` covers `/data` (map + dashboards) and the
+marketing pages — **there is no space/celestial/Moon scenario at all**. So the
+harness cannot see the Moon, and a Moon rendering change cannot be visually
+verified by it. The 3b change was therefore verified by unit tests (including
+the coverage-safety property) plus the measured before/after matrix, NOT by
+screenshots — stating that plainly rather than letting a green harness run
+imply coverage it does not have.
+
+Adding a celestial scenario is the obvious ratchet (the same "every new view
+passes the harness" rule the PAGES comments cite for streams/quality/signals)
+and is queued in open_questions.md.
+
+**Also observed, pre-existing:** the harness is FLAKY — one run reported
+1 hard failure, three consecutive re-runs reported 0, with no code change
+between them. And `data` p95 frame time measures **250ms @1440, 183ms @768,
+100ms @390**, against the Law's 16.7ms. Both are separate items; the p95 gap
+is already recorded under "THE ACCEPTANCE NUMBER IS NOWHERE NEAR MET".

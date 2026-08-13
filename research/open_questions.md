@@ -9820,3 +9820,31 @@ prior value in the commit, state the rollback trigger. The likely order is
 hitting an upstream WMTS. This is Law II.3/II.4 — budget policy. Independent
 causes, independent PRs; bundling them would have hidden which one moved the
 image.
+
+## 2026-08-13 — [HARNESS] the visual harness cannot see the Moon (or any celestial view)
+
+**Status:** OPEN, filed while shipping rendering-overhaul 3b.
+
+`scripts/visual_check.mjs` `PAGES` covers `/data` (map + the streams/quality/
+signals/pipeline-health dashboards) and the marketing pages. There is **no
+space/celestial scenario**, so every Moon, planet-surface, orbital and
+star-field change to date has shipped without visual verification — including
+3b, which was verified by unit tests and a measured before/after matrix
+instead, and said so.
+
+**Testable form:** add a celestial scenario to PAGES at the three canonical
+widths, with a settle step that focuses the Moon close enough to trigger the
+tile path, then assert (a) a mosaic becomes resident (`__vtMoonTileBytes > 0`),
+(b) resident bytes return to 0 on zoom-out eviction (Law IV teardown), and
+(c) frame p95 during a scripted rotate. (a) and (b) are cheap and would have
+caught both the eviction race and the 3b coverage property directly.
+
+**Also queued from the same session, both pre-existing:**
+- The harness is FLAKY: one run reported 1 hard failure, three consecutive
+  re-runs reported 0 with no code change between. Until that is diagnosed, a
+  single green run is weak evidence — which undermines the PROMOTION RULES
+  gate that depends on it.
+- `data` p95 frame time is **250ms @1440 / 183ms @768 / 100ms @390** against
+  the Law's 16.7ms target. Already recorded under "THE ACCEPTANCE NUMBER IS
+  NOWHERE NEAR MET"; noting the current measured values here so the trend is
+  visible.
