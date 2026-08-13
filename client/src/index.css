@@ -2503,7 +2503,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-site-card {
   position: absolute; z-index: 11;
   left: 68px; top: 12px; width: min(352px, calc(100vw - 24px));
-  max-height: 60vh;
+  /* min(viewport-relative, container-relative): .vt-map-page is `position:
+     fixed; overflow: hidden` and is SHORTER than the viewport (top:56px
+     desktop, top:48px + bottom:64px = 112px shorter on phone). A pure
+     vh/dvh cap therefore lets the card overshoot its clipped container and
+     lose its own top chrome. `min()` takes whichever bound is tighter, so
+     this is self-correcting at any viewport. (Fixes a regression introduced
+     the same day the expanded cap was raised — 2026-08-12.) */
+  max-height: min(60vh, calc(100% - 24px));
   display: flex; flex-direction: column;
   /* Clip to the 60vh box. Without this the card's overflow was `visible`, so
      when the always-shown chrome + the archived-flights list outgrew 60vh the
@@ -2540,7 +2547,7 @@ a, button, [role="button"], input { transition: all 150ms ease; }
    Fix: the cap is now STATE-DEPENDENT. Compact when closed, tall when the
    user has explicitly asked for more, and the flights list yields its space
    to the details body rather than competing with it. */
-.vt-site-card:not(.vt-card-closed) { max-height: 85vh; }
+.vt-site-card:not(.vt-card-closed) { max-height: min(85vh, calc(100% - 24px)); }
 .vt-site-card:not(.vt-card-closed) .vt-trips-list { max-height: 13vh; }
 /* The details body is the growth region once open — it takes the slack
    instead of being the only thing squeezed. */
@@ -2644,7 +2651,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 @media (max-width: 767px) {
   .vt-site-card:not(.vt-site-card-min) {
     left: 0; right: 0; top: auto; bottom: 0; width: auto;
-    max-height: 74dvh;
+    /* 100% here is .vt-map-page, which is 112px shorter than the viewport
+       at this breakpoint (top:48 + bottom:64). Capping on dvh alone
+       overshot the clipped container and ate the drag handle. */
+    max-height: min(74dvh, 100%);
     /* expanded sheet may take more of the screen — the user asked for it */
     border-radius: 16px 16px 0 0; border-bottom: none;
     background: rgba(11, 19, 34, 0.96);
@@ -2653,12 +2663,16 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   }
   @keyframes vt-sheet-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
   .vt-card-handle {
-    display: flex; justify-content: center; padding: 9px 0 2px;
+    /* 44px floor (DESIGN.md): this is the control that EXPANDS the sheet on
+       phone, so it is a primary target, not chrome. The 4px grabber stays
+       visually small; the hit area does not. */
+    display: flex; justify-content: center; align-items: center;
+    min-height: 44px; padding: 9px 0 2px;
     background: none; border: 0; width: 100%; cursor: grab;
     touch-action: none; flex: 0 0 auto;
   }
   .vt-card-handle i { width: 38px; height: 4px; border-radius: 2px; background: #33507f; display: block; }
-  .vt-site-card:not(.vt-site-card-min):not(.vt-card-closed) { max-height: 88dvh; }
+  .vt-site-card:not(.vt-site-card-min):not(.vt-card-closed) { max-height: min(88dvh, 100%); }
   /* collapsed sheet (1c): header + chips only — the handle expands it */
   .vt-card-closed .vt-card-actions,
   .vt-card-closed .vt-card-details-toggle { display: none; }

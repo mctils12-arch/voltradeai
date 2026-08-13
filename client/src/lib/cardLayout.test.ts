@@ -43,6 +43,7 @@ function decl(selector: string, prop: string): string | null {
 
 const vhOf = (v: string | null): number | null => {
   if (!v) return null;
+  // caps are now min(<vh>, <container>) — pull the viewport-relative half
   const m = /([\d.]+)\s*d?vh/.exec(v);
   return m ? Number(m[1]) : null;
 };
@@ -131,4 +132,54 @@ test("the phone bottom sheet gets the same expanded allowance", () => {
   assert.ok(idx > 0, "the phone sheet must also raise its cap when details are open");
   const expanded = vhOf(decl(".vt-site-card:not(.vt-site-card-min):not(.vt-card-closed) {", "max-height"));
   assert.ok(expanded != null && expanded > 74, `phone expanded cap ${expanded}dvh must exceed the 74dvh collapsed sheet`);
+});
+
+// ── container-relative caps (regression introduced AND fixed 2026-08-12) ───
+// `.vt-map-page` is `position: fixed; overflow: hidden` and is SHORTER than
+// the viewport — top:56px on desktop, top:48px + bottom:64px (112px) at
+// <=639px. A cap expressed only in vh/dvh therefore lets the card overshoot
+// its own clipped container: measured 88dvh = 686px inside a 668px container
+// at 390x780, which clipped the card's top chrome (the drag handle) away
+// entirely. Every cap must ALSO be bounded by the container.
+
+test("every card height cap is bounded by the CONTAINER, not just the viewport", () => {
+  const caps = [
+    ".vt-site-card {",
+    ".vt-site-card:not(.vt-card-closed) {",
+    ".vt-site-card:not(.vt-site-card-min) {",
+    ".vt-site-card:not(.vt-site-card-min):not(.vt-card-closed) {",
+  ];
+  for (const sel of caps) {
+    const v = decl(sel, "max-height");
+    if (!v) continue; // not every selector declares one
+    assert.match(
+      v,
+      /min\(/,
+      `${sel} max-height "${v}" is not container-bounded — .vt-map-page is up to 112px shorter than the viewport, so a bare vh/dvh cap overshoots and clips the card's own chrome`,
+    );
+    assert.match(v, /100%|calc\(/, `${sel} max-height "${v}" has no container-relative term`);
+  }
+});
+
+test("the phone drag handle meets the 44px touch floor", () => {
+  // DESIGN.md: >=44px on phone. This handle is not chrome — it is the control
+  // that EXPANDS the sheet, so it is a primary target. It was 15px.
+  // NOTE: there are TWO `.vt-card-handle` rules — a base `display:none` and
+  // the phone one inside the media query. Scan every block, not just the
+  // first, or this silently reads the wrong rule and passes/fails by luck.
+  const blocks: string[] = [];
+  for (let i = css.indexOf(".vt-card-handle {"); i >= 0; i = css.indexOf(".vt-card-handle {", i + 1)) {
+    const open = css.indexOf("{", i);
+    blocks.push(css.slice(open + 1, css.indexOf("}", open)));
+  }
+  assert.ok(blocks.length > 0, ".vt-card-handle rule not found");
+  const floors = blocks
+    .map((b) => /min-height\s*:\s*([\d.]+)px/.exec(b)?.[1])
+    .filter(Boolean)
+    .map(Number);
+  assert.ok(floors.length > 0, "no .vt-card-handle rule declares a min-height");
+  assert.ok(
+    Math.max(...floors) >= 44,
+    `drag handle min-height ${Math.max(...floors)}px is under the 44px touch floor`,
+  );
 });
