@@ -4076,6 +4076,72 @@
     of gated, per the section-4/section-1 duplication smell v1.0.667 itself
     already flagged.
 
+30. **[FOUND 2026-08-13, scheduled-routine session, NOT PATCHED —
+    RECURRENCE ESCALATES: this is the THIRD occurrence of "options
+    position count exceeds MAX_OPTIONS_POSITIONS" via a THIRD distinct
+    mechanism. Root cause found; structural fix proposed in
+    wishlist.md, not shipped this session.] `OPTIONS-SLOT-FULL` firing
+    live at "(7/6)" again; `/api/diag/positions-detail` confirmed 7 real
+    `us_option` positions genuinely held (DRAM/ENB/EWZ/HPE/LUNR/RKLB x2)
+    against the documented 6-slot cap.** Prior fixes on this exact
+    subsystem: 2026-07-29 v1.0.540 (stale local constant 3 vs.
+    system_config.py's canonical 6) and 2026-08-03 v1.0.586 (intra-cycle
+    TOCTOU race between `executeTrades()` and the tier dispatcher,
+    closed by re-fetching `/v2/positions` fresh immediately before
+    dispatch). Both fixes are still correctly in place in `server/bot.ts`
+    today (read this session, byte-verified: `MAX_OPTIONS_POSITIONS = 6`
+    module-scope, `freshPositionsForTiers` re-fetch + `tierOptionsSlotsUsed`
+    live-increment loop all present and correct) — so this is not either
+    of those bugs recurring unfixed; it is a THIRD, previously-unexamined
+    hole in the same subsystem.
+    EVIDENCE (reconstructed this session from `/api/diag/orders` +
+    `/api/diag/audit`, both token-gated, live production): replaying the
+    2026-08-13 options order fill stream chronologically shows the
+    account's real filled-option-position count crossing 6 at
+    19:54:56Z (ENB sell, correctly gated — count 5→6) and then 7 at
+    19:58:36Z (DRAM sell) roughly 4 minutes and one full Tier-2 scan
+    cycle later (a fresh scan started 19:56:56Z, ~2min cadence during
+    Power Hour). Both the tier-dispatcher fresh-fetch (2026-08-03 fix)
+    and `executeTrades()`'s own `countOptionsPositions(positions)` call
+    read `/v2/positions` — which only reflects **filled** orders.
+    ROOT CAUSE: `options_execution.py`'s `submit_options_order()`
+    (line ~2231) submits every CSP as an Alpaca **DAY LIMIT** order
+    (`"type": "limit", "time_in_force": "day"`) and returns
+    `{"status": "submitted"}` on any 2xx HTTP response — it does not
+    poll for an actual fill. `server/bot.ts` treats that `"submitted"`
+    status as slot-consumed immediately (tier dispatcher line ~3743
+    `tierOptionsSlotsUsed++`; `executeTrades()` line ~4380 accepts
+    `["submitted","filled","pending_new","accepted"].includes(status)`
+    then `optionsSlotsUsed++` at line 4383) — correct bookkeeping
+    *within* that one dispatch loop, but that increment is a **local
+    variable that dies with the cycle**. If the limit order does not
+    fill instantly (a day-limit CSP priced for premium routinely sits on
+    the book for minutes), it is invisible to `/v2/positions` until it
+    actually fills — so the NEXT cycle's "fresh" re-fetch undercounts:
+    it sees only what has filled, not what is filled-plus-still-live-
+    on-the-book from the prior cycle. Two (or more) cycles can each
+    correctly see "room for one more" against a stale-but-honest
+    position snapshot, each submit one more SELL_CSP, and if both
+    orders eventually fill, the realized count exceeds the cap — a
+    cross-cycle race the 2026-08-03 fix structurally cannot see because
+    it only closed the race *within* one cycle.
+    WHY NOT PATCHED THIS SESSION: CLAUDE.md's RECURRENCE ESCALATES rule
+    is explicit — two failed/incomplete fixes on one subsystem is an
+    architecture smell, and patching a third time is FORBIDDEN;
+    structural work goes to wishlist.md instead. Full root-cause
+    evidence, and three candidate structural designs with tradeoffs, are
+    filed there (wishlist.md, "OPTIONS-SLOT CAP: THIRD RECURRENCE" entry,
+    filed today) for a dedicated future session to implement one,
+    deliberately, with its own test coverage — not appended to this
+    already-twice-patched code path same-day.
+    NOT A LIVENESS OR KILL-SWITCH ISSUE: the account is paper, each CSP
+    slot is capped independently at `MAX_OPTIONS_PCT` (8% of equity) per
+    position regardless of how many slots are open, and
+    `risk_kill_switch.py`'s FROZEN mechanisms (portfolio-level exposure
+    kill) are untouched by this — this is a soft position-count risk
+    limit running 1 slot hot, not a threat to system survival. Correctly
+    scoped as a KNOWN BROKEN repair item, not a LIVENESS ALARM.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
