@@ -516,6 +516,35 @@
     query) and KNOWN BROKEN #20's `rejected_masterkill` win-rate check,
     both still gated on enough freshly-labeled history accumulating after
     that first successful run.
+    **UPDATE 2026-08-13 (scheduled-routine session, market-hours, [RESEARCH],
+    v1.0.698): the |change_pct|>35 query (built 2026-08-10, v1.0.642) has
+    been checked live three times since (2026-08-10, 2026-08-11, and this
+    session) — `over_threshold.candidate_count` stayed exactly 0 across all
+    three, despite `total_records` growing 14972 -> 15xxx -> 16511 (10736
+    "taken") over that span.** A flat zero across days and thousands of new
+    records is itself worth treating as evidence rather than "not enough
+    data yet" per REASONING STANDARD #4 — but a single >35 threshold split
+    can't distinguish "genuinely never happens" from "a labeling bug is
+    silently zeroing change_pct_today for some population." Built the
+    missing instrument instead of guessing which: `shadow_portfolio.py`
+    gained `_change_pct_distribution()`, wired into
+    `_change_pct_band_stats()`'s return as a new `taken_distribution` key
+    (n/max/p50/p95/p99/count_over_20/count_over_30 over `|change_pct_today|`
+    for "taken" records). 6 new tests in `test_shadow_change_pct_band.py`,
+    A/B-verified. Full trace in experiments.md same date. NOT YET DEPLOYED
+    as of this log (PR held per this run's market-hours instruction — pure
+    diagnostics, no scoring/sizing change, so no urgency exception applies).
+    **NEXT**: once deployed, query `/api/diag/shadow` and read
+    `win_rate_by_change_pct_band.taken_distribution`. If `max`/`p99` sit
+    well under 35 with a healthy `n`, that confirms `_extreme_penalty`
+    (bot_engine.py's -15/-30 soft penalty at >30%/>50% single-day moves)
+    already suppresses this population de facto — the correct next step is
+    RETIRING the four dead `system_config.py` keys (`SCORE_BAND_MAX`,
+    `SCORE_BAND_OPTIMAL_LO/HI`, `MAX_CHANGE_PCT`) as misleading dead-code
+    documentation per the STALENESS AUDIT, not waiting indefinitely for a
+    split that structurally can't populate. If `max`/`p99` instead approach
+    or exceed 35 while `over_threshold` stays 0, that contradiction is
+    itself a labeling/comparison bug worth its own [REPAIR] session.
 
 11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
     `shadow_stats` pointed at a function that doesn't exist~~.
