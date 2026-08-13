@@ -50,11 +50,12 @@ import {
   orbitInertiaStep,
   ORBIT_INERTIA_DAMP,
   ORBIT_INERTIA_EPS_DEG,
-  polarClampDots,
-  LOCK_POLAR_MIN,
-  LOCK_POLAR_MAX,
-  UNLOCK_POLAR_MIN,
-  UNLOCK_POLAR_MAX,
+  orthonormalUp,
+  transportUp,
+  relevelUp,
+  levelBlend,
+  camBasisFromUp,
+  LEVEL_FADE_RAD,
   CAMERA_UP_ECL,
   seamRollBlendFactor,
   screenRayDir,
@@ -261,28 +262,93 @@ test("orbitInertiaStep: coasts, decays geometrically, snaps to rest below eps", 
   assert.equal(orbitInertiaStep(Number.NaN).velDeg, 0, "NaN velocity rests");
 });
 
-test("polarClampDots: lock forbids under-ecliptic, unlock only widens", () => {
-  const lock = polarClampDots(true);
-  const free = polarClampDots(false);
-  // locked bounds are the charter values: near-pole to just past level
-  close(lock.dotHi, Math.cos(LOCK_POLAR_MIN), 1e-12, "lock hi = cos(0.12)");
-  close(lock.dotLo, Math.cos(LOCK_POLAR_MAX), 1e-12, "lock lo = cos(π/2+0.42)");
-  // under-the-ecliptic view directions (polar > π/2+0.42) are OUT while
-  // locked: dot(dir,axis) = cos(polar) < dotLo
-  const under = Math.cos(Math.PI / 2 + 0.6); // 0.6 rad below level
-  assert.ok(under < lock.dotLo, "under-ecliptic rejected while locked");
-  // ...and IN when unlocked (the toggle only widens, never narrows)
-  assert.ok(under >= free.dotLo && under <= free.dotHi, "unlock admits it");
-  assert.ok(free.dotHi >= lock.dotHi && free.dotLo <= lock.dotLo, "unlock is a superset");
-  // both states still guard the exact poles (basis can never degenerate:
-  // the smallest polar gap keeps |cross(dir,axis)| ≈ sin(0.05) ≫ camBasis's
-  // 1e-6 fallback threshold)
-  assert.ok(free.dotHi < 1 && free.dotLo > -1, "poles excluded even unlocked");
-  close(free.dotHi, Math.cos(UNLOCK_POLAR_MIN), 1e-12, "free hi = cos(0.05)");
-  close(free.dotLo, Math.cos(UNLOCK_POLAR_MAX), 1e-12, "free lo = cos(π-0.05)");
-  // level view (polar = π/2) is always allowed in both states
-  assert.ok(0 <= lock.dotHi && 0 >= lock.dotLo, "level allowed locked");
-  assert.ok(0 <= free.dotHi && 0 >= free.dotLo, "level allowed unlocked");
+// ── POLAR-CROSSING CAMERA (2026-08-13) ─────────────────────────────────────
+//
+// REPLACES the former test "polarClampDots: lock forbids under-ecliptic,
+// unlock only widens". That test pinned the DEFECT: it asserted "poles
+// excluded even unlocked", which is exactly what stopped the user reaching the
+// Moon's south pole to inspect the landing sites. The clamp and its constants
+// are gone; these pin the behaviour that replaced them.
+//
+// Local vec helpers (spaceFrame keeps its own module-private, and this test
+// should not widen the module's API just to assert against it).
+const pDot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const pLen = (a: Vec3): number => Math.hypot(a.x, a.y, a.z);
+const pNorm = (a: Vec3): Vec3 => { const m = pLen(a) || 1; return { x: a.x / m, y: a.y / m, z: a.z / m }; };
+const pSub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+
+test("orthonormalUp: perpendicular, unit, and never NaN even when parallel", () => {
+  const d = { x: 0, y: 0, z: 1 };
+  const u = orthonormalUp(d, { x: 0, y: 0, z: 1 }); // degenerate input
+  close(pLen(u), 1, 1e-12, "unit");
+  close(pDot(u, d), 0, 1e-12, "perpendicular");
+  assert.ok(Number.isFinite(u.x + u.y + u.z), "no NaN on the degenerate case");
+  const u2 = orthonormalUp({ x: 0, y: 0, z: 1 }, { x: 3, y: 0, z: 7 });
+  close(pDot(u2, { x: 0, y: 0, z: 1 }), 0, 1e-12, "component along dir removed");
+});
+
+test("transportUp keeps the basis continuous THROUGH a pole", () => {
+  // Walk the view direction over the +Z pole in small steps and assert the up
+  // vector never jumps. The old derived-up basis snapped here — that snap is
+  // the entire reason the clamp existed.
+  const axis = { x: 0, y: 0, z: 1 };
+  let d = pNorm({ x: 0, y: 0.0001, z: 1 });
+  let up = orthonormalUp(d, { x: 1, y: 0, z: 0 });
+  let maxJump = 0;
+  let crossed = false;
+  for (let i = 0; i < 400; i++) {
+    const nd = pNorm(rotateAbout(d, { x: 1, y: 0, z: 0 }, 0.5));
+    const nUp = transportUp(d, nd, up);
+    maxJump = Math.max(maxJump, pLen(pSub(nUp, up)));
+    if (pDot(d, axis) > 0 && pDot(nd, axis) < 0) crossed = true;
+    d = nd;
+    up = nUp;
+    close(pLen(up), 1, 1e-9, "up stays unit");
+    close(pDot(up, d), 0, 1e-9, "up stays perpendicular");
+  }
+  assert.ok(crossed, "the sweep must actually cross the pole");
+  assert.ok(maxJump < 0.05, `up jumped ${maxJump} crossing the pole — basis is not continuous`);
+});
+
+test("levelBlend releases the horizon only in a small cap around each pole", () => {
+  const axis = { x: 0, y: 0, z: 1 };
+  close(levelBlend({ x: 1, y: 0, z: 0 }, axis), 1, 1e-12, "level view fully re-levels");
+  close(levelBlend({ x: 0, y: 0, z: 1 }, axis), 0, 1e-12, "at the north pole, no re-level");
+  close(levelBlend({ x: 0, y: 0, z: -1 }, axis), 0, 1e-12, "at the south pole too (|dot|)");
+  let prev = -1;
+  for (let a = 0; a <= LEVEL_FADE_RAD; a += LEVEL_FADE_RAD / 20) {
+    const b = levelBlend({ x: Math.sin(a), y: 0, z: Math.cos(a) }, axis);
+    assert.ok(b >= prev - 1e-12, "blend must be monotonic approaching the pole");
+    prev = b;
+  }
+});
+
+test("relevelUp restores a level horizon away from the poles", () => {
+  const axis = { x: 0, y: 0, z: 1 };
+  const d = pNorm({ x: 1, y: 0, z: 0 });
+  const tilted = orthonormalUp(d, { x: 0, y: 1, z: 1 });
+  const leveled = relevelUp(d, tilted, axis, 1);
+  close(northRollDeg(camBasisFromUp(d, leveled), axis), 0, 1e-9, "roll 0 when fully re-levelled");
+  const kept = relevelUp(d, tilted, axis, 0);
+  close(pDot(kept, tilted), 1, 1e-9, "t=0 keeps the carried up");
+});
+
+test("camBasisFromUp is orthonormal everywhere, including AT a pole", () => {
+  const dirs: Vec3[] = [
+    { x: 0, y: 0, z: 1 },   // exactly the north pole — the old degenerate case
+    { x: 0, y: 0, z: -1 },  // exactly the south pole
+    { x: 1, y: 0, z: 0 },
+    pNorm({ x: 0.3, y: -0.7, z: 0.9 }),
+  ];
+  for (const d of dirs) {
+    const b = camBasisFromUp(d, { x: 1, y: 0, z: 0 });
+    close(pLen(b.f), 1, 1e-9, "f unit");
+    close(pLen(b.r), 1, 1e-9, "r unit");
+    close(pLen(b.u), 1, 1e-9, "u unit");
+    close(pDot(b.f, b.r), 0, 1e-9, "f perp r");
+    close(pDot(b.f, b.u), 0, 1e-9, "f perp u");
+    close(pDot(b.r, b.u), 0, 1e-9, "r perp u");
+  }
 });
 
 test("CAMERA_UP_ECL: the ecliptic pole, unit, and roll-free for its own basis", () => {

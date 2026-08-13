@@ -356,25 +356,14 @@ export const MIN_ZOOM_RADII = 1.02;
 export const ORBIT_INERTIA_DAMP = 0.9;
 export const ORBIT_INERTIA_EPS_DEG = 0.015;
 
-/** North-lock polar clamp (radians from the up axis). Lock ON (default): the
- *  camera can tip near the top pole (0.12) but never swing under the ecliptic
- *  (π/2+0.42 past level). OFF only WIDENS the clamp (small pole guards keep
- *  the basis non-degenerate) — roll stays impossible either way, because
- *  camBasis rebuilds the up-vector every frame (see spaceFrame.test.ts
- *  "roll 0 by construction"). Pure + exported so the clamp is unit-testable. */
-export const LOCK_POLAR_MIN = 0.12;
-export const LOCK_POLAR_MAX = Math.PI / 2 + 0.42;
-export const UNLOCK_POLAR_MIN = 0.05;
-export const UNLOCK_POLAR_MAX = Math.PI - 0.05;
-
-/** dot(dir,axis)=cos(polar) bounds for the current lock state. A candidate
- *  orbit direction is accepted iff dotLo ≤ dot ≤ dotHi. */
-export function polarClampDots(locked: boolean): { dotHi: number; dotLo: number } {
-  return {
-    dotHi: Math.cos(locked ? LOCK_POLAR_MIN : UNLOCK_POLAR_MIN),
-    dotLo: Math.cos(locked ? LOCK_POLAR_MAX : UNLOCK_POLAR_MAX),
-  };
-}
+// REMOVED 2026-08-13 — the polar clamp (LOCK_POLAR_MIN/MAX,
+// UNLOCK_POLAR_MIN/MAX, polarClampDots). It existed only to fence off the
+// singularity in camBasis's derived up-vector, and it cost the user the whole
+// under-side of every body: the DEFAULT locked range stopped at 114.06 deg, so
+// the Moon's south pole and its landing sites were unreachable, and even
+// unlocked the 0.05 rad guards made crossing a pole impossible. The carried
+// up-vector (orthonormalUp / transportUp / relevelUp, below) removes the
+// singularity itself, so there is nothing left to clamp.
 
 /** CAMERA up-reference: the ECLIPTIC POLE (human 2026-07-19, Space View
  *  brief FIX 1 — "up permanently (0,1,0)", the reference scene's world-up).
@@ -912,6 +901,96 @@ export function camBasis(dir: Vec3, upRef: Vec3): CamBasis {
   let r = cross(f, upRef);
   if (len3(r) < 1e-6) r = cross(f, Math.abs(upRef.x) < 0.9 ? v3(1, 0, 0) : v3(0, 0, 1));
   r = norm3(r);
+  const u = norm3(cross(r, f));
+  return { f, r, u };
+}
+
+// ── POLAR-CROSSING CAMERA (2026-08-13) ──────────────────────────────────────
+// camBasis above derives `up` from a CONSTANT world axis every frame. That is
+// what makes roll impossible — and it is also why the camera could never cross
+// a pole: as the view direction approaches the axis, cross(f, upRef) -> 0 and
+// the basis degenerates, snapping to camBasis's arbitrary fallback. The old
+// code fenced that singularity off with polar clamps instead of removing it,
+// which cost the user the entire under-side of every body (the default
+// lock-horizon clamp stopped at 114.06 deg, so the Moon's south pole and its
+// landing sites were simply unreachable).
+//
+// The fix is to stop deriving `up` and start CARRYING it: parallel-transport
+// the up-vector along the view's own rotation, then re-orthonormalise. That is
+// continuous everywhere INCLUDING at the pole, so the camera can fly straight
+// over it and the horizon rolls naturally — Google Earth's behaviour.
+//
+// A level horizon is still the default AWAY from the poles: relevelUp eases
+// the carried up back toward the axis-implied up, weighted by levelBlend,
+// which fades to 0 near the pole precisely because "level" is UNDEFINED there.
+// That is the singularity, stated honestly instead of fenced off.
+
+/** Component of `up` perpendicular to `dir`, normalised (Gram-Schmidt). Falls
+ *  back to an arbitrary perpendicular if they are parallel, so this never
+ *  returns NaN — but a TRANSPORTED up never hits that case, which is the
+ *  point. */
+export function orthonormalUp(dir: Vec3, up: Vec3): Vec3 {
+  const d = norm3(dir);
+  let u = sub(up, scale3(d, dot(up, d)));
+  if (len3(u) < 1e-9) {
+    const alt = Math.abs(d.z) < 0.9 ? v3(0, 0, 1) : v3(1, 0, 0);
+    u = sub(alt, scale3(d, dot(alt, d)));
+  }
+  return norm3(u);
+}
+
+/** Parallel-transport an up-vector from one view direction to another by the
+ *  MINIMAL rotation carrying dirPrev to dirNext, then re-orthonormalise.
+ *  Continuous across a pole, where deriving up from a world axis is not. */
+export function transportUp(dirPrev: Vec3, dirNext: Vec3, upPrev: Vec3): Vec3 {
+  const a = norm3(dirPrev);
+  const b = norm3(dirNext);
+  const ax = cross(a, b);
+  const s = len3(ax);
+  let u = upPrev;
+  if (s > 1e-12) {
+    // rotateAbout takes DEGREES; atan2(s, dot) is the unsigned angle a->b
+    u = rotateAbout(upPrev, norm3(ax), Math.atan2(s, dot(a, b)) * RAD);
+  }
+  return orthonormalUp(b, u);
+}
+
+/** Fade-out radius (radians from either pole) inside which the horizon stops
+ *  re-levelling. Law, not a tune value: shrink it and the roll snaps at the
+ *  pole; grow it and the view feels loose far from the pole. */
+export const LEVEL_FADE_RAD = 0.35;
+
+/** How strongly the horizon should re-level: 1 away from the axis, easing
+ *  (smoothstep) to 0 within LEVEL_FADE_RAD of EITHER pole. Uses |dot| so both
+ *  poles are treated alike. */
+export function levelBlend(dir: Vec3, axis: Vec3, fadeRad = LEVEL_FADE_RAD): number {
+  const c = Math.min(1, Math.abs(dot(norm3(dir), norm3(axis))));
+  const polar = Math.acos(c); // 0 at either pole
+  if (polar >= fadeRad) return 1;
+  const t = polar / fadeRad;
+  return t * t * (3 - 2 * t); // smoothstep — no derivative jump at the seam
+}
+
+/** Ease a carried up-vector back toward level (the up implied by `axis`) by
+ *  weight t, rotating about the view direction so the view never tumbles.
+ *  t=0 keeps the carried up exactly (at a pole); t=1 reproduces the old
+ *  rebuild-from-axis behaviour (away from a pole). */
+export function relevelUp(dir: Vec3, up: Vec3, axis: Vec3, t: number): Vec3 {
+  const d = norm3(dir);
+  const cur = orthonormalUp(d, up);
+  if (t <= 0) return cur;
+  const level = orthonormalUp(d, axis);
+  if (t >= 1) return level;
+  const ang = Math.atan2(dot(cross(cur, level), d), dot(cur, level)) * RAD;
+  return orthonormalUp(d, rotateAbout(cur, d, ang * t));
+}
+
+/** Camera basis from an EXPLICIT up-vector (no world constant, no
+ *  degeneracy). Same handedness/convention as camBasis. */
+export function camBasisFromUp(dir: Vec3, up: Vec3): CamBasis {
+  const f = scale3(norm3(dir), -1);
+  const u0 = orthonormalUp(f, up);
+  const r = norm3(cross(f, u0));
   const u = norm3(cross(r, f));
   return { f, r, u };
 }
@@ -2141,6 +2220,20 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   const entryDiscPx = mapGlobeDiscPx(seam0.zoom, seam0.centerLatDeg);
   let focusId: string = anchorDef.id;
   let dir = entryCameraDir(seam0.centerLatDeg, seam0.centerLonDeg, timeMs);
+  // CARRIED up-vector (2026-08-13, polar-crossing camera). The view basis is
+  // built from THIS, not re-derived from CAMERA_UP_ECL, so it stays continuous
+  // when the view direction passes through the ecliptic axis. Seeded level.
+  let camUp: Vec3 = orthonormalUp(scale3(dir, -1), CAMERA_UP_ECL);
+  /** THE ONLY place `dir` changes. Carries the up-vector through the change
+   *  (transport, then re-level where level is defined) so neither an orbit
+   *  drag nor a discrete re-anchor — flight arrival, focus release — can snap
+   *  the horizon or degenerate the basis at a pole. */
+  function setDir(nd: Vec3): void {
+    const n = norm3(nd);
+    camUp = transportUp(dir, n, camUp);
+    camUp = relevelUp(n, camUp, CAMERA_UP_ECL, lockHorizon ? levelBlend(n, CAMERA_UP_ECL) : 0);
+    dir = n;
+  }
   let kNow = perspectiveScalePx(fovDeg, container.clientHeight || 600);
   let dist = distanceForDiscPx(radiusM(anchorDef.id), entryDiscPx, kNow);
   // ZOOM-TO-CURSOR + PAN (2026-07-19): the LOOK-AT is focus-body-centre +
@@ -2169,7 +2262,10 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let gridOn = opts.eclipticGrid ?? getEclipticGridPref();
   let trailsOn = opts.motionTrails ?? getMotionTrailsPref();
   let labelsOn = opts.bodyLabels ?? getBodyLabelsPref();
-  // Lock horizon (2026-07-19): polar clamp state — see polarClampDots.
+  // Lock horizon (2026-07-19; re-scoped 2026-08-13). ON = keep the horizon
+  // level wherever "level" is defined, easing off inside LEVEL_FADE_RAD of a
+  // pole so the camera can fly over it. OFF = never re-level (free roll).
+  // It no longer bounds WHERE the camera may go — see setDir/relevelUp.
   let lockHorizon = opts.lockHorizon ?? getLockHorizonPref();
   // B6 universal lighting: ON = physically-lit (terminators/phases/eclipse+
   // ring shadows); OFF = even-lit inspection (full-bright, no terminator).
@@ -2967,7 +3063,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     // re-anchor the frozen pose on the new focus body
     const rel = sub(cam, pos[focusId]);
     dist = Math.max(len3(rel), MIN_DISTANCE_RADII * radiusM(focusId));
-    dir = norm3(rel);
+    setDir(rel);
     // new focus ⇒ recentre the look-at (a frozen flight lands looking at the
     // body centre; zoom-to-cursor/pan offsets belong to the prior body only)
     focusOff = v3(0, 0, 0);
@@ -3009,7 +3105,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       );
       if (raw >= 1) {
         focusId = flight.toId;
-        dir = flight.toDir;
+        setDir(flight.toDir);
         dist = flight.toDist;
         const exiting = flight.exitOnArrival;
         flight = null;
@@ -3037,7 +3133,9 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       camTrue = add(add(posT[focusId], focusOff), scale3(dir, dist));
       viewDir = dir;
     }
-    const basis = camBasis(viewDir, CAMERA_UP_ECL); // level = the ecliptic; axis (Earth spin) still drives the anchor roll
+    // carried up (polar-crossing camera): the RENDER basis must use the same
+    // up the orbit transports, or the view would not actually roll over a pole.
+    const basis = camBasisFromUp(viewDir, camUp);
     const cx = w / 2;
     const cy = h / 2;
     // capture the live camera for the drive's projectSkyRaDec seam
@@ -3840,7 +3938,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     const center = pos[focusId];
     const lookAt = add(center, focusOff);
     const camPos = add(lookAt, scale3(dir, dist));
-    const basis = camBasis(dir, CAMERA_UP_ECL);
+    const basis = camBasisFromUp(dir, camUp); // must match the on-screen basis
     const k = perspectiveScalePx(fovDeg, cssSize().h);
     return { camPos, basis, k, center };
   }
@@ -3931,28 +4029,28 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   let orbitVelPitch = 0;
   const DRAG_DEG_PER_PX = 0.25;
 
-  /** yaw about the ecliptic axis + pitch about the camera-right axis, with
-   *  the lock-horizon polar clamp (never under the ecliptic while ON; OFF
-   *  only widens — roll impossible in both, camBasis rebuilds up). Shared by
-   *  live drag and the inertial coast — the ONLY pitch-bounding site. */
+  /** yaw about the ecliptic axis + pitch about the camera-right axis. Shared
+   *  by live drag and the inertial coast — the ONLY pitch-bounding site.
+   *
+   *  NO POLAR CLAMP (2026-08-13). The clamp existed only to keep camBasis's
+   *  derived up-vector from degenerating at the pole; the carried up-vector
+   *  cannot degenerate, so the camera now flies straight over either pole.
+   *  `lockHorizon` no longer means "stay above the ecliptic" — it means "keep
+   *  the horizon level", which is now honoured everywhere it is DEFINED and
+   *  released only in the small cap around each pole where it is not. */
   function applyOrbit(yawDeg: number, pitchDeg: number): void {
     const axis = CAMERA_UP_ECL; // yaw about the ecliptic pole — level = the solar system's plane
-    const b = camBasis(dir, axis);
-    let nd = rotateAbout(dir, axis, yawDeg);
-    nd = rotateAbout(nd, b.r, pitchDeg);
-    // polar clamp: dot(dir,axis)=cos(polar). Out of bounds ⇒ yaw-only, so a
-    // wild drag slides along the clamp instead of dying at it.
-    const { dotHi, dotLo } = polarClampDots(lockHorizon);
-    const d = dot(nd, axis);
-    if (d >= dotLo && d <= dotHi) dir = norm3(nd);
-    else dir = norm3(rotateAbout(dir, axis, yawDeg));
+    const b = camBasisFromUp(dir, camUp);
+    let nd = norm3(rotateAbout(dir, axis, yawDeg));
+    nd = norm3(rotateAbout(nd, b.r, pitchDeg));
+    setDir(nd);
   }
 
   /** translate the look-at offset by a screen drag (grab-pan) — no cancelFlight
    *  / kick (callers own those). meters/px = dist/k at the look-at plane, so
    *  the surface moves 1:1 under the pointer, exactly like panning the map. */
   function panOffsetBy(dxPx: number, dyPx: number): void {
-    const basis = camBasis(dir, CAMERA_UP_ECL);
+    const basis = camBasisFromUp(dir, camUp); // must match the on-screen basis
     const k = perspectiveScalePx(fovDeg, cssSize().h);
     const maxOff = PAN_MAX_OFFSET_RADII * radiusM(focusId);
     focusOff = panOffset(focusOff, dxPx, dyPx, basis, dist / k, maxOff);
@@ -4095,7 +4193,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       const cam = add(add(posL[focusId], focusOff), scale3(dir, dist));
       const pose = reanchorPose(cam, posL[sunDef.id], MIN_DISTANCE_RADII * radiusM(sunDef.id));
       focusId = sunDef.id;
-      dir = pose.dir;
+      setDir(pose.dir);
       dist = pose.dist;
       // released to the Sun frame ⇒ centred look-at (offsets were the body's)
       focusOff = v3(0, 0, 0);

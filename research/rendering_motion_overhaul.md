@@ -569,3 +569,112 @@ and is queued in open_questions.md.
 between them. And `data` p95 frame time measures **250ms @1440, 183ms @768,
 100ms @390**, against the Law's 16.7ms. Both are separate items; the p95 gap
 is already recorded under "THE ACCEPTANCE NUMBER IS NOWHERE NEAR MET".
+
+---
+
+## F21 — THE CAMERA COULD NOT CROSS A POLE, AND WHY (2026-08-13, human report)
+
+Human: *"when looking at the moon it will not let you go over the axis of
+rotation like over the poles same thing on the earth ... I came across this
+issue when looking at the bottom of the moon to see the missions"* — plus a
+Google Earth screenshot as the quality bar.
+
+### Root cause — one line of vector math
+
+`camBasis(dir, upRef)` (spaceFrame.ts:910) derives the camera's up-vector from
+a CONSTANT world axis every frame:
+
+```ts
+let r = cross(f, upRef);
+if (len3(r) < 1e-6) r = cross(f, /* arbitrary fallback */);
+const u = norm3(cross(r, f));
+```
+
+As the view direction approaches the axis, `cross(f, upRef) → 0`: the basis is
+DEGENERATE at the pole and snaps to an arbitrary fallback orientation. Rather
+than remove that singularity, the code fenced it off with a polar clamp — and
+the fence, not the math, is what the user hit:
+
+| state | polar range allowed | consequence |
+|---|---|---|
+| lock ON (**default**) | 0.12 … π/2+0.42 rad = **6.88° … 114.06°** | the entire under-side of every body is unreachable |
+| lock OFF | 0.05 … π−0.05 rad = **2.86° … 177.14°** | can approach a pole, can never cross it |
+
+So on the DEFAULT setting the camera stops 66° short of the Moon's south pole.
+The landing sites the user was trying to inspect (Chang'e 4/6, LCROSS, IM-1,
+Chandrayaan-3) are in exactly that unreachable cap. The doc comment claiming
+unlock "only WIDENS" was accurate but beside the point — both states forbid the
+crossing.
+
+### Fix — carry the up-vector instead of deriving it
+
+Stop rebuilding `up` from a world constant; PARALLEL-TRANSPORT it along the
+view's own rotation and re-orthonormalise. That is continuous everywhere,
+including at the pole, so the singularity is gone rather than fenced:
+
+- `orthonormalUp(dir, up)` — Gram-Schmidt, never NaN
+- `transportUp(dirPrev, dirNext, upPrev)` — minimal-rotation transport
+- `levelBlend(dir, axis)` — smoothstep, 1 away from the axis → 0 within
+  `LEVEL_FADE_RAD` (0.35 rad) of EITHER pole, because "level" is UNDEFINED at
+  a pole; that is the honest statement of the singularity
+- `relevelUp(dir, up, axis, t)` — ease the carried up back toward level
+- `camBasisFromUp(dir, up)` — basis from an explicit up, no degeneracy
+
+`setDir()` is now the ONLY place `dir` changes, so orbit drags AND discrete
+re-anchors (flight arrival, focus release, re-focus) all carry the up through
+the change — none of them can snap the horizon.
+
+**The polar clamp is deleted outright**, along with `polarClampDots` and its
+four constants. There is nothing left to clamp.
+
+### `lockHorizon` re-scoped, not removed
+
+It no longer bounds WHERE the camera may go. ON (default) = keep the horizon
+level wherever level is defined, releasing only inside the small polar cap; OFF
+= never re-level (free roll). Both allow crossing. This preserves the human's
+2026-07-19 "level, not tilted/wonky" directive for normal viewing while
+satisfying the new one.
+
+### A test that pinned the bug was REMOVED — deliberately, and stated
+
+`"polarClampDots: lock forbids under-ecliptic, unlock only widens"` asserted
+`"poles excluded even unlocked"`. That assertion encoded the defect, so it
+could not survive the fix. Per REPAIRS MUST RATCHET it was replaced by five
+stronger tests, not merely dropped — notably a **400-step sweep that walks the
+camera over the pole and asserts the up-vector never jumps by >0.05** (the old
+basis snapped there), and orthonormality asserted AT `(0,0,±1)` exactly — the
+input that used to hit the degenerate fallback.
+
+285 celestial tests pass. Zero new tsc errors (83 before / 83 after).
+
+### Still open — the Earth half of the same report
+
+MapLibre's globe is a separate camera we do not own; its polar behaviour and
+the pinwheel artifact are F22.
+
+---
+
+## F22 — THE ARCTIC PINWHEEL: MERCATOR DATA STRETCHED OVER THE GLOBE'S POLE CAP
+
+The fan of triangular wedges radiating from the north pole in the user's
+screenshot is the **seafloor depth tint**.
+
+`seafloor-dem` (datamap.tsx:5038) is a **Web Mercator** terrarium raster-dem:
+
+```
+tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"]
+```
+
+Web Mercator tiles exist only to **±85.051129°**. Above that there is no data
+at all. MapLibre's globe projection triangulates the residual polar cap as a
+FAN of triangles meeting at the pole, and the `color-relief` ramp interpolates
+the topmost tile row's values across those wedges — producing precisely the
+pinwheel. The same limit applies to every Mercator raster source we stack
+(terrain DEM, GIBS imagery, radar, OWM).
+
+This is **not** a bug in the ramp or the palette: it is invented data being
+painted in a region where none exists, which the honesty rails forbid
+regardless of how it looks. Fix in the next commit: declare the sources' real
+latitude `bounds` so nothing paints above 85.051129° — a gap shown as a gap.
+Real polar coverage needs a polar-stereographic source (NASA GIBS publishes
+EPSG:3413 Arctic / EPSG:3031 Antarctic matrix sets); filed as follow-up.
