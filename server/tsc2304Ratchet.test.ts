@@ -21,7 +21,7 @@
 //
 // Both came from ordinary refactors — a closure split and a function extraction
 // — and both were invisible because three defences composed: `|| true` on the
-// CI typecheck hid the error, an empty `catch {}` swallowed the throw, and a
+// CI typecheck hid the error, an empty catch block swallowed the throw, and a
 // reassuring comment made the swallow look deliberate. One of them survived a
 // full static audit of the codebase.
 //
@@ -62,12 +62,16 @@ function typecheck(): string {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 300_000,
     });
-  } catch (err: any) {
+  } catch (err) {
     // Distinguish "tsc ran and found errors" from "tsc could not run at all".
     // Without this, a missing node_modules would surface as a PASSING test —
     // the ratchet would silently stop ratcheting, which is the failure mode
     // this whole program exists to prevent.
-    const out = `${err?.stdout ?? ""}${err?.stderr ?? ""}`;
+    //
+    // Narrowed off `unknown` rather than typed `any`: this file introduces the
+    // `tsc_2304` ratchet, so it has no business pushing the `ts_any` one up.
+    const e = err as { stdout?: string; stderr?: string } | null;
+    const out = `${e?.stdout ?? ""}${e?.stderr ?? ""}`;
     assert.ok(
       out.includes("error TS") || out.trim() === "",
       `tsc did not run — cannot verify the TS2304 ratchet.\n` +

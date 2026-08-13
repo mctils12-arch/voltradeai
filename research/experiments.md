@@ -50051,7 +50051,21 @@ particular identifier is currently wrong.
 
 NUMBERS: `tsc_errors` 83 → 78. **`tsc_2304` 5 → 0, at target.**
 `detectors_registered` 1 → 2. `long_try_empty_catch` baseline 3.
-`empty_ts_catch`, `ts_any`, and every other ratchet unchanged.
+`empty_ts_catch` 495 and `ts_any` 1252, both held — but only after a correction
+worth recording (L9): the first `program_status.sh` run after writing this fix
+showed `empty_ts_catch` 495 → **497** and `ts_any` 1252 → **1253**. Cause: the
+counters grep raw source, so my own explanatory COMMENTS containing the literal
+`catch {}` (one here, one in the new test) each incremented the count, and the
+test's `catch (err: any)` incremented the other. I had already written a PR body
+claiming `ts_any` was held.
+
+Fixed the CODE, not the ruler — reworded both comments, narrowed the test's
+handler off `unknown` instead of typing it `any`. Teaching the counter to skip
+comments would have been a measurement change that makes the numbers look
+better, which MEASUREMENT INTEGRITY treats as suspect by default and §12 calls
+"reducing counts by suppression"; it is queued as Q13 to land on its own with a
+before/after on identical inputs. Standing lesson: run `program_status.sh`
+BEFORE writing the PR body, not after.
 
 DOWNSTREAM CHAIN (REASONING STANDARD #1): `altScale` restored → the AGL readout
 computes → the tick no longer aborts at 4384 → GND SPD / VERT SPD populate and

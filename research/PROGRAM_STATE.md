@@ -42,6 +42,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q10 | T1.1 — all three suites into CI non-blocking + `visual --soft` | T1.1 | **TODO** — **promoted: this is what arms `server/tsc2304Ratchet.test.ts`, which no CI job runs today** |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
 | Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
+| Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
 
@@ -134,6 +135,26 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L9 — the text-based counters can be moved by PROSE, and it caught me the
+same session I wrote them.** `empty_ts_catch` and `ts_any` grep raw source, so
+a COMMENT containing the literal `catch {}` increments the count. Writing this
+session's fix, my own explanatory comments (one in `datamap.tsx`, one in the new
+ratchet test) pushed `empty_ts_catch` 495 → 497, and `catch (err: any)` in the
+ratchet test pushed `ts_any` 1252 → 1253 — in the very PR whose body claimed
+`ts_any` was being held. Caught by running `program_status.sh` before finishing,
+which is exactly why §0.3 requires it.
+
+Fixed the code, NOT the ruler: reworded both comments, and narrowed the test's
+handler off `unknown` instead of typing it `any`. Tuning the counter to ignore
+comments would have been a measurement change that makes the numbers look
+better, which MEASUREMENT INTEGRITY treats as suspect by default and which
+§12 names as "reducing counts by suppression". Queued as **Q13** so it lands as
+its own PR with a before/after on identical inputs, per the same rule.
+
+The general lesson for every future session: **run `scripts/program_status.sh`
+before you write the PR body, not after** — a claim about a counter is only
+worth making if you re-measured it after your last edit.
 
 **L8 — a test in this repo has never passed, and nobody could have known.**
 `server/gridTiles.test.ts` asserts `files.length >= 50` over

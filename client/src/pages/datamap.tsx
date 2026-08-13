@@ -6816,7 +6816,7 @@ export default function DataMapPage() {
     // SCOPE FIX (T0.0, 2026-08-13): the body below stamps `__vtFeatClaim` on
     // the click event, but when it was extracted out of `onClick(e)` for the
     // SatFinder entrance the `e` came with it and lost its binding — a TS2304
-    // swallowed by that line's own `catch {}`, so satellite clicks silently
+    // swallowed by that line's own empty catch, so satellite clicks silently
     // never claimed the feature and the click-off handler took the wrong
     // branch. The event is threaded through as OPTIONAL because the SatFinder
     // entrances genuinely have none: a search hit is not a map click and has
