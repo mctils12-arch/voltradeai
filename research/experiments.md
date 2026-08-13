@@ -48920,3 +48920,16 @@ Tests: meteors.test.ts rewritten+extended (13) — land-recent links,
 old-event web fallback (the 2016 case pinned), ocean collapse,
 naturalDate/monthYear, nightAtSite solar cases, verdict trio,
 compact-format pins including the exact 106k-ft truncation case.
+
+## 2026-08-13 — [PRODUCT] Floating on-map legend (v1.0.695)
+
+Territory: T-CLIENT. Same human report: "the legend it hard to find
+if you have many layers on the render was easy to understand and
+looked better than where its now." The one legend moved from the
+buried bottom of the layers panel onto the map (the approved mock's
+placement): draggable grip bar via panelLayout (spot remembered,
+double-click resets), collapsible to its LEGEND chip (state
+persisted via the min flag), body scrolls internally (max 46vh) when
+many layers are on, hidden in space view. Same LegendPanel
+component + icon registry — one legend, one source of truth; the
+panel copy is deleted, harness data-vt-legend hook preserved.

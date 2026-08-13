@@ -2448,8 +2448,29 @@ export default function DataMapPage() {
   // so dragging is glitch-free (no refetch — one setFilter per tick per layer).
   const [histYear, setHistYear] = useState(HIST_MAX_YEAR);
   const [histPlay, setHistPlay] = useState(false);
-  const [legendOpen, setLegendOpen] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  const [legendOpen, setLegendOpen] = useState<boolean>(() => {
+    const saved = getPanelPrefs("legend-float").min;
+    if (saved != null) return !saved;
+    return typeof window !== "undefined" ? window.innerWidth >= 768 : true;
+  });
+  // collapse state persists (panelLayout min flag), spot remembered via drag
+  const setLegendOpenPersist: React.Dispatch<React.SetStateAction<boolean>> = useCallback((v) => {
+    setLegendOpen((prev) => {
+      const next = typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v;
+      savePanelPrefs("legend-float", { min: !next });
+      return next;
+    });
+  }, []);
+  const legendFloatRef = useRef<HTMLDivElement | null>(null);
+  const legendDrag = useMemo(
+    () => panelDragProps("legend-float", () => legendFloatRef.current, () => false,
+      { defaultOrigin: "bottom left" }),
+    [],
+  );
+  useEffect(() => {
+    const el = legendFloatRef.current;
+    if (el && !applyPanelPos(el, "legend-float")) clearPanelPos(el);
+  }, [legendOpen, mapReady]);
   // Celestial v2 B2: the CELESTIAL panel section's view of the persisted
   // scale state. Store-of-record is lib/celestial/scaleModel.ts (localStorage
   // — the vt-units pattern); the space frame subscribes separately inside
@@ -13444,23 +13465,40 @@ export default function DataMapPage() {
               const orphans = layers.filter((l) => !known.has(groupOf(l)));
               return orphans.length ? renderPanelGroup("_more", "More", orphans) : null;
             })()}
-            <LegendPanel
-              legendOpen={legendOpen} setLegendOpen={setLegendOpen}
-              enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
-              nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
-              vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
-              no2Date={no2Date} so2Date={so2Date} floodsDate={floodsDate} firetempScanTime={firetempScanTime}
-              tempUnitF={tempUnitF} windArrows={windArrows}
-              orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
-              satGroup={satGroup} satGroupCount={satGroupCount}
-              satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
-              applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
-              onFindSat={findSat} seafloorConfShares={seafloorConfShares}
-              wlTick={wlTick} onFindPlane={findPlaneCb} onOpenWatched={openWatchedCb}
-            />
           </div>
         )}
       </div>
+
+      {/* FLOATING LEGEND (human 2026-08-13: "the legend it hard to find if
+          you have many layers on … the render was easy to understand and
+          looked better") — the ONE legend now floats ON the map like the
+          approved mock: draggable by its grip bar (panelLayout — spot
+          remembered), collapsible to its LEGEND chip via the existing
+          head button (state persisted), body scrolls internally when many
+          layers are on. Same LegendPanel component, same icon source; the
+          buried panel copy is gone. Hidden in space view (map-scoped). */}
+      {mapReady && !spaceActive && (
+        <div ref={legendFloatRef} className="vt-legend-float" data-vt-legend-float>
+          <div className="vt-legend-float-bar" {...legendDrag}
+               title="Drag to move — double-click to reset">
+            <span className="vt-legend-float-dots">⠿</span>
+          </div>
+          <LegendPanel
+            legendOpen={legendOpen} setLegendOpen={setLegendOpenPersist}
+            enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
+            nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
+            vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
+            no2Date={no2Date} so2Date={so2Date} floodsDate={floodsDate} firetempScanTime={firetempScanTime}
+            tempUnitF={tempUnitF} windArrows={windArrows}
+            orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
+            satGroup={satGroup} satGroupCount={satGroupCount}
+            satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
+            applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
+            onFindSat={findSat} seafloorConfShares={seafloorConfShares}
+            wlTick={wlTick} onFindPlane={findPlaneCb} onOpenWatched={openWatchedCb}
+          />
+        </div>
+      )}
 
       {/* SPACE VIEW body info card (reference #bodycard, 2026-07-18):
           opens on fly-to, closes on release/fly-home/exit. Real IAU +

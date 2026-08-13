@@ -2351,6 +2351,27 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 
 /* Legend v3 — real registry symbols, grouped, collapsible (390px-legible:
    11px+ labels, 44px toggle target; DESIGN.md legend rule) */
+/* ── FLOATING LEGEND (2026-08-13: moved from the buried panel bottom onto
+      the map, per the approved mock) — draggable grip bar, collapsible via
+      the Legend head, internal scroll when many layers are on ─────────── */
+.vt-legend-float {
+  position: absolute; left: 18px; bottom: 64px; width: 272px; z-index: 18;
+  background: rgba(13, 22, 38, 0.94); border: 1px solid rgba(120, 168, 255, 0.16);
+  border-radius: 10px; backdrop-filter: blur(6px);
+  display: flex; flex-direction: column; max-height: 46vh;
+}
+.vt-legend-float-bar {
+  display: flex; align-items: center; justify-content: center;
+  padding: 3px 0 1px; cursor: grab; touch-action: none; flex: none;
+  color: var(--text-tertiary); font-size: 10px; line-height: 1;
+}
+.vt-legend-float-bar:active { cursor: grabbing; }
+.vt-legend-float .vt-legend { margin-top: 0; border-top: 0; min-height: 0; display: flex; flex-direction: column; }
+.vt-legend-float .vt-legend-body { overflow-y: auto; min-height: 0; }
+@media (max-width: 640px) {
+  .vt-legend-float { left: 10px; bottom: 56px; width: 228px; max-height: 38vh; }
+}
+
 .vt-legend {
   margin-top: 4px;
   border-top: 1px solid rgba(77, 159, 255, 0.12);
