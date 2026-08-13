@@ -227,7 +227,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
-import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { installDrapeOrderGuard } from "@/lib/drapeOrder";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
@@ -2479,6 +2479,33 @@ export default function DataMapPage() {
     const el = legendFloatRef.current;
     if (el && !applyPanelPos(el, "legend-float")) clearPanelPos(el);
   }, [legendOpen, mapReady]);
+  // WHEEL PASS-THROUGH (2026-08-13 live report: "i cant see space it wont
+  // let me zoom out" — the legend's overflow body swallowed every wheel
+  // over its 272px × 46vh box, so zooming with the cursor there did
+  // nothing). Nested-scroll convention: the legend scrolls only while it
+  // CAN (nestedScrollConsumes); otherwise the event is re-dispatched onto
+  // the map canvas — same deltas, same cursor anchor — so map zoom (and
+  // the space-entry seam accumulator listening above it) work everywhere.
+  // Native non-passive listener: React root wheel handlers are passive
+  // and cannot preventDefault.
+  useEffect(() => {
+    const el = legendFloatRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const body = el.querySelector(".vt-legend-body") as HTMLElement | null;
+      if (body && nestedScrollConsumes(body.scrollTop, body.clientHeight, body.scrollHeight, e.deltaY)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = document.querySelector(".maplibregl-canvas");
+      canvas?.dispatchEvent(new WheelEvent("wheel", {
+        deltaY: e.deltaY, deltaX: e.deltaX, deltaMode: e.deltaMode,
+        clientX: e.clientX, clientY: e.clientY,
+        ctrlKey: e.ctrlKey, bubbles: true, cancelable: true,
+      }));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [mapReady, spaceActive]);
   // Celestial v2 B2: the CELESTIAL panel section's view of the persisted
   // scale state. Store-of-record is lib/celestial/scaleModel.ts (localStorage
   // — the vt-units pattern); the space frame subscribes separately inside
