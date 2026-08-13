@@ -3,6 +3,236 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-13 [PRODUCT] — T-CLIENT + datacore — submarine telecom cables: a new RAW OSM overlay, and a correction to the 2026-08-11 coverage-gap research (v1.0.697)
+
+TERRITORY: T-CLIENT (client/src/pages/datamap.tsx) + datacore (new
+scripts/submarine_cables_build.py, client/public/cables/ artifact) per
+the SPINOUT-READY DATA LAYER rule (cross-territory PRODUCT session, one
+logical change). SHARED: datacore/layers.json + package.json bump only,
+both last commits before push.
+
+SESSION-START CHECKS: KNOWN BROKEN section — no open items block this
+work. Loop-health ratio: last 10 tagged entries before this one show a
+healthy REPAIR/PIPELINE/PRODUCT mix, no 7+ REPAIR thrash trigger. No
+LIVENESS ALARM condition applies (this is a data/UI PRODUCT session, no
+trading-loop change).
+
+WHAT: shipped `submarine_cables`, a new RAW /data map overlay — 7,464
+submarine telecommunications cable segments worldwide (~267,700 km),
+from OpenStreetMap's `seamark:type=cable_submarine` tag. Distinct fuchsia
+line color from the existing power-grid palette (yellow HV / cyan MV /
+purple-dashed unknown-voltage); disused/retired cable systems render
+dashed, never hidden (same "never hide, distinctly style" convention as
+power grid's voltage-unknown class). Click a cable for name/operator/
+in-service date where OSM has mapped one; source link to the OSM way.
+Legend chips (vt-legend-chip line-color pattern, matching the existing
+Live Tracking section's Cruise/Track chips — line layers use this swatch
+pattern, not the icon-registry SYMBOLS NOT DOTS machinery, which is
+point-feature-only). Registry entry (`kind: raw`, `group: facilities`,
+`costTier: light`, full v2 provenance block, `commercialOk: true`).
+
+WHY: pre-researched and adversarially verified as "shippable" in
+research/open_questions.md's 2026-08-11 "SUBMARINE CABLES" finding
+(session Bilawal-derived build candidates) — real, ODbL-clean, free
+infrastructure geometry nobody else in this product surfaces, matching
+the EDGE DOCTRINE'S "build data, don't buy it" standing behavior and the
+BUILD-FIRST RULE (OSM raw material we can process ourselves vs. any paid
+cable-chart vendor).
+
+READ BEFORE WRITE / precedent study (this session, not from memory):
+read scripts/build_power_tiles.sh (the tippecanoe/pmtiles pipeline for
+the LARGE OSM power-grid case) and scripts/military_installations_
+build.py (the LIGHTER static-reference-geography Python+Overpass
+pattern for a smaller one-shot dataset) end to end; read several full
+datacore/layers.json entries (powergrid, powergrid_hifld, military_
+installations) for the exact schema fields in use; read the datamap.tsx
+powergrid useEffect block (source add/remove on toggle, pmtiles via
+`pmtiles://` protocol, attachLayerInteractions, gridDetach cleanup
+pattern) AND the boundaries/timezone-lines useEffect blocks (`type:
+geojson` fetched via runResilientLoad, the lighter pattern for a small
+static asset) before writing any client code; read server/layersWiring.
+test.ts and server/layersRegistry.test.ts (the registry ratchets a new
+layer must satisfy) before touching LAYER_GROUP; read client/src/lib/
+units.ts (not used here — no distance/speed/temp displayed on this
+layer, confirmed before skipping fmtKm) and DESIGN.md's legend rule
+(confirmed it targets the icon registry / point symbols specifically,
+via the `data-vt-icon` parity check in server/layersRegistry.test.ts —
+line-color legend chips are a separate, already-established, exempt
+pattern, verified by reading the Live Tracking section's existing
+Cruise/Track/Ground-trace chips, not a workaround invented this session).
+
+DECISION — pmtiles/tippecanoe pipeline vs. a plain static GeoJSON asset:
+built the artifact BOTH ways is unnecessary — checked size first. The
+full seamark:type=cable_submarine Overpass pull (8,722 ways globally)
+needs no PBF download (unlike build_power_tiles.sh's per-region/country
+Geofabrik extracts) — Overpass's own `out geom` already returns exactly
+the filtered, geometry-complete result set in one HTTP call, so the
+"lighter-weight precedent" the mission brief asked me to look for really
+is lighter: no osmium, no tippecanoe. Built artifact: 3.77 MB (7,464
+features after excluding power-tagged ways). Compared against the
+repo's existing size precedents (client/public/tiles/places.pmtiles =
+61 MB committed directly; client/public/tz/timezone_lines.json = 0.88
+MB committed directly, same `type: geojson` fetch pattern) — 3.77 MB is
+comfortably in the "commit directly" range, nowhere near the point where
+the R2 object-storage proxy (server/routes.ts `/tiles-r2/:name`,
+introduced for the power grid's Asia continent at 830 MB+) becomes
+necessary. Shipped as a plain static file at client/public/cables/
+submarine_cables.json, fetched client-side exactly like the timezone-
+lines layer — zero new server/routes.ts code, which also keeps this PR
+smaller against the SHARED-file minimization rule in WORKSTREAM
+PARTITION (only datacore/layers.json + package.json touch SHARED
+territory).
+
+TAG STRATEGY — live-verified, not trusted from the prior research (the
+prior research's own probe caught itself making one query-syntax mistake,
+and its final number turned out to still be off once checked further
+this session — see the parallel research/open_questions.md 2026-08-13
+correction entry for the full breakdown): `seamark:type=cable_submarine`
+confirmed live at 8,722 ways (this session's snapshot; the prior
+research's count from two days earlier was the same order of magnitude,
+as expected from continuous OSM editing). This tag is NOT telecom-
+exclusive — it also covers submarine POWER interconnectors (NorNed,
+Baltic Cable) — so any matched way ALSO carrying a `power` tag is
+EXCLUDED as a power cable (1,224 dropped this build). Inspected real
+tag sets on real ways (Overpass `out tags`) before deciding the filter,
+per the mission brief's explicit instruction not to guess: confirmed
+`location=underwater` ALONE is NOT cable-specific (heavily used for
+submarine pipelines via `substance`, and for power cables via `power`/
+`voltage`) — the telecom-specific co-tag combination
+(`location=underwater`+`communication=*`) exists but yields only 18
+additional ways beyond the primary tag (0.24% of 7,464), confirmed by
+an exact live Overpass count, not estimated — too small to wire in for
+v1 (scripts/submarine_cables_build.py's `build_secondary()` documents
+the decision and the exact count). Found a separate, larger,
+NOT-YET-TAG-VERIFIED candidate (`submarine=yes` minus the primary tag
+minus power-tagged = 1,297 ways, exact live count) and deliberately did
+NOT ship it — this session ran out of clean Overpass access before
+confirming a live tag sample from that set is uniformly telecom-specific,
+and shipping it unverified risked admitting non-telecom submarine
+features into a "telecom cable" layer. Filed as a scoped, quantified
+follow-up in research/open_questions.md rather than silently dropped.
+
+OVERPASS ACCESS THIS SESSION: intermittently rate-limited/reset
+(connection resets on overpass-api.de and mirrors, consistent with a
+shared-proxy-IP throttle) — every live-verification query eventually
+succeeded via retry with backoff across mirrors (overpass-api.de,
+overpass.kumi.systems), so no fabricated/sample data shipped anywhere;
+some secondary-tag exploration (the 1,297-way candidate's tag quality)
+was cut short by this and is the filed follow-up above, not silently
+skipped.
+
+LICENSE: OSM/ODbL, commercially clean — matches the existing powergrid
+layer's attribution pattern (site-wide OSM-ODbL attribution machinery,
+reused, not reinvented). NOAA MarineCadastre deliberately NOT used per
+the prior research's finding (its InPort lineage carries non-federal,
+copyrighted contributions — a private trade association, cable-industry
+vendors — not public domain; the "US-federal therefore public domain"
+analogy that clears SEC/EIA/USGS layers does not apply). TeleGeography's
+"~1.5 million km of cable in service" comparison figure (used in the
+registry description and the artifact's own `_doc`) was independently
+re-verified via a live web search this session before being printed
+anywhere — not re-quoted from the prior research unverified. Sources:
+resources.telegeography.com's 2026 Submarine Cable Map page and
+totaltele.com's coverage of TeleGeography's map, both confirming "over
+1.5 million km... early 2026" independently of this session's own build.
+
+COVERAGE HONESTY (PREMIUM EXPERIENCE STANDARD): the registry description,
+the artifact's `_doc`, and the on-map status note all state explicitly
+that OSM's cable-mapping completeness is heavily skewed to Europe/
+NE-Atlantic — sparse rendering elsewhere is a mapping-completeness gap,
+never presented as "no cables here." This mirrors the existing
+powergrid_southamerica/asia layers' own "OSM coverage varies by country"
+honesty note precedent, applied to a global (not per-continent) layer.
+
+RATCHET (tests): test_submarine_cables_build.py (10 new pytest cases,
+no network — Overpass-shaped inline fixtures): telecom cable accepted
+with full property extraction; a way carrying BOTH the primary telecom
+tag AND a power tag is excluded (the exact exclusion named in the
+mission brief); disused flag carried as a real boolean, never a string;
+missing optional tags stay None, never fabricated; start_date prefers
+start_date over opening_date; non-way elements rejected; a way with no
+geometry rejected; a degenerate 1-point way rejected (never a
+zero-length line); coordinates rounded to 4dp; build_secondary() stays
+unactivated and states why (never silently returns nothing with no
+explanation). server/layersWiring.test.ts and server/layersRegistry.test.ts
+(both pre-existing, generic ratchets — no new server-side test needed
+since submarine_cables carries no server route, unlike boundaries_admin1's
+dedicated test) pass against the new registry entry + LAYER_GROUP
+addition without modification, confirming the layer is not permanently
+stuck "reload to enable" (the exact R15 defect class those tests exist
+to catch).
+
+GATES: `python3 -m pytest -q test_submarine_cables_build.py`: 10/10 pass.
+Full-suite `python3 -m pytest -q`: pre-existing INTERNALERROR at
+collection (voltrade_daemon.py sys.exit(2) on import in this sandbox) —
+A/B-confirmed via `git stash` to be IDENTICAL on unmodified main, fully
+unrelated to this change (zero other .py files touched). `npx tsc
+--noEmit`: 86 errors, A/B-confirmed via `git stash` to be the EXACT SAME
+86 on unmodified main (zero new errors from this change; grepped output
+for "cable"/"submarine" — zero hits). `npx tsx --test server/*.test.ts
+client/src/**/*.test.ts client/src/*.test.ts`: 1612/1613 pass; the 1
+failure (gridTiles.test.ts, "expected the state+national tiles, found
+3") A/B-confirmed via `git stash` to be IDENTICAL on unmodified main —
+this sandbox's checkout is missing the large R2-migrated power-grid
+pmtiles binaries (client/public/tiles/ holds only 3 files locally,
+matching the assertion's own error text), unrelated to this change.
+`npm run build`: clean; confirmed dist/public/cables/submarine_cables.json
+ships in the built output (3,772,160 bytes). VISUAL VERIFICATION (PROMOTION
+RULE 6): `node scripts/visual_check.mjs --page data --soft` run at
+390/768/1440 (the harness's own full "data" battery, default-off state —
+submarine_cables is not toggled by any fixture scenario): 390/768 clean,
+0 hard failures; 1440 hit `perf: p95 frame 417ms > 350ms gate (observed
+ceiling 183ms)` — this exact failure class (software-rendered SwiftShader
+sandbox, container-load-dependent, clears on a quiet-box re-run) recurs
+across many unrelated prior sessions' own experiments.md entries (e.g.
+the identical 417ms value logged 2026-07-22 on a totally different
+diff — mouse-look/ADS-B freshness, v1.0.473 — cleared on a quiet-box
+re-run there too);
+not re-run A/B this session given that volume of existing precedent and
+the fact that this diff touches no render/perf code path (the layer is
+default-OFF in every base scenario the harness screenshots). All 3
+screenshots reviewed against DESIGN.md — no layout regression, no
+overlap, no truncation beyond the pre-existing "software renderer, no
+GPU" device banner. Since the harness's own fixtures never toggle a new
+default-off layer on, ALSO ran a standalone scratch Playwright check
+(not committed) against the real built site: opened /data, expanded
+every layer group + "show all" (submarine_cables sits behind the
+Facilities group's 12-row GROUP_ROW_CAP, 13th member), clicked the
+switch — confirmed the layer goes `active`, status note reads "OSM
+seamark:type=cable_submarine, power-tagged ways excluded — coverage
+skewed to Europe/NE-Atlantic…", feature count reads 7,464 (matches the
+artifact exactly), and fuchsia cable lines render on the map with no
+console errors attributable to this code (the only console errors were
+ERR_CONNECTION_RESET from OTHER endpoints the scratch server didn't
+mock, e.g. aircraft/vessel streams — expected, unrelated).
+
+BACKTEST: N/A per PROMOTION RULE 3 — RAW map overlay, no trading logic,
+scoring, sizing, or threshold touched anywhere; no strategy/parameter
+change to record.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): a new default-OFF toggle adds
+zero cost to any user who doesn't enable it (fetch only fires on
+enable, matching every other RAW overlay's zero-cost-when-off pattern)
+→ enabling it adds one geojson source + two line layers to the existing
+MapLibre style, styled distinctly from every other line layer in use
+(fuchsia, unused elsewhere in datamap.tsx per a full existing-hex-color
+grep before picking it) → no interaction with any trading, scoring, or
+ML code path (this layer lives entirely in client/src/pages/datamap.tsx
++ the static registry) → the only registry/SHARED-file touch is additive
+(one new layer entry + one LAYER_GROUP line), verified via the existing
+generic registry ratchets rather than a bespoke one, so no existing
+layer's behavior changes.
+
+Version 1.0.696 -> 1.0.697 (read-and-increment at commit time, confirmed
+against package.json fresh before committing).
+
+STARVED: no — this was the session's assigned primary action (a fully
+scoped PRODUCT deliverable), completed end to end: research verified
+live, build script written and tested, registry entry, client wiring,
+tests, all gates run, visual harness run. No higher-priority queued item
+was skipped.
+
+
 ## 2026-08-13 [REPAIR] — T-CLIENT — space-view card interaction: a mission click opens ONE card, and cards never cover the layers panel (v1.0.694)
 
 TERRITORY: T-CLIENT (spaceFrame.ts click path, index.css) + the celestial

@@ -447,7 +447,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -878,6 +878,7 @@ const LAYER_GROUP: Record<string, string> = {
   graph: "graph",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
+  submarine_cables: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
   powergrid_ct: "grid", powergrid_de: "grid", powergrid_dc: "grid", powergrid_fl: "grid", powergrid_ga: "grid", powergrid_hi: "grid",
   powergrid_id: "grid", powergrid_il: "grid", powergrid_in: "grid", powergrid_ia: "grid", powergrid_ks: "grid", powergrid_ky: "grid",
@@ -1557,6 +1558,13 @@ const LegendPanel = memo(function LegendPanel({
                 ))}
                 {enabled.powergrid_hifld_sub && (
                   <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
+                )}
+                {enabled.submarine_cables && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(232,121,249,0.85)" }} /> Submarine cable</span>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(168,120,168,0.6)" }} /> Disused cable</span>
+                    <span className="vt-legend-note">OpenStreetMap (ODbL) — coverage skewed to Europe/NE-Atlantic (OSM mapping completeness, not an absence of cables elsewhere)</span>
+                  </>
                 )}
                 {enabled.plant_operations && (
                   <>
@@ -7486,6 +7494,83 @@ export default function DataMapPage() {
     // toggle cycles (mapInteractions contract — BUG 4 discipline).
     return () => { gridDetach.forEach((d) => d()); };
   }, [powerGridKey, mapReady, setStatus]);
+
+  // ── submarine telecom cables (RAW; OpenStreetMap seamark:type=cable_submarine,
+  // © OpenStreetMap contributors, ODbL — compiled by scripts/submarine_cables_build.py.
+  // Static reference geography, session-refreshed (not live-polled), 3.7MB committed
+  // GeoJSON fetched only when the layer is on — zero cost when off, same pattern as
+  // the boundaries/timezone-lines layers above. Power-tagged ways already excluded at
+  // build time (the seamark cable_submarine tag also covers power interconnectors).
+  // DISUSED HONESTY: retired systems (disused=yes) render dashed, never hidden — same
+  // "never hide, distinctly style" convention as the power grid's voltage-unknown
+  // class. COVERAGE HONESTY: OSM's cable mapping is heavily skewed to Europe/NE-
+  // Atlantic; sparse elsewhere reflects OSM completeness, not an absence of cables
+  // (status note + registry description both carry the caveat). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.submarine_cables) {
+      try {
+        if (map.getLayer("submarine-cables-disused")) map.removeLayer("submarine-cables-disused");
+        if (map.getLayer("submarine-cables-active")) map.removeLayer("submarine-cables-active");
+        if (map.getSource("submarine-cables")) map.removeSource("submarine-cables");
+      } catch {}
+      setStatus("submarine_cables", "off");
+      return;
+    }
+    setStatus("submarine_cables", "loading");
+    const cableDetach: Array<() => void> = [];
+    const cleanup = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/cables/submarine_cables.json", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!map.getSource("submarine-cables")) {
+          map.addSource("submarine-cables", { type: "geojson", data: d as any } as any);
+        }
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        if (!map.getLayer("submarine-cables-active")) {
+          map.addLayer({
+            id: "submarine-cables-active", type: "line", source: "submarine-cables",
+            filter: ["!=", ["get", "disused"], true],
+            paint: {
+              "line-color": "rgba(232,121,249,0.75)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 8, 1.4, 14, 2.2],
+            },
+          } as any, firstMarker?.id);
+        }
+        if (!map.getLayer("submarine-cables-disused")) {
+          map.addLayer({
+            id: "submarine-cables-disused", type: "line", source: "submarine-cables",
+            filter: ["==", ["get", "disused"], true],
+            paint: {
+              "line-color": "rgba(168,120,168,0.5)",
+              "line-width": 0.9,
+              "line-dasharray": [2, 2],
+            },
+          } as any, firstMarker?.id);
+        }
+        cableDetach.push(attachLayerInteractions(map, ["submarine-cables-active", "submarine-cables-disused"], (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "cable",
+            title: p.name || "Submarine cable",
+            subtitle: [p.category, p.disused ? "disused" : null].filter(Boolean).join(" · ") || "Submarine telecom cable",
+            body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
+                  `${p.start_date ? `In service: ${p.start_date}\n` : ""}` +
+                  `\n© OpenStreetMap contributors (ODbL).`,
+            sourceUrl: p.source_url || undefined,
+          });
+        }));
+        setStatus("submarine_cables", "active", d?.features?.length,
+          "OSM seamark:type=cable_submarine, power-tagged ways excluded — coverage skewed to Europe/NE-Atlantic (OSM mapping completeness, not an absence of cables)");
+      },
+      (failures) => setStatus("submarine_cables", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { cleanup(); cableDetach.forEach((d) => d()); };
+  }, [enabled.submarine_cables, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
