@@ -12,12 +12,15 @@ block** (§0.2).
 
 ## NEXT — the single highest-value unclaimed item
 
-**Q2 — annotate `execPythonSerialized`'s return type** (`server/bot.ts:191`,
-add `: Promise<{ stdout: string; stderr: string }>`). One line, clears 42 of
-the remaining 49 `tsc` errors, unblocks a truthful T1.6 pin. Full reasoning in
-`research/tsc_baseline.md` §2. Territory T-BOT.
+**Q3 — `tsconfig.json` gains `"target": "ES2022"`.** Verified by experiment to
+clear 29 errors (23 TS2802 + 6 TS7006) that are pure artifacts of tsc falling
+back to its ES5 default; `noEmit` is on and the shipped bundles come from
+vite/esbuild, so this target describes no artifact we produce. After it, the
+baseline should be ~12 and **Q5/T1.6 can finally pin an honest number.**
+Clear `node_modules/typescript/tsbuildinfo` before measuring (L5). Shared file
+— last and smallest commit.
 
-Do **not** start Track 2 or 3 before Q1–Q4 land — §12 names that as a failure
+Do **not** start Track 2 or 3 before Q1–Q5 land — §12 names that as a failure
 mode by name.
 
 ---
@@ -31,8 +34,8 @@ when you take it, `DONE` with the PR number when it merges.
 |---|---|---|---|
 | Q0 | `tsc --noEmit` run + full triage of all 83 errors | T0.0 | **DONE** — `research/tsc_baseline.md`, this session |
 | Q1 | `program_status.sh` + `PROGRAM_STATE.md` | T0.1 | **DONE** — this session |
-| Q2 | `execPythonSerialized` return type (clears 42 errors) | T0.0/T5 | **TODO** ← next |
-| Q3 | `tsconfig.json` gains `"target": "ES2022"` (clears 29) | T0.0 | **TODO** — verified effect, see below |
+| Q2 | `execAsync`/`execPythonSerialized` opts typed `ExecOptions` + encoding pinned (clears 42 errors) | T0.0/T5 | **DONE** — PR #824 |
+| Q3 | `tsconfig.json` gains `"target": "ES2022"` (clears 29) | T0.0 | **TODO** ← next, verified effect |
 | Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **DONE** — PR #823, session 2 |
 | Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **TODO** — blocked on Q2+Q3 |
 | Q6 | T2.4 — cap DPR in `celestialSky:788` + `spaceFrame:2877` | T2.4 | **TODO** — up to 9× faster moon on a 3× device |
@@ -56,19 +59,20 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 gated_tests              4/364          4/364        must increase (>216)
-tsc_errors               78             83           must decrease
+tsc_errors               41             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
 bare_except              3              3            non-increasing
 empty_ts_catch           495            495          non-increasing
-ts_any                   1252           1252         non-increasing
+ts_any                   1250           1252         non-increasing
+boundary_any             233            233          non-increasing
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                2              0            MUST increase each session
+detectors                3              0            MUST increase each session
 quarantine_size          0              0            non-increasing
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -185,6 +189,7 @@ the duty. `detectors_registered` reads this table.
 |---|---|---|---|---|
 | D1 | `tsc_2304` — identifiers used outside their declaring scope, repo-wide, as a counter split out of `tsc_errors` | 2026-08-13 | 5 | live in `program_status.sh`; **now 0**, pinned by `server/tsc2304Ratchet.test.ts` |
 | D2 | `long_try_empty_catch` — a `try` spanning >50 lines whose `catch` body is empty | 2026-08-13 | 3 | live in `program_status.sh` |
+| D3 | `boundary_any` — `: any` in a function's parameter list or return annotation (not bodies) | 2026-08-13 | 233 | live in `program_status.sh` |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 

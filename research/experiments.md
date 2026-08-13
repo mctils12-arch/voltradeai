@@ -50118,3 +50118,106 @@ one line, clears 42 of the remaining 78. Then Q3 (`"target": "ES2022"`, clears
 29), then Q5/T1.6 pins an honest ~7.
 
 STARVED: yes — Q2, Q3, Q5–Q11 queued and unclaimed in PROGRAM_STATE.md.
+
+## 2026-08-13 — [REPAIR] Q2: one `any` parameter was 51% of the typecheck baseline (v1.0.703)
+
+Territory: T-BOT (`server/bot.ts`). MASTER PROGRAM Q2, the NEXT item
+PROGRAM_STATE.md named after PR #823 merged.
+
+`execAsync` (bot.ts:42) is the single funnel every Python subprocess call in
+this file goes through — 2 direct callers plus 44 via `execPythonSerialized`.
+Its `opts` parameter was typed `any`. That one `any` defeated overload
+resolution on `promisify(exec)`: TypeScript could not tell the string signature
+from the Buffer one, fell back to Buffer, and every `stdout.trim()` downstream
+became a type error. **42 of the 83-error baseline from one parameter** — 51%
+of the whole list, which is why the list was too noisy for anyone to start on,
+and why the two live bugs inside it (PR #823) sat unread for months.
+
+READ-BEFORE-WRITE correction worth recording: PROGRAM_STATE.md and
+tsc_baseline.md both named `execPythonSerialized` (bot.ts:191) as the site to
+annotate. Reading the code showed that function merely RETURNS
+`execAsync(...)`; the actual `promisify(exec)` wrapper is `execAsync` at line
+42, one level down. Annotating the named function would have worked by
+inference but left the cause in place for the next `execAsync` caller. Both are
+typed here; the fix is at the root.
+
+FIX (two changes, neither a cast):
+1. `opts?: ExecOptions` on both `execAsync` and `execPythonSerialized`,
+   replacing `any` — this removes the ambiguity rather than asserting past it.
+2. `encoding: "utf8"` passed explicitly, positioned AFTER the `...opts` spread
+   so a caller cannot override the funnel into Buffer mode and silently break
+   46 `.trim()` call sites at runtime while typechecking clean.
+
+NO RUNTIME BEHAVIOUR CHANGE, verified rather than assumed: node's `exec`
+already defaults to `encoding: 'utf8'` and returns Buffer only when explicitly
+passed `'buffer'` or null. Grepped every call site in the file before writing —
+**no caller passes `encoding` at all**, so pinning it takes nothing away from
+anyone; it states the behaviour that was already in effect. The type now
+describes the runtime instead of contradicting it.
+
+FALSE START, recorded because the discipline is the point (REASONING STANDARD
+#9 — believe the measurement, not the plan): my first attempt annotated the
+return type and cast the result. It cleared the 42 but introduced a **new
+TS2352** ("neither type sufficiently overlaps"), and the compiler's suggested
+remedy was a double-cast through `unknown` — uglier, and it would have asserted
+the conclusion while leaving the next reader unable to tell whether anyone had
+checked it. Traded 42 errors for 1 new one is not a fix. Reverted and removed
+the cause instead. Second attempt (`ExecOptions` alone) came back at 78 —
+unchanged — because typing `opts` was necessary but not sufficient for the
+overload to resolve. Only the third (`ExecOptions` + explicit `encoding`)
+landed it. Measured after every attempt; never assumed.
+
+RATCHET: `server/execAsyncTyping.test.ts` (new, 3 tests, source-pattern style
+matching `optionsSlotRaceFix.test.ts`/`cspCashRaceFix.test.ts` convention for
+this file). Pins: (1) `opts` is `ExecOptions`, not `any`, and `ExecOptions` is
+imported; (2) `encoding: "utf8"` is present AND positioned after the `...opts`
+spread — asserted by index comparison, not just presence, since the ORDER is
+the whole protection; (3) `execPythonSerialized`'s `opts` is likewise typed,
+since it is the entry point 44 of the 46 call sites use. Source patterns rather
+than behavioural assertions because the thing protected IS a compile-time
+inference — by the time code runs, the type is gone. A/B-verified via
+`git stash`: **3/3 fail against unpatched bot.ts, 3/3 pass with the fix.**
+
+NUMBERS: `tsc_errors` **78 → 41** (all 42 Buffer errors plus the dependent
+TS2345 cleared; zero new errors introduced). `tsc_2304` holds at 0.
+`ts_any` **1252 → 1250** — a ratchet moving the RIGHT way for once, since the
+fix deletes two `any`s rather than adding any. `empty_ts_catch` 495 and
+`long_try_empty_catch` 3, both held. Counters run before writing the PR body,
+per L9.
+
+What remains in `server/bot.ts` after this is exactly the residue the T0.0
+triage flagged as genuine in §4 and deferred to Track 5: `lastEquity` (1290),
+`volume` (3208), `instrument` (3224), `rank` (3537) — four property reads the
+type system says will be `undefined`. `lastEquity` is equity-tracking, i.e.
+MEASUREMENT INTEGRITY code, so it gets its own PR and its own scrutiny; not
+bundled here.
+
+DETECTOR ADDED (§0.7): **D3 — `boundary_any`**, `: any` appearing in a
+function's PARAMETER LIST or RETURN ANNOTATION rather than anywhere in a body.
+This session is the argument for it: one boundary `any` produced 42 errors. An
+`any` inside a body is a local shortcut; an `any` on a boundary is a contract
+the compiler cannot check and it propagates to every caller. `ts_any`'s 1250 is
+far too coarse to act on — **233 across 94 files** is a list a session can
+actually work down. Non-increasing.
+
+GATES: `npx tsc --noEmit` 78 → 41 (buildinfo cleared between runs, L5).
+`npm run build` clean. `npx tsx --test server/*.test.ts`: **1236/1237 pass**,
+the single failure being the pre-existing `gridTiles.test.ts` pmtiles
+assertion already filed as L8/Q12 (untouched by this diff — no tiles, no
+client files); the 3 new tests pass separately. No Python touched, so `pytest`
+is unaffected. No `client/` files, so PROMOTION RULE 6 VISUAL VERIFICATION does
+not apply. No backtest (PROMOTION RULE 3 N/A: no scoring, sizing, threshold, or
+measurement VALUE changed — this is a type annotation with no runtime effect).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): the 42 phantom errors clear → the
+baseline drops to 41, of which 29 are Q3's known `target` artifact → after Q3
+the honest number is ~12 → **Q5/T1.6 can finally replace `|| true` with a hard
+ratchet on a number that means something.** That was the whole point of
+sequencing Q2 and Q3 before T1.6: pinning 83 would have pinned 71 phantoms and
+invited a future session to clear them by suppression (§12).
+
+Version 1.0.702 → 1.0.703 (read-and-increment at commit time; lockfile synced).
+
+NEXT: Q3 — `tsconfig.json` gains `"target": "ES2022"`, verified to clear 29.
+
+STARVED: yes — Q3, Q5–Q13 queued and unclaimed in PROGRAM_STATE.md.
