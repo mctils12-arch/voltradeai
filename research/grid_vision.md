@@ -361,3 +361,30 @@ As of 2026-07-12 (claude/google-maps-api-railway-9d2wwg):
   wires), match neither HIFLD nor OSM lines, and don't follow roads —
   vendor label unreliable. Street-view ML is the top remaining
   distribution-gap modality (costed; wishlist + GPU budget territory).
+
+As of 2026-08-14 ([PRODUCT] scheduled-routine session):
+
+- **A1 GATE-2 v3 COMPUTED — FAIL, stress-index predictive line CLOSED**
+  (research/grid_vision_products.md's "A1 gate-2 v3 RESULT" section has
+  the full trace; scripts/grid_stress_gate2_v3.py,
+  datacore/gridvision/gate2_result_v3.json,
+  test_grid_stress_gate2_v3.py). Computed one day inside the
+  2026-08-15 kill date — the event-list prerequisite
+  (grid_vision_events_ercot.md) had already landed 2026-07-07; this
+  session found and re-derived the correct EIA-930 bulk-download URL
+  (the old one had gone stale/was never scripted), downloaded 14
+  six-month BALANCE files (2019-2025, ~610MB, session-side keyless),
+  and ran the pre-registered growth-aware/real-event-ground-truth
+  design as its one committed run. All THREE pre-stated PASS
+  conditions (recall floor, lift bar, no-single-summer-carry
+  stability) failed independently — not a single close miss. The
+  stress-index predictive research line is now CLOSED absent new data
+  (an LMP archive or validated per-line MW ratings); the descriptive
+  dashboard surface (`/api/data/grid-stress`, `predictive: false`)
+  is unaffected and remains the product. GATES: gated_tests.sh GATE
+  PASSED (server/client/python all green after `npm ci`); full python
+  suite 1354 passed/1 skipped (was 1348, +6 new tests, 0 regressions).
+  NEXT for this program: A2 (buildout detection, needs Phase B
+  detector to clear its own AP50 bar — see grid_vision_phaseb.md,
+  currently plateaued at 0.197 vs the 0.30 gate) or B1/B2/B3 product
+  surfaces that don't require the now-closed predictive claim.
