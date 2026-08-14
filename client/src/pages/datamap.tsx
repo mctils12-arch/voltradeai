@@ -5848,12 +5848,15 @@ export default function DataMapPage() {
           } as any, firstMarker?.id);
         }
         setStatus("daynight", "active", undefined,
-          // DISCOVERABILITY (2026-08-13 report): this layer shades the MAP
-          // only. The user read "always on" and reasonably expected it to
-          // govern the Moon/planets too, then found toggling it did nothing
-          // out there. Name the other switch instead of leaving them to hunt.
-          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP only; " +
-          "day/night on the Moon and planets in the space view is CELESTIAL › Realistic lighting · " +
+          // DISCOVERABILITY (2026-08-13 report, REPAIRED 2026-08-14): this
+          // shade is the MAP's night side. The 2026-08-13 pass answered the
+          // confusion by NAMING the other switch here — and the same report
+          // came back, because a sentence telling you where a control lives
+          // is not the control. The row now carries the body-lighting switch
+          // itself whenever the camera is at a body (see renderLayerRow), so
+          // this text no longer sends anyone hunting through panels.
+          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP; " +
+          "fly to the Moon or a planet and this row also carries that body's day/night · " +
           "the Sun/Moon/planets in the sky above the horizon render always (astronomy-engine)");
       } catch { /* style mid-swap — next tick retries */ }
     };
@@ -12158,6 +12161,51 @@ export default function DataMapPage() {
         )}
         {l.id === "aircraft" && on && (
           <TrackedPlanesPanel onOpen={openWatchedCb} />
+        )}
+        {/* BODY DAY/NIGHT — the control that governs what you are actually
+            looking at, surfaced where you are looking.
+
+            HISTORY. 2026-08-13 this layer's status line gained a pointer to
+            "CELESTIAL › Realistic lighting". 2026-08-14 the same report came
+            back — "with the day/night moon on ... shouldn't the moon show a
+            dark side" — because a POINTER IS NOT A CONTROL. The switch sat in
+            a different, collapsed panel, and the user was in the layers panel
+            reading a row that says "Day/Night & Moon". Told the fix would be
+            to rename the layer, the answer was: "i want the feature not to
+            rename."
+
+            So the row keeps its name and EARNS it. On the flat map it shades
+            the map, unchanged. With the camera at a body it also carries the
+            body terminator — the same `vt-celestial-realistic` pref the
+            CELESTIAL panel drives, not a second source of truth, so the two
+            can never disagree.
+
+            Only rendered when spaceActive, and deliberately NOT gated on the
+            row's own switch: out there the map shade is invisible, so gating
+            the body control behind it would hide the lighting switch exactly
+            when it is the only one that does anything. */}
+        {l.id === "daynight" && spaceActive && (
+          <div className="vt-field-controls" role="group" aria-label="Body day/night lighting">
+            <span style={{ letterSpacing: "1.5px", fontSize: "10px", color: "var(--text-tertiary)" }}>
+              BODY
+            </span>
+            <span className="vt-layer-covnote" style={{ flex: 1, minWidth: 0 }}>
+              {celRealistic
+                ? "sun-driven terminator on the Moon and planets, from the sim-clock ephemeris"
+                : "even-lit inspection mode — no terminator, so night-side landing sites stay visible"}
+            </span>
+            <button
+              role="switch"
+              aria-checked={celRealistic}
+              aria-label="Toggle realistic sun-driven lighting on the Moon and planets"
+              data-vt-body-daynight
+              title="Day/night on the BODY you are looking at. Same switch as CELESTIAL › Realistic lighting."
+              className={`vt-switch${celRealistic ? " on" : ""}`}
+              onClick={() => setRealisticLightingPref(!celRealistic)}
+            >
+              <i />
+            </button>
+          </div>
         )}
         {l.id === "terrain" && on && (
           <div className="vt-field-controls" role="group" aria-label="Terrain relief controls">
