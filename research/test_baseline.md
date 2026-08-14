@@ -23,12 +23,12 @@ guarding nothing.
 
 | suite | files | tests | pass | fail | wall time | command |
 |---|---|---|---|---|---|---|
-| server (node) | 147 | 1248 | 1247 | **1** | ~96s | `npx tsx --test server/*.test.ts` |
+| server (node) | 148 | 1249 | 1248 | **1** | ~96s | `npx tsx --test server/*.test.ts` |
 | client (node) | 96 | 1000 | **1000** | **0** | ~21s | `npx tsx --test $(git ls-files 'client/**/*.test.ts')` |
 | python | 121 | 1338 + 54 subtests | **1337** (+1 skip) | **0** | ~64s | `VOLTRADE_CI=1 python -m pytest -q` |
-| **total** | **364** | **~3,586** | **3,584** | **1** | **~3m 01s** | |
+| **total** | **365** | **~3,587** | **3,585** | **1** | **~3m 01s** | |
 
-**One known failure out of ~3,586**, and it is a test asserting the presence of
+**One known failure out of ~3,587**, and it is a test asserting the presence of
 files that were never committed. That ratio is the argument for Track 1: the
 suites are in far better shape than "360 ungated tests" suggests, and the reason
 they were not gating was never that they were failing.
@@ -80,20 +80,28 @@ state, and the build never happened.
 
 **The one entry T1.2 must quarantine or resolve.**
 
-### 4. `server/datacoreArchive.test.ts` — a UTC-midnight flake, now confirmed *(Q15)*
+### 4. `server/datacoreArchive.test.ts` — a UTC-midnight flake — **FIXED (Q15)**
 
-Two rollup tests fail by arithmetic, not chance. They compute
-`oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000` and write cadence-spaced
-samples, so within roughly an hour of UTC midnight those samples straddle two
-UTC days and the expected 1 rolled day becomes 2 (`expected: 1, actual: 2`; the
-sibling asserts 0 and gets 1).
+Two rollup tests failed by arithmetic, not chance. They computed
+`oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000`, which — being a whole
+number of days — inherits `now`'s **time of day**. Within ~10 minutes of UTC
+midnight, the `+6..10 min` second sample each fixture writes landed on the NEXT
+UTC day, so one intended day became two: `rolled` returned 2 where the test
+asserts 1, and the hold-back test deleted a day it had not corrupted.
 
-**Confirmed experimentally rather than argued:** both failed at 23:55Z and both
-pass at 01:00Z on the same tree, same commit. They are *not* in the failure
-count above because that run was taken outside the window — which is exactly
-what makes this dangerous. **Must be fixed before T1.2 makes the suite
-blocking**, or CI goes red for an hour every night, which is how a new gate
-loses its credibility in its first week.
+**Confirmed by experiment, not argument:** both failed at 23:55Z and passed at
+01:00Z on the same commit.
+
+**Fixed rather than quarantined** (PR #830) — it was always a bug in the test,
+never in the code under test. All four fixture sites now anchor to **12:00 UTC**
+of the target day via a shared `oldDayMidday()` helper, so a few-minute sample
+offset can no longer cross a date boundary. Still beyond retention: the shift is
+at most 12h against a 2-day margin.
+
+A regression test pins it deterministically at a `now` fixed inside the failure
+window (23:55Z), so it can never come back on a clock rather than on a diff. It
+also asserts its own premise — that the naive offset *would* straddle — so the
+test cannot quietly stop proving anything.
 
 ## Cost
 
@@ -108,15 +116,20 @@ affordable. T1.4 revisits with real numbers once several runs accumulate.
 
 ## Risks to settle before T1.2 makes this blocking
 
-1. **Q15 must be fixed first**, or the gate reds nightly for an hour.
-2. **Q12 must be quarantined or resolved** — it is the one standing failure.
-3. **The python suite reaches the network.** `VOLTRADE_CI=1` is set, but the
-   baseline run still produced live yfinance traffic
-   (`$DX-Y.NYB: possibly delisted`, `curl: (35) Recv failure`). `ci.yml`'s
-   header claims "network-dependent tests are excluded in CI" — that claim is
-   **not fully true** for a whole-suite run, and network flakiness is exactly
-   the wrong thing to put behind a merge gate. Identify and mark those tests
-   before promoting the python suite to required.
+1. ~~Q15~~ — **done** (PR #830), fixed rather than quarantined.
+2. **Q12 must be quarantined or resolved** — the one standing failure, and now
+   the only thing that would red the gate on day one.
+3. **`VOLTRADE_CI` is decorative, and the python suite reaches the network
+   (Q18).** The baseline run produced live yfinance traffic
+   (`$DX-Y.NYB: possibly delisted`, `curl: (35) Recv failure`) *with*
+   `VOLTRADE_CI=1` set — because **nothing reads it.** D7 confirms it: the var
+   is set in two `ci.yml` jobs and grep finds zero readers repo-wide. So
+   `ci.yml`'s claim that "network-dependent tests are excluded in CI" rests
+   entirely on the hand-picked four-file list that job runs, not on any
+   mechanism, and five test files import `requests`/`socket` with no guard at
+   all. Either wire the variable up or delete it and the claim — but decide
+   before putting the python suite behind a merge gate, because network
+   flakiness is exactly the wrong thing to gate on.
 
 ## Correction to an earlier note
 

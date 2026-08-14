@@ -490,6 +490,67 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9g. D7 — dead_workflow_env: an env var SET in a workflow and read by NOTHING
+# in tracked code.
+#
+# Found on its first run: `VOLTRADE_CI` is set in two ci.yml jobs, and grep
+# finds zero readers repo-wide. The comment beside it claims "Network-dependent
+# tests are excluded in CI" — but no test consults the variable, so that
+# exclusion rests entirely on the hand-picked four-file list the same job runs,
+# not on any mechanism. A env var that looks like a switch and is wired to
+# nothing is worse than no switch: it makes the next reader believe a control
+# exists. CLAUDE.md's STALENESS AUDIT names this class outright ("dead config,
+# unused env var reads").
+#
+# GitHub's own injected names (GITHUB_TOKEN, GITHUB_OUTPUT, ...) and workflow
+# locals passed straight into a `run:` block are excluded. Non-increasing.
+# ---------------------------------------------------------------------------
+dead_workflow_env=$(python3 - <<'PYEOF'
+import re, subprocess
+try:
+    import yaml
+except ImportError:
+    print(0); raise SystemExit
+setnames = set()
+for wf in subprocess.run(['git', 'ls-files', '.github/workflows/*.yml'],
+                         capture_output=True, text=True).stdout.split():
+    try:
+        d = yaml.safe_load(open(wf))
+    except Exception:
+        continue
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == 'env' and isinstance(v, dict):
+                    setnames.update(v.keys())
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+    walk(d)
+src = ""
+for f in subprocess.run(['git', 'ls-files', '*.py', '*.ts', '*.tsx', '*.sh', '*.mjs'],
+                        capture_output=True, text=True).stdout.split():
+    if '/node_modules/' in f:
+        continue
+    try:
+        raw = open(f).read()
+    except OSError:
+        continue
+    # STRIP COMMENTS FIRST (PROGRAM_STATE.md L11). A source-scraping check
+    # cannot tell code from prose about code — and the comment block above,
+    # which names VOLTRADE_CI while explaining this very counter, made the
+    # detector count itself as a reader and report 0 instead of 1.
+    src += "\n".join(l for l in raw.split("\n")
+                      if not re.match(r'\s*(#|//|\*|/\*)', l))
+GITHUB = {'GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_OUTPUT', 'EVENT', 'BASE_REF', 'BEFORE', 'PR_URL'}
+print(sum(1 for n in setnames
+          if n not in GITHUB and not re.search(r'\b' + re.escape(n) + r'\b', src)))
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -560,6 +621,7 @@ if [ "$JSON" = 1 ]; then
   "commented_empty_catch": $commented_empty_catch,
   "conflicting_const": $conflicting_const,
   "undeclared_py_import": $undeclared_py_import,
+  "dead_workflow_env": $dead_workflow_env,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -589,6 +651,7 @@ printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233" 
 printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112"   "non-increasing"
 printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
+printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"

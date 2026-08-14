@@ -12,24 +12,21 @@ block** (§0.2).
 
 ## NEXT — the single highest-value unclaimed item
 
-**T1.2 — promote the green set to REQUIRED and quarantine the rest.** T1.1
-(#829) now runs all 368 test files on every PR, but `tests_gating_merge` is
-still **4/368**: the baseline job is `continue-on-error` at both levels by
-design, so nothing it finds can block a merge yet.
+**T1.2 — promote the green set to REQUIRED and quarantine the rest.** Q15 is
+now FIXED (#830), so the last blocker is Q12 alone. `tests_run_in_ci` is
+368/368 but `tests_gating_merge` is still **4/368**.
 
 Build `ci/required.txt` + `ci/quarantine.txt` (reason + date per entry) and make
-the required set blocking. **Two things must be handled first or the gate loses
-credibility in its first week:**
-- **Q15** — the `datacoreArchive` rollup tests fail for ~1h either side of UTC
-  midnight. Confirmed experimentally: failed 23:55Z, passed 01:00Z, same commit.
-  Fix the test's date arithmetic; do not quarantine a real bug.
-- **Q12** — `gridTiles.test.ts` asserts ≥50 pmtiles and 3 exist. The only
-  standing failure. Quarantine with a reason, or resolve via A1/A4.
-
-Also drop the python suite's network reach before promoting it (see
-`research/test_baseline.md` "Risks"): `VOLTRADE_CI=1` is set but live yfinance
-traffic still occurs, and network flakiness behind a merge gate is exactly the
-wrong trade.
+the required set blocking:
+- **Q12** — `gridTiles.test.ts` asserts ≥50 pmtiles and 3 exist, none ever
+  committed. The one standing failure. Quarantine with a reason, or resolve via
+  A1/A4. This is the only thing that would red the gate on day one.
+- **Q18** — decide what `VOLTRADE_CI` is for before promoting the python suite.
+  It is set in two ci.yml jobs and **read by nothing repo-wide** (D7 found it),
+  so `ci.yml`'s claim that "network-dependent tests are excluded in CI" rests on
+  the hand-picked four-file list, not on a mechanism. Either wire it up (tests
+  that reach the network skip when it is set) or delete it and the claim. Five
+  test files import `requests`/`socket` directly with no guard at all.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -58,7 +55,8 @@ when you take it, `DONE` with the PR number when it merges.
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
 | Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
-| Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight — `oldMs = now - (RETENTION+2)d` plus cadence-spaced samples straddle two UTC days, so 1 rolled day becomes 2 | T1.2 | **TODO** — pre-existing (A/B'd on a clean tree), a ~1h nightly window. MUST be quarantined or fixed as part of Q10 or CI reds every night |
+| Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
+| Q18 | `VOLTRADE_CI` is set in 2 ci.yml jobs and read by NOTHING repo-wide; ci.yml's "network-dependent tests are excluded" claim has no mechanism behind it. 5 test files import requests/socket unguarded | T1.2 | **TODO** — found by D7; blocks promoting the python suite to required |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
 
@@ -85,13 +83,14 @@ boundary_any             233            233          non-increasing
 commented_catch          112            112          non-increasing
 conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
+dead_workflow_env        1              1            must reach 0
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                6              0            MUST increase each session
+detectors                7              0            MUST increase each session
 quarantine_size          0              0            non-increasing
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -158,6 +157,16 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L15 — prose defeated one of my own checks for the FOURTH time today, and
+the fix is now a rule I apply up front.** D7 (`dead_workflow_env`) reported 0
+instead of 1 because the comment block explaining the counter names
+`VOLTRADE_CI`, so the detector counted its own documentation as a reader. Same
+shape as L9, L11 and L12. Every source-scraping check in
+`program_status.sh` now strips comment lines before searching, and that is the
+FIRST thing to write, not the fix after the false reading. The general form:
+**a checker and its own explanation live in the same file, so the explanation
+is part of the corpus unless you exclude it.**
 
 **L13 — "CI runs it" and "its failure blocks a merge" are different numbers,
 and T1.1 deliberately created a gap between them.** The old `gated_tests`
@@ -277,6 +286,7 @@ the duty. `detectors_registered` reads this table.
 | D4 | `commented_empty_catch` — a `catch` whose body is ONLY a comment (L3's third layer; counted by nothing before) | 2026-08-13 | 112 | live in `program_status.sh` |
 | D5 | `conflicting_const` — an exported SCREAMING_CASE constant declared in 2+ modules with different values | 2026-08-13 | 5 | live in `program_status.sh`; found Q14 on its first run |
 | D6 | `undeclared_py_import` — a third-party module imported by tracked Python but named in neither requirements file | 2026-08-14 | 2 | live in `program_status.sh` (`laspy`, `ultralytics` — GRID VISION GPU tooling) |
+| D7 | `dead_workflow_env` — an env var SET in a workflow and read by NOTHING in tracked code | 2026-08-14 | 1 | live in `program_status.sh`; found Q18 (`VOLTRADE_CI`) on its first run |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
