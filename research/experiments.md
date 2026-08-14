@@ -3,6 +3,121 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (scheduled-routine session) [PIPELINE] — Q22: the gated Python suite is now hermetic — a diagnostic probe found the real call sites, and "at import time" was the wrong mechanism (v1.0.718)
+
+TERRITORY: root test infra only (`conftest.py`). No production file touched
+(`macro_data.py` unmodified) and no other T-BOT/T-CLIENT/T-DATACORE file
+touched. `package.json` version bump is the only SHARED-file edit, landed as
+the last, smallest commit per the MERGE-ORDER PROTOCOL.
+
+CONTEXT: per SESSION BUDGET, checked `/api/health` first (bot active, no dead
+feeds, `liveness.dark: false`, no COMPLIANCE-WARNING — no Priority-1 alarm),
+then read `research/PROGRAM_STATE.md`. Track 1 is complete; its own NEXT
+pointer named **Q22** as the single highest-value unclaimed queue item, filed
+in #836: "`macro_data.py` makes live yfinance calls (`DX-Y.NYB`, `^TNX`) when
+imported by gated tests... Mock it."
+
+**READ BEFORE WRITE found the filed mechanism was wrong before any code was
+written.** `macro_data.py`'s three `yfinance` calls (`^VIX`/`^TNX`/`DX-Y.NYB`,
+lines 96/122/138) all live *inside* `get_macro_snapshot()`, not at module
+import time — grepping every call site showed each caller (`bot_engine.py`,
+`instrument_selector.py`, `stress_index.py`, `intraday_shorts.py`) imports the
+function lazily inside its own function body too. "Fetched at import time"
+does not describe this code. Rather than patch on the strength of a filed
+description (the same mistake Q12/Q18/Q14's directive already made this
+session, per L21's "a filed hypothesis is a lead, not a finding"), built a
+throwaway pytest plugin (`/tmp/.../scratchpad/yfprobe.py`, not committed) that
+patches `yfinance.Ticker.history` to print the current test's node id on every
+real call, then ran the full local suite (`/tmp/vtvenv`, a fresh venv —
+`yfinance`/`pytest` aren't in this sandbox's base image) with `-p yfprobe`.
+
+**GROUND TRUTH: 4 gated test files reach `get_macro_snapshot()` indirectly
+WITHOUT mocking `yfinance` themselves**, 11 real network attempts across the
+run:
+- `test_deep_score_credit_spread_cache.py` — 3 test methods, all three tickers
+- `test_gridvision_pod_run.py` — 1 hit (`DX-Y.NYB`)
+- `test_tiered_strategy.py` — 1 hit (`^TNX`)
+- `test_voltrade_daemon.py::TestDispatchDoesNotMaskInternalTypeErrors::
+  test_zero_arg_function_internal_typeerror_is_not_masked` — several hits,
+  both tickers (exercises a real zero-arg RPC dispatch target that happens to
+  be `get_macro_snapshot`)
+
+All 11 fail on the network in this sandbox (`curl: (35) Recv failure:
+Connection reset by peer`) and every one of the 4 files still passed —
+confirms the PR's own filed evidence ("fails gracefully today") was correct
+even though its mechanism guess was not.
+
+FIX: one session-scoped `autouse=True` pytest fixture in `conftest.py`
+(`_hermetic_yfinance`), patching `yfinance.Ticker` to the same
+`_empty_yf_ticker` shape `test_macro_snapshot_spy_dedup.py` already used
+locally — `MagicMock` with `.history.return_value = MagicMock(empty=True)`.
+This reproduces the EXACT code path all 4 files were already passing through
+(every branch in `get_macro_snapshot()` degrades to a documented default on a
+yfinance exception/empty response) hermetically instead of over a live,
+always-failing connection — a reachability fix, not a behavior change. Chosen
+over patching per-file: 4 separate edits would have needed the same fake
+object copy-pasted 4 times, and a 5th future caller (there have already been
+4 independent ones) would silently reopen the gap; one fixture closes the
+class the way L19/Q19's canvas-DPR class-assertion did.
+
+CORRECTNESS OF THE SHADOW: verified `unittest.mock.patch.stopall()` semantics
+before relying on them — it only unwinds patches started via `.start()`, not
+`with`-block patches, so `test_macro_snapshot_spy_dedup.py`'s own
+`patch("yfinance.Ticker", ...).start()` / `patch.stopall()` cleanup cannot
+touch this fixture's `with patch.object(...)`. Ran that file together with
+the 4 previously-offending files as one invocation to confirm no interaction:
+**39/39 passed.**
+
+GATES:
+- Diagnostic probe re-run after the fix: **0** real `yfinance` calls,
+  **1348 passed, 1 skipped** (unchanged from before the fix — same pass/skip
+  counts, now hermetic). Wall time **117.99s → 32.94s** (network-timeout
+  latency removed; not claimed as a correctness improvement, per MEASUREMENT
+  INTEGRITY — same assertions, same results, just no longer waiting on a
+  connection that was always going to fail in this environment).
+- `bash scripts/counter_ratchet.sh` → **OK: 24 counters at or better than
+  baseline.** `silent_py_handlers`, `bare_except`, `assertions`, and every
+  other python-scannable counter unchanged; no new `except`/`any`/`catch`
+  pattern introduced (`conftest.py`'s only new code is the fixture, no
+  swallowed exceptions).
+- No `client/` or `server/` file touched — PROMOTION RULE 6 (visual harness)
+  N/A. `npx tsx --test` suites not re-run locally (no `node_modules` in this
+  sandbox and zero TypeScript/JS in the diff) — CI's `gated_tests.sh` runs
+  them unconditionally regardless of this PR's path filter.
+- No backtest — PROMOTION RULE 3 N/A (test-infra hermeticity, not a
+  strategy/parameter change).
+
+NUMBERS: `tests_gating_merge`/`tests_run_in_ci` unchanged (373/374 both,
+matching the last-measured baseline — this PR does not add or remove a test).
+`assertions` unchanged at 11313. No counter in `ci/counter_baseline.txt`
+tracks "suite hermeticity" directly; the qualitative gate is the probe
+transcript above (11 real hits → 0).
+
+DETECTOR: none new this session — Q22 was closing an already-filed,
+already-detected item (D7's sibling finding, not a fresh D-series pattern).
+11 detectors stands.
+
+Version 1.0.717 → 1.0.718 (read-and-increment at commit time per
+MERGE-ORDER PROTOCOL; `package-lock.json`'s own version field was already
+stale at 1.0.715 before this session touched anything — pre-existing drift,
+out of scope for a one-logical-change PR, left alone).
+
+PROGRAM_STATE.md updated: Q22 marked DONE with the probe evidence; NEXT now
+points at Q23 (delete `program_status.sh`'s hardcoded baseline column so
+`baseline_divergence` reaches 0 by construction).
+
+Loop-health check at session start: last 10 experiments.md tags were
+PIPELINE, REPAIR, REPAIR, PIPELINE, PIPELINE, REPAIR, REPAIR, REPAIR,
+RULE-REVIEW, REPAIR — 6/10 REPAIR, below the 7+ thrash-escalation threshold.
+No meta-problem to address this session.
+
+NEXT: Q23, then Q24, Q7–Q9, Q11, Track 2/3.
+
+STARVED: yes — Q23, Q24, Q7–Q9, Q11 queued and unclaimed; this session took
+the single highest-value item per SESSION BUDGET rather than falling through,
+since Q22 alone (probe build + ground-truth investigation + fix + full
+verification) filled the session.
+
 ## 2026-08-14 (MASTER PROGRAM session) [REPAIR] — T-CLIENT/Q14 — four Earth constants, two names: all four values were CORRECT, the shared NAME was the defect (v1.0.717, PR #839)
 
 TERRITORY: T-CLIENT (client/src/lib/orbital/geometry.ts, satDerived.ts,

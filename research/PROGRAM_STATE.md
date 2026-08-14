@@ -22,17 +22,30 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q22: `macro_data.py` makes live yfinance calls when imported by the
-gated suite.** `DX-Y.NYB` and `^TNX` are fetched at import time, so every CI run
-reaches the network and prints `curl: (35) Recv failure` before passing. It
-fails gracefully today — 1348/1348 green — so this is latency and noise, not
-correctness; but a gated suite that depends on an external host is one outage
-away from red-for-no-reason, and that is how a gate gets loosened. Mock it.
+**NEXT — Q23: delete `program_status.sh`'s hardcoded baseline column, read
+`ci/counter_baseline.txt`** — drives D10 (`baseline_divergence`) to 0 by
+construction. Then **Q24** (the ellipsoid/sphere frame mismatch, measured in
+#839), **Q7–Q9**, **Q11**, then Track 2/3 — the moon.
 
-Then **Q23** (delete `program_status.sh`'s hardcoded baseline column, read
-`ci/counter_baseline.txt` — drives D10 to 0 by construction), **Q24** (the
-ellipsoid/sphere frame mismatch, measured in #839), **Q7–Q9**, **Q11**, then
-Track 2/3 — the moon.
+Q22 is **DONE** (this session, scheduled-routine, PR pending). A diagnostic
+probe plugin (patched `yfinance.Ticker.history` to log the current pytest
+node id on every real call, run once before and once after the fix) found the
+true call sites — none were "at import time": 4 gated test files reach
+`macro_data.get_macro_snapshot()` indirectly WITHOUT mocking `yfinance`
+themselves (`test_deep_score_credit_spread_cache.py`,
+`test_gridvision_pod_run.py`, `test_tiered_strategy.py`,
+`test_voltrade_daemon.py`). Fixed with one session-scoped autouse fixture in
+`conftest.py` defaulting `yfinance.Ticker` to an empty history for the whole
+suite — reproducing the exact same "yfinance failed → macro_data's documented
+default" code path every one of those tests already exercised via a live,
+always-failing network call, hermetically instead of over the network. Local
+per-test mocks (`test_macro_snapshot_spy_dedup.py`) shadow it safely — verified
+by inspection of `unittest.mock.patch.stopall()` semantics (only unwinds
+patches started via `.start()`; the fixture uses a `with` block) and by running
+that file alongside the 4 previously-offending files together: 39/39 pass.
+Same 1348 passed/1 skipped both before and after; wall time 117.99s → 32.94s
+(network-timeout latency removed, not a correctness change). See
+experiments.md for the full probe transcript.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -67,7 +80,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q25 | the visual harness's perf gate is NON-DETERMINISTIC — its thresholds sit inside its own noise band | T-CLIENT | **TODO** — filed in #839. Two runs of the IDENTICAL commit failed at different widths (768 median 217>200, then 1440 p95 367>350); the unmodified tree produced 4 hard failures to the changed tree's 1. Prior p95 on this page: 283/317/383/467ms. A gate that fires on noise gets ignored, and then a real regression rides in behind it. Fix = measure the spread, set thresholds outside it (or take best-of-N), and say so — do NOT simply raise the numbers |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
-| Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX) when imported by gated tests — the suite is not hermetic | T1.2 | **TODO** — filed in #836. Fails gracefully today (1337/1337 with curl resets), so latency+noise, not correctness. Mock it |
+| Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX, ^VIX) reachable from 4 gated test files that don't mock it — the suite is not hermetic | T1.2 | **DONE** — this session (scheduled-routine). Session-scoped autouse fixture in `conftest.py` defaults `yfinance.Ticker` to empty history repo-wide; the 4 real offending files (found by a diagnostic probe, not by the "at import time" guess) needed no per-file changes. 1348/1348 unchanged, 117.99s → 32.94s |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q19 | 3 uncapped render surfaces (5 sites) | T2 | **DONE** — PR #837. `uncapped_surface` 3 → **0**. My "small login canvas" caveat was BACKWARDS — login's is a full-viewport animated canvas with its own rAF loop, the largest of the three |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **DONE** — PR #838. 495 → **494**, 1251 → **1237**; all 15 excluded sites named. The directive's "strip comments" was WRONG for `empty_ts_catch`: stripping sends it UP to 516 by merging it into D4. Rule is exclude-by-LOCATION, scan per line (L20) |
