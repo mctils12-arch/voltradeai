@@ -17,10 +17,26 @@
 // shader mirror via the identity cos(gd(π(1−2y))) = sech(π(1−2y)).
 
 export { mercatorZFromAltitude } from "./orbital/occlusion";
+import { GLOBE_RADIUS_M } from "./orbital/occlusion";
 
-/** 2π × MapLibre's GLOBE_RADIUS (6371008.8 m) — the mercator world
- *  circumference the z conversion divides by. */
-export const EARTH_CIRCUMFERENCE_M = 2 * Math.PI * 6371008.8;
+/**
+ * The mercator world circumference the z conversion divides by: 2π × the
+ * radius MAPLIBRE ITSELF uses, 6371008.8 m (its `earthRadius`, and the
+ * `#define GLOBE_RADIUS` in its globe vertex shader).
+ *
+ * RENAMED from `EARTH_CIRCUMFERENCE_M` (Q14), which `lib/lod.ts` also exported
+ * — as 40075016.686. That is 2π × 6378137, the Web Mercator EQUATORIAL figure,
+ * and it is right where it lives (tile resolution) and WRONG here: this value
+ * has to match MapLibre's own constant or every altitude we project is
+ * systematically off by 0.112%. Two files, one name, two correct-in-context
+ * numbers — the collision was the defect, not either value.
+ *
+ * Derived from `GLOBE_RADIUS_M` rather than restating 6371008.8, which was a
+ * THIRD copy of the literal. `glElev.test.ts` pins it against MapLibre's live
+ * `MercatorCoordinate.fromLngLat(..., 1).z`, so a MapLibre upgrade that moves
+ * the constant fails the build instead of quietly skewing every elevation.
+ */
+export const MAPLIBRE_WORLD_CIRCUMFERENCE_M = 2 * Math.PI * GLOBE_RADIUS_M;
 
 /**
  * GLSL: `float vtProjElev(float eleMeters, float mercY)` — the elevation
@@ -35,6 +51,6 @@ float vtProjElev(float eleMeters, float mercY) {
 #endif
   // mercator matrices consume mercator-unit z: meters / (2πR·cos(lat)),
   // with cos(lat) = sech(π(1 − 2y)) — the exact CPU mercatorZFromAltitude
-  return eleMeters * cosh(PI * (1.0 - 2.0 * mercY)) * ${(1 / EARTH_CIRCUMFERENCE_M).toExponential(10)};
+  return eleMeters * cosh(PI * (1.0 - 2.0 * mercY)) * ${(1 / MAPLIBRE_WORLD_CIRCUMFERENCE_M).toExponential(10)};
 }
 `;

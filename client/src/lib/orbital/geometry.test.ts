@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  EARTH_RADIUS_KM,
+  EARTH_MEAN_RADIUS_KM,
   STARLINK_MIN_ELEV_DEG,
   groundFootprintRadiusKm,
   footprintCircle,
@@ -132,8 +132,8 @@ test("look angles: satellite at the geometric horizon -> elevation ~0deg (hand-c
   // For a site at (0,0) and an equatorial satellite, elevation is exactly
   // 0 when the sub-point is at central angle arccos(R/r) away.
   const h = 550;
-  const r = EARTH_RADIUS_KM + h;
-  const horizonLonDeg = (Math.acos(EARTH_RADIUS_KM / r) * 180) / Math.PI;
+  const r = EARTH_MEAN_RADIUS_KM + h;
+  const horizonLonDeg = (Math.acos(EARTH_MEAN_RADIUS_KM / r) * 180) / Math.PI;
   const la = elevationAzimuthFromSite(0, horizonLonDeg, h, 0, 0);
   assert.ok(Math.abs(la.elevationDeg) < 1e-6, `horizon elev ${la.elevationDeg}`);
   // The satellite is due east, so azimuth is 90.
@@ -158,8 +158,8 @@ test("isVisible: respects the supplied mask", () => {
   // Overhead is visible at any mask; horizon fails a 10deg mask.
   assert.equal(isVisible(0, 0, 550, 0, 0, 25), true);
   const h = 550;
-  const r = EARTH_RADIUS_KM + h;
-  const horizonLonDeg = (Math.acos(EARTH_RADIUS_KM / r) * 180) / Math.PI;
+  const r = EARTH_MEAN_RADIUS_KM + h;
+  const horizonLonDeg = (Math.acos(EARTH_MEAN_RADIUS_KM / r) * 180) / Math.PI;
   assert.equal(isVisible(0, horizonLonDeg, h, 0, 0, 10), false);
   assert.equal(isVisible(0, horizonLonDeg, h, 0, 0, 0), true);
 });

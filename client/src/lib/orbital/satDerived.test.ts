@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  semiMajorAxisKm, apsidesKm, orbitalSpeedKmh, periodMinutes, EARTH_RADIUS_KM,
+  semiMajorAxisKm, apsidesKm, orbitalSpeedKmh, periodMinutes, EARTH_EQUATORIAL_RADIUS_KM,
 } from './satDerived.ts';
 
 const ISS_N = 15.49401687;
