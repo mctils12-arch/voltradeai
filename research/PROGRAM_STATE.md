@@ -22,7 +22,8 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**Q23 is DONE** (this session, scheduled-routine, PR pending). The table's 26
+**Q23 is DONE** (this session, scheduled-routine, PR #842 — awaiting after-hours
+merge per the market-hours run instruction). The table's 26
 `printf` lines no longer carry a second hardcoded copy of each pin — a
 `declare -A PIN` loader reads `ci/counter_baseline.txt` (and `ci/tsc_baseline.txt`
 for the two counters deliberately absent from the former) once, and every
