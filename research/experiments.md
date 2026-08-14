@@ -50971,3 +50971,104 @@ NEXT: Q20/T1.7 — wire the §4.2 counters into CI as ratchets. Track 1's spine 
 done; the counters are the part still running on trust.
 
 STARVED: yes — Q7–Q9, Q11–Q14, Q18–Q20 queued and unclaimed.
+
+## 2026-08-14 — [PIPELINE] Q20/T1.7: the counters now fail the build — Track 1 complete (v1.0.712)
+
+Territory: shared (`.github/workflows/ci.yml` — FROZEN PATH, same Track 1
+authorization as #826/#829/#832) + `ci/`, `scripts/`, `server/` test.
+MASTER PROGRAM Q20 / Track 1.7. **This completes Track 1.**
+
+`scripts/program_status.sh` has measured 22 counters since #822 — but only when
+a human typed the command. Measured is not enforced, and the gap was not
+theoretical: `commented_empty_catch` drifted **112 → 113** during this session
+from a concurrent session's merge, and nothing noticed until I happened to run
+the script while checking something else. This closes it.
+
+DESIGN — the third gate, deliberately identical in shape to the first two:
+rule in a MUTABLE tested script (`scripts/counter_ratchet.sh`), pins in a data
+file (`ci/counter_baseline.txt`), ONE `run:` line in the frozen workflow. It
+runs BEFORE the suites in the same blocking `test` job: it takes seconds, and a
+counter regression should not wait three minutes to surface.
+
+`tsc_errors`/`tsc_2304` are deliberately EXCLUDED — `tsc_ratchet.sh` already
+gates them against `ci/tsc_baseline.txt`, and two pins for one number is how
+they drift apart. A test asserts they stay out.
+
+VERIFIED BY MAKING IT FAIL, five ways:
+(a) a non-increasing counter regressed → exit 1, naming counter, pin, actual;
+(b) a NON-DECREASING counter regressed (the `assertions` case — someone
+    deleting assertions to get a red test green) → exit 1;
+(c) a counter pinned but no longer reported → exit 2, rather than silently
+    skipped, which is how a ratchet stops covering half its surface unnoticed;
+(d) a missing OR malformed baseline → exit 2;
+(e) an IMPROVED counter → exit 0, and prints the exact pin to lower, because an
+    unlowered pin lets the next change quietly give the gain back.
+Plus `server/counterRatchet.test.ts` (7 tests), A/B-verified against a reverted
+`ci.yml`.
+
+MY OWN TEST CAUGHT A REAL GAP IN MY OWN SCRIPT: case (d)'s malformed-pin half
+failed on the first run because `int(parts[1])` threw an uncaught ValueError,
+exiting 1 instead of 2. "The pin is unreadable" is a CANNOT-CHECK, and a
+cannot-check must never read as checked-and-fine — the same principle the other
+two gates already encode. Fixed with an explicit handler.
+
+A DETECTOR OF MINE WAS LYING, AND THE MERGE EXPOSED IT: after merging #832,
+`dead_workflow_env` read **0** — i.e. "VOLTRADE_CI is now read by something".
+It is not. D7 was a bare name grep, and `scripts/gated_tests.sh` sets
+`VOLTRADE_CI=1 run_suite ...` — an ASSIGNMENT, counted as a reader. The counter
+would have reported all-clear while the variable stayed exactly as decorative
+as when D7 first found it, and Q18 would have looked resolved without anyone
+touching it. Rewritten to match the actual READ syntaxes (`os.environ` /
+`getenv` / `process.env.X` / `$X`); back to 1, correctly. **This is the fifth
+time this session a source-scraping check was defeated by text that merely
+MENTIONS the thing it counts** (L9, L11, L12, L15, and now this) — the
+difference here is that the false reading was a PASS, not a fail, which is the
+dangerous direction. A detector reporting all-clear is the one nobody
+re-examines.
+
+ORDERING NOTE worth keeping (cost me a confused minute): every counter reads
+`git ls-files`, so it measures the COMMITTED tree, not the working tree. New
+test files show up only after `git add`. That is correct for a CI ratchet — CI
+checks out committed code — but locally you must stage before the numbers mean
+anything. `assertions` sat unchanged at 11248 until I staged, then jumped to
+11268.
+
+NUMBERS: `tests_gating_merge` 368 → **369/370**, `assertions` 11248 → **11268**
+(this PR's own tests), `dead_workflow_env` restored to **1** (was falsely 0).
+Pins re-locked in the same PR, exactly as the script's own output instructs.
+
+TRACK 1 IS COMPLETE. Three gates now stand between a bad change and main:
+- `tsc_ratchet.sh` — typecheck pinned at 12, TS2304 hard-zero (#826)
+- `gated_tests.sh` — 369 test files blocking, quarantine may only shrink, no
+  entry past 30 days (#832)
+- `counter_ratchet.sh` — 22 counters, wrong-direction move fails the build
+  (#833, this)
+The arc across the session: `tests_gating_merge` **4 → 369**, `tsc_errors`
+**83 → 12**, `tsc_2304` **5 → 0**, detectors **0 → 9**.
+
+DETECTOR: none new this PR. §0.7's duty is one per session and this session has
+registered **nine** (D1–D9); D7 was materially REPAIRED here, which is worth
+more than a tenth shallow counter. The seed list in PROGRAM_STATE.md remains
+stocked for the next session.
+
+GATES: `bash scripts/counter_ratchet.sh` → OK, 22 counters at or better than
+baseline; exits 1/2 on all five induced failures. `npx tsx --test
+server/counterRatchet.test.ts` 7/7. `bash scripts/gated_tests.sh` → GATE
+PASSED. Workflow YAML parsed and asserted. No `client/` source, so PROMOTION
+RULE 6 does not apply. No backtest (PROMOTION RULE 3 N/A — CI configuration).
+
+ROLLBACK TRIGGER: if the counter ratchet reds on a counter whose DEFINITION
+changed rather than whose value regressed, that is a measurement change — state
+the before/after on identical inputs per MEASUREMENT INTEGRITY and re-pin
+deliberately. Do not loosen a pin to clear a build.
+
+Version 1.0.711 → 1.0.712.
+
+NEXT: Q12 — build the power-grid tiles and empty the quarantine. Review date
+2026-09-13, and `gated_tests.sh` fails the build the day it lapses. It is also
+A4 PHASE 2 item 2, so resolving it closes a two-month-old deferral rather than
+just a red test. Copy `scripts/build_power_tiles.sh` (D10 — do not rebuild what
+exists). Then Q18, Q19, Q13, Q14, and Track 2/3 — the moon, now genuinely
+unblocked.
+
+STARVED: yes — Q7–Q9, Q11–Q14, Q18, Q19 queued and unclaimed.

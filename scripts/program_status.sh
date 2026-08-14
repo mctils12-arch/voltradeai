@@ -556,8 +556,26 @@ for f in subprocess.run(['git', 'ls-files', '*.py', '*.ts', '*.tsx', '*.sh', '*.
     src += "\n".join(l for l in raw.split("\n")
                       if not re.match(r'\s*(#|//|\*|/\*)', l))
 GITHUB = {'GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_OUTPUT', 'EVENT', 'BASE_REF', 'BEFORE', 'PR_URL'}
-print(sum(1 for n in setnames
-          if n not in GITHUB and not re.search(r'\b' + re.escape(n) + r'\b', src)))
+
+def is_read(name, text):
+    """A READ of the env var, not an assignment.
+
+    FIXED 2026-08-14: this was a bare name grep, and it went 1 -> 0 the moment
+    scripts/gated_tests.sh added `VOLTRADE_CI=1 run_suite ...` — an ASSIGNMENT,
+    counted as a reader. The counter then reported all-clear while the variable
+    was still exactly as decorative as when D7 first found it. Matching the
+    actual read syntaxes instead: os.environ / getenv, process.env.X, and $X.
+    """
+    n = re.escape(name)
+    return bool(
+        re.search(r'os\.environ(?:\.get)?\s*[\[(]\s*[\'"]' + n, text) or
+        re.search(r'getenv\s*\(\s*[\'"]' + n, text) or
+        re.search(r'process\.env\.' + n + r'\b', text) or
+        re.search(r'process\.env\s*\[\s*[\'"]' + n, text) or
+        re.search(r'\$\{?' + n + r'\}?\b', text)
+    )
+
+print(sum(1 for n in setnames if n not in GITHUB and not is_read(n, src)))
 PYEOF
 )
 
