@@ -22,16 +22,19 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q13: `empty_ts_catch` / `ts_any` count comment text.** Both greps run
-over raw source, so a comment mentioning `catch {}` inflates the count — the
-defect behind L9, and the same family that has now bitten six times this
-session (L9, L11, L12, L15, L18, the D7 repair). Strip comments and string
-literals before counting. MEASUREMENT INTEGRITY: own PR, and state the
-before/after on identical inputs.
+**NEXT — Q14: `EARTH_RADIUS_KM` disagrees with itself inside one module.**
+6371 (`orbital/geometry.ts`) vs 6378.137 (`orbital/satDerived.ts`) — mean vs
+WGS84 equatorial, ~7km of satellite altitude error in code whose entire premise
+is real positions. `EARTH_CIRCUMFERENCE_M` is the same defect twice: 2π×6371008.8
+(`glElev.ts`) vs 40075016.686 (`lod.ts`), where Web Mercator *requires* the
+latter. Found by D5 on its first run. Pick the correct constant per use — this
+is not a style unification, the two values are right in different places — and
+delete the duplicate declarations so `conflicting_const` falls from 5.
 
-Then **Q14** (`EARTH_RADIUS_KM` 6371 vs 6378.137 in `client/src/lib/orbital/` —
-~7km of satellite altitude error), **Q22** (mock `macro_data.py`'s live yfinance
-calls), **Q7–Q9**, **Q11**, then Track 2/3 — the moon.
+Then **Q22** (mock `macro_data.py`'s live yfinance calls), **Q23** (delete
+`program_status.sh`'s hardcoded baseline column; read `ci/counter_baseline.txt`,
+which drives D10 to 0 by construction), **Q7–Q9**, **Q11**, then Track 2/3 —
+the moon.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -67,7 +70,8 @@ when you take it, `DONE` with the PR number when it merges.
 | Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX) when imported by gated tests — the suite is not hermetic | T1.2 | **TODO** — filed in #836. Fails gracefully today (1337/1337 with curl resets), so latency+noise, not correctness. Mock it |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q19 | 3 uncapped render surfaces (5 sites) | T2 | **DONE** — PR #837. `uncapped_surface` 3 → **0**. My "small login canvas" caveat was BACKWARDS — login's is a full-viewport animated canvas with its own rAF loop, the largest of the three |
-| Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
+| Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **DONE** — PR #838. 495 → **494**, 1251 → **1237**; all 15 excluded sites named. The directive's "strip comments" was WRONG for `empty_ts_catch`: stripping sends it UP to 516 by merging it into D4. Rule is exclude-by-LOCATION, scan per line (L20) |
+| Q23 | `program_status.sh`'s printed baseline column is a second copy of `ci/counter_baseline.txt` and has already drifted on 3 counters | T0.1 | **TODO** — filed in #838 by D10. Delete the hardcoded column, read the pin file; drives `baseline_divergence` to 0 by construction. Also reconcile the names (10 pins have no display row, 5 display rows have no pin) |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
 
@@ -80,28 +84,29 @@ when you take it, `DONE` with the PR number when it merges.
 
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
-tests_run_in_ci          368/368        4/364        must increase
-tests_gating_merge       371/372        4/364        must increase (>216)
+tests_run_in_ci          372/373        4/364        must increase
+tests_gating_merge       372/373        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
 bare_except              3              3            non-increasing
-empty_ts_catch           495            495          non-increasing
-ts_any                   1250           1252         non-increasing
+empty_ts_catch           494            494          non-increasing (ruler fixed, Q13)
+ts_any                   1237           1237         non-increasing (ruler fixed, Q13)
 boundary_any             233            233          non-increasing
-commented_catch          112            112          non-increasing
+commented_catch          113            113          non-increasing (disjoint from empty_ts_catch — L20)
 conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        0              0            AT TARGET — hold at 0
 uncapped_surface         0              0            AT TARGET — hold at 0
-assertions               11278          11278        NON-DECREASING
+assertions               11298          11298        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                9              0            MUST increase each session
+baseline_diverge         2              2            must reach 0 (Q23)
+detectors                10             0            MUST increase each session
 quarantine_size          1              1            non-increasing (gridTiles/Q12)
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -168,6 +173,29 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L20 — the fix the directive asked for would have broken the counter, and
+only measuring first revealed it.** Q13 said "strip comments before counting."
+For `ts_any` that is right (1251 → 1237). For `empty_ts_catch` it is backwards:
+stripping sends it **UP**, 495 → 516, because blanking a comment between `{`
+and `}` *creates* `catch { }` — and those 21 are exactly what D4
+`commented_empty_catch` counts. Doing what the queue entry said would have
+silently merged two counters the program keeps disjoint on purpose, while
+looking like a cleanup.
+
+The general rule, now compiled into `scripts/ts_code_only.py`: **exclude by
+LOCATION, never by re-matching cleaned text.** Match the raw source and discard
+matches whose bytes turn out to be prose. That operation can only subtract, so
+counters cannot cross into each other.
+
+Second half, learned the same way: **scan per line.** A file-wide lexer looked
+more correct and was more dangerous — the regex literal `/'/g` at
+`server/billing.ts:83` opened a quote that never closed, and it declared the
+next 30 lines non-code, silently excluding four real `catch (err: any)`
+annotations. Telling a regex literal from division needs a parser; bounding the
+blast radius to one line does not. Both failures were in the FLATTERING
+direction, which MEASUREMENT INTEGRITY says to distrust by default — and both
+were invisible until the excluded sites were printed and read one by one.
 
 **L19 — my own scoping caveat was backwards, and reading the files was what
 caught it.** Filing Q19 I wrote "each needs its own look — a small login canvas
@@ -395,6 +423,7 @@ the duty. `detectors_registered` reads this table.
 | D7 | `dead_workflow_env` — an env var SET in a workflow and read by NOTHING in tracked code | 2026-08-14 | 1 | live in `program_status.sh`; found Q18 (`VOLTRADE_CI`) on its first run |
 | D8 | `uncapped_surface` — a module acquiring a canvas/WebGL context that reads `devicePixelRatio` without clamping to the device tier | 2026-08-14 | 3 | live in `program_status.sh`; found Q19 on its first run |
 | D9 | `assertions` — total assert statements across every test file. **NON-DECREASING** — the only counter that must go up | 2026-08-14 | 11228 | live in `program_status.sh`; enforces CLAUDE.md's "never delete or weaken an existing assertion", which nothing counted before |
+| D10 | `baseline_divergence` — this script's PRINTED baseline column disagreeing with the pin CI actually enforces in `ci/counter_baseline.txt` | 2026-08-14 | 5 | live in `program_status.sh`; found `ts_any` 1252-vs-1251 while re-pinning Q13, then 4 more. Down to **2** in the same PR. The last two (`dead_workflow_env`, `uncapped_surface`) are left DELIBERATELY: hand-patching them would zero the counter while the mechanism that lets a second copy drift survives — Q23 removes the copy |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 

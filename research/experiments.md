@@ -3,6 +3,84 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (MASTER PROGRAM session) [RULE-REVIEW] — T0.1/Q13 — the counters counted PROSE ABOUT the pattern as the pattern; and the fix the queue entry specified would have merged two counters (v1.0.716, PR #838)
+
+TERRITORY: T0 tooling — `scripts/program_status.sh`, `scripts/ts_code_only.py`
+(new), `test_ts_code_only.py` (new). SHARED touch: `ci/counter_baseline.txt`,
+`package.json`, `research/PROGRAM_STATE.md` — all last, all minimal.
+
+MEASUREMENT INTEGRITY: this is a ruler change and ships as its own PR, bundled
+with no strategy or rule change, per CLAUDE.md.
+
+PRIOR, stated before running (REASONING STANDARD 10): comments mentioning
+`catch {}` and `: any` inflate both counters; stripping comments before
+counting will make BOTH numbers fall; the drop will be small (single digits);
+and a ruler change in the flattering direction is suspect by default, so every
+excluded site gets named individually rather than reported as a delta.
+
+RESULT — the prior was half wrong, and the wrong half was the dangerous one.
+
+  counter          before   after   direction of the "fix" the queue specified
+  empty_ts_catch   495      494     UP to 516 if comments are stripped
+  ts_any           1251     1237    down, as predicted
+
+`ts_any` behaved as expected: 14 matches were documentation. `empty_ts_catch`
+did not. Blanking a comment sitting between `{` and `}` CREATES a match —
+`catch { // why\n}` becomes `catch {      \n}` — so stripping first pushes it
+to 516. Those extra 21 are precisely what D4 `commented_empty_catch` (113)
+counts, and the two counters are disjoint by design. Executing the queue entry
+as written would have silently merged them while reading as a cleanup.
+
+The rule that survives: EXCLUDE BY LOCATION, never by re-matching cleaned text.
+Match raw source; discard matches whose bytes turn out to be prose. Subtraction
+only, so counters cannot cross. Compiled into `scripts/ts_code_only.py` so the
+next counter inherits it (EDGE DOCTRINE 3) instead of rediscovering it — this
+is the sixth time this session a source-scraping check was defeated by a comment
+naming what it looks for.
+
+SECOND FINDING, same class, opposite cause. The first implementation was a
+file-wide TS lexer. The regex literal `/'/g` at `server/billing.ts:83` opened a
+quote that never closed; the next 30 lines were declared non-code, silently
+excluding four REAL `catch (err: any)` annotations. Telling a regex literal
+from division needs a parser — bounding the damage does not. The scan is now
+per line, so a mis-parse can corrupt only the line causing it. Both failures
+were in the flattering direction and both were invisible until the excluded
+sites were printed and read one at a time; the 15 survivors are enumerated in
+the PR body.
+
+ALL AMBIGUITY NOW RESOLVES TOWARD COUNTING: template literals untouched
+(interpolations are code), unterminated quotes untouched, block comments only
+where they open or continue a line. These are non-increasing counters, so
+under-exclusion keeps them honestly high.
+
+DETECTOR ADDED (§0.7) — D10 `baseline_divergence`: `program_status.sh`'s
+PRINTED baseline column disagreeing with the pin CI enforces in
+`ci/counter_baseline.txt`. Found while re-pinning: the table said
+`ts_any ... 1252`, the enforced pin said 1251. One number, two homes — the
+exact drift `ci/counter_baseline.txt`'s own header warns about for tsc, which
+this file then did to itself. Five divergences on first run, including
+`uncapped_surface 3` (actually 0 since #837, so the table showed a regression
+that did not exist) and `detectors 0` against a real 9. Down to 3 in this PR;
+Q23 files the structural fix (read the pin file, delete the second copy).
+
+TESTS: `test_ts_code_only.py`, 11 new. Each constraint has its own test because
+each was found by shipping the naive version first and watching it lie:
+`test_blanking_never_creates_a_match` pins constraint 1,
+`test_a_malformed_line_cannot_poison_the_next_one` reproduces billing.ts:83,
+and `test_the_two_catch_counters_are_disjoint_on_the_real_tree` asserts the
+non-overlap across every tracked TS file rather than on a fixture. A/B: under
+the old raw-grep definition the pinned-value tests fail by 1 and by 14.
+
+GATES: `python3 -m pytest -q` 1348 passed / 1 skipped · `bash
+scripts/gated_tests.sh` GATE PASSED, quarantine 1/1 none overdue · `bash
+scripts/counter_ratchet.sh` OK, 23 counters · `bash scripts/tsc_ratchet.sh` 12,
+TS2304 0. No backtest (PROMOTION RULE 3 N/A — measurement tooling, no trading
+path touched). No `client/` change, so PROMOTION RULE 6 does not apply.
+
+STARVED: yes — Q14, Q22, Q23, Q7-Q9, Q11 and all of Track 2/3 remain unclaimed.
+
+---
+
 ## 2026-08-13 (scheduled-routine session) [RESEARCH] — T-BOT — OPTIONS-SLOT cap breached a THIRD time, THIRD distinct root cause found; RECURRENCE ESCALATES invoked, no code shipped, structural fix proposed in wishlist.md
 
 TERRITORY: T-BOT (server/bot.ts, options_execution.py — read-only this
