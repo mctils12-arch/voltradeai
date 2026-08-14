@@ -110,10 +110,27 @@ jobs:
         run: python -m compileall -q .
 
       - name: Run test suite (offline-safe tests)
-        # Network-dependent tests are excluded in CI; they run in the
-        # agent's session against live APIs instead.
-        env:
-          VOLTRADE_CI: "1"
+        # EXCLUSION MECHANISM CORRECTED (Q18, 2026-08-14). This step used to
+        # carry an `env:` block setting VOLTRADE_CI beside the note
+        # "Network-dependent tests are excluded in CI". The CLAIM is true — but
+        # the variable was read by NOTHING repo-wide (D7 found it; grep confirms
+        # zero readers), so it attributed a real exclusion to a mechanism that
+        # did not exist.
+        #
+        # The exclusion is done by conftest.py's `collect_ignore`, which drops
+        # test_full_system.py and test_auto_discovery.py — standalone scripts
+        # that cannot execute under pytest at all (one ends in sys.exit() and
+        # kills collection for every other file; the other defines a
+        # module-level `def test(phase, name, fn)` helper pytest mis-collects as
+        # a test). conftest.py documents that reasoning, and
+        # test_collection_health.py guards it.
+        #
+        # HONEST CAVEAT, since the old note over-promised: the suite is not
+        # hermetic. macro_data.py performs live yfinance lookups (DX-Y.NYB,
+        # ^TNX) when imported by tests, and those calls do go out. They fail
+        # gracefully — the suite passes 1337/1337 with curl reporting connection
+        # resets — so this is a latency and noise cost, not a correctness risk.
+        # Filed as Q22 to be mocked properly.
         run: |
           python -m pytest -q \
             test_risk_controls.py \

@@ -136,7 +136,10 @@ while IFS= read -r f; do
   case "$f" in *.py) py_ignores="$py_ignores --ignore=$f" ;; esac
 done < <(quarantined)
 # shellcheck disable=SC2086
-VOLTRADE_CI=1 run_suite "python" python3 -m pytest -q $py_ignores
+# No VOLTRADE_CI here either (Q18): nothing reads it, and setting a variable
+# no code consults only implies a control that does not exist. Test
+# exclusion is conftest.py's `collect_ignore`.
+run_suite "python" python3 -m pytest -q $py_ignores
 
 # ── Quarantined tests: run, report, never block ─────────────────────────────
 if [ "$q_count" -gt 0 ]; then

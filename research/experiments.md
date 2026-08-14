@@ -51160,3 +51160,88 @@ honesty in the file rather than risk. Then Q19, Q13, Q14, Q7–Q9, Q11, and
 Track 2/3.
 
 STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q18, Q19 queued and unclaimed.
+
+## 2026-08-14 — [REPAIR] Q18: a true claim credited to a mechanism that did not exist (v1.0.714)
+
+Territory: shared (`.github/workflows/ci.yml` — FROZEN PATH, same Track 1
+authorization as #826/#829/#832/#833) + `scripts/`, `server/` test.
+MASTER PROGRAM Q18, found by detector D7.
+
+`ci.yml` set `VOLTRADE_CI: "1"` in the `python-tests` job beside the note
+"Network-dependent tests are excluded in CI; they run in the agent's session
+against live APIs instead." D7 found the variable had **zero readers** anywhere
+in tracked code.
+
+BOTH OBVIOUS READINGS WERE WRONG, which is why this needed investigating rather
+than executing:
+- NOT "the claim is false" — the genuinely un-runnable scripts really ARE
+  excluded. `conftest.py` carries a documented `collect_ignore` dropping
+  `test_full_system.py` (module-level `def test(phase, name, fn)` that pytest
+  mis-collects and then fails to resolve `phase` as a fixture — confirmed by
+  running it: `1 error in 71.00s`) and `test_auto_discovery.py` (ends in
+  `sys.exit()`, killing collection for every other file).
+- NOT "wire the variable up" — nothing needed wiring. The behaviour already
+  existed and was already documented; only the label was wrong.
+
+The defect was **ATTRIBUTION**: a real behaviour credited to a control that did
+not exist. An env var that looks like a switch and is wired to nothing is worse
+than no switch, because it makes the next reader believe a control exists — and
+in this case it would have made a future session "fix" a working exclusion.
+
+FIX: removed the `env:` block from `ci.yml` and the `VOLTRADE_CI=1` prefix from
+`scripts/gated_tests.sh` (the latter was also what briefly made D7 report a
+false all-clear — it counted a SET as a READ, repaired in #833). Rewrote the
+comment to name `conftest.py`'s `collect_ignore` as the actual mechanism, with
+the specific reason each file cannot run under pytest.
+
+ADDED THE CAVEAT THE OLD NOTE OMITTED: the suite is **not hermetic**.
+`macro_data.py` performs live yfinance lookups (`DX-Y.NYB`, `^TNX`) when
+imported by gated tests, and those calls do go out. Evidence they are a latency
+and noise cost rather than a correctness risk: the suite passes 1337/1337 while
+curl reports `Recv failure: Connection reset by peer`, and `--durations` shows
+the slowest test is a 10s cache-TTL test, not a network wait. Filed as Q22 to
+be mocked. The old comment's unearned confidence is exactly what kept this
+unexamined.
+
+RATCHET: `server/ciEnvHonesty.test.ts` (3 tests) — no workflow sets an env var
+nothing reads; the mechanism `ci.yml` now credits actually exists (conftest.py
+still has `collect_ignore`, both named files still listed AND still present on
+disk); and `gated_tests.sh` does not set the variable either. A/B-verified by
+restoring the `env:` block: test 1 fails, 2/3.
+
+SELF-CAUGHT, TWICE, both instances of the same rule:
+1. My first attempt asserted `'VOLTRADE_CI' not in s` after the edit — which
+   failed, because the new COMMENT names the variable on purpose to explain its
+   removal. The assert fired before writing, so nothing was corrupted. Rewritten
+   to strip comment lines and assert on the `^\s*VOLTRADE_CI\s*:` CONSTRUCT.
+   Sixth instance this session of prose defeating a source-scraping check (L9,
+   L11, L12, L15, the D7 repair in #833, and this) — the rule is now reflex, and
+   the new test file applies it from the first line rather than after a false
+   reading.
+2. Running the A/B, I used `git checkout .github/workflows/ci.yml` to restore —
+   which reverted the whole Q18 edit, not just the probe, because the edit was
+   unstaged. Caught immediately by grepping for my own marker string rather than
+   assuming the restore did what I meant. Re-applied. Same family as L12:
+   verify what an edit DID, not that it ran.
+
+NUMBERS: **`dead_workflow_env` 1 → 0, at target.** `tests_gating_merge`
+370 → **371/372**, `assertions` 11269 → **11274**. Pins re-locked in the same
+PR per the ratchet's own output.
+
+GATES: `bash scripts/gated_tests.sh` → GATE PASSED (server OK, client OK,
+python OK, quarantine 1/1). `bash scripts/counter_ratchet.sh` → OK, 22 counters
+at or better. `npx tsx --test server/ciEnvHonesty.test.ts` 3/3. No `client/`
+source, so PROMOTION RULE 6 does not apply. No backtest (PROMOTION RULE 3 N/A —
+CI configuration).
+
+DETECTOR: none new. Nine registered this session (D1–D9); D7 both FOUND this
+item and was itself repaired en route, which is the detector set doing its job
+rather than growing for its own sake.
+
+Version 1.0.713 → 1.0.714.
+
+NEXT: Q19 — the 3 remaining uncapped render surfaces (`DataWorldMap.tsx`,
+`bot.tsx`, `login.tsx`), so `uncapped_surface` reaches 0. Then Q13, Q14,
+Q7–Q9, Q11, Q22, and Track 2/3.
+
+STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q19, Q22 queued and unclaimed.
