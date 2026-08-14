@@ -170,9 +170,45 @@ bare_except=$(py_files | xargs grep -hcE '^\s*except\s*:' 2>/dev/null \
 # `} catch {}` at datamap.tsx:4365 and 4367 is the second half of why F-A was
 # invisible: the type error was ignored by `|| true`, and the ReferenceError it
 # predicted was then swallowed at runtime. Both counters are non-increasing.
+#
+# RULER CHANGE 2026-08-14 (Q13, MEASUREMENT INTEGRITY). Both counters ran
+# `grep` over raw file text, so PROSE ABOUT the pattern counted as the pattern.
+# Fifteen matches were documentation, not code: 495 -> 494 and 1251 -> 1237.
+# That is the sixth time this session a source-scraping check has been defeated
+# by a comment describing what it looks for (L9/L11/L12/L15 and twice in #833).
+#
+# TWO DESIGN CONSTRAINTS, both learned by getting them wrong first:
+#
+# 1. EXCLUDE BY LOCATION, never by re-matching cleaned text. Blanking comment
+#    text and re-running the regex sends `empty_ts_catch` UP, 495 -> 516:
+#    `catch { // why\n}` blanks to `catch {      \n}`, which now matches. Those
+#    21 are exactly what D4 `commented_empty_catch` counts, and the two are
+#    deliberately DISJOINT. A "cleanup" of this counter would have silently
+#    merged them. Matching raw text and discarding matches whose bytes are
+#    non-code can only ever REMOVE, so the counters cannot cross.
+#
+# 2. SCAN PER LINE. The first attempt lexed whole files; the regex literal
+#    `/'/g` at server/billing.ts:83 opened a string that never closed, and the
+#    next 30 lines were declared non-code — silently excluding four REAL
+#    `catch (err: any)` annotations. Per-line scanning bounds a mis-parse to
+#    the line that causes it.
+#
+# Every ambiguity resolves toward COUNTING (backticks untouched, unterminated
+# quotes untouched, block-comment interiors only when the line starts with
+# `*`). These are non-increasing counters: under-exclusion keeps them honestly
+# high, over-exclusion makes the tree look better than it is, and per
+# MEASUREMENT INTEGRITY a ruler change in the flattering direction is suspect
+# by default. The 15 excluded sites are named individually in the PR.
 # ---------------------------------------------------------------------------
-empty_ts_catch=$(ts_files | xargs grep -hoE 'catch\s*(\([^)]*\))?\s*\{\s*\}' 2>/dev/null | wc -l | tr -d ' ')
-ts_any=$(ts_files | xargs grep -hoE ':\s*any\b' 2>/dev/null | wc -l | tr -d ' ')
+read -r empty_ts_catch ts_any <<<"$(python3 - <<'PYEOF'
+import os, re, sys
+sys.path.insert(0, os.path.join(os.getcwd(), 'scripts'))
+from ts_code_only import count_in_tree
+
+print(count_in_tree(re.compile(r'catch\s*(\([^)]*\))?\s*\{\s*\}')),
+      count_in_tree(re.compile(r':\s*any\b')))
+PYEOF
+)"
 
 # ---------------------------------------------------------------------------
 # 5. layers_full_schema — F-E, the mechanism behind "new ideas land half-built".
@@ -662,6 +698,52 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9j. D10 — baseline_divergence: this script's PRINTED baseline column
+# disagreeing with the pin CI actually enforces in ci/counter_baseline.txt.
+#
+# Found while re-pinning Q13's two counters: the display column said
+# `ts_any ... 1252` where the enforced pin said 1251. That is one number with
+# two homes, which is the exact failure ci/counter_baseline.txt's own header
+# warns about for tsc ("two pins for one number is how they drift apart") — and
+# then this file did it to itself.
+#
+# It matters because the printed column is what a session READS. On first run
+# it found FIVE divergences, including `uncapped_surface 3` (fixed to 0 in
+# #837, so the table showed a regression that did not exist) and `detectors 0`
+# against a real 9. A status table that misreports the target is worse than no
+# table: §4.2 says these numbers are the definition of progress, so a session
+# trusts them.
+#
+# The structural fix is to delete the hardcoded column and read the pin file —
+# filed as Q23, not done here (one logical change per PR). Until then this
+# counts the drift, non-increasing, so it cannot grow while waiting.
+#
+# Compares only counters present in BOTH: 10 pins have no display row and 5
+# display rows have no pin, which is a naming mismatch filed with Q23.
+# ---------------------------------------------------------------------------
+baseline_divergence=$(python3 - <<'PYEOF'
+import re
+
+disp = {}
+for line in open('scripts/program_status.sh'):
+    m = re.match(r"printf\s+'[^']*'\s+(\w+)\s+\"\$\{?\w+\}?\"\s+\"(-?\d+)\"", line.strip())
+    if m:
+        disp[m.group(1)] = int(m.group(2))
+
+pins = {}
+try:
+    for line in open('ci/counter_baseline.txt'):
+        parts = line.split('#')[0].split()
+        if len(parts) == 3:
+            pins[parts[0]] = int(parts[1])
+except OSError:
+    pass
+
+print(sum(1 for k, v in disp.items() if k in pins and pins[k] != v))
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -736,6 +818,7 @@ if [ "$JSON" = 1 ]; then
   "uncapped_surface": $uncapped_surface,
   "assertions": $assertions,
   "harness_rules_checked": $harness_rules_checked,
+  "baseline_divergence": $baseline_divergence,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -752,8 +835,8 @@ printf '%-24s %-14s %-12s %s\n' tsc_errors         "$tsc_errors"          "83"  
 printf '%-24s %-14s %-12s %s\n' "  of which TS2304" "$tsc_2304"           "5"      "must reach 0 (always real bugs)"
 printf '%-24s %-14s %-12s %s\n' silent_py_handlers "$silent_py/$py_except_total" "255/873" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' bare_except        "$bare_except"         "3"      "non-increasing"
-printf '%-24s %-14s %-12s %s\n' empty_ts_catch     "$empty_ts_catch"      "495"    "non-increasing"
-printf '%-24s %-14s %-12s %s\n' ts_any             "$ts_any"              "1252"   "non-increasing"
+printf '%-24s %-14s %-12s %s\n' empty_ts_catch     "$empty_ts_catch"      "494"    "non-increasing"
+printf '%-24s %-14s %-12s %s\n' ts_any             "$ts_any"              "1237"   "non-increasing"
 printf '%-24s %-14s %-12s %s\n' layers_full_schema "$layers_full/$layers_total" "1/238" "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' "  layers with lod" "$layers_lod"         "1"      "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' law_iv_scanned     "$law_iv_scanned"      "5"      "must reach $law_iv_ctx (ctx-acquiring)"
@@ -766,8 +849,9 @@ printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"   
 printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "3"      "must reach 0"
-printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11228"  "NON-DECREASING"
+printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11298"  "NON-DECREASING"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
+printf '%-24s %-14s %-12s %s\n' baseline_diverge   "$baseline_divergence" "2"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "1"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"
