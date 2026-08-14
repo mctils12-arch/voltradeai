@@ -3,6 +3,33 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (same session, addendum) — PR #842's "wait until after 4:00 PM ET" note was not honored: CI's automerge job merged it at 16:19 UTC (~12:19 PM ET), during market hours
+
+Factual note for future market-hours sessions, not a new action. PR #842 was
+opened at ~16:07 UTC with a body explicitly asking for the merge to wait
+until after-hours per this run's own instruction (the change was safe either
+way — zero trading-path/FROZEN-file touch — so this is not a live-risk
+finding, just a process one). CI's `automerge` job (named in L7,
+`research/PROGRAM_STATE.md`: "merges any `claude/*` branch when no job
+*failed*") merged it 12 minutes later, evidently gating only on CI status,
+not on anything in the PR body. `git fetch origin main` confirms
+`f3eb309` (#842) is on `main`; `/api/health` immediately after: still
+`status: ok`, bot active, no dead feeds — consistent with this being a
+zero-runtime-blast-radius change, so no harm resulted this time.
+
+**Takeaway for future sessions**: a "please wait to merge" note in a PR body
+is cosmetic only — this repo's automerge has no mechanism to read or honor
+it. If a market-hours session ever produces a change that is NOT
+zero-blast-radius (touches `client/`, `server/bot.ts`, `bot_engine.py`,
+options/order-path files, etc.) and genuinely needs to avoid an intraday
+deploy, a body note is not sufficient — either hold the push until after 4
+PM ET instead of opening the PR immediately, or add an actual CI gate.
+Filed as a testable open question rather than left as an unrecorded
+observation: `research/open_questions.md`, "CI's `automerge` job does not
+gate on market hours or PR-body merge-timing notes" (2026-08-14). Not filed
+to wishlist.md — process/tooling gap, no paid capability involved, and not
+urgent today since this change was safe by construction.
+
 ## 2026-08-14 (scheduled-routine session, market hours) [RULE-REVIEW] — Q23: `program_status.sh`'s printed baseline column now reads `ci/counter_baseline.txt` directly — `baseline_divergence` driven to 0 by construction, not discipline (v1.0.720)
 
 TERRITORY: SHARED (`scripts/program_status.sh`, `ci/counter_baseline.txt`,

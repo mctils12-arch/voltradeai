@@ -10017,3 +10017,27 @@ LADDER: N/A (RAW overlay, coverage-completeness question, no predictive
 claim). No behavior change to the shipped layer — this closes an open
 research item with evidence rather than leaving an unverified "worth
 chasing" number sitting in the code.
+
+## 2026-08-14 — CI's `automerge` job does not gate on market hours or PR-body merge-timing notes
+
+Discovered live: PR #842 (Q23, a measurement-tooling change, zero trading
+blast radius) asked in its own body to wait for after-hours merge per this
+run's market-hours instruction, and `automerge` merged it 12 minutes later
+anyway — it evidently gates purely on CI/check status, matching
+`PROGRAM_STATE.md`'s L7 ("merges any `claude/*` branch when no job
+*failed*"). No harm this time (the change touched no runtime path), but the
+gap is real: nothing today stops a market-hours session's non-trivial change
+(client/, server/bot.ts, bot_engine.py, options/order-path files) from
+auto-deploying mid-session the same way.
+
+TESTABLE FORM: does `.github/workflows/` (a FROZEN path — any fix here needs
+its own wishlist.md proposal per FROZEN PATHS, this is not self-applicable)
+have any existing signal available to gate on — PR labels, a diff-path
+check, time-of-day? A same-shape precedent already exists in this repo
+(MONETIZATION TRIPWIRE gates merges on a compliance check) — worth checking
+whether that mechanism could be generalized rather than inventing a new one.
+
+LADDER: N/A — process/tooling gap, not a data or trading claim. Not filed to
+wishlist.md as a spend request (no paid capability). Priority: low — only
+matters for a market-hours session producing a non-trivial diff, which
+hasn't happened yet; revisit if one does.
