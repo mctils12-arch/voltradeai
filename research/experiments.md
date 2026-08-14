@@ -51617,3 +51617,130 @@ string literals before counting. MEASUREMENT INTEGRITY: own PR, before/after on
 identical inputs. Then Q14, Q22, Q7–Q9, Q11, and Track 2/3.
 
 STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q22 queued and unclaimed.
+
+## 2026-08-14 — [RESEARCH] GRID VISION A1 gate-2 v3 COMPUTED: FAIL on all three pre-stated criteria — stress-index predictive line CLOSED (v1.0.719)
+
+Territory: T-DATACORE (scripts/grid_stress_gate2_v3.py,
+test_grid_stress_gate2_v3.py, datacore/gridvision/gate2_result_v3.json,
+research/grid_vision_products.md, research/grid_vision.md) — no server/
+routes, client/, or FROZEN paths touched. [PRODUCT] scheduled-routine
+session; chosen action = (a) advance a datacore/ pipeline through its
+next ladder gate, per this session's own charter (gate-2 signal testing
+IS product work).
+
+SESSION-START CHECKS: read CLAUDE.md in full, then experiments.md tail
+and open_questions.md KNOWN BROKEN. Most recent unresolved item (#30,
+2026-08-13, "OPTIONS-SLOT-FULL" third-recurrence race) is explicitly
+NOT a liveness/kill-switch issue (paper account, soft position-count
+limit, one slot hot) and its own entry says a third same-day patch is
+FORBIDDEN by RECURRENCE ESCALATES — structural fix already filed in
+wishlist.md for a dedicated future session. Noted, not blocking;
+proceeded with product work per this routine's own instruction.
+
+PRIMARY ACTION SELECTION: surveyed platform_program.md (queue clear
+except P5, human-gated — nothing actionable), then grid_vision_products
+.md's "A1 gate-2 v3 design" — filed 2026-07-07, its own event-list
+prerequisite (grid_vision_events_ercot.md) already landed the same day,
+and its self-declared KILL DATE is 2026-08-15 — TOMORROW. This was the
+single highest-value, most time-boxed unclaimed item in the product
+queue: fully spec'd, ready to compute, and about to breach its own
+stall clause if left another day.
+
+READ BEFORE WRITE: read scripts/grid_stress_gate2.py (the v1/v2
+script) in full before writing anything — reused its load_erco_hours/
+load_tx_dd/pct_rank/month_of/year_of helpers via import rather than
+re-implementing CSV parsing (EDGE DOCTRINE #3: don't re-risk a solved
+parsing problem). Read grid_vision_events_ercot.md's own "Gate-2 v3
+scoring sets derived from this list" section and transcribed its
+already-derived TIER-E (1 day, out-of-sample) and TIER-C (13 days) sets
+verbatim rather than re-deriving from the full table — added a
+compile-time assertion (`len(TIER_E_VALID)==1`, `len(TIER_C_VALID)==13`)
+so a future transcription error fails loudly instead of silently.
+
+DATA GAP FOUND: no committed downloader for the EIA-930 bulk BALANCE
+CSVs existed (the v1/v2 session fetched them ad hoc, un-scripted). The
+URL this session first guessed (`eia.gov/electricity/930-content/...`)
+returned HTML error pages (301 → 200 but 67KB of navigation markup, not
+data) — the real path, found via search, is
+`eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_BALANCE_<year>_
+<Jan_Jun|Jul_Dec>.csv`. Verified against the real column schema before
+trusting it. Downloaded 14 six-month files 2019-2025 (~610MB total,
+session-side, keyless — no prod dependency) into the session scratch
+directory (not committed — too large, matches the v1/v2 precedent of
+never committing the raw bulk files).
+
+COMPUTATION (scripts/grid_stress_gate2_v3.py, full pre-registration
+quoted in its own header — design + scoring sets + PASS criteria +
+a stated PRIOR, all written before the single run): index = equal-
+weighted (1/3 each) composite of (1) detrended demand extremity —
+daily peak / trailing-365d mean, same-month percentile pooled across
+all years; (2) forecast extremity — day-ahead DF for D+1, same
+detrending; (3) CPC TX degree-day same-month percentile. ZERO fitted
+parameters (v3's whole design point — v1/v2 fit weights and both
+still failed, so this variant removes fitting as a variable entirely).
+Outcome = the REAL ERCOT event list, not a demand-derived proxy (the
+mechanism that killed both v1 and v2).
+
+RESULT: **FAIL, and not narrowly** — all three pre-stated PASS
+conditions failed independently:
+1. RECALL FLOOR (>=half of the 1 out-of-sample TIER-E day detected):
+   0/1. The 2023-09-06 EEA-2 day's index (computed the morning of
+   2023-09-05) did not land in September 2023's own top decile. Per
+   the design's own words this is an automatic FAIL regardless of the
+   other two criteria.
+2. LIFT BAR (>=2.0x over the seasonal base, TIER-C 13-day set): 1.258x
+   — would have failed on its own.
+3. STABILITY (leave-one-year-out lift holds >=1.5x wherever scoreable):
+   held with 2023 removed (3.875x, but only 2 events remain — thin)
+   but FAILED with 2024 removed (0.751x); 2025 contributed zero events
+   of either tier and could not be scored — would have failed on its
+   own.
+
+PRIOR STATED BEFORE THE RUN (in the script header, REASONING STANDARD
+#10): "weak-to-moderate... expect the no-single-summer-carry clause to
+be the binding constraint... largely independent of the point-estimate
+lift" given 2025's zero events and 2023 carrying 11 of 13 TIER-C days.
+The general verdict (VOID/FAIL from small-N fragility) was correctly
+anticipated; the specific triple-failure (recall AND lift AND
+stability, not just stability) was not predicted in that much detail —
+recorded honestly as a partial-credit prior, not inflated after seeing
+the result.
+
+STOPPING RULE HONORED: this was the ONE run of v3, per its own
+pre-registration and per the v1/v2 entry's explicit anti-fishing
+clause. No parameter was adjusted and rerun after seeing this result.
+CONSEQUENCE, per the design's own FAIL clause: the ERCOT grid-stress
+predictive research line is now CLOSED absent new data (an LMP archive
+or validated per-line MW ratings) — three independently-designed
+outcome variants have now failed via three different mechanisms across
+two sessions. The descriptive dashboard surface (`/api/data/grid-stress`,
+shipped v1.0.191, `predictive: false` on every response) is completely
+unaffected and remains the product; only the predictive-claim question
+is closed. The A1 gate-1 (DATA) ingredient chain — capacity registry,
+county-BA join, per-BA demand archive, CPC degree-days — also remains
+valid and continues to feed that surface; gate 1 and gate 2 are
+independent and this result says nothing about gate 1.
+
+GATES: `python3 -m pytest -q test_grid_stress_gate2_v3.py
+test_grid_stress_gate2.py` 9+3 passed. Full python suite (after
+`pip install -r requirements.txt -r requirements-dev.txt`, absent at
+session start) 1354 passed, 1 skipped (was 1348 — 6 new tests, 0
+regressions). `bash scripts/gated_tests.sh` GATE PASSED: server OK,
+client OK (1011/1011 — required `npm ci` first; the sandbox's
+node_modules was empty at session start and briefly misreported 8
+client failures that were entirely `ERR_MODULE_NOT_FOUND` on missing
+packages, not code defects — resolved by installing, verified via
+`git status` that zero client/ files are in this PR's diff), python
+OK, quarantine 1/1 none overdue. No backtest (PROMOTION RULE 3 N/A —
+gate-2 signal computation, no trading code touched). No client/ touch,
+so PROMOTION RULE 6 (visual harness) does not apply.
+
+Version 1.0.718 → 1.0.719.
+
+NEXT for this program: A2 (buildout detection) is gated on Phase B's
+detector clearing its own AP50 bar (grid_vision_phaseb.md — plateaued
+at 0.197 vs the 0.30 gate-1 bar, an ML-progress question, not a data
+gap); B1/B2/B3 product surfaces that don't depend on the now-closed
+predictive claim remain open. Outside GRID VISION: platform_program.md
+queue is clear (P5 human-gated); no other product item was found
+riper than this one at session start.
