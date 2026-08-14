@@ -1404,13 +1404,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // TIME MACHINE T-1 (earth_twin_program.md, human directive 2026-08-11):
-  // every aircraft that moved through THIS viewport in THIS time window,
-  // per-hex point arrays for the curtain fleet — ONE hex-multiplexed stream
-  // pass per hour file, LOD-decimated by zoom (SCALE S1), caps stated
-  // honestly in the response. 30s TTL cache on quantized params.
+  // every aircraft (or, T-4, vessel) that moved through THIS viewport in
+  // THIS time window, per-hex point arrays for the curtain fleet — ONE
+  // hex-multiplexed stream pass per hour file, LOD-decimated by zoom
+  // (SCALE S1), caps stated honestly in the response. 30s TTL cache on
+  // quantized params (kind included — a vessels request must never serve
+  // an aircraft response from cache or vice versa).
   const windowCache = new Map<string, { at: number; data: any }>();
   app.get("/api/data/aircraft/window", async (req, res) => {
     try {
+      // T-4 vessels parity: readWindow already accepts kind="vessels" (same
+      // per-mmsi track shape, no altitude); this route only needed to expose
+      // it. Same whitelist pattern as /api/data/track/:kind/:id above —
+      // anything not "vessels" stays "aircraft", never a passthrough string.
+      const kind: "aircraft" | "vessels" = req.query.kind === "vessels" ? "vessels" : "aircraft";
       const parts = String(req.query.bbox || "").split(",").map(Number);
       const from = parseInt(String(req.query.from || ""), 10);
       const to = parseInt(String(req.query.to || ""), 10);
@@ -1438,12 +1445,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         stepSecOverride = stepRaw;
       }
       const [w, s, e, n] = parts;
-      const key = [w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
+      const key = [kind, w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
                    Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom),
                    stepSecOverride ?? "auto"].join("|");
       const hit = windowCache.get(key);
       if (hit && Date.now() - hit.at < 30_000) return res.json(hit.data);
-      const data = await readWindow({ bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride });
+      const data = await readWindow({ kind, bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride });
       windowCache.set(key, { at: Date.now(), data });
       if (windowCache.size > 32) {
         const oldest = windowCache.keys().next().value;

@@ -14,21 +14,23 @@ import { setTimeAxis } from "@/lib/timeAxis";
  * no code and issues no requests.
  *
  * Two modes, chosen by the selected layer:
- * - AIRCRAFT (TIME MACHINE v2 T-2, earth_twin_program.md, human directive
- *   2026-08-11): fetches one hex-multiplexed WINDOW (GET /api/data/aircraft/
- *   window, server/aircraftWindow.ts T-1, shipped v1.0.672) covering the
- *   selected window length (1h/6h/24h/7d/30d) at the selected decimation
- *   step (1min/5min/15min/1h — the human's "mins or hours different thing
- *   to choose from"), then scrubs a CURSOR through the already-loaded
- *   per-hex tracks locally — no network round-trip per drag tick, unlike
- *   the old per-instant fetch model. Each hex draws at its last known
- *   position at-or-before the cursor. T-3 (a batched MultiTrackLayer
- *   curtain fleet) is the next slice, not this one — this panel still
- *   paints flat points, matching the pre-T-2 visual for every other layer.
- * - EVERYTHING ELSE (vessels/trains/fires/alerts/gauges): unchanged
- *   single-instant snapshot model (GET /api/data/snapshot,
- *   server/queryEngine.ts's querySnapshot) — these layers have no
- *   window-read backend yet (T-4 is vessels parity, not built).
+ * - AIRCRAFT / VESSELS (TIME MACHINE v2 T-2 + T-4, earth_twin_program.md,
+ *   human directive 2026-08-11): fetches one hex-multiplexed WINDOW
+ *   (GET /api/data/aircraft/window?kind=aircraft|vessels,
+ *   server/aircraftWindow.ts T-1, shipped v1.0.672; kind param wired T-4)
+ *   covering the selected window length (1h/6h/24h/7d/30d) at the selected
+ *   decimation step (1min/5min/15min/1h — the human's "mins or hours
+ *   different thing to choose from"), then scrubs a CURSOR through the
+ *   already-loaded per-hex tracks locally — no network round-trip per drag
+ *   tick, unlike the old per-instant fetch model. Each hex draws at its
+ *   last known position at-or-before the cursor. Vessels have no altitude
+ *   (paths, not curtains — same as aircraft look today). T-3 (a batched
+ *   MultiTrackLayer curtain fleet) is the next slice, not this one — this
+ *   panel still paints flat points, matching the pre-T-2 visual for every
+ *   other layer.
+ * - EVERYTHING ELSE (trains/fires/alerts/gauges): unchanged single-instant
+ *   snapshot model (GET /api/data/snapshot, server/queryEngine.ts's
+ *   querySnapshot) — these layers have no window-read backend yet.
  *
  * Both modes are RAW overlays (no ladder gate) and honestly labeled as
  * historical replay so neither is mistaken for a live layer.
@@ -54,10 +56,11 @@ const LAYERS: Array<{ value: string; label: string }> = [
   { value: "gauges", label: "River gauges" },
 ];
 
-// TIME MACHINE v2 T-2: layers with a window-read backend. Only aircraft has
-// one today (T-1); vessels join here once T-4 wires the route (readWindow
-// already accepts kind="vessels", the route doesn't expose it yet).
-const WINDOW_KINDS = new Set(["aircraft"]);
+// TIME MACHINE v2 T-2/T-4: layers with a window-read backend. Both share the
+// same server route (kind= query param) and client rendering path — vessels
+// draw as flat points same as aircraft (no altitude, so no curtain either
+// way until T-3 ships).
+const WINDOW_KINDS = new Set(["aircraft", "vessels"]);
 
 const WINDOW_OPTIONS_SEC: Array<{ value: number; label: string }> = [
   { value: 3600, label: "1h" },
@@ -225,7 +228,10 @@ export default function TimeScrubber({ map, onClose }: {
       const b = map.getBounds();
       const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
       const zoom = map.getZoom();
-      const r = await fetch(`/api/data/aircraft/window?bbox=${encodeURIComponent(bbox)}&from=${from}&to=${to}&zoom=${zoom}&step=${stepSec}`);
+      // T-4: layer IS the kind for both window-mode layers today (aircraft,
+      // vessels) — no separate mapping needed unless a third window kind
+      // (trains?) ever joins with a different layer id.
+      const r = await fetch(`/api/data/aircraft/window?bbox=${encodeURIComponent(bbox)}&from=${from}&to=${to}&zoom=${zoom}&step=${stepSec}&kind=${encodeURIComponent(layer)}`);
       const d: WindowResult = await r.json();
       if (!r.ok) { setWindowError(d.error || `request failed (${r.status})`); setWindowData(null); paint([]); return; }
       setWindowData(d);
@@ -378,7 +384,7 @@ export default function TimeScrubber({ map, onClose }: {
         {!loading && isWindowMode && windowError && <span className="vt-timescrub-error">{windowError}</span>}
         {!loading && isWindowMode && !windowError && windowData && (
           <>
-            {windowData.hexes.length} aircraft{windowData.hexes_seen > windowData.hexes.length && ` (of ${windowData.hexes_seen})`}
+            {windowData.hexes.length} {windowData.kind === "vessels" ? "vessels" : "aircraft"}{windowData.hexes_seen > windowData.hexes.length && ` (of ${windowData.hexes_seen})`}
             {" · "}{windowData.step_sec === 0 ? "full fidelity" : `${windowData.step_sec / 60}min step`}
             {windowData.note && ` · ${windowData.note}`}
           </>

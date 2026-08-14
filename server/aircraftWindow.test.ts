@@ -26,6 +26,21 @@ function fix(hex: string, tSec: number, lat: number, lon: number, altM: number |
   } as AircraftPoint & { tSec: number };
 }
 
+/** T-4 vessels-parity fixture: writes vessel hour-file lines directly in the
+ *  same shape archiveVessels() produces (server/datacoreArchive.ts), since
+ *  there is no vessel equivalent of archiveAircraftAt's shouldWrite-bypass
+ *  backfill writer — this is the read-side contract to pin, not a new
+ *  production writer this test doesn't need. */
+function writeVesselHour(base: string, hourStartSec: number,
+                          rows: Array<{ mmsi: string; tSec: number; lat: number; lon: number; name?: string }>) {
+  const dir = path.join(base, "vessels");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = rows.map((r) => JSON.stringify({
+    t: r.tSec, i: r.mmsi, c: r.name, la: r.lat, lo: r.lon,
+  }));
+  fs.appendFileSync(path.join(dir, `${hourName(hourStartSec)}.jsonl`), lines.join("\n") + "\n");
+}
+
 test("lodStepSec: close zoom keeps everything, world zoom decimates hardest", () => {
   assert.equal(lodStepSec(12), 0);
   assert.equal(lodStepSec(9), 0);
@@ -255,6 +270,47 @@ test("empty archive and inverted windows answer honestly, never throw", async ()
   });
   assert.equal(inverted.hexes_seen, 0);
   assert.match(inverted.note || "", /empty window/);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("T-4 vessels parity: kind=\"vessels\" reads the vessels/ dir, mmsi as id, no altitude/rg/ty invented", async () => {
+  const base = tmpBase();
+  writeVesselHour(base, T0, [
+    { mmsi: "244010352", tSec: T0 + 60, lat: 51.9, lon: 4.1, name: "MSC OSCAR" },
+    { mmsi: "244010352", tSec: T0 + 120, lat: 51.91, lon: 4.11, name: "MSC OSCAR" },
+    { mmsi: "366123456", tSec: T0 + 90, lat: 52.0, lon: 4.2 }, // no name broadcast
+  ]);
+  const r = await readWindow({
+    kind: "vessels",
+    bbox: { w: 3, s: 51, e: 5, n: 53 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 10, baseDir: base,
+  });
+  assert.equal(r.kind, "vessels");
+  assert.equal(r.hexes_seen, 2);
+  const ship = r.hexes.find((h) => h.i === "244010352")!;
+  assert.ok(ship, "mmsi used as the track id, same field the aircraft path calls icao24");
+  assert.equal(ship.c, "MSC OSCAR");
+  assert.equal(ship.points.length, 2);
+  const unnamed = r.hexes.find((h) => h.i === "366123456")!;
+  assert.equal(unnamed.c, undefined, "missing name stays undefined, never invented");
+  assert.equal(unnamed.points[0][3], null, "vessels carry no altitude — stays null like a missing aircraft reading");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("T-4 vessels parity: the honest hex-cap note says \"vessels\", not a hardcoded \"aircraft\"", async () => {
+  const base = tmpBase();
+  writeVesselHour(base, T0, [
+    { mmsi: "100000001", tSec: T0 + 10, lat: 51.9, lon: 4.1 },
+    { mmsi: "100000002", tSec: T0 + 10, lat: 51.9, lon: 4.1 },
+    { mmsi: "100000003", tSec: T0 + 10, lat: 51.9, lon: 4.1 },
+  ]);
+  const r = await readWindow({
+    kind: "vessels",
+    bbox: { w: 3, s: 51, e: 5, n: 53 },
+    fromSec: T0, toSec: T0 + 3600, zoom: 10, baseDir: base,
+    caps: { maxHexes: 1 },
+  });
+  assert.match(r.note || "", /returned 1 of 3 vessels/);
   fs.rmSync(base, { recursive: true, force: true });
 });
 

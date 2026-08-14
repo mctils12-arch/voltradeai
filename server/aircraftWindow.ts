@@ -6,7 +6,8 @@
 // One call answers "every aircraft that moved through THIS viewport in THIS
 // time window, with enough per-hex track to draw its curtain" — the payload
 // T-2's scrubber selectors and T-3's curtain fleet ride on. Vessels reuse
-// the same machinery (T-4 parity; no altitude → paths, not curtains).
+// the same machinery (T-4 parity, wired in server/routes.ts's `kind` query
+// param — no altitude → paths, not curtains).
 //
 // SCALE S1 LAW (scale_program.md): viewport-bounded, LOD-decimated by zoom,
 // hard caps stated honestly in the response ("returned N of M hexes — zoom
@@ -263,8 +264,9 @@ export async function readWindow(opts: {
 
   const complete = !stoppedEarly && scannedFrom <= Math.max(from, firstHour);
   const notes: string[] = [];
+  const noun = kind === "vessels" ? "vessels" : "aircraft";
   if (hexesSeen > returned.length) {
-    notes.push(`returned ${returned.length} of ${hexesSeen} aircraft in this window — zoom in or narrow the time range`);
+    notes.push(`returned ${returned.length} of ${hexesSeen} ${noun} in this window — zoom in or narrow the time range`);
   }
   if (!complete) {
     notes.push(`scan budget hit: window scanned back to ${new Date(scannedFrom * 1000).toISOString()} (newest-first), not the full requested range`);

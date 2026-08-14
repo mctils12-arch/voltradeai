@@ -1339,3 +1339,23 @@ already-loaded per-hex window data directly; T-4 (vessels parity) needs
 the route to expose `kind` (readWindow already supports it) plus adding
 "vessels" to the client's WINDOW_KINDS set. Both open human questions
 above still only block T-3, not T-2/T-4.
+
+T-4 SHIPPED 2026-08-14 (v1.0.721, scheduled-routine [PRODUCT] session):
+vessels parity for the Time Machine. `GET /api/data/aircraft/window` now
+accepts `kind=aircraft|vessels` (whitelisted like the pre-existing
+`/api/data/track/:kind/:id` pattern, default unchanged), the 30s TTL
+cache key now includes `kind` so a vessels request can never serve a
+cached aircraft response or vice versa, and `TimeScrubber.tsx`'s
+`WINDOW_KINDS` gained `"vessels"` — the fetch, cursor-scrub, and paint
+code were already fully generic (mmsi-keyed hexes, no altitude field
+assumed) and needed no vessel-specific branches. Fixed one honesty bug
+found while wiring this: the hex-cap note and the status line both
+hardcoded the word "aircraft" regardless of `kind` — now read the actual
+kind. NEXT: T-3 (curtain fleet) remains the one item still blocked on
+the two open human questions above (cap preference; all-planes vs
+viewport at world zoom). Full trace in experiments.md. KNOWN LIMITATION,
+not a defect in this slice: the AIS vessel archive has been dark since
+2026-08-05 (wishlist.md, BLOCKED-FOR-MIKE) — vessels-mode windows over
+the outage span will honestly show "no archive yet"/sparse results
+until that feed recovers or the Digitraffic/Kystverket fallback lands;
+older windows and the eventual recovery are unaffected by that gap.

@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (scheduled-routine session) [PRODUCT] — TIME MACHINE T-4: vessels parity — the window-replay endpoint and scrubber now serve vessels, not just aircraft (v1.0.721)
+
+TERRITORY: T-CLIENT-primary (`client/src/components/TimeScrubber.tsx`) +
+a small T-BOT-adjacent server route/lib touch (`server/routes.ts`,
+`server/aircraftWindow.ts`, `server/aircraftWindow.test.ts`) — none of
+these are FROZEN paths or bot execution/order-path files; `package.json`
+version bump is the only SHARED-file edit, landed last per the
+MERGE-ORDER PROTOCOL.
+
+CONTEXT: this run's own instructions named it a [PRODUCT] session —
+build datacore/ pipelines and the /data user-facing section. Checked
+system health first (no live diagnostics token in this sandbox; the
+prior same-day session's `/api/health` read was clean, no LIVENESS
+ALARM, and KNOWN BROKEN's most recent unresolved item (#30, the
+OPTIONS-SLOT-FULL cross-cycle race) is explicitly filed as its own
+future dedicated T-BOT session per RECURRENCE ESCALATES — not a
+liveness issue, not this session's territory, noted and not blocking).
+Surveyed the open product programs before choosing: GRID VISION's A1
+predictive line closed FAIL this same day (three variants, three
+mechanisms — the descriptive `/api/data/grid-stress` surface is
+unaffected but nothing new is gate-2-ready there); platform_program.md's
+queue is clear except P5 (HUMAN-GATED); the DATA CENSUS is effectively
+closed (every keyless top-ranked item built, DTCC SBSDR deliberately not
+started pending a volume-budget decision); console_charter.md's W-series
+is fully shipped. `research/earth_twin_program.md`'s TIME MACHINE v2
+section had the single most concrete, unblocked, already-spec'd
+unclaimed item: its own 2026-08-13 T-2 entry named T-4 (vessels parity)
+as needing only two things — "the route to expose `kind` (readWindow
+already supports it) plus adding vessels to the client's WINDOW_KINDS
+set" — and, unlike T-3 (curtain fleet), T-4 is NOT blocked on either of
+the program's two open human questions (cap preference; all-planes vs
+viewport). Chose it over starting fresh research, per SESSION BUDGET's
+"queued item over new research" ordering.
+
+READ BEFORE WRITE: read `server/aircraftWindow.ts` end to end before
+touching anything. Confirmed `readWindow()` already accepts
+`kind?: "aircraft" | "vessels"` and its line-level JSONL parser
+(`r.i`/`r.t`/`r.la`/`r.lo`/`r.al`/`r.rg`/`r.c`/`r.ty`) is purely
+field-based — it has no aircraft-specific assumption, so it already
+tolerates vessel records (`archiveVessels()` in `datacoreArchive.ts`
+writes `t,i(mmsi),c(name),la,lo,v,h,st,de` — no `al`/`rg`/`ty`, all
+handled by the existing `?? null` / `typeof === "string"` guards). Also
+read `TimeScrubber.tsx` end to end: its `paint()`/`positionsAtCursor()`
+are equally generic (lat/lon/label only) — the ONLY aircraft-specific
+things anywhere in this path were (a) the route's `readWindow()` call
+never passing a `kind` at all (defaulting to `"aircraft"`), (b) the
+client's fetch URL and `WINDOW_KINDS` set, and (c) two hardcoded
+`"aircraft"` NOUNS in user-facing text (the hex-cap note in
+`aircraftWindow.ts`, the status-line count in `TimeScrubber.tsx`) that
+would have silently mislabeled a vessels response as "N aircraft" had
+the machinery been wired without fixing them — an honesty bug this
+session found by reading, not one that was filed.
+
+CHANGES:
+- `server/routes.ts`: the `/api/data/aircraft/window` handler now reads
+  `req.query.kind`, whitelisted to `"vessels"` else `"aircraft"` — same
+  pattern as the pre-existing `/api/data/track/:kind/:id` route just
+  above it, never a passthrough string. Passed through to `readWindow()`.
+  The 30s TTL response cache's key now includes `kind` — without this a
+  vessels request could have served a cached aircraft response (or vice
+  versa) inside the same 30s window; would have been a silent, hard-to-spot
+  cross-kind data bug.
+- `server/aircraftWindow.ts`: the "returned N of M aircraft" honesty
+  note now says the real kind (`vessels` when `kind==="vessels"`).
+- `client/src/components/TimeScrubber.tsx`: `WINDOW_KINDS` gained
+  `"vessels"`; the window fetch now appends `&kind=${layer}` (the
+  selected layer value IS the kind for both window-mode layers today);
+  the status-line count now reads `windowData.kind` instead of a
+  hardcoded noun; updated the file's own top-of-file doc comment (was
+  describing T-4 as "not built").
+- No changes to `readWindow()` itself, `datacoreArchive.ts`, or any
+  vessel-archiving code — the read-side contract already worked; this
+  PR only exposes it.
+
+RATCHET: `server/aircraftWindow.test.ts` gained two new tests exercising
+`kind: "vessels"` directly (there was previously ZERO test coverage of
+that code path, aircraft-only despite the parameter existing since T-1).
+Added a test-local `writeVesselHour()` fixture (writes the exact JSONL
+shape `archiveVessels()` produces — there is no vessel equivalent of
+`archiveAircraftAt`'s shouldWrite-bypass backfill writer, and this test
+doesn't need a new production writer, just a way to pin the read-side
+contract): (1) confirms mmsi is used as the hex id, a vessel with no
+broadcast name stays `c: undefined` rather than inventing one, and
+missing altitude reads as `null` exactly like an aircraft record without
+one; (2) confirms the hex-cap note says "vessels" now, not a hardcoded
+"aircraft" — this is the regression test for the honesty bug found
+above; the two new tests fail against the pre-fix `aircraftWindow.ts`
+note text (verified by temporarily reverting the noun fix locally) and
+pass after.
+
+GATES (all run live in this sandbox — freshly `npm ci` + `pip install
+-r requirements.txt -r requirements-dev.txt`, both absent at session
+start): `npx tsc --noEmit` 12 errors, byte-identical to
+`ci/tsc_baseline.txt`'s pinned TOTAL/per-code breakdown (no new file
+touched by this PR appears in the error list). `npx tsx --test
+server/aircraftWindow.test.ts` 17/17 passed (15 pre-existing + 2 new).
+`bash scripts/gated_tests.sh` GATE PASSED: node/server 1268/1269 (the
+one non-pass is the pre-existing quarantined `gridTilesCoverage.test.ts`,
+Q12, review-by 2026-09-13 — unrelated to this diff, confirmed via `git
+status` that zero tile files are touched), client 1011/1011, python
+1354 passed/1 skipped, quarantine 1/1 none overdue. `npm run build`
+clean (dist/public + dist/index.cjs both built; no new warnings). No
+backtest — PROMOTION RULE 3 N/A (RAW-overlay historical-replay UI, no
+trading logic, no scoring/threshold change).
+
+VISUAL VERIFICATION (PROMOTION RULE 6, client/ touched): `npm run build`
+then `node scripts/visual_check.mjs --page data` at 390/768/1440 (first
+attempt hit a 240s hard `timeout` wrapper this session had wrapped
+around it and was killed before producing output — the harness fetches
+live map base tiles through this sandbox's proxy and that first cold
+run needed longer; the retry with no hard wrapper completed in full).
+**0 hard failures** at all three widths + the zero-cost/all-off/
+layer-scale variants. Self-reviewed the touch-target and clipped-control
+warnings the harness reported (390px: 3 nav-button touch targets <44px;
+768px: ~10 similar, plus one clipped legend label; 1440px: one clipped
+13F label) — all are pre-existing chrome (top nav, layer-panel controls,
+legend labels) that this PR's diff does not touch; none are inside or
+caused by `TimeScrubber.tsx`. The Time Machine panel itself is closed by
+default (lazy-mounted on click, matching the AnalystPane pattern) so it
+does not appear in these baseline screenshots — its own layout (window/
+step selectors, slider, status line) is visually unchanged from the
+pre-T-4 aircraft-only version; only the fetched `kind` and displayed
+noun differ, both covered by the new unit tests rather than a pixel
+diff. No new DESIGN.md violation introduced.
+
+HONEST LIMITATION (not a defect in this change): the AIS vessel archive
+has been dark since 2026-08-05 (`research/wishlist.md`,
+BLOCKED-FOR-MIKE, escalated 2026-08-11) — a vessels-mode window request
+covering the outage span will correctly and honestly return "no archive
+yet for this kind" / a sparse result via the SAME honesty machinery that
+already handles any other archive gap, not a new failure mode. Windows
+predating the outage, and whatever the feed does once it recovers (or
+the Digitraffic/Kystverket fallback in the same file lands), are
+unaffected by this limitation.
+
+`research/earth_twin_program.md`'s TIME MACHINE v2 RESUME STATE updated:
+T-4 marked SHIPPED with a short mechanism summary; NEXT still points at
+T-3 (curtain fleet), unchanged and still blocked on the program's two
+open human questions.
+
+Version 1.0.720 → 1.0.721 (read-and-increment at commit time per
+MERGE-ORDER PROTOCOL; re-fetched `origin/main` immediately before this
+edit to confirm no other session had moved it meanwhile).
+
+MERGE NOTE (market hours): this session ran during market hours
+(~18:30 UTC / ~2:30 PM ET). Per this run's own instruction, the PR
+should not be merged until after the 4:00 PM ET close. Noted here and
+in the PR body as instructed — but, per the still-open CI-automerge gap
+filed earlier today (`research/open_questions.md`, 2026-08-14, found on
+PR #842 this same session-day), a body note asking to defer merge is
+known to be cosmetic and will not actually be honored by this repo's
+`automerge` job, which gates purely on CI status. That gap is a
+process/tooling item outside this PR's scope, not something to route
+around here. Factually, this change carries zero blast radius either way
+(no trading logic, no order path, no FROZEN file — a /data map UI
+feature), so an early automerge would not itself be harmful even though
+it would not match the requested timing.
+
+STARVED: no — this filled the session (survey of the product-program
+queue, read-before-write, the fix, new tests, full gate run including a
+slow visual-harness retry, and this log entry).
+
 ## 2026-08-14 (same session, addendum) — PR #842's "wait until after 4:00 PM ET" note was not honored: CI's automerge job merged it at 16:19 UTC (~12:19 PM ET), during market hours
 
 Factual note for future market-hours sessions, not a new action. PR #842 was
