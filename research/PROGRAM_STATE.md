@@ -22,17 +22,24 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q12: build the power-grid tiles and empty the quarantine.** It is the
-one entry in `ci/quarantine.txt`, its review date is **2026-09-13**, and
-`gated_tests.sh` fails the build the day it passes. It is also A4 PHASE 2
-item 2 — *"US-full power grid, boot-fetch-from-Release — filed above, NOT
-built"* — so resolving it closes a two-month-old deferral rather than just a
-red test. Precedent to copy, not reinvent (D10): `scripts/build_power_tiles.sh`
-already does vector → tippecanoe → PMTiles (TX 709MB → 16.2MB in <1 min).
+**NEXT — Q18: decide what `VOLTRADE_CI` is for.** It is set in two `ci.yml`
+jobs and read by NOTHING repo-wide (D7, and D7 itself was repaired in #833
+after briefly reporting a false all-clear). `ci.yml`'s claim that
+"network-dependent tests are excluded in CI" therefore has no mechanism behind
+it, and five test files import `requests`/`socket` unguarded. Either wire it up
+(those tests skip when it is set) or delete it and the false comment. The
+python suite is already gating, so this is now about honesty in the file rather
+than risk.
 
-Then **Q18** (`VOLTRADE_CI` read by nobody — wire it or delete it and the false
-comment beside it), **Q19** (3 uncapped render surfaces), **Q13**, **Q14**, and
-Track 2/3 — the moon, now genuinely unblocked.
+Then **Q19** (3 uncapped render surfaces), **Q13**, **Q14**, **Q7–Q9**, **Q11**,
+and Track 2/3 — the moon, genuinely unblocked.
+
+**Q12 is REFRAMED, not open as written** — see #834 and L17. Building and
+committing 50 state pmtiles is forbidden by `scripts/build_power_tiles.sh`
+line 53 ("US scale: DO NOT commit — boot-fetch from a GitHub Release asset")
+and by its ODbL share-alike note. The real work is the boot-fetch path
+(wishlist A4 PHASE 2 item 2), after which the test re-points at what the server
+actually serves.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -60,7 +67,8 @@ when you take it, `DONE` with the PR number when it merges.
 | Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |
 | Q20 | T1.7 — wire the §4.2 counters into CI as ratchets | T1.7 | **DONE** — PR #833. 22 counters now fail the build on a wrong-direction move |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
-| Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed | T1.2 | **TODO** ← next — quarantined in #832, **review by 2026-09-13**. Resolve by BUILDING the tiles (A4 PHASE 2 item 2), copying `scripts/build_power_tiles.sh`; never by weakening the assertion |
+| Q12 | ≥50 state+national power pmtiles asserted, 3 exist | T1.2 | **REFRAMED** — PR #834. Split into `gridTilesCoverage.test.ts` (quarantined, review 2026-09-13). Cannot be resolved by committing tiles: `build_power_tiles.sh:53` forbids it at US scale. Real work = the boot-fetch path (A4 PHASE 2 item 2) |
+| Q21 | The magic-byte guard in `gridTiles.test.ts` had been DEAD since it was written — the `>=50` assertion ran first and prevented it | T1.2 | **DONE** — PR #834. Split; the guard now passes and gates |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` is set in 2 ci.yml jobs and read by NOTHING repo-wide; ci.yml's "network-dependent tests are excluded" claim has no mechanism behind it. 5 test files import requests/socket unguarded | T1.2 | **TODO** — found by D7; blocks promoting the python suite to required |
@@ -80,7 +88,7 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 tests_run_in_ci          368/368        4/364        must increase
-tests_gating_merge       369/370        4/364        must increase (>216)
+tests_gating_merge       370/371        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
@@ -93,7 +101,7 @@ conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        1              1            must reach 0
 uncapped_surface         3              3            must reach 0
-assertions               11268          11268        NON-DECREASING
+assertions               11269          11269        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
@@ -167,6 +175,32 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L17 — a failing assertion had killed the guard behind it, and the guard was
+the whole point of the file.** `server/gridTiles.test.ts` exists to catch a
+REAL shipped defect: v1.0.251, where `power_us.pmtiles` was written as SQLite
+and the `pmtiles://` protocol silently rendered nothing (logged in
+experiments.md). Its first line asserted `files.length >= 50`. That assertion
+has never once been true — so **the magic-byte loop underneath it never ran**,
+and the regression guard was dead from the day it was written.
+
+Two general lessons, both cheap to apply:
+1. **A cheap precondition placed above an expensive guard can silently disable
+   it.** Order matters inside a test, not just between tests. When a test has a
+   setup-shaped assertion and a substance-shaped one, they want separate tests
+   — otherwise the first failure hides everything after it, exactly as a long
+   `try` block hides everything after a throw (L4). Same defect, different
+   scale.
+2. **A red test is worth reading before it is worth fixing.** The obvious fix
+   here — build the tiles — is FORBIDDEN by the repo's own build script
+   (`build_power_tiles.sh:53`: "US scale: DO NOT commit — boot-fetch from a
+   GitHub Release asset") and by its ODbL share-alike note. The assertion was
+   demanding the one location the architecture says these files must never
+   occupy. Building 12GB of tiles to satisfy it would have been days of work in
+   the wrong direction.
+
+Splitting deleted nothing and weakened nothing — `assertions` went UP 11268 →
+11269, which is the objective check on that claim.
 
 **L16 — the MASTER PROGRAM's "up to 9× faster moon" claim is FALSE, and the
 Day One table ranks T2.4 on it.** F-C observes correctly that `celestialSky.ts`
