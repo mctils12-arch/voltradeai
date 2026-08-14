@@ -50658,3 +50658,86 @@ python suite's live network reach (yfinance traffic still occurs under
 VOLTRADE_CI=1, contradicting ci.yml's header claim).
 
 STARVED: yes — Q6–Q9, Q11–Q15, Q17 queued and unclaimed.
+
+## 2026-08-14 — [REPAIR] Q15: two tests that only failed near UTC midnight (v1.0.709)
+
+Territory: `server/` test + `scripts/`, `research/`. MASTER PROGRAM Q15 — the
+named prerequisite for T1.2 (making the test suites blocking).
+
+`server/datacoreArchive.test.ts` computed its "beyond retention" fixture as
+`now - (RAW_RETENTION_DAYS + 2) * 86400_000`. Because that offset is a whole
+number of days, the result inherits **`now`'s time of day**. Within ~10 minutes
+of UTC midnight, the `+6..10 min` second sample each fixture writes landed on
+the NEXT UTC day. `archiveAircraft` names files `YYYY-MM-DD-HH.jsonl` and
+`rollupOldDays` groups by that day string, so one intended day became two:
+`rolled` returned 2 where the test asserts 1, and the hold-back test found a
+second day it had not corrupted and deleted it, so its "nothing deleted"
+assertion saw 1 instead of 0.
+
+CONFIRMED BY EXPERIMENT, NOT ARGUMENT: both failed at 23:55Z and passed at
+01:00Z on the same commit, same tree. Found only because T1.1's baseline run
+happened to execute at 23:55Z — these tests pass 23 hours a day.
+
+FIXED, NOT QUARANTINED. The MASTER PROGRAM's quarantine mechanism is for
+failures you cannot currently resolve; this was always a bug in the TEST, never
+in the code under test, and `rollupOldDays` behaved correctly throughout. All
+four fixture sites now call a shared `oldDayMidday(now)` that anchors to 12:00
+UTC of the target day, so a few-minute sample offset can no longer cross a date
+boundary. Still comfortably beyond retention: the shift is at most 12h against
+a 2-day margin (retention 30d, fixture 32d) — verified against `rollupOldDays`'
+actual cutoff (`now - RAW_RETENTION_DAYS * 86400_000`) rather than assumed.
+
+RATCHET: a regression test that pins the bug DETERMINISTICALLY, at a `now`
+fixed inside the failure window (`Date.UTC(2026, 7, 13, 23, 55, 0)`), so it can
+never return on a clock rather than on a diff. It also asserts its own premise
+— that the naive offset WOULD straddle midnight at that hour — so if the
+fixture ever stops reproducing the condition, the test says so instead of
+quietly passing forever. Then it drives the real archive + rollup path end to
+end and asserts one UTC day, one rolled day. A/B-verified via a temporary
+revert of the helper to the old inline arithmetic: **fails with
+"anchored offset must keep both samples on one UTC day", passes with the fix.**
+
+DETECTOR ADDED (§0.7): **D7 — `dead_workflow_env`**, an env var SET in a
+workflow and read by NOTHING in tracked code. It found a real one immediately:
+**`VOLTRADE_CI` is set in two `ci.yml` jobs and has zero readers repo-wide.**
+The comment beside it claims "Network-dependent tests are excluded in CI" — but
+no test consults the variable, so that exclusion rests entirely on the
+hand-picked four-file list the same job runs, not on any mechanism. Five test
+files import `requests`/`socket` directly with no guard at all. An env var that
+looks like a switch and is wired to nothing is worse than no switch: it makes
+the next reader believe a control exists. CLAUDE.md's STALENESS AUDIT names
+this class outright ("dead config, unused env var reads"). Filed as Q18 and
+made a blocker for promoting the python suite to required; not fixed here (one
+logical change per PR, and the right fix — wire it up vs. delete it and the
+claim — is a decision T1.2 should make deliberately).
+
+L15 — PROSE DEFEATED ONE OF MY OWN CHECKS FOR THE FOURTH TIME TODAY. D7
+reported 0 instead of 1 because the comment block explaining the counter names
+`VOLTRADE_CI`, so the detector counted its own documentation as a reader. Same
+shape as L9 (comments inflating `empty_ts_catch`), L11 (a comment tripping the
+`ci.yml` assertion) and L12 (a silently-failing edit). Every source-scraping
+check in `program_status.sh` now strips comment lines BEFORE searching, and
+that is now the first thing to write rather than the fix after a false reading.
+General form worth carrying: **a checker and its own explanation live in the
+same file, so the explanation is part of the corpus unless you exclude it.**
+
+NUMBERS: server suite **1248 pass / 1 fail** (was 1247/1 with the two rollup
+tests passing outside the window; +1 test from the new regression). The single
+remaining failure is `gridTiles.test.ts` (Q12) — now the ONLY thing that would
+red the gate when T1.2 makes it blocking. `dead_workflow_env` 1 (must reach 0).
+`detectors_registered` 6 → 7. All other ratchets held. Counters run before
+writing the PR body (L9).
+
+GATES: `npx tsx --test server/*.test.ts` 1248/1249. `npx tsc --noEmit` 12,
+TS2304 0 (test files are excluded from tsconfig, so unchanged as expected).
+`scripts/program_status.sh` clean. No `client/` source, so PROMOTION RULE 6
+does not apply. No Python source touched. No backtest (PROMOTION RULE 3 N/A —
+a test-fixture date fix with no runtime effect).
+
+Version 1.0.707 → 1.0.709 (read-and-increment; a concurrent session took .708).
+
+NEXT: T1.2 (Q17) — `ci/required.txt` + `ci/quarantine.txt`, green set blocking.
+Q15 is now cleared; the remaining blockers are Q12 (quarantine or resolve) and
+Q18 (decide what VOLTRADE_CI is for before gating the python suite).
+
+STARVED: yes — Q6–Q9, Q11–Q14, Q17, Q18 queued and unclaimed.

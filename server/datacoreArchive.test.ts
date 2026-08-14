@@ -21,6 +21,33 @@ const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "vt-archive-"));
 
+/** A timestamp safely beyond RAW_RETENTION_DAYS, anchored to 12:00 UTC.
+ *
+ *  UTC-MIDNIGHT FIX (Q15, 2026-08-14). These fixtures used
+ *  `now - (RAW_RETENTION_DAYS + 2) * 86400_000` directly. Because that offset
+ *  is a whole number of days, the result inherits `now`'s TIME OF DAY — so when
+ *  the suite ran within ~10 minutes of UTC midnight, the second sample each
+ *  fixture writes at `+6..10 min` landed on the NEXT UTC day. `archiveAircraft`
+ *  names files `YYYY-MM-DD-HH.jsonl` and `rollupOldDays` groups by that day
+ *  string, so one intended day became two: `rolled` came back 2 where the test
+ *  asserts 1, and the hold-back test found a second day it had not corrupted
+ *  and deleted it, so its "nothing deleted" assertion saw 1 instead of 0.
+ *
+ *  Caught by T1.1's baseline run and confirmed by experiment rather than
+ *  argument: both tests failed at 23:55Z and passed at 01:00Z on the same
+ *  commit. A ~1h nightly red window is exactly the kind of thing that destroys
+ *  trust in a new gate, so this is FIXED rather than quarantined — it was
+ *  always a bug in the test, never in the code under test.
+ *
+ *  Anchoring to midday makes the fixture's date arithmetic independent of when
+ *  the suite happens to run: a +/- few-minute sample can no longer cross a date
+ *  boundary. Still comfortably beyond retention — the shift is at most 12h
+ *  against a 2-day margin (retention 30d, fixture 32d). */
+const oldDayMidday = (now: number): number => {
+  const d = new Date(now - (RAW_RETENTION_DAYS + 2) * 86400_000);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+};
+
 const cruise = (icao: string, lat = 45, lon = -30): any => ({
   icao24: icao, callsign: "TST", lat, lon,
   altitude_m: 11000, on_ground: false, velocity_ms: 240, heading: 90,
@@ -113,9 +140,52 @@ test("PERF: compressOldHoursAsync produces the same on-disk outcome as the sync 
   assert.equal(content(b), content(a), "gz payloads byte-identical");
 });
 
+// Q15 REGRESSION (2026-08-14). Pins the UTC-midnight bug deterministically so
+// it can never come back on a clock rather than on a diff. The fixtures above
+// are written at `oldDayMidday(now)`; this drives them with a `now` fixed
+// INSIDE the failure window and asserts both samples land on one UTC day.
+//
+// The bug was invisible for a reason worth remembering: these tests pass 23
+// hours a day. They were found by T1.1's baseline run happening to execute at
+// 23:55Z, and confirmed by re-running at 01:00Z on the same commit. A test that
+// depends on wall-clock time is a test that will eventually red a merge gate
+// for reasons nobody can reproduce the next morning.
+test("Q15: rollup fixtures do not straddle a UTC day when the suite runs near midnight", () => {
+  // 23:55:00Z — five minutes before the boundary, so the fixtures' `+10 min`
+  // second sample would cross it under the old `now - 32d` arithmetic.
+  const now = Date.UTC(2026, 7, 13, 23, 55, 0);
+
+  // The naive value this replaced: same time-of-day as `now`, so +10 min rolls
+  // the date over. Asserting it here keeps the regression test honest — if this
+  // ever stops being true, the test below has stopped proving anything.
+  const naive = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  assert.notEqual(
+    new Date(naive).toISOString().slice(0, 10),
+    new Date(naive + 10 * 60_000).toISOString().slice(0, 10),
+    "fixture premise: the naive offset must straddle midnight at 23:55Z",
+  );
+
+  const anchored = oldDayMidday(now);
+  assert.equal(
+    new Date(anchored).toISOString().slice(0, 10),
+    new Date(anchored + 10 * 60_000).toISOString().slice(0, 10),
+    "anchored offset must keep both samples on one UTC day",
+  );
+  assert.ok(anchored < now - RAW_RETENTION_DAYS * 86400_000,
+    "anchored fixture must still be beyond RAW_RETENTION_DAYS");
+
+  // End-to-end: the real archive + rollup path, driven at the bad hour.
+  const base = tmp();
+  archiveAircraft([cruise("q15roll", 40, -100)], SITES, base, anchored);
+  archiveAircraft([cruise("q15roll", 41, -101)], SITES, base, anchored + 10 * 60_000);
+  const days = new Set(fs.readdirSync(path.join(base, "aircraft")).map((f) => f.slice(0, 10)));
+  assert.equal(days.size, 1, `fixture spans ${days.size} UTC days: ${[...days].join(", ")}`);
+  assert.equal(rollupOldDays(base, now), 1, "exactly one day rolled");
+});
+
 test("PERF: rollupOldDaysAsync produces the same daily summaries as the sync pass", async () => {
   const now = Date.now();
-  const old = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const old = oldDayMidday(now);
   const a = tmp();
   archiveAircraft([cruise("perfru1", 40, -100)], SITES, a, old);
   archiveAircraft([cruise("perfru1", 41, -101)], SITES, a, old + 6 * 60_000);
@@ -165,7 +235,7 @@ test("compression gzips hours older than 2h and leaves current hour raw", () => 
 test("rollup summarizes days beyond retention into track records and deletes raw", () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   // two samples for one entity on the old day (cadence-spaced)
   archiveAircraft([cruise("roll1", 40, -100)], SITES, base, oldMs);
   archiveAircraft([cruise("roll1", 41, -101)], SITES, base, oldMs + 10 * 60_000);
@@ -192,7 +262,7 @@ test("rollup summarizes days beyond retention into track records and deletes raw
 test("rollup holds back (does not delete) a day containing an unreadable hour file", () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   archiveAircraft([cruise("good1", 40, -100)], SITES, base, oldMs);
   archiveAircraft([cruise("good1", 41, -101)], SITES, base, oldMs + 10 * 60_000);
   const dir = path.join(base, "aircraft");
@@ -213,7 +283,7 @@ test("rollup holds back (does not delete) a day containing an unreadable hour fi
 test("rollupOldDaysAsync holds back a day containing an unreadable hour file", async () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   archiveAircraft([cruise("good2", 40, -100)], SITES, base, oldMs);
   const dir = path.join(base, "aircraft");
   const realFile = fs.readdirSync(dir)[0];
