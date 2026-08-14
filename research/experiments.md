@@ -51072,3 +51072,91 @@ exists). Then Q18, Q19, Q13, Q14, and Track 2/3 — the moon, now genuinely
 unblocked.
 
 STARVED: yes — Q7–Q9, Q11–Q14, Q18, Q19 queued and unclaimed.
+
+## 2026-08-14 — [REPAIR] Q12 reframed: a failing assertion had killed the guard behind it (v1.0.713)
+
+Territory: `server/` tests + `ci/`. MASTER PROGRAM Q12 — the single quarantined
+entry from #832. The queue said "build the tiles or quarantine with a reason".
+Reading it properly produced a third, better answer.
+
+WHAT THE TEST IS FOR. `server/gridTiles.test.ts`'s own header: "every committed
+power-grid tile must be a real PMTiles file (magic 'PMTiles'), not an
+MBTiles/SQLite blob. Regression for v1.0.251 where power_us.pmtiles shipped as
+SQLite and the pmtiles:// protocol silently rendered nothing — the visual
+harness missed it (layers default off)." That defect was REAL and is logged in
+experiments.md.
+
+WHAT IT ACTUALLY DID. Its first line asserted `files.length >= 50`. Three
+.pmtiles are committed and `git log --all` finds no `power_*.pmtiles` EVER
+committed, so that assertion has never once been true — and because it ran
+FIRST, **the magic-byte loop underneath it never executed**. The guard against a
+real shipped defect has been dead since the day it was written, and #832
+quarantined the whole file, which would have kept it dead indefinitely.
+
+WHY "JUST BUILD THE TILES" IS THE WRONG FIX — and this is why the red test was
+worth READING before fixing. `scripts/build_power_tiles.sh` line 53, of exactly
+these artifacts:
+
+    TX pilot (16MB): commit under client/public/tiles/ -> bundled to
+    dist/public, served with range requests by express static.
+    US scale (est. 60-150MB): DO NOT commit — boot-fetch from a
+    GitHub Release asset into the volume, serve from there.
+
+plus the same file's ODbL note ("do NOT offer the .pmtiles file itself for
+download — share-alike boundary"), and wishlist A4 PHASE 2 item 2 recording the
+intended design as boot-fetch-from-Release, "filed above, NOT built". **The
+assertion demands the one location the architecture says these files must never
+occupy.** Building 12GB of tiles (the script's own estimate: 12GB download,
+≲1hr, ~15GB peak disk) to satisfy it would have been days of work in the wrong
+direction, and would have violated the repo's own stated design on landing.
+
+THE FIX — a split, deleting nothing:
+- `server/gridTiles.test.ts` keeps the magic-byte guard, which now RUNS and
+  PASSES for the first time, and is REQUIRED (un-quarantined). Added a
+  non-vacuous floor (`>= 1`) so it cannot quietly go back to guarding nothing
+  if the tiles ever move.
+- `server/gridTilesCoverage.test.ts` carries the `>= 50` assertion VERBATIM,
+  with the full reason it cannot currently pass and the two legitimate
+  resolutions: build the boot-fetch path and re-point at what the server
+  actually serves, or delete it WITH the cancellation recorded — deleting a
+  test because a feature was cancelled is legitimate; deleting it because it is
+  red is not. It is the quarantine entry, review by 2026-09-13.
+
+NOTHING WAS WEAKENED, and there is an objective check on that claim rather than
+my word for it: `assertions` went **UP**, 11268 → 11269 (the added non-vacuous
+floor; the `>=50` assertion moved rather than vanished). D9 — added one PR ago
+precisely to catch assertion deletion — is what makes that verifiable.
+
+L17 FILED, two general lessons:
+1. A cheap precondition placed above an expensive guard can SILENTLY DISABLE
+   it. Order matters inside a test, not only between tests. A setup-shaped
+   assertion and a substance-shaped one want separate tests — otherwise the
+   first failure hides everything after it, exactly as a long `try` block hides
+   everything after a throw (L4). Same defect, different scale.
+2. A red test is worth READING before it is worth fixing. The obvious fix here
+   was forbidden by the repo's own build script.
+
+NUMBERS: `tests_gating_merge` 369 → **370/371** (the magic-byte guard is now
+gating), `assertions` 11268 → **11269**, `quarantine_size` still 1 (re-pointed,
+not grown), `quarantine_oldest` 0d. Pins re-locked in the same PR per the
+ratchet's own instruction.
+
+GATES: `bash scripts/gated_tests.sh` → GATE PASSED, server 153 files OK, client
+96 OK, python OK, quarantine 1/1. `bash scripts/counter_ratchet.sh` → OK, 22
+counters at or better. `npx tsx --test server/gridTiles.test.ts` 1/1 (it passes
+now); `gridTilesCoverage.test.ts` 0/1 as expected and quarantined. No `client/`
+source, so PROMOTION RULE 6 does not apply. No backtest (PROMOTION RULE 3 N/A).
+
+DETECTOR: none new. §0.7's duty is one per session and this session has
+registered nine (D1–D9); D7 was repaired in #833 and D9 did real work here,
+proving the split added assertions rather than removing them. The seed list in
+PROGRAM_STATE.md stays stocked.
+
+Version 1.0.712 → 1.0.713.
+
+NEXT: Q18 — decide what `VOLTRADE_CI` is for (wire it up, or delete it and the
+false comment beside it). The python suite already gates, so this is now about
+honesty in the file rather than risk. Then Q19, Q13, Q14, Q7–Q9, Q11, and
+Track 2/3.
+
+STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q18, Q19 queued and unclaimed.
