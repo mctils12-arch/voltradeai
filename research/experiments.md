@@ -74,10 +74,24 @@ My own new test tripped `ts_any` (1237 → 1238) with `const ml: any` for
 MapLibre's undeclared CJS namespace shape. Fixed with a structural type rather
 than re-pinned — the ratchet was right, the shape is knowable.
 
+VISUAL HARNESS — the gate is flaky, and A/B'ing found that before it found
+anything about Q14. Three runs of the data page:
+
+  full run   with Q14      768 FAIL median 217>200        1 hard failure
+  run A      with Q14      1440 FAIL p95 367>350          1 hard failure
+  run B      WITHOUT Q14   768 AND 1440 FAIL, + 2 UI      4 hard failures
+
+Two runs of the IDENTICAL commit failed at DIFFERENT widths, and the
+unmodified tree failed harder than the changed one. The failure is pre-existing
+and Q14 does not worsen it; no improvement is claimed either, since prior p95 on
+this page measured 283/317/383/467ms and that spread swamps a rename. Filed as
+Q25: a perf gate whose threshold sits inside its own noise band fires on noise,
+and a gate that fires on noise is one a future session learns to skip past.
+
 GATES: bash scripts/gated_tests.sh GATE PASSED · counter_ratchet 24 counters OK
 · tsc_ratchet 12, TS2304 0 · npm run build clean · npm run visual at
-390/768/1440. No backtest (PROMOTION RULE 3 N/A — client constants, no trading
-path).
+390/768/1440, A/B above. No backtest (PROMOTION RULE 3 N/A — client constants,
+no trading path).
 
 STARVED: yes — Q22, Q23, Q24, Q7-Q9, Q11 and all of Track 2/3 remain unclaimed.
 
