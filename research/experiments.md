@@ -50435,3 +50435,106 @@ Q15 as its two known quarantine entries. Until it lands, all four ratchet
 tests written today run only when a human types the command.
 
 STARVED: yes — Q6–Q15 queued and unclaimed.
+
+## 2026-08-14 — [PRODUCT] scheduled-routine session: SUBMARINE CABLES `submarine=yes` follow-up resolved live — no activation, closes an open coverage-completeness question (v1.0.706)
+
+Territory: T-DATACORE (scripts/, RAW overlay data — no client/ or server/
+files touched, so PROMOTION RULE 6 does not apply).
+
+CONTEXT: session started by reading CLAUDE.md, all of research/, and
+checking `/api/health` (all green: bot active, drawdown 0.0%, feeds not
+dead, liveness not dark — no KNOWN BROKEN item blocked this session).
+`research/PROGRAM_STATE.md`'s MASTER PROGRAM queue (Q6+) is T-BOT/shared
+territory, not this session's; `research/platform_program.md`'s P1-P4 are
+all SHIPPED, P5 is HUMAN-GATED. The 2026-08-13 SUBMARINE CABLES entry in
+open_questions.md left exactly one scoped, quantified, unclaimed follow-up
+(pull ~10-20 tag sets from the 1,297-way `submarine=yes` candidate,
+confirm telecom-specificity, wire into `build_secondary()` if clean) —
+chosen as this session's primary action: option (a)/(d) territory
+(advancing a datacore pipeline's coverage-completeness verification, not
+a new build) over starting something new from scratch, since it closes a
+real open item with a bounded, well-defined scope.
+
+WHAT WAS DONE: live Overpass queries against the actual OSM database
+(`scripts/submarine_cables_build.py` and `test_submarine_cables_build.py`
+read in full first, READ BEFORE WRITE):
+1. `out tags 40` sample of the 1,297-way candidate
+   (`way["submarine"="yes"]["seamark:type"!="cable_submarine"]
+   ["power"!~"."]`, overpass-api.de, live snapshot 2026-08-14T00:06Z):
+   only 6/40 (15%) carried `communication=*`; the rest were submarine gas
+   pipelines (Gassco, North Sea) and sewer/water pipelines (SYKE,
+   Finland) tagged `man_made=pipeline`/`seamark:type=pipeline_submarine`
+   that also happen to carry `submarine=yes`.
+2. Narrowed with the same `communication` co-tag discriminator the
+   module already uses for `location=underwater`:
+   `way["submarine"="yes"]["communication"]["seamark:type"!=
+   "cable_submarine"]["power"!~"."]` = **13 ways**, confirmed on TWO
+   independent Overpass mirrors (overpass-api.de fresh + kumi.systems
+   ~6-week-stale snapshot, both returned 13 — cross-confirms the count
+   isn't a same-instant fluke). Full `out tags` dump: Cable & Wireless
+   (Gemini/PTAT), Foroya Tele, the Apollo cable system, Telstra Bass
+   Strait 1/2 fibre, one wind-farm comms cable — all genuinely telecom.
+   2 of 13 are `location=underground` land legs, 1 is explicitly
+   `note=Speculative route`, so the real additional submarine-segment
+   count is ~10.
+
+VERDICT: still not worth activating — 10 ways / 0.13% of the primary
+7,464-way set, same order of magnitude and conclusion as the
+already-checked 18-way `location=underwater` candidate. `build_secondary()`
+stays unactivated (no data shipped, no registry change, no rebuild
+needed — the artifact `client/public/cables/submarine_cables.json` is
+byte-identical to before this session). The value of this session is
+closing the open question with live evidence rather than leaving an
+unverified "worth chasing" number in the code that a future session
+might otherwise wire in unfiltered (which would have put ~1,100+
+non-telecom pipeline ways into a layer labeled "submarine cables" — a
+real honesty/data-integrity risk this check caught before it happened).
+
+CODE CHANGED: `scripts/submarine_cables_build.py` — module docstring and
+`build_secondary()`'s docstring + returned `reason` string updated with
+the verified 2026-08-14 numbers, replacing the stale "NOT-YET-VERIFIED,
+worth chasing" framing. No logic change (`way_to_feature`, `build_primary`,
+`main` untouched). `research/open_questions.md` gained a follow-up-
+resolution entry.
+
+GATES: `python3 -m pytest test_submarine_cables_build.py -q` — 10/10
+pass, unchanged (pure docstring/string edit, no behavior touched).
+Broader `python3 -m pytest -q` in this sandboxed session hit two
+PRE-EXISTING, unrelated environment gaps, both confirmed independent of
+this diff: (1) `voltrade_daemon.py` calls `sys.exit(2)` at import time in
+this container (no daemon socket/runtime present), crashing pytest's
+internal collection for the two test files that import it
+(`test_daemon_active_dispatches.py`, `test_voltrade_daemon.py`) — a
+known class of sandbox-vs-deploy environment divergence, not something
+this diff touches; (2) `numpy`/`scipy` are absent from this container
+(both listed in requirements.txt; a fresh sandbox without `pip install
+-r requirements.txt` lacks them — previously documented elsewhere in
+this file), causing ~30 unrelated test files to fail collection.
+Isolating those and re-running confirms no unrelated regression: `python3
+-m pytest -q --ignore=test_daemon_active_dispatches.py
+--ignore=test_voltrade_daemon.py` still hit the numpy/scipy gap, but
+none of the surviving errors reference `submarine_cables` or anything
+this diff touches. `python3 -c "import ast; ast.parse(...)"` confirms
+the edited file is syntactically valid. No `client/` files touched
+(PROMOTION RULE 6 N/A). No backtest (PROMOTION RULE 3 N/A — no scoring,
+sizing, threshold, or trading-logic change; RAW overlay coverage
+research only).
+
+Version 1.0.705 → 1.0.706 (read-and-increment; lockfile synced).
+
+NEXT: the submarine cables layer's open items are now fully closed (both
+secondary-tag candidates checked and correctly left unactivated). For
+whoever picks up T-DATACORE PRODUCT work next: `research/open_questions.md`'s
+GNSS-integrity-over-adsb root (gate 2 PASS 2026-08-13) still needs its
+gate-1 cross-reference against an independent jamming source
+(gpsjam.org/OPSGROUP NOTAMs) — attempted a reconnaissance pass this
+session (gpsjam.org is reachable, HTTP 200, but its SvelteKit frontend's
+actual daily-data endpoint could not be located from the static page/JS
+bundle within a reasonable time budget; deferred rather than guessing at
+undocumented URLs) — a future session should check gpsjam's GitHub repo
+or public API docs directly rather than reverse-engineering the bundle.
+
+STARVED: no — this session's queue check found no larger unclaimed
+T-DATACORE item that was both higher-value and completable in one
+session; the GNSS gate-1 crossref is the next queued item and is now
+scoped with the reconnaissance dead-end noted above.

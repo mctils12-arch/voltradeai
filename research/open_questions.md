@@ -9973,3 +9973,47 @@ edits continuously, AND (the bigger issue here) the prior probe's delta
 compared against the wrong baseline. Re-verify the load-bearing numbers
 live at build time, not just at research time, even when the research
 is only two days old and was itself adversarially reviewed.
+
+## 2026-08-14 — SUBMARINE CABLES `submarine=yes` FOLLOW-UP RESOLVED (T-DATACORE PRODUCT, scheduled-routine session): the 1,297-way candidate is ~85% pipelines, not telecom — closes the 2026-08-13 follow-up, no activation [PRODUCT]
+
+The 2026-08-13 entry above left one scoped, quantified follow-up open:
+whether the 1,297-way `way[submarine=yes]` (minus the primary
+`seamark:type=cable_submarine` tag, minus power-tagged ways) candidate
+was safe to wire into `build_secondary()`. Resolved this session with
+live, dual-mirror-verified Overpass queries (no code shipped touches
+the actual layer data — the answer is "no, don't activate it"):
+
+- `out tags 40` sample of the 1,297-way set (overpass-api.de,
+  `timestamp_osm_base` 2026-08-14T00:06Z): only 6/40 (15%) carried
+  `communication=*`. The rest were submarine GAS pipelines (Gassco,
+  North Sea) and submarine SEWER/WATER pipelines (Finland's SYKE),
+  tagged `man_made=pipeline` / `seamark:type=pipeline_submarine`, which
+  also carry `submarine=yes` — the same tag-ambiguity risk the module
+  docstring already flagged for `location=underwater`, now confirmed
+  for `submarine=yes` too.
+- Requiring the `communication` co-tag (`way["submarine"="yes"]
+  ["communication"]["seamark:type"!="cable_submarine"]["power"!~"."]`)
+  narrows it to **13 ways**, confirmed on TWO independent Overpass
+  mirrors (overpass-api.de fresh snapshot + overpass.kumi.systems,
+  ~6-week-stale snapshot — both returned 13, cross-confirming the count
+  is stable rather than a same-instant fluke). Full `out tags` dump of
+  all 13: Cable & Wireless (Gemini/PTAT segments), Foroya Tele, the
+  Apollo cable system, Telstra Bass Strait 1/2 fibre, and one wind-farm
+  comms cable — all genuinely telecom. 2 of the 13 carry
+  `location=underground` (land legs of an otherwise-submarine route)
+  and 1 is explicitly `note=Speculative route`, so the real additional
+  SUBMARINE segment count is ~10.
+- **VERDICT: still not worth activating.** ~10 ways is 0.13% of the
+  primary set's 7,464 — same order of magnitude and same conclusion as
+  the already-checked 18-way `location=underwater` candidate.
+  `build_secondary()` stays unactivated; `scripts/submarine_cables_
+  build.py`'s docstring and the function's returned `reason` string
+  were both updated with the verified numbers so a future session
+  doesn't re-open this same question or, worse, wire in the raw
+  1,297-way figure unfiltered (which would have put ~1,100+ non-telecom
+  pipeline ways into a layer labeled "submarine cables").
+
+LADDER: N/A (RAW overlay, coverage-completeness question, no predictive
+claim). No behavior change to the shipped layer — this closes an open
+research item with evidence rather than leaving an unverified "worth
+chasing" number sitting in the code.
