@@ -37,7 +37,7 @@ dead_workflow_env        0        non-increasing
 uncapped_surface         0        non-increasing
 assertions               11313    non-decreasing
 harness_rules_checked    71       non-decreasing
-baseline_divergence      2        non-increasing
+baseline_divergence      0        non-increasing
 dup_precise_literal      4        non-increasing
 detectors_registered     11       non-decreasing
 quarantine_size          1        non-increasing

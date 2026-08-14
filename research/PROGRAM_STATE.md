@@ -22,12 +22,35 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q23: delete `program_status.sh`'s hardcoded baseline column, read
-`ci/counter_baseline.txt`** — drives D10 (`baseline_divergence`) to 0 by
-construction. Then **Q24** (the ellipsoid/sphere frame mismatch, measured in
-#839), **Q7–Q9**, **Q11**, then Track 2/3 — the moon.
+**Q23 is DONE** (this session, scheduled-routine, PR pending). The table's 26
+`printf` lines no longer carry a second hardcoded copy of each pin — a
+`declare -A PIN` loader reads `ci/counter_baseline.txt` (and `ci/tsc_baseline.txt`
+for the two counters deliberately absent from the former) once, and every
+BASELINE column cell now interpolates `${PIN[name]}`. This isn't a smaller gap,
+it's a closed one: D10's own regex only counts a DISPLAYED baseline that is a
+literal quoted digit string in this script's source, and a variable expansion
+is no longer one — so `baseline_divergence` is now **0 by construction**, not
+by discipline, confirmed live (`2` before this PR, `0` after, on the identical
+tree modulo this diff). Also renamed 8 display labels that had drifted from
+their pin names (`commented_catch`→`commented_empty_catch`,
+`undeclared_py_imp`→`undeclared_py_import`, `harness_rules`→
+`harness_rules_checked`, `baseline_diverge`→`baseline_divergence`,
+`dup_precise_lit`→`dup_precise_literal`, `detectors`→`detectors_registered`,
+`law_iv_scanned`→`law_iv_scanned_files`, `"  layers with lod"`→
+`layers_with_lod`) so the printed name and the pin name are now the same
+string everywhere. `ci/counter_baseline.txt`'s own `baseline_divergence` pin
+lowered 2→0 in the same PR (the direct, sole effect of this change) — the
+other three counters `counter_ratchet.sh` reported as "IMPROVED" this session
+(`tests_run_in_ci`/`tests_gating_merge` 373→374, `assertions` 11313→11333) are
+**not** re-pinned here: they are pre-existing drift from unrelated merges
+since the pins were last set, not caused by this PR, and re-pinning them here
+would blur attribution (PROMOTION RULE 5). Left for whichever session's change
+actually produced them.
 
-Q22 is **DONE** (this session, scheduled-routine, PR pending). A diagnostic
+**NEXT — Q24** (the ellipsoid/sphere frame mismatch, measured in #839), then
+**Q7–Q9**, **Q11**, then Track 2/3 — the moon.
+
+Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
 node id on every real call, run once before and once after the fix) found the
 true call sites — none were "at import time": 4 gated test files reach
@@ -84,7 +107,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q19 | 3 uncapped render surfaces (5 sites) | T2 | **DONE** — PR #837. `uncapped_surface` 3 → **0**. My "small login canvas" caveat was BACKWARDS — login's is a full-viewport animated canvas with its own rAF loop, the largest of the three |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **DONE** — PR #838. 495 → **494**, 1251 → **1237**; all 15 excluded sites named. The directive's "strip comments" was WRONG for `empty_ts_catch`: stripping sends it UP to 516 by merging it into D4. Rule is exclude-by-LOCATION, scan per line (L20) |
-| Q23 | `program_status.sh`'s printed baseline column is a second copy of `ci/counter_baseline.txt` and has already drifted on 3 counters | T0.1 | **TODO** — filed in #838 by D10. Delete the hardcoded column, read the pin file; drives `baseline_divergence` to 0 by construction. Also reconcile the names (10 pins have no display row, 5 display rows have no pin) |
+| Q23 | `program_status.sh`'s printed baseline column is a second copy of `ci/counter_baseline.txt` and has already drifted on 3 counters | T0.1 | **DONE** — this session (scheduled-routine). `declare -A PIN` loader reads `ci/counter_baseline.txt`/`ci/tsc_baseline.txt`; every BASELINE cell now interpolates the pin. `baseline_divergence` 2 → **0**, structurally (D10's regex can no longer find a literal to compare). 8 display labels renamed to match their pin names |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
 
@@ -92,38 +115,46 @@ when you take it, `DONE` with the PR number when it merges.
 
 ## NUMBERS
 
-`scripts/program_status.sh`, run 2026-08-13 at commit `0d3d7d8`,
-`package.json` 1.0.701, after `npm ci`.
+`scripts/program_status.sh --no-tsc`, run 2026-08-14 at commit `8fb02be`
+(pre-this-session), `package.json` 1.0.720 (this session). `--no-tsc` because
+this sandbox has no `node_modules`/`npx tsc`; `tsc_errors`/`tsc_2304` below
+are carried forward unmeasured from the last on-CI run (`ci/tsc_baseline.txt`
+TOTAL, unchanged by this session — no TS file touched).
 
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
-tests_run_in_ci          373/374        4/364        must increase
-tests_gating_merge       373/374        4/364        must increase (>216)
-tsc_errors               12             83           must decrease
-  of which TS2304        0              5            AT TARGET — hold at 0
-silent_py_handlers       255/873        255/873      non-increasing
+tests_run_in_ci          374/375        373          must increase
+tests_gating_merge       374/375        373          must increase (>216)
+tsc_errors               (not run)      12           must decrease
+  of which TS2304        (not run)      0            AT TARGET — hold at 0
+silent_py_handlers       255/874        255          non-increasing
 bare_except              3              3            non-increasing
 empty_ts_catch           494            494          non-increasing (ruler fixed, Q13)
 ts_any                   1237           1237         non-increasing (ruler fixed, Q13)
 boundary_any             233            233          non-increasing
-commented_catch          113            113          non-increasing (disjoint from empty_ts_catch — L20)
+commented_empty_catch    113            113          non-increasing (disjoint from empty_ts_catch — L20)
 conflicting_const        3              3            non-increasing
-undeclared_py_imp        2              2            non-increasing
+undeclared_py_import     2              2            non-increasing
 dead_workflow_env        0              0            AT TARGET — hold at 0
 uncapped_surface         0              0            AT TARGET — hold at 0
-assertions               11313          11313        NON-DECREASING
+assertions               11333          11313        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
-  layers with lod        1              1            non-decreasing
-law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
+layers_with_lod          1              1            non-decreasing
+law_iv_scanned_files     5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
-harness_rules            71             71           non-decreasing
-baseline_diverge         2              2            must reach 0 (Q23)
-dup_precise_lit          4              4            non-increasing
-detectors                11             0            MUST increase each session
+harness_rules_checked    71             71           non-decreasing
+baseline_divergence      0              0            must reach 0 — DONE this session (Q23), now structural
+dup_precise_literal      4              4            non-increasing
+detectors_registered     11             11           MUST increase each session (none added — Q23 closed an already-filed D10 finding, same exemption Q22 used)
 quarantine_size          1              1            non-increasing (gridTiles/Q12)
 quarantine_oldest        0d             0d           fail if >30
 ```
+
+`tests_run_in_ci`/`tests_gating_merge` (373→374) and `assertions`
+(11313→11333) moved since the pins were last set, from merges unrelated to
+this session's diff — not re-pinned here per PROMOTION RULE 5 (attribution
+dies when unrelated improvements are bundled into one PR's pin update).
 
 **Where these differ from the MASTER PROGRAM's §4.2 table, this block is
 right** — §4.2's numbers were measured by hand at audit time and the tree has

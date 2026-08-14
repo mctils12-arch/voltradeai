@@ -880,34 +880,63 @@ EOF
   exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# Baseline loader — Q23. The table below used to carry its own hardcoded copy
+# of every pin, which is the exact "two homes for one number" pattern
+# ci/counter_baseline.txt's own header warns about (see D10 above) — and it
+# had already drifted (dead_workflow_env, uncapped_surface, detectors_registered
+# all showed stale pre-fix values in this table after their pins moved).
+#
+# Reading the pin file directly here means the printed BASELINE column IS
+# ci/counter_baseline.txt, not a second transcription of it — divergence
+# between the two becomes structurally impossible rather than merely
+# monitored, which is what drives D10 (baseline_divergence) to 0 by
+# construction: its own regex looks for a literal quoted number in this
+# file's printf lines, and a variable expansion is no longer one.
+# ---------------------------------------------------------------------------
+declare -A PIN
+while read -r _pin_name _pin_value _pin_dir; do
+  [ -n "$_pin_name" ] || continue
+  PIN["$_pin_name"]="$_pin_value"
+done < <(grep -vE '^\s*(#|$)' ci/counter_baseline.txt 2>/dev/null)
+
+# tsc_errors/tsc_2304 are deliberately absent from ci/counter_baseline.txt
+# (see its header) — they're pinned in ci/tsc_baseline.txt instead.
+tsc_total_pin="n/a"
+tsc_2304_pin=0
+if [ -f ci/tsc_baseline.txt ]; then
+  v=$(awk '/^TOTAL /{print $2}' ci/tsc_baseline.txt); [ -n "$v" ] && tsc_total_pin="$v"
+  v=$(awk '/^TS2304 /{print $2}' ci/tsc_baseline.txt); [ -n "$v" ] && tsc_2304_pin="$v"
+fi
+
 printf '%-24s %-14s %-12s %s\n' COUNTER VALUE BASELINE DIRECTION
 printf '%-24s %-14s %-12s %s\n' ------- ----- -------- ---------
-printf '%-24s %-14s %-12s %s\n' tests_run_in_ci    "$tests_run_in_ci/$tests_total" "4/364" "must increase"
-printf '%-24s %-14s %-12s %s\n' tests_gating_merge "$tests_gating_merge/$tests_total" "4/364" "must increase (>216)"
-printf '%-24s %-14s %-12s %s\n' tsc_errors         "$tsc_errors"          "83"     "must decrease"
-printf '%-24s %-14s %-12s %s\n' "  of which TS2304" "$tsc_2304"           "5"      "must reach 0 (always real bugs)"
-printf '%-24s %-14s %-12s %s\n' silent_py_handlers "$silent_py/$py_except_total" "255/873" "non-increasing"
-printf '%-24s %-14s %-12s %s\n' bare_except        "$bare_except"         "3"      "non-increasing"
-printf '%-24s %-14s %-12s %s\n' empty_ts_catch     "$empty_ts_catch"      "494"    "non-increasing"
-printf '%-24s %-14s %-12s %s\n' ts_any             "$ts_any"              "1237"   "non-increasing"
-printf '%-24s %-14s %-12s %s\n' layers_full_schema "$layers_full/$layers_total" "1/238" "non-decreasing"
-printf '%-24s %-14s %-12s %s\n' "  layers with lod" "$layers_lod"         "1"      "non-decreasing"
-printf '%-24s %-14s %-12s %s\n' law_iv_scanned     "$law_iv_scanned"      "5"      "must reach $law_iv_ctx (ctx-acquiring)"
-printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "6"      "must reach 1"
-printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"      "must stay 0"
-printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
-printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
-printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "113"   "non-increasing"
-printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "3"      "non-increasing"
-printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
-printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
-printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "3"      "must reach 0"
-printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11313"  "NON-DECREASING"
-printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
-printf '%-24s %-14s %-12s %s\n' baseline_diverge   "$baseline_divergence" "2"      "must reach 0"
-printf '%-24s %-14s %-12s %s\n' dup_precise_lit    "$dup_precise_literal"  "4"      "non-increasing"
-printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
-printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "1"      "non-increasing"
+printf '%-24s %-14s %-12s %s\n' tests_run_in_ci    "$tests_run_in_ci/$tests_total" "${PIN[tests_run_in_ci]:-n/a}" "must increase"
+printf '%-24s %-14s %-12s %s\n' tests_gating_merge "$tests_gating_merge/$tests_total" "${PIN[tests_gating_merge]:-n/a}" "must increase (>216)"
+printf '%-24s %-14s %-12s %s\n' tsc_errors         "$tsc_errors"          "$tsc_total_pin" "must decrease"
+printf '%-24s %-14s %-12s %s\n' "  of which TS2304" "$tsc_2304"           "$tsc_2304_pin" "must reach 0 (always real bugs)"
+printf '%-24s %-14s %-12s %s\n' silent_py_handlers "$silent_py/$py_except_total" "${PIN[silent_py_handlers]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' bare_except        "$bare_except"         "${PIN[bare_except]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' empty_ts_catch     "$empty_ts_catch"      "${PIN[empty_ts_catch]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' ts_any             "$ts_any"              "${PIN[ts_any]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' layers_full_schema "$layers_full/$layers_total" "${PIN[layers_full_schema]:-n/a}/$layers_total" "non-decreasing"
+printf '%-24s %-14s %-12s %s\n' layers_with_lod    "$layers_lod"         "${PIN[layers_with_lod]:-n/a}" "non-decreasing"
+printf '%-24s %-14s %-12s %s\n' law_iv_scanned_files "$law_iv_scanned"    "${PIN[law_iv_scanned_files]:-n/a}" "must reach $law_iv_ctx (ctx-acquiring)"
+printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "${PIN[order_post_sites]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "${PIN[design_token_drift]:-n/a}" "must stay 0"
+printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "${PIN[long_try_empty_catch]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "${PIN[boundary_any]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' commented_empty_catch "$commented_empty_catch" "${PIN[commented_empty_catch]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "${PIN[conflicting_const]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' undeclared_py_import "$undeclared_py_import" "${PIN[undeclared_py_import]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "${PIN[dead_workflow_env]:-n/a}" "must stay 0"
+printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "${PIN[uncapped_surface]:-n/a}" "must stay 0"
+printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "${PIN[assertions]:-n/a}" "NON-DECREASING"
+printf '%-24s %-14s %-12s %s\n' harness_rules_checked "$harness_rules_checked" "${PIN[harness_rules_checked]:-n/a}" "non-decreasing"
+printf '%-24s %-14s %-12s %s\n' baseline_divergence "$baseline_divergence" "${PIN[baseline_divergence]:-n/a}" "must reach 0"
+printf '%-24s %-14s %-12s %s\n' dup_precise_literal "$dup_precise_literal" "${PIN[dup_precise_literal]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' detectors_registered "$detectors_registered" "${PIN[detectors_registered]:-n/a}" "MUST increase each session"
+printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "${PIN[quarantine_size]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"
 
 if [ "$tsc_errors" = "skipped" ]; then
