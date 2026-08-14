@@ -51245,3 +51245,88 @@ NEXT: Q19 — the 3 remaining uncapped render surfaces (`DataWorldMap.tsx`,
 Q7–Q9, Q11, Q22, and Track 2/3.
 
 STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q19, Q22 queued and unclaimed.
+
+## 2026-08-14 — [REPAIR] Q19: the last 3 uncapped render surfaces — and my own caveat was backwards (v1.0.715)
+
+Territory: T-CLIENT. MASTER PROGRAM Q19, found by detector D8 (added in #831).
+
+Three client modules acquired a canvas context and sized its backing store from
+raw `devicePixelRatio` with no device-tier clamp — five sites in total:
+`DataWorldMap.tsx` (3), `bot.tsx` (1), `login.tsx` (1). All now route through
+`surfacePixelRatio()` (the helper added in #831). Backing-store cost is
+QUADRATIC in the ratio: an uncapped 3× phone allocates 9× the pixels of a 1×
+surface, for every raster op the module performs.
+
+**MY OWN SCOPING CAVEAT WAS BACKWARDS, and reading the files is what caught
+it.** Filing Q19 in #831 I wrote "each needs its own look — a small login canvas
+is not the same call as a full-screen map", implying `login.tsx` was the weak
+case. It is the STRONGEST of the three: `CityMatrixCanvas` sizes to
+`window.innerWidth × window.innerHeight` and animates under its own rAF loop, so
+an uncapped 3× device repaints 9× the pixels every frame. `bot.tsx`'s equity
+chart and `DataWorldMap`'s offscreen land layer are the element-sized ones. A
+guess about relative severity, written into a queue entry, would have been
+inherited as fact by whoever took the item. The entry now records the
+correction (L19).
+
+RATCHET — the class, not the three files. Naming them individually would have
+missed the fourth. Added an assertion that **no client module may size a canvas
+from raw `devicePixelRatio`**, with exactly two allowlisted readers:
+- `lib/deviceTier.ts` — where the clamp itself lives.
+- `pages/datamap.tsx` — which PRODUCES the tier reading. It needs the raw ratio
+  as input to `classifyDevice` (alongside the GL renderer string) and publishes
+  the result on `__vtDeviceTier` for every other surface to consume; it cannot
+  call `surfacePixelRatio()` without circularity.
+
+The allowlist is itself guarded by a second test asserting `datamap.tsx` still
+calls `classifyDevice`, still clamps via `Math.min(dpr, tier.pixelRatioCap)`,
+and still publishes `__vtDeviceTier`. **An allowlist entry that stops honouring
+the rule is worse than no rule, because it looks covered.** Both tests strip
+comment lines before matching (L15) — applied from the first line this time.
+
+A/B-verified via `git stash`: reverting `login.tsx` alone makes the class
+assertion fail (22/23).
+
+VISUAL VERIFICATION (PROMOTION RULE 6) — and the failure was NOT mine, proven
+rather than asserted. The full battery reported 1 hard failure:
+`data @ 1440: perf p95 frame 383ms > 350ms gate`. Since Q19 is *specifically* a
+pixel-ratio change, hand-waving that would have been indefensible — even though
+the failing page renders via `datamap.tsx`, which Q19 does not touch. Ran the
+isolated `--page data` path both ways:
+
+  baseline (Q19 stashed): **2 hard failures, p95 383ms**
+  with Q19:               **0 hard failures, p95 283ms**
+
+The failure reproduces on the unmodified tree, so it is not attributable to this
+change, and Q19 does not worsen it. Deliberately NOT claiming a 100ms speedup:
+p95 in this container measured 283 / 317 / 383 / 467ms across tonight's runs, so
+the metric is too noisy to carry that claim. The defensible statement is the
+narrow one — pre-existing, not a regression.
+
+NUMBERS: **`uncapped_surface` 3 → 0, at target.** `assertions` 11274 → **11278**
+(added, not moved — the class assertion plus the allowlist guard).
+`tests_gating_merge` 371/372. Pins re-locked in the same PR.
+
+GATES: `npx tsx --test client/src/lib/deviceTier.test.ts` **23/23**.
+`npx tsc --noEmit` 12, TS2304 0 (unchanged). `npm run build` clean.
+`bash scripts/counter_ratchet.sh` → OK, 22 counters at or better.
+`npm run visual` at 390/768/1440 — see the A/B above. No backtest (PROMOTION
+RULE 3 N/A — client rendering only).
+
+DESIGN.md clause honoured: the PREMIUM EXPERIENCE STANDARD's "perceived
+performance is a feature", and `deviceTier.ts`'s stated HONESTY CONTRACT —
+"adaptation NEVER drops data; the only lever is canvas pixel density". No layer,
+number, or datum is dropped; only backing-store density is bounded on weak
+devices.
+
+DETECTOR: none new. Nine registered this session (D1–D9). D8 both FOUND these
+three surfaces and is now superseded by a stronger assertion that closes the
+class — the counter said "3 exist", the test says "none may exist". That
+promotion is worth more than a tenth counter.
+
+Version 1.0.714 → 1.0.715.
+
+NEXT: Q13 — `empty_ts_catch`/`ts_any` count comment text; strip comments and
+string literals before counting. MEASUREMENT INTEGRITY: own PR, before/after on
+identical inputs. Then Q14, Q22, Q7–Q9, Q11, and Track 2/3.
+
+STARVED: yes — Q7–Q9, Q11, Q13, Q14, Q22 queued and unclaimed.
