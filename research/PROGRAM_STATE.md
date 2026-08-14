@@ -22,14 +22,11 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q18: decide what `VOLTRADE_CI` is for.** It is set in two `ci.yml`
-jobs and read by NOTHING repo-wide (D7, and D7 itself was repaired in #833
-after briefly reporting a false all-clear). `ci.yml`'s claim that
-"network-dependent tests are excluded in CI" therefore has no mechanism behind
-it, and five test files import `requests`/`socket` unguarded. Either wire it up
-(those tests skip when it is set) or delete it and the false comment. The
-python suite is already gating, so this is now about honesty in the file rather
-than risk.
+**NEXT — Q19: the 3 remaining uncapped render surfaces** (`DataWorldMap.tsx`,
+`bot.tsx`, `login.tsx`), found by D8. Each acquires a canvas context and reads
+`devicePixelRatio` with no tier clamp. `uncapped_surface` must reach 0. Each
+needs its own look — a small login canvas is not the same call as a full-screen
+map — but `surfacePixelRatio()` from #831 is the helper to use.
 
 Then **Q19** (3 uncapped render surfaces), **Q13**, **Q14**, **Q7–Q9**, **Q11**,
 and Track 2/3 — the moon, genuinely unblocked.
@@ -71,7 +68,8 @@ when you take it, `DONE` with the PR number when it merges.
 | Q21 | The magic-byte guard in `gridTiles.test.ts` had been DEAD since it was written — the `>=50` assertion ran first and prevented it | T1.2 | **DONE** — PR #834. Split; the guard now passes and gates |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
-| Q18 | `VOLTRADE_CI` is set in 2 ci.yml jobs and read by NOTHING repo-wide; ci.yml's "network-dependent tests are excluded" claim has no mechanism behind it. 5 test files import requests/socket unguarded | T1.2 | **TODO** — found by D7; blocks promoting the python suite to required |
+| Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
+| Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX) when imported by gated tests — the suite is not hermetic | T1.2 | **TODO** — filed in #836. Fails gracefully today (1337/1337 with curl resets), so latency+noise, not correctness. Mock it |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
 | Q19 | 3 more uncapped render surfaces found by D8: `DataWorldMap.tsx`, `bot.tsx`, `login.tsx` — acquire a canvas context and read `devicePixelRatio` with no tier clamp | T2 | **TODO** — each needs its own look; a small login canvas is not the same call as a full-screen map |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
@@ -88,7 +86,7 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 tests_run_in_ci          368/368        4/364        must increase
-tests_gating_merge       370/371        4/364        must increase (>216)
+tests_gating_merge       371/372        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
@@ -99,9 +97,9 @@ boundary_any             233            233          non-increasing
 commented_catch          112            112          non-increasing
 conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
-dead_workflow_env        1              1            must reach 0
+dead_workflow_env        0              0            AT TARGET — hold at 0
 uncapped_surface         3              3            must reach 0
-assertions               11269          11269        NON-DECREASING
+assertions               11274          11274        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
@@ -175,6 +173,25 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L18 — the claim was true; the mechanism named was fiction.** `ci.yml` said
+"Network-dependent tests are excluded in CI" beside `VOLTRADE_CI: "1"`. D7 found
+the variable had zero readers, and the obvious readings were both wrong:
+- NOT "the claim is false" — the genuinely un-runnable scripts
+  (`test_full_system.py`, `test_auto_discovery.py`) really ARE excluded;
+- NOT "wire the variable up" — nothing needed wiring, because
+  `conftest.py`'s `collect_ignore` already does the job and documents why.
+
+The defect was **attribution**: a real behaviour credited to a control that did
+not exist. Fixed by deleting the variable and pointing the comment at
+`conftest.py`. Generalises: when a detector says a named mechanism is dead,
+check whether the BEHAVIOUR is dead too — often the behaviour is fine and only
+the label is wrong, and deleting the behaviour would be the expensive mistake.
+
+Also added the caveat the old note omitted: the suite is NOT hermetic
+(`macro_data.py` makes live yfinance calls when imported by tests). Filed as
+Q22 rather than papered over — the old comment's confidence is exactly what
+kept that unexamined.
 
 **L17 — a failing assertion had killed the guard behind it, and the guard was
 the whole point of the file.** `server/gridTiles.test.ts` exists to catch a
