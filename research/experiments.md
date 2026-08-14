@@ -3,6 +3,100 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (MASTER PROGRAM session) [REPAIR] — T-CLIENT/Q14 — four Earth constants, two names: all four values were CORRECT, the shared NAME was the defect (v1.0.717, PR #839)
+
+TERRITORY: T-CLIENT (client/src/lib/orbital/geometry.ts, satDerived.ts,
+glElev.ts, lod.ts + their tests, new earthConstants.test.ts). SHARED touch:
+scripts/program_status.sh, ci/counter_baseline.txt, package.json, research/* —
+all last, all minimal.
+
+PRIOR, stated before checking (REASONING STANDARD 10): the queue entry says one
+value of each pair is wrong and this is an accuracy bug worth ~7km in satellite
+altitude; I expect to pick the correct constant per use and delete the loser.
+
+RESULT — the prior was wrong, and so was the queue entry. Every one of the four
+values is correct in the module that declares it:
+
+  geometry.ts    6371            mean radius; the module is an explicit
+                                 spherical-cap model and says so
+  satDerived.ts  6378.137        WGS-84 equatorial = SGP4's reference radius;
+                                 apogee/perigee ALTITUDES are quoted above it
+  glElev.ts      2π×6371008.8    MapLibre's OWN earthRadius — verified in its
+                                 shipped source (maplibre-gl-dev.js:36206) and
+                                 against its live public API
+  lod.ts         40075016.686    EPSG:3857 is defined on the equatorial radius
+
+Unifying either pair would have broken whichever side lost. For glElev.ts
+specifically, adopting the Web Mercator figure would skew EVERY projected
+altitude by 0.112% — silently, because nothing would fail.
+
+WHAT THE DEFECT ACTUALLY WAS: two modules in one directory exporting the same
+name for different quantities. A physical constant's name reads as a claim
+about the world, so `EARTH_RADIUS_KM` imported from the wrong file is invisible
+at the call site. Fixed by renaming — EARTH_MEAN_RADIUS_KM,
+EARTH_EQUATORIAL_RADIUS_KM, MAPLIBRE_WORLD_CIRCUMFERENCE_M,
+WEB_MERCATOR_CIRCUMFERENCE_M — which changes no value and therefore cannot
+regress anything. Proven, not asserted: the GLSL string generated from the
+constant is byte-identical before and after (2.4981121215e-8), A/B'd against a
+stashed tree. `conflicting_const` 5 → 3.
+
+glElev.ts also stopped restating 6371008.8 and now derives from occlusion.ts's
+GLOBE_RADIUS_M — it was the third longhand copy of that literal.
+
+THE "7km" WAS NEVER REALIZED AS 7km. In groundFootprintRadiusKm the radius
+appears in both numerator and denominator of the cap formula, so it largely
+cancels. Measured, equator vs pole: 0.021%/-0.042% at LEO 550km/25deg mask,
+0.060%/-0.119% at 0deg mask, 0.102%/-0.203% at GEO. There IS a real reference-
+frame mismatch underneath — propagate.ts eciToGeodetic emits geodetic height
+above the WGS-84 ellipsoid, geometry.ts adds it to a 6371 sphere — and that is
+now Q24 with those magnitudes attached. It is a 0.2% latitude-dependent effect,
+not a 7km one, and the honest fix is ellipsoidal geometry in its own PR, NOT
+changing the constant (which would make the model internally inconsistent).
+
+DETECTOR ADDED (§0.7) — D11 `dup_precise_literal`: a numeric literal of >=7
+significant digits (trailing zeros not counted, which is what separates a
+measured constant from a round one) restated in 2+ modules, counting the
+redundant COPIES so it falls when one is deleted. This is the mechanism BEHIND
+D5: 6371008.8 was written longhand in three modules before any two exported
+names collided. On its first run it found what Q14 missed — 40075016.686 is
+also restated in cameraRig.ts, and 6378.137 in propagate.ts as a bare `const a`
+— neither visible to D5, because neither is an exported name. 5 → 4.
+
+TESTS: client/src/lib/earthConstants.test.ts, 5 new (15 assertions). Pins each
+datum, asserts the pairs are NOT equal, ties MAPLIBRE_WORLD_CIRCUMFERENCE_M to
+MapLibre's live MercatorCoordinate output so a dependency upgrade that moves the
+constant fails the build, and blocks re-export of the two ambiguous names. That
+last guard asserts it actually reached the four renamed files first — the
+gridTiles lesson (#835), where a guard passed vacuously from the day it was
+written. A/B: reintroducing `export const EARTH_RADIUS_KM` fails it, 4/5.
+
+My own new test tripped `ts_any` (1237 → 1238) with `const ml: any` for
+MapLibre's undeclared CJS namespace shape. Fixed with a structural type rather
+than re-pinned — the ratchet was right, the shape is knowable.
+
+VISUAL HARNESS — the gate is flaky, and A/B'ing found that before it found
+anything about Q14. Three runs of the data page:
+
+  full run   with Q14      768 FAIL median 217>200        1 hard failure
+  run A      with Q14      1440 FAIL p95 367>350          1 hard failure
+  run B      WITHOUT Q14   768 AND 1440 FAIL, + 2 UI      4 hard failures
+
+Two runs of the IDENTICAL commit failed at DIFFERENT widths, and the
+unmodified tree failed harder than the changed one. The failure is pre-existing
+and Q14 does not worsen it; no improvement is claimed either, since prior p95 on
+this page measured 283/317/383/467ms and that spread swamps a rename. Filed as
+Q25: a perf gate whose threshold sits inside its own noise band fires on noise,
+and a gate that fires on noise is one a future session learns to skip past.
+
+GATES: bash scripts/gated_tests.sh GATE PASSED · counter_ratchet 24 counters OK
+· tsc_ratchet 12, TS2304 0 · npm run build clean · npm run visual at
+390/768/1440, A/B above. No backtest (PROMOTION RULE 3 N/A — client constants,
+no trading path).
+
+STARVED: yes — Q22, Q23, Q24, Q7-Q9, Q11 and all of Track 2/3 remain unclaimed.
+
+---
+
 ## 2026-08-14 (MASTER PROGRAM session) [RULE-REVIEW] — T0.1/Q13 — the counters counted PROSE ABOUT the pattern as the pattern; and the fix the queue entry specified would have merged two counters (v1.0.716, PR #838)
 
 TERRITORY: T0 tooling — `scripts/program_status.sh`, `scripts/ts_code_only.py`

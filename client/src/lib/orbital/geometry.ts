@@ -29,8 +29,25 @@
 // an explicit argument and the coverage cap it produces is only as exact
 // as that mask — never present an assumed cone as ground truth.
 
-/** Mean Earth radius (km) used throughout this module (spherical model). */
-export const EARTH_RADIUS_KM = 6371;
+/**
+ * Mean Earth radius (km) — this module's SPHERICAL model.
+ *
+ * RENAMED from `EARTH_RADIUS_KM` (Q14). `orbital/satDerived.ts` exported that
+ * same name as 6378.137, so two files in this directory disagreed by 7.1km
+ * about what "the" Earth radius is, and an importer got whichever module they
+ * happened to reach for. Both values are RIGHT — mean radius for a spherical
+ * cap, WGS-84 equatorial for SGP4 apsides — which is exactly why the shared
+ * name was the defect and unifying the numbers would have been the wrong fix.
+ *
+ * KNOWN APPROXIMATION, measured not assumed: `altKm` reaching this module is
+ * geodetic height above the WGS-84 ELLIPSOID (propagate.ts eciToGeodetic,
+ * a = 6378.137), and is added here to a 6371 sphere. The error largely cancels
+ * because R appears in both numerator and denominator of the cap formula —
+ * measured at 0.02%/0.06% for LEO (550km, 25deg/0deg masks) and 0.10%/0.20%
+ * at GEO, equator vs pole. Filed as Q24; do not "fix" it by changing this
+ * constant, which would make the model internally inconsistent instead.
+ */
+export const EARTH_MEAN_RADIUS_KM = 6371;
 
 /**
  * Published Starlink user-terminal minimum-elevation mask (degrees).
@@ -66,7 +83,7 @@ export function normalizeLonDeg(lonDeg: number): number {
 // ---------------------------------------------------------------------------
 
 /** A satellite position: geocentric lat/lon (deg) and altitude above the
- *  Earth's surface (km). Altitude is added to EARTH_RADIUS_KM. */
+ *  Earth's surface (km). Altitude is added to EARTH_MEAN_RADIUS_KM. */
 export interface GeoPosition {
   latDeg: number;
   lonDeg: number;
@@ -195,14 +212,14 @@ export function groundFootprintRadiusKm(
   if (!(altKm > 0)) {
     return { radiusKm: 0, centralAngleRad: 0, centralAngleDeg: 0 };
   }
-  const r = EARTH_RADIUS_KM + altKm;
+  const r = EARTH_MEAN_RADIUS_KM + altKm;
   const eps = clamp(minElevDeg, -90, 90) * DEG2RAD;
-  const sinAtSat = clamp((EARTH_RADIUS_KM * Math.cos(eps)) / r, -1, 1);
+  const sinAtSat = clamp((EARTH_MEAN_RADIUS_KM * Math.cos(eps)) / r, -1, 1);
   const angAtSat = Math.asin(sinAtSat);
   let lambda = Math.PI / 2 - eps - angAtSat;
   if (lambda < 0) lambda = 0;
   return {
-    radiusKm: EARTH_RADIUS_KM * lambda,
+    radiusKm: EARTH_MEAN_RADIUS_KM * lambda,
     centralAngleRad: lambda,
     centralAngleDeg: lambda * RAD2DEG,
   };
@@ -349,8 +366,8 @@ export function elevationAzimuthFromSite(
   const siteLat = siteLatDeg * DEG2RAD;
   const siteLon = siteLonDeg * DEG2RAD;
 
-  const sat = ecef(satLat, satLon, EARTH_RADIUS_KM + satAltKm);
-  const site = ecef(siteLat, siteLon, EARTH_RADIUS_KM);
+  const sat = ecef(satLat, satLon, EARTH_MEAN_RADIUS_KM + satAltKm);
+  const site = ecef(siteLat, siteLon, EARTH_MEAN_RADIUS_KM);
   const dx = sat[0] - site[0];
   const dy = sat[1] - site[1];
   const dz = sat[2] - site[2];

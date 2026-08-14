@@ -3,14 +3,14 @@
 // Run: npx tsx --test client/src/lib/glElev.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mercatorZFromAltitude, EARTH_CIRCUMFERENCE_M, VT_PROJ_ELEV_GLSL } from './glElev.js';
+import { mercatorZFromAltitude, MAPLIBRE_WORLD_CIRCUMFERENCE_M, VT_PROJ_ELEV_GLSL } from './glElev.js';
 
 const near = (a: number, b: number, rel: number, msg: string) =>
   assert.ok(Math.abs(a - b) <= Math.abs(b) * rel + 1e-15, `${msg} (${a} vs ${b})`);
 
 /** the GLSL formula, executed in TS: ele × cosh(π(1−2y)) / (2πR) */
 const glslMirror = (ele: number, mercY: number) =>
-  (ele * Math.cosh(Math.PI * (1 - 2 * mercY))) / EARTH_CIRCUMFERENCE_M;
+  (ele * Math.cosh(Math.PI * (1 - 2 * mercY))) / MAPLIBRE_WORLD_CIRCUMFERENCE_M;
 
 test('GLSL mirror ≡ the pinned CPU mercatorZFromAltitude (sech identity)', () => {
   for (const y of [0.5, 0.3, 0.38, 0.62, 0.9, 0.05]) {

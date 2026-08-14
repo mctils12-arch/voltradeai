@@ -744,6 +744,58 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9k. D11 — dup_precise_literal: a HIGH-PRECISION numeric literal restated in
+# more than one module. Counts the redundant copies, not the distinct values,
+# so it falls when a copy is deleted.
+#
+# This is the mechanism BEHIND D5. Q14's two colliding constants did not appear
+# from nowhere: `6371008.8` was written out longhand in THREE modules
+# (glElev.ts, orbital/occlusion.ts, air/trackModel.ts), so there were three
+# places to be wrong and nothing tying them together. D5 only notices once two
+# EXPORTED names collide — by then the drift already happened. This notices the
+# copy.
+#
+# On its first run it found what Q14 did not: `40075016.686` is also restated in
+# cameraRig.ts, and `6378.137` in propagate.ts as a bare `const a`. Neither is
+# an exported name, so D5 is blind to both.
+#
+# >=7 significant digits, with trailing zeros NOT counted as significant — that
+# is what separates a measured constant from a round one, and without it
+# 86400000 (ms/day, 4 modules) and 1000000 dominate the list with numbers no
+# one could get wrong. Comments and string literals excluded via
+# scripts/ts_code_only.py (Q13), so prose quoting a constant is not a copy of it.
+# ---------------------------------------------------------------------------
+dup_precise_literal=$(python3 - <<'PYEOF'
+import collections, os, re, subprocess, sys
+sys.path.insert(0, os.path.join(os.getcwd(), 'scripts'))
+from ts_code_only import blank_source, read_text
+
+files = [f for f in subprocess.run(['git', 'ls-files', '*.ts', '*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f and '.test.' not in f]
+NUM = re.compile(r'(?<![\w.])(\d+\.\d+|\d{6,})(?![\w.])')
+
+
+def significant(tok):
+    digits = tok.replace('.', '')
+    # Integers: trailing zeros are place-holders, not precision (86400000 -> 3).
+    # Decimals: a written trailing zero IS precision, so only strip leading.
+    return len(digits.strip('0')) if '.' not in tok else len(digits.lstrip('0'))
+
+
+seen = collections.defaultdict(set)
+for f in files:
+    src = read_text(f)
+    if src is None:
+        continue
+    for m in NUM.finditer(blank_source(src)):
+        if significant(m.group(1)) >= 7:
+            seen[m.group(1)].add(f)
+print(sum(len(v) - 1 for v in seen.values() if len(v) > 1))
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -819,6 +871,7 @@ if [ "$JSON" = 1 ]; then
   "assertions": $assertions,
   "harness_rules_checked": $harness_rules_checked,
   "baseline_divergence": $baseline_divergence,
+  "dup_precise_literal": $dup_precise_literal,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -845,13 +898,14 @@ printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"   
 printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
 printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "113"   "non-increasing"
-printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
+printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "3"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "3"      "must reach 0"
-printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11298"  "NON-DECREASING"
+printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11313"  "NON-DECREASING"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' baseline_diverge   "$baseline_divergence" "2"      "must reach 0"
+printf '%-24s %-14s %-12s %s\n' dup_precise_lit    "$dup_precise_literal"  "4"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "1"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"

@@ -22,19 +22,17 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q14: `EARTH_RADIUS_KM` disagrees with itself inside one module.**
-6371 (`orbital/geometry.ts`) vs 6378.137 (`orbital/satDerived.ts`) — mean vs
-WGS84 equatorial, ~7km of satellite altitude error in code whose entire premise
-is real positions. `EARTH_CIRCUMFERENCE_M` is the same defect twice: 2π×6371008.8
-(`glElev.ts`) vs 40075016.686 (`lod.ts`), where Web Mercator *requires* the
-latter. Found by D5 on its first run. Pick the correct constant per use — this
-is not a style unification, the two values are right in different places — and
-delete the duplicate declarations so `conflicting_const` falls from 5.
+**NEXT — Q22: `macro_data.py` makes live yfinance calls when imported by the
+gated suite.** `DX-Y.NYB` and `^TNX` are fetched at import time, so every CI run
+reaches the network and prints `curl: (35) Recv failure` before passing. It
+fails gracefully today — 1348/1348 green — so this is latency and noise, not
+correctness; but a gated suite that depends on an external host is one outage
+away from red-for-no-reason, and that is how a gate gets loosened. Mock it.
 
-Then **Q22** (mock `macro_data.py`'s live yfinance calls), **Q23** (delete
-`program_status.sh`'s hardcoded baseline column; read `ci/counter_baseline.txt`,
-which drives D10 to 0 by construction), **Q7–Q9**, **Q11**, then Track 2/3 —
-the moon.
+Then **Q23** (delete `program_status.sh`'s hardcoded baseline column, read
+`ci/counter_baseline.txt` — drives D10 to 0 by construction), **Q24** (the
+ellipsoid/sphere frame mismatch, measured in #839), **Q7–Q9**, **Q11**, then
+Track 2/3 — the moon.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -64,7 +62,9 @@ when you take it, `DONE` with the PR number when it merges.
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
 | Q12 | ≥50 state+national power pmtiles asserted, 3 exist | T1.2 | **REFRAMED** — PR #834. Split into `gridTilesCoverage.test.ts` (quarantined, review 2026-09-13). Cannot be resolved by committing tiles: `build_power_tiles.sh:53` forbids it at US scale. Real work = the boot-fetch path (A4 PHASE 2 item 2) |
 | Q21 | The magic-byte guard in `gridTiles.test.ts` had been DEAD since it was written — the `>=50` assertion ran first and prevented it | T1.2 | **DONE** — PR #834. Split; the guard now passes and gates |
-| Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
+| Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 | T2/orbital | **DONE** — PR #839. All FOUR values are CORRECT where they live; the collision was the defect, so renamed not unified. `conflicting_const` 5 → **3**. The "~7km altitude error" framing was wrong — the constant cancels; measured 0.02–0.20%. See L21 |
+| Q24 | `propagate.ts` emits geodetic height above the WGS-84 ELLIPSOID; `orbital/geometry.ts` adds it to a 6371 SPHERE | T2/orbital | **TODO** — filed in #839. Real but small: measured 0.02%/0.06% (LEO 550km, 25°/0° masks) and 0.10%/0.20% (GEO), equator vs pole, because R cancels in the cap formula. Fix = ellipsoidal geometry, own PR, own tests. Do NOT "fix" by changing `EARTH_MEAN_RADIUS_KM` |
+| Q25 | the visual harness's perf gate is NON-DETERMINISTIC — its thresholds sit inside its own noise band | T-CLIENT | **TODO** — filed in #839. Two runs of the IDENTICAL commit failed at different widths (768 median 217>200, then 1440 p95 367>350); the unmodified tree produced 4 hard failures to the changed tree's 1. Prior p95 on this page: 283/317/383/467ms. A gate that fires on noise gets ignored, and then a real regression rides in behind it. Fix = measure the spread, set thresholds outside it (or take best-of-N), and say so — do NOT simply raise the numbers |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
 | Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX) when imported by gated tests — the suite is not hermetic | T1.2 | **TODO** — filed in #836. Fails gracefully today (1337/1337 with curl resets), so latency+noise, not correctness. Mock it |
@@ -84,8 +84,8 @@ when you take it, `DONE` with the PR number when it merges.
 
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
-tests_run_in_ci          372/373        4/364        must increase
-tests_gating_merge       372/373        4/364        must increase (>216)
+tests_run_in_ci          373/374        4/364        must increase
+tests_gating_merge       373/374        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
@@ -94,11 +94,11 @@ empty_ts_catch           494            494          non-increasing (ruler fixed
 ts_any                   1237           1237         non-increasing (ruler fixed, Q13)
 boundary_any             233            233          non-increasing
 commented_catch          113            113          non-increasing (disjoint from empty_ts_catch — L20)
-conflicting_const        5              5            non-increasing
+conflicting_const        3              3            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        0              0            AT TARGET — hold at 0
 uncapped_surface         0              0            AT TARGET — hold at 0
-assertions               11298          11298        NON-DECREASING
+assertions               11313          11313        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
@@ -106,7 +106,8 @@ order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
 baseline_diverge         2              2            must reach 0 (Q23)
-detectors                10             0            MUST increase each session
+dup_precise_lit          4              4            non-increasing
+detectors                11             0            MUST increase each session
 quarantine_size          1              1            non-increasing (gridTiles/Q12)
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -173,6 +174,35 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L21 — "two constants disagree" is not the same finding as "one of them is
+wrong", and the queue entry conflated them.** Q14 was filed as "~7km of
+satellite altitude error" and "Web Mercator REQUIRES the latter". Checked
+against ground truth, all FOUR values are correct where they live:
+
+| constant | value | correct because |
+|---|---|---|
+| `geometry.ts` | 6371 | mean radius, and the module is an explicit spherical-cap model |
+| `satDerived.ts` | 6378.137 | WGS-84 equatorial = SGP4's reference radius; apsides are quoted above it |
+| `glElev.ts` | 2π×6371008.8 | MapLibre's OWN `earthRadius` — verified at `maplibre-gl-dev.js:36206` and against its live `MercatorCoordinate.fromLngLat(_,1).z` |
+| `lod.ts` | 40075016.686 | EPSG:3857 is defined on the equatorial radius |
+
+Unifying either pair would have broken whichever side lost — for `glElev.ts`,
+by 0.112% on every projected altitude, silently. **The defect was the shared
+NAME**: a physical constant's name reads as a claim about the world, so
+`EARTH_RADIUS_KM` imported from the wrong file is undetectable at the call
+site. Renaming fixes it and changes no value — proven by A/B'ing the emitted
+GLSL, byte-identical at `2.4981121215e-8`.
+
+**The "7km" number was never realized as 7km of error.** In
+`groundFootprintRadiusKm` the radius appears in both numerator and denominator,
+so it largely cancels: measured 0.02%/0.06% for LEO (550km, 25°/0° masks) and
+0.10%/0.20% at GEO, equator vs pole. There IS a real frame mismatch underneath
+(propagate emits geodetic-above-ellipsoid, geometry consumes it as
+above-sphere) and it is now Q24 — but it is a 0.2% latitude-dependent effect,
+not a 7km one. Third queue entry this session whose premise did not survive
+reading the code (Q12, Q18, the Q13 directive), which is itself the pattern:
+**a filed hypothesis is a lead, not a finding.**
 
 **L20 — the fix the directive asked for would have broken the counter, and
 only measuring first revealed it.** Q13 said "strip comments before counting."
@@ -424,6 +454,7 @@ the duty. `detectors_registered` reads this table.
 | D8 | `uncapped_surface` — a module acquiring a canvas/WebGL context that reads `devicePixelRatio` without clamping to the device tier | 2026-08-14 | 3 | live in `program_status.sh`; found Q19 on its first run |
 | D9 | `assertions` — total assert statements across every test file. **NON-DECREASING** — the only counter that must go up | 2026-08-14 | 11228 | live in `program_status.sh`; enforces CLAUDE.md's "never delete or weaken an existing assertion", which nothing counted before |
 | D10 | `baseline_divergence` — this script's PRINTED baseline column disagreeing with the pin CI actually enforces in `ci/counter_baseline.txt` | 2026-08-14 | 5 | live in `program_status.sh`; found `ts_any` 1252-vs-1251 while re-pinning Q13, then 4 more. Down to **2** in the same PR. The last two (`dead_workflow_env`, `uncapped_surface`) are left DELIBERATELY: hand-patching them would zero the counter while the mechanism that lets a second copy drift survives — Q23 removes the copy |
+| D11 | `dup_precise_literal` — a high-precision numeric literal (≥7 significant digits, trailing zeros not counted) restated in 2+ modules; counts the redundant COPIES so it falls when one is deleted | 2026-08-14 | 5 | live in `program_status.sh`; the mechanism BEHIND D5 — `6371008.8` was written longhand in 3 modules before anything collided. Found `40075016.686` also in `cameraRig.ts` and `6378.137` in `propagate.ts`, neither of which D5 can see (not exported names). 5 → **4** |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
