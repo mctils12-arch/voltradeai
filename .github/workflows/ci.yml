@@ -210,6 +210,16 @@ jobs:
           # declaration — it was CI not installing a file that already existed.
           pip install -r requirements-dev.txt
 
+      - name: Counter ratchet (§4.2)
+        # scripts/program_status.sh has measured 22 counters since #822, but
+        # only when a human typed the command — so commented_empty_catch drifted
+        # 112 -> 113 from a concurrent merge and nothing noticed. Measured is not
+        # enforced; this enforces. Pins live in ci/counter_baseline.txt, the rule
+        # in scripts/counter_ratchet.sh (tested by server/counterRatchet.test.ts).
+        # Runs BEFORE the suites: it is seconds, and a counter regression should
+        # not wait three minutes to surface.
+        run: bash scripts/counter_ratchet.sh
+
       - name: Test gate (server + client + python, minus quarantine)
         # One step, three suites, all run even when an earlier one fails — a
         # baseline you can only see a third of is not a baseline, and the same

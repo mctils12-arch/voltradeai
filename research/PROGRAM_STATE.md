@@ -12,21 +12,27 @@ block** (§0.2).
 
 ## NEXT — the single highest-value unclaimed item
 
-**T1.7 — wire the §4.2 counters into CI as ratchets.** Track 1's spine is
-complete: the typecheck gates (#826) and **367 of 368 test files now block a
-merge** (#832, up from 4). But `scripts/program_status.sh` is still only *run
-by hand* — its 22 counters are measured, not enforced.
+**Track 1 is COMPLETE.** Three gates now stand between a bad change and main,
+all built the same way — rule in a mutable tested script, pin in a data file,
+one `run:` line in the FROZEN workflow:
 
-That gap is not theoretical. `commented_catch` went **112 → 113** during this
-session from a concurrent session's merge, and nothing caught it, because
-nothing is watching. Every counter with a stated direction should fail the
-build when it moves the wrong way, the way `tsc_ratchet.sh` already does for
-the typecheck.
+| gate | pins | added |
+|---|---|---|
+| `tsc_ratchet.sh` | `ci/tsc_baseline.txt` (12, TS2304 = 0) | #826 |
+| `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
+| `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-Then: **Q12** (build the power-grid tiles via A1/A4 and empty the quarantine),
-**Q18** (`VOLTRADE_CI` reads by nobody — wire it or delete it and the false
-claim beside it), **Q19** (3 remaining uncapped render surfaces), **Q13**,
-**Q14**.
+**NEXT — Q12: build the power-grid tiles and empty the quarantine.** It is the
+one entry in `ci/quarantine.txt`, its review date is **2026-09-13**, and
+`gated_tests.sh` fails the build the day it passes. It is also A4 PHASE 2
+item 2 — *"US-full power grid, boot-fetch-from-Release — filed above, NOT
+built"* — so resolving it closes a two-month-old deferral rather than just a
+red test. Precedent to copy, not reinvent (D10): `scripts/build_power_tiles.sh`
+already does vector → tippecanoe → PMTiles (TX 709MB → 16.2MB in <1 min).
+
+Then **Q18** (`VOLTRADE_CI` read by nobody — wire it or delete it and the false
+comment beside it), **Q19** (3 uncapped render surfaces), **Q13**, **Q14**, and
+Track 2/3 — the moon, now genuinely unblocked.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -52,9 +58,9 @@ when you take it, `DONE` with the PR number when it merges.
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |
 | Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |
-| Q20 | T1.7 — wire the §4.2 counters into CI as ratchets; they are measured but not enforced (`commented_catch` drifted 112→113 unnoticed this session) | T1.7 | **TODO** ← next |
+| Q20 | T1.7 — wire the §4.2 counters into CI as ratchets | T1.7 | **DONE** — PR #833. 22 counters now fail the build on a wrong-direction move |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
-| Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
+| Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed | T1.2 | **TODO** ← next — quarantined in #832, **review by 2026-09-13**. Resolve by BUILDING the tiles (A4 PHASE 2 item 2), copying `scripts/build_power_tiles.sh`; never by weakening the assertion |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` is set in 2 ci.yml jobs and read by NOTHING repo-wide; ci.yml's "network-dependent tests are excluded" claim has no mechanism behind it. 5 test files import requests/socket unguarded | T1.2 | **TODO** — found by D7; blocks promoting the python suite to required |
@@ -74,7 +80,7 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 tests_run_in_ci          368/368        4/364        must increase
-tests_gating_merge       367/368        4/364        must increase (>216)
+tests_gating_merge       369/370        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
@@ -87,7 +93,7 @@ conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        1              1            must reach 0
 uncapped_surface         3              3            must reach 0
-assertions               11228          11228        NON-DECREASING
+assertions               11268          11268        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
