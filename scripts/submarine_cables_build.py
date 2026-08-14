@@ -47,18 +47,36 @@ baseline):
             ways, LESS than the primary 8,722) rather than against the
             primary tag's own already-large coverage. See
             research/open_questions.md for the full correction.
-  A SEPARATE, LARGER candidate FOUND BUT NOT ACTIVATED this session:
-            way[submarine=yes] ways that do NOT carry seamark:type=
-            cable_submarine and are not power-tagged = 1,297 ways
-            (confirmed live count). This is not negligible, but this
-            session did not get a clean tag sample of that set before
-            Overpass access degraded again — shipping it unverified risks
-            admitting non-telecom submarine features (the `submarine=yes`
-            key is used outside the seamark vocabulary and its uniform
-            telecom-specificity was not established here). Filed as a
-            scoped, quantified follow-up (not a vague "check it out"):
-            confirm ~10 real tag sets from that 1,297-way set, then wire
-            it into build_secondary() below.
+  FOLLOW-UP RESOLVED 2026-08-14 (scheduled-routine PRODUCT session): the
+            1,297-way way[submarine=yes]-minus-primary-minus-power
+            candidate flagged above as "not yet tag-verified" was sampled
+            live (40 tags, out tags 40, overpass-api.de,
+            timestamp_osm_base 2026-08-14T00:06Z) and turned out to be
+            ~85% NON-telecom — dominated by Gassco/SYKE submarine gas
+            pipelines and sewer/water pipelines tagged
+            man_made=pipeline / seamark:type=pipeline_submarine, which
+            also carry submarine=yes. Requiring the telecom-specific
+            `communication` co-tag (the same discriminator already used
+            above) narrows it to **13 ways**, confirmed by an exact
+            Overpass count query on TWO independent mirrors
+            (overpass-api.de fresh + overpass.kumi.systems, both
+            returned 13) and a full `out tags` dump of all 13 (Cable &
+            Wireless Gemini/PTAT segments, Foroya Tele, the Apollo cable
+            system, Telstra Bass Strait 1/2 fibre, one wind-farm comms
+            cable). Of those 13, 2 carry `location=underground` (land
+            segments of an otherwise-submarine cable) and 1 is
+            explicitly `note=Speculative route` — so the genuine
+            additional SUBMARINE telecom segment count is ~10, not 13.
+            **VERDICT: still not worth activating** — 10 ways is 0.13%
+            of the primary set's 7,464, the same conclusion as the
+            already-checked 18-way location=underwater variant, and
+            confirms (rather than merely assumes) that the bare
+            `submarine=yes` key is not telecom-specific enough to use
+            without the `communication` co-tag filter. `build_secondary`
+            stays unactivated; this closes the open follow-up with a
+            live, dual-mirror-verified number instead of leaving the
+            larger, uncomputed 1,297 figure sitting in this file where a
+            future session could mistake it for a safe-to-wire yield.
   EXCLUSION: any matched way carrying a `power` tag is dropped as a power
             cable regardless of which tag matched it.
 
@@ -206,20 +224,25 @@ def build_secondary():
     to justify the extra query and dedupe complexity for v1. NOT a guess:
     the count is verified, the decision not to wire it is a judgment call
     on yield vs. complexity, logged here instead of silently doing nothing.
-    A separate, larger, NOT-YET-TAG-VERIFIED candidate (way[submarine=yes]
-    minus primary minus power = 1,297 ways) is a scoped follow-up in
-    research/open_questions.md — do not activate it here without first
-    confirming a live tag sample is telecom-specific.
+    A second candidate (way[submarine=yes] minus primary minus power =
+    1,297 ways) was flagged as a follow-up and has SINCE been resolved
+    (2026-08-14, see module docstring): it is not telecom-specific
+    (~85% pipelines by live tag sample), and requiring the same
+    `communication` co-tag narrows it to 13 ways (dual-mirror-confirmed),
+    ~10 of them genuinely submarine — same conclusion as the 18-way
+    figure above. Neither candidate clears the bar to activate.
     """
     return [], {
         "count": 0,
         "activated": False,
-        "reason": ("Verified live this session: location=underwater+communication minus the "
-                   "primary tag and power-tagged ways = 18 ways globally (0.24% of primary) — "
-                   "confirmed by an exact Overpass count, not estimated, but too small to justify "
-                   "wiring in for v1. A larger unverified candidate (submarine=yes minus primary, "
-                   "1,297 ways) is filed as a follow-up in research/open_questions.md, not shipped "
-                   "without a live tag-quality check."),
+        "reason": ("Verified live: location=underwater+communication minus the primary tag and "
+                   "power-tagged ways = 18 ways globally (0.24% of primary); a second candidate, "
+                   "submarine=yes+communication minus primary and power, live-confirmed on two "
+                   "independent Overpass mirrors at 13 ways (~10 genuinely submarine after "
+                   "excluding underground/speculative segments) — 85% of the raw 1,297-way "
+                   "submarine=yes set turned out to be non-telecom pipelines once tag-sampled. "
+                   "Both are too small to justify wiring in for v1; see module docstring for the "
+                   "full 2026-08-14 verification."),
     }
 
 

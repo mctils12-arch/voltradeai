@@ -12,16 +12,20 @@ block** (§0.2).
 
 ## NEXT — the single highest-value unclaimed item
 
-**Q5 / T1.6 — replace `npx tsc --noEmit || true` in `ci.yml` with a hard
-ratchet.** Now unblocked and now honest: the baseline is **12**, every one of
-them a genuine type issue (list in `research/tsc_baseline.md` §4), with zero
-phantoms left to tempt a suppression "fix". `.github/workflows/` is FROZEN —
-the MASTER PROGRAM is the specific authorization and must be cited in the PR
-body, the way `celestial-catalog-mirror.yml` cites its own approval.
-Pin at 12, non-increasing; do NOT pin at 0 (that would force the 12 real fixes
-into this PR, and three of them are in FROZEN `billing.ts`).
+**Q10 / T1.1 — get the three test suites into CI.** The single highest-value
+item now. The typecheck is gated (Q5, PR #826 — CI confirmed `tsc reported 12
+error(s); TS2304: 0`), but **`gated_tests` is still 4/368**, so every ratchet
+test written this session — `tsc2304Ratchet`, `execAsyncTyping`,
+`tsconfigTarget`, `tscRatchet` — runs only when a human types the command.
 
-Do **not** start Track 2 or 3 before Q1–Q5 land — §12 names that as a failure
+Ship as `continue-on-error: true` FIRST to establish a per-file baseline, then
+`ci/required.txt` + `ci/quarantine.txt`. Never all-on blocking at once — §12
+names that failure by name. **Q12 and Q15 are its two KNOWN quarantine entries
+and must be handled in the same PR**, or the suite reds on day one.
+`.github/workflows/` is FROZEN; MASTER PROGRAM §9 names Track 1 as the
+authorization, cited the way `celestial-catalog-mirror.yml` cites its own.
+
+Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
 
 ---
@@ -144,6 +148,24 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L12 — my own resume file shipped self-contradictory, and the cause was a
+silently-failing edit.** PR #826 left QUEUE saying "Q5 **DONE** — PR #826" and
+NEXT saying "do Q5", in the one file whose entire job is telling the next
+session what to do. Cause: I update these files with `python3 -c` string and
+regex replacements, and **`str.replace()` / `re.sub()` return the input
+unchanged when nothing matches** — no error, no output, exit 0. My pattern
+ended `touching a frozen path).` while the text ended ``in FROZEN `billing.ts`).``
+so it matched nothing and wrote the file back identical. I *did* verify that
+commit, but grepped for the queue rows and the new detector, not for the NEXT
+section — so the check passed while the edit had not happened.
+
+**Standing rule: every scripted edit to a research/ or config file must assert
+its precondition (`assert old in s`) and re-read the specific region it
+changed.** Verifying "something changed" is not verifying "this changed". This
+is the same class as L9 and L11 — a check that looks like it covers the thing
+but doesn't — and it is the third instance today, which makes it a pattern in
+how I work rather than three coincidences.
 
 **L11 — prose moved one of my own checks for the SECOND time today.** L9 was
 comments containing `` `catch {}` `` inflating `empty_ts_catch`. This time the
