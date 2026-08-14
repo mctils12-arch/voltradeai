@@ -12,21 +12,21 @@ block** (§0.2).
 
 ## NEXT — the single highest-value unclaimed item
 
-**T1.2 — promote the green set to REQUIRED and quarantine the rest.** Q15 is
-now FIXED (#830), so the last blocker is Q12 alone. `tests_run_in_ci` is
-368/368 but `tests_gating_merge` is still **4/368**.
+**T1.7 — wire the §4.2 counters into CI as ratchets.** Track 1's spine is
+complete: the typecheck gates (#826) and **367 of 368 test files now block a
+merge** (#832, up from 4). But `scripts/program_status.sh` is still only *run
+by hand* — its 22 counters are measured, not enforced.
 
-Build `ci/required.txt` + `ci/quarantine.txt` (reason + date per entry) and make
-the required set blocking:
-- **Q12** — `gridTiles.test.ts` asserts ≥50 pmtiles and 3 exist, none ever
-  committed. The one standing failure. Quarantine with a reason, or resolve via
-  A1/A4. This is the only thing that would red the gate on day one.
-- **Q18** — decide what `VOLTRADE_CI` is for before promoting the python suite.
-  It is set in two ci.yml jobs and **read by nothing repo-wide** (D7 found it),
-  so `ci.yml`'s claim that "network-dependent tests are excluded in CI" rests on
-  the hand-picked four-file list, not on a mechanism. Either wire it up (tests
-  that reach the network skip when it is set) or delete it and the claim. Five
-  test files import `requests`/`socket` directly with no guard at all.
+That gap is not theoretical. `commented_catch` went **112 → 113** during this
+session from a concurrent session's merge, and nothing caught it, because
+nothing is watching. Every counter with a stated direction should fail the
+build when it moves the wrong way, the way `tsc_ratchet.sh` already does for
+the typecheck.
+
+Then: **Q12** (build the power-grid tiles via A1/A4 and empty the quarantine),
+**Q18** (`VOLTRADE_CI` reads by nobody — wire it or delete it and the false
+claim beside it), **Q19** (3 remaining uncapped render surfaces), **Q13**,
+**Q14**.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -51,7 +51,8 @@ when you take it, `DONE` with the PR number when it merges.
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |
-| Q17 | T1.2 — `ci/required.txt` + `ci/quarantine.txt`, make the green set blocking | T1.2 | **TODO** ← next — blocked on Q15 (fix) and Q12 (quarantine or resolve) |
+| Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |
+| Q20 | T1.7 — wire the §4.2 counters into CI as ratchets; they are measured but not enforced (`commented_catch` drifted 112→113 unnoticed this session) | T1.7 | **TODO** ← next |
 | Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
 | Q12 | `server/gridTiles.test.ts` asserts ≥50 pmtiles; 3 exist and none were ever committed — decide: build the tiles (A1/A4), or quarantine with a reason | T1.2 | **TODO** — found by running the suite, see L8 |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 — pick one per meaning, or rename so the difference is explicit | T2/orbital | **TODO** — found by D5; ~7km in sat altitude, ~45km in a mercator constant. Accuracy defects in code whose premise is real positions |
@@ -73,7 +74,7 @@ when you take it, `DONE` with the PR number when it merges.
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
 tests_run_in_ci          368/368        4/364        must increase
-tests_gating_merge       4/368          4/364        must increase (>216)
+tests_gating_merge       367/368        4/364        must increase (>216)
 tsc_errors               12             83           must decrease
   of which TS2304        0              5            AT TARGET — hold at 0
 silent_py_handlers       255/873        255/873      non-increasing
@@ -86,14 +87,15 @@ conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        1              1            must reach 0
 uncapped_surface         3              3            must reach 0
+assertions               11228          11228        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                8              0            MUST increase each session
-quarantine_size          0              0            non-increasing
+detectors                9              0            MUST increase each session
+quarantine_size          1              1            non-increasing (gridTiles/Q12)
 quarantine_oldest        0d             0d           fail if >30
 ```
 
@@ -320,6 +322,7 @@ the duty. `detectors_registered` reads this table.
 | D6 | `undeclared_py_import` — a third-party module imported by tracked Python but named in neither requirements file | 2026-08-14 | 2 | live in `program_status.sh` (`laspy`, `ultralytics` — GRID VISION GPU tooling) |
 | D7 | `dead_workflow_env` — an env var SET in a workflow and read by NOTHING in tracked code | 2026-08-14 | 1 | live in `program_status.sh`; found Q18 (`VOLTRADE_CI`) on its first run |
 | D8 | `uncapped_surface` — a module acquiring a canvas/WebGL context that reads `devicePixelRatio` without clamping to the device tier | 2026-08-14 | 3 | live in `program_status.sh`; found Q19 on its first run |
+| D9 | `assertions` — total assert statements across every test file. **NON-DECREASING** — the only counter that must go up | 2026-08-14 | 11228 | live in `program_status.sh`; enforces CLAUDE.md's "never delete or weaken an existing assertion", which nothing counted before |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 

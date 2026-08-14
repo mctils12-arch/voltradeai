@@ -89,6 +89,17 @@ cli_t = [f for f in tracked if re.match(r'client/.*\.test\.tsx?$', f)]
 def files_for(cmd):
     """Which test files a `run:` block actually executes."""
     hit = set()
+    # scripts/gated_tests.sh (T1.2) runs EVERY test file except the entries in
+    # ci/quarantine.txt. Without this branch the counter reports 0 for the very
+    # job that gates the build — the same failure mode as the old `gated_tests`,
+    # which counted files NAMED in ci.yml and broke the moment a job ran globs.
+    if 'gated_tests.sh' in cmd:
+        try:
+            q = {l.split()[0] for l in open('ci/quarantine.txt')
+                 if l.strip() and not l.lstrip().startswith('#')}
+        except OSError:
+            q = set()
+        hit |= (set(py_t) | set(srv_t) | set(cli_t)) - q
     # `pip install pytest` is not a test run — match an invocation only.
     if re.search(r'python\s+-m\s+pytest|(^|[;&|]\s*)pytest\b', cmd):
         named = re.findall(r'[\w/]+\.py', cmd)
@@ -589,6 +600,50 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9i. D9 — assertions: total assert statements across every test file.
+#
+# CLAUDE.md's MUTABLE section is explicit — "Never delete or weaken an existing
+# assertion to make your change pass" — and until now NOTHING counted it. A
+# file-count check misses the real move: keeping the file and quietly removing
+# the assertion inside it that was in the way.
+#
+# T1.2 makes this urgent rather than theoretical. Now that a red test blocks a
+# merge, deleting the assertion is the cheapest way to get green, and the
+# quarantine route is already closed (gate 2 rejects a grown list). This closes
+# the other door.
+#
+# NON-DECREASING, unlike most counters here — the only one that must go UP.
+# A legitimate refactor that consolidates assertions will trip it; that is
+# intended, and the answer is to say so in the PR, not to quietly re-pin.
+# Comments stripped first (L15).
+# ---------------------------------------------------------------------------
+assertions=$(python3 - <<'PYEOF'
+import re, subprocess
+ts = subprocess.run(['git', 'ls-files', '*.test.ts', '*.test.tsx'],
+                    capture_output=True, text=True).stdout.split()
+py = [f for f in subprocess.run(['git', 'ls-files', '*.py'],
+                                capture_output=True, text=True).stdout.split()
+      if re.search(r'(^|/)test_|_test\.py$', f)]
+total = 0
+for f in ts:
+    try:
+        raw = open(f).read()
+    except OSError:
+        continue
+    code = "\n".join(l for l in raw.split("\n") if not re.match(r'\s*(//|\*|/\*)', l))
+    total += len(re.findall(r'\bassert\s*(?:\.\w+)?\s*\(', code))
+for f in py:
+    try:
+        raw = open(f).read()
+    except OSError:
+        continue
+    code = "\n".join(l for l in raw.split("\n") if not re.match(r'\s*#', l))
+    total += len(re.findall(r'\bself\.assert\w+\s*\(|^\s*assert\s', code, re.M))
+print(total)
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -661,6 +716,7 @@ if [ "$JSON" = 1 ]; then
   "undeclared_py_import": $undeclared_py_import,
   "dead_workflow_env": $dead_workflow_env,
   "uncapped_surface": $uncapped_surface,
+  "assertions": $assertions,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -687,14 +743,15 @@ printf '%-24s %-14s %-12s %s\n' order_post_sites   "$order_post_sites"    "6"   
 printf '%-24s %-14s %-12s %s\n' design_token_drift "$design_token_drift"  "0"      "must stay 0"
 printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
-printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112"   "non-increasing"
+printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "113"   "non-increasing"
 printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "3"      "must reach 0"
+printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "11228"  "NON-DECREASING"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
-printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"
+printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "1"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"
 
 if [ "$tsc_errors" = "skipped" ]; then

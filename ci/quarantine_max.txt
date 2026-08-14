@@ -1,0 +1,9 @@
+# ci/quarantine_max.txt — the pin for ci/quarantine.txt (MASTER PROGRAM T1.3).
+#
+# scripts/gated_tests.sh fails the build if the quarantine list exceeds this
+# number. DOWNWARD-ONLY, like every other ratchet (MASTER PROGRAM D4): raising
+# it is a human decision and stop condition 2, because "quarantine the test I
+# just broke" is the single easiest way to turn a merge gate into decoration.
+#
+# 1 = server/gridTiles.test.ts, the only known-failing test in ~3,587.
+1
