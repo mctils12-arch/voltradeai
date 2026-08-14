@@ -3,6 +3,134 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-14 (scheduled-routine session, market hours) [RULE-REVIEW] — Q23: `program_status.sh`'s printed baseline column now reads `ci/counter_baseline.txt` directly — `baseline_divergence` driven to 0 by construction, not discipline (v1.0.720)
+
+TERRITORY: SHARED (`scripts/program_status.sh`, `ci/counter_baseline.txt`,
+`package.json`, `research/PROGRAM_STATE.md`, `research/experiments.md`) —
+this whole change lives inside the SHARED-file set per WORKSTREAM PARTITION,
+kept as small and as the last commit as the MERGE-ORDER PROTOCOL requires.
+Tagged **[RULE-REVIEW]**, not [REPAIR]/[PIPELINE]: this is a change to
+measurement/scoring machinery itself (`program_status.sh` is the ruler the
+whole MASTER PROGRAM reads), which MEASUREMENT INTEGRITY requires be its own
+PR, never bundled with a strategy or pipeline change — this session has none
+of those bundled in.
+
+CONTEXT: per SESSION BUDGET, checked `/api/health` first — `status: ok`,
+`bot.status: active`, `liveness.dark: false`, `drawdownPct: 0.0`, no dead
+feeds, `alpaca.account_status: ACTIVE` — no Priority-1 LIVENESS ALARM, no
+COMPLIANCE-WARNING. Loop-health ratio: last 10 experiments.md tags were
+PIPELINE, REPAIR, RULE-REVIEW, RESEARCH, PRODUCT, RESEARCH, REPAIR, REPAIR,
+PRODUCT, REPAIR — 4/10 REPAIR, well below the 7+ thrash-escalation
+threshold; no meta-problem. `research/PROGRAM_STATE.md`'s own NEXT pointer
+named Q23 as the single highest-value unclaimed queue item (filed by D10 in
+#838), so this session took it rather than falling through.
+
+READ BEFORE WRITE: read all 916 lines of `scripts/program_status.sh` (not
+just the printf table) before touching it, plus `scripts/counter_ratchet.sh`
+end to end, to confirm the CI-enforced gate reads the `--json` output block
+(unchanged by this PR) and never the human-readable table — so this change
+could only affect what a human/session *reads*, never what CI *enforces*.
+Confirmed the table's baseline column was hand-copied from
+`ci/counter_baseline.txt` at the time each counter was added, with no
+mechanism keeping the two in sync — D10 (`baseline_divergence`) existed only
+to measure the resulting drift after the fact, and PROGRAM_STATE.md's own
+NUMBERS block was already 3 counters stale in the table at session start
+(`dead_workflow_env` and `uncapped_surface` still showing their pre-fix
+values of 1/3 after Q18/Q19 had moved the real pins to 0).
+
+FIX: added a `declare -A PIN` loader (17 lines, right before the printf
+table) that reads `ci/counter_baseline.txt` — the same file
+`counter_ratchet.sh` gates on — into an associative array once, plus a
+5-line loader for `ci/tsc_baseline.txt`'s `TOTAL`/`TS2304` lines (the two
+counters deliberately absent from the counter-baseline file per its own
+header, gated separately by `tsc_ratchet.sh`). Every one of the 26 BASELINE
+column cells in the printed table now interpolates `${PIN[name]:-n/a}`
+instead of a hand-typed literal. Also renamed 8 display-column labels that
+had drifted from their pin names so the printed name and the enforced pin
+name are the same string in both places: `commented_catch`→
+`commented_empty_catch`, `undeclared_py_imp`→`undeclared_py_import`,
+`harness_rules`→`harness_rules_checked`, `baseline_diverge`→
+`baseline_divergence`, `dup_precise_lit`→`dup_precise_literal`, `detectors`→
+`detectors_registered`, `law_iv_scanned`→`law_iv_scanned_files`,
+`"  layers with lod"`→`layers_with_lod`.
+
+WHY THIS CLOSES D10 STRUCTURALLY, NOT JUST FOR NOW: D10's own detector
+(`scripts/program_status.sh`'s `baseline_divergence` computation, ~line 724)
+works by regexing this script's OWN source for `printf` lines whose baseline
+argument is a literal quoted digit string, then comparing that literal
+against the pin file. After this change, the baseline argument is a variable
+expansion (`"${PIN[...]}"`), which the regex's `"(-?\d+)"` capture group
+cannot match — so `disp` (displayed literals) comes back structurally empty
+for every renamed counter, and the divergence sum is 0 by construction. A
+future session reintroducing a hand-typed literal baseline (regressing this
+fix) would be caught by the SAME mechanism, unchanged — it becomes a
+regression detector for its own fix, which is why the D10 computation code
+itself was left untouched rather than simplified to a hardcoded `0`.
+
+VERIFICATION (all run live in this sandbox — no `node_modules`, so
+`--no-tsc`):
+- `bash -n scripts/program_status.sh` — syntax OK.
+- `bash scripts/program_status.sh --no-tsc` (table mode) — every BASELINE
+  cell now shows the live pin value; `baseline_divergence` row: VALUE 0,
+  BASELINE 0 (was VALUE 2 before this change, confirmed by re-reading the
+  pre-edit script output earlier in the session).
+- `bash scripts/program_status.sh --json --no-tsc` — byte-for-byte same key
+  set as before (JSON block untouched); `baseline_divergence: 0`.
+- `bash scripts/counter_ratchet.sh` — **OK: 24 counters at or better than
+  baseline.** Reports 3 pre-existing, UNRELATED improvements
+  (`tests_run_in_ci`/`tests_gating_merge` 373→374, `assertions`
+  11313→11333) from merges since the pins were last set — deliberately
+  **not** re-pinned in this PR (see PROMOTION RULE 5 below).
+- Grepped every test file referencing `program_status.sh` output
+  (`server/counterRatchet.test.ts`, `test_ts_code_only.py`) — both read only
+  `ci/counter_baseline.txt` or the `--json` key set, never the human-readable
+  table's abbreviated labels, so the 8 renames touch no test assertion.
+
+PIN UPDATE (`ci/counter_baseline.txt`): `baseline_divergence 2 → 0` — the
+direct, sole effect of this PR's diff, confirmed on identical inputs modulo
+this change per MEASUREMENT INTEGRITY. Did **not** lower
+`tests_run_in_ci`/`tests_gating_merge`/`assertions` even though
+`counter_ratchet.sh` flagged them as improved: those three moved from
+commits unrelated to this diff (drift accumulated since the pins were set),
+and PROMOTION RULE 5 ("one logical change per commit/PR... attribution dies
+when changes are bundled") argues against folding an unrelated pin update
+into a measurement-machinery PR. Left for whichever session's change
+actually produced them.
+
+GATES: no backtest (PROMOTION RULE 3 N/A — measurement tooling, not a
+strategy/parameter change). No `client/` file touched — PROMOTION RULE 6
+N/A. DETECTOR: none new this session — Q23 was closing an already-filed,
+already-detected item (D10's own finding), the same exemption Q22 used
+last session for the same reason; 11 detectors stands.
+
+Version 1.0.719 → 1.0.720 (read-and-increment at commit time per
+MERGE-ORDER PROTOCOL).
+
+`research/PROGRAM_STATE.md` updated: Q23 marked DONE with the mechanism and
+verification numbers; NEXT now points at Q24 (the ellipsoid/sphere frame
+mismatch measured in #839); NUMBERS block re-run and refreshed.
+
+MERGE NOTE (market hours): this session ran during market hours per the
+scheduled-routine's own instruction. This change touches no trading logic,
+no order path, and no FROZEN file — it is a CI-tooling/measurement-hygiene
+change with zero runtime blast radius on the live paper account. Even so,
+per the instruction, the PR should not be merged until after 4:00 PM ET
+unless it fixes a critical live break (it does not — `/api/health` was
+clean at session start).
+
+Loop-health check at session start: last 10 experiments.md tags were
+PIPELINE, REPAIR, RULE-REVIEW, RESEARCH, PRODUCT, RESEARCH, REPAIR, REPAIR,
+PRODUCT, REPAIR — 4/10 REPAIR, below the 7+ thrash-escalation threshold. No
+meta-problem to address this session.
+
+NEXT: Q24, then Q7–Q9, Q11, Track 2/3.
+
+STARVED: yes — Q24, Q7–Q9, Q11 remain queued and unclaimed; this session
+took the single highest-value item per SESSION BUDGET rather than falling
+through, since Q23 (read full script + full counter_ratchet.sh + the fix +
+live verification of both modes + the ratchet gate + the pin update) filled
+the session.
+
 ## 2026-08-14 (scheduled-routine session) [PIPELINE] — Q22: the gated Python suite is now hermetic — a diagnostic probe found the real call sites, and "at import time" was the wrong mechanism (v1.0.718)
 
 TERRITORY: root test infra only (`conftest.py`). No production file touched
