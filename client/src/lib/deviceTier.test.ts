@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  surfacePixelRatio,
   classifyDevice, govInit, govStep, median,
   setOverloaded, isOverloaded, overloadFromState,
   GOV_OVERLOAD_MS, GOV_OVERLOAD_HOLD_MS, GOV_CALM_MS, GOV_CALM_HOLD_MS, GOV_COOLDOWN_MS, GOV_STRETCH_GRACE_MS,
@@ -187,4 +188,86 @@ test('isFragileGpu: Intel integrated yes, Arc no, dead-GPU probe yes (fail-safe)
   assert.equal(isFragileGpu('unavailable'), false, 'unknown stays non-fragile');
   assert.equal(isFragileGpu('NVIDIA | NVIDIA GeForce RTX 4070'), false);
   assert.equal(isFragileGpu('Apple | Apple M2'), false, 'Apple integrated is not the fragile class');
+});
+
+
+// ── F-C: the celestial surfaces were never capped (2026-08-14) ─────────────
+// datamap.tsx has always clamped its map canvas to tier.pixelRatioCap. The two
+// celestial surfaces — celestialSky.ts (a SECOND WebGL2 context) and
+// spaceFrame.ts (2D canvases) — sized their backing stores from raw
+// devicePixelRatio and did not import this module at all. On a 3x phone that is
+// 9x the backing-store pixels of a 1x surface, for every raster op they do.
+//
+// SCOPE, stated so nobody re-derives an overclaim: this bounds MEMORY and FILL
+// RATE. It does NOT speed up the Moon's CPU raycast — patchBufDims() sizes that
+// buffer in CSS px against MOON_PATCH_*_LONG_PX, so it never depended on DPR.
+
+function withGlobals<T>(dpr: number, tier: unknown, fn: () => T): T {
+  const g = globalThis as Record<string, unknown>;
+  const prevDpr = g.devicePixelRatio;
+  const prevTier = g.__vtDeviceTier;
+  g.devicePixelRatio = dpr;
+  if (tier === undefined) delete g.__vtDeviceTier; else g.__vtDeviceTier = tier;
+  try { return fn(); } finally {
+    g.devicePixelRatio = prevDpr;
+    if (prevTier === undefined) delete g.__vtDeviceTier; else g.__vtDeviceTier = prevTier;
+  }
+}
+
+test("surfacePixelRatio: honours the shared __vtDeviceTier cap when datamap has published one", () => {
+  // One machine, one classification: all three surfaces must agree rather than
+  // each computing its own reading from different inputs.
+  assert.equal(withGlobals(3, { tier: "minimal", pixelRatioCap: 1 }, () => surfacePixelRatio()), 1);
+  assert.equal(withGlobals(3, { tier: "reduced", pixelRatioCap: 1.5 }, () => surfacePixelRatio()), 1.5);
+  assert.equal(withGlobals(3, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 2);
+});
+
+test("surfacePixelRatio: falls back to classifying the caller's own renderer", () => {
+  // celestialSky passes its own GL renderer string, so a software rasterizer is
+  // caught even if datamap.tsx never ran (celestial-only routes, direct entry).
+  assert.equal(
+    withGlobals(3, undefined, () => surfacePixelRatio("Google SwiftShader")), 1,
+    "software renderer -> minimal tier, cap 1",
+  );
+  assert.equal(
+    withGlobals(3, undefined, () => surfacePixelRatio("NVIDIA GeForce RTX 4070")), 2,
+    "full tier still caps at 2 (the 3rd x is invisible and quadratic)",
+  );
+});
+
+test("surfacePixelRatio: never exceeds the device, never drops below 1", () => {
+  // A 1x device must not be UPscaled by a cap of 2 — the cap is a ceiling only.
+  assert.equal(withGlobals(1, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 1);
+  // Absent/garbage DPR must not produce 0 (a 0-px backing store is a blank canvas).
+  assert.equal(withGlobals(0, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 1);
+  assert.equal(withGlobals(undefined as unknown as number, undefined, () => surfacePixelRatio()), 1);
+});
+
+
+test("both celestial surfaces size their backing store through the cap, not raw DPR", async () => {
+  // The unit tests above prove the helper is correct; this proves it is WIRED.
+  // Without it the helper could be perfect and both files still uncapped.
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+
+  for (const rel of ["celestial/celestialSky.ts", "celestial/spaceFrame.ts"]) {
+    const raw = fs.readFileSync(path.join(here, rel), "utf8");
+    // STRIP COMMENTS FIRST (PROGRAM_STATE.md L15): the comments explaining this
+    // very fix quote `devicePixelRatio`, and a source scan cannot tell code
+    // from prose about code. Four checks were broken this way before the rule.
+    const code = raw.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+
+    assert.ok(
+      /surfacePixelRatio\s*\(/.test(code),
+      `${rel} must size its backing store via surfacePixelRatio()`,
+    );
+    const resize = code.slice(code.indexOf("function resizeBacking"));
+    assert.ok(
+      !/devicePixelRatio/.test(resize.slice(0, 600)),
+      `${rel}'s resizeBacking() must not read devicePixelRatio directly — ` +
+      `that is the uncapped path this fix removed`,
+    );
+  }
 });

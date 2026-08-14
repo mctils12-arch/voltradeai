@@ -43,6 +43,7 @@
 // `.default` gives the real API object under BOTH toolchains — the one import
 // form that survives the test runner and the browser build alike.
 import * as AstronomyNS from "astronomy-engine";
+import { surfacePixelRatio } from "../deviceTier";
 const Astronomy: typeof AstronomyNS =
   (AstronomyNS as unknown as { default?: typeof AstronomyNS }).default ?? AstronomyNS;
 
@@ -785,7 +786,18 @@ export function mountCelestialSky(
   }
 
   function resizeBacking(): void {
-    const dpr = (globalThis.devicePixelRatio as number | undefined) || 1;
+    // F-C (2026-08-14): was raw devicePixelRatio, so a 3x phone allocated 9x
+    // the backing-store pixels of a 1x surface for this SECOND WebGL2 context
+    // — while datamap.tsx had always clamped its own canvas to the same
+    // machine's tier cap. Now all three surfaces agree on one reading.
+    // Renderer string from this context when available, so a software
+    // rasterizer here is classified as such even if datamap.tsx never ran.
+    let rendererStr = "";
+    try {
+      const dbg = gl?.getExtension("WEBGL_debug_renderer_info") as { UNMASKED_RENDERER_WEBGL: number } | null;
+      if (gl) rendererStr = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? "");
+    } catch { /* parameter unavailable — fall through to the shared reading */ }
+    const dpr = surfacePixelRatio(rendererStr);
     const w = canvas.clientWidth || container.clientWidth || 800;
     const h = canvas.clientHeight || container.clientHeight || 600;
     const bw = Math.max(1, Math.round(w * dpr));

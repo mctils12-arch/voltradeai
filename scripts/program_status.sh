@@ -551,6 +551,44 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9h. D8 — uncapped_surface: a module that acquires a canvas/WebGL context and
+# reads devicePixelRatio WITHOUT clamping to the device tier.
+#
+# Generalises F-C past the two files it named. datamap.tsx always clamped to
+# tier.pixelRatioCap; celestialSky.ts and spaceFrame.ts did not, and nothing
+# would have caught the next surface that forgot. Backing-store cost is
+# QUADRATIC in the ratio — a 3x phone at an uncapped 3x allocates 9x the pixels
+# of a 1x surface, for every raster op the module performs.
+#
+# Baseline 3 after the celestial fix: DataWorldMap.tsx, bot.tsx, login.tsx
+# (filed as Q19 — each needs its own look; a small login canvas is not the same
+# call as a full-screen map). Must reach 0.
+#
+# Comments are stripped before matching (L15) — the comments explaining this
+# very fix quote `devicePixelRatio`, and a source scan cannot tell code from
+# prose about code.
+# ---------------------------------------------------------------------------
+uncapped_surface=$(python3 - <<'PYEOF'
+import re, subprocess
+files = [f for f in subprocess.run(['git', 'ls-files', 'client/src/**/*.ts', 'client/src/**/*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '.test.' not in f]
+n = 0
+for f in files:
+    try:
+        raw = open(f).read()
+    except OSError:
+        continue
+    code = "\n".join(l for l in raw.split("\n") if not re.match(r'\s*(//|\*|/\*)', l))
+    if not re.search(r'getContext\(\s*["\'](webgl2?|2d)', code):
+        continue
+    if re.search(r'devicePixelRatio', code) and not re.search(r'surfacePixelRatio|pixelRatioCap', code):
+        n += 1
+print(n)
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -622,6 +660,7 @@ if [ "$JSON" = 1 ]; then
   "conflicting_const": $conflicting_const,
   "undeclared_py_import": $undeclared_py_import,
   "dead_workflow_env": $dead_workflow_env,
+  "uncapped_surface": $uncapped_surface,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -652,6 +691,7 @@ printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112
 printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
 printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' dead_workflow_env  "$dead_workflow_env"   "1"      "must reach 0"
+printf '%-24s %-14s %-12s %s\n' uncapped_surface   "$uncapped_surface"    "3"      "must reach 0"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"

@@ -50741,3 +50741,106 @@ Q15 is now cleared; the remaining blockers are Q12 (quarantine or resolve) and
 Q18 (decide what VOLTRADE_CI is for before gating the python suite).
 
 STARVED: yes — Q6–Q9, Q11–Q14, Q17, Q18 queued and unclaimed.
+
+## 2026-08-14 — [REPAIR] T2.4: the celestial surfaces were never DPR-capped — and the audit's "9× faster moon" is false (v1.0.710)
+
+Territory: T-CLIENT (`client/src/lib/deviceTier.ts`, the two celestial
+surfaces). MASTER PROGRAM Q6 / T2.4, Day One item 4.
+
+THE CHANGE: `datamap.tsx` has always clamped its map canvas to
+`tier.pixelRatioCap`. The two celestial surfaces — `celestialSky.ts` (a SECOND
+WebGL2 context) and `spaceFrame.ts` (2D canvases) — sized their backing stores
+from raw `devicePixelRatio` and did not import `deviceTier` at all (F-C,
+confirmed: `grep deviceTier client/src/lib/celestial/*.ts` returns nothing).
+On a 3× phone that is 9× the backing-store pixels of a 1× surface, for every
+raster op those files perform. Both now size through a new shared
+`surfacePixelRatio()` that reuses the reading `datamap.tsx` already publishes on
+`__vtDeviceTier`, so all three surfaces agree on ONE classification instead of
+computing three; `celestialSky` additionally passes its own GL renderer string
+so a software rasterizer is caught even on a celestial-only route where
+`datamap.tsx` never ran.
+
+**THE AUDIT'S CENTRAL CLAIM FOR THIS ITEM IS FALSE, AND I CHECKED BEFORE
+SHIPPING IT.** The Day One table ranks T2.4 as "the most visible change
+available today — **up to 9× faster moon on a 3× device**", from F-D
+multiplying F-C: "the raycast runs over the uncapped backing store, so a 3×
+device does 9× the raycasts." Traced end to end this session:
+
+- `spaceFrame.ts:2891` sets `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)` — every
+  drawing coordinate in that file is therefore in CSS pixels.
+- `drawBodyPatch(..., w, h, ...)` (call site 3227) receives `w, h` from
+  `const { w, h } = cssSize()` at 2994 — `canvas.clientWidth`, CSS pixels.
+- the moon bbox `bw, bh` derives from those, and `patchBufDims(bw, bh, longPx)`
+  clamps the raycast buffer's long side to `MOON_PATCH_FULL_LONG_PX = 1100`
+  (settled) / `MOON_PATCH_MOVING_LONG_PX = 480` (moving) /
+  `MOON_PATCH_FAST_LONG_PX = 116` (bootstrap).
+
+So the raycast buffer is bounded by those CONSTANTS, measured in CSS pixels,
+and is **independent of `devicePixelRatio`**. Capping DPR changes the moon
+raycast by exactly nothing. Had I shipped on the audit's wording I would have
+published a false performance claim in a PR body.
+
+What the change genuinely buys, stated narrowly: backing-store MEMORY and the
+FILL RATE of every raster op in those two files, both quadratic in the ratio
+(3× → 2× is 2.25× fewer pixels; 3× → 1× on a software renderer is 9× fewer).
+Real, worth doing, not a moon speedup.
+
+THE MOON'S ACTUAL COST, for whoever takes Track 3: `renderMoonSurfaceRows` is a
+per-pixel CPU ray-sphere intersection over up to 1100×1100 ≈ **1.2M rays per
+settled patch, on the main thread** — which is precisely why it paints in row
+bands across frames rather than finishing one. Nothing short of D1's GPU
+sampling will move it. Filed as L16 so no future session re-derives the 9×.
+
+RATCHET: 4 new tests in `client/src/lib/deviceTier.test.ts` — three pinning
+`surfacePixelRatio` (honours the shared cap; falls back to classifying the
+caller's own renderer; never exceeds the device and never drops below 1, so a
+1× device is not UPscaled and a garbage DPR cannot produce a 0-px canvas), plus
+one WIRING test asserting both celestial files actually route through it and
+that neither `resizeBacking()` still reads `devicePixelRatio` directly — because
+the helper could be perfect and both files still uncapped. A/B-verified via
+`git stash`: with the celestial files reverted the wiring test fails, 20/21.
+
+That wiring test strips comment lines BEFORE matching (L15), since the comments
+explaining this very fix quote `devicePixelRatio`. Applied up front this time
+rather than after a false reading — the rule earned in the previous four
+instances doing its job.
+
+DETECTOR ADDED (§0.7): **D8 — `uncapped_surface`**, a module acquiring a
+canvas/WebGL context that reads `devicePixelRatio` without clamping to the
+device tier. Generalises F-C past the two files it named — nothing would have
+caught the NEXT surface that forgot. Found **3 more on its first run**:
+`DataWorldMap.tsx`, `bot.tsx`, `login.tsx`. Filed as Q19, not fixed here (one
+logical change per PR, and each needs its own look — a small login canvas is
+not the same call as a full-screen map). Baseline 3, must reach 0.
+
+SELF-CAUGHT MISTAKE: my scripted import insertion landed INSIDE
+`spaceFrame.ts`'s multi-line `import {` block, breaking the file. `tsc` then
+reported 6 errors instead of 12 — because it bailed on the syntax error rather
+than because anything improved. A drop in an error count is not automatically
+good news; I checked what the 6 were, found they were all my own syntax
+breakage, and repaired the import to sit after a complete statement. Same
+family as L12 (scripted edits need verification, not just execution).
+
+NUMBERS: `tsc_errors` 12, TS2304 0 (unchanged — verified after repairing the
+import). `uncapped_surface` 3 (new). `detectors_registered` 7 → 8. All other
+ratchets held. Counters run before writing the PR body (L9).
+
+GATES: `npx tsc --noEmit` 12 / TS2304 0. `npm run build` clean.
+`npx tsx --test client/src/lib/deviceTier.test.ts` 21/21. `npm run visual` at
+390/768/1440 per PROMOTION RULE 6 — recorded in the PR. No Python touched. No
+backtest (PROMOTION RULE 3 N/A — client rendering only, no scoring, sizing,
+threshold, or measurement code).
+
+DESIGN.md clause honoured: the PREMIUM EXPERIENCE STANDARD's "perceived
+performance is a feature — zero jank" and its device-honesty posture. The
+change lowers cost on weak devices without dropping any data or layer, which is
+deviceTier.ts's stated HONESTY CONTRACT ("adaptation NEVER drops data — the
+only lever is canvas pixel density").
+
+Version 1.0.709 → 1.0.710 (read-and-increment at commit time).
+
+NEXT: T1.2 (Q17) — `ci/required.txt` + `ci/quarantine.txt`, green set blocking.
+Blockers are Q12 and Q18. Track 3 (the real moon fix) stays gated behind
+Track 1 per §12.
+
+STARVED: yes — Q7–Q9, Q11–Q14, Q17–Q19 queued and unclaimed.

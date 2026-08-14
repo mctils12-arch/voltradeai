@@ -133,6 +133,7 @@ import {
   type BodyId,
 } from "./solarSystem.js";
 import { gmstDeg } from "./ephemeris.js";
+import { surfacePixelRatio } from "../deviceTier";
 import { fmtKm, getUnits, type UnitSystem } from "../units.js";
 import { ZOOM_STEP_PER_NOTCH, zoomStepFactor } from "./zoomSeam.js";
 import {
@@ -2880,7 +2881,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   }
 
   function resizeBacking(): void {
-    const dpr = (globalThis.devicePixelRatio as number | undefined) || 1;
+    // F-C (2026-08-14): was raw devicePixelRatio. These are 2D canvases with no
+    // GL renderer string of their own, so this leans on the shared
+    // __vtDeviceTier reading when datamap.tsx has published one and otherwise
+    // lands on the full-tier cap of 2 — which is still a cap, where before
+    // there was none. Bounds memory and fill rate; it does NOT touch the Moon
+    // raycast, which patchBufDims() sizes in CSS px (PROGRAM_STATE.md L16).
+    const dpr = surfacePixelRatio();
     const { w, h } = cssSize();
     const bw = Math.max(1, Math.round(w * dpr));
     const bh = Math.max(1, Math.round(h * dpr));

@@ -38,6 +38,42 @@ const SOFTWARE_GL = /swiftshader|llvmpipe|softpipe|software rasterizer|microsoft
 // permanently soften a capable machine.
 const WEAK_IGPU = /intel(\(r\))?\s*(hd|uhd)\s*graphics\s*(4|5)\d\d\b/i;
 
+/** Effective backing-store pixel ratio for a canvas surface: the device's DPR,
+ *  clamped to this machine's tier cap.
+ *
+ *  WHY THIS EXISTS (F-C, 2026-08-14). `datamap.tsx` has always clamped its map
+ *  canvas to `tier.pixelRatioCap`, but the two celestial surfaces —
+ *  `celestialSky.ts` (a second WebGL2 context) and `spaceFrame.ts` (2D
+ *  canvases) — sized their backing stores from raw `devicePixelRatio` and
+ *  imported this module not at all. On a 3× phone that is 9× the backing-store
+ *  pixels of a 1× surface, for every raster op those files perform.
+ *
+ *  Reuses the reading `datamap.tsx` already publishes on `__vtDeviceTier` when
+ *  present, so all three surfaces agree on one classification rather than
+ *  computing three. Falls back to classifying from the caller's own renderer
+ *  string (2D canvases have none — they land on the full-tier cap of 2, which
+ *  is still a cap).
+ *
+ *  SCOPE HONESTY: this bounds MEMORY and FILL RATE. It does NOT speed up the
+ *  Moon's CPU raycast — that buffer is sized by `patchBufDims()` in CSS pixels
+ *  against MOON_PATCH_*_LONG_PX, so it is independent of DPR. See
+ *  research/PROGRAM_STATE.md L16. */
+export function surfacePixelRatio(renderer = ""): number {
+  const dpr = Math.max(1, (globalThis.devicePixelRatio as number | undefined) || 1);
+  const shared = (globalThis as { __vtDeviceTier?: TierReading }).__vtDeviceTier;
+  if (shared && typeof shared.pixelRatioCap === "number") {
+    return Math.max(1, Math.min(dpr, shared.pixelRatioCap));
+  }
+  const nav = (globalThis as { navigator?: { deviceMemory?: number; hardwareConcurrency?: number } }).navigator;
+  const cap = classifyDevice({
+    renderer,
+    deviceMemoryGB: nav?.deviceMemory,
+    cores: nav?.hardwareConcurrency,
+    devicePixelRatio: dpr,
+  }).pixelRatioCap;
+  return Math.max(1, Math.min(dpr, cap));
+}
+
 export function classifyDevice(input: {
   renderer: string;
   deviceMemoryGB?: number;
