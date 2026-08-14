@@ -46,7 +46,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q3 | `tsconfig.json` gains `"target": "ES2022"` (clears 29) | T0.0 | **DONE** — PR #825 |
 | Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **DONE** — PR #823, session 2 |
 | Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **DONE** — PR #826, pinned at 12 |
-| Q6 | T2.4 — cap DPR in `celestialSky:788` + `spaceFrame:2877` | T2.4 | **TODO** — up to 9× faster moon on a 3× device |
+| Q6 | T2.4 — cap DPR in `celestialSky` + `spaceFrame` | T2.4 | **DONE** — PR #831. Bounds memory + fill rate. **NOT a moon speedup** — the audit's 9× claim is false, see L16 |
 | Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **TODO** — 5 → 7 files; it will fail, that is the deliverable |
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
@@ -58,6 +58,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` is set in 2 ci.yml jobs and read by NOTHING repo-wide; ci.yml's "network-dependent tests are excluded" claim has no mechanism behind it. 5 test files import requests/socket unguarded | T1.2 | **TODO** — found by D7; blocks promoting the python suite to required |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
+| Q19 | 3 more uncapped render surfaces found by D8: `DataWorldMap.tsx`, `bot.tsx`, `login.tsx` — acquire a canvas context and read `devicePixelRatio` with no tier clamp | T2 | **TODO** — each needs its own look; a small login canvas is not the same call as a full-screen map |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
@@ -84,13 +85,14 @@ commented_catch          112            112          non-increasing
 conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        1              1            must reach 0
+uncapped_surface         3              3            must reach 0
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules            71             71           non-decreasing
-detectors                7              0            MUST increase each session
+detectors                8              0            MUST increase each session
 quarantine_size          0              0            non-increasing
 quarantine_oldest        0d             0d           fail if >30
 ```
@@ -157,6 +159,36 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L16 — the MASTER PROGRAM's "up to 9× faster moon" claim is FALSE, and the
+Day One table ranks T2.4 on it.** F-C observes correctly that `celestialSky.ts`
+and `spaceFrame.ts` size their backing stores from raw `devicePixelRatio` while
+`datamap.tsx` clamps to `tier.pixelRatioCap`. F-D then multiplies the two:
+*"the raycast runs over the uncapped backing store, so a 3× device does 9× the
+raycasts."* **That step does not hold.** Traced this session:
+
+- `spaceFrame.ts` sets `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`, so every
+  drawing coordinate in that file is in **CSS pixels**.
+- `drawBodyPatch(..., w, h, ...)` is called with `w, h` from `cssSize()`
+  (`canvas.clientWidth`) — CSS pixels again.
+- The moon bbox `bw, bh` is derived from those, and
+  `patchBufDims(bw, bh, longPx)` clamps the raycast buffer's long side to
+  `MOON_PATCH_FULL_LONG_PX = 1100` (settled), `MOON_PATCH_MOVING_LONG_PX = 480`
+  (moving), `MOON_PATCH_FAST_LONG_PX = 116` (bootstrap).
+
+So the raycast buffer is bounded by those CONSTANTS, in CSS pixels, and is
+**independent of `devicePixelRatio`**. Capping DPR changes it by nothing.
+
+What capping DPR genuinely buys: backing-store MEMORY and the FILL RATE of
+every raster op in those files, both quadratic in the ratio. Worth doing, and
+done (#831) — but the honest claim is "bounded memory and fill rate on
+high-DPR devices", not a moon speedup.
+
+**The moon's actual cost** is a per-pixel CPU ray-sphere intersection
+(`renderMoonSurfaceRows`) over up to 1100×1100 ≈ **1.2M rays per settled
+patch, on the main thread**, which is why it renders in row bands across
+frames. That is Track 3's GPU work (D1 already decided it), and nothing short
+of it will make the moon fast. **Do not expect T2.4 to have moved it.**
 
 **L15 — prose defeated one of my own checks for the FOURTH time today, and
 the fix is now a rule I apply up front.** D7 (`dead_workflow_env`) reported 0
@@ -287,6 +319,7 @@ the duty. `detectors_registered` reads this table.
 | D5 | `conflicting_const` — an exported SCREAMING_CASE constant declared in 2+ modules with different values | 2026-08-13 | 5 | live in `program_status.sh`; found Q14 on its first run |
 | D6 | `undeclared_py_import` — a third-party module imported by tracked Python but named in neither requirements file | 2026-08-14 | 2 | live in `program_status.sh` (`laspy`, `ultralytics` — GRID VISION GPU tooling) |
 | D7 | `dead_workflow_env` — an env var SET in a workflow and read by NOTHING in tracked code | 2026-08-14 | 1 | live in `program_status.sh`; found Q18 (`VOLTRADE_CI`) on its first run |
+| D8 | `uncapped_surface` — a module acquiring a canvas/WebGL context that reads `devicePixelRatio` without clamping to the device tier | 2026-08-14 | 3 | live in `program_status.sh`; found Q19 on its first run |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
