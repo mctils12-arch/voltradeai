@@ -50844,3 +50844,130 @@ Blockers are Q12 and Q18. Track 3 (the real moon fix) stays gated behind
 Track 1 per §12.
 
 STARVED: yes — Q7–Q9, Q11–Q14, Q17–Q19 queued and unclaimed.
+
+## 2026-08-14 — [PIPELINE] Q17/T1.2+T1.3: the tests now block a merge — 4 → 367 of 368 (v1.0.711)
+
+Territory: shared (`.github/workflows/ci.yml` — FROZEN PATH, authorization
+below) + `ci/`, `scripts/`, `server/` test. MASTER PROGRAM Q17 / Track 1.2 +
+1.3. This closes Track 1's spine.
+
+T1.1 (#829) got all 368 test files RUNNING in CI, deliberately non-blocking, to
+measure a baseline first — turning ~3,586 previously-unrun tests into a merge
+requirement in one step is the failure §12 names outright. The baseline came
+back at **ONE standing failure out of ~3,587**, so the second half is now safe.
+
+FROZEN-PATH AUTHORIZATION: same clause as #826/#829 — MASTER PROGRAM §9 names
+Track 1 as the specific authorization for `.github/workflows/`. T1.2 and T1.3
+are the named items.
+
+DESIGN — same shape as the typecheck ratchet, deliberately. The rule lives in
+`scripts/gated_tests.sh` (MUTABLE, tested by `server/gatedTests.test.ts`); the
+frozen file gains ONE `run:` line, and every future adjustment happens outside
+it. Three gates, each with its own reason:
+
+1. REQUIRED SUITES — server + client + python, minus quarantine. All three run
+   even when an earlier one fails, so one red suite never hides the other two
+   (a gate you can only see a third of is no better than a baseline you can
+   only see a third of).
+2. QUARANTINE MAY ONLY SHRINK (T1.3) — pinned in `ci/quarantine_max.txt`.
+   Without this the gate is trivially defeated: append any red test and CI goes
+   green having checked nothing. The failure message says so explicitly.
+3. NO ENTRY MAY AGE PAST 30 DAYS (T1.3) — and none may be undated, and none may
+   be dated more than 30 days out. A quarantine is a promise to come back; the
+   date is what makes it one.
+
+Quarantined tests still RUN, last, non-blocking, and the script prints
+"NOW PASSING — remove from ci/quarantine.txt" the day one starts passing —
+so a stale quarantine surfaces itself rather than sitting silently overdue.
+
+QUARANTINE CONTENTS: exactly one entry, `server/gridTiles.test.ts` (Q12) —
+asserts ≥50 power-grid pmtiles when 3 exist and `git log --all` finds none ever
+committed. The entry names the resolution (build the tiles per A1/A4) and
+explicitly forbids the alternative (weakening the assertion). Q15, the other
+candidate, was FIXED in #830 rather than parked here, which is the distinction
+the file's header now states: quarantine is for what you cannot currently
+resolve, not for what is inconvenient.
+
+VERIFIED BY MAKING IT FAIL — FIVE WAYS, because a gate nobody has watched fail
+is a decoration, and this repo has already shipped one (`tsc --noEmit || true`
+ran on every build for months and gated nothing):
+(a) a required test failing → exit 1, naming the red suite — proven END TO END
+    by un-quarantining `gridTiles` and running the real suites: "FAIL: server
+    (151 files)", "GATE FAILED";
+(b) quarantine grown 1 → 2 → exit 1;
+(c) an entry past its review date → exit 1, naming the days overdue;
+(d) an undated entry → exit 1;
+(e) a missing quarantine or pin file → exit 2 (cannot-check is never
+    reported as checked-and-fine).
+Plus `server/gatedTests.test.ts` (7 tests) pinning the decision logic against
+synthetic quarantine files, A/B-verified: with `ci.yml` reverted the wiring
+test fails 6/7.
+
+AUTO-MERGE NOW BLOCKS ON IT. Under T1.1 `test` was in `needs` but deliberately
+absent from the `if:` — it waited and reported and could not stop a merge. That
+absence WAS the measure-first contract; it is now `needs.test.result !=
+'failure' && != 'cancelled'`, matching the other three heavy jobs. A SKIPPED
+test job (path-filtered out) still merges, same as every other job.
+
+COUNTER TAUGHT ABOUT THE GATE: `program_status.sh` parsed `run:` blocks for
+`tsx --test`/`pytest`, so a job invoking `bash scripts/gated_tests.sh` would
+have counted ZERO — the exact failure mode as the old `gated_tests`, which
+counted files NAMED in ci.yml and broke the moment a job ran globs. It now
+resolves the gate script to "every test file minus `ci/quarantine.txt`".
+
+PYTHON PROMOTED TO REQUIRED ON EVIDENCE, not hope. The concern was live
+yfinance traffic under a `VOLTRADE_CI` that nothing reads (Q18). The evidence:
+the suite passed **1337/1337 in CI** on #829 and again on #831, and locally it
+passes 1337 even while curl reports `Recv failure: Connection reset by peer`
+for `DX-Y.NYB` and `^TNX` — i.e. the network calls fail GRACEFULLY and the
+tests do not assert on their results. Network reach here is a noise and latency
+risk, not a correctness-gate risk. Q18 still stands (the var is decorative and
+the comment beside it is false); this records why gating python ahead of it is
+defensible rather than optimistic.
+
+NUMBERS: **`tests_gating_merge` 4/368 → 367/368** — the MASTER PROGRAM's stated
+target was >216, and this is the counter that had to climb. `tests_run_in_ci`
+367/368 (the 368th runs non-blocking as the quarantined entry).
+`quarantine_size` 1, `quarantine_oldest` 0d. `detectors_registered` 8 → 9.
+
+RATCHET DRIFT CAUGHT AND ATTRIBUTED, not silently re-pinned: `commented_catch`
+read 113 against a baseline of 112. Checked whether it was mine by stashing
+every change and re-running — **113 both ways**, so it arrived from a
+concurrent session's merge. Baseline updated to 113 WITH that attribution
+stated, rather than quietly. The real lesson is that nothing caught it at the
+source: the counters are measured but not enforced, which is now Q20/T1.7 and
+the next item.
+
+DETECTOR ADDED (§0.7): **D9 — `assertions`**, total assert statements across
+every test file. CLAUDE.md's MUTABLE section is explicit — "Never delete or
+weaken an existing assertion to make your change pass" — and NOTHING counted
+it. A file-count check misses the real move: keep the file, quietly delete the
+assertion that was in the way. T1.2 makes this urgent rather than theoretical:
+now that a red test blocks a merge, deleting the assertion is the cheapest path
+to green, and the quarantine route is already closed by gate 2. This closes the
+other door. **NON-DECREASING — the only counter here that must go UP.**
+Baseline 11,228 across 372 files.
+
+GATES: `bash scripts/gated_tests.sh` — GATE PASSED, all required suites green,
+quarantine 1/1, none overdue (server 1248/1249 with gridTiles excluded, client
+1000/1000, python 1337 pass / 1 skip). `npx tsx --test server/gatedTests.test.ts`
+7/7. `scripts/program_status.sh` clean. Workflow YAML parsed and asserted
+programmatically: `test` job has no `continue-on-error`, the gate step is
+present, and `automerge.if` now DOES reference `needs.test` (that presence is
+the whole point of this PR, and its absence was the whole point of the last).
+No `client/` source, so PROMOTION RULE 6 does not apply. No backtest
+(PROMOTION RULE 3 N/A — CI configuration).
+
+ROLLBACK TRIGGER: if the gate reds on something unrelated to a diff — a
+network flake in the python suite being the realistic candidate — revert
+`ci.yml`'s `test` job to `continue-on-error: true` and keep the script; that
+restores T1.1's reporting behaviour without losing the machinery. Do NOT add
+the offending file to the quarantine to get green: gate 2 rejects a grown list
+for exactly that reason.
+
+Version 1.0.710 → 1.0.711 (read-and-increment at commit time).
+
+NEXT: Q20/T1.7 — wire the §4.2 counters into CI as ratchets. Track 1's spine is
+done; the counters are the part still running on trust.
+
+STARVED: yes — Q7–Q9, Q11–Q14, Q18–Q20 queued and unclaimed.
