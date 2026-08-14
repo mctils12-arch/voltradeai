@@ -150,6 +150,96 @@ jobs:
       - name: Build (client + server bundle)
         run: npm run build
 
+  test:
+    # ── MASTER PROGRAM T1.1 / Q10 — THE BASELINE RUN, DELIBERATELY NON-BLOCKING.
+    #
+    # This repo has ~368 test files. Until this job, CI invoked FOUR of them:
+    # python-tests names 4 files, and node-build runs no tests at all. So 1000
+    # passing client tests and 1245 passing server tests had never once run in
+    # CI, and neither had the four ratchet tests added in #823/#824/#825/#826.
+    # A test that never runs protects nothing.
+    #
+    # `continue-on-error` at BOTH levels is the point, not timidity. T1.1's
+    # deliverable is a measured per-suite baseline; turning ~3,600 previously
+    # unrun tests into a merge gate in one step is the failure the MASTER
+    # PROGRAM §12 names outright ("Turning on all 356 tests as blocking at once,
+    # going red, reverting everything"). T1.2 promotes the green set into
+    # ci/required.txt and quarantines the rest with reasons and dates.
+    #
+    # Step-level continue-on-error + `if: always()` so ALL THREE suites report
+    # on every run. Without it the first failing suite hides the two behind it,
+    # and a baseline you can only see one third of is not a baseline.
+    #
+    # Known-failing at baseline (measured 2026-08-14, all pre-existing, all
+    # filed — these are T1.2's quarantine list, not new breakage):
+    #   server/gridTiles.test.ts      asserts >=50 pmtiles; 3 exist and none
+    #                                 were ever committed (Q12)
+    #   server/datacoreArchive.test.ts  2 rollup tests fail in a ~1h window
+    #                                 either side of UTC midnight (Q15)
+    # The python suite is GREEN here (1337 pass / 0 fail) precisely because
+    # this job installs requirements-dev.txt; see the Install (python) step.
+    needs: changes
+    if: needs.changes.outputs.node == 'true' || needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install (node)
+        run: npm ci
+
+      - name: Server suite (147 files)
+        continue-on-error: true
+        run: npx tsx --test server/*.test.ts
+
+      - name: Client suite (96 files)
+        # Never run in CI before this job. 1000 tests, ~21s, all green locally.
+        continue-on-error: true
+        if: always()
+        run: npx tsx --test $(git ls-files 'client/**/*.test.ts')
+
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (python)
+        if: always()
+        run: |
+          pip install -r requirements.txt
+          # requirements-dev.txt is the repo's declared "session-run /
+          # test-only Python deps" list, and the test suite is precisely what
+          # needs it. Without it, test_grid_county_ba.py cannot import openpyxl
+          # and the resulting COLLECTION error aborts the whole run — pytest
+          # reports `1 skipped, 1 error` in 4s instead of 1337 passes in 64s.
+          # It also takes down test_collection_health.py, the repo's own canary
+          # for exactly this condition.
+          #
+          # Deliberately NOT solved by moving openpyxl into requirements.txt:
+          # that file is what the frozen Dockerfile installs into the Railway
+          # image, and requirements-dev.txt's own header records that nothing
+          # in it belongs on a runtime path. The gap was never a missing
+          # declaration — it was CI not installing a file that already existed.
+          pip install -r requirements-dev.txt
+
+      - name: Python suite (121 files)
+        # No --continue-on-collection-errors: with the dev deps installed there
+        # is nothing to tolerate, and as a permanent setting it would absorb the
+        # next collection break silently — the same class of mistake as the
+        # `|| true` this program just removed from the typecheck.
+        continue-on-error: true
+        if: always()
+        env:
+          VOLTRADE_CI: "1"
+        run: python -m pytest -q
+
   docker-build:
     # Proves the exact image Railway will build actually builds. Layer-cached
     # via actions/cache + buildx local cache so unchanged layers are restored,
@@ -190,7 +280,12 @@ jobs:
     # skipping can never merge past a real failure. No branch-protection rules
     # needed.
     name: Auto-merge Claude PRs
-    needs: [changes, python-tests, node-build, docker-build]
+    # `test` is in `needs` so auto-merge WAITS for the baseline run and its
+    # results are visible on the PR rather than being cancelled by the merge —
+    # but it is deliberately absent from the `if:` below, so it can never block
+    # a merge. That is T1.1's whole contract: measure now, gate in T1.2. The
+    # leading `always()` is what makes "wait but do not require" possible.
+    needs: [changes, python-tests, node-build, docker-build, test]
     if: >
       always() &&
       github.event_name == 'pull_request' &&

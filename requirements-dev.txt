@@ -18,3 +18,4 @@ tifffile            # scripts/tankfill_estimator.py, tankfill_s1_estimator.py (G
 rasterio            # scripts/sentinel2_tankfill.py (geo raster IO)
 Pillow              # scripts/site_verify.py, site_candidate_verify.py (imagery annotation)
 pyshp               # scripts/grid_ba_capacity.py (county point-in-polygon, session-run)
+pyyaml              # scripts/program_status.sh parses ci.yml for the tests_run_in_ci / tests_gating_merge counters
