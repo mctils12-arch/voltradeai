@@ -48,40 +48,77 @@ py_files() { git ls-files '*.py' 2>/dev/null | grep -v '^node_modules/'; }
 ts_files() { git ls-files '*.ts' '*.tsx' 2>/dev/null | grep -v '^node_modules/'; }
 
 # ---------------------------------------------------------------------------
-# 1. gated_tests — how many test FILES a CI run actually invokes.
+# 1. tests_run_in_ci / tests_gating_merge — two numbers, because they differ.
 #
-# The gap this measures is the program's spine (Track 1): the repo has ~370
-# test files and ci.yml names four of them. Tests that never run protect
-# nothing, so "we have tests" is not the same claim as "a break turns CI red".
+# COUNTER REDEFINED 2026-08-14 (T1.1/Q10). The old `gated_tests` counted test
+# files NAMED in ci.yml, which worked while CI listed four files by hand and
+# broke the moment T1.1 added a job running whole globs: it reported 6/368 for
+# a run that actually executes all 364.
+#
+# The fix is two counters, not one, because "CI runs it" and "its failure can
+# block a merge" are genuinely different facts and T1.1 deliberately created a
+# gap between them. Collapsing them either way would lie: report 364 and the
+# non-blocking baseline job masquerades as a gate; report 4 and ~3,586 tests
+# now running on every PR are invisible. The MASTER PROGRAM's ">216" target is
+# about GATING, so tests_gating_merge is the one that must climb.
+#
+# A job is treated as gating when it is NOT `continue-on-error: true`. Globs are
+# resolved against the tree so the count is files, not tokens.
 # ---------------------------------------------------------------------------
 py_tests=$(py_files | grep -cE '(^|/)test_|_test\.py$' || true)
 client_tests=$(ts_files | grep -c '^client/.*\.test\.tsx\?$' || true)
 server_tests=$(ts_files | grep -c '^server/.*\.test\.ts$' || true)
 tests_total=$(( py_tests + client_tests + server_tests ))
 
-# Parse the python-tests job's pytest invocation out of ci.yml rather than
-# hardcoding a list — if someone adds a suite to CI, this counter must notice
-# on its own. We take every *.py token on the continuation lines of the
-# `python -m pytest` command.
-gated_py=0
-if [ -f .github/workflows/ci.yml ]; then
-  gated_py=$(awk '
-    /python -m pytest/ { inblock=1 }
-    inblock {
-      n = gsub(/[A-Za-z0-9_\/]+\.py/, "&")
-      total += n
-      if ($0 !~ /\\$/) inblock = 0
-    }
-    END { print total + 0 }
-  ' .github/workflows/ci.yml)
-fi
-# node-build runs `npm ci`, `tsc --noEmit || true`, `npm run build`. No test
-# invocation — verified by the absence of any test script in that job.
-gated_node=0
-if [ -f .github/workflows/ci.yml ]; then
-  gated_node=$(grep -cE 'run:.*(npm (run )?test|tsx --test|vitest|jest)' .github/workflows/ci.yml || true)
-fi
-gated_tests=$(( gated_py + gated_node ))
+read -r tests_run_in_ci tests_gating_merge <<<"$(python3 - <<'PYEOF'
+import re, subprocess, sys
+try:
+    import yaml
+except ImportError:
+    print(0, 0); sys.exit()
+try:
+    ci = yaml.safe_load(open('.github/workflows/ci.yml'))
+except Exception:
+    print(0, 0); sys.exit()
+
+tracked = subprocess.run(['git', 'ls-files'], capture_output=True, text=True).stdout.split()
+py_t  = [f for f in tracked if f.endswith('.py') and re.search(r'(^|/)test_|_test\.py$', f)]
+srv_t = [f for f in tracked if re.match(r'server/.*\.test\.ts$', f)]
+cli_t = [f for f in tracked if re.match(r'client/.*\.test\.tsx?$', f)]
+
+def files_for(cmd):
+    """Which test files a `run:` block actually executes."""
+    hit = set()
+    # `pip install pytest` is not a test run — match an invocation only.
+    if re.search(r'python\s+-m\s+pytest|(^|[;&|]\s*)pytest\b', cmd):
+        named = re.findall(r'[\w/]+\.py', cmd)
+        hit |= set(named) if named else set(py_t)      # bare `pytest` = whole tree
+    if 'tsx --test' in cmd or 'node --test' in cmd:
+        if 'server/*.test.ts' in cmd:
+            hit |= set(srv_t)
+        if 'client/**/*.test.ts' in cmd:
+            hit |= set(cli_t)
+    return hit
+
+run, gating = set(), set()
+for job in (ci.get('jobs') or {}).values():
+    job_soft = job.get('continue-on-error') is True
+    for step in job.get('steps') or []:
+        cmd = step.get('run') or ''
+        if not cmd:
+            continue
+        f = files_for(cmd)
+        if not f:
+            continue
+        run |= f
+        # A step gates only if neither it nor its job tolerates failure.
+        if not job_soft and step.get('continue-on-error') is not True:
+            gating |= f
+print(len(run), len(gating))
+PYEOF
+)"
+tests_run_in_ci=${tests_run_in_ci:-0}
+tests_gating_merge=${tests_gating_merge:-0}
 
 # ---------------------------------------------------------------------------
 # 2. tsc_errors — the typecheck baseline.
@@ -392,6 +429,67 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9f. D6 — undeclared_py_import: a third-party module imported by tracked
+# Python code but named in neither requirements.txt nor requirements-dev.txt.
+#
+# T1.1 is the argument for this one. `test_grid_county_ba.py` imports openpyxl
+# transitively, and in an environment lacking it the resulting COLLECTION error
+# aborts the ENTIRE pytest run — 1337 passes became `1 skipped, 1 error` in 4
+# seconds. One undeclared import takes down the whole suite, not one file.
+#
+# (That specific case turned out to be openpyxl declared in requirements-dev.txt
+# with CI simply never installing that file — fixed in the same PR. This counter
+# catches the harder version: imports declared NOWHERE, which fail the moment a
+# clean container touches them.)
+#
+# Stdlib and first-party modules are excluded, and the alias table maps import
+# names to distribution names (sklearn->scikit-learn, shapefile->pyshp, ...).
+# Baseline 2: laspy (scripts/gridvision_lidar_probe.py) and ultralytics
+# (scripts/gridvision_train/train.py), both GRID VISION GPU tooling that only
+# runs on a RunPod box. Non-increasing.
+# ---------------------------------------------------------------------------
+undeclared_py_import=$(python3 - <<'PYEOF'
+import ast, os, re, subprocess, sys
+files = [f for f in subprocess.run(['git', 'ls-files', '*.py'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f]
+local = {os.path.splitext(os.path.basename(f))[0] for f in files}
+local |= {p.split('/')[0] for p in files if '/' in p}
+declared = set()
+for rq in ('requirements.txt', 'requirements-dev.txt'):
+    try:
+        for line in open(rq):
+            line = line.split('#')[0].strip()
+            if line:
+                declared.add(re.split(r'[<>=\[!]', line)[0].strip().lower().replace('-', '_'))
+    except OSError:
+        pass
+ALIAS = {'sklearn': 'scikit_learn', 'yaml': 'pyyaml', 'PIL': 'pillow',
+         'cv2': 'opencv_python', 'dateutil': 'python_dateutil',
+         'bs4': 'beautifulsoup4', 'shapefile': 'pyshp'}
+std = getattr(sys, 'stdlib_module_names', set())
+missing = set()
+for f in files:
+    try:
+        tree = ast.parse(open(f).read())
+    except Exception:
+        continue
+    for n in ast.walk(tree):
+        mods = []
+        if isinstance(n, ast.Import):
+            mods = [a.name.split('.')[0] for a in n.names]
+        elif isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:
+            mods = [n.module.split('.')[0]]
+        for m in mods:
+            if m in std or m in local or m.startswith('_'):
+                continue
+            if ALIAS.get(m, m).lower().replace('-', '_') not in declared:
+                missing.add(m)
+print(len(missing))
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -440,7 +538,8 @@ fi
 if [ "$JSON" = 1 ]; then
   cat <<EOF
 {
-  "gated_tests": $gated_tests,
+  "tests_run_in_ci": $tests_run_in_ci,
+  "tests_gating_merge": $tests_gating_merge,
   "tests_total": $tests_total,
   "tsc_errors": "$tsc_errors",
   "tsc_2304": "$tsc_2304",
@@ -460,6 +559,7 @@ if [ "$JSON" = 1 ]; then
   "boundary_any": $boundary_any,
   "commented_empty_catch": $commented_empty_catch,
   "conflicting_const": $conflicting_const,
+  "undeclared_py_import": $undeclared_py_import,
   "harness_rules_checked": $harness_rules_checked,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
@@ -471,7 +571,8 @@ fi
 
 printf '%-24s %-14s %-12s %s\n' COUNTER VALUE BASELINE DIRECTION
 printf '%-24s %-14s %-12s %s\n' ------- ----- -------- ---------
-printf '%-24s %-14s %-12s %s\n' gated_tests        "$gated_tests/$tests_total" "4/364"  "must increase (>216)"
+printf '%-24s %-14s %-12s %s\n' tests_run_in_ci    "$tests_run_in_ci/$tests_total" "4/364" "must increase"
+printf '%-24s %-14s %-12s %s\n' tests_gating_merge "$tests_gating_merge/$tests_total" "4/364" "must increase (>216)"
 printf '%-24s %-14s %-12s %s\n' tsc_errors         "$tsc_errors"          "83"     "must decrease"
 printf '%-24s %-14s %-12s %s\n' "  of which TS2304" "$tsc_2304"           "5"      "must reach 0 (always real bugs)"
 printf '%-24s %-14s %-12s %s\n' silent_py_handlers "$silent_py/$py_except_total" "255/873" "non-increasing"
@@ -487,6 +588,7 @@ printf '%-24s %-14s %-12s %s\n' long_try_empty_catch "$long_try_empty_catch" "3"
 printf '%-24s %-14s %-12s %s\n' boundary_any       "$boundary_any"        "233"    "non-increasing"
 printf '%-24s %-14s %-12s %s\n' commented_catch    "$commented_empty_catch" "112"   "non-increasing"
 printf '%-24s %-14s %-12s %s\n' conflicting_const  "$conflicting_const"   "5"      "non-increasing"
+printf '%-24s %-14s %-12s %s\n' undeclared_py_imp  "$undeclared_py_import" "2"     "non-increasing"
 printf '%-24s %-14s %-12s %s\n' harness_rules      "$harness_rules_checked" "71"   "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' detectors          "$detectors_registered" "0"     "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "0"      "non-increasing"

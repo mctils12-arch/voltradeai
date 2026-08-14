@@ -50538,3 +50538,123 @@ STARVED: no — this session's queue check found no larger unclaimed
 T-DATACORE item that was both higher-value and completable in one
 session; the GNSS gate-1 crossref is the next queued item and is now
 scoped with the reconnaissance dead-end noted above.
+
+## 2026-08-14 — [PIPELINE] Q10/T1.1: 4 test files ran in CI; now 368 do (v1.0.707)
+
+Territory: shared (`.github/workflows/ci.yml` — FROZEN PATH, authorization
+below) + `scripts/`, `research/`, `requirements-dev.txt`. MASTER PROGRAM
+Q10 / Track 1.1.
+
+CI invoked **four** test files out of 368. `python-tests` names four by hand;
+`node-build` runs `npm ci`, the typecheck ratchet and `npm run build`, and
+invokes no test suite at all. So **1000 passing client tests and 1247 passing
+server tests had never once run in CI** — and neither had the four ratchet
+tests added in #823/#824/#825/#826, which were written to stop regressions and
+were, until now, guarding nothing.
+
+FROZEN-PATH AUTHORIZATION: same clause as #826 — `.github/workflows/` is FROZEN
+under CLAUDE.md, and MASTER PROGRAM §9 names Track 1 as the specific
+authorization. T1.1 is the named item.
+
+DESIGN — non-blocking on purpose, at BOTH job and step level. T1.1's deliverable
+is a measured baseline, not a gate; turning ~3,586 previously-unrun tests into a
+merge requirement in one step is the failure §12 names outright ("Turning on all
+356 tests as blocking at once, going red, reverting everything"). Step-level
+`continue-on-error` + `if: always()` so all three suites report every run —
+without it the first failing suite hides the two behind it, and a baseline you
+can only see a third of is not a baseline. `automerge` gains `test` in `needs`
+so it WAITS for the results (they appear on the PR instead of being cancelled by
+the merge) but never references `test.result`, so it can never block; the
+pre-existing leading `always()` is what makes "wait but do not require"
+expressible.
+
+MEASURED BASELINE (research/test_baseline.md, the T1.1 artifact):
+| suite | files | tests | fail | time |
+| server | 147 | 1248 | 1 | ~96s |
+| client | 96 | 1000 | **0** | ~21s |
+| python | 121 | 1338 + 54 subtests | **0** | ~64s |
+| total | 364 | ~3,586 | **1** | ~3m01s |
+
+**ONE standing failure out of ~3,586**, and it asserts the presence of files
+never committed. The suites were never the problem — the reason they were not
+gating was that nobody had run them.
+
+TWO OF THE FOUR APPARENT FAILURES DISSOLVED ON INSPECTION, which is the finding
+worth carrying forward:
+
+1. The python suite looked catastrophic — `1 skipped, 1 error` in 4 seconds.
+   `test_grid_county_ba.py` loads `scripts/grid_county_ba.py`, which imports
+   `openpyxl`, and **a collection error aborts the ENTIRE pytest run**. The
+   obvious reading ("openpyxl is undeclared") is WRONG: it is declared, in
+   `requirements-dev.txt`, whose own header calls it the repo's "session-run /
+   test-only Python deps". The real gap was that **CI installs
+   `requirements.txt` + `pytest` and never that file.** Fixed by installing it
+   in the test job → **1337 passed, 0 failed, 64s**, and no
+   `--continue-on-collection-errors` needed. Deliberately NOT fixed by moving
+   openpyxl into `requirements.txt`: that file is what the FROZEN Dockerfile
+   installs into the Railway production image, and requirements-dev.txt's
+   header records that nothing in it belongs on a runtime path. Filed + closed
+   as Q16.
+
+2. `test_collection_health.py::test_full_repo_pytest_collection_succeeds` — the
+   repo ALREADY HAS a test whose entire job is asserting full-repo pytest
+   collection succeeds. It was failing, for exactly the reason it exists to
+   catch, and had never run in CI to sound the alarm. The guard was written,
+   the guard was correct, the guard was never armed. It now passes. This is the
+   single clearest argument in the repo for Track 1.
+
+3. Q15 CONFIRMED EXPERIMENTALLY rather than argued: the two `datacoreArchive`
+   rollup tests failed at 23:55Z and PASS at 01:00Z on the same commit. The
+   cause is arithmetic — `oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000`
+   plus cadence-spaced samples straddle two UTC days near midnight, so 1 rolled
+   day becomes 2. Not in the failure count above because that run fell outside
+   the window, which is precisely what makes it dangerous. Must be FIXED (not
+   quarantined — it is a real test bug) before T1.2 makes the suite blocking.
+
+4. `server/gridTiles.test.ts` (Q12) is the one standing failure: asserts ≥50
+   pmtiles, 3 exist, none ever committed. T1.2 quarantines or resolves it.
+
+COUNTER REDEFINITION (MEASUREMENT INTEGRITY — stated because this changes the
+ruler): the old `gated_tests` counted test files NAMED in ci.yml. That worked
+while CI listed four by hand and broke the moment this job ran whole globs — it
+reported **6/368 for a run executing all 368**. Split into `tests_run_in_ci`
+(368/368) and `tests_gating_merge` (4/368, defined as "not `continue-on-error`
+at either job or step level"). Collapsing the two lies in either direction:
+report 368 and a non-blocking baseline job masquerades as a gate; report 4 and
+~3,586 tests now running on every PR are invisible. The MASTER PROGRAM's ">216"
+target is about GATING, so it now points at the counter that must climb.
+**Direction check: this change makes the headline number look WORSE (4, not
+368)** — the right sign for a ruler change, since MEASUREMENT INTEGRITY treats
+a change that flatters as suspect by default. Two bugs found and fixed while
+building it: `pip install pytest` was being counted as a test invocation, and
+the file matcher was catching `research/test_baseline.md` via `test_`.
+
+DETECTOR ADDED (§0.7): **D6 — `undeclared_py_import`**, a third-party module
+imported by tracked Python but named in neither requirements file. This session
+is the argument: one un-importable module takes down the WHOLE suite via
+collection error, not one file. Stdlib and first-party excluded; alias table
+maps import names to distribution names (sklearn→scikit-learn,
+shapefile→pyshp). Baseline **2** — `laspy` and `ultralytics`, both GRID VISION
+GPU tooling that only runs on a RunPod box. Non-increasing.
+
+Also declared `pyyaml` in requirements-dev.txt: `program_status.sh` now parses
+`ci.yml` for the two new counters, and without it the script degrades to 0/0 —
+which would read as a catastrophic regression rather than a missing dep.
+
+GATES: all three suites measured above. `npx tsc --noEmit` 12, TS2304 0
+(unchanged — no source files touched). `scripts/program_status.sh` clean, all
+21 counters at or better than baseline. Workflow YAML parsed and asserted
+programmatically: `test.continue-on-error` true, all three suite steps
+`continue-on-error` + `always()`, `automerge.needs` includes `test`, and
+`automerge.if` does NOT reference `needs.test` (verified — that absence is the
+entire non-blocking guarantee). No `client/` source, so PROMOTION RULE 6 does
+not apply. No backtest (PROMOTION RULE 3 N/A — CI configuration).
+
+Version 1.0.706 → 1.0.707 (read-and-increment; lockfile synced).
+
+NEXT: T1.2 (Q17) — `ci/required.txt` + `ci/quarantine.txt`, green set blocking.
+Blocked on fixing Q15 and quarantining/resolving Q12, and on removing the
+python suite's live network reach (yfinance traffic still occurs under
+VOLTRADE_CI=1, contradicting ci.yml's header claim).
+
+STARVED: yes — Q6–Q9, Q11–Q15, Q17 queued and unclaimed.
