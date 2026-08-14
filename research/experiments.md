@@ -50971,3 +50971,142 @@ NEXT: Q20/T1.7 — wire the §4.2 counters into CI as ratchets. Track 1's spine 
 done; the counters are the part still running on trust.
 
 STARVED: yes — Q7–Q9, Q11–Q14, Q18–Q20 queued and unclaimed.
+
+## 2026-08-14 (scheduled-routine EDGE session) [RESEARCH] — none of T-DATACORE/T-CLIENT/T-BOT (pure research-tooling script + docs, no server/trading/client path touched) — microcap cost-floor + LULD halt-band pricing for the deferred MIN_PRICE/MIN_VOLUME loosening question (v1.0.712)
+
+TERRITORY: outside the three partitioned territories, same class as the
+2026-08-13(2) `ladder_readiness_check.py` session — `scripts/
+microcap_cost_floor_check.py` + `test_microcap_cost_floor_check.py` touch
+no server runtime path. SHARED touch minimal: `package.json` +
+`package-lock.json` (version bump only), `research/open_questions.md`
+(the dated UPDATE this entry's own log), this entry.
+
+SESSION-START CHECKS: CLAUDE.md read in full, all of research/ read.
+LIVE HEALTH: `curl https://voltradeai-production.up.railway.app/api/health`
+— `status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark:false`,
+Alpaca `ACTIVE`, scanner `consecutiveFailures:0`, all three position
+feeds `dead:false` — no LIVENESS ALARM. KNOWN BROKEN walked end to end:
+only #10 (dead SCORE_BAND config, gated on evidence accumulation) and
+#20 (master_kill_switch design question, counterfactual-logged, no
+firings yet) remain open, both non-blocking per their own filed
+conditions; #30 (OPTIONS-SLOT cap third recurrence, 2026-08-13) is
+explicitly NOT patchable this session per RECURRENCE ESCALATES and is
+correctly scoped as non-liveness — not this session's territory either
+way (T-BOT). Confirmed NOT a [REPAIR] session. Loop-health ratio, last
+10 tagged entries before this one: 5 REPAIR / 4 PIPELINE / 1 PRODUCT —
+under the 7+ thrash bar.
+
+PRIMARY-ACTION SELECTION: this routine's own brief named 4 axes. Axis
+(a) checked via `python3 scripts/data_stream_registry_check.py
+--unbuilt`: every named example (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends/pytrends) already
+`built` or `declined_gate1_fail` — the same finding independently reached
+by every EDGE session since 2026-07-26. The two remaining keyless
+`candidate_unbuilt` roots (`dtcc_sbsdr` 147MB/day needs a volume-budget
+decision; `un_comtrade` too lagged for direct alpha) are real but neither
+is a same-session unblocked build. `python3 scripts/ladder_readiness_
+check.py`: all 3 gate2_pending roots still WAITING (`usaspending_
+contracts` 1 more day, `cftc_cot_positioning` ~70d, `sec_8k_earnings_
+language` ~49d) — nothing newly actionable there either. Axis (b) had
+exactly one unblocked, pre-scoped item: the 2026-08-11 illiquid_universe_
+probe thread's own NEXT note names a specific first step ("start by
+pricing the SPECIFIC new risks... before any backtest, per REASONING
+STANDARD #6") that no session had yet picked up. Chose it over starting
+a fresh axis (c)/(d) hypothesis from zero, matching the reasoning the
+2026-08-13(2) session used for a similarly pre-scoped item.
+
+CHANGE + RESULT: full method, prior, live result, and verdict are filed
+in `research/open_questions.md`'s 2026-08-14 UPDATE on the illiquid
+mean_reversion thread (search that file for "microcap_cost_floor_check"
+or the 2026-08-14 dateline) — not duplicated here per this file's own
+convention of keeping the finding in open_questions.md and the session
+mechanics here. Summary: built `scripts/microcap_cost_floor_check.py`,
+pricing two of the three risks the 2026-08-11 entry deferred (tick-size
+spread floor via Reg NMS Rule 612; LULD volatility-halt band width via a
+WebSearch-verified FINRA/Nasdaq table) against the same 16 pinned
+tickers that session's live universe-gate run used. Result: 7 of 11
+tick-priceable names have a spread floor alone exceeding the backtest's
+flat 0.185% per-side cost (up to 2.7x), and the group's LULD bands run
+20-40% (57-115% for the sub-$0.75 names) vs. 5-10% for a liquid
+comparator — neither risk is represented in the current cost model at
+all. Verdict: this STRENGTHENS the case against loosening MIN_PRICE/
+MIN_VOLUME rather than weakening it, on top of the 2026-08-11 finding
+that the live bot never reaches 16 of 17 of these names today regardless.
+No RULE-REVIEW PR proposed from this thread.
+
+READ BEFORE WRITE: read `scripts/illiquid_universe_probe_universe_gate.py`
+in full before writing anything, to reuse its exact sys.path setup and
+"import live constants, don't copy" convention, and to transcribe its
+filed 2026-08-11 RESULT prices verbatim rather than re-deriving or
+guessing them. Read `backtest_v2.py`'s `liquidity_cost_pct()` and its
+own MEASUREMENT INTEGRITY comment block in full before treating
+`_ILLIQUID_COST_PCT` as a target for comparison — confirmed it is a
+midpoint-of-range constant by the comment's own words, not a claimed
+worst case, which is why this session's finding ("floor alone exceeds
+even this constant") is the stronger reading rather than a strawman.
+Grepped `research/open_questions.md` for the exact prior LULD-adjacent
+or spread-adjacent claims already on file before adding a new one, to
+avoid restating something already resolved.
+
+VERIFICATION SOURCING: the LULD band table is a factual regulatory claim
+being filed into a permanent research record, not backtest-internal
+logic — used WebSearch (2 queries) against finra.org and corroborating
+sources rather than relying on training-data recall, per the same
+discipline the 2026-08-02 GitHub-org-activity session applied to
+ticker/org verification. Both queries independently confirmed the same
+5%/10%/20%/sub-$0.75-lesser-of-15c-or-75% structure and the near-close
+doubling rule; neither was an authenticated primary NMS Plan filing, so
+the entry and script both say "re-verify before decision-relevant use"
+rather than treating this as settled beyond doubt.
+
+RATCHET: `test_microcap_cost_floor_check.py`, 16 tests (full list in the
+open_questions.md entry). A/B-verified via `git stash -u`: pre-change
+collection fails with `file or directory not found`; post-change 16/16
+pass.
+
+GATES: `python3 -m pytest -q` (fresh container, `pip3 install
+--break-system-packages -r requirements.txt -r requirements-dev.txt`
+first — same recurring clean-container gap prior sessions have logged):
+1353 passed, 1 skipped, 0 failed (1337 baseline + 16 new). No `.ts`/
+`.tsx` files touched (pure Python + two research docs), so `npx tsc
+--noEmit`/`npx tsx --test`/`npm run build`/VISUAL VERIFICATION do not
+apply, matching the established convention for pure-Python-and-docs
+sessions in this file.
+
+BACKTEST: N/A per PROMOTION RULE 3 — structural/regulatory pricing
+exercise over a fixed, dated snapshot; ships no strategy, sizing, or
+threshold change, computes no new trading signal, and the finding
+explicitly does NOT propose one.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the live
+trading loop or any decision path this session. The only downstream
+effect is informational: a future session that DOES want to pursue
+MIN_PRICE/MIN_VOLUME loosening now has two of three named risks priced
+instead of unpriced, and knows the finding argues against pursuing it
+further without a materially better cost model and live sub-$1 quote
+data — cheaper to have this filed once than re-derived per session, per
+EDGE DOCTRINE #3.
+
+Version 1.0.711 -> 1.0.712 (read-and-increment at commit time; confirmed
+against live `server_version` — `/api/health` did not expose it directly
+this session, cross-checked `package.json` at session start instead,
+1.0.711, matching the HEAD commit's own PR title).
+
+MARKET-HOURS / MONETIZATION NOTE: zero trading/execution/billing/pricing
+code touched — no merge-timing restriction applies (same category as
+every other pure-research-tooling PR in this file).
+
+NEXT (queued, not this session, filed in open_questions.md's own NEXT):
+(a) sub-$1.00 tick-floor gap needs a live-market-hours session with real
+quote data; (b) `liquidity_cost_pct()`'s single "<=1M shares/day" bucket
+could gain a price-tier split — own [RULE-REVIEW] PR, own session, per
+MEASUREMENT INTEGRITY (never tune the ruler and the measured thing in
+the same session); (c) data-source staleness (the 3rd named risk)
+remains unpriced.
+
+STARVED: no — this was the session's one primary action, matched to a
+routine-scope budget (one well-evidenced, already-reasoned-about
+research task, not a fresh multi-session thread). No higher-priority
+queued item was skipped: KNOWN BROKEN's open items are all correctly
+gated or explicitly deferred by RECURRENCE ESCALATES; no LIVENESS ALARM;
+no thrash. One logical change, one PR, per PROMOTION RULE 5.
