@@ -22,21 +22,16 @@ one `run:` line in the FROZEN workflow:
 | `gated_tests.sh` | `ci/quarantine.txt` + `_max.txt` (1) | #832 |
 | `counter_ratchet.sh` | `ci/counter_baseline.txt` (22 counters) | #833 |
 
-**NEXT — Q19: the 3 remaining uncapped render surfaces** (`DataWorldMap.tsx`,
-`bot.tsx`, `login.tsx`), found by D8. Each acquires a canvas context and reads
-`devicePixelRatio` with no tier clamp. `uncapped_surface` must reach 0. Each
-needs its own look — a small login canvas is not the same call as a full-screen
-map — but `surfacePixelRatio()` from #831 is the helper to use.
+**NEXT — Q13: `empty_ts_catch` / `ts_any` count comment text.** Both greps run
+over raw source, so a comment mentioning `catch {}` inflates the count — the
+defect behind L9, and the same family that has now bitten six times this
+session (L9, L11, L12, L15, L18, the D7 repair). Strip comments and string
+literals before counting. MEASUREMENT INTEGRITY: own PR, and state the
+before/after on identical inputs.
 
-Then **Q19** (3 uncapped render surfaces), **Q13**, **Q14**, **Q7–Q9**, **Q11**,
-and Track 2/3 — the moon, genuinely unblocked.
-
-**Q12 is REFRAMED, not open as written** — see #834 and L17. Building and
-committing 50 state pmtiles is forbidden by `scripts/build_power_tiles.sh`
-line 53 ("US scale: DO NOT commit — boot-fetch from a GitHub Release asset")
-and by its ODbL share-alike note. The real work is the boot-fetch path
-(wishlist A4 PHASE 2 item 2), after which the test re-points at what the server
-actually serves.
+Then **Q14** (`EARTH_RADIUS_KM` 6371 vs 6378.137 in `client/src/lib/orbital/` —
+~7km of satellite altitude error), **Q22** (mock `macro_data.py`'s live yfinance
+calls), **Q7–Q9**, **Q11**, then Track 2/3 — the moon.
 
 Do **not** start Track 2 or 3 before Track 1 lands — §12 names that as a failure
 mode by name.
@@ -71,7 +66,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
 | Q22 | `macro_data.py` makes live yfinance calls (DX-Y.NYB, ^TNX) when imported by gated tests — the suite is not hermetic | T1.2 | **TODO** — filed in #836. Fails gracefully today (1337/1337 with curl resets), so latency+noise, not correctness. Mock it |
 | Q16 | CI never installed `requirements-dev.txt`, so `test_grid_county_ba.py` could not import openpyxl and the COLLECTION error aborted the whole python suite (1337 passes → `1 skipped, 1 error`) | T1.1 | **DONE** — PR #829. Not fixed by moving openpyxl into requirements.txt: that file feeds the frozen Dockerfile's production image |
-| Q19 | 3 more uncapped render surfaces found by D8: `DataWorldMap.tsx`, `bot.tsx`, `login.tsx` — acquire a canvas context and read `devicePixelRatio` with no tier clamp | T2 | **TODO** — each needs its own look; a small login canvas is not the same call as a full-screen map |
+| Q19 | 3 uncapped render surfaces (5 sites) | T2 | **DONE** — PR #837. `uncapped_surface` 3 → **0**. My "small login canvas" caveat was BACKWARDS — login's is a full-viewport animated canvas with its own rAF loop, the largest of the three |
 | Q13 | `empty_ts_catch` / `ts_any` count comment text — strip comments and string literals before counting | T0.1 | **TODO** — MEASUREMENT INTEGRITY: own PR, must state before/after on identical inputs, see L9 |
 
 **The queue is not empty.** §0.3 condition 5 satisfied.
@@ -98,8 +93,8 @@ commented_catch          112            112          non-increasing
 conflicting_const        5              5            non-increasing
 undeclared_py_imp        2              2            non-increasing
 dead_workflow_env        0              0            AT TARGET — hold at 0
-uncapped_surface         3              3            must reach 0
-assertions               11274          11274        NON-DECREASING
+uncapped_surface         0              0            AT TARGET — hold at 0
+assertions               11278          11278        NON-DECREASING
 layers_full_schema       1/238          1/238        non-decreasing
   layers with lod        1              1            non-decreasing
 law_iv_scanned           5              5            must reach 7 (ctx-acquiring)
@@ -173,6 +168,26 @@ failure assertions including legend parity, imagery-date honesty, TTI budgets
 and self-see. Track 8 is still right that the *specific* `DESIGN.md` numbered
 rules are unconverted — but it is a smaller gap than "five checks" suggests.
 Re-scope T8 against the file before planning it.
+
+**L19 — my own scoping caveat was backwards, and reading the files was what
+caught it.** Filing Q19 I wrote "each needs its own look — a small login canvas
+is not the same call as a full-screen map", implying `login.tsx` was the weak
+case. It is the STRONGEST: `CityMatrixCanvas` sizes to
+`window.innerWidth × window.innerHeight` and animates under its own rAF loop, so
+an uncapped 3× device paints 9× the pixels every frame. `bot.tsx`'s equity chart
+and `DataWorldMap`'s offscreen land layer are the element-sized ones. A guess
+about relative severity, written into a queue entry, would have been inherited
+as fact by whoever took the item — the entry now records the correction.
+
+Also: naming the three files individually would have missed the fourth. The
+companion assertion added here closes the whole class — no client module may
+size a canvas from raw `devicePixelRatio` — with exactly two allowlisted
+readers (`deviceTier.ts`, where the clamp lives, and `datamap.tsx`, which
+PRODUCES the tier reading and cannot call the helper without circularity). The
+allowlist is itself guarded: a second test asserts `datamap.tsx` still calls
+`classifyDevice`, still clamps via `Math.min(dpr, tier.pixelRatioCap)`, and
+still publishes `__vtDeviceTier` — an allowlist entry that stops honouring the
+rule is worse than no rule, because it looks covered.
 
 **L18 — the claim was true; the mechanism named was fiction.** `ci.yml` said
 "Network-dependent tests are excluded in CI" beside `VOLTRADE_CI: "1"`. D7 found

@@ -34,8 +34,8 @@ commented_empty_catch    113      non-increasing
 conflicting_const        5        non-increasing
 undeclared_py_import     2        non-increasing
 dead_workflow_env        0        non-increasing
-uncapped_surface         3        non-increasing
-assertions               11274    non-decreasing
+uncapped_surface         0        non-increasing
+assertions               11278    non-decreasing
 harness_rules_checked    71       non-decreasing
 detectors_registered     9        non-decreasing
 quarantine_size          1        non-increasing

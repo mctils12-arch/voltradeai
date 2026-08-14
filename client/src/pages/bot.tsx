@@ -9,6 +9,7 @@ import {
 import TradeCharts from "@/components/TradeChart";
 import TradingActivity from "@/components/TradingActivity";
 import { getDisplaySide } from "../../../shared/inverseEtfs";
+import { surfacePixelRatio } from "@/lib/deviceTier";
 
 // ─── Tooltip helper ──────────────────────────────────────────────────────────
 const TIPS: Record<string, string> = {
@@ -327,7 +328,7 @@ function PerformanceDashboard({ perfData }: { perfData: any }) {
     if (!ctx) return;
 
     // Use display size
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = surfacePixelRatio();
     const W = canvas.offsetWidth;
     const H = canvas.offsetHeight;
     canvas.width = W * dpr;
