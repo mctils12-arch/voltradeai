@@ -400,6 +400,31 @@ function countOptionsPositions(positions: any[]): number {
     : 0;
 }
 
+// CROSS-CYCLE RACE FIX (KNOWN BROKEN #30, 2026-08-13 — third recurrence of the
+// options-slot cap being breached, structural fix proposed in wishlist.md,
+// this is that fix, Option 1 "count open orders too"). Every SELL_CSP is
+// submitted as an Alpaca DAY LIMIT order that returns "submitted" with no fill
+// confirmation (options_execution.py submit_options_order) — a still-resting
+// order is a real slot commitment (it can fill at any moment) but was
+// invisible to both enforcement points because they only re-fetched FILLED
+// positions via /v2/positions. Companion to countOptionsPositions(): only
+// counts SELL (opening) single-leg option orders — a "buy" order closes an
+// existing short position and frees a slot rather than consuming one, so it
+// must never be counted here. Same QQQ-convexity-overlay exclusion as
+// countOptionsPositions so the two stay conceptually paired; callers add
+// this to countOptionsPositions()'s result to get the true live slot count.
+function countOpenOptionsOpeningOrders(orders: Array<{ side?: string; symbol?: string }>): number {
+  return Array.isArray(orders)
+    ? orders.filter((o) => {
+        if (o.side !== "sell") return false;
+        const sym = o.symbol || "";
+        if (!isOptionSymbol(sym)) return false;
+        if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
+        return true;
+      }).length
+    : 0;
+}
+
 // ─── ET Hour Helper + Order Params — extracted to ./orderParams (see top imports) for unit testing ──
 
 const state = {
@@ -3691,8 +3716,17 @@ print(json.dumps(check_weekly_loss(history)))
         // two independent enforcement points; the cap VALUE (6) is
         // unchanged, so no RULE REVIEW threshold gate applies.
         const freshPositionsForTiers = await alpaca("/v2/positions").catch(() => []);
+        // CROSS-CYCLE RACE FIX 2026-08-15 (KNOWN BROKEN #30, third recurrence,
+        // wishlist.md Option 1): /v2/positions alone only reflects FILLED
+        // orders, so a SELL_CSP submitted last cycle and still resting
+        // unfilled on the book is invisible here — add still-open sell-side
+        // option orders so a slot already committed (but not yet filled) is
+        // counted before this cycle dispatches another SELL_CSP into it.
+        const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open").catch(() => []);
         let tierOptionsSlotsUsed = countOptionsPositions(
           Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
+        ) + countOpenOptionsOpeningOrders(
+          Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : []
         );
 
         // CSP-CASH-RACE FIX 2026-08-13: same TOCTOU class as the slot-cap fix
@@ -4109,8 +4143,18 @@ else:
     // see countOptionsPositions() and the RACE FIX comment at the tier
     // dispatcher).
     const optionsPositions = countOptionsPositions(positions);
+    // CROSS-CYCLE RACE FIX 2026-08-15 (KNOWN BROKEN #30, third recurrence,
+    // wishlist.md Option 1): mirrors the tier dispatcher's identical fix —
+    // a still-resting SELL_CSP limit order from a prior cycle (or from the
+    // tier dispatcher earlier in THIS cycle) is a real slot commitment not
+    // yet reflected in /v2/positions. Count it here too so both
+    // options-opening paths agree on live state, not just filled state.
+    const openOptionsOrdersForExec = await alpaca("/v2/orders?status=open").catch(() => []);
+    const optionsOrdersPending = countOpenOptionsOpeningOrders(
+      Array.isArray(openOptionsOrdersForExec) ? openOptionsOrdersForExec : []
+    );
     let slotsUsed = stockPositions;  // Only count stocks against MAX_POSITIONS
-    let optionsSlotsUsed = optionsPositions;
+    let optionsSlotsUsed = optionsPositions + optionsOrdersPending;
     let totalDeployed = Array.isArray(positions)
       ? positions.reduce((sum: number, p: any) => {
           if (FLOOR_AND_LEG_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions
