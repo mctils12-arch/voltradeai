@@ -52176,3 +52176,152 @@ gap); B1/B2/B3 product surfaces that don't depend on the now-closed
 predictive claim remain open. Outside GRID VISION: platform_program.md
 queue is clear (P5 human-gated); no other product item was found
 riper than this one at session start.
+
+## 2026-08-15 — [RESEARCH] USAspending gate-2 FINAL RUN: pre-registered hypothesis REJECTED, wrong-signed non-surviving finding filed as fresh candidate (v1.0.722)
+
+Territory: T-DATACORE (research/open_questions.md, research/experiments.md,
+datacore/signal_ladder.json, test_ladder_readiness_check.py) — no server/,
+client/, or trading-path code touched.
+
+SESSION-START CHECKS: read CLAUDE.md in full including the EDGE DOCTRINE.
+Live health (`GET https://voltradeai-production.up.railway.app/api/health`):
+`status:"ok"`, bot `active`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark` absent, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`,
+all three position feeds `dead:false` — no LIVENESS ALARM. KNOWN BROKEN
+walked: item #30 (OPTIONS-SLOT-FULL third recurrence) is explicitly NOT a
+liveness/kill-switch issue and its own entry forbids a third same-session
+patch (RECURRENCE ESCALATES) — structural fix already filed in
+wishlist.md for a dedicated session, correctly not this one. Item #10/#20
+remain open but are evidence-logging-built and gated on live shadow-history
+accumulation, non-blocking. Nothing critical unfixed; NOT a [REPAIR]
+session. Loop-health ratio, last 10 tagged entries before this one:
+5/10 REPAIR (REPAIR x5, PIPELINE x3, PRODUCT x1, RESEARCH x1) — under the
+7+ thrash trigger.
+
+PRIMARY-ACTION SELECTION: this routine's own brief named 4 axes. Axis (a)
+(build a free-data pipeline end-to-end): every named example (Sentinel-2
+tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+Trends/pytrends) is already `built` or correctly `gate1_fail`-declined —
+matches every prior session's independent finding back to 2026-07-26.
+Instead of starting a new pipeline from zero, ran
+`python3 scripts/ladder_readiness_check.py` (the EDGE DOCTRINE #3
+compiled-knowledge tool built 2026-08-13 specifically to answer "is a
+gate2_pending root's own already-filed re-run condition met yet" without
+re-deriving it by hand) and found `usaspending_contracts` `READY: 0d past
+2026-08-15` — TODAY is the exact date a dozen-plus prior sessions
+(2026-07-26 through 2026-08-14) had already flagged as the earliest valid
+re-run point for `scripts/usaspending_gate2.py`'s pre-registered gate-2
+SIGNAL test. This is squarely axis (b)/(a) overlap — USAspending contracts
+hitting small caps before the price moves is the EDGE DOCTRINE's own named
+capacity-constrained-corner example, already built to gate 1, waiting on
+exactly this calendar trigger to advance to gate 2.
+
+PRIOR (restated verbatim from 2026-07-05/07-26, stated before this run,
+REASONING STANDARD #10): large award/mcap ratio predicts BETTER forward
+5-20 trading-day returns for small-cap (mcap<$2B) civilian-agency contract
+recipients than the low-ratio bucket or the ticker's own unconditional
+baseline, because a modest award is immaterial to a $50B company but
+material to a $200M one, and large funds are capacity-constrained out of
+thin small-cap names (EDGE DOCTRINE #2). Kill if the high-ratio bucket
+shows no separation from its own ticker baseline.
+
+READ BEFORE WRITE: read `scripts/usaspending_gate2.py` in full (its own
+module docstring, the PRIOR, the DoD-exclusion rationale, the mcap-
+approximation caveat, the median-split bucketing design) and the 2026-07-26
+run's INCONCLUSIVE entry in this file before touching anything, confirming
+the stopping rule ("re-run unmodified") applied — no parameter or design
+change was made to the script this session.
+
+EXECUTION: `pip install scipy` (present in `requirements.txt`, absent from
+this sandbox's environment — an install-environment gap, not a dependency
+gap) then `python3 scripts/usaspending_gate2.py` run exactly once,
+unmodified, against the live `/api/diag/archive` probe (`DIAG_TOKEN`
+present in-session) and `backtest_v2.fetch_bars` (Yahoo path). Took ~7
+minutes (per-ticker sequential bar fetches across 210 tickers + SEC EDGAR
+share-count lookups) — ran as a background task, not iterated on.
+
+RESULT: archive grew as predicted (41 calendar days old vs. 21 on
+2026-07-26) — 952 civilian-agency ticker-matched events across 210
+tickers (was 286/103), 728 excluded as large-cap, 49 with no resolvable
+EDGAR share count, leaving **129 small-cap events**. The 5-day horizon is
+now adequately powered for the first time (high_ratio n=50, low_ratio
+n=43, both well clear of the n>=5 floor); 20d stays thin (low_ratio n=6,
+high_ratio n=4, still below floor, correctly returned `null` rather than
+computed on too few points). One data-completeness caveat found, not
+fixed (stopping rule): 2026-08-02's archive day hit the diag probe's row
+cap (`count:5000, truncated:true`) — every other day was untruncated;
+undercounts the archive slightly, does not change the result's direction.
+
+5d: high_ratio mean **-3.361%** vs. its own baseline **+1.368%** (-4.729pp
+gap, Welch t=-2.339, **p=0.022**, n=50 vs n_baseline=1667). low_ratio:
++4.557% vs baseline, +3.189pp, t=1.455, p=0.151 (n.s.). 20d: low_ratio
++2.87pp, p=0.754 (n.s., n=6); high_ratio null (n=4<5).
+
+VERDICT: **HYPOTHESIS AS STATED REJECTED**, applying the same discipline
+this repo already used on `cftc_tff_positioning` (wrong-signed effects are
+rejected as the stated hypothesis regardless of nominal significance) and
+`cftc_cot_positioning` (Bonferroni across the run's valid comparisons
+before trusting any single p-value). Of the 3 valid (n>=5) comparisons
+this run, Bonferroni alpha = 0.05/3 = 0.0167 — the only nominally-
+interesting result (5d high_ratio, p=0.022) does not survive. More
+importantly, independent of the correction: the closest-to-significant
+result is the OPPOSITE SIGN from the PRIOR. This run was adequately
+powered at 5d and found no positive separation at any horizon — this is a
+real rejection, not "inconclusive, needs more data" like 2026-07-26.
+
+SECOND-ORDER NOTE (REASONING STANDARD #1, variables interact — logged
+honestly, not chased further this session per the stopping rule): the
+median-ratio split conflates award materiality with raw company size,
+because `ratio = amt / mcap` and `mcap` is also the small-cap filter's own
+denominator — for a fixed award size, the smallest-mcap names within the
+small-cap universe mechanically land in the high-ratio bucket. The -4.7pp
+gap could be a small-cap-within-small-cap size/liquidity effect rather
+than an award-materiality effect; this design cannot distinguish the two
+without a market-cap-matched control. Filed as a fresh, explicitly
+un-pre-registered candidate (open_questions.md's new "USASPENDING
+SIZE-CONFOUND" entry) requiring its own disjoint out-of-sample window
+before any trust — not silently promoted from this run's data (same
+discipline as the `cftc_tff_positioning` TLT-momentum carry-forward).
+
+LADDER + TEST UPDATE: `datacore/signal_ladder.json`'s `usaspending_
+contracts` status moved `gate2_pending` -> `gate2_fail`; its
+`readiness_trigger` removed (an already-resolved trigger would make
+`ladder_readiness_check.py` report this root "ready" forever, a staleness
+bug in the tool). `test_ladder_readiness_check.py`'s two usaspending-
+specific live-ladder integration tests were repointed at
+`cftc_cot_positioning` (still `gate2_pending`, same trigger type coverage
+shape restored via `TestWeeklyReportsTrigger`'s own math for the
+"eventually ready" case) — a legitimate update to match a graduated root,
+not a weakened assertion: `TestDateTrigger`'s pure-unit tests (unchanged,
+untouched) still fully cover the `date`-trigger evaluation logic in
+isolation. RAW `/api/data/usa-spending` display is completely unaffected
+(raw overlay, no predictive claim, keeps running) — only the predictive-
+claim question is closed.
+
+RATCHET: no new production code this session (the gate-2 script ran
+unmodified per its own stopping rule — PROMOTION RULE 2's "new behavior
+needs a new test" does not apply, there is no new behavior). The 2 test
+edits in `test_ladder_readiness_check.py` are a same-count repoint (2
+removed, 2 added), not new coverage or reduced coverage.
+
+GATES: `pip install -r requirements.txt -r requirements-dev.txt` (absent
+at session start) then `python3 -m pytest -q` — 1354 passed, 1 skipped,
+identical to the pre-existing baseline (0 regressions; the 2 repointed
+tests are part of that count). `bash scripts/gated_tests.sh` — see below.
+No `.ts`/`.tsx`/client files touched, so `npx tsc --noEmit`/`npx tsx
+--test`/`npm run build`/`npm run visual` were not re-run (no possible
+effect). No backtest per PROMOTION RULE 3 — this is a gate-2 signal
+screen result, not a strategy or threshold change; nothing in the live
+bot's scoring, sizing, or trading path was touched.
+
+Version 1.0.721 → 1.0.722.
+
+NEXT: the fresh SIZE-CONFOUND candidate (open_questions.md) needs a new
+mcap-decile-bucketed script, its own pre-registration, and a window
+disjoint from this run's 129 events (new awards accrued after 2026-08-15)
+before any trust — check archive growth first, don't guess readiness.
+Outside this root: `cftc_cot_positioning` (~70d away) and
+`sec_8k_earnings_language` (~48d away) remain the only other
+readiness-tracked gate2_pending roots; `ladder_readiness_check.py` now
+correctly reports 0/2 ready. STARVED: no — this was the single highest-EV
+unclaimed item and its own gate closed cleanly this session.

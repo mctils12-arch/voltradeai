@@ -4187,6 +4187,50 @@
 
 ## OPEN RESEARCH QUESTIONS
 
+### USASPENDING SIZE-CONFOUND — is the wrong-signed award/mcap result actually a small-cap size effect? (filed 2026-08-15)
+
+CONTEXT: the KNOWN BROKEN #4 USAspending gate-2 re-run (2026-08-15, see
+above) rejected its pre-registered hypothesis and instead found a
+nominally-interesting-but-uncorrected wrong-signed result: within the
+small-cap (mcap<$2B) civilian-contract-recipient universe, the
+HIGH award/mcap-ratio half underperformed its own ticker baseline by
+-4.7pp at 5 trading days (p=0.022 uncorrected, does not survive
+Bonferroni across the run's 3 valid comparisons). That run's own
+SECOND-ORDER NOTE flagged a design confound: because ratio=amt/mcap and
+mcap is also the small-cap filter's own denominator, the high-ratio
+bucket is mechanically tilted toward the SMALLEST mcap names within an
+already-small universe — so the -4.7pp gap could be a small-cap-within-
+small-cap size/liquidity effect rather than an award-materiality effect.
+
+QUESTION (needs its own disjoint out-of-sample window before any trust
+— this is NOT a promotion of the 2026-08-15 finding, it is a fresh,
+un-pre-registered candidate motivated by it): does a market-cap-MATCHED
+(not ratio-based) comparison — e.g. bucket recipients by mcap decile
+first, then compare award-recipients vs. non-recipients WITHIN each
+decile — still show negative forward 5d returns for contract recipients,
+or does the effect disappear once mcap is controlled for directly
+instead of via a ratio that shares its own denominator? PRIOR: expect
+the effect to shrink materially once mcap is matched directly (the
+ratio-share-denominator mechanism is a real design flaw, not a hunch);
+if it survives matching, that would be a genuinely surprising result
+(a government contract award predicting WORSE near-term returns) worth
+its own second-order investigation (selection effect — desperate/
+distressed small caps chase contracts a healthy peer wouldn't need —
+vs. execution/dilution risk on a contract straining a tiny recipient's
+capacity) before trusting it operationally either way.
+
+LADDER PATH: this is a gate-2 SIGNAL redesign, not a new data root
+(gate 1 stays passed) — needs a NEW script (mcap-decile bucketing
+instead of ratio-median split), run once, pre-registered, against a
+window disjoint from the 2026-08-15 run's archive dates (i.e. new
+awards accrued after 2026-08-15, not a re-slice of the same 129 events
+— re-testing on the same data that produced the motivating finding
+would be circular). Earliest reasonable attempt: once the post-2026-
+08-15 archive alone has enough small-cap events to clear the n>=5
+floor per horizon independently — check via a small archive-count query
+before building, do not guess. Kill if the effect is not directionally
+reproduced (any sign, not just wrong-signed) on the fresh window.
+
 ### CSP CAPITAL ALLOCATION — should the bot reserve cash collateral for its options tier? (filed 2026-07-28)
 
 CONTEXT: after the options pipeline was repaired end-to-end (v1.0.526-527
@@ -7034,6 +7078,96 @@ Reasoning Standard #10):
    now tracks the 2026-08-15 date above mechanically via
    `datacore/signal_ladder.json`'s `usaspending_contracts.readiness_
    trigger` — check that instead of re-deriving the date by hand.]
+   GATE 2 FINAL RUN 2026-08-15 (scheduled-routine session, [RESEARCH],
+   T-DATACORE, EDGE DOCTRINE axis (a)/(b)) — **HYPOTHESIS AS STATED
+   REJECTED (gate2_fail); a wrong-signed, non-surviving association
+   found instead.** `scripts/usaspending_gate2.py` re-run exactly per
+   its own NEXT note: unmodified, first day this run was permitted
+   (`ladder_readiness_check.py` showed `READY: 0d past 2026-08-15` at
+   session start — the earliest valid moment, not a delayed one; the
+   07-26 entry's "prefer waiting longer if session cadence allows" was
+   weighed against this being a scheduled routine that may not
+   reliably land on this exact repo again soon, and the archive having
+   already grown 3x since the last check).
+   PRIOR RESTATED (unchanged from 2026-07-05/07-26, before this run):
+   large award/mcap ratio predicts BETTER forward 5-20d returns for
+   small-cap civilian-agency recipients than the low-ratio bucket or
+   the ticker's own baseline; near-zero separation expected once mcap
+   is large enough that the award is immaterial; kill if the high-ratio
+   bucket shows no separation from baseline.
+   ARCHIVE GROWTH (as predicted): 41 calendar days old (started
+   2026-07-05), 952 civilian-agency ticker-matched events across 210
+   tickers (up from 286/103 on 2026-07-26) — 728 excluded as large-cap
+   (>=$2B), 49 with no resolvable EDGAR share count, leaving
+   **129 small-cap events tested**, comfortably clearing the n>=5
+   significance floor at the 5-day horizon for the first time (high_ratio
+   n=50, low_ratio n=43). The 20-day horizon is still thin: low_ratio
+   n=6 barely clears the floor, high_ratio n=4 stays below it (null,
+   correctly not computed, not fabricated) — the archive needs
+   meaningfully more time before 20d is properly powered. One data
+   caveat found and logged, not fixed (stopping rule — script ran
+   unmodified): the 2026-08-02 archive day hit the diag probe's row cap
+   (`count:5000, truncated:true`) — some 2026-08-02 events are missing
+   from this run; every other day is untruncated. This slightly
+   undercounts the archive, does not change which direction the result
+   points.
+   RESULT (5d horizon, the only adequately-powered one): high_ratio
+   mean **-3.361%** vs. its own ticker-baseline **+1.368%** — a
+   **-4.729pp** gap, Welch t=-2.339, **p=0.022** (n=50 vs. n_baseline=
+   1667). low_ratio: +4.557% vs. baseline, +3.189pp gap, t=1.455,
+   p=0.151 (not significant). 20d: low_ratio +2.87pp, p=0.754 (not
+   significant, n=6 thin); high_ratio null (n=4<5).
+   VERDICT — apply the same discipline this repo used on
+   `cftc_tff_positioning` (wrong-signed effects get rejected as the
+   stated hypothesis even when nominally significant) and
+   `cftc_cot_positioning` (Bonferroni across the valid comparisons
+   before trusting any single p-value): of the 3 valid (n>=5)
+   comparisons this run (5d high_ratio, 5d low_ratio, 20d low_ratio),
+   Bonferroni alpha = 0.05/3 = 0.0167. The one nominally-interesting
+   result, 5d high_ratio's p=0.022, does **not** survive that
+   correction. Separately and more importantly: even ignoring multiple
+   comparisons, **the one result close to significant is the OPPOSITE
+   SIGN from the PRIOR** — high award/mcap ratio predicts WORSE forward
+   5d returns, not better. The pre-registered hypothesis ("large
+   award/mcap ratio predicts better forward returns for small caps") is
+   therefore **REJECTED**, not merely "inconclusive" — this run was
+   adequately powered at 5d (n=50) and found no positive separation at
+   any horizon.
+   SECOND-ORDER NOTE, logged honestly as a design caveat, not chased
+   further this session (stopping rule): the median-ratio split
+   conflates award materiality with raw company size, because
+   ratio = amt / mcap and mcap is also the small-cap filter's own
+   denominator — for a given award size, the smallest-mcap names within
+   the small-cap universe mechanically land in the high-ratio bucket.
+   The -4.7pp gap could therefore be a small-cap-within-small-cap size/
+   liquidity effect rather than an award-materiality effect; this
+   design cannot distinguish the two without a market-cap-matched
+   control, which this script does not build. Filed as its own,
+   separate, un-pre-registered candidate below rather than silently
+   reused as if it were part of this pre-registered test (REASONING
+   STANDARD #4 — a new hypothesis needs its own out-of-sample
+   confirmation before any trust, same discipline as the
+   `cftc_tff_positioning` TLT-momentum carry-forward).
+   LADDER UPDATE: `datacore/signal_ladder.json`'s `usaspending_contracts`
+   entry moved `gate2_pending` -> `gate2_fail`; `readiness_trigger`
+   removed (the condition it tracked is now resolved — leaving it would
+   make `ladder_readiness_check.py` report this root "READY" forever
+   after the gate is already closed, a staleness bug in the tool
+   itself). `test_ladder_readiness_check.py`'s two usaspending-specific
+   live-ladder tests were repointed at `cftc_cot_positioning` (still
+   gated, same trigger-type coverage shape: not-ready-today /
+   eventually-ready) — this is a legitimate update to match a graduated
+   root, not a weakened assertion; `TestDateTrigger`'s pure-unit tests
+   (unchanged) still fully cover the `date`-trigger evaluation logic
+   itself. RAW `/api/data/usa-spending` display is completely
+   unaffected (raw overlay, no predictive claim, keeps running) — only
+   the predictive-claim question is closed.
+   NEW CANDIDATE FILED (un-pre-registered, needs its own disjoint
+   out-of-sample window before any trust — see OPEN RESEARCH QUESTIONS
+   below): "does a market-cap-matched (not ratio-based) small-cap
+   civilian-agency contract award predict *negative* forward 5d
+   returns?" — motivated by this run's wrong-signed finding, explicitly
+   not promoted from it.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
