@@ -186,6 +186,28 @@ merge should wait until after 4:00 PM ET. This is not a critical live
 break (paper account, soft position-count limit, not a kill-switch or
 liveness issue) so the wait is not overridden.
 
+**ADDENDUM (same session, 2026-08-15T16:32Z) — the merge-timing note above
+had no effect: PR #850 auto-merged at 16:32Z, ~12:32 PM ET, during market
+hours, well before the requested 4:00 PM ET wait.** Root cause (confirmed
+by reading `.github/workflows/`'s `automerge` job, a FROZEN PATH — read
+only, not edited): "Auto-merge Claude PRs" runs `gh pr merge --squash`
+unconditionally once every heavy CI job (`changes`/`python-tests`/
+`node-build`/`docker-build`/`test`) reports non-failure on any
+`claude/`-prefixed branch — it has no mechanism to read PR-body prose at
+all, so a "wait until after 4pm ET" sentence is decorative, not
+enforced, regardless of how the PR body phrases it. Substantively this
+merge is fine (fully tested, preventive paper-account repair, no actual
+harm from the early timing) — but the PROCESS GAP is real: every future
+scheduled-routine PR that carries this same market-hours note will also
+auto-merge immediately, making that instruction silently ineffective for
+as long as `automerge` stays unconditional. Filed as a process finding
+in `research/wishlist.md` (own entry, this date) for human review, since
+`.github/workflows/` is FROZEN and no autonomous session may change the
+automerge gate itself — the two options (gate on a time-of-day check, or
+drop the market-hours-note instruction from the scheduled prompt since
+nothing enforces it) are both human-decision territory, not something
+this session should self-apply.
+
 ## 2026-08-15 (scheduled-routine session) [PIPELINE] — GNSS-INTEGRITY root: gate-2 re-confirmed at 4 days, gate-1 cross-reference attempted (partial), AIS vessel-outage correction
 
 TERRITORY: T-DATACORE (research/open_questions.md, datacore/signal_ladder.json
