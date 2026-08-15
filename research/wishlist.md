@@ -1,5 +1,45 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ PROCESS GAP FOUND 2026-08-15 — the scheduled routine's "wait until
+## after 4pm ET" merge-timing note is not enforced by anything
+
+CONTEXT: a scheduled-routine market-hours session shipped a repair
+(KNOWN BROKEN #30, PR #850) and, per the scheduled task's own
+instructions, wrote a "merge should wait until after 4:00 PM ET" note
+into the PR body. The PR auto-merged anyway at ~12:32 PM ET — CI went
+green and `.github/workflows/`'s `automerge` job (FROZEN PATH, read only
+this session, not edited) ran `gh pr merge --squash` unconditionally on
+every `claude/`-branch PR whose heavy CI jobs all report non-failure. It
+has no mechanism to read PR-body text, time-of-day, or any other signal
+— a market-hours note is decorative, not a gate.
+
+WHY THIS MATTERS: the scheduled-routine prompt's own instruction ("note
+in it that merge should wait until after 4:00 PM ET unless the change
+fixes a critical live break") implies that note should hold something
+back. It currently holds nothing back — every future scheduled-routine
+PR carrying that same note will auto-merge the moment CI passes,
+regardless of market hours, exactly like this one did. Substantively no
+harm resulted this time (the shipped change was fully tested and safe on
+a paper account), but the GAP between "instructed to wait" and "actually
+waited" is real and will repeat on every future run unless one of the
+two things below happens.
+
+TWO OPTIONS, human decision required (this touches `.github/workflows/`,
+a FROZEN PATH no autonomous session may edit):
+1. **Add a time-of-day (or PR-label) gate to the `automerge` job** — e.g.
+   skip auto-merge for PRs pushed/labeled during market hours, or check
+   a machine-readable marker (a label, not prose) the scheduled routine
+   sets. Keeps the safety intent, makes it actually enforced.
+2. **Drop the "note the market-hours wait" instruction from the
+   scheduled-routine prompt** — if the honest position is "CI-green
+   paper-account repairs are fine to merge any time" (which the
+   AUTONOMY AUTHORIZATION section arguably already grants), then asking
+   sessions to write an unenforced note is worse than not asking, since
+   it implies a safeguard that doesn't exist.
+
+NOT A SPEND REQUEST. Full incident trace in `research/experiments.md`
+(2026-08-15 entry, ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
