@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-15 (scheduled-routine session, market hours) [REPAIR] — KNOWN BROKEN #30: OPTIONS-SLOT cap cross-cycle race, structural fix (Option 1) shipped (v1.0.725)
+## 2026-08-15 (scheduled-routine session, market hours) [REPAIR] — KNOWN BROKEN #30: OPTIONS-SLOT cap cross-cycle race, structural fix (Option 1) shipped (v1.0.725, PR #850)
 
 TERRITORY: T-BOT (`server/bot.ts` outside frozen paths) — order-submission
 internals (`options_execution.py`'s `submit_options_order`, the raw HTTP
