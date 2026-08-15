@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  EARTH_MEAN_RADIUS_KM,
   STARLINK_MIN_ELEV_DEG,
   groundFootprintRadiusKm,
   footprintCircle,
@@ -14,50 +13,101 @@ import {
   isVisible,
   gpsDop,
   nextPassOverSite,
+  wgs84GeocentricRadiusKm,
   type GeoPosition,
   type PositionSampler,
 } from "./geometry.ts";
+import {
+  EARTH_EQUATORIAL_RADIUS_KM,
+  EARTH_POLAR_RADIUS_KM,
+} from "./satDerived.ts";
+
+// --------------------------------------------------------------------------
+// 0. wgs84GeocentricRadiusKm — the Q24 fix itself
+// (research/PROGRAM_STATE.md: propagate.ts's altKm is height above the
+// WGS-84 ellipsoid AT THE POINT'S OWN LATITUDE, not above a fixed sphere;
+// every function below now adds altKm to this instead of EARTH_MEAN_RADIUS_KM)
+// --------------------------------------------------------------------------
+
+test("wgs84GeocentricRadiusKm: reduces to the equatorial/polar constants at 0/90deg (to fp precision)", () => {
+  // Not bit-exact equality: the square/sqrt round trip through the closed
+  // form introduces ~1e-12 relative fp noise even at these exact angles.
+  assert.ok(Math.abs(wgs84GeocentricRadiusKm(0) - EARTH_EQUATORIAL_RADIUS_KM) < 1e-9);
+  assert.ok(Math.abs(wgs84GeocentricRadiusKm(90) - EARTH_POLAR_RADIUS_KM) < 1e-9);
+  assert.ok(Math.abs(wgs84GeocentricRadiusKm(-90) - EARTH_POLAR_RADIUS_KM) < 1e-9);
+});
+
+test("wgs84GeocentricRadiusKm: matches the standard WGS-84 table at 45deg (~6367.4895km)", () => {
+  // Independently computed (python, WGS-84 a/b) — see the PR description.
+  const r45 = wgs84GeocentricRadiusKm(45);
+  assert.ok(Math.abs(r45 - 6367.4895) < 1e-3, `r45=${r45}`);
+});
+
+test("wgs84GeocentricRadiusKm: strictly decreasing from equator to pole (oblate, a > b)", () => {
+  const r0 = wgs84GeocentricRadiusKm(0);
+  const r30 = wgs84GeocentricRadiusKm(30);
+  const r60 = wgs84GeocentricRadiusKm(60);
+  const r90 = wgs84GeocentricRadiusKm(90);
+  assert.ok(r0 > r30 && r30 > r60 && r60 > r90, `${r0} ${r30} ${r60} ${r90}`);
+  assert.ok(r0 <= EARTH_EQUATORIAL_RADIUS_KM + 1e-9);
+  assert.ok(r90 >= EARTH_POLAR_RADIUS_KM - 1e-9);
+});
+
+test("wgs84GeocentricRadiusKm: symmetric north/south", () => {
+  for (const lat of [10, 37, 65]) {
+    assert.equal(wgs84GeocentricRadiusKm(lat), wgs84GeocentricRadiusKm(-lat));
+  }
+});
 
 // --------------------------------------------------------------------------
 // 1. Footprint radius sanity
 // --------------------------------------------------------------------------
 
 test("footprint radius: LEO (~550km) at 25deg mask is a plausible few-hundred-km cap", () => {
-  const r = groundFootprintRadiusKm(550, STARLINK_MIN_ELEV_DEG);
+  const r = groundFootprintRadiusKm(550, STARLINK_MIN_ELEV_DEG, 0);
   // ~940 km by the coverage-geometry law-of-sines derivation.
   assert.ok(r.radiusKm > 300 && r.radiusKm < 1500, `LEO radius ${r.radiusKm}`);
   assert.ok(r.centralAngleDeg > 0 && r.centralAngleDeg < 20);
 });
 
 test("footprint radius: GEO (~35786km) at 5deg covers a continent-scale cap", () => {
-  const r = groundFootprintRadiusKm(35786, 5);
+  const r = groundFootprintRadiusKm(35786, 5, 0);
   // ~8500 km surface radius; central half-angle ~76deg (near-hemispheric).
   assert.ok(r.radiusKm > 6000 && r.radiusKm < 10000, `GEO radius ${r.radiusKm}`);
   assert.ok(r.centralAngleDeg > 60 && r.centralAngleDeg < 85);
 });
 
 test("footprint radius: monotonic increasing in altitude at a fixed mask", () => {
-  const a = groundFootprintRadiusKm(300, 25).radiusKm;
-  const b = groundFootprintRadiusKm(550, 25).radiusKm;
-  const c = groundFootprintRadiusKm(1000, 25).radiusKm;
-  const d = groundFootprintRadiusKm(35786, 25).radiusKm;
+  const a = groundFootprintRadiusKm(300, 25, 0).radiusKm;
+  const b = groundFootprintRadiusKm(550, 25, 0).radiusKm;
+  const c = groundFootprintRadiusKm(1000, 25, 0).radiusKm;
+  const d = groundFootprintRadiusKm(35786, 25, 0).radiusKm;
   assert.ok(a < b && b < c && c < d, `${a} ${b} ${c} ${d}`);
 });
 
 test("footprint radius: zenith-only mask (90deg) -> zero cap; horizon (0deg) -> max cap", () => {
-  const zenith = groundFootprintRadiusKm(550, 90);
+  const zenith = groundFootprintRadiusKm(550, 90, 0);
   assert.ok(zenith.radiusKm < 1e-6 && zenith.centralAngleRad < 1e-6);
-  const horizon = groundFootprintRadiusKm(550, 0);
-  const masked = groundFootprintRadiusKm(550, 25);
+  const horizon = groundFootprintRadiusKm(550, 0, 0);
+  const masked = groundFootprintRadiusKm(550, 25, 0);
   assert.ok(horizon.radiusKm > masked.radiusKm, "horizon cap must exceed a masked cap");
 });
 
 test("footprint radius: non-positive altitude returns a zero cap", () => {
-  assert.deepEqual(groundFootprintRadiusKm(0, 10), {
+  assert.deepEqual(groundFootprintRadiusKm(0, 10, 0), {
     radiusKm: 0,
     centralAngleRad: 0,
     centralAngleDeg: 0,
   });
+});
+
+test("footprint radius: at a fixed altitude/mask, the cap is SMALLER near the pole than the equator (Q24 — smaller local Earth radius)", () => {
+  const eq = groundFootprintRadiusKm(550, 25, 0).radiusKm;
+  const pole = groundFootprintRadiusKm(550, 25, 89).radiusKm;
+  assert.ok(pole < eq, `expected pole cap ${pole} < equator cap ${eq}`);
+  // The whole point of Q24: the gap is real but small (sub-1%), not the
+  // 7km-of-altitude-sized error the original queue entry assumed (L21).
+  assert.ok((eq - pole) / eq < 0.01, `unexpectedly large gap: ${(eq - pole) / eq}`);
 });
 
 // --------------------------------------------------------------------------
@@ -77,7 +127,7 @@ test("footprintCircle: returns exactly nPoints [lon,lat] pairs", () => {
 test("footprintCircle: every point lies at ~the cap central angle from the sub-point", () => {
   const subLat = 30;
   const subLon = -100;
-  const cap = groundFootprintRadiusKm(550, 25).centralAngleDeg;
+  const cap = groundFootprintRadiusKm(550, 25, subLat).centralAngleDeg;
   const ring = footprintCircle(subLat, subLon, 550, 25, 64);
   for (const [lon, lat] of ring) {
     const d = centralAngleDeg(subLat, subLon, lat, lon);
@@ -94,7 +144,7 @@ test("footprintCircle: a polar cap (contains the North Pole) still returns valid
   // Sub-point near the pole with a wide GEO-ish cap so the pole is inside.
   const subLat = 88;
   const subLon = 10;
-  const cap = groundFootprintRadiusKm(35786, 5).centralAngleDeg;
+  const cap = groundFootprintRadiusKm(35786, 5, subLat).centralAngleDeg;
   const ring = footprintCircle(subLat, subLon, 35786, 5, 64);
   assert.equal(ring.length, 64);
   // Longitudes must sweep widely (ring encircles the pole), and every
@@ -131,9 +181,13 @@ test("look angles: a satellite directly overhead -> elevation ~90deg, range ~alt
 test("look angles: satellite at the geometric horizon -> elevation ~0deg (hand-checked geometry)", () => {
   // For a site at (0,0) and an equatorial satellite, elevation is exactly
   // 0 when the sub-point is at central angle arccos(R/r) away.
+  // Site and sub-point are both at latDeg=0, where wgs84GeocentricRadiusKm
+  // reduces exactly to EARTH_EQUATORIAL_RADIUS_KM (pinned above) — so the
+  // hand-checked formula below matches elevationAzimuthFromSite's post-Q24
+  // radius exactly, not just approximately.
   const h = 550;
-  const r = EARTH_MEAN_RADIUS_KM + h;
-  const horizonLonDeg = (Math.acos(EARTH_MEAN_RADIUS_KM / r) * 180) / Math.PI;
+  const r = EARTH_EQUATORIAL_RADIUS_KM + h;
+  const horizonLonDeg = (Math.acos(EARTH_EQUATORIAL_RADIUS_KM / r) * 180) / Math.PI;
   const la = elevationAzimuthFromSite(0, horizonLonDeg, h, 0, 0);
   assert.ok(Math.abs(la.elevationDeg) < 1e-6, `horizon elev ${la.elevationDeg}`);
   // The satellite is due east, so azimuth is 90.
@@ -158,8 +212,8 @@ test("isVisible: respects the supplied mask", () => {
   // Overhead is visible at any mask; horizon fails a 10deg mask.
   assert.equal(isVisible(0, 0, 550, 0, 0, 25), true);
   const h = 550;
-  const r = EARTH_MEAN_RADIUS_KM + h;
-  const horizonLonDeg = (Math.acos(EARTH_MEAN_RADIUS_KM / r) * 180) / Math.PI;
+  const r = EARTH_EQUATORIAL_RADIUS_KM + h;
+  const horizonLonDeg = (Math.acos(EARTH_EQUATORIAL_RADIUS_KM / r) * 180) / Math.PI;
   assert.equal(isVisible(0, horizonLonDeg, h, 0, 0, 10), false);
   assert.equal(isVisible(0, horizonLonDeg, h, 0, 0, 0), true);
 });

@@ -6,11 +6,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  semiMajorAxisKm, apsidesKm, orbitalSpeedKmh, periodMinutes, EARTH_EQUATORIAL_RADIUS_KM,
+  semiMajorAxisKm, apsidesKm, orbitalSpeedKmh, periodMinutes,
+  EARTH_EQUATORIAL_RADIUS_KM, EARTH_POLAR_RADIUS_KM,
 } from './satDerived.ts';
 
 const ISS_N = 15.49401687;
 const ISS_E = 0.0004791;
+
+test('Q24: WGS-84 a/b are the single written pair — flattening matches the published ~1/298.257', () => {
+  assert.equal(EARTH_EQUATORIAL_RADIUS_KM, 6378.137);
+  assert.equal(EARTH_POLAR_RADIUS_KM, 6356.7523142);
+  const f = (EARTH_EQUATORIAL_RADIUS_KM - EARTH_POLAR_RADIUS_KM) / EARTH_EQUATORIAL_RADIUS_KM;
+  assert.ok(Math.abs(1 / f - 298.257223563) < 0.001, `inverse flattening ${1 / f}`);
+});
 
 test('ISS semi-major axis / apsides match published values', () => {
   const a = semiMajorAxisKm(ISS_N)!;
