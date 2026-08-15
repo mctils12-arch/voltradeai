@@ -4382,6 +4382,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FRED macro regime cluster keyed mirror — same "shipped-data-no-v1-API"
+  // sweep as the eu-macro block above (this exact gap was this session's
+  // own NEXT item (2): "FRED macro's own /api/v1 mirror is the same-shape
+  // gap this session's pick fills for its European sibling"). Reuses
+  // buildMacroPayload(latestFredSeries()) — the SAME function
+  // /api/data/macro already calls — so the 3 third-party-copyrighted
+  // series (VIXCLS/BAMLH0A0HYM2/UMCSENT) are excluded here exactly as they
+  // are there; no new filtering logic. UNLIKE eu-macro, this root is
+  // itself key-gated server-side (FRED_API_KEY) — same posture as the
+  // crop-conditions/NASS mirror above, a disabled server surfaces that
+  // honestly as 503, not a confusing empty 200. GATE 2 (does the term
+  // structure predict forward returns) not attempted — RAW/regime-feature
+  // display only, same framing as eu-macro.
+  app.get("/api/v1/stats/fred-macro", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      if (!fredEnabled()) {
+        res.status(503).json({ error: "root disabled — FRED_API_KEY not configured server-side" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      const payload = buildMacroPayload(latestFredSeries());
+      if (!payload) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/fred-macro", { count: payload.series.length, series: payload.series }, payload.time));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
