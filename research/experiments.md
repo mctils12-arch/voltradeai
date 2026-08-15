@@ -3,6 +3,232 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-15 (scheduled-routine PRODUCT session #4) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — FRED macro cluster gets its /api/v1 keyed mirror, closing this session's own NEXT item (2) named by the immediately preceding eu-macro-mirror session (v1.0.727)
+
+TERRITORY: same shape as the immediately preceding session (this file's
+own top entry, 2026-08-15 #3, v1.0.726) — primary edits are
+`server/apiProduct.ts` and `server/routes.ts`, both SHARED per the
+WORKSTREAM PARTITION table, kept to the minimal additive edit MERGE-ORDER
+PROTOCOL asks of shared files (one new route block + three additive
+entries, no restructuring). `server/apiProduct.test.ts` (new assertions
+only), `ci/counter_baseline.txt` + `test_ts_code_only.py` (the two ts_any
+pins, both this diff's own direct effect), and `datacore/
+signal_ladder.json` (one entry's note/date bumped) round out the change;
+`package.json`/`package-lock.json` version bump is the standard
+last-commit SHARED edit, read-and-incremented at commit time.
+
+SESSION-START CHECKS (task's own instructions): read CLAUDE.md in full,
+then `research/experiments.md` in the mandated order. Recomputed the
+last-10-tagged-entries thrash ratio including the immediately preceding
+session's own entry as the new #1: [PRODUCT] eu-macro mirror (#852),
+[REPAIR] KNOWN BROKEN #30 options-slot race (#850), [PIPELINE]
+GNSS-integrity re-confirm, [PRODUCT] Time Machine T-4, [RULE-REVIEW] Q23
+program_status baseline, [PIPELINE] Q22 hermetic Python suite, [REPAIR]
+T-CLIENT Q14 Earth constants, [RULE-REVIEW] Q13 counter prose fix,
+[RESEARCH] options-slot 3rd recurrence, [PRODUCT] Time Machine T-2 — 2 of
+10 REPAIR, well under the 7/10 thrash-ratio escalation threshold; no
+meta-problem to diagnose. `open_questions.md` KNOWN BROKEN section walked:
+item #30 (options-slot race) now shows Option 1 SHIPPED (v1.0.725) with a
+LIVE VERIFICATION NEEDED note for a future session to confirm through a
+high-volume options window before calling it fully closed — not this
+session's action (no Power Hour window occurred mid-session, and it is a
+verification task, not a code change, so it doesn't fit this session's
+"open one PR" mandate on its own); items #10 (dead SCORE_BAND_MAX/
+MAX_CHANGE_PCT config) and #20 (tiered_strategy master_kill_switch design
+question) remain the same already-logged, evidence-blocked state prior
+sessions found, neither a LIVENESS ALARM nor actionable this session.
+`wishlist.md` top block is the automerge-timing process-gap finding filed
+two sessions ago (docs-only, no data/access item, nothing this session
+needed to act on).
+
+Live `/api/health`: `status:"ok"`, `bot.status:"active"`, `drawdownPct:
+"0.0"`, `alpaca.account_status:"ACTIVE"`, `scanner.consecutiveFailures:0`,
+`feeds` all `dead:false`, `bot.liveness.dark:false` — no LIVENESS ALARM.
+Live `/api/data/layers`: `server_version 1.0.726` matched `package.json`
+exactly at session start and was re-confirmed unchanged via
+`git fetch origin main` immediately before the version bump below (HEAD
+still `0d19470`/#852, no advance since session start).
+
+PRIMARY-ACTION SELECTION: the immediately preceding session's own NEXT
+section (this file's top entry above) named four queued items and
+recommended (2) as the most concrete: "FRED macro's own `/api/v1` mirror
+is the same-shape gap this session's pick fills for its European
+sibling — `fredMacro.ts`'s `buildMacroPayload()` already does the harder
+work (filtering out VIXCLS/BAMLH0A0HYM2/UMCSENT as `license:"restricted"`),
+so a future session mirroring it should reuse that filter, not the
+unfiltered `eu-macro` shape this session shipped." Screened the other
+three queued items first per SESSION BUDGET discipline before committing:
+(1) NDBC/USGS mirrors explicitly need a deliberate product-tier decision,
+not a mechanical continuation — skipped as the LESS ready of the two
+concrete candidates; (3) finra_short_volume disjoint retest and
+github_org_engineering_momentum gate 2 are unchanged from where the prior
+sessions left them (no new archive days elapsed in the hours since); (4)
+the STALENESS/CONSTITUTIONAL audit register check is a fallback-tier item,
+not a primary action, when a concrete PRIMARY candidate already exists.
+Chose (2): concrete, already-recommended, zero-ambiguity continuation of
+an established 12-precedent pattern, serving GOAL priority 3 (grow the
+`/api/v1` product surface) and the SPINOUT-READY DATA LAYER standing
+behavior, at genuinely low risk (pure additive route, zero existing-logic
+changes, the harder filtering work already done by `buildMacroPayload()`).
+
+READ BEFORE WRITE: read `server/fredMacro.ts` in full (the 31-series
+definition — 28 `license:"public"` Fed/US-government series across
+rates/curve, financial stress, labor, inflation, activity, and money/
+liquidity, plus the 3 `license:"restricted"` third-party-copyrighted
+series VIXCLS/BAMLH0A0HYM2/UMCSENT — and `buildMacroPayload()`'s existing
+`.filter((s) => s.license === "public")`) before writing any route or
+license mark — confirmed the restricted-series filter this session needed
+to reuse (not reinvent) already exists and already backs the live
+`/api/data/macro` route, so the v1 mirror needed zero new filtering logic,
+only a route that calls the same function. Read the exact
+`/api/data/macro` route (`server/routes.ts:3685-3694`) to confirm
+`buildMacroPayload(latestFredSeries())`'s exact return shape (`{kind,
+source, attribution, time, note, series}`, `series` already
+license-filtered) before writing the mirror. Read the crop-conditions v1
+mirror (`server/routes.ts:4225-4246`) as the precedent for a
+server-side-key-gated root (this one, like NASS, is FRED_API_KEY-gated
+unlike the keyless eu-macro sibling) — copied its exact three-branch shape
+(disabled -> 503 "root disabled"; no cache yet -> 503 "warming up";
+success -> `v1Envelope`) rather than the eu-macro block's simpler
+two-branch shape, since eu-macro has no server-side key gate to report.
+Read all 12 existing `/api/v1` mirror route blocks end to end before
+adding a 13th. Read `server/apiProduct.ts`'s `LICENSE_MARKS`/`apiMeta()`/
+`agentToolSpec()` in full and matched the eu-macro entries' exact shape
+for the new `stats/fred-macro` entries — placed the new
+`voltrade_fred_macro` tool immediately BEFORE `voltrade_eu_macro` in
+`agentToolSpec()`'s tool array (not appended after it) because the
+eu-macro tool's own pre-existing description text says "the same framing
+as the FRED macro cluster (voltrade tools above)" — that phrase predates
+this session and was written when no FRED tool existed yet; placing the
+new tool before it, rather than after, makes an already-shipped sentence
+literally true instead of leaving it stale. Read
+`server/apiProduct.test.ts` in full and matched its established shape for
+the new `stats/fred-macro` test block, plus extended the two shared
+list-based tests (`meta honesty`, `wiring pinned`) the same way every
+prior mirror PR has.
+
+WHAT SHIPPED: `server/routes.ts` — `GET /api/v1/stats/fred-macro`,
+inserted directly after the eu-macro mirror block. Reuses
+`buildMacroPayload(latestFredSeries())` (the SAME function
+`/api/data/macro` already calls — zero new computation, zero new
+filtering logic, zero new poller: `bootFredPoll()` already runs). Returns
+`{count, series}` where `series` is the already-restricted-filtered 28-of-
+31 set. `server/apiProduct.ts` — new `LICENSE_MARKS["stats/fred-macro"]`
+entry (`resell:"ok"`, the license text itself states the 3 restricted
+series are excluded rather than leaving that fact only in code), a new
+`apiMeta()` endpoint entry, and a new `agentToolSpec()` tool
+`voltrade_fred_macro` (empty input schema, `returns_provenance:
+["stats/fred-macro"]`, description explicitly names the exclusion so an
+agent consuming the tool spec alone — without reading source — still
+learns the 3 series are missing on purpose). `server/apiProduct.test.ts`
+— one new dedicated test block (resell:"ok" + license text documents the
+exclusion + agent tool existence/provenance/REGIME-INPUT/gate-2-
+unattempted/EXCLUDED-string assertions), plus the shared `meta honesty`
+and `wiring pinned` tests extended with the new path (the latter's
+`guarded >= 17` bumped to `>= 18`, the direct, sole effect of adding one
+more key-guarded route). `datacore/signal_ladder.json` — the
+`fred_macro_series` entry's note appended (mirror shipped, license
+posture, cross-reference to this session) and `last_update_date` bumped,
+same bookkeeping pattern every prior v1-mirror PR has used.
+
+GATES: `npm install` (node_modules empty at session start, same recurring
+environment gap prior sessions have logged) + `pip install -r
+requirements.txt -r requirements-dev.txt` (python deps also empty at
+session start). `npx tsx --test server/apiProduct.test.ts`: 25/25 pass (24
+pre-existing + 1 new dedicated block, 2 extended). `bash
+scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged. `bash
+scripts/counter_ratchet.sh`: FAILED before the `ts_any` re-pin below
+(documented honestly, not hidden), OK after — 25 counters at or better
+than baseline. `bash scripts/gated_tests.sh`: GATE PASSED — client
+1017/1017, python 1354 passed/1 skipped in 57.85s, quarantine 1/1 (pre-
+existing `gridTilesCoverage.test.ts`, review-by 2026-09-13, zero
+`client/public/tiles/*` files touched this session). `npm run build`:
+clean (pre-existing astronomy-engine ESM default-export notice and
+large-chunk notice only, unrelated, unchanged). No visual harness run:
+zero `client/` files touched, PROMOTION RULE 6 does not apply. Live
+`/api/data/layers` and `git fetch origin main` both re-checked immediately
+before the version bump: still `0d19470`/1.0.726, no advance since session
+start.
+
+HONEST DEVIATION FROM THE MECHANICAL PRECEDENT, CAUGHT BY THE HARNESS
+ITSELF (same shape as the immediately preceding session's own note): the
+new `catch (e: any)` (copied verbatim from all 12 sibling route blocks,
+including the eu-macro block this session's route sits directly beside)
+moved `ts_any` 1238 -> 1239 against `counter_ratchet.sh`'s non-increasing
+pin. Unlike that session's test-file idiom, there was no fixable half
+here — the new test block's own `spec.tools.find((t) => ...)` call
+already used the no-annotation form the prior session fixed, so it
+introduced zero new `any` on its own; the single `+1` is the route's own
+`catch (e: any)`, not fixable without diverging from the same established,
+codebase-wide, now-1239-instance-deep convention every one of its 12
+sibling error handlers uses identically. Per MEASUREMENT INTEGRITY's
+"say so explicitly, state the before/after" allowance for a genuinely-
+unavoidable, convention-consistent move, re-pinned `ts_any` 1238 -> 1239 in
+this same PR — the direct, sole, single-instance effect of this diff.
+Re-pinned the SAME number in `test_ts_code_only.py`'s independent
+parametrized pin too (1238 -> 1239), catching the exact stale-second-pin
+gap the immediately preceding session's own note flagged as its own
+verification-order lesson — checked and updated in the same commit this
+time, not discovered later. `assertions` re-pinned 11392 -> 11401 (9 new
+assert calls: 8 in the new dedicated test block + 1 in the extended `meta
+honesty` test, confirmed via `program_status.sh --json` before and after).
+`tests_run_in_ci`/`tests_gating_merge` left at their existing 375 pin —
+this diff added tests WITHIN an already-counted file
+(`apiProduct.test.ts`), not a new test file, so neither counter's
+file-count metric moved.
+
+BACKTEST: N/A — pure API-surface/product work, no scoring/sizing/
+threshold value touched, no trading path imported. `server/fredMacro.ts`
+itself was read-only this session; only its already-exported
+`latestFredSeries()`/`buildMacroPayload()`/`fredEnabled()` were imported
+(the first two were already imported by the pre-existing `/api/data/macro`
+route; `fredEnabled` was likewise already imported for that same route),
+zero lines changed in that file.
+
+Version bumped 1.0.726 -> 1.0.727 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping (see GATES), confirmed no advance
+since session start. `package-lock.json` resynced via
+`npm install --package-lock-only`, diff confirms only the two
+version-string lines changed.
+
+CROSS-SYSTEM INTEGRATION: none new — pure API-boundary surface over an
+already-shipped, already-gate1-passed RAW data root (regime-conditioning
+input only); no new archive, no new entity-graph join, no new
+`/data`-facing UI (the existing `/api/data/macro` route and its internal
+regime-classification consumers are unaffected — this PR only adds a
+second, keyed, external-customer-facing access path to the same cache).
+
+NEXT (queued, not this session): (1) NDBC/USGS `/api/v1` mirrors remain
+the deliberate-decision candidates the 2026-08-15 finra retest session
+first named — still genuinely raw live-hazard/ocean-observation feeds
+rather than the curated-economic-series family this session's pick and
+its 12 predecessors belong to; a future session should decide
+deliberately whether that's the same product tier, not assume it
+mechanically. (2) LIVE VERIFICATION for KNOWN BROKEN #30 (options-slot
+cross-cycle race, Option 1 shipped 2026-08-15 v1.0.725): a future session
+should check `/api/diag/audit?type=OPTIONS-SLOT-FULL` stays correctly
+gating through at least one high-volume options window (Power Hour) before
+that item is marked fully closed — not attempted this session (no such
+window occurred mid-session, and it's a verification task with no code
+change, not a fit for this session's own primary-action pick). (3) the
+finra_short_volume disjoint out-of-sample retest and `github_org_
+engineering_momentum`'s gate 2 remain queued exactly as prior sessions
+left them. (4) per the AUDITS & DEBT register, the STALENESS/
+CONSTITUTIONAL audits' last-run dates should be checked by the next
+session whose fall-through reaches the research tier (not checked this
+session — PRIMARY action filled capacity).
+
+STARVED: no — this was this session's one primary action (a genuine,
+already-recommended `/api/v1` boundary-extension per the immediately
+preceding session's own NEXT item (2)), matched to capacity, with
+tests/gates all green (after an honestly-documented, unavoidable counter
+re-pin) and no higher-priority queued item skipped (no LIVENESS ALARM;
+KNOWN BROKEN's two remaining open items both evidence-blocked, and #30's
+live-verification follow-up is not a code-change fit for this session;
+thrash ratio 2/10, well under threshold). One logical change (one new
+route + its license/doc/agent-tool registration + tests + the two
+counters it directly moved), one PR, per PROMOTION RULE 5.
+
 ## 2026-08-15 (scheduled-routine PRODUCT session #3) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — European macro cluster gets its /api/v1 keyed mirror, closing the runner-up gap the 2026-08-15 finra_short_volume retest session's own NEXT notes named (v1.0.726)
 
 TERRITORY: this PR's primary edit is `server/apiProduct.ts` (LICENSE_MARKS +
