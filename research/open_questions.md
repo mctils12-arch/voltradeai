@@ -9803,6 +9803,69 @@ independent jamming source; (c) if both hold, this becomes the first
 candidate root queued for a RAW-overlay + gated-SIGNAL /data surface
 per the SPINOUT-READY DATA LAYER rule.
 
+**PROGRESS 2026-08-15 (scheduled-routine PRODUCT session) — GATE 2
+RE-RUN CONFIRMS AND STRENGTHENS AT 4 DAYS; GATE 1 ATTEMPTED, PARTIAL.**
+(a) Re-ran `scripts/gnss_integrity_gate2.ts` with the full accumulated
+window (`2026-08-11,2026-08-12,2026-08-13,2026-08-14` — 4 writer-live
+days now exist, up from 2) against the live diag endpoint
+(`server_version` 1.0.721, confirmed live before running). Effect
+HOLDS AND STRENGTHENS: cruise 15/414 nic==0 (3.6%) vs control 0.147%
+(p<1e-6); mid 12/277 (4.3%) vs control 0.272% (p<1e-6); low 7/903
+(0.78%, BELOW the 2.214% control rate — correctly not elevated);
+ground 0/19 not elevated — the identical pre-registered
+physical-hypothesis pattern as the 2-day run, now on 2-4x the per-band
+sample. `datacore/signal_ladder.json`'s `gnss_integrity_adsb` entry
+updated (`gate2_pass` unchanged, note extended with this re-run).
+(b) Attempted the NEXT step named above — a gate-1 cross-reference
+against an independent (non-ADS-B) jamming source for the study
+dates/region. FOUND: DTU Space's Tein RF measurement station on
+Bornholm (Danish public broadcaster DR, reported 2026-08-15)
+independently confirms the underlying GNSS jamming/spoofing
+phenomenon is real, ongoing, and elevated throughout 2026 in the SAME
+geography this root's candidate bbox covers — waters north of Gdańsk,
+near Bornholm, the Gdańsk–Gotland shipping corridor, all inside
+53–60N/17–24E — with 30 recorded incidents in 2026 to date vs. 16 in
+all of 2025, including a documented 24-hour continuous outage on
+2026-07-29 (a merchant vessel between Gdańsk and southern Gotland).
+This source is genuinely independent: a ground-based RF monitoring
+station, not derived from ADS-B or any aircraft-reported field, so it
+cannot be circular with our signal. Secondary corroboration (not
+independently re-verified in depth this session): an EU Council
+sanctions statement citing Baltic GPS jamming
+(data.consilium.europa.eu/doc/document/ST-9188-2025-REV-1) and a
+peer-reviewed TDOA jamming-source-localization study for the Baltic
+Sea (Springer, *GPS Solutions*, 10.1007/s10291-026-02061-5 —
+paywalled, abstract only).
+gpsjam.org was investigated as a candidate independent source and
+REJECTED: its own methodology (confirmed via its `/about` page)
+derives from ADS-B Exchange navigation-accuracy reports — the SAME
+underlying signal type (NIC/NACp degradation) via a DIFFERENT
+aggregator network. Treating it as "gate 1" would be circular (same
+signal, different receivers) — at most it is CROSS-AGGREGATOR
+consistency evidence, not external ground truth. It was also not
+fetchable as dated historical data through this session's tools (the
+map is JS-rendered; no discoverable static CSV/API; candidate GitHub
+source repos returned 404/403).
+HONEST GATE-1 VERDICT: PARTIAL, not a clean pass. The Bornholm/DTU
+Space station independently confirms the PHENOMENON is real and
+active in the SAME REGION during the SAME MONTH as our 2026-08-11..14
+sample — this rules out "the discrimination is a data artifact with
+no real-world referent." It does NOT confirm jamming was active on
+the EXACT dates 2026-08-11/12/13/14 specifically — no free, dated,
+machine-readable incident log for those days was found. Per REASONING
+STANDARD #10 and the HONESTY CLAUSE, this is logged as "gate 2 pass,
+gate 1 phenomenon/region-level corroborated, exact-day gate-1 still
+open" rather than rounded up to a full gate-1 pass.
+NEXT: (a) keep re-running `scripts/gnss_integrity_gate2.ts` as the
+archive deepens further, to keep confirming durability; (b) if DTU
+Space or another Baltic-state aviation/maritime authority ever
+publishes a dated, open, machine-readable jamming-incident log, wire
+it as the exact-day gate-1 check this root still lacks; (c) the
+adsb.fi non-commercial license condition from the 2026-08-11 entry
+(any SOLD surface must derive from adsb.lol alone) still applies
+unchanged and was not re-checked this session — re-verify before any
+/data ship, per the MONETIZATION TRIPWIRE.
+
 ### 2. SENTINEL-1 SAR FOR DARK SHIPS — THE PIPELINE WORKS, THE VALIDATION LOGIC DOES NOT
 CONFIRMED, impressively: CDSE OData anonymous 200 with real S1 products;
 OAuth succeeded using CDSE_CLIENT_ID/SECRET **already in our env**;

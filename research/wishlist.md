@@ -2465,7 +2465,7 @@ the full civil firehose (e.g. airport-level traffic counts as an
 economic indicator — that hypothesis should pass ladder gate 2 on
 sampled data first).
 
-## ⚠️ BLOCKED-FOR-MIKE — AIS VESSEL FEED DARK SINCE 2026-08-05 (escalated 2026-08-11; RECURRENCE RULE TRIGGERED — two code fixes have not restored it, the remaining lever is the aisstream ACCOUNT, which only you can touch)
+## ⚠️ RESOLVED 2026-08-15 (was: BLOCKED-FOR-MIKE) — AIS VESSEL FEED DARK 2026-08-05 THROUGH 2026-08-11, RECOVERED 2026-08-12 (see correction note at the end of this section; original entry kept verbatim below for the record)
 
 WHAT IS LOST, measured (not estimated): the vessel archive's newest file
 is `vessels/2026-08-05-13.jsonl.gz` while `aircraft` is current to
@@ -2684,6 +2684,41 @@ recording immediately. Then Candidate 2. Keep the aisstream adapter in
 place and unmodified — when the provider recovers, worldwide coverage
 returns for free, and the dead-air watchdog (v1.0.667) will now say so
 the same morning either way.
+
+**CORRECTION 2026-08-15 (scheduled-routine PRODUCT session) — RESOLVED,
+measured, no code change needed.** This session's live health check
+(`/api/health`) showed `feeds.vessels.dead:false, silent_hours:0.08`,
+contradicting this section's "still dark" framing (last known-good
+context was 2026-08-13's T-4 session, which correctly noted the outage
+was STILL ONGOING as of that day). Checked directly via
+`/api/diag/archive?stream=vessels&day=<date>` per day: files stop after
+`2026-08-05-13.jsonl.gz` (matches this entry exactly), stay EMPTY for
+2026-08-06 through 2026-08-11 (6 full days dark, confirming the "~6.4
+days lost" estimate above almost exactly), then RESUME at
+`2026-08-12-10.jsonl.gz` and have written every hour continuously
+through today (2026-08-15) — confirmed again via `/api/data/streams`:
+`vessels` stream `health:"live"`, newest file `2026-08-15-00.jsonl`,
+`age_hours:0`. So: the aisstream provider-side outage that motivated
+this whole section resolved itself around 2026-08-12 10:00 UTC, three
+days before this correction — the predicted "when the provider
+recovers, worldwide coverage returns for free" outcome one paragraph
+up is exactly what happened. WHAT IS STILL LOST: the 6 days
+2026-08-06 through 2026-08-11 are permanently gone (per CLAUDE.md
+Priority 1, an archive gap never refills) — this correction closes the
+"is it still broken" question, not the historical gap itself.
+RECOMMENDATION UPDATE: since worldwide/global aisstream coverage is
+back at zero incremental cost, the Digitraffic-as-fallback build above
+is no longer urgent (it was scoped as a stopgap for an active outage,
+not a permanent addition) — DEPRIORITIZE unless a future outage
+recurs; if it does, re-open this analysis rather than rebuild it (the
+provider/licence/candidate research above stays valid and reusable).
+No code shipped this correction — pure verification against live state
++ this doc fix. Also relevant: `server/aircraftWindow.ts`'s Time
+Machine T-4 (2026-08-14 experiments.md entry) shipped a vessels-mode
+honesty note describing this outage as ongoing — that note is now
+stale by 3 days but not FALSE (a window request covering the outage
+span still correctly returns sparse/empty data via the same honesty
+machinery); not worth its own PR, noted here as the audit trail.
 
 ## 2026-08-12 — CI GAP: the Node test suite (incl. the R15 wiring ratchet) never runs in CI [FROZEN-PATH PROPOSAL]
 
