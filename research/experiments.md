@@ -3,6 +3,121 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-15 (scheduled-routine session) [PIPELINE] — GNSS-INTEGRITY root: gate-2 re-confirmed at 4 days, gate-1 cross-reference attempted (partial), AIS vessel-outage correction
+
+TERRITORY: T-DATACORE (research/open_questions.md, datacore/signal_ladder.json
+— no server/client code touched; scripts/gnss_integrity_gate2.ts was RUN, not
+edited). research/wishlist.md is SHARED, small correction only.
+
+CONTEXT: this run's own instructions named it a [PRODUCT] session — advance
+datacore/ pipelines through the ladder, build /data UI, spec new features, or
+harden datacore's API boundary. Checked system health first: `/api/health`
+clean (`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`, all feeds
+`dead:false`) — no LIVENESS ALARM. KNOWN BROKEN's four open items (#10 dead
+config, #20 kill-switch judgment, #29 diagnostics sizing haircut, #30
+OPTIONS-SLOT-FULL 3rd recurrence) are all T-BOT execution/risk internals, not
+this session's territory and not blocking. Surveyed active programs via a
+research subagent (research/open_questions.md's KNOWN BROKEN + new-hypothesis
+scan, every program charter's RESUME STATE, wishlist.md's tail, the AUDITS &
+DEBT register) before choosing. earth_twin_program.md's next item (T-3) is
+human-question-blocked; GRID VISION's predictive line just closed FAIL;
+platform_program.md/data_census.md/console_charter.md are effectively clear.
+The clearest concrete, unblocked, ladder-relevant candidate: the
+gnss_integrity_adsb root's own 2026-08-13 entry named its NEXT step
+explicitly — "(a) re-run weekly as the archive deepens; (b) gate-1
+cross-reference against an independent jamming source" — category (a) of this
+session's own instructions ("advance a datacore/ pipeline through its next
+ladder gate — gate 1 ground-truth validation and gate 2 signal testing ARE
+product work"). Chose it over starting fresh research per SESSION BUDGET's
+"queued item over new research" ordering.
+
+READ BEFORE WRITE: read `scripts/gnss_integrity_gate2.ts` and
+`server/gnssIntegrityQuery.ts` end to end before running anything — confirmed
+the gate-2 harness is a pure, reusable comparison function
+(`evaluateBands`/`gate2Verdict`) driven by a live `/api/diag/gnss_integrity`
+fetch, with pre-registered method/thresholds already fixed in the file header
+(broadcast-origin only, band-stratified exact binomial test, p<0.01,
+elevation required only in cruise/mid). Read the `/api/diag/:probe` route
+handler in `server/bot.ts` (cases "archive" and "gnss_integrity") to get the
+exact query-param contract before hand-probing the archive.
+
+CHANGES (no code, all research/datacore bookkeeping):
+1. GATE-2 RE-RUN: confirmed `server_version 1.0.721` was live, confirmed via
+   `/api/diag/gnss_integrity?days=<day>&bbox=53,60,17,24` that all 4 days
+   2026-08-11..14 now have Baltic-bbox data, then ran
+   `npx tsx scripts/gnss_integrity_gate2.ts "2026-08-11,2026-08-12,2026-08-13,2026-08-14"
+   "53,60,17,24" "35,55,-80,10"` (the exact script, unmodified, with the wider
+   date argument the 2026-08-13 entry asked for). RESULT: effect holds and
+   strengthens on 2-4x the per-band sample vs. the original 2-day run —
+   cruise 15/414 nic==0 (3.6%) vs control 0.147% (p<1e-6); mid 12/277 (4.3%)
+   vs control 0.272% (p<1e-6); low 7/903 (0.78%, below control's 2.214%,
+   correctly not elevated); ground 0/19 not elevated. Same
+   physical-hypothesis pattern (elevation at cruise/mid only) as before.
+   GATE-2 VERDICT: PASS (unchanged, now on a larger sample).
+2. GATE-1 ATTEMPT: researched candidate independent (non-ADS-B) jamming
+   sources for the Baltic region/2026-08-11..14 window. Found DTU Space's
+   Tein RF measurement station on Bornholm (Danish DR report, 2026-08-15):
+   genuinely independent (ground RF hardware, not ADS-B-derived), confirms
+   the jamming/spoofing phenomenon is real and elevated throughout 2026 in
+   the SAME geography as this root's candidate bbox (30 incidents in 2026 vs
+   16 in all of 2025, incl. a 24h outage 2026-07-29). Investigated gpsjam.org
+   as a candidate source and REJECTED it — its own methodology page shows it
+   derives from ADS-B Exchange nav-accuracy reports, i.e. the SAME signal
+   type via a different aggregator, which would make it circular
+   cross-aggregator evidence, not external ground truth; it also wasn't
+   fetchable as dated history through this session's tools (JS map, no
+   discoverable static API, candidate source repos 404/403). VERDICT: logged
+   as PARTIAL gate-1 (phenomenon/region-level corroborated, NOT exact-day
+   confirmed for 2026-08-11..14 specifically) — explicitly not rounded up to
+   a full gate-1 pass, per the HONESTY CLAUSE and REASONING STANDARD #10.
+3. `datacore/signal_ladder.json`: `gnss_integrity_adsb` entry's `note`,
+   `source_ref`, and `last_update_date` updated with both findings above
+   (surgical single-line text replacement to preserve the file's existing
+   one-line-per-root formatting — a naive `json.dump(indent=2)` rewrite was
+   tried first, produced a 423-line diff by reformatting all 40 unrelated
+   root entries, and was reverted before committing anything).
+   `current_gate`/`status` unchanged (`2`/`gate2_pass`) — no upgrade earned.
+4. `research/open_questions.md`: appended a dated PROGRESS addendum to the
+   existing 2026-08-11/2026-08-13 GNSS entry (same append-only pattern as
+   that entry's own prior progress notes) with the full gate-2 numbers and
+   gate-1 research trail, so a future session doesn't re-derive either.
+5. `research/wishlist.md`: while probing the aircraft/vessel archive
+   endpoints to build the gnss_integrity days list, `/api/health` and
+   `/api/data/streams` both showed the vessels feed `dead:false, health:
+   "live"`, newest file today — contradicting wishlist.md's 2026-08-11
+   "AIS VESSEL FEED DARK" entry (last confirmed still-dark as of the
+   2026-08-13 T-4 session). Verified directly via
+   `/api/diag/archive?stream=vessels&day=<date>` for every day 2026-08-04
+   through 2026-08-14: files stop after `2026-08-05-13.jsonl.gz`, are EMPTY
+   2026-08-06 through 2026-08-11 (6 full days — matches the entry's "~6.4
+   days lost" estimate almost exactly), then RESUME at
+   `2026-08-12-10.jsonl.gz` and have written every hour since. Corrected the
+   section header and appended a dated correction: the aisstream
+   provider-side outage resolved itself ~2026-08-12 10:00 UTC (3 days before
+   this session), exactly the "when the provider recovers, coverage returns
+   for free" outcome the entry's own recommendation predicted; the 6-day gap
+   itself is permanently lost (archive gaps never refill), and the
+   Digitraffic-fallback build the entry recommended is deprioritized (no
+   longer an active outage to patch) but its research stays valid if a
+   future outage recurs. No code shipped for this correction — pure
+   verification against live state.
+
+GATES: no code changed (research/datacore-json only) — PROMOTION RULES 1-4
+(tests, new-behavior test, backtest, version bump) are N/A per the
+established precedent for pure research-log commits (e.g. PR #843, `git show
+--stat` confirms no package.json touch). Validated `datacore/signal_ladder.json`
+stays valid JSON after the edit (`python3 -c "import json; json.load(...)"`).
+No backtest — no trading logic touched. No VISUAL VERIFICATION — no client/
+files touched.
+
+HONEST LIMITATION (stated in the ladder note itself, not smoothed over): this
+root is still NOT cleared to surface on /data — it remains gate-2-pass with a
+partial, not full, gate-1. The next session that revisits this root should
+not treat "gate 1 attempted" as "gate 1 done."
+
+Version unchanged (1.0.721) — no code/package.json touch, per the
+established pure-research-commit precedent.
+
 ## 2026-08-14 (scheduled-routine session) [PRODUCT] — TIME MACHINE T-4: vessels parity — the window-replay endpoint and scrubber now serve vessels, not just aircraft (v1.0.721)
 
 TERRITORY: T-CLIENT-primary (`client/src/components/TimeScrubber.tsx`) +
