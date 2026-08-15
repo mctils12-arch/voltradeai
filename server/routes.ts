@@ -4350,6 +4350,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // European macro cluster keyed mirror (same "shipped-data-no-v1-API"
+  // sweep as plant-operations/secftd/midas/occ-volume/earnings-language/
+  // appstore-rankings/github-activity/crop-conditions/vix-term-structure/
+  // nrc-reactor-status/13f-holdings above — this exact gap was named as a
+  // runner-up candidate by the 2026-08-15 finra_short_volume retest
+  // session's own NEXT notes). Reuses the latestEuMacro() cache
+  // /api/data/eu-macro already uses — no new computation, no new poller
+  // (bootEuMacroPoll() already called earlier). REGIME INPUT feed only
+  // (same framing as fredMacro, never a direct signal) — unlike that
+  // cluster there is no restricted-license series to filter here, all 5
+  // curated series are commercial-reuse-permitted-with-attribution per
+  // euMacro.ts's own verified source-license workup, so the full snapshot
+  // set is returned unfiltered. GATE 2 (does the term structure predict
+  // forward returns) not attempted — RAW/regime-feature display only.
+  app.get("/api/v1/stats/eu-macro", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestEuMacro();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/eu-macro", { count: hit.series.length, series: hit.series }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

@@ -179,6 +179,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "SEC EDGAR 13F-HR filings (per reporting institutional manager)",
     resell: "conditional",
   },
+  "stats/eu-macro": {
+    license: "European macro cluster (ECB Data Portal EUR/USD + €STR + Eurosystem balance sheet; Eurostat EA20 industrial production; Deutsche Bundesbank 10Y Bund yield) — all three source licenses verified verbatim from their own reuse-policy documents at build time (ECB's 'Policy regarding the reuse of ESCB statistics'; Eurostat's copyright notice; Bundesbank's data-license terms): commercial reuse permitted with attribution, same class as the CAMD/FTD/MIDAS/crop-conditions/NRC public-domain US-gov streams above, not conditional like OCC/Cboe/issuer-authored data.",
+    attribution: "per-series (each series carries its own required attribution string: ECB statistics / Eurostat sts_inpr_m / Deutsche Bundesbank)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -204,6 +209,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/vix-term-structure", params: "-", desc: "Cboe VIX1D/VIX9D/VIX/VIX3M/VIX6M/VVIX daily close term structure plus two derived ratios (vix/vix3m contango-vs-backwardation, vix9d/vix front-end stress), latest day + a 30-day recent window. GATE 1 (DATA) PASSED 2026-08-07 (exact match vs. FRED's independent VIXCLS series for 3/3 spot-checked dates) — RAW/regime-feature framing only, no predictive claim; gate-2 signal testing not attempted. Cboe informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/vix-term-structure" },
       { path: "/api/v1/stats/nrc-reactor-status", params: "-", desc: "Daily percent-of-rated-thermal-power per operating NRC reactor unit (unit granularity), plus a per-plant join (units grouped onto the WRI/HIFLD registry's lat/lon, mean power bucketed into full/reduced/outage/unknown) for the newest reporting day. GATE 1 (DATA) PASSED 2026-08-04 (registry-match check, see scripts/nrc_gate1_registry_match.ts). RAW display only — outage-adjacent SIGNAL hypothesis stays gate-2-locked (research/open_questions.md POWER-PLANT SIGNAL HYPOTHESES). Public-domain US federal data, freely resellable.", preview: "/api/data/nrc-reactor-status" },
       { path: "/api/v1/data/13f-holdings", params: "-", desc: "Most-recent SEC EDGAR 13F-HR institutional holdings filings: manager identity, filing period, and the FULL as-filed holdings table (issuer, CUSIP, shares, value, discretion) for focused managers holding <=250 positions — mega-managers over that cap return a summary-only record (holdingsOmitted=true) instead of an index-hugging wall of rows, the same hypothesis-driven FOCUSED_MAX_HOLDINGS cap the archive itself applies. Unlike the /data map's top-25-by-value UI display trim, this endpoint returns every stored position for a focused filing. RAW as-filed display, no predictive claim — GATE 2 (new small-cap position clustering vs 60-90d forward returns; the 45-day filing lag is modeled honestly, holdings are stale when public) NOT attempted. Filings are submitted by the reporting manager, not government-authored — conditional resell, see license_marks.", preview: "/api/data/filings13f" },
+      { path: "/api/v1/stats/eu-macro", params: "-", desc: "European macro regime cluster: ECB EUR/USD reference rate + €STR + weekly Eurosystem balance-sheet total, Eurostat EA20 industrial production, and the 10Y Bund yield (Deutsche Bundesbank) — 5 curated series, each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the FRED macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. Keyless (all three sources free with attribution). Commercial reuse permitted with attribution, verified verbatim from each source's own reuse-policy document — public-domain-equivalent resell, see license_marks.", preview: "/api/data/eu-macro" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -354,6 +360,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/13f-holdings",
       returns_provenance: ["data/13f-holdings"],
+    },
+    {
+      name: "voltrade_eu_macro",
+      description: "European macro regime cluster: ECB EUR/USD reference rate, €STR (euro short-term rate), weekly Eurosystem balance-sheet total, Eurostat EA20 industrial production, and the 10Y Bund yield (Deutsche Bundesbank) — 5 curated series, each with its latest value, prior value, and a recent history window. REGIME INPUT feed, the same framing as the FRED macro cluster (voltrade tools above) — NOT a direct trading signal on its own, and gate-2 signal testing has NOT been attempted. All three sources are keyless and free; commercial reuse is permitted with attribution, verified verbatim from each source's own reuse-policy document at build time.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/stats/eu-macro",
+      returns_provenance: ["stats/eu-macro"],
     },
   ];
   return {
