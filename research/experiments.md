@@ -52325,3 +52325,152 @@ Outside this root: `cftc_cot_positioning` (~70d away) and
 readiness-tracked gate2_pending roots; `ladder_readiness_check.py` now
 correctly reports 0/2 ready. STARVED: no — this was the single highest-EV
 unclaimed item and its own gate closed cleanly this session.
+
+## 2026-08-15 — [REPAIR] MASTER PROGRAM Q24: satellite footprint/look-angle geometry now uses the WGS-84 radius AT THE POINT'S OWN LATITUDE instead of a flat mean-radius constant (v1.0.723)
+
+TERRITORY: T-CLIENT (`client/src/lib/orbital/geometry.ts`, `propagate.ts`,
+`satDerived.ts` + their `.test.ts` files) + shared, last and minimal
+(`scripts/program_status.sh`, `ci/counter_baseline.txt`, `package.json`,
+`research/PROGRAM_STATE.md`). No server/, no FROZEN path, no trading code.
+
+SESSION-START CHECKS: read CLAUDE.md in full. Live health
+(`GET https://voltradeai-production.up.railway.app/api/health`): `status:
+"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0`, all three position feeds
+`dead:false` — no LIVENESS ALARM. Loop-health ratio, last 10 tagged entries
+before this one: REPAIR×5, PIPELINE×3, RESEARCH×2 — well under the 7+ thrash
+trigger, no meta-problem to address. `research/open_questions.md` KNOWN
+BROKEN walked; nothing critical unfixed and not blocking.
+
+PRIMARY-ACTION SELECTION: `research/PROGRAM_STATE.md` (the MASTER PROGRAM's
+own resume file — read per CLAUDE.md's MEMORY PROTOCOL, "recent audit log")
+names its own single highest-value unclaimed item explicitly at the top:
+**Q24**, unclaimed since it was filed in PR #839 (2026-08-14), and confirmed
+still `TODO` in the QUEUE table before this session touched anything. This
+is squarely SESSION BUDGET's "next queued item from the roadmap that fits."
+
+THE BUG (filed as Q24 by #839, this session fixed it): `propagate.ts`'s
+`eciToGeodetic()` runs a real WGS-84 iterative reduction and correctly emits
+`altKm` as height above the ELLIPSOID at the point's OWN geodetic latitude
+(6378.137km equatorial down to 6356.752km polar). `orbital/geometry.ts`'s
+`groundFootprintRadiusKm()` and `elevationAzimuthFromSite()` then added that
+altitude to the single constant `EARTH_MEAN_RADIUS_KM` (6371, a flat mean
+radius) regardless of latitude — measured by #839 at 0.02-0.2% range/cap-size
+error (LEO 550km / GEO, equator vs pole), because the true Earth-centre
+distance at a given point varies with latitude and a flat constant can't
+capture that.
+
+READ BEFORE WRITE: read `propagate.ts`'s `eciToGeodetic()` and the whole of
+`geometry.ts` (all 5 sections: footprint cap, footprint circle, look angles,
+GPS DOP, next-pass finder) before touching anything, then grepped every
+production caller of the functions being changed. Found `groundFootprintRadiusKm`/
+`footprintCircle`/`isVisible`/`nextPassOverSite`/`gpsDop` have ZERO production
+callers today (built, not yet wired into any UI — confirmed by grep across
+`client/src/**/*.tsx`) — only `elevationAzimuthFromSite`, via `siteQuery.ts`'s
+live Starlink ground-coverage feature (`siteCoverageReport`), is wired in.
+
+FIX: new `wgs84GeocentricRadiusKm(latDeg)` in `geometry.ts` — the standard
+closed-form WGS-84 geocentric radius at a geodetic latitude (reduces exactly
+to the equatorial/polar constants at 0°/90°, pinned in tests; matches the
+published ~6367.4895km at 45°, independently verified in python before
+writing the test). `groundFootprintRadiusKm` gained a required third
+`latDeg` parameter (its only 2 call sites — `footprintCircle`'s internal
+call and the test file — both updated; deliberately a REQUIRED positional
+arg, not optional-with-a-silent-fallback, so a missed call site is a
+compile error, not a quietly-wrong number). `elevationAzimuthFromSite`
+changed INTERNALLY ONLY (no signature change) — its one production caller,
+`siteQuery.ts`, is fixed for free with no caller-side edit needed. Every
+function now adds `altKm` to `wgs84GeocentricRadiusKm(latDeg)` instead of
+the flat `EARTH_MEAN_RADIUS_KM`. `EARTH_MEAN_RADIUS_KM` itself is UNCHANGED
+(6371, still exported) per #839's own explicit instruction not to "fix"
+this by changing that constant — it simply is no longer what altitude gets
+added to.
+
+MEASURED, not assumed (python, independent of the TS implementation): the
+residual pole-vs-equator gap at LEO (550km/25° mask) is 0.06%, at GEO
+(35786km/5° mask, 89° lat) 0.30% — both comfortably inside the module's own
+stated "sub-0.01% residual from altitude being ellipsoid-normal not radial"
+caveat being the ONLY remaining approximation, not a new one introduced.
+
+BYPRODUCT (not scope creep — required to implement the fix without ADDING a
+new `dup_precise_literal` instance): `wgs84GeocentricRadiusKm` needs WGS-84
+a AND b. `satDerived.ts` already exported a (`EARTH_EQUATORIAL_RADIUS_KM`);
+gained a new paired `EARTH_POLAR_RADIUS_KM` export for b.
+`propagate.ts`'s `eciToGeodetic()` — which D11 `dup_precise_literal` had
+ALREADY flagged as carrying its own unexported bare `const a = 6378.137`
+copy (#839's own note) — now imports both from `satDerived.ts` instead of
+restating either literal, closing that pre-existing flagged-but-unfixed
+duplicate as a direct side effect. `dup_precise_literal` 4 → 3.
+
+DETECTOR ADDED (§0.7, MASTER PROGRAM D-registry): **D12
+`orphaned_set_interval`** — a `client/src` file calling `setInterval()`
+with no `clearInterval()` anywhere in the same file (whole-file match, not
+per-call-site pairing — real pairing needs an AST, not a grep; comments/
+strings stripped first via the existing `ts_code_only.py`, per L9/L11/L15's
+standing rule). Baseline 0 — every current caller already pairs the two.
+A/B-verified live: added a throwaway probe file with a bare `setInterval`
+and no `clearInterval`, counter moved 0→1, reverted, back to 0. Considered
+and explicitly DECLINED the "layers.json ids with no server route" seed
+from PROGRAM_STATE.md's list — checked `server/routes.ts`'s ~105
+`/api/data/*` routes against `datacore/layers.json`'s 238 layer ids and
+found no consistent 1:1 naming convention (base tiles, raw client-only
+overlays, and dedicated non-`/api/data/` routes all coexist) — a naive
+grep-based version would false-positive on most of the 238 layers. Filed as
+a note in PROGRAM_STATE.md's seed list rather than shipped as a noisy
+detector (MEASUREMENT INTEGRITY: a detector nobody trusts gets ignored,
+which is worse than not having one).
+
+TESTS: `geometry.test.ts` gained 5 new tests for `wgs84GeocentricRadiusKm`
+(reduces to equatorial/polar constants at fp tolerance, matches the
+published 45° value, strictly decreasing equator-to-pole, N/S symmetric)
+plus one new latitude-vs-cap-size regression test; existing
+`groundFootprintRadiusKm`/`footprintCircle` call sites updated for the new
+required param; the two `elevationAzimuthFromSite` "hand-checked geometry"
+tests switched from `EARTH_MEAN_RADIUS_KM` to `EARTH_EQUATORIAL_RADIUS_KM`
+(exact match at latDeg=0, where the two are now mathematically identical by
+construction) — same assertions, now testing the actual post-fix formula
+instead of a pre-fix approximation that happened to still pass. `satDerived.test.ts`
+gained 1 test pinning the new constant and its implied inverse flattening
+against the published WGS-84 figure (298.257223563, matched to 3 decimal
+places). 41 new assertions total (`assertions` 11313 → 11354).
+
+GATES: `npm ci` (node_modules absent at session start) then `bash
+scripts/gated_tests.sh` GATE PASSED — client 1017/1017 (was 1017 minus this
+session's new tests; 0 regressions), python 1354 passed/1 skipped (after
+`pip install -r requirements.txt -r requirements-dev.txt`, also absent at
+start — identical to the pre-existing baseline, confirming zero effect on
+anything outside this diff), quarantine 1/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12 ≤ 12, TS2304 = 0, unchanged. `bash
+scripts/counter_ratchet.sh`: 25 counters OK — re-pinned `assertions`
+(11313→11354), `dup_precise_literal` (4→3), `detectors_registered` (11→12),
+all three this session's own direct effect (PROMOTION RULE 5); left
+`tests_run_in_ci`/`tests_gating_merge` at their existing 373 pin despite a
+373→374 live reading — that drift predates this session's diff (no new test
+FILE was added, only tests within existing files) and re-pinning it here
+would misattribute someone else's improvement. `npm run build` clean.
+
+VISUAL VERIFICATION (PROMOTION RULE 6 — this PR touches `client/src/lib/`,
+so it applies even though nothing here renders): `npm run visual` at
+390/768/1440 — **0 hard failures** across all pages (data, streams, quality,
+signals, pipelinehealth, gridstress, methanehotspots, cropconditions,
+appstorerankings, githubactivity, vixtermstructure, eumacro, filings13f,
+fredmacro, nrcreactorstatus, developers, apikeys, landing, newsletterissue,
+data-all-off, data-scale). Expected and confirmed: `groundFootprintRadiusKm`/
+`footprintCircle`/`isVisible`/`nextPassOverSite`/`gpsDop` have zero
+production callers (verified by grep before writing any code), and
+`elevationAzimuthFromSite`'s one caller (`siteQuery.ts`) is a pure-data
+function with no rendered UI surface yet either — there is currently
+nothing on any page that this change could visually move. No backtest
+(PROMOTION RULE 3 N/A — client-side satellite geometry, no trading path).
+
+Version 1.0.722 → 1.0.723.
+
+NEXT for this program: Q7-Q9 (T2.1/T2.2 Law IV predicate widening; T2.6 the
+§2.1 F16 NaN-guard unit test; T8.1 design-token drift check), then Q11
+(T4.1 `renderKind`/`lod` required in `layersRegistry.test.ts`), then Track
+2/3 (the moon bake). Outside this program: nothing else surveyed as riper
+this session — the MASTER PROGRAM's own queue was the single clearest
+highest-value unclaimed item at session start.
+
+STARVED: no — this was the queue's own stated highest-priority item and its
+own gate closed cleanly this session.

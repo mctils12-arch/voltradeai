@@ -25,6 +25,12 @@
 // geodetic lat/lon/alt via GMST (IAU-82) and a WGS-84 iterative reduction.
 
 import type { GpRecord } from './tle.js';
+// Value import (not the SGP4 kernel itself) — a/b for eciToGeodetic's WGS-84
+// reduction. Sourced from satDerived.ts so the physical constant has one
+// written copy repo-wide (Q24); does not touch the "zero new dependency"
+// claim above, which is about the satellite.js npm package, not this
+// same-package, zero-I/O, zero-network import.
+import { EARTH_EQUATORIAL_RADIUS_KM, EARTH_POLAR_RADIUS_KM } from './satDerived.js';
 
 // --- WGS-72 gravity model constants (SGP4 standard) ---
 const PI = Math.PI;
@@ -1279,8 +1285,8 @@ function sgp4(s: Satrec, tsince: number): { position: Vec3; velocity: Vec3 } | n
 
 /** TEME ECI position (km) -> geodetic lat/lon/alt, given GMST (rad). */
 function eciToGeodetic(pos: Vec3, gmst: number): { latDeg: number; lonDeg: number; altKm: number } {
-  const a = 6378.137; // WGS-84 semi-major (km)
-  const b = 6356.7523142; // WGS-84 semi-minor (km)
+  const a = EARTH_EQUATORIAL_RADIUS_KM; // WGS-84 semi-major (km)
+  const b = EARTH_POLAR_RADIUS_KM; // WGS-84 semi-minor (km)
   const R = Math.sqrt(pos.x * pos.x + pos.y * pos.y);
   const f = (a - b) / a;
   const e2 = 2.0 * f - f * f;

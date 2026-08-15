@@ -796,6 +796,52 @@ PYEOF
 )
 
 # ---------------------------------------------------------------------------
+# 9l. D12 — orphaned_set_interval: a file that calls setInterval() but
+# contains no clearInterval() anywhere in it.
+#
+# Found the shape while fixing Q24 (research/PROGRAM_STATE.md): F13's
+# OpenWeatherMap non-render (a real shipped bug — see the DETECTORS table
+# entry there) was a `setInterval` polling loop whose only real fix required
+# noticing it existed at all; a timer that outlives its component is exactly
+# how a "recovery path" quietly turns into "the ten-minute wait IS the bug"
+# (PROGRAM_STATE.md F13's own words). A component-scoped `setInterval` with
+# no matching `clearInterval` in the same file is not proof of a leak — a
+# cleanup helper can live in an imported module — but it is the same class of
+# gap D7/D8 exist to catch: a mechanism with no visible off-switch, worth a
+# human's second look every time the count moves.
+#
+# WHOLE-FILE MATCH, not a per-call pairing: a file that calls setInterval in
+# one function and clearInterval in another still passes, deliberately — the
+# detector's job is to find files where the SWITCH IS MISSING ENTIRELY, not
+# to verify each call site is individually paired (that needs real scope
+# analysis, not a grep). Comments/strings stripped first (L9/L11/L15) so a
+# comment mentioning either name cannot move the count either way.
+#
+# Baseline 0 (client/src, 2026-08-15): every current caller already pairs
+# the two. Must stay 0 — the first file to trip it is exactly the case worth
+# a look, not evidence the detector is broken.
+# ---------------------------------------------------------------------------
+orphaned_set_interval=$(python3 - <<'PYEOF'
+import os, subprocess, sys
+sys.path.insert(0, os.path.join(os.getcwd(), 'scripts'))
+from ts_code_only import blank_source, read_text
+
+files = [f for f in subprocess.run(['git', 'ls-files', 'client/src/**/*.ts', 'client/src/**/*.tsx'],
+                                   capture_output=True, text=True).stdout.split()
+         if '/node_modules/' not in f and '.test.' not in f]
+count = 0
+for f in files:
+    src = read_text(f)
+    if src is None:
+        continue
+    code = blank_source(src)
+    if 'setInterval(' in code and 'clearInterval(' not in code:
+        count += 1
+print(count)
+PYEOF
+)
+
+# ---------------------------------------------------------------------------
 # 10. detectors_registered — the §0.7 DETECT duty.
 #
 # Ratchets only guard what someone already thought to count; they could never
@@ -872,6 +918,7 @@ if [ "$JSON" = 1 ]; then
   "harness_rules_checked": $harness_rules_checked,
   "baseline_divergence": $baseline_divergence,
   "dup_precise_literal": $dup_precise_literal,
+  "orphaned_set_interval": $orphaned_set_interval,
   "detectors_registered": $detectors_registered,
   "quarantine_size": $quarantine_size,
   "quarantine_oldest_days": $quarantine_oldest_days
@@ -935,6 +982,7 @@ printf '%-24s %-14s %-12s %s\n' assertions         "$assertions"          "${PIN
 printf '%-24s %-14s %-12s %s\n' harness_rules_checked "$harness_rules_checked" "${PIN[harness_rules_checked]:-n/a}" "non-decreasing"
 printf '%-24s %-14s %-12s %s\n' baseline_divergence "$baseline_divergence" "${PIN[baseline_divergence]:-n/a}" "must reach 0"
 printf '%-24s %-14s %-12s %s\n' dup_precise_literal "$dup_precise_literal" "${PIN[dup_precise_literal]:-n/a}" "non-increasing"
+printf '%-24s %-14s %-12s %s\n' orphaned_set_interval "$orphaned_set_interval" "${PIN[orphaned_set_interval]:-n/a}" "must stay 0"
 printf '%-24s %-14s %-12s %s\n' detectors_registered "$detectors_registered" "${PIN[detectors_registered]:-n/a}" "MUST increase each session"
 printf '%-24s %-14s %-12s %s\n' quarantine_size    "$quarantine_size"     "${PIN[quarantine_size]:-n/a}" "non-increasing"
 printf '%-24s %-14s %-12s %s\n' quarantine_oldest  "${quarantine_oldest_days}d" "0d" "fail if >30"

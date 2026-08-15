@@ -13,14 +13,31 @@
 // function is a pure function of its arguments, fully hermetic and
 // deterministic.
 //
-// EARTH MODEL: a sphere of radius 6371 km (mean Earth radius), with
-// GEOCENTRIC latitudes. This is intentionally consistent across every
-// function here (footprint, look-angles, DOP) so results compose. It is
-// NOT the WGS84 ellipsoid: Earth flattening (~0.3%) introduces a
-// sub-degree elevation error near the horizon and a small range error.
-// For a coverage/visualization/operational-planning tool that is an
-// acceptable, honestly-stated approximation; it is not survey-grade
-// geodesy. Callers needing centimetre geodesy must use a WGS84 model.
+// EARTH MODEL: SPHERICAL TRIGONOMETRY (footprint law-of-sines, ENU
+// look-angles) over a locally-radius-corrected sphere. The angular
+// derivations assume a sphere; the RADIUS fed into them is
+// wgs84GeocentricRadiusKm(latDeg) — the true WGS-84 distance from Earth's
+// centre to the ellipsoid surface at that point's own geodetic latitude —
+// not a single constant. This is a standard "local osculating sphere"
+// approximation, not full ellipsoidal geodesy: it removes the dominant
+// (radius) term of the ellipsoid/sphere mismatch while keeping every
+// existing angular formula unchanged. It is NOT survey-grade geodesy:
+// altKm is measured along the ellipsoid NORMAL (propagate.ts's
+// eciToGeodetic) but is added here along the LOCAL RADIAL direction, a
+// residual sub-0.01% effect at LEO/GEO altitudes (Q24). Callers needing
+// centimetre geodesy must use a full WGS84 model.
+//
+// HISTORY (Q24, research/PROGRAM_STATE.md): before this fix, every function
+// below added altKm to the single constant EARTH_MEAN_RADIUS_KM (6371, mean
+// radius) regardless of latitude — measured at 0.02-0.2% range/geometry
+// error (LEO 550km/GEO, equator vs pole) because propagate.ts's altKm is
+// height above the WGS-84 ellipsoid (6378.137 equatorial / 6356.752 polar),
+// not above a 6371 sphere. Fixed by computing the radius AT the point's own
+// latitude instead of assuming one radius for the whole planet — see
+// wgs84GeocentricRadiusKm() below. EARTH_MEAN_RADIUS_KM is kept, unchanged,
+// as its own correct constant (a spherical MEAN, still useful elsewhere,
+// e.g. earthConstants.test.ts's cross-file conflicting_const guard) — it is
+// simply no longer what this module adds altKm to.
 //
 // HONESTY: min-elevation "masks" are CONVENTIONS, not physics. Where a
 // value is published (Starlink user-terminal ~25deg, GPS horizon 0deg)
@@ -29,8 +46,13 @@
 // an explicit argument and the coverage cap it produces is only as exact
 // as that mask — never present an assumed cone as ground truth.
 
+import { EARTH_EQUATORIAL_RADIUS_KM, EARTH_POLAR_RADIUS_KM } from './satDerived.js';
+
 /**
- * Mean Earth radius (km) — this module's SPHERICAL model.
+ * Mean Earth radius (km) — kept for API/back-compat and cross-file
+ * consistency checks (earthConstants.test.ts's conflicting_const guard
+ * pins this exact value against `satDerived.ts`'s EARTH_EQUATORIAL_RADIUS_KM
+ * being different on purpose).
  *
  * RENAMED from `EARTH_RADIUS_KM` (Q14). `orbital/satDerived.ts` exported that
  * same name as 6378.137, so two files in this directory disagreed by 7.1km
@@ -39,15 +61,43 @@
  * cap, WGS-84 equatorial for SGP4 apsides — which is exactly why the shared
  * name was the defect and unifying the numbers would have been the wrong fix.
  *
- * KNOWN APPROXIMATION, measured not assumed: `altKm` reaching this module is
- * geodetic height above the WGS-84 ELLIPSOID (propagate.ts eciToGeodetic,
- * a = 6378.137), and is added here to a 6371 sphere. The error largely cancels
- * because R appears in both numerator and denominator of the cap formula —
- * measured at 0.02%/0.06% for LEO (550km, 25deg/0deg masks) and 0.10%/0.20%
- * at GEO, equator vs pole. Filed as Q24; do not "fix" it by changing this
- * constant, which would make the model internally inconsistent instead.
+ * NO LONGER what altKm is added to below (Q24, fixed — see the module header
+ * and wgs84GeocentricRadiusKm()): groundFootprintRadiusKm() and
+ * elevationAzimuthFromSite() now use the point's own latitude-corrected WGS-84
+ * radius instead of this single mean value. This constant itself is
+ * unchanged and still correct as a mean radius; it just isn't the number the
+ * geometry below needs.
  */
 export const EARTH_MEAN_RADIUS_KM = 6371;
+
+/**
+ * WGS-84 geocentric radius (km): the distance from Earth's centre to the
+ * ellipsoid SURFACE at geodetic latitude latDeg. Standard closed form
+ * (e.g. Vallado "Fundamentals of Astrodynamics and Applications" eq. 3-27,
+ * or any WGS-84 reference): reduces exactly to EARTH_EQUATORIAL_RADIUS_KM at
+ * the equator and EARTH_POLAR_RADIUS_KM at the poles (pinned in
+ * geometry.test.ts).
+ *
+ * THE Q24 FIX: propagate.ts's eciToGeodetic() emits altKm as height above
+ * the WGS-84 ellipsoid AT THE POINT'S OWN LATITUDE — not above a fixed
+ * sphere. Every function below that used to add altKm to the constant
+ * EARTH_MEAN_RADIUS_KM now adds it to wgs84GeocentricRadiusKm(latDeg)
+ * instead, which removes the dominant (radius) term of the 0.02-0.2% error
+ * the module header used to log, without touching any of the angular
+ * (spherical-trig) derivations, which stay exact for a sphere of THAT
+ * radius at THAT point — the "local osculating sphere" approximation
+ * described in the module header above.
+ */
+export function wgs84GeocentricRadiusKm(latDeg: number): number {
+  const phi = latDeg * DEG2RAD;
+  const aCos = EARTH_EQUATORIAL_RADIUS_KM * Math.cos(phi);
+  const bSin = EARTH_POLAR_RADIUS_KM * Math.sin(phi);
+  const num = Math.sqrt(
+    (EARTH_EQUATORIAL_RADIUS_KM * aCos) ** 2 + (EARTH_POLAR_RADIUS_KM * bSin) ** 2,
+  );
+  const den = Math.sqrt(aCos * aCos + bSin * bSin);
+  return num / den;
+}
 
 /**
  * Published Starlink user-terminal minimum-elevation mask (degrees).
@@ -82,8 +132,9 @@ export function normalizeLonDeg(lonDeg: number): number {
 // Types
 // ---------------------------------------------------------------------------
 
-/** A satellite position: geocentric lat/lon (deg) and altitude above the
- *  Earth's surface (km). Altitude is added to EARTH_MEAN_RADIUS_KM. */
+/** A satellite position: geodetic lat/lon (deg) and altitude above the
+ *  WGS-84 ellipsoid (km, per propagate.ts's eciToGeodetic). Altitude is
+ *  added to wgs84GeocentricRadiusKm(latDeg), not to a fixed constant. */
 export interface GeoPosition {
   latDeg: number;
   lonDeg: number;
@@ -185,12 +236,13 @@ export interface PassResult {
  * triangle, the standard coverage-geometry derivation, e.g. Wertz "Space
  * Mission Analysis and Design", Roddy "Satellite Communications"):
  *
- *   Let R = Earth radius, r = R + altKm, eps = min elevation.
- *   An observer at the edge of coverage sees the satellite at elevation
- *   eps; the interior angle of the triangle at that observer is
- *   (90deg + eps). By the law of sines the angle subtended at the
- *   satellite is  asin( R * cos(eps) / r ), and the Earth-centre central
- *   half-angle is
+ *   Let R = Earth radius AT THE SUB-SATELLITE LATITUDE (Q24 —
+ *   wgs84GeocentricRadiusKm(latDeg), not a fixed constant), r = R + altKm,
+ *   eps = min elevation. An observer at the edge of coverage sees the
+ *   satellite at elevation eps; the interior angle of the triangle at that
+ *   observer is (90deg + eps). By the law of sines the angle subtended at
+ *   the satellite is  asin( R * cos(eps) / r ), and the Earth-centre
+ *   central half-angle is
  *
  *       lambda = 90deg - eps - asin( R * cos(eps) / r ).
  *
@@ -208,18 +260,20 @@ export interface PassResult {
 export function groundFootprintRadiusKm(
   altKm: number,
   minElevDeg: number,
+  latDeg: number,
 ): FootprintRadius {
   if (!(altKm > 0)) {
     return { radiusKm: 0, centralAngleRad: 0, centralAngleDeg: 0 };
   }
-  const r = EARTH_MEAN_RADIUS_KM + altKm;
+  const R = wgs84GeocentricRadiusKm(latDeg);
+  const r = R + altKm;
   const eps = clamp(minElevDeg, -90, 90) * DEG2RAD;
-  const sinAtSat = clamp((EARTH_MEAN_RADIUS_KM * Math.cos(eps)) / r, -1, 1);
+  const sinAtSat = clamp((R * Math.cos(eps)) / r, -1, 1);
   const angAtSat = Math.asin(sinAtSat);
   let lambda = Math.PI / 2 - eps - angAtSat;
   if (lambda < 0) lambda = 0;
   return {
-    radiusKm: EARTH_MEAN_RADIUS_KM * lambda,
+    radiusKm: R * lambda,
     centralAngleRad: lambda,
     centralAngleDeg: lambda * RAD2DEG,
   };
@@ -271,6 +325,11 @@ export function centralAngleDeg(
  * repeated at the end). A caller needing a closed GeoJSON LinearRing
  * appends a copy of the first point.
  *
+ * The cap's central angle (d, below) is computed at the SUB-SATELLITE
+ * point's own latitude (Q24 — groundFootprintRadiusKm(altKm, minElevDeg,
+ * subLatDeg)), matching the same latitude-corrected radius every other
+ * function in this module now uses.
+ *
  * ANTIMERIDIAN: every longitude is normalized to [-180, 180). A cap that
  * straddles the antimeridian therefore returns points on both sides with
  * a jump of ~360deg between two consecutive entries. A naive renderer
@@ -293,7 +352,7 @@ export function footprintCircle(
   minElevDeg: number,
   nPoints = 64,
 ): number[][] {
-  const { centralAngleRad: d } = groundFootprintRadiusKm(altKm, minElevDeg);
+  const { centralAngleRad: d } = groundFootprintRadiusKm(altKm, minElevDeg, subLatDeg);
   const lat1 = subLatDeg * DEG2RAD;
   const lon1 = subLonDeg * DEG2RAD;
   const sinLat1 = Math.sin(lat1);
@@ -322,8 +381,10 @@ export function footprintCircle(
 // ---------------------------------------------------------------------------
 
 /**
- * ECEF (Earth-Centred Earth-Fixed) position of a geocentric lat/lon at a
- * given radius-from-centre. Spherical model.
+ * ECEF (Earth-Centred Earth-Fixed) position of a lat/lon at a given
+ * radius-from-centre. Spherical model — the radius the caller supplies is
+ * what makes it locally correct (Q24: wgs84GeocentricRadiusKm(latDeg) at
+ * that point, not a fixed constant).
  */
 function ecef(latRad: number, lonRad: number, radiusKm: number): [number, number, number] {
   const cosLat = Math.cos(latRad);
@@ -350,9 +411,12 @@ function ecef(latRad: number, lonRad: number, radiusKm: number): [number, number
  *      azimuth   = atan2(e, n) measured clockwise from North, in [0,360).
  *
  * Directly overhead -> elevation ~90deg; on the geometric horizon ->
- * elevation ~0deg (and slightly negative just below). Because the model
- * is spherical/geocentric, elevation carries a sub-degree bias vs a
- * WGS84 geodetic horizon; stated, not hidden.
+ * elevation ~0deg (and slightly negative just below). The radius at each
+ * point is now wgs84GeocentricRadiusKm(latDeg) (Q24, was a fixed mean
+ * radius) — the residual bias vs a true WGS84 geodetic horizon is the
+ * sub-0.01% "altitude measured along the ellipsoid normal, applied here
+ * along the local radial" term described in the module header; stated,
+ * not hidden.
  */
 export function elevationAzimuthFromSite(
   satLatDeg: number,
@@ -366,8 +430,8 @@ export function elevationAzimuthFromSite(
   const siteLat = siteLatDeg * DEG2RAD;
   const siteLon = siteLonDeg * DEG2RAD;
 
-  const sat = ecef(satLat, satLon, EARTH_MEAN_RADIUS_KM + satAltKm);
-  const site = ecef(siteLat, siteLon, EARTH_MEAN_RADIUS_KM);
+  const sat = ecef(satLat, satLon, wgs84GeocentricRadiusKm(satLatDeg) + satAltKm);
+  const site = ecef(siteLat, siteLon, wgs84GeocentricRadiusKm(siteLatDeg));
   const dx = sat[0] - site[0];
   const dy = sat[1] - site[1];
   const dz = sat[2] - site[2];

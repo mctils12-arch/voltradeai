@@ -21,6 +21,21 @@ export const EARTH_MU_KM3_S2 = 398600.4418;
  */
 export const EARTH_EQUATORIAL_RADIUS_KM = 6378.137;
 
+/**
+ * Earth polar (semi-minor) radius, km (WGS-84) — paired with
+ * EARTH_EQUATORIAL_RADIUS_KM above.
+ *
+ * Q24 (research/PROGRAM_STATE.md): this is the single written copy. Before
+ * this constant existed, `orbital/propagate.ts`'s `eciToGeodetic()` carried
+ * the same value as a bare, unexported `const b`, invisible to D5
+ * `conflicting_const` and D11 `dup_precise_literal` alike (neither can see
+ * an unexported name) but a copy all the same — exactly the drift D11's own
+ * note names as "found `6378.137` in propagate.ts as a bare `const a`".
+ * `propagate.ts` and `orbital/geometry.ts`'s `wgs84GeocentricRadiusKm()`
+ * both import both constants from here now.
+ */
+export const EARTH_POLAR_RADIUS_KM = 6356.7523142;
+
 /** Semi-major axis (km) from mean motion in rev/day; null when unusable. */
 export function semiMajorAxisKm(meanMotionRevDay: number | null | undefined): number | null {
   if (meanMotionRevDay == null || !isFinite(meanMotionRevDay) || meanMotionRevDay <= 0) return null;

@@ -48,8 +48,34 @@ since the pins were last set, not caused by this PR, and re-pinning them here
 would blur attribution (PROMOTION RULE 5). Left for whichever session's change
 actually produced them.
 
-**NEXT — Q24** (the ellipsoid/sphere frame mismatch, measured in #839), then
-**Q7–Q9**, **Q11**, then Track 2/3 — the moon.
+**Q24 is DONE** (this session, scheduled-routine — the ellipsoid/sphere frame
+mismatch measured in #839). `orbital/geometry.ts` gained
+`wgs84GeocentricRadiusKm(latDeg)` — the standard WGS-84 closed-form geocentric
+radius at a geodetic latitude (reduces exactly to `EARTH_EQUATORIAL_RADIUS_KM`
+at the equator, `EARTH_POLAR_RADIUS_KM` at the poles, both pinned in tests).
+`groundFootprintRadiusKm()` (gained a required third `latDeg` param — its only
+callers, `footprintCircle()` and the test file, both updated) and
+`elevationAzimuthFromSite()` (internal-only change, no signature break — its
+one production caller, `siteQuery.ts`'s Starlink coverage feature, is fixed
+for free) now add `altKm` to this instead of the flat constant
+`EARTH_MEAN_RADIUS_KM`, which removes the dominant (radius) term of the
+0.02-0.2% error #839 measured. `EARTH_MEAN_RADIUS_KM` itself is UNCHANGED
+(6371, still exported — the fix was never "change the constant", per #839's
+own explicit instruction) and simply is no longer what this module adds
+`altKm` to.
+
+BYPRODUCT (not scope creep — needed to avoid ADDING a new dup_precise_literal
+while fixing this): `wgs84GeocentricRadiusKm()` needs both WGS-84 a and b.
+`satDerived.ts` already exported `a` (`EARTH_EQUATORIAL_RADIUS_KM`); gained a
+new paired `EARTH_POLAR_RADIUS_KM` export for `b`. `propagate.ts`'s
+`eciToGeodetic()` — which D11 had ALREADY flagged as carrying its own
+unexported bare `const a = 6378.137` copy (#839's own note: "found ...
+6378.137 in propagate.ts as a bare `const a`") — now imports both from
+`satDerived.ts` instead of restating either literal. `dup_precise_literal`
+4 → **3**, the direct, sole effect of this sub-change (re-pinned in the same
+PR, same discipline as baseline_divergence in Q23).
+
+**NEXT — Q7–Q9**, **Q11**, then Track 2/3 — the moon.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -100,7 +126,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q12 | ≥50 state+national power pmtiles asserted, 3 exist | T1.2 | **REFRAMED** — PR #834. Split into `gridTilesCoverage.test.ts` (quarantined, review 2026-09-13). Cannot be resolved by committing tiles: `build_power_tiles.sh:53` forbids it at US scale. Real work = the boot-fetch path (A4 PHASE 2 item 2) |
 | Q21 | The magic-byte guard in `gridTiles.test.ts` had been DEAD since it was written — the `>=50` assertion ran first and prevented it | T1.2 | **DONE** — PR #834. Split; the guard now passes and gates |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 | T2/orbital | **DONE** — PR #839. All FOUR values are CORRECT where they live; the collision was the defect, so renamed not unified. `conflicting_const` 5 → **3**. The "~7km altitude error" framing was wrong — the constant cancels; measured 0.02–0.20%. See L21 |
-| Q24 | `propagate.ts` emits geodetic height above the WGS-84 ELLIPSOID; `orbital/geometry.ts` adds it to a 6371 SPHERE | T2/orbital | **TODO** — filed in #839. Real but small: measured 0.02%/0.06% (LEO 550km, 25°/0° masks) and 0.10%/0.20% (GEO), equator vs pole, because R cancels in the cap formula. Fix = ellipsoidal geometry, own PR, own tests. Do NOT "fix" by changing `EARTH_MEAN_RADIUS_KM` |
+| Q24 | `propagate.ts` emits geodetic height above the WGS-84 ELLIPSOID; `orbital/geometry.ts` adds it to a 6371 SPHERE | T2/orbital | **DONE** — this session (scheduled-routine). New `wgs84GeocentricRadiusKm(latDeg)`; `groundFootprintRadiusKm`/`elevationAzimuthFromSite` add `altKm` to it instead of the flat `EARTH_MEAN_RADIUS_KM` (which is unchanged, per the instruction not to "fix" this by changing that constant). Byproduct: `dup_precise_literal` 4 → 3 (propagate.ts's own unexported literal copy of `EARTH_EQUATORIAL_RADIUS_KM`, already flagged in #839, now imports instead of restating) |
 | Q25 | the visual harness's perf gate is NON-DETERMINISTIC — its thresholds sit inside its own noise band | T-CLIENT | **TODO** — filed in #839. Two runs of the IDENTICAL commit failed at different widths (768 median 217>200, then 1440 p95 367>350); the unmodified tree produced 4 hard failures to the changed tree's 1. Prior p95 on this page: 283/317/383/467ms. A gate that fires on noise gets ignored, and then a real regression rides in behind it. Fix = measure the spread, set thresholds outside it (or take best-of-N), and say so — do NOT simply raise the numbers |
 | Q15 | `server/datacoreArchive.test.ts` rollup tests fail near UTC midnight | T1.2 | **DONE** — PR #830. Fixed, not quarantined: it was a bug in the test's date arithmetic, never in the code under test |
 | Q18 | `VOLTRADE_CI` set in 2 ci.yml jobs, read by nothing | T1.2 | **DONE** — PR #836. Removed; the comment now names the REAL mechanism (`conftest.py` `collect_ignore`). `dead_workflow_env` 1 → **0** |
@@ -116,16 +142,18 @@ when you take it, `DONE` with the PR number when it merges.
 
 ## NUMBERS
 
-`scripts/program_status.sh --no-tsc`, run 2026-08-14 at commit `8fb02be`
-(pre-this-session), `package.json` 1.0.720 (this session). `--no-tsc` because
-this sandbox has no `node_modules`/`npx tsc`; `tsc_errors`/`tsc_2304` below
-are carried forward unmeasured from the last on-CI run (`ci/tsc_baseline.txt`
-TOTAL, unchanged by this session — no TS file touched).
+`scripts/program_status.sh --no-tsc`, run 2026-08-15 at commit `e90a524`
+(pre-this-session), `package.json` 1.0.723 (this session). `--no-tsc` because
+this sandbox has no `node_modules`/`npx tsc` until `npm ci` runs (done this
+session for the test/build gates below); `tsc_errors`/`tsc_2304` are carried
+forward unmeasured here from the last on-CI run (`ci/tsc_baseline.txt` TOTAL,
+unchanged by this session's diff — confirmed separately via
+`bash scripts/tsc_ratchet.sh`, which DOES run tsc: 12, TS2304 = 0, unchanged).
 
 ```
 COUNTER                  VALUE          BASELINE     DIRECTION
-tests_run_in_ci          374/375        373          must increase
-tests_gating_merge       374/375        373          must increase (>216)
+tests_run_in_ci          374/375        374          must increase
+tests_gating_merge       374/375        374          must increase (>216)
 tsc_errors               (not run)      12           must decrease
   of which TS2304        (not run)      0            AT TARGET — hold at 0
 silent_py_handlers       255/874        255          non-increasing
@@ -138,24 +166,28 @@ conflicting_const        3              3            non-increasing
 undeclared_py_import     2              2            non-increasing
 dead_workflow_env        0              0            AT TARGET — hold at 0
 uncapped_surface         0              0            AT TARGET — hold at 0
-assertions               11333          11313        NON-DECREASING
+assertions               11354          11354        NON-DECREASING — this session +41 (Q24's tests)
 layers_full_schema       1/238          1/238        non-decreasing
 layers_with_lod          1              1            non-decreasing
 law_iv_scanned_files     5              5            must reach 7 (ctx-acquiring)
 order_post_sites         6              6            must reach 1
 design_token_drift       0              0            must stay 0
 harness_rules_checked    71             71           non-decreasing
-baseline_divergence      0              0            must reach 0 — DONE this session (Q23), now structural
-dup_precise_literal      4              4            non-increasing
-detectors_registered     11             11           MUST increase each session (none added — Q23 closed an already-filed D10 finding, same exemption Q22 used)
+baseline_divergence      0              0            must reach 0 — structural since Q23
+dup_precise_literal      3              3            non-increasing — this session 4→3 (Q24 byproduct)
+orphaned_set_interval    0              0            must stay 0 — NEW this session, D12
+detectors_registered     12             12           MUST increase each session — D12 added this session
 quarantine_size          1              1            non-increasing (gridTiles/Q12)
-quarantine_oldest        0d             0d           fail if >30
+quarantine_oldest        1d             0d           fail if >30
 ```
 
-`tests_run_in_ci`/`tests_gating_merge` (373→374) and `assertions`
-(11313→11333) moved since the pins were last set, from merges unrelated to
-this session's diff — not re-pinned here per PROMOTION RULE 5 (attribution
-dies when unrelated improvements are bundled into one PR's pin update).
+`tests_run_in_ci`/`tests_gating_merge` (373→374 vs the pin) moved since the
+pins were last set, from merges unrelated to this session's diff — not
+re-pinned here per PROMOTION RULE 5 (attribution dies when unrelated
+improvements are bundled into one PR's pin update). `assertions`
+(11313→11354), `dup_precise_literal` (4→3), and `detectors_registered`
+(11→12) ARE re-pinned in this PR: all three are this session's own direct
+effect (Q24's new tests, Q24's byproduct literal-import cleanup, and D12).
 
 **Where these differ from the MASTER PROGRAM's §4.2 table, this block is
 right** — §4.2's numbers were measured by hand at audit time and the tree has
@@ -499,13 +531,19 @@ the duty. `detectors_registered` reads this table.
 | D8 | `uncapped_surface` — a module acquiring a canvas/WebGL context that reads `devicePixelRatio` without clamping to the device tier | 2026-08-14 | 3 | live in `program_status.sh`; found Q19 on its first run |
 | D9 | `assertions` — total assert statements across every test file. **NON-DECREASING** — the only counter that must go up | 2026-08-14 | 11228 | live in `program_status.sh`; enforces CLAUDE.md's "never delete or weaken an existing assertion", which nothing counted before |
 | D10 | `baseline_divergence` — this script's PRINTED baseline column disagreeing with the pin CI actually enforces in `ci/counter_baseline.txt` | 2026-08-14 | 5 | live in `program_status.sh`; found `ts_any` 1252-vs-1251 while re-pinning Q13, then 4 more. Down to **2** in the same PR. The last two (`dead_workflow_env`, `uncapped_surface`) are left DELIBERATELY: hand-patching them would zero the counter while the mechanism that lets a second copy drift survives — Q23 removes the copy |
-| D11 | `dup_precise_literal` — a high-precision numeric literal (≥7 significant digits, trailing zeros not counted) restated in 2+ modules; counts the redundant COPIES so it falls when one is deleted | 2026-08-14 | 5 | live in `program_status.sh`; the mechanism BEHIND D5 — `6371008.8` was written longhand in 3 modules before anything collided. Found `40075016.686` also in `cameraRig.ts` and `6378.137` in `propagate.ts`, neither of which D5 can see (not exported names). 5 → **4** |
+| D11 | `dup_precise_literal` — a high-precision numeric literal (≥7 significant digits, trailing zeros not counted) restated in 2+ modules; counts the redundant COPIES so it falls when one is deleted | 2026-08-14 | 5 | live in `program_status.sh`; the mechanism BEHIND D5 — `6371008.8` was written longhand in 3 modules before anything collided. Found `40075016.686` also in `cameraRig.ts` and `6378.137` in `propagate.ts`, neither of which D5 can see (not exported names). 5 → **4**, then **3** this session (Q24 fixed the `propagate.ts` copy it found) |
+| D12 | `orphaned_set_interval` — a `client/src` file calling `setInterval()` with no `clearInterval()` anywhere in it (whole-file, not per-call-site pairing — real scope analysis would need an AST, not a grep) | 2026-08-15 | 0 | live in `program_status.sh`; A/B-verified live (0→1 on an induced probe file, reverted). Baseline 0: every current caller already pairs the two. Seeded by F13 (PROGRAM_STATE.md above) — a `setInterval` with no visible off-switch is the same "mechanism with no visible off-switch" shape D7/D8 exist for |
 
 **Seeds not yet taken** (MASTER PROGRAM §0.7, plus new ones from this session):
 
 - `useEffect` with a dependency array omitting a ref it reads
-- registry ids in `layers.json` with no server route; routes with no id
-- `setInterval` callbacks that can outlive their component
+- registry ids in `layers.json` with no server route; routes with no id —
+  **investigated 2026-08-15, correctly NOT built**: layer `id`s in
+  `datacore/layers.json` do not follow a consistent `/api/data/<id>` naming
+  convention (raw client-only overlays, dedicated tile routes, etc.), so a
+  naive id-vs-route-string comparison would false-positive on most of the
+  238 layers. Needs real semantic mapping, not a grep — left for a session
+  with time to build that mapping properly rather than ship a noisy detector
 - `any` at a module boundary (params and return types only)
 - theme-token literals hardcoded instead of referenced (D11) — *partly covered
   by `design_token_drift`; the off-palette-hex half is not yet built*
@@ -516,6 +554,42 @@ the duty. `detectors_registered` reads this table.
 ---
 
 ## SESSION LOG
+
+### 2026-08-15 — scheduled-routine session. Territory: T-CLIENT (client/src/lib/orbital/**, satDerived.ts) + shared (scripts/program_status.sh, ci/counter_baseline.txt, package.json, research/*), last and minimal
+
+Took the queue's own stated NEXT item, **Q24**, unclaimed since #839
+(2026-08-14). Full account in `research/experiments.md`'s tagged entry for
+this session; summary here:
+
+- `orbital/geometry.ts` gained `wgs84GeocentricRadiusKm(latDeg)` (WGS-84
+  closed-form geocentric radius at a geodetic latitude). `groundFootprintRadiusKm`
+  and `elevationAzimuthFromSite` now add `altKm` to this instead of the flat
+  `EARTH_MEAN_RADIUS_KM` — removes the dominant term of the 0.02-0.2% error
+  #839 measured, without touching `EARTH_MEAN_RADIUS_KM` itself (kept exactly
+  as instructed) or any angular formula.
+- Byproduct: implementing the fix without adding a NEW `dup_precise_literal`
+  instance meant giving WGS-84 a/b one canonical home (`satDerived.ts`,
+  paired `EARTH_EQUATORIAL_RADIUS_KM`/new `EARTH_POLAR_RADIUS_KM`) and
+  pointing `propagate.ts`'s `eciToGeodetic()` at it instead of its own bare
+  literal — which also closed the `propagate.ts` copy D11 had already found
+  and left unfixed. `dup_precise_literal` 4 → 3.
+- Detector added: **D12** `orphaned_set_interval`. A/B-verified live on an
+  induced probe file (0→1, reverted cleanly). Considered and explicitly
+  declined the layers.json↔routes.ts seed (would false-positive on most of
+  238 layers — no consistent naming convention to grep against; needs real
+  semantic mapping, filed as a note instead of shipped as a noisy detector).
+- GATES: `bash scripts/gated_tests.sh` GATE PASSED (client 1017/1017, python
+  1354/1 after `pip install -r requirements.txt -r requirements-dev.txt`,
+  quarantine 1/1 none overdue) · `bash scripts/tsc_ratchet.sh` 12, TS2304 0 ·
+  `bash scripts/counter_ratchet.sh` 25 counters OK (re-pinned `assertions`
+  11313→11354, `dup_precise_literal` 4→3, `detectors_registered` 11→12 — all
+  three this session's own direct effect; left `tests_run_in_ci`/
+  `tests_gating_merge` 373-pinned/374-live, pre-existing drift per PROMOTION
+  RULE 5) · `npm run build` clean · `npm run visual` at 390/768/1440 (see
+  experiments.md for the A/B — this code has ZERO current rendering callers,
+  confirmed by grep, so no visual delta was expected or found).
+- **STARVED: no** — this was the queue's own stated highest-priority item and
+  its own gate closed cleanly this session.
 
 ### 2026-08-13 — session 1. Territory: T-BOT/shared (instrumentation only)
 
