@@ -91,27 +91,38 @@ class TestUnrecognizedTriggerFailsLoud(unittest.TestCase):
 
 
 class TestCheckAllAgainstLiveLadder(unittest.TestCase):
-    """Guards the real datacore/signal_ladder.json — proves the three roots this
-    session wired up (usaspending_contracts, cftc_cot_positioning,
-    sec_8k_earnings_language) are readable and evaluable, and that check_all()
-    only returns roots that actually carry a trigger (not every root in the
-    ladder)."""
+    """Guards the real datacore/signal_ladder.json — proves the roots that
+    carry a readiness_trigger are readable and evaluable, and that
+    check_all() only returns roots that actually carry one (not every root
+    in the ladder). Originally wired up for three roots (usaspending_
+    contracts, cftc_cot_positioning, sec_8k_earnings_language); usaspending_
+    contracts GRADUATED 2026-08-15 (gate2_fail — see open_questions.md's
+    USASPENDING gate-2 final-run entry) and its readiness_trigger was
+    removed from the live ladder (an already-resolved trigger would make
+    check_all() report it "ready" forever, a staleness bug in the tool
+    itself) — the two remaining live-ladder integration tests below were
+    repointed at cftc_cot_positioning (still gate2_pending) to keep the
+    same not-ready-today / eventually-ready coverage shape; TestDateTrigger
+    above still fully covers the `date`-type trigger logic itself in
+    isolation."""
 
     def test_known_gated_roots_present_and_evaluable(self):
-        results = readiness.check_all(today=date(2026, 8, 13))
-        ids = {r["id"] for r in results}
-        for expected in ("usaspending_contracts", "cftc_cot_positioning", "sec_8k_earnings_language"):
-            self.assertIn(expected, ids, f"{expected} should carry a readiness_trigger in signal_ladder.json")
-
-    def test_usaspending_not_yet_ready_on_aug_13(self):
-        results = readiness.check_all(today=date(2026, 8, 13))
-        row = next(r for r in results if r["id"] == "usaspending_contracts")
-        self.assertFalse(row["ready"])
-        self.assertEqual(row["days"], 2)
-
-    def test_usaspending_ready_on_aug_15(self):
         results = readiness.check_all(today=date(2026, 8, 15))
-        row = next(r for r in results if r["id"] == "usaspending_contracts")
+        ids = {r["id"] for r in results}
+        for expected in ("cftc_cot_positioning", "sec_8k_earnings_language"):
+            self.assertIn(expected, ids, f"{expected} should carry a readiness_trigger in signal_ladder.json")
+        self.assertNotIn("usaspending_contracts", ids, "graduated 2026-08-15 — should no longer carry a trigger")
+
+    def test_cftc_not_yet_ready_on_aug_15(self):
+        results = readiness.check_all(today=date(2026, 8, 15))
+        row = next(r for r in results if r["id"] == "cftc_cot_positioning")
+        self.assertFalse(row["ready"])
+
+    def test_cftc_ready_once_enough_weeks_elapsed(self):
+        # matches TestWeeklyReportsTrigger.test_ready_once_enough_weeks_elapsed's
+        # own math: 15 weeks * 7 days after 2026-07-08 -> 2026-10-21
+        results = readiness.check_all(today=date(2026, 10, 21))
+        row = next(r for r in results if r["id"] == "cftc_cot_positioning")
         self.assertTrue(row["ready"])
 
     def test_roots_without_trigger_are_omitted(self):
