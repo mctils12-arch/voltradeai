@@ -3,6 +3,149 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-15 (scheduled-routine session, market hours) [REPAIR] — KNOWN BROKEN #30: OPTIONS-SLOT cap cross-cycle race, structural fix (Option 1) shipped (v1.0.725)
+
+TERRITORY: T-BOT (`server/bot.ts` outside frozen paths) — order-submission
+internals (`options_execution.py`'s `submit_options_order`, the raw HTTP
+order POST paths) were NOT touched; this changes WHAT gets checked before
+submitting a new SELL_CSP, never HOW an order is transmitted, retried, or
+authenticated. `package.json` version bump is the only SHARED-file edit,
+landed last per the MERGE-ORDER PROTOCOL (read-and-incremented at commit
+time: main was still at 1.0.724 when checked).
+
+CONTEXT: read CLAUDE.md, then `research/experiments.md`'s last 10 tagged
+entries (PIPELINE/PRODUCT/RULE-REVIEW/PIPELINE/REPAIR/RULE-REVIEW/RESEARCH/
+PRODUCT/RESEARCH/PRODUCT — 1 of 10 is REPAIR, no thrash-ratio trigger, no
+meta-problem to diagnose), then `open_questions.md`'s KNOWN BROKEN section
+and `wishlist.md`'s tail. Checked system health first: `/api/health` clean
+(`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`, all feeds
+`dead:false`) — no LIVENESS ALARM; `/api/diag/positions-detail` showed only
+4/6 options slots held at check time, so this was not an active live
+overshoot, a preventive structural repair. Per SESSION BUDGET ("fix a bug
+seen in audit logs" is the first-priority primary action) and the REPAIR
+MANDATE (known breaks outrank new research), chose KNOWN BROKEN #30 over
+starting new research: it is a live-evidenced, root-cause-diagnosed bug
+with three candidate structural fixes already filed in wishlist.md by the
+2026-08-13 session that found it (RECURRENCE ESCALATES had forbidden that
+same session from patching a third time) — exactly the "queued item" the
+SESSION BUDGET's fall-through ordering prefers over fresh research. Also
+today's earliest scheduled-routine session already claimed the datacore/
+GNSS-INTEGRITY [PIPELINE] item (entry directly below), so this session
+picked the next-highest-value unclaimed item rather than duplicating that
+territory.
+
+READ BEFORE WRITE: read `server/bot.ts`'s two options-slot enforcement
+points end to end this session — the tier dispatcher (~line 3690-3770,
+`tierOptionsSlotsUsed`) and `executeTrades()` (~line 4093-4133,
+`optionsSlotsUsed`) — plus `countOptionsPositions()` (~line 392) and
+`isOptionSymbol()` (~line 383), and `options_execution.py`'s
+`submit_options_order()` (~line 2175-2247) to confirm CSPs are submitted
+as single-leg Alpaca DAY LIMIT orders (`side: "sell"`, plain OCC `symbol`,
+no `order_class: "mleg"`) with no fill-confirmation poll — exactly the
+mechanism wishlist.md's root-cause writeup described. Also read the
+existing `server/optionsSlotRaceFix.test.ts` (the 2026-08-03 fix's own
+ratchet) to match its static-source-assertion style, since none of
+`bot.ts`'s module-scope helpers are exported for behavioral unit testing
+(the whole file is wrapped inside `registerBotRoutes()`).
+
+CHANGE: shipped wishlist.md's recommended Option 1 ("count open orders
+too — cheapest, most surgical") exactly as specified there. New
+module-scope `countOpenOptionsOpeningOrders(orders)` helper in
+`server/bot.ts`, paired with `countOptionsPositions()`: counts
+still-open `side === "sell"` single-leg option orders (via
+`isOptionSymbol()`), same QQQ-convexity-overlay exclusion as its sibling.
+A `"buy"` order (closing an existing short) is deliberately excluded — it
+frees a slot, never consumes one. Both enforcement points now fetch
+`GET /v2/orders?status=open` fresh (mirroring their existing
+`/v2/positions` fresh-fetch pattern) and add
+`countOpenOptionsOpeningOrders(...)` to `countOptionsPositions(...)`:
+- Tier dispatcher: `tierOptionsSlotsUsed = countOptionsPositions(freshPositionsForTiers) + countOpenOptionsOpeningOrders(freshOpenOrdersForTiers)`,
+  fetched immediately before the SELL_CSP dispatch loop, same position as
+  the 2026-08-03 fix's own re-fetch.
+- `executeTrades()`: `optionsSlotsUsed = optionsPositions + optionsOrdersPending`,
+  fetched once at function entry alongside the existing `/v2/positions` call.
+
+This closes the exact hole KNOWN BROKEN #30 diagnosed: a SELL_CSP
+submitted last cycle (or earlier in the same cycle by the other
+enforcement point) that is still resting unfilled on the book was
+invisible to both re-fetches because `/v2/positions` only reflects FILLED
+orders — two cycles could each correctly see "room for one more" against
+a snapshot that omitted a still-live commitment. `MAX_OPTIONS_POSITIONS`
+(6) itself is unchanged — only what counts against it widened — so no
+RULE REVIEW threshold-evidence gate applies, same precedent as the
+2026-08-03 fix on this identical subsystem.
+
+SCOPE, STATED HONESTLY (not smoothed over): multi-leg (`mleg`) option
+orders are NOT covered by this helper — Alpaca's `mleg` order objects
+don't carry a top-level `symbol`/`side` the same way, and covering them
+would require a different shape check not evidenced by the live bug this
+session fixed. This targets the exact single-leg SELL_CSP cross-cycle
+race that was live-diagnosed, per RECURRENCE ESCALATES' instruction to
+land ONE deliberate structural fix with its own test coverage rather than
+a broader audit bundled in. If a fourth recurrence is ever found via a
+different mechanism (multi-leg strategies, order latency beyond one scan
+cycle, etc.), wishlist.md's own entry already names the escalation:
+Option 3 (a persisted cross-cycle slot ledger), not a fourth surgical
+patch on this same shape.
+
+RATCHET: new `server/optionsSlotOpenOrdersRace.test.ts` (4 tests,
+matching `optionsSlotRaceFix.test.ts`'s established static-source-
+assertion style for this same subsystem). A/B-verified via `git stash`:
+3 of 4 fail against pre-fix code (executeTrades' open-orders fetch, the
+tier dispatcher's open-orders fetch, and the widened slot-count formula
+assertions) and all 4 pass post-fix; the 4th (single-declaration pin on
+`MAX_OPTIONS_POSITIONS`) correctly passes on both, confirming the cap
+VALUE was never touched.
+
+GATES: `npx tsx --test server/*.test.ts` — 1272/1273 passed. The one
+failure (a power-tiles binary-asset presence check) is a pre-existing
+sandbox-only gap, confirmed via the same `git stash` A/B (fails
+identically with or without this change) — unrelated to this fix. Also
+confirmed 8 other suites (aircraftTiling/apiKeyAccounts/cdcCancer/
+compression/gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) that
+failed on an incomplete `node_modules` were resolved by a plain
+`npm install` (487 packages were simply missing in this session's
+sandbox at start, same class of artifact the 2026-07-10 SEC MIDAS
+session already documented for this exact repo). `npx tsc --noEmit` —
+3 errors, byte-identical to the pre-existing baseline (vite/client +
+tsconfig `baseUrl` deprecation warnings, confirmed via `git stash`).
+`npm run build` — clean, dist/ produced normally. Python suite NOT
+re-run: zero `.py` files touched by this fix, and this sandbox has no
+numpy/pandas installed at all (confirmed via direct
+`python3 -c "import numpy"` — a pre-existing environment gap, not
+something this session's change caused or could fix).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a mechanical bug fix
+restoring the already-documented `MAX_OPTIONS_POSITIONS = 6` cap to
+actually holding under the exact condition it was designed for; it does
+not change any scoring, sizing, or threshold VALUE (same precedent as
+KNOWN BROKEN #3 and the 2026-08-03 fix on this identical subsystem).
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): if this fix closes the hole,
+`/api/diag/audit?type=OPTIONS-SLOT-FULL` should stop ever showing a
+live-verified `(N/6)` reading above 6 in `/api/diag/positions-detail`
+even during Power Hour (where all three prior recurrences were
+evidenced) → fewer over-cap CSP fills → cleaner options-exposure
+attribution for GOAL priority 2 (no silently-oversized options book
+poisoning risk/return measurement) → if a fourth mechanism is ever found
+anyway, that is itself evidence the shape (not any single check) needs
+Option 3, per wishlist.md's own stated trigger.
+
+HONEST LIMITATION: this is a preventive fix, not a live-observed repair
+— the account held only 4/6 options slots when this session checked, so
+the race window this closes had not been hit again since 2026-08-13's
+finding. A future session should live-verify via
+`/api/diag/audit?type=OPTIONS-SLOT-FULL` and `/api/diag/positions-detail`
+that the count never exceeds 6 through at least one more high-volume
+options session before marking KNOWN BROKEN #30 fully closed rather than
+"fix shipped."
+
+PR MERGE NOTE: this run occurs during market hours — the PR is prepared
+and its tests/build are verified, but per this session's own instructions
+merge should wait until after 4:00 PM ET. This is not a critical live
+break (paper account, soft position-count limit, not a kill-switch or
+liveness issue) so the wait is not overridden.
+
 ## 2026-08-15 (scheduled-routine session) [PIPELINE] — GNSS-INTEGRITY root: gate-2 re-confirmed at 4 days, gate-1 cross-reference attempted (partial), AIS vessel-outage correction
 
 TERRITORY: T-DATACORE (research/open_questions.md, datacore/signal_ladder.json

@@ -2854,3 +2854,13 @@ itself, not any single check, is confirmed to be the problem.
 **NOT A SPEND REQUEST** — no paid capability involved, filed here per
 RECURRENCE ESCALATES' explicit instruction to route repeated-subsystem
 breakage through this file rather than same-day re-patching.
+
+**OPTION 1 SHIPPED 2026-08-15 (v1.0.725, scheduled-routine session, own
+PR)** — exactly as recommended above: both enforcement points now count
+still-open SELL-side option orders (`GET /v2/orders?status=open`) toward
+the live slot count, closing the cross-cycle race a resting-but-unfilled
+CSP day limit order created. Full trace in open_questions.md KNOWN
+BROKEN #30 and experiments.md (same date). Per this entry's own
+recommendation: **if a FOURTH recurrence is ever found, that is the
+trigger for Option 3** (persisted cross-cycle slot ledger) — Options 2
+and 3 remain unbuilt, on purpose, unless that trigger fires.

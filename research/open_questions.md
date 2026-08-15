@@ -4141,6 +4141,58 @@
     kill) are untouched by this — this is a soft position-count risk
     limit running 1 slot hot, not a threat to system survival. Correctly
     scoped as a KNOWN BROKEN repair item, not a LIVENESS ALARM.
+    **STRUCTURAL FIX SHIPPED 2026-08-15 (v1.0.725, scheduled-routine
+    session, own PR) — Option 1 from wishlist.md's "OPTIONS-SLOT CAP:
+    THIRD RECURRENCE" entry ("count open orders too"), per that entry's
+    own recommendation.** New module-scope `countOpenOptionsOpeningOrders()`
+    helper (`server/bot.ts`, paired with `countOptionsPositions()`) counts
+    still-open SELL (opening) single-leg option orders from a fresh
+    `GET /v2/orders?status=open` fetch — a submitted-but-unfilled CSP day
+    limit order is now a counted slot commitment, not invisible until it
+    fills. Wired into BOTH enforcement points named in this item's own
+    evidence trail: the tier dispatcher's `tierOptionsSlotsUsed` and
+    `executeTrades()`'s `optionsSlotsUsed` now each add
+    `countOpenOptionsOpeningOrders(...)` to `countOptionsPositions(...)`,
+    closing the exact cross-cycle gap this item diagnosed (a resting order
+    invisible to `/v2/positions`, which only reflects filled reality).
+    `MAX_OPTIONS_POSITIONS` itself (6) is unchanged — only what counts
+    against it widened — so no RULE REVIEW threshold-evidence gate
+    applies, same precedent as the 2026-08-03 fix for this exact
+    subsystem. Scope kept deliberately narrow per RECURRENCE ESCALATES:
+    only SELL-side (opening) orders count (a BUY order closes an existing
+    short and frees a slot, never consumes one); multi-leg (`mleg`)
+    strategies are NOT covered by this helper (no top-level `symbol`/
+    `side` on those Alpaca order objects) — this fix targets the exact
+    single-leg SELL_CSP race that was live-evidenced, not a general
+    multi-leg audit, which stays a candidate follow-up if a fourth
+    recurrence is ever found there specifically.
+    RATCHET: new `server/optionsSlotOpenOrdersRace.test.ts` (4 tests,
+    static-source-assertion style matching the existing
+    `optionsSlotRaceFix.test.ts` precedent for this same subsystem,
+    since none of `bot.ts`'s helpers are individually exported/importable
+    for behavioral unit tests). A/B-verified via `git stash`: 3 of the 4
+    new tests fail against pre-fix code (the executeTrades open-orders
+    fetch, the tier-dispatcher open-orders fetch, and the widened-count
+    formula assertions) and all 4 pass post-fix; the 4th (single-declaration
+    pin on `MAX_OPTIONS_POSITIONS`) correctly passes on both since the cap
+    value itself never changed. Full gates: `npx tsx --test server/*.test.ts`
+    1272/1273 passed (the one failure — a power-tiles binary-asset presence
+    check — is confirmed pre-existing/sandbox-only via the same `git stash`
+    A/B, unrelated to this change); `npx tsc --noEmit` 3 errors, byte-identical
+    pre-existing baseline (vite/client + tsconfig baseUrl warnings); `npm run
+    build` clean. Python suite not re-run — zero `.py` files touched by this
+    fix, and this session's sandbox lacks numpy/pandas entirely (pre-existing
+    environment gap, confirmed via direct `python3 -c "import numpy"`, not
+    caused by this change).
+    LIVE VERIFICATION NEEDED: a future session should check
+    `/api/diag/audit?type=OPTIONS-SLOT-FULL` stays correctly gating (no
+    `(N/6)` readings above 6 in `/api/diag/positions-detail`) through at
+    least one high-volume options session (Power Hour is where all three
+    prior recurrences were live-evidenced) before this item is marked
+    fully closed. If a FOURTH recurrence is ever found after this ships,
+    wishlist.md's own entry already names the trigger: that's when Option
+    3 (a persisted cross-cycle slot ledger) becomes warranted, not another
+    surgical patch on this same shape.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
