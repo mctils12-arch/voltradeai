@@ -70,6 +70,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/vix-term-structure"), "Cboe VIX term structure keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/nrc-reactor-status"), "NRC reactor status keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/13f-holdings"), "SEC 13F-HR institutional holdings keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/stats/eu-macro"), "European macro cluster keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -77,12 +78,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 16, `expected >=16 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 17, `expected >=17 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -210,6 +211,20 @@ test("13f-holdings license mark: manager-submitted filings are CONDITIONAL resel
   assert.ok(tool, "voltrade_thirteenf_holdings tool must exist");
   assert.deepEqual(tool.returns_provenance, ["data/13f-holdings"]);
   assert.ok(tool.description.includes("full"), "honesty: the deliberate full-holdings (not top-25-trimmed) response shape must travel with the tool description");
+  assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
+});
+
+test("eu-macro license mark: commercial reuse permitted with attribution resells freely like the public-domain CAMD/FTD/MIDAS/crop-conditions/NRC streams, not conditional like OCC/Cboe/issuer-authored data; agent tool documents it as a REGIME INPUT with gate-2 unattempted", () => {
+  assert.equal(LICENSE_MARKS["stats/eu-macro"].resell, "ok",
+    "all three source licenses (ECB/Eurostat/Bundesbank) were verified commercial-reuse-permitted-with-attribution at build time — must not be mismarked conditional like OCC/Cboe/issuer-authored streams");
+  assert.ok(LICENSE_MARKS["stats/eu-macro"].license.includes("ECB"));
+  assert.ok(LICENSE_MARKS["stats/eu-macro"].license.includes("Eurostat"));
+  assert.ok(LICENSE_MARKS["stats/eu-macro"].license.includes("Bundesbank"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_eu_macro");
+  assert.ok(tool, "voltrade_eu_macro tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["stats/eu-macro"]);
+  assert.ok(tool.description.includes("REGIME INPUT"), "honesty: the regime-input-only framing must travel with the tool description, same as fredMacro");
   assert.ok(tool.description.includes("NOT been attempted"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
 });
 

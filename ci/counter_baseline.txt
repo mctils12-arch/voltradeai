@@ -22,7 +22,7 @@ tests_gating_merge       375      non-decreasing
 silent_py_handlers       255      non-increasing
 bare_except              3        non-increasing
 empty_ts_catch           494      non-increasing
-ts_any                   1237     non-increasing
+ts_any                   1238     non-increasing
 layers_full_schema       1        non-decreasing
 layers_with_lod          1        non-decreasing
 law_iv_scanned_files     5        non-decreasing
@@ -35,7 +35,7 @@ conflicting_const        3        non-increasing
 undeclared_py_import     2        non-increasing
 dead_workflow_env        0        non-increasing
 uncapped_surface         0        non-increasing
-assertions               11383    non-decreasing
+assertions               11392    non-decreasing
 harness_rules_checked    71       non-decreasing
 baseline_divergence      0        non-increasing
 dup_precise_literal      3        non-increasing
