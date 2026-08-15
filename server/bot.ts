@@ -413,9 +413,9 @@ function countOptionsPositions(positions: any[]): number {
 // must never be counted here. Same QQQ-convexity-overlay exclusion as
 // countOptionsPositions so the two stay conceptually paired; callers add
 // this to countOptionsPositions()'s result to get the true live slot count.
-function countOpenOptionsOpeningOrders(orders: any[]): number {
+function countOpenOptionsOpeningOrders(orders: Array<{ side?: string; symbol?: string }>): number {
   return Array.isArray(orders)
-    ? orders.filter((o: any) => {
+    ? orders.filter((o) => {
         if (o.side !== "sell") return false;
         const sym = o.symbol || "";
         if (!isOptionSymbol(sym)) return false;

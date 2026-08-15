@@ -97,23 +97,63 @@ assertions) and all 4 pass post-fix; the 4th (single-declaration pin on
 `MAX_OPTIONS_POSITIONS`) correctly passes on both, confirming the cap
 VALUE was never touched.
 
-GATES: `npx tsx --test server/*.test.ts` — 1272/1273 passed. The one
-failure (a power-tiles binary-asset presence check) is a pre-existing
-sandbox-only gap, confirmed via the same `git stash` A/B (fails
-identically with or without this change) — unrelated to this fix. Also
-confirmed 8 other suites (aircraftTiling/apiKeyAccounts/cdcCancer/
-compression/gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) that
-failed on an incomplete `node_modules` were resolved by a plain
-`npm install` (487 packages were simply missing in this session's
-sandbox at start, same class of artifact the 2026-07-10 SEC MIDAS
-session already documented for this exact repo). `npx tsc --noEmit` —
-3 errors, byte-identical to the pre-existing baseline (vite/client +
-tsconfig `baseUrl` deprecation warnings, confirmed via `git stash`).
-`npm run build` — clean, dist/ produced normally. Python suite NOT
-re-run: zero `.py` files touched by this fix, and this sandbox has no
-numpy/pandas installed at all (confirmed via direct
-`python3 -c "import numpy"` — a pre-existing environment gap, not
-something this session's change caused or could fix).
+GATES: initial local runs understated this — first pass reported "3 tsc
+errors" and "python suite not re-run, no numpy" from a sandbox that
+started with an incomplete `node_modules` (487 packages missing, same
+class of artifact the 2026-07-10 SEC MIDAS session already documented
+for this exact repo) and no Python deps installed at all. A plain
+`npm install` plus `pip install -r requirements.txt -r
+requirements-dev.txt` fixed the sandbox and gave a real signal — correcting
+those two claims here rather than letting an inaccurate "clean" stand
+(the honest thing per MEASUREMENT INTEGRITY's spirit, even though this
+paragraph is a test-run report, not a metric-definition change).
+- **CI's own `test` job caught a real gate this local-only pass missed
+  first**: pushing the initial fix (2 legit `: any` annotations on the
+  new helper's signature) tripped `scripts/counter_ratchet.sh`'s
+  `ts_any`/`boundary_any` non-increasing pins (1237→1239, 233→235) — a
+  MASTER PROGRAM measurement ratchet unrelated to this bug but correctly
+  gating any new `any` on a function boundary (Q2's own precedent:
+  `execAsync`'s one `any` parameter caused 42 downstream type errors).
+  Fixed by typing `countOpenOptionsOpeningOrders`'s parameter as
+  `Array<{ side?: string; symbol?: string }>` instead of `any[]`, and
+  letting the arrow-function parameter infer rather than annotating
+  `: any` — zero behavior change, same filter logic. A SECOND, subtler
+  trip: `boundary_any`'s regex (unlike `ts_any`, which Q13 already fixed
+  to strip strings/comments) matches raw file text with no string
+  stripping, so this session's own test file's marker string
+  `"function countOpenOptionsOpeningOrders(orders: any[])"` — used only
+  to locate a source slice, never executed — textually resembled a real
+  signature and still tripped `boundary_any` (233→234) even after the
+  real code was fixed. Trimmed the marker to
+  `"function countOpenOptionsOpeningOrders("` (matching
+  `optionsSlotRaceFix.test.ts`'s own precedent of using an unclosed
+  marker) rather than touching `boundary_any`'s regex itself — a
+  measurement-code fix belongs in its own [RULE-REVIEW] PR per
+  MEASUREMENT INTEGRITY, not bundled into this repair.
+- `bash scripts/counter_ratchet.sh` — clean after the fix, 25/25 at or
+  better than baseline; `tests_run_in_ci`/`tests_gating_merge`
+  (373→375) and `assertions` (11369→11383) IMPROVED from the new test
+  file, so `ci/counter_baseline.txt` was lowered in this same PR per the
+  script's own instruction to lock in a genuine gain.
+- `bash scripts/tsc_ratchet.sh` (the actual CI-gating script, not a bare
+  `tsc` invocation) — 12/12, exactly matching `ci/tsc_baseline.txt`'s
+  pin (TS2339×6, TS2345×1, TS2349×1, TS2353×3, TS7016×1), byte-identical
+  via `git stash` A/B. This is the corrected number — the sandbox's
+  earlier "3 errors" reading was tsc silently failing to load real
+  project types (missing `@types/node`/vite entries) rather than
+  actually type-checking the tree.
+- `bash scripts/gated_tests.sh` (the real CI `test` job's own test
+  gate) — **GATE PASSED**: client suite 1017/1017, server suite
+  confirmed clean in the same run, python suite 1354 passed/1 skipped
+  in 59s (the skip and the one quarantined file,
+  `server/gridTilesCoverage.test.ts`, are both pre-existing per the
+  script's own quarantine list, not introduced here). This supersedes
+  the earlier partial `npx tsx --test server/*.test.ts` reading (which
+  had reported a lone power-tiles binary-asset failure, a sandbox-only
+  gap under the narrower run) with the full three-suite gate CI itself
+  runs.
+- `npm run build` — clean, dist/ produced normally, both before and
+  after the counter-ratchet fix.
 
 BACKTEST: N/A per PROMOTION RULE 3 — this is a mechanical bug fix
 restoring the already-documented `MAX_OPTIONS_POSITIONS = 6` cap to

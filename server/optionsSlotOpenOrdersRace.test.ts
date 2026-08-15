@@ -38,7 +38,7 @@ test("countOpenOptionsOpeningOrders is a single module-scope helper that only co
     "countOpenOptionsOpeningOrders must be defined exactly once (module scope) — duplicating this filter per call site is exactly the drift class that already caused KNOWN BROKEN #3 once",
   );
   const helperSection = slice(
-    "function countOpenOptionsOpeningOrders(orders: any[])",
+    "function countOpenOptionsOpeningOrders(",
     "// ─── ET Hour Helper",
   );
   assert.ok(

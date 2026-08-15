@@ -4175,15 +4175,24 @@
     fetch, the tier-dispatcher open-orders fetch, and the widened-count
     formula assertions) and all 4 pass post-fix; the 4th (single-declaration
     pin on `MAX_OPTIONS_POSITIONS`) correctly passes on both since the cap
-    value itself never changed. Full gates: `npx tsx --test server/*.test.ts`
-    1272/1273 passed (the one failure — a power-tiles binary-asset presence
-    check — is confirmed pre-existing/sandbox-only via the same `git stash`
-    A/B, unrelated to this change); `npx tsc --noEmit` 3 errors, byte-identical
-    pre-existing baseline (vite/client + tsconfig baseUrl warnings); `npm run
-    build` clean. Python suite not re-run — zero `.py` files touched by this
-    fix, and this session's sandbox lacks numpy/pandas entirely (pre-existing
-    environment gap, confirmed via direct `python3 -c "import numpy"`, not
-    caused by this change).
+    value itself never changed. CORRECTION (same session, after CI ran):
+    the initial local pass under-verified this — an incomplete sandbox
+    (`node_modules`/Python deps both partially missing) understated the
+    real `tsc` count and skipped Python entirely; a real CI `test`-job
+    failure (`scripts/counter_ratchet.sh`'s `ts_any`/`boundary_any` pins,
+    tripped by the new helper's `any[]`/`any` parameter types plus a test
+    marker string that textually resembled real code) forced a full
+    local rebuild with proper deps to get an honest signal. Corrected
+    full gates: `bash scripts/gated_tests.sh` (the real CI test gate) —
+    GATE PASSED, client 1017/1017, server clean, python 1354 passed/1
+    skipped in 59s (quarantine unchanged, 1 pre-existing entry);
+    `bash scripts/tsc_ratchet.sh` — 12/12, exact match to
+    `ci/tsc_baseline.txt`'s pin, byte-identical via `git stash` A/B;
+    `bash scripts/counter_ratchet.sh` — clean after retyping the helper
+    without `any` and trimming the test marker string (full trace in
+    experiments.md same date); `npm run build` clean throughout. Full
+    trace and the exact fixes: `research/experiments.md` (2026-08-15
+    entry, GATES section).
     LIVE VERIFICATION NEEDED: a future session should check
     `/api/diag/audit?type=OPTIONS-SLOT-FULL` stays correctly gating (no
     `(N/6)` readings above 6 in `/api/diag/positions-detail`) through at
