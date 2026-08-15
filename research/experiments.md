@@ -52474,3 +52474,179 @@ highest-value unclaimed item at session start.
 
 STARVED: no — this was the queue's own stated highest-priority item and its
 own gate closed cleanly this session.
+
+## 2026-08-15 (scheduled-routine PRODUCT session #2) [PIPELINE] — T-DATACORE — finra_short_volume GATE 2 pre-registered follow-up retest: population-baseline + regime split, FAIL/INCONCLUSIVE with an explained mechanism (v1.0.724)
+
+TERRITORY: T-DATACORE (`scripts/finra_shortvol_gate2_retest.ts` + `.test.ts`,
+new) + shared, last and minimal (`datacore/signal_ladder.json`,
+`research/open_questions.md`, `ci/counter_baseline.txt`, `package.json`).
+No server/, no client/, no FROZEN path, no trading code.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/. Live
+`/api/health`: status ok, bot active, drawdownPct 0.0, alpaca ACTIVE,
+scanner 0 consecutiveFailures, all three position feeds dead:false — no
+LIVENESS ALARM. Thrash ratio over the last 10 tagged entries before this
+one: 6 REPAIR / 2 PIPELINE / 2 RESEARCH — under the 7/10 escalation
+threshold, no meta-problem to address. `open_questions.md` KNOWN BROKEN
+walked — nothing critical unfixed and not blocking product work. Today is
+Saturday 2026-08-15 (verified via `date`/`TZ=America/New_York date`) — no
+deploy-coupling concern, markets closed all day.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (a) —
+advancing a datacore/ pipeline through its next ladder gate ("gate 1 ground-
+truth validation and gate 2 signal testing ARE product work") — as one of
+four in-scope actions. Delegated a read-only research pass (Explore agent)
+across `research/experiments.md`'s 2026-07-29..08-15 tail,
+`datacore/signal_ladder.json`'s gate1_pending/gate2_pending roots and their
+`readiness_trigger` conditions, and `research/wishlist.md`'s DATACORE
+MAXIMUS / PLATFORM INTEGRATION program blocks, explicitly excluding
+`research/PROGRAM_STATE.md`'s "MASTER PROGRAM" (a separate T-CLIENT
+tech-debt/rendering-law track already actively owned, not product work).
+Findings: DATACORE MAXIMUS's shipped-data-no-UI/no-map-layer sweep and
+PLATFORM INTEGRATION's P1-P4 are both confirmed clear as of 2026-07-28/
+2026-08-10 (P5 is HUMAN-GATED); the two `signal_ladder.json` roots with
+`readiness_trigger`s that fired (usaspending_contracts, gnss_integrity_adsb)
+were both already run TODAY by earlier sessions (experiments.md's own
+2026-08-15 entries above this one). The clear best unclaimed candidate:
+`finra_short_volume`'s own pre-registered follow-up, filed by the
+2026-08-06 GATE 2 first-pass FAIL and left unclaimed across four later
+sessions' NEXT notes (this file's 2026-08-06 entry; referenced again in
+at least three subsequent sessions' NEXT sections) — a concrete, already-
+designed retest with no external blocker, not a fresh hypothesis needing
+its own pre-registration from scratch.
+
+READ BEFORE WRITE: read `scripts/finra_shortvol_gate2.ts` in full (the
+first-pass script — universe, HIGH_SHORT bucket construction, sample
+window, Yahoo fetch helpers) before writing anything, then imported its
+exported `bucketDay`/`BUCKET_SIZE`/`HORIZONS`/`SAMPLE_START`/`SAMPLE_WEEKS`
+directly rather than retyping them — the retest changes exactly the two
+ingredients the follow-up named (baseline, regime split) and nothing else,
+so importing rather than copying makes "unchanged" a property of the code,
+not a claim to audit. Read `ml_model_v2.py:439-455` (the live vxx_ratio/
+spy_vs_ma50 calculation) and `regime_util.py`'s `classify_regime()`
+thresholds before writing `classifyRegime()`, to mirror the production
+regime definition exactly (30-trading-day VXX avg, 50-trading-day SPY MA,
+both strictly prior to the sample day; BEAR_VXX_THRESHOLD=1.15/
+BEAR_SPY_THRESHOLD=0.94/BULL_VXX_THRESHOLD=0.95/BULL_SPY_THRESHOLD=0.98)
+rather than inventing a new threshold set for a TS research script. Live-
+probed `fetchShortVolDay("20260107")` before committing to the population-
+sample design: 2,133 qualifying names at FLOOR_TOTAL_VOL=500,000 on that
+one day — pricing the full qualifying population across all 16 days would
+be 10-15x the first run's network cost, which is why the pre-registered
+design used a bounded systematic sample (POP_SAMPLE_SIZE=200/day) instead,
+stated as a scope limitation before running, not discovered after.
+
+WHAT SHIPPED: `scripts/finra_shortvol_gate2_retest.ts` (new) — the two
+changes only, per the follow-up's own text: (a) `populationSample()`, a
+pure function selecting up to 200 qualifying tickers/day by sorting
+ALPHABETICALLY BY TICKER SYMBOL (a key with zero relationship to
+short_ratio) and taking a fixed stride — deterministic, reproducible, and
+by construction uncorrelated with the metric under test, unlike the first
+run's rank-centered NEUTRAL band; (b) `classifyRegime()`, bear/neutral/bull
+per sample day from Yahoo SPY/VXX closes, mirrored from the production
+calc above. Same day-clustered t-test method as the first run (imported
+`clusterMeanTTest`/`tCrit005`/`survivesAtCrit005` from `statsUtils.ts`).
+PRE-STATED PASS BAR (written into the file's header before running): day-
+clustered |t20| > tCrit005 on the HIGH_SHORT-vs-population spread AND the
+spread's sign does not flip across any regime with >=3 sample days.
+`scripts/finra_shortvol_gate2_retest.test.ts` (new) — 9 unit tests: 4 on
+`populationSample` (FLOOR filtering, alphabetical-not-rank selection
+proven via a fixture where rank and alphabetical order deliberately
+disagree, stride capping, empty-set safety) and 5 on `classifyRegime`
+(bull/bear/neutral classification against hand-computed fixtures, null on
+insufficient trailing history, null on a missing day) — no network, all
+pass, PROMOTION RULE 2's ratchet for the new pure logic.
+
+RESULT (live run, `npx tsx scripts/finra_shortvol_gate2_retest.ts`, 16/16
+sample days had data, 2,216 unique tickers needed, 2,138 priced/78 failed
+— consistent with the first run's own Yahoo fetch-failure rate):
+
+  +5d:  day-clustered spread (HIGH-POP) = +0.466%  t=0.804  (df=15,
+        crit=2.131) -> does not clear significance
+  +20d: day-clustered spread (HIGH-POP) = +1.561%  t=1.303  (df=15,
+        crit=2.131) -> does not clear significance
+        regime split: bull +3.091% (n=3 days), neutral +1.680% (n=12
+        days), bear -4.446% (n=1 day, below MIN_REGIME_DAYS=3, excluded
+        from the sign-stability check)
+
+PRE-STATED VERDICT: FAIL/INCONCLUSIVE (the |t20|>crit clause fails; the
+sign-stability clause independently passes — bull and neutral both
+positive — but the composite bar requires both). THE INFORMATIVE PART
+(Reasoning Standard #4 — extract the finding even from a null result): the
+population-proxy mean sits much closer to HIGH_SHORT than the first run's
+NEUTRAL band did, which is mechanically WHY the +20d contrast shrinks from
++2.244% (HIGH-LOW, t=2.279, significant) to +1.561% (HIGH-POP, t=1.303,
+not significant). This explains the first run's U-shape rather than
+confirming an edge: NEUTRAL was itself an unusually POOR-performing band
+relative to the broader population (consistent with NEUTRAL underperforming
+even LOW_SHORT in the first run), so the original significant contrast was
+inflated by a biased comparison group, not by a real HIGH_SHORT effect.
+
+`datacore/signal_ladder.json`'s `finra_short_volume` entry updated: stays
+`gate2_fail`/current_gate 2 (NOT `killed`) — both tests share the identical
+16-day window (2026-01-07..2026-04-22), so this is a corrected re-analysis
+of the same period, not the disjoint-sample replication or sign-reversal
+the repo's kill precedent (occ_options_volume/cftc_tff_positioning/
+jodi_oil_stocks) has required so far. Two consecutive fails on the same
+window substantially lowers the prior for a real standalone edge here; NEXT
+for a future session wanting to close this permanently: a genuinely
+disjoint out-of-sample window (2026-05 onward is now available), not a
+third re-cut of Jan-Apr 2026. Full writeup in `open_questions.md`'s FINRA
+entry (2026-08-15 UPDATE).
+
+GATES: `npm ci` (node_modules was a stale 1-package stub at session start)
+then `npx tsx --test scripts/finra_shortvol_gate2_retest.test.ts` 9/9 pass.
+`bash scripts/gated_tests.sh` GATE PASSED — client 1017/1017 (0
+regressions), python 1354 passed/1 skipped (after
+`pip install -r requirements.txt -r requirements-dev.txt`), quarantine 1/1
+none overdue. `bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0,
+unchanged. `bash scripts/counter_ratchet.sh`: re-pinned `assertions`
+(11354 -> 11369, this session's own direct effect — the 9 new tests);
+left `tests_run_in_ci`/`tests_gating_merge` at their existing 373 pin
+despite a 373->374 live reading — pre-existing drift the immediately prior
+session (Q24, same day) already identified as predating its own diff, and
+this session's diff touches no `server/*.test.ts`/`client/**/*.test.tsx?`/
+python `test_*` file either (the new test file lives in `scripts/`, which
+neither counter's file-glob matches), so re-pinning here would misattribute
+someone else's unrelated improvement (PROMOTION RULE 5). `npm run build`
+clean (pre-existing warnings only — astronomy-engine ESM default-export
+notice, large-chunk notice — neither related to this diff). No visual
+harness run: zero `client/` files touched, PROMOTION RULE 6 does not apply.
+
+BACKTEST: N/A — GATE 2 statistical research, no trading path touched, no
+scoring/sizing/threshold value changed. The script reads FINRA's CDN and
+Yahoo live, entirely separate from `server/finraShortVolume.ts`'s own
+production poller/archive (read-only import of its exported
+`FLOOR_TOTAL_VOL`/`fetchShortVolDay`/`ShortVolRow`, zero lines changed in
+that file).
+
+Version bumped 1.0.723 -> 1.0.724 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed no advance since
+session start.
+
+CROSS-SYSTEM INTEGRATION: none new — pure GATE 2 statistical research on
+an already-gate-1-passed root; no new archive, no new entity-graph join, no
+new `/data`-facing surface (this hypothesis has never been RAW-displayed
+as a signal and still isn't).
+
+NEXT (queued, not this session): (1) a genuinely disjoint out-of-sample
+retest of `finra_short_volume` (2026-05 onward) if a future session wants
+to close this root permanently. (2) `github_org_engineering_momentum`'s
+v1 API mirror + gate 2 (still queued from 2026-08-05, correctly deferred
+again — a genuinely-ready gate-2 candidate with a specific pre-registered
+follow-up outranked a near-mechanical repeat). (3) per the AUDITS & DEBT
+register, the STALENESS/CONSTITUTIONAL audits' last-run dates should be
+checked by the next session whose fall-through reaches the research tier
+(not checked this session — the primary action filled capacity). (4) the
+research agent's runner-up candidates (NDBC/USGS/EU-macro `/api/v1`
+mirrors; the GNSS-integrity-over-ADS-B `/data` signal surface, gated on
+re-verifying the adsb.fi license per its own NEXT note) remain valid future
+PRODUCT sessions.
+
+STARVED: no — this was this session's one primary action (a genuine GATE 2
+ladder-advancement per the task's own instructions), matched to capacity,
+with tests/gates all green and an honest (not inflated) verdict recorded.
+No higher-priority queued item was skipped (no LIVENESS ALARM; KNOWN
+BROKEN items evidence-blocked; thrash ratio 6/10, under threshold). One
+logical change (one new script + its test + the bookkeeping describing
+this exact result), one PR, per PROMOTION RULE 5.

@@ -6434,6 +6434,59 @@ the ladder before belief.)
    informational. Discount further per Reasoning Standard #4: this is
    the FIRST test of this exact bucket design, so the +20d contrast's
    significance is not yet confirmed out-of-sample.
+   UPDATE 2026-08-15 (scheduled-routine PRODUCT session) — PRE-REGISTERED
+   FOLLOW-UP RETEST RUN (scripts/finra_shortvol_gate2_retest.ts): made
+   exactly the two changes named above, nothing else — same universe
+   (FLOOR_TOTAL_VOL), same HIGH_SHORT bucket construction (BUCKET_SIZE=40),
+   same 16-day sample window (2026-01-07..2026-04-22), imported directly
+   from scripts/finra_shortvol_gate2.ts rather than retyped. (a) The
+   NEUTRAL band was replaced with a full-population PROXY: a systematic,
+   alphabetical-by-ticker sample of up to 200 qualifying names/day
+   (POP_SAMPLE_SIZE) — deterministic, reproducible, and by construction
+   uncorrelated with short_ratio (unlike a rank-centered band), bounded to
+   ~2,200 unique tickers total for session network cost rather than the
+   full ~2,000-2,400/day qualifying population. (b) Regime classification
+   (bear/neutral/bull) was added per sample day, computed from Yahoo
+   SPY/VXX daily closes using the SAME 30-trading-day VXX average /
+   50-trading-day SPY MA windows ml_model_v2.py's live regime calc uses
+   (mirrored verbatim, ml_model_v2.py:439-455), so the labels mean the
+   same thing as the regime the bot actually trades under.
+   RESULT (live run, 16/16 sample days had data, 2,216 unique tickers,
+   2,138 priced/78 failed — consistent with the first run's own Yahoo
+   fetch-failure rate): the day-clustered +20d HIGH_SHORT-vs-population
+   spread is +1.561% (t=1.303, df=15, crit=2.131) — it does NOT clear
+   significance, down from the first run's +2.244% HIGH-vs-LOW spread
+   (t=2.279, which did). +5d spread +0.466% (t=0.804), also short of
+   significance, reported informationally per the first run's own
+   +20d-is-primary choice. Regime split at +20d: bull +3.091% (n=3 days),
+   neutral +1.680% (n=12 days), bear -4.446% (n=1 day, too few to count
+   under the pre-stated MIN_REGIME_DAYS=3 sign-stability check). Sign was
+   stable across the two regimes with enough days (both positive), so
+   that half of the pre-stated composite bar passed — but the bar
+   requires BOTH clauses (day-clustered |t20|>crit AND regime-stable
+   sign), and the significance clause failed. PRE-STATED VERDICT:
+   FAIL/INCONCLUSIVE.
+   WHAT THIS ACTUALLY EXPLAINS (the informative part, per Reasoning
+   Standard #4's instruction to extract the finding even from a null
+   result): the population-proxy mean sits MUCH closer to HIGH_SHORT than
+   the first run's NEUTRAL band did — that is mechanically WHY the
+   apparent HIGH-LOW contrast shrinks below significance once compared
+   against a baseline unbiased by rank-selection. In other words, the
+   first run's significant contrast was inflated by NEUTRAL being an
+   unusually POOR-performing band relative to the broader population
+   (consistent with the original U-shape, where NEUTRAL underperformed
+   even LOW_SHORT) — not by HIGH_SHORT carrying a real standalone edge.
+   NOT marked killed in datacore/signal_ladder.json (still gate2_fail):
+   both tests share the identical 16-day window, so this is a corrected
+   re-analysis of the same period, not the disjoint-sample replication or
+   sign-reversal the repo's kill precedent (occ_options_volume/
+   cftc_tff_positioning/jodi_oil_stocks) has required so far. Two
+   consecutive fails on the same window materially lowers the prior for a
+   real edge here, but closing this permanently should wait for a
+   genuinely disjoint out-of-sample window (2026-05 onward is now
+   available and would give a clean out-of-sample test) rather than a
+   third re-cut of Jan-Apr 2026 — filed as the concrete NEXT step for
+   whichever future session wants to finish this root.
 2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
    keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
    the disaggregated report, which is also the analytically richer
