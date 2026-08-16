@@ -42,6 +42,7 @@ import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
 import NrcReactorStatusView from "./nrcReactorStatus";
+import GnssIntegritySignalView from "./gnssIntegritySignal";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2784,6 +2785,12 @@ export default function DataMapPage() {
   // pattern (DATACORE MAXIMUS census build #10's own filed UI follow-up,
   // /api/data/microstructure, shipped API-only v1.0.265).
   const [midasOpen, setMidasOpen] = useState(() => window.location.hash === "#/data/midas");
+  // GNSS integrity anomaly signal (#/data/gnss-integrity) — the first root
+  // to reach ladder gate 2 and get a live SIGNAL detail page (2026-08-16
+  // scheduled-routine PRODUCT session; research/open_questions.md
+  // gnss_integrity_adsb, gate2_pass). Same overlay pattern as
+  // midas/methaneHotspots above.
+  const [gnssIntegrityOpen, setGnssIntegrityOpen] = useState(() => window.location.hash === "#/data/gnss-integrity");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3107,6 +3114,7 @@ export default function DataMapPage() {
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
+      setGnssIntegrityOpen(window.location.hash === "#/data/gnss-integrity");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -12159,6 +12167,18 @@ export default function DataMapPage() {
         {l.id === "aircraft" && on && (
           <TrackedPlanesPanel onOpen={openWatchedCb} />
         )}
+        {l.id === "aircraft" && on && (
+          // GNSS integrity anomaly — a SIGNAL derived from this RAW layer's
+          // own archive (gate 2 passed, gate 1 partial), same "doesn't
+          // belong in a layer-toggle sidebar" pattern as methane_plumes/
+          // nrc_reactor_status below.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/gnss-integrity"; setGnssIntegrityOpen(true); }}>
+              Open GNSS integrity signal — Baltic GPS-jamming discrimination →
+            </button>
+          </div>
+        )}
         {l.id === "terrain" && on && (
           <div className="vt-field-controls" role="group" aria-label="Terrain relief controls">
             {/* ONE vertical datum (user question 2026-07-20 "is it supposed
@@ -12630,6 +12650,9 @@ export default function DataMapPage() {
       )}
       {midasOpen && (
         <MidasView onBack={() => { window.location.hash = "#/data"; setMidasOpen(false); }} />
+      )}
+      {gnssIntegrityOpen && (
+        <GnssIntegritySignalView onBack={() => { window.location.hash = "#/data"; setGnssIntegrityOpen(false); }} />
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />

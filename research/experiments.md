@@ -53321,3 +53321,233 @@ No higher-priority queued item was skipped (no LIVENESS ALARM; KNOWN
 BROKEN items evidence-blocked; thrash ratio 6/10, under threshold). One
 logical change (one new script + its test + the bookkeeping describing
 this exact result), one PR, per PROMOTION RULE 5.
+
+## 2026-08-16 (scheduled-routine PRODUCT session) [PRODUCT] — T-DATACORE (primary) + T-CLIENT — gnss_integrity_adsb gets a live /data SIGNAL surface, the first root to reach this milestone (v1.0.728)
+
+TERRITORY: T-DATACORE primary (`server/gnssIntegritySignal.ts` new,
+`scripts/gnss_integrity_gate2.ts` refactored), T-CLIENT (new
+`client/src/pages/gnssIntegritySignal.tsx`, wiring in `datamap.tsx` +
+`signalLadder.tsx`, a fixture in `scripts/visual_check.mjs`), SHARED
+last-and-minimal (`server/routes.ts` one new route block,
+`datacore/signal_ladder.json` two-field surgical edit, `package.json`
+version bump). One cross-territory PRODUCT feature, not split across
+sessions, per WORKSTREAM PARTITION rule 5.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/. Live
+`/api/health`: status ok, bot active, drawdownPct 0.0, alpaca ACTIVE,
+scanner 0 consecutiveFailures, aircraft/vessels/trains feeds all
+dead:false — no LIVENESS ALARM. KNOWN BROKEN walked: #29 (partial fix,
+MEDIUM, visibility gap only) and #20/#10 (design/threshold judgment
+calls awaiting RULE REVIEW evidence) are the only open items; #30 was
+resolved by the immediately-prior session (PR #850). None block or
+outrank product work per this task's own instructions (product sessions
+don't preempt DAILY repair duty; noted, not fixed here).
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (a)
+(advance a datacore/ pipeline through its next ladder gate) and (b)
+(build product UI/UX) as in-scope. `datacore/signal_ladder.json` showed
+`gnss_integrity_adsb` at `gate2_pass` (re-confirmed and strengthened
+2026-08-15 at 4 accumulated archive days — cruise/mid elevation p<1e-6,
+low correctly not elevated), and its own `open_questions.md` NEXT trail
+(2026-08-13 entry, note (c)) explicitly named the next step: "if [gate 2
+holds and gate 1 phenomenon-corroborates], this becomes the first
+candidate root queued for a RAW-overlay + gated-SIGNAL /data surface per
+the SPINOUT-READY DATA LAYER rule." Both conditions were already met by
+the 2026-08-15 session (gate 2 PASS, gate 1 PARTIAL phenomenon/region
+corroboration via DTU Space's Bornholm RF station). No other unclaimed
+item in the research/ queue was this concretely specified and this ready
+— chose it over starting a fresh hypothesis from scratch.
+
+READ BEFORE WRITE: read `server/gnssIntegrityQuery.ts` in full (the
+Phase-3 aggregator/reader this all sits on top of), `scripts/
+gnss_integrity_gate2.ts` in full (the existing gate-2 CLI script and its
+pre-registered methodology/bboxes), its test file, `server/diag.ts`'s
+"gnss_integrity" probe registration and `server/bot.ts`'s handler for it
+(to confirm the privacy contract — only band x origin aggregate counts,
+never per-row lat/lon/tail/callsign), and `datacore/signal_ladder.json`'s
+`_doc` + the `gnss_integrity_adsb` entry itself, before writing anything.
+Also read `client/src/pages/methaneHotspots.tsx`, `nrcReactorStatus.tsx`,
+and `signalLadder.tsx` as the closest existing precedents for a standalone
+signal-detail page and the ladder listing it should link from, and
+grepped `datamap.tsx` for the exact `midasOpen`/`methaneHotspotsOpen`
+hash-route overlay pattern (state var + hashchange listener entry +
+render block + a launcher button inside the relevant layer's expanded
+panel) before adding a new one, rather than inventing a different shape.
+
+WHAT SHIPPED:
+1. `server/gnssIntegritySignal.ts` (new) — the CANONICAL location for the
+   band-verdict statistics (`evaluateBands`/`gate2Verdict`/
+   `SIG_THRESHOLD`/band constants), moved here from
+   `scripts/gnss_integrity_gate2.ts` (same logic, same assertions — EDGE
+   DOCTRINE #3, one definition instead of two that could drift). Adds
+   `recentDays()` (a rolling trailing-window day picker floored at
+   `WRITER_LIVE_SINCE` = 2026-08-11, the date the archive started
+   carrying integrity fields — mirrors the "last N days, floored at a
+   known start date" idiom already used by `apiKeyAccounts.ts`'s usage
+   history) and `computeGnssIntegritySignal()`, which reads the aircraft
+   archive live (via the existing `readGnssIntegrityWindow`, no new I/O
+   format) for the pre-registered candidate (Baltic 53,60,17,24) and
+   control (NY+Paris 35,55,-80,10) regions, evaluates band verdicts, and
+   packages the result with freshness (days_read/days_missing/
+   rows_scanned per region), the region labels/bboxes, a methodology
+   note, and three ALWAYS-PRESENT honest caveats (gate-1-partial,
+   small-and-growing sample, not-tradeable) plus the license note
+   (adsb.lol primary / adsb.fi+airplanes.live non-commercial fallbacks,
+   MONETIZATION TRIPWIRE condition restated). No per-row PII of any kind
+   ever leaves this module — same privacy contract as the token-gated
+   diag probe it sits beside.
+2. `scripts/gnss_integrity_gate2.ts` — its own copy of the band-verdict
+   logic REMOVED, now imports + re-exports from `server/
+   gnssIntegritySignal.ts`. Its distinct role is preserved: an ad-hoc CLI
+   runner against the TOKEN-GATED diag endpoint for re-verifying a
+   specific historical days/bbox claim (arbitrary args, external HTTP) —
+   deliberately NOT merged into the new module, which is the LIVE,
+   public, no-token path reading the archive directly. Its own test file
+   (`scripts/gnss_integrity_gate2.test.ts`) required NO changes — it
+   imports `evaluateBands`/`gate2Verdict`/`DiagCell` from the script,
+   which now re-exports them, so the import surface is unchanged.
+3. `server/routes.ts` — new public route `GET /api/data/
+   gnss-integrity-signal`, same 10-min eager-poller-with-cache shape as
+   `portdwell` immediately above it (an in-memory `{at, data}` cache
+   refreshed on an unref'd interval, never a synchronous per-request
+   archive scan — the exact event-loop-blocking class of bug portdwell/
+   shadowstats/graph were fixed for previously). `warming_up: true`
+   served honestly until the first refresh completes.
+4. `client/src/pages/gnssIntegritySignal.tsx` (new) — the first live
+   detail page for a root that has passed ladder gate 2. Shows the
+   verdict badge, a per-altitude-band table (candidate k/n, candidate
+   rate, control rate, p-value, elevated Y/N with an "(expected)" tag on
+   bands the physical hypothesis predicted), freshness (days read/
+   missing, rows scanned, writer-live-since, generated_at), the full
+   methodology note, all three caveats rendered in the warning color
+   (not buried), and the license/source note including the DTU Space
+   Bornholm gate-1 corroboration text — WITHOUT inventing a citation URL
+   (caught and fixed during this session: an earlier draft linked a
+   guessed dr.dk URL for the DTU Space reporting; removed in favor of
+   plain-text attribution, since no real article URL was available to
+   verify — never fabricate a citation link). Reuses `.vt-filings-*`/
+   `.vt-quality-*`/`.vt-ladder-badge-*` — zero new CSS.
+5. `client/src/pages/datamap.tsx` — wired via the exact `midasOpen`
+   pattern: `gnssIntegrityOpen` state + hashchange listener entry +
+   render block (`#/data/gnss-integrity`) + a launcher button inside the
+   `aircraft` layer's expanded panel (next to `TrackedPlanesPanel`),
+   worded to make clear this is a SIGNAL derived from the RAW aircraft
+   layer, not the raw layer itself.
+6. `datacore/signal_ladder.json` — a new OPTIONAL `detail_route` field
+   (documented in `_doc`, same style as the 2026-08-13 `readiness_trigger`
+   addition), set on the `gnss_integrity_adsb` entry to `#/data/
+   gnss-integrity`; `source_ref` gained this session's file references.
+   Edited via a targeted string replace, NOT a full `json.dump`
+   round-trip — an early attempt with `json.dump(..., indent=2)`
+   reformatted the entire file (`sources` arrays exploding from one line
+   to multi-line etc.), a 400+ line diff for a 2-field change; reverted
+   and redone as a minimal surgical edit instead (2 lines changed).
+7. `client/src/pages/signalLadder.tsx` — renders a generic "view live
+   signal →" link on any ladder row carrying `detail_route`, not a
+   `gnss_integrity_adsb`-specific special case, so future roots reaching
+   this same milestone get the link for free.
+8. `scripts/visual_check.mjs` — new `gnssintegrity` PAGES entry + a
+   `/api/data/gnss-integrity-signal` fixture (one elevated band, one
+   not-elevated band, so both badge colors render); the existing
+   `/api/data/signal-ladder` fixture gained a `gate2_pass` + `detail_route`
+   fixture root so the new link path in `signalLadder.tsx` is actually
+   exercised by the harness, not just the new page in isolation.
+
+TESTS: `server/gnssIntegritySignal.test.ts` (new, 11 tests) — the 6
+band-verdict tests moved verbatim from `scripts/
+gnss_integrity_gate2.test.ts` (same fixtures, same assertions, now
+pinning the canonical location), 3 new `recentDays` tests (floors at
+`WRITER_LIVE_SINCE` regardless of `maxDays`, returns empty before the
+floor, caps at `maxDays`), and 2 new `computeGnssIntegritySignal`
+integration tests against a temp archive dir (honest freshness — a
+requested day with no files reports in `days_missing`, never silently
+dropped; a completely empty archive still returns a well-formed
+INCONCLUSIVE summary, not a crash). `scripts/gnss_integrity_gate2.test.ts`
+unchanged and still passes (6/6) via the re-exported names.
+
+RATCHET CAUGHT MID-SESSION: `bash scripts/gated_tests.sh` first failed on
+`test_ts_code_only.py`'s `ts_any` pin (1239 expected, 1241 measured) — the
+first draft of the new `server/routes.ts` cache block used
+`data: any`/`catch (e: any)`, matching the file's dominant existing idiom
+but adding 2 to a ratcheted counter this session didn't need to spend.
+Fixed by using the real `GnssIntegritySignalSummary` type for the cache
+and `catch (e: unknown)` + `(e as Error)?.message` instead — re-ran and
+confirmed 0 new `: any` in the full diff, no re-pin needed.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged (all 12 pre-existing, none in this diff — verified
+by inspecting the full error list). `bash scripts/gated_tests.sh` GATE
+PASSED (second run, post-fix) — client + server node tests all green
+(including the 11 new + 6 unchanged), python 1354 passed/1 skipped
+(unchanged from baseline), quarantine 1/1 none overdue. `bash scripts/
+counter_ratchet.sh`: OK, 25 counters at or better than baseline, NO
+re-pin needed (the only counter this diff could have moved was `ts_any`,
+fixed above before this run). `npm run build` clean (pre-existing
+warnings only — astronomy-engine ESM default-export notice, large-chunk
+notice — neither related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+gnssintegrity` and `npm run visual -- --page signals`, each at
+390/768/1440 — **0 hard failures** on both. New page confirmed by
+screenshot review: verdict badge, per-band table with color-coded
+elevated/not-elevated badges, freshness line, all three caveats rendered
+in the warning color, source/license section — matches PREMIUM
+EXPERIENCE STANDARD (c) (every number carries freshness/provenance, the
+honest caveats are as visible as the pass verdict). The updated Signal
+strength page confirmed showing the new "view live signal →" link and
+the ladder funnel/category counts reflecting the 7th fixture root. Only
+warnings present are the pre-existing global-chrome touch-target/
+clipped-control warnings that appear on essentially every page in this
+harness (same class noted in prior sessions' visual-verification write-
+ups) and the standard headless-software-renderer notice — neither related
+to this diff.
+
+BACKTEST: N/A — this is a data-surface/UI feature (PROMOTION RULE 3's
+Sharpe/drawdown comparison doesn't apply); no scoring, sizing, or
+trading-threshold value changed. The underlying GATE 2 statistical
+finding itself was already run and recorded by the 2026-08-13/08-15
+sessions; this session surfaces it, it does not re-run or alter it.
+
+CROSS-SYSTEM INTEGRATION: this IS the cross-system tie the SPINOUT-READY
+DATA LAYER rule anticipated — a datacore/ signal (built entirely inside
+datacore-adjacent server modules, no trading-logic imports) now has a
+first-class /data consumer, mirroring how an external API customer would
+eventually consume it. No new archive, no new entity-graph join this
+session — the tie is the surface itself.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, matching how the existing RAW aircraft
+layer already operates under `NON_COMMERCIAL_AIRCRAFT_PROVIDERS`
+(`server/providerCompliance.ts`) — no change to that compliance surface.
+The license note shipped on the page restates, verbatim in spirit, the
+existing condition that any future SOLD surface of this signal must
+derive from adsb.lol alone; this session does not sell anything.
+
+NEXT (queued, not this session): (1) re-run `scripts/
+gnss_integrity_gate2.ts` (or just let the live `/api/data/
+gnss-integrity-signal` route's own rolling window) keep confirming
+durability as the archive deepens past the current 4 days. (2) if a
+Baltic-state authority ever publishes a dated, open, machine-readable
+jamming-incident log, wire it as the exact-day gate-1 check this root
+still lacks (open_questions.md's own NEXT note, unchanged). (3) KNOWN
+BROKEN #29 (MEDIUM, visibility gap on the `_log_mem_phase` mid-scan RSS
+value) and #20/#10 (RULE REVIEW-gated threshold judgment calls) remain
+queued for whichever session next has repair capacity. (4) the AUDITS &
+DEBT register's STALENESS/CONSTITUTIONAL audits should be checked by the
+next session whose fall-through reaches the research tier (not checked
+this session — the primary action filled capacity).
+
+Version bumped 1.0.727 -> 1.0.728 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed branch was exactly
+at origin/main (no drift) at bump time.
+
+STARVED: no — this was the task's own clearest, most-ready, most fully
+pre-specified product action (both preconditions its own research/ NEXT
+note named were already met), matched to session capacity, shipped with
+tests/gates/visual harness all green and honest caveats surfaced as
+prominently as the pass verdict. No higher-priority queued item was
+skipped (no LIVENESS ALARM; the two open KNOWN BROKEN items are RULE
+REVIEW-gated or visibility-only, not blocking; product sessions do not
+preempt DAILY repair duty per this task's own instructions).

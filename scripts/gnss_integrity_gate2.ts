@@ -31,6 +31,17 @@
  * exact harness rather than a one-off curl (EDGE DOCTRINE #3: compile
  * knowledge into code, never re-derive by hand a second time).
  *
+ * BAND-VERDICT LOGIC MOVED (this session, once this root reached
+ * gate2_pass and became the first candidate for a live /data surface):
+ * `evaluateBands`/`gate2Verdict`/the SIG_THRESHOLD/band constants now
+ * live in `server/gnssIntegritySignal.ts`, the canonical definition
+ * `/api/data/gnss-integrity-signal` computes against the live archive
+ * directly (no token, no HTTP hop). This script re-exports them and keeps
+ * its own distinct role: an ad-hoc CLI runner against the TOKEN-GATED diag
+ * endpoint for a human or session re-verifying a specific historical
+ * days/bbox claim — the two were never meant to duplicate the statistics,
+ * only the entry point differs (live archive read vs. diag HTTP call).
+ *
  * PRE-REGISTERED CRITERIA (this script formalizes, not invents, the
  * 2026-08-11 entry's stated methodology):
  *   - Statistical method: one-tailed exact binomial test per band
@@ -70,15 +81,16 @@
  *     re-run as more days accumulate, not treated as final.
  */
 import { pathToFileURL } from "url";
-import { binomialUpperTailP } from "./statsUtils";
-
-export interface DiagCell {
-  band: string;
-  origin: string;
-  n_total: number;
-  n_zero: number;
-  distinct_airframes: number;
-}
+import {
+  SIG_THRESHOLD, EXPECTED_ELEVATED_BANDS, EXPECTED_NULL_BANDS,
+  evaluateBands, gate2Verdict,
+  type DiagCell, type BandVerdict,
+} from "../server/gnssIntegritySignal";
+export {
+  SIG_THRESHOLD, EXPECTED_ELEVATED_BANDS, EXPECTED_NULL_BANDS,
+  evaluateBands, gate2Verdict,
+  type DiagCell, type BandVerdict,
+};
 
 export interface DiagResponse {
   cells: DiagCell[];
@@ -86,75 +98,6 @@ export interface DiagResponse {
   days_missing: string[];
   rows_scanned: number;
   truncated: boolean;
-}
-
-export const SIG_THRESHOLD = 0.01;
-export const EXPECTED_ELEVATED_BANDS = ["cruise", "mid"] as const;
-export const EXPECTED_NULL_BANDS = ["low", "ground"] as const;
-
-export interface BandVerdict {
-  band: string;
-  candidate_k: number;
-  candidate_n: number;
-  control_rate: number;
-  expected_under_null: number;
-  p_value: number;
-  elevated: boolean; // observed rate > control rate AND p < SIG_THRESHOLD
-  expected_to_elevate: boolean; // per the pre-registered physical hypothesis
-}
-
-/** Only broadcast-origin cells carry a genuine "the aircraft told us its
- *  own GPS is degraded" reading (see file header) — ground/mode_s/unknown
- *  origin cells are aggregator-derived and excluded from this test. */
-function broadcastOnly(cells: DiagCell[]): DiagCell[] {
-  return cells.filter((c) => c.origin === "broadcast");
-}
-
-/**
- * Pure comparison: for each band present in BOTH the candidate and control
- * cell sets, test whether the candidate's zero-rate is elevated beyond
- * chance under the control's own observed rate as the null.
- */
-export function evaluateBands(candidateCells: DiagCell[], controlCells: DiagCell[]): BandVerdict[] {
-  const candidate = broadcastOnly(candidateCells);
-  const control = broadcastOnly(controlCells);
-  const controlByBand = new Map(control.map((c) => [c.band, c]));
-  const verdicts: BandVerdict[] = [];
-  for (const c of candidate) {
-    const ctrl = controlByBand.get(c.band);
-    if (!ctrl || ctrl.n_total === 0 || c.n_total === 0) continue;
-    const controlRate = ctrl.n_zero / ctrl.n_total;
-    const expected = c.n_total * controlRate;
-    const pValue = binomialUpperTailP(c.n_zero, c.n_total, controlRate);
-    verdicts.push({
-      band: c.band,
-      candidate_k: c.n_zero,
-      candidate_n: c.n_total,
-      control_rate: controlRate,
-      expected_under_null: expected,
-      p_value: pValue,
-      elevated: c.n_zero > expected && pValue < SIG_THRESHOLD,
-      expected_to_elevate: (EXPECTED_ELEVATED_BANDS as readonly string[]).includes(c.band),
-    });
-  }
-  return verdicts.sort((a, b) => a.band.localeCompare(b.band));
-}
-
-/**
- * Overall gate-2 verdict per the pre-registered bar: PASS requires (a) at
- * least one EXPECTED-elevated band actually shows significant elevation,
- * AND (b) no EXPECTED-null band shows significant elevation (a hit
- * everywhere is a data-artifact pattern, not a targeted signature — see
- * file header). Anything else is INCONCLUSIVE, never silently rounded up.
- */
-export function gate2Verdict(verdicts: BandVerdict[]): "PASS" | "FAIL" | "INCONCLUSIVE" {
-  const expectedElevatedHit = verdicts.some((v) => v.expected_to_elevate && v.elevated);
-  const unexpectedNullBandElevated = verdicts.some(
-    (v) => !v.expected_to_elevate && (EXPECTED_NULL_BANDS as readonly string[]).includes(v.band) && v.elevated,
-  );
-  if (unexpectedNullBandElevated) return "FAIL"; // artifact pattern, not a targeted signature
-  if (expectedElevatedHit) return "PASS";
-  return "INCONCLUSIVE";
 }
 
 async function fetchDiag(bbox: string, days: string): Promise<DiagResponse> {

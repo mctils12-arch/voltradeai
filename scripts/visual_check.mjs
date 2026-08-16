@@ -97,6 +97,10 @@ const PAGES = {
   // a standalone /data page" queue item — NRC was the one still genuinely
   // missing) — same Phase 5 ratchet rule as streams/fredmacro above.
   nrcreactorstatus: { route: "/app#/data/nrc-reactor-status", map: false },
+  // GNSS integrity anomaly signal — first live gate2_pass SIGNAL detail
+  // page (2026-08-16) — same Phase 5 ratchet rule as streams/nrcreactorstatus
+  // above.
+  gnssintegrity: { route: "/app#/data/gnss-integrity", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -626,15 +630,19 @@ const FIXTURES = {
       { id: "fx_g1fail", name: "Fixture gate-1 fail", category: "commodities", status: "gate1_fail", current_gate: 1, last_update_date: "2026-07-05", note: "Both sensor designs dead at gate 1 (fixture).", source_ref: "experiments.md:4 (fixture)" },
       { id: "fx_g2p", name: "Fixture gate-2 pending", category: "government_spending", status: "gate2_pending", current_gate: 2, last_update_date: "2026-07-26", note: "Gate 1 passed, first gate-2 run inconclusive (fixture).", source_ref: "experiments.md:5 (fixture)" },
       { id: "fx_killed", name: "Fixture killed root", category: "insider_trading", status: "killed", current_gate: 2, last_update_date: "2026-07-22", note: "Gate 2 kill in both directions (fixture).", source_ref: "experiments.md:6 (fixture)" },
+      // gate2_pass + detail_route (2026-08-16) — exercises the "view live
+      // signal" generic link (signalLadder.tsx), first real use being
+      // gnss_integrity_adsb's #/data/gnss-integrity page.
+      { id: "fx_g2pass_detail", name: "Fixture gate-2 pass with live detail page", category: "geopolitical_intelligence", status: "gate2_pass", current_gate: 2, last_update_date: "2026-08-16", note: "Gate 2 pass with a dedicated live signal page (fixture).", source_ref: "experiments.md:7 (fixture)", detail_route: "#/data/gnss-integrity" },
     ],
     summary: {
-      total: 6,
-      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1 },
-      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1 },
-      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 2 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
+      total: 7,
+      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1, gate2_pass: 1 },
+      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1, geopolitical_intelligence: 1 },
+      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 3 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
       killed_count: 1,
       raw_only_count: 1,
-      furthest_gate_reached: 1,
+      furthest_gate_reached: 2,
     },
   },
   // Pipeline-health dashboard (MAP V2 ROADMAP R6(c), 2026-07-31) — a mixed
@@ -956,6 +964,36 @@ const FIXTURES = {
         units: [{ unit: "Waterford 3", power: null }],
         avgPower: null, status: "unknown" },
     ],
+  },
+  // GNSS integrity anomaly signal (2026-08-16) — the first live gate2_pass
+  // SIGNAL detail page. Fixture mirrors the real shape from
+  // server/gnssIntegritySignal.ts's computeGnssIntegritySignal(), with one
+  // band of each elevated/not-elevated state so both table badge colors
+  // render at every canonical width.
+  "/api/data/gnss-integrity-signal": {
+    kind: "signal", root_id: "gnss_integrity_adsb", generated_at: "2026-08-16T00:00:00.000Z",
+    gate: { current_gate: 2, status: "gate2_pass" }, verdict: "PASS",
+    bands: [
+      { band: "cruise", candidate_k: 15, candidate_n: 414, control_rate: 0.00147, expected_under_null: 0.61, p_value: 0.000001, elevated: true, expected_to_elevate: true },
+      { band: "mid", candidate_k: 12, candidate_n: 277, control_rate: 0.00272, expected_under_null: 0.75, p_value: 0.000001, elevated: true, expected_to_elevate: true },
+      { band: "low", candidate_k: 7, candidate_n: 903, control_rate: 0.02214, expected_under_null: 20.0, p_value: 0.46, elevated: false, expected_to_elevate: false },
+    ],
+    region: {
+      candidate_label: "Baltic corridor (Gdańsk–Bornholm–Gotland)", candidate_bbox: [53, 60, 17, 24],
+      control_label: "NY + Paris control region", control_bbox: [35, 55, -80, 10],
+    },
+    freshness: {
+      writer_live_since: "2026-08-11",
+      candidate: { days_read: ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"], days_missing: [], rows_scanned: 1613, truncated: false },
+      control: { days_read: ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"], days_missing: [], rows_scanned: 32944, truncated: false },
+    },
+    methodology_note: "Broadcast-origin ADS-B rows only. One-tailed exact binomial test per altitude band (fixture text).",
+    caveats: [
+      "GATE 1 is PARTIAL, not a full pass — DTU Space's Bornholm RF station corroborates the phenomenon/region, not the exact sample dates (fixture text).",
+      "Small, growing sample — the archive has carried integrity fields only since 2026-08-11 (fixture text).",
+      "Not tradeable — this is GATE 2 statistical discrimination, not a trading signal (fixture text).",
+    ],
+    license: { source: "adsb.lol (ODbL 1.0) + adsb.fi/airplanes.live (non-commercial fallbacks)", note: "Fixture license note." },
   },
 };
 
