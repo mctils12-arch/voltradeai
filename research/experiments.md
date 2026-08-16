@@ -3,6 +3,30 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-16 (same session, ADDENDUM) — PR #858's "wait until after 4:00 PM ET" note was not honored: CI's automerge job merged it at 16:24 UTC (~12:24 PM ET), 5 minutes after opening — THIRD occurrence of the 2026-08-14/2026-08-15 gap
+
+PR #858 (this session's fails-to-deliver `/data` view, client-only,
+non-critical) merged automatically at 2026-08-16T16:24:43Z, ~5 minutes
+after being opened and subscribed to, and well before 4:00 PM ET as the
+PR body itself requested. This is the third instance of the exact
+process gap first found 2026-08-14 (PR #842) and confirmed structural
+2026-08-15 (`research/wishlist.md`'s standing entry): the `automerge`
+CI job (`.github/workflows/`, FROZEN PATH) merges any `claude/`-branch
+PR the instant its heavy CI jobs report non-failure, with no time-of-day
+or PR-body-text awareness at all. Nothing new diagnosed this session —
+this confirms the gap fires on every single qualifying PR rather than
+intermittently, since there is no conditional logic to intermittently
+miss. Substantively harmless again (a fully-gated, paper-account-safe,
+UI-only change), but logged per the standing incident-tracking pattern.
+Addendum appended to `research/wishlist.md`'s existing PROCESS GAP entry
+(same file, top section) rather than opening a new entry — this is a
+confirmation of an already-filed, still-undecided item, not a new
+finding. No code change attempted here: the two candidate fixes (gate
+the automerge job on time-of-day/label, or drop the unenforced
+instruction from the scheduled-routine prompt) both require a human
+decision per that entry, and this session has no new information that
+would break the tie between them.
+
 ## 2026-08-16 (scheduled-routine session #4, market hours) [PRODUCT] — T-CLIENT (primary) — SEC fails-to-deliver (/api/data/ftd) gets a live /data client view, another shipped-data-no-UI gap closed (v1.0.730, PR #858)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/secFtd.tsx`; wiring in

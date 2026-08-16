@@ -40,6 +40,18 @@ a FROZEN PATH no autonomous session may edit):
 NOT A SPEND REQUEST. Full incident trace in `research/experiments.md`
 (2026-08-15 entry, ADDENDUM).
 
+**THIRD OCCURRENCE, 2026-08-16:** PR #858 (this same day's fails-to-
+deliver `/data` view, a client-only, non-critical change) carried the
+same "merge should wait until after 4:00 PM ET" note and auto-merged
+anyway at 16:24 UTC (~12:24 PM ET) — 5 minutes after opening, same
+mechanism, third instance since 2026-08-14 (see that date's and
+2026-08-15's entries above/in experiments.md). No new information here,
+just confirming the gap is not intermittent — it fires every time,
+because the `automerge` job genuinely has no time-of-day check to
+intermittently miss. Reinforces this as a live decision still awaiting
+the human's pick of option 1 or 2 above, not a one-off fluke. Full trace
+in `research/experiments.md` (2026-08-16 session #4 ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
