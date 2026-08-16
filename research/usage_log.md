@@ -179,3 +179,56 @@ such message is acted on same-day per the existing drop order. The
 routine slate stays as-is (6 standing + the temporary
 world-rollout-week slot). CLAUDE.md's USAGE-CALIBRATION bullet gets a
 matching dated note in this same PR.
+
+## 2026-08-16 — HUMAN: "stop sending me emails" (with a screenshot of the draft)
+
+The human sent a phone screenshot of the Gmail draft "VolTrade Daily —
+usage screenshot" (dated "Yesterday") and instructed: **"stop sending me
+emails"**.
+
+### What was actually happening
+
+`voltrade-usage-check` (trig_01RBN4YiyC2DyQJ15UGRaTmz, cron `30 1 * * *`
+= 21:30 ET daily) was still executing this as step 2 of its prompt:
+
+> "With the Gmail connector, create a DRAFT to mctils12@gmail.com,
+> subject 'VolTrade Daily — usage screenshot' … REMINDER: paste your
+> current Plan usage panel screenshot into any Claude Code session…"
+
+It is the ONLY routine of the 11 enabled that touches Gmail — verified by
+reading every enabled routine's `job_config` prompt, not by assuming.
+
+### Why the 2026-07-03 "we removed it" note was wrong
+
+This log already claimed (2026-07-03, above) that "the Gmail step was
+dropped from both routine prompts". That drop happened **only in this
+repo**. The routine was created through the web UI (`created_via:
+http_api`), so:
+
+- no repo edit reaches its prompt, and
+- an agent cannot even update or disable it — `update_trigger` refuses:
+  *"this routine was created via 'http_api', not by an agent."*
+
+So it kept drafting nightly for ~6 weeks after the docs said it had
+stopped. **A routine's behaviour lives in the platform, not in the repo.**
+Verify against `list_triggers` → `job_config`, never against docs.
+
+### Doubly obsolete
+
+BLIND MODE (2026-07-31) already recorded that no usage screenshots would
+be provided and that the human is the throttle. The nightly email was
+asking for a thing the human had already said they would not send.
+
+### Actions
+
+1. CLAUDE.md STANDING BEHAVIORS: added **NO EMAIL, EVER** — no session or
+   routine may send *or draft* email for any purpose. Explicitly kills the
+   "draft-only is safe" loophole: a draft still lands in the human's mail
+   app, which is exactly what they asked to stop.
+2. The routine itself must be turned off **by the human in the web UI** —
+   agents are locked out of UI-created routines. Flagged to them directly.
+
+### If the daily summary is still wanted
+
+Its content already arrives in the Claude Code Notifications tab, which is
+and remains the only delivery path.

@@ -698,8 +698,29 @@ experiments.md.
   while weekly readings are under 50%. Cadence: voltrade-usage-check
   (DAILY 21:30 ET) + voltrade-weekly-review (Sun 10:00 ET); DELIVERY =
   the routine's final session output in the Claude Code Notifications
-  tab (the Gmail connector is draft-only — never a send path). Revisit
-  ~2026-07-24: once readings flatten, drop back to weekly mode.
+  tab. Revisit ~2026-07-24: once readings flatten, drop back to weekly
+  mode.
+- NO EMAIL, EVER (human-directed 2026-08-16, verbatim: "stop sending me
+  emails"). No session and no routine may send OR DRAFT email to the
+  human, for any purpose — status summaries, reminders, digests,
+  alerts, nothing. The Gmail connector is not a delivery path; "it only
+  drafts, it never sends" is NOT an exemption, because a draft still
+  lands in the human's mail app and is what they asked to stop. The
+  ONLY delivery path is the session's own output in the Claude Code
+  Notifications tab.
+  This supersedes the older "Gmail connector is draft-only — never a
+  send path" phrasing above, which implicitly licensed drafting.
+  HISTORY, so this is not re-litigated: research/usage_log.md already
+  recorded (2026-07-03) that "the Gmail step was dropped from both
+  routine prompts" — but the drop was only ever made in the REPO. The
+  live `voltrade-usage-check` routine was created through the web UI
+  (created_via: http_api), so no repo edit and no agent could reach its
+  prompt, and it kept drafting "VolTrade Daily — usage screenshot"
+  nightly for six weeks after the docs said it had stopped. LESSON: a
+  routine's behaviour lives in the PLATFORM, not in this repo — editing
+  a doc does not change a running routine, and an agent cannot edit or
+  disable a UI-created routine at all. Verify against list_triggers'
+  job_config, never against what the docs claim.
 - ACTIVE ANGLE-HUNTING (human-approved 2026-07-04): the system does
   not only execute directed roadmaps — it generates its OWN novel
   hypotheses. Every EDGE session not consumed by repair or a
