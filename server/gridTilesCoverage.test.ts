@@ -1,54 +1,83 @@
-// THE STATE+NATIONAL POWER-TILE CORPUS (Q12). Split out of
-// server/gridTiles.test.ts on 2026-08-14 — this is the assertion that file
-// opened with, moved here VERBATIM rather than deleted or weakened.
+// THE STATE+NATIONAL+WORLD POWER-TILE CORPUS (Q12, then de-quarantined
+// 2026-08-16). Originally split out of server/gridTiles.test.ts on
+// 2026-08-14 asserting `client/public/tiles` held >=50 committed
+// `power_*.pmtiles` files — quarantined because it never could pass:
+// scripts/build_power_tiles.sh forbids committing US-scale tiles, and its
+// ODbL note forbids offering the .pmtiles file itself for download.
 //
-// WHY IT WAS SPLIT. It fails on every run: three .pmtiles are committed and
-// `git log --all` finds no `power_*.pmtiles` ever committed. Because it ran
-// first, it prevented the magic-byte loop in gridTiles.test.ts from executing
-// at all — so a guard against a REAL previously-shipped defect (v1.0.251, where
-// power_us.pmtiles shipped as SQLite and the pmtiles:// protocol silently
-// rendered nothing) was dead from the day it was written. Splitting revives
-// that guard while keeping this claim intact and honestly quarantined.
+// THE CORPUS WAS NEVER MISSING — it was asserted in the wrong place. The
+// 2026-07-31 "GRID VISION world rollout" migration (server/routes.ts's
+// `/tiles-r2/:name` passthrough, datamap.tsx's `tilePath()`) moved every
+// power-grid tile — US master, all 50 states + DC, and dozens of non-US
+// countries — off the repo/Docker image and onto a public R2 bucket,
+// streamed same-origin through the proxy (~830MB removed from the repo,
+// per datamap.tsx's own migration comment). `research/wishlist.md`'s
+// DATACORE MAXIMUS resume block still read "US-full: NOT built" because
+// it was last updated 2026-07-07, three weeks before the R2 migration
+// shipped the exact capability it described (under a different program,
+// GRID VISION, and a different serving design than the block's own
+// GitHub-Release-boot-fetch plan) — corrected in the same commit as this
+// file. A scheduled session nearly re-built and re-downloaded ~12GB of
+// already-shipped tiles on the strength of that stale doc; this file's
+// original premise (files under client/public/tiles) was the same stale
+// assumption, just encoded as a test instead of a wishlist paragraph.
 //
-// WHY IT CANNOT SIMPLY BE MADE TO PASS. The obvious fix — build the tiles and
-// commit them — is forbidden by the repo's own build script.
-// scripts/build_power_tiles.sh line 53, of exactly these artifacts:
-//
-//     TX pilot (16MB): commit under client/public/tiles/ -> bundled to
-//     dist/public, served with range requests by express static.
-//     US scale (est. 60-150MB): DO NOT commit — boot-fetch from a
-//     GitHub Release asset into the volume, serve from there.
-//
-// and the same file's ODbL note: "do NOT offer the .pmtiles file itself for
-// download (share-alike boundary)". wishlist.md A4 PHASE 2 item 2 records the
-// intended design as boot-fetch-from-Release, and marks it "filed above, NOT
-// built".
-//
-// So this assertion asks for a committed corpus that the architecture
-// deliberately does not commit. It is not wrong to WANT the coverage — the
-// grid layer genuinely needs those tiles to exist somewhere — but asserting
-// them in `client/public/tiles` is asserting the one place the design says
-// they must not be.
-//
-// HOW TO RESOLVE IT — one of these, not a weakening of the assertion:
-//   (a) build the boot-fetch path (A4 PHASE 2 item 2), publish the tiles as a
-//       Release asset, and re-point this test at the manifest/volume the
-//       server actually serves from; or
-//   (b) if the decision is that state-level tiles are not being built at all,
-//       delete this test WITH that decision recorded in experiments.md —
-//       deleting a test because the feature was cancelled is legitimate;
-//       deleting it because it is red is not.
-//
-// Quarantined in ci/quarantine.txt, review by 2026-09-13. It still RUNS in the
-// gate's non-blocking pass, which prints "NOW PASSING — remove from
-// ci/quarantine.txt" the day the corpus appears.
+// So: re-pointed at what the server actually serves (repo option (a) from
+// the prior quarantine note), not deleted — the feature was never
+// cancelled, it shipped via R2 instead of the local volume.
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 
-test("the state+national power tiles are present under client/public/tiles", () => {
-  const dir = path.join(import.meta.dirname, "..", "client", "public", "tiles");
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".pmtiles"));
-  assert.ok(files.length >= 50, `expected the state+national tiles, found ${files.length}`);
+const ROOT = path.join(import.meta.dirname, "..");
+
+test("datamap.tsx tilePath() routes every power_*.pmtiles reference through the R2 proxy, never the local /tiles path", () => {
+  const src = fs.readFileSync(path.join(ROOT, "client", "src", "pages", "datamap.tsx"), "utf8");
+  assert.match(
+    src,
+    /const tilePath = \(file: string\): string =>\s*\n\s*file\.startsWith\("power"\) \? `\/tiles-r2\/\$\{file\}` : `\/tiles\/\$\{file\}`;/,
+    "tilePath()'s power-vs-local routing split not found in its expected shape — if the R2 serving design changed, re-verify " +
+    "the corpus still isn't meant to be committed under client/public/tiles before updating this scrape",
+  );
+});
+
+test("the state+national+world power-grid tile corpus is referenced in datamap.tsx (R2-served, not locally committed)", () => {
+  const src = fs.readFileSync(path.join(ROOT, "client", "src", "pages", "datamap.tsx"), "utf8");
+  const files = new Set(Array.from(src.matchAll(/power_[a-z_]+\.pmtiles/g)).map((m) => m[0]));
+  assert.ok(
+    files.size >= 50,
+    `expected the state+national+world power tile corpus (>=50 distinct files, the same bar the original ` +
+    `committed-file assertion used), found only ${files.size} referenced in datamap.tsx`,
+  );
+  // The master US file and at least one real state file must both be present —
+  // a regex that only matched country codes (or only the master) would still
+  // clear >=50 without actually covering the "all 50 states + DC" claim.
+  assert.ok(files.has("power_us.pmtiles"), "master US power-grid tile (power_us.pmtiles) not referenced");
+  assert.ok(files.has("power_ak.pmtiles") || files.has("power_tx.pmtiles"), "no per-state power tile file found");
+});
+
+test("server /tiles-r2/:name proxy exists and its allowlist permits power_*.pmtiles names", () => {
+  const src = fs.readFileSync(path.join(ROOT, "server", "routes.ts"), "utf8");
+  assert.match(src, /app\.get\("\/tiles-r2\/:name"/, "R2 tile passthrough route not found");
+  const m = src.match(/if \(!(\/\^\[a-z0-9_\]\+\\\.pmtiles\$\/)\.test\(name\)\)/);
+  assert.ok(m, "R2 proxy name-allowlist regex not found in its expected shape");
+  const allowlist = new RegExp(m[1].slice(1, -1));
+  assert.ok(allowlist.test("power_us.pmtiles"), "R2 proxy allowlist must permit power_us.pmtiles");
+  assert.ok(!allowlist.test("../../etc/passwd"), "R2 proxy allowlist must reject path traversal");
+});
+
+interface LayerEntry {
+  id: string;
+  status?: string;
+  description?: string;
+}
+
+test("datacore/layers.json powergrid entry is live and honestly claims full US coverage", () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(ROOT, "datacore", "layers.json"), "utf8"));
+  const layers: LayerEntry[] = registry.layers || registry;
+  const layer = layers.find((l) => l.id === "powergrid");
+  assert.ok(layer, "powergrid layer entry missing from datacore/layers.json");
+  assert.equal(layer.status, "live", "powergrid registry entry should report live status — the R2-served corpus is deployed");
+  assert.match(layer.description, /50 states/i, "powergrid description should honestly state its all-50-states coverage");
 });
