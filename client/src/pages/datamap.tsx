@@ -855,6 +855,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
   ats_summary: "filings", midas: "filings",
   graph: "graph",
+  timezones: "base",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
