@@ -2368,6 +2368,16 @@
    "description": "Weekly futures-only positioning by trader category (producer/merchant, swap dealer, managed money, other reportables), ~274 markets. As-is display: a market search + per-market managed-money net-position history + today's ranked panel by |net % of open interest|; positioning-extremes-mean-revert is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
   },
   {
+   "id": "tff",
+   "name": "Traders in Financial Futures (CFTC, futures-only)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "CFTC Public Reporting Socrata API, futures-only (no API key required, keyless sibling of the disaggregated COT stream)",
+   "description": "Weekly financial-futures positioning by trader category (dealer/intermediary, asset manager, leveraged money, other reportables) — ES/NQ/rates/FX-class markets. As-is display: today's ranked panel by |leveraged-money net % of open interest|, with dealer net shown alongside. Leveraged-money-extremes-mean-revert (dealer as the informed side) is an open gate-2 hypothesis, gated on trailing archive depth (no /history endpoint yet), not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",

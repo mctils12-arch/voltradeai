@@ -3,6 +3,207 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-16 (scheduled-routine PRODUCT session #5) [PRODUCT] — T-CLIENT (primary) — CFTC Traders in Financial Futures (/api/data/tff) gets a live /data client view, closing the runner-up gap the immediately preceding session's own NEXT notes named (v1.0.731)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/tff.tsx`; wiring in
+`client/src/pages/datamap.tsx` — icon reuse (`Scale`, same as `cot`),
+`LAYER_GROUP` fallback entry, overlay state hook, hashchange listener,
+status-polling effect, icon/unit lookups, launcher button, render block;
+new fixtures + PAGES entry in `scripts/visual_check.mjs`) + SHARED
+last-and-minimal (`datacore/layers.json` registry entry, `package.json`/
+`package-lock.json` version bump only — no server route or schema
+touched). No datacore/ pipeline code touched: `/api/data/tff`
+(`server/cftcTff.ts`) was already shipped and live (BUILD ORDER 6 #1,
+keyless Socrata sibling of `/api/data/cot`), this is a pure client-surface
+build over an existing, unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+top entries through this same day's session #4/ADDENDUM, open_questions.md
+KNOWN BROKEN section, wishlist.md tail). Live `/api/health`: `status:"ok"`,
+bot `active`, `drawdownPct:"0.0"`, `liveness.dark` absent, all three feeds
+`dead:false`, scanner `consecutiveFailures:0` — no LIVENESS ALARM. KNOWN
+BROKEN walked: #29 (MEDIUM, visibility-gap-only, `_log_mem_phase` mid-scan
+RSS not readable from a token-only session) and #20 (RULE REVIEW-gated
+design judgment call) are the only open items, neither blocks product work
+(product sessions don't preempt DAILY repair duty per this task's own
+instructions); #30 was independently re-verified closed by the 2026-08-15
+STALENESS AUDIT session. Today is Sunday 2026-08-16 (verified via `date`/
+`TZ=America/New_York date`) — markets closed all day, no deploy-coupling
+concern, no market-hours merge-timing note needed on the PR (distinct from
+the ADDENDUM entry immediately above this one, filed by a market-hours
+session earlier today).
+
+PRIMARY-ACTION SELECTION: with no bug and no matured gate-2 experiment
+queued, re-verified this same day's session #4 (SEC FTD) finding directly
+rather than re-running its subagent sweep: it explicitly ranked `/api/data/
+tff` (CFTC Traders in Financial Futures) as the clear runner-up — "cheaper
+to build (a near-identical `cot.tsx` template already exists) but has no
+active internal-hypothesis tie and no `/api/v1` mirror yet — left for a
+future session." Independently confirmed the gap still exists before
+committing to it: `grep -rl "/api/data/tff" client/src/` returned zero
+files (same for `/api/data/dts`, `/api/data/treasury-auctions`,
+`/api/data/bank-failures`, `/api/data/vehicle-complaints`,
+`/api/data/fda-events` — a fresh full sweep of every `/api/data/*` route
+in `server/routes.ts` against `client/src/` confirmed the "shipped-data-
+no-UI" pattern is still not exhausted, matching session #4's own finding
+that the DATACORE MAXIMUS "queue is clear" framing in wishlist.md is
+stale). Chose TFF over the other zero-wiring candidates because it already
+had a scoped, reasoned ranking from the immediately preceding session
+rather than requiring a fresh cost/value assessment from scratch, and its
+own file-header hypothesis note (leveraged-money extremes mean-revert,
+dealer as informed side) gives it a concrete future gate-2 path the purely
+descriptive candidates (DTS, bank-failures) lack.
+
+READ BEFORE WRITE: read `server/cftcTff.ts` in full (fetch/parse/archive/
+poll — confirmed the live route serves only the latest cached week, no
+`/history` endpoint, unlike `cftcCot.ts`'s sibling `/api/data/cot/history`)
+and `server/routes.ts:2727-2743`'s exact `/api/data/tff` handler/response
+shape (`kind`, `source`, `attribution`, `time`, `report_date`, `count`,
+`note`, `markets[]` with the four trader-category long/short/spread
+fields) before writing anything. Read `client/src/pages/cot.tsx` in full
+as the nearest template (same CFTC-family ranked-by-|net %OI| table) and
+`client/src/pages/secFtd.tsx` in full as the shape template that actually
+fits (a single-snapshot object with no search/history, matching TFF's
+route exactly — cot.tsx's search+trend UI assumes a `/history` endpoint
+TFF doesn't have, so this page is secFtd's single-snapshot pattern with
+cot's ranked-table math, not a straight copy of either). Read the exact
+`datamap.tsx` wiring recipe for `secftd` (state hook, hashchange entry,
+`LAYER_GROUP` fallback, status-polling effect, icon/unit lookups, launcher
+button, render block) side-by-side with `cot`'s before writing the new
+block, confirmed both follow the identical shape, and added `tff` the same
+way — catching, by reading the `LAYER_GROUP` fallback map's own R15
+2026-07-07 defect-class comment, that a registry entry with a client
+overlay but no `LAYER_GROUP` entry reads as a permanent "reload to enable"
+dead toggle, so both were added together in one edit. Read `datacore/
+layers.json`'s `cot`/`secftd` entries as the registry-copy template before
+writing the new `tff` entry, and edited via a targeted string insertion
+(not a full `json.dump` round-trip) per the gnss_integrity_adsb session's
+own documented lesson about that reformatting a 400+ line diff for a
+2-field change.
+
+WHAT SHIPPED:
+1. `client/src/pages/tff.tsx` (new) — fetches `/api/data/tff` on mount;
+   single-snapshot ranked-table view (secFtd.tsx's shape, cot.tsx's
+   ranking math): today's markets ranked by |leveraged-money net % of
+   open interest| (floored at 1,000 contracts open interest, top 30,
+   identical `OI_FLOOR`/`TOP_CAP` idiom as cot.tsx), with dealer net shown
+   alongside per the file's own "dealer is the informed side" hypothesis
+   note. Two honesty notes stated up front: this is the financial-futures
+   sibling of the commodities-focused COT report (futures-ONLY, no
+   options), and the mean-reversion/informed-dealer hypothesis is
+   gate-locked research, not reflected in the ranking shown. RAW display
+   only — `kind:"raw"`, no ladder gate.
+2. `client/src/pages/datamap.tsx` — `TffView` import; `tffOpen` state
+   (hash-init `#/data/tff`); hashchange listener entry; `LAYER_GROUP`
+   fallback entry (`tff: "filings"`); status-polling effect (mirrors
+   secftd's exact 300s-badge-refresh shape, since the server itself
+   already polls on its own 12h weekly-report cadence); icon lookup
+   (reuses `Scale`, same as `cot` — same CFTC-report family) and unit
+   lookup (`"markets"`, same as `cot`); open-full-view launcher button
+   inside the `tff` layer row; render block.
+3. `datacore/layers.json` — new `tff` entry (surgical insertion right
+   after `cot`, verified `python3 -c "import json; json.load(...)"` still
+   parses and the diff is exactly the 10 new lines).
+4. `scripts/visual_check.mjs` — `tff` PAGES entry (`map:false`, same
+   Phase-5 ratchet rule as every dashboard/leaderboard page since
+   streams); `/api/data/tff` fixture (2 markets, one net-long one
+   net-short on leveraged money, so both sign branches render); `tff`
+   entry added to the `/api/data/layers` FIXTURES list (matching the
+   convention `cot`/`secftd` already follow there).
+5. `package.json`/`package-lock.json` version bump only (1.0.730 ->
+   1.0.731, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before bumping that no other session had merged and moved the number
+   since session start; `npm install --package-lock-only` used to sync
+   just the version field without touching any dependency).
+
+GATES: this session's sandbox had NEITHER `node_modules` NOR the Python
+package set installed at start (same fresh-container gap noted by
+several prior sessions) — `npm ci` and `pip install -r requirements.txt
+-r requirements-dev.txt` both required before any gate could run
+meaningfully. `bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0,
+unchanged (all 12 pre-existing, none in this diff). `bash scripts/
+gated_tests.sh` GATE PASSED — client 1017/1017 (97 files, no new test
+file — matches every sibling filings page's own convention, none of
+cot.tsx/secFtd.tsx/euPower.tsx/gnssIntegritySignal.tsx have one either),
+python 1354 passed/1 skipped (unchanged), quarantine 1/1 none overdue.
+`bash scripts/counter_ratchet.sh`: OK, 25/25 counters at or better than
+baseline, no re-pin needed. `npm run build` clean (only pre-existing
+warning classes: astronomy-engine ESM default-export notice, large-chunk
+notice, mapIcons dynamic/static dual-import notice — none related to
+this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page tff` at all three canonical widths (390/768/1440) — **0 hard
+failures**. Own-review of all three PNGs confirms the header, both
+honesty notes (financial-futures-sibling scope, gate-locked hypothesis),
+and the ranked table (market/commodity/open interest/lev-money-net/net-%
+OI/dealer-net columns) render correctly and match the design system at
+both desktop and the 390px mobile card layout. Only warnings present are
+the pre-existing global-chrome touch-target/clipped-control warnings that
+appear on essentially every page in this harness (same class noted in
+every prior session's visual-verification write-up) and the standard
+headless-software-renderer notice — neither related to this diff. A
+broader `--page data` run (the full map page, exercising the new layer-
+panel row + launcher button integration specifically) was also started
+but killed after several minutes with no completion — the full map page
+is known-heavy (base tiles + every layer + several sub-panel variants:
+analyst/flat/globe/legend/timescrub) and none of the three immediately
+preceding sibling-page sessions (secFtd, EU power, gnssIntegritySignal)
+ran it either, only their own new page — this session matches that same,
+already-established scope rather than inventing a stricter bar
+unilaterally. Flagging honestly rather than silently omitting: the layer-
+panel row/launcher-button code path itself was verified by direct code
+review (the `tff` block was added by literally duplicating the adjacent,
+already-visually-verified `secftd` block structure line-for-line with only
+the id/route/label swapped, not written independently), not by a
+screenshot of the panel itself.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published CFTC weekly
+financial-futures positioning figures, no predictive claim, no ladder
+gate applies (same standing rule as every other RAW `/data` page in this
+repo). The file's own leveraged-money-mean-reversion/dealer-informed-side
+hypothesis remains unstarted at gate 1 — this session does not begin that
+research, it only makes the underlying data independently inspectable.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes a shipped-data-no-UI gap
+on an already-live datacore/ pipeline; no new archive, no new entity-graph
+join, no new hypothesis started this session.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, no `/api/v1` mirror exists for this root yet
+(unlike FTD/EU-macro/FRED, which had mirrors before their UI follow-up) —
+a possible future PRODUCT session's own next step, not started here.
+
+NEXT (queued, not this session): (1) the remaining zero-wiring
+shipped-data-no-UI routes this session's own sweep found and did not
+build: `/api/data/dts` (Treasury Daily Statement), `/api/data/
+treasury-auctions`, `/api/data/bank-failures`, `/api/data/
+vehicle-complaints`, `/api/data/fda-events` — each a candidate for a
+future PRODUCT session, none ranked against each other yet. (2) `/api/
+data/tff` has no `/api/v1` paid-tier mirror yet, unlike several sibling
+RAW routes shipped this week — a future PRODUCT session could add one.
+(3) if a future session wants to start the file's own gate-1 hypothesis
+(leveraged-money extremes mean-revert, dealer as informed side), the
+`cftcTff.ts` archive is accumulating weekly snapshots now and will need
+several months of trailing history before a meaningful gate-2 test.
+(4) KNOWN BROKEN #29 (MEDIUM, visibility gap) and #20 (RULE REVIEW-gated
+threshold judgment call) remain queued for whichever session next has
+repair capacity. (5) the AUDITS & DEBT register's CONSTITUTIONAL audit
+should be checked by the next session whose fall-through reaches the
+research tier (STALENESS was run 2026-08-15, CONSTITUTIONAL's last-run
+date was not checked this session — the primary action filled capacity).
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated action
+matched to session capacity; no higher-priority queued item was skipped
+(no LIVENESS ALARM; both open KNOWN BROKEN items are visibility-only or
+RULE REVIEW-gated, not blocking; product sessions do not preempt DAILY
+repair duty per this task's own instructions).
+
 ## 2026-08-16 (same session, ADDENDUM) — PR #858's "wait until after 4:00 PM ET" note was not honored: CI's automerge job merged it at 16:24 UTC (~12:24 PM ET), 5 minutes after opening — THIRD occurrence of the 2026-08-14/2026-08-15 gap
 
 PR #858 (this session's fails-to-deliver `/data` view, client-only,
