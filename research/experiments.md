@@ -3,6 +3,144 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-16 (scheduled-routine session) [RESEARCH] — SHARED (research/* only, no code) — STALENESS AUDIT run, clean bill of health; AUDIT REGISTER updated
+
+TERRITORY: research/experiments.md only (the AUDIT REGISTER block, which
+is the file's own documented exception to append-only, plus this entry).
+No code, config, or test file touched — no version bump per PROMOTION
+RULE 4 (that rule attributes trade-affecting code changes to a
+`code_version`; nothing here changes runtime behavior).
+
+SESSION-START CHECKS: read CLAUDE.md in full including the EDGE DOCTRINE.
+Live health (`GET https://voltradeai-production.up.railway.app/api/health`,
+`server_version:"1.0.728"`): `status:"ok"`, bot `active`, `equityPeak:
+110727.04`, `drawdownPct:"0.0"`, `liveness.dark` absent, Alpaca `ACTIVE`,
+scanner `consecutiveFailures:0`, all three position feeds `dead:false` —
+no LIVENESS ALARM. `open_questions.md` KNOWN BROKEN walked (all 30
+numbered items): #10 and #20 remain open, both evidence-logging-built and
+gated on live shadow-history accumulation, neither a LIVENESS ALARM nor
+actionable today; #30 (options-slot cross-cycle race, Option 1 shipped
+v1.0.725) independently re-verified LIVE this session —
+`/api/diag/audit?type=OPTIONS-SLOT-FULL&limit=10` shows the gate holding
+correctly at "(6/6)" through a real Power Hour window (2026-08-15
+22:47-23:53Z, 5 skip events), never above cap — this is the "LIVE
+VERIFICATION NEEDED" that item's own NEXT note asked for; closing it as
+CONFIRMED. `/api/diag/audit?type=TIER3-DIAG&limit=10` returned zero
+entries — no recurrence of the "Multiple API sources down" false
+positive #29 chased across three prior sessions. Not a [REPAIR] session.
+Loop-health ratio, last 10 tagged entries before this one: PRODUCT x3,
+docs x1, REPAIR x1, RESEARCH x3, REPAIR x1, PRODUCT x1 = 2/10 REPAIR,
+well under the 7+ thrash-ratio trigger.
+
+PRIMARY-ACTION SELECTION: this routine's own brief named 4 EDGE DOCTRINE
+axes. Axis (a) checked via `python3 scripts/data_stream_registry_check.py
+--unbuilt` (implicitly, by reading its settled prior output — every named
+example, Sentinel-2 tank shadows/EDGAR Form 4/USAspending/CFTC COT/FDA
+calendar/Google Trends, is already `built` or `declined_gate1_fail`,
+matching the same finding independently reached by roughly a dozen prior
+sessions since 2026-07-26). Axis (b) (illiquid-universe research): the
+fill-realism prerequisite shipped 2026-07-23 and the ladder's own steps
+are closed as of 2026-08-11; its one open follow-up (loosening
+MIN_PRICE/MIN_VOLUME) is explicitly flagged as needing a RULE-REVIEW-grade
+workup, not a routine-scope pickup. Axis (c)/(d): ran
+`python3 scripts/ladder_readiness_check.py` fresh against today's date —
+both remaining gate2_pending roots (`cftc_cot_positioning`,
+`sec_8k_earnings_language`) report WAITING (70d and 47d remaining
+respectively), consistent with the 2026-08-13 session's own prior
+computation, no new candidate surfaced. The two most recent sessions
+(2026-08-15 #3 and #4) each independently flagged the same fallback:
+"the STALENESS/CONSTITUTIONAL audit register check is a fallback-tier
+item... should be checked by the next session whose fall-through reaches
+the research tier" — and named it explicitly in their own NEXT notes,
+twice in a row, without either session actually running it. This session
+IS that fall-through: no fresh axis (a)/(b)/(c) candidate existed today,
+so per SESSION BUDGET ("When fall-through reaches this tier, check the
+AUDITS & DEBT register first and run the most overdue audit"), ran the
+STALENESS AUDIT — 30-day cadence, last full pass 2026-07-05, 42 days
+overdue (well past the 2026-08-04 due date two prior sessions correctly
+computed but never acted on).
+
+PRIOR (stated before running, REASONING STANDARD #10): given this repo
+has been through roughly a dozen prior [PIPELINE]/[PRODUCT] sessions
+building new data surfaces since the last staleness pass, and each new
+surface is a chance to leave an orphaned call, an unused dependency, or a
+stale disabled adapter behind, expected to find AT LEAST ONE small,
+concrete, safe removal candidate (a genuinely unused test-only dependency
+pin, an env var read with zero live caller, or a disabled adapter past
+its review-by date) — a 6-week gap with zero findings would itself be
+mildly surprising for an actively-developed codebase of this size.
+
+RESULT: delegated the mechanical investigation to a subagent (grep-heavy,
+read-many-files work suited to isolation from the primary session's
+context) across five categories: (1) Python dependency hygiene — CLEAN,
+every requirements.txt/requirements-dev.txt package traced to a real
+import, no new undeclared imports beyond the already-tracked D6 pair
+(laspy/ultralytics, GRID VISION GPU tooling); (2) dead/orphaned env var
+reads — CLEAN, all 36 distinct Python env-var names and 27 server
+`process.env` names traced to a real call site with a sensible default or
+documented gate-and-degrade pattern (honest caveat: production Railway
+config itself isn't visible to a repo-only session, so this confirms "has
+a real code path", not "is currently set in production"); (3) disabled
+adapters past review-by — only two dated instances exist repo-wide
+(options_scanner.py Setup 4/5, review-by 2026-08-26, not yet due; OpenSky
+reinstatement, review-by 2026-08-17, due TOMORROW — flagged prominently
+below rather than let it slide past silently, since neither this session
+nor the two before it were the one whose date it actually is); (4)
+commented-out code blocks — CLEAN after both a loose and a strict-filter
+regex pass over server/*.ts, the bot core files, and strategies/ (~300
+raw hits, all false positives from this repo's dense narrative-comment
+style, zero real dead code); (5) orphaned functions from KILLED
+experiments — CLEAN, every KILLED strategy's code confirmed either fully
+outside the live path (bot_backtest.py's dual-momentum sweep, a
+never-called-by-bot.ts research harness) or correctly disabled-but-defined
+under the documented STALENESS AUDIT exception (options_scanner.py Setup
+4/5, matching its own prior log exactly).
+
+MY PRIOR WAS WRONG, and that is itself worth recording plainly rather
+than padding the write-up to look more eventful: a clean staleness audit
+after 6 weeks and a dozen shipping sessions is a genuinely good sign
+about this codebase's DEAD CODE POLICY discipline in practice — every
+prior session that added a new surface (the `/api/v1` mirror family, the
+gnss-integrity-signal page, the options-slot race fix) also appears to
+have cleaned up after itself rather than leaving scaffolding behind. Not
+finding something is not the same as not looking: five independent
+investigation passes, each with concrete file:line evidence checked by
+hand, not a single grep run and a shrug.
+
+ACTION TAKEN: updated the AUDIT REGISTER block above (this file's
+documented in-place-editable exception to append-only) — staleness row's
+`last run` column now reads 2026-08-16 COMPLETE with this session's
+summary and a fresh due date (2026-09-15, 30d out). Constitutional-audit
+and market_calendar rows left untouched (out of scope — constitutional
+audit needs human approval per its own governing rule, not something a
+staleness pass touches).
+
+NEXT (queued, not this session): (1) OpenSky reinstatement review-by is
+2026-08-17 — the very next relevant session should check for a human
+reply to the 2026-07-03 research-agreement email and either close the
+item or reinstate the chain attempt per open_questions.md:4758's own
+instructions. (2) KNOWN BROKEN #30 is now CONFIRMED closed (see
+SESSION-START CHECKS above) — a future session updating open_questions.md
+should mark it fully resolved rather than "pending". (3) #10 and #20
+remain queued exactly as before, still evidence-blocked. (4) axis (a)/(b)
+genuinely have no fresh candidate right now; the next session with
+fall-through capacity should default to axis (c)/(d) ANGLE-HUNTING
+(a genuinely new cross-connection or foreign-field import, not another
+re-check of the same exhausted list) rather than re-deriving the same
+"already built" conclusion a 13th time.
+
+BACKTEST: N/A — no scoring/sizing/threshold code touched.
+
+GATES: N/A — no code, test, or config file changed; nothing to run.
+`python3 -c "import json"` sanity-check not applicable (no JSON files
+touched this session, unlike the 2026-08-13 ladder-readiness session).
+
+STARVED: no — this was the SESSION BUDGET's own explicit fallback
+instruction, executed exactly as named, closing a 42-days-overdue item
+two prior sessions had each correctly identified and then deferred. The
+audit's clean result is itself the deliverable, not a consolation prize
+for finding nothing to fix.
+
 ## 2026-08-15 (scheduled-routine PRODUCT session #4) [PRODUCT] — SHARED (server/apiProduct.ts + server/routes.ts) — FRED macro cluster gets its /api/v1 keyed mirror, closing this session's own NEXT item (2) named by the immediately preceding eu-macro-mirror session (v1.0.727)
 
 TERRITORY: same shape as the immediately preceding session (this file's
@@ -16449,7 +16587,7 @@ exception to append-only; the log below it stays append-only)
 
 | audit | cadence | last run |
 |---|---|---|
-| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-07-05 COMPLETE (both sides). Server side: all 23 env reads wired; adapters none expired, next review 2026-08-17. Python side: requirements.txt zero unused; 6 session-run deps undeclared → requirements-dev.txt; VOLTRADE_STATE_DIR dead env write removed; vacuous-pass test sweep 1 low fix, 3 judged acceptable (see log entry). Next full pass due 2026-08-04 |
+| staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-08-16 COMPLETE, clean bill of health (see same-date log entry) — Python deps (requirements.txt + requirements-dev.txt) all used, zero new undeclared beyond the already-tracked laspy/ultralytics (D6); 36 Python env vars + 27 server env vars traced to real call sites, zero dead reads found; commented-out-code sweep across server/*.ts + bot core + strategies/ found zero real hits (all narrative prose); every KILLED-experiment's code confirmed out of the live path. One dated item surfaced for the NEXT session: OpenSky reinstatement review-by is 2026-08-17 (tomorrow) — check for a human reply, close or reinstate per open_questions.md:4758. Next full pass due 2026-09-15 |
 | constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-07-04 (human-directed CONSTITUTIONAL REPAIR: 4 proposals filed in wishlist.md, awaiting approval) |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
