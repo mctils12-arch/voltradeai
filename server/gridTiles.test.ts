@@ -2,32 +2,48 @@
 // "PMTiles"), not an MBTiles/SQLite blob. Regression for v1.0.251 where
 // power_us.pmtiles shipped as SQLite and the pmtiles:// protocol silently
 // rendered nothing — the visual harness missed it (layers default off).
+//
+// SPLIT 2026-08-14 (Q12). This file used to open with
+// `assert.ok(files.length >= 50, "expected the state+national tiles")`, which
+// failed on every run — three .pmtiles are committed and `git log --all` finds
+// no `power_*.pmtiles` EVER committed. Because that assertion ran FIRST, the
+// magic-byte loop below — the entire reason this file exists — never executed.
+// **A guard against a real, previously-shipped defect had been dead since the
+// day it was written.**
+//
+// The corpus assertion is not deleted or weakened: it moves verbatim to
+// server/gridTilesCoverage.test.ts, which is the quarantined entry. That file
+// carries the reason it cannot currently pass — scripts/build_power_tiles.sh
+// line 53 says of exactly these artifacts:
+//
+//     US scale (est. 60-150MB): DO NOT commit — boot-fetch from a
+//     GitHub Release asset into the volume, serve from there.
+//
+// So the >=50 assertion demands a state the repo's own build script forbids.
+// Splitting lets THIS guard gate the build (it passes, and always would have)
+// while that one stays honestly quarantined pending the boot-fetch design.
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 
-// [REPAIR 2026-08-16] The `files.length >= 50` assertion below was STALE and
-// had been failing CI on a clean tree (Q12). It predates the 2026-07-31
-// migration that moved every power tile OUT of the repo and into R2 (~830 MB
-// off the repo and Docker image, each copy verified byte-identical in the
-// bucket before removal). Only the small page-critical non-power tiles are
-// committed now, so demanding 50+ asserted a world that deliberately no
-// longer exists.
-//
-// The MAGIC-BYTE GUARD IS NOT WEAKENED — it still runs over every committed
-// .pmtiles, which is the actual regression this file exists for (v1.0.251
-// shipped power_us.pmtiles as SQLite and pmtiles:// silently rendered
-// nothing). What changed is only the obsolete population count: assert the
-// directory is non-empty and that each file present is genuinely PMTiles.
-// The R2-served tiles are covered separately by the bucket<->registry parity
-// test in client/src/lib/gridMaster.test.ts.
+const TILE_DIR = path.join(import.meta.dirname, "..", "client", "public", "tiles");
+
 test("every client/public/tiles/*.pmtiles has the PMTiles magic", () => {
-  const dir = path.join(import.meta.dirname, "..", "client", "public", "tiles");
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".pmtiles"));
-  assert.ok(files.length > 0, `no committed .pmtiles found in ${dir}`);
+  const files = fs.readdirSync(TILE_DIR).filter((f) => f.endsWith(".pmtiles"));
+
+  // Not vacuous: with zero committed tiles the loop below would pass trivially
+  // and this file would go back to guarding nothing — a quieter version of the
+  // same failure the split just fixed.
+  assert.ok(
+    files.length >= 1,
+    `no .pmtiles committed under client/public/tiles — the magic-byte guard ` +
+    `would pass vacuously. If the tiles genuinely moved to boot-fetch, this ` +
+    `guard must move with them, not silently stop checking.`,
+  );
+
   for (const f of files) {
-    const fd = fs.openSync(path.join(dir, f), "r");
+    const fd = fs.openSync(path.join(TILE_DIR, f), "r");
     const buf = Buffer.alloc(7);
     fs.readSync(fd, buf, 0, 7, 0);
     fs.closeSync(fd);

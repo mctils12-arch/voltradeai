@@ -97,6 +97,20 @@ const PAGES = {
   // a standalone /data page" queue item — NRC was the one still genuinely
   // missing) — same Phase 5 ratchet rule as streams/fredmacro above.
   nrcreactorstatus: { route: "/app#/data/nrc-reactor-status", map: false },
+  // GNSS integrity anomaly signal — first live gate2_pass SIGNAL detail
+  // page (2026-08-16) — same Phase 5 ratchet rule as streams/nrcreactorstatus
+  // above.
+  gnssintegrity: { route: "/app#/data/gnss-integrity", map: false },
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price, 8
+  // bidding zones (2026-08-16) — same Phase 5 ratchet rule as
+  // streams/gnssintegrity above.
+  eupower: { route: "/app#/data/eu-power", map: false },
+  // SEC CNS fails-to-deliver, half-month files (2026-08-16) — same Phase 5
+  // ratchet rule as streams/eupower above.
+  secftd: { route: "/app#/data/ftd", map: false },
+  // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
+  // streams/secftd above.
+  tff: { route: "/app#/data/tff", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -170,7 +184,9 @@ const FIXTURES = {
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest.", freshness: { stream: "finrashortvol", health: "stale", age_hours: 411.2, health_note: "newest file 411.2h old — exceeds cadence-derived threshold" } },
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
+      { id: "tff", name: "Traders in Financial Futures (CFTC, futures-only)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API, futures-only", description: "Weekly financial-futures positioning by trader category — a positioning proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
+      { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "nightlights", name: "Night lights radiance (GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band", description: "Daily radiance imagery, dated (defaults to yesterday)." },
@@ -518,6 +534,81 @@ const FIXTURES = {
         history: [{ d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.4 }, { d: "2026-08-06", v: 2.42 }] },
     ],
   },
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price, 8
+  // bidding zones (2026-08-16, RAW display, euPower.tsx). Fixture covers 2
+  // zones so the harness exercises the tile grid, the genmix zone picker,
+  // and a negative-price point.
+  "/api/data/eu-load": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (actual total load, A65/A16) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 2,
+    note: "realised total load in MW per bidding zone, ~1-2h publication lag (fixture).",
+    zones: [
+      { zone: "DE_LU", latest_ts: "2026-08-16T11:00", latest_mw: 58210, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 51200, window_max_mw: 61840, window_mean_mw: 56430 },
+      { zone: "FR", latest_ts: "2026-08-16T11:00", latest_mw: 47120, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 41300, window_max_mw: 52900, window_mean_mw: 46810 },
+    ],
+    issues: {},
+  },
+  "/api/data/eu-generation-mix": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (actual generation per type, A75/A16) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 4,
+    note: "realised generation in MW per bidding zone x fuel/technology type (fixture).",
+    zones: [
+      { zone: "DE_LU", psr: "B16", psr_name: "Solar", latest_ts: "2026-08-16T11:00", latest_mw: 18400, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 0, window_max_mw: 24100, window_mean_mw: 9800 },
+      { zone: "DE_LU", psr: "B19", psr_name: "Wind Onshore", latest_ts: "2026-08-16T11:00", latest_mw: 12100, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 3200, window_max_mw: 19800, window_mean_mw: 11400 },
+      { zone: "FR", psr: "B14", psr_name: "Nuclear", latest_ts: "2026-08-16T11:00", latest_mw: 31200, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 29800, window_max_mw: 32100, window_mean_mw: 30900 },
+      { zone: "FR", psr: "B12", psr_name: "Hydro Water Reservoir", latest_ts: "2026-08-16T11:00", latest_mw: 4100, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 1800, window_max_mw: 6200, window_mean_mw: 3900 },
+    ],
+    issues: {},
+  },
+  "/api/data/eu-day-ahead-prices": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (day-ahead auction clearing price, A44) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 2,
+    note: "day-ahead auction clearing price per bidding zone, currency/unit as published; negative prices are real (fixture).",
+    zones: [
+      { zone: "DE_LU", latest_ts: "2026-08-16T13:00", latest_price: 62.4, currency: "EUR", unit: "MWH", resolution: "PT60M",
+        points_in_window: 72, window_min_price: -8.2, window_max_price: 118.5, window_mean_price: 54.1, negative_price_points: 3 },
+      { zone: "FR", latest_ts: "2026-08-16T13:00", latest_price: 58.9, currency: "EUR", unit: "MWH", resolution: "PT60M",
+        points_in_window: 72, window_min_price: 12.1, window_max_price: 104.2, window_mean_price: 51.7, negative_price_points: 0 },
+    ],
+    issues: {},
+  },
+  // SEC CNS fails-to-deliver, half-month files (2026-08-16, RAW display,
+  // secFtd.tsx). Fixture covers 2 top-fail rows so the harness exercises
+  // the leaderboard table and the null-price ("." source value) branch.
+  "/api/data/ftd": {
+    kind: "raw",
+    source: "SEC CNS fails-to-deliver, half-month files (public domain) (fixture)",
+    attribution: "U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
+    time: "2026-08-16T12:00:00.000Z",
+    note: "aggregate net fail BALANCES per settlement date (a level, not a daily flow); published on a 2.5-4.5 week lag (fixture).",
+    summary: {
+      period: "202607b",
+      settlement_dates: 11,
+      newest_date: "2026-07-31",
+      rows: 58328,
+      top_fails: [
+        { symbol: "JUCY", name: "FIXTURE JUICY CORP", qty: 4823110, price: 3.42 },
+        { symbol: "SNDQ", name: "FIXTURE SANDQUEST INC", qty: 2110540, price: null },
+      ],
+      qty_floor: 100000,
+      top_cap: 15,
+    },
+  },
   // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
   // display). Fixture covers one series per category so the harness
   // exercises every fmtVal unit branch (%, index, claims, thousands,
@@ -626,15 +717,19 @@ const FIXTURES = {
       { id: "fx_g1fail", name: "Fixture gate-1 fail", category: "commodities", status: "gate1_fail", current_gate: 1, last_update_date: "2026-07-05", note: "Both sensor designs dead at gate 1 (fixture).", source_ref: "experiments.md:4 (fixture)" },
       { id: "fx_g2p", name: "Fixture gate-2 pending", category: "government_spending", status: "gate2_pending", current_gate: 2, last_update_date: "2026-07-26", note: "Gate 1 passed, first gate-2 run inconclusive (fixture).", source_ref: "experiments.md:5 (fixture)" },
       { id: "fx_killed", name: "Fixture killed root", category: "insider_trading", status: "killed", current_gate: 2, last_update_date: "2026-07-22", note: "Gate 2 kill in both directions (fixture).", source_ref: "experiments.md:6 (fixture)" },
+      // gate2_pass + detail_route (2026-08-16) — exercises the "view live
+      // signal" generic link (signalLadder.tsx), first real use being
+      // gnss_integrity_adsb's #/data/gnss-integrity page.
+      { id: "fx_g2pass_detail", name: "Fixture gate-2 pass with live detail page", category: "geopolitical_intelligence", status: "gate2_pass", current_gate: 2, last_update_date: "2026-08-16", note: "Gate 2 pass with a dedicated live signal page (fixture).", source_ref: "experiments.md:7 (fixture)", detail_route: "#/data/gnss-integrity" },
     ],
     summary: {
-      total: 6,
-      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1 },
-      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1 },
-      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 2 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
+      total: 7,
+      by_status: { raw_only: 1, gate1_pending: 1, gate1_pass: 1, gate1_fail: 1, gate2_pending: 1, killed: 1, gate2_pass: 1 },
+      by_category: { environmental: 1, macro: 2, commodities: 1, government_spending: 1, insider_trading: 1, geopolitical_intelligence: 1 },
+      gate_counts: [{ gate: 0, count: 2 }, { gate: 1, count: 2 }, { gate: 2, count: 3 }, { gate: 3, count: 0 }, { gate: 4, count: 0 }, { gate: 5, count: 0 }],
       killed_count: 1,
       raw_only_count: 1,
-      furthest_gate_reached: 1,
+      furthest_gate_reached: 2,
     },
   },
   // Pipeline-health dashboard (MAP V2 ROADMAP R6(c), 2026-07-31) — a mixed
@@ -872,6 +967,23 @@ const FIXTURES = {
       { date: "2026-07-02", tickers: 23, total_views: 101422 },
     ],
   },
+  // CFTC Traders in Financial Futures, futures-only (2026-08-16, RAW
+  // display, tff.tsx). Fixture covers 2 markets so the harness exercises
+  // the ranked table's lev-money/dealer-net columns.
+  "/api/data/tff": {
+    kind: "raw", source: "CFTC Traders in Financial Futures, futures-only (public domain) (fixture)",
+    attribution: "CFTC Traders in Financial Futures", time: "2026-08-16T12:00:00.000Z",
+    report_date: "2026-08-11", count: 2,
+    note: "weekly financial-futures positioning by trader category (fixture)",
+    markets: [
+      { report_date: "2026-08-11", market: "E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE", code: "13874A", commodity: "STOCK INDICES",
+        open_interest: 2450000, dealer_long: 210000, dealer_short: 340000, asset_mgr_long: 620000, asset_mgr_short: 410000,
+        lev_money_long: 380000, lev_money_short: 710000, other_rept_long: 150000, other_rept_short: 120000 },
+      { report_date: "2026-08-11", market: "10-YEAR U.S. TREASURY NOTES - CHICAGO BOARD OF TRADE", code: "043602", commodity: "TREASURY",
+        open_interest: 3980000, dealer_long: 540000, dealer_short: 610000, asset_mgr_long: 890000, asset_mgr_short: 720000,
+        lev_money_long: 1150000, lev_money_short: 940000, other_rept_long: 260000, other_rept_short: 210000 },
+    ],
+  },
   "/api/data/cot": {
     kind: "raw", source: "CFTC Commitments of Traders, disaggregated futures-only (public domain)", time: 1,
     report_date: "2026-06-23", count: 2,
@@ -957,6 +1069,36 @@ const FIXTURES = {
         avgPower: null, status: "unknown" },
     ],
   },
+  // GNSS integrity anomaly signal (2026-08-16) — the first live gate2_pass
+  // SIGNAL detail page. Fixture mirrors the real shape from
+  // server/gnssIntegritySignal.ts's computeGnssIntegritySignal(), with one
+  // band of each elevated/not-elevated state so both table badge colors
+  // render at every canonical width.
+  "/api/data/gnss-integrity-signal": {
+    kind: "signal", root_id: "gnss_integrity_adsb", generated_at: "2026-08-16T00:00:00.000Z",
+    gate: { current_gate: 2, status: "gate2_pass" }, verdict: "PASS",
+    bands: [
+      { band: "cruise", candidate_k: 15, candidate_n: 414, control_rate: 0.00147, expected_under_null: 0.61, p_value: 0.000001, elevated: true, expected_to_elevate: true },
+      { band: "mid", candidate_k: 12, candidate_n: 277, control_rate: 0.00272, expected_under_null: 0.75, p_value: 0.000001, elevated: true, expected_to_elevate: true },
+      { band: "low", candidate_k: 7, candidate_n: 903, control_rate: 0.02214, expected_under_null: 20.0, p_value: 0.46, elevated: false, expected_to_elevate: false },
+    ],
+    region: {
+      candidate_label: "Baltic corridor (Gdańsk–Bornholm–Gotland)", candidate_bbox: [53, 60, 17, 24],
+      control_label: "NY + Paris control region", control_bbox: [35, 55, -80, 10],
+    },
+    freshness: {
+      writer_live_since: "2026-08-11",
+      candidate: { days_read: ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"], days_missing: [], rows_scanned: 1613, truncated: false },
+      control: { days_read: ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"], days_missing: [], rows_scanned: 32944, truncated: false },
+    },
+    methodology_note: "Broadcast-origin ADS-B rows only. One-tailed exact binomial test per altitude band (fixture text).",
+    caveats: [
+      "GATE 1 is PARTIAL, not a full pass — DTU Space's Bornholm RF station corroborates the phenomenon/region, not the exact sample dates (fixture text).",
+      "Small, growing sample — the archive has carried integrity fields only since 2026-08-11 (fixture text).",
+      "Not tradeable — this is GATE 2 statistical discrimination, not a trading signal (fixture text).",
+    ],
+    license: { source: "adsb.lol (ODbL 1.0) + adsb.fi/airplanes.live (non-commercial fallbacks)", note: "Fixture license note." },
+  },
 };
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon" };
@@ -1002,6 +1144,40 @@ function startServer() {
       if (u.startsWith("/api/data/wxtile/")) {
         res.writeHead(200, { "content-type": "image/png" });
         return res.end(WX_TILE_PNG);
+      }
+      // TIME MACHINE v2 T-2 window fixture (2026-08-13): checked BEFORE the
+      // generic FIXTURES prefix match below, which would otherwise treat
+      // "/api/data/aircraft/window" as a sub-path of the "/api/data/aircraft"
+      // key (u.startsWith(k + "/")) and hand TimeScrubber.tsx the raw
+      // /api/data/aircraft point-list shape instead of a WindowResult — no
+      // `.hexes`, no `.to`, a real crash the first live run of this harness
+      // caught (`w.hexes is not iterable`). A dedicated small window payload
+      // exercises the real hex/points/coverage shape the client reads.
+      if (u.startsWith("/api/data/aircraft/window")) {
+        const params = new URLSearchParams(qs || "");
+        const to = parseInt(params.get("to") || "0", 10) || Math.floor(Date.now() / 1000);
+        const from = parseInt(params.get("from") || String(to - 86400), 10) || to - 86400;
+        const step = parseInt(params.get("step") || "300", 10) || 300;
+        let seed = 7;
+        const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const hexes = [];
+        for (let i = 0; i < 40; i++) {
+          const baseLat = 25 + rnd() * 24, baseLon = -125 + rnd() * 58;
+          const n = 5 + Math.floor(rnd() * 8);
+          const points = [];
+          for (let k = 0; k < n; k++) {
+            const t = from + Math.floor(((to - from) * k) / Math.max(1, n - 1));
+            points.push([t, baseLat + k * 0.05, baseLon + k * 0.05, Math.round(rnd() * 11000)]);
+          }
+          hexes.push({ i: "fx" + i.toString(16), rg: "N" + i + "FX", c: "TST" + i, ty: "B738", points, raw_count: points.length, truncated: false });
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({
+          kind: "aircraft", from, to, zoom: 5, step_sec: step,
+          hexes, hexes_seen: hexes.length,
+          total_points: hexes.reduce((s, h) => s + h.points.length, 0),
+          coverage: { requested_from: from, scanned_from: from, complete: true, files_scanned: 1 },
+        }));
       }
       // STATEFUL track fixture (trail-refresh ratchet, [REPAIR 2026-07-05]):
       // each call returns one MORE point so a live-refreshing trail visibly
@@ -1605,13 +1781,18 @@ async function main() {
       }
       // ── W3 TIME SCRUBBER (console charter): [data-vt-timescrub] opens the
       // replay panel. Unlike the analyst pane, opening this panel is EXPECTED
-      // to fire a read-only GET /api/data/snapshot (it fetches an initial
-      // hour on open) — the battery asserts at least one fires, catching a
-      // silent-fetch regression, the mirror image of the analyst's
-      // never-fires assertion.
+      // to fire a read-only GET on open — the battery asserts at least one
+      // fires, catching a silent-fetch regression, the mirror image of the
+      // analyst's never-fires assertion. TIME MACHINE v2 T-2 (2026-08-13):
+      // the default layer (aircraft) now fetches ONE window
+      // (/api/data/aircraft/window) instead of a per-instant snapshot; every
+      // other layer is unchanged, so both paths count.
       let snapshotGets = 0;
       const onSnapshotReq = (r) => {
-        try { if (new URL(r.url()).pathname === "/api/data/snapshot") snapshotGets++; } catch {}
+        try {
+          const p = new URL(r.url()).pathname;
+          if (p === "/api/data/snapshot" || p === "/api/data/aircraft/window") snapshotGets++;
+        } catch {}
       };
       try {
         if (!cfg.map) throw { skip: true };
@@ -1672,7 +1853,7 @@ async function main() {
           }
         }
         if (snapshotGets < 1) {
-          checks.failures.push("timescrub: opening the panel fired zero GET /api/data/snapshot — initial fetch regressed");
+          checks.failures.push("timescrub: opening the panel fired zero GET /api/data/snapshot or /api/data/aircraft/window — initial fetch regressed");
         }
       } catch (e) {
         if (!e?.skip) checks.failures.push("timescrub: driver error — " + (e?.message || e));

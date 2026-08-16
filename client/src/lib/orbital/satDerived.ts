@@ -11,8 +11,30 @@
 
 /** GM of Earth, km^3/s^2 (WGS-84). */
 export const EARTH_MU_KM3_S2 = 398600.4418;
-/** Earth equatorial radius, km (WGS-84) — the SGP4 reference radius. */
-export const EARTH_RADIUS_KM = 6378.137;
+/**
+ * Earth equatorial radius, km (WGS-84) — the SGP4 reference radius, and the
+ * datum apogee/perigee ALTITUDES are conventionally quoted above.
+ *
+ * RENAMED from `EARTH_RADIUS_KM` (Q14): `orbital/geometry.ts` exported the
+ * same name as 6371 (mean radius, spherical cap model). Both are correct for
+ * their own model; the collision was the defect.
+ */
+export const EARTH_EQUATORIAL_RADIUS_KM = 6378.137;
+
+/**
+ * Earth polar (semi-minor) radius, km (WGS-84) — paired with
+ * EARTH_EQUATORIAL_RADIUS_KM above.
+ *
+ * Q24 (research/PROGRAM_STATE.md): this is the single written copy. Before
+ * this constant existed, `orbital/propagate.ts`'s `eciToGeodetic()` carried
+ * the same value as a bare, unexported `const b`, invisible to D5
+ * `conflicting_const` and D11 `dup_precise_literal` alike (neither can see
+ * an unexported name) but a copy all the same — exactly the drift D11's own
+ * note names as "found `6378.137` in propagate.ts as a bare `const a`".
+ * `propagate.ts` and `orbital/geometry.ts`'s `wgs84GeocentricRadiusKm()`
+ * both import both constants from here now.
+ */
+export const EARTH_POLAR_RADIUS_KM = 6356.7523142;
 
 /** Semi-major axis (km) from mean motion in rev/day; null when unusable. */
 export function semiMajorAxisKm(meanMotionRevDay: number | null | undefined): number | null {
@@ -30,8 +52,8 @@ export function apsidesKm(
   const a = semiMajorAxisKm(meanMotionRevDay);
   if (a == null || ecc == null || !isFinite(ecc) || ecc < 0 || ecc >= 1) return null;
   return {
-    apogeeKm: a * (1 + ecc) - EARTH_RADIUS_KM,
-    perigeeKm: a * (1 - ecc) - EARTH_RADIUS_KM,
+    apogeeKm: a * (1 + ecc) - EARTH_EQUATORIAL_RADIUS_KM,
+    perigeeKm: a * (1 - ecc) - EARTH_EQUATORIAL_RADIUS_KM,
   };
 }
 
@@ -43,7 +65,7 @@ export function orbitalSpeedKmh(
 ): number | null {
   const a = semiMajorAxisKm(meanMotionRevDay);
   if (a == null) return null;
-  const r = altKm != null && isFinite(altKm) && altKm > -EARTH_RADIUS_KM ? EARTH_RADIUS_KM + altKm : a;
+  const r = altKm != null && isFinite(altKm) && altKm > -EARTH_EQUATORIAL_RADIUS_KM ? EARTH_EQUATORIAL_RADIUS_KM + altKm : a;
   const v2 = EARTH_MU_KM3_S2 * (2 / r - 1 / a);
   if (!(v2 > 0)) return null;
   return Math.sqrt(v2) * 3600;

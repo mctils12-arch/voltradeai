@@ -391,3 +391,78 @@ still discounted as variant 3).
    its header, single run per the one-shot rule, results to
    experiments.md and gate2_result.json whatever they say.
 KILL DATE: computed by 2026-08-15 or the stall is filed in wishlist.md.
+
+## A1 gate-2 v3 RESULT (computed 2026-08-14, one day inside the kill date) — FAIL; stress-index predictive line now CLOSED
+
+Computed by `scripts/grid_stress_gate2_v3.py` against the same EIA-930
+bulk six-month BALANCE files (2019-2025, ERCO scope, session-side
+keyless download from `eia.gov/electricity/gridmonitor/sixMonthFiles/`
+— the v1/v2 session's URL guess had gone stale; the correct path was
+re-found by search, filed here so a future session doesn't re-derive
+it) + the committed CPC TX degree-day archive. Outcome variable was
+the REAL ERCOT event list (`research/grid_vision_events_ercot.md`),
+not a demand-derived proxy — the whole point of variant 3. Result:
+`datacore/gridvision/gate2_result_v3.json`; pinned by
+`test_grid_stress_gate2_v3.py`.
+
+- **RECALL FLOOR MISSED — automatic FAIL per the design's own words.**
+  The single out-of-sample TIER-E day (2023-09-06, EEA-2) was NOT
+  flagged: `index(2023-09-05)` did not land in September 2023's own
+  top decile. 0/1 detected, vs. the >=0.5 floor.
+- LIFT BAR ALSO MISSED (would have failed independently): overall
+  TIER-C lift 1.258, vs. the pre-stated 2.0x bar. 126 flagged days
+  out of ~2,164 computable days, hit rate 1.6%.
+- STABILITY ALSO MISSED (would have failed independently, a third
+  time): leave-one-year-out lift held for 2023-removed (3.875, N=2
+  remaining events — thin) but NOT for 2024-removed (0.751, well
+  below the 1.5x stability bar); 2025 contributed zero events per
+  `grid_vision_events_ercot.md`'s own TOTALS and could not be scored.
+  **All three of this session's pre-stated PASS conditions failed
+  independently** — this was not a single close miss.
+- PRIOR CONFIRMED: the script's own header, written before running,
+  predicted exactly this — "expect the no-single-summer-carry clause
+  to be the binding constraint... largely independent of the point-
+  estimate lift" given 2025's zero events and 2023 carrying 11 of 13
+  TIER-C days. The recall-floor and lift-bar misses were not
+  specifically predicted in that much detail, but the general verdict
+  (VOID/FAIL from small-N fragility) was stated up front, not
+  rationalized after.
+- HONESTY NOTE ON THE INDEX ITSELF (stated in the script header before
+  running, not a post-hoc excuse): the same-calendar-month percentile
+  normalization for all three components pools ALL years 2019-2025 per
+  the filed design's own words ("across all years") — a backtest/
+  descriptive normalization, not a trailing-only live computation. This
+  does not explain the failure (the index would need to be dramatically
+  better, not marginally, to clear a 2.0x bar it missed by 37%) but is
+  recorded so no future session mistakes this result for a clean
+  real-time-deployable computation.
+- CONSEQUENCE (the design's own FAIL clause, honored verbatim): **the
+  stress-index predictive research line is CLOSED absent new data**
+  (an LMP archive or validated per-line MW ratings) — not re-varied a
+  fourth time on the same EIA-930 + CPC ingredients. Three
+  independently-designed outcome variants (forecast-exceedance,
+  pooled-peak, growth-aware-real-events) have now failed on three
+  different mechanisms (well-forecast demand + shed-suppressed metered
+  readings; demand-growth-blind pooling; recall-floor + lift-bar +
+  stability all missing on a real but tiny and skewed event set). The
+  descriptive dashboard surface (`/api/data/grid-stress`, shipped
+  v1.0.191, `predictive: false`) remains the product — this result
+  changes nothing about what ships; it closes the question of whether
+  a predictive claim can be added on top of it.
+- WHAT REMAINS VALID: the A1 gate-1 ingredient chain (capacity
+  registry, county-BA join, per-BA demand archive, CPC degree-days)
+  is unaffected — gate 1 (DATA) passed independently of gate 2
+  (SIGNAL) and continues to feed the descriptive surface and B1's
+  index-v0 display. Only the PREDICTIVE claim is closed.
+- GATES: `python3 -m pytest -q test_grid_stress_gate2_v3.py
+  test_grid_stress_gate2.py` 9+3 passed. Full python suite 1354
+  passed, 1 skipped (was 1348 before this session — 6 new tests, no
+  regressions). `bash scripts/gated_tests.sh` GATE PASSED: server OK,
+  client OK (1011/1011, after `npm ci` — the sandbox's node_modules
+  was empty at session start and the client suite briefly
+  misreported 8 failures that were entirely missing-package errors,
+  not code defects; resolved by installing, not by touching any
+  client file), python OK, quarantine 1/1 none overdue. No backtest
+  applicable (PROMOTION RULE 3 N/A — this is a gate-2 signal
+  computation, not a trading strategy change; no trading code
+  touched).

@@ -1,0 +1,84 @@
+{
+ "criteria": "quoted verbatim in scripts/grid_stress_gate2_v3.py's header from research/grid_vision_products.md's v3 design and grid_vision_events_ercot.md's scoring sets, both filed 2026-07-07 before this computation ran",
+ "multiple_hypothesis_note": "third outcome variant in the stress-index family (v1, v2 both VOID \u2014 see gate2_result.json); the discount from both prior attempts compounds onto any v3 PASS, which additionally requires live forward confirmation before trust",
+ "data": {
+  "erco_days": 2556,
+  "adjusted_demand_fallback_hours": 24,
+  "index_computable_days": 2164,
+  "trailing_window_days": 365
+ },
+ "tier_e_out_of_sample": {
+  "event_days": [
+   "2023-09-06"
+  ],
+  "detected": [],
+  "recall": 0.0,
+  "recall_floor": 0.5,
+  "passed_recall_floor": false
+ },
+ "tier_c_out_of_sample_lift": {
+  "event_days": [
+   "2023-06-20",
+   "2023-08-17",
+   "2023-08-20",
+   "2023-08-24",
+   "2023-08-25",
+   "2023-08-26",
+   "2023-08-27",
+   "2023-08-29",
+   "2023-08-30",
+   "2023-09-06",
+   "2023-09-07",
+   "2024-01-15",
+   "2024-01-16"
+  ],
+  "overall_lift": 1.258,
+  "flagged_days": 126,
+  "hit_rate": 0.016,
+  "lift_bar": 2.0,
+  "passed_lift_bar": false
+ },
+ "no_single_summer_carry": {
+  "per_year_leave_one_out": {
+   "2023": {
+    "removed_event_days": 11,
+    "remaining_event_days": 2,
+    "lift": 3.875,
+    "flagged": 126,
+    "hit_rate": 0.008,
+    "holds": true
+   },
+   "2024": {
+    "removed_event_days": 2,
+    "remaining_event_days": 11,
+    "lift": 0.751,
+    "flagged": 126,
+    "hit_rate": 0.008,
+    "holds": false
+   },
+   "2025": {
+    "note": "2025 contributed 0 TIER-C events \u2014 removing it cannot change the event count; reported, not scored",
+    "lift": 1.2576064908722115,
+    "flagged": 126
+   }
+  },
+  "stability_lift_bar": 1.5,
+  "scoreable_years": 2,
+  "holds": false
+ },
+ "design_contaminated_2019_2022_report_only": {
+  "tier_e_event_days": [
+   "2019-08-13",
+   "2019-08-15",
+   "2021-02-15",
+   "2021-02-16",
+   "2021-02-17",
+   "2021-02-18",
+   "2021-02-19"
+  ],
+  "detected": [],
+  "note": "report-only per the filed design; this window shaped the v1/v2 diagnoses that produced v3 and carries no evidential weight toward the verdict"
+ },
+ "verdict": "FAIL (recall floor missed \u2014 the sole out-of-sample TIER-E day was not flagged; automatic FAIL per the filed design)",
+ "prior_stated_before_run": "weak-to-moderate; expected the no-single-summer-carry clause to be the binding constraint given 2025 contributed zero TIER-C/TIER-E event days and 2023 carries 11 of 13 TIER-C days (grid_vision_events_ercot.md TOTALS) \u2014 recorded in the script header before this run"
+}

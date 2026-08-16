@@ -133,6 +133,7 @@ import {
   type BodyId,
 } from "./solarSystem.js";
 import { gmstDeg } from "./ephemeris.js";
+import { surfacePixelRatio } from "../deviceTier";
 import { fmtKm, getUnits, type UnitSystem } from "../units.js";
 import { ZOOM_STEP_PER_NOTCH, zoomStepFactor } from "./zoomSeam.js";
 import {
@@ -246,6 +247,7 @@ import {
 // texels; the surface patch shows real 100 m/px imagery where the eye looks).
 import {
   createMoonTileManager,
+  MOON_MOSAIC_MAX_PX,
   type MoonTileManager,
 } from "./moonTiles.js";
 // B5 "PLANET SURFACES": the same tile→patch path streams Mars/Mercury/Venus
@@ -255,7 +257,7 @@ import {
 // the screen demands more than WAC's deepest level, a per-site LROC NAC
 // mosaic (~0.5 m/px — the descent stages, rover tracks and foot trails are
 // REAL pixels there) streams as a finer detail tier over the WAC mosaic.
-import { trekBody, nacSiteFor, NAC_ACTIVATE_PX_PER_DEG, type NacSite } from "./lroc.js";
+import { trekBody, nacSiteFor, fitHalfSpanDeg, NAC_ACTIVATE_PX_PER_DEG, NAC_MIN_Z, type NacSite } from "./lroc.js";
 import {
   normalFromLonLat,
   renderMoonSurfaceRows,
@@ -263,7 +265,13 @@ import {
   type MoonSurfaceView,
   type DetailOverlay,
 } from "./moonSurface.js";
-import { APOLLO_SITES, getApolloSitesPref } from "./apolloSites.js";
+import { getApolloSitesPref } from "./apolloSites.js";
+// LUNAR SURFACE MISSIONS (2026-08-13): the six Apollo flags became 35 verified
+// sites across every agency that has reached the Moon. Same marker machinery —
+// the limb/occlusion/projection gates below were already lat/lon-general, so
+// far-side sites (Chang'e 4/6, LADEE) cull correctly with no gate change.
+import { LUNAR_SITES } from "./lunarMissions.js";
+import { drawSiteGlyph, GLYPH_HIT_R } from "./lunarSymbols.js";
 
 // B2 scale system: the user-controlled layout mapping is re-exported so the
 // frame's public surface keeps one name per contract (the zoomSeam pattern).
@@ -2367,7 +2375,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   function nacManagerFor(site: NacSite): MoonTileManager {
     let m = nacTileManagers.get(site.id);
     if (!m) {
-      m = createMoonTileManager({ scheme: site.scheme, minZ: 10 });
+      m = createMoonTileManager({ scheme: site.scheme, minZ: NAC_MIN_Z });
       m.onUpdate(() => { kick(); });
       nacTileManagers.set(site.id, m);
     }
@@ -2583,7 +2591,15 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     let nacOv: DetailOverlay | null = null;
     if (nacSite) {
       const nm = nacManagerFor(nacSite);
-      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg, coverHalfDeg, visibleHalfDeg);
+      // plan-fit clamp (fitHalfSpanDeg): the request span must FIT the tile
+      // budget at the demanded level, or the minZ floor turns it into no
+      // mosaic at all (the 1440px-desktop hole, 2026-08-12). The trailing
+      // visibleHalfDeg is the 3b floor — the planner may shrink the prefetch
+      // margin toward it rather than give up a zoom level. BOTH apply: the
+      // clamp bounds what we ASK for, the floor bounds what may be GIVEN UP.
+      nm.request(subPt.lonDeg, subPt.latDeg, pxPerSurfDeg,
+        Math.min(coverHalfDeg, fitHalfSpanDeg(pxPerSurfDeg, nacSite.scheme, NAC_MIN_Z, MOON_MOSAIC_MAX_PX)),
+        visibleHalfDeg);
       const nmos = nm.current();
       if (nmos) {
         nacOv = { tex: nmos.tex, lonMin: nmos.lonMin, lonSpan: nmos.lonSpan, latMax: nmos.latMax, latSpan: nmos.latSpan };
@@ -2974,7 +2990,13 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
   }
 
   function resizeBacking(): void {
-    const dpr = (globalThis.devicePixelRatio as number | undefined) || 1;
+    // F-C (2026-08-14): was raw devicePixelRatio. These are 2D canvases with no
+    // GL renderer string of their own, so this leans on the shared
+    // __vtDeviceTier reading when datamap.tsx has published one and otherwise
+    // lands on the full-tier cap of 2 — which is still a cap, where before
+    // there was none. Bounds memory and fill rate; it does NOT touch the Moon
+    // raycast, which patchBufDims() sizes in CSS px (PROGRAM_STATE.md L16).
+    const dpr = surfacePixelRatio();
     const { w, h } = cssSize();
     const bw = Math.max(1, Math.round(w * dpr));
     const bh = Math.max(1, Math.round(h * dpr));
@@ -2987,7 +3009,7 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
 
   // ── flight construction (always from the LIVE pose: cancels any flight
   // in progress first, freezing its blended camera as the new start) ──
-  function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean }): void {
+  function beginFlight(toId: string, o?: { toDist?: number; toDir?: Vec3; exitOnArrival?: boolean; siteClaim?: boolean }): void {
     cancelFlight();
     // a fly-to lands looking at the target body's centre — drop any
     // zoom-to-cursor / pan look-at offset carried from the prior focus
@@ -3039,8 +3061,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
       exitOnArrival: o?.exitOnArrival ?? false,
     };
     // body card hook: a fly-to opens the target's card; flying home (to
-    // the seam) closes it
-    opts.onFocusBody?.(o?.exitOnArrival ? null : toId);
+    // the seam) closes it.
+    // SITE CLAIM (2026-08-13 report: "when i click on Moon Mission it thinks
+    // i am clicking on the moon and pulls up that card"). A marker click flies
+    // to the MOON to reach the site, which used to open the Moon's body card
+    // on top of the site card — two cards for one click. This is the space
+    // equivalent of the map's feature-claim rule (datamap __vtFeatClaim): the
+    // MORE SPECIFIC selection owns the click, so a site fly-to suppresses the
+    // body card entirely. Answers the human's "if i click on the Earth it
+    // doesn't pull up the Earth card, but in space it does".
+    if (o?.siteClaim) opts.onFocusBody?.(null);
+    else opts.onFocusBody?.(o?.exitOnArrival ? null : toId);
     kick();
   }
 
@@ -3419,7 +3450,12 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
         const toCamN = scale3(toCamV, 1 / (distCS || 1));
         const patchMode = distCS < MOON_PATCH_ACTIVATE_RADII * R;
         const horizonCos = R / Math.max(R, distCS);
-        for (const site of APOLLO_SITES) {
+        // label boxes already claimed this frame — the south-polar cluster
+        // (IM-2 −84.8, LCROSS −84.7, Chandrayaan-3 −69.4, Luna 25 −57.9) piles
+        // into an unreadable smear without collision suppression. The MARKER
+        // always draws; only the text yields.
+        const labelBoxes: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+        for (const site of LUNAR_SITES) {
           const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, wDegS);
           const facing = n.x * toCamN.x + n.y * toCamN.y + n.z * toCamN.z;
           if (patchMode ? facing < horizonCos + 0.02 : facing <= 0.02) continue;
@@ -3437,34 +3473,29 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
           if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
           if (occludedByNearerDisc({ id: "moon", x: sx, y: sy, layoutDistM: moonDrawnS.layoutDistM },
               onScreen.map((b) => ({ id: b.id, x: b.p.x, y: b.p.y, discPx: b.discPx, layoutDistM: b.layoutDistM })))) continue;
-          // glyph: a small flag — mast + pennant + base dot (SYMBOLS NOT
-          // DOTS: the shape says "crewed landing site" at a glance)
-          ctx.save();
-          ctx.strokeStyle = "rgba(255,255,255,0.95)";
-          ctx.fillStyle = "rgba(255,209,102,0.95)";
-          ctx.lineWidth = 1.4;
-          ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(sx, sy - 11);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(sx, sy - 11);
-          ctx.lineTo(sx + 7, sy - 8.5);
-          ctx.lineTo(sx, sy - 6);
-          ctx.closePath();
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,255,255,0.95)";
-          ctx.fill();
+          // SYMBOLS NOT DOTS: shape = mission kind, colour = operating nation,
+          // fill = outcome, dashed halo = coordinate never surveyed. One
+          // function, shared with the legend, so the key cannot drift.
+          drawSiteGlyph(ctx as any, sx, sy, {
+            kind: site.kind, outcome: site.outcome, country: site.country,
+            coord_confidence: site.coord_confidence,
+          });
           if (moonDrawnS.discPx >= 140) {
+            ctx.save();
             ctx.font = "9px var(--font-mono, monospace)";
             ctx.textAlign = "left";
-            ctx.fillStyle = "rgba(223,232,245,0.92)";
-            ctx.fillText(site.mission, sx + 9, sy - 2);
+            const tw = ctx.measureText(site.mission).width;
+            const box = { x0: sx + 9, y0: sy - 11, x1: sx + 9 + tw, y1: sy + 2 };
+            const clash = labelBoxes.some((b) =>
+              box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0);
+            if (!clash) {
+              labelBoxes.push(box);
+              ctx.fillStyle = "rgba(223,232,245,0.92)";
+              ctx.fillText(site.mission, sx + 9, sy - 2);
+            }
+            ctx.restore();
           }
-          ctx.restore();
-          siteRects.push({ id: site.id, x: sx, y: sy, r: 10 });
+          siteRects.push({ id: site.id, x: sx, y: sy, r: GLYPH_HIT_R });
         }
       }
     }
@@ -4136,14 +4167,17 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
    *  clamp to the zoom floor ourselves (beginFlight bypasses its arrival
    *  clamp when both are provided). */
   const flyToSiteImpl = (siteId: string): void => {
-    const site = APOLLO_SITES.find((s) => s.id === siteId);
+    // MUST stay on the same array as the marker loop above — markers drawn
+    // from one list and fly-to resolved from another is a silent no-op click.
+    const site = LUNAR_SITES.find((s) => s.id === siteId);
     if (!site) return;
     const Zs = norm3(axisEclOfDate("moon", timeMs));
     const Xs = norm3(equatorNodeDirEclOfDate("moon", timeMs));
     const Ys = norm3(cross(Zs, Xs));
     const n = normalFromLonLat(site.lon, site.lat, Xs, Ys, Zs, iauPrimeMeridianDeg("moon", timeMs));
     const R = radiusM("moon");
-    beginFlight("moon", { toDir: n, toDist: Math.max(MIN_ZOOM_RADII * R, 1.35 * R) });
+    // siteClaim: the site card is the ONE card this click opens (see beginFlight)
+    beginFlight("moon", { toDir: n, toDist: Math.max(MIN_ZOOM_RADII * R, 1.35 * R), siteClaim: true });
     opts.onFocusSite?.(siteId);
   };
   const onClick = (e: MouseEvent): void => {

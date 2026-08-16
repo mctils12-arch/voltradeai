@@ -1,6 +1,6 @@
 import { Express } from "express";
 import { requireAuth, requireOwner } from "./auth";
-import { exec, execFile } from "child_process";
+import { exec, execFile, type ExecOptions } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
@@ -39,8 +39,29 @@ const _pyEnv = {
 // "Command failed" with EMPTY stderr — making root causes impossible to
 // diagnose. 32MB handles any realistic scan output comfortably.
 const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
-const execAsync = (cmd: string, opts?: any) =>
-  _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts });
+// STDOUT TYPED AS STRING (T0.0/Q2, 2026-08-13). `opts` was `any`, which
+// defeated overload resolution on promisify(exec): TypeScript could not tell
+// the string signature from the Buffer one and fell back to Buffer, making
+// every `stdout.trim()` downstream a type error. That was 42 of the 83-error
+// `tsc --noEmit` baseline — 51% of the whole list from this single inference,
+// drowning out the real bugs underneath it (research/tsc_baseline.md §2).
+//
+// Two changes, and neither is a cast. `opts: ExecOptions` removes the `any`
+// that caused the ambiguity, and `encoding: "utf8"` states the encoding that
+// was ALREADY in effect — node's `exec` defaults to utf8 and returns Buffer
+// only when explicitly passed `encoding: 'buffer'` (or null). So the runtime
+// behaviour is unchanged; the type now simply describes it.
+//
+// `encoding` sits AFTER the `...opts` spread deliberately, so it cannot be
+// overridden into the Buffer branch that the 42 call sites would break on.
+// Verified before writing this: no call site in this file — 2 direct
+// `execAsync` callers, 44 `execPythonSerialized` callers — passes `encoding`
+// at all, so this takes nothing away from anyone.
+//
+// A cast would have asserted the same conclusion while leaving the next reader
+// unable to tell whether it had been checked. This way tsc proves it.
+const execAsync = (cmd: string, opts?: ExecOptions) =>
+  _execRaw(cmd, { env: _pyEnv, maxBuffer: DEFAULT_MAX_BUFFER, ...opts, encoding: "utf8" });
 
 // ══════════════════════════════════════════════════════════════════════
 // Python Daemon RPC client (OPTIMIZATION 2026-04-20)
@@ -188,7 +209,7 @@ function isTrivialPython(cmd: string): boolean {
   return true;
 }
 
-async function execPythonSerialized(cmd: string, opts?: any) {
+async function execPythonSerialized(cmd: string, opts?: ExecOptions) {
   const maxWait = opts?.timeout || 30000;
   const hardTimeout = Math.min(opts?.timeout || 90000, 90000);
 
@@ -373,6 +394,31 @@ function countOptionsPositions(positions: any[]): number {
     ? positions.filter((p: any) => {
         if (p.asset_class !== "us_option") return false;
         const sym = p.symbol || "";
+        if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
+        return true;
+      }).length
+    : 0;
+}
+
+// CROSS-CYCLE RACE FIX (KNOWN BROKEN #30, 2026-08-13 — third recurrence of the
+// options-slot cap being breached, structural fix proposed in wishlist.md,
+// this is that fix, Option 1 "count open orders too"). Every SELL_CSP is
+// submitted as an Alpaca DAY LIMIT order that returns "submitted" with no fill
+// confirmation (options_execution.py submit_options_order) — a still-resting
+// order is a real slot commitment (it can fill at any moment) but was
+// invisible to both enforcement points because they only re-fetched FILLED
+// positions via /v2/positions. Companion to countOptionsPositions(): only
+// counts SELL (opening) single-leg option orders — a "buy" order closes an
+// existing short position and frees a slot rather than consuming one, so it
+// must never be counted here. Same QQQ-convexity-overlay exclusion as
+// countOptionsPositions so the two stay conceptually paired; callers add
+// this to countOptionsPositions()'s result to get the true live slot count.
+function countOpenOptionsOpeningOrders(orders: Array<{ side?: string; symbol?: string }>): number {
+  return Array.isArray(orders)
+    ? orders.filter((o) => {
+        if (o.side !== "sell") return false;
+        const sym = o.symbol || "";
+        if (!isOptionSymbol(sym)) return false;
         if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
         return true;
       }).length
@@ -3670,9 +3716,41 @@ print(json.dumps(check_weekly_loss(history)))
         // two independent enforcement points; the cap VALUE (6) is
         // unchanged, so no RULE REVIEW threshold gate applies.
         const freshPositionsForTiers = await alpaca("/v2/positions").catch(() => []);
+        // CROSS-CYCLE RACE FIX 2026-08-15 (KNOWN BROKEN #30, third recurrence,
+        // wishlist.md Option 1): /v2/positions alone only reflects FILLED
+        // orders, so a SELL_CSP submitted last cycle and still resting
+        // unfilled on the book is invisible here — add still-open sell-side
+        // option orders so a slot already committed (but not yet filled) is
+        // counted before this cycle dispatches another SELL_CSP into it.
+        const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open").catch(() => []);
         let tierOptionsSlotsUsed = countOptionsPositions(
           Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
+        ) + countOpenOptionsOpeningOrders(
+          Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : []
         );
+
+        // CSP-CASH-RACE FIX 2026-08-13: same TOCTOU class as the slot-cap fix
+        // directly above, on the DOLLAR budget instead of the position-count
+        // budget. `cashAvailable` (captured once, before executeTrades() ran)
+        // was being reused unchanged for every SELL_CSP in this loop — live
+        // evidence: /api/diag/audit?type=T2-FAIL showed the SAME two tickers
+        // (TLT, CRWV) rejected by Alpaca seconds apart, repeatedly across
+        // 24h+, with "Alpaca rejected: insufficient options buying power"
+        // (our own pre-submission cash_available check passing, then
+        // Alpaca's real-time check failing) making up 47/100 recent T2-FAIL
+        // entries — the 2026-07-29/07-31 cash_available fix closes the
+        // "no live-capital check at all" gap but not this one: a stale,
+        // never-decremented snapshot lets every SELL_CSP in a batch pass the
+        // same too-generous budget. Re-fetch cash fresh here (mirroring
+        // freshPositionsForTiers) and decrement the local running total by
+        // each successful order's actual collateral requirement, so a
+        // second SELL_CSP in the same batch is checked against what's
+        // genuinely left, not what was left before executeTrades and any
+        // earlier CSPs in this very loop.
+        const freshAcctForTiers = await alpaca("/v2/account").catch(() => null);
+        let tierCashAvailable = freshAcctForTiers
+          ? parseFloat(freshAcctForTiers.cash || "0")
+          : cashAvailable;
 
         for (const action of result.tier_actions) {
           if (state.killSwitch) break;
@@ -3693,7 +3771,7 @@ print(json.dumps(check_weekly_loss(history)))
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
                 price: 0,  // Python will fetch current price
                 equity: equity,
-                cash: cashAvailable,
+                cash: tierCashAvailable,
                 size_pct: action.size_pct,
                 metadata: action.metadata,
               };
@@ -3711,6 +3789,7 @@ if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
     result = submit_options_order(contract)
+    result['cash_required'] = contract.get('cash_required', 0)
     print(json.dumps(result))
 "`,
                   { timeout: 30000 }
@@ -3719,6 +3798,7 @@ else:
                 if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
+                  tierCashAvailable -= (parseFloat(r.cash_required) || 0);
                 } else {
                   audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
@@ -4063,8 +4143,18 @@ else:
     // see countOptionsPositions() and the RACE FIX comment at the tier
     // dispatcher).
     const optionsPositions = countOptionsPositions(positions);
+    // CROSS-CYCLE RACE FIX 2026-08-15 (KNOWN BROKEN #30, third recurrence,
+    // wishlist.md Option 1): mirrors the tier dispatcher's identical fix —
+    // a still-resting SELL_CSP limit order from a prior cycle (or from the
+    // tier dispatcher earlier in THIS cycle) is a real slot commitment not
+    // yet reflected in /v2/positions. Count it here too so both
+    // options-opening paths agree on live state, not just filled state.
+    const openOptionsOrdersForExec = await alpaca("/v2/orders?status=open").catch(() => []);
+    const optionsOrdersPending = countOpenOptionsOpeningOrders(
+      Array.isArray(openOptionsOrdersForExec) ? openOptionsOrdersForExec : []
+    );
     let slotsUsed = stockPositions;  // Only count stocks against MAX_POSITIONS
-    let optionsSlotsUsed = optionsPositions;
+    let optionsSlotsUsed = optionsPositions + optionsOrdersPending;
     let totalDeployed = Array.isArray(positions)
       ? positions.reduce((sum: number, p: any) => {
           if (FLOOR_AND_LEG_TICKERS.has(p.symbol)) return sum; // Don't count floor/leg positions

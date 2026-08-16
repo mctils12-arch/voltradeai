@@ -1,0 +1,44 @@
+# ci/counter_baseline.txt — the pinned §4.2 counters (MASTER PROGRAM T1.7).
+#
+# Read by scripts/counter_ratchet.sh, which CI runs in the `test` job. Format:
+#   <counter> <value> <non-increasing|non-decreasing>
+#
+# WHY THIS FILE EXISTS. scripts/program_status.sh has measured these since
+# #822, but only when a human typed the command — so `commented_empty_catch`
+# drifted 112 -> 113 during the 2026-08-14 session from a concurrent merge and
+# nothing noticed. Measured is not enforced. This is the enforcement.
+#
+# DOWNWARD-ONLY, like every ratchet here (MASTER PROGRAM D4). If a counter
+# legitimately improves, LOWER the pin in the same PR — the script prints the
+# exact line to change. Loosening a pin to make a build green is stop
+# condition 2 and needs a human; §12 calls it reducing counts by suppression.
+#
+# tsc_errors / tsc_2304 are deliberately ABSENT: scripts/tsc_ratchet.sh already
+# gates them in node-build against ci/tsc_baseline.txt, and two pins for one
+# number is how they drift apart.
+
+tests_run_in_ci          377      non-decreasing
+tests_gating_merge       377      non-decreasing
+silent_py_handlers       255      non-increasing
+bare_except              3        non-increasing
+empty_ts_catch           494      non-increasing
+ts_any                   1239     non-increasing
+layers_full_schema       1        non-decreasing
+layers_with_lod          1        non-decreasing
+law_iv_scanned_files     5        non-decreasing
+order_post_sites         6        non-increasing
+design_token_drift       0        non-increasing
+long_try_empty_catch     3        non-increasing
+boundary_any             233      non-increasing
+commented_empty_catch    113      non-increasing
+conflicting_const        3        non-increasing
+undeclared_py_import     2        non-increasing
+dead_workflow_env        0        non-increasing
+uncapped_surface         0        non-increasing
+assertions               11443    non-decreasing
+harness_rules_checked    71       non-decreasing
+baseline_divergence      0        non-increasing
+dup_precise_literal      3        non-increasing
+orphaned_set_interval    0        non-increasing
+detectors_registered     12       non-decreasing
+quarantine_size          0        non-increasing

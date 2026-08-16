@@ -6,7 +6,8 @@
 // One call answers "every aircraft that moved through THIS viewport in THIS
 // time window, with enough per-hex track to draw its curtain" — the payload
 // T-2's scrubber selectors and T-3's curtain fleet ride on. Vessels reuse
-// the same machinery (T-4 parity; no altitude → paths, not curtains).
+// the same machinery (T-4 parity, wired in server/routes.ts's `kind` query
+// param — no altitude → paths, not curtains).
 //
 // SCALE S1 LAW (scale_program.md): viewport-bounded, LOD-decimated by zoom,
 // hard caps stated honestly in the response ("returned N of M hexes — zoom
@@ -49,6 +50,15 @@ export const WINDOW_DEFAULT_CAPS: WindowCaps = {
   maxTotalPoints: 60_000,
   maxFiles: 192, // 8 days of hour files; longer windows scan newest-first
 };
+
+/** T-2 step selector (earth_twin_program.md TIME MACHINE v2 — the human
+ *  directive asked for "mins or hours different thing to choose from" as
+ *  its own control, not only an automatic function of zoom). The route's
+ *  optional `step` query param must be one of these; readWindow uses it in
+ *  place of lodStepSec(zoom) when supplied. 3600s (1h) has no zoom-derived
+ *  equivalent (lodStepSec tops out at 900s), so this is additive, not a
+ *  reachable-via-zoom shortcut. */
+export const WINDOW_STEP_OPTIONS_SEC: number[] = [60, 300, 900, 3600];
 
 /** widest window a single request may ask for (the raw archive's span). */
 export const WINDOW_MAX_SPAN_SEC = 30 * 86_400;
@@ -122,6 +132,10 @@ export async function readWindow(opts: {
   fromSec: number;
   toSec: number;
   zoom: number;
+  /** T-2: explicit decimation step (seconds), overriding lodStepSec(zoom)
+   *  when provided. Must be one of WINDOW_STEP_OPTIONS_SEC — the route
+   *  validates; this function just trusts a finite non-negative value. */
+  stepSecOverride?: number;
   baseDir?: string;
   caps?: Partial<WindowCaps>;
 }): Promise<WindowResult> {
@@ -130,7 +144,9 @@ export async function readWindow(opts: {
   const { bbox } = opts;
   const from = Math.floor(opts.fromSec);
   const to = Math.floor(opts.toSec);
-  const step = lodStepSec(opts.zoom);
+  const step = Number.isFinite(opts.stepSecOverride) && (opts.stepSecOverride as number) >= 0
+    ? Math.round(opts.stepSecOverride as number)
+    : lodStepSec(opts.zoom);
   const base = opts.baseDir || archiveBaseDir();
   const dir = path.join(base, kind);
 
@@ -248,8 +264,9 @@ export async function readWindow(opts: {
 
   const complete = !stoppedEarly && scannedFrom <= Math.max(from, firstHour);
   const notes: string[] = [];
+  const noun = kind === "vessels" ? "vessels" : "aircraft";
   if (hexesSeen > returned.length) {
-    notes.push(`returned ${returned.length} of ${hexesSeen} aircraft in this window — zoom in or narrow the time range`);
+    notes.push(`returned ${returned.length} of ${hexesSeen} ${noun} in this window — zoom in or narrow the time range`);
   }
   if (!complete) {
     notes.push(`scan budget hit: window scanned back to ${new Date(scannedFrom * 1000).toISOString()} (newest-first), not the full requested range`);

@@ -110,10 +110,27 @@ jobs:
         run: python -m compileall -q .
 
       - name: Run test suite (offline-safe tests)
-        # Network-dependent tests are excluded in CI; they run in the
-        # agent's session against live APIs instead.
-        env:
-          VOLTRADE_CI: "1"
+        # EXCLUSION MECHANISM CORRECTED (Q18, 2026-08-14). This step used to
+        # carry an `env:` block setting VOLTRADE_CI beside the note
+        # "Network-dependent tests are excluded in CI". The CLAIM is true — but
+        # the variable was read by NOTHING repo-wide (D7 found it; grep confirms
+        # zero readers), so it attributed a real exclusion to a mechanism that
+        # did not exist.
+        #
+        # The exclusion is done by conftest.py's `collect_ignore`, which drops
+        # test_full_system.py and test_auto_discovery.py — standalone scripts
+        # that cannot execute under pytest at all (one ends in sys.exit() and
+        # kills collection for every other file; the other defines a
+        # module-level `def test(phase, name, fn)` helper pytest mis-collects as
+        # a test). conftest.py documents that reasoning, and
+        # test_collection_health.py guards it.
+        #
+        # HONEST CAVEAT, since the old note over-promised: the suite is not
+        # hermetic. macro_data.py performs live yfinance lookups (DX-Y.NYB,
+        # ^TNX) when imported by tests, and those calls do go out. They fail
+        # gracefully — the suite passes 1337/1337 with curl reporting connection
+        # resets — so this is a latency and noise cost, not a correctness risk.
+        # Filed as Q22 to be mocked properly.
         run: |
           python -m pytest -q \
             test_risk_controls.py \
@@ -137,11 +154,95 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc --noEmit || true   # tighten to hard-fail once existing TS errors are cleared
+      - name: Typecheck (ratchet)
+        # Was `npx tsc --noEmit || true` with the note "tighten to hard-fail
+        # once existing TS errors are cleared". They are now cleared enough to
+        # gate: 83 -> 12 across PRs #823/#824/#825, and all 12 remaining are
+        # genuine. The rule lives in scripts/tsc_ratchet.sh (mutable, tested by
+        # server/tscRatchet.test.ts) so this FROZEN file changes once; the pin
+        # lives in ci/tsc_baseline.txt. Authorized by the MASTER PROGRAM, whose
+        # §9 names Track 1 as the specific authorization to touch this path.
+        run: bash scripts/tsc_ratchet.sh
 
       - name: Build (client + server bundle)
         run: npm run build
+
+  test:
+    # ── MASTER PROGRAM T1.2 — THE TEST GATE. Blocking as of 2026-08-14.
+    #
+    # T1.1 (#829) got all 368 test files RUNNING here, deliberately
+    # non-blocking, to measure a baseline first — turning ~3,586 previously
+    # unrun tests into a merge requirement in one step is the failure §12 names
+    # outright. The baseline came back at ONE standing failure out of ~3,587
+    # (research/test_baseline.md), so the second half is now safe to ship.
+    #
+    # Every test file is REQUIRED except those listed in ci/quarantine.txt with
+    # a reason and a review date. The rule lives in scripts/gated_tests.sh
+    # (mutable, tested by server/gatedTests.test.ts) so this FROZEN file gains
+    # one `run:` line and every future adjustment happens outside it — the same
+    # shape as the typecheck ratchet in node-build.
+    #
+    # The script also enforces T1.3: the quarantine list may only shrink
+    # (pinned in ci/quarantine_max.txt) and no entry may age past 30 days.
+    # Quarantined tests still run, non-blocking, so the day one starts passing
+    # is visible rather than silently overdue.
+    #
+    # Authorized by the MASTER PROGRAM, whose §9 names Track 1 as the specific
+    # authorization to touch this path.
+    needs: changes
+    if: needs.changes.outputs.node == 'true' || needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install (node)
+        run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (python)
+        run: |
+          pip install -r requirements.txt
+          # requirements-dev.txt is the repo's declared "session-run /
+          # test-only Python deps" list, and the test suite is precisely what
+          # needs it. Without it, test_grid_county_ba.py cannot import openpyxl
+          # and the resulting COLLECTION error aborts the whole run — pytest
+          # reports `1 skipped, 1 error` in 4s instead of 1337 passes in 64s.
+          # It also takes down test_collection_health.py, the repo's own canary
+          # for exactly this condition.
+          #
+          # Deliberately NOT solved by moving openpyxl into requirements.txt:
+          # that file is what the frozen Dockerfile installs into the Railway
+          # image, and requirements-dev.txt's own header records that nothing
+          # in it belongs on a runtime path. The gap was never a missing
+          # declaration — it was CI not installing a file that already existed.
+          pip install -r requirements-dev.txt
+
+      - name: Counter ratchet (§4.2)
+        # scripts/program_status.sh has measured 22 counters since #822, but
+        # only when a human typed the command — so commented_empty_catch drifted
+        # 112 -> 113 from a concurrent merge and nothing noticed. Measured is not
+        # enforced; this enforces. Pins live in ci/counter_baseline.txt, the rule
+        # in scripts/counter_ratchet.sh (tested by server/counterRatchet.test.ts).
+        # Runs BEFORE the suites: it is seconds, and a counter regression should
+        # not wait three minutes to surface.
+        run: bash scripts/counter_ratchet.sh
+
+      - name: Test gate (server + client + python, minus quarantine)
+        # One step, three suites, all run even when an earlier one fails — a
+        # baseline you can only see a third of is not a baseline, and the same
+        # is true of a gate. Exits non-zero on any required failure, on a grown
+        # quarantine, or on an overdue quarantine entry (T1.3).
+        run: bash scripts/gated_tests.sh
 
   docker-build:
     # Proves the exact image Railway will build actually builds. Layer-cached
@@ -183,7 +284,13 @@ jobs:
     # skipping can never merge past a real failure. No branch-protection rules
     # needed.
     name: Auto-merge Claude PRs
-    needs: [changes, python-tests, node-build, docker-build]
+    # `test` now BLOCKS (T1.2, 2026-08-14). Under T1.1 it was in `needs` but
+    # deliberately absent from the `if:` — it waited, reported, and could not
+    # stop a merge. That was the measure-first contract; the baseline came back
+    # at one standing failure in ~3,587, so it is now a real gate alongside the
+    # other three. A SKIPPED test job (path-filtered out) still merges, same as
+    # every other heavy job; only failure or cancellation blocks.
+    needs: [changes, python-tests, node-build, docker-build, test]
     if: >
       always() &&
       github.event_name == 'pull_request' &&
@@ -191,7 +298,8 @@ jobs:
       needs.changes.result == 'success' &&
       needs.python-tests.result != 'failure' && needs.python-tests.result != 'cancelled' &&
       needs.node-build.result != 'failure' && needs.node-build.result != 'cancelled' &&
-      needs.docker-build.result != 'failure' && needs.docker-build.result != 'cancelled'
+      needs.docker-build.result != 'failure' && needs.docker-build.result != 'cancelled' &&
+      needs.test.result != 'failure' && needs.test.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
       contents: write

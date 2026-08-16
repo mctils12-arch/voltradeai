@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { surfacePixelRatio } from "@/lib/deviceTier";
 
 interface LoginProps {
   onLogin?: () => void;
@@ -19,7 +20,7 @@ function CityMatrixCanvas() {
     let animId: number;
     let W = window.innerWidth;
     let H = window.innerHeight;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = surfacePixelRatio();
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     canvas.style.width = W + "px";

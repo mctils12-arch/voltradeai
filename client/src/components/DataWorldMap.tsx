@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import * as topojson from "topojson-client";
 import type { Topology } from "topojson-specification";
+import { surfacePixelRatio } from "@/lib/deviceTier";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -231,7 +232,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
       const polys = landRef.current;
       if (polys.length === 0) return;
 
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = surfacePixelRatio();
       if (!landCanvas) {
         landCanvas = document.createElement("canvas");
       }
@@ -305,7 +306,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
     // ── Render edge fades to offscreen canvas ───────────────────────
     function renderEdgeFades(w: number, h: number, vp: Viewport) {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = surfacePixelRatio();
       if (!edgeFadeCanvas) {
         edgeFadeCanvas = document.createElement("canvas");
       }
@@ -384,7 +385,7 @@ export default function DataWorldMap({ isLoading, hasData, ticker }: DataWorldMa
 
     // -- Resize --
     function resize() {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = surfacePixelRatio();
       const w = window.innerWidth;
       const h = window.innerHeight;
       canvas!.width = w * dpr;

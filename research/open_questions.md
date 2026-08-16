@@ -584,6 +584,35 @@ tripwire.
     query) and KNOWN BROKEN #20's `rejected_masterkill` win-rate check,
     both still gated on enough freshly-labeled history accumulating after
     that first successful run.
+    **UPDATE 2026-08-13 (scheduled-routine session, market-hours, [RESEARCH],
+    v1.0.698): the |change_pct|>35 query (built 2026-08-10, v1.0.642) has
+    been checked live three times since (2026-08-10, 2026-08-11, and this
+    session) — `over_threshold.candidate_count` stayed exactly 0 across all
+    three, despite `total_records` growing 14972 -> 15xxx -> 16511 (10736
+    "taken") over that span.** A flat zero across days and thousands of new
+    records is itself worth treating as evidence rather than "not enough
+    data yet" per REASONING STANDARD #4 — but a single >35 threshold split
+    can't distinguish "genuinely never happens" from "a labeling bug is
+    silently zeroing change_pct_today for some population." Built the
+    missing instrument instead of guessing which: `shadow_portfolio.py`
+    gained `_change_pct_distribution()`, wired into
+    `_change_pct_band_stats()`'s return as a new `taken_distribution` key
+    (n/max/p50/p95/p99/count_over_20/count_over_30 over `|change_pct_today|`
+    for "taken" records). 6 new tests in `test_shadow_change_pct_band.py`,
+    A/B-verified. Full trace in experiments.md same date. NOT YET DEPLOYED
+    as of this log (PR held per this run's market-hours instruction — pure
+    diagnostics, no scoring/sizing change, so no urgency exception applies).
+    **NEXT**: once deployed, query `/api/diag/shadow` and read
+    `win_rate_by_change_pct_band.taken_distribution`. If `max`/`p99` sit
+    well under 35 with a healthy `n`, that confirms `_extreme_penalty`
+    (bot_engine.py's -15/-30 soft penalty at >30%/>50% single-day moves)
+    already suppresses this population de facto — the correct next step is
+    RETIRING the four dead `system_config.py` keys (`SCORE_BAND_MAX`,
+    `SCORE_BAND_OPTIMAL_LO/HI`, `MAX_CHANGE_PCT`) as misleading dead-code
+    documentation per the STALENESS AUDIT, not waiting indefinitely for a
+    split that structurally can't populate. If `max`/`p99` instead approach
+    or exceed 35 while `over_threshold` stays 0, that contradiction is
+    itself a labeling/comparison bug worth its own [REPAIR] session.
 
 11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
     `shadow_stats` pointed at a function that doesn't exist~~.
@@ -4115,6 +4144,142 @@ tripwire.
     of gated, per the section-4/section-1 duplication smell v1.0.667 itself
     already flagged.
 
+30. **[FOUND 2026-08-13, scheduled-routine session, NOT PATCHED —
+    RECURRENCE ESCALATES: this is the THIRD occurrence of "options
+    position count exceeds MAX_OPTIONS_POSITIONS" via a THIRD distinct
+    mechanism. Root cause found; structural fix proposed in
+    wishlist.md, not shipped this session.] `OPTIONS-SLOT-FULL` firing
+    live at "(7/6)" again; `/api/diag/positions-detail` confirmed 7 real
+    `us_option` positions genuinely held (DRAM/ENB/EWZ/HPE/LUNR/RKLB x2)
+    against the documented 6-slot cap.** Prior fixes on this exact
+    subsystem: 2026-07-29 v1.0.540 (stale local constant 3 vs.
+    system_config.py's canonical 6) and 2026-08-03 v1.0.586 (intra-cycle
+    TOCTOU race between `executeTrades()` and the tier dispatcher,
+    closed by re-fetching `/v2/positions` fresh immediately before
+    dispatch). Both fixes are still correctly in place in `server/bot.ts`
+    today (read this session, byte-verified: `MAX_OPTIONS_POSITIONS = 6`
+    module-scope, `freshPositionsForTiers` re-fetch + `tierOptionsSlotsUsed`
+    live-increment loop all present and correct) — so this is not either
+    of those bugs recurring unfixed; it is a THIRD, previously-unexamined
+    hole in the same subsystem.
+    EVIDENCE (reconstructed this session from `/api/diag/orders` +
+    `/api/diag/audit`, both token-gated, live production): replaying the
+    2026-08-13 options order fill stream chronologically shows the
+    account's real filled-option-position count crossing 6 at
+    19:54:56Z (ENB sell, correctly gated — count 5→6) and then 7 at
+    19:58:36Z (DRAM sell) roughly 4 minutes and one full Tier-2 scan
+    cycle later (a fresh scan started 19:56:56Z, ~2min cadence during
+    Power Hour). Both the tier-dispatcher fresh-fetch (2026-08-03 fix)
+    and `executeTrades()`'s own `countOptionsPositions(positions)` call
+    read `/v2/positions` — which only reflects **filled** orders.
+    ROOT CAUSE: `options_execution.py`'s `submit_options_order()`
+    (line ~2231) submits every CSP as an Alpaca **DAY LIMIT** order
+    (`"type": "limit", "time_in_force": "day"`) and returns
+    `{"status": "submitted"}` on any 2xx HTTP response — it does not
+    poll for an actual fill. `server/bot.ts` treats that `"submitted"`
+    status as slot-consumed immediately (tier dispatcher line ~3743
+    `tierOptionsSlotsUsed++`; `executeTrades()` line ~4380 accepts
+    `["submitted","filled","pending_new","accepted"].includes(status)`
+    then `optionsSlotsUsed++` at line 4383) — correct bookkeeping
+    *within* that one dispatch loop, but that increment is a **local
+    variable that dies with the cycle**. If the limit order does not
+    fill instantly (a day-limit CSP priced for premium routinely sits on
+    the book for minutes), it is invisible to `/v2/positions` until it
+    actually fills — so the NEXT cycle's "fresh" re-fetch undercounts:
+    it sees only what has filled, not what is filled-plus-still-live-
+    on-the-book from the prior cycle. Two (or more) cycles can each
+    correctly see "room for one more" against a stale-but-honest
+    position snapshot, each submit one more SELL_CSP, and if both
+    orders eventually fill, the realized count exceeds the cap — a
+    cross-cycle race the 2026-08-03 fix structurally cannot see because
+    it only closed the race *within* one cycle.
+    WHY NOT PATCHED THIS SESSION: CLAUDE.md's RECURRENCE ESCALATES rule
+    is explicit — two failed/incomplete fixes on one subsystem is an
+    architecture smell, and patching a third time is FORBIDDEN;
+    structural work goes to wishlist.md instead. Full root-cause
+    evidence, and three candidate structural designs with tradeoffs, are
+    filed there (wishlist.md, "OPTIONS-SLOT CAP: THIRD RECURRENCE" entry,
+    filed today) for a dedicated future session to implement one,
+    deliberately, with its own test coverage — not appended to this
+    already-twice-patched code path same-day.
+    NOT A LIVENESS OR KILL-SWITCH ISSUE: the account is paper, each CSP
+    slot is capped independently at `MAX_OPTIONS_PCT` (8% of equity) per
+    position regardless of how many slots are open, and
+    `risk_kill_switch.py`'s FROZEN mechanisms (portfolio-level exposure
+    kill) are untouched by this — this is a soft position-count risk
+    limit running 1 slot hot, not a threat to system survival. Correctly
+    scoped as a KNOWN BROKEN repair item, not a LIVENESS ALARM.
+    **STRUCTURAL FIX SHIPPED 2026-08-15 (v1.0.725, scheduled-routine
+    session, own PR) — Option 1 from wishlist.md's "OPTIONS-SLOT CAP:
+    THIRD RECURRENCE" entry ("count open orders too"), per that entry's
+    own recommendation.** New module-scope `countOpenOptionsOpeningOrders()`
+    helper (`server/bot.ts`, paired with `countOptionsPositions()`) counts
+    still-open SELL (opening) single-leg option orders from a fresh
+    `GET /v2/orders?status=open` fetch — a submitted-but-unfilled CSP day
+    limit order is now a counted slot commitment, not invisible until it
+    fills. Wired into BOTH enforcement points named in this item's own
+    evidence trail: the tier dispatcher's `tierOptionsSlotsUsed` and
+    `executeTrades()`'s `optionsSlotsUsed` now each add
+    `countOpenOptionsOpeningOrders(...)` to `countOptionsPositions(...)`,
+    closing the exact cross-cycle gap this item diagnosed (a resting order
+    invisible to `/v2/positions`, which only reflects filled reality).
+    `MAX_OPTIONS_POSITIONS` itself (6) is unchanged — only what counts
+    against it widened — so no RULE REVIEW threshold-evidence gate
+    applies, same precedent as the 2026-08-03 fix for this exact
+    subsystem. Scope kept deliberately narrow per RECURRENCE ESCALATES:
+    only SELL-side (opening) orders count (a BUY order closes an existing
+    short and frees a slot, never consumes one); multi-leg (`mleg`)
+    strategies are NOT covered by this helper (no top-level `symbol`/
+    `side` on those Alpaca order objects) — this fix targets the exact
+    single-leg SELL_CSP race that was live-evidenced, not a general
+    multi-leg audit, which stays a candidate follow-up if a fourth
+    recurrence is ever found there specifically.
+    RATCHET: new `server/optionsSlotOpenOrdersRace.test.ts` (4 tests,
+    static-source-assertion style matching the existing
+    `optionsSlotRaceFix.test.ts` precedent for this same subsystem,
+    since none of `bot.ts`'s helpers are individually exported/importable
+    for behavioral unit tests). A/B-verified via `git stash`: 3 of the 4
+    new tests fail against pre-fix code (the executeTrades open-orders
+    fetch, the tier-dispatcher open-orders fetch, and the widened-count
+    formula assertions) and all 4 pass post-fix; the 4th (single-declaration
+    pin on `MAX_OPTIONS_POSITIONS`) correctly passes on both since the cap
+    value itself never changed. CORRECTION (same session, after CI ran):
+    the initial local pass under-verified this — an incomplete sandbox
+    (`node_modules`/Python deps both partially missing) understated the
+    real `tsc` count and skipped Python entirely; a real CI `test`-job
+    failure (`scripts/counter_ratchet.sh`'s `ts_any`/`boundary_any` pins,
+    tripped by the new helper's `any[]`/`any` parameter types plus a test
+    marker string that textually resembled real code) forced a full
+    local rebuild with proper deps to get an honest signal. Corrected
+    full gates: `bash scripts/gated_tests.sh` (the real CI test gate) —
+    GATE PASSED, client 1017/1017, server clean, python 1354 passed/1
+    skipped in 59s (quarantine unchanged, 1 pre-existing entry);
+    `bash scripts/tsc_ratchet.sh` — 12/12, exact match to
+    `ci/tsc_baseline.txt`'s pin, byte-identical via `git stash` A/B;
+    `bash scripts/counter_ratchet.sh` — clean after retyping the helper
+    without `any` and trimming the test marker string (full trace in
+    experiments.md same date); `npm run build` clean throughout. Full
+    trace and the exact fixes: `research/experiments.md` (2026-08-15
+    entry, GATES section).
+    LIVE VERIFICATION NEEDED: a future session should check
+    `/api/diag/audit?type=OPTIONS-SLOT-FULL` stays correctly gating (no
+    `(N/6)` readings above 6 in `/api/diag/positions-detail`) through at
+    least one high-volume options session (Power Hour is where all three
+    prior recurrences were live-evidenced) before this item is marked
+    fully closed. If a FOURTH recurrence is ever found after this ships,
+    wishlist.md's own entry already names the trigger: that's when Option
+    3 (a persisted cross-cycle slot ledger) becomes warranted, not another
+    surgical patch on this same shape.
+    **LIVE VERIFICATION CONFIRMED 2026-08-16 (scheduled-routine session,
+    read-only check, no code change).** `/api/diag/audit?
+    type=OPTIONS-SLOT-FULL&limit=10&token=$DIAG_TOKEN` (production,
+    `server_version:"1.0.728"`) shows 10 consecutive skip events spanning
+    2026-08-15T22:47:47Z-23:53:33Z (a real Power Hour window, the exact
+    condition all three prior recurrences were caught in) — every single
+    one reads "options slots full (6/6)", never `(7/6)` or higher. The
+    gate is holding at the documented cap through the one scenario that
+    broke it three times before. **ITEM #30 CLOSED.**
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -4159,6 +4324,50 @@ tripwire.
   (`/api/diag/audit?type=TIER-KILL` empty).
 
 ## OPEN RESEARCH QUESTIONS
+
+### USASPENDING SIZE-CONFOUND — is the wrong-signed award/mcap result actually a small-cap size effect? (filed 2026-08-15)
+
+CONTEXT: the KNOWN BROKEN #4 USAspending gate-2 re-run (2026-08-15, see
+above) rejected its pre-registered hypothesis and instead found a
+nominally-interesting-but-uncorrected wrong-signed result: within the
+small-cap (mcap<$2B) civilian-contract-recipient universe, the
+HIGH award/mcap-ratio half underperformed its own ticker baseline by
+-4.7pp at 5 trading days (p=0.022 uncorrected, does not survive
+Bonferroni across the run's 3 valid comparisons). That run's own
+SECOND-ORDER NOTE flagged a design confound: because ratio=amt/mcap and
+mcap is also the small-cap filter's own denominator, the high-ratio
+bucket is mechanically tilted toward the SMALLEST mcap names within an
+already-small universe — so the -4.7pp gap could be a small-cap-within-
+small-cap size/liquidity effect rather than an award-materiality effect.
+
+QUESTION (needs its own disjoint out-of-sample window before any trust
+— this is NOT a promotion of the 2026-08-15 finding, it is a fresh,
+un-pre-registered candidate motivated by it): does a market-cap-MATCHED
+(not ratio-based) comparison — e.g. bucket recipients by mcap decile
+first, then compare award-recipients vs. non-recipients WITHIN each
+decile — still show negative forward 5d returns for contract recipients,
+or does the effect disappear once mcap is controlled for directly
+instead of via a ratio that shares its own denominator? PRIOR: expect
+the effect to shrink materially once mcap is matched directly (the
+ratio-share-denominator mechanism is a real design flaw, not a hunch);
+if it survives matching, that would be a genuinely surprising result
+(a government contract award predicting WORSE near-term returns) worth
+its own second-order investigation (selection effect — desperate/
+distressed small caps chase contracts a healthy peer wouldn't need —
+vs. execution/dilution risk on a contract straining a tiny recipient's
+capacity) before trusting it operationally either way.
+
+LADDER PATH: this is a gate-2 SIGNAL redesign, not a new data root
+(gate 1 stays passed) — needs a NEW script (mcap-decile bucketing
+instead of ratio-median split), run once, pre-registered, against a
+window disjoint from the 2026-08-15 run's archive dates (i.e. new
+awards accrued after 2026-08-15, not a re-slice of the same 129 events
+— re-testing on the same data that produced the motivating finding
+would be circular). Earliest reasonable attempt: once the post-2026-
+08-15 archive alone has enough small-cap events to clear the n>=5
+floor per horizon independently — check via a small archive-count query
+before building, do not guess. Kill if the effect is not directionally
+reproduced (any sign, not just wrong-signed) on the fresh window.
 
 ### CSP CAPITAL ALLOCATION — should the bot reserve cash collateral for its options tier? (filed 2026-07-28)
 
@@ -4485,6 +4694,13 @@ into the message — seen live on HYG 07-28). Message should distinguish
       overlap) and require the same sign and a nominal p-value that
       clears the Bonferroni bar above before this heads toward LOGIC
       gate 3.
+      [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+      now estimates elapsed weekly-report count since 2026-07-08 via
+      `datacore/signal_ladder.json`'s `cftc_cot_positioning.readiness_
+      trigger` — an ESTIMATE by elapsed calendar time, not a live report
+      count, so still live-verify the actual published-report count
+      before re-running the screen, but no need to re-derive the
+      "how many weeks so far" arithmetic by hand.]
     - **TLT's already-killed single-horizon flash is now quantified, not
       just eyeballed, and the kill verdict is UNCHANGED**: the 20d
       extreme_low deviation this session's screen also caught
@@ -5709,6 +5925,11 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    trigger: >=90 days of archive (5-day horizon N>=30) or a second
    filing quarter per company (unlocks the delta feature). Full trace +
    numbers in experiments.md's 2026-07-12 [RESEARCH] entry.
+   [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+   now tracks the 90-archive-day threshold above mechanically via
+   `datacore/signal_ladder.json`'s `sec_8k_earnings_language.readiness_
+   trigger` (the second-filing-quarter fallback condition is not
+   machine-checkable and stays a manual judgment call).]
    **[V1 API MIRROR SHIPPED 2026-08-02, v1.0.573]** `GET /api/v1/data/
    earnings-language` (server/routes.ts + server/apiProduct.ts) —
    distribution plumbing only, gate 2 above unchanged/still incomplete.
@@ -6351,6 +6572,59 @@ the ladder before belief.)
    informational. Discount further per Reasoning Standard #4: this is
    the FIRST test of this exact bucket design, so the +20d contrast's
    significance is not yet confirmed out-of-sample.
+   UPDATE 2026-08-15 (scheduled-routine PRODUCT session) — PRE-REGISTERED
+   FOLLOW-UP RETEST RUN (scripts/finra_shortvol_gate2_retest.ts): made
+   exactly the two changes named above, nothing else — same universe
+   (FLOOR_TOTAL_VOL), same HIGH_SHORT bucket construction (BUCKET_SIZE=40),
+   same 16-day sample window (2026-01-07..2026-04-22), imported directly
+   from scripts/finra_shortvol_gate2.ts rather than retyped. (a) The
+   NEUTRAL band was replaced with a full-population PROXY: a systematic,
+   alphabetical-by-ticker sample of up to 200 qualifying names/day
+   (POP_SAMPLE_SIZE) — deterministic, reproducible, and by construction
+   uncorrelated with short_ratio (unlike a rank-centered band), bounded to
+   ~2,200 unique tickers total for session network cost rather than the
+   full ~2,000-2,400/day qualifying population. (b) Regime classification
+   (bear/neutral/bull) was added per sample day, computed from Yahoo
+   SPY/VXX daily closes using the SAME 30-trading-day VXX average /
+   50-trading-day SPY MA windows ml_model_v2.py's live regime calc uses
+   (mirrored verbatim, ml_model_v2.py:439-455), so the labels mean the
+   same thing as the regime the bot actually trades under.
+   RESULT (live run, 16/16 sample days had data, 2,216 unique tickers,
+   2,138 priced/78 failed — consistent with the first run's own Yahoo
+   fetch-failure rate): the day-clustered +20d HIGH_SHORT-vs-population
+   spread is +1.561% (t=1.303, df=15, crit=2.131) — it does NOT clear
+   significance, down from the first run's +2.244% HIGH-vs-LOW spread
+   (t=2.279, which did). +5d spread +0.466% (t=0.804), also short of
+   significance, reported informationally per the first run's own
+   +20d-is-primary choice. Regime split at +20d: bull +3.091% (n=3 days),
+   neutral +1.680% (n=12 days), bear -4.446% (n=1 day, too few to count
+   under the pre-stated MIN_REGIME_DAYS=3 sign-stability check). Sign was
+   stable across the two regimes with enough days (both positive), so
+   that half of the pre-stated composite bar passed — but the bar
+   requires BOTH clauses (day-clustered |t20|>crit AND regime-stable
+   sign), and the significance clause failed. PRE-STATED VERDICT:
+   FAIL/INCONCLUSIVE.
+   WHAT THIS ACTUALLY EXPLAINS (the informative part, per Reasoning
+   Standard #4's instruction to extract the finding even from a null
+   result): the population-proxy mean sits MUCH closer to HIGH_SHORT than
+   the first run's NEUTRAL band did — that is mechanically WHY the
+   apparent HIGH-LOW contrast shrinks below significance once compared
+   against a baseline unbiased by rank-selection. In other words, the
+   first run's significant contrast was inflated by NEUTRAL being an
+   unusually POOR-performing band relative to the broader population
+   (consistent with the original U-shape, where NEUTRAL underperformed
+   even LOW_SHORT) — not by HIGH_SHORT carrying a real standalone edge.
+   NOT marked killed in datacore/signal_ladder.json (still gate2_fail):
+   both tests share the identical 16-day window, so this is a corrected
+   re-analysis of the same period, not the disjoint-sample replication or
+   sign-reversal the repo's kill precedent (occ_options_volume/
+   cftc_tff_positioning/jodi_oil_stocks) has required so far. Two
+   consecutive fails on the same window materially lowers the prior for a
+   real edge here, but closing this permanently should wait for a
+   genuinely disjoint out-of-sample window (2026-05 onward is now
+   available and would give a clean out-of-sample test) rather than a
+   third re-cut of Jan-Apr 2026 — filed as the concrete NEXT step for
+   whichever future session wants to finish this root.
 2. CFTC COT DISAGGREGATED (cftc.gov/dea/newcot/f_disagg.txt weekly,
    keyless, probed 200 442KB; the legacy deacot.txt path 404s — use
    the disaggregated report, which is also the analytically richer
@@ -6989,8 +7263,102 @@ Reasoning Standard #10):
    interpret this run's high_ratio/low_ratio point estimates (-11.4% vs
    -0.4% at 5d) as a finding either direction — n=4 and n=7 are display
    noise, stated here only so a future session doesn't have to re-derive
-   them from the (uncommitted, session-local) `usaspending_gate2_results.json`
-   output.
+   them from the (uncommitted, session-local)
+   `usaspending_gate2_results.json` output.
+   [READINESS 2026-08-13: `python3 scripts/ladder_readiness_check.py`
+   now tracks the 2026-08-15 date above mechanically via
+   `datacore/signal_ladder.json`'s `usaspending_contracts.readiness_
+   trigger` — check that instead of re-deriving the date by hand.]
+   GATE 2 FINAL RUN 2026-08-15 (scheduled-routine session, [RESEARCH],
+   T-DATACORE, EDGE DOCTRINE axis (a)/(b)) — **HYPOTHESIS AS STATED
+   REJECTED (gate2_fail); a wrong-signed, non-surviving association
+   found instead.** `scripts/usaspending_gate2.py` re-run exactly per
+   its own NEXT note: unmodified, first day this run was permitted
+   (`ladder_readiness_check.py` showed `READY: 0d past 2026-08-15` at
+   session start — the earliest valid moment, not a delayed one; the
+   07-26 entry's "prefer waiting longer if session cadence allows" was
+   weighed against this being a scheduled routine that may not
+   reliably land on this exact repo again soon, and the archive having
+   already grown 3x since the last check).
+   PRIOR RESTATED (unchanged from 2026-07-05/07-26, before this run):
+   large award/mcap ratio predicts BETTER forward 5-20d returns for
+   small-cap civilian-agency recipients than the low-ratio bucket or
+   the ticker's own baseline; near-zero separation expected once mcap
+   is large enough that the award is immaterial; kill if the high-ratio
+   bucket shows no separation from baseline.
+   ARCHIVE GROWTH (as predicted): 41 calendar days old (started
+   2026-07-05), 952 civilian-agency ticker-matched events across 210
+   tickers (up from 286/103 on 2026-07-26) — 728 excluded as large-cap
+   (>=$2B), 49 with no resolvable EDGAR share count, leaving
+   **129 small-cap events tested**, comfortably clearing the n>=5
+   significance floor at the 5-day horizon for the first time (high_ratio
+   n=50, low_ratio n=43). The 20-day horizon is still thin: low_ratio
+   n=6 barely clears the floor, high_ratio n=4 stays below it (null,
+   correctly not computed, not fabricated) — the archive needs
+   meaningfully more time before 20d is properly powered. One data
+   caveat found and logged, not fixed (stopping rule — script ran
+   unmodified): the 2026-08-02 archive day hit the diag probe's row cap
+   (`count:5000, truncated:true`) — some 2026-08-02 events are missing
+   from this run; every other day is untruncated. This slightly
+   undercounts the archive, does not change which direction the result
+   points.
+   RESULT (5d horizon, the only adequately-powered one): high_ratio
+   mean **-3.361%** vs. its own ticker-baseline **+1.368%** — a
+   **-4.729pp** gap, Welch t=-2.339, **p=0.022** (n=50 vs. n_baseline=
+   1667). low_ratio: +4.557% vs. baseline, +3.189pp gap, t=1.455,
+   p=0.151 (not significant). 20d: low_ratio +2.87pp, p=0.754 (not
+   significant, n=6 thin); high_ratio null (n=4<5).
+   VERDICT — apply the same discipline this repo used on
+   `cftc_tff_positioning` (wrong-signed effects get rejected as the
+   stated hypothesis even when nominally significant) and
+   `cftc_cot_positioning` (Bonferroni across the valid comparisons
+   before trusting any single p-value): of the 3 valid (n>=5)
+   comparisons this run (5d high_ratio, 5d low_ratio, 20d low_ratio),
+   Bonferroni alpha = 0.05/3 = 0.0167. The one nominally-interesting
+   result, 5d high_ratio's p=0.022, does **not** survive that
+   correction. Separately and more importantly: even ignoring multiple
+   comparisons, **the one result close to significant is the OPPOSITE
+   SIGN from the PRIOR** — high award/mcap ratio predicts WORSE forward
+   5d returns, not better. The pre-registered hypothesis ("large
+   award/mcap ratio predicts better forward returns for small caps") is
+   therefore **REJECTED**, not merely "inconclusive" — this run was
+   adequately powered at 5d (n=50) and found no positive separation at
+   any horizon.
+   SECOND-ORDER NOTE, logged honestly as a design caveat, not chased
+   further this session (stopping rule): the median-ratio split
+   conflates award materiality with raw company size, because
+   ratio = amt / mcap and mcap is also the small-cap filter's own
+   denominator — for a given award size, the smallest-mcap names within
+   the small-cap universe mechanically land in the high-ratio bucket.
+   The -4.7pp gap could therefore be a small-cap-within-small-cap size/
+   liquidity effect rather than an award-materiality effect; this
+   design cannot distinguish the two without a market-cap-matched
+   control, which this script does not build. Filed as its own,
+   separate, un-pre-registered candidate below rather than silently
+   reused as if it were part of this pre-registered test (REASONING
+   STANDARD #4 — a new hypothesis needs its own out-of-sample
+   confirmation before any trust, same discipline as the
+   `cftc_tff_positioning` TLT-momentum carry-forward).
+   LADDER UPDATE: `datacore/signal_ladder.json`'s `usaspending_contracts`
+   entry moved `gate2_pending` -> `gate2_fail`; `readiness_trigger`
+   removed (the condition it tracked is now resolved — leaving it would
+   make `ladder_readiness_check.py` report this root "READY" forever
+   after the gate is already closed, a staleness bug in the tool
+   itself). `test_ladder_readiness_check.py`'s two usaspending-specific
+   live-ladder tests were repointed at `cftc_cot_positioning` (still
+   gated, same trigger-type coverage shape: not-ready-today /
+   eventually-ready) — this is a legitimate update to match a graduated
+   root, not a weakened assertion; `TestDateTrigger`'s pure-unit tests
+   (unchanged) still fully cover the `date`-trigger evaluation logic
+   itself. RAW `/api/data/usa-spending` display is completely
+   unaffected (raw overlay, no predictive claim, keeps running) — only
+   the predictive-claim question is closed.
+   NEW CANDIDATE FILED (un-pre-registered, needs its own disjoint
+   out-of-sample window before any trust — see OPEN RESEARCH QUESTIONS
+   below): "does a market-cap-matched (not ratio-based) small-cap
+   civilian-agency contract award predict *negative* forward 5d
+   returns?" — motivated by this run's wrong-signed finding, explicitly
+   not promoted from it.
 5. FDA calendars (keyless openFDA + PDUFA dates where lawfully
    listable). HYPOTHESIS: binary-event timing for biotech options —
    IV ramps into PDUFA dates; a theta-side input, not directional.
@@ -9696,6 +10064,133 @@ gated aggregator binned on the gpsOk TRANSITION LOCUS (where GPS was
 actually lost, 14-199 km behind current position), (c) surfaced with
 mlat-aware provenance; aggregate zones stay behind ladder gate 2.
 
+**PROGRESS 2026-08-12:** Phase 1 (ground-truth validation) and Phase 2
+(the archive writer) shipped 2026-08-11 (v1.0.662); Phase 3 (read/query
+path, `/api/diag/gnss_integrity`) shipped later the same day. The FIRST
+live attempt at Phase 4 (the actual Baltic-vs-control gate-2 statistical
+run) found and fixed an infrastructure blocker instead of producing a
+result: the archive reader the probe used exhausted its row cap on the
+day's FIRST hour file, so a bbox scoped to a region whose real traffic
+sits in later UTC hours (Baltic ≈ UTC+2/3) silently read as zero signal
+regardless of ground truth. Fixed in `readArchiveDayEvenSample`
+(server/datacoreArchive.ts, v1.0.685, own PR) — full trace in
+experiments.md. Phase 4 itself (the actual statistical comparison) is
+STILL NOT DONE — still the next step for whoever picks this back up,
+now unblocked, after the fix deploys and via `/api/diag/gnss_integrity?
+days=<dates>&bbox=53,60,17,24&limit=50000&token=$DIAG_TOKEN` (Baltic) vs.
+a control bbox.
+
+**PROGRESS 2026-08-13 (scheduled-routine PRODUCT session) — PHASE 4
+DONE, GATE 2 PASS.** A same-day second bbox-starvation fix
+(`readArchiveDayEvenSample`'s `rowFilter`, v1.0.688, PR #803) landed
+2026-08-12 evening, found via the same session's own attempted Phase 4
+run (thin Baltic counts even with the temporal fix live) — that PR
+itself did not re-verify the fix against a live post-deploy run (deploy
+lag), and separately noted 2026-08-10 had no integrity fields at all
+(writer only went live 2026-08-11 23:19 UTC — no bug, just no data
+yet). This session confirmed `server_version 1.0.688` was live and
+re-ran the identical Baltic-vs-control comparison with the 2 days that
+DO have writer-live data (2026-08-11/12), and, rather than eyeballing
+the JSON by hand a third time (EDGE DOCTRINE #3), compiled it into a
+reusable tool:
+`scripts/gnss_integrity_gate2.ts` (+ `statsUtils.binomialUpperTailP`,
+new exact one-tailed binomial helper, +
+`scripts/gnss_integrity_gate2.test.ts`). Pre-registered method carried
+over unchanged from this entry's 2026-08-11 text: broadcast-origin only
+(excludes mlat-derived rows), band-stratified, exact binomial test
+against the control region's own observed rate as the null, bar
+p<0.01 one-tailed, and — stated in advance per the physical
+line-of-sight hypothesis — a pass requires elevation at cruise/mid and
+NONE at low/ground (elevation everywhere would look like a data
+artifact, not a targeted signature; the script's `gate2Verdict` encodes
+this as an explicit FAIL condition, not just a softer pass).
+**RESULT: PASS.** cruise 3/84 broadcast rows nic==0 (3.6%) vs control
+0.20% (p=0.00065); mid 8/146 (5.5%) vs control 0.26% (p<1e-6); low
+7/295 (2.4%) vs control 2.16% (p=0.46, correctly NOT elevated) — the
+exact predicted pattern, not elevation everywhere. Logged with full
+numbers in `datacore/signal_ladder.json` (`gnss_integrity_adsb`,
+`gate2_pass`) and experiments.md.
+HONEST CAVEATS, not smoothed over: (1) this is a 2-day sample — the
+archive only carries integrity fields since the Phase-2 writer merged,
+so there was no way to test a longer window yet; re-run the script as
+more days accumulate before treating this as durable. (2) This is GATE
+2 (statistical discrimination vs. a control region), not GATE 1
+(external ground truth) — no cross-reference has been run yet against
+an independent jamming-report source (gpsjam.org, OPSGROUP NOTAMs) for
+the same dates/region; that comparison is the honest next step before
+this root could be surfaced as anything stronger than "statistically
+real, mechanism plausible." (3) The MONETIZATION LICENSE CONDITION from
+the original 2026-08-11 entry (adsb.fi personal/non-commercial terms;
+any sold surface must derive from adsb.lol alone) still applies
+unchanged and has not been re-checked this session. NEXT: (a) re-run
+weekly as the archive deepens; (b) gate-1 cross-reference against an
+independent jamming source; (c) if both hold, this becomes the first
+candidate root queued for a RAW-overlay + gated-SIGNAL /data surface
+per the SPINOUT-READY DATA LAYER rule.
+
+**PROGRESS 2026-08-15 (scheduled-routine PRODUCT session) — GATE 2
+RE-RUN CONFIRMS AND STRENGTHENS AT 4 DAYS; GATE 1 ATTEMPTED, PARTIAL.**
+(a) Re-ran `scripts/gnss_integrity_gate2.ts` with the full accumulated
+window (`2026-08-11,2026-08-12,2026-08-13,2026-08-14` — 4 writer-live
+days now exist, up from 2) against the live diag endpoint
+(`server_version` 1.0.721, confirmed live before running). Effect
+HOLDS AND STRENGTHENS: cruise 15/414 nic==0 (3.6%) vs control 0.147%
+(p<1e-6); mid 12/277 (4.3%) vs control 0.272% (p<1e-6); low 7/903
+(0.78%, BELOW the 2.214% control rate — correctly not elevated);
+ground 0/19 not elevated — the identical pre-registered
+physical-hypothesis pattern as the 2-day run, now on 2-4x the per-band
+sample. `datacore/signal_ladder.json`'s `gnss_integrity_adsb` entry
+updated (`gate2_pass` unchanged, note extended with this re-run).
+(b) Attempted the NEXT step named above — a gate-1 cross-reference
+against an independent (non-ADS-B) jamming source for the study
+dates/region. FOUND: DTU Space's Tein RF measurement station on
+Bornholm (Danish public broadcaster DR, reported 2026-08-15)
+independently confirms the underlying GNSS jamming/spoofing
+phenomenon is real, ongoing, and elevated throughout 2026 in the SAME
+geography this root's candidate bbox covers — waters north of Gdańsk,
+near Bornholm, the Gdańsk–Gotland shipping corridor, all inside
+53–60N/17–24E — with 30 recorded incidents in 2026 to date vs. 16 in
+all of 2025, including a documented 24-hour continuous outage on
+2026-07-29 (a merchant vessel between Gdańsk and southern Gotland).
+This source is genuinely independent: a ground-based RF monitoring
+station, not derived from ADS-B or any aircraft-reported field, so it
+cannot be circular with our signal. Secondary corroboration (not
+independently re-verified in depth this session): an EU Council
+sanctions statement citing Baltic GPS jamming
+(data.consilium.europa.eu/doc/document/ST-9188-2025-REV-1) and a
+peer-reviewed TDOA jamming-source-localization study for the Baltic
+Sea (Springer, *GPS Solutions*, 10.1007/s10291-026-02061-5 —
+paywalled, abstract only).
+gpsjam.org was investigated as a candidate independent source and
+REJECTED: its own methodology (confirmed via its `/about` page)
+derives from ADS-B Exchange navigation-accuracy reports — the SAME
+underlying signal type (NIC/NACp degradation) via a DIFFERENT
+aggregator network. Treating it as "gate 1" would be circular (same
+signal, different receivers) — at most it is CROSS-AGGREGATOR
+consistency evidence, not external ground truth. It was also not
+fetchable as dated historical data through this session's tools (the
+map is JS-rendered; no discoverable static CSV/API; candidate GitHub
+source repos returned 404/403).
+HONEST GATE-1 VERDICT: PARTIAL, not a clean pass. The Bornholm/DTU
+Space station independently confirms the PHENOMENON is real and
+active in the SAME REGION during the SAME MONTH as our 2026-08-11..14
+sample — this rules out "the discrimination is a data artifact with
+no real-world referent." It does NOT confirm jamming was active on
+the EXACT dates 2026-08-11/12/13/14 specifically — no free, dated,
+machine-readable incident log for those days was found. Per REASONING
+STANDARD #10 and the HONESTY CLAUSE, this is logged as "gate 2 pass,
+gate 1 phenomenon/region-level corroborated, exact-day gate-1 still
+open" rather than rounded up to a full gate-1 pass.
+NEXT: (a) keep re-running `scripts/gnss_integrity_gate2.ts` as the
+archive deepens further, to keep confirming durability; (b) if DTU
+Space or another Baltic-state aviation/maritime authority ever
+publishes a dated, open, machine-readable jamming-incident log, wire
+it as the exact-day gate-1 check this root still lacks; (c) the
+adsb.fi non-commercial license condition from the 2026-08-11 entry
+(any SOLD surface must derive from adsb.lol alone) still applies
+unchanged and was not re-checked this session — re-verify before any
+/data ship, per the MONETIZATION TRIPWIRE.
+
 ### 2. SENTINEL-1 SAR FOR DARK SHIPS — THE PIPELINE WORKS, THE VALIDATION LOGIC DOES NOT
 CONFIRMED, impressively: CDSE OData anonymous 200 with real S1 products;
 OAuth succeeded using CDSE_CLIENT_ID/SECRET **already in our env**;
@@ -9892,3 +10387,151 @@ layer. The Asia repair added registry↔GRID_MASTER_IDS parity; the stronger
 invariant — **bucket ↔ registry parity** — is still unenforced. A test that
 lists `tiles/power_*.pmtiles` and flags any file with no live registry layer
 would have caught Africa, Oceania AND Asia before a human did.
+## 2026-08-12 — STALE-TAB DEGRADATION: a tab that outlives many deploys silently loses UI it can't know about; file the visible reload prompt [UX DEBT, filed from a live user report]
+
+OBSERVED (human screenshot, this session): a /data tab left open across
+~30 deploys rendered the layers panel with the signal cards but NONE of
+the toggle groups — the human reasonably asked "what happened to the
+layers". Server was serving all 236 layers (HTTP 200); a fresh load of
+the IDENTICAL production bundle (hash-verified index-FQ5meOeT.js)
+rendered every group. The tab was simply running week-old code +
+week-old in-memory state, through several panel-layout changes and one
+15-minute 502 window. The fix was "refresh" — but nothing TOLD the
+human that.
+
+THE GAP: the bundle already bakes its build version and compares it to
+the registry's server_version (open-tab skew detection, KNOWN STATE) —
+but the reaction is per-row ("reload to enable") at most, and a stale
+tab can degrade in ways that machinery never marks (layout changes,
+removed sections, dead in-memory feeds). At this deploy cadence
+(30+/week is now normal), long-lived tabs are the COMMON case for a
+returning user, not the exception.
+
+PROPOSED (small, for whichever T-CLIENT session picks it up — do NOT
+build blind, the skew detector already exists, extend it): when the
+registry's server_version is N minor versions ahead of the baked build
+version (N=3?), show ONE dismissible toast — "This page is several
+updates old — refresh for the current version" — rate-limited to once
+per session, never auto-reloading (an auto-reload mid-interaction on a
+map product is hostile). The version comparison is already computed;
+this is surfacing an existing verdict, not new machinery.
+
+LADDER: N/A (UX, no data claim). Priority: the deploy cadence makes
+this a weekly-recurrence class of confusion; cheap to close.
+
+## 2026-08-13 — SUBMARINE CABLES SHIPPED (T-CLIENT+datacore PRODUCT); the 2026-08-11 probe's "+42% / 888 ways from location=underwater" claim does NOT hold up live — corrected numbers + a real, scoped secondary-tag follow-up [PRODUCT]
+
+Shipped `submarine_cables` (client/public/cables/submarine_cables.json,
+scripts/submarine_cables_build.py): 7,464 telecom submarine cable
+segments (~267,700 km), OSM `seamark:type=cable_submarine` minus 1,224
+power-tagged ways. See experiments.md for the full session log; this
+entry is the CORRECTION to the 2026-08-11 "SUBMARINE CABLES" finding
+above (item 4), verified live rather than trusted:
+
+- `seamark:type=cable_submarine`: confirmed 8,722 ways (2026-08-13
+  snapshot) — matches the prior probe's count, as expected.
+- `submarine=yes`: confirmed **7,265 ways total** — LESS than the
+  primary tag, not a superset. The prior probe's "+42% / 888 ways from
+  location=underwater instead of submarine=yes" claim implicitly used
+  `submarine=yes` as the coverage baseline; that baseline itself
+  undercounts relative to the primary tag, so the delta it reported
+  does not describe a real gap in the PRIMARY-TAG-based build this
+  session shipped.
+- The real, tag-verified `location=underwater` + `communication=*`
+  ways NOT already carrying the primary tag (and not power-tagged):
+  **18 ways** — confirmed by an exact Overpass count query. Real, but
+  0.24% of the primary set's 7,464 — not activated in v1
+  (scripts/submarine_cables_build.py's `build_secondary()`, which
+  documents this decision and the exact count rather than silently
+  doing nothing).
+- A SEPARATE, larger, NOT-YET-VERIFIED candidate: `way[submarine=yes]`
+  minus the primary tag minus power-tagged = **1,297 ways** (confirmed
+  live count, exact query in the module docstring). This one is
+  actually worth chasing — genuinely quantified, unlike the vague
+  "+42%" figure it replaces. FOLLOW-UP (scoped): pull ~10-20 real tag
+  sets from that 1,297-way set via Overpass `out tags`, confirm they
+  are telecom-specific (not e.g. ambiguous `submarine=yes` usage on a
+  non-cable feature), then wire it into `build_secondary()` and rerun
+  the build. Ladder: N/A (RAW overlay, no predictive claim) — this is
+  a coverage-completeness question, not a signal-validation one.
+- TeleGeography's "~1.5 million km of cable in service" figure was
+  re-verified via a live web search this session (not re-derived from
+  their site, but independently confirmed as a real, current, publicly
+  cited number as of early 2026 — see PR description for sources)
+  before being printed in the registry description and the built
+  artifact's `_doc`.
+
+LESSON for future ladder-adjacent research write-ups: a same-day probe
+number is not evidence for a build that happens two days later — OSM
+edits continuously, AND (the bigger issue here) the prior probe's delta
+compared against the wrong baseline. Re-verify the load-bearing numbers
+live at build time, not just at research time, even when the research
+is only two days old and was itself adversarially reviewed.
+
+## 2026-08-14 — SUBMARINE CABLES `submarine=yes` FOLLOW-UP RESOLVED (T-DATACORE PRODUCT, scheduled-routine session): the 1,297-way candidate is ~85% pipelines, not telecom — closes the 2026-08-13 follow-up, no activation [PRODUCT]
+
+The 2026-08-13 entry above left one scoped, quantified follow-up open:
+whether the 1,297-way `way[submarine=yes]` (minus the primary
+`seamark:type=cable_submarine` tag, minus power-tagged ways) candidate
+was safe to wire into `build_secondary()`. Resolved this session with
+live, dual-mirror-verified Overpass queries (no code shipped touches
+the actual layer data — the answer is "no, don't activate it"):
+
+- `out tags 40` sample of the 1,297-way set (overpass-api.de,
+  `timestamp_osm_base` 2026-08-14T00:06Z): only 6/40 (15%) carried
+  `communication=*`. The rest were submarine GAS pipelines (Gassco,
+  North Sea) and submarine SEWER/WATER pipelines (Finland's SYKE),
+  tagged `man_made=pipeline` / `seamark:type=pipeline_submarine`, which
+  also carry `submarine=yes` — the same tag-ambiguity risk the module
+  docstring already flagged for `location=underwater`, now confirmed
+  for `submarine=yes` too.
+- Requiring the `communication` co-tag (`way["submarine"="yes"]
+  ["communication"]["seamark:type"!="cable_submarine"]["power"!~"."]`)
+  narrows it to **13 ways**, confirmed on TWO independent Overpass
+  mirrors (overpass-api.de fresh snapshot + overpass.kumi.systems,
+  ~6-week-stale snapshot — both returned 13, cross-confirming the count
+  is stable rather than a same-instant fluke). Full `out tags` dump of
+  all 13: Cable & Wireless (Gemini/PTAT segments), Foroya Tele, the
+  Apollo cable system, Telstra Bass Strait 1/2 fibre, and one wind-farm
+  comms cable — all genuinely telecom. 2 of the 13 carry
+  `location=underground` (land legs of an otherwise-submarine route)
+  and 1 is explicitly `note=Speculative route`, so the real additional
+  SUBMARINE segment count is ~10.
+- **VERDICT: still not worth activating.** ~10 ways is 0.13% of the
+  primary set's 7,464 — same order of magnitude and same conclusion as
+  the already-checked 18-way `location=underwater` candidate.
+  `build_secondary()` stays unactivated; `scripts/submarine_cables_
+  build.py`'s docstring and the function's returned `reason` string
+  were both updated with the verified numbers so a future session
+  doesn't re-open this same question or, worse, wire in the raw
+  1,297-way figure unfiltered (which would have put ~1,100+ non-telecom
+  pipeline ways into a layer labeled "submarine cables").
+
+LADDER: N/A (RAW overlay, coverage-completeness question, no predictive
+claim). No behavior change to the shipped layer — this closes an open
+research item with evidence rather than leaving an unverified "worth
+chasing" number sitting in the code.
+
+## 2026-08-14 — CI's `automerge` job does not gate on market hours or PR-body merge-timing notes
+
+Discovered live: PR #842 (Q23, a measurement-tooling change, zero trading
+blast radius) asked in its own body to wait for after-hours merge per this
+run's market-hours instruction, and `automerge` merged it 12 minutes later
+anyway — it evidently gates purely on CI/check status, matching
+`PROGRAM_STATE.md`'s L7 ("merges any `claude/*` branch when no job
+*failed*"). No harm this time (the change touched no runtime path), but the
+gap is real: nothing today stops a market-hours session's non-trivial change
+(client/, server/bot.ts, bot_engine.py, options/order-path files) from
+auto-deploying mid-session the same way.
+
+TESTABLE FORM: does `.github/workflows/` (a FROZEN path — any fix here needs
+its own wishlist.md proposal per FROZEN PATHS, this is not self-applicable)
+have any existing signal available to gate on — PR labels, a diff-path
+check, time-of-day? A same-shape precedent already exists in this repo
+(MONETIZATION TRIPWIRE gates merges on a compliance check) — worth checking
+whether that mechanism could be generalized rather than inventing a new one.
+
+LADDER: N/A — process/tooling gap, not a data or trading claim. Not filed to
+wishlist.md as a spend request (no paid capability). Priority: low — only
+matters for a market-hours session producing a non-trivial diff, which
+hasn't happened yet; revisit if one does.

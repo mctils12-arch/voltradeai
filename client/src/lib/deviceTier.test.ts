@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  surfacePixelRatio,
   classifyDevice, govInit, govStep, median,
   setOverloaded, isOverloaded, overloadFromState,
   GOV_OVERLOAD_MS, GOV_OVERLOAD_HOLD_MS, GOV_CALM_MS, GOV_CALM_HOLD_MS, GOV_COOLDOWN_MS, GOV_STRETCH_GRACE_MS,
@@ -187,4 +188,163 @@ test('isFragileGpu: Intel integrated yes, Arc no, dead-GPU probe yes (fail-safe)
   assert.equal(isFragileGpu('unavailable'), false, 'unknown stays non-fragile');
   assert.equal(isFragileGpu('NVIDIA | NVIDIA GeForce RTX 4070'), false);
   assert.equal(isFragileGpu('Apple | Apple M2'), false, 'Apple integrated is not the fragile class');
+});
+
+
+// ── F-C: the celestial surfaces were never capped (2026-08-14) ─────────────
+// datamap.tsx has always clamped its map canvas to tier.pixelRatioCap. The two
+// celestial surfaces — celestialSky.ts (a SECOND WebGL2 context) and
+// spaceFrame.ts (2D canvases) — sized their backing stores from raw
+// devicePixelRatio and did not import this module at all. On a 3x phone that is
+// 9x the backing-store pixels of a 1x surface, for every raster op they do.
+//
+// SCOPE, stated so nobody re-derives an overclaim: this bounds MEMORY and FILL
+// RATE. It does NOT speed up the Moon's CPU raycast — patchBufDims() sizes that
+// buffer in CSS px against MOON_PATCH_*_LONG_PX, so it never depended on DPR.
+
+function withGlobals<T>(dpr: number, tier: unknown, fn: () => T): T {
+  const g = globalThis as Record<string, unknown>;
+  const prevDpr = g.devicePixelRatio;
+  const prevTier = g.__vtDeviceTier;
+  g.devicePixelRatio = dpr;
+  if (tier === undefined) delete g.__vtDeviceTier; else g.__vtDeviceTier = tier;
+  try { return fn(); } finally {
+    g.devicePixelRatio = prevDpr;
+    if (prevTier === undefined) delete g.__vtDeviceTier; else g.__vtDeviceTier = prevTier;
+  }
+}
+
+test("surfacePixelRatio: honours the shared __vtDeviceTier cap when datamap has published one", () => {
+  // One machine, one classification: all three surfaces must agree rather than
+  // each computing its own reading from different inputs.
+  assert.equal(withGlobals(3, { tier: "minimal", pixelRatioCap: 1 }, () => surfacePixelRatio()), 1);
+  assert.equal(withGlobals(3, { tier: "reduced", pixelRatioCap: 1.5 }, () => surfacePixelRatio()), 1.5);
+  assert.equal(withGlobals(3, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 2);
+});
+
+test("surfacePixelRatio: falls back to classifying the caller's own renderer", () => {
+  // celestialSky passes its own GL renderer string, so a software rasterizer is
+  // caught even if datamap.tsx never ran (celestial-only routes, direct entry).
+  assert.equal(
+    withGlobals(3, undefined, () => surfacePixelRatio("Google SwiftShader")), 1,
+    "software renderer -> minimal tier, cap 1",
+  );
+  assert.equal(
+    withGlobals(3, undefined, () => surfacePixelRatio("NVIDIA GeForce RTX 4070")), 2,
+    "full tier still caps at 2 (the 3rd x is invisible and quadratic)",
+  );
+});
+
+test("surfacePixelRatio: never exceeds the device, never drops below 1", () => {
+  // A 1x device must not be UPscaled by a cap of 2 — the cap is a ceiling only.
+  assert.equal(withGlobals(1, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 1);
+  // Absent/garbage DPR must not produce 0 (a 0-px backing store is a blank canvas).
+  assert.equal(withGlobals(0, { tier: "full", pixelRatioCap: 2 }, () => surfacePixelRatio()), 1);
+  assert.equal(withGlobals(undefined as unknown as number, undefined, () => surfacePixelRatio()), 1);
+});
+
+
+test("both celestial surfaces size their backing store through the cap, not raw DPR", async () => {
+  // The unit tests above prove the helper is correct; this proves it is WIRED.
+  // Without it the helper could be perfect and both files still uncapped.
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+
+  // Q19 (2026-08-14): extended past the two celestial files to EVERY client
+  // module that sizes a canvas. D8 found three more the moment it was written —
+  // DataWorldMap (3 sites), bot.tsx, login.tsx — and login's was the largest of
+  // all: a full-viewport animated canvas with its own rAF loop, not the small
+  // widget its filename suggests. Naming files individually would have missed
+  // the next one, so the companion test below closes the whole class.
+  for (const rel of ["celestial/celestialSky.ts", "celestial/spaceFrame.ts"]) {
+    const raw = fs.readFileSync(path.join(here, rel), "utf8");
+    // STRIP COMMENTS FIRST (PROGRAM_STATE.md L15): the comments explaining this
+    // very fix quote `devicePixelRatio`, and a source scan cannot tell code
+    // from prose about code. Four checks were broken this way before the rule.
+    const code = raw.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+
+    assert.ok(
+      /surfacePixelRatio\s*\(/.test(code),
+      `${rel} must size its backing store via surfacePixelRatio()`,
+    );
+    const resize = code.slice(code.indexOf("function resizeBacking"));
+    assert.ok(
+      !/devicePixelRatio/.test(resize.slice(0, 600)),
+      `${rel}'s resizeBacking() must not read devicePixelRatio directly — ` +
+      `that is the uncapped path this fix removed`,
+    );
+  }
+});
+
+
+test("no client module sizes a canvas from raw devicePixelRatio", async () => {
+  // D8 as an assertion rather than a counter. `uncapped_surface` reached 0 in
+  // Q19; this is what keeps it there — a counter tells you afterwards, a test
+  // stops the merge.
+  //
+  // deviceTier.ts itself is the ONE legitimate reader: it is where the clamp
+  // lives. Everything else goes through surfacePixelRatio().
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const cp = await import("node:child_process");
+  const url = await import("node:url");
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const root = path.resolve(here, "..", "..", "..");
+
+  const files = cp.execFileSync("git", ["ls-files", "client/src/**/*.ts", "client/src/**/*.tsx"],
+    { cwd: root, encoding: "utf8" })
+    .split("\n")
+    .filter((f) => f && !f.includes(".test.")
+      // Two legitimate readers, and only two:
+      //  - lib/deviceTier.ts  — where the clamp itself lives.
+      //  - pages/datamap.tsx  — where the tier reading is PRODUCED. It needs the
+      //    raw ratio as INPUT to classifyDevice (alongside the GL renderer
+      //    string) and publishes the result on __vtDeviceTier for every other
+      //    surface to consume. It cannot call surfacePixelRatio() without
+      //    circularity. The test below proves it still clamps, so this
+      //    exemption cannot quietly become a loophole.
+      && !f.endsWith("lib/deviceTier.ts") && !f.endsWith("pages/datamap.tsx"));
+
+  const offenders: string[] = [];
+  for (const f of files) {
+    const raw = fs.readFileSync(path.join(root, f), "utf8");
+    // Strip comments FIRST (PROGRAM_STATE.md L15) — the comments explaining
+    // this very fix quote `devicePixelRatio`, and a source scan cannot tell
+    // code from prose about code.
+    const code = raw.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+    if (/\bwindow\.devicePixelRatio|\bglobalThis\.devicePixelRatio/.test(code)) offenders.push(f);
+  }
+
+  assert.deepEqual(
+    offenders, [],
+    `these modules read devicePixelRatio directly instead of surfacePixelRatio():\n` +
+    offenders.map((f) => `  ${f}`).join("\n") +
+    `\n\nBacking-store cost is QUADRATIC in the ratio — an uncapped 3x phone ` +
+    `allocates 9x the pixels of a 1x surface, for every raster op the module does.`,
+  );
+});
+
+
+test("datamap.tsx — the one exempt reader — still clamps to the tier cap", async () => {
+  // The exemption above is only safe while this stays true. An allowlist entry
+  // that stops honouring the rule is worse than no rule at all: it looks
+  // covered while it is not.
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const raw = fs.readFileSync(path.resolve(here, "..", "pages", "datamap.tsx"), "utf8");
+  const code = raw.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+
+  assert.match(code, /classifyDevice\s*\(/,
+    "datamap.tsx is exempt because it PRODUCES the tier reading — if it no " +
+    "longer calls classifyDevice, it is just another uncapped reader");
+  assert.match(code, /Math\.min\(\s*dpr\s*,\s*tier\.pixelRatioCap\s*\)/,
+    "datamap.tsx must still clamp the raw ratio to tier.pixelRatioCap before " +
+    "sizing anything");
+  assert.match(code, /__vtDeviceTier/,
+    "datamap.tsx must keep publishing __vtDeviceTier — surfacePixelRatio() " +
+    "reads it so all surfaces share one classification");
 });

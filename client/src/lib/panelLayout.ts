@@ -238,6 +238,22 @@ export interface PanelDragProps {
  * drags entirely; double-click on the grip forgets the saved position
  * (back to the default spot). Positions save on release, automatically.
  */
+/** Nested-scroll wheel arbitration (floating legend, 2026-08-13 — "i cant
+ *  see space it wont let me zoom out"): a floating overlay with an
+ *  overflow-y body must consume the wheel ONLY while it can actually
+ *  scroll further in that direction; at its ends — or with nothing to
+ *  scroll — the event belongs to the map underneath (the caller forwards
+ *  it to the canvas). The standard nested-scroll convention, pure and
+ *  testable. */
+export function nestedScrollConsumes(
+  scrollTop: number, clientHeight: number, scrollHeight: number, deltaY: number,
+): boolean {
+  const canScroll = scrollHeight > clientHeight + 1;
+  if (!canScroll || deltaY === 0) return false;
+  if (deltaY > 0) return scrollTop + clientHeight < scrollHeight - 1;
+  return scrollTop > 0;
+}
+
 export function panelDragProps(
   id: string,
   getEl: () => HTMLElement | null,

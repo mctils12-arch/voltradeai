@@ -372,12 +372,20 @@ test("all six Apollo sites have a NAC scheme; maxZ matches the live probes", asy
 
 test("nacSiteFor: every landing point is inside its own strip; Tycho is in none", async () => {
   const { nacSiteFor } = await import("./lroc.ts");
-  const { APOLLO_SITES } = await import("./apolloSites.ts");
-  for (const site of APOLLO_SITES) {
+  // site data moved to lunarMissions.ts (2026-08-13); only the six crewed
+  // Apollo landings have NAC strips, so this walks those ids
+  const { LUNAR_SITES, APOLLO_SITE_IDS } = await import("./lunarMissions.ts");
+  const apollo = LUNAR_SITES.filter((s) => (APOLLO_SITE_IDS as readonly string[]).includes(s.id));
+  assert.equal(apollo.length, 6, "expected the six crewed Apollo landings");
+  for (const site of apollo) {
     const hit = nacSiteFor(site.lon, site.lat);
     assert.ok(hit, `${site.id}: landing point inside a NAC strip`);
     assert.equal(hit!.id, site.id, `${site.id}: inside its OWN strip`);
   }
+  // a non-Apollo site must NOT resolve to a strip — no other mission streams
+  // NAC imagery, and claiming one would oversell our resolution there
+  const ce5 = LUNAR_SITES.find((s) => s.id === "change5")!;
+  assert.equal(nacSiteFor(ce5.lon, ce5.lat), null, "Chang'e 5 has no Apollo NAC strip");
   assert.equal(nacSiteFor(-11.36, -43.31), null, "Tycho has no Apollo NAC strip");
   assert.equal(nacSiteFor(170, 0), null, "far side has none");
 });
@@ -395,4 +403,26 @@ test("a NAC scheme's deep tiles resolve sub-meter-class detail the WAC cannot", 
   const nacPxPerDeg = tilePxPerDeg(a11.scheme.maxZ, a11.scheme);
   const wacPxPerDeg = tilePxPerDeg(MOON_TREK.maxZ, MOON_TREK);
   assert.ok(nacPxPerDeg / wacPxPerDeg >= 100, `NAC ${nacPxPerDeg} vs WAC ${wacPxPerDeg}`);
+});
+
+test("NAC plan-fit clamp: the desktop-floor case plans at the finest level instead of nothing", async () => {
+  const { APOLLO_NAC_SITES, fitHalfSpanDeg, NAC_MIN_Z } = await import("./lroc.ts");
+  const { planMoonTarget, MOON_MOSAIC_MAX_PX } = await import("./moonTiles.ts");
+  const a11 = APOLLO_NAC_SITES.find((s) => s.id === "apollo11")!;
+  // the 2026-08-12 desktop hole: Moon floor (1.02R) on a 1440px viewport
+  // demands ~754 px/deg over a ~1.1° half-span — too wide for z10's tile
+  // budget, and the minZ floor forbids backing off ⇒ planMoonTarget = null
+  const pxPerDeg = 754;
+  const wideHalf = 1.1;
+  const broken = planMoonTarget(23.47297, 0.67408, pxPerDeg, wideHalf,
+    { scheme: a11.scheme, minZ: NAC_MIN_Z, maxPx: MOON_MOSAIC_MAX_PX });
+  assert.equal(broken, null, "unclamped desktop request cannot plan (the bug)");
+  // the clamp shrinks the REQUEST to what the budget fits at the wanted z
+  const half = fitHalfSpanDeg(pxPerDeg, a11.scheme, NAC_MIN_Z, MOON_MOSAIC_MAX_PX);
+  assert.ok(half > 0.3 && half < wideHalf, `clamped half-span ${half}`);
+  const t = planMoonTarget(23.47297, 0.67408, pxPerDeg, Math.min(wideHalf, half),
+    { scheme: a11.scheme, minZ: NAC_MIN_Z, maxPx: MOON_MOSAIC_MAX_PX });
+  assert.ok(t, "clamped request plans");
+  assert.ok(t!.z >= NAC_MIN_Z, `plans at z${t!.z} (finest that meets the demand)`);
+  assert.ok(t!.mosaic.pxW <= MOON_MOSAIC_MAX_PX && t!.mosaic.pxH <= MOON_MOSAIC_MAX_PX);
 });

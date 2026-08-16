@@ -2351,6 +2351,27 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 
 /* Legend v3 — real registry symbols, grouped, collapsible (390px-legible:
    11px+ labels, 44px toggle target; DESIGN.md legend rule) */
+/* ── FLOATING LEGEND (2026-08-13: moved from the buried panel bottom onto
+      the map, per the approved mock) — draggable grip bar, collapsible via
+      the Legend head, internal scroll when many layers are on ─────────── */
+.vt-legend-float {
+  position: absolute; left: 18px; bottom: 64px; width: 272px; z-index: 18;
+  background: rgba(13, 22, 38, 0.94); border: 1px solid rgba(120, 168, 255, 0.16);
+  border-radius: 10px; backdrop-filter: blur(6px);
+  display: flex; flex-direction: column; max-height: 46vh;
+}
+.vt-legend-float-bar {
+  display: flex; align-items: center; justify-content: center;
+  padding: 3px 0 1px; cursor: grab; touch-action: none; flex: none;
+  color: var(--text-tertiary); font-size: 10px; line-height: 1;
+}
+.vt-legend-float-bar:active { cursor: grabbing; }
+.vt-legend-float .vt-legend { margin-top: 0; border-top: 0; min-height: 0; display: flex; flex-direction: column; }
+.vt-legend-float .vt-legend-body { overflow-y: auto; min-height: 0; }
+@media (max-width: 640px) {
+  .vt-legend-float { left: 10px; bottom: 56px; width: 228px; max-height: 38vh; }
+}
+
 .vt-legend {
   margin-top: 4px;
   border-top: 1px solid rgba(77, 159, 255, 0.12);
@@ -2687,6 +2708,21 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   left: auto; right: 12px; top: 12px;
   width: min(280px, calc(100vw - 24px));
   z-index: 12;
+}
+/* STANDING UI LAW — nothing covers anything else (2026-08-13 report: the
+   mission card rendered ON TOP of the open layers panel, garbling both).
+   The panel owns the right edge while it is open, so the space cards step
+   left of it — the same rule the nav cluster and flight profile already
+   follow (right: 348px / 508px above). A card the user has DRAGGED has an
+   inline left/top and is exempt: their placement wins over ours. */
+.vt-map-page[data-vt-panel-open="true"] .vt-site-card.vt-space-card:not([style*="left:"]) {
+  right: 360px;
+}
+@media (max-width: 1100px) {
+  /* not enough room to sit beside the panel: drop below it instead of over it */
+  .vt-map-page[data-vt-panel-open="true"] .vt-site-card.vt-space-card:not([style*="left:"]) {
+    right: 12px; top: auto; bottom: 12px;
+  }
 }
 .vt-site-card.vt-space-card .vt-card-detbody { border-top: none; padding-top: 4px; }
 @media (max-width: 767px) {
@@ -3283,6 +3319,8 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
   border: 1px solid rgba(77, 159, 255, 0.2);
   font-family: var(--font-body); font-size: 12.5px;
 }
+.vt-timescrub-window-row { display: flex; gap: 8px; }
+.vt-timescrub-window-row .vt-timescrub-layer { flex: 1; min-width: 0; }
 .vt-timescrub-date {
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   color: var(--accent-bright); text-align: center;

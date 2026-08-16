@@ -30,9 +30,21 @@ export interface LodEnvelope {
   fadeBandKm?: number;
 }
 
-export const EARTH_CIRCUMFERENCE_M = 40075016.686;
+/**
+ * Web Mercator world circumference: 2π × 6378137, the WGS-84 EQUATORIAL
+ * radius. EPSG:3857 is defined on the equatorial radius, so tile resolution
+ * must use this figure and no other.
+ *
+ * RENAMED from `EARTH_CIRCUMFERENCE_M` (Q14), which `lib/glElev.ts` also
+ * exported — as 2π × 6371008.8, MapLibre's MEAN-radius constant for
+ * altitude→mercator-z. Both are correct in their own file; sharing the name
+ * meant an importer's altitude maths and tile maths could silently disagree by
+ * 0.112%. Renamed rather than unified: unifying would have broken whichever
+ * one lost.
+ */
+export const WEB_MERCATOR_CIRCUMFERENCE_M = 40075016.686;
 /** meters/px at zoom 0, equator, for MapLibre's 512px world tiles. */
-export const METERS_PER_PIXEL_Z0 = EARTH_CIRCUMFERENCE_M / 512; // 78271.51696...
+export const METERS_PER_PIXEL_Z0 = WEB_MERCATOR_CIRCUMFERENCE_M / 512; // 78271.51696...
 export const DEFAULT_FOV_DEG = 36.87; // MapLibre default vertical field of view
 
 /** Ground meters per screen pixel at a latitude/zoom (512px-tile worlds). */

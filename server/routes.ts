@@ -32,7 +32,8 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
-import { readWindow, WINDOW_MAX_SPAN_SEC } from "./aircraftWindow";
+import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
+import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -50,6 +51,7 @@ import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
+import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -1403,13 +1405,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // TIME MACHINE T-1 (earth_twin_program.md, human directive 2026-08-11):
-  // every aircraft that moved through THIS viewport in THIS time window,
-  // per-hex point arrays for the curtain fleet — ONE hex-multiplexed stream
-  // pass per hour file, LOD-decimated by zoom (SCALE S1), caps stated
-  // honestly in the response. 30s TTL cache on quantized params.
+  // every aircraft (or, T-4, vessel) that moved through THIS viewport in
+  // THIS time window, per-hex point arrays for the curtain fleet — ONE
+  // hex-multiplexed stream pass per hour file, LOD-decimated by zoom
+  // (SCALE S1), caps stated honestly in the response. 30s TTL cache on
+  // quantized params (kind included — a vessels request must never serve
+  // an aircraft response from cache or vice versa).
   const windowCache = new Map<string, { at: number; data: any }>();
   app.get("/api/data/aircraft/window", async (req, res) => {
     try {
+      // T-4 vessels parity: readWindow already accepts kind="vessels" (same
+      // per-mmsi track shape, no altitude); this route only needed to expose
+      // it. Same whitelist pattern as /api/data/track/:kind/:id above —
+      // anything not "vessels" stays "aircraft", never a passthrough string.
+      const kind: "aircraft" | "vessels" = req.query.kind === "vessels" ? "vessels" : "aircraft";
       const parts = String(req.query.bbox || "").split(",").map(Number);
       const from = parseInt(String(req.query.from || ""), 10);
       const to = parseInt(String(req.query.to || ""), 10);
@@ -1423,12 +1432,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (to - from > WINDOW_MAX_SPAN_SEC) {
         return res.status(400).json({ error: `window too large (max ${WINDOW_MAX_SPAN_SEC / 86400} days — the raw archive's retention)` });
       }
+      // T-2 step selector: explicit decimation step overriding zoom's
+      // default (earth_twin_program.md TIME MACHINE v2 — "mins or hours
+      // different thing to choose from"). Validated against the fixed
+      // option set so the response stays within the same bound zoom-derived
+      // requests already have.
+      let stepSecOverride: number | undefined;
+      if (req.query.step !== undefined) {
+        const stepRaw = parseInt(String(req.query.step), 10);
+        if (!WINDOW_STEP_OPTIONS_SEC.includes(stepRaw)) {
+          return res.status(400).json({ error: `step must be one of ${WINDOW_STEP_OPTIONS_SEC.join(",")} (seconds)` });
+        }
+        stepSecOverride = stepRaw;
+      }
       const [w, s, e, n] = parts;
-      const key = [w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
-                   Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom)].join("|");
+      const key = [kind, w.toFixed(2), s.toFixed(2), e.toFixed(2), n.toFixed(2),
+                   Math.floor(from / 60), Math.floor(to / 60), Math.round(zoom),
+                   stepSecOverride ?? "auto"].join("|");
       const hit = windowCache.get(key);
       if (hit && Date.now() - hit.at < 30_000) return res.json(hit.data);
-      const data = await readWindow({ bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom });
+      const data = await readWindow({ kind, bbox: { w, s, e, n }, fromSec: from, toSec: to, zoom, stepSecOverride });
       windowCache.set(key, { at: Date.now(), data });
       if (windowCache.size > 32) {
         const oldest = windowCache.keys().next().value;
@@ -2227,6 +2250,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // already-merged #639 stream rather than shipped as a second, colliding
   // spaceWeather.ts module).
   bootSpaceWeatherPoll();
+  // LARGE METEORS (NASA/JPL CNEOS bolides) — 6h poll into a volume-persisted
+  // store; store-first serving (Freshness Law). Sibling of spaceweather.
+  const meteorsPoller = startMeteorsPoller({ fetchImpl: fetch });
+  app.get("/api/data/meteors", (_req, res) => {
+    const snap = meteorsPoller.getSnapshot();
+    res.set("Cache-Control", "public, max-age=300");
+    const newest = snap.events[0]?.t ?? null;
+    const quiet = newest != null && Date.now() / 1000 - newest > METEORS_QUIET_AFTER_DAYS * 86400;
+    res.json({
+      kind: "raw",
+      source: "NASA/JPL CNEOS fireball data (US Government sensors) — public domain",
+      attribution: "NASA/JPL CNEOS",
+      fetched_at: snap.fetched_at,
+      last_error: snap.last_error,
+      count: snap.events.length,
+      with_direction: snap.with_direction,
+      note: "bolides — large meteors that exploded in the atmosphere, published AFTER the fact (a few dozen/yr worldwide); direction only where NASA publishes the velocity vector" +
+        (quiet ? "; newest event is over " + METEORS_QUIET_AFTER_DAYS + " days old — sparse feed, not an outage" : ""),
+      events: snap.events,
+    });
+  });
   app.get("/api/data/spaceweather", (_req, res) => {
     const hit = latestSpaceWeather();
     if (!hit) {
@@ -3907,6 +3951,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ ...dwellCache.data, generated_at: new Date(dwellCache.at).toISOString() });
   });
 
+  // GNSS INTEGRITY SIGNAL — the first root to reach the "gated-SIGNAL
+  // /data surface" milestone (research/open_questions.md's
+  // gnss_integrity_adsb entry, 2026-08-13 NEXT note (c); ladder gate 2
+  // PASS, datacore/signal_ladder.json, re-confirmed and strengthened
+  // 2026-08-15 at 4 accumulated days). Public, no diag token: only
+  // aggregate band x origin counts and derived statistics ever leave this
+  // route (server/gnssIntegritySignal.ts's own privacy contract, same as
+  // the token-gated diag probe it's built on top of — no per-row lat/lon,
+  // tail number, or callsign). Same 10-min eager-poller shape as
+  // portdwell above — the computation reads archive JSONL, so it must
+  // never run synchronously per-request.
+  let gnssSignalCache: { at: number; data: GnssIntegritySignalSummary } | null = null;
+  let gnssSignalRunning = false;
+  const refreshGnssIntegritySignal = async () => {
+    if (gnssSignalRunning) return;
+    gnssSignalRunning = true;
+    try {
+      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignal() };
+    } catch (e: unknown) {
+      console.error("[datacore] gnss integrity signal refresh:", (e as Error)?.message || e);
+    } finally {
+      gnssSignalRunning = false;
+    }
+  };
+  refreshGnssIntegritySignal();
+  setInterval(() => { refreshGnssIntegritySignal(); }, 10 * 60_000).unref?.();
+  app.get("/api/data/gnss-integrity-signal", (_req, res) => {
+    if (!gnssSignalCache) {
+      return res.json({ kind: "signal", warming_up: true, note: "first archive scan in progress — retry shortly" });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json(gnssSignalCache.data);
+  });
+
   // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins
   // Form 4 insiders, the entity_map operator->ticker table, and our own
   // port-dwell/AIS archive into one node/edge graph. RAW (asserts filed
@@ -4304,6 +4382,74 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       res.status(500).json({ error: e?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings", status: 500, tier: auth.tier });
+    }
+  });
+
+  // European macro cluster keyed mirror (same "shipped-data-no-v1-API"
+  // sweep as plant-operations/secftd/midas/occ-volume/earnings-language/
+  // appstore-rankings/github-activity/crop-conditions/vix-term-structure/
+  // nrc-reactor-status/13f-holdings above — this exact gap was named as a
+  // runner-up candidate by the 2026-08-15 finra_short_volume retest
+  // session's own NEXT notes). Reuses the latestEuMacro() cache
+  // /api/data/eu-macro already uses — no new computation, no new poller
+  // (bootEuMacroPoll() already called earlier). REGIME INPUT feed only
+  // (same framing as fredMacro, never a direct signal) — unlike that
+  // cluster there is no restricted-license series to filter here, all 5
+  // curated series are commercial-reuse-permitted-with-attribution per
+  // euMacro.ts's own verified source-license workup, so the full snapshot
+  // set is returned unfiltered. GATE 2 (does the term structure predict
+  // forward returns) not attempted — RAW/regime-feature display only.
+  app.get("/api/v1/stats/eu-macro", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestEuMacro();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/eu-macro", { count: hit.series.length, series: hit.series }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/eu-macro", status: 500, tier: auth.tier });
+    }
+  });
+
+  // FRED macro regime cluster keyed mirror — same "shipped-data-no-v1-API"
+  // sweep as the eu-macro block above (this exact gap was this session's
+  // own NEXT item (2): "FRED macro's own /api/v1 mirror is the same-shape
+  // gap this session's pick fills for its European sibling"). Reuses
+  // buildMacroPayload(latestFredSeries()) — the SAME function
+  // /api/data/macro already calls — so the 3 third-party-copyrighted
+  // series (VIXCLS/BAMLH0A0HYM2/UMCSENT) are excluded here exactly as they
+  // are there; no new filtering logic. UNLIKE eu-macro, this root is
+  // itself key-gated server-side (FRED_API_KEY) — same posture as the
+  // crop-conditions/NASS mirror above, a disabled server surfaces that
+  // honestly as 503, not a confusing empty 200. GATE 2 (does the term
+  // structure predict forward returns) not attempted — RAW/regime-feature
+  // display only, same framing as eu-macro.
+  app.get("/api/v1/stats/fred-macro", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      if (!fredEnabled()) {
+        res.status(503).json({ error: "root disabled — FRED_API_KEY not configured server-side" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      const payload = buildMacroPayload(latestFredSeries());
+      if (!payload) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("stats/fred-macro", { count: payload.series.length, series: payload.series }, payload.time));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 200, tier: auth.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/stats/fred-macro", status: 500, tier: auth.tier });
     }
   });
 

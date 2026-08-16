@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clusterMeanTTest, tCrit005, survivesAtCrit005 } from "./statsUtils";
+import { clusterMeanTTest, tCrit005, survivesAtCrit005, binomialUpperTailP } from "./statsUtils";
 
 test("clusterMeanTTest: zero-variance cluster means give NaN t (guarded, not Infinity)", () => {
   const r = clusterMeanTTest([0.01, 0.01, 0.01]);
@@ -56,4 +56,35 @@ test("survivesAtCrit005: a flat |t|>2 heuristic would wrongly pass a df=15 resul
 
   const clears = { n: 16, mean: 0.02, std: 0.02, se: 0.005, t: 3.5, df: 15 };
   assert.equal(survivesAtCrit005(clears), true);
+});
+
+test("binomialUpperTailP: matches hand-computed P(X>=8) for Binomial(10, 0.5)", () => {
+  // P(8)+P(9)+P(10) = (C(10,8)+C(10,9)+C(10,10)) / 2^10 = (45+10+1)/1024
+  const expected = 56 / 1024;
+  assert.ok(Math.abs(binomialUpperTailP(8, 10, 0.5) - expected) < 1e-9);
+});
+
+test("binomialUpperTailP: edge cases (k<=0 always 1, p0<=0 always 0 for k>0, p0>=1 always 1)", () => {
+  assert.equal(binomialUpperTailP(0, 100, 0.01), 1);
+  assert.equal(binomialUpperTailP(-1, 100, 0.01), 1);
+  assert.equal(binomialUpperTailP(5, 100, 0), 0);
+  assert.equal(binomialUpperTailP(5, 100, 1), 1);
+});
+
+test("binomialUpperTailP: rare elevated count against a large-n low base rate gives a small p-value (the gate-2 use case)", () => {
+  // n=84, p0=0.0020 (control cruise/broadcast zero-rate), k=3 observed —
+  // matches the live 2026-08-13 gnss_integrity Baltic-vs-control run.
+  const p = binomialUpperTailP(3, 84, 0.0020);
+  assert.ok(p < 0.001, `expected p<0.001, got ${p}`);
+  // and a count consistent with the null (k=0) should NOT look significant
+  const pNull = binomialUpperTailP(0, 84, 0.0020);
+  assert.equal(pNull, 1);
+});
+
+test("binomialUpperTailP: monotone in k (more extreme counts never get a larger p-value)", () => {
+  const p1 = binomialUpperTailP(2, 200, 0.01);
+  const p2 = binomialUpperTailP(5, 200, 0.01);
+  const p3 = binomialUpperTailP(10, 200, 0.01);
+  assert.ok(p1 > p2);
+  assert.ok(p2 > p3);
 });

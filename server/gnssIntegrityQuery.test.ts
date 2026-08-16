@@ -142,3 +142,61 @@ test("readGnssIntegrityWindow: perDayLimit truncation is surfaced, not silently 
   assert.equal(r.rows_scanned, 2);
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+// 2026-08-12: the live bug this fixes. Filed as NEXT in the 2026-08-11
+// entry ("Phase 4 — an actual gate-2 statistical run") and hit on the
+// first real attempt this session: `/api/diag/gnss_integrity` with a
+// Baltic bbox returned zero cells against production while the identical
+// call with no bbox returned rich data — not because the Baltic signal
+// disappeared, but because readArchiveDay (the reader this probe used
+// before this fix) exhausts the per-day row budget on the FIRST hour file
+// it opens, and Baltic local-daytime traffic falls in later UTC hours.
+test("readGnssIntegrityWindow: a bbox region whose traffic is concentrated in a LATER hour file is not starved out by an EARLIER hour file's volume", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  // Hour 00 (quiet-Baltic UTC): 50 rows, all far outside the Baltic bbox.
+  const hour00 = Array.from({ length: 50 }, (_, i) =>
+    `{"t":${i},"i":"ny${i}","la":40.7,"lo":-74,"al":9000,"ni":8,"pt":"adsb_icao"}`).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-11-00.jsonl"), hour00);
+  // Hour 06 (Baltic daytime): 3 degraded-nic rows inside the bbox.
+  const hour06 = Array.from({ length: 3 }, (_, i) =>
+    `{"t":${i},"i":"bal${i}","la":55,"lo":20,"al":9000,"ni":0,"pt":"mlat"}`).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-08-11-06.jsonl"), hour06);
+  const balticBbox = { lamin: 53, lamax: 60, lomin: 17, lomax: 24 };
+  // limit=10 is far smaller than hour00 alone (50 rows) — the old
+  // file-by-file reader would truncate inside hour00 and never open
+  // hour06 at all, silently returning zero Baltic cells.
+  const r = await readGnssIntegrityWindow(["2026-08-11"], balticBbox, base, 10);
+  const matched = r.cells.reduce((s, c) => s + c.n_total, 0);
+  assert.equal(matched, 3, "all 3 Baltic rows from the later hour file must be counted");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// 2026-08-12 (same session, live follow-on): the FIRST real Baltic-vs-
+// control run after the fix above still came back thin (20 rows vs.
+// 3157 for a control box at the same budget) — even-sampling by hour
+// fixed the temporal bias but not the geographic one: a small bbox is a
+// small slice of GLOBAL traffic, so most of the per-file budget was
+// still spent on rows the bbox filter would discard downstream. This
+// pins the fix: passing bbox through as a rowFilter means a tiny region
+// gets the FULL row budget instead of a diluted share of it.
+test("readGnssIntegrityWindow: a bbox gets the full row budget, not a share diluted by out-of-bbox global traffic", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  // One hour file: 95 rows of unrelated global traffic, then 5 Baltic rows.
+  const balticBbox = { lamin: 53, lamax: 60, lomin: 17, lomax: 24 };
+  const globalRows = Array.from({ length: 95 }, (_, i) =>
+    `{"t":${i},"i":"g${i}","la":40.7,"lo":-74,"al":9000,"ni":8,"pt":"adsb_icao"}`);
+  const balticRows = Array.from({ length: 5 }, (_, i) =>
+    `{"t":${i},"i":"bal${i}","la":55,"lo":20,"al":9000,"ni":0,"pt":"adsb_icao"}`);
+  fs.writeFileSync(path.join(dir, "2026-08-11-00.jsonl"), [...globalRows, ...balticRows].join("\n") + "\n");
+  // limit=10, far smaller than the 95 non-Baltic rows preceding the
+  // Baltic ones — without pushdown, the budget exhausts before the
+  // Baltic rows are ever reached.
+  const r = await readGnssIntegrityWindow(["2026-08-11"], balticBbox, base, 10);
+  const matched = r.cells.reduce((s, c) => s + c.n_total, 0);
+  assert.equal(matched, 5, "all 5 Baltic rows counted despite 95 non-Baltic rows preceding them in the file");
+  fs.rmSync(base, { recursive: true, force: true });
+});

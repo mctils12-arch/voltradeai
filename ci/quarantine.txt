@@ -1,0 +1,21 @@
+# ci/quarantine.txt — tests that are KNOWN-FAILING and excluded from the gate.
+#
+# MASTER PROGRAM T1.2. Read by scripts/gated_tests.sh. Every other test file in
+# the repo is REQUIRED: its failure turns CI red and blocks the merge.
+#
+# FORMAT — one entry per line, all three fields mandatory:
+#   <path>  # <reason> (added YYYY-MM-DD, review by YYYY-MM-DD)
+#
+# THE RULES, enforced by scripts/gated_tests.sh, not by good intentions:
+#   1. This list may only SHRINK. Adding an entry fails the build (T1.3) unless
+#      a human raises the pin in ci/quarantine_max.txt — quarantining a test you
+#      just broke is exactly how a gate rots into decoration.
+#   2. No entry may exceed 30 days. Past its review date the build fails. A
+#      quarantine is a promise to come back, and this is what makes it one.
+#   3. Quarantine is for failures you cannot currently RESOLVE — not for
+#      failures that are inconvenient. Q15 (the UTC-midnight rollup flake) was
+#      a real bug in a test and was FIXED (#830), not parked here.
+#
+# Quarantined tests still RUN, in a separate non-blocking step, so the day one
+# starts passing is visible rather than silently overdue.
+

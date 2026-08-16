@@ -58,16 +58,27 @@ test('round trip: on -> off -> on keeps the masters authoritative', () => {
 
 import { readFileSync } from 'node:fs';
 
+/** Minimal shape of a datacore/layers.json entry — enough to assert against,
+ *  and typed rather than `any` so this file does not add to the ts_any debt
+ *  ratchet pinned by test_ts_code_only.py. */
+interface RegistryLayer {
+  id: string;
+  name?: string;
+  status?: string;
+  group?: string;
+}
+interface Registry { layers?: RegistryLayer[] }
+
 test('every live continental master in the registry is in GRID_MASTER_IDS', () => {
-  const reg = JSON.parse(
+  const reg: Registry = JSON.parse(
     readFileSync(new URL('../../../datacore/layers.json', import.meta.url), 'utf-8'),
   );
   // the continental masters are exactly the layers named "... Power Grid (all ...)"
   const masters = (reg.layers || [])
-    .filter((l: any) => /Power Grid \(all/i.test(l.name || '') && l.status === 'live')
-    .map((l: any) => l.id);
+    .filter((l) => /Power Grid \(all/i.test(l.name || '') && l.status === 'live')
+    .map((l) => l.id);
   assert.ok(masters.length >= 5, `expected >=5 continental masters, found ${masters.length}`);
-  const missing = masters.filter((id: string) => !(GRID_MASTER_IDS as readonly string[]).includes(id));
+  const missing = masters.filter((id) => !(GRID_MASTER_IDS as readonly string[]).includes(id));
   assert.deepEqual(
     missing,
     [],
@@ -77,10 +88,10 @@ test('every live continental master in the registry is in GRID_MASTER_IDS', () =
 });
 
 test('GRID_MASTER_IDS contains no id absent from the registry', () => {
-  const reg = JSON.parse(
+  const reg: Registry = JSON.parse(
     readFileSync(new URL('../../../datacore/layers.json', import.meta.url), 'utf-8'),
   );
-  const ids = new Set((reg.layers || []).map((l: any) => l.id));
+  const ids = new Set((reg.layers || []).map((l) => l.id));
   for (const id of GRID_MASTER_IDS) {
     assert.ok(ids.has(id), `${id} is in GRID_MASTER_IDS but not in datacore/layers.json`);
   }
@@ -107,11 +118,11 @@ const BUCKET_GRID_TILES_2026_08_16 = [
 ] as const;
 
 test('every continental tile in the bucket has a live registry layer', () => {
-  const reg = JSON.parse(
+  const reg: Registry = JSON.parse(
     readFileSync(new URL('../../../datacore/layers.json', import.meta.url), 'utf-8'),
   );
   const live = new Set(
-    (reg.layers || []).filter((l: any) => l.status === 'live').map((l: any) => l.id),
+    (reg.layers || []).filter((l) => l.status === 'live').map((l) => l.id),
   );
   // map a continental tile filename to the registry id it should back
   const expected: Record<string, string> = {

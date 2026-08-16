@@ -30,6 +30,154 @@ pipeline before any RunPod spend.
 
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was
+## 2026-07-03) — 2 consolidation proposals, human approval needed before
+## either ships
+
+Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule ("the audit NEVER changes
+rules itself — it files exact before/after proposals in wishlist.md...
+for human approval; approved consolidations ship as one docs PR"). Full
+audit trace (scope, method, interaction checks) in
+`research/experiments.md`'s 2026-08-16 "[RULE-REVIEW]... SECOND-EVER
+CONSTITUTIONAL AUDIT" entry. Neither proposal below changes what the
+system does — both are wording/consolidation fixes to CLAUDE.md itself.
+
+### Proposal 1 — USAGE-CALIBRATION LOOP's dead "Revisit ~2026-07-24"
+clause (orphaned by its own later BLIND MODE amendment)
+
+WHAT IT PRESERVES: the entire BLIND MODE directive (2026-07-31, "no
+usage screenshots will be provided anymore — sessions run the aggressive
+branch continuously and the human is the throttle") is untouched — this
+proposal only removes/updates the one trailing sentence that predates it
+and now contradicts it.
+
+WHAT IT DROPS: the specific calendar date "~2026-07-24" and the framing
+that a revisit is triggered by "readings flatten" (screenshot-derived —
+no longer possible under BLIND MODE).
+
+WHAT IT RESOLVES: a clause whose own exit condition can never be
+observed again (BLIND MODE cut off the only channel "readings" came
+from), sitting silently in the constitution 23 days past its own named
+date with no session flagging it until now.
+
+BEFORE (verbatim, end of the `USAGE-CALIBRATION LOOP` STANDING BEHAVIORS
+bullet in CLAUDE.md):
+> Cadence: voltrade-usage-check (DAILY 21:30 ET) + voltrade-weekly-review
+> (Sun 10:00 ET); DELIVERY = the routine's final session output in the
+> Claude Code Notifications tab (the Gmail connector is draft-only —
+> never a send path). Revisit ~2026-07-24: once readings flatten, drop
+> back to weekly mode.
+
+AFTER (proposed replacement for the final sentence only; everything
+before "Revisit" is unchanged):
+> Cadence: voltrade-usage-check (DAILY 21:30 ET) + voltrade-weekly-review
+> (Sun 10:00 ET); DELIVERY = the routine's final session output in the
+> Claude Code Notifications tab (the Gmail connector is draft-only —
+> never a send path). Revisit trigger under BLIND MODE: the human either
+> resumes sending usage screenshots or explicitly says usage has
+> stabilized — either signals a return to weekly-cadence review; no
+> standing calendar date, since BLIND MODE removed the periodic-screenshot
+> signal the original date depended on.
+
+SECONDARY OBSERVATION (not part of the proposed edit, flagging for the
+human's judgment only): the same bullet's "Bias aggressive while weekly
+readings are under 50%" clause also assumes screenshot-derived weekly
+readings exist. BLIND MODE's own text ("sessions run the aggressive
+branch continuously") may already supersede it in practice, but this
+audit is not confident enough to propose a specific rewording — worth
+the human's eye when reviewing Proposal 1.
+
+### Proposal 2 — MEMORY PROTOCOL's read-order list omits VISION.md/GIP.md,
+which STANDING BEHAVIORS separately mandates reading in a specific slot
+
+WHAT IT PRESERVES: the `VISION.md + GIP.md NORTH STAR` STANDING BEHAVIORS
+rule's own text and authority are completely unchanged — this proposal
+does not touch that bullet at all.
+
+WHAT IT DROPS: nothing.
+
+WHAT IT RESOLVES: MEMORY PROTOCOL's 5-item "read in order" list is the
+place a session actually looks for session-start reading order, but it
+never mentions VISION.md/GIP.md — their placement ("after CLAUDE.md")
+only exists in a different section entirely. A session following MEMORY
+PROTOCOL literally has no way to know from that section alone that two
+more files belong at the very top of the order for PRODUCT/EDGE work.
+
+BEFORE (verbatim, CLAUDE.md's MEMORY PROTOCOL section):
+> At session start, read in order:
+> 1. This file
+> 2. `research/experiments.md` — what was tried, what happened
+> 3. `research/open_questions.md` — current hypotheses ranked by expected
+>    value
+> 4. `research/wishlist.md` — data/access you lack (human reviews this)
+> 5. Recent audit log via the site API or `/data/voltrade` state files
+
+AFTER (proposed insertion of one cross-referencing line; nothing
+renumbered, nothing removed):
+> At session start, read in order:
+> 1. This file
+> 1a. PRODUCT/EDGE sessions only: VISION.md and GIP.md, per the
+>     VISION.md + GIP.md NORTH STAR standing behavior above
+> 2. `research/experiments.md` — what was tried, what happened
+> 3. `research/open_questions.md` — current hypotheses ranked by expected
+>    value
+> 4. `research/wishlist.md` — data/access you lack (human reviews this)
+> 5. Recent audit log via the site API or `/data/voltrade` state files
+
+---
+
+## ⚠ PROCESS GAP FOUND 2026-08-15 — the scheduled routine's "wait until
+## after 4pm ET" merge-timing note is not enforced by anything
+
+CONTEXT: a scheduled-routine market-hours session shipped a repair
+(KNOWN BROKEN #30, PR #850) and, per the scheduled task's own
+instructions, wrote a "merge should wait until after 4:00 PM ET" note
+into the PR body. The PR auto-merged anyway at ~12:32 PM ET — CI went
+green and `.github/workflows/`'s `automerge` job (FROZEN PATH, read only
+this session, not edited) ran `gh pr merge --squash` unconditionally on
+every `claude/`-branch PR whose heavy CI jobs all report non-failure. It
+has no mechanism to read PR-body text, time-of-day, or any other signal
+— a market-hours note is decorative, not a gate.
+
+WHY THIS MATTERS: the scheduled-routine prompt's own instruction ("note
+in it that merge should wait until after 4:00 PM ET unless the change
+fixes a critical live break") implies that note should hold something
+back. It currently holds nothing back — every future scheduled-routine
+PR carrying that same note will auto-merge the moment CI passes,
+regardless of market hours, exactly like this one did. Substantively no
+harm resulted this time (the shipped change was fully tested and safe on
+a paper account), but the GAP between "instructed to wait" and "actually
+waited" is real and will repeat on every future run unless one of the
+two things below happens.
+
+TWO OPTIONS, human decision required (this touches `.github/workflows/`,
+a FROZEN PATH no autonomous session may edit):
+1. **Add a time-of-day (or PR-label) gate to the `automerge` job** — e.g.
+   skip auto-merge for PRs pushed/labeled during market hours, or check
+   a machine-readable marker (a label, not prose) the scheduled routine
+   sets. Keeps the safety intent, makes it actually enforced.
+2. **Drop the "note the market-hours wait" instruction from the
+   scheduled-routine prompt** — if the honest position is "CI-green
+   paper-account repairs are fine to merge any time" (which the
+   AUTONOMY AUTHORIZATION section arguably already grants), then asking
+   sessions to write an unenforced note is worse than not asking, since
+   it implies a safeguard that doesn't exist.
+
+NOT A SPEND REQUEST. Full incident trace in `research/experiments.md`
+(2026-08-15 entry, ADDENDUM).
+
+**THIRD OCCURRENCE, 2026-08-16:** PR #858 (this same day's fails-to-
+deliver `/data` view, a client-only, non-critical change) carried the
+same "merge should wait until after 4:00 PM ET" note and auto-merged
+anyway at 16:24 UTC (~12:24 PM ET) — 5 minutes after opening, same
+mechanism, third instance since 2026-08-14 (see that date's and
+2026-08-15's entries above/in experiments.md). No new information here,
+just confirming the gap is not intermittent — it fires every time,
+because the `automerge` job genuinely has no time-of-day check to
+intermittently miss. Reinforces this as a live decision still awaiting
+the human's pick of option 1 or 2 above, not a one-off fluke. Full trace
+in `research/experiments.md` (2026-08-16 session #4 ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
@@ -65,9 +213,28 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   entry labeled RAW with coverage=Texas-pilot honesty.
 - PHASE 2 item 1 LIVE-VERIFIED post-deploy: /tiles/power_tx.pmtiles
   answers range requests (206) and the layers registry serves the
-  powergrid entry with full coverage-honesty text. Items remaining:
-  2 = US-full (boot-fetch-from-Release design, filed above, NOT
-  built); 3 = EIA-930 demand join (needs item 2 or region mapping).
+  powergrid entry with full coverage-honesty text.
+  **CORRECTION 2026-08-16 (scheduled-routine session, own PR): item 2
+  (US-full) was SHIPPED, just not via the boot-fetch-from-Release design
+  this block described — this paragraph sat stale for 3 weeks and nearly
+  caused a fresh session to re-download and rebuild ~12GB of already-live
+  tiles.** The actual delivery: the GRID VISION world-rollout R2
+  migration (2026-07-31, `server/routes.ts`'s `/tiles-r2/:name` proxy +
+  `datamap.tsx`'s `tilePath()`) moved every power-grid tile — the US
+  master (`power_us.pmtiles`, all 50 states + DC) plus 45+ state files
+  plus dozens of non-US countries — onto a public R2 bucket, streamed
+  same-origin through the proxy, never touching the local volume
+  (~830MB removed from the repo/Docker image per that migration).
+  `/api/data/layers` confirms `powergrid` status `"live"` with the
+  "ALL 50 states + DC" description live in production today. Item 2 is
+  CLOSED under this different, better design (no boot-fetch/volume
+  storage needed at all — R2 scales to arbitrarily more continents
+  without touching the Railway volume). The stale test that encoded the
+  same wrong assumption (`server/gridTilesCoverage.test.ts`, quarantined)
+  was re-pointed at the real R2 serving mechanism and de-quarantined in
+  the same PR — see experiments.md same date. Remaining: 3 = EIA-930
+  demand join (item 2 being done via R2 rather than boot-fetch doesn't
+  change what item 3 needs — still open, still unblocked).
 - PHASE 3 (imagery): item 3a SHIPPED v1.0.173 — live viewport
   capture-date chip on /data (moveend identify at view centre,
   zoom-level-aware, 'unknown' honesty states, harness ratchet pins
@@ -612,6 +779,14 @@ data); full-state discovery sweeps use the same account later.
     route's `issues` field post-deploy. **Wishlist 9c's three-part
     ENTSO-E follow-up list (load/generation-mix/day-ahead-prices) is
     now fully closed** — no more open items under 9c.
+    CLIENT VIEW SHIPPED 2026-08-16 (v1.0.729, scheduled-routine PRODUCT
+    session, `client/src/pages/euPower.tsx`, `#/data/eu-power`) — all
+    three routes above had been API-only since 2026-07-27 with zero
+    client references (grep-confirmed); now have a tabbed
+    load/generation-mix/day-ahead-price view, same overlay pattern as
+    eu-macro/fred-macro. See experiments.md same date for the full build
+    log. This closes the "shipped-data-no-UI" gap for 9c entirely — no
+    remaining product-surface follow-up under this item.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 
@@ -2495,7 +2670,7 @@ the full civil firehose (e.g. airport-level traffic counts as an
 economic indicator — that hypothesis should pass ladder gate 2 on
 sampled data first).
 
-## ⚠️ BLOCKED-FOR-MIKE — AIS VESSEL FEED DARK SINCE 2026-08-05 (escalated 2026-08-11; RECURRENCE RULE TRIGGERED — two code fixes have not restored it, the remaining lever is the aisstream ACCOUNT, which only you can touch)
+## ⚠️ RESOLVED 2026-08-15 (was: BLOCKED-FOR-MIKE) — AIS VESSEL FEED DARK 2026-08-05 THROUGH 2026-08-11, RECOVERED 2026-08-12 (see correction note at the end of this section; original entry kept verbatim below for the record)
 
 WHAT IS LOST, measured (not estimated): the vessel archive's newest file
 is `vessels/2026-08-05-13.jsonl.gz` while `aircraft` is current to
@@ -2748,3 +2923,182 @@ ships first and works; this is a latency/bandwidth upgrade, not a blocker.
 **Where:** Cloudflare dashboard → R2 → `voltrade-tiles` → Settings → CORS
 Policy. AllowedOrigins = the site origin(s), AllowedMethods = `GET`,
 AllowedHeaders = `*`.
+**CORRECTION 2026-08-15 (scheduled-routine PRODUCT session) — RESOLVED,
+measured, no code change needed.** This session's live health check
+(`/api/health`) showed `feeds.vessels.dead:false, silent_hours:0.08`,
+contradicting this section's "still dark" framing (last known-good
+context was 2026-08-13's T-4 session, which correctly noted the outage
+was STILL ONGOING as of that day). Checked directly via
+`/api/diag/archive?stream=vessels&day=<date>` per day: files stop after
+`2026-08-05-13.jsonl.gz` (matches this entry exactly), stay EMPTY for
+2026-08-06 through 2026-08-11 (6 full days dark, confirming the "~6.4
+days lost" estimate above almost exactly), then RESUME at
+`2026-08-12-10.jsonl.gz` and have written every hour continuously
+through today (2026-08-15) — confirmed again via `/api/data/streams`:
+`vessels` stream `health:"live"`, newest file `2026-08-15-00.jsonl`,
+`age_hours:0`. So: the aisstream provider-side outage that motivated
+this whole section resolved itself around 2026-08-12 10:00 UTC, three
+days before this correction — the predicted "when the provider
+recovers, worldwide coverage returns for free" outcome one paragraph
+up is exactly what happened. WHAT IS STILL LOST: the 6 days
+2026-08-06 through 2026-08-11 are permanently gone (per CLAUDE.md
+Priority 1, an archive gap never refills) — this correction closes the
+"is it still broken" question, not the historical gap itself.
+RECOMMENDATION UPDATE: since worldwide/global aisstream coverage is
+back at zero incremental cost, the Digitraffic-as-fallback build above
+is no longer urgent (it was scoped as a stopgap for an active outage,
+not a permanent addition) — DEPRIORITIZE unless a future outage
+recurs; if it does, re-open this analysis rather than rebuild it (the
+provider/licence/candidate research above stays valid and reusable).
+No code shipped this correction — pure verification against live state
++ this doc fix. Also relevant: `server/aircraftWindow.ts`'s Time
+Machine T-4 (2026-08-14 experiments.md entry) shipped a vessels-mode
+honesty note describing this outage as ongoing — that note is now
+stale by 3 days but not FALSE (a window request covering the outage
+span still correctly returns sparse/empty data via the same honesty
+machinery); not worth its own PR, noted here as the audit trail.
+
+## 2026-08-12 — CI GAP: the Node test suite (incl. the R15 wiring ratchet) never runs in CI [FROZEN-PATH PROPOSAL]
+
+FOUND VIA A USER-REPORTED BUG: the human asked where the Time zone
+lines toggle was — the layer shipped in #774 with wiring + registry
+entry but no `LAYER_GROUP` declaration in datamap.tsx, so the panel
+rendered its toggle permanently disabled as "reload to enable" (the
+exact R15 powergrid defect class). The regression ratchet built for
+this (`server/layersWiring.test.ts`) FAILS on that state, exactly as
+designed — but it never ran: `.github/workflows/ci.yml` runs pytest,
+`tsc --noEmit || true`, and the build. It never runs
+`npm run test:node` (`tsx --test server/*.test.ts`), so every Node-side
+ratchet is CI-invisible. The layer merged green and sat broken on
+desktop production until the human tripped over it (one-line fix
+shipped same day).
+
+PROPOSAL (workflows are FROZEN — human approval needed): add one step
+to the `node-build` job in ci.yml, after `npm ci`:
+
+    - name: Node test suite (ratchets + server units)
+      run: npm run test:node
+
+COST: ~1–2 min per CI run (1,213 tests). One pre-existing failure must
+be resolved first or excluded: `server/gridTiles.test.ts` expects the
+state+national pmtiles in `client/public/tiles/`, which were migrated
+to R2 (2026-07-31) — that test is environment-dependent now and should
+either be updated to check the R2 manifest instead, or skipped when the
+files are absent (it fails in any fresh clone today, another thing CI
+never saw). Until approved, sessions MUST treat `npm run test:node` as
+part of the local promotion gate (PROMOTION RULES name pytest only —
+that reading let this slip; an amendment adding test:node to rule 1 is
+part of this proposal).
+
+
+## 2026-08-13 — OPTIONS-SLOT CAP: THIRD RECURRENCE, architecture smell, structural fix proposed [RECURRENCE ESCALATES — human/dedicated-session decision, no code shipped this session]
+
+Cross-referenced from open_questions.md KNOWN BROKEN #30 (full evidence
+trail lives there — this entry carries the structural proposal per
+CLAUDE.md's RECURRENCE ESCALATES rule: "patching it again is FORBIDDEN
+... propose structural work via wishlist.md").
+
+**THE PATTERN.** `MAX_OPTIONS_POSITIONS = 6` in `server/bot.ts` /
+`system_config.py` has now been breached live in production three times,
+each via a genuinely different mechanism:
+1. 2026-07-29 (v1.0.540): a stale local constant (3) never wired to the
+   canonical value (6) — a drifted-constant bug, fixed by hoisting to
+   one module-scope declaration.
+2. 2026-08-03 (v1.0.586): an intra-cycle TOCTOU race — the tier
+   dispatcher trusted a pre-`executeTrades()` positions snapshot — fixed
+   by re-fetching `/v2/positions` fresh immediately before dispatch.
+3. 2026-08-13 (found this session, NOT fixed): a cross-cycle race. CSP
+   orders are Alpaca DAY LIMIT orders (`options_execution.py:
+   submit_options_order`, `time_in_force: "day"`) that return
+   `{"status": "submitted"}` on any 2xx response with **no fill
+   confirmation/poll**. `bot.ts` counts `"submitted"` as slot-consumed
+   the instant it's sent, but that increment lives only in a local
+   variable for that one dispatch loop. The NEXT cycle's "fresh"
+   `/v2/positions` re-fetch (the exact fix #2 shipped) only reflects
+   **filled** orders — a submitted-but-still-resting limit order from
+   the prior cycle is invisible to it. Two cycles a few minutes apart
+   can each correctly see "5 of 6 filled, room for one more," each
+   submit one, and if both later fill, the account ends up at 7.
+   Live-verified: real filled-position count crossed 6→7 today at
+   19:58:36Z, one full ~2-minute scan cycle after crossing 5→6 at
+   19:54:56Z — consistent with this exact race, not a repeat of #1 or
+   #2 (both of which were re-read this session and confirmed still
+   correctly in place).
+
+**WHY THIS IS ARCHITECTURE SMELL, NOT BAD LUCK.** Three fixes, three
+different bugs, same symptom, same subsystem, in 15 days. Each fix
+closed the specific hole it found and was immediately re-opened by a
+different hole in the same design: **cap enforcement is built entirely
+on `/v2/positions` (filled reality) with no concept of "orders currently
+live on the book that could still fill."** Any future change to this
+code that keeps that same shape — "count filled positions, compare to
+6, submit if under" — has the same structural gap and will eventually
+find a fourth hole (order latency variance, a slow contract-selection
+call, Alpaca API lag, etc.). That is the definition of the RECURRENCE
+ESCALATES bar for architecture-level work rather than another surgical
+patch.
+
+**THREE CANDIDATE STRUCTURAL FIXES** (not evaluated against each other
+in depth — that's the deliberate next session's job; listed here so it
+doesn't start from zero):
+
+1. **Count open orders too (cheapest, most surgical).** Before
+   submitting any new SELL_CSP (both `executeTrades()` and the tier
+   dispatcher), also `GET /v2/orders?status=open&asset_class=us_option`
+   and add those to the slot count — a submitted-but-unfilled CSP is a
+   real slot commitment even before it fills. Closes this specific hole
+   with roughly the same shape as the 2026-08-03 fix. Residual risk:
+   still not atomic — two dispatch loops could both read "open orders"
+   in the same instant and both proceed, though the window is far
+   narrower (a single GET, not the multi-minute gap between scan
+   cycles) and `tier2Running`'s mutex already serializes the two
+   dispatch loops that exist today, so in the CURRENT codebase this
+   closes the hole completely; it degrades gracefully (not perfectly)
+   if a future code path adds a third concurrent submitter.
+2. **Poll for fill/reject before counting a slot consumed.** Change
+   `submit_options_order` (or its caller) to poll the order status for
+   a bounded window (Alpaca options can also be checked via
+   `GET /v2/orders/{id}`) before returning, and only increment the slot
+   counter on an actual `filled` status; a still-`new`/`accepted` order
+   after the poll window either gets canceled (freeing the slot
+   honestly) or is explicitly tracked as pending. More correct, more
+   invasive (changes the hot execution path's latency and return
+   contract — every caller of `submit_options_order` would need a
+   status contract review), and closer to FROZEN-PATH territory (order
+   submission internals) — needs care to stay on the "what gets traded"
+   side of that line, not "how orders are transmitted."
+3. **A persisted, cross-cycle slot ledger.** A small reservation table
+   (ticker, order_id, reserved_at, status) written on submit and
+   reconciled against `/v2/positions` + `/v2/orders` on a timer,
+   independent of any single dispatch loop's local variables. Most
+   robust to future code-shape changes (survives even a process
+   restart mid-fill), most work, and the only option that would also
+   give the counterfactual-logging infrastructure (RULE REVIEW) a clean
+   place to record "slot reservation X was denied/starved" for its own
+   evidence trail — arguably the option most aligned with CLAUDE.md's
+   general preference for compiling recurring judgment into durable
+   state rather than re-deriving it (EDGE DOCTRINE #3), even though this
+   is a T-BOT risk-mechanism, not a data pipeline.
+
+**RECOMMENDATION.** Option 1 first (cheap, closes the live hole,
+same-shape as the precedent fix so low review risk), landed as its OWN
+dedicated session with its own regression test asserting the exact
+cross-cycle scenario reproduced here (two sequential dispatch passes,
+mocked `/v2/positions` returning 5 filled + 1 open both times, second
+pass must skip). If a FOURTH recurrence is ever found after Option 1
+ships, that is the trigger for Option 3 — at that point the shape
+itself, not any single check, is confirmed to be the problem.
+
+**NOT A SPEND REQUEST** — no paid capability involved, filed here per
+RECURRENCE ESCALATES' explicit instruction to route repeated-subsystem
+breakage through this file rather than same-day re-patching.
+
+**OPTION 1 SHIPPED 2026-08-15 (v1.0.725, scheduled-routine session, own
+PR)** — exactly as recommended above: both enforcement points now count
+still-open SELL-side option orders (`GET /v2/orders?status=open`) toward
+the live slot count, closing the cross-cycle race a resting-but-unfilled
+CSP day limit order created. Full trace in open_questions.md KNOWN
+BROKEN #30 and experiments.md (same date). Per this entry's own
+recommendation: **if a FOURTH recurrence is ever found, that is the
+trigger for Option 3** (persisted cross-cycle slot ledger) — Options 2
+and 3 remain unbuilt, on purpose, unless that trigger fires.

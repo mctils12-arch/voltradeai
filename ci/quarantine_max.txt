@@ -1,0 +1,21 @@
+# ci/quarantine_max.txt — the pin for ci/quarantine.txt (MASTER PROGRAM T1.3).
+#
+# scripts/gated_tests.sh fails the build if the quarantine list exceeds this
+# number. DOWNWARD-ONLY, like every other ratchet (MASTER PROGRAM D4): raising
+# it is a human decision and stop condition 2, because "quarantine the test I
+# just broke" is the single easiest way to turn a merge gate into decoration.
+#
+# Held at 1, NOT lowered to 0, despite ci/quarantine.txt emptying 2026-08-16
+# (server/gridTilesCoverage.test.ts, the prior sole entry, was re-pointed at
+# the real R2-served tile corpus and now passes): server/gatedTests.test.ts's
+# negative-path self-tests (overdue / undated / >30-day-out entries) each add
+# exactly ONE synthetic quarantine entry and rely on the real pin being >=1 so
+# that single addition doesn't trip the "quarantine grew" check before their
+# own date-validation logic gets to run — dropping this to 0 broke all three
+# with "quarantine grew 0 -> 1" instead of the specific message each asserts.
+# 0 <= 1 still holds, so the ratchet is honored without editing that fixture
+# coupling. ci/counter_baseline.txt's quarantine_size (a different counter,
+# tracking the real file's actual entry count) already dropped 1 -> 0.
+#
+# 1 = the historical ceiling; no entries currently occupy it.
+1

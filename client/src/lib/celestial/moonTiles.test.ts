@@ -12,6 +12,7 @@ import {
   blitTile,
   createMoonTileManager,
   MOON_MAX_TILES,
+  TILE_CACHE_MAX,
   MOON_MOSAIC_MAX_PX,
   type TexImageLike,
 } from "./moonTiles.ts";
@@ -235,6 +236,85 @@ test("blitTile copies REAL source alpha — transparent strip margins stay holes
   assert.equal(out[3], 255, "opaque texel keeps alpha 255");
   assert.equal(out[7], 0, "transparent texel keeps alpha 0 (falls through to the next tier)");
   assert.equal(out[0], 100);
+});
+
+// ── PR-6 hardening (2026-08-13): the three defects that would have ruined the
+//    Apollo landing view — a blanket cache wipe mid-descent, a supersede bail
+//    that starved the mosaic during any camera motion, and a silent permanent
+//    hole on a single failed tile. Each test fails if its fix is reverted. ──
+
+const solidTile = (v: number): TexImageLike => {
+  const px = MOON_TREK.tilePx;
+  const d = new Uint8ClampedArray(px * px * 4);
+  for (let p = 0; p < px * px; p++) { d[p * 4] = v; d[p * 4 + 1] = v; d[p * 4 + 2] = v; d[p * 4 + 3] = 255; }
+  return { data: d, width: px, height: px };
+};
+
+test("PR6: the tile cache evicts LRU and never blanket-wipes (bounded, not emptied)", async () => {
+  let fetches = 0;
+  const fetchTile = async (): Promise<TexImageLike> => { fetches++; return solidTile(60); };
+  const mgr = createMoonTileManager({ fetchTile, bandRows: 128 });
+  // build several DIFFERENT mosaics to accumulate tiles well past one plan
+  for (const [lon, lat] of [[0, 0], [30, 10], [-40, -20], [80, 30], [-120, 40]] as const) {
+    mgr.request(lon, lat, 20, 8);
+    await settle(() => mgr.current() !== null && !mgr.stats().building, 4000);
+  }
+  const s = mgr.stats();
+  assert.ok(s.cachedTiles > 0, "cache must retain tiles across mosaics — a blanket clear would drop to ~0");
+  assert.ok(s.cachedTiles <= TILE_CACHE_MAX, `cache must stay bounded (${s.cachedTiles} > ${TILE_CACHE_MAX})`);
+  assert.ok(fetches > 0);
+  mgr.dispose();
+});
+
+test("PR6: a moving camera still gets a mosaic — supersede must not starve the first build", async () => {
+  // Every request supersedes the last, exactly like a fly-to descent. Before
+  // the fix the build bailed unstitched every pass and current() stayed null
+  // for the whole descent, leaving the base texture magnified ~5,300x.
+  const gates: Array<() => void> = [];
+  const fetchTile = async (): Promise<TexImageLike> => {
+    await new Promise<void>((res) => gates.push(res));
+    return solidTile(90);
+  };
+  const mgr = createMoonTileManager({ fetchTile, bandRows: 128 });
+  mgr.request(0, 0, 20, 8);
+  await settle(() => gates.length > 0, 3000);
+  // camera keeps moving: queue a DIFFERENT target while the first is in flight
+  mgr.request(5, 5, 20, 8);
+  for (const g of gates) g();
+  await settle(() => mgr.current() !== null, 5000);
+  assert.ok(mgr.current(), "a superseded first build must still stitch — never leave the screen with no mosaic");
+  mgr.dispose();
+});
+
+test("PR6: a failing tile is retried and then COUNTED, never a silent permanent hole", async () => {
+  let attempts = 0;
+  const fetchTile = async (): Promise<TexImageLike> => {
+    attempts++;
+    throw new Error("simulated 404");
+  };
+  const mgr = createMoonTileManager({ fetchTile, bandRows: 128 });
+  mgr.request(0, 0, 6, 8);
+  await settle(() => mgr.stats().fetchFailures > 0, 8000);
+  const s = mgr.stats();
+  assert.ok(s.fetchFailures > 0, "an exhausted tile must be counted so the failure is observable");
+  // retried, not given up on after one try
+  assert.ok(attempts > s.fetchFailures,
+    `each failure must include retries (attempts ${attempts} vs failures ${s.fetchFailures})`);
+  mgr.dispose();
+});
+
+test("PR6: a tile that succeeds on retry is NOT counted as a failure", async () => {
+  let n = 0;
+  const fetchTile = async (): Promise<TexImageLike> => {
+    n++;
+    if (n === 1) throw new Error("transient");
+    return solidTile(70);
+  };
+  const mgr = createMoonTileManager({ fetchTile, bandRows: 128 });
+  mgr.request(0, 0, 6, 8);
+  await settle(() => mgr.current() !== null, 6000);
+  assert.equal(mgr.stats().fetchFailures, 0, "a transient error that recovers on retry is not a failure");
+  mgr.dispose();
 });
 
 // ── 3b: margin is spent before resolution (Law II.3/II.4, 2026-08-13) ───────

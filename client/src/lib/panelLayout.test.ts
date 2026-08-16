@@ -127,3 +127,20 @@ test("restore clamp uses the RENDERED panel size — a remembered bottom-corner 
   const huge = clampPos({ left: 500, top: 500 }, 300, 200, 400, 400);
   assert.deepEqual(huge, { left: 0, top: 0 });
 });
+
+test("nestedScrollConsumes: overlay scrolls only while it can — map gets the wheel at the ends", async () => {
+  const { nestedScrollConsumes } = await import("./panelLayout.ts");
+  // no overflow: never consume (the "legend eats the zoom" bug)
+  assert.equal(nestedScrollConsumes(0, 400, 400, 500), false);
+  assert.equal(nestedScrollConsumes(0, 400, 400, -500), false);
+  // overflowing, mid-scroll: consume both directions
+  assert.equal(nestedScrollConsumes(100, 400, 900, 500), true);
+  assert.equal(nestedScrollConsumes(100, 400, 900, -500), true);
+  // at the bottom: down-wheel passes to the map, up-wheel still scrolls
+  assert.equal(nestedScrollConsumes(500, 400, 900, 500), false);
+  assert.equal(nestedScrollConsumes(500, 400, 900, -500), true);
+  // at the top: up passes, down scrolls
+  assert.equal(nestedScrollConsumes(0, 400, 900, -500), false);
+  assert.equal(nestedScrollConsumes(0, 400, 900, 500), true);
+  assert.equal(nestedScrollConsumes(100, 400, 900, 0), false);
+});

@@ -14,12 +14,39 @@ import {
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
-  originOfPosType,
+  readArchiveDayEvenSample, originOfPosType,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "vt-archive-"));
+
+/** A timestamp safely beyond RAW_RETENTION_DAYS, anchored to 12:00 UTC.
+ *
+ *  UTC-MIDNIGHT FIX (Q15, 2026-08-14). These fixtures used
+ *  `now - (RAW_RETENTION_DAYS + 2) * 86400_000` directly. Because that offset
+ *  is a whole number of days, the result inherits `now`'s TIME OF DAY — so when
+ *  the suite ran within ~10 minutes of UTC midnight, the second sample each
+ *  fixture writes at `+6..10 min` landed on the NEXT UTC day. `archiveAircraft`
+ *  names files `YYYY-MM-DD-HH.jsonl` and `rollupOldDays` groups by that day
+ *  string, so one intended day became two: `rolled` came back 2 where the test
+ *  asserts 1, and the hold-back test found a second day it had not corrupted
+ *  and deleted it, so its "nothing deleted" assertion saw 1 instead of 0.
+ *
+ *  Caught by T1.1's baseline run and confirmed by experiment rather than
+ *  argument: both tests failed at 23:55Z and passed at 01:00Z on the same
+ *  commit. A ~1h nightly red window is exactly the kind of thing that destroys
+ *  trust in a new gate, so this is FIXED rather than quarantined — it was
+ *  always a bug in the test, never in the code under test.
+ *
+ *  Anchoring to midday makes the fixture's date arithmetic independent of when
+ *  the suite happens to run: a +/- few-minute sample can no longer cross a date
+ *  boundary. Still comfortably beyond retention — the shift is at most 12h
+ *  against a 2-day margin (retention 30d, fixture 32d). */
+const oldDayMidday = (now: number): number => {
+  const d = new Date(now - (RAW_RETENTION_DAYS + 2) * 86400_000);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+};
 
 const cruise = (icao: string, lat = 45, lon = -30): any => ({
   icao24: icao, callsign: "TST", lat, lon,
@@ -113,9 +140,52 @@ test("PERF: compressOldHoursAsync produces the same on-disk outcome as the sync 
   assert.equal(content(b), content(a), "gz payloads byte-identical");
 });
 
+// Q15 REGRESSION (2026-08-14). Pins the UTC-midnight bug deterministically so
+// it can never come back on a clock rather than on a diff. The fixtures above
+// are written at `oldDayMidday(now)`; this drives them with a `now` fixed
+// INSIDE the failure window and asserts both samples land on one UTC day.
+//
+// The bug was invisible for a reason worth remembering: these tests pass 23
+// hours a day. They were found by T1.1's baseline run happening to execute at
+// 23:55Z, and confirmed by re-running at 01:00Z on the same commit. A test that
+// depends on wall-clock time is a test that will eventually red a merge gate
+// for reasons nobody can reproduce the next morning.
+test("Q15: rollup fixtures do not straddle a UTC day when the suite runs near midnight", () => {
+  // 23:55:00Z — five minutes before the boundary, so the fixtures' `+10 min`
+  // second sample would cross it under the old `now - 32d` arithmetic.
+  const now = Date.UTC(2026, 7, 13, 23, 55, 0);
+
+  // The naive value this replaced: same time-of-day as `now`, so +10 min rolls
+  // the date over. Asserting it here keeps the regression test honest — if this
+  // ever stops being true, the test below has stopped proving anything.
+  const naive = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  assert.notEqual(
+    new Date(naive).toISOString().slice(0, 10),
+    new Date(naive + 10 * 60_000).toISOString().slice(0, 10),
+    "fixture premise: the naive offset must straddle midnight at 23:55Z",
+  );
+
+  const anchored = oldDayMidday(now);
+  assert.equal(
+    new Date(anchored).toISOString().slice(0, 10),
+    new Date(anchored + 10 * 60_000).toISOString().slice(0, 10),
+    "anchored offset must keep both samples on one UTC day",
+  );
+  assert.ok(anchored < now - RAW_RETENTION_DAYS * 86400_000,
+    "anchored fixture must still be beyond RAW_RETENTION_DAYS");
+
+  // End-to-end: the real archive + rollup path, driven at the bad hour.
+  const base = tmp();
+  archiveAircraft([cruise("q15roll", 40, -100)], SITES, base, anchored);
+  archiveAircraft([cruise("q15roll", 41, -101)], SITES, base, anchored + 10 * 60_000);
+  const days = new Set(fs.readdirSync(path.join(base, "aircraft")).map((f) => f.slice(0, 10)));
+  assert.equal(days.size, 1, `fixture spans ${days.size} UTC days: ${[...days].join(", ")}`);
+  assert.equal(rollupOldDays(base, now), 1, "exactly one day rolled");
+});
+
 test("PERF: rollupOldDaysAsync produces the same daily summaries as the sync pass", async () => {
   const now = Date.now();
-  const old = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const old = oldDayMidday(now);
   const a = tmp();
   archiveAircraft([cruise("perfru1", 40, -100)], SITES, a, old);
   archiveAircraft([cruise("perfru1", 41, -101)], SITES, a, old + 6 * 60_000);
@@ -165,7 +235,7 @@ test("compression gzips hours older than 2h and leaves current hour raw", () => 
 test("rollup summarizes days beyond retention into track records and deletes raw", () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   // two samples for one entity on the old day (cadence-spaced)
   archiveAircraft([cruise("roll1", 40, -100)], SITES, base, oldMs);
   archiveAircraft([cruise("roll1", 41, -101)], SITES, base, oldMs + 10 * 60_000);
@@ -192,7 +262,7 @@ test("rollup summarizes days beyond retention into track records and deletes raw
 test("rollup holds back (does not delete) a day containing an unreadable hour file", () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   archiveAircraft([cruise("good1", 40, -100)], SITES, base, oldMs);
   archiveAircraft([cruise("good1", 41, -101)], SITES, base, oldMs + 10 * 60_000);
   const dir = path.join(base, "aircraft");
@@ -213,7 +283,7 @@ test("rollup holds back (does not delete) a day containing an unreadable hour fi
 test("rollupOldDaysAsync holds back a day containing an unreadable hour file", async () => {
   const base = tmp();
   const now = Date.now();
-  const oldMs = now - (RAW_RETENTION_DAYS + 2) * 86400_000;
+  const oldMs = oldDayMidday(now);
   archiveAircraft([cruise("good2", 40, -100)], SITES, base, oldMs);
   const dir = path.join(base, "aircraft");
   const realFile = fs.readdirSync(dir)[0];
@@ -384,6 +454,75 @@ test("readArchiveDay: limit caps rows and sets truncated honestly rather than si
   const full = await readArchiveDay("usaspending", "2026-07-05", base, 100);
   assert.equal(full!.rows.length, 10);
   assert.equal(full!.truncated, false);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// readArchiveDayEvenSample (2026-08-12): fixes the live symptom that blocked
+// the GNSS-integrity Phase 4 gate-2 read (research/open_questions.md, the
+// 2026-08-11 Bilawal-scan finding #1) — a bbox-scoped query over a busy
+// hour-file stream must not have its whole row budget consumed by the
+// FIRST hour file it opens, or any region whose traffic concentrates in a
+// later UTC hour becomes invisible regardless of whether the signal exists.
+test("readArchiveDayEvenSample: spreads the row budget evenly across hour files instead of exhausting the first one", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  const hourLines = (h: number) =>
+    Array.from({ length: 20 }, (_, i) => JSON.stringify({ i: `h${h}-${i}` })).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05-00.jsonl"), hourLines(0));
+  fs.writeFileSync(path.join(dir, "2026-07-05-01.jsonl"), hourLines(1));
+  fs.writeFileSync(path.join(dir, "2026-07-05-02.jsonl"), hourLines(2));
+  const r = await readArchiveDayEvenSample("aircraft", "2026-07-05", base, 9);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 9, "ceil(9/3 files) = 3 rows per file * 3 files");
+  assert.equal(r!.truncated, true, "each file had more rows than its even share");
+  const hoursRepresented = new Set(r!.rows.map((x: any) => x.i.split("-")[0]));
+  assert.deepEqual([...hoursRepresented].sort(), ["h0", "h1", "h2"],
+    "the old file-by-file readArchiveDay would have returned only h0 rows at this limit");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDayEvenSample: falls back to readArchiveDay's own behavior on a single-file (day-granularity) stream", async () => {
+  const base = tmp();
+  const dir = path.join(base, "usaspending");
+  fs.mkdirSync(dir, { recursive: true });
+  const lines = Array.from({ length: 10 }, (_, i) => JSON.stringify({ aid: `a${i}` })).join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05.jsonl"), lines);
+  const r = await readArchiveDayEvenSample("usaspending", "2026-07-05", base, 3);
+  assert.ok(r);
+  assert.equal(r!.rows.length, 3);
+  assert.equal(r!.truncated, true);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDayEvenSample: rowFilter is applied BEFORE a row counts against perFileLimit, so the budget is spent on matching rows", async () => {
+  const base = tmp();
+  const dir = path.join(base, "aircraft");
+  fs.mkdirSync(dir, { recursive: true });
+  // One hour file: 8 non-matching rows followed by 2 matching rows. With
+  // perFileLimit=2 counted BEFORE filtering, the 2 matching rows would
+  // never be reached (budget exhausted on the non-matching prefix) — this
+  // is exactly the live density problem readGnssIntegrityWindow hit.
+  const lines = [
+    ...Array.from({ length: 8 }, (_, i) => JSON.stringify({ i: `no${i}`, region: "elsewhere" })),
+    ...Array.from({ length: 2 }, (_, i) => JSON.stringify({ i: `yes${i}`, region: "target" })),
+  ].join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "2026-07-05-00.jsonl"), lines);
+  const r = await readArchiveDayEvenSample("aircraft", "2026-07-05", base, 2, (row: any) => row.region === "target");
+  assert.ok(r);
+  assert.equal(r!.rows.length, 2, "both matching rows counted, not starved by the non-matching prefix");
+  assert.ok(r!.rows.every((row: any) => row.region === "target"));
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test("readArchiveDayEvenSample: unknown stream returns null; no files for the day returns empty non-null", async () => {
+  const base = tmp();
+  assert.equal(await readArchiveDayEvenSample("neverexistedstream", "2026-07-05", base), null);
+  fs.mkdirSync(path.join(base, "usaspending"), { recursive: true });
+  const r = await readArchiveDayEvenSample("usaspending", "2026-01-01", base);
+  assert.ok(r);
+  assert.deepEqual(r!.rows, []);
+  assert.equal(r!.truncated, false);
   fs.rmSync(base, { recursive: true, force: true });
 });
 

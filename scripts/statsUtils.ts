@@ -67,3 +67,30 @@ export function survivesAtCrit005(result: ClusterTTestResult): boolean {
   const crit = tCrit005(result.df);
   return Number.isFinite(result.t) && Math.abs(result.t) > crit;
 }
+
+// One-tailed exact binomial upper-tail test: P(X >= k) under X ~
+// Binomial(n, p0). For rate-elevation questions ("does a candidate region's
+// event rate exceed a control region's baseline rate by more than chance"),
+// where the count of interest (k) is small relative to n even when n runs
+// into the tens of thousands (rare-event rates), this is exact and cheap —
+// no factorials/gamma functions, just the standard term-to-term pmf
+// recurrence P(i)/P(i-1) = (n-i+1)/i * p/(1-p), summed from i=0 up to k-1
+// (the CDF below k) and complemented. Loop cost is O(k), not O(n), so it
+// stays fast even at n=50,000 as long as k itself is small (true for every
+// rare-event use case this was built for — compiled out of the
+// gnss_integrity gate-2 run, research/open_questions.md 2026-08-11 entry).
+export function binomialUpperTailP(k: number, n: number, p0: number): number {
+  if (n <= 0 || !Number.isFinite(p0)) return NaN;
+  if (k <= 0) return 1;
+  if (p0 <= 0) return 0;
+  if (p0 >= 1) return 1;
+  const q = 1 - p0;
+  let term = Math.pow(q, n); // P(X=0)
+  let cdfBelowK = term;
+  for (let i = 1; i < k && i <= n; i++) {
+    term *= ((n - i + 1) / i) * (p0 / q);
+    cdfBelowK += term;
+    if (!Number.isFinite(cdfBelowK)) return 0; // saturated well past 1 - epsilon
+  }
+  return Math.min(1, Math.max(0, 1 - cdfBelowK));
+}

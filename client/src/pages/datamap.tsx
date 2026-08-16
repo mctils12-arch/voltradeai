@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -42,6 +42,10 @@ import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
 import NrcReactorStatusView from "./nrcReactorStatus";
+import GnssIntegritySignalView from "./gnssIntegritySignal";
+import EuPowerView from "./euPower";
+import SecFtdView from "./secFtd";
+import TffView from "./tff";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -118,10 +122,18 @@ import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPe
 // the last archived sample (1-5 min behind at cruise).
 import { pushCrumb, mergeTrackWithCrumbs, type Crumb, type TrackPoint } from "@/lib/air/breadcrumbs";
 import { typeInfo, countryFromIcao24, countryFromRegistration } from "@/lib/air/planeIdentity";
-import { APOLLO_SITES, APOLLO_IMAGERY_NOTE, lrocFeaturedUrl,
+import {
+  LUNAR_SITES, APOLLO_SITE_IDS, APOLLO_IMAGERY_NOTE, NON_APOLLO_IMAGERY_NOTE,
+  LUNAR_SIDE_NOTE, LUNAR_COVERAGE_NOTE, lrocFeaturedUrl,
+} from "@/lib/celestial/lunarMissions";
+import { KIND_LABEL, OUTCOME_LABEL, siteGlyphDataURL, LEGEND_KINDS, countryColor } from "@/lib/celestial/lunarSymbols";
+// the pref keeps its original storage key (vt.celestial.apolloSites) — renaming
+// it would silently re-enable the layer for everyone who turned it off
+import {
   getApolloSitesPref, setApolloSitesPref, subscribeApolloSitesPref,
-  APOLLO_NEAR_SIDE_ONLY_NOTE } from "@/lib/celestial/apolloSites";
+} from "@/lib/celestial/apolloSites";
 import { computeTzCrossings, type TzCrossing } from "@/lib/air/tzCrossings";
+import { meteorSeverity, meteorIconSize, meteorStreak, compassPoint, meteorCoverageLinks, meteorCoverageVerdict, siteLocalTime, fmtBlastAlt, fmtEntrySpeed } from "@/lib/meteors";
 import { getWatchlist, watchPlane, unwatchPlane, isWatched, subscribeWatchlist } from "@/lib/air/watchlist";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
@@ -185,6 +197,13 @@ import {
   getLockHorizonPref, setLockHorizonPref, subscribeLockHorizonPref,
   getMotionTrailsPref, setMotionTrailsPref, subscribeMotionTrailsPref,
   getBodyLabelsPref, setBodyLabelsPref, subscribeBodyLabelsPref,
+  // B6 realistic (sun-driven) lighting — the pref and the frame's
+  // setRealisticLighting have existed since the B6 universal-lighting pass,
+  // but no panel row ever drove them (2026-08-13 report: "this doesn't work
+  // on the moon... it only works on the earth" — the user was toggling the
+  // unrelated Earth-map `daynight` geojson layer). The pref already shades
+  // EVERY body (moon patch, planets, rings); this import is the missing wire.
+  getRealisticLightingPref, setRealisticLightingPref, subscribeRealisticLightingPref,
   SPACE_IMAGERY_CREDIT,
 } from "@/lib/celestial/spaceAssets";
 // Celestial v2 §6 long-task watchdog (2026-07-18): dev-only main-thread
@@ -212,7 +231,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
-import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { installDrapeOrderGuard } from "@/lib/drapeOrder";
 import { groundElevationSync, prefetchElevation } from "@/lib/elevation";
 // EARTH TWIN E2 v2 wiring (research/earth_twin_program.md RESUME STATE
@@ -432,7 +451,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -830,6 +849,12 @@ const SOIL_LATENCY_DAYS = 7;
 const LAYER_GROUP: Record<string, string> = {
   imagery: "base", terrain: "base", seafloor: "base", seafloor_confidence: "base", daynight: "base", weather: "base",
   weather_temp: "base", weather_wind: "base", boundaries: "base", boundaries_admin1: "base", places: "base",
+  // [REPAIR 2026-08-12] timezones shipped #774 with wiring + registry entry
+  // but no LAYER_GROUP entry — the R15 defect exactly (permanent "reload to
+  // enable", dead toggle; found when the human asked where the toggle was).
+  // The layersWiring ratchet catches this but CI never runs test:node —
+  // proposal filed in wishlist.md (workflows are frozen).
+  timezones: "base",
   celestial_paths: "base",
   aircraft: "live", vessels: "live", trains: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
@@ -849,17 +874,17 @@ const LAYER_GROUP: Record<string, string> = {
   floods: "environmental",
   rivergauges: "environmental",
   alerts: "environmental",
-  spaceweather: "environmental",
+  spaceweather: "environmental", meteors: "environmental",
   earthquakes: "environmental",
   volcanoes: "environmental",
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings",
   graph: "graph",
-  timezones: "base",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
+  submarine_cables: "facilities",
   powergrid_al: "grid", powergrid_ak: "grid", powergrid_az: "grid", powergrid_ar: "grid", powergrid_ca: "grid", powergrid_co: "grid",
   powergrid_ct: "grid", powergrid_de: "grid", powergrid_dc: "grid", powergrid_fl: "grid", powergrid_ga: "grid", powergrid_hi: "grid",
   powergrid_id: "grid", powergrid_il: "grid", powergrid_in: "grid", powergrid_ia: "grid", powergrid_ks: "grid", powergrid_ky: "grid",
@@ -1654,6 +1679,13 @@ const LegendPanel = memo(function LegendPanel({
                 {enabled.powergrid_hifld_sub && (
                   <LegendIcon icon="vt-substation" color="#fbbf24" label="Substation" />
                 )}
+                {enabled.submarine_cables && (
+                  <>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(232,121,249,0.85)" }} /> Submarine cable</span>
+                    <span className="vt-legend-chip"><i style={{ background: "rgba(168,120,168,0.6)" }} /> Disused cable</span>
+                    <span className="vt-legend-note">OpenStreetMap (ODbL) — coverage skewed to Europe/NE-Atlantic (OSM mapping completeness, not an absence of cables elsewhere)</span>
+                  </>
+                )}
                 {enabled.plant_operations && (
                   <>
                     <LegendIcon icon="vt-power" color={camdUtilizationColor(0.9)} label="EPA CAMD Util. 75%+" />
@@ -1694,7 +1726,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.earthquakes || enabled.volcanoes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
+          {(enabled.fires || enabled.surfacewater || enabled.forest || enabled.nightlights || enabled.aerosol || enabled.vegetation || enabled.soilmoisture || enabled.no2 || enabled.so2 || enabled.floods || enabled.firetemp || enabled.biomass || enabled.rivergauges || enabled.alerts || enabled.spaceweather || enabled.meteors || enabled.earthquakes || enabled.volcanoes || enabled.buoys || enabled.methane_plumes || enabled.coal_mine_features) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Environmental</div>
               <div className="vt-legend-items">
@@ -1732,6 +1764,14 @@ const LegendPanel = memo(function LegendPanel({
                     <LegendIcon icon="vt-quake" color="#ffd23f" label="Quake M4-5" />
                     <LegendIcon icon="vt-quake" color="#ff8c42" label="Quake M5-6" />
                     <LegendIcon icon="vt-quake" color="#ff3b3b" label="Quake M6+" />
+                  </>
+                )}
+                {enabled.meteors && (
+                  <>
+                    <LegendIcon icon="vt-meteor" color="#7cc4ff" label="Meteor blast < 0.1 kt (common)" />
+                    <LegendIcon icon="vt-meteor" color="#fbb24c" label="0.1 – 1 kt" />
+                    <LegendIcon icon="vt-meteor" color="#ff5a6e" label="≥ 1 kt (rare; Hiroshima ≈ 15)" />
+                    <span className="vt-legend-note">streak = direction of travel, drawn only when NASA publishes the velocity vector; size = flash brightness (log); recorded after the fact — not live</span>
                   </>
                 )}
                 {enabled.volcanoes && (
@@ -2343,6 +2383,10 @@ export default function DataMapPage() {
         // B3: orbit-ellipse polylines per the persisted toggle
         orbitPaths: getOrbitPathsPref(),
         apolloSites: getApolloSitesPref(),
+        // B6: enter with the persisted lighting mode (the frame defaulted to
+        // the same pref internally; passing it explicitly keeps entry state
+        // and the live subscription below reading ONE source)
+        realisticLighting: getRealisticLightingPref(),
         // 2026-07-18 scene toggles (persisted): panorama/grid/trails/labels
         milkyWay: getMilkyWayPref(),
         eclipticGrid: getEclipticGridPref(),
@@ -2394,6 +2438,8 @@ export default function DataMapPage() {
       const offOrbits = subscribeOrbitPathsPref(() => { try { handle.setOrbitPaths(getOrbitPathsPref()); } catch {} });
       // Apollo landing-site markers toggle applies live (2026-08-12)
       const offApollo = subscribeApolloSitesPref(() => { try { handle.setApolloSites(getApolloSitesPref()); } catch {} });
+      // B6 realistic-lighting toggle applies live to EVERY body (2026-08-13)
+      const offRealistic = subscribeRealisticLightingPref(() => { try { handle.setRealisticLighting(getRealisticLightingPref()); } catch {} });
       // 2026-07-18 scene toggles apply live while mounted
       const offGalaxy = subscribeMilkyWayPref(() => { try { handle.setMilkyWay(getMilkyWayPref()); } catch {} });
       const offGrid = subscribeEclipticGridPref(() => { try { handle.setEclipticGrid(getEclipticGridPref()); } catch {} });
@@ -2428,6 +2474,11 @@ export default function DataMapPage() {
       spaceCleanupRef.current = () => {
         offAxis(); offUnits(); offScale(); offOrbits(); offSim();
         offGalaxy(); offGrid(); offLock(); offTrails(); offLabels();
+        // offApollo was created at mount but never released (leak: every
+        // enter/exit of the space view orphaned a listener that then called
+        // into a disposed handle). Released here with the new lighting
+        // subscription — same statement, same lifetime as its siblings.
+        offApollo(); offRealistic();
         window.clearInterval(iv);
         if (warpRaf) { cancelAnimationFrame(warpRaf); warpRaf = 0; }
         try { delete (window as any).__vtSpace; } catch {}
@@ -2525,8 +2576,56 @@ export default function DataMapPage() {
   // so dragging is glitch-free (no refetch — one setFilter per tick per layer).
   const [histYear, setHistYear] = useState(HIST_MAX_YEAR);
   const [histPlay, setHistPlay] = useState(false);
-  const [legendOpen, setLegendOpen] = useState<boolean>(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  const [legendOpen, setLegendOpen] = useState<boolean>(() => {
+    const saved = getPanelPrefs("legend-float").min;
+    if (saved != null) return !saved;
+    return typeof window !== "undefined" ? window.innerWidth >= 768 : true;
+  });
+  // collapse state persists (panelLayout min flag), spot remembered via drag
+  const setLegendOpenPersist: React.Dispatch<React.SetStateAction<boolean>> = useCallback((v) => {
+    setLegendOpen((prev) => {
+      const next = typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v;
+      savePanelPrefs("legend-float", { min: !next });
+      return next;
+    });
+  }, []);
+  const legendFloatRef = useRef<HTMLDivElement | null>(null);
+  const legendDrag = useMemo(
+    () => panelDragProps("legend-float", () => legendFloatRef.current, () => false,
+      { defaultOrigin: "bottom left" }),
+    [],
+  );
+  useEffect(() => {
+    const el = legendFloatRef.current;
+    if (el && !applyPanelPos(el, "legend-float")) clearPanelPos(el);
+  }, [legendOpen, mapReady]);
+  // WHEEL PASS-THROUGH (2026-08-13 live report: "i cant see space it wont
+  // let me zoom out" — the legend's overflow body swallowed every wheel
+  // over its 272px × 46vh box, so zooming with the cursor there did
+  // nothing). Nested-scroll convention: the legend scrolls only while it
+  // CAN (nestedScrollConsumes); otherwise the event is re-dispatched onto
+  // the map canvas — same deltas, same cursor anchor — so map zoom (and
+  // the space-entry seam accumulator listening above it) work everywhere.
+  // Native non-passive listener: React root wheel handlers are passive
+  // and cannot preventDefault.
+  useEffect(() => {
+    const el = legendFloatRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const body = el.querySelector(".vt-legend-body") as HTMLElement | null;
+      if (body && nestedScrollConsumes(body.scrollTop, body.clientHeight, body.scrollHeight, e.deltaY)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = document.querySelector(".maplibregl-canvas");
+      canvas?.dispatchEvent(new WheelEvent("wheel", {
+        deltaY: e.deltaY, deltaX: e.deltaX, deltaMode: e.deltaMode,
+        clientX: e.clientX, clientY: e.clientY,
+        ctrlKey: e.ctrlKey, bubbles: true, cancelable: true,
+      }));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [mapReady, spaceActive]);
   // Celestial v2 B2: the CELESTIAL panel section's view of the persisted
   // scale state. Store-of-record is lib/celestial/scaleModel.ts (localStorage
   // — the vt-units pattern); the space frame subscribes separately inside
@@ -2552,6 +2651,8 @@ export default function DataMapPage() {
   useEffect(() => subscribeOrbitPathsPref(() => setCelOrbitsView(getOrbitPathsPref())), []);
   const [celApollo, setCelApolloView] = useState(getApolloSitesPref());
   useEffect(() => subscribeApolloSitesPref(() => setCelApolloView(getApolloSitesPref())), []);
+  const [celRealistic, setCelRealisticView] = useState(getRealisticLightingPref());
+  useEffect(() => subscribeRealisticLightingPref(() => setCelRealisticView(getRealisticLightingPref())), []);
   // SPACE VIEW VISUAL UPGRADE (2026-07-18): the scene toggles' panel view
   // (stores of record in lib/celestial/spaceAssets.ts — persisted).
   const [celGalaxy, setCelGalaxyView] = useState(getMilkyWayPref());
@@ -2803,6 +2904,28 @@ export default function DataMapPage() {
   // pattern (DATACORE MAXIMUS census build #10's own filed UI follow-up,
   // /api/data/microstructure, shipped API-only v1.0.265).
   const [midasOpen, setMidasOpen] = useState(() => window.location.hash === "#/data/midas");
+  // GNSS integrity anomaly signal (#/data/gnss-integrity) — the first root
+  // to reach ladder gate 2 and get a live SIGNAL detail page (2026-08-16
+  // scheduled-routine PRODUCT session; research/open_questions.md
+  // gnss_integrity_adsb, gate2_pass). Same overlay pattern as
+  // midas/methaneHotspots above.
+  const [gnssIntegrityOpen, setGnssIntegrityOpen] = useState(() => window.location.hash === "#/data/gnss-integrity");
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price
+  // (#/data/eu-power) — three RAW pipelines (euLoad gate1_pass 2026-07-07,
+  // euGenerationMix 2026-07-21, euDayAheadPrices 2026-07-27) shipped
+  // API-only with no client view until now; same overlay pattern as
+  // eu-macro/fred-macro above.
+  const [euPowerOpen, setEuPowerOpen] = useState(() => window.location.hash === "#/data/eu-power");
+  // SEC CNS fails-to-deliver (#/data/ftd) — same overlay pattern
+  // (DATACORE MAXIMUS census build #6's own filed UI follow-up,
+  // /api/data/ftd, shipped API-only v1.0.171; already has an
+  // /api/v1/stats/secftd paid-tier mirror).
+  const [secFtdOpen, setSecFtdOpen] = useState(() => window.location.hash === "#/data/ftd");
+  // CFTC Traders in Financial Futures (#/data/tff) — same overlay pattern
+  // (DATACORE MAXIMUS census build 6 #1's own filed UI follow-up,
+  // /api/data/tff, keyless Socrata sibling of /api/data/cot; no client
+  // view until now).
+  const [tffOpen, setTffOpen] = useState(() => window.location.hash === "#/data/tff");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3126,6 +3249,10 @@ export default function DataMapPage() {
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
+      setGnssIntegrityOpen(window.location.hash === "#/data/gnss-integrity");
+      setEuPowerOpen(window.location.hash === "#/data/eu-power");
+      setSecFtdOpen(window.location.hash === "#/data/ftd");
+      setTffOpen(window.location.hash === "#/data/tff");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -4364,16 +4491,16 @@ export default function DataMapPage() {
       }
       flightMarkerPosRef.current = { lng: lon, lat };
       const terrainOn = !!map.getTerrain();
-      // `altScale` was referenced below (AGL readout, and the follow-camera
-      // elevation) but only ever DECLARED inside paintTrack's scope — a
-      // ReferenceError at runtime, flagged by tsc as TS2304 at three sites
-      // and long dismissed as pre-existing noise. The follow site sits
-      // inside `try {} catch {}`, so the throw was SILENTLY SWALLOWED and
-      // that fallback jumpTo has simply never executed; the AGL branch threw
-      // out of its readout. Declared here, in the scope that uses it, with
-      // the same definition paintTrack uses.
-      const altScale = terrainOn ? terrainExagRef.current : 1;
       const gZ = terrainOn ? groundZAt(map, lon, lat) : 0;
+      // SCOPE FIX (T0.0, 2026-08-13): this tick used `altScale` at the AGL
+      // readout and the follow-camera datum below, but the only declaration
+      // lives inside the flight-track paint closure above and is NOT in scope
+      // here — a TS2304 that `tsc --noEmit || true` printed for months. The
+      // resulting ReferenceError was swallowed by the outer
+      // `catch { /* readouts must never break the tick */ }`, which also
+      // skipped every statement after it: GND SPD, VERT SPD, and the whole
+      // follow-aircraft recenter block. Same expression as the paint closure.
+      const altScale = terrainOn ? terrainExagRef.current : 1;
       // floating tag above the craft (screen-projected DOM chip, §4) —
       // display meters straight through (layer altScale is pinned 1)
       if (tag) {
@@ -5867,7 +5994,13 @@ export default function DataMapPage() {
           } as any, firstMarker?.id);
         }
         setStatus("daynight", "active", undefined,
-          "computed ephemeris (display-grade) — shaded side is night NOW · the realistic Sun/Moon/planets render in the sky itself (always on, astronomy-engine)");
+          // DISCOVERABILITY (2026-08-13 report): this layer shades the MAP
+          // only. The user read "always on" and reasonably expected it to
+          // govern the Moon/planets too, then found toggling it did nothing
+          // out there. Name the other switch instead of leaving them to hunt.
+          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP only; " +
+          "day/night on the Moon and planets in the space view is CELESTIAL › Realistic lighting · " +
+          "the Sun/Moon/planets in the sky above the horizon render always (astronomy-engine)");
       } catch { /* style mid-swap — next tick retries */ }
     };
     // B3: recompute cadence follows the sim clock — 60 s at real time (the
@@ -6819,14 +6952,27 @@ export default function DataMapPage() {
         return;
       }
 
-      focusSat(hit.index);
+      focusSat(hit.index, e);
     };
 
     // ── O6-3: one focus path for BOTH entrances — a map click (above) and a
     // search hit (SatFinder → focusSatByIndexRef). Position/class come from
     // the live buffer; an object with no live position this tick (deep-space,
     // group-filtered) still gets its identity card, honestly un-followed. ──
-    const focusSat = (index: number) => {
+    // SCOPE FIX (T0.0, 2026-08-13): the body below stamps `__vtFeatClaim` on
+    // the click event, but when it was extracted out of `onClick(e)` for the
+    // SatFinder entrance the `e` came with it and lost its binding — a TS2304
+    // swallowed by that line's own empty catch, so satellite clicks silently
+    // never claimed the feature and the click-off handler took the wrong
+    // branch. The event is threaded through as OPTIONAL because the SatFinder
+    // entrances genuinely have none: a search hit is not a map click and has
+    // no `originalEvent` to stamp, so it correctly makes no claim.
+    // Typed structurally rather than `any` so the claim protocol is stated in
+    // the signature (and so this fix does not push the `ts_any` ratchet up).
+    const focusSat = (
+      index: number,
+      e?: { originalEvent?: { __vtFeatClaim?: boolean } },
+    ) => {
       const layer = satLayerRef.current;
       const gp = orbitalGpRef.current;
       const g = gp?.[index];
@@ -7588,6 +7734,83 @@ export default function DataMapPage() {
     // toggle cycles (mapInteractions contract — BUG 4 discipline).
     return () => { gridDetach.forEach((d) => d()); };
   }, [powerGridKey, mapReady, setStatus]);
+
+  // ── submarine telecom cables (RAW; OpenStreetMap seamark:type=cable_submarine,
+  // © OpenStreetMap contributors, ODbL — compiled by scripts/submarine_cables_build.py.
+  // Static reference geography, session-refreshed (not live-polled), 3.7MB committed
+  // GeoJSON fetched only when the layer is on — zero cost when off, same pattern as
+  // the boundaries/timezone-lines layers above. Power-tagged ways already excluded at
+  // build time (the seamark cable_submarine tag also covers power interconnectors).
+  // DISUSED HONESTY: retired systems (disused=yes) render dashed, never hidden — same
+  // "never hide, distinctly style" convention as the power grid's voltage-unknown
+  // class. COVERAGE HONESTY: OSM's cable mapping is heavily skewed to Europe/NE-
+  // Atlantic; sparse elsewhere reflects OSM completeness, not an absence of cables
+  // (status note + registry description both carry the caveat). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!enabled.submarine_cables) {
+      try {
+        if (map.getLayer("submarine-cables-disused")) map.removeLayer("submarine-cables-disused");
+        if (map.getLayer("submarine-cables-active")) map.removeLayer("submarine-cables-active");
+        if (map.getSource("submarine-cables")) map.removeSource("submarine-cables");
+      } catch {}
+      setStatus("submarine_cables", "off");
+      return;
+    }
+    setStatus("submarine_cables", "loading");
+    const cableDetach: Array<() => void> = [];
+    const cleanup = runResilientLoad(
+      async (signal) => {
+        const r = await fetch("/cables/submarine_cables.json", { signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (signal.aborted) return;
+        if (!map.getSource("submarine-cables")) {
+          map.addSource("submarine-cables", { type: "geojson", data: d as any } as any);
+        }
+        const firstMarker = (map.getStyle().layers || []).find((l: any) => ["symbol", "circle", "line"].includes(l.type));
+        if (!map.getLayer("submarine-cables-active")) {
+          map.addLayer({
+            id: "submarine-cables-active", type: "line", source: "submarine-cables",
+            filter: ["!=", ["get", "disused"], true],
+            paint: {
+              "line-color": "rgba(232,121,249,0.75)",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 8, 1.4, 14, 2.2],
+            },
+          } as any, firstMarker?.id);
+        }
+        if (!map.getLayer("submarine-cables-disused")) {
+          map.addLayer({
+            id: "submarine-cables-disused", type: "line", source: "submarine-cables",
+            filter: ["==", ["get", "disused"], true],
+            paint: {
+              "line-color": "rgba(168,120,168,0.5)",
+              "line-width": 0.9,
+              "line-dasharray": [2, 2],
+            },
+          } as any, firstMarker?.id);
+        }
+        cableDetach.push(attachLayerInteractions(map, ["submarine-cables-active", "submarine-cables-disused"], (e: any) => {
+          const f = e.features?.[0]; if (!f) return; const p = f.properties;
+          setDetail({
+            kind: "cable",
+            title: p.name || "Submarine cable",
+            subtitle: [p.category, p.disused ? "disused" : null].filter(Boolean).join(" · ") || "Submarine telecom cable",
+            body: `${p.operator ? `Operator: ${p.operator}\n` : ""}` +
+                  `${p.start_date ? `In service: ${p.start_date}\n` : ""}` +
+                  `\n© OpenStreetMap contributors (ODbL).`,
+            sourceUrl: p.source_url || undefined,
+          });
+        }));
+        setStatus("submarine_cables", "active", d?.features?.length,
+          "OSM seamark:type=cable_submarine, power-tagged ways excluded — coverage skewed to Europe/NE-Atlantic (OSM mapping completeness, not an absence of cables)");
+      },
+      (failures) => setStatus("submarine_cables", "error", undefined,
+        failures === 0 ? "load failed — retrying automatically…" : "still retrying automatically…"),
+    );
+    return () => { cleanup(); cableDetach.forEach((d) => d()); };
+  }, [enabled.submarine_cables, mapReady, setStatus]);
 
   // ── weather radar (RAW; NOAA nowCOAST WMS — geospatial Tier-1(b), licensing
   // register 2026-07-04: public domain, no key, US-only. Honest gap stated in
@@ -11337,6 +11560,130 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); detach(); };
   }, [enabled.earthquakes, mapReady, setStatus]);
 
+  // ── LARGE METEORS (NASA/JPL CNEOS bolides — human-approved mock
+  // 2026-08-13): starburst symbol (blast), color = blast-energy severity,
+  // size = log flash energy, and a direction streak line ONLY for events
+  // where NASA published the velocity vector. Card: viewer-local time
+  // first, at-site local clock via the tz database, coverage links (AMS
+  // reports + date/region searches — searches, never claimed stories). ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.meteors) {
+      try {
+        if (map?.getLayer("meteors-sym")) map.removeLayer("meteors-sym");
+        if (map?.getLayer("meteors-streaks")) map.removeLayer("meteors-streaks");
+        if (map?.getSource("meteors")) map.removeSource("meteors");
+        if (map?.getSource("meteors-streaks")) map.removeSource("meteors-streaks");
+      } catch {}
+      setStatus("meteors", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("meteors", "loading");
+    let stop = false;
+    let detach = () => {};
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/meteors");
+        const d = await r.json();
+        if (stop) return;
+        const events: any[] = d.events || [];
+        const pts = {
+          type: "FeatureCollection",
+          features: events.map((ev: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [ev.lo, ev.la] },
+            properties: {
+              t: ev.t, date: ev.date, e: ev.e, imp: ev.imp, alt: ev.alt,
+              vel: ev.vel, hdg: ev.hdg, la: ev.la, lo: ev.lo,
+              color: meteorSeverity(ev.imp).color,
+              size: meteorIconSize(ev.e),
+            },
+          })),
+        };
+        const streaks = {
+          type: "FeatureCollection",
+          features: events.flatMap((ev: any) => {
+            const line = meteorStreak(ev.la, ev.lo, ev.hdg, ev.vel);
+            return line ? [{
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: line },
+              properties: { color: meteorSeverity(ev.imp).color },
+            }] : [];
+          }),
+        };
+        const src: any = map.getSource("meteors");
+        if (src) {
+          src.setData(pts as any);
+          (map.getSource("meteors-streaks") as any)?.setData(streaks as any);
+        } else {
+          map.addSource("meteors-streaks", { type: "geojson", data: streaks as any });
+          map.addLayer({
+            id: "meteors-streaks", type: "line", source: "meteors-streaks",
+            paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.5 },
+          });
+          map.addSource("meteors", { type: "geojson", data: pts as any });
+          map.addLayer({
+            id: "meteors-sym", type: "symbol", source: "meteors",
+            layout: {
+              "icon-image": "vt-meteor",
+              "icon-size": ["get", "size"],
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-color": ["get", "color"], "icon-opacity": 0.92 },
+          });
+          detach = attachLayerInteractions(map, "meteors-sym", (e: any) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const p = f.properties;
+            const tSec = Number(p.t);
+            const dt = new Date(tSec * 1000);
+            const yourTime = dt.toLocaleString(undefined, {
+              month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+            });
+            const site = siteLocalTime(tSec, Number(p.la), Number(p.lo));
+            const altKm = p.alt != null && p.alt !== "null" ? Number(p.alt) : null;
+            const velKms = p.vel != null && p.vel !== "null" ? Number(p.vel) : null;
+            const hdg = p.hdg != null && p.hdg !== "null" ? Number(p.hdg) : null;
+            const imp = Number(p.imp);
+            const sys = getUnits();
+            const verdict = meteorCoverageVerdict(tSec, Number(p.la), Number(p.lo));
+            setDetail({
+              kind: "meteor",
+              title: `Meteor blast · ${String(p.date).slice(0, 10)}`,
+              subtitle: `Your time: ${yourTime} (${String(p.date).slice(11, 16)} UTC` +
+                        `${site ? ` · ${site} at the site` : ""})`,
+              // short labels + compact values (2026-08-13: the long forms
+              // truncated to "106299…" in the chip row); "—" = not published
+              stats: [
+                { label: "Blast", value: `${imp} kt` },
+                { label: "Altitude", value: fmtBlastAlt(altKm, sys) },
+                { label: "Speed", value: fmtEntrySpeed(velKms, sys) },
+                { label: "Heading", value: hdg != null ? `${Math.round(hdg)}° ${compassPoint(hdg)}` : "—" },
+              ],
+              sourceTag: "NASA/JPL CNEOS",
+              body: `${verdict.label}\n\n` +
+                    `Flash energy ${p.e} × 10¹⁰ J · blast ≈ ${(imp / 15 * 100).toFixed(0)}% of Hiroshima. ` +
+                    `A bolide — a large meteor that exploded in the atmosphere — detected by US Government ` +
+                    `sensors, published by NASA/JPL after the fact. "—" = not published by NASA, never invented.\n\n` +
+                    `Coverage links are searches and report browsers, not curated stories.`,
+              links: meteorCoverageLinks(String(p.date), Number(p.la), Number(p.lo)),
+              dossierKey: `meteor:${p.date}:${Date.now()}`,
+            });
+          });
+        }
+        setStatus("meteors", "active", pts.features.length,
+          `NASA/JPL CNEOS · ${pts.features.length} blasts · ${streaks.features.length} with direction · self-archived`);
+      } catch {
+        if (!stop) setStatus("meteors", "error");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 10 * 60_000);
+    return () => { stop = true; window.clearInterval(iv); detach(); };
+  }, [enabled.meteors, mapReady, setStatus]);
+
   // ── USGS volcano alert levels (RAW; elevated volcanoes only, coordinates
   // joined live from the Smithsonian GVP database — see server/
   // usgsVolcanoes.ts). Off by default (reference layer; initial-load
@@ -11763,6 +12110,58 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.midas, mapSettled, setStatus]);
 
+  // ── SEC CNS fails-to-deliver (RAW; non-geospatial — same inline-panel-
+  // row + full-view pattern as ats_summary/midas). Server refreshes on a
+  // 12h poll (half-month cadence source), so this poll only refreshes the
+  // panel's row-count badge, same 300s convention as the sibling filings
+  // layers. ──
+  useEffect(() => {
+    if (!enabled.secftd) { setStatus("secftd", "off"); return; }
+    if (!mapSettled) { setStatus("secftd", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("secftd", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/ftd");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("secftd", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("secftd", "active", d.summary?.top_fails?.length);
+      } catch {
+        if (!stop) setStatus("secftd", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.secftd, mapSettled, setStatus]);
+
+  // ── CFTC Traders in Financial Futures (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as cot/secftd). Server refreshes
+  // on a 12h poll (weekly report cadence), so this poll only refreshes the
+  // panel's market-count badge, same 300s convention as the sibling
+  // filings layers. ──
+  useEffect(() => {
+    if (!enabled.tff) { setStatus("tff", "off"); return; }
+    if (!mapSettled) { setStatus("tff", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("tff", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/tff");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("tff", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("tff", "active", d.count);
+      } catch {
+        if (!stop) setStatus("tff", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.tff, mapSettled, setStatus]);
+
   // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as insider/earnings/shortvol).
   // BUILD ORDER 5 #3 pipeline shipped API-only 2026-07-05; this is its
@@ -11883,6 +12282,8 @@ export default function DataMapPage() {
     id === "shortvol" ? <TrendingUp size={15} /> :
     id === "ats_summary" ? <Landmark size={15} /> :
     id === "midas" ? <Radar size={15} /> :
+    id === "secftd" ? <TrendingDown size={15} /> :
+    id === "tff" ? <Scale size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -11899,7 +12300,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "tff" ? "markets" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12002,6 +12403,18 @@ export default function DataMapPage() {
         )}
         {l.id === "aircraft" && on && (
           <TrackedPlanesPanel onOpen={openWatchedCb} />
+        )}
+        {l.id === "aircraft" && on && (
+          // GNSS integrity anomaly — a SIGNAL derived from this RAW layer's
+          // own archive (gate 2 passed, gate 1 partial), same "doesn't
+          // belong in a layer-toggle sidebar" pattern as methane_plumes/
+          // nrc_reactor_status below.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/gnss-integrity"; setGnssIntegrityOpen(true); }}>
+              Open GNSS integrity signal — Baltic GPS-jamming discrimination →
+            </button>
+          </div>
         )}
         {l.id === "terrain" && on && (
           <div className="vt-field-controls" role="group" aria-label="Terrain relief controls">
@@ -12311,6 +12724,27 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "secftd" && on && (
+          // Same pattern as insider/earnings/shortvol/ats_summary/midas: a
+          // per-ticker fail-balance leaderboard doesn't belong in a
+          // layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/ftd"; setSecFtdOpen(true); }}>
+              Open fails-to-deliver view — top fail balances →
+            </button>
+          </div>
+        )}
+        {l.id === "tff" && on && (
+          // Same pattern as cot/secftd: a per-market positioning table
+          // doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/tff"; setTffOpen(true); }}>
+              Open financial futures positioning view — ranked panel →
+            </button>
+          </div>
+        )}
         {l.id === "attention" && on && (
           // Same pattern as insider/earnings/shortvol: a ticker search +
           // trend table doesn't belong in a layer-toggle sidebar.
@@ -12478,6 +12912,18 @@ export default function DataMapPage() {
       )}
       {midasOpen && (
         <MidasView onBack={() => { window.location.hash = "#/data"; setMidasOpen(false); }} />
+      )}
+      {gnssIntegrityOpen && (
+        <GnssIntegritySignalView onBack={() => { window.location.hash = "#/data"; setGnssIntegrityOpen(false); }} />
+      )}
+      {euPowerOpen && (
+        <EuPowerView onBack={() => { window.location.hash = "#/data"; setEuPowerOpen(false); }} />
+      )}
+      {secFtdOpen && (
+        <SecFtdView onBack={() => { window.location.hash = "#/data"; setSecFtdOpen(false); }} />
+      )}
+      {tffOpen && (
+        <TffView onBack={() => { window.location.hash = "#/data"; setTffOpen(false); }} />
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />
@@ -13060,6 +13506,15 @@ export default function DataMapPage() {
               <Euro size={13} /> European macro cluster
               <span className="vt-streams-launch-sub">EUR/USD, €STR, ECB balance sheet, EA20 IP, Bund 10Y · RAW</span>
             </button>
+            {/* EU power markets launcher (2026-08-16): ENTSO-E load/
+                generation-mix/day-ahead-price across 8 bidding zones, not a
+                spatial layer, so it launches from the panel top like the
+                other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-eupower-launch
+                    onClick={() => { window.location.hash = "#/data/eu-power"; setEuPowerOpen(true); }}>
+              <Plug size={13} /> EU power markets (ENTSO-E)
+              <span className="vt-streams-launch-sub">load, generation mix, day-ahead price · 8 bidding zones · RAW</span>
+            </button>
             {/* Institutional 13F-HR holdings launcher (2026-08-08): manager
                 filings aren't a spatial layer, so it launches from the
                 panel top like the other page-wide dashboards above. */}
@@ -13107,7 +13562,7 @@ export default function DataMapPage() {
                   {/* reference "N/7 ON" family: our five SPACE FRAME handle
                       toggles (orbits · trails · galaxy · grid · labels) —
                       rotation + time are the sim clock, sats a separate layer */}
-                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock, celApollo].filter(Boolean).length}/7 ON
+                  {[celOrbits, celTrails, celGalaxy, celGrid, celLabels, celLock, celApollo, celRealistic].filter(Boolean).length}/8 ON
                   {" · "}{isTrueScale(celScale) ? "TRUE 1:1" : "compressed"}
                 </span>
               </button>
@@ -13202,11 +13657,26 @@ export default function DataMapPage() {
                       status: celOrbits
                         ? "on — full ellipses Mercury–Neptune + 9 moons, real ephemeris"
                         : "off — orbit ellipses hidden" },
-                    { key: "apollo", name: "Apollo sites", icon: <Flag size={15} />,
+                    { key: "apollo", name: "Lunar surface missions", icon: <Flag size={15} />,
                       on: celApollo, toggle: () => setApolloSitesPref(!celApollo),
                       status: celApollo
-                        ? `on — 6 flag markers at the published NASA landing coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view (${APOLLO_NEAR_SIDE_ONLY_NOTE})`
-                        : "off — Apollo flag markers hidden" },
+                        ? `on — ${LUNAR_SITES.length} sites, 1959–2025 (Apollo · Luna/Lunokhod · Surveyor · Chang'e · Chandrayaan-3 · SLIM · commercial landers · deliberate impacts) at published coordinates; click one for the mission card + fly-to. Visible only when the Moon fills enough of the view — ${LUNAR_SIDE_NOTE}`
+                        : "off — lunar mission markers hidden" },
+                    // B6 REALISTIC LIGHTING (2026-08-13 report: "i want this
+                    // feature to work on all planets... the missions are on the
+                    // dark side and you would not be able to see them, that's
+                    // why i want a toggle"). The Earth-map "Day/Night & Moon"
+                    // layer only shades the FLAT MAP; the space view's bodies
+                    // are lit by the B6 sun-driven model, whose pref+handle
+                    // existed with no UI. This row is that switch — and unlike
+                    // the map layer it applies to the Moon, every planet and
+                    // the ring shadows, because that is what the pref already
+                    // drives (spaceFrame fullBright/lambert call sites).
+                    { key: "lighting", name: "Realistic lighting", icon: <SunMedium size={15} />,
+                      on: celRealistic, toggle: () => setRealisticLightingPref(!celRealistic),
+                      status: celRealistic
+                        ? "on — real sun-driven day/night on the Moon and every planet (terminators, phases, eclipse + ring shadows) from the sim-clock ephemeris"
+                        : "off — even-lit inspection mode: bodies render full-bright with no terminator, so night-side features (e.g. far-side + unlit landing sites) stay visible. Lighting geometry is hidden, not faked" },
                     { key: "trails", name: "Motion trails", icon: <Waypoints size={15} />,
                       on: celTrails, toggle: () => setMotionTrailsPref(!celTrails),
                       status: celTrails
@@ -13264,24 +13734,67 @@ export default function DataMapPage() {
                       something. data-vt-control, never data-vt-layer. */}
                   {celApollo && spaceActive && (
                     <div className="vt-field-controls" role="group"
-                         aria-label="Fly to an Apollo landing site" data-vt-control="celestial_apollo_sites">
-                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {APOLLO_SITES.map((site) => (
-                          <button
-                            key={site.id}
-                            className="vt-preset-pill"
-                            data-vt-apollo-flyto={site.id}
-                            aria-label={`Fly to the ${site.mission} landing site`}
-                            title={site.region}
-                            onClick={() => {
-                              try { spaceHandleRef.current?.flyToSite(site.id); } catch {}
-                            }}>
-                            ⚑ {site.mission.replace("Apollo ", "A")}
-                          </button>
-                        ))}
+                         aria-label="Fly to a lunar mission site" data-vt-control="celestial_apollo_sites">
+                      {/* 35 chips in one flat row is unusable, so they group by
+                          era (collapsed history first, Apollo always open).
+                          These chips are the ONLY way to reach the three
+                          far-side sites (Chang'e 4, Chang'e 6, LADEE) — a
+                          marker you cannot see cannot be clicked. */}
+                      {([
+                        { era: "Apollo (crewed)", test: (s: typeof LUNAR_SITES[number]) => s.kind === "crewed" },
+                        { era: "Soviet & Surveyor", test: (s: typeof LUNAR_SITES[number]) => (s.country === "USSR" || s.id.startsWith("surveyor")) },
+                        { era: "Modern 2013–2025", test: (s: typeof LUNAR_SITES[number]) => new Date(s.date_utc).getUTCFullYear() >= 2013 },
+                        { era: "Impacts", test: (s: typeof LUNAR_SITES[number]) => s.kind === "impactor" && s.country === "USA" },
+                      ]).map((grp) => {
+                        const sites = LUNAR_SITES.filter(grp.test);
+                        if (!sites.length) return null;
+                        return (
+                          <span key={grp.era} style={{ display: "block", marginBottom: 6 }}>
+                            <span className="vt-card-fact-l" style={{ display: "block", marginBottom: 3 }}>{grp.era}</span>
+                            <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {sites.map((site) => (
+                                <button
+                                  key={site.id}
+                                  className="vt-preset-pill"
+                                  data-vt-apollo-flyto={site.id}
+                                  aria-label={`Fly to the ${site.mission} site`}
+                                  title={`${site.region} — ${OUTCOME_LABEL[site.outcome]}`}
+                                  style={{ borderColor: countryColor(site.country) }}
+                                  onClick={() => {
+                                    try { spaceHandleRef.current?.flyToSite(site.id); } catch {}
+                                  }}>
+                                  {site.mission.replace("Apollo ", "A")}{site.near_side ? "" : " · FAR"}
+                                </button>
+                              ))}
+                            </span>
+                          </span>
+                        );
+                      })}
+                      <span className="vt-field-note">
+                        Click a mission to fly to its site — {LUNAR_SIDE_NOTE}.
+                      </span>
+                      {/* LEGEND rendered from the SAME glyph function the map
+                          draws with (SYMBOLS NOT DOTS: every symbol gets a key) */}
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 10, margin: "6px 0 2px" }}>
+                        {LEGEND_KINDS.map((lk) => {
+                          const url = siteGlyphDataURL({ kind: lk.kind, outcome: "landed", country: "USA" });
+                          return (
+                            <span key={lk.kind} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--text-tertiary)" }}>
+                              {url ? <img src={url} width={16} height={16} alt="" aria-hidden /> : null}
+                              {lk.label}
+                            </span>
+                          );
+                        })}
                       </span>
                       <span className="vt-field-note">
-                        Click a mission to fly to its landing site — {APOLLO_NEAR_SIDE_ONLY_NOTE}.
+                        Shape = mission type · colour = country (
+                        {["USA", "USSR", "China", "India", "Japan", "Israel"].map((c, i) => (
+                          <span key={c}>{i ? " · " : ""}<span style={{ color: countryColor(c) }}>{c}</span></span>
+                        ))}
+                        ) · struck through = crashed · dashed ring = position never surveyed.
+                      </span>
+                      <span className="vt-field-note">
+                        {LUNAR_COVERAGE_NOTE}
                       </span>
                       <span className="vt-field-note">
                         {APOLLO_IMAGERY_NOTE}
@@ -13389,23 +13902,40 @@ export default function DataMapPage() {
               const orphans = layers.filter((l) => !known.has(groupOf(l)));
               return orphans.length ? renderPanelGroup("_more", "More", orphans) : null;
             })()}
-            <LegendPanel
-              legendOpen={legendOpen} setLegendOpen={setLegendOpen}
-              enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
-              nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
-              vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
-              no2Date={no2Date} so2Date={so2Date} floodsDate={floodsDate} firetempScanTime={firetempScanTime}
-              tempUnitF={tempUnitF} windArrows={windArrows}
-              orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
-              satGroup={satGroup} satGroupCount={satGroupCount}
-              satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
-              applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
-              onFindSat={findSat} seafloorConfShares={seafloorConfShares}
-              wlTick={wlTick} onFindPlane={findPlaneCb} onOpenWatched={openWatchedCb}
-            />
           </div>
         )}
       </div>
+
+      {/* FLOATING LEGEND (human 2026-08-13: "the legend it hard to find if
+          you have many layers on … the render was easy to understand and
+          looked better") — the ONE legend now floats ON the map like the
+          approved mock: draggable by its grip bar (panelLayout — spot
+          remembered), collapsible to its LEGEND chip via the existing
+          head button (state persisted), body scrolls internally when many
+          layers are on. Same LegendPanel component, same icon source; the
+          buried panel copy is gone. Hidden in space view (map-scoped). */}
+      {mapReady && !spaceActive && (
+        <div ref={legendFloatRef} className="vt-legend-float" data-vt-legend-float>
+          <div className="vt-legend-float-bar" {...legendDrag}
+               title="Drag to move — double-click to reset">
+            <span className="vt-legend-float-dots">⠿</span>
+          </div>
+          <LegendPanel
+            legendOpen={legendOpen} setLegendOpen={setLegendOpenPersist}
+            enabled={enabled} airFilter={airFilter} setAirFilter={setAirFilter}
+            nightlightsDate={nightlightsDate} aerosolDate={aerosolDate}
+            vegetationDate={vegetationDate} soilmoistureDate={soilmoistureDate}
+            no2Date={no2Date} so2Date={so2Date} floodsDate={floodsDate} firetempScanTime={firetempScanTime}
+            tempUnitF={tempUnitF} windArrows={windArrows}
+            orbitalGpRef={orbitalGpRef} gpVersion={gpVersion}
+            satGroup={satGroup} satGroupCount={satGroupCount}
+            satGroupOrbits={satGroupOrbits} satArcInfo={satArcInfo}
+            applySatGroup={applySatGroup} setSatGroupOrbits={setSatGroupOrbits}
+            onFindSat={findSat} seafloorConfShares={seafloorConfShares}
+            wlTick={wlTick} onFindPlane={findPlaneCb} onOpenWatched={openWatchedCb}
+          />
+        </div>
+      )}
 
       {/* SPACE VIEW body info card (reference #bodycard, 2026-07-18):
           opens on fly-to, closes on release/fly-home/exit. Real IAU +
@@ -13467,15 +13997,25 @@ export default function DataMapPage() {
           Facts are published NASA mission records; the imagery note states
           exactly what our streamed mosaic can and cannot resolve. */}
       {spaceActive && spaceSite && (() => {
-        const site = APOLLO_SITES.find((s) => s.id === spaceSite);
+        const site = LUNAR_SITES.find((s) => s.id === spaceSite);
         if (!site) return null;
         return (
           <div className="vt-site-card vt-space-card" role="dialog"
                aria-label={`${site.mission} landing site`} data-vt-apollo-card>
             <div className="vt-site-card-head">
               <div style={{ flex: "1 1 auto", minWidth: 132 }}>
-                <div className="vt-site-card-title">⚑ {site.mission}</div>
-                <div className="vt-site-card-cat">{site.region} · LANDED {site.landed_utc}</div>
+                <div className="vt-site-card-title">
+                  <span style={{ color: countryColor(site.country) }} aria-hidden>◆</span> {site.mission}
+                </div>
+                <div className="vt-site-card-cat">
+                  {site.region} ·{" "}
+                  {site.outcome === "crashed" ? "CRASHED"
+                    : site.outcome === "impact_intentional" ? "IMPACT"
+                      : site.outcome === "partial" ? "LANDED (tipped over)" : "LANDED"}{" "}
+                  {/* date_is_day_only: LADEE's impact time was never published —
+                      render the date alone rather than invent a timestamp */}
+                  {site.date_is_day_only ? site.date_utc : site.date_utc.slice(0, 10)}
+                </div>
               </div>
               <div className="vt-card-head-actions">
                 <button className="vt-icon-btn" aria-label="Close site card"
@@ -13486,20 +14026,68 @@ export default function DataMapPage() {
             </div>
             <div className="vt-card-detbody om-sb">
               <div className="vt-card-facts">
-                <div className="vt-card-fact"><div className="vt-card-fact-l">Moonwalkers</div><div className="vt-card-fact-v">{site.crew_surface.join(" · ")}</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">In orbit (CMP)</div><div className="vt-card-fact-v">{site.cmp}</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">EVAs</div><div className="vt-card-fact-v">{site.evas} · {site.eva_hours.toFixed(1)} h total</div></div>
-                <div className="vt-card-fact"><div className="vt-card-fact-l">Farthest from LM</div><div className="vt-card-fact-v">{fmtKm(site.max_eva_km)}{site.rover ? " (by rover)" : " (on foot)"}</div></div>
+                {/* CREWED sites keep the moonwalker facts; every other kind
+                    would render them as blanks, so those cards show the
+                    operator/outcome instead (34 of 35 sites are not Apollo). */}
+                {site.crew ? (
+                  <>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Moonwalkers</div><div className="vt-card-fact-v">{site.crew.surface.join(" · ")}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">In orbit (CMP)</div><div className="vt-card-fact-v">{site.crew.cmp}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">EVAs</div><div className="vt-card-fact-v">{site.crew.evas} · {site.crew.eva_hours.toFixed(1)} h total</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Farthest from LM</div><div className="vt-card-fact-v">{fmtKm(site.crew.max_eva_km)}{site.crew.rover ? " (by rover)" : " (on foot)"}</div></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Operator</div><div className="vt-card-fact-v">{site.agency}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Country</div><div className="vt-card-fact-v">{site.country}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Type</div><div className="vt-card-fact-v">{KIND_LABEL[site.kind]}{site.rover_name ? ` · ${site.rover_name}` : ""}</div></div>
+                    <div className="vt-card-fact"><div className="vt-card-fact-l">Outcome</div><div className="vt-card-fact-v">{OUTCOME_LABEL[site.outcome]}</div></div>
+                  </>
+                )}
                 <div className="vt-card-fact"><div className="vt-card-fact-l">Coordinates</div><div className="vt-card-fact-v">{site.lat.toFixed(4)}°, {site.lon.toFixed(4)}°E</div></div>
+                <div className="vt-card-fact">
+                  <div className="vt-card-fact-l">Hemisphere</div>
+                  <div className="vt-card-fact-v">{site.near_side ? "near side" : "FAR SIDE"}</div>
+                </div>
               </div>
-              <p style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)", margin: "8px 0 4px" }}>{site.note}</p>
-              <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: 0 }}>
-                {APOLLO_IMAGERY_NOTE} Max-EVA distance is the documented farthest point, not the traverse path — real digitized traverses are a filed follow-up.
+              {/* PROVENANCE ROW — every displayed number carries where it came
+                  from and how well it is known (PREMIUM EXPERIENCE STANDARD (c)). */}
+              <p style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-tertiary)", margin: "8px 0 2px" }}>
+                {site.coord_confidence === "surveyed_lro"
+                  ? `Position: hardware located in LRO/LROC imagery${site.uncertainty_m != null ? ` (±${site.uncertainty_m} m)` : ""}.`
+                  : site.coord_confidence === "published_precise"
+                    ? `Position: published${site.uncertainty_m != null ? ` with a stated ±${site.uncertainty_m} m` : ""} — not located in imagery.`
+                    : site.coord_confidence === "catalogued"
+                      ? "Position: mission-era tracking solution, kilometre-scale. This craft has never been found in imagery — the marker is a REPORTED position."
+                      : `Position: impact region only${site.uncertainty_deg != null ? `, ±~${site.uncertainty_deg}° (roughly ${Math.round(site.uncertainty_deg * 30)} km)` : ""} — the crater has never been located.`}
+                {site.attribution_certain === false
+                  ? " The identification of this feature with this mission is LIKELY, not proven."
+                  : ""}
               </p>
-              <a href={lrocFeaturedUrl(site.id)} target="_blank" rel="noreferrer"
+              <p style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)", margin: "6px 0 4px" }}>{site.note}</p>
+              <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: 0 }}>
+                {/* only the six Apollo ids have a NAC strip — nothing else may
+                    imply ~0.5 m/px detail we do not stream for it */}
+                {APOLLO_SITE_IDS.includes(site.id as any) ? APOLLO_IMAGERY_NOTE : NON_APOLLO_IMAGERY_NOTE}
+                {site.crew ? " Farthest-from-LM is the documented farthest point, never a path length." : ""}
+              </p>
+              {site.hardware && site.hardware.length > 0 && (
+                <p style={{ fontSize: 10, lineHeight: 1.4, color: "var(--text-tertiary)", margin: "6px 0 0" }}>
+                  Also surveyed here: {site.hardware.map((hw) =>
+                    `${hw.label} ${hw.lat.toFixed(4)}°, ${hw.lon.toFixed(4)}°E${hw.uncertainty_m != null ? ` (±${hw.uncertainty_m} m)` : ""}`).join(" · ")}.
+                  {" "}Separate surveyed points — no route is drawn between them.
+                </p>
+              )}
+              <a href={site.source_url} target="_blank" rel="noreferrer"
                  style={{ fontSize: 10.5, display: "inline-block", marginTop: 6 }}>
-                LROC NAC imagery of this site (hardware + tracks visible) ↗
+                Source for this coordinate ↗
               </a>
+              {APOLLO_SITE_IDS.includes(site.id as any) && (
+                <a href={lrocFeaturedUrl(site.id)} target="_blank" rel="noreferrer"
+                   style={{ fontSize: 10.5, display: "block", marginTop: 4 }}>
+                  LROC NAC imagery of this site (hardware + tracks visible) ↗
+                </a>
+              )}
             </div>
           </div>
         );

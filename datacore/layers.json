@@ -3124,6 +3124,28 @@
       "field": false
     },
     {
+      "id": "submarine_cables",
+      "name": "Submarine telecom cables",
+      "kind": "raw",
+      "status": "live",
+      "group": "facilities",
+      "costTier": "light",
+      "source": "OpenStreetMap seamark:type=cable_submarine (© OpenStreetMap contributors, ODbL), compiled by scripts/submarine_cables_build.py — NOT NOAA MarineCadastre (its InPort lineage carries non-public-domain private-sector contributions)",
+      "description": "7,464 submarine telecommunications cable segments worldwide (~267,700 km mapped), from OpenStreetMap's seamark:type=cable_submarine tag — the same nautical-chart tag used for both telecom and power interconnectors, so any way ALSO carrying a power tag (1,224 excluded) is dropped as a power cable, not telecom. Disused/retired systems render dashed, never hidden. Click a cable for its name/operator where OSM has mapped one (467 named systems: CANTAT-3, TAT-8, Atlantic Crossing…). HONEST COVERAGE CAVEAT: OSM's cable mapping is heavily skewed to Europe/NE-Atlantic — Asia, Africa, South America and the Pacific will render sparse. That sparseness is OSM mapping completeness, not an absence of cables (TeleGeography's public map cites over 1.5 million km of cable in service globally, so this layer covers roughly a fifth of the real global network). RAW overlay, no predictive claim, no ladder gating.",
+      "field": false,
+      "altitudeRef": "surface",
+      "time": {
+        "mode": "static"
+      },
+      "renderKind": "vector",
+      "provenance": {
+        "license": "OpenStreetMap ODbL (attribution required)",
+        "commercialOk": true,
+        "coverage": "global, skewed heavily to Europe/NE-Atlantic per OSM mapping completeness — not a claim of where cables physically exist",
+        "confidence": "verified"
+      }
+    },
+    {
       "id": "insider",
       "name": "Insider transactions (Form 4)",
       "kind": "raw",
@@ -3174,6 +3196,16 @@
       "description": "SEC-published per-(date, ticker) lit/hidden/odd-lot/cancel-to-trade metrics; rank scale differs by kind (Stock deciles, ETF quartiles, never comparable). As-is display of a small-cap watchlist ranked by SEC's own cancel-to-trade ratio — a candidate HFT-colonization filter is an open [RESEARCH] hypothesis (gate-2 unattempted), not yet surfaced as a signal."
     },
     {
+      "id": "secftd",
+      "name": "Fails-to-deliver (SEC CNS)",
+      "kind": "raw",
+      "status": "live",
+      "group": "filings",
+      "costTier": "light",
+      "source": "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)",
+      "description": "Trailer-checksummed aggregate net fail BALANCES per settlement date (a level, not a daily flow), published on a 2.5-4.5 week lag. As-is display of SEC's own top fail balances above a stated floor — raw FTD spikes alone are a crowded signal; the settlement-stress composite (threshold persistence x FTD x short volume) is the gated hypothesis this feeds, not yet surfaced as a signal itself."
+    },
+    {
       "id": "attention",
       "name": "Attention proxy (Wikipedia pageviews)",
       "kind": "raw",
@@ -3192,6 +3224,16 @@
       "costTier": "light",
       "source": "CFTC Public Reporting Socrata API, disaggregated futures-only (no API key required)",
       "description": "Weekly futures-only positioning by trader category (producer/merchant, swap dealer, managed money, other reportables), ~274 markets. As-is display: a market search + per-market managed-money net-position history + today's ranked panel by |net % of open interest|; positioning-extremes-mean-revert is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
+    },
+    {
+      "id": "tff",
+      "name": "Traders in Financial Futures (CFTC, futures-only)",
+      "kind": "raw",
+      "status": "live",
+      "group": "filings",
+      "costTier": "light",
+      "source": "CFTC Public Reporting Socrata API, futures-only (no API key required, keyless sibling of the disaggregated COT stream)",
+      "description": "Weekly financial-futures positioning by trader category (dealer/intermediary, asset manager, leveraged money, other reportables) — ES/NQ/rates/FX-class markets. As-is display: today's ranked panel by |leveraged-money net % of open interest|, with dealer net shown alongside. Leveraged-money-extremes-mean-revert (dealer as the informed side) is an open gate-2 hypothesis, gated on trailing archive depth (no /history endpoint yet), not yet surfaced as a signal."
     },
     {
       "id": "shadowstats",
@@ -3407,6 +3449,17 @@
       "costTier": "moderate",
       "source": "NOAA Space Weather Prediction Center (public domain)",
       "description": "Aurora oval (OVATION Prime MODEL FORECAST, labeled as forecast) + observed planetary Kp, R/S/G storm scales, solar-wind summary, and GOES X-ray flare class (NOAA's own A/B/C/M/X formula), ~10-min refresh. Observed vs forecast carried per row, never blended; the grid/utility hypothesis is validation-gated."
+    },
+    {
+      "id": "meteors",
+      "name": "Large meteors (NASA)",
+      "kind": "raw",
+      "status": "live",
+      "group": "environmental",
+      "costTier": "light",
+      "description": "Big meteors that exploded in the atmosphere (bolides), detected by US Government sensors and published by NASA/JPL CNEOS after the fact — a few dozen per year worldwide. Symbol = blast; color = blast energy (kt TNT); streak = direction of travel, drawn only for events where NASA publishes the velocity vector. Events accumulate in our archive; ~6h refresh.",
+      "source": "NASA/JPL CNEOS fireball API (US Government sensors) — public domain, self-archived",
+      "field": false
     },
     {
       "id": "earthquakes",
