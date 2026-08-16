@@ -101,6 +101,10 @@ const PAGES = {
   // page (2026-08-16) — same Phase 5 ratchet rule as streams/nrcreactorstatus
   // above.
   gnssintegrity: { route: "/app#/data/gnss-integrity", map: false },
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price, 8
+  // bidding zones (2026-08-16) — same Phase 5 ratchet rule as
+  // streams/gnssintegrity above.
+  eupower: { route: "/app#/data/eu-power", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -521,6 +525,59 @@ const FIXTURES = {
         latest: { d: "2026-08-06", v: 2.42 }, prev: { d: "2026-08-05", v: 2.4 },
         history: [{ d: "2026-08-04", v: 2.38 }, { d: "2026-08-05", v: 2.4 }, { d: "2026-08-06", v: 2.42 }] },
     ],
+  },
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price, 8
+  // bidding zones (2026-08-16, RAW display, euPower.tsx). Fixture covers 2
+  // zones so the harness exercises the tile grid, the genmix zone picker,
+  // and a negative-price point.
+  "/api/data/eu-load": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (actual total load, A65/A16) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 2,
+    note: "realised total load in MW per bidding zone, ~1-2h publication lag (fixture).",
+    zones: [
+      { zone: "DE_LU", latest_ts: "2026-08-16T11:00", latest_mw: 58210, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 51200, window_max_mw: 61840, window_mean_mw: 56430 },
+      { zone: "FR", latest_ts: "2026-08-16T11:00", latest_mw: 47120, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 41300, window_max_mw: 52900, window_mean_mw: 46810 },
+    ],
+    issues: {},
+  },
+  "/api/data/eu-generation-mix": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (actual generation per type, A75/A16) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 4,
+    note: "realised generation in MW per bidding zone x fuel/technology type (fixture).",
+    zones: [
+      { zone: "DE_LU", psr: "B16", psr_name: "Solar", latest_ts: "2026-08-16T11:00", latest_mw: 18400, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 0, window_max_mw: 24100, window_mean_mw: 9800 },
+      { zone: "DE_LU", psr: "B19", psr_name: "Wind Onshore", latest_ts: "2026-08-16T11:00", latest_mw: 12100, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 3200, window_max_mw: 19800, window_mean_mw: 11400 },
+      { zone: "FR", psr: "B14", psr_name: "Nuclear", latest_ts: "2026-08-16T11:00", latest_mw: 31200, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 29800, window_max_mw: 32100, window_mean_mw: 30900 },
+      { zone: "FR", psr: "B12", psr_name: "Hydro Water Reservoir", latest_ts: "2026-08-16T11:00", latest_mw: 4100, resolution: "PT15M", points_in_window: 192,
+        window_min_mw: 1800, window_max_mw: 6200, window_mean_mw: 3900 },
+    ],
+    issues: {},
+  },
+  "/api/data/eu-day-ahead-prices": {
+    kind: "raw",
+    source: "ENTSO-E Transparency Platform (day-ahead auction clearing price, A44) (fixture)",
+    attribution: "ENTSO-E Transparency Platform",
+    time: "2026-08-16T12:00",
+    count: 2,
+    note: "day-ahead auction clearing price per bidding zone, currency/unit as published; negative prices are real (fixture).",
+    zones: [
+      { zone: "DE_LU", latest_ts: "2026-08-16T13:00", latest_price: 62.4, currency: "EUR", unit: "MWH", resolution: "PT60M",
+        points_in_window: 72, window_min_price: -8.2, window_max_price: 118.5, window_mean_price: 54.1, negative_price_points: 3 },
+      { zone: "FR", latest_ts: "2026-08-16T13:00", latest_price: 58.9, currency: "EUR", unit: "MWH", resolution: "PT60M",
+        points_in_window: 72, window_min_price: 12.1, window_max_price: 104.2, window_mean_price: 51.7, negative_price_points: 0 },
+    ],
+    issues: {},
   },
   // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
   // display). Fixture covers one series per category so the harness

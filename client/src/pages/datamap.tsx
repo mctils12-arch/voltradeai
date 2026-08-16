@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -43,6 +43,7 @@ import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
 import NrcReactorStatusView from "./nrcReactorStatus";
 import GnssIntegritySignalView from "./gnssIntegritySignal";
+import EuPowerView from "./euPower";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2791,6 +2792,12 @@ export default function DataMapPage() {
   // gnss_integrity_adsb, gate2_pass). Same overlay pattern as
   // midas/methaneHotspots above.
   const [gnssIntegrityOpen, setGnssIntegrityOpen] = useState(() => window.location.hash === "#/data/gnss-integrity");
+  // EU power markets — ENTSO-E load/generation-mix/day-ahead-price
+  // (#/data/eu-power) — three RAW pipelines (euLoad gate1_pass 2026-07-07,
+  // euGenerationMix 2026-07-21, euDayAheadPrices 2026-07-27) shipped
+  // API-only with no client view until now; same overlay pattern as
+  // eu-macro/fred-macro above.
+  const [euPowerOpen, setEuPowerOpen] = useState(() => window.location.hash === "#/data/eu-power");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3115,6 +3122,7 @@ export default function DataMapPage() {
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
       setGnssIntegrityOpen(window.location.hash === "#/data/gnss-integrity");
+      setEuPowerOpen(window.location.hash === "#/data/eu-power");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -12654,6 +12662,9 @@ export default function DataMapPage() {
       {gnssIntegrityOpen && (
         <GnssIntegritySignalView onBack={() => { window.location.hash = "#/data"; setGnssIntegrityOpen(false); }} />
       )}
+      {euPowerOpen && (
+        <EuPowerView onBack={() => { window.location.hash = "#/data"; setEuPowerOpen(false); }} />
+      )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />
       )}
@@ -13234,6 +13245,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/eu-macro"; setEuMacroOpen(true); }}>
               <Euro size={13} /> European macro cluster
               <span className="vt-streams-launch-sub">EUR/USD, €STR, ECB balance sheet, EA20 IP, Bund 10Y · RAW</span>
+            </button>
+            {/* EU power markets launcher (2026-08-16): ENTSO-E load/
+                generation-mix/day-ahead-price across 8 bidding zones, not a
+                spatial layer, so it launches from the panel top like the
+                other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-eupower-launch
+                    onClick={() => { window.location.hash = "#/data/eu-power"; setEuPowerOpen(true); }}>
+              <Plug size={13} /> EU power markets (ENTSO-E)
+              <span className="vt-streams-launch-sub">load, generation mix, day-ahead price · 8 bidding zones · RAW</span>
             </button>
             {/* Institutional 13F-HR holdings launcher (2026-08-08): manager
                 filings aren't a spatial layer, so it launches from the
