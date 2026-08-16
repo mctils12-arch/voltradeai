@@ -641,6 +641,14 @@ data); full-state discovery sweeps use the same account later.
     route's `issues` field post-deploy. **Wishlist 9c's three-part
     ENTSO-E follow-up list (load/generation-mix/day-ahead-prices) is
     now fully closed** — no more open items under 9c.
+    CLIENT VIEW SHIPPED 2026-08-16 (v1.0.729, scheduled-routine PRODUCT
+    session, `client/src/pages/euPower.tsx`, `#/data/eu-power`) — all
+    three routes above had been API-only since 2026-07-27 with zero
+    client references (grep-confirmed); now have a tabbed
+    load/generation-mix/day-ahead-price view, same overlay pattern as
+    eu-macro/fred-macro. See experiments.md same date for the full build
+    log. This closes the "shipped-data-no-UI" gap for 9c entirely — no
+    remaining product-surface follow-up under this item.
 9d. **OpenAQ key (low priority)** — explore.openaq.org signup →
     OPENAQ_API_KEY; S3 bulk archive exists keyless so this can wait.
 

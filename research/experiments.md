@@ -3,6 +3,147 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-16 (scheduled-routine session #3, PRODUCT) [PRODUCT] — T-CLIENT (primary) — EU power markets (ENTSO-E load/generation-mix/day-ahead-price) get a live /data client view, closing a 3-pipeline shipped-data-no-UI gap (v1.0.729)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/euPower.tsx`; wiring
+in `client/src/pages/datamap.tsx` — icon import, state hook, hashchange
+listener, render block, launcher button; new fixtures + PAGES entry in
+`scripts/visual_check.mjs`) + SHARED last-and-minimal (`package.json`
+version bump only — no server route, no schema, no research/wishlist.md
+edit needed beyond this log entry). No datacore/ pipeline code touched:
+all three server routes (`server/euLoad.ts`, `server/euGenerationMix.ts`,
+`server/euDayAheadPrices.ts`) were already shipped and live; this is a
+pure client-surface build over existing, unmodified API contracts.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (data_census.md,
+the DATACORE MAXIMUS resume block in wishlist.md, tail of open_questions.md,
+recent experiments.md tail — including this same day's session #2 and the
+gnss_integrity_adsb PRODUCT entry above/below). Live `/api/health`: status
+ok, bot active, drawdownPct 0.0, alpaca ACTIVE, scanner 0
+consecutiveFailures, aircraft/vessels/trains feeds all dead:false — no
+LIVENESS ALARM. KNOWN BROKEN #30 (options-slot cross-cycle race) already
+closed 2026-08-15 (PR #850) and independently live-reverified by session
+#2 today; no other open KNOWN BROKEN item blocks or outranks product work.
+Loop-health: today's prior entries alone are PRODUCT/REPAIR/RESEARCH mixed,
+well under the 7/10 thrash bar — no meta-problem flag.
+
+PRIMARY-ACTION SELECTION: delegated a read-only reconnaissance subagent
+(this task's scale — data_census.md, the DATACORE MAXIMUS resume block,
+open_questions.md tail, experiments.md tail, datacore/ directory listing,
+client/src/pages/ + server/routes.ts cross-reference — exceeds what's
+worth spending primary-session context on directly) to find the single
+highest-value unclaimed action among this task's own named options
+(a)-(d), explicitly told NOT to default to the separate MASTER PROGRAM
+queue in `research/PROGRAM_STATE.md` (a tech-debt/rendering-law track,
+not datacore/`/data` product work, even though it shares this repo's
+research/ directory). It surfaced three ENTSO-E routes — `/api/data/
+eu-load` (gate1-equivalent RAW, shipped 2026-07-07), `/api/data/
+eu-generation-mix` (2026-07-21), `/api/data/eu-day-ahead-prices`
+(2026-07-27) — confirmed via grep to have zero references anywhere under
+`client/src/`, despite all three being fully live, key-gated, and already
+closed as pipelines in wishlist.md's own DATACORE MAXIMUS block ("wishlist
+9c's three-part ENTSO-E follow-up list is now fully closed"). This is the
+same "shipped-data-no-UI" gap the eu-macro/fred-macro/ats-summary/midas/
+nrc-reactor-status pages already closed for their own routes — Amendment
+5 priority 3 ("data products with clean licensing and API surfaces").
+Independently re-verified before building (own grep of `server/routes.ts`
+for the three route handlers, own read of `server/euLoad.ts`/
+`euGenerationMix.ts`/`euDayAheadPrices.ts` in full for their response
+shapes, own grep confirming zero client references) rather than trusting
+the subagent's report blindly, per READ BEFORE WRITE. Also confirmed
+`datacore/signal_ladder.json` still shows exactly one `gate2_pass` root
+(`gnss_integrity_adsb`, shipped by the immediately-prior PRODUCT session
+today) with no new gate-2 passes since — no signal-surfacing work is
+newly unblocked, so a RAW-overlay build was the correct-priority choice
+over a SIGNAL build today.
+
+READ BEFORE WRITE: read `client/src/pages/euMacro.tsx` and
+`atsSummary.tsx` in full as the closest precedents (tile-grid + tabbed-
+table RAW display patterns), and grepped `datamap.tsx` for the exact
+`gnssIntegrityOpen` wiring (the freshest instance of the pattern, shipped
+by this same day's earlier PRODUCT session) — icon import, `useState`
+hash-init, the `hashchange` listener array, the render block, and the
+panel-top launcher-button list — before adding a new entry in the same
+four places rather than inventing a different shape. Confirmed via
+`datacore/layers.json` grep that page-wide dashboard overlays (eu-macro,
+fred-macro, gnss-integrity, vix-term-structure, crop-conditions, …) are
+deliberately NOT registered there (that registry is spatial-layer-only) —
+so no layers.json entry was needed or added.
+
+WHAT SHIPPED:
+1. `client/src/pages/euPower.tsx` (new) — fetches all three ENTSO-E
+   routes in parallel on mount; a 3-way tab switcher (Actual load /
+   Generation mix / Day-ahead price) mirroring the `atsSummary.tsx` tab
+   precedent. Load and price tabs render an 8-zone tile grid (value,
+   as-of timestamp+resolution, window min-max-mean); price tiles also
+   surface `negative_price_points` when >0 (negative day-ahead prices are
+   real, per the route's own documented honesty note — never hidden or
+   clamped). Generation-mix tab adds a per-zone picker (fuel mix is a
+   zone×fuel matrix, not a flat per-zone series) showing a fuel/technology
+   breakdown table sorted by latest MW descending. Every tab surfaces its
+   own `issues` map (zones absent from the latest sweep, never silently
+   zero-filled) via a shared `IssuesNote` component. Honesty states
+   mirrored from the route contracts exactly: `enabled:false` (no
+   ENTSOE_API_KEY) shows the route's own `reason` string, `warming_up`
+   shows a cold-start message, and the empty state is distinct from both.
+   RAW display only — `kind:"raw"` on every response, no ladder gate
+   applies (no predictive claim, matching the route docstrings' own
+   framing of load/genmix/price as REGIME/market inputs, not signals).
+2. `client/src/pages/datamap.tsx` — `Plug` icon import; `euPowerOpen`
+   state (hash-init `#/data/eu-power`); hashchange listener entry; render
+   block entry; launcher button in the panel-top page-wide-dashboard list
+   (next to the eu-macro launcher, same visual grouping — EU-sourced
+   readings sit together).
+3. `scripts/visual_check.mjs` — `eupower` PAGES entry (`map:false`, same
+   Phase-5 ratchet rule as the sibling dashboard pages); fixtures for all
+   three `/api/data/eu-load`/`eu-generation-mix`/`eu-day-ahead-prices`
+   routes (2 zones each, chosen to exercise the tile grid, the genmix
+   zone picker, and one negative-price data point) so the harness
+   screenshot shows real-looking live content rather than the unmocked
+   `{}`-fallback empty state.
+4. `package.json` version bump only (1.0.728 → 1.0.729, read-and-
+   incremented at commit time per MERGE-ORDER PROTOCOL — confirmed via a
+   fresh `git fetch origin` immediately before committing that no other
+   session had merged and moved the number since session start).
+
+GATES: `bash scripts/tsc_ratchet.sh` → 12 errors (pin), TS2304 = 0,
+unchanged. `npm run build` clean (no new warnings beyond pre-existing
+ones — astronomy-engine default-export warning and the mapIcons dynamic/
+static dual-import notice, both pre-existing and unrelated). `node
+scripts/visual_check.mjs --page eupower` (all 3 canonical widths,
+390/768/1440) → 0 hard failures at every width; own-review of all three
+PNGs confirms the tile grid, tab switcher, and header render correctly
+and match the design system (screenshots: `.visual/eupower-{390,768,
+1440}.png`). Pre-existing warning classes only (touch-target <44px on
+shared chrome buttons already present on every other page; one "clipped
+control" sub-label warning on the new launcher's own button text at
+1440px, the same class already present on the pre-existing FRED launcher
+at 768px — not a new failure mode, a pre-existing soft-warning the
+harness already tolerates for sibling buttons). `bash
+scripts/counter_ratchet.sh` → 25/25 counters at or better than baseline
+(no `ts_any`/`boundary_any` increase — no `: any` used in the new file).
+`bash scripts/gated_tests.sh` GATE PASSED: server suite unchanged, client
+1017/1017 (97 files, includes the new import graph — no new test file
+added, matching the sibling pages' own convention of no per-page
+component test, verified by grep: none of euMacro.tsx/atsSummary.tsx/
+gnssIntegritySignal.tsx/fredMacro.tsx have one either), python 1354
+passed/1 skipped (after installing `requirements-dev.txt` in this sandbox,
+which had none of the repo's Python dev dependencies present at session
+start — same one-time gap noted by several prior sessions' logs, not a
+regression).
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published ENTSO-E
+figures, no predictive claim, no ladder gate applies (same standing rule
+as every other RAW `/data` page in this repo).
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated
+action completed within the session; no higher-priority queued item was
+skipped (the queue's one gate-2-ready item, GNSS integrity, was already
+claimed and shipped by the immediately-prior session today).
+
 ## 2026-08-16 (scheduled-routine session #2) [REPAIR] — SHARED (ci/*, research/wishlist.md) + T-DATACORE sliver (server/gridTilesCoverage.test.ts) — a stale doc nearly caused a ~12GB duplicate-build; de-quarantined the test that encoded the same stale premise instead (PR #856)
 
 TERRITORY: `ci/quarantine.txt`, `ci/quarantine_max.txt`, `ci/counter_baseline.txt`
