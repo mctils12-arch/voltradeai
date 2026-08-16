@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## AUDITS & DEBT REGISTER (live state per CLAUDE.md's AUDITS & DEBT
+section — "the register at the top of research/experiments.md"; update
+this block IN PLACE each time an audit runs, unlike the append-only log
+below it). Created 2026-08-16 (scheduled-routine [RULE-REVIEW] session):
+no such register actually existed at the top of this file before today —
+CLAUDE.md has required one since 2026-07-03, but sessions were
+reconstructing "next due" dates ad hoc from prose scattered across 20+
+log entries instead (see that day's session entry for the full finding).
+This is bookkeeping infrastructure the rule already mandates, not a rule
+change, so it is created directly rather than proposed in wishlist.md.
+
+| Audit | Cadence | Last run | Next due |
+|---|---|---|---|
+| STALENESS AUDIT | 30d | 2026-08-15 | 2026-09-14 |
+| CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
+| CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
+
+## 2026-08-16 (scheduled-routine session #6) [RULE-REVIEW] — SHARED (research/*) — SECOND-EVER CONSTITUTIONAL AUDIT (44 days overdue, deferred by four consecutive prior sessions' own NEXT notes): register created, 2 consolidation findings filed, no rule self-applied (v — docs-only, no bump)
+
+TERRITORY: SHARED (`research/experiments.md`, `research/wishlist.md`) —
+no `datacore/`, `client/src/`, or bot-logic file touched this session.
+
+SESSION-START CHECKS: CLAUDE.md read in full. Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`, `alpaca
+ACTIVE`, `scanner.consecutiveFailures:0`, all three feeds
+(`aircraft`/`vessels`/`trains`) `dead:false`, `silent_hours` ~0.27 —
+no LIVENESS ALARM. `research/open_questions.md` KNOWN BROKEN section
+walked: only #29 (MEDIUM, visibility-gap-only) and #20/#10 (RULE
+REVIEW-gated design/threshold judgment calls awaiting evidence) remain
+open; #30 was closed 2026-08-15 (structural fix, PR #850, independently
+re-verified by the 2026-08-15 STALENESS AUDIT session). None block or
+outrank this session's work.
+
+LOOP-HEALTH RATIO: last 10 real session-tag entries (skipping same-day
+ADDENDUM notes, which carry no tag of their own), newest first: [PRODUCT]
+TFF, [PRODUCT] FTD, [PRODUCT] EU power markets, [REPAIR] stale-doc
+dedup-build near-miss, [PRODUCT] FRED /api/v1 mirror, [PRODUCT] EU-macro
+/api/v1 mirror, [REPAIR] KNOWN BROKEN #30 structural fix, [PIPELINE]
+GNSS-integrity gate-2 re-confirm, [PRODUCT] TIME MACHINE vessels parity,
+[RULE-REVIEW] Q23 counter-baseline fix. Tally: 6 PRODUCT (counts as
+PIPELINE-equivalent per CLAUDE.md), 2 REPAIR, 1 PIPELINE, 1 RULE-REVIEW.
+2/10 REPAIR — well under the 7+ thrash-ratio alarm; no meta-problem
+override triggered. PROGRESS FLOOR: a PIPELINE/PRODUCT session shipped
+today (several, in fact) — no 14-day stall. STARVATION: every one of the
+last several session logs recorded "STARVED: no" — no 10-consecutive
+streak.
+
+PRIMARY-ACTION SELECTION: no live bug surfaced by `/api/health` (nothing
+to fix), no gate-2 experiment sitting matured-and-unjudged in
+`open_questions.md` beyond ones already explicitly gated on further time
+(`gnss_integrity_adsb`'s own NEXT note: re-verify durability as the
+archive deepens — only 1 day has passed since the last check, not a
+meaningful new data point yet; `cftcTff.ts`'s own hypothesis needs
+"several months" of trailing history per this same day's TFF session).
+Fell through to SESSION BUDGET fall-through tier 2 (research that
+terminates in filed artifacts) — its own text: "check the AUDITS & DEBT
+register first and run the most overdue audit." At LEAST FOUR consecutive
+prior sessions' own NEXT-notes (2026-08-15 finra retest, 2026-08-15
+GNSS-integrity, 2026-08-16 gnss_integrity_adsb /data surface, 2026-08-16
+TFF) explicitly named "check the CONSTITUTIONAL audit's last-run date" as
+deferred/not-checked-this-session — checked it directly this session by
+grepping the full log for every past `CONSTITUTIONAL AUDIT` mention:
+exactly one prior run exists, dated 2026-07-03 (the very first one,
+"first audit" — see that day's entry). 44 days have elapsed against the
+30-day cadence — the single most overdue item of any kind found across
+the whole session-start review (STALENESS AUDIT is not due until
+2026-09-14, run just yesterday). Chose this over starting a fresh
+zero-wiring `/data` client-page build (TFF's own NEXT list still has
+`/api/data/dts`, `/api/data/treasury-auctions`, `/api/data/bank-failures`,
+`/api/data/vehicle-complaints`, `/api/data/fda-events` queued and
+unranked) because: (a) it is the more overdue item by a wide margin
+(44d vs. an unranked backlog with no due date), (b) today's session log
+already shows FIVE PRODUCT/REPAIR sessions of increasingly similar shape
+(ship-another-RAW-data-page), so a genuinely different action better
+serves HEALTH OF THE LOOP's spirit than a sixth near-identical one, and
+(c) repeated deferral of the same checked-but-not-run item across four
+sessions is itself a small thrash pattern worth closing rather than
+punting a fifth time.
+
+WHAT THE AUDIT DID: read CLAUDE.md's full STANDING BEHAVIORS section
+(the only section besides GOAL/REASONING/EDGE DOCTRINE that constitutes
+"rules" in the CONSTITUTIONAL AUDIT's scope — KNOWN STATE is pure fact,
+explicitly out of scope) plus MEMORY PROTOCOL, GOAL, and AUTONOMY
+AUTHORIZATION for interaction/redundancy checks, cross-referenced against
+every rule invoked by name in the last 30 days of this log. No
+`.github/workflows/` (FROZEN) content read beyond what earlier sessions
+already logged (the unenforced market-hours automerge gap — already
+filed in wishlist.md 2026-08-15, re-confirmed a third time 2026-08-16;
+not re-litigated here, no new information to add).
+
+FINDINGS (both filed as exact before/after proposals in
+`research/wishlist.md`, human approval required, NEITHER self-applied to
+CLAUDE.md per the audit's own "never changes rules itself" rule):
+
+1. **STALE/ORPHANED CLAUSE** — STANDING BEHAVIORS' `USAGE-CALIBRATION
+   LOOP` entry ends "Revisit ~2026-07-24: once readings flatten, drop
+   back to weekly mode." That date is 23 days past (today is 2026-08-16)
+   AND the trigger it names ("once readings flatten") can now never be
+   observed: the same bullet's own `BLIND MODE 2026-07-31` amendment
+   (chronologically later, and controlling — it is the update that
+   actually took effect) states "no usage screenshots will be provided
+   anymore," which is the sole channel "readings" ever came from. The
+   revisit clause was written before BLIND MODE and was never updated to
+   match it — a live internal conflict (a clause whose exit condition
+   its own governing amendment made unreachable), not just an old date.
+   Full proposed before/after text in wishlist.md.
+2. **SCATTERED READ-ORDER GUIDANCE** — `MEMORY PROTOCOL`'s "At session
+   start, read in order" list (5 items) never mentions VISION.md or
+   GIP.md at all; the separate `VISION.md + GIP.md NORTH STAR` STANDING
+   BEHAVIORS entry says PRODUCT/EDGE sessions read them "after
+   CLAUDE.md" — meaning the actual full session-start reading order for
+   those session types lives in two disconnected sections, and a reader
+   following MEMORY PROTOCOL literally would not know where in the
+   sequence VISION.md/GIP.md belong. Proposal: insert a one-line
+   cross-referencing sub-step into MEMORY PROTOCOL's list rather than
+   duplicating or changing the NORTH STAR rule's own text. Full
+   before/after in wishlist.md.
+
+INTERACTION CHECKS (clean, no new findings): STARVED-signal wording vs.
+PROGRESS FLOOR wording — different triggers (10-consecutive vs. 14-day),
+not redundant. MONETIZATION TRIPWIRE vs. current KNOWN STATE (no
+billing/pricing session running, no live conflict). BUILD-FIRST RULE vs.
+EDGE DOCTRINE #1 — consistent, no drift. No FROZEN PATHS text touched or
+proposed for change. No factual KNOWN-STATE drift found this pass
+(unlike the 2026-07-03 audit, which fixed a stale backtest-stub claim
+inline — nothing that stale surfaced this time, likely because KNOWN
+STATE has been kept current by the high session cadence of the last two
+weeks).
+
+REGISTER: created for the first time this session (see block above the
+2026-08-16 session #5 entry) — CLAUDE.md has required "the register at
+the top of research/experiments.md" since 2026-07-03 but none existed;
+sessions were instead reconstructing "next due" dates ad hoc from prose
+scattered across the log (e.g. this same file's own line ~8357,
+~21068). Creating the register is bookkeeping infrastructure the rule
+already mandates, not a rule-text change, so it was created directly
+rather than filed as a wishlist.md proposal. STALENESS: last run
+2026-08-15 (v1.0.—, PR #855), next due 2026-09-14. CONSTITUTIONAL: last
+run today, next due 2026-09-15. CALENDAR YEAR-ADD: never yet run, next
+due 2026-12-01 (adds 2027 NYSE dates to `market_calendar.py`, the one
+documented FROZEN PATHS exception).
+
+DOCS-ONLY: no `package.json` version bump — no runtime behavior changed
+(same precedent as the 2026-07-03 first audit's own entry). No test
+gates apply (no code touched). One logical change (the audit + its
+register + its filed proposals), one PR, per PROMOTION RULE 5.
+
+NEXT (queued, not this session): (1) the human reviews wishlist.md's two
+new proposals and either approves (ships as one docs PR per the audit
+rule) or rejects/amends. (2) TFF session's own zero-wiring `/data`
+candidates (`dts`, `treasury-auctions`, `bank-failures`,
+`vehicle-complaints`, `fda-events`) remain queued, unranked, for a future
+PRODUCT session. (3) KNOWN BROKEN #29/#20/#10 remain queued for repair
+capacity. (4) CALENDAR YEAR-ADD is not yet due (December 2026) but is now
+tracked in the new register rather than un-tracked.
+
+STARVED: no — this was a fully scoped, single-PR, docs-only action
+matched to session capacity; no higher-priority queued item was skipped
+(no LIVENESS ALARM; KNOWN BROKEN items are visibility-only or RULE
+REVIEW-gated; the CONSTITUTIONAL AUDIT was the single most overdue item
+across the entire session-start review, by a wide margin).
+
 ## 2026-08-16 (scheduled-routine PRODUCT session #5) [PRODUCT] — T-CLIENT (primary) — CFTC Traders in Financial Futures (/api/data/tff) gets a live /data client view, closing the runner-up gap the immediately preceding session's own NEXT notes named (v1.0.731)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/tff.tsx`; wiring in
