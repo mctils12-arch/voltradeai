@@ -108,6 +108,9 @@ const PAGES = {
   // SEC CNS fails-to-deliver, half-month files (2026-08-16) — same Phase 5
   // ratchet rule as streams/eupower above.
   secftd: { route: "/app#/data/ftd", map: false },
+  // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
+  // streams/secftd above.
+  tff: { route: "/app#/data/tff", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -181,6 +184,7 @@ const FIXTURES = {
       { id: "shortvol", name: "Short-sale volume (FINRA)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FINRA Reg SHO", description: "Daily consolidated short-marked execution volume per symbol — a flow proxy, not short interest.", freshness: { stream: "finrashortvol", health: "stale", age_hours: 411.2, health_note: "newest file 411.2h old — exceeds cadence-derived threshold" } },
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
+      { id: "tff", name: "Traders in Financial Futures (CFTC, futures-only)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API, futures-only", description: "Weekly financial-futures positioning by trader category — a positioning proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
@@ -961,6 +965,23 @@ const FIXTURES = {
     trend: [
       { date: "2026-07-01", tickers: 23, total_views: 98210 },
       { date: "2026-07-02", tickers: 23, total_views: 101422 },
+    ],
+  },
+  // CFTC Traders in Financial Futures, futures-only (2026-08-16, RAW
+  // display, tff.tsx). Fixture covers 2 markets so the harness exercises
+  // the ranked table's lev-money/dealer-net columns.
+  "/api/data/tff": {
+    kind: "raw", source: "CFTC Traders in Financial Futures, futures-only (public domain) (fixture)",
+    attribution: "CFTC Traders in Financial Futures", time: "2026-08-16T12:00:00.000Z",
+    report_date: "2026-08-11", count: 2,
+    note: "weekly financial-futures positioning by trader category (fixture)",
+    markets: [
+      { report_date: "2026-08-11", market: "E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE", code: "13874A", commodity: "STOCK INDICES",
+        open_interest: 2450000, dealer_long: 210000, dealer_short: 340000, asset_mgr_long: 620000, asset_mgr_short: 410000,
+        lev_money_long: 380000, lev_money_short: 710000, other_rept_long: 150000, other_rept_short: 120000 },
+      { report_date: "2026-08-11", market: "10-YEAR U.S. TREASURY NOTES - CHICAGO BOARD OF TRADE", code: "043602", commodity: "TREASURY",
+        open_interest: 3980000, dealer_long: 540000, dealer_short: 610000, asset_mgr_long: 890000, asset_mgr_short: 720000,
+        lev_money_long: 1150000, lev_money_short: 940000, other_rept_long: 260000, other_rept_short: 210000 },
     ],
   },
   "/api/data/cot": {
