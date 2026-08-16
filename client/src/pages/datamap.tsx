@@ -815,6 +815,8 @@ const PANEL_GROUPS = [
   { id: "grid_sa", label: "Power grid — South America (by country)" },
   { id: "grid_eu", label: "Power grid — Europe (by country)" },
   { id: "grid_as", label: "Power grid — Asia (by country)" },
+  { id: "grid_af", label: "Power grid — Africa (by country)" },
+  { id: "grid_oc", label: "Power grid — Oceania (by country)" },
   { id: "environmental", label: "Environmental" },
   { id: "filings", label: "Filings & flows" },
   { id: "graph", label: "Everything Graph" },
@@ -889,6 +891,34 @@ const LAYER_GROUP: Record<string, string> = {
   powergrid_as_sy: "grid_as", powergrid_as_tw: "grid_as", powergrid_as_tj: "grid_as",
   powergrid_as_th: "grid_as", powergrid_as_tm: "grid_as", powergrid_as_uz: "grid_as",
   powergrid_as_vn: "grid_as", powergrid_as_ye: "grid_as",
+  powergrid_africa: "facilities",
+  powergrid_af_ao: "grid_af", powergrid_af_bf: "grid_af", powergrid_af_bi: "grid_af",
+  powergrid_af_bj: "grid_af", powergrid_af_bw: "grid_af", powergrid_af_cd: "grid_af",
+  powergrid_af_cf: "grid_af", powergrid_af_cg: "grid_af", powergrid_af_ci: "grid_af",
+  powergrid_af_cm: "grid_af", powergrid_af_cv: "grid_af", powergrid_af_dj: "grid_af",
+  powergrid_af_dz: "grid_af", powergrid_af_eg: "grid_af", powergrid_af_er: "grid_af",
+  powergrid_af_et: "grid_af", powergrid_af_ga: "grid_af", powergrid_af_gh: "grid_af",
+  powergrid_af_gn: "grid_af", powergrid_af_gq: "grid_af", powergrid_af_gw: "grid_af",
+  powergrid_af_ic: "grid_af", powergrid_af_ke: "grid_af", powergrid_af_km: "grid_af",
+  powergrid_af_lr: "grid_af", powergrid_af_ls: "grid_af", powergrid_af_ly: "grid_af",
+  powergrid_af_ma: "grid_af", powergrid_af_mg: "grid_af", powergrid_af_ml: "grid_af",
+  powergrid_af_mr: "grid_af", powergrid_af_mu: "grid_af", powergrid_af_mw: "grid_af",
+  powergrid_af_mz: "grid_af", powergrid_af_na: "grid_af", powergrid_af_ne: "grid_af",
+  powergrid_af_ng: "grid_af", powergrid_af_rw: "grid_af", powergrid_af_sc: "grid_af",
+  powergrid_af_sd: "grid_af", powergrid_af_sh: "grid_af", powergrid_af_sl: "grid_af",
+  powergrid_af_sn: "grid_af", powergrid_af_so: "grid_af", powergrid_af_ss: "grid_af",
+  powergrid_af_st: "grid_af", powergrid_af_sz: "grid_af", powergrid_af_td: "grid_af",
+  powergrid_af_tg: "grid_af", powergrid_af_tn: "grid_af", powergrid_af_tz: "grid_af",
+  powergrid_af_ug: "grid_af", powergrid_af_za: "grid_af", powergrid_af_zm: "grid_af",
+  powergrid_af_zw: "grid_af",
+  powergrid_oceania: "facilities",
+  powergrid_oc_au: "grid_oc", powergrid_oc_ck: "grid_oc", powergrid_oc_fj: "grid_oc",
+  powergrid_oc_fm: "grid_oc", powergrid_oc_ki: "grid_oc", powergrid_oc_mh: "grid_oc",
+  powergrid_oc_nc: "grid_oc", powergrid_oc_nr: "grid_oc", powergrid_oc_nu: "grid_oc",
+  powergrid_oc_nz: "grid_oc", powergrid_oc_pf: "grid_oc", powergrid_oc_pg: "grid_oc",
+  powergrid_oc_pw: "grid_oc", powergrid_oc_sb: "grid_oc", powergrid_oc_tk: "grid_oc",
+  powergrid_oc_to: "grid_oc", powergrid_oc_tv: "grid_oc", powergrid_oc_us: "grid_oc",
+  powergrid_oc_vu: "grid_oc", powergrid_oc_wf: "grid_oc", powergrid_oc_ws: "grid_oc",
   powergrid_eu_al: "grid_eu", powergrid_eu_ad: "grid_eu", powergrid_eu_at: "grid_eu",
   powergrid_eu_by: "grid_eu", powergrid_eu_be: "grid_eu", powergrid_eu_ba: "grid_eu",
   powergrid_eu_bg: "grid_eu", powergrid_eu_hr: "grid_eu", powergrid_eu_cy: "grid_eu",
@@ -1159,6 +1189,92 @@ const AS_COUNTRIES = [
   { code: "as_uz", name: "Uzbekistan", file: "power_as_uz.pmtiles" },
   { code: "as_vn", name: "Vietnam", file: "power_as_vn.pmtiles" },
   { code: "as_ye", name: "Yemen", file: "power_as_ye.pmtiles" },
+] as const;
+// Africa (wave 5, 2026-08-16): 55 Geofabrik extracts already baked and
+// serving from R2 — they were built but never wired, so nobody could reach
+// them. NOTE power_af_sngm.pmtiles is a STALE DUPLICATE of power_af_sn
+// (identical bbox, z0..9 vs z0..11) and is deliberately NOT listed.
+const AF_COUNTRIES = [
+  { code: "af_ao", name: "Angola", file: "power_af_ao.pmtiles" },
+  { code: "af_bf", name: "Burkina Faso", file: "power_af_bf.pmtiles" },
+  { code: "af_bi", name: "Burundi", file: "power_af_bi.pmtiles" },
+  { code: "af_bj", name: "Benin", file: "power_af_bj.pmtiles" },
+  { code: "af_bw", name: "Botswana", file: "power_af_bw.pmtiles" },
+  { code: "af_cd", name: "DR Congo", file: "power_af_cd.pmtiles" },
+  { code: "af_cf", name: "Central African Republic", file: "power_af_cf.pmtiles" },
+  { code: "af_cg", name: "Congo-Brazzaville", file: "power_af_cg.pmtiles" },
+  { code: "af_ci", name: "Côte d'Ivoire", file: "power_af_ci.pmtiles" },
+  { code: "af_cm", name: "Cameroon", file: "power_af_cm.pmtiles" },
+  { code: "af_cv", name: "Cape Verde", file: "power_af_cv.pmtiles" },
+  { code: "af_dj", name: "Djibouti", file: "power_af_dj.pmtiles" },
+  { code: "af_dz", name: "Algeria", file: "power_af_dz.pmtiles" },
+  { code: "af_eg", name: "Egypt", file: "power_af_eg.pmtiles" },
+  { code: "af_er", name: "Eritrea", file: "power_af_er.pmtiles" },
+  { code: "af_et", name: "Ethiopia", file: "power_af_et.pmtiles" },
+  { code: "af_ga", name: "Gabon", file: "power_af_ga.pmtiles" },
+  { code: "af_gh", name: "Ghana", file: "power_af_gh.pmtiles" },
+  { code: "af_gn", name: "Guinea", file: "power_af_gn.pmtiles" },
+  { code: "af_gq", name: "Equatorial Guinea", file: "power_af_gq.pmtiles" },
+  { code: "af_gw", name: "Guinea-Bissau", file: "power_af_gw.pmtiles" },
+  { code: "af_ic", name: "Canary Islands", file: "power_af_ic.pmtiles" },
+  { code: "af_ke", name: "Kenya", file: "power_af_ke.pmtiles" },
+  { code: "af_km", name: "Comoros", file: "power_af_km.pmtiles" },
+  { code: "af_lr", name: "Liberia", file: "power_af_lr.pmtiles" },
+  { code: "af_ls", name: "Lesotho", file: "power_af_ls.pmtiles" },
+  { code: "af_ly", name: "Libya", file: "power_af_ly.pmtiles" },
+  { code: "af_ma", name: "Morocco", file: "power_af_ma.pmtiles" },
+  { code: "af_mg", name: "Madagascar", file: "power_af_mg.pmtiles" },
+  { code: "af_ml", name: "Mali", file: "power_af_ml.pmtiles" },
+  { code: "af_mr", name: "Mauritania", file: "power_af_mr.pmtiles" },
+  { code: "af_mu", name: "Mauritius", file: "power_af_mu.pmtiles" },
+  { code: "af_mw", name: "Malawi", file: "power_af_mw.pmtiles" },
+  { code: "af_mz", name: "Mozambique", file: "power_af_mz.pmtiles" },
+  { code: "af_na", name: "Namibia", file: "power_af_na.pmtiles" },
+  { code: "af_ne", name: "Niger", file: "power_af_ne.pmtiles" },
+  { code: "af_ng", name: "Nigeria", file: "power_af_ng.pmtiles" },
+  { code: "af_rw", name: "Rwanda", file: "power_af_rw.pmtiles" },
+  { code: "af_sc", name: "Seychelles", file: "power_af_sc.pmtiles" },
+  { code: "af_sd", name: "Sudan", file: "power_af_sd.pmtiles" },
+  { code: "af_sh", name: "St Helena · Ascension · Tristan da Cunha", file: "power_af_sh.pmtiles" },
+  { code: "af_sl", name: "Sierra Leone", file: "power_af_sl.pmtiles" },
+  { code: "af_sn", name: "Senegal & Gambia", file: "power_af_sn.pmtiles" },
+  { code: "af_so", name: "Somalia", file: "power_af_so.pmtiles" },
+  { code: "af_ss", name: "South Sudan", file: "power_af_ss.pmtiles" },
+  { code: "af_st", name: "São Tomé & Príncipe", file: "power_af_st.pmtiles" },
+  { code: "af_sz", name: "Eswatini", file: "power_af_sz.pmtiles" },
+  { code: "af_td", name: "Chad", file: "power_af_td.pmtiles" },
+  { code: "af_tg", name: "Togo", file: "power_af_tg.pmtiles" },
+  { code: "af_tn", name: "Tunisia", file: "power_af_tn.pmtiles" },
+  { code: "af_tz", name: "Tanzania", file: "power_af_tz.pmtiles" },
+  { code: "af_ug", name: "Uganda", file: "power_af_ug.pmtiles" },
+  { code: "af_za", name: "South Africa", file: "power_af_za.pmtiles" },
+  { code: "af_zm", name: "Zambia", file: "power_af_zm.pmtiles" },
+  { code: "af_zw", name: "Zimbabwe", file: "power_af_zw.pmtiles" },
+] as const;
+// Oceania (wave 5, 2026-08-16): 21 extracts, same story. NZ (27.6 MB) and
+// AU (27.0 MB) are each larger than the entire US tile.
+const OC_COUNTRIES = [
+  { code: "oc_au", name: "Australia", file: "power_oc_au.pmtiles" },
+  { code: "oc_ck", name: "Cook Islands", file: "power_oc_ck.pmtiles" },
+  { code: "oc_fj", name: "Fiji", file: "power_oc_fj.pmtiles" },
+  { code: "oc_fm", name: "Micronesia", file: "power_oc_fm.pmtiles" },
+  { code: "oc_ki", name: "Kiribati", file: "power_oc_ki.pmtiles" },
+  { code: "oc_mh", name: "Marshall Islands", file: "power_oc_mh.pmtiles" },
+  { code: "oc_nc", name: "New Caledonia", file: "power_oc_nc.pmtiles" },
+  { code: "oc_nr", name: "Nauru", file: "power_oc_nr.pmtiles" },
+  { code: "oc_nu", name: "Niue", file: "power_oc_nu.pmtiles" },
+  { code: "oc_nz", name: "New Zealand", file: "power_oc_nz.pmtiles" },
+  { code: "oc_pf", name: "French Polynesia", file: "power_oc_pf.pmtiles" },
+  { code: "oc_pg", name: "Papua New Guinea", file: "power_oc_pg.pmtiles" },
+  { code: "oc_pw", name: "Palau", file: "power_oc_pw.pmtiles" },
+  { code: "oc_sb", name: "Solomon Islands", file: "power_oc_sb.pmtiles" },
+  { code: "oc_tk", name: "Tokelau", file: "power_oc_tk.pmtiles" },
+  { code: "oc_to", name: "Tonga", file: "power_oc_to.pmtiles" },
+  { code: "oc_tv", name: "Tuvalu", file: "power_oc_tv.pmtiles" },
+  { code: "oc_us", name: "US Oceania (Guam · American Samoa · N. Marianas)", file: "power_oc_us.pmtiles" },
+  { code: "oc_vu", name: "Vanuatu", file: "power_oc_vu.pmtiles" },
+  { code: "oc_wf", name: "Wallis & Futuna", file: "power_oc_wf.pmtiles" },
+  { code: "oc_ws", name: "Samoa", file: "power_oc_ws.pmtiles" },
 ] as const;
 // ALL power-grid tiles serve from R2 through the same-origin proxy
 // (server/routes.ts /tiles-r2/) — 2026-07-31 migration: every repo copy was
@@ -7041,7 +7157,10 @@ export default function DataMapPage() {
     (enabled.powergrid_europe ? "E" : "") +
     EU_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
     (enabled.powergrid_asia ? "A" : "") +
-    AS_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
+    AS_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
+    (enabled.powergrid_africa ? "F" : "") + (enabled.powergrid_oceania ? "O" : "") +
+    AF_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("") +
+    OC_COUNTRIES.map((c) => (enabled[`powergrid_${c.code}`] ? c.code : "")).join("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -7178,6 +7297,37 @@ export default function DataMapPage() {
     } else {
       removeGrid("powergrid_asia_src");
       setStatus("powergrid_asia", "off");
+    }
+
+    // "Africa Power Grid" master -> ONE continental tile (56 regions; OSM,
+    // ODbL) served from R2. Coverage is UNEVEN by design of the source: South
+    // Africa and the Maghreb are densely mapped, much of Central Africa is
+    // thin. Sparse != absent on the ground; the description says so.
+    if (enabled.powergrid_africa) {
+      try {
+        setStatus("powergrid_africa", "loading");
+        addGrid("powergrid_africa_src", "power_africa.pmtiles");
+        setStatus("powergrid_africa", "active", undefined,
+          "Entire Africa grid — 56 countries/territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity — per-country toggles carry full detail; OSM coverage is uneven across the continent (sparse ≠ absent)");
+      } catch { setStatus("powergrid_africa", "error"); }
+    } else {
+      removeGrid("powergrid_africa_src");
+      setStatus("powergrid_africa", "off");
+    }
+
+    // "Oceania Power Grid" master -> ONE continental tile (21 regions; OSM,
+    // ODbL) served from R2. AU + NZ dominate; the Pacific island states are
+    // small but real.
+    if (enabled.powergrid_oceania) {
+      try {
+        setStatus("powergrid_oceania", "loading");
+        addGrid("powergrid_oceania_src", "power_oceania.pmtiles");
+        setStatus("powergrid_oceania", "active", undefined,
+          "Entire Oceania grid — 21 countries/territories (OSM, ODbL): voltage-classed; dashed = voltage untagged (never hidden); overview fidelity — per-country toggles carry full detail");
+      } catch { setStatus("powergrid_oceania", "error"); }
+    } else {
+      removeGrid("powergrid_oceania_src");
+      setStatus("powergrid_oceania", "off");
     }
 
     // HIFLD — AUTHORITATIVE national transmission lines (DHS / Oak Ridge National
@@ -7419,6 +7569,17 @@ export default function DataMapPage() {
         addGrid(src, co.file);
         setStatus(src, "active", undefined,
           `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country`);
+      } catch { setStatus(src, "error"); }
+    });
+    // Africa + Oceania per-country layers (R2-served via the same-origin proxy)
+    [...AF_COUNTRIES, ...OC_COUNTRIES].forEach((co) => {
+      const src = `powergrid_${co.code}`;
+      if (!enabled[src]) { removeGrid(src); setStatus(src, "off"); return; }
+      try {
+        setStatus(src, "loading");
+        addGrid(src, co.file);
+        setStatus(src, "active", undefined,
+          `${co.name} — OSM community grid (ODbL): voltage-classed; dashed = voltage untagged (never hidden); OSM coverage varies by country (sparse ≠ absent on the ground)`);
       } catch { setStatus(src, "error"); }
     });
     // scales to N states: re-run when the master OR any per-state grid flag flips
@@ -12232,7 +12393,7 @@ export default function DataMapPage() {
             <span className="vt-kind-badge raw">RAW</span>
             <span className="vt-layer-status">
               <i style={{ background: on ? "var(--accent-green)" : "var(--text-tertiary)" }} />
-              {on ? "US · Canada · S. America · Europe · Asia" : "off"}
+              {on ? "all 7 continents" : "off"}
             </span>
           </span>
           <button
@@ -12247,12 +12408,14 @@ export default function DataMapPage() {
         </div>
         {!!descOpen["powergrid_all"] && (
           <div className="vt-layer-desc" role="note">
-            Every grid mapped so far in one switch: the US (all 50 states + DC),
-            Canada (13 provinces/territories), South America (13 countries),
-            Europe (48 countries/territories) and Asia (38 countries/regions
-            including Russia and China) continental masters together.
-            Not yet mapped: Africa, Oceania — their tiles are built but not
-            yet wired into the map.
+            Every grid mapped so far in one switch — now ALL SEVEN continental
+            masters: the US (all 50 states + DC), Canada (13 provinces/
+            territories), South America (13 countries), Europe (48 countries/
+            territories), Asia (38 countries/regions including Russia and
+            China), Africa (55 countries/territories) and Oceania (21).
+            Coverage is OSM community mapping, so density varies a lot by
+            country — sparse rendering means the grid is thinly mapped there,
+            not that it is absent on the ground.
             Off clears the whole power-grid family, including any per-state or
             per-country picks. HIFLD (US authoritative transmission) stays a
             separate toggle under Facilities — it overlays the same US lines.

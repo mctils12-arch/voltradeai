@@ -48207,3 +48207,69 @@ globe (it is the largest continental tile at 128 MB), remove
 `powergrid_asia` from `GRID_MASTER_IDS` — the per-country toggles keep
 working untouched. The parity test will then fail by design, which is the
 honest signal that the continent is deliberately excluded.
+
+## 2026-08-16 [PRODUCT] Africa + Oceania grids surfaced — 78 dark layers lit (v1.0.695)
+
+**Territory:** T-CLIENT (`datamap.tsx`, `gridMaster.ts`) + SHARED
+(`datacore/layers.json`).
+
+**Context:** the Asia repair earlier today (v1.0.693) surfaced a second
+finding — Africa and Oceania tiles were BUILT, UPLOADED and SERVING from R2
+with no registry entry and no client wiring. Human: "yes" to lighting them up.
+
+**Work-list came from the bucket, not from guessing.** Listing
+`tiles/power_af_*` and `tiles/power_oc_*` returned **56 African + 21 Oceanian
+per-country files plus 2 continental masters**, all already baked. This was
+pure wiring — zero pipeline runs, zero new data.
+
+**Two ambiguities resolved by MEASUREMENT, not assumption** (read the PMTiles
+headers over the wire):
+- `power_af_sn` and `power_af_sngm` have **identical bboxes**
+  (lon[-17.47,-11.38] lat[12.06,16.78] = Senegal+Gambia, the Geofabrik
+  "senegal-and-gambia" extract) but different depth: **z0..11 vs z0..9**.
+  `sngm` is a stale lower-fidelity duplicate — wired `sn`, deliberately
+  excluded `sngm`, and said so in a code comment so the next session does not
+  "fix" the apparent omission.
+- `af_ic` = Canary Islands, `af_sh` = St Helena/Ascension/Tristan da Cunha,
+  `oc_us` = US Oceania (Guam/American Samoa/N. Marianas) — all confirmed from
+  their bboxes.
+
+**Shipped:** 78 registry layers (55 AF + 21 OC + 2 masters), `AF_COUNTRIES` /
+`OC_COUNTRIES` arrays, a shared wiring loop, two panel groups, LAYER_GROUP
+entries for all 78, both masters appended to `GRID_MASTER_IDS`, and the
+"All power grids" copy corrected to **"all 7 continents"**.
+
+**THE RATCHET WORKED — this is the result worth recording.** The registry
+parity test added hours earlier caught Africa and Oceania *automatically*, the
+moment their registry entries landed and before any wiring existed:
+
+```
+live continental master(s) missing from GRID_MASTER_IDS:
+powergrid_africa, powergrid_oceania
+# pass 5 / fail 1
+```
+
+That is the Asia bug class being prevented rather than re-diagnosed — the
+first time this repo's ratchet caught the *next* instance instead of the
+current one.
+
+**Verification:** probed all 78 referenced tiles against the live production
+proxy — every one returns real PMTiles magic bytes; **zero broken layers**.
+gridMaster 8/8, layersWiring gate 1/1, zero new tsc errors (83 = 83).
+
+**Also added:** a bucket↔registry parity test. The bucket cannot be listed
+from CI, so the continental inventory is checked in as the contract; adding a
+continental tile without a live registry layer now fails there.
+
+**Honesty rail:** every new layer's description states that OSM coverage
+varies and that **sparse rendering means thinly mapped, NOT absent on the
+ground** — Africa's density is genuinely uneven (South Africa 7.3 MB and the
+Maghreb are well mapped; much of Central Africa is thin), and the continental
+master says so explicitly.
+
+**Known-good scale note:** `power_oc_nz` (27.6 MB) and `power_oc_au`
+(27.0 MB) are each LARGER than `power_us` (26.3 MB).
+
+**Rollback trigger:** if the two new masters regress globe perf, drop them
+from `GRID_MASTER_IDS` — per-country toggles keep working and the parity test
+fails by design, which is the honest signal that the exclusion is deliberate.

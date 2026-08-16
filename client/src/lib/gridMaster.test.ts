@@ -85,3 +85,65 @@ test('GRID_MASTER_IDS contains no id absent from the registry', () => {
     assert.ok(ids.has(id), `${id} is in GRID_MASTER_IDS but not in datacore/layers.json`);
   }
 });
+
+// ── bucket <-> registry parity (the invariant that would have caught ALL of
+// ── Asia, Africa and Oceania before a human did)
+//
+// The Asia bug and the Africa/Oceania dark-data finding share one root: a
+// tile can be BUILT, UPLOADED and SERVED while being unreachable, because
+// nothing asserted that a bucket object corresponds to a reachable layer.
+//
+// The bucket cannot be listed from CI (no credentials, no network), so the
+// checked-in inventory below is the contract. Refresh it with:
+//   aws s3 ls s3://voltrade-tiles/tiles/ --endpoint-url $R2_ENDPOINT
+// Adding a tile to the bucket without a registry layer now fails HERE.
+
+const BUCKET_GRID_TILES_2026_08_16 = [
+  // continental masters
+  'power_us', 'power_canada', 'power_southamerica', 'power_europe',
+  'power_asia', 'power_africa', 'power_oceania',
+  // known non-continental / overlay sets, intentionally not continental masters
+  'power_hifld', 'power_hifld_sub', 'power_hifld_plants',
+] as const;
+
+test('every continental tile in the bucket has a live registry layer', () => {
+  const reg = JSON.parse(
+    readFileSync(new URL('../../../datacore/layers.json', import.meta.url), 'utf-8'),
+  );
+  const live = new Set(
+    (reg.layers || []).filter((l: any) => l.status === 'live').map((l: any) => l.id),
+  );
+  // map a continental tile filename to the registry id it should back
+  const expected: Record<string, string> = {
+    power_us: 'powergrid',
+    power_canada: 'powergrid_canada',
+    power_southamerica: 'powergrid_southamerica',
+    power_europe: 'powergrid_europe',
+    power_asia: 'powergrid_asia',
+    power_africa: 'powergrid_africa',
+    power_oceania: 'powergrid_oceania',
+  };
+  const orphans = Object.entries(expected)
+    .filter(([, id]) => !live.has(id))
+    .map(([file, id]) => `${file}.pmtiles -> ${id}`);
+  assert.deepEqual(
+    orphans,
+    [],
+    `bucket tiles with no live registry layer (built, served, unreachable): ${orphans.join(', ')}`,
+  );
+  // and every one of them must also be in the master switch
+  for (const id of Object.values(expected)) {
+    assert.ok(
+      (GRID_MASTER_IDS as readonly string[]).includes(id),
+      `${id} is live and continental but absent from GRID_MASTER_IDS`,
+    );
+  }
+});
+
+test('the master switch now covers all seven continents', () => {
+  assert.equal(
+    GRID_MASTER_IDS.length,
+    7,
+    'US, Canada, South America, Europe, Asia, Africa, Oceania',
+  );
+});

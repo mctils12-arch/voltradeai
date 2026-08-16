@@ -29,13 +29,19 @@
  *
  *  A new continent is not shipped until its id is in THIS list. The registry
  *  parity test in gridMaster.test.ts now enforces that, so the next continent
- *  cannot ship half-wired the same way. */
+ *  cannot ship half-wired the same way.
+ *
+ *  It worked immediately: the very next wave (Africa + Oceania, 2026-08-16)
+ *  was caught by that test the moment their registry entries landed, before
+ *  any user could see the gap. */
 export const GRID_MASTER_IDS = [
   "powergrid", // US, all 50 states + DC
   "powergrid_canada", // 13 provinces & territories
   "powergrid_southamerica", // 13 countries
   "powergrid_europe", // 48 countries/territories
   "powergrid_asia", // 38 countries/regions incl. Russia
+  "powergrid_africa", // 55 countries/territories
+  "powergrid_oceania", // 21 countries/territories
 ] as const;
 
 /** Every layer the OFF position clears shares this id prefix (masters,
