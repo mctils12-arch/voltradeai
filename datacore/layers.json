@@ -2338,6 +2338,16 @@
    "description": "SEC-published per-(date, ticker) lit/hidden/odd-lot/cancel-to-trade metrics; rank scale differs by kind (Stock deciles, ETF quartiles, never comparable). As-is display of a small-cap watchlist ranked by SEC's own cancel-to-trade ratio — a candidate HFT-colonization filter is an open [RESEARCH] hypothesis (gate-2 unattempted), not yet surfaced as a signal."
   },
   {
+   "id": "secftd",
+   "name": "Fails-to-deliver (SEC CNS)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)",
+   "description": "Trailer-checksummed aggregate net fail BALANCES per settlement date (a level, not a daily flow), published on a 2.5-4.5 week lag. As-is display of SEC's own top fail balances above a stated floor — raw FTD spikes alone are a crowded signal; the settlement-stress composite (threshold persistence x FTD x short volume) is the gated hypothesis this feeds, not yet surfaced as a signal itself."
+  },
+  {
    "id": "attention",
    "name": "Attention proxy (Wikipedia pageviews)",
    "kind": "raw",

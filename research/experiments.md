@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-16 (scheduled-routine session #4, market hours) [PRODUCT] — T-CLIENT (primary) — SEC fails-to-deliver (/api/data/ftd) gets a live /data client view, another shipped-data-no-UI gap closed (v1.0.730, PR #858)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/secFtd.tsx`; wiring in
+`client/src/pages/datamap.tsx` — icon import, `LAYER_GROUP` fallback
+entry, state hook, hashchange listener, status-polling effect, icon/unit
+lookups, launcher button, render block; new fixtures + PAGES entry in
+`scripts/visual_check.mjs`) + SHARED last-and-minimal (`datacore/
+layers.json` registry entry, `package.json`/`package-lock.json` version
+bump only — no server route or schema touched, no research/wishlist.md
+edit needed beyond this log entry). No datacore/ pipeline code touched:
+`/api/data/ftd` (`server/secFtd.ts`) was already shipped and live since
+v1.0.171, this is a pure client-surface build over an existing,
+unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(this same day's session #2/#3 entries), open_questions.md KNOWN BROKEN
+section (no new item; item #3's CSP cascade and #30's cross-cycle race
+both closed, item #20 still an open design judgment call, not a live
+break), tail of wishlist.md (DATACORE MAXIMUS resume block, the process-
+gap note about the unenforced market-hours merge note). Live `/api/health`:
+`status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark` absent,
+all three feeds `dead:false`, scanner `consecutiveFailures:0` — no
+LIVENESS ALARM. Audit log (`/api/diag/audit?limit=40`, DIAG_TOKEN present
+in this session's env) showed only routine activity: `OPTIONS-SLOT-FULL`
+skips at the documented `(6/6)` cap (KNOWN BROKEN #30's fix holding),
+`MANIPULATION` rejections working as designed, one ordinary `POS-WARN` —
+no bug found. `python3 scripts/ladder_readiness_check.py`: 0/2 gated roots
+ready (cftc_cot_positioning waiting 70d, sec_8k_earnings_language waiting
+47d) — no matured gate-2 experiment to judge today. Loop-health, last 10
+tags before this one: PRODUCT, REPAIR, PRODUCT, PRODUCT, REPAIR, PIPELINE,
+PRODUCT, RULE-REVIEW, PIPELINE, REPAIR = 3/10 REPAIR — no thrash.
+
+PRIMARY-ACTION SELECTION: with no bug, no matured experiment, and no
+human-gated blocker, delegated a read-only reconnaissance subagent (same
+scale-justification as the immediately preceding session: exhaustively
+grepping every `/api/data/*`/`/api/v1/*` route in `server/routes.ts`
+against all of `client/src/`, plus reading wishlist.md's DATACORE MAXIMUS
+tail and the audit register, exceeds what's worth spending primary-session
+context on directly) to find the single highest-value unclaimed action.
+It found the shipped-data-no-UI pattern is NOT yet exhausted — ~20
+unclaimed routes remain (the DATACORE MAXIMUS "queue is clear" framing in
+wishlist.md is stale relative to a later, uncataloged "BUILD ORDER 2/3/6"
+wave) — and ranked `/api/data/ftd` (SEC CNS fails-to-deliver) top: it
+already has an `/api/v1/stats/secftd` paid-tier mirror (Amendment 5
+priority-3 territory, not just priority-4 showcase polish) AND it is a
+named live ingredient of the still-gated `settlementStress.ts` composite,
+so shipping its RAW client view makes an in-flight signal hypothesis's own
+data independently inspectable — directly serving the PREMIUM EXPERIENCE
+STANDARD's freshness/provenance clause. Runner-up (`/api/data/tff`,
+CFTC Traders in Financial Futures) was ranked below it: cheaper to build
+(a near-identical `cot.tsx` template already exists) but has no active
+internal-hypothesis tie and no `/api/v1` mirror yet — left for a future
+session.
+
+READ BEFORE WRITE: independently re-verified before building rather than
+trusting the subagent's report blindly — own grep of `client/src/`
+confirmed zero `secFtd`/`/api/data/ftd` references, own read of
+`server/routes.ts:2609-2626` confirmed the live route's exact response
+shape (`kind`, `source`, `attribution`, `time`, `note`, `summary` with
+`period`/`settlement_dates`/`newest_date`/`rows`/`top_fails[]`/
+`qty_floor`/`top_cap`), own read of `server/secFtd.ts` in full for the
+trailer-checksum/half-month/level-not-flow contract quirks the page's own
+copy needed to state honestly, own grep confirmed the `/api/v1/stats/
+secftd` mirror exists. Read `client/src/pages/midas.tsx` in full as the
+template — FTD is shaped like MIDAS (a single per-ticker leaderboard
+summary object, SEC census build, `warming_up` cold-start state), NOT
+like the page-wide macro dashboards (eu-power/eu-macro/fred-macro), so
+this PR follows the `ats_summary`/`midas` "layer row in the filings
+group" wiring pattern (toggle + status badge + open-full-view button)
+rather than the simpler "page-wide dashboard launcher" pattern the last
+three PRODUCT sessions used — confirmed by reading both wiring patterns
+side-by-side in `datamap.tsx` before choosing. Also caught, by reading
+the `LAYER_GROUP` fallback map's second use site (`unwired` detection,
+the exact R15 2026-07-07 defect class — a registry entry with no client
+wiring reads as a dead "reload to enable" toggle), that `ats_summary`/
+`midas` are both present in that map and added `secftd` alongside them —
+missing this would have silently reproduced R15's bug class for this
+layer specifically.
+
+WHAT SHIPPED:
+1. `client/src/pages/secFtd.tsx` (new) — fetches `/api/data/ftd` on
+   mount; single-summary tile-and-table view (mirrors `midas.tsx`'s
+   shape exactly): settlement-date/row counts, a level-not-flow honesty
+   note, and the top-fails leaderboard (ticker, name, fail balance,
+   price with the `null`-price honesty case for the source's `"."`
+   convention). RAW display only — `kind:"raw"`, no ladder gate, matches
+   the route's own "raw FTD spikes alone are a crowded signal" framing
+   verbatim in the page copy.
+2. `client/src/pages/datamap.tsx` — `TrendingDown` icon import;
+   `SecFtdView` import; `secFtdOpen` state (hash-init `#/data/ftd`);
+   hashchange listener entry; `LAYER_GROUP` fallback entry (`secftd:
+   "filings"`); status-polling effect (mirrors `ats_summary`'s/`midas`'s
+   exact 300s-badge-refresh shape, since the server itself already polls
+   on its own 12h half-month cadence); icon-lookup and unit-lookup
+   (`"top fails"`) entries; open-full-view launcher button inside the
+   `secftd` layer row; render block.
+3. `datacore/layers.json` — new `secftd` entry, `group: "filings"`,
+   `status: "live"`, description states the level-not-flow and
+   crowded-signal honesty caveats.
+4. `scripts/visual_check.mjs` — `secftd` PAGES entry (`map:false`, same
+   Phase-5 ratchet rule as every dashboard/leaderboard page since
+   streams); `/api/data/ftd` fixture (2 top-fails rows, one with a null
+   price to exercise that branch); `secftd` entry added to the
+   `/api/data/layers` FIXTURES list (the same gap class the NRC session's
+   own comment flagged — `ats_summary`/`midas` predate that convention
+   and are still missing from it, out of scope for this PR, not touched).
+5. `package.json`/`package-lock.json` version bump only (1.0.729 →
+   1.0.730, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before committing that no other session had merged and moved the
+   number since session start; `npm install` had to be run first in this
+   fresh sandbox, `--package-lock-only` afterward to sync just the
+   version field without touching any dependency).
+
+GATES: this session's sandbox had NEITHER `node_modules` NOR the Python
+package set installed at start (a fresh-container gap, same class noted
+by several prior sessions for the Python side alone) — `npm install` and
+`pip install -r requirements-dev.txt -r requirements.txt` were both
+required before any gate could run meaningfully; without them `tsc`
+falsely showed 3 errors (missing `@types/node`/`vite/client` type defs)
+and `voltrade_daemon.py` failed to import (`numpy`/`pandas` missing),
+neither caused by this PR's diff. After installing: `bash
+scripts/tsc_ratchet.sh` → 12 errors (pin unchanged, TS2304 = 0). `npm run
+build` clean (only pre-existing warning classes: astronomy-engine
+default-export, mapIcons dynamic/static dual-import). `node
+scripts/visual_check.mjs --page secftd` (all 3 canonical widths,
+390/768/1440) → 0 hard failures; own-review of all three PNGs confirms
+the header, honesty notes, and leaderboard table render correctly and
+match the design system (screenshots: `.visual/secftd-{390,768,
+1440}.png`). Pre-existing warning classes only (shared-chrome touch
+targets under 44px; one "clipped control" sub-label warning on FRED/EU-
+power launcher labels at 1440px, the same class already tolerated for
+sibling buttons — not new). `bash scripts/counter_ratchet.sh` → 25/25
+counters at or better than baseline. `bash scripts/gated_tests.sh` GATE
+PASSED: server suite unchanged (157 files), client 1017/1017 (97 files,
+no new test file — matches the sibling pages' own convention, none of
+atsSummary.tsx/midas.tsx/euPower.tsx/gnssIntegritySignal.tsx have one
+either), python 1354 passed/1 skipped (unchanged).
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published SEC
+half-month fail-balance figures, no predictive claim, no ladder gate
+applies (same standing rule as every other RAW `/data` page in this
+repo; the settlement-stress composite this feeds remains its own
+separately-gated [RESEARCH] item, gate-2 unattempted).
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+PR #858 opened from `claude/eloquent-dijkstra-1hamuh` against `main`,
+subscribed for CI/review events. Per the scheduled task's own
+instruction (this is a market-hours session): the PR body states merge
+should wait until after 4:00 PM ET, and separately notes for the human
+record that `research/wishlist.md`'s already-filed process-gap finding
+means that note is currently decorative (the `automerge` CI job has no
+time-of-day gate) — not something this PR attempts to fix, since
+`.github/workflows/` is a FROZEN PATH.
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated
+action completed within the session; no higher-priority queued item was
+skipped (no bug, no matured experiment, no human-gated blocker existed
+at session start).
+
 ## 2026-08-16 (scheduled-routine session #3, PRODUCT) [PRODUCT] — T-CLIENT (primary) — EU power markets (ENTSO-E load/generation-mix/day-ahead-price) get a live /data client view, closing a 3-pipeline shipped-data-no-UI gap (v1.0.729)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/euPower.tsx`; wiring
