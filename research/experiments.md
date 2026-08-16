@@ -3,7 +3,176 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-16 (scheduled-routine session) [RESEARCH] — SHARED (research/* only, no code) — STALENESS AUDIT run, clean bill of health; AUDIT REGISTER updated
+## 2026-08-16 (scheduled-routine session #2) [REPAIR] — SHARED (ci/*, research/wishlist.md) + T-DATACORE sliver (server/gridTilesCoverage.test.ts) — a stale doc nearly caused a ~12GB duplicate-build; de-quarantined the test that encoded the same stale premise instead (PR #856)
+
+TERRITORY: `ci/quarantine.txt`, `ci/quarantine_max.txt`, `ci/counter_baseline.txt`
+(all SHARED) + `research/wishlist.md` (SHARED, kept to the minimal edit
+MERGE-ORDER PROTOCOL asks of shared files) + `server/gridTilesCoverage.test.ts`
+(T-DATACORE turf, a single test file, no pipeline code touched).
+
+SESSION-START CHECKS: read CLAUDE.md in full. Live health
+(`/api/health`, `server_version:"1.0.728"`): `status:"ok"`, bot active,
+`drawdownPct:"0.0"`, `liveness.dark` absent, all three feeds `dead:false`,
+scanner `consecutiveFailures:0` — no LIVENESS ALARM. Audit log
+(`/api/diag/audit?limit=40`) showed nothing but routine, correctly-working
+activity: `OPTIONS-SLOT-FULL` skips at the documented `(6/6)` cap (KNOWN
+BROKEN #30's fix holding, consistent with the immediately preceding
+session's own live-verification), `MANIPULATION` rejections working as
+designed, one `POS-WARN` (HPE -17.6%, ordinary risk monitoring, not a
+bug). Loop-health ratio, last 10 tags before this one: RESEARCH, PRODUCT
+x3, docs x1, REPAIR x1, RESEARCH x1, REPAIR x1, RESEARCH x2 = 2/10
+REPAIR — no thrash. No gate-2 experiment matured today
+(`ladder_readiness_check.py`: both pending roots still WAITING, 70d/47d
+remaining). KNOWN BROKEN #30 was already closed by the immediately
+preceding session's own entry — no action needed there.
+
+PRIMARY-ACTION SELECTION: with no bug, no matured experiment, and (per
+the immediately preceding two sessions' own NEXT notes) no fresh
+axis-(a)/(b) pipeline candidate, delegated a subagent to sanity-check for
+a ready, unstarted, non-human-gated queued item before defaulting to
+ANGLE-HUNTING research from scratch. It surfaced `research/wishlist.md`'s
+DATACORE MAXIMUS resume block, which read (unchanged since 2026-07-07):
+"US-full [power-grid tiles]: boot-fetch-from-Release design, filed above,
+NOT built" — and cross-referenced it against `server/gridTiles.test.ts`/
+`gridTilesCoverage.test.ts` (both touched 2026-08-14), which independently
+confirmed only 3 TX-pilot `.pmtiles` are committed and `git log --all`
+finds zero `power_us*.pmtiles` ever committed. Two independent, recently-
+touched sources agreeing looked like solid corroboration, and the
+subagent recommended building it: run `scripts/build_power_tiles.sh
+north-america/us power_us` (documented as a ~12GB download, ≲1hr, ~15GB
+peak disk), publish to a GitHub Release, wire boot-fetch-into-the-volume
+serving, un-quarantine the test.
+
+REASONING STANDARD #4 (DISTRUST YOUR OWN RESULTS) applied before
+spending that budget: two sources agreeing is not the same as two
+INDEPENDENT sources when both could be reading the same stale premise.
+Checked disk (29GB avail, workable but tight against 15GB peak) and then,
+before committing resources, grepped the actual serving code rather than
+trusting the docs. Found in three places, all dated AFTER the wishlist
+block's last update: (1) `research/wishlist.md` itself, a separate later
+entry (2026-08-12, CI-gap proposal) mentions in passing "the state+national
+pmtiles... were migrated to R2 (2026-07-31)" — contradicting the earlier,
+un-updated DATACORE MAXIMUS block in the SAME FILE; (2) `research/
+experiments.md` (line ~43567, a prior GRID VISION session) describes a
+live headless probe against "the LIVE R2 bucket" with "China, Iran, mainland"
+rendering, "R2 bucket after this wave: ~1.35GB of 10GB free tier... the
+daily world-rollout routine owns them"; (3) direct source read confirmed
+it end to end: `server/routes.ts:772-801` implements `/tiles-r2/:name`, a
+same-origin streaming proxy against a public R2 bucket, comment-dated
+"GRID VISION world rollout, 2026-07-31"; `client/src/pages/datamap.tsx:
+1185-1192`'s `tilePath()` routes every `power*`-prefixed filename through
+that proxy, with its own comment: "2026-07-31 migration: every repo copy
+was verified byte-identical in the bucket before removal (~830MB off the
+repo and Docker image)"; a source-wide count found **171 distinct
+`power_*.pmtiles` references** in `datamap.tsx` (the US master plus 45+
+individual states plus dozens of non-US countries) — well past the
+`>=50` bar the quarantined test wanted, just not where it was looking.
+Live-verified against production: `/api/data/layers` (`server_version:
+"1.0.728"`) shows the `powergrid` layer `status:"live"`, description
+"Transmission lines, substations and plant footprints from OpenStreetMap
+for ALL 50 states + DC."
+
+CONCLUSION: the subagent's recommendation was WRONG — not because its
+method was sloppy (it correctly found and cited the stale doc and a
+genuinely-corroborating-looking test), but because the doc AND the test
+shared the same underlying stale premise, so cross-referencing them
+against each other couldn't catch it; only reading the actual serving
+code could. Building the boot-fetch path would have re-downloaded and
+re-tiled ~12GB of data that has been live in production since 2026-07-31,
+wasted a session's disk/network/token budget, and produced a WORSE
+architecture than what already shipped (committed-tiles-in-the-volume vs.
+R2's zero-volume-footprint design that already scales to entire
+continents). REASONING STANDARD #4's discount-by-variants-tried logic
+applies at the meta level too: a recommendation from one pass of
+research, however well-cited, still needs its premise checked against
+ground truth before real resources are committed — "two sources agree"
+is not "verified," when both sources could be downstream of the same one
+stale paragraph.
+
+ACTION TAKEN (own PR, #856): (1) rewrote `server/gridTilesCoverage.test.ts`
+to assert against the REAL serving mechanism — `tilePath()`'s power-vs-
+local routing split, the `>=50` `power_*.pmtiles` references in
+`datamap.tsx` (with both the US master and a real state file required,
+so a regex matching only country codes couldn't vacuously clear the bar),
+the `/tiles-r2/:name` proxy + its name-allowlist regex in `server/
+routes.ts` (including a path-traversal-rejection assertion), and the
+live/full-coverage `datacore/layers.json` registry entry. A/B-verified
+via `git stash`: the old assertion fails 0/1 against current reality
+(proving it really was broken, not just inconvenient); the new
+assertions pass 5/5. (2) Emptied `ci/quarantine.txt` (0 entries) now that
+the test passes on its own merits, not by weakening anything — the
+original `>=50` bar is preserved, just pointed at the corpus that
+actually exists. (3) Deliberately held `ci/quarantine_max.txt` AT 1
+rather than lowering to 0: `server/gatedTests.test.ts`'s own negative-
+path self-tests (overdue-entry / undated-entry / >30-day-out-entry) each
+add exactly one synthetic quarantine line and depend on the real pin
+being `>=1` so that single addition doesn't trip the "quarantine grew"
+check before the specific date-validation logic under test gets to run —
+verified this the hard way (first tried pin=0, three self-tests broke
+with "quarantine grew 0 -> 1" instead of their expected messages, root-
+caused via the exact `q_max`/`q_count` comparison in `scripts/
+gated_tests.sh` line 57, reverted). `0 <= 1` still honors the downward-
+only ratchet without breaking that fixture coupling. (4) Locked in the
+counter gains in `ci/counter_baseline.txt` per `counter_ratchet.sh`'s own
+instruction: `tests_run_in_ci`/`tests_gating_merge` 375→377, `assertions`
+11401→11443, `quarantine_size` 1→0. (5) Corrected `research/wishlist.md`'s
+DATACORE MAXIMUS resume block in place so no future session repeats this
+near-miss — item 2 marked CLOSED under the R2 design, with the full
+correction trail.
+
+A SEPARATE, SMALLER FINDING surfaced but NOT acted on (deliberately, per
+PROMOTION RULE 5, one logical change per PR): `bash scripts/tsc_ratchet.sh`
+initially reported 12→3 errors (an apparent improvement) BEFORE `npm ci`
+was run — traced to incomplete `node_modules` letting tsc silently
+under-resolve imports, not a real gain. After `npm ci` + a full local
+rebuild, it read 12/12 both before and after this PR's changes (`git
+stash`-verified on both sides) — confirming the true baseline is
+unchanged and correctly leaving `ci/tsc_baseline.txt` untouched. Logged
+here as a reminder for future sessions: an early low-error tsc reading in
+this sandbox before dependencies are installed is an environment
+artifact, not a codebase improvement — always re-check after `npm ci`
+before touching that pin.
+
+RATCHET: the fixed test file IS the ratchet — it was quarantined (non-
+blocking) before this PR and gates the merge (blocking, required) after.
+No separate new test needed per CLAUDE.md's REPAIR MANDATE ratchet rule,
+since the repair target was the test itself.
+
+GATES: `bash scripts/gated_tests.sh` (after `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt` to get an honest signal, same
+lesson the 2026-08-15 session logged) — GATE PASSED: server 157 files,
+client 1017/1017, python 1354 passed/1 skipped/54 subtests, quarantine
+0/1, none overdue. `bash scripts/counter_ratchet.sh` — OK, 25 counters at
+or better than baseline. `bash scripts/tsc_ratchet.sh` — 12/12 (unchanged,
+see finding above). `npm run build` — clean.
+
+BACKTEST: N/A — no runtime trading code touched (test file + CI config +
+docs only). No version bump, matching the immediately preceding session's
+own precedent (a042477) for a docs/test-only change.
+
+NEXT (queued, not this session): (1) DATACORE MAXIMUS item 3 (EIA-930
+demand join) was blocked on item 2 per the original resume block; item 2
+being done via R2 rather than boot-fetch doesn't change what item 3
+needs technically, but a future PRODUCT session should re-read it fresh
+rather than trusting this entry's characterization. (2) The OpenSky
+reinstatement review-by (2026-08-17, open_questions.md:4767) is still one
+day out — the next relevant session should check for a human reply and
+close or reinstate per that item's own instructions. (3) axis (a)/(b)/(c)/
+(d) ANGLE-HUNTING is still the standing fall-through recommendation for
+the next session with capacity and no fresher candidate — this session's
+capacity went entirely to the repair above, not to fresh angle-hunting.
+(4) Worth a standing habit, not a new rule: when a wishlist "RESUME HERE"
+block's own timestamp is 3+ weeks old and a build recommendation rests on
+it, grep the actual serving code before committing build resources — this
+session's near-miss is the second time in this repo's history a stale
+"NOT built" claim nearly duplicated shipped work (matching the general
+shape of the DEAD CODE POLICY's likely-returner caveats, just in the
+opposite direction: stale "not done" instead of stale "still needed").
+
+STARVED: no — this was a full-budget REPAIR session (investigation,
+implementation, full local gate run with dependency installation, PR).
+
+
 
 TERRITORY: research/experiments.md only (the AUDIT REGISTER block, which
 is the file's own documented exception to append-only, plus this entry).
