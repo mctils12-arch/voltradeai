@@ -75,9 +75,28 @@ STATUS as of 2026-07-07 ~00:50Z (session claude/new-session-iu72vf):
   entry labeled RAW with coverage=Texas-pilot honesty.
 - PHASE 2 item 1 LIVE-VERIFIED post-deploy: /tiles/power_tx.pmtiles
   answers range requests (206) and the layers registry serves the
-  powergrid entry with full coverage-honesty text. Items remaining:
-  2 = US-full (boot-fetch-from-Release design, filed above, NOT
-  built); 3 = EIA-930 demand join (needs item 2 or region mapping).
+  powergrid entry with full coverage-honesty text.
+  **CORRECTION 2026-08-16 (scheduled-routine session, own PR): item 2
+  (US-full) was SHIPPED, just not via the boot-fetch-from-Release design
+  this block described — this paragraph sat stale for 3 weeks and nearly
+  caused a fresh session to re-download and rebuild ~12GB of already-live
+  tiles.** The actual delivery: the GRID VISION world-rollout R2
+  migration (2026-07-31, `server/routes.ts`'s `/tiles-r2/:name` proxy +
+  `datamap.tsx`'s `tilePath()`) moved every power-grid tile — the US
+  master (`power_us.pmtiles`, all 50 states + DC) plus 45+ state files
+  plus dozens of non-US countries — onto a public R2 bucket, streamed
+  same-origin through the proxy, never touching the local volume
+  (~830MB removed from the repo/Docker image per that migration).
+  `/api/data/layers` confirms `powergrid` status `"live"` with the
+  "ALL 50 states + DC" description live in production today. Item 2 is
+  CLOSED under this different, better design (no boot-fetch/volume
+  storage needed at all — R2 scales to arbitrarily more continents
+  without touching the Railway volume). The stale test that encoded the
+  same wrong assumption (`server/gridTilesCoverage.test.ts`, quarantined)
+  was re-pointed at the real R2 serving mechanism and de-quarantined in
+  the same PR — see experiments.md same date. Remaining: 3 = EIA-930
+  demand join (item 2 being done via R2 rather than boot-fetch doesn't
+  change what item 3 needs — still open, still unblocked).
 - PHASE 3 (imagery): item 3a SHIPPED v1.0.173 — live viewport
   capture-date chip on /data (moveend identify at view centre,
   zoom-level-aware, 'unknown' honesty states, harness ratchet pins

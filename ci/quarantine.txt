@@ -19,4 +19,3 @@
 # Quarantined tests still RUN, in a separate non-blocking step, so the day one
 # starts passing is visible rather than silently overdue.
 
-server/gridTilesCoverage.test.ts  # asserts >=50 state+national power pmtiles; 3 exist and `git log --all` finds no power_*.pmtiles ever committed. NOT resolvable by building and committing them: scripts/build_power_tiles.sh line 53 says of exactly these artifacts "US scale (est. 60-150MB): DO NOT commit — boot-fetch from a GitHub Release asset into the volume", and its ODbL note forbids offering the .pmtiles file for download. Resolve by building the boot-fetch path (wishlist A4 PHASE 2 item 2) and re-pointing the test at what the server actually serves — or by deleting it WITH the cancellation recorded in experiments.md. Never by weakening the assertion. Split out of gridTiles.test.ts on 2026-08-14, where running first it kept the magic-byte regression guard from ever executing. (added 2026-08-14, review by 2026-09-13)
