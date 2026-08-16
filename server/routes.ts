@@ -51,6 +51,7 @@ import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
+import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -3948,6 +3949,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     res.set("Cache-Control", "public, max-age=300");
     res.json({ ...dwellCache.data, generated_at: new Date(dwellCache.at).toISOString() });
+  });
+
+  // GNSS INTEGRITY SIGNAL — the first root to reach the "gated-SIGNAL
+  // /data surface" milestone (research/open_questions.md's
+  // gnss_integrity_adsb entry, 2026-08-13 NEXT note (c); ladder gate 2
+  // PASS, datacore/signal_ladder.json, re-confirmed and strengthened
+  // 2026-08-15 at 4 accumulated days). Public, no diag token: only
+  // aggregate band x origin counts and derived statistics ever leave this
+  // route (server/gnssIntegritySignal.ts's own privacy contract, same as
+  // the token-gated diag probe it's built on top of — no per-row lat/lon,
+  // tail number, or callsign). Same 10-min eager-poller shape as
+  // portdwell above — the computation reads archive JSONL, so it must
+  // never run synchronously per-request.
+  let gnssSignalCache: { at: number; data: GnssIntegritySignalSummary } | null = null;
+  let gnssSignalRunning = false;
+  const refreshGnssIntegritySignal = async () => {
+    if (gnssSignalRunning) return;
+    gnssSignalRunning = true;
+    try {
+      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignal() };
+    } catch (e: unknown) {
+      console.error("[datacore] gnss integrity signal refresh:", (e as Error)?.message || e);
+    } finally {
+      gnssSignalRunning = false;
+    }
+  };
+  refreshGnssIntegritySignal();
+  setInterval(() => { refreshGnssIntegritySignal(); }, 10 * 60_000).unref?.();
+  app.get("/api/data/gnss-integrity-signal", (_req, res) => {
+    if (!gnssSignalCache) {
+      return res.json({ kind: "signal", warming_up: true, note: "first archive scan in progress — retry shortly" });
+    }
+    res.set("Cache-Control", "public, max-age=300");
+    res.json(gnssSignalCache.data);
   });
 
   // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins

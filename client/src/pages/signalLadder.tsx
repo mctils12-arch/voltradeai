@@ -22,6 +22,7 @@ interface LadderRoot {
   last_update_date: string;
   note: string;
   source_ref: string;
+  detail_route?: string;
 }
 interface LadderSummary {
   total: number;
@@ -217,6 +218,12 @@ export default function SignalLadderView({ onBack }: { onBack: () => void }) {
                         <span>updated {r.last_update_date}</span>
                         <span>·</span>
                         <span className="vt-ladder-row-src" title={r.source_ref}>source: {r.source_ref}</span>
+                        {r.detail_route && (
+                          <>
+                            <span>·</span>
+                            <a href={r.detail_route} className="vt-graph-example">view live signal →</a>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
