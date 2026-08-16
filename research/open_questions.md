@@ -4202,6 +4202,15 @@
     wishlist.md's own entry already names the trigger: that's when Option
     3 (a persisted cross-cycle slot ledger) becomes warranted, not another
     surgical patch on this same shape.
+    **LIVE VERIFICATION CONFIRMED 2026-08-16 (scheduled-routine session,
+    read-only check, no code change).** `/api/diag/audit?
+    type=OPTIONS-SLOT-FULL&limit=10&token=$DIAG_TOKEN` (production,
+    `server_version:"1.0.728"`) shows 10 consecutive skip events spanning
+    2026-08-15T22:47:47Z-23:53:33Z (a real Power Hour window, the exact
+    condition all three prior recurrences were caught in) — every single
+    one reads "options slots full (6/6)", never `(7/6)` or higher. The
+    gate is holding at the documented cap through the one scenario that
+    broke it three times before. **ITEM #30 CLOSED.**
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
