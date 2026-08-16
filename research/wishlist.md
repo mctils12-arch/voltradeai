@@ -1,5 +1,101 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was
+## 2026-07-03) — 2 consolidation proposals, human approval needed before
+## either ships
+
+Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule ("the audit NEVER changes
+rules itself — it files exact before/after proposals in wishlist.md...
+for human approval; approved consolidations ship as one docs PR"). Full
+audit trace (scope, method, interaction checks) in
+`research/experiments.md`'s 2026-08-16 "[RULE-REVIEW]... SECOND-EVER
+CONSTITUTIONAL AUDIT" entry. Neither proposal below changes what the
+system does — both are wording/consolidation fixes to CLAUDE.md itself.
+
+### Proposal 1 — USAGE-CALIBRATION LOOP's dead "Revisit ~2026-07-24"
+clause (orphaned by its own later BLIND MODE amendment)
+
+WHAT IT PRESERVES: the entire BLIND MODE directive (2026-07-31, "no
+usage screenshots will be provided anymore — sessions run the aggressive
+branch continuously and the human is the throttle") is untouched — this
+proposal only removes/updates the one trailing sentence that predates it
+and now contradicts it.
+
+WHAT IT DROPS: the specific calendar date "~2026-07-24" and the framing
+that a revisit is triggered by "readings flatten" (screenshot-derived —
+no longer possible under BLIND MODE).
+
+WHAT IT RESOLVES: a clause whose own exit condition can never be
+observed again (BLIND MODE cut off the only channel "readings" came
+from), sitting silently in the constitution 23 days past its own named
+date with no session flagging it until now.
+
+BEFORE (verbatim, end of the `USAGE-CALIBRATION LOOP` STANDING BEHAVIORS
+bullet in CLAUDE.md):
+> Cadence: voltrade-usage-check (DAILY 21:30 ET) + voltrade-weekly-review
+> (Sun 10:00 ET); DELIVERY = the routine's final session output in the
+> Claude Code Notifications tab (the Gmail connector is draft-only —
+> never a send path). Revisit ~2026-07-24: once readings flatten, drop
+> back to weekly mode.
+
+AFTER (proposed replacement for the final sentence only; everything
+before "Revisit" is unchanged):
+> Cadence: voltrade-usage-check (DAILY 21:30 ET) + voltrade-weekly-review
+> (Sun 10:00 ET); DELIVERY = the routine's final session output in the
+> Claude Code Notifications tab (the Gmail connector is draft-only —
+> never a send path). Revisit trigger under BLIND MODE: the human either
+> resumes sending usage screenshots or explicitly says usage has
+> stabilized — either signals a return to weekly-cadence review; no
+> standing calendar date, since BLIND MODE removed the periodic-screenshot
+> signal the original date depended on.
+
+SECONDARY OBSERVATION (not part of the proposed edit, flagging for the
+human's judgment only): the same bullet's "Bias aggressive while weekly
+readings are under 50%" clause also assumes screenshot-derived weekly
+readings exist. BLIND MODE's own text ("sessions run the aggressive
+branch continuously") may already supersede it in practice, but this
+audit is not confident enough to propose a specific rewording — worth
+the human's eye when reviewing Proposal 1.
+
+### Proposal 2 — MEMORY PROTOCOL's read-order list omits VISION.md/GIP.md,
+which STANDING BEHAVIORS separately mandates reading in a specific slot
+
+WHAT IT PRESERVES: the `VISION.md + GIP.md NORTH STAR` STANDING BEHAVIORS
+rule's own text and authority are completely unchanged — this proposal
+does not touch that bullet at all.
+
+WHAT IT DROPS: nothing.
+
+WHAT IT RESOLVES: MEMORY PROTOCOL's 5-item "read in order" list is the
+place a session actually looks for session-start reading order, but it
+never mentions VISION.md/GIP.md — their placement ("after CLAUDE.md")
+only exists in a different section entirely. A session following MEMORY
+PROTOCOL literally has no way to know from that section alone that two
+more files belong at the very top of the order for PRODUCT/EDGE work.
+
+BEFORE (verbatim, CLAUDE.md's MEMORY PROTOCOL section):
+> At session start, read in order:
+> 1. This file
+> 2. `research/experiments.md` — what was tried, what happened
+> 3. `research/open_questions.md` — current hypotheses ranked by expected
+>    value
+> 4. `research/wishlist.md` — data/access you lack (human reviews this)
+> 5. Recent audit log via the site API or `/data/voltrade` state files
+
+AFTER (proposed insertion of one cross-referencing line; nothing
+renumbered, nothing removed):
+> At session start, read in order:
+> 1. This file
+> 1a. PRODUCT/EDGE sessions only: VISION.md and GIP.md, per the
+>     VISION.md + GIP.md NORTH STAR standing behavior above
+> 2. `research/experiments.md` — what was tried, what happened
+> 3. `research/open_questions.md` — current hypotheses ranked by expected
+>    value
+> 4. `research/wishlist.md` — data/access you lack (human reviews this)
+> 5. Recent audit log via the site API or `/data/voltrade` state files
+
+---
+
 ## ⚠ PROCESS GAP FOUND 2026-08-15 — the scheduled routine's "wait until
 ## after 4pm ET" merge-timing note is not enforced by anything
 
