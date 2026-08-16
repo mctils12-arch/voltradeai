@@ -105,6 +105,9 @@ const PAGES = {
   // bidding zones (2026-08-16) — same Phase 5 ratchet rule as
   // streams/gnssintegrity above.
   eupower: { route: "/app#/data/eu-power", map: false },
+  // SEC CNS fails-to-deliver, half-month files (2026-08-16) — same Phase 5
+  // ratchet rule as streams/eupower above.
+  secftd: { route: "/app#/data/ftd", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -179,6 +182,7 @@ const FIXTURES = {
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
+      { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "nightlights", name: "Night lights radiance (GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band", description: "Daily radiance imagery, dated (defaults to yesterday)." },
@@ -578,6 +582,28 @@ const FIXTURES = {
         points_in_window: 72, window_min_price: 12.1, window_max_price: 104.2, window_mean_price: 51.7, negative_price_points: 0 },
     ],
     issues: {},
+  },
+  // SEC CNS fails-to-deliver, half-month files (2026-08-16, RAW display,
+  // secFtd.tsx). Fixture covers 2 top-fail rows so the harness exercises
+  // the leaderboard table and the null-price ("." source value) branch.
+  "/api/data/ftd": {
+    kind: "raw",
+    source: "SEC CNS fails-to-deliver, half-month files (public domain) (fixture)",
+    attribution: "U.S. Securities and Exchange Commission (CNS fails-to-deliver)",
+    time: "2026-08-16T12:00:00.000Z",
+    note: "aggregate net fail BALANCES per settlement date (a level, not a daily flow); published on a 2.5-4.5 week lag (fixture).",
+    summary: {
+      period: "202607b",
+      settlement_dates: 11,
+      newest_date: "2026-07-31",
+      rows: 58328,
+      top_fails: [
+        { symbol: "JUCY", name: "FIXTURE JUICY CORP", qty: 4823110, price: 3.42 },
+        { symbol: "SNDQ", name: "FIXTURE SANDQUEST INC", qty: 2110540, price: null },
+      ],
+      qty_floor: 100000,
+      top_cap: 15,
+    },
   },
   // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
   // display). Fixture covers one series per category so the harness
