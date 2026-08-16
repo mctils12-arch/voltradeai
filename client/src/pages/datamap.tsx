@@ -12231,7 +12231,7 @@ export default function DataMapPage() {
             <span className="vt-kind-badge raw">RAW</span>
             <span className="vt-layer-status">
               <i style={{ background: on ? "var(--accent-green)" : "var(--text-tertiary)" }} />
-              {on ? "US · Canada · S. America · Europe" : "off"}
+              {on ? "US · Canada · S. America · Europe · Asia" : "off"}
             </span>
           </span>
           <button
@@ -12247,9 +12247,11 @@ export default function DataMapPage() {
         {!!descOpen["powergrid_all"] && (
           <div className="vt-layer-desc" role="note">
             Every grid mapped so far in one switch: the US (all 50 states + DC),
-            Canada (13 provinces/territories), South America (13 countries) and
-            Europe (48 countries/territories) continental masters together.
-            Not yet mapped: Africa, Asia, Oceania — coming in later waves.
+            Canada (13 provinces/territories), South America (13 countries),
+            Europe (48 countries/territories) and Asia (38 countries/regions
+            including Russia and China) continental masters together.
+            Not yet mapped: Africa, Oceania — their tiles are built but not
+            yet wired into the map.
             Off clears the whole power-grid family, including any per-state or
             per-country picks. HIFLD (US authoritative transmission) stays a
             separate toggle under Facilities — it overlays the same US lines.

@@ -9848,3 +9848,47 @@ caught both the eviction race and the 3b coverage property directly.
   the Law's 16.7ms target. Already recorded under "THE ACCEPTANCE NUMBER IS
   NOWHERE NEAR MET"; noting the current measured values here so the trend is
   visible.
+
+## 2026-08-16 — [DARK DATA] Africa and Oceania grid tiles are built, serving, and invisible
+
+Found while repairing the "All power grids" master switch (which silently
+skipped Asia — see experiments.md same date).
+
+**Confirmed present and serving from R2 through the production proxy:**
+
+| file | size | HTTP |
+|---|---|---|
+| `power_africa.pmtiles` | 18.6 MB | 206 |
+| `power_oceania.pmtiles` | 24.5 MB | 206 |
+| `power_oc_au.pmtiles` | 27.0 MB | 206 |
+| `power_oc_nz.pmtiles` | 27.6 MB | 206 |
+| `power_af_za.pmtiles` | 7.3 MB | 206 |
+
+**But:** `powergrid_africa` and `powergrid_oceania` have **no entry in
+datacore/layers.json** and **zero wiring in datamap.tsx** (`grep -c
+"enabled.powergrid_africa"` → 0). So the bake ran, the tiles uploaded, they
+are being served on request — and no user can ever reach them. Pure dark
+data: we pay to store it and get nothing.
+
+Note `power_oc_nz.pmtiles` (27.6 MB) is LARGER than `power_us.pmtiles`
+(26.3 MB) — this is not a trivial scrap.
+
+**Work to surface them** (mirrors the Asia wave exactly, so it is a known
+recipe, not research): registry entries for the two continental masters +
+their per-country children, an `AF_COUNTRIES` / `OC_COUNTRIES` list and
+wiring loop in datamap.tsx, panel group labels, and appending both ids to
+`GRID_MASTER_IDS` — where the new parity test will now *fail loudly* until
+they are added, which is the point.
+
+**Open question worth answering first:** how many per-country files exist
+under `tiles/power_af_*` and `tiles/power_oc_*` in R2? The full object list
+is the work-list. If the whole per-country set is already baked, this is
+wiring-only with no pipeline run at all.
+
+**Why this matters beyond two continents:** the same drift produced the Asia
+bug. A tile can be built, uploaded, and served while being unreachable,
+because nothing asserts that a bucket object corresponds to a reachable
+layer. The Asia repair added registry↔GRID_MASTER_IDS parity; the stronger
+invariant — **bucket ↔ registry parity** — is still unenforced. A test that
+lists `tiles/power_*.pmtiles` and flags any file with no live registry layer
+would have caught Africa, Oceania AND Asia before a human did.

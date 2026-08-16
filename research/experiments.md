@@ -48146,3 +48146,64 @@ change, and this entry does not pretend it does.
 rotate/pan at close Moon range (the margin existed to absorb exactly that),
 revert by dropping the `visibleHalfDeg` argument at the two `spaceFrame` call
 sites — that alone restores the previous behaviour with no other edit.
+
+## 2026-08-16 [REPAIR] "All power grids" silently skipped Asia (v1.0.693)
+
+**Territory:** T-CLIENT (`client/src/lib/gridMaster.ts`, `datamap.tsx`).
+
+**Human report (verbatim):** *"i want to work on the power grid. What about
+China or russia we dont seem to have anything on them"* … *"when i turn on
+all power grids i dont see it them"*, with a screenshot showing the master
+switch ON, Europe lit up, and China/India/Russia dark.
+
+**Prior:** I first assumed this was a discoverability problem — 236 layers,
+no search box — and that the data was simply hard to find. That was WRONG,
+and the user's second message (the screenshot) falsified it: they had the
+master switch on and still saw nothing. The screenshot's own subtitle read
+"US · Canada · S. America · Europe" — the bug was printed on screen.
+
+**Root cause:** `GRID_MASTER_IDS` in `client/src/lib/gridMaster.ts` listed
+four continents. Asia had shipped end to end — registry `powergrid_asia`
+live, `AS_COUNTRIES` wiring loop in datamap.tsx, `power_asia.pmtiles`
+serving 206 from R2 — but its id was never appended, so the one-switch
+control skipped an entire continent. The panel description also still read
+"Not yet mapped: Africa, Asia, Oceania — coming in later waves."
+
+**Scale of what was hidden** (measured from the pmtiles metadata, live):
+
+| region | features | file |
+|---|---|---|
+| United States | 9,193,886 | 26.3 MB |
+| **China** | **4,276,317** | 89.6 MB |
+| **Russia** | **3,131,036** | 76.2 MB |
+| Germany | 1,327,939 | 38.9 MB |
+
+China and Russia are the two largest single-country files in the bucket —
+each larger on disk than the entire US set — and both were unreachable via
+the control users are told shows "every grid mapped so far".
+
+**Fix:** append `powergrid_asia` to `GRID_MASTER_IDS`; correct the subtitle
+to "US · Canada · S. America · Europe · Asia" and the description to name
+Asia's 38 countries/regions incl. Russia and China.
+
+**RATCHET (verified, not assumed):** two new tests make the REGISTRY the
+source of truth — every layer named `/Power Grid \(all/` with `status:
+"live"` must be in `GRID_MASTER_IDS`, and no id may be listed that the
+registry lacks. Verified by deleting the Asia line and confirming the suite
+goes 5 pass / 1 fail with the exact diagnostic, then restoring: 6/6. This
+fails the day a new continent's registry entry lands, not weeks later when a
+human notices missing countries.
+
+**Filed, NOT fixed here (own PR):** `power_africa.pmtiles` (18.6 MB),
+`power_oceania.pmtiles` (24.5 MB), `power_oc_au`, `power_oc_nz` (27.6 MB —
+bigger than the US file) and `power_af_za` are all built and serving 206
+from production, with NO registry entry and NO client wiring. Pure dark
+data. See open_questions.md — including the stronger invariant this class of
+bug keeps demanding: **bucket ↔ registry parity**, which would have caught
+Africa, Oceania AND Asia before a human did.
+
+**Rollback trigger:** if the Asia master causes a perf regression on the
+globe (it is the largest continental tile at 128 MB), remove
+`powergrid_asia` from `GRID_MASTER_IDS` — the per-country toggles keep
+working untouched. The parity test will then fail by design, which is the
+honest signal that the continent is deliberately excluded.

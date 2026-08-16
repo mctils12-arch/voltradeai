@@ -16,13 +16,26 @@
 //
 // Pure + hermetic: unit-tested with `npx tsx --test`.
 
-/** The continental OSM masters — everything mapped so far. Waves 3+ append
- *  here as new continents ship (Africa/Asia/Oceania pending). */
+/** The continental OSM masters — everything mapped so far.
+ *
+ *  [REPAIR 2026-08-16, human report: "when i turn on all power grids i dont
+ *  see it them" for China/Russia] Asia shipped — registry `powergrid_asia`
+ *  live, wired in datamap.tsx, `power_asia.pmtiles` serving from R2 — but was
+ *  never appended here, so the master switch silently skipped an entire
+ *  continent. The user turned on "All power grids", saw Europe light up and
+ *  China/India/Russia stay dark, and reasonably concluded we had no data for
+ *  them. We had 4.28M features for China and 3.13M for Russia: the two
+ *  LARGEST single-country files in the bucket.
+ *
+ *  A new continent is not shipped until its id is in THIS list. The registry
+ *  parity test in gridMaster.test.ts now enforces that, so the next continent
+ *  cannot ship half-wired the same way. */
 export const GRID_MASTER_IDS = [
   "powergrid", // US, all 50 states + DC
   "powergrid_canada", // 13 provinces & territories
   "powergrid_southamerica", // 13 countries
   "powergrid_europe", // 48 countries/territories
+  "powergrid_asia", // 38 countries/regions incl. Russia
 ] as const;
 
 /** Every layer the OFF position clears shares this id prefix (masters,
