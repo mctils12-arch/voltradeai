@@ -2388,6 +2388,16 @@
    "description": "Primary-market results for Bill/Note/Bond/TIPS/FRN/CMB auctions from the last 30 days: bid-to-cover, high yield/discount rate, and dealer/direct/indirect bidder-class shares (dealer_take published by the route, direct/indirect take derived client-side from the same competitive-accepted denominator). Bid-to-cover-deterioration-and-rising-dealer-take-precede-rate-regime-shifts is an open gate-2 hypothesis, not yet surfaced as a signal; the classic tail-vs-when-issued stress metric needs a 1pm ET WI quote, which is paid data and is never faked here."
   },
   {
+   "id": "treasury_dts",
+   "name": "Treasury Daily Statement",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "U.S. Treasury Fiscal Data API, deposits_withdrawals_operating_cash (US government work, public domain, no API key required)",
+   "description": "Most recent published Daily Treasury Statement: all operating-cash deposit/withdrawal line items by category and account, $ millions as published (~1-2 business-day lag). Withheld-tax-deposits-form-a-daily-payroll-nowcast-weeks-ahead-of-BLS-releases (plus corporate-tax/FUTA deltas nowcasting macro turns) is an open gate-1 hypothesis, not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
