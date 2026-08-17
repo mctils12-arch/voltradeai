@@ -414,8 +414,8 @@
    typing/destination populates post-warm-up on the next live check —
    that's read-path enrichment, not connection timing.
 
-10. **[FOUND 2026-07-04 — dead config, not yet repaired] SCORE_BAND_MAX,
-    MAX_CHANGE_PCT, SCORE_BAND_OPTIMAL_LO/HI are defined in
+10. **[FOUND 2026-07-04, RESOLVED 2026-08-17, v1.0.735] SCORE_BAND_MAX,
+    MAX_CHANGE_PCT, SCORE_BAND_OPTIMAL_LO/HI were defined in
     `system_config.py`'s BASE_CONFIG with comments claiming they gate
     trades ("Skip stocks already up/down 35%+", "Scores above this are
     often fake breakouts", "Sweet spot confirmed by 10-year backtest")
@@ -545,6 +545,39 @@
     split that structurally can't populate. If `max`/`p99` instead approach
     or exceed 35 while `over_threshold` stays 0, that contradiction is
     itself a labeling/comparison bug worth its own [REPAIR] session.
+    **RESOLVED 2026-08-17 (scheduled-routine session, [REPAIR], v1.0.735):**
+    the 2026-08-13 diagnostics PR (#815, v1.0.698) had merged to main by
+    this session (confirmed via `git log`) but its NEXT step — querying
+    the live `/api/diag/shadow?token=$DIAG_TOKEN` probe — had not yet been
+    run. Ran it this session: `total_records: 18157`,
+    `by_decision.taken: 12147`,
+    `win_rate_by_change_pct_band.taken_distribution: {n: 12147, max: 29.9,
+    p50: 19.08, p95: 26.38, p99: 29.12, count_over_20: 4769,
+    count_over_30: 0}`. Per the pre-registered decision this note itself
+    specified on 2026-08-13 — before this data was seen (REASONING
+    STANDARD #10) — max/p99 sit well under the 35.0 threshold with a
+    healthy n, confirming `bot_engine.py`'s `_extreme_penalty` soft
+    penalty (-15 at >30%, -30 at >50% single-day move) already keeps
+    every "taken" candidate well clear of 35% in practice; the flat
+    `over_threshold.candidate_count: 0` observed since 2026-08-10 is
+    genuinely "never happens," not a labeling bug. Action taken per the
+    pre-registered branch: `SCORE_BAND_MAX`, `SCORE_BAND_OPTIMAL_LO`,
+    `SCORE_BAND_OPTIMAL_HI` — verified via fresh grep to have zero
+    read sites anywhere outside `system_config.py` itself (unlike
+    `MAX_CHANGE_PCT`, no diagnostic or test reads them either) — deleted
+    from `system_config.py`'s `BASE_CONFIG` per the STALENESS AUDIT dead-
+    code policy. `MAX_CHANGE_PCT` was NOT deleted: it is now genuinely
+    live-read by `shadow_portfolio.py`'s `_change_pct_band_stats()` as the
+    band-split threshold for the very diagnostic that resolved this item,
+    and by `test_shadow_change_pct_band.py`. Its misleading comment
+    ("Skip stocks already up/down 35%+ (easy money gone)," implying a live
+    trade-skip gate) was rewritten in place to state its actual role
+    (shadow-diagnostic band threshold, not a trading gate) and cite this
+    resolution. No trading behavior changed — `deep_score`/`quick_score`
+    never read any of these four keys before or after this PR; this is a
+    pure documentation/dead-code fix, not a RULE REVIEW threshold change,
+    so no counterfactual-logging or backtest-ablation gate applies. Full
+    trace, gates, and version bump in experiments.md's matching entry.
 
 11. **[FOUND + FIXED 2026-07-04, v1.0.71]** ~~Daemon RPC route
     `shadow_stats` pointed at a function that doesn't exist~~.
