@@ -60,16 +60,23 @@ BASE_CONFIG = {
     # more true positives than false positives in bull/neutral regimes.
     # Bear/panic regimes use their own higher thresholds (75+) regardless.
     "MIN_SCORE":            63,    # Optimized: 63 (was 65)
-    "SCORE_BAND_MAX":       75,    # Scores above this are often fake breakouts
-    "SCORE_BAND_OPTIMAL_LO": 65,   # Sweet spot confirmed by 10-year backtest
-    "SCORE_BAND_OPTIMAL_HI": 74,
 
     # ── STOCK QUALITY FILTERS ─────────────────────────────────────────────────
     # 3-year backtest: penny stocks (<$5) = 25% WR. Volume 500K = liquidity minimum.
     "MIN_PRICE":            5.0,   # Minimum stock price
     "MIN_VOLUME":           500_000,  # Minimum daily volume
     "OPEN_HOUR_MIN_VOLUME": 1_000_000, # First 30min: need even more volume
-    "MAX_CHANGE_PCT":       35.0,  # Skip stocks already up/down 35%+ (easy money gone)
+    # NOT a live trade-skip gate (KNOWN BROKEN #10, research/open_questions.md):
+    # deep_score never hard-skips on this. bot_engine.py's _extreme_penalty
+    # already soft-penalizes -15/-30 at >30%/>50% single-day moves instead.
+    # This value is read live by shadow_portfolio.py's _change_pct_band_stats()
+    # as the split point for its shadow-only win-rate diagnostic (KNOWN BROKEN
+    # #10's evidence check, resolved 2026-08-17: taken-candidate max=29.9,
+    # p99=29.12 over n=12,147 — the soft penalty already keeps takes well
+    # under this threshold, so no hard gate is warranted). Kept live (not
+    # deleted) because the diagnostic imports it; edit it and the diagnostic's
+    # band split moves with it.
+    "MAX_CHANGE_PCT":       35.0,
     "MAX_SPREAD_PCT":       0.5,   # Skip if bid-ask spread > 0.5% (execution risk)
 
     # ── POSITION SIZING (pro-level: quarter-Kelly) ───────────────────────────
