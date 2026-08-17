@@ -111,6 +111,8 @@ const PAGES = {
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
+  // US Treasury auctions — same Phase 5 ratchet rule as streams/tff above.
+  treasuryauctions: { route: "/app#/data/treasury-auctions", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -185,6 +187,7 @@ const FIXTURES = {
       { id: "attention", name: "Attention proxy (Wikipedia pageviews)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Wikimedia pageviews API", description: "Daily article pageviews for a curated ticker seed — an attention proxy, not a signal." },
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
       { id: "tff", name: "Traders in Financial Futures (CFTC, futures-only)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API, futures-only", description: "Weekly financial-futures positioning by trader category — a positioning proxy, not a signal." },
+      { id: "treasury_auctions", name: "US Treasury auctions", kind: "raw", status: "live", group: "filings", costTier: "light", source: "TreasuryDirect TA_WS, securities/auctioned", description: "Primary-market bid-to-cover + bidder-class shares — a stress proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
@@ -982,6 +985,24 @@ const FIXTURES = {
       { report_date: "2026-08-11", market: "10-YEAR U.S. TREASURY NOTES - CHICAGO BOARD OF TRADE", code: "043602", commodity: "TREASURY",
         open_interest: 3980000, dealer_long: 540000, dealer_short: 610000, asset_mgr_long: 890000, asset_mgr_short: 720000,
         lev_money_long: 1150000, lev_money_short: 940000, other_rept_long: 260000, other_rept_short: 210000 },
+    ],
+  },
+  // US Treasury auctions (2026-08-17, RAW display, treasuryAuctions.tsx).
+  // Fixture covers a Bill (discount rate) and a Note (yield) so the harness
+  // exercises both rate-kind branches of the table.
+  "/api/data/treasury-auctions": {
+    kind: "raw", source: "TreasuryDirect TA_WS, securities/auctioned (public domain) (fixture)",
+    attribution: "U.S. Department of the Treasury (TreasuryDirect)", time: "2026-08-17T12:00:00.000Z",
+    count: 2, note: "results-complete auctions from the last 30 days (fixture)",
+    auctions: [
+      { cusip: "912797ML0", auction_date: "2026-08-14", issue_date: "2026-08-19", maturity_date: "2026-11-19",
+        type: "Bill", term: "13-Week", reopening: false, bid_to_cover: 2.87, high_yield: null, high_discount_rate: 4.212,
+        total_accepted: 76000000000, competitive_accepted: 71000000000, primary_dealer_accepted: 38000000000,
+        direct_accepted: 5000000000, indirect_accepted: 28000000000, dealer_take: 0.5352 },
+      { cusip: "91282CKQ1", auction_date: "2026-08-12", issue_date: "2026-08-15", maturity_date: "2033-08-15",
+        type: "Note", term: "7-Year", reopening: false, bid_to_cover: 2.41, high_yield: 4.087, high_discount_rate: null,
+        total_accepted: 44000000000, competitive_accepted: 42000000000, primary_dealer_accepted: 15000000000,
+        direct_accepted: 9000000000, indirect_accepted: 18000000000, dealer_take: 0.3571 },
     ],
   },
   "/api/data/cot": {

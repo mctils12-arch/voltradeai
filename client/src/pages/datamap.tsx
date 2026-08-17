@@ -46,6 +46,7 @@ import GnssIntegritySignalView from "./gnssIntegritySignal";
 import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
 import TffView from "./tff";
+import TreasuryAuctionsView from "./treasuryAuctions";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -878,7 +879,7 @@ const LAYER_GROUP: Record<string, string> = {
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings",
   graph: "graph",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
@@ -2810,6 +2811,11 @@ export default function DataMapPage() {
   // /api/data/tff, keyless Socrata sibling of /api/data/cot; no client
   // view until now).
   const [tffOpen, setTffOpen] = useState(() => window.location.hash === "#/data/tff");
+  // US Treasury auctions (#/data/treasury-auctions) — same overlay pattern
+  // (server/treasuryAuctions.ts, BUILD ORDER 2 #4, shipped API-only
+  // 2026-07-05; no client view until now, same "shipped-data-no-UI" gap
+  // class as secFtd/tff above).
+  const [treasuryAuctionsOpen, setTreasuryAuctionsOpen] = useState(() => window.location.hash === "#/data/treasury-auctions");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3137,6 +3143,7 @@ export default function DataMapPage() {
       setEuPowerOpen(window.location.hash === "#/data/eu-power");
       setSecFtdOpen(window.location.hash === "#/data/ftd");
       setTffOpen(window.location.hash === "#/data/tff");
+      setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -12001,6 +12008,32 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.tff, mapSettled, setStatus]);
 
+  // ── US Treasury auctions (RAW; non-geospatial — same inline-panel-row +
+  // full-view pattern as tff/secftd). Server refreshes on a 6h poll
+  // (auctions settle ~1pm ET on auction days), so this poll only refreshes
+  // the panel's auction-count badge, same 300s convention as the sibling
+  // filings layers. ──
+  useEffect(() => {
+    if (!enabled.treasury_auctions) { setStatus("treasury_auctions", "off"); return; }
+    if (!mapSettled) { setStatus("treasury_auctions", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("treasury_auctions", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/treasury-auctions");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("treasury_auctions", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("treasury_auctions", "active", d.count);
+      } catch {
+        if (!stop) setStatus("treasury_auctions", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.treasury_auctions, mapSettled, setStatus]);
+
   // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as insider/earnings/shortvol).
   // BUILD ORDER 5 #3 pipeline shipped API-only 2026-07-05; this is its
@@ -12123,6 +12156,7 @@ export default function DataMapPage() {
     id === "midas" ? <Radar size={15} /> :
     id === "secftd" ? <TrendingDown size={15} /> :
     id === "tff" ? <Scale size={15} /> :
+    id === "treasury_auctions" ? <Tag size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -12139,7 +12173,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "tff" ? "markets" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12584,6 +12618,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "treasury_auctions" && on && (
+          // Same pattern as tff/secftd: a chronological auction-results
+          // table doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/treasury-auctions"; setTreasuryAuctionsOpen(true); }}>
+              Open Treasury auctions view — bid-to-cover, bidder shares →
+            </button>
+          </div>
+        )}
         {l.id === "attention" && on && (
           // Same pattern as insider/earnings/shortvol: a ticker search +
           // trend table doesn't belong in a layer-toggle sidebar.
@@ -12759,6 +12803,9 @@ export default function DataMapPage() {
       )}
       {tffOpen && (
         <TffView onBack={() => { window.location.hash = "#/data"; setTffOpen(false); }} />
+      )}
+      {treasuryAuctionsOpen && (
+        <TreasuryAuctionsView onBack={() => { window.location.hash = "#/data"; setTreasuryAuctionsOpen(false); }} />
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />

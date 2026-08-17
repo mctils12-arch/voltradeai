@@ -20,6 +20,222 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-17 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — US Treasury auctions (/api/data/treasury-auctions) gets a live /data map layer + client view, the first of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.732)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/treasuryAuctions.tsx`;
+wiring in `client/src/pages/datamap.tsx` — icon (`Tag`, unclaimed in the
+existing id-ternary chain), `LAYER_GROUP` fallback entry, overlay state
+hook, hashchange listener, status-polling effect, icon/unit lookups,
+launcher button, render block; new fixtures + PAGES entry in
+`scripts/visual_check.mjs`) + SHARED last-and-minimal (`datacore/
+layers.json` new registry entry, `package.json`/`package-lock.json`
+version bump only — no server route or schema touched). No datacore/
+pipeline code touched: `/api/data/treasury-auctions` (`server/
+treasuryAuctions.ts`) was already shipped and live (BUILD ORDER 2 #4,
+2026-07-05, keyless TreasuryDirect TA_WS), this is a pure client-surface
+build over an existing, unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+open_questions.md's KNOWN BROKEN section in full, wishlist.md head +
+tail, experiments.md tail through the 2026-08-16 session #6/CFTC-TFF
+entries). Live `https://voltradeai.com/api/health`: `status:"ok"`, bot
+`active`, `drawdownPct:"0.0"`, `liveness.dark:false`, `alpaca
+account_status:"ACTIVE"`, `scanner.consecutiveFailures:0`, all three
+feeds (`aircraft`/`vessels`/`trains`) `dead:false` — no LIVENESS ALARM.
+KNOWN BROKEN walked: only #29 (MEDIUM, visibility-gap-only,
+`_log_mem_phase` mid-scan RSS not readable from a token-only session)
+and #20/#10 (RULE REVIEW-gated design/threshold judgment calls awaiting
+counterfactual/backtest evidence) remain open; #30 was resolved
+2026-08-15 (PR #850, structural fix, independently re-verified same day).
+None block or outrank product work (product sessions do not preempt
+DAILY repair duty, per this task's own instructions). `date -u` / `TZ=
+America/New_York date`: 2026-08-16 20:12 EDT (Sunday evening) — markets
+closed, no deploy-coupling concern, no market-hours merge-timing note
+needed on the PR.
+
+PRIMARY-ACTION SELECTION: no live bug, no matured gate-2 experiment
+sitting unjudged. The immediately preceding PRODUCT session (2026-08-16,
+CFTC TFF, PR #860) left an explicit, unranked list of 5 zero-wiring
+`/api/data/*` routes its own full sweep of `server/routes.ts` against
+`client/src/` found: `/api/data/dts`, `/api/data/treasury-auctions`,
+`/api/data/bank-failures`, `/api/data/vehicle-complaints`, `/api/data/
+fda-events`. Independently re-confirmed the gap still exists before
+committing to one: `grep -rln "treasury-auctions\|treasury_auctions" client/src/`
+returned zero files, and none of the 5 candidate ids appear anywhere in
+`datacore/layers.json` either — a materially bigger gap than TFF's own
+starting point (TFF already had a registered `layers.json` entry + a
+toggle/status-pill wiring from an earlier session, just no detail page;
+none of these 5 have even that first step). Chose `treasury-auctions`
+over the other 4 for the same reason the TFF session gave for picking
+TFF over DTS/bank-failures: it is the one candidate among the remaining
+unbuilt routes with a concrete, stated internal hypothesis (`server/
+treasuryAuctions.ts`'s own doc comment: bid-to-cover deterioration + a
+rising dealer take precede rate-regime shifts) rather than a purely
+descriptive feed — giving it a future gate-2 path the others lack. This
+session builds BOTH the missing registry/toggle layer AND the detail
+page in one PR (rather than splitting into two sessions) because the
+smallest coherent unit here is "the route becomes inspectable at all" —
+a toggle with no detail page and a detail page with no toggle are both
+half-finished states, and CLAUDE.md's "if you add a user-visible
+function to the bot, add the corresponding UI... in the same PR" reads
+the same way for a brand-new layer as for an existing one.
+
+READ BEFORE WRITE: read `server/treasuryAuctions.ts` in full (fetch/
+parse/archive/poll — confirmed the live route serves the last-30-days
+cached window, one `AuctionRec` shape covering Bill/Note/Bond/TIPS/FRN/
+CMB with either `high_yield` or `high_discount_rate` populated depending
+on security type, `dealer_take` precomputed server-side, direct/indirect
+NOT precomputed) and `server/routes.ts`'s exact `/api/data/
+treasury-auctions` handler/response shape before writing anything. Read
+`client/src/pages/tff.tsx` in full as the closest template (secFtd.tsx's
+single-snapshot shape, no search/history endpoint to build against,
+same as this route) and the exact `datamap.tsx` wiring recipe for `tff`
+(state hook, hashchange entry, `LAYER_GROUP` fallback, status-polling
+effect, icon/unit lookups, launcher button, render block) side-by-side
+with `secftd`'s, confirmed both follow the identical shape, and added
+`treasury_auctions` the same way. Read `server/layersWiring.test.ts` and
+`server/layersRegistry.test.ts` in full before touching `datacore/
+layers.json` — confirmed the only mandatory fields are `id`/`kind`/
+`status`/`source`/`description`, and that every non-signal/non-planned
+registry id must appear in `datamap.tsx`'s `LAYER_GROUP` map (the R15
+2026-07-07 defect-class precedent both tests exist to catch) — added the
+`LAYER_GROUP` entry in the same edit as the registry entry, not as an
+afterthought. Read `datacore/layers.json`'s `tff` entry as the
+registry-copy template and edited via a targeted string insertion (not a
+full `json.dump` round-trip), then verified with `python3 -c "import
+json; json.load(...)"` that it still parses. Read `scripts/
+visual_check.mjs`'s R15/2026-07-25 comment ("every toggleable registry
+layer must appear in this fixture") before adding the PAGES entry — also
+added the layer to the `/api/data/layers` FIXTURES list, not just the
+new page's own API fixture, since the comment's own history shows that
+step being missed is exactly the recurring defect class it warns about.
+
+WHAT SHIPPED:
+1. `client/src/pages/treasuryAuctions.tsx` (new) — fetches `/api/data/
+   treasury-auctions` on mount; single-snapshot chronological table
+   (newest first, capped at 60 rows over the route's own 30-day window).
+   Columns: date, security (type + term + reopening flag), bid-to-cover,
+   high rate (yield or discount, labeled which), dealer take (server-
+   provided), direct take + indirect take (both DERIVED client-side from
+   the same `accepted / competitive_accepted` denominator the server's
+   own `dealer_take` field uses — not new data, the same arithmetic
+   applied to the two bidder classes the route doesn't precompute). Two
+   honesty notes stated up front: dealer/direct/indirect take are
+   derived, not published TA_WS fields, and the bid-to-cover-
+   deterioration/rising-dealer-take hypothesis is gate-locked research,
+   not reflected in the table shown; the classic tail-vs-when-issued
+   stress metric needs a paid 1pm-ET WI quote and is never shown. RAW
+   display only — `kind:"raw"`, no ladder gate.
+2. `client/src/pages/datamap.tsx` — `TreasuryAuctionsView` import;
+   `treasuryAuctionsOpen` state (hash-init `#/data/treasury-auctions`);
+   hashchange listener entry; `LAYER_GROUP` fallback entry
+   (`treasury_auctions: "filings"`); status-polling effect (mirrors
+   tff's exact 300s-badge-refresh shape, since the server itself already
+   polls on its own 6h auction-settlement-cadence poll); icon lookup
+   (`Tag`, first use of this already-imported-but-unused icon in the
+   id-ternary chain — every other Treasury-adjacent icon, `Landmark`,
+   was already claimed by `ats_summary`) and unit lookup (`"auctions"`);
+   open-full-view launcher button inside the `treasury_auctions` layer
+   row; render block.
+3. `datacore/layers.json` — new `treasury_auctions` entry (surgical
+   insertion right after `tff`, verified `python3 -c "import json;
+   json.load(...)"` still parses and the diff is exactly the 10 new
+   lines).
+4. `scripts/visual_check.mjs` — `treasuryauctions` PAGES entry
+   (`map:false`, same Phase-5 ratchet rule as every dashboard/leaderboard
+   page since streams); `/api/data/treasury-auctions` fixture (one Bill
+   with `high_discount_rate` set and one Note with `high_yield` set, so
+   both rate-kind branches of the table render); `treasury_auctions`
+   entry added to the `/api/data/layers` FIXTURES list (matching the
+   convention `tff`/`cot`/`secftd` already follow there).
+5. `package.json`/`package-lock.json` version bump only (1.0.731 ->
+   1.0.732, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before bumping that the branch was exactly at origin/main, no drift,
+   at bump time; `npm install --package-lock-only` used to sync just the
+   version field without touching any dependency).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `node --test server/layersRegistry.test.ts
+server/layersWiring.test.ts` run standalone first (25/25 pass) to catch
+any registry/wiring mistake before the full suite. `bash scripts/
+tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (all 12 pre-existing,
+none in this diff). `bash scripts/gated_tests.sh` GATE PASSED — client
+1017/1017 (97 files, no new test file — matches every sibling filings
+page's own convention, none of cot.tsx/secFtd.tsx/tff.tsx/
+gnssIntegritySignal.tsx have one either), python 1354 passed/1 skipped
+(unchanged), quarantine 0/1 (per the harness's own summary line), none
+overdue. `bash scripts/counter_ratchet.sh`: OK, 25/25 counters at or
+better than baseline, no re-pin needed. `npm run build` clean (only
+pre-existing warning classes: astronomy-engine ESM default-export
+notice, large-chunk notice, mapIcons dynamic/static dual-import notice —
+none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page treasuryauctions` at all three canonical widths (390/768/1440) —
+**0 hard failures**. Own-review of all three PNGs confirms the header
+(title, both honesty notes, TreasuryDirect source link), and the ranked
+table (date/security/bid-to-cover/high-rate/dealer-direct-indirect-take
+columns, both rate-kind labels rendering) match the design system at
+desktop and the 390px mobile stacked-card layout. Only warnings present
+are the pre-existing global-chrome touch-target/clipped-control warnings
+that appear on essentially every page in this harness (same class noted
+in every prior session's visual-verification write-up) and the standard
+headless-software-renderer notice — neither related to this diff. Per
+the same precedent the 3 immediately preceding sibling-page sessions
+(TFF, SEC FTD, EU power) established, a full `--page data` run exercising
+the layer-panel row/launcher-button integration itself was not run (known-
+heavy, none of those 3 sessions ran it either); that integration was
+instead verified by direct code review — the `treasury_auctions` block
+was added by duplicating the adjacent, already-visually-verified `tff`
+block structure line-for-line with only the id/route/label/icon swapped.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published TreasuryDirect
+primary-market auction results, no predictive claim, no ladder gate
+applies (same standing rule as every other RAW `/data` page in this
+repo). The file's own bid-to-cover/dealer-take hypothesis remains
+unstarted at gate 1 — this session does not begin that research, it
+only makes the underlying data independently inspectable.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes a shipped-data-no-UI gap
+on an already-live datacore/ pipeline; no new archive, no new entity-graph
+join, no new hypothesis started this session.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, no `/api/v1` mirror exists for this root
+(consistent with TFF/DTS/bank-failures/vehicle-complaints/fda-events, all
+of which lack one too, unlike FTD/EU-macro/FRED which had mirrors before
+their UI follow-up).
+
+NEXT (queued, not this session): (1) the remaining 4 zero-wiring
+shipped-data-no-UI routes from the 2026-08-16 sweep: `/api/data/dts`,
+`/api/data/bank-failures`, `/api/data/vehicle-complaints`, `/api/data/
+fda-events` — each a candidate for a future PRODUCT session, still
+unranked against each other. (2) `/api/data/treasury-auctions` has no
+`/api/v1` paid-tier mirror yet — a future PRODUCT session could add one,
+same gap TFF has. (3) if a future session wants to start the file's own
+gate-1 hypothesis (bid-to-cover deterioration + rising dealer take
+precede rate-regime shifts), the archive is accumulating auction results
+now (6h poll, 30-day fetch window with dedup) and will need substantial
+trailing history across multiple rate-regime transitions before a
+meaningful gate-2 test — this is a slower-accumulating archive than most
+(auctions are ~weekly-to-monthly events per security type, not daily).
+(4) KNOWN BROKEN #29 (MEDIUM, visibility gap) and #20/#10 (RULE
+REVIEW-gated threshold judgment calls) remain queued for whichever
+session next has repair capacity. (5) the AUDITS & DEBT register's next
+STALENESS run is not due until 2026-09-14 and CONSTITUTIONAL not until
+2026-09-15 — neither due this session.
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated action
+matched to session capacity; no higher-priority queued item was skipped
+(no LIVENESS ALARM; both open KNOWN BROKEN items are visibility-only or
+RULE REVIEW-gated, not blocking; product sessions do not preempt DAILY
+repair duty per this task's own instructions).
+
 ## 2026-08-16 (scheduled-routine session #6) [RULE-REVIEW] — SHARED (research/*) — SECOND-EVER CONSTITUTIONAL AUDIT (44 days overdue, deferred by four consecutive prior sessions' own NEXT notes): register created, 2 consolidation findings filed, no rule self-applied (v — docs-only, no bump)
 
 TERRITORY: SHARED (`research/experiments.md`, `research/wishlist.md`) —
