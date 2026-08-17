@@ -113,6 +113,9 @@ const PAGES = {
   tff: { route: "/app#/data/tff", map: false },
   // US Treasury auctions — same Phase 5 ratchet rule as streams/tff above.
   treasuryauctions: { route: "/app#/data/treasury-auctions", map: false },
+  // Treasury Daily Statement — same Phase 5 ratchet rule as streams/
+  // treasuryauctions above.
+  treasurydts: { route: "/app#/data/treasury-dts", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -188,6 +191,7 @@ const FIXTURES = {
       { id: "cot", name: "Commitments of Traders (CFTC, disaggregated)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API", description: "Weekly futures-only positioning by trader category — a positioning proxy, not a signal.", freshness: { stream: "cftccot", health: "recent", age_hours: 122.9, health_note: "newest file 122.9h old (within cadence)" } },
       { id: "tff", name: "Traders in Financial Futures (CFTC, futures-only)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API, futures-only", description: "Weekly financial-futures positioning by trader category — a positioning proxy, not a signal." },
       { id: "treasury_auctions", name: "US Treasury auctions", kind: "raw", status: "live", group: "filings", costTier: "light", source: "TreasuryDirect TA_WS, securities/auctioned", description: "Primary-market bid-to-cover + bidder-class shares — a stress proxy, not a signal." },
+      { id: "treasury_dts", name: "Treasury Daily Statement", kind: "raw", status: "live", group: "filings", costTier: "light", source: "U.S. Treasury Fiscal Data API, deposits_withdrawals_operating_cash", description: "Daily operating-cash deposit/withdrawal line items — a cash-flow proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
@@ -1003,6 +1007,24 @@ const FIXTURES = {
         type: "Note", term: "7-Year", reopening: false, bid_to_cover: 2.41, high_yield: 4.087, high_discount_rate: null,
         total_accepted: 44000000000, competitive_accepted: 42000000000, primary_dealer_accepted: 15000000000,
         direct_accepted: 9000000000, indirect_accepted: 18000000000, dealer_take: 0.3571 },
+    ],
+  },
+  // Treasury Daily Statement (2026-08-17, RAW display, treasuryDts.tsx).
+  // Fixture covers one withheld-tax Deposits line (the hypothesis
+  // highlight) and one Withdrawals line so the harness exercises both
+  // sections and the highlighted-row styling.
+  "/api/data/dts": {
+    kind: "raw", source: "U.S. Treasury Fiscal Data — Daily Treasury Statement, Table II (public domain) (fixture)",
+    attribution: "U.S. Treasury Fiscal Data — Daily Treasury Statement", time: "2026-08-17T12:00:00.000Z",
+    record_date: "2026-08-14", count: 2,
+    note: "daily TGA deposits/withdrawals by category, $ millions as published (fixture)",
+    lines: [
+      { record_date: "2026-08-14", account_type: "Federal Reserve Account", transaction_type: "Deposits",
+        category: "Withheld Income and Employment Taxes", today_amt: 18420, mtd_amt: 142300, fytd_amt: 1820400,
+        src_line: 2, rt: "2026-08-14" },
+      { record_date: "2026-08-14", account_type: "Federal Reserve Account", transaction_type: "Withdrawals",
+        category: "Department of Defense - Military Active Duty Pay", today_amt: 3210, mtd_amt: 28100, fytd_amt: 341200,
+        src_line: 14, rt: "2026-08-14" },
     ],
   },
   "/api/data/cot": {
