@@ -257,5 +257,138 @@ class TestBackfillOutcomesBatching(unittest.TestCase):
         self.assertEqual(seen_tickers, {"OLD3", "YOUNG3"})
 
 
+class TestBackfillPermanentFailure(unittest.TestCase):
+    """
+    REPAIR 2026-08-17 (KNOWN BROKEN #20 follow-up): a (record, horizon) pair
+    with no available price data got re-queued and re-fetched on every
+    nightly backfill run forever, since nothing was ever written to
+    outcomes[horizon_key] on failure. Live evidence (/api/diag/shadow +
+    /api/diag/audit?type=SHADOW-BACKFILL, 2026-08-16): missing_price=1469 of
+    3002 processed jobs (49%) in one night, while rejected_masterkill /
+    rejected_heat / rejected_other — the exact evidence KNOWN BROKEN #20
+    needs — still showed zero labeled outcomes weeks after becoming old
+    enough. These tests pin the fix: after MAX_BACKFILL_ATTEMPTS consecutive
+    failed nights, the pair gets a terminal label=-1 sentinel and stops
+    consuming nightly Alpaca-call budget, without ever fabricating a
+    win/loss; a pair that recovers before hitting the cap is labeled
+    normally, not prematurely retired.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_log_path = shadow_portfolio.SHADOW_LOG_PATH
+        self._orig_lock_path = shadow_portfolio.SHADOW_LOCK_PATH
+        shadow_portfolio.SHADOW_LOG_PATH = os.path.join(self._tmpdir.name, "shadow.json")
+        shadow_portfolio.SHADOW_LOCK_PATH = shadow_portfolio.SHADOW_LOG_PATH + ".lock"
+        self._orig_fetch = shadow_portfolio._fetch_historical_bars_batch
+
+    def tearDown(self):
+        shadow_portfolio.SHADOW_LOG_PATH = self._orig_log_path
+        shadow_portfolio.SHADOW_LOCK_PATH = self._orig_lock_path
+        shadow_portfolio._fetch_historical_bars_batch = self._orig_fetch
+        self._tmpdir.cleanup()
+
+    def _seed(self, ticker, entry_price=50.0, age_days=90, decision="rejected_masterkill"):
+        ts = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+        records = shadow_portfolio._load_shadow_log()
+        records.append({
+            "ticker": ticker, "timestamp": ts, "score": 70.0,
+            "decision": decision, "decision_reason": "seed",
+            "entry_price": entry_price, "vxx_ratio": 1.0, "regime_label": "NEUTRAL",
+            "features": {}, "outcomes": {"+5d": None, "+10d": None, "+20d": None},
+            "code_version": "test-shadow",
+        })
+        shadow_portfolio._save_shadow_log(records)
+
+    def _flat_bars(self, price, n=25, start_days_ago=89):
+        bars = []
+        start = datetime.now(timezone.utc) - timedelta(days=start_days_ago)
+        for i in range(n):
+            d = (start + timedelta(days=i)).strftime("%Y-%m-%dT00:00:00Z")
+            bars.append({"t": d, "h": price * 1.001, "l": price * 0.999, "c": price})
+        return bars
+
+    def test_retired_after_max_attempts_and_stops_costing_calls(self):
+        self._seed("DELIST1", entry_price=50.0, age_days=90)
+        call_count = [0]
+
+        def always_empty(tick_list, start, end):
+            call_count[0] += 1
+            return {}  # no bars for any ticker — simulates a dead symbol
+
+        shadow_portfolio._fetch_historical_bars_batch = always_empty
+
+        for i in range(shadow_portfolio.MAX_BACKFILL_ATTEMPTS):
+            stats = shadow_portfolio.backfill_outcomes(max_records=100)
+            self.assertGreater(stats["missing_price"], 0, f"run {i}: expected missing_price jobs")
+
+        self.assertEqual(stats["permanently_unlabelable"], 3)  # +5d, +10d, +20d all retired this run
+        records = shadow_portfolio._load_shadow_log()
+        rec = next(r for r in records if r["ticker"] == "DELIST1")
+        for h in ("+5d", "+10d", "+20d"):
+            self.assertEqual(rec["outcomes"][h]["label"], -1)
+            self.assertEqual(rec["outcomes"][h]["exit_reason"], "no_price_data")
+        self.assertEqual(rec.get("_bf_attempts", {}), {},
+                          "attempt counters must be cleared once a pair is retired")
+
+        calls_before = call_count[0]
+        stats2 = shadow_portfolio.backfill_outcomes(max_records=100)
+        self.assertEqual(call_count[0], calls_before,
+                          "a retired record must not trigger any further Alpaca fetch calls")
+        self.assertEqual(stats2["missing_price"], 0)
+        self.assertGreaterEqual(stats2["already_filled"], 3)
+
+    def test_permanently_unlabelable_excluded_from_win_rate(self):
+        self._seed("DELIST2", entry_price=50.0, age_days=90, decision="rejected_masterkill")
+        # Also seed 5 "rejected_masterkill" records that DO label as wins, so
+        # the decision bucket clears get_shadow_stats' own n>=5 reporting
+        # floor and proves the retired record isn't silently counted in it
+        # either direction.
+        for i in range(5):
+            self._seed(f"WIN{i}", entry_price=100.0, age_days=90, decision="rejected_masterkill")
+
+        def fetch(tick_list, start, end):
+            out = {}
+            for t in tick_list:
+                if t == "DELIST2":
+                    continue  # no data for this one
+                out[t] = self._flat_bars(103.0)  # +3% -> hits the +2% win target
+            return out
+
+        shadow_portfolio._fetch_historical_bars_batch = fetch
+
+        for _ in range(shadow_portfolio.MAX_BACKFILL_ATTEMPTS):
+            shadow_portfolio.backfill_outcomes(max_records=100)
+
+        stats = shadow_portfolio.get_shadow_stats()
+        by_decision = stats["win_rate_by_decision"].get("rejected_masterkill", {})
+        self.assertIn("+5d", by_decision, "the 5 winning records should clear the n>=5 reporting floor")
+        self.assertEqual(by_decision["+5d"]["n"], 5,
+                          "the permanently-unlabelable record must not be counted as a win or a loss")
+        self.assertEqual(by_decision["+5d"]["win_rate"], 100.0)
+
+    def test_recovers_before_hitting_cap_is_not_retired(self):
+        self._seed("FLAKY1", entry_price=50.0, age_days=90)
+        attempt = [0]
+
+        def flaky_then_recovers(tick_list, start, end):
+            attempt[0] += 1
+            if attempt[0] <= 1:  # fails only the very first call, well below MAX_BACKFILL_ATTEMPTS
+                return {}
+            return {t: self._flat_bars(50.0) for t in tick_list}
+
+        shadow_portfolio._fetch_historical_bars_batch = flaky_then_recovers
+
+        for _ in range(3):
+            shadow_portfolio.backfill_outcomes(max_records=100)
+
+        records = shadow_portfolio._load_shadow_log()
+        rec = next(r for r in records if r["ticker"] == "FLAKY1")
+        for h in ("+5d", "+10d", "+20d"):
+            self.assertNotEqual(rec["outcomes"][h]["label"], -1,
+                                 "a record that recovers before the attempt cap must get a real label")
+            self.assertEqual(rec["outcomes"][h]["exit_reason"], "timeout")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,20 @@ LOSS_THRESHOLD_PCT = -4.0            # matches bot's stop-loss
 BATCH_SIZE = 50                       # tickers per Alpaca batch request
 CODE_VERSION = "1.0.34-shadow"
 
+# REPAIR 2026-08-17 (KNOWN BROKEN #20 follow-up): backfill_outcomes() had no
+# way to give up on a (record, horizon) pair whose price data will never
+# arrive (delisted ticker, bad symbol, permanent Alpaca gap) — a record with
+# outcomes[horizon_key] still None gets re-queued and re-fetched EVERY night
+# forever, since nothing ever gets written to outcomes on failure. Live
+# evidence (/api/diag/shadow + /api/diag/audit?type=SHADOW-BACKFILL,
+# 2026-08-16 run): missing_price=1469 out of 3002 processed jobs (49%) in a
+# single night, while rejected_masterkill/rejected_heat/rejected_other — the
+# exact evidence #20 needs — still show zero labeled outcomes despite being
+# weeks old. Permanently-stuck jobs re-consuming ~half of every night's
+# max_records budget is sufficient on its own to explain the frontier never
+# reaching those buckets, regardless of how many nights this has run.
+MAX_BACKFILL_ATTEMPTS = 3            # give up on a (record, horizon) after this many failed nights
+
 ALPACA_KEY = os.environ.get("ALPACA_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets"
@@ -465,6 +479,34 @@ def _label_from_path(entry_price: float, bars: List[dict],
     return (label, last_close, "timeout", last_date)  # anything below threshold counts as non-win (conservative)
 
 
+def _record_missing_price_attempt(rec: dict, horizon_key: str, stats: dict) -> None:
+    """
+    Track a failed backfill attempt for one (record, horizon) pair.
+
+    Stored under "_bf_attempts" — a field distinct from "outcomes" so a
+    single failed attempt does NOT get treated as "already_filled" (that
+    would kill retries after one transient Alpaca hiccup). Only once
+    MAX_BACKFILL_ATTEMPTS is reached does this write a terminal outcomes[]
+    sentinel, which the normal "already_filled" skip then picks up on every
+    future run — permanently retiring the pair without ever recording a
+    fabricated win/loss (label=-1 is excluded from every win/loss tally).
+    """
+    attempts = rec.setdefault("_bf_attempts", {})
+    n = attempts.get(horizon_key, 0) + 1
+    attempts[horizon_key] = n
+    if n >= MAX_BACKFILL_ATTEMPTS:
+        rec.setdefault("outcomes", {})[horizon_key] = {
+            "return_pct":   None,
+            "label":        -1,
+            "exit_price":   None,
+            "exit_date":    None,
+            "exit_reason":  "no_price_data",
+            "label_method": "path_dependent_v2",
+        }
+        attempts.pop(horizon_key, None)
+        stats["permanently_unlabelable"] += 1
+
+
 def backfill_outcomes(max_records: int = 500) -> dict:
     """
     Fill in forward-return outcomes for shadow records that are old enough.
@@ -477,13 +519,22 @@ def backfill_outcomes(max_records: int = 500) -> dict:
         max_records: cap on how many to process per call (rate-limit safety)
 
     Returns:
-        dict with counts: {updated, already_filled, missing_price, skipped}
+        dict with counts: {updated, already_filled, missing_price,
+        permanently_unlabelable, skipped}
 
     Rate cost: ~3-5 batch Alpaca calls for 500 records (~50 tickers per batch).
     Well within the 180/min token budget.
+
+    A (record, horizon) pair that fails MAX_BACKFILL_ATTEMPTS times (missing
+    price data every attempt) gets a terminal outcomes[horizon_key] sentinel
+    ({"label": -1, "exit_reason": "no_price_data"}) instead of being retried
+    forever — see the MAX_BACKFILL_ATTEMPTS comment above. label=-1 is
+    already excluded from win/loss tallies everywhere it's consumed
+    (get_shadow_stats, load_shadow_data), so this only stops wasted retries;
+    it never fabricates a win/loss.
     """
-    stats = {"updated": 0, "already_filled": 0, "missing_price": 0, "skipped": 0,
-             "total_records": 0}
+    stats = {"updated": 0, "already_filled": 0, "missing_price": 0,
+             "permanently_unlabelable": 0, "skipped": 0, "total_records": 0}
 
     records = _load_shadow_log()
     stats["total_records"] = len(records)
@@ -583,6 +634,7 @@ def backfill_outcomes(max_records: int = 500) -> dict:
             all_bars = bars_by_ticker.get(ticker, [])
             if not all_bars:
                 stats["missing_price"] += 1
+                _record_missing_price_attempt(records[idx], horizon_key, stats)
                 continue
 
             entry_date_str = rec_time.strftime("%Y-%m-%d")
@@ -593,6 +645,7 @@ def backfill_outcomes(max_records: int = 500) -> dict:
             ]
             if not forward_bars:
                 stats["missing_price"] += 1
+                _record_missing_price_attempt(records[idx], horizon_key, stats)
                 continue
 
             label, exit_price, exit_reason, exit_date = _label_from_path(
@@ -605,6 +658,7 @@ def backfill_outcomes(max_records: int = 500) -> dict:
 
             if label == -1:
                 stats["missing_price"] += 1
+                _record_missing_price_attempt(records[idx], horizon_key, stats)
                 continue
 
             # Compute return (entry → exit)
@@ -622,8 +676,13 @@ def backfill_outcomes(max_records: int = 500) -> dict:
             }
             stats["updated"] += 1
 
-    # Save updated records atomically
-    if stats["updated"] > 0:
+    # Save updated records atomically. missing_price also mutates records
+    # (via _record_missing_price_attempt's retry counter / terminal
+    # sentinel) even when "updated" stays 0, so it must persist too — a
+    # nightly run with 100% missing_price would otherwise reset every
+    # attempt counter back to 0 on the next boot and never reach
+    # MAX_BACKFILL_ATTEMPTS.
+    if stats["updated"] > 0 or stats["missing_price"] > 0:
         _save_shadow_log(records)
 
     # Also write a stats summary for dashboards

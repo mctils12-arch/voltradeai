@@ -20,6 +20,133 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-17 (scheduled-routine session #5) [REPAIR] — T-BOT (shadow_portfolio.py) + SHARED (research/*, package.json last-and-minimal) — KNOWN BROKEN #20's stalled evidence gate: root-caused and fixed the shadow-backfill starvation bug, v1.0.736
+
+TERRITORY: T-BOT primary (`shadow_portfolio.py` only — no `bot_engine.py`/
+`ml_model_v2.py`/`system_config.py`/`strategies/` touched, no scoring/sizing
+changed) + SHARED last-and-minimal (`research/open_questions.md` KNOWN
+BROKEN #20 update, `package.json` version bump only, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full. AUDITS & DEBT register above
+read — nothing overdue (STALENESS next due 2026-09-14, CONSTITUTIONAL
+2026-09-15, CALENDAR YEAR-ADD 2026-12-01). `open_questions.md`'s KNOWN
+BROKEN section read in full going in: only item #20 remained genuinely open
+(item #10 was closed by the immediately preceding session #4 entry above).
+`wishlist.md` head read: the second-ever CONSTITUTIONAL AUDIT's 2
+consolidation proposals and the four logged automerge-timing occurrences are
+still pending human review — nothing actionable this session, not
+re-logged. Live `/api/health`: `status:"ok"`, bot `active`, `ACTIVE` broker
+account, `drawdownPct:"0.0"`, `liveness.dark:false`, all three feeds
+(aircraft/vessels/trains) live, `consecutiveFailures:0` — no LIVENESS ALARM.
+Live `/api/data/layers`: `server_version:"1.0.735"` matching `origin/main`
+tip (confirmed via `git fetch`) — no deploy-lag uncertainty.
+
+LOOP-HEALTH RATIO: last 10 real session-tag entries before this one (newest
+first): [REPAIR] KNOWN BROKEN #10, [PRODUCT] FDA events, [PRODUCT] Treasury
+DTS, [PRODUCT] Treasury auctions, [RULE-REVIEW] second-ever constitutional
+audit, [PRODUCT] CFTC TFF, [PRODUCT] session#4 market-hours, [PRODUCT] EU
+power markets, [REPAIR] stale-doc dedup-build near-miss, [PRODUCT]
+apiProduct session#4. Tally: 7 PRODUCT (PIPELINE-equivalent), 2 REPAIR, 1
+RULE-REVIEW — 2/10 REPAIR, well under the 7+ thrash-ratio alarm; no
+meta-problem override triggered. PROGRESS FLOOR: PRODUCT/PIPELINE sessions
+shipping continuously, no 14-day stall. STARVATION: no flag found in the
+immediately preceding entries.
+
+PRIMARY ACTION: per SESSION BUDGET, item #20 (`master_kill_switch` CSP
+exposure gate) was the only open KNOWN BROKEN item, and its own NEXT step
+(re-check `get_shadow_stats()["win_rate_by_decision"]["rejected_masterkill"]`
+once enough labeled history accumulates) is exactly the REPAIR MANDATE's
+"consult KNOWN BROKEN first" target. Checked it live via `/api/diag/shadow`
+(`token=$DIAG_TOKEN`): `by_decision.rejected_masterkill: 140` (unchanged
+since the 2026-08-04 entry — master_kill_switch hasn't fired again since,
+plausibly consistent with drawdownPct staying at 0.0), but
+`win_rate_by_decision` had NO entry at all for `rejected_masterkill`,
+`rejected_heat`, or `rejected_other` — only `taken` and `rejected_score`
+appeared, despite `rejected_masterkill` records dating back to 2026-07-11
+(37 days ago — well past the +5d/+10d observability windows the nightly
+backfill needs).
+
+INVESTIGATION (read-before-write, per CLAUDE.md's non-negotiable protocol):
+confirmed `rejected_heat`/`rejected_other` are genuinely too young to be
+backfilled yet (git-blamed to a single commit, 2026-08-13, only 4 days
+before this session — not a bug, just insufficient elapsed time). But
+`rejected_masterkill` had no such excuse. Traced `checkShadowBackfill()`
+(`server/bot.ts`) → `shadow_portfolio.backfill_outcomes(3000)` → the one
+surviving `/api/diag/audit?type=SHADOW-BACKFILL` entry (2026-08-16 22:04
+UTC, older entries pruned by the 2000-row `audit_log` retention job):
+`{"updated":1533,"already_filled":7075,"missing_price":1469,"skipped":0,
+"total_records":17905}`. `missing_price` — 1469 of 3002 processed jobs, 49%
+— consumed roughly half that night's entire budget. ROOT CAUSE: a
+(record, horizon) pair that fails to find price data was never given a
+terminal outcome — `outcomes[horizon_key]` stayed `None` forever, so the
+exact same failing pairs got re-queued and re-fetched (wasting an Alpaca
+call) on every single nightly run, permanently. Because
+`backfill_outcomes()` restarts from array index 0 every run and stops once
+`max_records` job-attempts accumulate (successes AND failures both count),
+a growing population of permanently-stuck combos sitting early in the
+array is sufficient on its own to explain why the scan's forward frontier
+never reaches rarer, more-recent buckets like `rejected_masterkill` — true
+regardless of how many nights the job has already run.
+
+FIX (v1.0.736): `shadow_portfolio.py` gained `MAX_BACKFILL_ATTEMPTS = 3` and
+`_record_missing_price_attempt()`, wired into all three `missing_price`
+sites inside `backfill_outcomes()`. Failed attempts are tracked per
+(record, horizon) in a new `_bf_attempts` field kept SEPARATE from
+`outcomes` — a single transient failure (e.g. an Alpaca 429) must not be
+treated as resolved, so retries continue normally below the cap. Only after
+3 consecutive failed nights does the pair get a terminal
+`outcomes[horizon_key]` sentinel (`label: -1`, `exit_reason:
+"no_price_data"`) — `label: -1` was ALREADY excluded from every win/loss
+tally in `get_shadow_stats()`/`load_shadow_data()` before this change (both
+only count `label in (0, 1)`), so retirement stops wasted retries without
+ever fabricating a win or a loss. The nightly save condition was widened
+from `stats["updated"] > 0` to also cover `stats["missing_price"] > 0`,
+since attempt counters must persist across runs to ever reach the cap —
+without this, every restart (frequent, given this repo's deploy cadence)
+would have silently reset the counter back to 0.
+
+RATCHET: 3 new tests in `test_shadow_portfolio.py`
+(`TestBackfillPermanentFailure`): (1) a permanently-dead ticker retires
+after exactly `MAX_BACKFILL_ATTEMPTS` runs and triggers zero further Alpaca
+fetch calls afterward; (2) the retired sentinel is provably excluded from
+`win_rate_by_decision` — 5 real wins seeded alongside it clear the n>=5
+reporting floor at exactly n=5, not n=6, proving the -1 record isn't
+silently counted either direction; (3) a ticker that recovers before
+hitting the cap gets a real label, not a false-positive retirement. GATES:
+`python3 -m pytest -q` 1354 passed, 2 skipped (1351 baseline + 3 new, zero
+regressions) — sandbox needed `pip install -r requirements.txt` + a
+standalone `openpyxl` install first (both pre-existing sandbox gaps,
+unrelated to this change, not "fixed" as part of it, just worked around to
+run the gate). No `.ts`/`.tsx` files touched (`shadow_portfolio.py` is the
+only production file changed; the `shadow` diag probe just calls
+`get_shadow_stats()` unchanged, confirmed via `npx tsx --test
+server/diag.test.ts`, 13/13 green), so `npx tsc --noEmit`/`npm run build`
+were not re-run, mirroring this same item's own 2026-08-05 precedent for a
+pure-Python visibility/integrity fix.
+
+BACKTEST: N/A — pure learning-data-integrity fix inside the backfill
+pipeline; changes no scoring, sizing, threshold value, or live trading
+decision. No PROMOTION RULE 3 comparison applies.
+
+HYPOTHESIS: once several more nightly `checkShadowBackfill()` runs land
+with this fix live, the scan's forward frontier should stop re-wasting
+budget on permanently-dead combos and make faster real progress through the
+archive, eventually reaching enough `rejected_masterkill` (and
+`rejected_heat`/`rejected_other` once they age past 13 days)
+history to clear the n>=5 `win_rate_by_decision` floor. A future session
+should re-check `/api/diag/shadow`'s `win_rate_by_decision` for those three
+buckets before attempting item #20's own (a)/(b) RULE REVIEW threshold
+change — this session deliberately built evidence infrastructure, not a
+threshold change itself, same posture as this item's 2026-07-11 and
+2026-08-05 predecessor updates.
+
+FALL-THROUGH: session budget consumed by this repair's investigation +
+fix + tests; no capacity remained for a second queued item this session.
+KNOWN BROKEN section is now fully clear again (items 1-30 all
+resolved/gated/closed, #20 evidence-gated as above) — a future session's
+fall-through should check `research/wishlist.md`'s open items or run the
+next-due audit per the register above.
+
 ## 2026-08-17 (scheduled-routine session #4, market hours) [REPAIR] — T-BOT (system_config.py) + SHARED (research/*) — KNOWN BROKEN #10 resolved: dead SCORE_BAND_MAX/OPTIMAL_LO/HI deleted, MAX_CHANGE_PCT's misleading comment corrected, using the shadow-diagnostic evidence the 2026-08-13 session queued (v1.0.735)
 
 TERRITORY: T-BOT primary (`system_config.py`'s `BASE_CONFIG` only — no

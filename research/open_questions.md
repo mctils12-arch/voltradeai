@@ -242,6 +242,56 @@
     evidence instead of silence. If it still never fires after CSP volume
     recovers, that itself is the answer (16% is not the binding constraint
     on CSP scaling) and the comment should say so instead of "revisit."
+    **UPDATE 2026-08-17 (scheduled-routine session, [REPAIR]): root cause
+    found for why `rejected_masterkill`'s win-rate check (this item's own
+    NEXT step) was STILL unsatisfiable 5+ weeks after masterkill first fired
+    — `shadow_portfolio.backfill_outcomes()` had no way to give up on a
+    (record, horizon) pair whose price data never arrives (bad/delisted
+    ticker, permanent Alpaca gap). Every failure left `outcomes[horizon_key]`
+    at `None`, so the SAME failing pairs got re-queued and re-fetched on
+    every nightly run FOREVER. Live evidence
+    (`/api/diag/audit?type=SHADOW-BACKFILL`, the one surviving entry —
+    2026-08-16 22:04 UTC): `missing_price: 1469` of 3002 processed jobs
+    (49%) in a single night, while `/api/diag/shadow` showed
+    `rejected_masterkill`/`rejected_heat`/`rejected_other` all still at ZERO
+    labeled outcomes despite `rejected_masterkill` records dating back to
+    2026-07-11 (well past the +5d/+10d observability windows). Because
+    `backfill_outcomes()` scans the archive in array order from idx 0 every
+    run and stops once `max_records` (3000) job-attempts accumulate,
+    permanently-stuck combos re-consuming ~half the nightly budget forever
+    is sufficient on its own to explain why the scan's forward frontier
+    never reached the (much rarer) `rejected_masterkill` bucket, independent
+    of how many nights this ran. FIX (v1.0.736): `_record_missing_price_
+    attempt()` tracks failed attempts per (record, horizon) in a new
+    `_bf_attempts` field (kept separate from `outcomes` so a single
+    transient failure — e.g. a 429 — doesn't get treated as resolved); after
+    `MAX_BACKFILL_ATTEMPTS` (3) consecutive failed nights, it writes a
+    terminal `outcomes[horizon_key]` sentinel (`label: -1`,
+    `exit_reason: "no_price_data"`). `label: -1` was already excluded from
+    every win/loss tally in `get_shadow_stats()`/`load_shadow_data()` before
+    this change, so retirement only stops wasted retries — it never
+    fabricates a win or a loss. 3 new tests in `test_shadow_portfolio.py`
+    (`TestBackfillPermanentFailure`): a permanently-dead ticker retires
+    after exactly `MAX_BACKFILL_ATTEMPTS` and triggers zero further Alpaca
+    calls afterward; the retired sentinel is provably excluded from
+    `win_rate_by_decision` (5 real wins seeded alongside it clear the n>=5
+    reporting floor at exactly n=5, not n=6); a ticker that recovers before
+    hitting the cap gets a real label, not a false retirement. Full suite:
+    `python3 -m pytest -q` 1354 passed, 2 skipped (1351 baseline + 3 new,
+    zero regressions — sandbox needed `pip install -r requirements.txt` +
+    `openpyxl` first, both pre-existing gaps unrelated to this change, not
+    fixed here). No `.ts`/`.tsx` files touched (the `shadow` diag probe just
+    calls `get_shadow_stats()` unchanged — `server/diag.test.ts` confirmed
+    still green), so `npx tsc --noEmit`/`npm run build` were not re-run, per
+    the same-shaped precedent this item's own 2026-08-05 update set.
+    BACKTEST: N/A — pure learning-data-integrity fix, changes no
+    scoring/sizing/threshold value or trading decision.
+    **NEXT (unchanged target, now actually reachable):** once several more
+    nightly runs land with this fix live, a future session should re-check
+    `get_shadow_stats()["win_rate_by_decision"]["rejected_masterkill"]` —
+    if the frontier has caught up, real win-rate data should finally appear
+    for masterkill/heat/other, and only then should the (a)/(b) threshold or
+    regime-source RULE REVIEW this item originally asked for be attempted.
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
    below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
