@@ -116,6 +116,9 @@ const PAGES = {
   // Treasury Daily Statement — same Phase 5 ratchet rule as streams/
   // treasuryauctions above.
   treasurydts: { route: "/app#/data/treasury-dts", map: false },
+  // FDA binary events — same Phase 5 ratchet rule as streams/treasurydts
+  // above.
+  fdaevents: { route: "/app#/data/fda-events", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -192,6 +195,7 @@ const FIXTURES = {
       { id: "tff", name: "Traders in Financial Futures (CFTC, futures-only)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "CFTC Public Reporting Socrata API, futures-only", description: "Weekly financial-futures positioning by trader category — a positioning proxy, not a signal." },
       { id: "treasury_auctions", name: "US Treasury auctions", kind: "raw", status: "live", group: "filings", costTier: "light", source: "TreasuryDirect TA_WS, securities/auctioned", description: "Primary-market bid-to-cover + bidder-class shares — a stress proxy, not a signal." },
       { id: "treasury_dts", name: "Treasury Daily Statement", kind: "raw", status: "live", group: "filings", costTier: "light", source: "U.S. Treasury Fiscal Data API, deposits_withdrawals_operating_cash", description: "Daily operating-cash deposit/withdrawal line items — a cash-flow proxy, not a signal." },
+      { id: "fda_events", name: "FDA binary events", kind: "raw", status: "live", group: "filings", costTier: "light", source: "openFDA drugsfda API + Federal Register API", description: "Drug approvals + advisory-committee meeting notices — a catalyst-timing proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
@@ -1025,6 +1029,30 @@ const FIXTURES = {
       { record_date: "2026-08-14", account_type: "Federal Reserve Account", transaction_type: "Withdrawals",
         category: "Department of Defense - Military Active Duty Pay", today_amt: 3210, mtd_amt: 28100, fytd_amt: 341200,
         src_line: 14, rt: "2026-08-14" },
+    ],
+  },
+  // FDA binary events (2026-08-17, RAW display, fdaEvents.tsx). Fixture
+  // covers one approval, one parsed-date AdCom notice, and one
+  // unparsed-date AdCom notice so the harness exercises both sections
+  // and both dateConf badge states.
+  "/api/data/fda-events": {
+    kind: "raw", source: "openFDA (drugsfda approvals) + Federal Register (FDA advisory-committee notices) (fixture)",
+    attribution: "openFDA (U.S. FDA); Federal Register (U.S. National Archives)", time: "2026-08-17T12:00:00.000Z",
+    count: 3, note: "No PDUFA target dates — legally unavailable free (21 CFR 314.430); adcom dates carry parse confidence (fixture)",
+    events: [
+      { t: "approval", key: "NDA123456|001|2026-08-10", appl: "NDA123456", date: "2026-08-10",
+        sponsor: "Example Therapeutics Inc.", brand: "Exampla", committee: null, title: null, url: null,
+        pub: null, dateConf: null, rt: "2026-08-10" },
+      { t: "adcom", key: "2026-12345", appl: "BLA987654", date: "2026-09-05",
+        sponsor: "Sample Biopharma", brand: null, committee: "Oncologic Drugs Advisory Committee",
+        title: "Sample Biopharma; BLA 987654; Meeting of the Oncologic Drugs Advisory Committee",
+        url: "https://www.federalregister.gov/documents/2026/08/01/2026-12345", pub: "2026-08-01",
+        dateConf: "parsed", rt: "2026-08-15" },
+      { t: "adcom", key: "2026-12399", appl: null, date: null,
+        sponsor: null, brand: null, committee: "Antimicrobial Drugs Advisory Committee",
+        title: "Notice of Meeting of the Antimicrobial Drugs Advisory Committee",
+        url: "https://www.federalregister.gov/documents/2026/08/03/2026-12399", pub: "2026-08-03",
+        dateConf: "unparsed", rt: "2026-08-16" },
     ],
   },
   "/api/data/cot": {

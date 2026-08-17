@@ -20,6 +20,260 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-17 (scheduled-routine PRODUCT session #3) [PRODUCT] — T-CLIENT (primary) — FDA binary events (/api/data/fda-events) gets a live /data client view, the third of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.734)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/fdaEvents.tsx`; wiring
+in `client/src/pages/datamap.tsx` — icon (`Pill`, unclaimed; `FlaskConical`
+was already taken by `so2`), `LAYER_GROUP` fallback entry, overlay state
+hook, hashchange listener, status-polling effect, icon/unit lookups,
+launcher button, render block; new fixture + PAGES entry in `scripts/
+visual_check.mjs`) + SHARED last-and-minimal (`datacore/layers.json` new
+registry entry, `package.json`/`package-lock.json` version bump only — no
+server route or schema touched). No datacore/ pipeline code touched:
+`/api/data/fda-events` (`server/fdaEvents.ts`) was already shipped and
+live (DATA STREAM EXPANSION stream #5, 2026-07-05, keyless openFDA +
+Federal Register), this is a pure client-surface build over an existing,
+unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then this file's own AUDITS
+& DEBT register + the two immediately preceding 2026-08-17 sessions'
+entries (dts, treasury-auctions), `open_questions.md`'s KNOWN BROKEN
+section in full (KB items 1-30 — only #29 MEDIUM/visibility-gap and
+#20/#10 RULE REVIEW-gated design/threshold calls remain open; #30
+resolved 2026-08-15 PR #850), `wishlist.md` head (the second-ever
+CONSTITUTIONAL AUDIT's 2 pending consolidation proposals — human-review
+items, nothing for this session to act on). Live `/api/health`:
+`status:"ok"`, bot `active`, `ACTIVE` broker account, drawdown 0.0%, all
+three feeds (aircraft/vessels/trains) live — no LIVENESS ALARM. Live
+`/api/data/layers`: `server_version:"1.0.733"`, 242 layers — exact match
+to `origin/main` at session start (re-confirmed by `git fetch` below),
+confirming the deploy is current, no lag. Past `PROGRAM_STATE.md`'s stale
+238-layer snapshot from the MASTER PROGRAM audit branch — expected, that
+file tracks a different, parallel program.
+Live `/api/diag/audit?limit=40&token=$DIAG_TOKEN`: `WS-EXIT`/`POS-KILL`/
+`POS-WARN` entries present (a Phase-1 stop-loss exit on UMAC, a forced
+liquidation on an HPE put at -26.5%, two warn-threshold notices) —
+inspected individually and confirmed each is the FROZEN
+`risk_kill_switch.py` machinery firing exactly as designed on real
+options-position drawdown during live market hours (09:33 ET, market
+open), not an anomaly or a bug to fix ahead of product work. Remaining
+entries routine (`TIER2`/`TIERS`/`TIER3`/`OPTIONS-SLOT-FULL`/`MORNING`/5×
+`MANIPULATION` — spot-checked, all ordinary detection-not-action log
+lines). `TZ=America/New_York date`: 2026-08-17 09:33 EDT (Monday,
+mid-market) — deploy-coupling concern noted below.
+
+LOOP-HEALTH RATIO: last 10 real session-tag entries, newest first: this
+session's immediately preceding two ([PRODUCT] dts, [PRODUCT]
+treasury-auctions), [RULE-REVIEW] second-ever constitutional audit,
+[PRODUCT] CFTC TFF, [PRODUCT] SEC FTD, [PRODUCT] EU power markets,
+[REPAIR] stale-doc dedup-build near-miss, [PRODUCT] FRED /api/v1 mirror,
+[PRODUCT] EU-macro /api/v1 mirror, [REPAIR] KNOWN BROKEN #30 structural
+fix. Tally: 7 PRODUCT (counts as PIPELINE-equivalent per CLAUDE.md), 2
+REPAIR, 1 RULE-REVIEW. 2/10 REPAIR — well under the 7+ thrash-ratio
+alarm; no meta-problem override triggered. PROGRESS FLOOR: PRODUCT
+sessions have shipped continuously — no 14-day stall. STARVATION: every
+recent session log recorded "STARVED: no" — no 10-consecutive streak.
+
+PRIMARY-ACTION SELECTION: no live bug (audit log clean of anything not
+already explained by FROZEN kill-switch mechanics), no matured gate-2
+experiment sitting unjudged. The immediately preceding session
+(2026-08-17 #2, dts, PR #863) left an explicit NEXT note: 3 remaining
+zero-wiring `/api/data/*` routes from the 2026-08-16 TFF session's sweep
+— `/api/data/bank-failures`, `/api/data/vehicle-complaints`,
+`/api/data/fda-events` — still unranked against each other, each
+characterized in that session's own note as having only a generic
+"stress"/"velocity" signal category or (for fda-events) "no predictive
+hypothesis at all". Re-checked that characterization before trusting it
+rather than repeating it: it was based only on `server/routes.ts`'s
+terse per-route response `note` field, not the module's own doc comment.
+Read all three modules' header comments (`fdicBanks.ts`,
+`nhtsaComplaints.ts`, `fdaEvents.ts`) — all three actually carry a
+concrete, specific HYPOTHESIS block (deposit-flight-precedes-KRE,
+complaint-velocity-precedes-recalls, binary-event-timing-drives-options-
+IV respectively), so the prior session's "no hypothesis" read applied to
+the wrong artifact, not a real gap. With hypothesis strength roughly
+equal across the three, chose `fda-events` on a second axis: its data
+shape (two distinct event types, approvals + adcom notices, each with
+its own date/confidence semantics) most closely parallels the
+already-verified `treasury_dts` two-table pattern (Deposits/
+Withdrawals) shipped this same day, and its underlying hypothesis
+(options IV ramping into scheduled catalysts) directly concerns the same
+options mechanics the bot's own convexity/CSP engine trades — a natural,
+if not yet built, cross-system tie (GOAL priority 3: grow both
+compounding lines together) that the other two candidates lack. Same
+"toggle + detail page in one PR" reasoning as both preceding sessions
+gave (CLAUDE.md: "if you add a user-visible function to the bot, add the
+corresponding UI... in the same PR") — `fda_events` had neither a
+registry entry nor a page before this session, so both ship together.
+
+READ BEFORE WRITE: read `server/fdaEvents.ts` in full (parseApprovals/
+parseAdcomNotices/fetchFdaEvents/archive/poll — confirmed the live route
+serves only the newest cached poll's `FdaEvent[]`, with `t: "approval"|
+"adcom"`, `date`/`sponsor`/`brand`/`committee`/`title`/`url`/`pub`/
+`dateConf` fields, `dateConf` honestly null for approvals and "parsed"|
+"unparsed" for adcom notices — never guessed) and `server/routes.ts`'s
+exact `/api/data/fda-events` handler/response shape (`{kind, source,
+attribution, time, count, note, events}`) before writing anything. Read
+`client/src/pages/treasuryDts.tsx` in full as the closest template (same
+two-section RAW-table shape, same honesty-note-before-tables convention,
+same `useMemo` split-and-sort pattern) and the exact `datamap.tsx` wiring
+recipe for `treasury_dts` (state hook, hashchange entry, `LAYER_GROUP`
+fallback, status-polling effect, icon/unit lookups, launcher button,
+render block) side-by-side, confirmed both follow the identical shape,
+and added `fda_events` the same way. Checked icon availability before
+picking one: `FlaskConical` (the obvious "lab/pharma" icon) was already
+claimed by the `so2` layer — used `Pill` instead (grepped unclaimed).
+Read `server/layersWiring.test.ts` and `server/layersRegistry.test.ts` in
+full before touching `datacore/layers.json` — confirmed the mandatory-
+fields contract and the LAYER_GROUP-wiring ratchet (R15 defect-class
+precedent) unchanged since the immediately preceding sessions' own reads
+of them; added the `LAYER_GROUP` entry in the same edit as the registry
+entry. Read `datacore/layers.json`'s `treasury_dts` entry as the
+registry-copy template and edited via a targeted string insertion (not a
+full `json.dump`/rewrite round-trip), verified with `python3 -c "import
+json; json.load(...)"` that it still parses (242 -> 243 entries). Read
+`scripts/visual_check.mjs`'s R15/2026-07-25 comment before adding the
+PAGES entry — also added the layer to the `/api/data/layers` FIXTURES
+list per that same comment's convention, and built the `/api/data/
+fda-events` fixture with one approval + one parsed-date adcom + one
+unparsed-date adcom so the harness exercises both sections and both
+`dateConf` badge states.
+
+WHAT SHIPPED:
+1. `client/src/pages/fdaEvents.tsx` (new) — fetches `/api/data/fda-events`
+   on mount; two chronological sections. Approvals (backward-looking)
+   sorted newest-date-first — date/application/sponsor/brand columns.
+   Advisory-committee meetings (forward-looking catalysts) sorted by
+   parsed meeting date ascending (soonest catalyst first), with unparsed-
+   date notices sorted after by publication date descending (never
+   ranked among the parsed dates, since their true order is unknown) —
+   meeting-date/committee/sponsor/notice-link columns, each row's
+   `dateConf` shown as a `vt-ladder-badge` (`pass` for parsed, `pending`
+   for unparsed — reused, no new badge variant). Honesty notes state the
+   options-IV hypothesis is gate-locked (gate 2 not attempted) and that
+   PDUFA dates are legally unavailable free (21 CFR 314.430) rather than
+   silently absent. RAW display only — `kind:"raw"`, no ladder gate
+   (matches the module's own gate-1-only status). Reuses `.vt-filings-*`/
+   `.vt-ladder-badge-*` CSS — zero new classes.
+2. `client/src/pages/datamap.tsx` — `FdaEventsView` import; `fdaEventsOpen`
+   state (hash-init `#/data/fda-events`); hashchange listener entry;
+   `LAYER_GROUP` fallback entry (`fda_events: "filings"`); status-polling
+   effect (mirrors treasury_dts' exact 300s-badge-refresh shape, since the
+   server itself already polls on its own 6h cadence); icon lookup
+   (`Pill`, newly imported) and unit lookup (`"events"`); open-full-view
+   launcher button inside the `fda_events` layer row; render block.
+3. `datacore/layers.json` — new `fda_events` entry (surgical insertion
+   right after `treasury_dts`, verified `python3 -c "import json;
+   json.load(...)"` still parses and the diff is exactly the 10 new
+   lines; 242 -> 243 layers).
+4. `scripts/visual_check.mjs` — `fdaevents` PAGES entry (`map:false`,
+   same Phase-5 ratchet rule as every dashboard/leaderboard page since
+   streams); `/api/data/fda-events` fixture (1 approval + 1 parsed adcom
+   + 1 unparsed adcom); `fda_events` entry added to the `/api/data/
+   layers` FIXTURES list (matching the convention `tff`/`treasury_dts`/
+   `secftd` already follow there).
+5. `package.json`/`package-lock.json` version bump only (1.0.733 ->
+   1.0.734, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before bumping that the branch was exactly at origin/main, no drift,
+   at bump time; `npm version --no-git-tag-version` used to sync both
+   `package.json` and `package-lock.json` in one step).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `node --test server/layersRegistry.test.ts
+server/layersWiring.test.ts` run standalone first (25/25 pass) to catch
+any registry/wiring mistake before the full suite. `bash scripts/
+tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (all 12 pre-existing,
+none in this diff). `bash scripts/gated_tests.sh` GATE PASSED — client
+1017/1017 (97 files, no new test file — matches every sibling filings
+page's own convention, none of cot.tsx/secFtd.tsx/tff.tsx/
+treasuryAuctions.tsx/treasuryDts.tsx have one either), python 1354
+passed/1 skipped (unchanged), quarantine 0/1, none overdue. `bash
+scripts/counter_ratchet.sh`: OK, 25/25 counters at or better than
+baseline, no re-pin needed (re-ran after the version bump too — still
+clean). `npm run build` clean (only pre-existing warning classes:
+astronomy-engine ESM default-export notice, large-chunk notice, mapIcons
+dynamic/static dual-import notice — none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page fdaevents` at all three canonical widths (390/768/1440) — **0
+hard failures**. Own-review of all three PNGs confirms the header (title,
+both honesty notes, openFDA + Federal Register source links), the
+Approvals table (date/application/sponsor/brand) and the
+Advisory-committee table (meeting date with `parsed`/`unparsed` badges,
+committee, sponsor, notice link) all render correctly at desktop and the
+390px mobile stacked-card layout. Only warnings present are the
+pre-existing global-chrome touch-target/clipped-control warnings that
+appear on essentially every page in this harness (same class noted in
+every prior session's visual-verification write-up) and the standard
+headless-software-renderer notice — neither related to this diff. Per
+the same precedent the sibling-page sessions established, a full
+`--page data` run exercising the layer-panel row/launcher-button
+integration itself was not run (known-heavy); that integration was
+instead verified by direct code review — the `fda_events` block was
+added by duplicating the adjacent, already-visually-verified
+`treasury_dts` block structure line-for-line with only the id/route/
+label/icon swapped.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published openFDA +
+Federal Register data, no predictive claim, no ladder gate applies (same
+standing rule as every other RAW `/data` page in this repo). The
+module's own options-IV-catalyst-timing hypothesis remains unstarted at
+gate 2 — this session does not begin that research, it only makes the
+underlying data independently inspectable.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes a shipped-data-no-UI gap
+on an already-live datacore/ pipeline; no new archive, no new
+entity-graph join, no new hypothesis started this session. Noted above
+(PRIMARY-ACTION SELECTION) as a candidate future tie to the bot's own
+options/convexity engine, not built this session.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, no `/api/v1` mirror exists for this root
+(consistent with treasury_dts/treasury_auctions/TFF/bank-failures/
+vehicle-complaints, all of which lack one too).
+
+MARKET-HOURS MERGE NOTE: this session ran at 09:33 ET (market open,
+Monday). Per this task's own instruction, the PR notes that merge should
+wait until after the close — but `wishlist.md`'s "PROCESS GAP FOUND
+2026-08-15" entry (confirmed recurring 3x as of 2026-08-16) documents
+that the `automerge` workflow has no time-of-day gate and will merge on
+green CI regardless of this note. Not re-litigated here (human decision
+already pending on that item); flagged so this session's own note isn't
+mistaken for a working control.
+
+NEXT (queued, not this session): (1) the remaining 2 zero-wiring
+shipped-data-no-UI routes: `/api/data/bank-failures`, `/api/data/
+vehicle-complaints` — each a candidate for a future PRODUCT session,
+still unranked against each other (both now confirmed to have real,
+specific hypotheses per this session's own re-check above — a future
+session should pick between them on a fresh axis, e.g. data richness or
+archive maturity, not repeat the "no hypothesis" framing this session
+found to be an artifact of reading the wrong file). (2) none of
+`/api/data/dts`, `/api/data/treasury-auctions`, or `/api/data/
+fda-events` has an `/api/v1` paid-tier mirror yet — a future PRODUCT
+session could add one. (3) the cross-system tie flagged above (fda_events
+adcom dates joined against the bot's own options/CSP candidate universe,
+surfacing which upcoming catalysts intersect currently-tradeable options
+chains) is a real, not-yet-built hypothesis — should be filed properly in
+`open_questions.md` by a future session with capacity for that scoping,
+not built speculatively here. (4) KNOWN BROKEN #29 (MEDIUM, visibility
+gap) and #20/#10 (RULE REVIEW-gated threshold judgment calls) remain
+queued for whichever session next has repair capacity. (5) the AUDITS &
+DEBT register's next STALENESS run is not due until 2026-09-14 and
+CONSTITUTIONAL not until 2026-09-15 — neither due this session.
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated action
+matched to session capacity; no higher-priority queued item was skipped
+(no LIVENESS ALARM; audit log clean of anything beyond FROZEN kill-switch
+mechanics doing their job; both open KNOWN BROKEN items are
+visibility-only or RULE REVIEW-gated, not blocking; product sessions do
+not preempt DAILY repair duty per this task's own instructions).
+
 ## 2026-08-17 (scheduled-routine PRODUCT session #2) [PRODUCT] — T-CLIENT (primary) — Treasury Daily Statement (/api/data/dts) gets a live /data map layer + client view, the second of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.733)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/treasuryDts.tsx`;

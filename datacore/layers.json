@@ -2398,6 +2398,16 @@
    "description": "Most recent published Daily Treasury Statement: all operating-cash deposit/withdrawal line items by category and account, $ millions as published (~1-2 business-day lag). Withheld-tax-deposits-form-a-daily-payroll-nowcast-weeks-ahead-of-BLS-releases (plus corporate-tax/FUTA deltas nowcasting macro turns) is an open gate-1 hypothesis, not yet surfaced as a signal."
   },
   {
+   "id": "fda_events",
+   "name": "FDA binary events",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "openFDA drugsfda API + Federal Register API (both US government work, public domain, no API key required)",
+   "description": "openFDA approvals from the last 30 days (backward-looking confirmations) plus Federal Register FDA advisory-committee meeting notices (forward-looking catalysts; meeting date parsed from the notice text where stated, labeled 'unparsed' rather than guessed otherwise). No PDUFA target dates — legally unavailable free (21 CFR 314.430). Binary-event-timing-drives-biotech-options-IV-into-scheduled-catalysts (a theta-side input, not directional) is an open gate-2 hypothesis, not yet attempted, not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
