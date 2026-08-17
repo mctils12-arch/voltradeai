@@ -1410,8 +1410,14 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
     previous written agreement, even for non-profit or governmental
     entities." Our bot + site + automated archive are exactly that. So
     OpenSky technically requires a written agreement even for the POC
-    (contact@opensky-network.org — plausibly granted free for research).
-    The new free account raises rate limits but does not change this.
+    (contact@opensky-network.org). **CORRECTED 2026-08-17: this was
+    requested 2026-07-03 and DENIED the same day** ("It is obviously not
+    non-commercial, when you have 'Pricing' on the website. This is not
+    a research project." — OpenSky Network, 2026-07-03T22:58:12Z, found
+    this session via inbox check, never previously logged). Not
+    "plausibly granted" — actually declined; see open_questions.md's
+    CLOSED entry for the full trace. The new free account raises rate
+    limits but does not change this.
   - **adsb.lol** (fallback 1): **ODbL 1.0**, "available to everyone" —
     compatible today AND after monetization, with attribution (already
     shown on the map) and share-alike on derivative *databases*. The
@@ -1427,12 +1433,12 @@ Logged and ROUTED AROUND — nothing here blocks the free build order.)
   - **DECIDED BY HUMAN 2026-07-03 (executed same day, v1.0.45):**
     OpenSky dropped from the runtime chain — adsb.lol primary,
     airplanes.live fallback; removes the ~12s dead OpenSky attempt on
-    every fresh viewport. The human has emailed
-    contact@opensky-network.org requesting a research agreement.
-    IF/WHEN GRANTED: reinstate OpenSky in the chain (git history of
-    v1.0.43 has the OAuth + states/all implementation to restore) AND
-    re-verify Railway connectivity at that time — the egress block is
-    independent of the license and may still bite. THE TRIPWIRE stands:
+    every fresh viewport. The human emailed contact@opensky-network.org
+    requesting a research agreement; OpenSky DENIED it the same day
+    (2026-07-03T22:58:12Z — see the CORRECTED note above). Reinstatement
+    is CLOSED, not pending — do not re-propose without a genuinely new
+    angle (e.g. a non-commercial-only fork with no "Pricing" page at
+    all). THE TRIPWIRE stands:
     before enabling billing, ads, or any paid feature, re-run this
     compliance check — at that moment airplanes.live must be dropped or
     upgraded to a commercial arrangement, and adsb.lol becomes the only

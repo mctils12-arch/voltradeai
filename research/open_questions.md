@@ -4729,6 +4729,59 @@ into the message — seen live on HYG 07-28). Message should distinguish
 - Earnings/FOMC calendar awareness: verify positions are actually
   gated around scheduled events, not just theoretically supported.
 
+- **[TESTED 2026-08-17, scheduled-routine session — NOT SUPPORTED, see
+  experiments.md] Critical slowing down (FOREIGN-FIELD IMPORT — ecology /
+  resilience theory) as an early-warning regime-transition signal.**
+  PRIOR (stated before running): rolling lag-1 autocorrelation of trailing
+  SPY/SP500 daily returns should (a) correlate with forward realized vol
+  similarly to how this system's existing `vix_ratio` heuristic already
+  does, and (b) LEAD `vix_ratio`'s own rise in a lead-lag cross-
+  correlation — i.e. the genuinely novel claim ecology's technique makes
+  is that recovery-rate slowing shows up in the system's own fluctuation
+  structure BEFORE the volatility spike that eventually moves VIX, unlike
+  `vix_ratio` (a coincident level measure) or the Markov component (found
+  weak by the 2026-07-09 regime-detector-compare finding directly above
+  this entry). Ladder: this is a signal-only screen (gate 2), no trading
+  logic touched — same class as regime_detector_compare.py.
+  RESULT (`critical_slowing_down_probe.py`, 20d trailing window, lag-1
+  autocorrelation, FRED SP500/VIXCLS proxies, n=2,443 trading days
+  2016-10-25 to 2026-07-16): PRIOR NOT SUPPORTED on both counts.
+  (a) trailing_autocorr vs forward vol: rho=0.013 (p=0.51) at 5d,
+  rho=0.019 (p=0.34) at 20d — no significant predictive power at all,
+  materially weaker than `vix_ratio` (rho=0.31/0.24, both p≈0) and
+  `trailing_vol` — trailing realized-vol itself, the OTHER half of the
+  critical-slowing-down toolkit — which is strongly predictive (rho=0.57/
+  0.57, p≈0), but that is ordinary volatility clustering/persistence, a
+  well-known GARCH-type effect already implicit in `vix_ratio`, not a
+  novel finding. (b) lead-lag cross-correlation of trailing_autocorr(t)
+  vs vix_ratio(t+k) for k=0/5/10/20 days: rho stays in [-0.06, +0.05]
+  across ALL lags with inconsistent sign (negative at k=0/5, positive at
+  k=10/20) — no clean "autocorrelation rises before vix_ratio" pattern;
+  the few technically-significant readings (p<0.01 at k=0 and k=20) carry
+  negligible effect size (|rho|<0.07) that only clears significance
+  because n=2,443 is large, not because the relationship is economically
+  meaningful. (c) conditional on vix_ratio tercile (does autocorrelation
+  add power beyond current vol LEVEL): rho flips sign across terciles
+  (-0.10 low, +0.11 mid, +0.10 high, all small) — no consistent
+  incremental signal.
+  Discount per REASONING STANDARD #4: one parameterization tested (20d
+  window, lag-1, SP500-proxy) — not a swept grid, so this is a single
+  clean test of the theory's own core prediction, not multiple-hypothesis
+  fishing; the honest read is that the theory's SPECIFIC leading-indicator
+  claim (rising autocorrelation predicts an upcoming transition) failed
+  to appear even qualitatively, not just narrowly missed significance.
+  Per REASONING STANDARD #5 (second-order): critical slowing down is a
+  PUBLISHED technique with prior finance applications (interbank/FX
+  stress) — this was never a "nobody's tried this" claim, only a test of
+  whether it adds value ON TOP of this system's own existing `vix_ratio`
+  gate. It doesn't, at this parameterization. NOT a tournament candidate,
+  NOT wired into any production signal. KILLED at this parameterization;
+  do not re-propose without a materially different window/lag choice and
+  a stated reason to expect a different result — REASONING STANDARD #4
+  discipline applies to any follow-up exactly as it does to a new
+  strategy variant. Full trace, gates, tests: experiments.md 2026-08-17
+  entry.
+
 - **[KILLED 2026-07-04 — see experiments.md]** ~~Dual-momentum SPY/QQQ~~
   (from 2026-07-03 harness run, `bot_backtest.py`): in-sample 2016-2026 beat
   SPY (16.3% vs 14.1% CAGR, Sharpe 0.90 vs 0.83, DD -28.6% vs -33.7%).
@@ -4760,14 +4813,29 @@ into the message — seen live on HYG 07-28). Message should distinguish
   single-sourced on aisstream.io; find a second AIS source (AISHub
   requires feeding a receiver — excluded by the same no-hardware
   decision; satellite AIS is paid — see wishlist).
-- **OpenSky reinstatement (likely-returner, DEAD CODE POLICY tracking).**
-  Human emailed contact@opensky-network.org for a research agreement
-  (2026-07-03). No disabled adapter retained — the v1.0.43 OAuth +
-  states/all implementation lives in git history (revert of PR #114's
-  removal restores it). REVIEW-BY 2026-08-17 (+45d): if no agreement by
-  then, close this item and strike OpenSky from the redundancy
-  candidates; if granted, reinstate the chain attempt AND re-verify
-  Railway egress connectivity before relying on it.
+- **[CLOSED 2026-08-17, scheduled-routine session — stale-fact
+  correction, no code change] OpenSky reinstatement request.** This
+  item's own REVIEW-BY date (2026-08-17, +45d) fell today, which is what
+  surfaced the check — but the human's inbox (checked this session,
+  read-only) shows OpenSky Network replied to the research-use-agreement
+  request on **2026-07-03T22:58:12Z, the SAME DAY as the ask**, with an
+  explicit denial: *"It is obviously not non-commercial, when you have
+  'Pricing' on the website. This is not a research project."* This
+  rejection has sat in the inbox for 44 days while this file and
+  wishlist.md's aircraft-licensing entry both kept "IF/WHEN GRANTED" /
+  "plausibly granted free for research" framing — the answer was never
+  "no reply yet," it was "no," and no session ever closed the loop
+  (PR #243, 2026-07-05, separately noted "OpenSky ruled out on
+  licensing" for the international-registries thread, but that PR never
+  touched or closed this specific item). Struck OpenSky from the
+  redundancy candidates per this item's own stated rule for a negative
+  outcome — the aircraft chain stays adsb.lol (primary) -> airplanes.live
+  -> adsb.fi, unchanged. No disabled adapter existed to remove (git
+  history of v1.0.43 remains the record if this is ever revisited from
+  a genuinely new angle — e.g. a future non-commercial-only, non-revenue
+  fork — but not as a standing "waiting to hear back" item, since the
+  human already heard back). wishlist.md's aircraft-licensing entry
+  corrected in the same session to match.
 
 ## MIDAS HFT-COLONIZATION FILTER HYPOTHESIS (RAW layer shipped 2026-07-10, v1.0.265 — census build #10)
 

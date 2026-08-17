@@ -54764,3 +54764,273 @@ prominently as the pass verdict. No higher-priority queued item was
 skipped (no LIVENESS ALARM; the two open KNOWN BROKEN items are RULE
 REVIEW-gated or visibility-only, not blocking; product sessions do not
 preempt DAILY repair duty per this task's own instructions).
+
+## 2026-08-17 — [RESEARCH] Critical slowing down (ecology foreign-field import) tested against SPY/VIX forward-vol prediction — NOT SUPPORTED (v1.0.733)
+
+TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — a standalone repo-root
+research script (same class as `regime_detector_compare.py`), touches no
+production execution path.
+
+SESSION-START CHECKS (per this routine's own brief): `/api/health`
+(production) — `status:"ok"`, `bot.status:"active"`, `liveness.dark:
+false`, `drawdownPct:"0.0"`, all subsystems `ok`, no dead feeds. No
+LIVENESS ALARM. `/api/diag/audit?limit=30` — only routine `TIER3`/
+`MANIPULATION`/`POS-WARN` entries (one options position down -17.6%
+against a -15% warn threshold — a warning, not a kill-switch event).
+`research/open_questions.md` KNOWN BROKEN section: items #29 and #30
+(the two most recent) both carry live-confirmed resolutions dated
+2026-08-12/13/16; items #10 and #20 are RULE-REVIEW-gated on archive
+depth/counterfactual evidence that hasn't matured, not active breaks.
+`scripts/session_health_check.py` (existing compiled tool, ran it rather
+than re-deriving each check by hand) confirmed the same: all `[OK]`.
+CONCLUSION: nothing critical unfixed — this is NOT a [REPAIR] session.
+Thrash ratio: last 10 tagged entries before this one were PRODUCT-heavy
+([PRODUCT]/[PIPELINE]/[RESEARCH], zero REPAIR in the immediate tail) —
+well under the 7/10 escalation trigger.
+
+PRIMARY-ACTION SELECTION: this routine's brief named 4 axes.
+- Axis (a) (named free-data pipelines: Sentinel-2 tank shadows, EDGAR
+  Form 4, USAspending, CFTC COT, FDA calendar, Google Trends): ran
+  `python3 scripts/data_stream_registry_check.py --unbuilt` — every
+  single named example already reads `built` or `declined_gate1_fail`
+  (Google Trends -> superseded by wikimedia_pageviews after pytrends
+  went archived-read-only). Matches the standing finding multiple prior
+  sessions (2026-07-26, 08-09, 08-11, 08-13) already reached
+  independently. Remaining `candidate_unbuilt`/`blocked_*` rows all need
+  either a human decision (DTCC volume budget) or a human-registered key
+  (USPTO/OpenAQ/Cloudflare/VIIRS) — no unblocked lane today.
+- Axis (b) (illiquid-universe, gated on the fill-realism fix): confirmed
+  via `research/open_questions.md`/`experiments.md` history — the stock-
+  side fill-realism fix shipped 2026-07-23 (v1.0.480,
+  `liquidity_cost_pct()`), and the illiquid-universe ladder's steps 1-5
+  are ALL CLOSED as of 2026-08-11. That session's own surfaced follow-on
+  (loosening MIN_PRICE/MIN_VOLUME to admit sub-$5 microcaps) is
+  explicitly flagged as needing its own RULE-REVIEW-grade cost/frictions
+  workup, not a routine-scope pickup — correctly deferred, not attempted
+  here. `python3 scripts/ladder_readiness_check.py` (existing compiled
+  tool): 0/2 remaining gate2_pending roots ready
+  (`cftc_cot_positioning` 70d remaining, `sec_8k_earnings_language` 46d
+  remaining) — confirms no fresh unblock today, without re-deriving the
+  arithmetic by hand.
+- Axis (d) (compile recurring reasoning): the obvious repeat-reasoning
+  candidates in this repo (data-root build status, ladder-readiness
+  arithmetic, session health) are ALREADY compiled into
+  `data_stream_registry_check.py`/`ladder_readiness_check.py`/
+  `session_health_check.py` by prior sessions — ran all three rather
+  than re-deriving their answers by hand (which is itself the doctrine
+  in action, not a new build).
+- Axis (c) chosen: this repo has logged exactly ONE prior FOREIGN-FIELD
+  IMPORT (sea-state/marine-forecasting, gate 2 blocked until ~2026-10-06
+  on archive depth) — the EDGE DOCTRINE's other three named foreign
+  fields (epidemiology, ecology, aviation-maintenance) are all unused.
+  Picked ecology's "critical slowing down" / early-warning-signals
+  technique (Scheffer et al. 2009) because it is directly testable
+  TODAY with data already proven reachable in this sandbox (FRED SP500/
+  VIXCLS, the exact keyless source `regime_detector_compare.py` already
+  established), and because it targets a gap that session's own
+  2026-07-09 finding left open: neither of this system's two live regime
+  signals (VXX-ratio: current LEVEL; Markov: return DIRECTION) measures
+  the system's *approach* to a transition, which is precisely
+  critical-slowing-down's claim.
+
+PRIOR (REASONING STANDARD #10, stated before running): rolling lag-1
+autocorrelation of trailing SPY/SP500 daily returns should (a) show
+positive Spearman correlation with forward realized vol, and (b), the
+theory's actually-distinguishing claim, LEAD `vix_ratio`'s own rise in a
+lead-lag cross-correlation (autocorr(t) should correlate with
+vix_ratio(t+k) more strongly at some k>0 than at k=0). Expected a modest
+positive result on (a) given volatility clustering is well-documented,
+genuinely uncertain going in on (b) — that is the actual novel claim
+being tested, not assumed.
+
+METHOD: new `critical_slowing_down_probe.py` (repo root, sibling to and
+reuses `regime_detector_compare.py`'s `parse_fred_csv_text`/
+`load_fred_csv_file`/`align_series` rather than re-implementing the
+fetch/parse path — one source of truth for how FRED data enters this
+repo's research tooling). `rolling_autocorr_lag1()`/`rolling_std()` are
+pure functions (no lookahead: every trailing feature at index i uses
+only data through i; every forward feature uses only i+1 onward, mirrored
+by the sibling script's own `compute_features()` no-lookahead pattern).
+`compare_signals()` runs three tests: (1) Spearman(trailing_autocorr,
+forward vol) at 5d/20d, directly comparable to the existing vix_ratio/
+markov_p_bear tests the sibling script already ran; (2) lead-lag
+Spearman(trailing_autocorr(t), vix_ratio(t+k)) for k in {0,5,10,20}; (3)
+conditional Spearman WITHIN vix_ratio terciles (does autocorrelation add
+power beyond current vol level, or just restate it).
+
+DATA: fetched fresh `fredgraph.csv?id=SP500` and `?id=VIXCLS` live this
+session (both HTTP 200, current through 2026-08-14) — network access to
+FRED's public endpoint worked directly from this sandbox's shell today
+(same `curl`-not-`requests.get()` caveat the sibling script's own
+docstring already documents). n=2,443 trading days, 2016-10-25 to
+2026-07-16 (the last day with a full forward 20d window).
+
+RESULT: PRIOR NOT SUPPORTED on either count.
+(a) trailing_autocorr vs forward vol: rho=0.0134 (p=0.508, n=2443) at 5d,
+rho=0.0191 (p=0.344) at 20d — statistically indistinguishable from zero.
+For comparison, the SAME dataset's `trailing_vol` (trailing realized
+stdev — the OTHER half of the critical-slowing-down toolkit, "rising
+variance") is strongly predictive: rho=0.5668/0.5674 (p≈0 both) — but
+that is ordinary volatility persistence/clustering (a well-known GARCH-
+type effect), not evidence FOR the autocorrelation-specific
+"critical slowing down" claim; `vix_ratio` (existing production-adjacent
+signal) sits between: rho=0.3077/0.2399 (p≈0 both), consistent with the
+2026-07-09 regime-detector-compare finding.
+(b) lead-lag: rho stays inside [-0.064, +0.053] across all four lags with
+INCONSISTENT SIGN (negative at k=0/5, positive at k=10/20) — no clean
+"autocorrelation rises before vix_ratio" pattern. The two nominally
+"significant" readings (k=0: rho=-0.0637, p=0.0016; k=20: rho=0.0527,
+p=0.0094) carry negligible effect size — significant only because n is
+large, not because the relationship is economically meaningful.
+(c) conditional on vix_ratio tercile: rho flips sign across buckets
+(low=-0.0995/-0.0274, mid=+0.1086/+0.0564, high=+0.0996/+0.0982 for
+20d/5d respectively) — no consistent incremental-power story either.
+
+Discount per REASONING STANDARD #4: ONE parameterization tested (20d
+trailing window, lag-1, SP500-proxy) — not a swept grid, so this is a
+single clean test of the theory's own core prediction rather than
+multiple-hypothesis fishing; the honest read is that the SPECIFIC
+leading-indicator claim failed to appear even qualitatively (wrong sign
+at half the lags), not that it narrowly missed significance. Per
+REASONING STANDARD #5 (second-order): critical slowing down is a
+published technique with prior finance applications elsewhere (interbank/
+FX stress) — this was never framed as "nobody's tried this," only as a
+test of whether it adds value on top of THIS system's own existing
+`vix_ratio` gate. It doesn't, at this parameterization.
+
+DISPOSITION: KILLED at this parameterization, logged in
+open_questions.md (not wired into any production signal — never was).
+Do not re-propose without a materially different window/lag choice AND a
+stated reason to expect a different result (REASONING STANDARD #4
+discipline applies to a follow-up exactly as it would to a new strategy
+variant) — a second blind parameter sweep chasing significance on the
+same question would be the multiple-hypothesis-fishing pattern
+REASONING STANDARD #4 warns against, not confirmation.
+
+RATCHET: `test_critical_slowing_down_probe.py` (new, 16 tests) — pure-
+function coverage mirroring `test_regime_detector_compare.py`'s existing
+convention: `rolling_autocorr_lag1` against synthetic white-noise (near-
+zero) and AR(1) phi=0.8 (clearly elevated) fixtures plus NaN-on-
+insufficient-history/constant-window edge cases; `rolling_std` against a
+hand-computed stdev; `compute_features`'s no-lookahead property (a
+post-hoc spike injected at day 100 changes forward-vol features whose
+window reaches it, leaves untouched every row whose window doesn't —
+same technique the sibling script's own test file uses); `compare_signals`
+recovers a known synthetic correlation, handles missing values without
+crashing, reports all four lead-lag keys, partitions terciles to the
+full sample size, and reports base rates. No mocking of network — this
+script's own `run()`/`fetch_fred_series()` boundary is untested by
+design (matches the sibling script's own stated convention: the fetch
+path is a thin, best-effort wrapper, not where the logic lives).
+
+GATES: this sandbox started with `numpy`/`scipy`/`pytest` all missing
+(same recurring clean-container gap prior sessions have logged);
+`pip3 install --break-system-packages -r requirements.txt
+-r requirements-dev.txt` resolved it. `python3 -m pytest -q
+test_critical_slowing_down_probe.py`: 16/16 passed. Full suite:
+`python3 -m pytest -q` — 1370 passed, 1 skipped (1354 baseline + 16 new,
+0 regressions). No `.ts`/`.tsx` files touched (pure Python, no
+`server/bot.ts` or client changes) — `npx tsc --noEmit`/
+`npx tsx --test`/`npm run build`/VISUAL VERIFICATION do not apply, same
+established convention as `regime_detector_compare.py`'s own entry.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a pure [RESEARCH] signal
+screen with a negative result; nothing shipped to any scoring, sizing,
+or trading-decision path, so there is no strategy/parameter change for
+the Sharpe/drawdown gate to apply to.
+
+DOWNSTREAM CHAIN (REASONING STANDARD #1): zero interaction with the
+trading loop or any live decision path. The only effect is closing this
+open question with a documented, evidenced negative — so a future
+session doesn't re-propose the same untested-in-this-repo idea from
+scratch, and so the EDGE DOCTRINE #4 foreign-field-import tally
+(currently 1 sea-state hypothesis, gate-2-pending on archive depth; this
+session adds the 2nd, now closed) has an honest, growing record instead
+of only successes being logged.
+
+FALL-THROUGH (capacity remained after the primary action): while
+re-reading the marine hypothesis's neighboring prose for placement
+context, noticed `research/open_questions.md`'s OpenSky-reinstatement
+item had a REVIEW-BY date of 2026-08-17 — today. Checked the human's
+inbox (read-only, Gmail connector) for the referenced thread rather than
+letting the date pass unexamined: OpenSky Network replied to the
+research-use-agreement request on 2026-07-03T22:58:12Z, THE SAME DAY as
+the ask, with an explicit denial ("It is obviously not non-commercial,
+when you have 'Pricing' on the website. This is not a research
+project.") — not silence, an actual "no," sitting unread by any session
+for 44 days while open_questions.md and wishlist.md both kept
+"IF/WHEN GRANTED"/"plausibly granted free for research" framing. Own,
+separate commit (doc-only correction, no code/behavior change, no
+version bump per the established docs-only-commit convention e.g. the
+2026-08-16 CONSTITUTIONAL AUDIT commit) — see this file's next entry.
+
+Version bumped 1.0.732 -> 1.0.733 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed branch was exactly
+at origin/main (no drift) at bump time.
+
+STARVED: no — axis (c) was the clearest available primary action once
+(a)/(b)/(d) were confirmed exhausted or evidence-gated via the existing
+compiled tooling rather than re-derived by hand; a genuine negative
+result was reached and filed with full method/discount/disposition, and
+a real 44-day-stale fact was caught and corrected as fall-through. No
+higher-priority queued item was skipped (no LIVENESS ALARM; the two open
+KNOWN BROKEN items remain RULE-REVIEW-gated, not blocking).
+
+## 2026-08-17 — [REPAIR] OpenSky reinstatement item was 44 days stale — the "no reply yet" framing outlived an actual same-day rejection (docs-only, no version bump)
+
+TERRITORY: research/* only (SHARED per WORKSTREAM PARTITION) — this
+commit is the required "last, small, serialized" shared-file edit,
+separate from the primary-action commit above.
+
+WHAT WAS WRONG: `research/open_questions.md`'s "OpenSky reinstatement"
+item and `research/wishlist.md`'s aircraft-licensing entry both stated
+the human's 2026-07-03 request for an OpenSky research-use agreement was
+awaiting a reply ("IF/WHEN GRANTED", "plausibly granted free for
+research"), with open_questions.md additionally carrying a
+REVIEW-BY 2026-08-17 (+45d) date to force a future session to check back
+if nothing had arrived by then. That review-by date landing today is
+what surfaced this — checking it (read-only Gmail search on "opensky")
+found OpenSky Network had actually replied on 2026-07-03T22:58:12Z, THE
+SAME DAY, with an unambiguous denial: *"It is obviously not
+non-commercial, when you have 'Pricing' on the website. This is not a
+research project."* Cross-checked PR #243 (2026-07-05, "international-
+registries access probes — build deferred, OpenSky ruled out on
+licensing") — that PR handled a DIFFERENT thread (international
+aircraft-registry access) and never touched or closed this specific
+research-use-agreement item, which is why the stale framing survived
+44 days and five-plus intervening sessions untouched.
+
+WHY THIS MATTERS (not just tidiness): a future session hitting this
+review-by date cold, or re-deriving "should we chase OpenSky again,"
+would have wasted real session time re-investigating a question that was
+already conclusively answered six weeks ago — exactly the EDGE DOCTRINE
+#3 pattern ("never analyze the same thing twice") this repo's own
+compiled-tooling precedent (data_stream_registry_check.py,
+ladder_readiness_check.py) exists to prevent, just for a fact instead of
+an arithmetic answer.
+
+FIX: `open_questions.md`'s item marked CLOSED with the full evidence
+trail (exact reply timestamp and quote, why PR #243 didn't already close
+it); `wishlist.md`'s two OpenSky mentions corrected from "plausibly
+granted"/"IF/WHEN GRANTED" to the actual outcome, both pointing back to
+the open_questions.md entry as the source of record. No disabled
+adapter existed to delete (the v1.0.43 OAuth implementation was already
+fully removed at v1.0.45, per the item's own prior text) — nothing to
+strike from the runtime chain, this is purely correcting what the
+archive says happened. Aircraft provider chain itself is UNCHANGED:
+adsb.lol (primary, ODbL) -> airplanes.live (fallback) -> adsb.fi
+(fallback), matching the MONETIZATION TRIPWIRE's already-established
+compliant chain.
+
+GATES: doc-only change (two `.md` files under research/), no code
+touched — no test/build/tsc gate applies, matching the established
+convention for pure-prose corrections (e.g. the 2026-08-16
+CONSTITUTIONAL AUDIT commit, also docs-only with no version bump).
+
+BACKTEST: N/A — no scoring/sizing/trading value exists in this diff.
+
+Version: NOT bumped (no code/behavior change; matches the docs-only-
+commit precedent) — package.json stays at 1.0.733 from the entry above.
+
+STARVED: no — this was found and closed within the same session's
+capacity as the primary action, not deferred.
