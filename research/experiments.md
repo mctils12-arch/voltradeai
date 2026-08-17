@@ -20,6 +20,164 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-17 (scheduled-routine session #4, market hours) [REPAIR] — T-BOT (system_config.py) + SHARED (research/*) — KNOWN BROKEN #10 resolved: dead SCORE_BAND_MAX/OPTIMAL_LO/HI deleted, MAX_CHANGE_PCT's misleading comment corrected, using the shadow-diagnostic evidence the 2026-08-13 session queued (v1.0.735)
+
+TERRITORY: T-BOT primary (`system_config.py`'s `BASE_CONFIG` only — no
+scoring/sizing code changed, no `bot_engine.py`/`ml_model_v2.py`/
+`strategies/` touched) + SHARED last-and-minimal
+(`research/open_questions.md` KNOWN BROKEN #10 update,
+`package.json` version bump only).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `research/experiments.md`'s
+AUDITS & DEBT register read (STALENESS next due 2026-09-14, CONSTITUTIONAL
+next due 2026-09-15, CALENDAR YEAR-ADD next due 2026-12-01 — none overdue,
+nothing for this session's fall-through tier). `open_questions.md`'s KNOWN
+BROKEN section read in full: items 1-9, 11-30 resolved/gated/closed;
+only #10 (dead SCORE_BAND_MAX/MAX_CHANGE_PCT config) and #20
+(master_kill_switch CSP shadow, RULE-REVIEW-gated) remained genuinely
+open going in. `wishlist.md` head read: the second-ever CONSTITUTIONAL
+AUDIT's 2 consolidation proposals (dead "Revisit ~2026-07-24" clause,
+MEMORY PROTOCOL/VISION.md read-order omission) are still pending human
+review — nothing actionable for this session. Live `/api/health`:
+`status:"ok"`, bot `active`, `ACTIVE` broker account, `drawdownPct:"0.0"`,
+`liveness.dark:false`, all three feeds (aircraft/vessels/trains) live,
+`consecutiveFailures:0` — no LIVENESS ALARM. Live `/api/data/layers`:
+`server_version:"1.0.734"`, 243 layers — exact match to `origin/main`
+(v1.0.734, PR #864, confirmed via `git fetch`) before this session's
+commit — no deploy-lag uncertainty affecting this session's action.
+
+LOOP-HEALTH RATIO: last 10 real session-tag entries (newest first, this
+session's own excluded): [PRODUCT] FDA events, [PRODUCT] Treasury DTS,
+[PRODUCT] Treasury auctions, [RULE-REVIEW] second-ever constitutional
+audit, [PRODUCT] CFTC TFF, [PRODUCT] session#4 market-hours, [PRODUCT] EU
+power markets, [REPAIR] stale-doc dedup-build near-miss, [PRODUCT]
+apiProduct session#4, [PRODUCT] apiProduct session#3. Tally: 8 PRODUCT
+(counts as PIPELINE-equivalent), 1 RULE-REVIEW, 1 REPAIR — 1/10 REPAIR,
+well under the 7+ thrash-ratio alarm; no meta-problem override triggered.
+PROGRESS FLOOR: PRODUCT/PIPELINE sessions shipping continuously, no
+14-day stall. STARVATION: no flag found in the immediately preceding
+entries.
+
+PRIMARY ACTION: KNOWN BROKEN #10 (`open_questions.md`) has sat open since
+2026-07-04 — `system_config.py`'s `SCORE_BAND_MAX`, `SCORE_BAND_OPTIMAL_LO/
+HI`, and `MAX_CHANGE_PCT` are defined with comments claiming they gate
+trades ("Skip stocks already up/down 35%+", "Scores above this are often
+fake breakouts") but `deep_score`/`quick_score` never read any of them —
+a documentation/live-behavior mismatch the HONESTY METRIC flags as
+worth fixing (a session or human reading `system_config.py` could
+reasonably believe these are live, backtest-validated guardrails when
+they are not). The item's own 2026-08-13 update had built the missing
+instrument (`shadow_portfolio.py`'s `_change_pct_distribution()`,
+merged as PR #815/v1.0.698) and pre-registered the decision: query
+`/api/diag/shadow`'s `taken_distribution`; if `max`/`p99` sit well under
+35 with a healthy `n`, that confirms `bot_engine.py`'s `_extreme_penalty`
+soft penalty already suppresses the population de facto and the dead
+keys should be retired per the STALENESS AUDIT; if `max`/`p99` instead
+approach/exceed 35 while `over_threshold` stays 0, that's a labeling bug
+needing its own REPAIR session. `git log` confirmed PR #815 had merged to
+`main` by this session, but nobody had yet run the query — this session's
+primary action was running it and acting on the pre-registered result,
+not proposing a new hypothesis (REASONING STANDARD #10: prior stated
+2026-08-13, before this session saw the data).
+
+QUERY RESULT (`GET /api/diag/shadow?token=$DIAG_TOKEN`, this session):
+`total_records: 18157`, `by_decision.taken: 12147`,
+`win_rate_by_change_pct_band.taken_distribution: {n: 12147, max: 29.9,
+p50: 19.08, p95: 26.38, p99: 29.12, count_over_20: 4769,
+count_over_30: 0}`. `over_threshold.candidate_count` (>35 threshold): 0,
+matching every prior check since 2026-08-10. max=29.9 and p99=29.12 both
+sit comfortably under 35 with a healthy n (12,147, not a small-sample
+fluke) — the pre-registered "genuinely never happens" branch, not the
+"possible labeling bug" branch. This is consistent with, not proof of,
+`_extreme_penalty`'s design (-15 at >30%, -30 at >50% single-day move,
+`bot_engine.py:2752`) keeping taken candidates clustered well under 35%
+— no candidate in 12,147 taken records has ever cleared 30% at all
+(`count_over_30: 0`), consistent with the soft penalty's own >30%
+threshold doing real suppressive work even though nothing hard-skips.
+
+FIX: re-verified via fresh `grep -rn` (not memory of the 2026-07-04
+finding) that `SCORE_BAND_MAX`/`SCORE_BAND_OPTIMAL_LO`/
+`SCORE_BAND_OPTIMAL_HI` have zero read sites anywhere in the repo outside
+`system_config.py`'s own definition (no test, no diagnostic, no other
+module) — genuinely 100% dead, unlike `MAX_CHANGE_PCT`, which
+`shadow_portfolio.py`'s `_change_pct_band_stats()` and
+`test_shadow_change_pct_band.py` now actively read as the live threshold
+input for the very diagnostic that resolved this item. Deleted the three
+fully-dead keys from `BASE_CONFIG` per the STALENESS AUDIT dead-code
+policy (CLAUDE.md: "no orphaned calls, dead config... in all active
+execution paths"). Kept `MAX_CHANGE_PCT` (deleting it would silently
+change the shadow diagnostic's band-split source from a live, editable
+config value to a hardcoded `.get(..., 35.0)` fallback, contradicting
+that function's own stated design intent) but rewrote its comment from
+"Skip stocks already up/down 35%+ (easy money gone)" (implies a live
+trade-skip gate) to state its actual current role — shadow-diagnostic
+band threshold, not a trading gate — and cite this session's resolution
+inline for the next reader. `open_questions.md`'s KNOWN BROKEN #10 header
+updated `[FOUND 2026-07-04 — dead config, not yet repaired]` →
+`[FOUND 2026-07-04, RESOLVED 2026-08-17, v1.0.735]`, full resolution
+appended in place (append-only, prior updates untouched). No trading
+behavior changed — these keys were read by nothing in the scoring/sizing
+path before or after this diff, so no RULE REVIEW evidence gate applies
+(this is a documentation/dead-code fix, not a threshold change) and
+PROMOTION RULE 3's Sharpe/drawdown comparison doesn't apply (nothing
+scored, sized, or executed differently).
+
+BACKTEST: N/A per above — no scoring/sizing/threshold value changed,
+this is dead-code removal + a comment correction on a key whose only
+live reader is a diagnostic, not the trading path.
+
+GATES: `npm ci` (node_modules was `ERR_MODULE_NOT_FOUND: express` at
+session start — confirmed via `git stash`/re-run that this failure mode
+is pre-existing/environment-only, not caused by this diff, before
+installing) + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1017/1017 (0 regressions, includes the 13
+`test_shadow_change_pct_band.py`-equivalent JS tests are N/A, that suite
+is Python), python 1354 passed/1 skipped (0 regressions from baseline),
+quarantine 0/1 none overdue. `python3 -m pytest -q
+test_shadow_change_pct_band.py` run standalone first: 13/13 passed,
+confirming the `MAX_CHANGE_PCT` comment-only edit didn't disturb the
+value the diagnostic reads. `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged (no `.ts` file touched). `bash
+scripts/counter_ratchet.sh`: OK, 25 counters at or better than baseline
+— no re-pin needed (this diff adds no new test file matching any
+counter's glob; `system_config.py`/`open_questions.md`/`package.json`
+aren't `server/*.test.ts`, `client/**/*.test.tsx?`, or python `test_*.py`
+files). `npm run build`: clean (pre-existing astronomy-engine ESM
+default-export warning and >500kB chunk warnings only, matching every
+prior session's note — unrelated to this diff).
+
+MARKET-HOURS NOTE (this run's own instruction): session ran during NYSE
+regular hours (confirmed live via `/api/health`, bot `active`). This
+change touches no live-traded code path (nothing in `deep_score`/
+`quick_score`/order submission reads any of the three deleted keys or
+`MAX_CHANGE_PCT`), so it is not a critical live-break fix — merge should
+wait until after 4:00 PM ET per this run's instruction, noted in the PR
+description.
+
+CROSS-SYSTEM INTEGRATION: none — this is a single-repo dead-code/
+documentation fix with no new archive, signal, or entity-graph tie.
+
+NEXT (queued, not this session): KNOWN BROKEN #20 (`master_kill_switch`
+CSP-shadow win-rate check) remains the one other RULE-REVIEW-gated open
+item, blocked on the same shadow-archive labeling infrastructure this
+session just confirmed is healthy (18,157 records, active labeling) — a
+future session can now run that query with confidence the underlying
+data pipeline works. AUDITS & DEBT register: neither audit was overdue
+this session (checked, not run — this session's primary action filled
+capacity before fall-through reached the research tier).
+
+Version bumped 1.0.734 -> 1.0.735 (PROMOTION RULE 4); `git fetch
+origin main` confirmed local HEAD was exactly at `origin/main` (no drift)
+immediately before the bump.
+
+STARVED: no — this was the single highest-value, fully pre-specified
+repair action available (a 6-week-old KNOWN BROKEN item whose own
+pre-registered decision tree just needed its query run), matched to
+session capacity, shipped with all gates green. No higher-priority
+queued item was skipped (no LIVENESS ALARM; no other unblocked KNOWN
+BROKEN item; AUDITS & DEBT register had nothing overdue).
+
 ## 2026-08-17 (scheduled-routine PRODUCT session #3) [PRODUCT] — T-CLIENT (primary) — FDA binary events (/api/data/fda-events) gets a live /data client view, the third of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.734)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/fdaEvents.tsx`; wiring
