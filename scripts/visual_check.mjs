@@ -119,6 +119,10 @@ const PAGES = {
   // FDA binary events — same Phase 5 ratchet rule as streams/treasurydts
   // above.
   fdaevents: { route: "/app#/data/fda-events", map: false },
+  // NHTSA vehicle complaints — last of the 2026-08-16 TFF sweep's 5
+  // zero-wiring routes — same Phase 5 ratchet rule as streams/fdaevents
+  // above.
+  vehiclecomplaints: { route: "/app#/data/vehicle-complaints", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -1053,6 +1057,20 @@ const FIXTURES = {
         title: "Notice of Meeting of the Antimicrobial Drugs Advisory Committee",
         url: "https://www.federalregister.gov/documents/2026/08/03/2026-12399", pub: "2026-08-03",
         dateConf: "unparsed", rt: "2026-08-16" },
+    ],
+  },
+  // NHTSA vehicle complaints (2026-08-17, RAW display, vehicleComplaints.tsx).
+  // Fixture covers a multi-model ticker (two rows, same ticker, different
+  // model) plus a single-model ticker with a crash+fire flag, so the
+  // harness exercises the per-vehicle row grouping and both flag columns.
+  "/api/data/vehicle-complaints": {
+    kind: "raw", source: "NHTSA ODI complaints API (US government data) (fixture)",
+    attribution: "NHTSA Office of Defects Investigation", time: "2026-08-17T12:00:00.000Z",
+    count: 3, note: "per-vehicle complaint stats over a CURATED ticker-mapped watchlist (not the full vehicle universe); complaint-velocity signals stay gate-locked until ladder validation (fixture)",
+    vehicles: [
+      { ticker: "TSLA", make: "tesla", model: "model 3", model_year: 2024, total_complaints: 142, crash_count: 9, fire_count: 2, newest_filed: "2026-08-15" },
+      { ticker: "TSLA", make: "tesla", model: "cybertruck", model_year: 2024, total_complaints: 58, crash_count: 3, fire_count: 0, newest_filed: "2026-08-12" },
+      { ticker: "F", make: "ford", model: "f-150 lightning", model_year: 2024, total_complaints: 21, crash_count: 1, fire_count: 1, newest_filed: "2026-08-10" },
     ],
   },
   "/api/data/cot": {

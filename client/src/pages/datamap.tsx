@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -49,6 +49,7 @@ import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
 import TreasuryDtsView from "./treasuryDts";
 import FdaEventsView from "./fdaEvents";
+import VehicleComplaintsView from "./vehicleComplaints";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -2828,6 +2829,15 @@ export default function DataMapPage() {
   // API-only 2026-07-05; no client view until now, same "shipped-data-
   // no-UI" gap class as treasury_dts/treasury_auctions/tff above).
   const [fdaEventsOpen, setFdaEventsOpen] = useState(() => window.location.hash === "#/data/fda-events");
+  // NHTSA vehicle complaints (#/data/vehicle-complaints) — same overlay
+  // pattern (server/nhtsaComplaints.ts, BUILD ORDER 6 #4, shipped
+  // API-only 2026-07-06; no client view until now, the last of the 5
+  // "shipped-data-no-UI" gap-class routes the 2026-08-16 TFF session's
+  // sweep found, alongside treasury_dts/treasury_auctions/tff/fda_events
+  // above — bank-failures is the remaining one). Not a spatial layer (a
+  // curated make/model watchlist, not per-owner geolocated points), so it
+  // launches from the panel top like appstore-rankings/github-activity.
+  const [vehicleComplaintsOpen, setVehicleComplaintsOpen] = useState(() => window.location.hash === "#/data/vehicle-complaints");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3158,6 +3168,7 @@ export default function DataMapPage() {
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
       setTreasuryDtsOpen(window.location.hash === "#/data/treasury-dts");
       setFdaEventsOpen(window.location.hash === "#/data/fda-events");
+      setVehicleComplaintsOpen(window.location.hash === "#/data/vehicle-complaints");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -12904,6 +12915,9 @@ export default function DataMapPage() {
       {fdaEventsOpen && (
         <FdaEventsView onBack={() => { window.location.hash = "#/data"; setFdaEventsOpen(false); }} />
       )}
+      {vehicleComplaintsOpen && (
+        <VehicleComplaintsView onBack={() => { window.location.hash = "#/data"; setVehicleComplaintsOpen(false); }} />
+      )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />
       )}
@@ -13509,6 +13523,17 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/fred-macro"; setFredMacroOpen(true); }}>
               <Percent size={13} /> US macro cluster (FRED)
               <span className="vt-streams-launch-sub">28 series — rates, curve, labor, inflation, activity · RAW</span>
+            </button>
+            {/* NHTSA vehicle complaints launcher: a curated make/model
+                watchlist, not a spatial layer (no per-owner geolocation),
+                so it launches from the panel top like the other page-wide
+                dashboards above — the last of the 2026-08-16 TFF sweep's 5
+                zero-wiring routes, bank-failures being the other
+                remaining one. */}
+            <button type="button" className="vt-streams-launch" data-vt-vehiclecomplaints-launch
+                    onClick={() => { window.location.hash = "#/data/vehicle-complaints"; setVehicleComplaintsOpen(true); }}>
+              <Car size={13} /> Vehicle complaints (NHTSA)
+              <span className="vt-streams-launch-sub">crash/fire-flagged complaint counts, curated watchlist · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));

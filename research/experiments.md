@@ -20,6 +20,209 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-17 (scheduled-routine PRODUCT session #4) [PRODUCT] — T-CLIENT (primary) — NHTSA vehicle complaints (/api/data/vehicle-complaints) gets a live /data client view, the last of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.736)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/vehicleComplaints.tsx`;
+wiring in `client/src/pages/datamap.tsx` — icon import (`Car`), overlay
+state hook, hashchange listener entry, render block, page-wide launcher
+button; new fixture + PAGES entry in `scripts/visual_check.mjs`) + SHARED
+last-and-minimal (`package.json`/`package-lock.json` version bump only —
+no server route, schema, or `datacore/` file touched). No datacore/
+pipeline code touched: `/api/data/vehicle-complaints`
+(`server/nhtsaComplaints.ts`) was already shipped and live (BUILD ORDER 6
+#4, keyless NHTSA ODI complaints API over a curated 20-vehicle/11-ticker
+watchlist), this is a pure client-surface build over an existing,
+unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/
+(PROGRAM_STATE.md, experiments.md top entries through today's REPAIR
+session #4, open_questions.md KNOWN BROKEN section, wishlist.md tail —
+including the two CONSTITUTIONAL AUDIT proposals awaiting human review,
+which this session does not touch). KNOWN BROKEN walked: #10 was resolved
+by the immediately preceding session today (SCORE_BAND_MAX/OPTIMAL dead
+config removed); #20 (RULE REVIEW-gated design judgment call) and #29
+(MEDIUM, visibility-gap-only) remain the only open items, both explicitly
+confirmed non-blocking by every product session this week (product
+sessions don't preempt DAILY repair duty per this task's own
+instructions) — no LIVENESS ALARM condition found in the record examined
+this session.
+
+PRIMARY-ACTION SELECTION: no live bug queued beyond the two open,
+non-blocking KNOWN BROKEN items; no matured gate-2 experiment sitting
+unjudged (checked `datacore/signal_ladder.json` — the one `gate2_pending`
+root with a time-based trigger, `cftc_cot_positioning`, needs 15-20 new
+weekly COT reports since 2026-07-08 and isn't there yet; `sec_8k_earnings_language`
+needs 90 archive-days from 2026-07-04, not until ~2026-10-02). The
+immediately preceding PRODUCT session today (FDA binary events, PR #864)
+left an explicit NEXT note naming exactly 2 remaining unranked
+zero-wiring candidates from the 2026-08-16 TFF sweep: `/api/data/
+bank-failures` and `/api/data/vehicle-complaints`, both confirmed by that
+session to carry real, specific gate-locked hypotheses (deposit-flight-
+precedes-KRE for bank-failures; complaint-velocity-precedes-recalls for
+vehicle-complaints) rather than the "no hypothesis" framing an even
+earlier session had mistakenly applied. Independently re-confirmed both
+gaps still exist before picking one: `grep -rl "/api/data/bank-failures"
+client/src/` and `grep -rl "/api/data/vehicle-complaints" client/src/`
+both still return zero files. Chose `vehicle-complaints` on the "data
+richness" axis the FDA-events session's own NEXT note suggested for the
+next session to use: `server/nhtsaComplaints.ts`'s response shape
+(`VehicleStat`: ticker/make/model/model_year/total_complaints/
+crash_count/fire_count/newest_filed) is a per-vehicle watchlist table —
+the same shape as the already-shipped `appstore-rankings`/
+`github-activity` pages — versus `bank-failures`' chronological
+event-list shape, which duplicates the `fda-events`/`treasury-dts` shape
+already built earlier today. Picking the less-repeated shape keeps the
+week's UI variety honest rather than mechanically stamping the same
+template a fourth time.
+
+READ BEFORE WRITE: read `server/nhtsaComplaints.ts` in full (fetch/parse/
+archive/poll, the `ComplaintEvent` and `VehicleStat` interfaces, and
+`latestComplaintStats()`/`refreshComplaints()`) and `server/routes.ts`'s
+exact `/api/data/vehicle-complaints` handler (response `kind`/`source`/
+`attribution`/`time`/`count`/`note`/`vehicles[]`) before writing anything.
+Read `datacore/nhtsa_vehicles.json` and confirmed the watchlist carries
+multiple vehicles per ticker (e.g. TSLA: Model 3/Model Y/Cybertruck; F:
+3 vehicles; GM: 3) — so the table is keyed one row per vehicle
+(make+model+model_year), not collapsed per ticker the way
+appstore-rankings collapses per app. Read `client/src/pages/
+appStoreRankings.tsx` in full as the nearest template (single-snapshot
+array, no `/history` endpoint, RAW `.vt-filings-*` shell) and confirmed
+via `python3 -c "import json; ..."` against `datacore/layers.json` that
+`vehicle-complaints` has no corresponding toggleable map-layer entry
+(unlike `tff`/`secftd`/`treasury_auctions`/`treasury_dts`/`fda_events`,
+all of which DO have layer entries and use the layer-panel "open full
+view" button pattern instead) — confirming this belongs in the page-wide
+launcher list (`vt-streams-launch`) alongside appstore-rankings/
+github-activity/vixterm/eumacro/eupower/filings13f/fredmacro, appended
+after the current last entry (`fredmacro`) per that list's chronological-
+append convention, not the layer-panel pattern the day's four earlier
+sessions used.
+
+WHAT SHIPPED:
+1. `client/src/pages/vehicleComplaints.tsx` (new) — fetches `/api/data/
+   vehicle-complaints` on mount; single-snapshot table, one row per
+   vehicle (make/model/model_year), ranked by `total_complaints`
+   descending. Columns: ticker, vehicle (title-cased make+model+year),
+   total complaints, crash-flagged, fire-flagged, newest filed date. Two
+   honesty notes stated up front: curated ticker-mapped watchlist only
+   (not the full NHTSA vehicle universe — same caveat class as
+   appstore-rankings/github-activity's watchlist scope), and counts are
+   API-reported totals, not archived-window deltas (the module's own
+   `total_complaints` field is NHTSA's live cumulative count, not a
+   period sum). RAW display only — `kind:"raw"`, no ladder gate; the
+   module's own crash/fire-velocity-precedes-recalls hypothesis remains
+   gate-1-unattempted.
+2. `client/src/pages/datamap.tsx` — `VehicleComplaintsView` import;
+   `vehicleComplaintsOpen` state (hash-init `#/data/vehicle-complaints`);
+   hashchange listener entry; render block; page-wide launcher button
+   (`Car` icon, newly added to the shared lucide-react import list)
+   appended after the `fredmacro` launcher. No `LAYER_GROUP` fallback
+   entry needed (matches appstore-rankings/github-activity precedent —
+   only actual toggleable registry layers need one, per the R15
+   2026-07-07 defect-class comment read this session before confirming
+   this page doesn't need it).
+3. `scripts/visual_check.mjs` — `vehiclecomplaints` PAGES entry
+   (`map:false`, same Phase-5 ratchet rule as every dashboard/leaderboard
+   page since streams); `/api/data/vehicle-complaints` fixture (a
+   multi-model ticker with two rows plus a single-model ticker with a
+   crash+fire flag, so the harness exercises the per-vehicle row grouping
+   and both flag columns). Not added to the `/api/data/layers` FIXTURES
+   list — confirmed appstore-rankings/github-activity aren't there either
+   (no `l.id` registry layer exists for either), consistent with this
+   page's own no-map-layer finding above.
+4. `package.json`/`package-lock.json` version bump only (1.0.735 ->
+   1.0.736, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before bumping that no other session had merged and moved the number
+   since session start, verified `git merge-base --is-ancestor origin/main
+   HEAD` true; `npm version --no-git-tag-version` used to sync
+   package.json and package-lock.json together).
+
+GATES: this session's sandbox had NEITHER `node_modules` NOR the Python
+package set installed at start (same fresh-container gap noted by
+several prior sessions) — `npm ci` and `pip install -r requirements.txt
+-r requirements-dev.txt` both required before any gate could run
+meaningfully. `bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0,
+unchanged (all 12 pre-existing, confirmed by inspecting the full error
+list — none reference the new file or the `datamap.tsx`/
+`visual_check.mjs` diffs). `bash scripts/gated_tests.sh` GATE PASSED —
+client 1017/1017 (97 files, no new test file — matches every sibling
+filings page's own convention, none of appStoreRankings.tsx/
+githubOrgActivity.tsx/secFtd.tsx/tff.tsx/treasuryAuctions.tsx/
+treasuryDts.tsx/fdaEvents.tsx have one either), python 1354 passed/1
+skipped (unchanged), quarantine 0/1, none overdue. `bash scripts/
+counter_ratchet.sh`: OK, 25/25 counters at or better than baseline, no
+re-pin needed (this diff is UI-only — no counted pattern class touched).
+`npm run build` clean (only pre-existing warning classes: astronomy-engine
+ESM default-export notice, large-chunk notice, mapIcons dynamic/static
+dual-import notice — none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page vehiclecomplaints` at all three canonical widths (390/768/1440) —
+**0 hard failures**. Own-review of all three PNGs confirms the header
+(title, both honesty notes, NHTSA ODI complaints API source link) and the
+ranked table (ticker/vehicle/total complaints/crash-flagged/fire-flagged/
+newest filed columns) render correctly at desktop and as the 390px mobile
+stacked-card layout, matching the design system. Only warnings present
+are the pre-existing global-chrome touch-target/clipped-control warnings
+that appear on essentially every page in this harness (same class noted
+in every prior session's visual-verification write-up) and the standard
+headless-software-renderer notice — neither related to this diff. Per the
+same precedent established by every immediately preceding sibling-page
+session this week, a full `--page data` run exercising the launcher-
+button integration itself was not run (known-heavy, several minutes,
+none of the four earlier sessions today ran it either); that integration
+was instead verified by direct code review against the already-visually-
+verified `fredmacro`/`appstore-rankings`/`github-activity` launcher
+blocks it was modeled on.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of an already-live NHTSA ODI
+complaints watchlist, no predictive claim, no ladder gate applies (same
+standing rule as every other RAW `/data` page in this repo). The file's
+own crash/fire-velocity-precedes-recalls hypothesis remains unstarted at
+gate 1 — this session does not begin that research, it only makes the
+underlying data independently inspectable.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic,
+no measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes a shipped-data-no-UI gap
+on an already-live datacore/ pipeline; no new archive, no new
+entity-graph join, no new hypothesis started this session. The module's
+own documented Everything-Graph follow-up (supplier mapping via the
+`components` field) remains unbuilt and unstarted here.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, no `/api/v1` mirror exists for this root
+(consistent with bank-failures/treasury_auctions/tff, all of which lack
+one too).
+
+NEXT (queued, not this session): (1) `/api/data/bank-failures` is now the
+LAST zero-wiring shipped-data-no-UI route from the 2026-08-16 TFF sweep —
+a clean, fully-specified candidate for a future PRODUCT session (event-
+list shape, same template as fda-events/treasury-dts). (2) none of
+`/api/data/vehicle-complaints`, `/api/data/dts`, `/api/data/
+treasury-auctions`, or `/api/data/fda-events` has an `/api/v1` paid-tier
+mirror yet — a future PRODUCT session could add one, or several in
+sequence. (3) if a future session wants to start this file's own gate-1
+hypothesis (complaint counts vs NHTSA's published recall timeline for 3
+known cases), the archive is accumulating daily now; the "supplier
+mapping via `components`" Everything-Graph follow-up the module's own
+header names is a separate, larger scoping task for a session with
+capacity for it. (4) KNOWN BROKEN #29 (MEDIUM, visibility gap) and #20
+(RULE REVIEW-gated threshold judgment call) remain queued for whichever
+session next has repair capacity. (5) the AUDITS & DEBT register's next
+STALENESS run is not due until 2026-09-14 and CONSTITUTIONAL not until
+2026-09-15 — neither due this session.
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated action
+matched to session capacity, the literal explicit NEXT item the
+immediately preceding session recorded; no higher-priority queued item
+was skipped (no LIVENESS ALARM; both open KNOWN BROKEN items are
+visibility-only or RULE REVIEW-gated, not blocking; product sessions do
+not preempt DAILY repair duty per this task's own instructions).
+
 ## 2026-08-17 (scheduled-routine session #4, market hours) [REPAIR] — T-BOT (system_config.py) + SHARED (research/*) — KNOWN BROKEN #10 resolved: dead SCORE_BAND_MAX/OPTIMAL_LO/HI deleted, MAX_CHANGE_PCT's misleading comment corrected, using the shadow-diagnostic evidence the 2026-08-13 session queued (v1.0.735)
 
 TERRITORY: T-BOT primary (`system_config.py`'s `BASE_CONFIG` only — no
