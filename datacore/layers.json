@@ -2378,6 +2378,16 @@
    "description": "Weekly financial-futures positioning by trader category (dealer/intermediary, asset manager, leveraged money, other reportables) — ES/NQ/rates/FX-class markets. As-is display: today's ranked panel by |leveraged-money net % of open interest|, with dealer net shown alongside. Leveraged-money-extremes-mean-revert (dealer as the informed side) is an open gate-2 hypothesis, gated on trailing archive depth (no /history endpoint yet), not yet surfaced as a signal."
   },
   {
+   "id": "treasury_auctions",
+   "name": "US Treasury auctions",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "TreasuryDirect TA_WS, securities/auctioned (US government work, public domain, no API key required)",
+   "description": "Primary-market results for Bill/Note/Bond/TIPS/FRN/CMB auctions from the last 30 days: bid-to-cover, high yield/discount rate, and dealer/direct/indirect bidder-class shares (dealer_take published by the route, direct/indirect take derived client-side from the same competitive-accepted denominator). Bid-to-cover-deterioration-and-rising-dealer-take-precede-rate-regime-shifts is an open gate-2 hypothesis, not yet surfaced as a signal; the classic tail-vs-when-issued stress metric needs a 1pm ET WI quote, which is paid data and is never faked here."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
