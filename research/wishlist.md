@@ -148,6 +148,16 @@ intermittently miss. Reinforces this as a live decision still awaiting
 the human's pick of option 1 or 2 above, not a one-off fluke. Full trace
 in `research/experiments.md` (2026-08-16 session #4 ADDENDUM).
 
+**FOURTH OCCURRENCE, 2026-08-17:** PR #865 (this same day's KNOWN BROKEN
+#10 repair — dead `system_config.py` keys, non-critical, no live-traded
+path touched) carried the same note and auto-merged at 16:25 UTC
+(~12:25 PM ET), ~4 minutes after opening. Same mechanism, fourth
+instance since 2026-08-14. Still awaiting the human's pick of option 1
+or 2 above — no autonomous session can resolve this unilaterally since
+both options require either editing the FROZEN `automerge` job or
+changing the scheduled-routine's own prompt. Full trace in
+`research/experiments.md` (2026-08-17 session ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)

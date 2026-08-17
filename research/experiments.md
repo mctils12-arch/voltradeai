@@ -178,6 +178,23 @@ session capacity, shipped with all gates green. No higher-priority
 queued item was skipped (no LIVENESS ALARM; no other unblocked KNOWN
 BROKEN item; AUDITS & DEBT register had nothing overdue).
 
+## 2026-08-17 (same session, ADDENDUM) — PR #865's "wait until after 4:00 PM ET" note was not honored: CI's automerge job merged it at 16:25 UTC (~12:25 PM ET), ~4 minutes after opening — FOURTH occurrence of the 2026-08-14/15/16 automerge gap
+
+Same mechanism every time (`.github/workflows/`'s `automerge` job, FROZEN
+PATH, has no time-of-day/label gate — see `wishlist.md`'s standing
+"PROCESS GAP FOUND 2026-08-15" entry for the full root-cause trace and
+the two pending human-decision options). No new diagnosis needed — this
+occurrence just confirms the gap is still unresolved and still fires
+every time, not intermittently. Live `/api/health` checked post-merge:
+`status:"ok"`, bot `active`, `drawdownPct:"0.0"`, no LIVENESS ALARM —
+substantively no harm this time either (this PR's diff touches zero
+live-traded code paths, same as PR #858's). Bumped the occurrence count
+in `wishlist.md`'s standing entry; not re-diagnosing per RECURRENCE
+ESCALATES (no fix has ever been attempted here — both remediation
+options require a human pick between gating the FROZEN `automerge` job
+or dropping the scheduled-routine's unenforced instruction, so there is
+nothing this or any autonomous session can change unilaterally).
+
 ## 2026-08-17 (scheduled-routine PRODUCT session #3) [PRODUCT] — T-CLIENT (primary) — FDA binary events (/api/data/fda-events) gets a live /data client view, the third of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found (v1.0.734)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/fdaEvents.tsx`; wiring
