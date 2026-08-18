@@ -20,6 +20,62 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine session #2) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json), scripts/ + top-level test file — FOREIGN-FIELD IMPORT: critical slowing down (ecology) as an early-warning signal for regime transitions, probe script + tests shipped, not yet run against real data (v1.0.738)
+
+TERRITORY: no T-DATACORE/T-CLIENT/T-BOT file touched — a standalone research
+probe script (`scripts/critical_slowing_down_probe.py`) + its top-level test
+file (`test_critical_slowing_down_probe.py`, matching the existing
+`test_illiquid_universe_probe.py` convention) + SHARED files kept minimal and
+last (`research/open_questions.md`, `ci/counter_baseline.txt`,
+`package.json`).
+
+SESSION-START CHECKS: CLAUDE.md read in full, all of `research/`. Live
+`/api/health` (production): `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, `drawdownPct:"0.0"`, `alpaca.account_status:"ACTIVE"`,
+`scanner.consecutiveFailures:0`, all three feeds `dead:false` — no LIVENESS
+ALARM. `/api/data/layers` `server_version:"1.0.737"` matched
+`package.json`/HEAD at session start (592b13c) — deploy current, no drift.
+Walked every numbered KNOWN BROKEN entry in `open_questions.md` end to end:
+#1-#30 all RESOLVED/FIXED/CLOSED (item #20's own NEXT step is gated on live
+data accumulating after the 2026-08-17 backfill fix, non-blocking). NOT a
+[REPAIR] session. AUDITS & DEBT register: nothing overdue (STALENESS due
+2026-09-14, CONSTITUTIONAL due 2026-09-15, CALENDAR YEAR-ADD due 2026-12-01).
+Loop-health ratio, 10 tagged entries immediately before this one: 2/10
+REPAIR (well under the 7+ thrash trigger) — mostly [PRODUCT], healthy mix.
+
+Full axis survey (a)/(b)/(c)/(d), the routine's own required PRIOR, what
+shipped, why the real-data run couldn't happen this session (no
+`ALPACA_KEY`/`ALPACA_SECRET` in this sandbox's env, Yahoo Finance returned
+HTTP 429 twice, no pre-existing `.bt_cache`), and the exact `NEXT` a future
+session with data access should run: all recorded in
+`research/open_questions.md`'s new 2026-08-18 entry (kept there rather than
+duplicated here, per this file's own "hypothesis" pointer convention for
+research entries — see the KNOWN BROKEN #20/#29 cross-references above for
+the same pattern).
+
+RATCHET: `test_critical_slowing_down_probe.py`, 17 new tests, synthetic data
+only (no network, no dependency on live Alpaca/Yahoo access) — full detail
+in the open_questions.md entry. `python3 -m pytest -q`: 1374 passed, 1
+skipped (0 regressions). No `.ts`/`.tsx` files touched — `npx tsc --noEmit`/
+`npm run build` not re-run, matching this repo's established Python-only-diff
+precedent. `bash scripts/counter_ratchet.sh`: `assertions` improved
+11443 -> 11456 (the new tests' own assertions, direct and sole cause) — pin
+raised in this same PR (`ci/counter_baseline.txt`) per PROMOTION RULE 5; all
+24 other counters unchanged; re-ran clean after the pin update.
+
+BACKTEST: N/A per PROMOTION RULE 3 — ships a research probe + tests, not a
+strategy/threshold/scoring change; no trading behavior touched.
+
+STARVED: no — this was the routine's own assigned axis-(c) task, matched to
+what this sandbox could actually execute (real-data access was the binding
+constraint, not effort); the deliverable is code a future session runs with
+zero re-derivation, per EDGE DOCTRINE #3. No higher-priority queued item was
+skipped (no LIVENESS ALARM, no open blocking KNOWN BROKEN item).
+
+Version bumped 1.0.737 -> 1.0.738 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD was exactly at
+`origin/main` (592b13c) at bump time, no drift.
+
 ## 2026-08-18 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — NHTSA vehicle complaints (/api/data/vehicle-complaints) gets a live /data map layer + client view, the last of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found, and the first of the 5 that had NO registry entry at all (v1.0.737)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/vehicleComplaints.tsx` new,

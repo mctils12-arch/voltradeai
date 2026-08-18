@@ -10444,3 +10444,145 @@ LADDER: N/A — process/tooling gap, not a data or trading claim. Not filed to
 wishlist.md as a spend request (no paid capability). Priority: low — only
 matters for a market-hours session producing a non-trivial diff, which
 hasn't happened yet; revisit if one does.
+
+## 2026-08-18 — FOREIGN-FIELD IMPORT (axis c): critical slowing down (ecology) as an early-warning signal for regime transitions, script built, not yet run
+
+SESSION-START CHECKS (per this routine's own brief): CLAUDE.md read in full.
+Live `/api/health` (production): `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, `drawdownPct:"0.0"` — no LIVENESS ALARM. Walked every
+numbered KNOWN BROKEN entry end to end: #1-#30 all RESOLVED/FIXED or CLOSED
+(item #20's own NEXT is gated on live data accumulating post-2026-08-17 fix,
+non-blocking; nothing else open). NOT a [REPAIR] session. AUDITS & DEBT
+register (experiments.md head): STALENESS next due 2026-09-14, CONSTITUTIONAL
+next due 2026-09-15, CALENDAR YEAR-ADD next due 2026-12-01 — nothing overdue.
+Loop-health ratio, last 10 tagged entries before this one: 2/10 REPAIR
+(PRODUCT x6, RULE-REVIEW x1, REPAIR x2, PIPELINE x1) — well under the 7+
+thrash trigger.
+
+AXIS SURVEY (all four options considered per the routine's brief): axis (a)'s
+named examples (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT,
+FDA calendar, Google Trends/pytrends) are confirmed already built or
+correctly declined (`datacore/sentinel2/` has 5 live readings files;
+`server/fdaEvents.ts`, `datacore/manifests/{cot,cftctff,usaspending}.json`
+all exist; `google_trends_pytrends` is gate1_fail-dead in
+`datacore/signal_ladder.json`, superseded by `wikimedia_pageviews_attention`).
+A live-data gap sweep already on file (2026-07-27 entry, above) and a prior
+axis (c)/(d) session (2026-08-09/10, buoy-port proximity join) both already
+exhausted the easy remaining axis-(a)/(c) overlap. Axis (b) (illiquid-universe
+capacity-constrained research) is explicitly gated on a fill-realism fix that
+is STILL not shipped (`research/open_questions.md`'s own "Options fill
+realism" entry, unchanged) — this routine's own brief says to skip (b)
+without that fix, since results would be simulator fiction. Axis (d)
+(compile recurring reasoning into code) converges with (c) below — this
+entry both imports a genuinely new foreign field AND ships it as reusable
+code, not a one-off analysis.
+
+FOREIGN FIELD: ecology's "critical slowing down" (CSD) early-warning-signal
+literature (Scheffer et al. 2009, "Early-warning signals for critical
+transitions," Nature 461:53-59) — as a dynamical system nears a tipping
+point, its recovery rate from small perturbations slows down, visible BEFORE
+the transition as rising lag-1 autocorrelation (AR1) and rising variance of
+the system's fluctuations. CLAUDE.md's EDGE DOCTRINE #4 names "ecology
+(regime shifts)" as a standing foreign-field target; grepped the full
+experiments.md/open_questions.md history for "critical slowing down",
+"early warning", "autocorrelation...regime", "tipping point" — zero prior
+hits, so this is a genuinely new import, not a re-derivation (only
+oceanography/sea-state had been imported before, 2026-07-08).
+
+HYPOTHESIS (pre-registered, testable form): rolling AR1 and rolling variance
+of SPY daily log returns, each over a trailing 20-trading-day window, rise
+in the 10 trading days before a regime transition into a MORE SEVERE regime
+(BULL/CAUTION -> NEUTRAL/BEAR/PANIC, severity order per
+`regime_util.classify_regime_5level`) versus a base-rate control sample of
+non-transition windows from the same archive (REASONING STANDARD #3).
+
+PRIOR (stated BEFORE running against real data, REASONING STANDARD #10):
+expect rolling VARIANCE to rise before transitions — that's volatility
+clustering, already partially captured by the existing `vxx_ratio` classifier
+input, not a novel finding by itself. The genuinely testable, non-obvious
+claim is whether AR1 carries INDEPENDENT lead-time value beyond
+variance/vxx_ratio — does it turn upward measurably earlier or more
+consistently than the existing threshold classifier reacts? If AR1's rise is
+not measurably earlier/stronger than variance's own rise, this import adds
+nothing beyond what the classifier already captures — a valid negative
+result to record, not a reason to hide the entry.
+
+LADDER PATH: gate-2 SIGNAL test (statistical predictive power, no trading),
+built directly on SPY/VXX daily bars already gate-1-verified elsewhere in
+this codebase (`backtest_v2.fetch_bars`, the existing Alpaca-first/
+Yahoo-fallback path) — no separate gate-1 needed, same precedent as other
+signals derived from already-verified price data (e.g. wiki attention).
+
+WHAT SHIPPED THIS SESSION (code, not an analysis — per this routine's own
+"deliverable is a script... not an analysis" instruction): `scripts/
+critical_slowing_down_probe.py` — pure statistical core
+(`log_returns`/`rolling_ar1`/`rolling_variance`/`find_transition_onsets`/
+`compute_lead_signal`) plus `run_probe()`, which reuses
+`backtest_v2.fetch_bars`/`regime_series` verbatim (EDGE DOCTRINE #3: don't
+re-derive already-verified data plumbing) to run the full pre-registered
+comparison against real SPY/VXX history the moment a future session has data
+access. `find_transition_onsets` requires the new, more-severe regime to
+persist >=3 days (filters single-day label flapping) AND the prior regime to
+have already been stable >=20 days (real pre-onset history to measure
+against) — both deliberate design choices to avoid counting noise as a
+transition. `compute_lead_signal` refuses to report a comparison below the
+n>=5 onset floor this repo already uses elsewhere (`insufficient_n: true`
+instead of a fabricated statistic), and its control sample draw is seeded
+for reproducibility.
+
+WHY NOT RUN AGAINST REAL DATA THIS SESSION (honest constraint, not a
+shortcut): this sandbox has neither `ALPACA_KEY`/`ALPACA_SECRET` in its
+environment (checked via `env`, absent) nor working network access to Yahoo
+Finance — `curl https://query1.finance.yahoo.com/...` returned HTTP 429 on
+two attempts, 3 seconds apart, this session; no pre-existing
+`.bt_cache/bt2_SPY_*.json` from a prior session either (`.bt_cache/` did not
+exist). `fetch_bars()` cannot be exercised against real data from here.
+
+RATCHET: `test_critical_slowing_down_probe.py` (new, 17 tests, synthetic
+data only, no network) — `log_returns` (basic case + non-positive-close
+degrades to 0.0 rather than crashing); `rolling_ar1` (None before the window
+fills; a perfectly alternating series reads near -1; a strongly trending
+series reads near +1; a CONSTANT series reads `None`, not a fabricated 0.0,
+since the correlation is genuinely undefined at zero variance — this is the
+one case most likely to be gotten wrong by a naive implementation);
+`rolling_variance` (hand-computed population variance match; None before
+window fills; rising amplitude raises the reading); `find_transition_onsets`
+(a persistent transition is detected; a single-day flap is correctly
+rejected; a transition without 20 prior stable days is excluded; a
+regime DOWNGRADE is never counted as an onset; an unknown label defaults to
+NEUTRAL severity rather than crashing); `compute_lead_signal` (insufficient
+onsets reported honestly rather than computing a statistic on n=1; a
+5-onset engineered series with a real pre-onset volatility burst correctly
+shows higher onset-window variance than the flat control baseline at every
+lead offset; the control-sample draw is reproducible given a fixed seed).
+`python3 -m pytest -q`: 1374 passed, 1 skipped (1357 baseline-at-session-
+start + 17 new, zero regressions). No `.ts`/`.tsx` files touched (pure
+Python addition), so `npx tsc --noEmit`/`npm run build` were not re-run, per
+this repo's own established precedent for Python-only diffs.
+`bash scripts/counter_ratchet.sh`: `assertions` improved 11443 -> 11456 (the
+new tests' own assertions, the direct and sole cause) — pin raised in the
+same PR (`ci/counter_baseline.txt`) per PROMOTION RULE 5 / the item #30
+precedent for directly-attributable counter movement; all 25 other counters
+unchanged, re-ran clean after the pin update.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a research probe script and
+its tests, not a strategy, threshold, or scoring change; no trading behavior
+is touched.
+
+NEXT (for whichever future session has real Alpaca/Yahoo data access): run
+`python3 scripts/critical_slowing_down_probe.py --days 3650` (or call
+`run_probe()` directly for programmatic access to the full `onsets`/`signal`
+dict). If `n_onsets` clears the >=5 floor, read `by_lead_days`: for each
+lead offset, compare `onset_mean_ar1` vs `control_mean_ar1` and
+`onset_mean_var` vs `control_mean_var`. Per this entry's own PRIOR, the
+interesting result is whether the AR1 gap is comparably or more pronounced
+than the variance gap, and whether it's still visible at the longer lead
+offsets (10-20 days) where the existing vxx_ratio-based classifier has not
+yet reacted — that would be the case for CSD adding real, independent
+lead-time value. If the archive is too short for enough qualifying onsets at
+`--days 3650`, widen the window rather than lowering `persist_days`/
+`stable_days_before` (that would just be counting noise as signal). If AR1
+shows no advantage over variance at any lead, record that as a clean
+negative result in this entry (per REASONING STANDARD #10 — a beautiful
+ecology analogy never substitutes for validation) and do not proceed further
+down the ladder.
