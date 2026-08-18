@@ -213,3 +213,24 @@ test("gnss_integrity probe (2026-08-12, GNSS integrity Phase 3): wired, validate
   assert.ok(mod.includes("originOfPosType"),
     "the aggregator must split by origin (broadcast vs ground-derived) per the 2026-08-11 adversarial-verification finding");
 });
+
+test("portdwell_window probe (2026-08-18): wired, validates end/hours, reuses computePortDwellAsync unchanged, never leaks per-vessel rows", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("portdwell_window"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./portDwell"') && bot.includes("computePortDwellAsync"),
+    "portdwell_window probe must reuse the shared computePortDwellAsync aggregator, not re-derive visit detection inline");
+  const start = bot.indexOf('case "portdwell_window"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "portdwell_window probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("Date.parse(endParam)") || block.includes("Date.parse("),
+    "end param must be parsed/validated as a date, not trusted raw");
+  assert.ok(block.includes("end cannot be in the future"),
+    "end must be rejected if it is in the future (this probe reads real archive data, not a forecast)");
+  assert.ok(block.includes(", 2880)"), "hours must be capped (bounded read volume per call)");
+  assert.ok(block.includes("computePortDwellAsync("), "must call the shared aggregator");
+  assert.ok(block.includes("sanitizeDiag"), "portdwell_window probe must pass the sanitizer like every other probe");
+  const mod = fs.readFileSync(path.join(here, "portDwell.ts"), "utf8");
+  assert.ok(mod.includes("export interface PortDwellPortStats") && mod.includes("dwell_median_h"),
+    "the reused aggregator must already be per-port aggregate-only (no per-vessel mmsi/track fields in its output shape)");
+});

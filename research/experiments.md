@@ -20,6 +20,199 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine session #6) [PIPELINE] — T-DATACORE — new `/api/diag/portdwell_window` probe unblocks `port_dwell_maritime_transit` GATE 1, filed-not-run since 2026-08-04 (v1.0.742)
+
+TERRITORY: T-DATACORE primary (`server/portDwell.test.ts` new behavioral
+test, `research/open_questions.md` dated update) + SHARED last-and-minimal
+(`server/diag.ts` DIAG_PROBES entry, `server/bot.ts` new case + import,
+`server/diag.test.ts` new wiring test, `ci/counter_baseline.txt` 3-counter
+re-pin, `package.json`/`package-lock.json` version bump, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(AUDITS & DEBT register — nothing overdue), the last ~10 tagged entries
+(this is the 6th scheduled-routine session today; loop-health ratio over
+the last 10 tagged entries before this one: 2 REPAIR / 7 PRODUCT-or-
+PIPELINE / 1 RULE-REVIEW — well under the 7+ thrash bar), `research/
+open_questions.md` KNOWN BROKEN section in full (#20 still gated on
+several more nightly shadow-backfill runs accumulating past yesterday's
+fix, checked live via `/api/diag/shadow` this session — `win_rate_by_
+decision` still carries only `taken`/`rejected_score`, no
+`rejected_masterkill` entry yet despite 156 `rejected_masterkill` records
+existing, so not yet actionable, consistent with the fix having landed
+only one day ago; #29 RESOLVED PENDING CONTINUED MONITORING, #30 CLOSED —
+none block this session), and `research/wishlist.md`'s standing PROCESS
+GAP entry (fifth occurrence logged 2026-08-18 already this session-day by
+an earlier session; not re-logging a sixth without new information, per
+that entry's own text). Live `/api/health` (production): `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0`, all three feeds `dead:false` —
+no LIVENESS ALARM. `/api/diag/audit?type=TIER3-DIAG&limit=50` returned
+ZERO entries — the "Multiple API sources down" false-positive KNOWN
+BROKEN #29 was built to catch has not fired even once since v1.0.675
+(2026-08-12), spanning 6 days and multiple overnight windows; noted here
+as a positive signal for that item's own "re-check a few days out"
+NEXT note, not itself this session's primary action (no code change
+warranted — the item is already correctly disposed as RESOLVED PENDING
+CONTINUED MONITORING, and one more clean read doesn't change that
+disposition without a recurrence). Session started ~16:16 ET —
+AFTER the 16:00 ET close, so this PR carries no "hold until close" note
+(the standing PROCESS-GAP entry is about sessions that open DURING market
+hours; this one didn't).
+
+PRIMARY-ACTION SELECTION: confirmed this sandbox again has no live
+market-data access (`env | grep -i alpaca` empty, `python3 -c "import
+yfinance"` → `ModuleNotFoundError` before this session's own `pip
+install`, live curl to `query1.finance.yahoo.com` → HTTP 429), ruling out
+GATE 2 statistical work for every candidate root, same as every session
+today. Surveyed `datacore/signal_ladder.json`'s 41 roots for open,
+concretely-actionable GATE 1/2 work not already attempted today:
+`space_weather_swpc` gate 1 remains blocked on an actual G2+ geomagnetic
+storm landing in the archive (external-event dependency, not actionable).
+`port_dwell_maritime_transit` (`current_gate: 0, status: gate1_pending`)
+stood out — `research/experiments.md`'s 2026-08-04 session ATTEMPTED
+this exact root's gate 1, found it genuinely infeasible from outside the
+container with the tools that existed then, and filed two concrete
+options for a "legitimate future session's primary action": (a) a new
+diag surface returning `computePortDwellAsync`'s already-aggregated
+per-port stats for an arbitrary historical window, or (b) a live
+single-snapshot comparison. Two weeks-plus later, neither had been built
+(confirmed via `grep -n port_dwell_maritime_transit research/
+experiments.md` — every subsequent mention is a "queued, not this
+session" NEXT-note restatement, not a new attempt). Picked (a): cheaper,
+reusable by any future session (not a one-off snapshot), and directly
+named as the smaller of the two options in the original filing.
+
+READ BEFORE WRITE: read `server/portDwell.ts` in full before touching
+anything — `computePortDwellAsync(ports, windowHours, baseDir, nowMs)`
+ALREADY accepts an arbitrary `nowMs` (confirmed by reading
+`foldVesselArchiveAsync` in `shadowFleet.ts`, which computes its file-
+selection cutoff from whatever `nowMs` it's given, not real wall-clock
+time) — the 2026-08-04 session's diagnosis was exactly right: the
+capability existed in the function, there was simply no route/probe that
+let a caller set `nowMs` to anything but "now." Read `server/diag.ts`'s
+DIAG_PROBES whitelist and `server/bot.ts`'s `/api/diag/:probe` switch in
+full (the "archive" and "gnss_integrity" cases as the closest house-style
+precedents for a bounded, validated, token-gated historical-window
+query) before writing the new case.
+
+WHAT SHIPPED: `server/diag.ts` gained `"portdwell_window"` in
+`DIAG_PROBES` (closed by default without `DIAG_TOKEN`, same as every
+other probe). `server/bot.ts` gained the `computePortDwellAsync`/
+`portsFromSites` imports (previously only imported in `routes.ts`, not
+`bot.ts`, where the diag dispatcher lives) and a new `case
+"portdwell_window"`: `end` (ISO date/time, defaults to now, rejected if
+unparseable or in the future) and `hours` (window length ending at
+`end`, default 168, capped at 2880 — 120 days, generously covers the
+archive's full depth since it began 2026-07-03 without an unbounded
+read) are validated, then `portsFromSites((datacoreSites as
+any).sites)` + `computePortDwellAsync(ports, hours, undefined, endMs)`
+run unchanged — this probe adds zero new aggregation logic, only a query
+surface over the existing one, so its output cannot diverge from what
+the live `/api/data/portdwell` route already trusts for its rolling
+7-day case. Response passes through `sanitizeDiag` like every other
+probe; only per-port aggregate fields (visit counts, dwell median/p90/
+max, anomaly counts) ever leave the endpoint — no per-vessel mmsi, name,
+or lat/lon, same posture the 2026-08-04 filing's option (a) specified.
+
+RATCHET: `server/portDwell.test.ts` gained a new behavioral test
+(`computePortDwellAsync: an "end" in the past sees a visit invisible to
+the current 168h window`) proving the actual capability this probe
+depends on, not just the route wiring — a synthetic completed port call
+~500h ago is invisible to a "now"-anchored 168h window
+(`visits_completed: 0`) but visible (`visits_completed: 1`, median dwell
+~10h) to a 48h window ending near it. `server/diag.test.ts` gained a
+static-source-assertion test matching this repo's existing house style
+for probe wiring (`gnss_integrity`/`archive` precedents): DIAG_PROBES
+membership, the case block reuses `computePortDwellAsync`/`Date.parse`/
+the future-rejection check/the 2880 cap/`sanitizeDiag`, and the reused
+module's output shape is confirmed per-port-aggregate-only (no mmsi/
+track fields) by reading `portDwell.ts` directly rather than trusting
+the case block's own claim.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (both absent at session start). `npx tsx --test
+server/portDwell.test.ts server/diag.test.ts` — 23/14 pass respectively
+(37 total, 0 failed) in isolation first, confirming the new tests
+specifically; `bash scripts/tsc_ratchet.sh` — 12 <= 12, TS2304 = 0,
+unchanged (the new code introduces zero new `any`/type-error surface —
+`end`/`hours` are validated `string`/`number`, `ports` reuses the
+existing typed `PortDef[]`). `bash scripts/gated_tests.sh` GATE PASSED —
+client 1017/1017 (97 files), python 1374 passed/1 skipped, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: first run (before
+`git add`) and a second run after staging the 4 touched files both
+reported identical numbers (no untracked-files blind spot this session —
+all 4 touched files were already tracked, unlike the immediately-prior
+session's new-file case) — `tests_run_in_ci`/`tests_gating_merge`
+377->378 and `assertions` 11503->11515. Isolated attribution the same
+way the immediately-prior session did: spun up a disposable worktree at
+`origin/main` (`git worktree add /tmp/main_check_pd origin/main
+--detach`) and re-ran the ratchet there — `tests_run_in_ci`/
+`tests_gating_merge` were ALREADY 378 on unmodified `origin/main`
+(pre-existing, unclaimed drift, same recurring pattern several
+2026-08-16/17/18 sessions have now logged for this exact counter pair —
+worth a STALENESS AUDIT candidate: this counter has drifted from its own
+pin on `origin/main` itself at least 3 separate times this month without
+any single session causing it) — while `assertions` matched the pin
+exactly (11503) on unmodified `origin/main`, confirming the full
+11515-11503=12 delta is this session's own 2 new tests' assertions, not
+inherited drift. `ci/counter_baseline.txt` re-pinned to
+`tests_run_in_ci`/`tests_gating_merge` = 378 (unclaimed drift, matching
+this exact repo's own established precedent for this pair) and
+`assertions` = 11515 (fully attributable). Re-ran `counter_ratchet.sh`
+after the pin update: OK, 25/25 at or better than baseline. `npm run
+build` clean (only pre-existing warning classes: astronomy-engine ESM
+default-export notice, large-chunk notice — neither related to this
+diff; no `client/` files touched, so VISUAL VERIFICATION does not apply,
+same precedent as every other T-BOT/T-DATACORE-only session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a read-only diagnostic
+query surface, not a scoring, sizing, or trading-threshold change; the
+underlying `computePortDwellAsync` aggregation logic is byte-identical
+to what the live `/api/data/portdwell` route already runs.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is tooling that
+unblocks a ladder-gate check on an existing RAW layer, not a new join or
+archive. The GATE 2 hypothesis this eventually feeds (port congestion
+leading XRT/IYT) is already filed in the PORT DWELL ANALYTICS section of
+open_questions.md, untouched by this session beyond the dated UPDATE
+documenting the new tool.
+
+HONEST CAVEAT (stated plainly, not buried): this session built the TOOL,
+not the GATE 1 VERDICT. `port_dwell_maritime_transit` remains
+`gate1_pending` in `datacore/signal_ladder.json` — unchanged, since no
+comparison against a published ground truth was actually run. Per
+REASONING STANDARD #4/MEASUREMENT INTEGRITY, shipping a capability is
+not the same claim as shipping a validated result, and this entry does
+not conflate the two the way a less careful write-up might.
+
+NEXT (queued, not this session): (1) the actual GATE 1 comparison —
+open_questions.md's dated UPDATE spells out the exact recipe (pick a
+week or month fully inside the archive window that a port authority has
+published comparable statistics for, query the new probe, compare
+directionally). (2) KNOWN BROKEN #20's evidence gate needs several more
+nightly shadow-backfill runs before `rejected_masterkill` win-rate data
+is checkable (checked live this session: still zero labeled records,
+one day post-fix). (3) the `tests_run_in_ci`/`tests_gating_merge`
+recurring-unclaimed-drift pattern flagged in GATES above is a good
+STALENESS AUDIT candidate for whichever session next runs that audit
+(next due 2026-09-14, not overdue, not urgent). (4) per the AUDITS &
+DEBT register, nothing else is currently overdue.
+
+Version bumped 1.0.741 -> 1.0.742 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed branch was exactly
+at origin/main's tip (no drift) at bump time.
+
+STARVED: no — this was the clearest, most concretely pre-specified,
+longest-queued (filed 2026-08-04, over two weeks stale) actionable item
+available given this sandbox's confirmed lack of live market-data access.
+Matched to session capacity (one scoped tool, its own tests, its own
+attribution-isolated counter re-pin). No higher-priority queued item was
+skipped (no LIVENESS ALARM; KNOWN BROKEN items are RULE-REVIEW-gated,
+visibility-only, or closed; no overdue audit; the automerge PROCESS-GAP
+note needs a human decision, already filed at its fifth occurrence
+earlier today, not further same-day re-logging; this session opened
+after the 16:00 ET close, so the note doesn't even apply to this PR).
+
 ## 2026-08-18 (scheduled-routine PRODUCT session #5) [PIPELINE] — T-DATACORE (primary) + T-CLIENT sliver (attention.tsx honesty note) — wikimedia_pageviews_attention GATE 1 (DATA) ground-truth check: PASS, and a 94x live-production data defect found + fixed along the way (v1.0.741)
 
 TERRITORY: T-DATACORE primary (`scripts/wikiattention_gate1.ts` new,
