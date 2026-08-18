@@ -228,6 +228,48 @@ confirmed blocked before committing to scope). No higher-priority queued
 item was skipped (no LIVENESS ALARM; KNOWN BROKEN items are RULE-REVIEW-
 or visibility-gated only; no overdue audit).
 
+## 2026-08-18 (same session, ADDENDUM) — PR #872's "please hold this merge until after the 16:00 ET close" note was not honored: CI's automerge job merged it at 13:24 UTC (~09:24 AM ET), ~3 minutes after opening — FIFTH occurrence of the 2026-08-14/15/16/17 automerge gap
+
+Woken by a GitHub PR-activity notification (`pull_request.closed`,
+`outcome: merged`) at 13:25:56Z, ~2 minutes after opening PR #872. No
+CI failure, no review comment — the PR simply auto-merged, same as the
+four prior documented occurrences (2026-08-14, 08-15, 08-16, 08-17): the
+FROZEN `.github/workflows/` `automerge` job runs `gh pr merge --squash`
+unconditionally on any `claude/`-branch PR whose CI reports non-failure,
+with no mechanism to read PR-body text, a label, or time-of-day — the
+"hold until after close" note this session wrote into PR #872's body
+(per this task's own instruction, since the session started ~09:21 ET,
+9 minutes before the open) was decorative, exactly as diagnosed
+2026-08-15 and reconfirmed three times since.
+
+NO ACTION TAKEN on this PR specifically — nothing to fix: CI was green,
+no review thread exists, and per the drive-to-green posture this
+session's own PR-subscription instructions define, an automerge (not a
+CI failure or review comment) needs no push and no reply, just an
+honest log entry. This session cannot resolve the underlying gap
+unilaterally either way (both of the standing two options — gate the
+FROZEN `automerge` job on time-of-day/label, or drop the unenforced
+note from the scheduled-routine prompt — require a human decision,
+per `research/wishlist.md`'s 2026-08-15 PROCESS GAP entry, which this
+session updated in place with a "FIFTH OCCURRENCE" paragraph rather than
+re-filing a duplicate entry).
+
+WORTH NAMING, not yet worth escalating further: the change itself
+(a research finding + an honesty note, no live-traded code path, no
+FROZEN path) was safe to merge at any time of day regardless — this
+addendum is about the gap between "instructed to wait" and "actually
+waited," not about any harm from this specific merge. Five consecutive
+occurrences across five different days, never once intermittent, is
+now enough evidence that this needs a human decision, not a sixth
+confirmation — no future session should keep re-logging this same
+finding without new information; a future PROCESS-GAP-tagged session
+should surface it prominently rather than treat "keep counting" as
+the standing response.
+
+STARVED: no — this addendum is itself the session's fall-through
+action after its primary work (the fdic_bank_failures gate-1 finding
+above) already shipped and merged; no higher-priority item was skipped.
+
 ## 2026-08-18 (scheduled-routine session #3) [PRODUCT] — T-CLIENT (primary) — FDIC bank failures (/api/data/bank-failures) gets a live /data map layer + client view, the last "double zero" (no client wiring AND no registry entry) candidate the 2026-08-16 TFF sweep found, closing the class the 2026-08-18 vehicle-complaints session opened (v1.0.739)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/bankFailures.tsx` new,
