@@ -2418,6 +2418,16 @@
    "description": "Per-vehicle complaint counts (total, crash-flagged, fire-flagged) over a curated ticker-mapped make/model/year watchlist — not the full NHTSA vehicle universe; an unlisted make/model was never polled, not screened out. Complaint-rate-acceleration-precedes-recalls-and-investigations (especially crash/fire flags) is an open gate-1 hypothesis, not yet attempted, not yet surfaced as a signal."
   },
   {
+   "id": "bank_failures",
+   "name": "Bank failures",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "FDIC Bank Data API — bank failures (US government data, keyless, no API key required)",
+   "description": "Most recent US bank failure and assistance events (name, state, type, assets/deposits, estimated DIF cost) back to 1934; v1 scope is failures only, not the quarterly financials snapshot. No ticker join — most failed institutions are small, non-public regional banks. Deposit-flight-and-failures-at-small-regional-banks-lead-KRE-and-listed-small-cap-banks is an open gate-1 hypothesis, not yet attempted, not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
