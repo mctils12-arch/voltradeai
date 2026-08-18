@@ -2408,6 +2408,16 @@
    "description": "openFDA approvals from the last 30 days (backward-looking confirmations) plus Federal Register FDA advisory-committee meeting notices (forward-looking catalysts; meeting date parsed from the notice text where stated, labeled 'unparsed' rather than guessed otherwise). No PDUFA target dates — legally unavailable free (21 CFR 314.430). Binary-event-timing-drives-biotech-options-IV-into-scheduled-catalysts (a theta-side input, not directional) is an open gate-2 hypothesis, not yet attempted, not yet surfaced as a signal."
   },
   {
+   "id": "vehicle_complaints",
+   "name": "Vehicle complaints",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "NHTSA Office of Defects Investigation complaints API (US government work, public domain, no API key required)",
+   "description": "Per-vehicle complaint counts (total, crash-flagged, fire-flagged) over a curated ticker-mapped make/model/year watchlist — not the full NHTSA vehicle universe; an unlisted make/model was never polled, not screened out. Complaint-rate-acceleration-precedes-recalls-and-investigations (especially crash/fire flags) is an open gate-1 hypothesis, not yet attempted, not yet surfaced as a signal."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
