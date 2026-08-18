@@ -20,6 +20,209 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine session #3) [PRODUCT] — T-CLIENT (primary) — FDIC bank failures (/api/data/bank-failures) gets a live /data map layer + client view, the last "double zero" (no client wiring AND no registry entry) candidate the 2026-08-16 TFF sweep found, closing the class the 2026-08-18 vehicle-complaints session opened (v1.0.739)
+
+TERRITORY: T-CLIENT primary (`client/src/pages/bankFailures.tsx` new,
+`client/src/pages/datamap.tsx` wiring, `scripts/visual_check.mjs` fixture) +
+SHARED last-and-minimal (`datacore/layers.json` one new entry,
+`package.json`/`package-lock.json` version bump, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(AUDITS & DEBT register + last ~15 tagged entries), `research/
+open_questions.md` (KNOWN BROKEN + DATA STREAM EXPANSION #3, no conflicting
+"deliberately map-only" note for bank_failures), `research/wishlist.md` head
+(the second-ever CONSTITUTIONAL AUDIT's 2 consolidation proposals still
+pending human review — nothing else actionable). Live `/api/health` not
+re-polled this session (the orchestrating session's handoff already
+verified it moments earlier: `status:"ok"`, bot `active`,
+`liveness.dark:false`, `drawdownPct:"0.0"`, `ACTIVE` broker account,
+`scanner.consecutiveFailures:0`, all three feeds alive — no LIVENESS
+ALARM) — trusted per that handoff rather than re-fetched, since nothing in
+this session's own work could have changed it. Loop-health ratio (handoff-
+verified): 2/10 REPAIR over the last 10 tagged entries, well under the 7+
+thrash trigger. AUDITS & DEBT register (above): nothing overdue (STALENESS
+2026-09-14, CONSTITUTIONAL 2026-09-15, CALENDAR YEAR-ADD 2026-12-01).
+`python3 scripts/ladder_readiness_check.py` (handoff-verified): 0/2 gated
+roots ready — no matured experiment to judge. No live Alpaca/Yahoo access in
+this sandbox (`ALPACA_KEY`/`ALPACA_SECRET` absent, Yahoo 429s) — any action
+needing real market-data fetches (e.g. the 2026-08-18 critical-slowing-down
+probe's own queued real-data run) was out of reach this session.
+
+PRIMARY-ACTION SELECTION: the handoff's own `server/routes.ts` grep
+identified several registered `/api/data/*` routes with no obvious client
+page. Independently re-verified each candidate rather than trusting the
+list at face value (several were legitimately map-only RAW overlays, not
+gaps — e.g. plant_operations/grid_demand/microstructure/short_interest all
+already have dedicated `datamap.tsx` panel treatment or are correctly
+RAW-overlay-only with no separate detail-page precedent in this repo).
+`grep -rln "bank.failures\|bank_failures\|bankFailures" client/src/
+datacore/layers.json server/routes.ts` found the route registered
+(`server/routes.ts:2770`, `app.get("/api/data/bank-failures", ...)`,
+importing `bootFailuresPoll`/`latestFailures` from `server/fdicBanks.ts`)
+but ZERO client wiring and ZERO `datacore/layers.json` registry entry — the
+same "double zero" gap class the 2026-08-18 vehicle-complaints session
+(PR #869) named and closed for `/api/data/vehicle-complaints`, which was
+that session's own explicit "remains the one unclaimed zero-wiring
+candidate for a future session" note. Confirmed via
+`research/open_questions.md`'s DATA STREAM EXPANSION #3 (FDIC BANK DATA)
+entry: no prior session decided to leave this map-only on purpose — it was
+simply never wired at all, matching the vehicle-complaints precedent
+exactly, not the RAW-overlay-by-design exception.
+
+READ BEFORE WRITE: read `server/fdicBanks.ts` in full (fetch/parse/archive/
+poll) this session — confirmed the exact `BankFailure` shape (`cert, name,
+fail_date, city_state, state, charter_class, restype, assets_k, deposits_k,
+cost_k, fund, rt`), that `cost_k` (estimated DIF loss) is explicitly `null`
+until FDIC publishes an estimate and must never be coerced to zero (module's
+own comment + `fdicBanks.test.ts`'s own assertion), and the v1-scope note
+(failures only, quarterly financials snapshot is a documented separate
+follow-up — not this route). Read the exact `/api/data/bank-failures`
+handler in `server/routes.ts` (lines 2767-2785) for the response shape
+(`{kind, source, attribution, time, count, note, failures}`). Read
+`client/src/pages/vehicleComplaints.tsx` and `client/src/pages/
+fdaEvents.tsx` in full as templates — chose the fdaEvents flat-list shape
+over vehicleComplaints' ticker-grouping because `fdicBanks.ts` carries no
+ticker field (most failed institutions are small, non-public regional
+banks, unlike NHTSA's pre-joined watchlist) — no join exists to group by.
+Read `server/layersRegistry.test.ts` and `server/layersWiring.test.ts` in
+full before touching `datacore/layers.json` — confirmed the mandatory-
+fields contract and the LAYER_GROUP-wiring ratchet (R15) unchanged; added
+the `LAYER_GROUP` entry in the same edit as the registry entry. Read
+`datacore/layers.json`'s `vehicle_complaints` entry as the registry-copy
+template, edited via a targeted string insertion, verified with `python3
+-c "import json; json.load(...)"` that it still parses (245 layers,
+`bank_failures` present). Read `scripts/visual_check.mjs`'s Phase-5-ratchet
+PAGES convention and its `/api/data/layers` FIXTURES convention before
+adding both.
+
+WORKTREE NOTE: this agent's assigned worktree branch was 25 commits stale
+(pinned at the pre-vehicle-complaints tip, #843 vs. origin/main's then-tip
+#870/v1.0.738) — discovered via `git fetch origin main` + `git log
+--oneline -1 origin/main` before any edit landed. Re-based onto
+`origin/main` (`git checkout -B claude/bank-failures-data-view
+origin/main`) before writing anything, so every file read/edited this
+session is the actual current code, not a stale copy — satisfies READ
+BEFORE WRITE for a worktree-isolated session specifically.
+
+WHAT SHIPPED:
+1. `client/src/pages/bankFailures.tsx` (new) — fetches `/api/data/
+   bank-failures` on mount; flat list (no ticker join available) sorted
+   newest-fail-date-first. Two honesty notes before any data: (a) v1
+   scope is FAILURES ONLY, the quarterly financials snapshot is a
+   documented separate follow-up, and no ticker join exists here (unlike
+   the NHTSA watchlist); (b) the module's own gate-1-not-attempted
+   hypothesis (deposit flight + failures at small regional banks lead KRE
+   and small-cap bank returns — EDGE DOCTRINE #2 whales-can't-fish) plus
+   the explicit null-cost-never-shown-as-zero caveat found while reading
+   the source. RAW display only — `kind:"raw"`, no ladder gate.
+2. `client/src/pages/datamap.tsx` — `BankFailuresView` import (+
+   `Building2` icon import, confirmed present in this repo's pinned
+   lucide-react version via an existing non-datamap usage before adding
+   it here); `bankFailuresOpen` state (hash-init `#/data/bank-failures`);
+   hashchange listener entry; `LAYER_GROUP` fallback entry
+   (`bank_failures: "filings"`); status-polling effect (mirrors
+   vehicle_complaints' exact 300s-badge-refresh shape, server itself
+   polls on its own 12h cycle); icon lookup (`Building2`) and unit lookup
+   (`"failures"`); open-full-view launcher button inside the
+   `bank_failures` layer row; render block. All 11 call sites grepped and
+   confirmed present after editing.
+3. `datacore/layers.json` — new `bank_failures` entry (surgical insertion
+   right after `vehicle_complaints`; this is the entry's FIRST appearance
+   in the registry — this route had zero wiring of any kind before this
+   session). Verified `python3 -c "import json; json.load(...)"` still
+   parses, 245 layers.
+4. `scripts/visual_check.mjs` — `bankfailures` PAGES entry (`map:false`,
+   same Phase-5 ratchet rule as every sibling filings page); `/api/data/
+   bank-failures` fixture (one estimated-cost failure, one null-cost
+   failure, so the harness exercises the never-coerce-to-zero honesty
+   rule on the "Est. DIF cost" column — confirmed rendering "—" not "$0K"
+   in the visual run below); `bank_failures` entry added to the
+   `/api/data/layers` FIXTURES list.
+5. `package.json`/`package-lock.json` version bump only (1.0.738 ->
+   1.0.739, read-and-incremented at commit time per MERGE-ORDER PROTOCOL
+   — confirmed via a fresh `git fetch origin main` immediately before
+   bumping that the branch was exactly at origin/main tip, no drift, at
+   bump time; `npm version --no-git-tag-version` used to sync both files).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start in this worktree). `node --test server/
+layersRegistry.test.ts server/layersWiring.test.ts` run standalone first
+(25/25 pass) to catch any registry/wiring mistake before the full suite.
+`bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (all 12
+pre-existing, none in this diff). `bash scripts/gated_tests.sh` GATE
+PASSED — client 1017/1017 (97 files, no new test file — matches every
+sibling filings page's own convention, none of vehicleComplaints.tsx/
+fdaEvents.tsx/tff.tsx have one either), python 1374 passed/1 skipped
+(unchanged from baseline), quarantine 0/1, none overdue. `bash scripts/
+counter_ratchet.sh`: OK, 25/25 counters at or better than baseline.
+`tests_run_in_ci`/`tests_gating_merge` moved 377(pin) -> 378(live) and
+`assertions` 11456(pin) -> 11489(live) — pre-existing drift from merges
+since the pins were last set (this diff adds no test files and no new
+assertions of its own beyond what the existing sibling-page test suites
+already exercise structurally, so this diff cannot be the cause); left
+un-repinned per PROMOTION RULE 5, same precedent the 2026-08-17/2026-08-18
+sessions set for this exact counter class. `npm run build` clean (only
+pre-existing warning classes: astronomy-engine ESM default-export notice,
+large-chunk notice, mapIcons dynamic/static dual-import notice — none
+related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page bankfailures` at all three canonical widths (390/768/1440) — **0
+hard failures**. Own-review of all three PNGs confirms the header (title,
+event count, FDIC source link), both honesty notes, and the flat failures
+table (Community Bank and Trust - West Georgia, GA, FAILURE, $305,716K
+assets/$296,420K deposits/"—" est. DIF cost — confirming the null-not-zero
+rule renders correctly; Pulaski Savings Bank, IL, FAILURE, $41,200K/
+$39,800K/$19,647K) render correctly at desktop, 768px tablet, and the
+390px mobile stacked layout. Only warnings present are the pre-existing
+global-chrome touch-target/clipped-control warnings that appear on
+essentially every page in this harness (same class noted in every prior
+session's write-up) and the standard headless-software-renderer notice —
+neither related to this diff. Per the same precedent the vehicle-
+complaints session established, a full `--page data` run exercising the
+layer-panel row/launcher-button integration itself was not run (known-
+heavy); that integration was instead verified by direct code review —
+grepped all 11 `bank_failures`/`bankFailures`/`BankFailures` call sites in
+`datamap.tsx` and confirmed each mirrors the already-visually-verified
+`vehicle_complaints`/`fda_events` block structure with only the id/route/
+label/icon swapped.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published FDIC failure
+events, no predictive claim, no ladder gate applies (same standing rule as
+every other RAW `/data` page in this repo). The module's own deposit-
+flight-leads-KRE hypothesis remains unstarted at gate 1 — this session
+does not begin that research, it only makes the underlying data
+independently inspectable and, for the first time, toggleable on the map.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic, no
+measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new beyond the surface itself — this closes
+a shipped-data-no-UI (and previously zero-registry) gap on an already-live
+datacore/ pipeline; no new archive, no new entity-graph join this session.
+The "no ticker join exists" honesty note IS itself a cross-system-
+integration finding worth flagging forward: a future session could build
+the small-cap-bank ticker join this route currently lacks (state + CERT ->
+public bank holding company, likely via SEC EDGAR company-facts or a
+manually curated regional-bank watchlist mirroring the NHTSA precedent) to
+unlock the gate-1 hypothesis test at all — logged as a candidate NEXT
+below rather than started this session.
+
+STARVED: no — this was the exact "one unclaimed zero-wiring candidate"
+the 2026-08-18 vehicle-complaints session's own NEXT note named, matched
+to what this sandbox could actually execute (no live-market-data
+dependency, unlike the blocked critical-slowing-down probe). No higher-
+priority queued item was skipped (no LIVENESS ALARM, no matured gated
+experiment, no overdue audit). One deliberately-deferred NEXT: the ticker
+join needed to actually attempt gate 1 of the deposit-flight hypothesis
+(noted above under CROSS-SYSTEM INTEGRATION) — a real, non-trivial build,
+correctly left for its own session rather than bundled into this one
+per PROMOTION RULE 5 (one logical change per PR).
+
+Version bumped 1.0.738 -> 1.0.739 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD was exactly at
+`origin/main` (c5ef066) at bump time, no drift.
+
 ## 2026-08-18 (scheduled-routine session #2) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json), scripts/ + top-level test file — FOREIGN-FIELD IMPORT: critical slowing down (ecology) as an early-warning signal for regime transitions, probe script + tests shipped, not yet run against real data (v1.0.738)
 
 TERRITORY: no T-DATACORE/T-CLIENT/T-BOT file touched — a standalone research
