@@ -13,6 +13,8 @@ import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, 
 import { readArchiveDay } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
+import { computePortDwellAsync, portsFromSites } from "./portDwell";
+import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
@@ -2436,6 +2438,38 @@ from shadow_portfolio import get_shadow_stats
 print(json.dumps(get_shadow_stats()))
 "`, { timeout: 15000 });
           return res.json(sanitizeDiag({ probe: "shadow", ...JSON.parse(stdout.toString().trim() || "{}") }));
+        }
+        case "portdwell_window": {
+          // ADDED 2026-08-18 (scheduled-routine session): see the
+          // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —
+          // unblocks the port_dwell_maritime_transit GATE 1 check that
+          // has been "filed, not fixed" since 2026-08-04 because no
+          // surface could return computePortDwellAsync's aggregated
+          // per-port stats for an arbitrary HISTORICAL window (the live
+          // /api/data/portdwell route only ever serves a rolling 7-day
+          // snapshot). `end` = ISO date/time the window ends at (default
+          // now); `hours` = window length ending there, capped at 2880
+          // (120 days — generously covers the archive's full depth since
+          // it began 2026-07-03, without an unbounded read). Reuses
+          // computePortDwellAsync unchanged — this probe adds no new
+          // aggregation logic, only a query surface over the existing one.
+          const endParam = String(req.query.end || "").trim();
+          const endMs = endParam ? Date.parse(endParam) : Date.now();
+          if (!Number.isFinite(endMs)) {
+            return res.status(400).json({ error: "invalid end (expected an ISO date/time)" });
+          }
+          if (endMs > Date.now()) {
+            return res.status(400).json({ error: "end cannot be in the future" });
+          }
+          const hours = Math.min(Math.max(parseInt(String(req.query.hours || "168"), 10) || 168, 1), 2880);
+          const ports = portsFromSites((datacoreSites as any).sites || []);
+          const data = await computePortDwellAsync(ports, hours, undefined, endMs);
+          return res.json(sanitizeDiag({
+            probe: "portdwell_window",
+            window_end: new Date(endMs).toISOString(),
+            window_hours_requested: hours,
+            ...data,
+          }));
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

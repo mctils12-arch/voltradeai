@@ -7894,6 +7894,43 @@ territory in their first commit)
   FLAGS suppressed below 10 completed calls per port (thin-history
   honesty). Dwell figures are LOWER BOUNDS: an archive coverage gap >6h
   splits a visit, never bridges it.
+- **UPDATE 2026-08-18 (scheduled-routine session, [PIPELINE], v1.0.742):
+  GATE 1 (DATA) tool built — the "no query surface for an arbitrary
+  historical window" blocker research/experiments.md's 2026-08-04 session
+  filed (`port_dwell_maritime_transit` gate 1: "filed, not fixed" — the
+  production `/api/data/portdwell` route only ever serves a rolling 7-day
+  aggregate, and the "archive" diag probe's row-count cap made
+  reconstructing even one historical day infeasible from outside the
+  container) is now closed.** New token-gated `/api/diag/portdwell_window`
+  probe (`server/diag.ts`/`server/bot.ts`) calls the SAME
+  `computePortDwellAsync(ports, hours, baseDir, nowMs)` the live route
+  already uses, but with `end`/`hours` query params so `nowMs` can be any
+  past point — the function already supported an arbitrary window
+  (confirmed by reading it this session), it just had no caller that let
+  `nowMs` be anything but "now." Returns only the already-aggregated
+  per-port stats (visit counts, dwell median/p90/max, anomaly counts) —
+  no per-vessel row leaves the endpoint, same posture as every other diag
+  probe. NOT YET RUN against a published ground truth this session
+  (building the tool was the scoped unit of work, matching the
+  2026-08-04 entry's own framing of "either (a) or (b) is a legitimate
+  future session's primary action" — (a) is what shipped).
+  **NEXT for whichever session catches this**: once this deploys, GATE 1
+  itself still needs a published external ground truth to reconcile
+  against — the GATE 2 test plan below already names the candidate
+  (port authority monthly TEU + vessel-call stats). A future session
+  should (1) pick one recent, clearly-dated week fully inside the archive
+  window (began 2026-07-03) that a port authority (LA/Long Beach) has
+  since published statistics for, (2) call
+  `/api/diag/portdwell_window?end=<that week's end, ISO>&hours=168&token=$DIAG_TOKEN`
+  for the LA/LB port ids, (3) compare our in-port-count/visit-count shape
+  against the published figures the way `crop_conditions_gate1.ts` compares
+  against USDA's bulletin — order-of-magnitude/directional match is the
+  bar (our AIS-derived visit count is a DIFFERENT unit than a port
+  authority's vessel-call count, so an exact match isn't the right
+  standard; a same-direction week-over-week trend is the falsifiable
+  claim). If no port authority publishes a comparable weekly figure
+  (monthly-only reports are more common), (3b) is a monthly rollup
+  instead (call the probe with `hours` spanning the full month).
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

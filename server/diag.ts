@@ -65,6 +65,21 @@ export const DIAG_PROBES = [
   // tail number, or callsign leaves this endpoint. See the "gnss_integrity"
   // case in bot.ts for the days/bbox/limit query params.
   "gnss_integrity",
+  // ADDED 2026-08-18 (scheduled-routine session): unblocks the
+  // `port_dwell_maritime_transit` GATE 1 (DATA) check, filed-not-run
+  // since 2026-08-04 (research/experiments.md, that date's session) —
+  // the production `/api/data/portdwell` route only ever serves a
+  // rolling 7-day AGGREGATE snapshot, and reconstructing even one
+  // historical day from the "archive" probe's raw-row passthrough was
+  // measured infeasible (~350+ diag calls/day at that probe's 5000-row
+  // cap vs. the vessel stream's real density). This probe instead runs
+  // portDwell.ts's own computePortDwellAsync server-side, over an
+  // ARBITRARY historical window ending at `end`, and returns only the
+  // ALREADY-AGGREGATED per-port stats (visit counts, dwell median/p90/
+  // max, anomaly counts) — no per-vessel row ever leaves this endpoint,
+  // same posture as every other probe here. See the "portdwell_window"
+  // case in bot.ts for the end/hours query params.
+  "portdwell_window",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

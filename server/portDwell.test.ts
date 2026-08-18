@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  portsFromSites, assignPort, detectVisits, computePortDwell, PortDef,
+  portsFromSites, assignPort, detectVisits, computePortDwell, computePortDwellAsync, PortDef,
 } from "./portDwell";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -149,4 +149,24 @@ test("RATCHET [REPAIR 2026-07-05]: async dwell stats identical to sync (event-lo
   const a = await computePortDwellAsync([LA, LB], 168, base, NOW);
   const s = computePortDwell([LA, LB], 168, base, NOW);
   assert.deepEqual(a, s, "async streaming dwell stats must equal the sync scan");
+});
+
+// 2026-08-18: computePortDwellAsync's (windowHours, baseDir, nowMs) signature
+// already supports an ARBITRARY historical window (nowMs need not be "now")
+// — this is the exact capability the new /api/diag/portdwell_window probe
+// (server/bot.ts, diag.ts) relies on to unblock the port_dwell_maritime_
+// transit GATE 1 check filed-not-run since 2026-08-04 (a rolling 7-day
+// production cache couldn't answer "what happened three weeks ago"). Proves
+// the capability directly against this module, not just the route wiring.
+test("computePortDwellAsync: an `end` in the past sees a visit invisible to the current 168h window", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-dwell-hist-"));
+  // A completed call ~500h ago (well outside a "now"-anchored 168h window).
+  writeArchive(base, moored("777", "OLDCALL", LA, 505, 495));
+  const current = await computePortDwellAsync([LA, LB], 168, base, NOW);
+  assert.equal(current.ports.find((p) => p.id === "port_la")!.visits_completed, 0,
+    "the current rolling 168h window must NOT see a visit from 500h ago");
+  const historical = await computePortDwellAsync([LA, LB], 48, base, NOW - 480 * 3600_000);
+  const la = historical.ports.find((p) => p.id === "port_la")!;
+  assert.equal(la.visits_completed, 1, "a window ending near the old visit must see it");
+  assert.ok(Math.abs((la.dwell_median_h ?? 0) - 10) < 0.2, `median ${la.dwell_median_h} ≠ ~10h`);
 });
