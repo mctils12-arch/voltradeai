@@ -6457,6 +6457,70 @@ nowcast, sector-level stress/quality events. Priors stated per item.)
    gate 1 = cross-check a bank's ASSET/DEP vs its 10-Q; gate 2 =
    deposit-decline quintiles vs forward stock returns for listed
    small banks (ticker join via our EDGAR spine).
+
+   **UPDATE 2026-08-18 (scheduled-routine PRODUCT session) — GATE 1
+   (DATA) run against the shipped FAILURES feed (`server/fdicBanks.ts`,
+   `/api/data/bank-failures`), the v1 event-driven slice of this root,
+   not yet against the quarterly-financials slice above (still
+   unbuilt).** Sampled the 4 most recent live failures from
+   `api.fdic.gov/banks/failures` and cross-checked each institution's
+   archived QBFASSET/QBFDEP against (a) its own FDIC Call Report
+   history (`api.fdic.gov/banks/financials`) and (b) the FDIC's own
+   press release text, fetched directly. 3 of 4 EXACT matches:
+   Metropolitan Capital Bank & Trust (CERT 57488) 261185/212152
+   matches its 2025-09-30 Call Report exactly AND matches the FDIC
+   press release verbatim ("As of September 30, 2025 ... total assets
+   of $261.1 million and total deposits of $212.1 million"); COST
+   19647 matches the release's "$19.7 million" DIF estimate exactly.
+   Santa Anna National Bank (CERT 5520) 76938/71376 matches its
+   2025-03-31 Call Report exactly. Pulaski Savings Bank (CERT 28611)
+   49466/42741 matches its 2024-09-30 Call Report exactly. ONE
+   MISMATCH, logged honestly rather than smoothed over: Community
+   Bank and Trust - West Georgia (CERT 25796, the single most recent
+   failure, 2026-05-01) shows 305716/296420 in the archive, which
+   matches NEITHER its last Call Report on file (2025-12-31:
+   288221/268292 — which IS what the FDIC press release itself cites
+   verbatim, "As of December 31, 2025 ... total assets of $288
+   million and total deposits of $268 million") NOR any earlier
+   quarter. Best-evidenced (not confirmed) explanation: FDIC's public
+   financials bulk index (`risview` snapshot, `createTimestamp`
+   2026-06-08) may simply not yet carry a final pre-failure Call
+   Report that the `/banks/failures` record already reflects — this
+   is the ONLY one of the 4 samples recent enough for that lag to
+   apply, and `parseFailures()` (read in full this session) does
+   nothing but relay FDIC's own field values unchanged, so this is not
+   parsing/archival corruption on our side. Separately confirmed
+   honest: West Georgia's COST is STILL null in FDIC's live API today
+   (2026-08-18), >3 months after the 2026-05-01 press release stated a
+   preliminary $97M DIF estimate — validates (not just assumes) the
+   module's existing never-coerce-null-to-zero design, since FDIC's
+   own machine-readable COST field is confirmed to lag its own press
+   releases by months. VERDICT: GATE 1 PASS for the failures slice —
+   the feed faithfully relays real, externally-verifiable FDIC
+   figures; the one discrepancy is a documented open question about
+   FDIC-side index recency, not evidence of a defect in this pipeline.
+   Logged machine-readably in `datacore/signal_ladder.json`
+   (`fdic_bank_failures`, `gate1_pass`) and surfaced as an honesty
+   note directly on `client/src/pages/bankFailures.tsx`. GATE 2
+   (failure events vs forward KRE/regional-bank returns) NOT attempted
+   this session — no live market-data access in this sandbox
+   (`ALPACA_KEY`/`ALPACA_SECRET` absent, Yahoo query1 429s, `yfinance`
+   not installed) and separately still blocked on the ticker/
+   entity-graph join this root has never had (most failed institutions
+   are small, non-public regional banks — flagged as a real build gap
+   by the 2026-08-18 bank-failures UI session, not started here
+   either). NEXT: (1) a future session with live market/EDGAR access
+   should build the CERT → public-parent ticker join (via SEC EDGAR
+   company-facts or a curated regional-bank-holding-company watchlist,
+   mirroring the NHTSA precedent) to unlock gate 2 for the handful of
+   failures whose parent holding company is itself listed; (2) the
+   still-unbuilt quarterly-financials slice (~1.68M bank-quarter
+   records) is the richer dataset for the deposit-decline-quintile
+   version of gate 2 and remains its own follow-up, not started by
+   this update; (3) re-check West Georgia's QBFASSET/QBFDEP and COST
+   against `api.fdic.gov` again in a few weeks — if they still don't
+   reconcile to a Call Report by then, the index-lag explanation above
+   should be treated as rejected, not confirmed, and re-investigated.
 4. NHTSA COMPLAINTS VELOCITY (api.nhtsa.gov keyless JSON +
    static.nhtsa.gov FLAT_CMPL.zip daily bulk, updated even Sundays;
    complaints to mid-1990s, recalls to 1960s; public domain).

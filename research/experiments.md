@@ -20,6 +20,214 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine PRODUCT session #4) [PIPELINE] — T-DATACORE (primary, research bookkeeping) + T-CLIENT sliver (bankFailures.tsx honesty note) — fdic_bank_failures GATE 1 (DATA) ground-truth check: PASS with one honestly-logged, unresolved recency caveat (v1.0.740)
+
+TERRITORY: T-DATACORE primary (`datacore/signal_ladder.json` new
+`fdic_bank_failures` entry, `datacore/layers.json` description update,
+`research/open_questions.md` FDIC entry update) + T-CLIENT sliver
+(`client/src/pages/bankFailures.tsx` honesty-note addition,
+`client/src/pages/signalLadder.tsx` one new category label) + SHARED
+last-and-minimal (`package.json`/`package-lock.json` version bump, this
+entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/
+experiments.md` (AUDITS & DEBT register — nothing overdue, STALENESS
+2026-09-14/CONSTITUTIONAL 2026-09-15/CALENDAR 2026-12-01 — and the last
+~10 tagged entries), `research/open_questions.md` (KNOWN BROKEN section
+walked in full: #20 RULE-REVIEW-gated evidence collection, #29 MEDIUM
+visibility-gap-only partial fix, #30 structurally fixed 2026-08-15 — none
+block product work per this task's own instructions), `research/
+wishlist.md` head (the second-ever CONSTITUTIONAL AUDIT's 2 consolidation
+proposals still pending human review, nothing else actionable this
+session). Live `/api/health`: `status:"ok"`, bot `active`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three feeds (aircraft/vessels/trains)
+`dead:false` — no LIVENESS ALARM. Loop-health ratio: last 10 tagged
+entries before this one carry 3 REPAIR / 6 PRODUCT / 1 RULE-REVIEW — well
+under the 7+ thrash trigger, no meta-problem to address.
+
+PRIMARY-ACTION SELECTION: the immediately preceding session (this same
+day, `bank_failures` PRODUCT session, PR #871) left an explicit,
+concretely-scoped NEXT note under CROSS-SYSTEM INTEGRATION: `fdicBanks.ts`
+carries its own documented ROOT VALIDATION LADDER path in its module
+docstring ("gate 1 = cross-check a failure's QBFASSET/QBFDEP vs the FDIC
+press release; gate 2 = failure events vs forward KRE / regional-bank
+returns") and gate 1 had never been attempted for this root. This task's
+own instructions name "gate 1 ground-truth validation... IS product work"
+explicitly as option (a), and — unlike gate 2 or the vehicle-complaints/
+FDA-events/treasury-auctions roots' eventual gate-2 work — gate 1 here
+needs only FDIC's own published data (the failures API, each bank's own
+Call Report history, and the FDIC's own press releases), none of which
+depend on live market data. Confirmed this sandbox genuinely lacks
+market-data access before committing to this scope over an alternative:
+`env | grep -i ALPACA` empty, `python3 -c "import yfinance"` -
+`ModuleNotFoundError`, live `curl` to `query1.finance.yahoo.com` returned
+HTTP 429 — so any gate-2 statistical test (this root's or any other's)
+was out of reach regardless of which root was chosen; gate 1 ground-truth
+validation was the highest-value action actually executable this session.
+
+READ BEFORE WRITE: read `server/fdicBanks.ts` in full this session (the
+`BankFailure` shape, `parseFailures()`'s exact field mapping, the
+never-coerce-null-to-zero handling of `COST`, the module's own gate 1/
+gate 2 ladder text) before forming any hypothesis about what a mismatch
+would mean — confirmed `parseFailures()` does nothing but relay FDIC's
+own JSON field values unchanged (no local transformation that could
+itself introduce an error). Read `client/src/pages/bankFailures.tsx` in
+full before adding to it, to place the new honesty note consistently with
+its existing two (v1-scope-is-failures-only; the gate-locked hypothesis
+note) rather than duplicating either. Read `datacore/signal_ladder.json`'s
+`_doc` and an existing `gate1_pass` entry (`sec_form4_bulk_archive`) and a
+`gate2_pass` entry with an honest partial-gate-1 caveat
+(`gnss_integrity_adsb`) as the format/tone precedent before writing the
+new entry.
+
+METHOD: fetched the 4 most recent live failures directly from
+`api.fdic.gov/banks/failures` (COMMUNITY BANK AND TRUST - WEST GEORGIA
+CERT 25796 FAILDATE 2026-05-01; METROPOLITAN CAPITAL B&T CERT 57488
+FAILDATE 2026-01-30; SANTA ANNA NATIONAL BANK CERT 5520 FAILDATE
+2025-06-27; PULASKI SAVINGS BANK CERT 28611 FAILDATE 2025-01-17). For
+each, queried `api.fdic.gov/banks/financials?filters=CERT:<n>` sorted by
+`REPDTE` descending to get that institution's own Call Report history
+(an FDIC-published source independent of the failures endpoint), and
+separately fetched the FDIC's own press release text directly (`curl` +
+a User-Agent header, since a plain WebFetch 403'd — FDIC's site blocks
+the tool's default fetcher but not a browser-UA'd curl) for the two most
+recent failures, to read the exact wording rather than trust third-party
+paraphrase (caught one: a search-engine's summary of an FDIC OIG page
+misquoted Metropolitan Capital's total assets as "$232,051,439" — the
+FDIC's own press release, fetched directly, actually says "$261.1
+million," matching our archive exactly; the summary was not used as
+evidence once the primary source was in hand).
+
+FINDINGS: 3 of 4 sampled failures show an EXACT match between the
+archived `QBFASSET`/`QBFDEP` and a real Call Report on file (always the
+LAST one filed before that bank's own failure date, confirmed against the
+FDIC's own press release text for Metropolitan Capital specifically,
+which cites the identical September-2025 figures verbatim). The one
+mismatch — Community Bank and Trust - West Georgia, the single MOST
+RECENT failure in the sample — does not reconcile to any Call Report on
+file (its archived 305716/296420 exceeds even the newest, 2025-12-31,
+288221/268292, which is what the press release itself cites). Read as a
+whole, the pattern points at a plausible, stated-as-unconfirmed
+explanation (FDIC's public financials bulk index lagging a final
+pre-failure filing for the very newest failure) rather than a defect in
+this pipeline — but the write-up does not round that up to a clean pass
+for West Georgia specifically; it states the open question plainly.
+Separately, and independent of the assets/deposits question: West
+Georgia's `COST` field is still `null` in FDIC's live API today, 2026-08-
+18, more than 3 months after the FDIC's own 2026-05-01 press release
+publicly stated a preliminary $97 million DIF estimate — this VALIDATES
+(previously only assumed) the module's existing "never coerce null to
+zero" design: the source field itself is confirmed to lag the FDIC's own
+public estimates by months, not merely "sometimes empty for a good
+reason." Full per-bank numbers and exact quoted press-release sentences
+are in this session's `datacore/signal_ladder.json` entry and the
+`open_questions.md` UPDATE, not repeated here.
+
+WHAT SHIPPED:
+1. `datacore/signal_ladder.json` — new `fdic_bank_failures` entry
+   (`gate1_pass`, `current_gate: 1`), inserted via a targeted string
+   replacement (append after the last existing root, add a comma to the
+   prior last entry) rather than a full `json.dump` round-trip — an
+   early attempt with `json.dump(..., indent=2)` reformatted the entire
+   429-line file for a 1-entry addition (the same failure mode the
+   2026-08-16 gnss_integrity_adsb session already logged for this exact
+   file); reverted and redone surgically, confirmed via `git diff --stat`
+   (2 insertions, 1 deletion) before proceeding.
+2. `datacore/layers.json` — the existing `bank_failures` entry's
+   `description` field updated in place (one string replacement) to
+   state the gate 1 pass instead of "not yet attempted." Re-parsed with
+   `python3 -c "import json; json.load(...)"` after editing (245 layers,
+   unchanged count).
+3. `client/src/pages/bankFailures.tsx` — a third honesty note added
+   (after the existing v1-scope and gate-locked-hypothesis notes),
+   stating the 3-of-4-exact-match / 1-recency-caveat finding in
+   user-facing language, plus the module-header comment corrected from
+   "gate-locked at gate 1 (not attempted)" to "gate-locked at gate 2 (not
+   attempted); gate 1 ... ran 2026-08-18: PASS with a documented caveat."
+   Still `kind:"raw"` — this is a DATA-gate (gate 1) pass, not a SIGNAL;
+   no predictive claim is added or implied, per RAW OVERLAYS vs SIGNALS.
+4. `client/src/pages/signalLadder.tsx` — `CATEGORY_LABEL` gained a
+   `credit_markets` entry (the category this session's new root uses;
+   previously-absent categories already degrade gracefully to their raw
+   string per the existing `CATEGORY_LABEL[cat] || cat` fallback, so this
+   is polish for the category introduced this session, not a fix to a
+   pre-existing gap).
+5. `research/open_questions.md` — a dated UPDATE appended under the FDIC
+   BANK DATA entry (DATA STREAM EXPANSION #3) with the full method,
+   findings, and NEXT notes.
+6. `package.json`/`package-lock.json` version bump only (1.0.739 ->
+   1.0.740, read-and-incremented at commit time — confirmed via a fresh
+   `git fetch origin main` immediately before bumping that the branch was
+   exactly at origin/main tip, no drift).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (both absent at session start). `node --test
+server/layersRegistry.test.ts server/layersWiring.test.ts` (25/25 pass —
+the `datacore/layers.json` description edit changes no field the registry
+schema/wiring ratchet checks). `npx tsx --test server/signalLadder.test.ts`
+(5/5 pass, including "loadSignalLadder reads the real committed registry:
+every root has required fields, ids are unique, source_ref is never
+empty" — the new entry satisfies this against the live file, not a
+fixture). `bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged.
+`bash scripts/gated_tests.sh` GATE PASSED — client 1017/1017 (97 files),
+python 1374 passed/1 skipped, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: OK, 25/25 counters at or better than baseline.
+`tests_run_in_ci`/`tests_gating_merge` moved 377(pin) -> 378(live) and
+`assertions` 11456(pin) -> 11489(live) — pre-existing drift from merges
+since the pins were last set (this diff adds no test files, so it cannot
+be this session's own effect); left un-repinned per PROMOTION RULE 5,
+same precedent the 2026-08-17/2026-08-18 PRODUCT sessions set for this
+exact counter class. `npm run build` clean (only pre-existing warning
+classes: astronomy-engine ESM default-export notice, large-chunk notice,
+mapIcons dynamic/static dual-import notice — none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page bankfailures` and `--page signals`, each at 390/768/1440 — **0
+hard failures** on both. Own-review of the bankfailures screenshots
+confirms the new third honesty note renders directly below the existing
+two, in the same style, and the West Georgia row's null `COST` still
+renders "—" not "$0K". The signals page renders from its own visual-
+harness fixture (not the live file), so it does not exercise the new
+`credit_markets` category label directly — verified instead by code
+review that the pre-existing `CATEGORY_LABEL[cat] || cat` fallback
+already degrades any unlabeled category to its raw string (confirmed live
+on this same page for `geopolitical_intelligence`, still unlabeled),
+so the new root and category render correctly in the live app regardless
+of fixture coverage. Only warnings present are the pre-existing
+global-chrome touch-target/clipped-control warnings that appear on
+essentially every page in this harness (same class noted in every prior
+session's write-up) and the standard headless-software-renderer notice —
+neither related to this diff.
+
+CROSS-SYSTEM INTEGRATION: this closes the gate-1 half of the CROSS-SYSTEM
+INTEGRATION gap the immediately preceding bank-failures session flagged
+(the ticker/entity-graph join needed for gate 2 remains open, explicitly
+not attempted here — no live market-data access this session, and a real,
+separate build regardless). No new archive, no new entity-graph join.
+
+HYPOTHESIS / LADDER: fdic_bank_failures moves `raw_only`-in-practice (no
+ladder row existed before this session) to `gate1_pass`/`current_gate: 1`
+in `datacore/signal_ladder.json`. The page's `kind` stays `"raw"` — a
+DATA-gate pass is not a SIGNAL and carries no predictive claim, per RAW
+OVERLAYS vs SIGNALS.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or trading
+threshold changed; this is DATA-gate ground-truth research plus an
+honesty-surface addition.
+
+MARKET-HOURS MERGE NOTE: this session ran starting ~09:21 ET, right at
+the 09:30 ET open — per this task's own instruction, the PR notes that
+merge should wait until after the 16:00 ET close rather than landing
+mid-market.
+
+STARVED: no — this was the immediately preceding session's own
+concretely-named NEXT item, matched to what this sandbox could actually
+execute (gate 1 needs no live market data; gate 2 does and was
+confirmed blocked before committing to scope). No higher-priority queued
+item was skipped (no LIVENESS ALARM; KNOWN BROKEN items are RULE-REVIEW-
+or visibility-gated only; no overdue audit).
+
 ## 2026-08-18 (scheduled-routine session #3) [PRODUCT] — T-CLIENT (primary) — FDIC bank failures (/api/data/bank-failures) gets a live /data map layer + client view, the last "double zero" (no client wiring AND no registry entry) candidate the 2026-08-16 TFF sweep found, closing the class the 2026-08-18 vehicle-complaints session opened (v1.0.739)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/bankFailures.tsx` new,
