@@ -119,6 +119,9 @@ const PAGES = {
   // FDA binary events — same Phase 5 ratchet rule as streams/treasurydts
   // above.
   fdaevents: { route: "/app#/data/fda-events", map: false },
+  // NHTSA vehicle complaints — same Phase 5 ratchet rule as
+  // streams/fdaevents above.
+  vehiclecomplaints: { route: "/app#/data/vehicle-complaints", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -196,6 +199,7 @@ const FIXTURES = {
       { id: "treasury_auctions", name: "US Treasury auctions", kind: "raw", status: "live", group: "filings", costTier: "light", source: "TreasuryDirect TA_WS, securities/auctioned", description: "Primary-market bid-to-cover + bidder-class shares — a stress proxy, not a signal." },
       { id: "treasury_dts", name: "Treasury Daily Statement", kind: "raw", status: "live", group: "filings", costTier: "light", source: "U.S. Treasury Fiscal Data API, deposits_withdrawals_operating_cash", description: "Daily operating-cash deposit/withdrawal line items — a cash-flow proxy, not a signal." },
       { id: "fda_events", name: "FDA binary events", kind: "raw", status: "live", group: "filings", costTier: "light", source: "openFDA drugsfda API + Federal Register API", description: "Drug approvals + advisory-committee meeting notices — a catalyst-timing proxy, not a signal." },
+      { id: "vehicle_complaints", name: "Vehicle complaints", kind: "raw", status: "live", group: "filings", costTier: "light", source: "NHTSA Office of Defects Investigation complaints API", description: "Per-vehicle complaint counts (crash/fire-flagged) over a curated ticker-mapped watchlist — a complaint-velocity proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
@@ -1053,6 +1057,23 @@ const FIXTURES = {
         title: "Notice of Meeting of the Antimicrobial Drugs Advisory Committee",
         url: "https://www.federalregister.gov/documents/2026/08/03/2026-12399", pub: "2026-08-03",
         dateConf: "unparsed", rt: "2026-08-16" },
+    ],
+  },
+  // NHTSA vehicle complaints (2026-08-18, RAW display, vehicleComplaints.tsx).
+  // Fixture covers two tickers so the harness exercises the ticker-grouping
+  // + per-model table, and one model with a fire flag so the fire column
+  // renders a nonzero value.
+  "/api/data/vehicle-complaints": {
+    kind: "raw", source: "NHTSA ODI complaints API (fixture)",
+    attribution: "NHTSA Office of Defects Investigation", time: "2026-08-18T12:00:00.000Z",
+    count: 3, note: "per-vehicle complaint stats over a CURATED ticker-mapped watchlist (fixture)",
+    vehicles: [
+      { ticker: "TSLA", make: "tesla", model: "model 3", model_year: 2024,
+        total_complaints: 207, crash_count: 22, fire_count: 0, newest_filed: "2026-08-12" },
+      { ticker: "TSLA", make: "tesla", model: "cybertruck", model_year: 2024,
+        total_complaints: 168, crash_count: 22, fire_count: 2, newest_filed: "2026-08-02" },
+      { ticker: "F", make: "ford", model: "bronco", model_year: 2024,
+        total_complaints: 72, crash_count: 4, fire_count: 3, newest_filed: "2026-08-10" },
     ],
   },
   "/api/data/cot": {

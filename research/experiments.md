@@ -20,6 +20,245 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — NHTSA vehicle complaints (/api/data/vehicle-complaints) gets a live /data map layer + client view, the last of the 5 zero-wiring candidates the 2026-08-16 TFF session's own sweep found, and the first of the 5 that had NO registry entry at all (v1.0.737)
+
+TERRITORY: T-CLIENT primary (`client/src/pages/vehicleComplaints.tsx` new,
+`client/src/pages/datamap.tsx` wiring, `scripts/visual_check.mjs` fixture) +
+SHARED last-and-minimal (`datacore/layers.json` one new entry,
+`package.json`/`package-lock.json` version bump, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of `research/`
+(PROGRAM_STATE.md — a disjoint, T-CLIENT/tech-debt-focused program with its
+own NEXT/QUEUE, not this session's PRODUCT mandate; `experiments.md`'s
+AUDITS & DEBT register, `open_questions.md`, `wishlist.md` head). Live
+`/api/health`: `status:"ok"`, bot `active`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, `ACTIVE` broker account, `consecutiveFailures:0`, all
+three feeds (aircraft/vessels/trains) `dead:false` — no LIVENESS ALARM.
+`open_questions.md` KNOWN BROKEN section: only item #20 remains open, and
+it is RULE-REVIEW-gated (evidence-collection, not a blocking break) per the
+immediately preceding session's own close-out note — does not block or
+outrank product work, matching this task's own instructions. AUDITS & DEBT
+register: STALENESS next due 2026-09-14, CONSTITUTIONAL 2026-09-15,
+CALENDAR YEAR-ADD 2026-12-01 — nothing overdue. `wishlist.md` head: the
+second-ever CONSTITUTIONAL AUDIT's 2 consolidation proposals are still
+pending human review, nothing actionable this session, not re-logged.
+
+LOOP-HEALTH RATIO: last 10 real session-tag entries before this one (newest
+first): [REPAIR] shadow-backfill starvation, [REPAIR] KNOWN BROKEN #10,
+[PRODUCT] FDA events, [PRODUCT] Treasury DTS, [PRODUCT] Treasury auctions,
+[RULE-REVIEW] second-ever constitutional audit, [PRODUCT] CFTC TFF,
+[PRODUCT] SEC FTD, [PRODUCT] EU power markets, [REPAIR] stale-doc
+dedup-build near-miss. Tally: 3 REPAIR, 6 PRODUCT, 1 RULE-REVIEW — well
+under the 7+ thrash-ratio alarm. PROGRESS FLOOR: PRODUCT/PIPELINE sessions
+shipping continuously, no 14-day stall. STARVATION: no flag in the
+immediately preceding entries.
+
+PRIMARY-ACTION SELECTION: no live bug in the audit log, no matured gate-2
+experiment sitting unjudged, KNOWN BROKEN evidence-gated only. The
+2026-08-17 FDA-events session (PR #866) left an explicit NEXT note: 2
+remaining zero-wiring `/api/data/*` routes from the 2026-08-16 TFF sweep —
+`/api/data/bank-failures` and `/api/data/vehicle-complaints` — still
+unranked against each other, both confirmed to carry real, specific
+hypotheses once the underlying module (not just the route's own summary
+note) is read. Independently re-confirmed the gap still exists before
+committing to one: `grep -rln "vehicle-complaints\|bank-failures"
+client/src/` and a `datacore/layers.json` id-grep for both returned zero
+matches — and, unlike the four routes the four preceding sibling sessions
+shipped (tff/treasury_auctions/treasury_dts/fda_events, all of which
+already had a `datacore/layers.json` entry before their own client-view
+PR), **neither of these two had ANY registry entry at all** — a bigger gap
+than any prior candidate in this run of sessions.
+
+Chose `vehicle_complaints` over `bank_failures` on data richness (the tie-
+break axis the FDA-events session's own NEXT note suggested): the NHTSA
+feed already ships pre-joined to the bot's own tradeable universe
+(`ticker` field per row, `server/nhtsaComplaints.ts`'s `WatchVehicle`
+mapping) with a natural per-company grouping and a crash/fire severity
+split baked into the schema; `server/fdicBanks.ts`'s failures carry no
+ticker (most failed institutions are small, non-public regional banks —
+the "leads listed small-cap banks" hypothesis needs an entity-graph join
+this session does not build) and are a flatter, ungrouped event list.
+`bank_failures` remains the one unclaimed zero-wiring candidate for a
+future session.
+
+READ BEFORE WRITE: read `server/nhtsaComplaints.ts` in full (fetch/parse/
+archive/poll — confirmed `VehicleStat.total_complaints` is "API-reported
+total for the vehicle" i.e. cumulative, NOT a new-this-window count, and
+`crash_count`/`fire_count` are flag totals "within the fetched window" —
+this distinction is stated explicitly in the shipped page's honesty note,
+not glossed over) and `server/routes.ts`'s exact `/api/data/
+vehicle-complaints` handler/response shape (`{kind, source, attribution,
+time, count, note, vehicles}`) before writing anything. Fetched the live
+route directly (`curl .../api/data/vehicle-complaints`) to see real data
+before designing the page — 17 vehicles across 11 tickers. Read
+`client/src/pages/fdaEvents.tsx` and `client/src/pages/tff.tsx` in full as
+templates (same single-snapshot RAW-table shape, same honesty-note-before-
+table convention, same `.vt-filings-*`/`.vt-shortvol-*` CSS reuse) and the
+exact `datamap.tsx` wiring recipe for `fda_events` (state hook, hashchange
+entry, `LAYER_GROUP` fallback, status-polling effect, icon/unit lookups,
+launcher button, render block) side-by-side before adding
+`vehicle_complaints` the same way. Read `server/layersRegistry.test.ts` and
+`server/layersWiring.test.ts` in full before touching `datacore/
+layers.json` — confirmed the mandatory-fields contract (`kind`, `status`,
+`source`, `description`) and the LAYER_GROUP-wiring ratchet (R15
+defect-class precedent) unchanged; added the `LAYER_GROUP` entry in the
+same edit as the registry entry, exactly the pairing R15 exists to
+enforce. Read `datacore/layers.json`'s `fda_events` entry as the
+registry-copy template and edited via a targeted string insertion (not a
+full `json.dump` round-trip), verified with `python3 -c "import json;
+json.load(...)"` that it still parses (244 layers, `vehicle_complaints`
+present). Read `scripts/visual_check.mjs`'s Phase-5-ratchet convention
+before adding the PAGES entry, and its `/api/data/layers` FIXTURES list
+convention before adding the layer there too.
+
+WHAT SHIPPED:
+1. `client/src/pages/vehicleComplaints.tsx` (new) — fetches `/api/data/
+   vehicle-complaints` on mount; groups the flat vehicle list by `ticker`
+   (several models per company in the watchlist), ranks ticker groups by
+   combined crash+fire flag count (a DISPLAY ordering only, explicitly
+   labeled as such — no score, no threshold, no trade implication), and
+   within each group sorts models by total complaints. Two honesty notes
+   before any data: (a) curated watchlist, not the full NHTSA universe —
+   an absent make/model was never polled, not screened for being clean;
+   (b) the module's own gate-1-not-attempted hypothesis (complaint-rate
+   acceleration, esp. crash/fire flags, precedes recalls/investigations)
+   plus the explicit total-complaints-is-cumulative-not-a-window-count
+   caveat found while reading the source. RAW display only — `kind:"raw"`,
+   no ladder gate (matches the module's own gate-1 status).
+2. `client/src/pages/datamap.tsx` — `VehicleComplaintsView` import (+
+   `Car` icon import, not previously imported in this file);
+   `vehicleComplaintsOpen` state (hash-init `#/data/vehicle-complaints`);
+   hashchange listener entry; `LAYER_GROUP` fallback entry
+   (`vehicle_complaints: "filings"`); status-polling effect (mirrors
+   fda_events' exact 300s-badge-refresh shape, since the server itself
+   already polls on its own 12h cycle); icon lookup (`Car`) and unit
+   lookup (`"vehicles"`); open-full-view launcher button inside the
+   `vehicle_complaints` layer row; render block.
+3. `datacore/layers.json` — new `vehicle_complaints` entry (surgical
+   insertion right after `fda_events`; this is the entry's FIRST
+   appearance in the registry, not an update — this route had zero
+   wiring of any kind before this session). Verified `python3 -c "import
+   json; json.load(...)"` still parses.
+4. `scripts/visual_check.mjs` — `vehiclecomplaints` PAGES entry
+   (`map:false`, same Phase-5 ratchet rule as every sibling filings
+   page); `/api/data/vehicle-complaints` fixture (two tickers so the
+   harness exercises ticker-grouping across companies, one model with a
+   nonzero fire count so that column renders non-blank);
+   `vehicle_complaints` entry added to the `/api/data/layers` FIXTURES
+   list (matching the convention `fda_events`/`tff`/`treasury_dts`
+   already follow there).
+5. `package.json`/`package-lock.json` version bump only (1.0.736 ->
+   1.0.737, read-and-incremented at commit time per MERGE-ORDER
+   PROTOCOL — confirmed via a fresh `git fetch origin main` immediately
+   before bumping that the branch was exactly at origin/main tip, no
+   drift, at bump time; `npm version --no-git-tag-version` used to sync
+   both files in one step).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `node --test server/layersRegistry.test.ts
+server/layersWiring.test.ts` run standalone first (25/25 pass) to catch
+any registry/wiring mistake before the full suite. `bash scripts/
+tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (all 12 pre-existing,
+none in this diff). `bash scripts/gated_tests.sh` GATE PASSED — client
+1017/1017 (97 files, no new test file — matches every sibling filings
+page's own convention, none of tff.tsx/treasuryDts.tsx/treasuryAuctions.tsx/
+fdaEvents.tsx have one either), python 1357 passed/1 skipped (unchanged
+from baseline), quarantine 0/1, none overdue. `bash scripts/
+counter_ratchet.sh`: OK, 25/25 counters at or better than baseline.
+`assertions` moved 11443(pin) -> 11456(live) — pre-existing drift from
+merges since the pin was last set (this diff adds no test files, so it
+cannot be this session's own effect); left un-repinned per PROMOTION RULE
+5, same precedent the 2026-08-17 sessions set for `tests_run_in_ci`/
+`tests_gating_merge` drift. `npm run build` clean (only pre-existing
+warning classes: astronomy-engine ESM default-export notice, large-chunk
+notice, mapIcons dynamic/static dual-import notice — none related to this
+diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page vehiclecomplaints` at all three canonical widths (390/768/1440) —
+**0 hard failures**. Own-review of all three PNGs confirms the header
+(title, vehicle/ticker counts, NHTSA source link), both honesty notes, and
+the ticker-grouped tables (TSLA — 375 complaints/44 crash/2 fire across 2
+models, correctly ranked above F — 72/4/3 — by combined crash+fire count;
+model/total/crash/fire/newest-filed columns) render correctly at desktop,
+768px tablet, and the 390px mobile stacked-card layout (`data-l` labels
+visible per cell). Only warnings present are the pre-existing global-chrome
+touch-target/clipped-control warnings that appear on essentially every page
+in this harness (same class noted in every prior session's write-up) and
+the standard headless-software-renderer notice — neither related to this
+diff. Per the same precedent the sibling-page sessions established, a full
+`--page data` run exercising the layer-panel row/launcher-button
+integration itself was not run (known-heavy); that integration was instead
+verified by direct code review — grepped all 8 `vehicle_complaints` call
+sites in `datamap.tsx` (LAYER_GROUP, status-polling effect x2 identifiers,
+icon lookup, unit lookup, launcher-button block, render block) and
+confirmed each mirrors the already-visually-verified `fda_events` block
+structure with only the id/route/label/icon swapped.
+
+HYPOTHESIS / LADDER: N/A — RAW overlay of already-published NHTSA
+complaint counts, no predictive claim, no ladder gate applies (same
+standing rule as every other RAW `/data` page in this repo). The module's
+own complaint-velocity-precedes-recalls hypothesis remains unstarted at
+gate 1 — this session does not begin that research, it only makes the
+underlying data independently inspectable and, for the first time,
+toggleable on the map.
+
+NO live-vs-backtest judgment applies (UI-only change, no trading logic, no
+measurement-code change).
+
+CROSS-SYSTEM INTEGRATION: none new beyond the surface itself — this closes
+a shipped-data-no-UI (and previously zero-registry) gap on an already-live
+datacore/ pipeline; no new archive, no new entity-graph join this session.
+The ticker-mapped shape (already built into the underlying module, not
+added here) is itself the cross-system tie the CROSS-SYSTEM INTEGRATION
+PRINCIPLE asks every stream to carry — every row in this view already
+names a ticker in the bot's own instrument space, unlike `bank_failures`,
+which would need a real entity-graph join (cert -> public parent, where
+one exists) to reach the same property. Flagging that build gap for
+whichever future session takes `bank_failures`, rather than fabricating a
+join here.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, no `/api/v1` mirror exists for this root
+(consistent with every other zero-wiring candidate this run of sessions
+has closed, none of which have one either).
+
+NEXT (queued, not this session): (1) `/api/data/bank-failures` is now the
+LAST remaining zero-wiring `/api/data/*` route from the 2026-08-16 TFF
+sweep — a future PRODUCT session should give it the entity-graph-join
+treatment named above rather than a bare RAW table, or explicitly decide
+that's out of scope and ship the bare table like its four siblings. (2)
+none of `/api/data/tff`, `/api/data/treasury-auctions`, `/api/data/dts`,
+`/api/data/fda-events`, or `/api/data/vehicle-complaints` has an `/api/v1`
+paid-tier mirror yet — a future PRODUCT session could add one. (3) KNOWN
+BROKEN #20 (RULE-REVIEW-gated threshold judgment call) remains queued for
+whichever session next has repair capacity and enough accumulated shadow
+history. (4) the AUDITS & DEBT register's next STALENESS run is not due
+until 2026-09-14 and CONSTITUTIONAL not until 2026-09-15 — neither due
+this session. (5) `PROGRAM_STATE.md`'s own NEXT (Q7-Q9, Q11, Track 2/3 —
+the moon) is a separate, T-CLIENT-adjacent tech-debt program this session
+did not touch — flagged for whichever session's capacity fits its own
+territory, per that file's own instructions.
+
+MARKET-HOURS MERGE NOTE: this session ran at 20:13 ET (well after the
+4:00pm close) — no merge-timing caveat needed, unlike several sessions
+this week that ran mid-market.
+
+Audit log spot-check (last 300 `/api/diag/audit` entries, ~last day):
+one `TIER3-ML-ERROR` (ML retrain killed by SIGKILL — consistent with the
+daemon's documented >1GB RSS self-kill, not a new failure mode) and one
+`RESEARCH-ERROR` (overnight `bot_engine.py full` research run failed),
+both singletons in the window, not repeats of anything in KNOWN BROKEN —
+not logged as a new break; a future REPAIR session should watch whether
+either recurs before treating it as more than a one-off.
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated action
+matched to session capacity; no higher-priority queued item was skipped
+(no LIVENESS ALARM; the one open KNOWN BROKEN item is RULE-REVIEW-gated,
+not blocking; product sessions do not preempt DAILY repair duty per this
+task's own instructions).
+
 ## 2026-08-17 (scheduled-routine session #5) [REPAIR] — T-BOT (shadow_portfolio.py) + SHARED (research/*, package.json last-and-minimal) — KNOWN BROKEN #20's stalled evidence gate: root-caused and fixed the shadow-backfill starvation bug, v1.0.736
 
 TERRITORY: T-BOT primary (`shadow_portfolio.py` only — no `bot_engine.py`/
