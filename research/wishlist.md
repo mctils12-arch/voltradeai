@@ -158,6 +158,19 @@ both options require either editing the FROZEN `automerge` job or
 changing the scheduled-routine's own prompt. Full trace in
 `research/experiments.md` (2026-08-17 session ADDENDUM).
 
+**FIFTH OCCURRENCE, 2026-08-18:** PR #872 (this same day's
+`fdic_bank_failures` gate-1 ground-truth finding — research/honesty-note
+change, non-critical, no live-traded path touched) carried the same
+"please hold this merge until after the 16:00 ET close" note and
+auto-merged at 13:24 UTC (~09:24 AM ET), ~3 minutes after opening —
+seconds after the 09:30 ET open even started. Same mechanism, fifth
+instance since 2026-08-14, now spanning 5 consecutive scheduled-routine
+sessions across 5 different days. No new information — this is now
+simply confirming the gap has never once been intermittent since it was
+first found. Still awaiting the human's pick of option 1 or 2 above.
+Full trace in `research/experiments.md` (2026-08-18 session #4
+ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
