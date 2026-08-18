@@ -2355,7 +2355,7 @@
    "group": "filings",
    "costTier": "light",
    "source": "Wikimedia pageviews API (en.wikipedia, all-access, agent=user, no API key required)",
-   "description": "Daily article pageviews for a curated ~23-ticker seed (the pytrends/Google Trends replacement — that lane failed gate 1) — an attention PROXY, not a signal. As-is display: today's ranked panel + a market-wide seed-total trend + a per-ticker archive lookup; attention-spikes-lead-volume is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
+   "description": "Daily article pageviews for a curated ~23-ticker seed (the pytrends/Google Trends replacement — that lane failed gate 1) — an attention PROXY, not a signal. GATE 1 (DATA) PASSED 2026-08-18: pageviews visibly rise around known SEC earnings-filing dates on 11/11 hand-checked tickers (a live redirect-safety scan run the same session also caught and fixed 3 seed tickers pointed at wrong Wikipedia redirect pages). As-is display: today's ranked panel + a market-wide seed-total trend + a per-ticker archive lookup; attention-spikes-lead-volume is an open gate-2 hypothesis, gated on trailing archive depth, not yet surfaced as a signal."
   },
   {
    "id": "cot",

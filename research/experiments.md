@@ -20,6 +20,330 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-18 (scheduled-routine PRODUCT session #5) [PIPELINE] — T-DATACORE (primary) + T-CLIENT sliver (attention.tsx honesty note) — wikimedia_pageviews_attention GATE 1 (DATA) ground-truth check: PASS, and a 94x live-production data defect found + fixed along the way (v1.0.741)
+
+TERRITORY: T-DATACORE primary (`scripts/wikiattention_gate1.ts` new,
+`scripts/wikiattention_gate1.test.ts` new, `server/wikiAttention.test.ts`
+regression pin, `datacore/wiki_articles.json` the 3-title fix,
+`datacore/signal_ladder.json` status update, `datacore/layers.json`
+description update, `research/open_questions.md` update) + T-CLIENT sliver
+(`client/src/pages/attention.tsx` honesty note + module-doc line,
+`scripts/visual_check.mjs` new PAGES entry for the pre-existing, previously
+harness-unregistered `#/data/attention` route) + SHARED last-and-minimal
+(`ci/counter_baseline.txt` 3-counter re-pin, `package.json`/
+`package-lock.json` version bump, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/
+experiments.md` (AUDITS & DEBT register — nothing overdue, STALENESS
+2026-09-14/CONSTITUTIONAL 2026-09-15/CALENDAR 2026-12-01 — and the last
+~10 tagged entries, including today's own 4 prior sessions and the FIFTH
+logged occurrence of the market-hours automerge gap, which per that
+entry's own text does not need a sixth re-log without new information).
+`research/open_questions.md` KNOWN BROKEN section walked in full: #20
+(RULE-REVIEW-gated evidence collection), #29 (MEDIUM, visibility-gap-only
+partial fix), #30 (CLOSED 2026-08-16, live-reverified) — none block
+product work. Live `/api/health` (production, `server_version` implied
+current): `status:"ok"`, bot `active`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, Alpaca `ACTIVE`, scanner `consecutiveFailures:0`,
+all three feeds (aircraft/vessels/trains) `dead:false`, `silent_hours`
+~0.2 each — no LIVENESS ALARM. Session started ~14:12 ET, inside market
+hours — per this task's own instruction, the PR notes merge should wait
+until after the 16:00 ET close (see the standing PROCESS-GAP note: the
+FROZEN automerge job has ignored this note 5/5 times running; this
+session still writes it, since not writing it would not be more honest,
+it would just stop recording the one signal that could eventually justify
+fixing the gap). Loop-health ratio: last 10 tagged entries before this one
+carry 2 REPAIR / 7 PRODUCT/PIPELINE / 1 RULE-REVIEW — under the 7+ thrash
+trigger, no meta-problem to address.
+
+PRIMARY-ACTION SELECTION: confirmed this sandbox still has no live
+market-data access this session (`env | grep -i ALPACA` empty,
+`python3 -c "import yfinance"` → `ModuleNotFoundError`, live curl to
+`query1.finance.yahoo.com` → HTTP 429 — same three checks the immediately
+preceding session ran and got the same answer from), which rules out any
+GATE 2 statistical test (forward-return based) for any root today.
+Surveyed `datacore/signal_ladder.json` for `current_gate` 0/1 roots whose
+gate-1 work is genuinely open (not RULE-REVIEW- or external-event-gated):
+`space_weather_swpc`'s gate 1 is blocked on a G2+ geomagnetic storm
+actually landing in the archive (not yet — a real external-event
+dependency, not something this session can force); `port_dwell_maritime_
+transit`'s gate 1 has no concretely pre-specified check recorded anywhere
+in research/ to execute against. `wikimedia_pageviews_attention` stood
+out: its own module header (`server/wikiAttention.ts`, unchanged since
+2026-07-05) and its `datacore/manifests/wikiattention.json` confidence_model
+both pre-state an EXACT, executable gate-1 bar — "views vs known events,
+e.g. earnings dates, on 10 hand-checked tickers" — and
+`datacore/signal_ladder.json`'s own entry has carried the note "no
+explicit gate-1 pass/fail statistic found in the record" since the ladder
+file was first compiled (2026-07-30), meaning this concretely-specified
+check had simply never been run in six weeks despite the archive (live
+since 2026-07-05, ~6 weeks deep) being more than ready. Chose it over
+starting any fresh hypothesis from scratch, per this task's own option
+(a) and the "advance a datacore/ pipeline through its next ladder gate"
+framing.
+
+READ BEFORE WRITE: read `server/wikiAttention.ts` in full (ARTICLES map,
+fetch/archive/cache functions, the module's own gate-1 bar in its header
+docstring) and `server/wikiAttention.test.ts` in full before writing
+anything. Read `datacore/wiki_articles.json`'s `_meta.expansion_rule`
+closely — it already documents the exact failure class this session found
+("RIOT was dropped at curation: both candidate titles failed the probe;
+pageviews does not follow redirects") as a KNOWN risk for future additions
+to the seed, which is what motivated checking whether any of the ORIGINAL
+22 pairs had the same defect nobody checked for at the time. Read
+`scripts/crop_conditions_gate1.ts` and `scripts/occ_volume_gate1.ts` in
+full as the house style for a GATE 1 script (hand-recorded TRUTH/EVENTS
+table with its provenance stated, PASS bar stated before the write-up,
+JSON verdict output) before writing `wikiattention_gate1.ts`, and
+`scripts/finra_shortvol_gate2_retest.ts` / `occ_volume_gate2_clustered.ts`
+for the `import.meta.url` entrypoint-guard pattern a same-file
+`.test.ts` companion requires (confirmed the hard way: the first test run
+of `wikiattention_gate1.test.ts`, before the guard was added, silently
+executed the whole live network script as an import side effect —
+caught by its ~47s duration instead of the expected <1s for pure-function
+tests, fixed before this was ever close to being called done).
+
+METHOD (PART A — redirect safety check, run first): for each of the 22
+seed pairs then in `wiki_articles.json`, live-queried MediaWiki's own
+`action=query&redirects=1` API (not the pageviews API itself — this is
+the ONE authoritative way to ask "does this exact title resolve to a
+different page") and compared the resolved title back to the seed's
+literal `title_with_underscores`. Ran manually first via inline Python
+(scratchpad, not committed) to establish the finding, then re-implemented
+as `scripts/wikiattention_gate1.ts`'s reusable `checkRedirect()` so the
+SAME check can be re-run by any future session, not just cited as a
+one-time fact.
+
+FINDINGS (PART A): 3 of 22 seed pairs were pointed at REDIRECT STUBS the
+production pipeline has been silently under/mis-reporting since it went
+live 2026-07-05 — six-plus weeks of degraded data for 14% of the curated
+universe, in a route (`/api/data/attention`) that was already serving
+production traffic and had already passed its own unit test suite (which,
+correctly, only tests parsing/archiving/caching logic against synthetic
+fixtures — it cannot know a bundled title secretly redirects without
+asking Wikipedia, which no test in this repo does for a static JSON
+seed file):
+  - `PLTR`: "Palantir_Technologies" → "Palantir". Stub averaged 1,128
+    views/day over the archive window (2026-07-05..08-17); the REAL
+    article averages 4,065/day. The pipeline was serving ~28% of true
+    attention for one of its most name-recognizable tickers.
+  - `AMC`: "AMC_Entertainment" → "AMC Theatres". Stub averaged 8
+    views/day; the real article averages 750/day — a **94x undercount**.
+    AMC is one of the two "meme stock" names in the seed (with GME) —
+    exactly the kind of ticker this hypothesis is most interested in —
+    and its data was, in practical terms, noise the entire time.
+  - `SMCI`: "Super_Micro_Computer" → "Supermicro". Stub averaged 331/day
+    (live-fetched for comparison); real "Supermicro" data was used for
+    Part B below.
+  All other 19 pairs resolve to themselves — this was NOT a systemic bug
+  in `parsePageviews`/`fetchAttention` (both correctly relay whatever the
+  API returns for the title given), it was a curation-time gap: RIOT's
+  redirect was caught in the same 2026-07-05 session because it happened
+  to fail visibly (a 404, not a silent stub); these three redirect to
+  live pages that DO return HTTP 200 with real-looking (just much smaller
+  or entirely different-scale) numbers, so nothing about the original
+  pipeline probe would have flagged them without specifically checking
+  for a redirect.
+
+FIX: `datacore/wiki_articles.json` corrected to the three live canonical
+titles (`_meta` gained a dated `correction_2026_08_18` field documenting
+what changed and why, same spirit as the file's existing `expansion_rule`
+provenance notes — never silently edit a hand-curated file).
+`server/wikiAttention.test.ts` gained a new pinning test asserting the
+corrected values, so a future revert (or a copy-paste of the old JSON
+from a stale branch) is caught by the existing gated suite without any
+network access, not just by re-running the live script.
+
+METHOD (PART B — event-vs-baseline hand-check, run second, against the
+NOW-CORRECTED seed): built `EARNINGS_EVENTS`, an 11-ticker table hand-
+recorded from a live query of EDGAR's own `data.sec.gov/submissions/
+CIK##########.json` for each ticker's CIK (resolved via SEC's
+`company_tickers.json`, exact numeric match, same approach
+`sec8kEarnings.ts` already uses for the reverse direction), filtered to
+8-K filings whose SEC-published `items` field includes "2.02" ("Results
+of Operations and Financial Condition") and dated on/after 2026-07-01 —
+one unambiguous filing date per ticker, chosen from the 19 of 22 seed
+tickers that had at least one such filing inside the archive's live
+window (2026-07-05 onward). This is an EARNINGS-ANNOUNCEMENT date,
+independent of any price/volume series — exactly the ground truth this
+sandbox could still reach with market data blocked. For each of the 11,
+fetched the FULL daily pageview series for the archive window
+(2026-07-05..08-17, `WINDOW_START`/`WINDOW_END` in the script) and
+computed `eventWindowRatio()`: the peak of [event date, event date + 1]
+(the +1 covers after-hours filings crossing a UTC day boundary before the
+pageview spike registers) against the MEDIAN of every other day in the
+window, excluding a 1-day buffer on each side of the event — a
+self-referential baseline needing no external "normal day" assumption.
+PRE-STATED PASS BAR (written into the script's header before the final
+run): gate 1 = DATA plausibility only, not predictive power (that is
+gate 2's job elsewhere in this repo) — every sampled ticker's peak-window
+views must exceed its own baseline median, reported honestly regardless
+of outcome per REASONING STANDARD #4's small-sample discount.
+
+RESULT (live run, `npx tsx scripts/wikiattention_gate1.ts`, this
+session's `datacore/wiki_articles.json` already corrected so PART A's
+own re-run reports 0 defects against the current seed):
+
+```
+AAPL   event=2026-07-30 peak=2026-07-31 ratio=1.08
+AMD    event=2026-08-04 peak=2026-08-04 ratio=1.39
+PLTR   event=2026-08-03 peak=2026-08-04 ratio=2.77   (corrected article)
+COIN   event=2026-07-30 peak=2026-07-31 ratio=1.12
+AMC    event=2026-07-20 peak=2026-07-20 ratio=1.72   (corrected article)
+SOFI   event=2026-07-29 peak=2026-07-29 ratio=3.46
+HOOD   event=2026-07-29 peak=2026-07-29 ratio=1.11
+RDDT   event=2026-07-30 peak=2026-07-30 ratio=1.06
+CVNA   event=2026-07-29 peak=2026-07-30 ratio=1.16
+MARA   event=2026-08-06 peak=2026-08-07 ratio=1.33
+SMCI   event=2026-08-11 peak=2026-08-12 ratio=3.33   (corrected article)
+```
+
+11/11 directionally consistent (ratio > 1.0 every time — zero
+counterexamples); 4/11 clear a 1.5x bar. VERDICT: **PASS**. Read as a
+whole (REASONING STANDARD #4 — extract the finding, don't just grade
+pass/fail): the effect is real and always the right sign, but modest for
+the mega-caps (AAPL 1.08x, RDDT 1.06x — both already the subject of heavy
+constant baseline attention, so an earnings day is a smaller relative
+bump) and strongest for the smaller/more retail-driven names (SOFI 3.46x,
+SMCI 3.33x, PLTR 2.77x) — roughly the shape the hypothesis itself
+predicts (small-cap/retail attention effects being the more interesting,
+less-arbitraged case). WORTH NAMING: the 3 corrected tickers (PLTR/AMC/
+SMCI) are 3 of the 4 strongest ratios in the table — not because the fix
+inflated anything (the fix, if anything, worked against a clean story:
+AMC's stub ratio before correction was a noise-level 1.12x on 8-vs-9
+views; correcting it produced a WEAKER-looking absolute view count context
+but a stronger, more meaningful 1.72x on real 735-vs-1262 views), but
+because this happens to be a case where fixing a data defect made the
+underlying hypothesis look BETTER supported, which is exactly the
+direction MEASUREMENT INTEGRITY says to be most suspicious of. Re-checked
+the logic for that reason: the pre/post-fix comparison is apples-to-apples
+(same event dates, same window, same formula, only the input series
+changed to the correct one), and the improvement is a direct, mechanical
+consequence of PLTR/AMC's real articles carrying much larger baselines
+that the stubs' near-flat trickle of traffic couldn't show any spike
+against — not a chosen-after-the-fact analytical knob.
+
+WHAT SHIPPED: `scripts/wikiattention_gate1.ts` (new, reusable — re-running
+it is how a future session re-verifies PART A against whatever the seed
+looks like then, or re-runs PART B once GATE 2 planning starts) +
+`scripts/wikiattention_gate1.test.ts` (new, 6 unit tests on the two pure
+exported helpers `eventWindowRatio`/`checkRedirect`, zero network, ran in
+<1s — the `import.meta.url` entrypoint guard described above is what
+makes that possible); `datacore/wiki_articles.json` 3-title fix + dated
+correction note; `server/wikiAttention.test.ts` +1 regression-pinning
+test; `datacore/signal_ladder.json` `wikimedia_pageviews_attention` →
+`gate1_pass`/`current_gate:1` (surgical string edit, `git diff --stat`
+confirmed 1 line changed before proceeding — the `json.dump` reformatting
+trap this exact file has caught out two prior sessions); `datacore/
+layers.json` description updated in place; `client/src/pages/
+attention.tsx` gained an in-page honesty note (same `vt-filings-sub`
+class/placement convention as `bankFailures.tsx`'s precedent) stating the
+gate-1 result AND the redirect-fix finding in user-facing language, plus
+a module-doc line; `scripts/visual_check.mjs` gained a proper `attention`
+PAGES entry (this pre-existing, already-live page had never been
+registered in the Phase 5 visual-harness ratchet before this session —
+closed that gap while already touching the file, not scope creep: every
+PRODUCT session touching a page this repo has under this ratchet has
+been adding its PAGES entry as part of the same PR since the ratchet
+began); `research/open_questions.md` dated UPDATE under the WIKIMEDIA
+PAGEVIEWS ATTENTION PROXY hypothesis entry.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r
+requirements-dev.txt` (both absent at session start). `npx tsx --test
+server/wikiAttention.test.ts scripts/wikiattention_gate1.test.ts
+server/layersRegistry.test.ts server/signalLadder.test.ts` — 45/45 pass
+(the `layersRegistry`/`signalLadder` suites confirm the `layers.json`/
+`signal_ladder.json` edits satisfy the registry/ladder schema+wiring
+ratchets against the real committed files, not a fixture). `bash
+scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged. `bash
+scripts/gated_tests.sh` GATE PASSED — client 1017/1017 (97 files), python
+1374 passed/1 skipped, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: re-pinned `tests_run_in_ci`/`tests_gating_merge`
+377→378 (this session's own new gated test FILE,
+`wikiattention_gate1.test.ts`, is the direct cause — confirmed by the
+counter's own file-count definition, not individual assertions) and
+`assertions` 11456→11492 (this session's own 7 new test cases across the
+two touched test files); re-ran the ratchet after re-pinning, clean.
+`npm run build` clean (only pre-existing warning classes: astronomy-engine
+ESM default-export notice, large-chunk notice, mapIcons dynamic/static
+dual-import notice — none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page attention` and `--page signals`, each at 390/768/1440 — **0 hard
+failures** on both (this is `attention`'s FIRST run under the harness,
+having gained its PAGES entry this session). Own-review of the
+`attention-1440.png` screenshot (attached-equivalent, reviewed this
+session) confirms the new gate-1 honesty note renders directly below the
+page header, above the seed-total snapshot panel, in the same
+`vt-filings-sub` style as every other page's honesty notes on this site.
+The `signals` page's `gate1_pass` status class already renders correctly
+via an existing generic fixture row (`fx_g1pass`) — same observation and
+same reasoning the 2026-08-18 bank-failures session logged for its own
+new category label: the fixture doesn't exercise THIS session's specific
+new ladder entry by id, but the shared rendering path it uses is already
+covered. Only warnings present are the pre-existing global-chrome
+touch-target/clipped-control warnings that appear on essentially every
+page in this harness (same class noted in every prior session's
+write-up) and the standard headless-software-renderer notice — neither
+related to this diff.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is a DATA-gate
+validation and a data-quality repair on an existing pipeline, not a new
+join or archive. The redirect-safety check itself (`checkRedirect()`) is
+a reusable capability future sessions curating ANY new Wikipedia-backed
+seed pair could call before adding one, closing the exact gap
+`wiki_articles.json`'s own `expansion_rule` note already warned about
+in the abstract but nothing had ever automated.
+
+HYPOTHESIS / LADDER: `wikimedia_pageviews_attention` moves `gate1_pending`
+→ `gate1_pass`/`current_gate: 1` in `datacore/signal_ladder.json`. The
+page's `kind` stays `"raw"` — a DATA-gate pass is not a SIGNAL and carries
+no predictive claim, per RAW OVERLAYS vs SIGNALS (same precedent as this
+same day's `fdic_bank_failures` session). GATE 2 (attention spikes lead
+volume/volatility 1-5d) remains untouched and will need live market data
+this sandbox does not have today.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or trading
+threshold changed; DATA-gate ground-truth research plus a data-quality
+repair plus an honesty-surface addition.
+
+MARKET-HOURS MERGE NOTE: session started ~14:12 ET, inside market hours —
+per this task's own instruction, the PR notes merge should wait until
+after the 16:00 ET close. Per the FIFTH-occurrence entry earlier today,
+this note has not once been honored by the FROZEN automerge job across 5
+consecutive prior sessions; not re-logging a sixth occurrence here unless
+this PR's own outcome differs from that pattern (it will be visible in
+this PR's own merge timestamp regardless, without needing a dedicated
+addendum to make the same already-established point again).
+
+NEXT (queued, not this session): (1) GATE 2 for
+`wikimedia_pageviews_attention` (attention spikes lead volume/volatility
+1-5d, small-cap subset the interesting case) once a future session has
+live market-data access — the archive is 6+ weeks deep and growing daily,
+so history depth is no longer the blocker, live prices are. (2) the
+`checkRedirect()` helper this session built could be generalized into a
+standing pre-flight check for ANY future addition to `wiki_articles.json`
+(today it is a manually re-run script, not a merge gate) — filed as an
+idea, not built, since the seed is currently frozen at 22 hand-curated
+pairs with no pending addition to gate. (3) `space_weather_swpc`'s gate 1
+remains blocked on an actual G2+ storm landing in the archive — not
+actionable by any session until that external event occurs. (4) per the
+AUDITS & DEBT register, nothing is currently overdue (next due dates
+2026-09-14/09-15/12-01) — no audit action needed by the next session's
+fall-through unless dates have since passed.
+
+STARVED: no — this was the clearest, most concretely pre-specified
+GATE 1 action available given this sandbox's confirmed lack of live
+market-data access (which ruled out every GATE 2 candidate and the one
+other open GATE 1 candidate with a concrete method, `space_weather_swpc`,
+sitting on an external-event dependency instead). Matched to what this
+session could actually execute, and turned up a genuine, previously
+unknown, `document`-worthy production data defect along the way rather
+than a clean pass-and-move-on. No higher-priority queued item was skipped
+(no LIVENESS ALARM; KNOWN BROKEN items are RULE-REVIEW- or
+visibility-gated only; no overdue audit; the automerge PROCESS-GAP note
+needs a human decision, already filed, not further same-day re-logging).
+
 ## 2026-08-18 (scheduled-routine PRODUCT session #4) [PIPELINE] — T-DATACORE (primary, research bookkeeping) + T-CLIENT sliver (bankFailures.tsx honesty note) — fdic_bank_failures GATE 1 (DATA) ground-truth check: PASS with one honestly-logged, unresolved recency caveat (v1.0.740)
 
 TERRITORY: T-DATACORE primary (`datacore/signal_ladder.json` new

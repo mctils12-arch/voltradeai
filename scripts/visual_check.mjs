@@ -125,6 +125,10 @@ const PAGES = {
   // FDIC bank failures — same Phase 5 ratchet rule as
   // streams/vehiclecomplaints above.
   bankfailures: { route: "/app#/data/bank-failures", map: false },
+  // Attention proxy (Wikipedia pageviews) — existing page, brought under
+  // the Phase 5 ratchet this session (GATE 1 pass + honesty-note addition,
+  // 2026-08-18) alongside the other /data detail views above.
+  attention: { route: "/app#/data/attention", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's

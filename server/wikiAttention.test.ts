@@ -26,6 +26,12 @@ test("seed map: bundled statically, non-empty, RIOT honestly absent", () => {
   assert.equal(ARTICLES.RIOT, undefined, "RIOT dropped at curation (renamed article)");
 });
 
+test("seed map: PLTR/AMC/SMCI point at their live canonical titles, not the redirect stubs the 2026-08-18 GATE 1 session found (94x undercount on AMC)", () => {
+  assert.equal(ARTICLES.PLTR, "Palantir", "was 'Palantir_Technologies' — a redirect stub serving ~28% of the real article's traffic");
+  assert.equal(ARTICLES.AMC, "AMC_Theatres", "was 'AMC_Entertainment' — a redirect stub serving ~1% of the real article's traffic");
+  assert.equal(ARTICLES.SMCI, "Supermicro", "was 'Super_Micro_Computer' — a redirect stub");
+});
+
 test("parsePageviews: documented items[] shape, malformed items dropped", () => {
   const obs = parsePageviews(ITEMS("Nvidia", [["20260701", 10883], ["20260702", 11200]]),
                              "NVDA", "Nvidia", "2026-07-05");
