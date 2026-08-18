@@ -7,7 +7,9 @@
 // poll time) + /api/data/attention/history (market-wide seed-total trend,
 // and on demand a single ticker's view series from the day archive). RAW
 // attention PROXY — NOT a signal; spike/z-score claims stay gate-locked
-// until the archive has trailing history and gate 1 passes.
+// until gate 2 (attention-spikes-lead-volume) is attempted. GATE 1 (DATA)
+// PASSED 2026-08-18 — see the in-page note below and
+// scripts/wikiattention_gate1.ts.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Eye, Search } from "lucide-react";
 
@@ -100,6 +102,16 @@ export default function AttentionView({ onBack }: { onBack: () => void }) {
 
       {!error && (
         <div className="vt-shortvol-body">
+          <div className="vt-filings-sub">
+            gate 1 (data ground-truth check, 2026-08-18): pageviews visibly rise around a known,
+            independently-dated event (SEC 8-K earnings filings) on 11 of 11 hand-checked tickers —
+            direction always correct, magnitude ranging 1.06x-3.46x of the trailing baseline. The
+            same check also caught 3 of the 22 seed tickers pointed at the wrong Wikipedia article
+            (a redirect page the pageviews API silently doesn't follow — one of them, AMC, had been
+            serving under 2% of its real article's traffic since this feed launched); corrected.
+            This confirms the DATA plausibly tracks real attention — it does not establish
+            predictive power, which stays gate-locked (gate 2, not attempted).
+          </div>
           <div className="vt-shortvol-snapshot">
             <div className="vt-shortvol-statblock">
               <div className="vt-shortvol-statlabel">seed-total views, latest complete day</div>

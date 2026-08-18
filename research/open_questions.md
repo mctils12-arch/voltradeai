@@ -6734,6 +6734,36 @@ the ladder before belief.)
    signal literature being crowded on large caps — small-cap
    restriction is the edge claim. GATE 1: views series sanity vs
    known events (earnings dates spike) on 10 hand-checked tickers.
+   UPDATE 2026-08-18 (scheduled-routine PRODUCT session): GATE 1
+   run for the first time — `scripts/wikiattention_gate1.ts`. METHOD:
+   for 11 seed tickers with an unambiguous SEC 8-K Item 2.02
+   ("Results of Operations") filing date inside the live archive
+   window (fetched live from data.sec.gov/submissions, independent
+   of any market-data source — this sandbox had none today: no
+   yfinance, empty ALPACA_* env, Yahoo 429), compared the peak of
+   [filing date, +1] daily pageviews against the median of every
+   other archived day. RESULT: 11/11 show peak > baseline (ratios
+   1.06x-3.46x; 4/11 clear 1.5x) — directionally consistent every
+   time, magnitude modest for large/mega-caps (AAPL 1.08x, RDDT
+   1.06x) and strong for the smaller/more retail-driven names (SOFI
+   3.46x, SMCI 3.33x, PLTR 2.77x), roughly the shape the hypothesis
+   itself predicted (small-cap/retail names show the effect more
+   than mega-caps do). BYPRODUCT FINDING, not a fabricated result:
+   the same script's live redirect-safety pass (checking every seed
+   title against MediaWiki's own redirects=1 API — the pageviews
+   endpoint does not follow redirects, the exact reason RIOT was
+   dropped at curation) found 3 of the 22 seed pairs had been
+   silently pointed at redirect STUBS since 2026-07-05: PLTR
+   ("Palantir_Technologies"→"Palantir", stub served ~28% of real
+   traffic), AMC ("AMC_Entertainment"→"AMC Theatres", stub served
+   ~1%, a 94x undercount), SMCI ("Super_Micro_Computer"→"Supermicro").
+   Fixed in `datacore/wiki_articles.json`, pinned in
+   `server/wikiAttention.test.ts` so a revert is caught without
+   network access; the script itself is re-runnable to catch a
+   *future* mis-curated addition the same way. `datacore/
+   signal_ladder.json` updated to `gate1_pass`. GATE 2 (attention
+   leads volume/vol 1-5d) remains untouched — this session validated
+   the DATA, not predictive power.
 4. FAA AIRPORT STATUS / DELAY PROGRAMS (nasstatus.faa.gov/api/
    airport-status-information — keyless, probed 200; US government
    work). Ground stops, ground-delay programs, closure reasons by
