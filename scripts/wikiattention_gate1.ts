@@ -69,7 +69,8 @@
 import { pathToFileURL } from "url";
 import { ARTICLES } from "../server/wikiAttention";
 
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+type FetchInit = { headers?: Record<string, string> };
+type FetchFn = (url: string, init?: FetchInit) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 // Hand-recorded 2026-08-18 from data.sec.gov/submissions/CIK##########.json,
 // filtered to 8-K filings with itemCodes including "2.02", dated >= 2026-07-01.
@@ -154,7 +155,7 @@ async function fetchDailySeries(fetchImpl: FetchFn, article: string, startYmd: s
 async function sleep(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 5, baseDelayMs = 3000): Promise<T> {
-  let lastErr: any;
+  let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try { return await fn(); } catch (e) { lastErr = e; await sleep(baseDelayMs * (i + 1)); }
   }

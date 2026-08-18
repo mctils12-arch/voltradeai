@@ -257,16 +257,68 @@ server/layersRegistry.test.ts server/signalLadder.test.ts` — 45/45 pass
 ratchets against the real committed files, not a fixture). `bash
 scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged. `bash
 scripts/gated_tests.sh` GATE PASSED — client 1017/1017 (97 files), python
-1374 passed/1 skipped, quarantine 0/1 none overdue. `bash scripts/
-counter_ratchet.sh`: re-pinned `tests_run_in_ci`/`tests_gating_merge`
-377→378 (this session's own new gated test FILE,
-`wikiattention_gate1.test.ts`, is the direct cause — confirmed by the
-counter's own file-count definition, not individual assertions) and
-`assertions` 11456→11492 (this session's own 7 new test cases across the
-two touched test files); re-ran the ratchet after re-pinning, clean.
-`npm run build` clean (only pre-existing warning classes: astronomy-engine
-ESM default-export notice, large-chunk notice, mapIcons dynamic/static
-dual-import notice — none related to this diff).
+1374 passed/1 skipped, quarantine 0/1 none overdue.
+
+`bash scripts/counter_ratchet.sh` — first local run (files written but
+not yet `git add`ed) reported `tests_run_in_ci`/`tests_gating_merge`
+377→378 and `assertions` 11456→11492, and this entry originally
+mis-attributed the whole of both deltas to this session's own new test
+content. **CORRECTED after CI caught a real regression the same pre-`git
+add` check had missed** (see below): both counters' underlying scripts
+read `git ls-files`, i.e. TRACKED files only — my new files were
+untracked at that first local check, so the 378/11492 readings could not
+have included them at all. Spun up a disposable worktree at `origin/main`
+(`git worktree add /tmp/main_check origin/main --detach`) to isolate
+what was already live on main BEFORE this session touched anything:
+`tests_run_in_ci`/`tests_gating_merge` were already 378 there (PRE-
+EXISTING drift from unrelated prior merges, not this session's effect —
+same pattern several 2026-08-16/17/18 sessions have logged for this
+exact pair) and `assertions` was already 11489. `ci/counter_baseline.txt`
+corrected to reflect only what this session actually did: `tests_run_
+in_ci`/`tests_gating_merge` reverted to the ORIGINAL 377 pin (unclaimed
+— per PROMOTION RULE 5 this session did not cause that drift, AND the
+counter's own glob (`server/.*\.test\.ts$` / `client/.*\.test\.tsx?$`)
+does not even match `scripts/wikiattention_gate1.test.ts`, so this
+session's new test file contributes literally 0 to this specific
+counter regardless of attribution); `assertions` re-pinned to **11503**
+= 11489 (pre-existing, unclaimed) + 14 (this session's own: +3 in
+`wikiAttention.test.ts`'s new pinning test, +11 in the new
+`wikiattention_gate1.test.ts`, verified by diffing assert-call counts
+against the `origin/main` copy of the one pre-existing file this session
+touched). Re-ran `counter_ratchet.sh` after the correction: OK, 25/25 at
+or better than baseline, no further mis-pin.
+
+**CI ITSELF CAUGHT A REAL REGRESSION this local process had missed**:
+the first push (pre-fix) failed CI's `test` job — `ts_any: 1239 -> 1241`,
+`non-increasing`. Root cause: `scripts/wikiattention_gate1.ts`'s `FetchFn`
+type alias (copied from `server/wikiAttention.ts`'s existing pattern) used
+`init?: any`, and `withRetry`'s `let lastErr: any` — 2 genuine new `: any`
+occurrences this session's own diff introduced, invisible to the same
+pre-`git add` local check that undercounted the other two counters (same
+untracked-files blind spot, same root cause, two different symptoms).
+Fixed properly, not suppressed: `FetchInit = { headers?: Record<string,
+string> }` replaces the `any` parameter type (the two remaining `as any`
+casts near the fetch shim are NOT `: any` type annotations and don't
+match this counter's `:\s*any\b` regex, matching the D-series L9/L20
+lesson that this counter only reads a specific textual pattern);
+`lastErr: unknown` replaces `lastErr: any` (rethrown, never narrowed, so
+`unknown` is both correct and sufficient). Re-verified 0 remaining `:
+any` in either new file and `bash scripts/tsc_ratchet.sh` still 12/12
+clean. Pushed as a second commit on the same PR — see PR #874's CI
+history for the failed-then-fixed run pair.
+
+**LESSON, filed here rather than only in a PR comment**: a local
+`counter_ratchet.sh` run against newly-WRITTEN-but-not-yet-`git add`ed
+files silently undercounts every counter whose script reads `git
+ls-files` (at least `tests_run_in_ci`/`tests_gating_merge`/`assertions`/
+`ts_any`, likely others in the same family) — it is not a partial check,
+it is a check against the PREVIOUS commit's tree with the new files
+invisible. `git add` the new files BEFORE the first local ratchet run,
+not after, or treat a clean pre-add local pass as no evidence at all
+about newly-created files specifically. `npm run build` clean (only
+pre-existing warning classes: astronomy-engine ESM default-export
+notice, large-chunk notice, mapIcons dynamic/static dual-import notice —
+none related to this diff).
 
 VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
 --page attention` and `--page signals`, each at 390/768/1440 — **0 hard
