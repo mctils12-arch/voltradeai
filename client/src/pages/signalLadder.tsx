@@ -75,6 +75,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   labor: "Labor",
   commodities: "Commodities",
   macro: "Macro",
+  credit_markets: "Credit markets",
   other: "Other",
 };
 

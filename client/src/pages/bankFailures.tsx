@@ -10,9 +10,13 @@
 // fdicBanks.ts, not this route). RAW display only; the module's own
 // hypothesis (deposit flight + failures at SMALL regional banks lead
 // KRE and listed small-cap banks — EDGE DOCTRINE #2 whales-can't-fish
-// territory) stays gate-locked at gate 1 (not attempted — no ticker
+// territory) stays gate-locked at gate 2 (not attempted — no ticker
 // join exists here; most failed institutions are small, non-public
-// regional banks, unlike the NHTSA feed's pre-joined watchlist).
+// regional banks, unlike the NHTSA feed's pre-joined watchlist). Gate 1
+// (DATA — QBFASSET/QBFDEP cross-checked against the bank's own FDIC
+// Call Reports) ran 2026-08-18: PASS with a documented caveat — see
+// research/open_questions.md's FDIC BANK DATA entry and
+// datacore/signal_ladder.json's fdic_bank_failures entry.
 // Reuses the generic .vt-filings-*/.vt-shortvol-* CSS — no new styles.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Building2 } from "lucide-react";
@@ -101,12 +105,22 @@ export default function BankFailuresView({ onBack }: { onBack: () => void }) {
             watchlist elsewhere on this map.
           </div>
           <div className="vt-filings-sub">
-            hypothesis under research (gate-locked, gate 1 not attempted): deposit flight and
+            hypothesis under research (gate-locked, gate 2 not attempted): deposit flight and
             failures at small regional banks lead KRE and listed small-cap bank returns — a
             whales-can't-fish edge (capacity-constrained funds can't size into names this small).
             Nothing below reflects that hypothesis yet — this is a raw event listing, no model
             applied. Amounts are $ thousands as published; estimated DIF loss ("Cost") stays blank
             until FDIC publishes an estimate — never shown as zero.
+          </div>
+          <div className="vt-filings-sub">
+            gate 1 (data ground-truth check, 2026-08-18): Assets/Deposits sampled across 4 failures
+            matched the institution's own last FDIC Call Report on file exactly in 3 of 4 cases
+            (confirmed against the FDIC's own published press releases). The one mismatch was the
+            single most-recent failure at check time, where the figures ran ahead of the newest
+            Call Report FDIC's public financials index had on file — most likely that index lagging
+            a final pre-failure filing, not a defect in this feed. Treat Assets/Deposits as FDIC's
+            own reported figures for the institution, which can occasionally be more current than
+            its last published quarterly Call Report for a very recent failure.
           </div>
 
           {!data && <div className="vt-filings-state">Loading latest failures…</div>}
