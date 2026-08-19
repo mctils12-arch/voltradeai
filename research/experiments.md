@@ -3,6 +3,155 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-19 (6) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — OCC daily options cleared volume (/api/data/occ-volume) gets a live /data client view, closing the last shipped-data-no-UI gap on a gate-2-attempted signal_ladder root (v1.0.748)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/occVolume.tsx`; wiring
+in `client/src/pages/datamap.tsx` — import, LAYER_GROUP entry, state hook,
+hashchange listener, status-polling effect, icon/unit lookups, layer-row
+launcher button, render block; new fixture + PAGES entry in
+`scripts/visual_check.mjs`) + SHARED last-and-minimal (`datacore/
+layers.json` one new registry entry, `datacore/signal_ladder.json`
+surgical one-sentence note append on the pre-existing `occ_options_volume`
+root, `package.json`/`package-lock.json` version bump only — no server
+route or schema touched). No datacore/ pipeline code changed:
+`/api/data/occ-volume` (`server/occVolume.ts`) was already shipped and
+live since v1.0.580, this is a pure client-surface build over an
+existing, unmodified API contract — the same recipe session (5) used
+hours earlier for grid-demand, and the fifth session in a row to close
+this exact class of gap.
+
+SESSION-START CHECKS: CLAUDE.md read in full. Delegated initial recon to
+a subagent (system health, KNOWN BROKEN, MASTER PROGRAM vs. PLATFORM
+INTEGRATION PROGRAM vs. this program's own queue, ladder-gate status)
+rather than loading the 700KB+ open_questions.md/experiments.md into this
+session directly; its findings were cross-checked against the primary
+sources before acting (per the 2026-08-19 (5) session's own logged lesson
+about not trusting a recon subagent's claims unverified). Live
+`/api/health` per the recon: `status:"ok"`, `bot.status:"active"`,
+`liveness.dark:false`, no LIVENESS ALARM. `open_questions.md` KNOWN
+BROKEN: effectively empty (only #20, evidence-gated, non-blocking).
+`research/platform_program.md` queue: CLEAR except P5 (HUMAN-GATED,
+FROZEN paths). Read session (5)'s own entry directly (this file's top, at
+session start): it explicitly named occ-volume as the unclaimed
+follow-up, same recipe as its own grid-demand build, so this session took
+that item directly rather than re-running a fresh sweep.
+
+READ BEFORE WRITE: read `server/occVolume.ts` in full (fetch/parse/
+archive/cache/refresh, the `UnderlyingStat` shape, the double-clearing-
+side halving convention) and `server/routes.ts:3324-3345` for the exact
+response envelope (`kind:"raw"`, `warming_up`, `report_date`,
+`underlyings`, `count`, `note`, `top`) before writing anything. Read
+`datacore/signal_ladder.json`'s `occ_options_volume` entry in full via a
+targeted Python extraction and found GATE 2 was ATTEMPTED AND KILLED
+(v1.0.585) on a pre-registered customer call/put skew test whose ordering
+came back REVERSED from the pre-stated pass bar (put-skewed names
+outperformed call-skewed names at both the 5-day and 20-day horizon) —
+the new page states this verbatim, including the naive-pooled-t-stat
+caveat the ladder entry itself carries, rather than a softened summary.
+Read `client/src/pages/gridDemand.tsx` in full as the template and
+cross-referenced its exact 8-site wiring recipe against `datamap.tsx`
+(import, LAYER_GROUP, state hook, hashchange listener, status-polling
+effect, icon lookup, unit lookup, layer-row launcher button, render
+block) and `client/src/pages/shortvol.tsx` for the keyless-source
+precedent (occ-volume needs no `enabled:false`/API-key branch, unlike
+grid-demand's EIA_API_KEY gate) before writing the new page. Read
+`server/layersWiring.test.ts` before finishing to confirm its ratchet
+predicate.
+
+WHAT SHIPPED:
+1. `client/src/pages/occVolume.tsx` (new) — fetches `/api/data/
+   occ-volume` on mount; displays the server's own cleared-volume-
+   descending order (no client re-sort needed, unlike grid-demand).
+   Adds one client-side informational stat, customer call/put skew
+   (`cust_call / (cust_call + cust_put)`), shown as "—" when a name has
+   zero customer-side volume on both legs rather than a misleading 0%.
+   States GATE 1 PASSED / GATE 2 ATTEMPTED-AND-KILLED inline with the
+   exact reversed-direction failure mode, and handles `warming_up`
+   explicitly. Reuses `.vt-filings-*`/`.vt-shortvol-body` CSS — zero new
+   styles.
+2. `client/src/pages/datamap.tsx` — `OccVolumeView` import; `occ_volume:
+   "filings"` LAYER_GROUP entry (grouped with shortvol/secftd/
+   fleet_utilization — options flow, not grid infrastructure); `occVolumeOpen`
+   state (hash-init `#/data/occ-volume`); hashchange listener entry;
+   status-polling effect (same 300s badge-refresh convention as the
+   sibling filings layers, mapping `warming_up` to a loading note instead
+   of a bare spinner); icon lookup (`Percent` — unused elsewhere in the
+   layer-icon ternary, no new lucide import needed) and unit-lookup
+   (`"underlyings"`) entries; open-full-view launcher button inside the
+   `occ_volume` layer row; render block.
+3. `datacore/layers.json` — new `occ_volume` entry, `kind:"raw"`,
+   `group:"filings"`, `status:"live"`, description states the GATE 1
+   PASSED / GATE 2 ATTEMPTED-AND-KILLED (reversed direction) status.
+4. `scripts/visual_check.mjs` — `occvolume` PAGES entry (`map: false`,
+   same Phase-5 ratchet rule as every dashboard page since streams);
+   `occ_volume` entry added to the `/api/data/layers` FIXTURES list;
+   `/api/data/occ-volume` fixture (3 underlyings: SPY call-skewed 75%,
+   QQQ put-skewed 18% call, IWM zero customer volume on both legs — so
+   the harness exercises both skew-sign branches and the honest "—"
+   zero-volume display).
+5. `datacore/signal_ladder.json` — surgical one-sentence append to the
+   pre-existing `occ_options_volume` entry's `note` field (targeted
+   string replace on the exact tail text, not a full `json.dump`
+   round-trip, per the 2026-08-16 session's logged lesson) noting the RAW
+   client view now exists; `current_gate`/`status`/`last_update_date`
+   left untouched — UI-only, ladder status unchanged.
+6. `package.json`/`package-lock.json` — version bump only (1.0.747 ->
+   1.0.748, read-and-incremented at commit time per MERGE-ORDER PROTOCOL
+   — confirmed via `git fetch origin main` immediately before bumping;
+   HEAD already matched `origin/main` at the fetched commit, no
+   divergence from session (5)'s merged PR #882).
+
+GATES (PROMOTION RULES): sandbox needed `npm ci` + `pip3 install -r
+requirements.txt -r requirements-dev.txt` first (empty `node_modules`,
+missing numpy/pandas/pytest/openpyxl — same partial-sandbox pattern prior
+sessions hit). After that: `bash scripts/tsc_ratchet.sh` — 12/12, exact
+match to `ci/tsc_baseline.txt`. `bash scripts/gated_tests.sh` — client
+1017/1017 (`npx tsx --test`), python 1376 passed/1 skipped (quarantine
+unchanged). `bash scripts/counter_ratchet.sh` — 25/25 counters at or
+better than baseline (no new counter regressions from this change).
+`npx tsx --test server/layersWiring.test.ts` — passes (new registry
+entry correctly wired into LAYER_GROUP). `npm run build` — clean
+(pre-existing astronomy-engine/chunk-size warnings only, unrelated).
+`npm run visual` (VISUAL VERIFICATION, PROMOTION RULE 6) — ran at
+390/768/1440; `occvolume` page itself: **0 failures at any width**,
+warnings are exclusively the same pre-existing global-chrome touch-target/
+clipped-control warnings every other page in the suite shows (not new).
+Reviewed the 390px and 1440px `occvolume` screenshots directly: table
+renders correctly, skew column shows both signed branches (75% call,
+18% call) and the honest "—" zero-customer-volume row, mobile stacks via
+the shared `.vt-filings-table` responsive CSS with no clipping. The
+suite's ONE hard failure overall is unrelated to this change: `data`
+page (the main map, `map:true`) at 1440px, `perf: p95 frame 367ms >
+350ms gate (observed ceiling 183ms)` — this is the exact pre-existing
+non-determinism `research/PROGRAM_STATE.md`'s Q25 already documents (two
+runs of an IDENTICAL commit failed at different widths/thresholds on
+that same gate; the fix is tracked there, not in this PR, and occvolume
+touches no map code — `map: false` — so it cannot be this PR's cause).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-surface change over an
+already-live, unmodified RAW API; no scoring/sizing/trading logic
+touched.
+
+MARKET-HOURS NOTE: this session ran during market hours. Per the
+standing PROCESS GAP entry in wishlist.md (auto-merge has no time-of-day
+gate; a sixth occurrence was logged by session (5)'s own PR, #882), the
+PR notes a hold-until-after-close request knowing it is not mechanically
+enforced. Low-risk (client-only, RAW display, zero server/trading-path
+touch), same posture as every prior scheduled-routine session.
+
+HYPOTHESIS / EXPECTED EFFECT: no new signal or trading behavior; expected
+effect is purely a data-product surface gap closing (PREMIUM EXPERIENCE
+STANDARD). This closes the LAST gate-2-tied signal_ladder root with a
+shipped-data-no-UI gap (grid-demand and occ-volume were the only two;
+FINRA short-volume already had `shortvol.tsx`) — a future session's
+fall-through sweep should re-scan for any newly shipped-but-unwired
+routes rather than assume more gate-2-tied gaps remain. The 8 lower-
+priority census-layer UI gaps session (4)/(5) left unclaimed (air-
+quality, drought, facility-events, fires-near-facilities, imports,
+plants-under-alerts — contracts already reconfirmed a false positive) are
+still open for a future PRODUCT session, now the highest-value remaining
+items in that specific queue.
+
 ## AUDITS & DEBT REGISTER (live state per CLAUDE.md's AUDITS & DEBT
 section — "the register at the top of research/experiments.md"; update
 this block IN PLACE each time an audit runs, unlike the append-only log
