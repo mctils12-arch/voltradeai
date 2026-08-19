@@ -219,6 +219,19 @@ gate-2-attempted root (air-quality, drought, facility-events,
 fires-near-facilities, plants-under-alerts — pure census-layer RAW gaps,
 lower priority per this session's ranking but still genuine gaps).
 
+ADDENDUM (same session, after PR #881 merged): auto-merged at 16:41 UTC
+(~12:41 PM ET), ~4 minutes after opening, despite the PR body's "hold
+until after 4:00 PM ET" note — the SIXTH consecutive occurrence of the
+standing PROCESS GAP (`automerge` has no time-of-day gate; see
+`research/wishlist.md`'s PROCESS GAP entry, now updated with this
+occurrence). No new information beyond confirming the pattern continues;
+substantively harmless here (client-only RAW display, zero
+server/trading-path touch). This ADDENDUM plus the wishlist.md update are
+their own minimal SHARED-file follow-up commit on a fresh branch restarted
+from `main` post-merge, per the MERGE-ORDER PROTOCOL and the "PR already
+merged -> restart from latest main" instruction — no code change, no
+version bump (docs-only, not a PROMOTION-RULES-gated change).
+
 ## 2026-08-19 (4) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — corporate/LLC aircraft fleet utilization (/api/data/fleet-utilization) gets a live /data client view, closing a shipped-data-no-UI gap tied to an active signal_ladder root (v1.0.746)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/fleetUtilization.tsx`;
