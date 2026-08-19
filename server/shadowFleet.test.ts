@@ -149,6 +149,76 @@ test("readVesselTracksAsync + foldVesselArchiveAsync resolve (never crash the pr
   await foldVesselArchiveAsync(72, () => {}, base, NOW);
 });
 
+// REPAIR (found 2026-08-19, blocking the 2026-08-18 portdwell_window probe's
+// own stated purpose — reconciling a HISTORICAL window against a port
+// authority's published stats): all three archive readers filtered files
+// and points by a LOWER bound only (`stamp/p.t >= now - window`), never an
+// UPPER bound at `now` itself. That is invisible against a `now` equal to
+// real wall-clock time (nothing in the archive is ever "in the future"),
+// which is why every prior test here passed — but a historical query
+// (`nowMs` set to a PAST moment) against a live, still-growing archive
+// pulled in every file written between that past moment and the real
+// present. Concretely, this made `visits_completed` read 0 and
+// `in_port_now` read ~vessel-count for ANY `portdwell_window` call with an
+// `end` in the past against production: a vessel's archive track keeps
+// extending past the requested `end` (today's data is always there), so
+// every visit looked "ongoing" relative to the requested `now`, never
+// completed. Live-reproduced against production before this fix (see
+// research/experiments.md's 2026-08-19 entry for the raw probe output).
+test("REPAIR 2026-08-19: a `nowMs` in the past excludes points/files written AFTER it, not just before the window", async () => {
+  const { readVesselTracksAsync, foldVesselArchiveAsync } = await import("./shadowFleet");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-pastnow-"));
+  // FUTURE (relative to the queried past `now` below): the archive keeps
+  // recording after the query point, exactly like a live production archive.
+  const future = Math.floor(NOW / 1000) + 10 * 3600; // 10h after NOW
+  writeArchive(base, [
+    { t: t(20), i: "111000111", c: "INWINDOW", la: 36.0, lo: 20.0, v: 12 },
+    { t: future, i: "111000111", c: "INWINDOW", la: 36.0, lo: 20.5, v: 12 },
+    { t: future + 3600, i: "999000999", c: "FUTUREONLY", la: 10.0, lo: 10.0, v: 5 },
+  ]);
+  const sync = readVesselTracks(72, base, NOW);
+  assert.equal(sync.get("111000111")!.length, 1, "sync reader must drop the point written after `now`");
+  assert.equal(sync.has("999000999"), false, "sync reader must ignore a vessel seen only after `now`");
+
+  const asy = await readVesselTracksAsync(72, base, NOW);
+  assert.deepEqual(Array.from(asy.entries()).sort(), Array.from(sync.entries()).sort(),
+    "async reader must match the sync reader on a past-`now` query too");
+
+  const folded: Array<[string, number]> = [];
+  const counts = new Map<string, number>();
+  await foldVesselArchiveAsync(72, (mmsi) => counts.set(mmsi, (counts.get(mmsi) ?? 0) + 1), base, NOW);
+  assert.equal(counts.get("111000111"), 1, "fold must drop the point written after `now`");
+  assert.equal(counts.has("999000999"), false, "fold must ignore a vessel seen only after `now`");
+});
+
+test("REPAIR 2026-08-19: a port call that only exists AFTER the queried `end` must not leak in as a false in_port_now — this is the live production symptom (visits_completed:0, in_port_now≈all vessels) for any portdwell_window query with a past `end`", async () => {
+  const { computePortDwellAsync } = await import("./portDwell");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-dwell-pastnow-"));
+  const LA = { id: "port_la", name: "Port of Los Angeles", lat: 33.74, lon: -118.272, radius_km: 5 };
+  const queriedEnd = NOW - 480 * 3600_000; // the historical `end` this query asks for (ms, matching computePortDwellAsync's `nowMs`)
+  // COMPLETED: a real 20h call that finished BEFORE `end` — must count.
+  const callStart = t(520), callEnd = t(500); // both before queriedEnd
+  // FUTURE-ONLY: a different vessel's call that starts AND ends AFTER
+  // `end` — as of `end` this hadn't happened yet, so the query must not
+  // see it at all (not completed, not in_port_now).
+  const futureStart = t(460), futureEnd = t(450); // both after queriedEnd
+  const pts: Array<Record<string, any>> = [];
+  for (let ts = callStart; ts <= callEnd; ts += 3600) {
+    pts.push({ t: ts, i: "555000555", c: "BOXSHIP", la: LA.lat + 0.005, lo: LA.lon + 0.005, v: 0.2 });
+  }
+  for (let ts = futureStart; ts <= futureEnd; ts += 3600) {
+    pts.push({ t: ts, i: "666000666", c: "LATEARRIVAL", la: LA.lat + 0.005, lo: LA.lon + 0.005, v: 0.2 });
+  }
+  writeArchive(base, pts);
+  const s = await computePortDwellAsync([LA], 168, base, queriedEnd);
+  const la = s.ports.find((p) => p.id === "port_la")!;
+  assert.equal(la.visits_completed, 1, "the pre-`end` call must count as completed");
+  assert.equal(la.in_port_now, 0,
+    "the post-`end` call must not leak in as a false 'still in port' reading — it hadn't happened yet as of `end`");
+  assert.equal(la.unique_vessels, 1, "the future-only vessel must be entirely invisible to a query ending before it arrived");
+  assert.ok(Math.abs((la.dwell_median_h ?? 0) - 20) < 0.2, `median ${la.dwell_median_h} ≠ ~20h`);
+});
+
 test("RATCHET [PERF REPAIR 2026-07-13, KNOWN BROKEN #18 root cause]: hull-swap detection stays fast as vessel count grows — was O(vessels^2), the actual cause of the recurring 10-minute EVENTLOOP-LAG stalls", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-perf-"));
   // 8,000 distinct vessels, each with exactly one point, spread evenly
