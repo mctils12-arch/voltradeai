@@ -14,7 +14,7 @@ import {
   recentTrack, recentTrackAsync, recentTrackCached, clearTrackCache,
   archiveStats, aircraftIntervalMs, vesselIntervalMs,
   nearAnySite, RAW_RETENTION_DAYS, streamJsonlLines, readArchiveDay,
-  readArchiveDayEvenSample, originOfPosType,
+  readArchiveDayEvenSample, originOfPosType, oldestRawHour,
 } from "./datacoreArchive";
 
 const SITES = [{ lat: 35.985, lon: -96.767 }]; // Cushing
@@ -218,6 +218,50 @@ test("vessel archive stores static enrichment fields", () => {
   const rec = JSON.parse(raw.trim());
   assert.equal(rec.st, 70);
   assert.equal(rec.de, "LONG BEACH");
+});
+
+// [2026-08-19 GATE-1 finding] oldestRawHour reports the true raw-retention
+// boundary so callers (the portdwell_window diag probe) can tell "no raw
+// data because it was rolled up" from "no raw data because nothing
+// happened" instead of a bare, misleading zero.
+test("oldestRawHour: no directory returns null, never throws", () => {
+  const base = tmp();
+  assert.equal(oldestRawHour("vessels", base), null);
+});
+
+test("oldestRawHour: reports the earliest hour-file timestamp among several", () => {
+  const base = tmp();
+  const now = Date.now();
+  archiveVessels([{ mmsi: "1", name: "A", lat: 10, lon: 10, sog: 1, cog: 0 } as any],
+                 SITES, base, now - 5 * 3600_000);
+  archiveVessels([{ mmsi: "1", name: "A", lat: 10, lon: 10, sog: 1, cog: 0 } as any],
+                 SITES, base, now - 2 * 3600_000);
+  archiveVessels([{ mmsi: "1", name: "A", lat: 10, lon: 10, sog: 1, cog: 0 } as any],
+                 SITES, base, now);
+  const dir = path.join(base, "vessels");
+  assert.equal(fs.readdirSync(dir).length, 3, "three distinct hour files written");
+  const oldest = oldestRawHour("vessels", base);
+  assert.ok(oldest != null);
+  // the oldest file's hour-stamp, not the exact write time within that hour
+  const expectedHourStart = Math.floor((now - 5 * 3600_000) / 3600_000) * 3600_000;
+  assert.equal(oldest, expectedHourStart);
+});
+
+test("oldestRawHour: sees gzipped hours the same as raw .jsonl ones", () => {
+  const base = tmp();
+  const now = Date.now();
+  // distinct mmsi from the previous test — the write-cadence dedup cache
+  // (lastWrite) is module-level/shared across tests in this file, so a
+  // reused mmsi with an earlier `now` here would look "too soon since last
+  // write" against the previous test's later timestamp and silently write
+  // nothing.
+  archiveVessels([{ mmsi: "9", name: "A", lat: 10, lon: 10, sog: 1, cog: 0 } as any],
+                 SITES, base, now - 10 * 3600_000);
+  compressOldHours(base, now); // gzips the >2h-old hour in place
+  const dir = path.join(base, "vessels");
+  const files = fs.readdirSync(dir);
+  assert.ok(files.some((f) => f.endsWith(".gz")), "sanity: the fixture file was actually gzipped");
+  assert.ok(oldestRawHour("vessels", base) != null, "gzipped hour files still count as raw retention");
 });
 
 test("compression gzips hours older than 2h and leaves current hour raw", () => {

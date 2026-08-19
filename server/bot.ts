@@ -10,7 +10,7 @@ import { evaluateDrawdown, drawdownStatus } from "./drawdownGuard";
 import { nextLiveness, loopDark, type LivenessFile } from "./liveness";
 import { scannerDegraded } from "./scannerHealth";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, DIAG_PROBES } from "./diag";
-import { readArchiveDay } from "./datacoreArchive";
+import { readArchiveDay, oldestRawHour } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
@@ -2449,10 +2449,21 @@ print(json.dumps(get_shadow_stats()))
           // /api/data/portdwell route only ever serves a rolling 7-day
           // snapshot). `end` = ISO date/time the window ends at (default
           // now); `hours` = window length ending there, capped at 2880
-          // (120 days — generously covers the archive's full depth since
-          // it began 2026-07-03, without an unbounded read). Reuses
-          // computePortDwellAsync unchanged — this probe adds no new
-          // aggregation logic, only a query surface over the existing one.
+          // (120 days — a bound on the READ, not a claim about coverage:
+          // see the honest `raw_vessel_archive_from`/`coverage_caveat`
+          // fields below). Reuses computePortDwellAsync unchanged — this
+          // probe adds no new aggregation logic, only a query surface
+          // over the existing one.
+          // CORRECTED 2026-08-19 (v1.0.744, GATE-1 finding): this comment
+          // previously claimed 2880h "generously covers the archive's
+          // full depth since it began 2026-07-03" — false.
+          // RAW_RETENTION_DAYS was 7 (not 30) from 2026-07-03 until PR
+          // #760 widened it to 30 on 2026-08-11; every day already
+          // rolled into a coarse per-day summary under the OLD 7-day
+          // rule stays rolled forever (widening retention cannot
+          // un-delete raw hours already folded + unlinked). Raw vessel
+          // data reliably exists only back to roughly 2026-08-04, not
+          // 2026-07-03 — see `oldestRawHour` in datacoreArchive.ts.
           const endParam = String(req.query.end || "").trim();
           const endMs = endParam ? Date.parse(endParam) : Date.now();
           if (!Number.isFinite(endMs)) {
@@ -2464,10 +2475,24 @@ print(json.dumps(get_shadow_stats()))
           const hours = Math.min(Math.max(parseInt(String(req.query.hours || "168"), 10) || 168, 1), 2880);
           const ports = portsFromSites((datacoreSites as any).sites || []);
           const data = await computePortDwellAsync(ports, hours, undefined, endMs);
+          const windowStartMs = endMs - hours * 3600_000;
+          const rawFromMs = oldestRawHour("vessels");
+          const coverageGap = rawFromMs != null && windowStartMs < rawFromMs;
           return res.json(sanitizeDiag({
             probe: "portdwell_window",
             window_end: new Date(endMs).toISOString(),
             window_hours_requested: hours,
+            raw_vessel_archive_from: rawFromMs != null ? new Date(rawFromMs).toISOString() : null,
+            coverage_caveat: coverageGap
+              ? `requested window starts ${new Date(windowStartMs).toISOString()}, before the raw ` +
+                `vessel archive's current earliest retained hour (${new Date(rawFromMs!).toISOString()}). ` +
+                "data before that boundary was already rolled into coarse per-day summaries " +
+                "(vessels_tracks/, ~50 points/day) under a shorter historical retention window " +
+                "(7 days, 2026-07-03 to 2026-08-11) before RAW_RETENTION_DAYS widened to 30 on " +
+                "2026-08-11 (PR #760) -- those summaries are not read by this probe (dwell-visit " +
+                "detection needs raw per-fix cadence), so stats for the pre-boundary portion of the " +
+                "window are UNDERCOUNTED, not necessarily zero-activity."
+              : null,
             ...data,
           }));
         }

@@ -576,6 +576,42 @@ export async function rollupOldDaysAsync(baseDir?: string, nowMs?: number): Prom
   }
 }
 
+/** Earliest raw hour file currently on disk for a kind (ms epoch of that
+ *  hour's start), or null if the kind has no raw files at all.
+ *
+ *  WHY THIS EXISTS (2026-08-19 GATE-1 finding, port_dwell_maritime_transit):
+ *  the `portdwell_window` diag probe (shipped 2026-08-18, v1.0.742) assumed
+ *  the raw vessel archive covers its full history back to 2026-07-03 — false.
+ *  RAW_RETENTION_DAYS was 7 (not 30) from 2026-07-03 until PR #760 widened it
+ *  to 30 on 2026-08-11 (v1.0.654); every day already rolled into a coarse
+ *  per-day summary (`<kind>_tracks/`, ~50 points/day) under the OLD 7-day
+ *  rule before that date stays rolled forever — widening retention cannot
+ *  un-delete raw hour files already folded into a summary and unlinked. In
+ *  production this means, as of any "now", raw vessel data reliably exists
+ *  only back to roughly `2026-08-11 minus 7 days` (~2026-08-04), not
+ *  `2026-07-03` — a ~5-week gap between the archive's stated start and its
+ *  actual raw-readable depth. Callers that query an arbitrary historical
+ *  window (shadowFleet/portDwell readers only ever read `<kind>/` raw hours,
+ *  never the `<kind>_tracks/` summaries — visit/gap detection needs raw
+ *  per-fix cadence, a coarse polyline would silently fabricate wrong dwell
+ *  times) MUST compare their window's start against this boundary and report
+ *  the gap honestly instead of a bare zero that reads as "no activity". */
+export function oldestRawHour(kind: ArchiveKind, baseDir?: string): number | null {
+  const base = baseDir || archiveBaseDir();
+  const dir = path.join(base, kind);
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir); } catch { return null; }
+  let oldest: number | null = null;
+  for (const f of files) {
+    const m = f.match(/^(\d{4}-\d{2}-\d{2})-(\d{2})\.jsonl(\.gz)?$/);
+    if (!m) continue;
+    const ms = Date.parse(`${m[1]}T${m[2]}:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    if (oldest == null || ms < oldest) oldest = ms;
+  }
+  return oldest;
+}
+
 // ── reads ────────────────────────────────────────────────────────────────────
 /** Recent trail for one entity from today's + yesterday's raw hours. */
 export function recentTrack(kind: ArchiveKind, id: string,
