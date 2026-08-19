@@ -59,14 +59,18 @@ export function readVesselTracks(windowHours: number, baseDir?: string, nowMs?: 
   const base = baseDir || archiveBaseDir();
   const dir = path.join(base, "vessels");
   const now = nowMs ?? Date.now();
+  const nowSec = Math.floor(now / 1000);
   const cutoff = Math.floor((now - windowHours * 3600_000) / 1000);
   const tracks = new Map<string, Pt[]>();
   let files: string[] = [];
   try { files = fs.readdirSync(dir).sort(); } catch { return tracks; }
   for (const f of files) {
-    // hour files: YYYY-MM-DD-HH.jsonl(.gz) — skip whole files outside window
+    // hour files: YYYY-MM-DD-HH.jsonl(.gz) — skip whole files outside window.
+    // Both bounds matter: a `now` in the PAST (a historical query against a
+    // live, still-growing archive) must not silently absorb every file
+    // written after it — see the 2026-08-19 GATE-1 finding this fixes.
     const stamp = Date.parse(`${f.slice(0, 10)}T${f.slice(11, 13)}:00:00Z`);
-    if (!Number.isFinite(stamp) || stamp < now - (windowHours + 1) * 3600_000) continue;
+    if (!Number.isFinite(stamp) || stamp < now - (windowHours + 1) * 3600_000 || stamp > now) continue;
     let text: string;
     try {
       const raw = fs.readFileSync(path.join(dir, f));
@@ -76,7 +80,7 @@ export function readVesselTracks(windowHours: number, baseDir?: string, nowMs?: 
       if (!line) continue;
       try {
         const p = JSON.parse(line);
-        if (p.t < cutoff || p.la == null || p.lo == null || !p.i) continue;
+        if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) continue;
         let arr = tracks.get(p.i);
         if (!arr) { arr = []; tracks.set(p.i, arr); }
         arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
@@ -262,13 +266,14 @@ export function readVesselTracksAsync(windowHours: number, baseDir?: string, now
   const base = baseDir || archiveBaseDir();
   const dir = path.join(base, "vessels");
   const now = nowMs ?? Date.now();
+  const nowSec = Math.floor(now / 1000);
   const cutoff = Math.floor((now - windowHours * 3600_000) / 1000);
   const tracks = new Map<string, Pt[]>();
   let files: string[] = [];
   try { files = fs.readdirSync(dir).sort(); } catch { return Promise.resolve(tracks); }
   const wanted = files.filter((f) => {
     const stamp = Date.parse(`${f.slice(0, 10)}T${f.slice(11, 13)}:00:00Z`);
-    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000;
+    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000 && stamp <= now;
   });
   const readOne = (f: string) => new Promise<void>((resolve) => {
     try {
@@ -279,7 +284,7 @@ export function readVesselTracksAsync(windowHours: number, baseDir?: string, now
         if (!line) return;
         try {
           const p = JSON.parse(line);
-          if (p.t < cutoff || p.la == null || p.lo == null || !p.i) return;
+          if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) return;
           let arr = tracks.get(p.i);
           if (!arr) { arr = []; tracks.set(p.i, arr); }
           arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
@@ -318,12 +323,13 @@ export function foldVesselArchiveAsync(windowHours: number,
   const base = baseDir || archiveBaseDir();
   const dir = path.join(base, "vessels");
   const now = nowMs ?? Date.now();
+  const nowSec = Math.floor(now / 1000);
   const cutoff = Math.floor((now - windowHours * 3600_000) / 1000);
   let files: string[] = [];
   try { files = fs.readdirSync(dir).sort(); } catch { return Promise.resolve(); }
   const wanted = files.filter((f) => {
     const stamp = Date.parse(`${f.slice(0, 10)}T${f.slice(11, 13)}:00:00Z`);
-    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000;
+    return Number.isFinite(stamp) && stamp >= now - (windowHours + 1) * 3600_000 && stamp <= now;
   });
   const readOne = (f: string) => new Promise<void>((resolve) => {
     try {
@@ -334,7 +340,7 @@ export function foldVesselArchiveAsync(windowHours: number,
         if (!line) return;
         try {
           const p = JSON.parse(line);
-          if (p.t < cutoff || p.la == null || p.lo == null || !p.i) return;
+          if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) return;
           onPoint(p.i, { t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
         } catch {}
       });

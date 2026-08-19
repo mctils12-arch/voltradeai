@@ -7931,6 +7931,72 @@ territory in their first commit)
   claim). If no port authority publishes a comparable weekly figure
   (monthly-only reports are more common), (3b) is a monthly rollup
   instead (call the probe with `hours` spanning the full month).
+- **UPDATE 2026-08-19 (scheduled-routine PRODUCT session, [REPAIR],
+  v1.0.743): the probe built 2026-08-18 was BROKEN for its entire stated
+  purpose — found by actually attempting step (2) above, not by static
+  reading.** Live-probed `/api/diag/portdwell_window?end=2026-08-01T00:00:00Z&hours=168..696&token=$DIAG_TOKEN`
+  against production before this fix: EVERY port returned
+  `visits_completed: 0` and `in_port_now` inflated to roughly the full
+  `unique_vessels` count for the window, at every window length tried
+  (168/336/504/696h) — the exact "second, structural bug in the tool
+  itself" a careful GATE 1 attempt needs to rule out before trusting a
+  null/anomalous result (MEASUREMENT INTEGRITY: a broken ruler must be
+  fixed before the thing it measures is judged). ROOT CAUSE: all three
+  vessel-archive readers in `server/shadowFleet.ts`
+  (`readVesselTracks`/`readVesselTracksAsync`/`foldVesselArchiveAsync`)
+  filtered archive files and points by a LOWER bound only
+  (`stamp/p.t >= now - windowHours`), never an UPPER bound at `now`
+  itself. That is invisible whenever `now` is real wall-clock time
+  (nothing in a live archive is ever timestamped after "now") — which is
+  exactly every code path these readers served before the 2026-08-18
+  session added the first caller that can set `now` to a PAST moment.
+  Querying a past `end` against the still-growing live archive silently
+  pulled in every file written between that `end` and today: a vessel's
+  track kept extending past the nominal window end, so
+  `VisitDetector.flush()`'s `ongoing = (nowSec - lastSeen)/3600 <=
+  maxGapHours` compared a PAST `nowSec` against a FUTURE `lastSeen`,
+  producing a large NEGATIVE gap that the unsigned `<=` check accepts as
+  "ongoing" — every visit any vessel had any later archive activity for
+  (nearly all of them) was misclassified as still-open, and none could
+  ever complete. FIX (own PR, this session): added the missing upper
+  bound (`stamp <= now` on file selection, `p.t > nowSec` rejected at the
+  point level) to all three readers, so a past `now` now sees exactly the
+  archive as it stood at that moment — nothing from after it leaks in.
+  Both consumers of `foldVesselArchiveAsync` (`computePortDwellAsync` and
+  `computeShadowStatsAsync`) inherit the fix for free; the only current
+  production caller with a non-default `nowMs` is the new probe itself
+  (`computeShadowStatsAsync` is only ever called with real "now" in
+  `server/routes.ts`, confirmed by grep — this fix changes no currently-
+  observed live behavior, only unblocks the historical-query path).
+  RATCHET: two new tests in `server/shadowFleet.test.ts`
+  (`server/shadowFleet.test.ts` — one at the reader level proving a
+  point/file written after a past `now` is dropped, one at the
+  `computePortDwellAsync` level proving a port call that only exists
+  after the queried `end` doesn't leak in as a false `in_port_now`).
+  A/B-verified via `git stash`: both fail against pre-fix code (2 of 20
+  in the combined shadowFleet+portDwell suite), both pass post-fix,
+  0 regressions elsewhere (18/18 -> 20/20).
+  **STEP (2) OF THE GATE 1 RECIPE STILL NOT RUN THIS SESSION** — this fix
+  needs to deploy before the live probe can be trusted for the actual
+  ground-truth comparison; re-attempting it against the still-buggy
+  production endpoint in the same session would have re-produced the same
+  false null. Real published ground truth already gathered for whenever a
+  future session (or this session's own later fall-through, if the deploy
+  lands in time) re-attempts step (2): Port of LA's July 2026 news release
+  (portoflosangeles.org, `news_081826_july_cargo`) reports 960,464 TEUs
+  for July — second-busiest July on record, following an even stronger
+  June (>1M TEUs) — and 6,083,067 TEUs year-to-date through July, +1.8%
+  YoY. TEU counts are container throughput, not vessel-call counts, so an
+  exact reconciliation was never the right bar (per this entry's own
+  step-3 framing) — the falsifiable claim once the fix is live: our
+  archive-derived `visits_completed`/`in_port_now` for port_la across a
+  July window should read as a HIGH-ACTIVITY month (comparable in shape to
+  the immediately-following weeks the archive already covers correctly,
+  e.g. the current rolling 168h window's port_la reading of 65 completed
+  calls/54 in-port), not anomalously low — a monthly rollup (hours ≈ 720,
+  end anchored to end-of-July) is the natural first attempt once the
+  probe is trustworthy, per this entry's own (3b) fallback (July's TEU
+  figure is monthly, not weekly).
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

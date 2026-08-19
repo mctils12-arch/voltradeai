@@ -20,6 +20,199 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (scheduled-routine PRODUCT session) [REPAIR] — T-DATACORE — the `portdwell_window` probe shipped 2026-08-18 was broken for its entire stated purpose: all three vessel-archive readers had no upper time bound, so any historical `end` silently absorbed every file written between it and today (v1.0.743)
+
+TERRITORY: T-DATACORE primary (`server/shadowFleet.ts`, `server/shadowFleet.test.ts`) + SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin, `package.json`/`package-lock.json` version bump, `research/open_questions.md`/`research/experiments.md`).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/PROGRAM_STATE.md`
+(a separate T-CLIENT tech-debt/rendering-law track, not product work — read
+for orientation only, per the 2026-08-15 session's own precedent for
+excluding it from product primary-action selection), `research/
+open_questions.md` KNOWN BROKEN section in full (#20 still RULE-REVIEW-gated
+awaiting more shadow-backfill nights; #29 RESOLVED PENDING CONTINUED
+MONITORING; #30 CLOSED — none block product work), and `research/
+experiments.md`'s AUDITS & DEBT register (nothing overdue: STALENESS due
+2026-09-14, CONSTITUTIONAL due 2026-09-15, CALENDAR YEAR-ADD due
+2026-12-01). Live `/api/health`: `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three feeds `dead:false` — no LIVENESS ALARM.
+Loop-health ratio over the last 10 tagged entries before this one: 2 REPAIR
+/ 7 PRODUCT-or-PIPELINE / 1 RULE-REVIEW — well under the 7+ thrash bar.
+Session started ~20:02 ET, after the 16:00 close — no market-hours
+merge-timing note needed on this PR.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (a)
+(advance a datacore/ pipeline through its next ladder gate) as in-scope.
+`research/open_questions.md`'s PORT DWELL ANALYTICS section's own dated
+UPDATE (2026-08-18) named the concrete next step for `port_dwell_maritime_
+transit` GATE 1: pick a week/month the archive covers that a port authority
+has published stats for, call the new `/api/diag/portdwell_window` probe,
+compare directionally. Confirmed via `WebSearch` that Port of Los Angeles
+had since published exactly such a figure (July 2026: 960,464 TEUs, second-
+busiest July on record; portoflosangeles.org `news_081826_july_cargo`).
+Attempting the comparison live surfaced a second problem before the first
+one could even be evaluated.
+
+WHAT WENT WRONG WHILE EXECUTING THE PLAN (this is the actual finding, not a
+detour from it): live-called `/api/diag/portdwell_window?end=2026-08-01T00:00:00Z&hours=168|336|504|696&token=$DIAG_TOKEN`
+against production. Every port, every window length: `visits_completed: 0`,
+`in_port_now` inflated to roughly the port's full `unique_vessels` count for
+the window (port_la: `unique_vessels:100, in_port_now:173` at hours=696).
+By contrast, the SAME probe called with no `end` (real "now") returned
+normal numbers matching the live `/api/data/portdwell` route almost exactly
+(350 vs 348 `visits_completed` over ~minutes of clock drift) — proving the
+aggregation logic itself is sound and the defect is specific to a
+PAST `end`. Per MEASUREMENT INTEGRITY, a broken measurement tool must be
+fixed before the thing it measures is judged — continuing to the GATE 1
+comparison on these numbers would have produced a false "our archive shows
+zero port activity in July" finding, which is not what happened; the tool
+was lying.
+
+READ BEFORE WRITE: read `server/portDwell.ts` in full (again — the
+2026-08-18 session had already read it this session-day equivalent, but a
+new session has no memory) confirming `computePortDwellAsync` and
+`VisitDetector.flush()`'s `ongoing = (nowSec - lastSeen)/3600 <=
+maxGapHours` are otherwise correct. Read `server/shadowFleet.ts`'s three
+archive readers (`readVesselTracks`, `readVesselTracksAsync`,
+`foldVesselArchiveAsync`) end to end, since `portDwell.ts` doesn't read
+files itself — it folds through these. Found the shared defect: all three
+filter files/points with `stamp/p.t >= now - (windowHours[+1]) * 3600_000`
+(a lower bound) but NONE has an upper bound at `now`. Grepped every caller
+of all three functions (`grep -rn "readVesselTracksAsync\|readVesselTracks(\|foldVesselArchiveAsync"`)
+to confirm blast radius before touching anything: `readVesselTracks`
+(sync) and `readVesselTracksAsync` have no production caller with a
+non-default `nowMs` (both are explicitly "kept ONLY for tests" per their
+own doc comments, or in `readVesselTracksAsync`'s case not called by
+production code at all — only by tests and its own ratchet); the ONLY
+production code with a non-default `nowMs` reaching `foldVesselArchiveAsync`
+is `computePortDwellAsync`, and only via the new probe (`computeShadowStatsAsync`'s
+one production call site, `server/routes.ts:3718`, never passes a
+`nowMs` — confirmed by grep). This fix changes zero currently-observed live
+behavior; it only makes the historical-query path the 2026-08-18 session
+built actually work.
+
+ROOT CAUSE, precisely: `VisitDetector.flush()`'s ongoing check has no sign
+guard. With the missing upper bound, a vessel with ANY later archive
+activity (virtually all of them, since the live archive keeps recording
+every day) has its in-fence run extended by points chronologically AFTER
+the requested `end` — so `lastSeen` ends up LATER than the fixed `nowSec`
+(=`end`), making `(nowSec - lastSeen)` a large NEGATIVE number, which the
+unsigned `<= maxGapHours` comparison accepts as "ongoing." The visit-
+completion detector for a past query effectively became "was this vessel
+EVER seen near this port again, at any point up to today" — the opposite
+of "was it still here at the requested moment."
+
+WHAT SHIPPED: `server/shadowFleet.ts` — `readVesselTracks`,
+`readVesselTracksAsync`, `foldVesselArchiveAsync` each gained the missing
+upper bound: file selection now requires `stamp <= now` in addition to the
+existing lower bound, and point-level filtering now rejects `p.t > nowSec`
+in addition to the existing `p.t < cutoff` rejection. Same fix, same shape,
+applied identically to all three so the sync/async/fold paths cannot
+diverge (the file's own header comment already documents them as required
+to stay byte-identical, pinned by the existing RATCHET test at line ~103).
+No change to any function signature, no change to the "now" (real
+wall-clock) code path's behavior — files/points from the future relative
+to real "now" cannot exist in a real archive, so the new upper-bound check
+is a no-op there by construction.
+
+RATCHET: `server/shadowFleet.test.ts` gained two tests. (1) "a `nowMs` in
+the past excludes points/files written AFTER it, not just before the
+window" — a vessel with one point before a past `NOW` and one 10h after it
+must retain only the first; a second vessel seen ONLY after `NOW` must be
+entirely absent; checked against all three readers (sync, async, fold),
+with the sync-vs-async equivalence re-asserted on this exact scenario too.
+(2) "a port call that only exists AFTER the queried `end` must not leak in
+as a false in_port_now" — the `computePortDwellAsync`-level reproduction of
+the live production symptom: one vessel's completed 20h call finishes
+BEFORE the queried `end` (must count as `visits_completed`), a second
+vessel's call starts AND ends AFTER the queried `end` (must be invisible —
+`in_port_now` must stay 0, `unique_vessels` must stay 1, not 2). A/B-
+verified via `git stash server/shadowFleet.ts`: both tests fail against
+pre-fix code (test 1's `sync.get(...).length` reads 2, not 1; test 2's
+`in_port_now` reads 1, not 0) and both pass post-fix; the other 18 tests in
+the combined `shadowFleet.test.ts` + `portDwell.test.ts` suite are
+unaffected either way (18/18 -> 20/20, zero regressions). First caught the
+bug in my OWN test before this: an early draft passed `t(480)` (a value in
+SECONDS, matching point timestamps) as the `nowMs` PARAMETER, which the
+functions expect in MILLISECONDS — this silently sent every query back to
+1970 and zeroed everything, looking superficially like a passing repro of
+the wrong thing. Caught by a debug script printing `vessels_seen: 0` with
+files clearly present on disk, not by the test result alone; fixed to
+`NOW - 480 * 3600_000` (ms), matching the existing convention already used
+by `portDwell.test.ts`'s own `end`-in-the-past test.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged. `bash scripts/gated_tests.sh` GATE PASSED — client
+1017/1017 (97 files, unaffected — this diff touches no `client/` file),
+python 1374 passed/1 skipped (unchanged), quarantine 0/1, none overdue.
+`bash scripts/counter_ratchet.sh`: only `assertions` moved (11515 -> 11524,
+this session's own 9 new assertions across the two new tests). Isolated
+attribution via a disposable worktree at `origin/claude/quirky-hopper-89sta2`
+(`git worktree add /tmp/main_check_pd2 origin/claude/quirky-hopper-89sta2 --detach`,
+confirmed HEAD == this branch's pre-session commit `63c2c6e`): all 25
+counters read exactly at pin there, confirming the +9 delta is fully this
+session's own diff, not inherited drift (unlike several 2026-08-16/17/18
+sessions' `tests_run_in_ci`/`tests_gating_merge` note — that pair did NOT
+drift this time). `ci/counter_baseline.txt` re-pinned `assertions` to
+11524; re-ran `counter_ratchet.sh` after: OK, 25/25. `npm run build` clean
+(only the pre-existing astronomy-engine ESM/large-chunk warning classes,
+neither related to this diff; zero `client/` files touched, so VISUAL
+VERIFICATION (PROMOTION RULE 6) does not apply, same precedent as every
+other T-DATACORE-only session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a bug fix in a read-only
+diagnostic/analytics reader, not a scoring, sizing, or trading-threshold
+change. No live production behavior changes as a direct result of this PR
+(the only affected call site, the new probe, has never yet produced a
+trustworthy historical reading for anything to regress from).
+
+CROSS-SYSTEM INTEGRATION: none new — this repairs a shared reader
+(`foldVesselArchiveAsync`) that both `port_dwell_maritime_transit`
+(datacore/signal_ladder.json GATE 1) and the existing live shadow-fleet RAW
+surface depend on; the shadow-fleet surface is unaffected in practice
+(its one caller never passes a non-default `nowMs`), but the fix makes any
+FUTURE historical shadow-fleet query safe by the same construction, for
+free.
+
+HONEST CAVEAT (stated plainly): this session did NOT complete the GATE 1
+comparison the task's own instructions and the queue pointed at — it found
+and fixed a bug that made completing it honestly impossible today. The
+external ground truth (Port of LA July 2026 TEU release) is gathered and
+recorded above so the next session (or this session's own fall-through, if
+capacity remains after deploy) doesn't have to re-search for it. Per
+REASONING STANDARD #4/MEASUREMENT INTEGRITY, a broken instrument found
+while trying to take a real reading is the higher-priority finding — fixing
+it, not working around it to force a number out this session, is the
+correct call.
+
+NEXT (queued, not this session): (1) once this PR deploys, re-attempt the
+GATE 1 recipe: `/api/diag/portdwell_window?end=2026-08-01T00:00:00Z&hours=720&token=$DIAG_TOKEN`
+(a July monthly rollup, since Port of LA's published figure is monthly) for
+port_la, compare the shape (visits_completed/in_port_now/dwell) against the
+July TEU record directionally — should read as a high-activity month, not
+anomalously low. (2) if this fix's pattern (missing upper time-bound on an
+otherwise-lower-bounded archive reader) recurs in another archive module
+someday, it is now a named class of bug, not a one-off — worth a
+`program_status.sh`-style detector if a second instance is ever found
+elsewhere (not built this session — a single confirmed instance doesn't
+yet justify one, per that program's own precedent of declining low-
+specificity detectors). (3) KNOWN BROKEN #20's evidence gate still needs
+more nightly shadow-backfill runs. (4) per the AUDITS & DEBT register,
+nothing else is currently overdue.
+
+Version bumped 1.0.742 -> 1.0.743 (PROMOTION RULE 4); re-fetched
+`origin/claude/quirky-hopper-89sta2` immediately before bumping, confirmed
+branch was exactly at its tip (`63c2c6e`, no drift) at bump time.
+
+STARVED: no — this was a genuine, live-reproduced, blocking defect found
+while executing the task's own named primary-action option (a), fixed with
+its own regression tests (A/B-verified against pre-fix code), matched to
+session capacity. No higher-priority queued item was skipped (no LIVENESS
+ALARM; KNOWN BROKEN items are RULE-REVIEW-gated or closed; no overdue
+audit). The GATE 1 comparison itself remains queued, correctly, rather than
+forced through on a tool this session proved was broken.
+
 ## 2026-08-18 (scheduled-routine session #6) [PIPELINE] — T-DATACORE — new `/api/diag/portdwell_window` probe unblocks `port_dwell_maritime_transit` GATE 1, filed-not-run since 2026-08-04 (v1.0.742)
 
 TERRITORY: T-DATACORE primary (`server/portDwell.test.ts` new behavioral
