@@ -107,7 +107,7 @@ import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
 import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
 import { firesNearFacilities } from "./firesFacilities";
-import { gaugePoints, plantsNearGauges, type PlantTuple } from "./riverPlants";
+import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
 import { bootChainArchive } from "./optionsChainArchive";
 import { platformStats } from "./platformStats";
@@ -1539,7 +1539,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!hit) return res.json({ warming_up: true, gauges: [], note: "river-gauge feed warming up" });
       const r = Math.min(200, Math.max(1, parseFloat(String(req.query.radius_km)) || 50));
       const pts = gaugePoints(hit.gauges || []);
-      const plants = (datacorePowerplants as unknown as PlantTuple[]) || [];
+      const plants = powerplantTable(datacorePowerplants);
       const gauges = plantsNearGauges(pts, plants, r);
       res.json({
         kind: "raw", as_of: hit.at, radius_km: r,
@@ -1563,7 +1563,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const hit = latestAlerts();
       if (!hit) return res.json({ warming_up: true, alerts: [], note: "NWS alerts feed warming up" });
-      const plants = (datacorePowerplants as unknown as PlantTuple[]) || [];
+      const plants = powerplantTable(datacorePowerplants);
       const alerts = plantsUnderAlerts((hit.display || []) as any, plants);
       res.json({
         kind: "raw", as_of: hit.at,

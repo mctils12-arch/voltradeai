@@ -3,7 +3,12 @@
 // aggregation, and never-fabricated values.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gaugePoints, plantsNearGauges, type PlantTuple } from "./riverPlants.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { gaugePoints, plantsNearGauges, powerplantTable, type PlantTuple } from "./riverPlants.ts";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // St. Louis gauge (real barge-corridor site).
 const STL = { site: "07010000", name: "Mississippi R at St. Louis, MO", lat: 38.629, lon: -90.180 };
@@ -63,4 +68,45 @@ test("plantsNearGauges: a non-numeric capacity counts as 0, never a fabricated g
 test("plantsNearGauges: a gauge with no nearby plant is omitted entirely", () => {
   const plants: PlantTuple[] = [["Far", 100, "gas", "Op", 10.0, 10.0, 1]];
   assert.deepEqual(plantsNearGauges([STL], plants, 25), []);
+});
+
+// REGRESSION (2026-08-19): /api/data/plants-near-rivergauges and
+// /api/data/plants-under-alerts both 500'd in production ("t is not iterable")
+// for their whole lifetime — the routes cast the JSON MODULE straight to
+// PlantTuple[], but it is a {_doc, source, fuels, count, plants} wrapper. The
+// pure joins above were fully tested with synthetic arrays, so nothing caught
+// the extraction step. These tests pin the real shipped shape.
+test("powerplantTable: extracts the tuple rows from the SHIPPED dataset shape", () => {
+  const raw = JSON.parse(fs.readFileSync(
+    path.join(here, "..", "datacore", "powerplants", "us_power_plants.json"), "utf8"));
+  const plants = powerplantTable(raw);
+  assert.ok(Array.isArray(plants), "the routes iterate this — it must be an array");
+  assert.equal(plants.length, raw.count, "row count must match the dataset's own count");
+  assert.ok(plants.length > 9000, `expected ~9.8k US plants, got ${plants.length}`);
+  const [name, mw, fuel, owner, lat, lon] = plants[0];
+  assert.equal(typeof name, "string");
+  assert.equal(typeof mw, "number");
+  assert.equal(typeof fuel, "string");
+  assert.equal(typeof owner, "string");
+  assert.equal(typeof lat, "number");
+  assert.equal(typeof lon, "number");
+  // the cross-tie joins must actually consume it without throwing
+  assert.doesNotThrow(() => plantsNearGauges([STL], plants, 25));
+  assert.ok(plantsNearGauges([STL], plants, 25).length > 0, "St. Louis has plants within 25km");
+});
+
+test("powerplantTable: a bare array passes through; an unusable shape yields []", () => {
+  const rows: PlantTuple[] = [["P", 100, "gas", "Op", 38.64, -90.18, 1]];
+  assert.deepEqual(powerplantTable(rows), rows);
+  assert.deepEqual(powerplantTable({ plants: rows }), rows);
+  assert.deepEqual(powerplantTable({ count: 3 }), []);
+  assert.deepEqual(powerplantTable(null), []);
+});
+
+test("neither cross-tie route casts the powerplant module straight to an array", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(!/datacorePowerplants as unknown as PlantTuple\[\]/.test(routes),
+    "the JSON module is a {plants:[...]} wrapper — cast it and the route 500s at runtime; use powerplantTable()");
+  assert.equal((routes.match(/powerplantTable\(datacorePowerplants\)/g) || []).length, 2,
+    "both plants-* cross-tie routes must read the table through powerplantTable()");
 });

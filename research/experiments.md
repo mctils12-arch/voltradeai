@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-19 (7) (scheduled-routine session) [REPAIR] — T-DATACORE (server/riverPlants.ts) + SHARED (server/routes.ts, ci/counter_baseline.txt, package.json last-and-minimal) — two /api/data cross-tie routes have been returning HTTP 500 in production for their entire lifetime: the powerplant JSON module was cast straight to an array and iterated (v1.0.749)
+
+TERRITORY: T-DATACORE primary (`server/riverPlants.ts` + its test) with a
+3-line SHARED touch in `server/routes.ts` (two call sites + one import),
+`ci/counter_baseline.txt` re-pin and `package.json` bump last-and-minimal
+per MERGE-ORDER PROTOCOL. One logical change (PROMOTION RULE 5).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(head + AUDITS & DEBT register), open_questions.md KNOWN BROKEN, and
+wishlist.md head. AUDITS & DEBT register: nothing overdue (STALENESS due
+2026-09-14, CONSTITUTIONAL due 2026-09-15, CALENDAR due 2026-12-01). KNOWN
+BROKEN: only #20 open (evidence-gated threshold judgment, not a live
+break). Loop-health ratio, last 10 tagged entries: 4/10 [REPAIR] (PRODUCT
+x4, REPAIR x4, PIPELINE x1, RESEARCH x1) — under the 7+ thrash trigger, so
+normal work proceeds. Live `/api/health`: `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, alpaca
+`ACTIVE`, scanner `consecutiveFailures:0`, aircraft/vessels/trains all
+`dead:false` — no LIVENESS ALARM.
+
+HOW THE BREAK WAS FOUND (not from the audit log — from probing the queue
+the previous session left): session (6) named 6 remaining "shipped-data-
+no-UI" census-layer gaps (air-quality, drought, facility-events,
+fires-near-facilities, imports, plants-under-alerts) as the highest-value
+remaining PRODUCT items. Before picking one to wire a client view for, I
+curl'd all 6 live production routes to see what each actually serves. Five
+returned real payloads. `/api/data/plants-under-alerts` returned **HTTP 500
+`{"error":"t is not iterable"}`**. Checking its sibling cross-tie,
+`/api/data/plants-near-rivergauges`, gave the identical HTTP 500. That
+converted the session from [PRODUCT] to [REPAIR]: per the GOAL priority
+order and the REPAIR MANDATE, a live 500 outranks building UI over a
+route that cannot serve.
+
+ROOT CAUSE (one line, two call sites): `server/routes.ts:1542` and `:1566`
+both did
+
+    const plants = (datacorePowerplants as unknown as PlantTuple[]) || [];
+
+but `datacore/powerplants/us_power_plants.json` is not an array — it is
+`{_doc, source, fuels, count, verified_count, plants:[...]}`. The
+double-cast through `unknown` silences the type error that would otherwise
+have caught this at compile time, and `|| []` never fires because a
+non-empty object is truthy. Both handlers then do `for (const p of plants)`
+inside `plantsNearGauges`/`plantsUnderAlerts`, which throws
+`TypeError: <x> is not iterable` (`t` is the minified name in
+`dist/index.cjs`) — caught by each route's own `catch (e: any)` and
+returned as a 500. Reproduced locally and exactly:
+`node -e "const pp=require('./datacore/powerplants/us_power_plants.json'); for (const p of pp) {}"`
+-> `TypeError: pp is not iterable`.
+
+The correct access pattern already existed elsewhere in the codebase and
+was simply not used here: `server/nrcReactorStatus.ts:402` reads
+`(datacorePowerplants as any).plants`, `scripts/build_entity_map.py:173`
+reads `[...]["plants"]`, `server/entityMap.test.ts:15` reads `.plants`,
+and `routes.ts:1748` (the raw `/api/data/powerplants` route) spreads
+`...(datacorePowerplants as any)` — which is why the raw layer works fine
+and only the two cross-ties were dead.
+
+WHY NOTHING CAUGHT IT (the ratchet gap, which is the real finding): both
+pure join functions are thoroughly tested — `server/riverPlants.test.ts`
+and `server/plantsUnderAlerts.test.ts` cover distance cutoffs, dedupe,
+capacity aggregation, zone-only-alert skipping, never-fabricated values —
+but every one of those tests constructs its own synthetic `PlantTuple[]`
+literal. Nothing anywhere tested the step BETWEEN the shipped JSON and
+those functions. `server/powerplants.test.ts` validates the dataset's own
+integrity and the RAW route's wiring, but reads `data.plants` itself, so it
+also never exercised the cross-tie extraction path. A pure-function test
+suite that hands itself already-correct inputs cannot catch a caller that
+builds the input wrong — that class of gap is the lesson here, not the
+one-line cast.
+
+READ BEFORE WRITE: read `server/riverPlants.ts` in full (the `PlantTuple`
+definition and both pure joins), `server/plantsUnderAlerts.ts` in full,
+`server/nwsAlerts.ts` in full (the cache/`latestAlerts`/`display` shape the
+broken route consumes), both route handlers at `routes.ts:1536-1584`, the
+existing `server/riverPlants.test.ts` and `server/plantsUnderAlerts.test.ts`,
+`server/powerplants.test.ts`, and grepped every `datacorePowerplants` use in
+`server/` before writing anything.
+
+WHAT SHIPPED:
+1. `server/riverPlants.ts` — new exported `powerplantTable(raw: unknown):
+   PlantTuple[]`, placed where `PlantTuple` itself is defined so both
+   consumers share one accessor (EDGE DOCTRINE #3 — the knowledge that this
+   module wraps its rows is now compiled into code, not re-derived). Takes a
+   bare array through unchanged, unwraps `{plants:[...]}`, and returns `[]`
+   for any other shape rather than throwing — a future dataset reshape
+   degrades to an empty cross-tie, never another 500.
+2. `server/routes.ts` — both call sites now `powerplantTable(datacorePowerplants)`;
+   the unused `PlantTuple` type import dropped. No other behavior touched:
+   same response envelopes, same notes, same honesty text, same radius
+   clamping.
+3. `ci/counter_baseline.txt` — `assertions` re-pinned 11545 -> 11562, the
+   new tests' own assertions being the direct and sole cause (same
+   directly-attributable-movement precedent as item #30 / the 2026-08-18
+   CSD session).
+
+TESTS (REPAIRS MUST RATCHET — a fix without a test is not a completed
+repair): 3 new tests in `server/riverPlants.test.ts`.
+(a) `powerplantTable` against the REAL shipped `us_power_plants.json` —
+asserts the result is an array, that its length equals the dataset's own
+`count` field, that row 0 destructures to the documented tuple types, that
+`plantsNearGauges` consumes it without throwing, and that the St. Louis
+barge gauge finds plants within 25km (a non-empty result, so a silently-
+empty table cannot pass).
+(b) shape handling — bare array passes through, `{plants:[...]}` unwraps,
+`{count:3}` and `null` yield `[]`.
+(c) a static guard on `routes.ts` asserting the
+`datacorePowerplants as unknown as PlantTuple[]` cast appears ZERO times
+and `powerplantTable(datacorePowerplants)` appears exactly twice — so
+re-introducing the cast, at either site or a third one, fails CI.
+VERIFIED THE RATCHET ACTUALLY BITES: restored `server/routes.ts` from
+`origin/main`, re-ran the suite, and confirmed test (c) FAILS
+(`not ok 8`, 7 pass / 1 fail); restored the fix and it passes 8/8. A
+regression test that was never observed failing on the original defect is
+not evidence of anything.
+
+END-TO-END VERIFICATION against live upstream data (not just fixtures):
+ran the fixed extraction plus both joins against a live
+`api.weather.gov/alerts/active` fetch this session — 9833 plants
+extracted, 69 polygon-carrying alerts (175 zone-only, correctly excluded),
+**27 alerts covering generating capacity** (top: a Special Weather
+Statement over Inland Volusia/Seminole FL, 3 plants, 3136 MW), and the
+St. Louis gauge join returning 15 plants / 2976 MW within 50km. Both
+numbers were unreachable before this fix — the routes returned 500.
+
+GATES (PROMOTION RULES): sandbox needed `npm ci` + `pip3 install -r
+requirements.txt -r requirements-dev.txt` first (same partial-sandbox
+pattern prior sessions hit). `bash scripts/tsc_ratchet.sh` — 12 <= 12,
+TS2304 = 0, exact match to `ci/tsc_baseline.txt`. `bash scripts/
+gated_tests.sh` — GATE PASSED, client node tests all green (riverPlants
+8/8, plantsUnderAlerts unchanged and green), python 1376 passed / 1
+skipped (unchanged from baseline), quarantine 0/1 none overdue.
+`bash scripts/counter_ratchet.sh` — OK, 25/25 counters at or better than
+baseline after the `assertions` re-pin. `npm run build` — clean
+(pre-existing astronomy-engine / chunk-size warnings only).
+VISUAL VERIFICATION: N/A — PROMOTION RULE 6 governs PRs touching
+`client/`; this diff touches `server/`, `ci/`, `research/`, `package.json`
+only, zero client files.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, threshold, or
+trading-path code touched. These are RAW cross-tie display routes; neither
+makes a predictive claim (both hypotheses remain gate-2-locked in
+open_questions.md, unchanged by this repair).
+
+MARKET-HOURS NOTE: this session ran during market hours (~16:2x UTC /
+~12:2x ET). Per the standing PROCESS GAP entry in wishlist.md, auto-merge
+still has no time-of-day gate (six occurrences logged 2026-08-14 through
+2026-08-19), so the PR notes a hold-until-after-close request knowing it
+is not mechanically enforced. Risk here is low and asymmetric in the right
+direction: the changed code paths currently return HTTP 500 unconditionally,
+so any behavior change is strictly an improvement, and no trading path is
+touched.
+
+HYPOTHESIS / EXPECTED EFFECT: `/api/data/plants-under-alerts` and
+`/api/data/plants-near-rivergauges` return 200 with real joins instead of
+500 once deployed. Confirm post-deploy by re-curling both and checking
+`server_version` >= 1.0.749 via `/api/data/layers`.
+
+NEXT (queued, not this session): (1) the 5 remaining shipped-data-no-UI
+census-layer gaps (air-quality, drought, facility-events,
+fires-near-facilities, imports) are still open for a future PRODUCT
+session — all 5 were confirmed serving real payloads live this session, so
+they are genuine UI gaps, not broken routes. `plants-under-alerts` now
+joins that list as a wireable candidate rather than a broken one.
+(2) BROADER FINDING WORTH ITS OWN SESSION: this break was found by curling
+production, not by any alarm — two routes 500'd indefinitely with nothing
+surfacing it. `/api/health` checks feeds, bot, alpaca, scanner and memory,
+but nothing sweeps the ~69 registered `/api/data/*` routes for non-200
+responses. A cheap periodic smoke sweep (or a CI-time route-response check
+against a booted server) would have caught this the day it shipped and
+would catch the next one. Filed here as the highest-value follow-up rather
+than bundled into this PR (PROMOTION RULE 5).
+(3) the `as unknown as X` double-cast is what defeated the typechecker
+here; a counter for it (like the existing `boundary_any`/`ts_any` pins)
+may be worth proposing — noted, not self-applied, since adding a ratchet
+counter is a tooling change deserving its own PR.
+
+STARVED: no — a live production 500 outranked the queued PRODUCT item this
+session started on, was root-caused rather than patched from a guess,
+shipped with a regression test verified to fail on the original defect, and
+was end-to-end confirmed against live upstream data. Capacity was matched to
+one logical change per PROMOTION RULE 5.
+
 ## 2026-08-19 (6) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — OCC daily options cleared volume (/api/data/occ-volume) gets a live /data client view, closing the last shipped-data-no-UI gap on a gate-2-attempted signal_ladder root (v1.0.748)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/occVolume.tsx`; wiring
