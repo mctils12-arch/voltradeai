@@ -390,5 +390,94 @@ class TestBackfillPermanentFailure(unittest.TestCase):
             self.assertEqual(rec["outcomes"][h]["exit_reason"], "timeout")
 
 
+class TestBackfillProgressByDecision(unittest.TestCase):
+    """
+    REPAIR 2026-08-19 (KNOWN BROKEN #20 follow-up): win_rate_by_decision's
+    n>=5 reporting floor makes "not enough labeled data yet" and "this
+    bucket's records are stuck" look identical from outside — both just show
+    the bucket absent. Live evidence this session: /api/diag/shadow showed
+    rejected_masterkill/rejected_heat/rejected_other (156 + 493 + 350
+    records, oldest from 2026-04-20) with ZERO real win/loss labels at any
+    horizon, unchanged across two separate nightly-backfill throughput fixes
+    (2026-08-07 windowed batching, 2026-08-17 permanent-failure retirement).
+    These tests pin get_shadow_stats()'s new backfill_progress_by_decision
+    field, which reports labeled / permanently_unlabelable / pending_retry /
+    not_yet_attempted counts per decision bucket per horizon, so the next
+    check of this evidence gate is diagnostic (never reached vs. actively
+    failing vs. already given up on) instead of just another "still empty".
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_log_path = shadow_portfolio.SHADOW_LOG_PATH
+        self._orig_lock_path = shadow_portfolio.SHADOW_LOCK_PATH
+        shadow_portfolio.SHADOW_LOG_PATH = os.path.join(self._tmpdir.name, "shadow.json")
+        shadow_portfolio.SHADOW_LOCK_PATH = shadow_portfolio.SHADOW_LOG_PATH + ".lock"
+
+    def tearDown(self):
+        shadow_portfolio.SHADOW_LOG_PATH = self._orig_log_path
+        shadow_portfolio.SHADOW_LOCK_PATH = self._orig_lock_path
+        self._tmpdir.cleanup()
+
+    def _seed(self, ticker, decision, outcomes=None, bf_attempts=None, age_days=90):
+        ts = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+        records = shadow_portfolio._load_shadow_log()
+        rec = {
+            "ticker": ticker, "timestamp": ts, "score": 70.0,
+            "decision": decision, "decision_reason": "seed",
+            "entry_price": 50.0, "vxx_ratio": 1.0, "regime_label": "NEUTRAL",
+            "features": {}, "outcomes": outcomes or {"+5d": None, "+10d": None, "+20d": None},
+            "code_version": "test-shadow",
+        }
+        if bf_attempts:
+            rec["_bf_attempts"] = bf_attempts
+        records.append(rec)
+        shadow_portfolio._save_shadow_log(records)
+
+    def test_distinguishes_all_four_states_per_bucket(self):
+        # labeled (real win)
+        self._seed("A", "rejected_masterkill",
+                    outcomes={"+5d": {"label": 1, "return_pct": 3.0, "exit_price": 51.5,
+                                       "exit_date": "2026-05-01", "exit_reason": "target",
+                                       "label_method": "path_dependent_v2"},
+                              "+10d": None, "+20d": None})
+        # permanently unlabelable (retired after MAX_BACKFILL_ATTEMPTS)
+        self._seed("B", "rejected_masterkill",
+                    outcomes={"+5d": {"label": -1, "return_pct": None, "exit_price": None,
+                                       "exit_date": None, "exit_reason": "no_price_data",
+                                       "label_method": "path_dependent_v2"},
+                              "+10d": None, "+20d": None})
+        # pending retry (attempted at least once, not yet at the cap)
+        self._seed("C", "rejected_masterkill",
+                    outcomes={"+5d": None, "+10d": None, "+20d": None},
+                    bf_attempts={"+5d": 1})
+        # never attempted (frontier hasn't reached it yet, or too recent)
+        self._seed("D", "rejected_masterkill",
+                    outcomes={"+5d": None, "+10d": None, "+20d": None})
+
+        stats = shadow_portfolio.get_shadow_stats()
+        by_h = stats["backfill_progress_by_decision"]["rejected_masterkill"]["+5d"]
+        self.assertEqual(by_h["labeled"], 1)
+        self.assertEqual(by_h["permanently_unlabelable"], 1)
+        self.assertEqual(by_h["pending_retry"], 1)
+        self.assertEqual(by_h["not_yet_attempted"], 1)
+
+    def test_buckets_stay_independent(self):
+        self._seed("E", "taken",
+                    outcomes={"+5d": {"label": 1, "return_pct": 3.0, "exit_price": 51.5,
+                                       "exit_date": "2026-05-01", "exit_reason": "target",
+                                       "label_method": "path_dependent_v2"},
+                              "+10d": None, "+20d": None})
+        self._seed("F", "rejected_masterkill",
+                    outcomes={"+5d": None, "+10d": None, "+20d": None})
+
+        stats = shadow_portfolio.get_shadow_stats()
+        progress = stats["backfill_progress_by_decision"]
+        self.assertEqual(progress["taken"]["+5d"]["labeled"], 1)
+        self.assertEqual(progress["taken"]["+5d"]["not_yet_attempted"], 0)
+        self.assertEqual(progress["rejected_masterkill"]["+5d"]["labeled"], 0)
+        self.assertEqual(progress["rejected_masterkill"]["+5d"]["not_yet_attempted"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

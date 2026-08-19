@@ -921,6 +921,50 @@ def get_shadow_stats() -> dict:
                     "n": total,
                 }
 
+    # REPAIR 2026-08-19 (KNOWN BROKEN #20 follow-up): win_rate_by_decision's
+    # n>=5 floor makes a starved decision bucket indistinguishable from a
+    # slow-but-progressing one — both just show up as "absent". Live evidence
+    # this session: rejected_masterkill/rejected_heat/rejected_other (156 +
+    # 493 + 350 = 999 records, oldest dating to 2026-04-20) have carried ZERO
+    # real win/loss labels at any horizon for weeks, across two separate
+    # nightly-backfill throughput fixes (2026-08-07 windowed batching,
+    # 2026-08-17 permanent-failure retirement) — but the aggregate stats gave
+    # no way to tell WHY: never reached by the array-order scan frontier,
+    # actively failing on missing price data (pre-retirement), or already
+    # given up on (label=-1, correctly excluded from win_rate forever). This
+    # breaks that ambiguity apart per decision bucket per horizon so the next
+    # check of this evidence gate is diagnostic, not just another "still
+    # empty".
+    backfill_progress_by_decision = {}
+    for decision in by_decision:
+        recs = [r for r in records if r.get("decision") == decision]
+        for h in FORWARD_HORIZONS_DAYS:
+            key = f"+{h}d"
+            labeled = 0
+            permanently_unlabelable = 0
+            pending = 0
+            not_yet_attempted = 0
+            for r in recs:
+                out = r.get("outcomes", {}).get(key)
+                if isinstance(out, dict):
+                    lbl = out.get("label")
+                    if lbl in (0, 1):
+                        labeled += 1
+                    elif lbl == -1:
+                        permanently_unlabelable += 1
+                    else:
+                        not_yet_attempted += 1
+                elif r.get("_bf_attempts", {}).get(key, 0) > 0:
+                    pending += 1
+                else:
+                    not_yet_attempted += 1
+            backfill_progress_by_decision.setdefault(decision, {})[key] = {
+                "labeled": labeled,
+                "permanently_unlabelable": permanently_unlabelable,
+                "pending_retry": pending,
+                "not_yet_attempted": not_yet_attempted,
+            }
+
     return {
         "total_records":         len(records),
         "oldest":                records[0].get("timestamp") if records else None,
@@ -929,6 +973,7 @@ def get_shadow_stats() -> dict:
         "by_regime":             dict(by_regime),
         "labeled_by_horizon":    labeled_by_horizon,
         "win_rate_by_decision":  win_rate_by_decision,
+        "backfill_progress_by_decision": backfill_progress_by_decision,
         "win_rate_by_change_pct_band": _change_pct_band_stats(records),
     }
 
