@@ -2358,6 +2358,16 @@
    "description": "Hourly demand (MWh) and day-ahead forecast per balancing authority, ~1-2h publication lag. GATE 1 (revision stability — an independent later re-draw of the same API) PASSED within 0.24%. GATE 2 (weather-adjusted demand residual vs. forward industrial-sector returns) was ATTEMPTED AND KILLED 2026-08-09: predicted signs disagreed with realized returns at both the 20-day and 60-day horizons. As-is display of published demand/forecast values, nothing here is a signal."
   },
   {
+   "id": "occ_volume",
+   "name": "Options cleared volume (OCC daily)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "The Options Clearing Corporation (OCC) daily cleared volume, marketdata.theocc.com/volume-query (public, keyless)",
+   "description": "Top underlyings by daily cleared options volume with customer/market-maker put-call splits. GATE 1 (one day's totals vs. OCC's own published daily volume page) PASSED (v1.0.580). GATE 2 (pre-registered customer call/put skew, an ISEE-successor definition) was ATTEMPTED AND KILLED (v1.0.585): the pre-stated pass bar failed in its REVERSED direction (put-skewed names outperformed call-skewed names at both the 5-day and 20-day horizon), not confirmed out-of-sample. As-is display of cleared volume, nothing here is a signal."
+  },
+  {
    "id": "secftd",
    "name": "Fails-to-deliver (SEC CNS)",
    "kind": "raw",

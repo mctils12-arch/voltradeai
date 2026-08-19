@@ -47,6 +47,7 @@ import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
 import FleetUtilizationView from "./fleetUtilization";
 import GridDemandView from "./gridDemand";
+import OccVolumeView from "./occVolume";
 import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
 import TreasuryDtsView from "./treasuryDts";
@@ -885,7 +886,7 @@ const LAYER_GROUP: Record<string, string> = {
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings",
   graph: "graph",
   grid_demand: "facilities",
   powergrid: "facilities",
@@ -2825,6 +2826,12 @@ export default function DataMapPage() {
   // passed, GATE 2 demand-residual-vs-industrial-returns ATTEMPTED AND
   // KILLED 2026-08-09 — RAW display only, no signal claim).
   const [gridDemandOpen, setGridDemandOpen] = useState(() => window.location.hash === "#/data/grid-demand");
+  // OCC daily options cleared volume by trade origin (#/data/occ-volume) —
+  // same overlay pattern (DATACORE MAXIMUS census #1's own filed UI
+  // follow-up, /api/data/occ-volume, shipped API-only v1.0.580; GATE 1
+  // day-total accuracy PASSED, GATE 2 customer call/put skew ATTEMPTED AND
+  // KILLED v1.0.585 — RAW display only, no signal claim).
+  const [occVolumeOpen, setOccVolumeOpen] = useState(() => window.location.hash === "#/data/occ-volume");
   // CFTC Traders in Financial Futures (#/data/tff) — same overlay pattern
   // (DATACORE MAXIMUS census build 6 #1's own filed UI follow-up,
   // /api/data/tff, keyless Socrata sibling of /api/data/cot; no client
@@ -3183,6 +3190,7 @@ export default function DataMapPage() {
       setSecFtdOpen(window.location.hash === "#/data/ftd");
       setFleetUtilOpen(window.location.hash === "#/data/fleet-utilization");
       setGridDemandOpen(window.location.hash === "#/data/grid-demand");
+      setOccVolumeOpen(window.location.hash === "#/data/occ-volume");
       setTffOpen(window.location.hash === "#/data/tff");
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
       setTreasuryDtsOpen(window.location.hash === "#/data/treasury-dts");
@@ -12077,6 +12085,31 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.grid_demand, mapSettled, setStatus]);
 
+  // ── OCC daily options cleared volume by trade origin (RAW; non-geospatial
+  // — same inline-panel-row + full-view pattern as grid_demand/secftd).
+  // Server refreshes on a 4h poll (cached top-underlyings only), same 300s
+  // badge-refresh convention as the sibling filings layers. ──
+  useEffect(() => {
+    if (!enabled.occ_volume) { setStatus("occ_volume", "off"); return; }
+    if (!mapSettled) { setStatus("occ_volume", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("occ_volume", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/occ-volume");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("occ_volume", "loading", undefined, "warming up — first archive scan in progress"); return; }
+        setStatus("occ_volume", "active", d.underlyings);
+      } catch {
+        if (!stop) setStatus("occ_volume", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.occ_volume, mapSettled, setStatus]);
+
   // ── CFTC Traders in Financial Futures (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as cot/secftd). Server refreshes
   // on a 12h poll (weekly report cadence), so this poll only refreshes the
@@ -12357,6 +12390,7 @@ export default function DataMapPage() {
     id === "secftd" ? <TrendingDown size={15} /> :
     id === "fleet_utilization" ? <Plane size={15} /> :
     id === "grid_demand" ? <Zap size={15} /> :
+    id === "occ_volume" ? <Percent size={15} /> :
     id === "tff" ? <Scale size={15} /> :
     id === "treasury_auctions" ? <Tag size={15} /> :
     id === "treasury_dts" ? <Banknote size={15} /> :
@@ -12379,7 +12413,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12836,6 +12870,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "occ_volume" && on && (
+          // Same pattern as grid_demand/fleet_utilization/secftd: a
+          // per-underlying cleared-volume table doesn't belong in a
+          // layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/occ-volume"; setOccVolumeOpen(true); }}>
+              Open options cleared volume view — top underlyings →
+            </button>
+          </div>
+        )}
         {l.id === "tff" && on && (
           // Same pattern as cot/secftd: a per-market positioning table
           // doesn't belong in a layer-toggle sidebar.
@@ -13078,6 +13123,9 @@ export default function DataMapPage() {
       )}
       {gridDemandOpen && (
         <GridDemandView onBack={() => { window.location.hash = "#/data"; setGridDemandOpen(false); }} />
+      )}
+      {occVolumeOpen && (
+        <OccVolumeView onBack={() => { window.location.hash = "#/data"; setOccVolumeOpen(false); }} />
       )}
       {tffOpen && (
         <TffView onBack={() => { window.location.hash = "#/data"; setTffOpen(false); }} />
