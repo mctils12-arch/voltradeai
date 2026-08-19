@@ -108,6 +108,9 @@ const PAGES = {
   // SEC CNS fails-to-deliver, half-month files (2026-08-16) — same Phase 5
   // ratchet rule as streams/eupower above.
   secftd: { route: "/app#/data/ftd", map: false },
+  // Corporate/LLC aircraft fleet utilization — same Phase 5 ratchet rule as
+  // streams/secftd above.
+  fleetutilization: { route: "/app#/data/fleet-utilization", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -210,6 +213,7 @@ const FIXTURES = {
       { id: "bank_failures", name: "Bank failures", kind: "raw", status: "live", group: "filings", costTier: "light", source: "FDIC Bank Data API", description: "Most recent US bank failure/assistance events — a regional-bank-stress proxy, not a signal." },
       { id: "portdwell", name: "Port dwell (arrivals/departures)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own AIS archive + verified port geofences", description: "Per-port dwell stats; lower bounds; anomaly SIGNAL gate-2 locked." },
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
+      { id: "fleet_utilization", name: "Corporate/LLC aircraft fleet utilization", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own aircraft position archive x FAA Aircraft Registry entity spine", description: "Weekly flight-session counts and airborne hours per registered owner — GATE 1 join accuracy passed, GATE 2 not attempted, nothing here is a signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "nightlights", name: "Night lights radiance (GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band", description: "Daily radiance imagery, dated (defaults to yesterday)." },
@@ -631,6 +635,25 @@ const FIXTURES = {
       qty_floor: 100000,
       top_cap: 15,
     },
+  },
+  // Corporate/LLC aircraft fleet utilization (2026-08-19, RAW display,
+  // fleetUtilization.tsx). Fixture covers 2 owners so the harness exercises
+  // the multi-week aggregation, the trustee-registered badge, and both
+  // resolution-basis branches (callsign-resolved vs FAA registrant).
+  "/api/data/fleet-utilization": {
+    kind: "derived",
+    source: "voltradeai aircraft position archive x FAA entity spine (fixture)",
+    attribution: "FAA Aircraft Registry (identity); own archive (positions)",
+    as_of: "2026-08-19T12:00:00.000Z",
+    owners_total: 2,
+    count: 2,
+    note: "owners are FAA registrants (trustee/leasing entities hide beneficial owners); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without coverage are absent, not zero; single-airframe registrants excluded from this payload (top= caps at 200) (fixture).",
+    owners: [
+      { owner: "FIXTURE AVIATION LLC", group: "FIXTURE AVIATION LLC", resolution: { callsign: 3, registrant: 0 }, trustee_airframes: 0, registrant_type: "llc", n_airframes: 3,
+        weekly: { "2026-08-04": { f: 6, h: 14.2 }, "2026-08-11": { f: 5, h: 11.8 } } },
+      { owner: "FIXTURE TRUST CO TRUSTEE", group: "FIXTURE TRUST CO TRUSTEE", resolution: { callsign: 0, registrant: 2 }, trustee_airframes: 2, registrant_type: "corporation", n_airframes: 2,
+        weekly: { "2026-08-11": { f: 2, h: 4.5 } } },
+    ],
   },
   // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
   // display). Fixture covers one series per category so the harness

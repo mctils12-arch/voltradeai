@@ -2338,6 +2338,16 @@
    "description": "SEC-published per-(date, ticker) lit/hidden/odd-lot/cancel-to-trade metrics; rank scale differs by kind (Stock deciles, ETF quartiles, never comparable). As-is display of a small-cap watchlist ranked by SEC's own cancel-to-trade ratio — a candidate HFT-colonization filter is an open [RESEARCH] hypothesis (gate-2 unattempted), not yet surfaced as a signal."
   },
   {
+   "id": "fleet_utilization",
+   "name": "Corporate/LLC aircraft fleet utilization",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "Own aircraft position archive x FAA Aircraft Registry entity spine",
+   "description": "Weekly flight-session counts and airborne hours per registered owner (FAA registrant or callsign-resolved operator), joined from the position archive. GATE 1 (spine-join accuracy) PASSED 20/20 exact N-number matches; GATE 2 (utilization x earnings timing) not attempted. As-is display of session counts — owners are FAA registrants (trustee/leasing entities hide beneficial owners), airborne hours are lower bounds under adaptive archive sampling, nothing here is a signal."
+  },
+  {
    "id": "secftd",
    "name": "Fails-to-deliver (SEC CNS)",
    "kind": "raw",
