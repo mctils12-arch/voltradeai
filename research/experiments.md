@@ -20,6 +20,205 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (5) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — EIA-930 electric grid demand (/api/data/grid-demand) gets a live /data client view, closing a shipped-data-no-UI gap on a gate-2-attempted signal_ladder root (v1.0.747)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/gridDemand.tsx`;
+wiring in `client/src/pages/datamap.tsx` — import, LAYER_GROUP entry,
+state hook, hashchange listener, status-polling effect, icon/unit
+lookups, layer-row launcher button, render block; new fixture + PAGES
+entry in `scripts/visual_check.mjs`) + SHARED last-and-minimal
+(`datacore/layers.json` one new registry entry, `datacore/
+signal_ladder.json` surgical one-sentence note append on the
+pre-existing `eia930_grid_demand` root, `package.json`/`package-lock.json`
+version bump only — no server route or schema touched). No datacore/
+pipeline code changed: `/api/data/grid-demand` (`server/gridDemand.ts`)
+was already shipped and live since v1.0.163 (DATACORE MAXIMUS Phase 0),
+this is a pure client-surface build over an existing, unmodified API
+contract — the fourth session in a row (2026-08-16 euPower, 2026-08-18
+bank_failures/vehicle_complaints, 2026-08-19 (4) fleet_utilization) to
+close this exact class of gap.
+
+SESSION-START CHECKS: CLAUDE.md read in full. This is the FIFTH scheduled-
+routine session today (2026-08-19); the prior four ((1)-(2) REPAIR on
+port_dwell, (3) REPAIR diagnostic for KNOWN BROKEN #20, (4) PRODUCT
+fleet_utilization) left `git status` clean at HEAD `d362c66` (v1.0.746) —
+confirmed via `git fetch origin main` before starting, no divergence.
+Delegated initial recon to a subagent (loop-health ratio, KNOWN BROKEN
+section, live `/api/health`, wishlist.md recency) to avoid loading the
+704KB experiments.md / 3MB+ wishlist.md into this session's own context;
+its report is summarized below with one correction this session caught.
+Loop-health ratio: 3/10 of the last 10 tagged sessions are [REPAIR] — well
+under the 7+ thrash threshold, no meta-problem. Live `/api/health`
+(production, https://voltradeai.com): `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three feeds `dead:false` — no LIVENESS ALARM.
+`open_questions.md` KNOWN BROKEN: effectively empty (only #20, an
+evidence-gated RULE-REVIEW item re-checked by session (3) today, not a
+live break). `scripts/ladder_readiness_check.py`: 0/2 gated roots ready
+(same as session (4) found). `wishlist.md`: no new 2026-08-19 entries;
+the standing PROCESS GAP (auto-merge ignoring market-hours notes, 5th
+occurrence 2026-08-18) and the two CONSTITUTIONAL AUDIT proposals
+(2026-08-16) both still await human review — nothing actionable there.
+
+CORRECTION TO THE RECON SUBAGENT'S OWN REPORT (caught before acting on
+it): the subagent's ranked candidate list put "implement the #30
+structural fix for OPTIONS-SLOT-FULL" first, citing it as an open repair
+with three drafted designs awaiting a session. This session re-checked
+`open_questions.md` directly (not from the subagent's summary) and found
+KNOWN BROKEN #30 was **already CLOSED** — structural fix SHIPPED
+2026-08-15 (v1.0.725) and LIVE VERIFICATION CONFIRMED 2026-08-16 (10
+consecutive Power-Hour skip events all correctly gating at 6/6, zero
+`(N/6)` overshoots). The subagent's own earlier-cached knowledge (or an
+imprecise read of wishlist.md's now-superseded "THIRD RECURRENCE" framing
+without reading the item's own later CLOSED update) was stale — this is
+exactly the kind of thing READ BEFORE WRITE exists to catch even when the
+research step itself is delegated. Lesson for future sessions delegating
+recon: verify any "known broken, needs a session" claim against
+open_questions.md's own item text directly before treating it as
+actionable, especially when it would be this session's PRIMARY action.
+
+PRIMARY-ACTION SELECTION: with #30 confirmed closed and KNOWN BROKEN
+otherwise empty, and 0/2 ladder-gated roots matured, this falls through
+to SESSION BUDGET tier 1 (next queued item / roadmap fit) via the same
+shipped-data-no-UI sweep session (4) ran hours earlier. Of the 10 routes
+session (4) left unclaimed (air-quality, contracts, drought,
+facility-events, fires-near-facilities, grid-demand, imports, occ-volume,
+plants-under-alerts, short-interest — contracts/imports were re-confirmed
+false positives, real code unrelated to wiring), cross-referenced against
+`datacore/signal_ladder.json`'s 40 roots: THREE tie to an active root at
+`current_gate: 2` — `grid-demand` (`eia930_grid_demand`), `occ-volume`
+(`occ_customer_mm_volume`), and FINRA's daily-short-volume root (already
+has a client view, `shortvol.tsx` — not a real gap). Between grid-demand
+and occ-volume (both GATE 2 KILLED, not passed — checked each root's own
+`note` field directly rather than trusting the bare `current_gate: 2`
+number, which conflates "reached gate 2" with "passed gate 2"): picked
+grid-demand — a cleaner, simpler RAW response shape (12 respondent-level
+stats vs. OCC's per-underlying table) and, per `server/gridDemand.ts`'s
+own docstring, direct GRID VISION relevance (feeds `gridStress.ts`'s
+derived TX composite already on `/data`) that OCC's now-dead put/call-skew
+angle no longer carries. occ-volume remains a genuine unclaimed gap for a
+future session (same recipe, `server/routes.ts`'s OCC v1 mirror comment
+already documents its GATE 2 kill).
+
+READ BEFORE WRITE: read `server/gridDemand.ts` in full this session
+(fetch/parse/archive/cache/backfill, the `RespondentStat` shape, the
+`gridDemandEnabled()` key gate) and `server/routes.ts:2905-2927` for the
+exact response envelope (`kind:"raw"`, `enabled`, `warming_up`, `count`,
+`respondents`) before writing anything. Read `datacore/signal_ladder.json`'s
+`eia930_grid_demand` entry in full via a targeted Python extraction (the
+file's `roots` array, not the top-level object — my first attempt at a
+one-liner assumed the wrong shape and threw before I read the real
+structure) and found GATE 2 was **ATTEMPTED AND KILLED 2026-08-09** (demand
+residual vs. industrial-sector returns; signs disagreed at both 20d/60d
+horizons) — not "not attempted" as fleetUtilization.tsx's own precedent
+phrasing would have suggested if copied blindly. The new page states this
+accurately ("ATTEMPTED AND KILLED"), matching the honesty standard the
+codebase already holds itself to elsewhere, rather than reusing
+fleetUtilization's "not attempted" wording where it wouldn't be true. Read
+`client/src/pages/fleetUtilization.tsx` in full as the template and
+cross-referenced its exact 8-site wiring recipe against `datamap.tsx`
+(import, LAYER_GROUP, state hook, hashchange listener, status-polling
+effect, icon lookup, unit lookup, layer-row launcher button, render
+block) before writing the new page. Read `server/layersWiring.test.ts`
+before finishing to confirm its ratchet predicate.
+
+WHAT SHIPPED:
+1. `client/src/pages/gridDemand.tsx` (new) — fetches `/api/data/
+   grid-demand` on mount; sorts respondents descending by latest demand
+   (MWh) client-side (the server's own order is alphabetical by
+   respondent code, this page's ranking question is "which BA is drawing
+   the most power right now"). Computes a client-side "forecast strain"
+   %  ((demand - day-ahead forecast) / forecast) per respondent, honestly
+   showing "—" when `latest_forecast_mwh` is null (DF hasn't published
+   for that hour yet) rather than treating it as 0. States GATE 1 PASSED /
+   GATE 2 ATTEMPTED-AND-KILLED inline with the exact failure mode, and
+   handles the `enabled:false` (no EIA_API_KEY) and `warming_up` response
+   shapes explicitly rather than assuming the happy path. Reuses `.vt-
+   filings-*` CSS (atsSummary.tsx/fleetUtilization.tsx precedent) — zero
+   new styles.
+2. `client/src/pages/datamap.tsx` — `GridDemandView` import; `grid_demand:
+   "facilities"` LAYER_GROUP entry (grouped with plant_operations/
+   nrc_reactor_status/powergrid, not "filings" — this is grid
+   infrastructure data, not a corporate filing); `gridDemandOpen` state
+   (hash-init `#/data/grid-demand`); hashchange listener entry;
+   status-polling effect (same 300s badge-refresh convention as the
+   sibling filings/facilities layers, mapping the route's own
+   `enabled:false` to the registry's `awaiting_key` runtime status rather
+   than a bare "off"); icon lookup (reused the existing `Zap` import,
+   already used for powerplants/nrc_reactor_status — same domain, no new
+   lucide import needed) and unit-lookup (`"respondents"`) entries;
+   open-full-view launcher button inside the `grid_demand` layer row;
+   render block.
+3. `datacore/layers.json` — new `grid_demand` entry, `kind:"raw"`,
+   `group:"facilities"`, `status:"live"`, description states the GATE 1
+   PASSED / GATE 2 ATTEMPTED-AND-KILLED status and that display is
+   unaffected by the kill (raw overlays carry no predictive claim).
+4. `scripts/visual_check.mjs` — `griddemand` PAGES entry (`map: false`,
+   same Phase-5 ratchet rule as every dashboard/leaderboard page since
+   streams); `grid_demand` entry added to the `/api/data/layers` FIXTURES
+   list; `/api/data/grid-demand` fixture (3 respondents: one with a
+   positive forecast strain, one negative, one with a null forecast — so
+   the harness exercises the descending sort, both strain-sign branches,
+   and the honest "—" null-forecast display).
+5. `datacore/signal_ladder.json` — surgical one-sentence append to the
+   pre-existing `eia930_grid_demand` entry's `note` field (a targeted
+   string replace on the exact tail text, NOT a full `json.dump`
+   round-trip, per the 2026-08-16 session's own logged lesson about that
+   reformatting the whole file for a tiny change) noting the RAW client
+   view now exists and is unaffected by the GATE 2 kill; `current_gate`/
+   `status`/`last_update_date` left untouched — UI-only, ladder status
+   unchanged.
+6. `package.json`/`package-lock.json` — version bump only (1.0.746 ->
+   1.0.747, read-and-incremented at commit time per MERGE-ORDER PROTOCOL
+   — confirmed via `git fetch origin main` immediately before bumping,
+   no divergence from the four earlier sessions today).
+
+GATES (PROMOTION RULES): sandbox needed a full `npm install` +
+`pip3 install -r requirements.txt -r requirements-dev.txt` first (empty
+`node_modules`, missing numpy/pandas/pytest/openpyxl — the same
+partial-sandbox pattern prior sessions have hit). After that:
+`bash scripts/tsc_ratchet.sh` — 12/12, exact match to `ci/tsc_baseline.txt`.
+`bash scripts/gated_tests.sh` — client 1017/1017 (`npx tsx --test`),
+python 1376 passed/1 skipped (quarantine unchanged). `bash scripts/
+counter_ratchet.sh` — 25/25 counters at or better than baseline.
+`npx tsx --test server/layersWiring.test.ts` — passes (new registry entry
+correctly wired into LAYER_GROUP). `npm run build` — clean (pre-existing
+astronomy-engine/chunk-size warnings only, unrelated to this change).
+`npm run visual` (VISUAL VERIFICATION, PROMOTION RULE 6) — 0 hard
+failures across all pages at 390/768/1440; `griddemand` page itself
+carries zero new warnings at any width beyond the pre-existing global
+chrome warnings every page shows (nav touch targets, layer-panel control
+sizes) — reviewed both the 390px and 1440px screenshots directly: table
+renders correctly, sort order correct, null-forecast row shows "—"
+honestly, mobile stacks via the existing `.vt-filings-table` responsive
+CSS with no clipping.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-surface change over an
+already-live, unmodified RAW API; no scoring/sizing/trading logic
+touched.
+
+MARKET-HOURS NOTE: this session ran during market hours (started
+~10:40 ET). Per the scheduled task's own instruction and the standing
+PROCESS GAP entry in wishlist.md (auto-merge has no time-of-day gate,
+5 confirmed occurrences already), the PR notes a hold-until-after-close
+request knowing it is not mechanically enforced — same honest-but-
+unenforced posture as every prior scheduled-routine session since
+2026-08-14. This change is low-risk (client-only, RAW display, zero
+server/trading-path touch) so an early auto-merge would not be harmful
+even if it happens again, but the note is included per instruction.
+
+HYPOTHESIS / EXPECTED EFFECT: no new signal or trading behavior; expected
+effect is purely a data-product surface gap closing (PREMIUM EXPERIENCE
+STANDARD — every gate-2-attempted root's RAW data should be visible
+somewhere on /data, not just in server logs/API responses), same
+precedent as fleetUtilization.tsx earlier today. FOLLOW-UP left
+unclaimed for a future session: occ-volume's identical shipped-data-no-UI
+gap (same recipe, model on this page and fleetUtilization.tsx); the 8
+other unwired routes from session (4)'s sweep that don't tie to a
+gate-2-attempted root (air-quality, drought, facility-events,
+fires-near-facilities, plants-under-alerts — pure census-layer RAW gaps,
+lower priority per this session's ranking but still genuine gaps).
+
 ## 2026-08-19 (4) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — corporate/LLC aircraft fleet utilization (/api/data/fleet-utilization) gets a live /data client view, closing a shipped-data-no-UI gap tied to an active signal_ladder root (v1.0.746)
 
 TERRITORY: T-CLIENT primary (new `client/src/pages/fleetUtilization.tsx`;

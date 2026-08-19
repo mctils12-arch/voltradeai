@@ -2348,6 +2348,16 @@
    "description": "Weekly flight-session counts and airborne hours per registered owner (FAA registrant or callsign-resolved operator), joined from the position archive. GATE 1 (spine-join accuracy) PASSED 20/20 exact N-number matches; GATE 2 (utilization x earnings timing) not attempted. As-is display of session counts — owners are FAA registrants (trustee/leasing entities hide beneficial owners), airborne hours are lower bounds under adaptive archive sampling, nothing here is a signal."
   },
   {
+   "id": "grid_demand",
+   "name": "Electric grid demand (EIA-930)",
+   "kind": "raw",
+   "status": "live",
+   "group": "facilities",
+   "costTier": "light",
+   "source": "EIA-930 Hourly Electric Grid Monitor (public domain, EIA_API_KEY-gated)",
+   "description": "Hourly demand (MWh) and day-ahead forecast per balancing authority, ~1-2h publication lag. GATE 1 (revision stability — an independent later re-draw of the same API) PASSED within 0.24%. GATE 2 (weather-adjusted demand residual vs. forward industrial-sector returns) was ATTEMPTED AND KILLED 2026-08-09: predicted signs disagreed with realized returns at both the 20-day and 60-day horizons. As-is display of published demand/forecast values, nothing here is a signal."
+  },
+  {
    "id": "secftd",
    "name": "Fails-to-deliver (SEC CNS)",
    "kind": "raw",
