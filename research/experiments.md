@@ -20,6 +20,207 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (4) (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — corporate/LLC aircraft fleet utilization (/api/data/fleet-utilization) gets a live /data client view, closing a shipped-data-no-UI gap tied to an active signal_ladder root (v1.0.746)
+
+TERRITORY: T-CLIENT primary (new `client/src/pages/fleetUtilization.tsx`;
+wiring in `client/src/pages/datamap.tsx` — LAYER_GROUP entry, state hook,
+hashchange listener, status-polling effect, icon/unit lookups, layer-row
+launcher button, render block; new fixture + PAGES entry in
+`scripts/visual_check.mjs`) + SHARED last-and-minimal (`datacore/
+layers.json` one new registry entry, `datacore/signal_ladder.json`
+surgical one-line note append on the pre-existing `fleet_utilization_
+aircraft` root, `package.json`/`package-lock.json` version bump only —
+no server route or schema touched). No datacore/ pipeline code changed:
+`/api/data/fleet-utilization` (`server/fleetUtilization.ts`) was already
+shipped and live since v1.0.578, this is a pure client-surface build over
+an existing, unmodified API contract.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ per the
+MEMORY PROTOCOL order (this file's AUDITS & DEBT register — nothing
+overdue: STALENESS due 2026-09-14, CONSTITUTIONAL due 2026-09-15,
+CALENDAR due 2026-12-01; `open_questions.md` KNOWN BROKEN — item #20 is
+the only open item, a design/threshold judgment call awaiting RULE REVIEW
+evidence, not a live break; `wishlist.md`'s standing PROCESS GAP entry,
+nothing new). Live `/api/health` (production): `status:"ok"`,
+`bot.status:"active"`, `drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca
+`ACTIVE`, scanner `consecutiveFailures:0`, all three feeds `dead:false`
+— no LIVENESS ALARM. `/api/data/layers` confirmed `server_version:
+"1.0.745"` — the immediately preceding session's fix (PR #879) is live in
+production. Today is Wednesday 2026-08-19; this session ran outside
+9:30-16:00 ET (started ~09:07 ET), so the market-hours merge-timing
+caveat does not apply to this PR.
+
+PRIMARY-ACTION SELECTION: this task's own instructions named option (a)
+(advance a datacore/ pipeline through its next ladder gate) and (b)
+(build product UI/UX) as in scope. Checked `python3 scripts/
+ladder_readiness_check.py`: 0/2 gated roots ready (`cftc_cot_positioning`
+waiting 63d of ~105d needed at 7d cadence; `sec_8k_earnings_language`
+waiting 44d of 90d needed) — no matured gate-2 experiment to judge today,
+ruling out (a) directly. Instead grepped every `/api/data/*` route
+registered in `server/routes.ts` (69 total) against `client/src/` for zero
+references — the exact "shipped-data-no-UI" sweep this program has run
+repeatedly since 2026-07-22 (most recently closing `bank_failures`/
+`vehicle_complaints` on 2026-08-18). Found 13 unwired routes: `air-quality`,
+`contracts`, `drought`, `facility-events`, `fires-near-facilities`,
+`fleet-utilization`, `grid-demand`, `imports`, `occ-volume`,
+`plants-under-alerts`, `query`, `satellites`, `short-interest`. Ranked
+`fleet-utilization` top: unlike the other 12 (each just an unwired RAW
+route), it is the LIVE surface of `fleet_utilization_aircraft` — an
+active `datacore/signal_ladder.json` root at `gate1_pass` (GATE 1 spine-
+join accuracy PASSED 20/20 2026-07-05) that CLAUDE.md's own ACTIVE
+ANGLE-HUNTING section names by example ("corporate-fleet aircraft
+utilization × earnings timing"), so shipping its RAW client view serves
+the PREMIUM EXPERIENCE STANDARD's freshness/provenance clause for a
+hypothesis already in flight, not just a generic data-census gap. (`query`
+and `satellites` were independently checked and excluded: `query` is the
+location-context engine's lat/lon tool endpoint, not a page-level feed;
+`satellites` sits behind the ORBITAL program's documented CelesTrak-relay
+gating, a separate data-path decision, not a plain oversight — left
+unclaimed for a future session, not this sweep's target.)
+
+READ BEFORE WRITE: read `server/fleetUtilization.ts` in full this session
+— `buildFleetSeries`, `foldSessions`, `resolveOwnerKey`, the permanent
+weekly-archive fold, and `fleetSeriesCached` — before writing anything,
+confirming the exact `OwnerSeries` shape (`owner`/`group`/`resolution`/
+`trustee_airframes`/`registrant_type`/`n_airframes`/`weekly`) and the
+honesty contract already documented in its own header comment (lower-
+bound hours, registrant != beneficial owner, absent weeks are not zero).
+Read the route handler at `server/routes.ts:2329-2346` for the exact
+response envelope (`kind:"derived"`, `owners_total`, `count`, `note`,
+`owners`). Read `client/src/pages/secFtd.tsx` in full as the template —
+same session's own header comment named it as the closest precedent (a
+single-summary leaderboard view, not a page-wide dashboard) — and
+cross-referenced its exact wiring recipe against `client/src/pages/
+datamap.tsx` at each of the 8 sites secFtd touched (import, LAYER_GROUP,
+state hook, hashchange listener, status-polling effect, icon lookup, unit
+lookup, layer-row launcher button, render block) before writing the new
+page, rather than inventing a different shape. Read `server/
+layersWiring.test.ts` before finishing to confirm its exact ratchet
+predicate (every non-signal, non-planned registry id must appear in
+LAYER_GROUP) so the new entry would satisfy it, not just look plausible.
+
+WHAT SHIPPED:
+1. `client/src/pages/fleetUtilization.tsx` (new) — fetches `/api/data/
+   fleet-utilization` on mount; per-owner leaderboard re-sorted CLIENT-SIDE
+   by total airborne hours (the "utilization" the page is about) rather
+   than the server's own airframe-count sort order (a deliberate,
+   documented departure — the API's sort serves its own default `top=`
+   truncation, not this page's ranking question). Each row aggregates an
+   owner's `weekly` buckets into weeks-tracked/flights/hours totals
+   client-side (weeks without archive coverage are simply absent from the
+   sum, never coerced to zero, matching the server's own contract). Shows
+   the GATE 1 PASSED / GATE 2 NOT ATTEMPTED status inline (not just in
+   research/ prose) and a trustee-registered badge per row. RAW display
+   only — no ladder gate, matches `fleetUtilization.ts`'s own "nothing
+   here is a SIGNAL" framing verbatim in the page copy. Reuses `.vt-
+   filings-*` CSS (atsSummary.tsx/secFtd.tsx precedent) — zero new styles.
+2. `client/src/pages/datamap.tsx` — `FleetUtilizationView` import;
+   `fleet_utilization: "filings"` LAYER_GROUP entry; `fleetUtilOpen` state
+   (hash-init `#/data/fleet-utilization`); hashchange listener entry;
+   status-polling effect (mirrors secftd's exact 300s-badge-refresh shape
+   — the server's own 6h TTL cache means this poll only refreshes the
+   panel's owner-count badge, not the underlying data); icon lookup
+   (reused the existing `Plane` import, already used for the aircraft
+   layer — no new lucide import needed) and unit-lookup (`"owners"`)
+   entries; open-full-view launcher button inside the `fleet_utilization`
+   layer row; render block.
+3. `datacore/layers.json` — new `fleet_utilization` entry, `kind:"raw"`,
+   `group:"filings"`, `status:"live"`, description states the GATE 1/GATE
+   2 status and the lower-bound/registrant-not-owner honesty caveats.
+4. `scripts/visual_check.mjs` — `fleetutilization` PAGES entry (`map:
+   false`, same Phase-5 ratchet rule as every dashboard/leaderboard page
+   since streams); `/api/data/fleet-utilization` fixture (2 owners,
+   multi-week aggregation, one trustee-registered/FAA-registrant row and
+   one callsign-resolved row, so the harness exercises both resolution-
+   basis branches and the trustee badge); `fleet_utilization` entry added
+   to the `/api/data/layers` FIXTURES list (same R15-class gap the secftd
+   session closed for itself — every toggleable registry layer must
+   appear here or the toggle-consistency/self-see/legend-parity batteries
+   never exercise it).
+5. `datacore/signal_ladder.json` — surgical one-sentence append to the
+   pre-existing `fleet_utilization_aircraft` entry's `note` field (NOT a
+   full `json.dump` round-trip, per the 2026-08-16 session's own logged
+   lesson about that reformatting the whole file for a tiny change) noting
+   the RAW client view now exists; `current_gate`/`status`/`last_update_
+   date` left untouched since this session did not advance the ladder —
+   UI-only, gate 2 status unchanged. `source_ref` gained this session's
+   file/entry reference.
+6. `package.json`/`package-lock.json` — version bump only (1.0.745 ->
+   1.0.746, read-and-incremented at commit time per MERGE-ORDER PROTOCOL
+   — confirmed via `git fetch origin main` immediately before bumping
+   that the branch was exactly at `origin/main` HEAD, no drift, the
+   immediately preceding session's PR #879 already merged).
+
+GATES: sandbox had neither `node_modules` nor the Python package set
+installed at session start — `npm ci` and `pip install -r
+requirements.txt -r requirements-dev.txt` both required first. `bash
+scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (no new `any`,
+no new undeclared identifiers). `bash scripts/gated_tests.sh` GATE
+PASSED — client 1017/1017 (97 files, including `layersWiring.test.ts`'s
+ratchet exercising the new `fleet_utilization` LAYER_GROUP entry), python
+1376 passed/1 skipped (unchanged from the immediately preceding
+session's baseline), quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: 25/25 counters at or better than baseline, no
+re-pin needed (this diff added zero `: any`, zero empty catches, zero new
+high-precision literal duplicates). `npm run build` clean (only
+pre-existing warning classes — astronomy-engine ESM default-export
+notice, large-chunk notice, mapIcons dynamic/static dual-import notice —
+none related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `node scripts/visual_check.mjs
+--page fleetutilization` and `--page streams`, each at 390/768/1440 —
+**0 hard failures** on both. New page confirmed by screenshot review at
+all three widths: header with source/freshness/GATE-1-PASSED-GATE-2-NOT-
+ATTEMPTED status line, honesty caveats rendered inline (not buried), the
+leaderboard table with the trustee-registered badge and both resolution-
+basis branches, correct mobile label-collapse at 390px (the `data-l`
+convention). Only warnings present are the pre-existing global-chrome
+touch-target/clipped-control warnings that appear on essentially every
+page in this harness (same class noted in prior sessions' visual-
+verification write-ups) and the standard headless-software-renderer
+notice — neither related to this diff.
+
+BACKTEST: N/A — this is a data-surface/UI feature (PROMOTION RULE 3's
+Sharpe/drawdown comparison doesn't apply); no scoring, sizing, or
+trading-threshold value changed. `fleet_utilization_aircraft`'s own GATE
+2 (utilization x earnings timing) remains unattempted and unaffected by
+this session — this ships its RAW display only, per the module's own
+"nothing here is a SIGNAL" contract.
+
+CROSS-SYSTEM INTEGRATION: none new this session (no new archive, no new
+entity-graph join, no new cross-stream tie) — this surfaces an EXISTING
+fusion product (aircraft position archive x FAA entity spine, BUILD
+ORDER 3 #1) that already ties two systems together; the tie itself
+predates this session.
+
+MONETIZATION NOTE (not a tripwire re-run — this session touches no
+billing/pricing/subscription/ads code): the new route and page are FREE,
+unauthenticated, pre-revenue, same posture as every other RAW `/data`
+page in this repo. No `/api/v1` mirror exists for this root yet and none
+was added this session (out of scope; a future session could propose one
+following the secftd/fred-macro precedent if external demand for this
+specific dataset materializes).
+
+NEXT (queued, not this session): (1) the 12 remaining zero-wiring routes
+this session's own sweep found and did not build: `air-quality`,
+`contracts`, `drought`, `facility-events`, `fires-near-facilities`,
+`grid-demand`, `imports`, `occ-volume`, `plants-under-alerts`, plus
+`query`/`satellites` (both deliberately excluded, see PRIMARY-ACTION
+SELECTION above) and `short-interest`. (2) once the archive passes
+~2026-08-31 (`fleet_utilization_aircraft`'s own re-baselined GATE 2
+trigger per `open_questions.md` BUILD ORDER 3d), a future session should
+actually attempt the utilization-x-earnings GATE 2 test this root has
+been waiting on since 2026-07-05. (3) `cftc_cot_positioning` (63d/~105d)
+and `sec_8k_earnings_language` (44d/90d) remain queued, not yet ready.
+
+Version bumped 1.0.745 -> 1.0.746 (PROMOTION RULE 4).
+
+STARVED: no — this was a concretely scoped, single-PR, fully-gated
+action completed within session capacity; no higher-priority queued item
+was skipped (no LIVENESS ALARM; no matured gate-2 experiment to judge;
+KNOWN BROKEN #20 is RULE REVIEW-gated, not a live break; product sessions
+do not preempt DAILY repair duty per this task's own instructions).
+
 ## 2026-08-19 (3) (scheduled-routine session) [REPAIR] — T-BOT (shadow_portfolio.py) + SHARED (research/*, ci/counter_baseline.txt, package.json last-and-minimal) — KNOWN BROKEN #20's stalled evidence gate re-checked, still empty 2 nights after the 2026-08-17 fix; a per-decision-bucket backfill diagnostic shipped instead of a third guessed fix (v1.0.745)
 
 TERRITORY: T-BOT primary (`shadow_portfolio.py`, `test_shadow_portfolio.py`)

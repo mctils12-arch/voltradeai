@@ -45,6 +45,7 @@ import NrcReactorStatusView from "./nrcReactorStatus";
 import GnssIntegritySignalView from "./gnssIntegritySignal";
 import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
+import FleetUtilizationView from "./fleetUtilization";
 import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
 import TreasuryDtsView from "./treasuryDts";
@@ -883,7 +884,7 @@ const LAYER_GROUP: Record<string, string> = {
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings",
   graph: "graph",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
@@ -2810,6 +2811,12 @@ export default function DataMapPage() {
   // /api/data/ftd, shipped API-only v1.0.171; already has an
   // /api/v1/stats/secftd paid-tier mirror).
   const [secFtdOpen, setSecFtdOpen] = useState(() => window.location.hash === "#/data/ftd");
+  // Corporate/LLC aircraft fleet utilization (#/data/fleet-utilization) —
+  // same overlay pattern (BUILD ORDER 3 #1's own filed UI follow-up,
+  // /api/data/fleet-utilization, shipped API-only v1.0.578; GATE 1 join
+  // accuracy passed, GATE 2 utilization-x-earnings not attempted — RAW
+  // display only, no signal claim).
+  const [fleetUtilOpen, setFleetUtilOpen] = useState(() => window.location.hash === "#/data/fleet-utilization");
   // CFTC Traders in Financial Futures (#/data/tff) — same overlay pattern
   // (DATACORE MAXIMUS census build 6 #1's own filed UI follow-up,
   // /api/data/tff, keyless Socrata sibling of /api/data/cot; no client
@@ -3166,6 +3173,7 @@ export default function DataMapPage() {
       setGnssIntegrityOpen(window.location.hash === "#/data/gnss-integrity");
       setEuPowerOpen(window.location.hash === "#/data/eu-power");
       setSecFtdOpen(window.location.hash === "#/data/ftd");
+      setFleetUtilOpen(window.location.hash === "#/data/fleet-utilization");
       setTffOpen(window.location.hash === "#/data/tff");
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
       setTreasuryDtsOpen(window.location.hash === "#/data/treasury-dts");
@@ -12010,6 +12018,31 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.secftd, mapSettled, setStatus]);
 
+  // ── Corporate/LLC aircraft fleet utilization (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as ats_summary/midas/secftd).
+  // Server refreshes on a 6h TTL cache over the archive, so this poll only
+  // refreshes the panel's owner-count badge, same 300s convention as the
+  // sibling filings layers. ──
+  useEffect(() => {
+    if (!enabled.fleet_utilization) { setStatus("fleet_utilization", "off"); return; }
+    if (!mapSettled) { setStatus("fleet_utilization", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("fleet_utilization", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/fleet-utilization");
+        const d = await r.json();
+        if (stop) return;
+        setStatus("fleet_utilization", "active", d.count);
+      } catch {
+        if (!stop) setStatus("fleet_utilization", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.fleet_utilization, mapSettled, setStatus]);
+
   // ── CFTC Traders in Financial Futures (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as cot/secftd). Server refreshes
   // on a 12h poll (weekly report cadence), so this poll only refreshes the
@@ -12288,6 +12321,7 @@ export default function DataMapPage() {
     id === "ats_summary" ? <Landmark size={15} /> :
     id === "midas" ? <Radar size={15} /> :
     id === "secftd" ? <TrendingDown size={15} /> :
+    id === "fleet_utilization" ? <Plane size={15} /> :
     id === "tff" ? <Scale size={15} /> :
     id === "treasury_auctions" ? <Tag size={15} /> :
     id === "treasury_dts" ? <Banknote size={15} /> :
@@ -12310,7 +12344,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12745,6 +12779,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "fleet_utilization" && on && (
+          // Same pattern as insider/earnings/shortvol/ats_summary/midas/
+          // secftd: a per-owner utilization leaderboard doesn't belong in a
+          // layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/fleet-utilization"; setFleetUtilOpen(true); }}>
+              Open fleet utilization view — ranked by airborne hours →
+            </button>
+          </div>
+        )}
         {l.id === "tff" && on && (
           // Same pattern as cot/secftd: a per-market positioning table
           // doesn't belong in a layer-toggle sidebar.
@@ -12981,6 +13026,9 @@ export default function DataMapPage() {
       )}
       {secFtdOpen && (
         <SecFtdView onBack={() => { window.location.hash = "#/data"; setSecFtdOpen(false); }} />
+      )}
+      {fleetUtilOpen && (
+        <FleetUtilizationView onBack={() => { window.location.hash = "#/data"; setFleetUtilOpen(false); }} />
       )}
       {tffOpen && (
         <TffView onBack={() => { window.location.hash = "#/data"; setTffOpen(false); }} />
