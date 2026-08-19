@@ -46,6 +46,7 @@ import GnssIntegritySignalView from "./gnssIntegritySignal";
 import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
 import FleetUtilizationView from "./fleetUtilization";
+import GridDemandView from "./gridDemand";
 import TffView from "./tff";
 import TreasuryAuctionsView from "./treasuryAuctions";
 import TreasuryDtsView from "./treasuryDts";
@@ -886,6 +887,7 @@ const LAYER_GROUP: Record<string, string> = {
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
   ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings",
   graph: "graph",
+  grid_demand: "facilities",
   powergrid: "facilities",
   powergrid_hifld: "facilities", powergrid_hifld_sub: "facilities", powergrid_hifld_plants: "facilities",
   submarine_cables: "facilities",
@@ -2817,6 +2819,12 @@ export default function DataMapPage() {
   // accuracy passed, GATE 2 utilization-x-earnings not attempted — RAW
   // display only, no signal claim).
   const [fleetUtilOpen, setFleetUtilOpen] = useState(() => window.location.hash === "#/data/fleet-utilization");
+  // EIA-930 hourly electric grid demand (#/data/grid-demand) — same overlay
+  // pattern (DATACORE MAXIMUS Phase 0's own filed UI follow-up, /api/data/
+  // grid-demand, shipped API-only v1.0.163; GATE 1 revision-stability
+  // passed, GATE 2 demand-residual-vs-industrial-returns ATTEMPTED AND
+  // KILLED 2026-08-09 — RAW display only, no signal claim).
+  const [gridDemandOpen, setGridDemandOpen] = useState(() => window.location.hash === "#/data/grid-demand");
   // CFTC Traders in Financial Futures (#/data/tff) — same overlay pattern
   // (DATACORE MAXIMUS census build 6 #1's own filed UI follow-up,
   // /api/data/tff, keyless Socrata sibling of /api/data/cot; no client
@@ -3174,6 +3182,7 @@ export default function DataMapPage() {
       setEuPowerOpen(window.location.hash === "#/data/eu-power");
       setSecFtdOpen(window.location.hash === "#/data/ftd");
       setFleetUtilOpen(window.location.hash === "#/data/fleet-utilization");
+      setGridDemandOpen(window.location.hash === "#/data/grid-demand");
       setTffOpen(window.location.hash === "#/data/tff");
       setTreasuryAuctionsOpen(window.location.hash === "#/data/treasury-auctions");
       setTreasuryDtsOpen(window.location.hash === "#/data/treasury-dts");
@@ -12043,6 +12052,31 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.fleet_utilization, mapSettled, setStatus]);
 
+  // ── EIA-930 hourly electric grid demand (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as fleet_utilization/ats_summary).
+  // Server refreshes on a 2h poll (per-BA cache), same 300s badge-refresh
+  // convention as the sibling filings/facilities layers. ──
+  useEffect(() => {
+    if (!enabled.grid_demand) { setStatus("grid_demand", "off"); return; }
+    if (!mapSettled) { setStatus("grid_demand", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("grid_demand", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/grid-demand");
+        const d = await r.json();
+        if (stop) return;
+        if (d.enabled === false) { setStatus("grid_demand", "awaiting_key"); return; }
+        setStatus("grid_demand", "active", d.count);
+      } catch {
+        if (!stop) setStatus("grid_demand", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.grid_demand, mapSettled, setStatus]);
+
   // ── CFTC Traders in Financial Futures (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as cot/secftd). Server refreshes
   // on a 12h poll (weekly report cadence), so this poll only refreshes the
@@ -12322,6 +12356,7 @@ export default function DataMapPage() {
     id === "midas" ? <Radar size={15} /> :
     id === "secftd" ? <TrendingDown size={15} /> :
     id === "fleet_utilization" ? <Plane size={15} /> :
+    id === "grid_demand" ? <Zap size={15} /> :
     id === "tff" ? <Scale size={15} /> :
     id === "treasury_auctions" ? <Tag size={15} /> :
     id === "treasury_dts" ? <Banknote size={15} /> :
@@ -12344,7 +12379,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12790,6 +12825,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "grid_demand" && on && (
+          // Same pattern as fleet_utilization/ats_summary/midas/secftd: a
+          // per-balancing-authority demand table doesn't belong in a
+          // layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/grid-demand"; setGridDemandOpen(true); }}>
+              Open grid demand view — by balancing authority →
+            </button>
+          </div>
+        )}
         {l.id === "tff" && on && (
           // Same pattern as cot/secftd: a per-market positioning table
           // doesn't belong in a layer-toggle sidebar.
@@ -13029,6 +13075,9 @@ export default function DataMapPage() {
       )}
       {fleetUtilOpen && (
         <FleetUtilizationView onBack={() => { window.location.hash = "#/data"; setFleetUtilOpen(false); }} />
+      )}
+      {gridDemandOpen && (
+        <GridDemandView onBack={() => { window.location.hash = "#/data"; setGridDemandOpen(false); }} />
       )}
       {tffOpen && (
         <TffView onBack={() => { window.location.hash = "#/data"; setTffOpen(false); }} />
