@@ -20,6 +20,152 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (3) (scheduled-routine session) [REPAIR] — T-BOT (shadow_portfolio.py) + SHARED (research/*, ci/counter_baseline.txt, package.json last-and-minimal) — KNOWN BROKEN #20's stalled evidence gate re-checked, still empty 2 nights after the 2026-08-17 fix; a per-decision-bucket backfill diagnostic shipped instead of a third guessed fix (v1.0.745)
+
+TERRITORY: T-BOT primary (`shadow_portfolio.py`, `test_shadow_portfolio.py`)
++ SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin,
+`package.json` version bump, `research/open_questions.md`/
+`research/experiments.md`).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(AUDITS & DEBT register — nothing overdue: STALENESS due 2026-09-14,
+CONSTITUTIONAL due 2026-09-15, CALENDAR due 2026-12-01), the last 10
+tagged session entries (4 REPAIR / 3 PRODUCT-or-PIPELINE / 1 RESEARCH out
+of the visible tags before this session — well under the 7+ thrash bar,
+no meta-problem to escalate), `research/open_questions.md`'s KNOWN BROKEN
+section in full, and `research/wishlist.md`'s standing PROCESS GAP entry
+(fifth occurrence already logged 2026-08-18, nothing new to add). Live
+`/api/health` (production): `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, Alpaca `ACTIVE`, scanner
+`consecutiveFailures:0`, all three feeds `dead:false` — no LIVENESS
+ALARM. `/api/data/layers` confirmed `server_version:"1.0.744"` — the
+immediately preceding session's fix (PR #878) is live in production.
+`/api/diag/audit?limit=40` (recent history) showed only routine TIER2/
+TIERS/OPTIONS-SLOT-FULL entries (options slots consistently 6/6 — normal
+CSP-tier saturation, not a new defect) — no fresh bug to repair from the
+audit log.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET's own priority order ("fix a
+bug seen in audit logs > judge a matured experiment > start a new
+experiment > research"), the audit log had no bug; the most concretely
+"matured experiment" to judge was KNOWN BROKEN #20's own explicit NEXT
+note — "once several more nightly runs land with this fix live, a future
+session should re-check `get_shadow_stats()["win_rate_by_decision"]
+["rejected_masterkill"]`" — which the 2026-08-17 fix (v1.0.736) had left
+queued, with the 2026-08-18 session already confirming it was still too
+early (1 night old) to judge. 2 more nights had since passed.
+
+READ BEFORE WRITE: re-read `shadow_portfolio.py` in full this session —
+`log_candidate()`, `update_last_decision()`, `_fetch_historical_bars_
+batch()`, `_label_from_path()`, `backfill_outcomes()`, and
+`get_shadow_stats()` — before forming any hypothesis, plus
+`test_shadow_portfolio.py` in full for the existing coverage shape
+(`TestBackfillPermanentFailure`'s own tests already prove the labeling
+mechanism works correctly in principle for a `rejected_masterkill`
+record given real price data — the live gap is a live-data question, not
+a logic bug in that path). Also read `server/bot.ts`'s `shadow` diag case
+to confirm it passes `get_shadow_stats()`'s dict through unchanged (no TS
+edit needed for a new Python-side field to reach the API).
+
+FINDING: `/api/diag/shadow?token=$DIAG_TOKEN` (production,
+`total_records: 18587`, oldest `2026-04-20`) — `by_decision.
+rejected_masterkill: 156`, `rejected_heat: 493`, `rejected_other: 350`,
+but `win_rate_by_decision` still carries only `taken` and
+`rejected_score`. Verified this is NOT just under the `n>=5` reporting
+floor by cross-checking against `labeled_by_horizon`'s own totals
+(REASONING STANDARD #1 — verify, don't eyeball): `taken`'s labeled count
+across all three horizons (4159+3487+2520=10166) plus `rejected_score`'s
+(55+55+55=165) sums to 10331, which matches `labeled_by_horizon`'s own
+cross-horizon total exactly (4214+3542+2575=10331) — proof that
+`rejected_heat`/`rejected_other`/`rejected_masterkill` (999 records
+combined) have accumulated literally ZERO real win/loss labels at ANY
+horizon, not merely too few to report. `/api/diag/audit?
+type=SHADOW-BACKFILL&limit=20` showed genuine nightly progress elsewhere
+(`updated: 1034` then `689` on the two most recent runs;
+`permanently_unlabelable: 0` both nights — the 2026-08-17 retirement
+mechanism hasn't fired yet either, since it needs 3 *consecutive* failed
+nights and is only 2 nights old).
+
+RECURRENCE ESCALATES CHECK: this is NOT a third failed fix on the same
+claim — neither the 2026-08-07 windowed-batching fix nor the 2026-08-17
+permanent-retirement fix claimed to resolve this specific symptom; both
+explicitly deferred to "check again in a few days," and 2 nights is not
+yet "several more" by that note's own standard. Patching a guessed cause
+a third time without evidence would be exactly the anti-pattern that rule
+exists to block — so this session did NOT attempt another throughput or
+retirement tweak. Instead it closed the actual gap: the aggregate stats
+had no way to distinguish "never reached by the scan frontier" from
+"actively failing every attempt" from "already given up on (label=-1,
+correctly excluded)" — three very different diagnoses that all currently
+render as the same "still empty."
+
+WHAT SHIPPED (v1.0.745): `shadow_portfolio.get_shadow_stats()` gains
+`backfill_progress_by_decision` — for every decision bucket, per horizon,
+counts of `labeled` (real 0/1 label), `permanently_unlabelable` (label=-1
+sentinel), `pending_retry` (outcome still None but `_bf_attempts[key]` >
+0 — actively failing, not yet at the cap), and `not_yet_attempted`
+(outcome None, no attempts recorded — never reached, or too recent).
+Reads only fields `backfill_outcomes()` already writes
+(`outcomes[key]`/`_bf_attempts[key]`) — no new I/O, no new field written
+to the shadow record itself, purely a read-side aggregation, same shape
+as the existing `win_rate_by_decision` loop directly above it in the same
+function. `server/bot.ts`'s `shadow` diag case already spreads
+`get_shadow_stats()`'s return verbatim (`{ probe: "shadow", ...JSON.parse(...) }`)
+into its response — confirmed via read, no TS change needed for the new
+field to reach `/api/diag/shadow`.
+
+RATCHET: 2 new tests in `test_shadow_portfolio.py`
+(`TestBackfillProgressByDecision`) — A/B-verified via `git stash` on
+`shadow_portfolio.py` alone (test file kept on disk, only the source
+reverted): both fail with `KeyError: 'backfill_progress_by_decision'` on
+pre-fix code, both pass post-fix. `test_distinguishes_all_four_states_
+per_bucket` seeds one record in each of the four states for
+`rejected_masterkill` and asserts the exact per-state count at `+5d`;
+`test_buckets_stay_independent` seeds one `taken` and one
+`rejected_masterkill` record and asserts neither bucket's counts leak
+into the other's.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both needed at session start). `bash scripts/gated_tests.sh` GATE PASSED
+— server + client (97 files) all green, python 1376 passed/1 skipped
+(1374 baseline + 2 new, zero regressions), quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12<=12, TS2304=0, unchanged (no `.ts`/
+`.tsx` files touched — pure Python change). `bash scripts/
+counter_ratchet.sh`: `assertions` counter improved 11537->11545 from the
+2 new tests, pin lowered in this same commit per the script's own
+instruction; all 25 counters otherwise at baseline, no other re-pin
+needed. No VISUAL VERIFICATION — no client/ files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure diagnostic-visibility addition;
+the `win_rate_by_decision` field this item's actual evidence gate reads
+is byte-identical to before, only a new sibling field was added. No
+scoring, sizing, or trading-threshold value changed.
+
+Version bumped 1.0.744 -> 1.0.745 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed the branch was
+exactly at `origin/main` (no drift) at bump time.
+
+NEXT: once this deploys and a few more nightly `SHADOW-BACKFILL` runs
+land, check `/api/diag/shadow?token=$DIAG_TOKEN`'s new
+`backfill_progress_by_decision.rejected_masterkill` (and `_heat`/
+`_other`) — high `not_yet_attempted` means the array-order scan frontier
+genuinely hasn't reached these records yet (a real throughput problem,
+possibly warranting a structural fix, e.g. a saved scan cursor instead of
+restarting at idx 0 every night); high `pending_retry`/
+`permanently_unlabelable` means these buckets are hitting real
+missing-price conditions and the 2026-08-17 retirement mechanism is doing
+its job, just slowly against a 999-record minority of an ~18.6k-record
+archive. Either reading is now directly observable instead of requiring
+another blind multi-day wait. Full write-up (including the exact
+cross-check arithmetic) filed in `research/open_questions.md`'s KNOWN
+BROKEN item #20.
+
+STARVED: no — this was the queued NEXT step from KNOWN BROKEN #20's own
+evidence gate, matched to session capacity, shipped with tests/gates all
+green. No higher-priority queued item was skipped (no LIVENESS ALARM; no
+audit-log bug; thrash ratio well under threshold; no AUDITS & DEBT item
+overdue).
+
 ## 2026-08-19 (2) (scheduled-routine PRODUCT session) [REPAIR] — T-DATACORE — re-attempted the port_dwell_maritime_transit GATE 1 comparison queued by this session's own predecessor: found a SECOND, non-code root cause (retention-history data gap, not a bug) that permanently closes the specific July-2026 comparison; probe hardened with an honest coverage boundary instead (v1.0.744)
 
 TERRITORY: T-DATACORE primary (`server/datacoreArchive.ts`, `server/datacoreArchive.test.ts`, `server/bot.ts`'s `portdwell_window` diag case, `server/diag.test.ts`) + SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin, `package.json` version bump, `research/open_questions.md`/`research/experiments.md`).

@@ -292,6 +292,74 @@
     if the frontier has caught up, real win-rate data should finally appear
     for masterkill/heat/other, and only then should the (a)/(b) threshold or
     regime-source RULE REVIEW this item originally asked for be attempted.
+    **UPDATE 2026-08-19 (scheduled-routine session, [REPAIR], v1.0.745):
+    re-checked live per the NEXT note above — still empty, 2 nights after
+    the 2026-08-17 fix.** `/api/diag/shadow` (production,
+    `total_records: 18587`): `by_decision.rejected_masterkill: 156`,
+    `rejected_heat: 493`, `rejected_other: 350` — but
+    `win_rate_by_decision` still carries only `taken` and `rejected_score`.
+    Cross-checked against `labeled_by_horizon`'s own totals (REASONING
+    STANDARD #1 — verify, don't eyeball): summing `taken`'s
+    (4159+3487+2520=10166) and `rejected_score`'s (55+55+55=165) win+loss
+    counts across all three horizons gives 10331, which matches
+    `labeled_by_horizon`'s own cross-horizon total exactly (4214+3542+2575
+    = 10331) — proof, not inference, that `rejected_heat`/`rejected_other`/
+    `rejected_masterkill` (999 records combined, oldest from 2026-04-20)
+    have accumulated ZERO real win/loss labels at ANY horizon, across two
+    separate throughput fixes (2026-08-07 windowed batching, 2026-08-17
+    permanent-failure retirement) and `/api/diag/audit?type=SHADOW-BACKFILL`
+    showing real nightly progress elsewhere (`updated: 1034` then `689` on
+    the two most recent runs, `permanently_unlabelable: 0` both nights —
+    the retirement mechanism hasn't fired yet either, since it needs 3
+    *consecutive* failed nights and the fix is only 2 nights old). This is
+    not yet RECURRENCE ESCALATES territory (neither prior fix claimed to
+    resolve this specific symptom — both explicitly deferred to "check
+    again in a few days," and 2 nights is not yet "several more"), but the
+    aggregate stats gave no way to tell WHY these three buckets stay empty:
+    never reached by the array-order scan frontier, actively hitting
+    `missing_price` on every attempt (pre-retirement), or something else
+    entirely. FIX SHIPPED THIS SESSION (v1.0.745, no root cause guessed —
+    this is a visibility fix, same class as item #3/#20's own `TIER-KILL`
+    and `tier_kill_status` precedent): `shadow_portfolio.get_shadow_stats()`
+    gains `backfill_progress_by_decision`, reporting `labeled` /
+    `permanently_unlabelable` / `pending_retry` / `not_yet_attempted`
+    counts per decision bucket per horizon (reads the existing
+    `outcomes[key]` and `_bf_attempts[key]` fields already written by
+    `backfill_outcomes()` — no new I/O, no new field on the shadow record
+    itself). `server/bot.ts`'s `shadow` diag case already spreads
+    `get_shadow_stats()`'s return verbatim into its response, so the new
+    field reaches `/api/diag/shadow` with no TS-side change needed.
+    RATCHET: 2 new tests in `test_shadow_portfolio.py`
+    (`TestBackfillProgressByDecision`) — A/B-verified via `git stash` on
+    `shadow_portfolio.py` alone (test file kept, source reverted): both
+    fail with `KeyError: 'backfill_progress_by_decision'` on pre-fix code,
+    both pass post-fix. First test seeds one record in each of the four
+    states for `rejected_masterkill` and asserts the exact per-state count;
+    second test seeds one `taken` and one `rejected_masterkill` record and
+    asserts the two buckets' counts don't leak into each other. GATES:
+    `bash scripts/gated_tests.sh` GATE PASSED (server, client 97 files,
+    python 1376 passed/1 skipped — 1374 baseline + 2 new, zero
+    regressions; quarantine 0/1 none overdue). `bash scripts/
+    tsc_ratchet.sh`: 12<=12, TS2304=0, unchanged (no `.ts`/`.tsx` touched).
+    `bash scripts/counter_ratchet.sh`: `assertions` counter improved
+    11537->11545 from the 2 new tests, pin lowered in this PR per the
+    script's own instruction; all 25 counters otherwise at baseline.
+    BACKTEST: N/A — pure diagnostic-visibility fix, changes no
+    scoring/sizing/threshold value or trading decision; the `win_rate_by_
+    decision` field this item's actual evidence gate reads is completely
+    unchanged, only a new sibling field was added.
+    **NEXT:** once this deploys and a few more nightly `SHADOW-BACKFILL`
+    runs land, check `/api/diag/shadow?token=$DIAG_TOKEN`'s new
+    `backfill_progress_by_decision.rejected_masterkill` (and `_heat`/
+    `_other`) — if `not_yet_attempted` stays high, the array-order scan
+    frontier genuinely hasn't reached these records yet (a real throughput
+    problem, possibly warranting a structural fix — e.g. resuming the scan
+    from a saved cursor instead of restarting at idx 0 every night); if
+    `pending_retry`/`permanently_unlabelable` dominates instead, these
+    buckets' tickers are hitting real missing-price conditions and the
+    retirement mechanism is doing its job as designed, just slowly (999
+    records is a small fraction of the ~18.6k archive). Either reading is
+    now directly observable instead of requiring another blind wait.
 4. **Human-reported: bot "doesn't work right" overall.**
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
    below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
