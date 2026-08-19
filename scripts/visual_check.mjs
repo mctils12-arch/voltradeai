@@ -114,6 +114,9 @@ const PAGES = {
   // EIA-930 hourly electric grid demand — same Phase 5 ratchet rule as
   // fleetutilization/streams/secftd above.
   griddemand: { route: "/app#/data/grid-demand", map: false },
+  // OCC daily options cleared volume by trade origin — same Phase 5
+  // ratchet rule as griddemand/fleetutilization/streams above.
+  occvolume: { route: "/app#/data/occ-volume", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -218,6 +221,7 @@ const FIXTURES = {
       { id: "secftd", name: "Fails-to-deliver (SEC CNS)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "SEC CNS fails-to-deliver, half-month files (public domain, no API key required)", description: "Trailer-checksummed aggregate net fail balances per settlement date — a level, not a daily flow; raw spikes alone are a crowded signal." },
       { id: "fleet_utilization", name: "Corporate/LLC aircraft fleet utilization", kind: "raw", status: "live", group: "filings", costTier: "light", source: "Own aircraft position archive x FAA Aircraft Registry entity spine", description: "Weekly flight-session counts and airborne hours per registered owner — GATE 1 join accuracy passed, GATE 2 not attempted, nothing here is a signal." },
       { id: "grid_demand", name: "Electric grid demand (EIA-930)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "EIA-930 Hourly Electric Grid Monitor (public domain, EIA_API_KEY-gated)", description: "Hourly demand/day-ahead forecast per balancing authority — GATE 1 revision stability passed, GATE 2 demand-residual-vs-industrial-returns attempted and killed, nothing here is a signal." },
+      { id: "occ_volume", name: "Options cleared volume (OCC daily)", kind: "raw", status: "live", group: "filings", costTier: "light", source: "The Options Clearing Corporation (OCC) daily cleared volume (public, keyless)", description: "Top underlyings by daily cleared options volume, customer vs market-maker put/call split — GATE 1 day-total accuracy passed, GATE 2 customer call/put skew attempted and killed (reversed direction), nothing here is a signal." },
       { id: "graph", name: "Everything Graph", kind: "raw", status: "live", group: "graph", costTier: "light", source: "Own join over Form 4 + entity_map + AIS port-dwell archive", description: "Entity search across insiders, facilities, and vessels. RAW join with provenance, no predictive claim." },
       { id: "fires", name: "Active fires (VIIRS)", kind: "raw", status: "awaiting_key", group: "environmental", costTier: "moderate", source: "NASA FIRMS / LANCE", description: "Needs NASA_FIRMS_MAP_KEY." },
       { id: "nightlights", name: "Night lights radiance (GIBS)", kind: "raw", status: "live", field: true, group: "environmental", costTier: "moderate", source: "NASA GIBS/ESDIS — VIIRS/SNPP Day/Night Band", description: "Daily radiance imagery, dated (defaults to yesterday)." },
@@ -674,6 +678,25 @@ const FIXTURES = {
       { respondent: "US48", latest_period: "2026-08-19T14", latest_mwh: 512340, latest_forecast_mwh: 498210, hours_in_window: 48 },
       { respondent: "ERCO", latest_period: "2026-08-19T14", latest_mwh: 68210, latest_forecast_mwh: 71500, hours_in_window: 48 },
       { respondent: "NW", latest_period: "2026-08-19T13", latest_mwh: 21040, latest_forecast_mwh: null, hours_in_window: 47 },
+    ],
+  },
+  // OCC daily options cleared volume by trade origin (2026-08-19, RAW
+  // display, occVolume.tsx). Fixture covers 3 underlyings so the harness
+  // exercises a call-skewed row, a put-skewed row, and a zero-customer-
+  // volume row (skew "—").
+  "/api/data/occ-volume": {
+    kind: "raw",
+    source: "The Options Clearing Corporation (OCC) daily cleared volume (fixture)",
+    attribution: "The Options Clearing Corporation (OCC) daily volume",
+    time: 1786207476120,
+    report_date: "2026-08-18",
+    underlyings: 3,
+    count: 3,
+    note: "top underlyings by cleared volume with customer/market-maker put-call splits (qty counts each clearing side; totals halved); source keeps only a rolling 2-year window — this archive is the durable copy; origin-split signals stay gate-locked until ladder validation (fixture).",
+    top: [
+      { underlying: "SPY", cust_put: 40000, cust_call: 120000, mm_put: 210000, mm_call: 190000, total_cleared: 560000 },
+      { underlying: "QQQ", cust_put: 95000, cust_call: 21000, mm_put: 88000, mm_call: 71000, total_cleared: 275000 },
+      { underlying: "IWM", cust_put: 0, cust_call: 0, mm_put: 15000, mm_call: 12000, total_cleared: 27000 },
     ],
   },
   // US macro regime cluster — FRED, 28 public series (2026-08-08, RAW
