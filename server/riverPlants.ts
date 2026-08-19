@@ -25,6 +25,17 @@ export interface GaugePlantHit {
   capacity_by_fuel: Record<string, number>;
 }
 
+/** The plant tuples out of the shipped datacore/powerplants/us_power_plants.json
+ *  module, which wraps them in `{_doc, source, fuels, count, verified_count,
+ *  plants}` — casting that object straight to PlantTuple[] compiles but is not
+ *  iterable at runtime, which 500'd both cross-tie routes. Returns [] rather
+ *  than throwing if the shape ever changes again. Pure. */
+export function powerplantTable(raw: unknown): PlantTuple[] {
+  if (Array.isArray(raw)) return raw as PlantTuple[];
+  const plants = (raw as { plants?: unknown } | null)?.plants;
+  return Array.isArray(plants) ? (plants as PlantTuple[]) : [];
+}
+
 /** Dedupe gauge observations to one POINT per site (a site publishes stage AND
  *  discharge as separate series; the cross-tie only needs its location once).
  *  Skips gauges with missing/non-finite coordinates. Pure. */
