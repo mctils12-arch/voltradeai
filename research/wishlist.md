@@ -171,6 +171,19 @@ first found. Still awaiting the human's pick of option 1 or 2 above.
 Full trace in `research/experiments.md` (2026-08-18 session #4
 ADDENDUM).
 
+**SIXTH OCCURRENCE, 2026-08-19:** PR #881 (this same day's session (5),
+the `grid_demand` shipped-data-no-UI client view — client-only, RAW
+display, no server/trading-path touched) carried the same "please hold
+merge until after 4:00 PM ET" note and auto-merged at 16:41 UTC
+(~12:41 PM ET), ~4 minutes after opening. Same mechanism, sixth instance
+since 2026-08-14, now spanning 6 consecutive scheduled-routine sessions
+across 6 different days that carried the note. No new information — this
+is the same confirmation as occurrences two through five: the gap is not
+intermittent, cannot self-resolve, and will keep firing on every future
+scheduled-routine PR that carries this note until a human picks option 1
+or 2 above. Full trace in `research/experiments.md` (2026-08-19 session
+(5) ADDENDUM).
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
