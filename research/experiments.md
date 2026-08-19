@@ -20,6 +20,107 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (same session, continued after PR #876 deployed) [RESEARCH] — T-DATACORE — the GATE 1 comparison this session's REPAIR unblocked is structurally impossible for July: `RAW_RETENTION_DAYS` was 7 (not 30) for the archive's first 5+ weeks, so July's raw AIS data is already permanently gone; a second, unrelated archive anomaly found and filed as KNOWN BROKEN #31, not fixed (docs-only, no code change, no version bump)
+
+TERRITORY: T-DATACORE, research/* only — no code touched this half of the session.
+
+Waited for PR #876 (this session's earlier REPAIR) to deploy — Railway
+took ~55 minutes to pick up the merge (`server_version` stayed `1.0.742`
+long after `main` had `1.0.743`; unusually long vs. this repo's typical
+few-minute deploy lag, but the server stayed healthy throughout, no
+LIVENESS concern, and no separate diagnosis attempted — Railway's deploy
+pipeline is outside this session's visibility). Once `server_version:
+"1.0.743"` was confirmed live, resumed exactly where the fix left off:
+the actual GATE 1 comparison for `port_dwell_maritime_transit` against
+Port of LA's published July 2026 TEU figure (960,464 TEUs, second-busiest
+July on record — gathered via `WebSearch` earlier this session).
+
+WHAT HAPPENED: the July monthly-rollup query
+(`end=2026-08-01T00:00:00Z&hours=696`) returned `vessels_seen: 0` on
+every port — but before treating that as a finding, re-verified the fix
+itself on a window it CAN reach (`end=2026-08-18T00:00:00Z&hours=168` ->
+`vessels_seen: 36573`, port_la `visits_completed: 15, in_port_now: 62`,
+matching the live rolling-window route's shape) — confirming the fix
+works correctly and the July zero is a real, different phenomenon, not a
+regression. Bisected the boundary date-by-date
+(`end=2026-0{7,8}-XXT12:00:00Z&hours=24` for every date 07-03 through
+08-13): all of July reads zero; August is patchy from 08-03 through
+08-11 (08-05/08-06 anomalously HIGH — 34,985/24,862 unique vessels in a
+single day, vs. ~5,200/day implied by the confirmed-good 08-12..19
+range; 08-07 through 08-11 read zero); 08-12 onward reads normal.
+
+ROOT CAUSE (July): read `server/datacoreArchive.ts` in full and
+`git log`'d `RAW_RETENTION_DAYS`. PR #760 (2026-08-11, v1.0.654) raised
+it 7 -> 30 per human directive ("store all the data ... for up to a
+month"). Before that PR, `rollupOldDays`/`rollupOldDaysAsync` had been
+continuously deleting raw vessel files older than 7 days, every rollup
+cycle, since the archive's 2026-07-03 start — so by the time the 30-day
+extension deployed, every raw file more than ~7 days old was already
+gone (rolled into a coarse per-entity daily summary format that neither
+`portDwell.ts` nor `shadowFleet.ts` reads). The 30-day retention only
+protects data FROM the deploy moment forward; it cannot resurrect what
+was already deleted under the prior policy. This is permanent, real data
+loss for the pre-~08-04 window — not a bug fixable by patching a reader,
+and not something this session (or any future one) can recover.
+
+GATE 1 DISPOSITION: `datacore/signal_ladder.json`'s
+`port_dwell_maritime_transit` entry is correctly left at `gate1_pending`
+— NOT advanced to `gate1_pass` (no ground truth was actually reconciled)
+and NOT marked `killed` (nothing was falsified either). "The evidence
+window closed before the check could run" is an honest third outcome,
+distinct from both, and forcing either of the other two labels onto it
+would misrepresent what actually happened (MEASUREMENT INTEGRITY).
+
+SECOND FINDING, NOT FIXED: the Aug 03-11 patchiness (some days zero,
+Aug 05/06 anomalously high) does not fit the clean retention-boundary
+explanation — those dates are within 30 days of today and within what
+the #760 policy should have protected from its 2026-08-11 13:26 ET
+deploy onward. Read `rollupOldDays`/`rollupOldDaysAsync` for a possible
+double-run or scheduling defect around the deploy boundary but could not
+settle it without direct Railway volume access (not available from this
+sandbox) or the archive diag probe's raw-row passthrough (not attempted
+— this session's remaining capacity went to filing the finding cleanly
+over rushing a diagnosis). Filed as **KNOWN BROKEN #31** in
+`research/open_questions.md` with the full evidence table and four
+concrete next-step options for whichever REPAIR session picks it up.
+Deliberately NOT patched same-session: CLAUDE.md's READ BEFORE WRITE
+discipline and the RECURRENCE ESCALATES spirit both argue against
+appending a second, less-understood fix onto the same file this session
+already shipped one real fix to, without first confirming what's
+actually happening on disk.
+
+GATES: none run — no code changed, docs-only (`research/
+open_questions.md`, this entry). No version bump per PROMOTION RULE 4
+(nothing to attribute a code change to) — same precedent as the
+2026-08-16 CONSTITUTIONAL AUDIT entry ("docs-only, no bump").
+
+CROSS-SYSTEM INTEGRATION: none new. This bounds what ANY future
+vessel-archive-dependent historical query (shadow fleet, future GNSS/AIS
+joins) can honestly claim about pre-2026-08-12 data — worth remembering
+the next time a session reaches for "began 2026-07-03" in a caveat
+string, since that describes when INGESTION started, not what raw
+history is still queryable today.
+
+NEXT (queued, not this session): (1) KNOWN BROKEN #31 — a future REPAIR
+session with either Railway volume access or willingness to use the
+archive diag probe's raw-row passthrough should settle whether the
+Aug 05/06 spike is a duplication artifact and why Aug 07-11 is empty.
+(2) `port_dwell_maritime_transit` GATE 1: wait for September's TEU
+report (~mid-October) and compare against the Aug-12-onward window
+(this entry's REVISED RECIPE note in open_questions.md), or build a
+reader for the rollup-summary format so gate-1 work is not bounded by
+the 30-day raw retention window — a real, scoped future capability, not
+started here. (3) the `finra_short_volume` disjoint out-of-sample retest
+and `github_org_engineering_momentum`'s gate 2 remain queued exactly as
+prior sessions left them (not touched this session).
+
+STARVED: no — this was a direct, necessary continuation of the session's
+one primary action (the queued GATE 1 attempt this session's own earlier
+REPAIR unblocked), not new unscoped work. Ended with an honest negative
+result plus one new filed KNOWN BROKEN entry rather than a forced,
+inflated verdict — consistent with REASONING STANDARD #4 and MEASUREMENT
+INTEGRITY. No higher-priority queued item was skipped.
+
 ## 2026-08-19 (scheduled-routine PRODUCT session) [REPAIR] — T-DATACORE — the `portdwell_window` probe shipped 2026-08-18 was broken for its entire stated purpose: all three vessel-archive readers had no upper time bound, so any historical `end` silently absorbed every file written between it and today (v1.0.743)
 
 TERRITORY: T-DATACORE primary (`server/shadowFleet.ts`, `server/shadowFleet.test.ts`) + SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin, `package.json`/`package-lock.json` version bump, `research/open_questions.md`/`research/experiments.md`).

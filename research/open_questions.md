@@ -4295,6 +4295,82 @@
     gate is holding at the documented cap through the one scenario that
     broke it three times before. **ITEM #30 CLOSED.**
 
+31. **[FOUND 2026-08-19, scheduled-routine PRODUCT session, NOT DIAGNOSED,
+    NOT FIXED — filed for a dedicated future REPAIR session, not patched
+    same-day per read-before-write discipline on an issue this session
+    did not have capacity to root-cause properly.]** The vessel-position
+    archive has an unexplained, PATCHY gap in the first half of August
+    2026, live-probed via the (now-correctly-working, post-v1.0.743)
+    `/api/diag/portdwell_window` probe: single-24h-window `vessels_seen`
+    reads `2026-08-03: 0, 08-04: 0, 08-05: 34985, 08-06: 24862, 08-07: 0,
+    08-08: 0, 08-09: 0, 08-10: 0, 08-11: 0, 08-12: 664, 08-13: 1245`. Two
+    separate anomalies, possibly related, possibly not:
+    (a) **Aug 7-11 reads entirely empty** — either the AIS ingestion
+    pipeline had an undocumented multi-day outage in that window (no
+    matching entry found in `research/experiments.md`'s 2026-08-07..11
+    session headers), or the archive files for those 5 days were deleted
+    by something other than the documented rollup (see below), or there
+    is a third reader-level bug this session's fix didn't touch.
+    (b) **Aug 5-6 reads implausibly HIGH** — 34,985 and 24,862 unique
+    vessels in a single 24h window each, vs. ~5,200/day average implied
+    by the confirmed-good `2026-08-12..19` window (36,573 unique vessels
+    over 7 days, per this session's own verification query). A single day
+    at 6-7x the surrounding normal rate, immediately adjacent to a 5-day
+    total-gap, smells like a data-integrity defect (duplicate/misdated
+    files, a backfill script writing under the wrong timestamp, or a
+    rollup-then-re-ingest double-count) rather than genuine AIS traffic —
+    but this is a hypothesis, not yet verified by reading the actual
+    archive files, which this session had no direct filesystem access to
+    do (Railway volume, not this sandbox).
+    CONTEXT THAT MAKES THIS HARDER TO DIAGNOSE THAN A SIMPLE GAP: PR #760
+    (2026-08-11, v1.0.654) changed `RAW_RETENTION_DAYS` 7 -> 30. Before
+    that PR, the rolling rollup (`server/datacoreArchive.ts`'s
+    `rollupOldDays`/`rollupOldDaysAsync`, `cutoff = now -
+    RAW_RETENTION_DAYS * 86400_000`, raw files deleted past the cutoff)
+    ran under the OLD 7-day window continuously from the archive's
+    2026-07-03 start — meaning by the time #760 extended retention to 30
+    days, every raw file older than ~7 days from THAT MOMENT was already
+    gone, permanently (rollup deletes raw files; only a coarse per-entity
+    daily summary survives past the cutoff, and `portDwell.ts`/
+    `shadowFleet.ts` only read raw JSONL, not the rollup format). This
+    fully and cleanly explains why **all of July 2026 reads zero**
+    (verified this session: 07-03 through 07-31, every date tried, all
+    zero) — that data cannot be recovered short of building a rollup-
+    format reader, a real but separate future capability, not a bug. It
+    does NOT explain the Aug 5-11 patchiness: those dates are within 30
+    days of today (2026-08-19) and within what the 30-day policy should
+    have protected from the moment it deployed (2026-08-11 13:26 ET) —
+    Aug 5/6 having ANY data at all (let alone anomalously much) alongside
+    Aug 7-11 having NONE is inconsistent with a clean retention-boundary
+    explanation and needs its own investigation.
+    IMPACT: bounds what `port_dwell_maritime_transit` GATE 1 (and any
+    other vessel-archive-dependent historical analysis — shadow fleet,
+    future GNSS/AIS joins) can honestly claim about pre-2026-08-12 data.
+    Does NOT affect the live rolling-window RAW surfaces
+    (`/api/data/portdwell`, `/api/data/shadowstats`) — those only ever
+    read the trailing days that already work correctly, confirmed this
+    session (Aug 12-19 read sane, monotonic-with-expectation numbers).
+    NOT A LIVENESS OR KILL-SWITCH ISSUE — no trading path reads this
+    archive; purely a data-integrity/coverage question for the datacore
+    product layer.
+    NEXT for whichever REPAIR session picks this up: (1) if Railway shell/
+    volume access is available to a future session, list
+    `/data/voltrade/datacore_archive/vessels/2026-08-0{5,6,7,8,9}*` and
+    `2026-08-1{0,1}*` directly — file presence/absence/size settles
+    whether this is a deletion, a write-side gap, or a reader bug in one
+    look. (2) if no direct volume access, use the "archive" diag probe's
+    raw-row passthrough (mentioned in the 2026-08-04 session that
+    originally filed `port_dwell_maritime_transit` gate 1) for a narrow
+    Aug 5 slice to sanity-check whether the 34,985 count reflects real
+    distinct MMSIs or a duplication artifact. (3) check whether
+    `rollupOldDaysAsync`'s cutoff computation or its caller (whatever
+    cron/interval invokes it — not traced this session) could itself
+    double-run or mis-schedule around a deploy boundary, which would be
+    consistent with an accidental early sweep of Aug 5-11 shortly after
+    the #760 deploy. (4) do NOT assume either the gap or the spike without
+    directly inspecting files first — this entry's own evidence is
+    probe-derived (aggregate counts only), not a file-level read.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
@@ -7997,6 +8073,54 @@ territory in their first commit)
   end anchored to end-of-July) is the natural first attempt once the
   probe is trustworthy, per this entry's own (3b) fallback (July's TEU
   figure is monthly, not weekly).
+- **UPDATE 2026-08-19, same session, later (deploy landed, step (2) run
+  for real): the July comparison this entry planned is STRUCTURALLY
+  IMPOSSIBLE, for a reason that has nothing to do with the bug just
+  fixed.** Once v1.0.743 was confirmed live, re-ran the July monthly
+  rollup query (`end=2026-08-01T00:00:00Z&hours=696`) — every port read
+  `vessels_seen: 0`. Before concluding "still broken," verified the fix
+  itself works correctly on a window it CAN reach:
+  `end=2026-08-18T00:00:00Z&hours=168` returned sane, non-anomalous
+  numbers (`vessels_seen: 36573`, port_la `visits_completed: 15,
+  in_port_now: 62`, matching the live rolling-window route's own
+  shape) — so the fix is confirmed genuinely correct in production, not
+  the cause of the new zero. Root cause of the July zero: `server/
+  datacoreArchive.ts`'s `RAW_RETENTION_DAYS` was **7**, not 30, for the
+  archive's entire life from 2026-07-03 until PR #760 raised it to 30 on
+  2026-08-11 — so the rolling rollup job had already deleted every raw
+  vessel file more than ~7 days old, continuously, for the five-plus
+  weeks before the extension. All of July's raw AIS data is gone
+  (confirmed by probing every date 07-03 through 07-31 — all zero); only
+  a coarse per-entity daily summary survives past a rollup cutoff
+  (`rollupOldDays`'s output format), which neither `portDwell.ts` nor
+  `shadowFleet.ts` currently reads. This is a genuine, permanent data
+  loss for the pre-2026-08-04-ish window, not a bug this session can fix
+  by patching a reader — the raw bytes are gone. **GATE 1 disposition:
+  correctly left at `gate1_pending`, NOT `gate1_pass` and NOT `killed`**
+  — this is neither a validated ground-truth match nor a falsified
+  hypothesis; it is "the evidence window closed before the check could
+  run," a different and honest third outcome, per MEASUREMENT INTEGRITY
+  (do not force a verdict a broken/absent instrument cannot support).
+  A SECOND, separate anomaly turned up while mapping the boundary
+  (`vessels_seen` patchy/anomalous for 2026-08-03 through 08-11, some
+  days zero, two days ~5-7x the surrounding normal rate) — filed as
+  **KNOWN BROKEN #31** above rather than diagnosed same-session (this
+  session's capacity was already spent on the retention finding above;
+  a second unrelated live anomaly deserves its own read-before-write
+  pass, not a rushed patch appended to this one).
+  **REVISED RECIPE for whichever session next attempts this root's GATE
+  1**: the raw archive is only reliably queryable from ~2026-08-12
+  onward (confirmed-good range, this session). A monthly port-authority
+  TEU figure will always describe a month that has, by the time it
+  publishes (Port of LA's own July release published 2026-08-18, 18 days
+  after July ended), already rolled mostly or entirely out of the raw
+  window. Two paths forward, neither attempted this session: (a) wait for
+  September's TEU report (expected ~mid-October) and compare it against
+  the Aug 12 - Sep-close window, which the 30-day-forward retention
+  should still hold at that time; or (b) build a reader for the rollup
+  summary format so historical gate-1 work is not permanently bounded by
+  the 30-day raw window — a real, scoped future capability, not filed
+  further than this note.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay
