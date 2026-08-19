@@ -20,6 +20,129 @@ change, so it is created directly rather than proposed in wishlist.md.
 | CONSTITUTIONAL AUDIT | 30d | 2026-08-16 | 2026-09-15 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
+## 2026-08-19 (2) (scheduled-routine PRODUCT session) [REPAIR] — T-DATACORE — re-attempted the port_dwell_maritime_transit GATE 1 comparison queued by this session's own predecessor: found a SECOND, non-code root cause (retention-history data gap, not a bug) that permanently closes the specific July-2026 comparison; probe hardened with an honest coverage boundary instead (v1.0.744)
+
+TERRITORY: T-DATACORE primary (`server/datacoreArchive.ts`, `server/datacoreArchive.test.ts`, `server/bot.ts`'s `portdwell_window` diag case, `server/diag.test.ts`) + SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin, `package.json` version bump, `research/open_questions.md`/`research/experiments.md`).
+
+CONTEXT: session-start checks confirmed system health clean (`/api/health`
+`status:"ok"`, bot active, `drawdownPct 0.0`, no dead feeds — no LIVENESS
+ALARM) and confirmed the immediately preceding same-day session's fix
+(v1.0.743, PR #876, missing upper time-bound in the three vessel-archive
+readers) was live in production (`server_version 1.0.743` via
+`/api/data/layers`). That session's own logged NEXT step was to re-run
+`/api/diag/portdwell_window?end=2026-08-01T00:00:00Z&hours=720&token=$DIAG_TOKEN`
+(a July 2026 monthly rollup) against Port of LA's published July figure
+(960,464 TEUs, second-busiest July on record). Ran it — and several other
+historical windows first, before touching any code, to characterize the
+shape of the result rather than accept a single anomalous reading.
+
+READ BEFORE WRITE: re-read `server/shadowFleet.ts` and `server/portDwell.ts`
+in full (current, post-fix state) before forming any hypothesis about a new
+bug — confirmed the deployed fix is correct and does not reintroduce the
+issue it closed. Also read `server/datacoreArchive.ts` in full (the
+rollup/retention machinery neither prior port-dwell session had read),
+which is where the actual explanation lived.
+
+FINDING (full write-up, evidence, and recommendation logged in
+`research/open_questions.md`'s PORT DWELL ANALYTICS section — not
+duplicated here in full): `/api/diag/portdwell_window?hours=168` at
+different historical `end` values returned a non-monotonic pattern
+(2026-08-01: 0, 2026-08-05: 0, 2026-08-10: 35965, 2026-08-15: 1572,
+2026-08-19/now: 46335) inconsistent with a simple "archive doesn't reach
+back that far." Direct evidence via the existing `/api/diag/archive`
+probe: `stream=vessels` returns `files: []` for 2026-07-25/07-28/08-01,
+but `stream=vessels_tracks` (the coarse per-day rollup summary directory)
+returns real, populated rows for the SAME three days — the raw data was
+never lost, it was intentionally rolled into ~50-point/day summaries and
+the raw hour files deleted, exactly per `datacoreArchive.ts`'s documented
+design. ROOT CAUSE: `RAW_RETENTION_DAYS` was 7 (not 30) from the
+archive's 2026-07-03 start until PR #760 (2026-08-11, v1.0.654) widened
+it to 30 (confirmed via that PR's own experiments.md entry) — every day
+already rolled up under the OLD 7-day rule before 2026-08-11 stays
+rolled forever; widening retention cannot un-delete raw hours already
+folded into a summary and unlinked. Raw vessel data reliably exists only
+back to roughly 2026-08-04, not 2026-07-03. This, COMPOUNDING with the
+separate, already-documented, real aisstream provider outage
+(2026-08-05 13:00 to 2026-08-12 10:00 UTC, RESOLVED 2026-08-15 per
+wishlist.md), fully explains the non-monotonic pattern — two independent
+non-code causes stacking, exactly what REASONING STANDARD #1 (trace
+variable interactions, never reason about one in isolation) warns about.
+
+RECURRENCE ESCALATES CHECK: this is NOT a third bug in the
+shadowFleet/portDwell reader family. The readers behave exactly as
+designed against what is actually on disk; the retention policy that
+deleted the pre-2026-08-04 raw data is a separate, already
+human-approved decision (PR #760, "store all the data some how for up
+to a month... this should be for all thing track like boats plane"), not
+a defect to patch a third time.
+
+WHAT SHIPPED: `server/datacoreArchive.ts` gains `oldestRawHour(kind,
+baseDir?)` — reads the true raw-retention boundary directly off disk
+instead of any code path assuming a fixed archive-start date.
+`server/bot.ts`'s `portdwell_window` diag case now calls it and returns
+`raw_vessel_archive_from` + an explicit `coverage_caveat` string
+whenever the requested window's start predates that boundary, so a
+future GATE-1 attempt gets "undercounted, not necessarily zero-activity"
+instead of a bare, misleading zero. Also corrected the probe's own
+comment, which previously (falsely) claimed its 2880h cap "generously
+covers the archive's full depth since it began 2026-07-03."
+
+RATCHET: 3 new tests in `server/datacoreArchive.test.ts` (`oldestRawHour`:
+no-directory returns null; earliest-of-several hour files; gzipped hours
+count the same as raw `.jsonl`). 1 new test in `server/diag.test.ts`
+(text-assertion style matching this file's existing probe tests) pinning
+both the new response fields and the corrected comment. `datacoreArchive.test.ts`
+now 39/39, `diag.test.ts` now 15/15.
+
+GATES: this sandbox's `node_modules`/pip installs were incomplete at
+session start (missing `express`, `numpy`/`pandas`, `openpyxl` —
+confirmed via `git stash` that the same failures reproduce on unmodified
+`main`, i.e. environment-dependent, not caused by this diff); ran `npm ci`
++ `pip3 install -r requirements.txt` to restore a complete environment,
+then `bash scripts/gated_tests.sh` → GATE PASSED (server 157 files,
+client 97 files, python 1371 passed/2 skipped, quarantine 0/1 none
+overdue). `bash scripts/tsc_ratchet.sh` → 12<=12 (an earlier same-session
+reading of only 3 errors was an artifact of the same incomplete install,
+not a real improvement — `ci/tsc_baseline.txt` left untouched).
+`bash scripts/counter_ratchet.sh` → assertions counter improved
+11524->11537 from the 3 new tests; pin lowered to 11537 in this PR per
+the script's own instruction, all 25 counters otherwise at baseline.
+No backtest — no trading logic touched (T-DATACORE diagnostic tooling
+only). No VISUAL VERIFICATION — no client/ files touched.
+
+GATE 1 (DATA) VERDICT: the specific July-2026-vs-Port-of-LA-TEU
+comparison queued since 2026-08-04 is CLOSED AS PERMANENTLY UNATTAINABLE
+via this data path (CLAUDE.md Priority 1 — "an archive gap never
+refills" — this is that principle applying to a fidelity downgrade, not
+a literal data loss, but the practical effect for this reader family is
+identical: unusable). Best-available partial evidence logged instead
+(not a substitute gate pass — no published figure was reconciled
+against it): the current rolling 168h window (2026-08-12 to 2026-08-19,
+fully post-outage-recovery) reads port_la `visits_completed: 73,
+unique_vessels: 78, in_port_now: 49, dwell_median_h: 6.4` — comparable
+shape and order of magnitude to the 2026-08-18 entry's own 65/54
+reference reading, i.e. the reader fix continues to behave sanely on
+live data. Recommendation for the next session that revisits this root:
+query a CURRENT month promptly (before it ages past the 30-day raw
+window) and reconcile against that month's TEU release once published,
+rather than reaching further back than `oldestRawHour` allows.
+
+HONEST LIMITATIONS: (1) the coverage_caveat/raw_vessel_archive_from
+fields are shipped but not yet confirmed against live production (this
+session's fix has not deployed yet) — next session should verify the new
+fields appear as expected once `server_version` shows 1.0.744+; (2) no
+wishlist.md entry was filed for the "automatic month-end port-dwell
+snapshot" idea named above — logged only in open_questions.md, left for
+a future session or human triage, scope discipline for this PR.
+
+NEXT: (1) once deployed, spot-check `/api/diag/portdwell_window` returns
+the new fields and a sane `coverage_caveat` for an intentionally-old
+`end`; (2) whichever session next revisits port_dwell_maritime_transit
+should follow the recommendation above rather than re-querying pre-
+2026-08-04 windows. STARVED: no — this was the queued next-step from the
+immediately preceding session's own NEXT note, worked to a real,
+evidence-backed conclusion rather than left open.
+
 ## 2026-08-19 (scheduled-routine PRODUCT session) [REPAIR] — T-DATACORE — the `portdwell_window` probe shipped 2026-08-18 was broken for its entire stated purpose: all three vessel-archive readers had no upper time bound, so any historical `end` silently absorbed every file written between it and today (v1.0.743)
 
 TERRITORY: T-DATACORE primary (`server/shadowFleet.ts`, `server/shadowFleet.test.ts`) + SHARED last-and-minimal (`ci/counter_baseline.txt` one-counter re-pin, `package.json`/`package-lock.json` version bump, `research/open_questions.md`/`research/experiments.md`).

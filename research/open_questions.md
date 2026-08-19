@@ -7997,6 +7997,115 @@ territory in their first commit)
   end anchored to end-of-July) is the natural first attempt once the
   probe is trustworthy, per this entry's own (3b) fallback (July's TEU
   figure is monthly, not weekly).
+- **UPDATE 2026-08-19 (2), same-day follow-on [REPAIR] session, v1.0.744:
+  step (2) of the GATE 1 recipe was re-attempted against the now-deployed
+  fix (confirmed live via `server_version 1.0.743` on `/api/data/layers`)
+  and found a SECOND, DISTINCT root cause — genuine, not another code bug
+  — that permanently blocks the specific July-2026-vs-Port-of-LA-TEU
+  comparison this entry has been queuing since 2026-08-04.** Live-probed
+  `/api/diag/portdwell_window` at several historical `end` values before
+  touching any code (`hours=168`, 7-day windows): 2026-08-01 and
+  2026-08-05 both read `vessels_seen: 0` (zero for EVERY field, not just
+  low); 2026-08-10 read `vessels_seen: 35965`; 2026-08-15 read only 1572;
+  2026-08-19 (now) read 46335 — a non-monotonic pattern inconsistent with
+  simple "archive doesn't reach that far back." READ BEFORE WRITE:
+  re-read `server/shadowFleet.ts` and `server/portDwell.ts` in full
+  (current state, post-fix) before forming any hypothesis — the fix that
+  shipped today is correct and does not reintroduce the bug it closed.
+  ROOT CAUSE, confirmed directly against the live archive (not inferred):
+  called the existing `/api/diag/archive?stream=vessels&day=<date>` probe
+  for 2026-07-25/2026-07-28/2026-08-01 — all three returned `files: []`
+  (zero raw hour files) — then called the SAME probe with
+  `stream=vessels_tracks` for the same three days and got real, populated
+  per-vessel daily-summary rows (`n`, `t0`/`t1`, `bbox`, a coarse
+  polyline). The raw data was not lost — it was intentionally rolled into
+  `vessels_tracks/` coarse summaries (~50 points/vessel/day) and the raw
+  hour files deleted, exactly per `datacoreArchive.ts`'s documented
+  rollup design (`rollupOldDaysAsync`, `RAW_RETENTION_DAYS`). The timing
+  is the finding: `RAW_RETENTION_DAYS` was **7 days** (not 30) from the
+  archive's 2026-07-03 start until PR #760 (2026-08-11, v1.0.654) widened
+  it to 30 — see that PR's own experiments.md entry, "#760:
+  RAW_RETENTION_DAYS 7->30 (all kinds; prior 7 since 07-03...)". Every day
+  that had already aged past the OLD 7-day cutoff before 2026-08-11 was
+  rolled up and its raw files deleted before the wider 30-day retention
+  could protect it — widening a retention constant cannot un-delete raw
+  files already folded into a summary and unlinked. Net effect confirmed
+  live: raw vessel data reliably exists only back to roughly 2026-08-04
+  (7 days before the 2026-08-11 widening), not 2026-07-03 as
+  `portdwell_window`'s own shipping comment incorrectly claimed. This
+  fully explains the non-monotonic pattern too: 2026-08-01 falls entirely
+  in the rolled-up gap (0, honest); 2026-08-05 straddles the rolled-up
+  gap AND the start of a SEPARATE, already-documented, real aisstream
+  provider outage (2026-08-05 13:00 to 2026-08-12 10:00 UTC —
+  wishlist.md's "AIS VESSEL FEED DARK" section, RESOLVED 2026-08-15) so
+  also reads 0; 2026-08-10 falls inside that outage's raw-file void too
+  (confirmed separately: `stream=vessels&day=2026-08-10` also returns
+  `files: []`, for the outage reason, not rollup) yet the probe's window
+  still spans into 2026-08-11/12+ where the feed had resumed, hence a
+  nonzero (partial) count; 2026-08-15 and 2026-08-19 are fully
+  post-recovery and read cleanly. Two independent, non-code causes
+  compounding is exactly the kind of thing REASONING STANDARD #1 (trace
+  interactions, don't reason about one variable) warns about — treating
+  either symptom in isolation would have produced the wrong diagnosis.
+  **VERDICT: NOT a third bug in the shadowFleet/portDwell reader family**
+  (RECURRENCE ESCALATES checked and does not apply — the readers are
+  behaving exactly as designed against the data that is actually on
+  disk; the design that deleted the data is a separate, already
+  human-approved decision, not a defect). WHAT SHIPPED instead (own PR,
+  v1.0.744): `datacoreArchive.ts` gained `oldestRawHour(kind, baseDir?)`
+  — the true raw-retention boundary read directly off disk, tested with
+  3 new unit tests (empty dir -> null; earliest-of-several; gzipped hours
+  count too). `server/bot.ts`'s `portdwell_window` probe now calls it and
+  returns `raw_vessel_archive_from` plus an explicit `coverage_caveat`
+  string whenever the requested window's start predates that boundary,
+  so a future GATE-1 attempt gets an honest "undercounted, not
+  necessarily zero-activity" signal instead of a bare, misleading zero.
+  Also corrected the probe's own comment, which previously (falsely)
+  claimed 120h capacity "generously covers the archive's full depth
+  since it began 2026-07-03." New text-assertion test in
+  `server/diag.test.ts` pins both the new fields and the corrected
+  comment. GATES: `datacoreArchive.test.ts` (39 tests) and `diag.test.ts`
+  (15 tests) pass; full `scripts/gated_tests.sh` GATE PASSED (server 157
+  files / client 97 files / python 1371 passed+2 skipped, after
+  restoring this sandbox's incomplete `node_modules`/pip installs —
+  unrelated to this diff, confirmed via `git stash` reproducing the same
+  failures on unmodified `main`); `scripts/tsc_ratchet.sh` 12<=12 (the
+  earlier same-session reading of 3 was the same incomplete-install
+  artifact, not a real drop — did not touch `ci/tsc_baseline.txt`);
+  `scripts/counter_ratchet.sh` assertions counter improved 11524->11537
+  from the 3 new tests, pin lowered in this PR per the script's own
+  instruction. No backtest — no trading logic touched (T-DATACORE diag
+  tooling only). No VISUAL VERIFICATION — no client/ files touched.
+  **GATE 1 (DATA) VERDICT for `port_dwell_maritime_transit`: the specific
+  July-2026-vs-Port-of-LA-TEU comparison this entry has queued since
+  2026-08-04 is now CLOSED AS PERMANENTLY UNATTAINABLE via this data
+  path** — per CLAUDE.md Priority 1 ("an archive gap never refills"),
+  this is an honest dead end, not a "try again later." BEST-AVAILABLE
+  PARTIAL EVIDENCE gathered instead (does not substitute for the original
+  ground-truth comparison — logged for completeness, not as a gate pass):
+  live-probed the current rolling 168h window (2026-08-12 to 2026-08-19,
+  fully post-outage-recovery, genuinely comparable in kind to the
+  2026-08-18 entry's own reference point): port_la `visits_completed: 73,
+  unique_vessels: 78, in_port_now: 49, dwell_median_h: 6.4` — same shape
+  and same order of magnitude as the 2026-08-18 entry's own 65/54
+  reading, i.e. the reader fix continues to behave sanely on live data;
+  this is NOT a substitute GATE-1 pass (no published external figure was
+  compared against it, per the HONESTY CLAUSE — logged as raw evidence
+  only). **RECOMMENDATION for whichever session revisits this root
+  next**: do not re-attempt a historical window further back than
+  `oldestRawHour("vessels")` (now surfaced directly by the probe) — pick
+  a CURRENT, still-in-progress or just-closed month instead (e.g. query
+  promptly after a month ends, while the whole month is still within the
+  30-day raw retention window) and reconcile against that month's
+  port-authority TEU release once published. Also worth a `wishlist.md`
+  entry (not filed this session, scope discipline): an automatic
+  month-end port-dwell snapshot job that locks in monthly aggregates
+  before raw data ages out of the 30-day window, so this class of
+  permanently-missed comparison window doesn't recur for future months.
+  STARVED: no — this was the queued next-step from the immediately
+  preceding session's own NEXT note, fully worked to a real,
+  evidence-backed conclusion (bug ruled out, genuine cause found and
+  documented, tooling hardened for next time) rather than left open.
 - **GATE 2 (SIGNAL) hypothesis**: sustained dwell-median or queue
   anomalies at container ports lead (a) retail-import names (XRT) and
   (b) logistics (IYT) on a 2-8 week horizon — the 2021 San Pedro Bay

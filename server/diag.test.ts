@@ -234,3 +234,29 @@ test("portdwell_window probe (2026-08-18): wired, validates end/hours, reuses co
   assert.ok(mod.includes("export interface PortDwellPortStats") && mod.includes("dwell_median_h"),
     "the reused aggregator must already be per-port aggregate-only (no per-vessel mmsi/track fields in its output shape)");
 });
+
+// [REPAIR 2026-08-19, GATE-1 finding] the probe's own comment previously
+// claimed its 2880h cap "generously covers the archive's full depth since
+// it began 2026-07-03" — false: RAW_RETENTION_DAYS was 7 (not 30) until PR
+// #760 widened it 2026-08-11, so every day already rolled up under the old
+// 7-day rule is permanently gone from the raw archive this probe reads.
+// A historical query into that gap must say so, not return a bare zero
+// that reads as "no port activity that week".
+test("portdwell_window probe (2026-08-19 REPAIR): reports the true raw-retention boundary instead of assuming full archive depth", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./datacoreArchive"') && bot.includes("oldestRawHour"),
+    "must import and use oldestRawHour to learn the real raw-retention boundary, not assume one");
+  const start = bot.indexOf('case "portdwell_window"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "portdwell_window probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(block.includes('oldestRawHour("vessels")'), "must query the real oldest raw vessel hour on disk");
+  assert.ok(block.includes("raw_vessel_archive_from"),
+    "response must surface the true raw coverage boundary so a zero-activity window can be told apart from a rolled-up-and-deleted one");
+  assert.ok(block.includes("coverage_caveat"),
+    "response must carry an explicit caveat when the requested window predates raw retention");
+  assert.ok(block.includes("UNDERCOUNTED"),
+    "the caveat must say results are undercounted, not silently imply zero activity");
+  assert.ok(!block.includes("generously covers the archive's full depth"),
+    "the corrected comment must not still claim full archive depth back to 2026-07-03");
+});
