@@ -3,6 +3,83 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session, continuation of the 2026-08-17 14:27 ET session) [NO-ACTION] — PR #867 (NHTSA vehicle complaints /data view) closed as a duplicate of the already-merged #869; correcting the stale-PR-backlog session's "no further action needed" call on this PR
+
+TERRITORY: none — this is process/PR-hygiene resolution, not a code
+change. Touches only `research/wishlist.md` (correction addendum, not a
+rewrite) and this entry. Docs-only, no version bump (package.json stays
+at whatever `main` currently has — this session made no commit to it).
+
+CONTEXT: this is the same session that opened PR #867 on 2026-08-17 at
+14:27 ET (NHTSA vehicle complaints RAW `/data` view, page-wide-launcher
+pattern, all local gates green at the time). The PR's `docker-build` job
+then failed on a transient `npm ci` network disconnect (`ECONNRESET`)
+before the rest of that CI run had finished, so the immediate rerun
+attempt was rejected ("workflow already running"); the session ended
+there waiting on the remaining jobs, and this session is its resumption
+via the PR-activity subscription 3 days later.
+
+WHAT HAD HAPPENED IN THE GAP (reconstructed from `git log origin/main`
+and the job logs, not assumed): the 2026-08-20 scheduled-routine
+session #3 below (stale-PR backlog audit) found #867 among 13 stale open
+PRs, correctly diagnosed the docker-build failure as a flake, and
+reran it — it went green. But in the intervening 3 days, `main` had
+moved 19 commits including `592b13c` (`product: vehicle complaints get
+a live /data layer + client view`, v1.0.737, PR #869, merged
+2026-08-17 20:20 ET — about 6 hours after #867 was opened) — a
+DIFFERENT session had independently built and shipped the identical
+feature, unaware of this session's open PR (concurrent WORKSTREAM
+PARTITION sessions have no visibility into each other's open PRs, only
+merged history). The auto-merge job woke this session with a failure:
+not the docker flake recurring, but `gh pr merge` refusing on a genuine
+merge conflict ("the merge commit cannot be cleanly created") —
+`mergeable_state: dirty`.
+
+RESOLUTION: compared #869's shipped diff (`git show 592b13c --stat` +
+full commit body) against #867's. #869 is a strict superset in
+completeness: it registers `vehicle_complaints` in
+`datacore/layers.json` (a gap #867 didn't close, since no layer entry
+existed when #867 was written — #869's own PR body names this as the
+reason it's the more complete fix), wires the standard
+`LAYER_GROUP`/icon/unit/status-polling pattern, and ships its own
+`scripts/visual_check.mjs` fixture. The two differ only in cosmetic
+choices (per-vehicle rows ranked by total complaints, vs. #869's
+per-ticker groups ranked by crash+fire count) — no functional gap in
+#869 that #867 uniquely filled. Closed #867 via
+`update_pull_request(state:"closed")` with an explanatory comment
+naming #869 and the diff comparison, per CLAUDE.md's MERGE-ORDER
+PROTOCOL supersession precedent ("first-merged wins, the duplicate
+salvages its unique delta" — verified there was none to salvage here).
+Reset the local branch (`claude/lucid-keller-7wxz44`) to fresh
+`origin/main` — the abandoned commit's content is fully superseded, so
+this follows the same-spirit guidance for a merged-branch restart
+(CLAUDE.md's git-branch-requirements section) even though #867 itself
+was closed rather than merged.
+
+Also corrected `research/wishlist.md`'s stale-PR-backlog entry (session
+#3 below), which had called #867 "no further action needed" once green
+— that call didn't anticipate a same-day independent duplicate merge.
+Added a dated correction addendum (not a rewrite of the original
+finding, which was accurate as far as it went) generalizing the lesson:
+a stale PR that goes green on retry should also be checked for
+supersession by content, since a merge conflict from unrelated drift
+and a duplicate-feature collision present identically until you read
+what actually landed.
+
+CROSS-REFERENCE: `/api/data/bank-failures`, the other zero-wiring
+candidate #867's own PR body queued as NEXT, has also since shipped
+(#871, `product: FDIC bank failures get a live /data layer + client
+view`, v1.0.739) — the "5 zero-wiring candidates from the 2026-08-16 TFF
+sweep" thread that spanned four session log entries across 2026-08-16
+and 2026-08-17 is now fully closed, the last two items resolved by
+different concurrent sessions on the same day without coordination.
+
+STARVED: no — this was the direct, necessary resolution of this
+session's own open PR, woken by its CI-failure subscription; the
+GitHub PR-activity contract requires driving an owned PR to a resolved
+state (merged, or closed with a stated reason) before the subscription
+is done, and this closes it.
+
 ## 2026-08-20 (scheduled-routine session #3) [REPAIR] — stale-PR backlog: 11 of 13 open `claude/*` PRs never merged (up to 26 days old); diagnosed three distinct causes, fixed the two fixable within autonomous authority (docs-only, no version bump)
 
 TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — SHARED-but-minimal
