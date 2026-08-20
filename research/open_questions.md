@@ -360,7 +360,10 @@
     retirement mechanism is doing its job as designed, just slowly (999
     records is a small fraction of the ~18.6k archive). Either reading is
     now directly observable instead of requiring another blind wait.
-4. **Human-reported: bot "doesn't work right" overall.**
+4. **[RESOLVED/SUPERSEDED 2026-08-20 — new `scripts/research_state_check.py`
+   surfaced this item as never explicitly closed despite its one concrete
+   finding being fixed 47 days ago]** Human-reported: bot "doesn't work
+   right" overall.
    DIAGNOSIS 2026-07-03 (public API surface only — see access limitation
    below): /api/health reports ALL subsystems ok (server, sqlite, Alpaca
    account ACTIVE, python bridge, bot state "active"; Node RSS 78MB).
@@ -397,6 +400,29 @@
    fills tracked into trade_feedback? Is the ML retrain loop (Tier 3)
    completing or erroring? Diagnose from `/data/voltrade` state files and
    the persisted audit log before assuming any subsystem works.
+
+   RESOLUTION 2026-08-20 (scheduled-routine [PIPELINE] session, doc-only,
+   no code change): this item's one concrete, evidence-backed finding —
+   `state.equityPeak` resetting on every deploy/restart, silently
+   re-basing the max-drawdown kill switch — was fixed same-day back in
+   2026-07-03 (v1.0.35, PR #95, "persist max-drawdown kill-switch
+   high-water mark", tracked under this file's own item #7, which
+   already carries `[RESOLVED 2026-07-03 — v1.0.35, executed same-day on
+   human request]`). Verified still holding in the current codebase this
+   session: `server/bot.ts` has live `loadEquityPeak()`/`saveEquityPeak()`
+   (volume-persisted, /tmp fallback) called on boot and on every new-peak
+   update. The item's other open thread — the DIAG_TOKEN access
+   limitation blocking autonomous verification — was itself resolved
+   2026-07-09 per this item's own ACCESS LIMITATION paragraph above,
+   which was never followed by a top-level closure tag. No remaining
+   action items in this entry as of today; superseded by #7 for the
+   equityPeak finding and closed here for bookkeeping accuracy. Found via
+   `scripts/research_state_check.py`'s KNOWN BROKEN scan (new this
+   session, see research/experiments.md 2026-08-20 entry) flagging this
+   as one of only two of the 30 numbered items with no explicit close
+   marker anywhere in its text — the other (#26) was independently
+   confirmed already fixed-with-a-regression-test on inspection and
+   needed no edit, left as-is.
 
 5. **[RESOLVED 2026-07-04 — audit, no orphans found; one real gap closed]**
    ~~Data modules not wired to live scoring.~~ Traced every named module's
