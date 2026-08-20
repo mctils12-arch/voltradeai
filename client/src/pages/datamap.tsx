@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2 } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -39,6 +39,7 @@ import DroughtMonitorView from "./droughtMonitor";
 import FiresNearFacilitiesView from "./firesNearFacilities";
 import AirQualityView from "./airQuality";
 import PortImportsView from "./portImports";
+import FacilityEventsView from "./facilityEvents";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
@@ -2786,6 +2787,12 @@ export default function DataMapPage() {
   // coordinates, only Schedule D port codes; server/censusImports.ts shipped
   // API-only 2026-07-05, no client view until now).
   const [portImportsOpen, setPortImportsOpen] = useState(() => window.location.hash === "#/data/imports");
+  // Media events near tracked facilities (#/data/facility-events) — same
+  // overlay pattern. Deliberately NOT a spatial layer: GDELT geocoding is
+  // city/ADM-approximate, so plotting these beside our metre-accurate layers
+  // would assert a precision the feed does not have (server/gdeltEvents.ts
+  // shipped API-only 2026-07-05, no client view until now).
+  const [facilityEventsOpen, setFacilityEventsOpen] = useState(() => window.location.hash === "#/data/facility-events");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
@@ -3203,6 +3210,7 @@ export default function DataMapPage() {
       setFiresFacilitiesOpen(window.location.hash === "#/data/fires-near-facilities");
       setAirQualityOpen(window.location.hash === "#/data/air-quality");
       setPortImportsOpen(window.location.hash === "#/data/imports");
+      setFacilityEventsOpen(window.location.hash === "#/data/facility-events");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
@@ -13212,6 +13220,9 @@ export default function DataMapPage() {
       {portImportsOpen && (
         <PortImportsView onBack={() => { window.location.hash = "#/data"; setPortImportsOpen(false); }} />
       )}
+      {facilityEventsOpen && (
+        <FacilityEventsView onBack={() => { window.location.hash = "#/data"; setFacilityEventsOpen(false); }} />
+      )}
       {appStoreOpen && (
         <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
       )}
@@ -13765,6 +13776,17 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/imports"; setPortImportsOpen(true); }}>
               <Ship size={13} /> US port imports — monthly
               <span className="vt-streams-launch-sub">general &amp; containerized value by port of entry, US Census FT920 · RAW</span>
+            </button>
+            {/* Facility media-events launcher (2026-08-20): GDELT unrest/
+                strike mentions geocoded near our strategic sites. NOT a map
+                layer on purpose — the geocoding is city/ADM-approximate and
+                would look far more precise than it is next to our own point
+                layers — so it launches from the panel top like port imports
+                immediately above. */}
+            <button type="button" className="vt-streams-launch" data-vt-facilityevents-launch
+                    onClick={() => { window.location.hash = "#/data/facility-events"; setFacilityEventsOpen(true); }}>
+              <Megaphone size={13} /> Media events near facilities
+              <span className="vt-streams-launch-sub">GDELT unrest/strike mentions · RAW</span>
             </button>
             {/* App Store rankings launcher (2026-08-05): a 16-ticker
                 consumer-app watchlist, not a spatial layer, so it launches

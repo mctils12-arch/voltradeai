@@ -129,6 +129,9 @@ const PAGES = {
   // US port imports — Census FT920 monthly port-level values (2026-08-20) —
   // same Phase 5 ratchet rule as airquality above.
   portimports: { route: "/app#/data/imports", map: false },
+  // GDELT media events near tracked facilities — same Phase 5 ratchet rule as
+  // portimports above.
+  facilityevents: { route: "/app#/data/facility-events", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -623,6 +626,32 @@ const FIXTURES = {
       { port: "2304", port_name: "LAREDO, TX", month: "2026-05", gen_val: 24288603574, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
       { port: "3013", port_name: "GREAT FALLS, MT", month: "2026-06", gen_val: 270289178, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
       { port: "1791", port_name: null, month: "2026-06", gen_val: 77310711, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
+    ],
+  },
+  // GDELT media events near tracked facilities (2026-08-20, RAW display).
+  // Shaped from the live 2026-08-20 payload to exercise every case that can
+  // misrender: one article producing TWO event rows (so the row count and the
+  // incident count differ on screen), one article geocoded into TWO different
+  // facilities' boxes, a genuinely POSITIVE article tone under a coercion code
+  // (the live sake-bar article at port_oakland — the feed's false-positive
+  // rate made visible), and one code absent from our transcribed decode table
+  // so the "not in our decode table" branch renders instead of a guessed
+  // label. Every Goldstein value matches the published CAMEO constant for its
+  // code, so the page's live check renders its pass state.
+  "/api/data/facility-events": {
+    kind: "raw",
+    source: "The GDELT Project (https://www.gdeltproject.org/) — unrest/strike mentions near tracked facilities (fixture)",
+    attribution: "The GDELT Project",
+    time: 1787256837023,
+    count: 6,
+    note: "media event MENTIONS, geo approximate — verification prompts for our own sensors, not confirmations (fixture)",
+    events: [
+      { id: "1319205286", day: "20260820", code: "192", root: "19", gold: -9.5, tone: -4.56310679611651, mentions: 7, lat: 34.0339, lon: -118.205, site: "port_la", url: "https://laist.com/news/climate-environment/lineage-faces-key-deadline-today-to-remove-food-from-boyle-heights-warehouse", rt: "2026-08-20T19:13:56.905Z" },
+      { id: "1319205287", day: "20260820", code: "192", root: "19", gold: -9.5, tone: -4.56310679611651, mentions: 3, lat: 34.0522, lon: -118.244, site: "port_la", url: "https://laist.com/news/climate-environment/lineage-faces-key-deadline-today-to-remove-food-from-boyle-heights-warehouse", rt: "2026-08-20T19:13:56.905Z" },
+      { id: "1319210101", day: "20260820", code: "173", root: "17", gold: -5, tone: -7.51252086811353, mentions: 8, lat: 32.7765, lon: -79.9311, site: "port_charleston", url: "https://www.christianpost.com/news/acna-court-finds-breakaway-bishop-guilty-of-misconduct.html", rt: "2026-08-20T19:43:56.910Z" },
+      { id: "1319210102", day: "20260820", code: "141", root: "14", gold: -6.5, tone: -7.51252086811353, mentions: 5, lat: 32.0809, lon: -81.0912, site: "port_savannah", url: "https://www.christianpost.com/news/acna-court-finds-breakaway-bishop-guilty-of-misconduct.html", rt: "2026-08-20T19:43:56.910Z" },
+      { id: "1319209440", day: "20260820", code: "172", root: "17", gold: -5, tone: 7.34463276836158, mentions: 8, lat: 37.8044, lon: -122.2712, site: "port_oakland", url: "https://heritageradionetwork.org/episode/dokidoki-innovative-sake-shochu-cocktails-in-japanese-tachinomi-vibes/", rt: "2026-08-20T19:58:56.918Z" },
+      { id: "1319211777", day: "20260820", code: "1799", root: "17", gold: -7.4, tone: -6.1, mentions: 2, lat: 40.7834, lon: -73.9662, site: "port_nynj", url: "https://www.example-news.test/a-code-our-table-predates.html", rt: "2026-08-20T20:13:56.923Z" },
     ],
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
