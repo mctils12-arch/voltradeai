@@ -1,5 +1,132 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ STALE-PR BACKLOG FOUND 2026-08-20 (scheduled-routine session #3) —
+## 11 `claude/*` PRs, 6–35 days old, never merged; three distinct causes
+## identified, two safe fixes already applied this session
+
+CONTEXT: this session's SESSION BUDGET queue check (research/PROGRAM_STATE.md's
+own queue is stale since 2026-08-15 and not yet re-claimed — noted below,
+not this finding's subject) turned up something the queue check doesn't
+cover: `list_pull_requests(state=open)` on this repo returned **13** open
+PRs, only 2 of them recent enough to still plausibly be mid-triage (#877,
+~1 day old; #867, 3 days old). The other 11 range from 2026-08-14 back to
+2026-07-25 (26 days). Given this repo's own auto-merge job fires
+within **3–5 minutes** of CI going green on every other observed PR (see
+the existing PROCESS GAP entry below — its whole complaint is that
+auto-merge is too fast, not too slow), a PR still open after days is a
+real anomaly, not "waiting its turn." Checked each of the 11 individually
+via `get_check_runs`/`get_status` against its CURRENT head commit (not a
+stale cached run) and found three distinct, non-overlapping mechanisms:
+
+**(1) Opened as draft to dodge the market-hours auto-merge gap, then
+never un-drafted.** PR #763 (`product: TIME MACHINE v2 T-1`, opened
+2026-08-11) has full green CI (changes/node-build/docker-build all
+`success`) but its "Auto-merge Claude PRs" job **failed** with
+`GraphQL: Pull Request is still a draft (mergePullRequest)`. The PR's
+own body explains why: the authoring session, predating the formal
+2026-08-15 PROCESS GAP filing below, independently worked around the
+same market-hours problem by opening the PR as a draft and writing
+"please mark ready for review (or I will, next session) after 16:00 ET."
+No session ever did — it sat silently in draft for 9 days. **Fixed this
+session**: marked ready for review (`draft: false`). It still cannot
+merge as-is — `mergeable_state` is now `dirty` (a real conflict with
+`main`, accumulated over 9 days of unrelated merges) — so a future
+session must rebase/resolve before it lands; flagging that as its own
+follow-up, not attempting the conflict resolution in this docs-scoped
+session. **PR #604 is a different, intentional case**: explicitly titled
+"[BACKLOG] ... draft, do not merge as-is" — correctly excluded from this
+finding, no action taken.
+
+**(2) The CI `changes` job gets cancelled minutes after the PR opens,
+with no successor run ever recorded.** PRs #797, #767, #706 (2026-08-12,
+08-11, 08-06) each show exactly one workflow run: `changes` job status
+`cancelled` 5–15 minutes after the PR opened, every downstream job
+(`node-build`/`docker-build`/`python-tests`/`Auto-merge`) `skipped` as a
+result, and **no second run ever fired** for these branches afterward.
+`ci.yml`'s `concurrency: group: ci-${{ github.ref }}` with
+`cancel-in-progress: true` for `pull_request` events is the likely
+mechanism — but a cancellation from that group normally implies a
+*newer* push superseded it, which should itself produce a fresh run: it
+didn't, in any of these three cases, on branches that (per their PR
+bodies) had no further commits pushed. This repo runs many concurrent
+autonomous sessions per the WORKSTREAM PARTITION model, each capable of
+opening a PR around the same time — GitHub Actions' account/org-level
+concurrent-job cap is the most likely external cause (a run cancelled by
+capacity contention, not by a real newer push, with nothing watching to
+retry it). **Not fixed this session** — `.github/workflows/ci.yml` is a
+FROZEN PATH; a fix here (if the concurrency-group theory is right) means
+either raising the account's Actions concurrency limit (a billing/plan
+decision, human-only) or changing the concurrency group's key so unrelated
+PRs stop contending — proposing the second as a wishlist candidate for a
+future CONSTITUTIONAL/workflow-authoring pass, not self-applying it.
+
+**(3) No check run of any kind was ever recorded for the PR's current
+head commit — zero, not skipped/cancelled.** PRs #844, #834, #817, #794,
+#708 (2026-08-14 down to 2026-08-06) each return `total_count: 0` from
+`get_check_runs`. This is a different failure than (2): a cancelled run
+at least shows up; these show nothing, meaning the `pull_request` webhook
+that should trigger `ci.yml` on open apparently never fired for these five
+specific PRs. All five are single-commit, non-draft, ordinary PRs —
+nothing about their content explains it. Root cause not established this
+session (would need GitHub's own delivery logs, which this session has no
+access to) — filed here rather than guessed at.
+
+**PR #877** (yesterday's `port_dwell` docs-only finding) is a fourth,
+narrower instance of mechanism (3): its first commit got a real green CI
+run, but a second commit pushed minutes later (same push event per the PR
+body) shows zero runs against the new head SHA — so it's one PR carrying
+both a real (old) CI pass and an unvalidated (current) head. Not touched
+this session (recent enough, 1 day old, likely still within whatever
+window a future auto-retry might cover) — noted for completeness.
+
+**Also fixed this session, mechanism-independent**: PR #867 (`NHTSA
+vehicle complaints /data view`, 2026-08-17) had one real run whose
+`docker-build` job failed on `npm error network ECONNRESET` inside
+`npm ci --prefer-offline` — a plain transient registry disconnect during
+`docker buildx build`, not a code defect (the diff is a client-only React
+view; nothing in it touches Docker/npm config). Confirmed via full job
+log read before touching anything. Re-queued via
+`rerun_failed_jobs(run_id=32055018831)` this session; if it comes back
+green, the existing auto-merge job should land it within minutes on its
+own — no further action needed unless it fails again for a *different*
+reason, which would make it a real bug rather than a flake.
+
+WHY THIS IS FILED HERE AND NOT JUST FIXED OUTRIGHT: fixing (2) and (3)
+for real would mean either editing the FROZEN `.github/workflows/ci.yml`
+(constitutional amendment territory, human approval required per FROZEN
+PATHS) or a paid Actions-concurrency change (human/billing decision) —
+both outside autonomous authority. What COULD be done autonomously and
+was: un-drafting a forgotten PR, and retrying a diagnosed flake. The
+remaining 9 PRs (11 minus #763 and #867) represent real, already-tested,
+already-reviewed work (a repair, a research finding, a rendering fix, two
+/data views, an options-execution repair, a macro-regime UI, an
+OCC-parsing crash fix) sitting unshipped for up to 26 days — this is a
+genuine, previously-undocumented debt class, distinct from the existing
+PROCESS GAP below (that one is about auto-merge firing too early during
+market hours; this one is about auto-merge never firing at all).
+
+NOT A SPEND REQUEST for (1). IS a candidate spend/plan question for (2):
+if the concurrency-cap theory is confirmed, raising GitHub Actions
+concurrency (a paid tier change) or restructuring `ci.yml`'s concurrency
+group key would need the human's sign-off since it touches a FROZEN path
+and possibly billing — flagging, not requesting, pending confirmation.
+
+SUGGESTED NEXT STEP for a future session (not claimed by this one): work
+through PRs #797, #767, #706, #844, #834, #817, #794, #708 one at a time
+— `git fetch`/`git merge origin/main` each branch, re-run the repo's own
+gates locally (`gated_tests.sh`, `tsc_ratchet.sh`, `counter_ratchet.sh`),
+and either push a merge commit to revive CI or, if the PR's own content
+has since been superseded by later merged work (check via the
+WORKSTREAM PARTITION's own "supersession precedent: first-merged wins"),
+close it with a comment naming what superseded it and salvage any unique
+delta. Given the volume (8 PRs), this is its own dedicated session's
+primary action, not a fall-through item.
+
+Full session trace in `research/experiments.md`'s 2026-08-20 (scheduled-
+routine session #3) entry.
+
+---
+
 ## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was
 ## 2026-07-03) — 2 consolidation proposals, human approval needed before
 ## either ships
