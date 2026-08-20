@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  fmtKm, fmtMeters, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, splitUnit,
+  fmtKm, fmtMeters, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtKilograms, splitUnit,
   getUnits, setUnits, subscribeUnits, readUnitsPref,
 } from './units.ts';
 
@@ -62,4 +62,41 @@ test('splitUnit re-typesets formatter output without changing the conversion', (
   assert.deepEqual(splitUnit('92.9 min'), { num: '92.9', unit: 'min' });
   assert.deepEqual(splitUnit('no data'), { num: 'no data', unit: null });
   assert.deepEqual(splitUnit('51.6°'), { num: '51.6°', unit: null });
+});
+
+// ── fmtKilograms (Census FT920 containerized vessel weight, 2026-08-20) ──
+test('mass converts to short tons or metric tonnes and scales compactly', () => {
+  // one live port-month: Los Angeles, 3,940,035,515 kg containerized
+  assert.equal(fmtKilograms(3_940_035_515, 'metric'), '3.9M t');
+  assert.equal(fmtKilograms(3_940_035_515, 'imperial'), '4.3M short tons');
+  // the national aggregate is an order of magnitude larger and must not
+  // collapse into the same bucket
+  assert.equal(fmtKilograms(18_173_621_123, 'metric'), '18.2M t');
+  // each decade of the scale ladder
+  assert.equal(fmtKilograms(1_000, 'metric'), '1 t');
+  assert.equal(fmtKilograms(1_500_000, 'metric'), '1.5K t');
+  assert.equal(fmtKilograms(2_500_000_000_000, 'metric'), '2.5B t');
+  assert.equal(fmtKilograms(0, 'metric'), '0 t');
+  assert.equal(fmtKilograms(0, 'imperial'), '0 short tons');
+});
+
+test('a US short ton and a metric tonne differ by ~10% and are labelled apart', () => {
+  // 907.18474 kg is exactly one short ton — and 0.91 of a metric tonne, which
+  // is precisely why "tons" alone would be an ambiguous label
+  assert.equal(fmtKilograms(907.18474, 'imperial'), '1 short tons');
+  assert.equal(fmtKilograms(907.18474, 'metric'), '0.91 t');
+  assert.notEqual(fmtKilograms(1e9, 'imperial'), fmtKilograms(1e9, 'metric'));
+});
+
+test('a missing mass is "no data", never a zero weight', () => {
+  assert.equal(fmtKilograms(null), 'no data');
+  assert.equal(fmtKilograms(undefined), 'no data');
+  assert.equal(fmtKilograms(NaN), 'no data');
+});
+
+test('mass follows the live preference like every other formatter', () => {
+  setUnits('metric');
+  assert.equal(fmtKilograms(1_000_000), '1.0K t');
+  setUnits('imperial');
+  assert.ok(fmtKilograms(1_000_000).endsWith('short tons'));
 });
