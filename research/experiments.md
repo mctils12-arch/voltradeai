@@ -3,6 +3,209 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — U.S. Drought Monitor weekly severity (/api/data/drought) gets a live /data client view, closing another "shipped-data-no-UI" gap (v1.0.750)
+
+TERRITORY: T-CLIENT primary — new `client/src/pages/droughtMonitor.tsx`;
+wiring in `client/src/pages/datamap.tsx` (import, state hook, hashchange
+listener entry, render block, panel-top launcher button — the exact
+`cropConditions.tsx`/panel-top-dashboard recipe, not the layer-toggle
+sidebar, since this root has no per-row lat/lon); new PAGES entry +
+`/api/data/drought` fixture in `scripts/visual_check.mjs`. No server route
+or schema touched: `/api/data/drought` (`server/droughtMonitor.ts`) was
+already shipped and live since BUILD ORDER 2 #5 (v1.0.118, 2026-07-05) —
+pure client-surface build over an existing, unmodified API contract, the
+same recipe used for grid-demand/occ-volume/crop-conditions before it.
+Only shared-file touch is `package.json`/`package-lock.json` version bump,
+last-and-minimal per MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/PROGRAM_STATE.md`
+(a parallel MASTER PROGRAM track — client-lib/orbital/CI-ratchet work,
+disjoint from this session's T-CLIENT product work, correctly left alone),
+`research/open_questions.md` KNOWN BROKEN (walked #1-#30: all
+RESOLVED/FIXED/CLOSED except #20, evidence-gated threshold judgment,
+non-blocking, unchanged since 2026-08-18), and `research/experiments.md`'s
+own most recent entries (2026-08-19 sessions (5)-(7)). Live `/api/health`:
+`status:"ok"`, `bot.status:"active"`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, alpaca `ACTIVE`, scanner `consecutiveFailures:0`,
+aircraft/vessels/trains all `dead:false` — no LIVENESS ALARM. AUDITS &
+DEBT register (this file, above): nothing overdue (STALENESS due
+2026-09-14, CONSTITUTIONAL due 2026-09-15, CALENDAR due 2026-12-01).
+Loop-health ratio, last 10 tagged entries before this one: 3/10 [REPAIR]
+(PRODUCT x6, REPAIR x3, PIPELINE x1) — well under the 7+ thrash trigger,
+so normal work proceeds.
+
+PRIMARY-ACTION SELECTION: session (7)'s own NEXT note (immediately above,
+this file) named the concrete, ready item — "the 5 remaining
+shipped-data-no-UI census-layer gaps (air-quality, drought,
+facility-events, fires-near-facilities, imports) ... all 5 confirmed
+serving real payloads live." Curled all 5 live production routes again
+this session to re-verify before picking one (air-quality, facility-events,
+fires-near-facilities, and imports all returned real payloads too — none
+regressed). Chose `drought` over the other four: (a) it already carries a
+filed, ladder-referenced trading hypothesis (open_questions.md BUILD ORDER
+6 #5 / BUILD ORDER 2 #5 — belt-weighted drought-severity delta vs.
+corn/soy futures forward returns, gate 1/2 both unattempted) rather than
+being purely descriptive; (b) `server/droughtMonitor.ts` already computes
+a clean per-AOI weekly time series (CONUS + 8 ag/water belt states,
+D0-D4 cumulative + the USDM's own published DSCI) that maps directly onto
+the `cropConditions.tsx` stacked-severity-bar precedent, so the build
+reuses an existing, proven component shape almost verbatim instead of
+inventing a new one; (c) it deepens the SOIL-MOISTURE/VEGETATION/
+LOW-WATER family of already-filed ag-stress hypotheses this session
+found cross-referenced throughout open_questions.md, rather than standing
+alone.
+
+READ BEFORE WRITE: read `server/droughtMonitor.ts` in full (AOI list,
+`DroughtRec` shape, the cumulative-percentage + DERIVED-DSCI convention,
+the `parseDrought` label-mismatch-drop honesty rule), the route handler
+at `server/routes.ts:3554-3573`, `client/src/pages/occVolume.tsx` and
+`client/src/pages/cropConditions.tsx` in full as the two closest existing
+precedents (table-style vs. stacked-bar-style detail pages), and grepped
+`datamap.tsx` for the exact `cropCondOpen` state/hashchange/render/
+panel-top-launcher pattern before writing anything, per this repo's own
+"same recipe" precedent rather than inventing a new wiring shape.
+
+WHAT SHIPPED:
+1. `client/src/pages/droughtMonitor.tsx` (new) — per-AOI latest reading
+   (CONUS + 8 belt states, in the same order `droughtMonitor.ts`'s own
+   `DROUGHT_AOIS` builds them, not re-sorted), each rendered as a
+   stacked bar using the USDM's own official map-legend colors. The
+   API returns CUMULATIVE area-or-worse percentages (D0 includes D1-D4);
+   the bar converts these to INCREMENTAL bands (d0-only = d0-d1, etc.)
+   so the visual matches the published USDM map convention rather than
+   double-counting — stated explicitly in the page's own copy, not left
+   implicit. DSCI (the USDM's own published 0-500 index, DERIVED here
+   from the percentages exactly as the server module's docstring already
+   states) is shown per AOI with an honest ~4-week trend delta: a
+   `fourWeekAgo()` helper searches the SAME aoi's own history for a
+   reading 21-35 days prior (tolerant of the weekly cadence landing a
+   day or two off an exact 28) and computes a real delta from it, or
+   shows nothing if no such reading exists — never a fabricated trend.
+   The page states its own gate status verbatim: GATE 1 (spot-check vs.
+   the published national map) and GATE 2 (drought delta vs. corn/soy
+   futures forward returns) have NOT been run for this specific root —
+   RAW display only, no signal claim, matching the same honesty
+   standard `occVolume.tsx`/`gridDemand.tsx` apply to their own
+   (already-attempted-and-killed) gate history.
+2. `client/src/pages/datamap.tsx` — wired via the exact `cropCondOpen`
+   pattern: `droughtOpen` state + hashchange listener entry + render
+   block (`#/data/drought`) + a panel-top launcher button (next to the
+   crop-conditions one, `Droplet` icon — already imported, no new icon
+   import needed) worded to make clear this is CONUS + belt-state
+   aggregates, not a spatial point layer. No `datacore/layers.json`
+   entry added — same precedent as `crop-conditions`/`grid-stress`/
+   `pipeline-health`: non-spatial "page-wide dashboard" views launch
+   from the panel-top list and are deliberately NOT registered as
+   toggleable map layers.
+3. `scripts/visual_check.mjs` — new `drought` PAGES entry
+   (`/app#/data/drought`, `map: false`, same Phase 5 ratchet rule as
+   `occvolume`/`griddemand`/`cropconditions`) + a `/api/data/drought`
+   fixture carrying 2 AOIs (CONUS, IA) x 2 dates each (~28 days apart)
+   so both the incremental-band color rendering AND the DSCI-delta
+   computation are actually exercised by the harness, not just the
+   page shell in isolation.
+
+TESTS: no new automated test file — this page has no pure/derivable logic
+distinct from what `server/droughtMonitor.test.ts` (pre-existing, unedited)
+already covers on the server side (`parseDrought`'s label-mismatch-drop,
+malformed-percentage-drop, DSCI derivation); the client-side
+`fourWeekAgo`/incremental-band math is exercised end-to-end by the visual
+harness's new fixture instead, matching the `cropConditions.tsx` precedent
+(also untested standalone — its `classOf`/`CommodityBar` logic is
+harness-verified the same way). `bash scripts/gated_tests.sh` confirms zero
+regressions in the existing 1017 client + 1376 python tests.
+
+GATES (PROMOTION RULES): sandbox needed `npm ci` + `pip install -r
+requirements.txt -r requirements-dev.txt` first (both absent at session
+start, same partial-sandbox pattern prior sessions hit). `bash scripts/
+tsc_ratchet.sh` — 12 <= 12, TS2304 = 0, exact match to
+`ci/tsc_baseline.txt` (this diff introduces zero new `any`/`as any`,
+verified by grep before running). `bash scripts/gated_tests.sh` — GATE
+PASSED: client 1017/1017 (0 regressions), python 1376 passed/1 skipped
+(unchanged from baseline), quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh` — OK, 25/25 counters at or better than baseline, NO
+re-pin needed (this diff added no `any`, no new long-try/empty-catch
+patterns, no duplicated high-precision literals). `npm run build` — clean
+(pre-existing astronomy-engine ESM / large-chunk warnings only, neither
+related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page drought`
+at 390/768/1440 — **0 hard failures** at all three widths. Screenshot
+review confirms: the stacked severity bars render with the correct
+USDM legend colors, the DSCI values and 4-week deltas display (color-coded
+red for worsening / green for improving), the hypothesis/gate-status note
+and both explanatory paragraphs are fully legible, and the legend strip
+renders all 6 severity classes. At 390px the page reflows cleanly with no
+clipped or overlapping content specific to this page. `npm run visual --
+page data` (the full map/streams panel the new launcher button was added
+to) was also launched this session to confirm the button doesn't disturb
+the existing panel; it was still running in this sandbox's headless
+Chromium (a full-layer map page, materially heavier than a single detail
+page) past this session's own time budget for a non-decisive extra check
+and was not awaited to completion. This is NOT a substitute for the
+decisive PROMOTION RULE 6 verification, which is the check above (the
+actual new page, `--page drought`, 0 hard failures at all three widths) —
+the launcher button itself is a two-line JSX addition of an existing,
+already-proven `vt-streams-launch` button (the same component seven other
+panel-top dashboards already use), so its own regression risk to the
+surrounding panel is low, but this is logged as an honestly-incomplete
+check rather than a claimed pass. NEXT (queued): a future session should
+re-run `npm run visual -- --page data` to close this out formally. Only
+warnings present on the drought page are the pre-existing
+global-chrome touch-target/clipped-control warnings that appear on
+essentially every page in this harness (same class noted in every recent
+session's write-up) and the standard headless-software-renderer notice —
+neither related to this diff.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a pure data-surface/UI
+feature; no scoring, sizing, or trading-threshold value changed. The
+underlying drought-severity data has never been gate-tested as a signal
+(stated on the page itself) and this session does not run that test —
+it only surfaces the already-live RAW archive.
+
+CROSS-SYSTEM INTEGRATION: none new this session (no new archive, no new
+entity-graph join) — this is the SPINOUT-READY DATA LAYER's own pattern
+(a datacore-adjacent server module gets its first-class /data consumer,
+mirroring how an external API customer would eventually reach it), same
+class as the gnss-integrity/grid-demand/occ-volume sessions before it.
+The page's own hypothesis text is a genuine pointer toward FUTURE
+cross-system work (the already-filed NDVI/soil-moisture/river-gauge
+ag-stress joins in open_questions.md), not a new tie built this session.
+
+MARKET-HOURS NOTE: this session's diff touches only `client/src/`,
+`scripts/visual_check.mjs`, `research/*`, and `package.json`/
+`package-lock.json` — no server route, no trading path, no scoring/sizing
+code. Per the standing PROCESS GAP entry in wishlist.md (auto-merge has no
+time-of-day gate), the PR still notes a preference for an after-hours
+merge where the session's wall-clock allows it, though the risk here is
+already minimal regardless of merge timing.
+
+NEXT (queued, not this session): (1) the 4 remaining shipped-data-no-UI
+gaps from session (7)'s list — air-quality, facility-events,
+fires-near-facilities, imports — all reconfirmed live this session, still
+open for a future PRODUCT session. (2) if a future session has spare
+capacity for a real ladder attempt rather than another UI build: GATE 1
+for `drought` itself (spot-check the CONUS reading vs. droughtmonitor.unl.edu's
+own published national percentages for one week) is cheap and would let
+this root graduate from "hypothesis filed" to "gate 1 attempted," the same
+step `crop-conditions` already took 2026-08-04. (3) session (7)'s own
+broader finding — no periodic sweep exists for non-200 `/api/data/*`
+responses — remains unaddressed and is still the highest-value
+[REPAIR]-flavored follow-up on file if a future session has repair
+capacity before another product build.
+
+Version bumped 1.0.749 -> 1.0.750 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed branch was exactly at
+origin/main (no drift) at bump time.
+
+STARVED: no — this was the queue's own stated, most concretely specified
+unclaimed PRODUCT item (named directly in the immediately-prior session's
+NEXT note), matched to session capacity, shipped with tests/gates/visual
+harness all green and the root's un-gated status stated as prominently as
+its display. No higher-priority queued item was skipped (no LIVENESS
+ALARM; the one open KNOWN BROKEN item is evidence-gated, not blocking;
+thrash ratio 3/10, well under threshold).
+
 ## 2026-08-19 (7) (scheduled-routine session) [REPAIR] — T-DATACORE (server/riverPlants.ts) + SHARED (server/routes.ts, ci/counter_baseline.txt, package.json last-and-minimal) — two /api/data cross-tie routes have been returning HTTP 500 in production for their entire lifetime: the powerplant JSON module was cast straight to an array and iterated (v1.0.749)
 
 TERRITORY: T-DATACORE primary (`server/riverPlants.ts` + its test) with a
