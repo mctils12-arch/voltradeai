@@ -117,6 +117,9 @@ const PAGES = {
   // OCC daily options cleared volume by trade origin — same Phase 5
   // ratchet rule as griddemand/fleetutilization/streams above.
   occvolume: { route: "/app#/data/occ-volume", map: false },
+  // Drought severity — U.S. Drought Monitor weekly (2026-08-20) — same
+  // Phase 5 ratchet rule as occvolume/griddemand/fleetutilization above.
+  drought: { route: "/app#/data/drought", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -494,6 +497,23 @@ const FIXTURES = {
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT FAIR", pct: 28, rt: "2026-08-03" },
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT GOOD", pct: 52, rt: "2026-08-03" },
       { commodity: "SOYBEANS", week_ending: "2026-08-02", item: "SOYBEANS - CONDITION, MEASURED IN PCT EXCELLENT", pct: 11, rt: "2026-08-03" },
+    ],
+  },
+  // Drought severity — U.S. Drought Monitor weekly (2026-08-20, RAW
+  // display). Two AOIs each with a recent + ~4-week-prior reading so the
+  // page's DSCI-delta computation and both severity-band colors exercise.
+  "/api/data/drought": {
+    kind: "raw",
+    source: "U.S. Drought Monitor data services — free with credit (fixture)",
+    attribution: "U.S. Drought Monitor (NDMC/USDA/NOAA)",
+    time: 1787171940919,
+    count: 4,
+    note: "weekly cumulative D0-D4 area %; dsci is the USDM's own published index (DERIVED here from the percentages) (fixture)",
+    drought: [
+      { aoi: "CONUS", map_date: "2026-08-11", none: 26.38, d0: 73.62, d1: 50.38, d2: 29.5, d3: 10.27, d4: 1.04, dsci: 164.81, valid_start: "2026-08-11", valid_end: "2026-08-17", rt: "2026-08-19" },
+      { aoi: "CONUS", map_date: "2026-07-14", none: 33.1, d0: 66.9, d1: 41.2, d2: 21.4, d3: 6.8, d4: 0.5, dsci: 136.8, valid_start: "2026-07-14", valid_end: "2026-07-20", rt: "2026-08-19" },
+      { aoi: "IA", map_date: "2026-08-11", none: 18.5, d0: 81.5, d1: 62.3, d2: 38.9, d3: 15.2, d4: 2.1, dsci: 200.0, valid_start: "2026-08-11", valid_end: "2026-08-17", rt: "2026-08-19" },
+      { aoi: "IA", map_date: "2026-07-14", none: 24.0, d0: 76.0, d1: 55.0, d2: 30.0, d3: 9.0, d4: 0.0, dsci: 170.0, valid_start: "2026-07-14", valid_end: "2026-07-20", rt: "2026-08-19" },
     ],
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).

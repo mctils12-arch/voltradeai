@@ -35,6 +35,7 @@ import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
 import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
+import DroughtMonitorView from "./droughtMonitor";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
@@ -2762,6 +2763,12 @@ export default function DataMapPage() {
   // Crop-conditions chart/table view (#/data/crop-conditions) — same
   // overlay pattern (RAW national aggregate, not a spatial layer).
   const [cropCondOpen, setCropCondOpen] = useState(() => window.location.hash === "#/data/crop-conditions");
+  // Drought severity view (#/data/drought) — same overlay pattern (RAW
+  // CONUS + belt-state aggregate, no per-row lat/lon, so it launches from
+  // the panel-top list like crop-conditions rather than the layer-toggle
+  // sidebar; server/droughtMonitor.ts shipped API-only v1.0.118, BUILD
+  // ORDER 2 #5, no client view until now).
+  const [droughtOpen, setDroughtOpen] = useState(() => window.location.hash === "#/data/drought");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
@@ -3175,6 +3182,7 @@ export default function DataMapPage() {
       setPipelineHealthOpen(window.location.hash === "#/data/pipeline-health");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
+      setDroughtOpen(window.location.hash === "#/data/drought");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
@@ -13172,6 +13180,9 @@ export default function DataMapPage() {
       {cropCondOpen && (
         <CropConditionsView onBack={() => { window.location.hash = "#/data"; setCropCondOpen(false); }} />
       )}
+      {droughtOpen && (
+        <DroughtMonitorView onBack={() => { window.location.hash = "#/data"; setDroughtOpen(false); }} />
+      )}
       {appStoreOpen && (
         <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
       )}
@@ -13690,6 +13701,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/crop-conditions"; setCropCondOpen(true); }}>
               <Leaf size={13} /> Crop conditions — USDA NASS
               <span className="vt-streams-launch-sub">weekly corn &amp; soybean condition ratings · RAW</span>
+            </button>
+            {/* Drought severity launcher (2026-08-20): CONUS + 8 belt
+                states, not a spatial layer, so it launches from the panel
+                top like crop-conditions immediately above. */}
+            <button type="button" className="vt-streams-launch" data-vt-drought-launch
+                    onClick={() => { window.location.hash = "#/data/drought"; setDroughtOpen(true); }}>
+              <Droplet size={13} /> Drought severity — U.S. Drought Monitor
+              <span className="vt-streams-launch-sub">weekly D0-D4 coverage, CONUS + 8 ag/water states · RAW</span>
             </button>
             {/* App Store rankings launcher (2026-08-05): a 16-ticker
                 consumer-app watchlist, not a spatial layer, so it launches
