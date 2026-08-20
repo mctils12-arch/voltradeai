@@ -335,6 +335,38 @@ scheduled-routine PR that carries this note until a human picks option 1
 or 2 above. Full trace in `research/experiments.md` (2026-08-19 session
 (5) ADDENDUM).
 
+**SEVENTH AND EIGHTH OCCURRENCES, 2026-08-20 — AND A CORRECTION TO THIS
+ENTRY'S OWN RECORD.** Two more instances fired the same day and *neither
+was logged by the session it happened to*, so this entry under-counted
+by two until now. That is the actually-new information here — not the
+tally itself, but that the tally had started drifting from reality:
+- PR #891 (air-quality `/data` client view, client-only) opened with a
+  prominent "⏰ MERGE AFTER 16:00 ET" header as its very first section —
+  the most explicit form of the note any session has used — and
+  auto-merged at 16:28 UTC (**12:28 PM ET**), ~5 minutes after opening.
+- PR #892 (US port imports `/data` client view, client-only) carried the
+  same note and auto-merged at 18:52 UTC (**2:52 PM ET**), ~4 minutes
+  after CI went green.
+Both were verified by reading the merged PRs' own bodies and
+`merged_at` timestamps, not inferred. That makes **8 consecutive
+occurrences across 7 days (2026-08-14 → 2026-08-20), with a 0%
+compliance rate** — the note has never once held a merge back since it
+was first written. Note also that #890, earlier the same day, is
+correctly NOT an occurrence: it opened and merged before the 09:30 ET
+open and carried no such note.
+OBSERVATION FOR THE HUMAN'S DECISION, not a self-applied change: at 8/8
+the two options above are no longer symmetric. Option 2 ("drop the
+instruction") is already what the system implements in practice — the
+only thing the note currently produces is a written claim in every PR
+body that a safeguard applied when it did not, which is the kind of
+gap between stated and actual behaviour this repo's own HONESTY rules
+exist to prevent. Option 1 (a real label/time gate on the FROZEN
+`automerge` job) is still the choice that preserves the original safety
+intent. Either is fine; the status quo — instructing the note and
+having nothing enforce it — is the one option that keeps producing a
+false record. Still human-only: both require editing a FROZEN path or
+the scheduled-routine prompt.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)

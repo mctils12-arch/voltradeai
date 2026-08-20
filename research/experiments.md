@@ -3,6 +3,51 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (same session, ADDENDUM) [NO-ACTION] — PR #892's "merge after 16:00 ET" note was not honored (merged 14:52 ET); checking the record found TWO of the day's occurrences, not one, had gone unlogged — the market-hours tally in wishlist.md had drifted from reality
+
+PR #892 (this session's port-imports client view) carried the standard
+"merge should wait until after the 16:00 ET close" note and auto-merged at
+18:52:08 UTC (**2:52 PM ET**), ~4 minutes after CI went green — same
+mechanism as every prior instance: `.github/workflows/`'s `automerge` job
+(FROZEN PATH) runs `gh pr merge --squash` unconditionally on any
+`claude/`-branch PR whose heavy jobs report non-failure, and it cannot read
+PR-body prose, time of day, or anything else.
+
+WHAT MADE THIS WORTH AN ENTRY RATHER THAN A SILENT TALLY: before logging it
+as "the seventh occurrence", I checked the day's other merged PRs against
+`wishlist.md`'s own list, which stopped at the sixth (2026-08-19). PR #891
+(air-quality client view, ~6 hours earlier the same day) had ALSO carried
+the note — in its most explicit form yet, a "⏰ MERGE AFTER 16:00 ET"
+header as the PR body's opening section — and auto-merged at 16:28 UTC
+(12:28 PM ET) without any session logging it. So the record under-counted
+by two, and this one is the **eighth** occurrence, not the seventh:
+8 consecutive instances across 7 days with a 0% compliance rate. Both
+verified from the merged PRs' own bodies and `merged_at` timestamps rather
+than assumed. PR #890 earlier the same day is correctly NOT an occurrence —
+it opened and merged before the 09:30 ET open and carried no note.
+
+The drift itself is the finding: an entry that exists to accumulate
+evidence for a human decision stops doing that job the moment sessions
+treat "no new information" as "nothing to record". The count IS the
+information in a compliance-rate argument.
+
+NO CODE CHANGE, and none is possible autonomously: both remedies filed in
+wishlist.md (a real label/time gate on the `automerge` job, or dropping the
+instruction from the scheduled-routine prompt) require editing a FROZEN
+path or the routine's own prompt. Recorded there with one observation added
+for the human: at 8/8, the status quo is the only option that keeps
+producing a false record — every PR body asserts a safeguard applied when
+it did not, which is exactly the stated-vs-actual gap this repo's honesty
+rules exist to prevent. Which remedy to pick stays the human's call.
+
+NO HARM THIS TIME, stated plainly rather than assumed: the merged diff was
+client-only (no server route, no trading path), production `/api/health`
+read `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`, alpaca
+`ACTIVE`, all 3 feeds `dead:false`, `drawdownPct:"0.0"` immediately after
+the merge. `/api/data/layers` still reported `server_version` 1.0.752 at
+that moment — the 1.0.753/754 deploys had not yet rolled, which is the
+normal post-merge lag, not a failure.
+
 ## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — US port imports (/api/data/imports) gets its /data client view, closing the last shipped-data-no-UI gap; the feed ships its own national total, which makes every render a free integrity check (v1.0.754)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/portImports.tsx` new,
