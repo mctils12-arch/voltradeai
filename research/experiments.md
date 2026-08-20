@@ -3,6 +3,233 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT — GDELT facility events get their /data client view, closing the LAST shipped-data-no-UI gap; the payload's severity column turns out to carry no information about any event on the page (v1.0.755)
+
+TERRITORY: T-CLIENT primary (`client/src/pages/facilityEvents.tsx` new,
+`client/src/lib/cameoEvents.ts` + `.test.ts` new, `client/src/pages/datamap.tsx`
+wiring, `scripts/visual_check.mjs` page + fixture) + SHARED-but-minimal
+(`package.json`/`package-lock.json` bump last, this entry). No server, datacore
+or trading file touched at all.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/` (experiments.md
+head, open_questions.md KNOWN BROKEN, wishlist.md head). Live `/api/health` on
+production: `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`, alpaca
+`ACTIVE`, `drawdownPct:"0.0"`, all three feeds `dead:false` (silent_hours 0.29)
+— no LIVENESS ALARM, no repair blocker. Ran `python3
+scripts/research_state_check.py` (the compiled session-start check built
+2026-08-20): audits register **none overdue** (STALENESS 2026-09-14,
+CONSTITUTIONAL 2026-09-15, CALENDAR YEAR-ADD 2026-12-01), thrash ratio **2/10
+REPAIR** — far under the 7+ trigger, normal work proceeds — and 1 of 30 KNOWN
+BROKEN items without an explicit close marker (#26, advisory only, previously
+confirmed fixed-with-a-test on inspection).
+
+PRIMARY-ACTION SELECTION: took the immediately-prior session's own NEXT note
+(SESSION BUDGET rule 1), which named `facility-events` as "now the LAST
+shipped-data-no-UI gap" and recorded exactly why it had been deferred four
+sessions running: "needs a CAMEO root-code decode table before it can be
+surfaced honestly." Verified live before committing to it rather than trusting
+the note: production `/api/data/facility-events` returned 15 real events, not a
+`warming_up` stub. Nothing else in the queue was this concretely specified.
+
+READ BEFORE WRITE: read `server/gdeltEvents.ts` end to end (the ingest filter,
+the `GdeltEvent` shape, the ±0.5° `nearestFacility` box, the 48-hour cache
+window) and `server/routes.ts`'s `/api/data/facility-events` handler before
+writing any client code; then `airQuality.tsx` + `client/src/lib/aqIndex.ts` as
+the closest precedent for "the decode that can misrepresent lives in a tested
+lib, not in JSX", `firesNearFacilities.tsx` for the table idiom, and grepped
+`datamap.tsx` for the exact 4-point wiring pattern (import, state, hashchange
+entry, render block, panel launcher). Confirmed `client/src/lib/units.ts`
+already had `fmtKm` and that a client lib may import a `datacore/*.json`
+catalogue (`seafloorV2.ts`/`orbital/entityJoin.ts` precedent) — neither assumed.
+
+THE DECODE TABLES ARE TRANSCRIBED, NOT REMEMBERED: `CAMEO_EVENT_LABEL` and
+`CAMEO_GOLDSTEIN` were generated mechanically from GDELT's published
+`CAMEO.eventcodes.txt` and `CAMEO.goldsteinscale.txt`, filtered to the root
+codes `server/gdeltEvents.ts` actually ingests (14/17/18/19/20 + 143x). Two
+upstream typos are preserved verbatim ("protest for  change", double space;
+"radiologicalweapons", missing space) — this is the source's text, and quietly
+correcting a source table is how a decode starts drifting from the thing it
+decodes. An unknown code returns `null` and the page prints the raw code; it is
+never inferred from its root.
+
+THREE PROPERTIES OF THIS PAYLOAD, each measured against the live 15-row
+response before any code was written, each one a way the page would have lied
+if built naively:
+
+1. **The severity-looking column carries no information about any event on the
+   page.** GoldsteinScale is a CONSTANT OF THE EVENT CODE. Every live row
+   matched the published table exactly (173→−5.0, 172→−5.0, 192→−9.5,
+   1821→−9.0, 1712→−9.2, 141→−6.5) and no code ever showed two values. Rendered
+   per row beside a headline it reads as "someone assessed this incident at
+   −9.5"; it is a restatement of the type column. So it is shown ONCE PER TYPE
+   in a reference table, and `goldsteinAudit()` re-checks the claim live on
+   whatever rows are on screen — the page prints "5 of 5 rows carry exactly the
+   value the published CAMEO table assigns their event code, and no code shows
+   two different values", including the failure state if upstream ever changes.
+   The reader watches the check pass rather than reading an assurance.
+2. **One article produces several rows.** 15 live rows came from 9 distinct
+   article URLs; one article alone produced 4. Counting rows as incidents
+   overstates how much happened, so `groupByArticle()` collapses them and the
+   page states both numbers and that neither is a count of things that occurred.
+3. **"Near a facility" means the same metro area.** The ingest box is ±0.5°, so
+   its corner is ~70 km out, and GDELT's own geocoding is city/ADM-approximate
+   on top of that. Rather than repeat the word "near", the page MEASURES it:
+   `eventDistanceKm()` computes the great-circle separation from the event's own
+   geocoded point to the facility's coordinates in our catalogue. Live spread
+   was 2.9 km to 51.4 km — a "port_la" row is downtown Los Angeles, 33 km from
+   the Port of LA. Unknown site or unusable coordinates return null, never 0
+   (0 would render as "at the facility", the single most misleading value here).
+
+THE FALSE-POSITIVE RATE IS ON THE PAGE, NOT HIDDEN: the largest single incident
+in the live payload — 4 of the 15 rows — is a *sake and shochu cocktail bar*
+article, filed under CAMEO 172 "Impose administrative sanctions" 9.5 km from the
+Port of Oakland, with a POSITIVE article tone (+7.3). The page computes and
+states how many of its articles carry positive tone, and explains why that
+happens (CAMEO codes the actor–action pair, not the article's subject). A gate-0
+observation feed whose false positives are invisible is worse than no feed;
+this one shows its own.
+
+NOT A MAP LAYER, and the reason is in the data: these rows carry precise-looking
+lat/lon that is city/ADM-approximate. Plotting them beside our metre-accurate
+point layers would assert a precision the feed does not have — the distance
+column exists precisely because the coordinates should not be trusted at
+facility scale. It launches from the panel-top list like air-quality/drought and
+takes no `datacore/layers.json` entry.
+
+UNITS (standing directive 2026-07-13): every distance renders through
+`fmtKm(..., units)` on a live `useSyncExternalStore(subscribeUnits, ...)`
+subscription, so the column follows the layers-panel imperial/metric toggle
+without a reload. Computation stays in kilometres; only display converts.
+
+TESTS: `client/src/lib/cameoEvents.test.ts` (new, 21 tests) over live-shaped
+rows: decode (known code → published label/root/constant; unknown code → null
+label AND null Goldstein but a still-real root label; row-root wins over the
+code prefix and a disagreement is reported, not corrected); a table-integrity
+test that every labelled code has a Goldstein value and vice versa; the audit
+(live rows all match; a tampered row is reported as a mismatch AND flagged as
+varying; an unknown code counts as unknown rather than as a mismatch; null/NaN
+are skipped, never read as 0); grouping (5 rows → 3 articles, per-article max
+mentions, a total sort order that is stable across identical renders, tone kept
+only when an article's rows agree — never averaged, a URL-less row becomes its
+own incident); geometry (haversine 0 at a point, LA→NYC within 15 km of 3936;
+the downtown-LA row is double-digit km from the port and cannot exceed the box
+diagonal; unknown site → null, not 0); and the type-summary ordering.
+
+A/B DISCIPLINE — every guard was verified to actually bite by breaking it on a
+scratch copy and re-running: (a) key incidents by row id instead of URL (no
+collapsing) → 3 tests fail; (b) unknown-site distance 0 instead of null → 1
+fails; (c) unknown code falls back to the root label → 1 fails; (d) tone
+averaged instead of null on disagreement → 1 fails; (e) Goldstein mismatches
+counted as matches → 1 fails. Restored file: 21/21 green.
+
+LIVE END-TO-END, not just fixtures: ran the lib against the real 15-row
+production payload before shipping. 15 rows → 9 incidents; audit 15/15 matched,
+0 unknown codes, 0 varying codes; distances 2.9–51.4 km; one incident matched
+TWO facilities (one article geocoded into both the Charleston and Savannah
+boxes, 7.8 km and 38.1 km away) — a case the fixture now carries.
+
+THREE LAYOUT DEFECTS FOUND BY LOOKING AT THE SCREENSHOTS, not by the checker
+(all three passed the harness's mechanical gates):
+1. **The first render showed 2 of its 4 incidents with nothing indicating the
+   rest existed.** `.vt-filings-tablewrap` is `flex: 1` because every page
+   before this one had exactly ONE table in the flex-column body; with two, the
+   space is split and each table scrolls inside its own squeezed box. Both wraps
+   are now `flex: 0 0 auto` and the page body scrolls. This is the most
+   dangerous class of bug on a data page — silent truncation reads as "that is
+   all there is" — and no assertion in the harness would have caught it.
+2. **Eight columns wrapped every numeric cell at 768px** ("-7.5" breaking into
+   "-7." / "5"). Day folded into the article cell, distance into the facility
+   cell it measures: 8 → 6 columns, plus `nowrap` on the signed tone cell.
+3. **The phone stylesheet drops the stacked-card label on the LAST cell**
+   (`.vt-filings-table td:last-child::before { content: none }`), which left a
+   bare "-4.6" under no label at 390px. Both tables were reordered so the final
+   column is a self-describing text column (the event-type label) rather than a
+   number. Multi-line cells also had to wrap their lines in one element — at
+   ≤639px the td itself becomes a flex row, so bare sibling divs lay out side by
+   side instead of stacked.
+Verified at 390px by temporarily patching the harness to scroll the inner body
+and screenshot below the fold (the harness captures the viewport, and this page
+scrolls inside `.vt-shortvol-body`), then restoring it — confirmed zero
+harness diff afterwards. The mobile cards now read label-left/value-right with
+the unlabelled final cell being self-describing text.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged. `bash scripts/gated_tests.sh` GATE PASSED — server
+1301/1301 (157 files), client **1069/1069 across 100 files** (up from 1048/99),
+python 1403 passed/1 skipped, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: OK, 25 counters at or better than baseline; the
+three reporting IMPROVED (`tests_run_in_ci`/`tests_gating_merge` 382,
+`assertions` 11768 vs pins of 378/378/11562) carry the same pre-existing foreign
+drift the last three sessions measured and deliberately left un-re-pinned —
+pinning here would lock other sessions' gains into this PR and blur attribution.
+`npm run build` clean (pre-existing large-chunk notice only).
+
+NOTE FOR A FUTURE SESSION: the gate script collects test files via `git
+ls-files`, so a NEW test file contributes nothing to the gate until it is `git
+add`ed. The first full run this session reported the unchanged 1048/99 client
+count with 21 new tests sitting untracked beside it — a silent no-op that looks
+exactly like a pass. Stage new test files before trusting a gate run.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+facilityevents` at 390/768/1440 — **0 hard failures**, screenshots reviewed
+rather than counted (all three layout defects above came out of that review).
+Remaining warnings are the pre-existing global-chrome touch-target class present
+on every page in this harness, plus one "clipped control" naming this session's
+new panel launcher at 1440px: that check flags any control extending past the
+viewport, and the streams-inventory list is a scrolling column that every
+session lengthens by one button — it is the list scrolling, not a broken layout.
+The four article links this page added DID trip the 44px phone touch-target
+check on first run and were padded to a real tap target; they are clean now.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-surface change over an
+already-live, unmodified RAW API; no scoring, sizing, or trading-threshold code
+touched.
+
+CROSS-SYSTEM INTEGRATION (stated honestly, not inflated): the real tie is named
+on the page and stays gate-locked — a media unrest burst near a facility is a
+prompt to go look with our OWN sensors (FIRMS thermal, Sentinel-2 imagery,
+port-dwell, AIS), which is `server/gdeltEvents.ts`'s filed gate-2 hypothesis and
+remains unattempted. Nothing here asserts it. The one genuinely new join this
+session makes is mechanical and internal: the GDELT row's own coordinates
+against our `datacore/sites/strategic_sites.json` catalogue, which is what turns
+the word "near" into a number.
+
+MONETIZATION NOTE (not a tripwire re-run — no billing/pricing/subscription/ads
+code touched): the route and page are free and unauthenticated. GDELT's licence
+is unusually permissive — free for unlimited use including commercial, with
+redistribution permitted, requiring only attribution to The GDELT Project, which
+the page carries in its header and its source line.
+
+NEXT (queued, not this session): (1) with `facility-events` shipped, **no
+`/api/data/*` route with a populated payload lacks a client view** — a future
+fall-through sweep should re-scan for newly shipped-but-unwired routes rather
+than assume the class is permanently closed. (2) `datacore/signal_ladder.json`
+still carries no `gdelt_facility_events` root (nor several other RAW roots); a
+bookkeeping pass adding the missing `raw_only` entries would make the ladder
+page's coverage honest — deliberately not bundled here. (3) The gate-2
+hypothesis this feed exists for (unrest burst → own-sensor confirmation) has
+never been attempted; the archive has been recording since 2026-07-05, so a
+retrospective burst-vs-sensor study is now possible. (4) Unchanged: no periodic
+sweep exists for non-200 `/api/data/*` responses, and the stranded zero-CI-run
+PRs (#707, #794) still need GitHub-side diagnosis no session can perform here.
+
+Version bumped 1.0.754 -> 1.0.755 (PROMOTION RULE 4); re-fetched `origin/main`
+immediately before bumping and confirmed the branch was exactly at
+`origin/main` with zero drift at bump time.
+
+MARKET-HOURS NOTE: this run fired at ~16:15 ET, AFTER the 16:00 ET close, so the
+standing hold-until-after-close request does not apply to this PR — the first
+scheduled-routine PR in some time for which that is true. (The auto-merge job
+still has no time gate; see wishlist.md, now at 8 logged occurrences.)
+
+STARVED: no — this was the queue's own last named PRODUCT item and the one that
+had been deferred four sessions for a specific, stated reason, which this
+session supplied. Shipped with tests/gates/visual harness green and the feed's
+own false-positive rate given the same prominence as its contents. No
+higher-priority queued item was skipped (no LIVENESS ALARM; thrash ratio 2/10;
+no audit due).
+
 ## 2026-08-20 (same session, ADDENDUM) [NO-ACTION] — PR #892's "merge after 16:00 ET" note was not honored (merged 14:52 ET); checking the record found TWO of the day's occurrences, not one, had gone unlogged — the market-hours tally in wishlist.md had drifted from reality
 
 PR #892 (this session's port-imports client view) carried the standard
