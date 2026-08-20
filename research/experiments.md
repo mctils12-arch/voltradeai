@@ -3,6 +3,113 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine session #3) [REPAIR] — stale-PR backlog: 11 of 13 open `claude/*` PRs never merged (up to 26 days old); diagnosed three distinct causes, fixed the two fixable within autonomous authority (docs-only, no version bump)
+
+TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — SHARED-but-minimal
+(`research/wishlist.md` + this entry only; no code, no `package.json`
+bump, matching the precedent set by PR #877's and the 2026-08-16
+CONSTITUTIONAL AUDIT's docs-only entries).
+
+SESSION-START CHECKS: CLAUDE.md read in full. Live health via
+`scripts/session_health_check.py`: all 7 checks OK (`deploy_freshness`
+server_version 1.0.751 matching this checkout), no LIVENESS ALARM.
+`scripts/research_state_check.py`: audits register none overdue, thrash
+ratio 4/10 REPAIR (below the 7+ trigger), KNOWN BROKEN 1/30 advisory
+NEEDS-REVIEW (#26, already read and confirmed fine by the prior
+session). No repair blocker found in the usual places.
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET's own ordering, checked
+`research/PROGRAM_STATE.md`'s MASTER PROGRAM queue (Q7/Q8/Q9/Q11 listed
+TODO, unclaimed since 2026-08-15) as a candidate queued item, then
+checked GitHub directly for anything audit-log-shaped before committing
+to it. `list_pull_requests(state=open)` surfaced 13 open PRs where this
+repo's own auto-merge job normally lands a green PR within 3-5 minutes
+(see wishlist.md's existing PROCESS GAP entry, whose entire complaint is
+that auto-merge is too FAST) — 11 of the 13 were days-to-weeks old,
+which is itself the anomaly and outranked taking the MASTER PROGRAM
+queue item per "fix a bug seen in audit logs" (SESSION BUDGET's own
+top-ranked category, read broadly: a broken merge pipeline stranding
+tested work is exactly this).
+
+READ BEFORE WRITE: checked each of the 11 individually via
+`pull_request_read(get_check_runs)` against its CURRENT head commit (not
+a cached/stale run) before drawing any conclusion, since an earlier
+sloppy attempt at this (batching `actions_list` results by call-order
+position) silently mis-attributed one PR's check-run history to another
+— caught and corrected by re-querying #707 and #763 individually before
+writing anything down; the corrected numbers below are all from the
+individual, PR-scoped API, not the batched one.
+
+FOUND — three distinct, non-overlapping mechanisms (full detail and the
+one PR-by-PR table in wishlist.md's new top section, not duplicated
+here):
+
+1. **Draft-to-dodge-market-hours, then forgotten.** PR #763 (2026-08-11,
+   TIME MACHINE v2 T-1) has fully green CI but its own Auto-merge job
+   failed with `GraphQL: Pull Request is still a draft`. Its body shows
+   the authoring session independently invented the same "open as draft
+   to skip auto-merge during market hours" workaround this repo's
+   PROCESS GAP entry was formally filed over 4 days later (2026-08-15),
+   and asked a future session to un-draft it after the close. Nobody
+   did, for 9 days. FIXED: un-drafted via `update_pull_request(draft:
+   false)`. NOT fully resolved: `mergeable_state` is now `dirty` (a real
+   conflict accumulated over 9 days) — flagged in wishlist.md as its own
+   follow-up, not attempted here (conflict resolution on a 567-line
+   T-CLIENT/T-BOT-adjacent diff is a session of its own, not a
+   fall-through item). PR #604 is a different, intentional case (titled
+   "draft, do not merge as-is") — correctly left alone.
+2. **CI's `changes` job cancelled minutes after PR-open, no successor
+   run ever recorded.** PRs #797, #767, #706 — one workflow run each,
+   `changes` job `cancelled` 5-15 min after opening, everything
+   downstream `skipped`, nothing since. Likely `ci.yml`'s
+   `cancel-in-progress: true` concurrency group colliding across this
+   repo's many concurrent autonomous sessions (WORKSTREAM PARTITION
+   explicitly runs several sessions in parallel), which would need
+   either a paid Actions-concurrency increase or a `.github/workflows/`
+   edit (FROZEN PATH) to fix — NOT attempted, filed in wishlist.md as a
+   flagged-not-requested spend/plan question for the human.
+3. **Zero check runs at all against the current head commit** (not
+   cancelled — genuinely absent). PRs #844, #834, #817, #794, #708, plus
+   PR #877's own second commit (first commit got a real green run, the
+   PR's later commit did not). Root cause NOT established — would need
+   GitHub's webhook delivery logs, which this session cannot reach.
+   Filed, not guessed at.
+
+ALSO FIXED, mechanism-independent: PR #867 (2026-08-17, NHTSA vehicle
+complaints `/data` view) had one real CI run whose `docker-build` job
+failed on `npm error network ECONNRESET` inside `npm ci --prefer-offline`
+— read the full job log before concluding anything; confirmed a plain
+transient registry disconnect (the diff is a client-only React view,
+touches nothing Docker/npm-config-related). Re-queued via
+`actions_run_trigger(rerun_failed_jobs, run_id=32055018831)`; confirmed
+in-progress before this entry was written (`docker-build` status
+`in_progress` on re-check). If it comes back green, this repo's own
+auto-merge job should land it within minutes with no further session
+needed; if it fails again for a DIFFERENT reason, that promotes it from
+flake to a real bug per this repo's own "flake is not a root cause"
+standard.
+
+NOT FIXED, explicitly scoped out and handed to a future session: the
+remaining 8 PRs (#797, #767, #706, #844, #834, #817, #794, #708) each
+represent real, previously-tested, already-reviewed work (a CSP repair,
+a TIER3-DIAG audit finding, an OCC-parsing crash fix, a submarine-cables
+/data overlay, a macro-regime UI, a rendering fix, and more) sitting
+unshipped for up to 26 days. Working through 8 branches (rebase, re-run
+gates, either revive or close-with-supersession-note per the WORKSTREAM
+PARTITION's own precedent) is its own session's primary action given the
+volume — explicitly queued in wishlist.md rather than rushed here.
+
+GATES: docs-only change (two files: `research/wishlist.md`,
+`research/experiments.md`), no code touched, no version bump — same
+precedent as PR #877 and the 2026-08-16 CONSTITUTIONAL AUDIT entry.
+`python3 -c "import json"` N/A (no JSON touched this session).
+
+STARVED: no — this was this session's one primary action, chosen ahead
+of the MASTER PROGRAM queue's Q7-Q11 per SESSION BUDGET's own ordering,
+and it surfaced enough follow-up work (8 PRs, 1 concurrency-cap wishlist
+question, 1 merge-conflict) to fill several future sessions rather than
+leaving the queue empty.
+
 ## 2026-08-20 (scheduled-routine session #2) [PIPELINE] — axis (d), EDGE DOCTRINE #3 — `scripts/research_state_check.py` compiles the manual "read KNOWN BROKEN, compute the thrash ratio, check the audits register" session-start step into a script; dogfooding it found and closed one genuinely stale KNOWN BROKEN item (#4) (v1.0.751)
 
 TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — this session's primary
