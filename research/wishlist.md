@@ -3075,3 +3075,94 @@ BROKEN #30 and experiments.md (same date). Per this entry's own
 recommendation: **if a FOURTH recurrence is ever found, that is the
 trigger for Option 3** (persisted cross-cycle slot ledger) — Options 2
 and 3 remain unbuilt, on purpose, unless that trigger fires.
+
+## 2026-08-20 — PROCESS GAP: a DRAFT PR opened to dodge the market-hours auto-merge gap sat unnoticed for 9 days and was fully superseded by 3 later PRs building the same feature (no code shipped this session — resolution only)
+
+RELATED TO, BUT A DIFFERENT MECHANISM FROM, the "auto-merge ignores the
+market-hours note" gap logged above (six occurrences 2026-08-14 through
+2026-08-19) — that gap is about the note doing nothing; this one is
+about the one workaround that DOES work (opening as a draft) having no
+safety net of its own.
+
+WHAT HAPPENED: a 2026-08-11 scheduled [PRODUCT] session built TIME
+MACHINE v2's T-1 (`server/aircraftWindow.ts`, the hex-multiplexed
+aircraft-archive window endpoint) — the correctly-identified next
+unblocked step per `research/earth_twin_program.md`'s own design filed
+earlier that same day. Mid-market (14:28 ET), so per the constitution's
+PRODUCT-session PR guidance the session opened PR #763 **as a draft**
+instead of the usual prose note — a genuine fix for the logged gap
+above, confirmed working: the `automerge` job DID run and DID correctly
+fail with `GraphQL: Pull Request is still a draft`, proving draft status
+is a real gate the prose note is not. Session ended there, expecting a
+human (or a future session) to mark it ready after the close.
+
+Nobody did, for 9 days. In that gap, three LATER scheduled sessions
+independently read the same "T-1 is next unblocked" line in
+earth_twin_program.md, found no reason to think it was already done (a
+draft PR sitting open on GitHub is not something any session's own
+read-before-write process checks), and built it again — T-1 itself
+(PR #789, v1.0.672, "pipeline: TIME MACHINE T-1"), then T-2 (PR #818,
+v1.0.700) and T-4 (PR #845, v1.0.721) on top of THAT version. By the
+time PR #763 was marked ready-for-review on 2026-08-20 (this session,
+responding to the `ready_for_review` webhook), `git merge origin/main`
+into its branch produced add/add conflicts on the exact two files PR
+#763 introduced — main's version was read (`server/aircraftWindow.ts`)
+and found to be a strict superset: same core design (hex-multiplexed
+single-pass-per-hour-file, viewport bbox, LOD point caps, honest N-of-M
+hex caps) PLUS a `maxFiles`-bounded newest-first file budget that is
+the exact fix this session's own PR #763 had flagged as an open PERF
+CAVEAT ("30-day/world-zoom untested... add a longer-lived cache tier if
+slow") — the later, better-informed session solved a problem the
+draft-stuck session had only identified.
+
+RESOLUTION THIS SESSION: per the WORKSTREAM PARTITION's own supersession
+precedent ("first-merged wins, the duplicate salvages its unique
+delta") — PR #789 merged 2026-08-13, eight days before #763 was even
+un-drafted, so it unambiguously wins. Checked #763's version for any
+unique delta worth salvaging into a small follow-up PR: none found —
+main's merged version is a functional and safety superset in every
+respect checked. PR #763 closed unmerged with an explanation comment;
+its branch (`claude/lucid-keller-zftc8y`) reset to the current
+`origin/main` tip (own unmerged branch, confirmed via `git log` that no
+other commits ever landed on it) so it carries forward clean for this
+session's actual deliverable — this docs entry. No code shipped; no
+version bump (docs-only, matching the 2026-08-19 PROCESS GAP addendum's
+own precedent of not bumping `package.json` for a pure-docs commit).
+
+WHY THIS IS STILL WORTH A DEDICATED ENTRY (not just "well, at least
+nothing broke"): the SUBSTANCE was fine — main ended up with a strictly
+better implementation, live trading was never touched, and no user-
+facing regression occurred. But roughly 9 sessions' worth of the SAME
+"what does TIME MACHINE v2 need next" work happened across two branches
+that never knew about each other, and the ONLY reason it surfaced now is
+a human (or an external process) happened to click "ready for review"
+on a 9-day-old draft. Had that never happened, PR #763 would have aged
+out silently, exactly like the "SIX open, unmerged, non-draft Claude
+PRs found sitting stale" entry earlier in this file already documented
+for the NON-draft case (2026-07-22, above) — drafts are simply invisible
+to whatever mechanism eventually surfaces stale non-draft PRs (this
+file's own evidence: that entry proposed a session-start-checklist
+recommendation for stale PRs; nothing in this repo's autonomous flow
+currently distinguishes "stale because nobody looked" from "stale
+because it's deliberately parked as draft," so a checklist built only
+for the first case would still have missed this).
+
+STRUCTURAL FIX, not evaluated in depth here (deliberately left for a
+dedicated session/human decision, same posture as the sibling gap
+above): a scheduled routine's session-start checks should list this
+account's OPEN Claude PRs (draft included) alongside `research/*` and
+live health, so "is this queued item already in flight on another
+branch" becomes a checked fact instead of an assumption. This does not
+require touching any FROZEN PATH (it is a session-behavior addition,
+not a CI-workflow change) — unlike the sibling automerge gap, a human
+decision is not strictly required to build this, but is flagged here
+rather than self-applied since it changes standing session behavior
+CLAUDE.md's MEMORY PROTOCOL/SESSION BUDGET sections govern, and this
+file's own convention is to let the human weigh in on process changes
+before they become standing practice.
+
+**NOT A SPEND REQUEST.** Full incident trace (git evidence, file
+diffs) available via PR #763's closing comment and this session's own
+tool history; not duplicated verbatim into experiments.md beyond a
+summary pointer, per that file's own preference for terse cross-references
+over restating evidence already filed here.

@@ -3,6 +3,61 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 [NO-ACTION / PROCESS] — PR #763 (this session's own 2026-08-11 TIME MACHINE v2 T-1 draft) closed unmerged, superseded by PR #789/#818/#845 — no code shipped, docs-only resolution
+
+Continuation of the 2026-08-11 scheduled-[PRODUCT]-session entry lower
+in this file ("TIME MACHINE v2's T-1 hex-multiplexed window endpoint
+shipped (v1.0.656)") — that session opened PR #763 as a DRAFT (mid-
+market, per the PRODUCT-session PR guidance) instead of merging, and
+ended there. A `pull_request.ready_for_review` webhook fired on this PR
+today, 9 days later; this session responded to it.
+
+`git merge origin/main` into the PR's branch produced add/add conflicts
+on `server/aircraftWindow.ts`/`server/aircraftWindow.test.ts` — main
+already had a fully independent, merged implementation of the same T-1
+endpoint (PR #789, v1.0.672, "pipeline: TIME MACHINE T-1"), since
+extended to T-2 (PR #818, v1.0.700) and T-4 vessels parity (PR #845,
+v1.0.721). Compared the two `aircraftWindow.ts` designs: main's is a
+strict superset (same core shape — hex-multiplexed single-pass-per-hour-
+file, viewport bbox, LOD point caps, honest N-of-M hex caps — plus a
+`maxFiles` newest-first file budget that resolves the exact open PERF
+CAVEAT #763's own docs entry had flagged). Per WORKSTREAM PARTITION's
+supersession precedent ("first-merged wins, the duplicate salvages its
+unique delta"): #789 merged 8 days before #763 was even un-drafted, so
+it wins outright; no unique delta survived the comparison worth a
+follow-up PR.
+
+ACTION: PR #763 closed unmerged with an explanatory comment (CI was
+green on every real check — `node-build`/`docker-build` success,
+`python-tests` skipped — only the `automerge` job's own draft-refusal
+"failed," exactly as intended). Its branch reset to the current
+`origin/main` tip (confirmed via `git log` that no other commits had
+ever landed on it — a safe reset of this session's own unmerged,
+now-dead code, not a shared or merged branch). No strategy/threshold/
+config/trading code shipped this entry.
+
+FULL PROCESS-GAP WRITE-UP filed in `research/wishlist.md` (2026-08-20
+entry, same section as the related-but-distinct "auto-merge ignores the
+market-hours note" gap logged there six times since 2026-08-14): the
+draft-PR workaround for THAT gap genuinely works (proven again here —
+the automerge job really did refuse the draft), but has no safety net
+of its own — a drafted PR is invisible to whatever eventually surfaces
+stale non-draft PRs, so it can sit and be silently superseded instead of
+just sitting. Structural fix proposed there (session-start check of this
+account's own open Claude PRs, draft included) — not built this session,
+left for a human/dedicated-session decision per that entry's own
+reasoning.
+
+DOWNSTREAM CHAIN: none — this entry ships no code; the TIME MACHINE v2
+feature's actual state on main (T-1/T-2/T-4 shipped, T-3 curtain-fleet
+rendering still queued per earlier entries) is unaffected by this
+PR's closure.
+
+STARVED: no — this was the session's one actionable item (a webhook
+wake on a PR this account owns demands a resolution, not a skip); after
+closing it out, the session's fall-through capacity was not separately
+consumed since this entry doubles as this session's own log.
+
 ## 2026-08-20 (scheduled-routine session #2) [PIPELINE] — axis (d), EDGE DOCTRINE #3 — `scripts/research_state_check.py` compiles the manual "read KNOWN BROKEN, compute the thrash ratio, check the audits register" session-start step into a script; dogfooding it found and closed one genuinely stale KNOWN BROKEN item (#4) (v1.0.751)
 
 TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — this session's primary
