@@ -91,6 +91,30 @@ green, the existing auto-merge job should land it within minutes on its
 own — no further action needed unless it fails again for a *different*
 reason, which would make it a real bug rather than a flake.
 
+**CORRECTION 2026-08-20 (later same day, scheduled-routine PRODUCT
+session)**: the "no further action needed" call on PR #867 above was
+wrong — its docker-build retry did go green, but auto-merge then failed
+for a *different* reason this entry didn't anticipate: a real merge
+conflict, because PR #869 (`product: vehicle complaints get a live /data
+layer + client view`, v1.0.737) independently built and merged the exact
+same feature ~6 hours after #867 was opened, unaware of it (concurrent
+WORKSTREAM PARTITION sessions, no visibility into each other's open
+PRs). #869 is the more complete build (adds the `datacore/layers.json`
+registry entry #867 lacked). Diffed both against current `main`: no
+unique delta in #867 worth salvaging. Closed #867 as a duplicate per
+CLAUDE.md's supersession precedent, with a comment on the PR naming
+#869. `bank-failures`, the other zero-wiring candidate #867's own PR
+body queued, has also since shipped (#871) — the "5 zero-wiring
+candidates" thread named across several 2026-08-16/17 session log
+entries is now fully closed, three sessions independently over three
+days. Full account in `research/experiments.md`'s 2026-08-20 entry for
+this session. GENERALIZATION for future stale-PR triage: a PR flagged
+by mechanism (2) or (3) above (cancelled/missing CI runs) should also be
+checked for supersession by content, not just re-run — a stale PR can go
+green and still be undeployable because the world moved on, which reads
+identically to a merge conflict from unrelated drift until you check
+what actually landed in the meantime.
+
 WHY THIS IS FILED HERE AND NOT JUST FIXED OUTRIGHT: fixing (2) and (3)
 for real would mean either editing the FROZEN `.github/workflows/ci.yml`
 (constitutional amendment territory, human approval required per FROZEN
