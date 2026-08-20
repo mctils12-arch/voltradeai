@@ -120,6 +120,9 @@ const PAGES = {
   // Drought severity — U.S. Drought Monitor weekly (2026-08-20) — same
   // Phase 5 ratchet rule as occvolume/griddemand/fleetutilization above.
   drought: { route: "/app#/data/drought", map: false },
+  // Facilities near active fires — NASA FIRMS × strategic-sites cross-tie
+  // (2026-08-20) — same Phase 5 ratchet rule as drought/occvolume above.
+  firesnearfacilities: { route: "/app#/data/fires-near-facilities", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -515,6 +518,23 @@ const FIXTURES = {
       { aoi: "IA", map_date: "2026-08-11", none: 18.5, d0: 81.5, d1: 62.3, d2: 38.9, d3: 15.2, d4: 2.1, dsci: 200.0, valid_start: "2026-08-11", valid_end: "2026-08-17", rt: "2026-08-19" },
       { aoi: "IA", map_date: "2026-07-14", none: 24.0, d0: 76.0, d1: 55.0, d2: 30.0, d3: 9.0, d4: 0.0, dsci: 170.0, valid_start: "2026-07-14", valid_end: "2026-07-20", rt: "2026-08-19" },
     ],
+  },
+  // Facilities near active fires — NASA FIRMS × strategic-sites cross-tie
+  // (2026-08-20, RAW display). Two facilities so the table and both null-
+  // vs-populated max_frp cases exercise.
+  "/api/data/fires-near-facilities": {
+    enabled: true,
+    kind: "raw",
+    as_of: 1787230128775,
+    radius_km: 25,
+    fires_checked: 24286,
+    facilities_with_fires: 2,
+    facilities: [
+      { id: "port_houston", name: "Port of Houston (Barbours Cut)", lat: 29.677, lon: -95.006, category: "port", operator: "Port Houston", fires_within: 3, nearest_km: 7.3, max_frp: 20.01 },
+      { id: "port_seattle", name: "Port of Seattle", lat: 47.582, lon: -122.3474, category: "port", operator: "NWSA", fires_within: 2, nearest_km: 1.6, max_frp: null },
+    ],
+    note: "RAW cross-tie: strategic assets with active VIIRS 375m fire detections nearby (NRT ~3h). No predictive claim — the fires-near-assets → insurer/utility hypothesis is validation-gated. Not for safety-of-life use. (fixture)",
+    source: "NASA FIRMS/LANCE (VIIRS_SNPP_NRT) × datacore/sites strategic facilities",
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
   "/api/data/appstore-rankings": {

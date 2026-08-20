@@ -36,6 +36,7 @@ import AtsSummaryView from "./atsSummary";
 import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
 import DroughtMonitorView from "./droughtMonitor";
+import FiresNearFacilitiesView from "./firesNearFacilities";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
@@ -2769,6 +2770,11 @@ export default function DataMapPage() {
   // sidebar; server/droughtMonitor.ts shipped API-only v1.0.118, BUILD
   // ORDER 2 #5, no client view until now).
   const [droughtOpen, setDroughtOpen] = useState(() => window.location.hash === "#/data/drought");
+  // Facilities-near-active-fires cross-tie view (#/data/fires-near-facilities)
+  // — same overlay pattern (RAW gate-0 cross-tie, not a spatial layer of its
+  // own; server/firesFacilities.ts shipped API-only, worldview-globe Pillar
+  // 6, no client view until now).
+  const [firesFacilitiesOpen, setFiresFacilitiesOpen] = useState(() => window.location.hash === "#/data/fires-near-facilities");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
@@ -3183,6 +3189,7 @@ export default function DataMapPage() {
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
       setDroughtOpen(window.location.hash === "#/data/drought");
+      setFiresFacilitiesOpen(window.location.hash === "#/data/fires-near-facilities");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
@@ -13183,6 +13190,9 @@ export default function DataMapPage() {
       {droughtOpen && (
         <DroughtMonitorView onBack={() => { window.location.hash = "#/data"; setDroughtOpen(false); }} />
       )}
+      {firesFacilitiesOpen && (
+        <FiresNearFacilitiesView onBack={() => { window.location.hash = "#/data"; setFiresFacilitiesOpen(false); }} />
+      )}
       {appStoreOpen && (
         <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
       )}
@@ -13709,6 +13719,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/drought"; setDroughtOpen(true); }}>
               <Droplet size={13} /> Drought severity — U.S. Drought Monitor
               <span className="vt-streams-launch-sub">weekly D0-D4 coverage, CONUS + 8 ag/water states · RAW</span>
+            </button>
+            {/* Facilities-near-fires launcher (2026-08-20): a derived
+                cross-tie over the existing fires feed + strategic-sites
+                archive, not a spatial layer of its own, so it launches from
+                the panel top like drought immediately above. */}
+            <button type="button" className="vt-streams-launch" data-vt-firesfacilities-launch
+                    onClick={() => { window.location.hash = "#/data/fires-near-facilities"; setFiresFacilitiesOpen(true); }}>
+              <Flame size={13} /> Facilities near active fires
+              <span className="vt-streams-launch-sub">strategic assets × NASA FIRMS, live radius join · RAW</span>
             </button>
             {/* App Store rankings launcher (2026-08-05): a 16-ticker
                 consumer-app watchlist, not a spatial layer, so it launches
