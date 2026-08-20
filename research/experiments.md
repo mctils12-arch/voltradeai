@@ -3,6 +3,197 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — US port imports (/api/data/imports) gets its /data client view, closing the last shipped-data-no-UI gap; the feed ships its own national total, which makes every render a free integrity check (v1.0.754)
+
+TERRITORY: T-CLIENT primary (`client/src/pages/portImports.tsx` new,
+`client/src/lib/portImports.ts` + `.test.ts` new, `client/src/lib/units.ts` +
+`.test.ts`, `client/src/pages/datamap.tsx` wiring, `scripts/visual_check.mjs`
+page + fixture) + two comment-only T-DATACORE corrections
+(`server/censusImports.ts` docstring, `datacore/manifests/censusimports.json`
+confidence_model) + SHARED-but-minimal (`package.json`/`package-lock.json`
+bump last, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/`
+(experiments.md head, open_questions.md KNOWN BROKEN, wishlist.md head,
+PROGRAM_STATE.md NEXT). Live `/api/health` on production: `status:"ok"`,
+`bot.status:"active"`, `liveness.dark:false`, alpaca `ACTIVE`, all feeds
+`dead:false` — no LIVENESS ALARM, no repair blocker. Thrash ratio over the
+last 10 tagged entries: 4 [REPAIR], under the 7 threshold, normal work
+proceeds. AUDITS & DEBT register: STALENESS due 2026-09-14, CONSTITUTIONAL
+due 2026-09-15, CALENDAR YEAR-ADD due 2026-12-01 — nothing overdue.
+
+PRIMARY-ACTION SELECTION: took the immediately-prior session's own NEXT note
+(SESSION BUDGET rule 1) — `imports` was one of its two remaining named
+shipped-data-no-UI gaps, and the more tractable of the pair (`facility-events`
+still needs a CAMEO root-code decode table). Verified live before choosing
+rather than trusting the note: production `/api/data/imports` returns 1,059
+rows, not an `awaiting_key` stub. This closes the class entirely — as of this
+session no `/api/data/*` route with a populated payload lacks a client view.
+
+READ BEFORE WRITE: read `server/routes.ts:2432-2452` (the route handler) and
+`server/censusImports.ts` end-to-end (the `ImportObs` interface,
+`QUERY_VARIANTS`, `parseImports`'s header-driven decode) before writing any
+client code, then `airQuality.tsx`/`bankFailures.tsx` for the established
+4-point datamap wiring and table idiom. Confirmed `Ship` was already imported
+in datamap.tsx and that `client/src/lib/units.ts` had NO mass formatter —
+neither assumed.
+
+THREE TRAPS FOUND IN THE LIVE PAYLOAD, none of them guessable from the schema,
+all closed in a tested lib module rather than in JSX (the `aqIndex.ts`
+precedent):
+1. **Census ships its own national aggregate as a row** — port code `"-"`,
+   name `TOTAL FOR ALL PORTS`, $317.4B for 2026-06. Left in a leaderboard it
+   outranks the largest real port (Chicago, $29.9B) by ~11x; summed with the
+   rest it double-counts the entire country. `splitNational()` removes it by
+   code and hands it back separately, so the page can show it as the national
+   line it is.
+2. **A month-over-month delta is undefined far more often than expected.**
+   49 of 357 June ports have no computable change — and only 4 of those are
+   the obvious case (no prior-month row). The other 45 reported a genuine $0
+   in May, where a rise has no finite percentage. Both render "—"; neither is
+   ever shown as 0% or an infinity.
+3. **`0` and `null` mean different things in the containerized columns** and
+   must never render alike: 768 of 1,059 live rows publish a real 0 (inland,
+   air and land-border ports move no containerized vessel cargo — Laredo TX
+   is $24.2B of imports at exactly $0 containerized), while null means the
+   active query variant returned no such column at all
+   (`censusImports.ts` QUERY_VARIANTS). The page states the distinction in
+   words next to the table.
+
+THE PAYOFF, AND THE BEST THING ON THIS PAGE: because the per-port rows are a
+complete partition of the aggregate, summing them is a **free integrity check
+on every render** — the same "the source ships its own checksum, so use it"
+discipline as `secFtd.ts`'s trailer lines. Verified on the real payload before
+building it in: the 357/353/346 per-port rows sum to Census's published
+all-ports total **exactly** (diff 0, ratio 1.000000) in all three served
+months. The page recomputes that from the rows the reader is looking at and
+prints the result — including a mismatch, if one ever appears, rather than
+suppressing it. This is PREMIUM EXPERIENCE STANDARD (c) in its strongest form:
+not a provenance label asserting correctness, but a check the reader watches
+pass.
+
+UNITS (standing directive 2026-07-13): the containerized-weight column is a
+mass in kilograms, and `client/src/lib/units.ts` had no mass formatter — the
+file's own contract line covered "distance/speed/temperature/length" only. Per
+the directive's "always transfer this info or feature when adding new data
+sources", added `fmtKilograms()` (metric tonnes vs. **US short tons**, spelled
+out because the two differ by ~10% and a bare "tons" would be genuinely
+ambiguous) and widened the contract comment to name mass. Scaling is done in
+the function rather than via `Intl.NumberFormat`'s compact notation so the
+output is byte-stable across ICU versions — a test asserting "18.2M t" must
+not depend on the runtime's CLDR data. Storage stays in the source's
+kilograms; only display converts, and the exact kilogram figure is in every
+cell's tooltip. USD is NOT unit-switched (currency is not a measurement
+system), same call as hPa/knots/MW elsewhere.
+
+DELIBERATELY NOT COLOURED: the month-over-month column carries its sign and no
+green/red. A rise in imports is not "good" and a fall is not "bad" — painting
+it would assert a directional read this page has no validated basis for, and
+the drought page's red/green is justified precisely because more drought IS
+worse. Noted in the source so a future session doesn't "fix" it.
+
+NOT A MAP LAYER, and the reason is in the data: the feed carries Schedule D
+port codes and no coordinates, so there is nothing to place honestly. It
+launches from the panel-top list like air-quality/drought, and takes no
+`datacore/layers.json` entry. (A coordinate table is possible future work —
+`cbpBorderCrossings.ts` already resolves 84 land-border Schedule D codes — but
+it would cover well under a third of the 358 ports here, so a map built on it
+today would show a misleading subset. Filed as a NEXT note, not attempted.)
+
+TWO STALE-DOC CORRECTIONS made while verifying, both comment-only: both
+`server/censusImports.ts`'s docstring and `datacore/manifests/
+censusimports.json`'s `confidence_model` still said "LIVE VERIFICATION
+PENDING first deploy with the key" — 46 days after the feed started serving.
+Corrected with what was actually measured (1,059 rows, `QUERY_VARIANTS[0]`
+answering so no column is missing, and the exact-partition property a
+consumer needs to know about). Same class of debt the 2026-08-16 session was
+burned by, caught here before it misled anyone.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged — none of the 12 in touched files. `bash
+scripts/gated_tests.sh` GATE PASSED — server 1301/1301, client **1048/1048
+across 99 files** (up from 1028/98), python 1403 passed/1 skipped, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: OK, 25 counters at or
+better than baseline; the three that report IMPROVED (`tests_run_in_ci`/
+`tests_gating_merge` 381, `assertions` 11696 vs pins of 378/378/11562) carry
+the same pre-existing foreign drift the last two sessions measured and
+deliberately left un-re-pinned — pinning here would lock other sessions' gains
+into this PR and blur attribution. `npm run build` clean (pre-existing
+large-chunk notice only).
+
+A/B DISCIPLINE — every new guard was verified to actually bite, by breaking it
+on a scratch copy and re-running: (a) delta defaulting to 0 instead of null →
+3 of 16 tests fail; (b) the national row left in the port list → 2 fail;
+(c) nulls sorting as zero → **0 fail, the test suite missed it**. That third
+result was the useful one: with only non-negative fixtures, null-as-zero and
+nulls-last produce identical orderings. Added a test on the one signed column
+(a port down 50% must outrank a port whose change is unknown) — that case
+fails on the broken version and passes on the real one. Worth remembering:
+a nulls-last sort test is vacuous unless the fixture contains a negative.
+
+LIVE END-TO-END, not just fixtures: ran the lib against the real 1,059-row
+production payload before shipping. 1,056 port rows + 3 national rows,
+reconciliation exact in all 3 months, 49 null deltas decomposing exactly into
+4 missing-prior + 45 zero-prior, exactly 1 unnamed port (code 1791) rendering
+as "unnamed in source" rather than an invented name.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page portimports`
+at 390/768/1440 — **0 hard failures**, screenshots reviewed rather than
+counted. Caught and fixed in that review: the three native `<select>`/`<input>`
+controls inherited the page font and colour from index.css but kept the UA's
+own background, reading off-theme against the dark surface — themed with the
+existing `--surface-2`/`--border` tokens inline rather than by adding global
+CSS for three controls. Only warnings are the pre-existing global-chrome
+touch-target/clipped-control class present on every page in this harness, plus
+the standard headless software-renderer notice.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure data-surface/UI feature; no scoring,
+sizing, or trading-threshold code touched.
+
+CROSS-SYSTEM INTEGRATION (stated honestly, not inflated): no new archive and
+no new entity-graph join this session. The real tie is named on the page and
+stays gate-locked — import flow at a port vs. our own port-dwell friction
+readings for the same port is the two-sided view `censusImports.ts` has
+carried as its hypothesis since 2026-07-05, and it remains untested: note that
+`port_dwell_maritime_transit` is still `gate1_pending` in
+`datacore/signal_ladder.json`, and its July-2026 GATE 1 comparison was found
+structurally impossible by the 2026-08-19 session — a finding filed in PR
+#877, which has never merged (one of the stranded zero-CI-run PRs), so it is
+NOT in `main`'s open_questions.md today. The join's other side is therefore
+not validated either. Nothing on this page asserts the hypothesis.
+
+MARKET-HOURS NOTE: this run fired at ~14:12 ET, during market hours. The diff
+touches `client/src/`, `scripts/visual_check.mjs`, two comment-only
+server/datacore doc blocks, `package.json` and `research/*` — no server route,
+no trading path — so it is not a critical live fix and the PR asks for merge
+after 16:00 ET.
+
+NEXT (queued, not this session): (1) `facility-events` (GDELT, 61 live events)
+is now the LAST shipped-data-no-UI gap, and needs a CAMEO root-code decode
+table before it can be surfaced honestly. (2) `datacore/signal_ladder.json`
+carries no `census_port_imports` root at all — several RAW roots are likewise
+absent, so a bookkeeping pass adding the missing raw_only entries would make
+the ladder page's coverage honest; deliberately not bundled here. (3) A
+Schedule D port-coordinate table would turn this feed into a real map layer;
+`cbpBorderCrossings.ts` covers 84 land-border codes today, well short of the
+358 ports served, so it needs its own researched build rather than a
+misleading partial. (4) Still open, unchanged: no periodic sweep exists for
+non-200 `/api/data/*` responses, and the stranded zero-CI-run PRODUCT PRs
+(#707, #794) still need GitHub-side diagnosis no session can perform from
+here.
+
+Version bumped 1.0.753 -> 1.0.754 (PROMOTION RULE 4); re-fetched `origin/main`
+immediately before bumping and confirmed the branch was exactly at
+`origin/main` with zero drift at bump time.
+
+STARVED: no — this was the queue's own most concretely specified unclaimed
+PRODUCT item, matched to session capacity, shipped with tests/gates/visual
+harness green and the honest caveats given the same prominence as the
+headline numbers. No higher-priority queued item was skipped (no LIVENESS
+ALARM; thrash ratio 4/10; neither audit due; product sessions do not preempt
+the DAILY routines' repair duty per this routine's own instruction).
+
 ## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — air quality at strategic sites gets its /data client view; the two AQI scales in the payload run in OPPOSITE directions, so the colour decode is a tested lib module rather than a ramp of ours (v1.0.753)
 
 TERRITORY: T-CLIENT (`client/src/pages/airQuality.tsx` new,

@@ -6,7 +6,7 @@
 //
 // CONTRACT for new data sources/layers: store and compute in the source's
 // native units (usually SI — never convert archived data), and render ANY
-// distance/speed/temperature/length through these formatters. Direct
+// distance/speed/temperature/length/mass through these formatters. Direct
 // `${x} km`-style display strings in new code are a review defect.
 //
 // Deliberately NOT unit-switched (domain conventions, same in both systems):
@@ -56,6 +56,7 @@ export function subscribeUnits(fn: () => void): () => void {
 // ── conversions (exact factors) ──────────────────────────────────────────────
 const KM_PER_MI = 1.609344;
 const M_PER_FT = 0.3048;
+const KG_PER_SHORT_TON = 907.18474;
 
 // ── formatters ───────────────────────────────────────────────────────────────
 // All take the value in the source's native METRIC unit and return a display
@@ -101,6 +102,29 @@ export function fmtKmh(kmh: number | null | undefined, system: UnitSystem = curr
   return system === "imperial"
     ? `${(Number(kmh) / KM_PER_MI).toFixed(0)} mph`
     : `${Number(kmh).toFixed(0)} km/h`;
+}
+
+/** Mass in kilograms → "18.2M t" | "20.0M short tons".
+ *
+ *  Compact, because cargo masses span kilograms to teragrams in one column and
+ *  "18,173,621,123" is unreadable next to "22,349,471" — callers put the exact
+ *  figure in a title/tooltip. The K/M/B/T scaling is done here rather than with
+ *  `Intl.NumberFormat`'s compact notation so the output is byte-stable across
+ *  ICU versions (a test asserting "18.2M t" must not depend on the runtime's
+ *  CLDR data). "short tons" is spelled out: a US ton and a metric tonne differ
+ *  by ~10%, so a bare "tons" would be genuinely ambiguous. */
+export function fmtKilograms(kg: number | null | undefined, system: UnitSystem = current): string {
+  if (bad(kg)) return "no data";
+  const v = system === "imperial" ? Number(kg) / KG_PER_SHORT_TON : Number(kg) / 1000;
+  const unit = system === "imperial" ? "short tons" : "t";
+  const a = Math.abs(v);
+  const scaled =
+    a >= 1e12 ? `${(v / 1e12).toFixed(1)}T`
+    : a >= 1e9 ? `${(v / 1e9).toFixed(1)}B`
+    : a >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
+    : a >= 1e3 ? `${(v / 1e3).toFixed(1)}K`
+    : v.toFixed(a > 0 && a < 1 ? 2 : 0);
+  return `${scaled} ${unit}`;
 }
 
 /** Split a formatter's OUTPUT into { num, unit } for stat-chip layouts where

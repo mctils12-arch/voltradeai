@@ -38,6 +38,7 @@ import CropConditionsView from "./cropConditions";
 import DroughtMonitorView from "./droughtMonitor";
 import FiresNearFacilitiesView from "./firesNearFacilities";
 import AirQualityView from "./airQuality";
+import PortImportsView from "./portImports";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
@@ -2780,6 +2781,11 @@ export default function DataMapPage() {
   // pattern (RAW per-site readings, not a spatial layer of its own;
   // server/airQuality.ts shipped API-only, no client view until now).
   const [airQualityOpen, setAirQualityOpen] = useState(() => window.location.hash === "#/data/air-quality");
+  // US port imports (#/data/imports) — same overlay pattern (RAW monthly
+  // Census FT920 port-level values, not a spatial layer: the feed carries no
+  // coordinates, only Schedule D port codes; server/censusImports.ts shipped
+  // API-only 2026-07-05, no client view until now).
+  const [portImportsOpen, setPortImportsOpen] = useState(() => window.location.hash === "#/data/imports");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
@@ -3196,6 +3202,7 @@ export default function DataMapPage() {
       setDroughtOpen(window.location.hash === "#/data/drought");
       setFiresFacilitiesOpen(window.location.hash === "#/data/fires-near-facilities");
       setAirQualityOpen(window.location.hash === "#/data/air-quality");
+      setPortImportsOpen(window.location.hash === "#/data/imports");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
@@ -13202,6 +13209,9 @@ export default function DataMapPage() {
       {airQualityOpen && (
         <AirQualityView onBack={() => { window.location.hash = "#/data"; setAirQualityOpen(false); }} />
       )}
+      {portImportsOpen && (
+        <PortImportsView onBack={() => { window.location.hash = "#/data"; setPortImportsOpen(false); }} />
+      )}
       {appStoreOpen && (
         <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
       )}
@@ -13746,6 +13756,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/air-quality"; setAirQualityOpen(true); }}>
               <Wind size={13} /> Air quality at strategic sites
               <span className="vt-streams-launch-sub">Universal + US EPA AQI, PM2.5/NO2, 16 sites · RAW</span>
+            </button>
+            {/* US port imports launcher (2026-08-20): monthly Census FT920
+                port-level values; the feed carries port codes, not
+                coordinates, so it launches from the panel top like
+                air-quality immediately above rather than as a map layer. */}
+            <button type="button" className="vt-streams-launch" data-vt-portimports-launch
+                    onClick={() => { window.location.hash = "#/data/imports"; setPortImportsOpen(true); }}>
+              <Ship size={13} /> US port imports — monthly
+              <span className="vt-streams-launch-sub">general &amp; containerized value by port of entry, US Census FT920 · RAW</span>
             </button>
             {/* App Store rankings launcher (2026-08-05): a 16-ticker
                 consumer-app watchlist, not a spatial layer, so it launches

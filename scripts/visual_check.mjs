@@ -126,6 +126,9 @@ const PAGES = {
   // Air quality at strategic sites — Google Air Quality current conditions
   // (2026-08-20) — same Phase 5 ratchet rule as firesnearfacilities above.
   airquality: { route: "/app#/data/air-quality", map: false },
+  // US port imports — Census FT920 monthly port-level values (2026-08-20) —
+  // same Phase 5 ratchet rule as airquality above.
+  portimports: { route: "/app#/data/imports", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -595,6 +598,32 @@ const FIXTURES = {
       },
     ],
     issues: {},
+  },
+  // US port imports — Census FT920 (2026-08-20, RAW display). Shaped to
+  // exercise every case that can misrender, using live 2026-08-20 values: the
+  // national aggregate row (port code "-", which must NOT appear in the port
+  // table), a seaport with real containerized figures, a land-border port
+  // publishing a genuine 0 for containerized cargo, a port present only in the
+  // newest month (undefined month-over-month change), and a port Census
+  // publishes no name for. The per-port rows sum EXACTLY to the aggregate in
+  // both months, so the page's live reconciliation line renders its pass state.
+  "/api/data/imports": {
+    kind: "raw",
+    source: "US Census Bureau intltrade (imports/porths, FT920 monthly) — public domain (fixture)",
+    attribution: "U.S. Census Bureau (USA Trade Online / FT920)",
+    time: 1787232272476,
+    count: 8,
+    note: "monthly port-level import values incl. containerized (~45-day lag); revisions append as new vintages in the archive (fixture)",
+    imports: [
+      { port: "-", port_name: "TOTAL FOR ALL PORTS", month: "2026-06", gen_val: 47466425097, cnt_val: 21049766472, cnt_wgt: 3940035515, rt: "2026-08-20" },
+      { port: "-", port_name: "TOTAL FOR ALL PORTS", month: "2026-05", gen_val: 44883911953, cnt_val: 19026611264, cnt_wgt: 3665704530, rt: "2026-08-20" },
+      { port: "2704", port_name: "LOS ANGELES, CA", month: "2026-06", gen_val: 22917449056, cnt_val: 21049766472, cnt_wgt: 3940035515, rt: "2026-08-20" },
+      { port: "2704", port_name: "LOS ANGELES, CA", month: "2026-05", gen_val: 20595308379, cnt_val: 19026611264, cnt_wgt: 3665704530, rt: "2026-08-20" },
+      { port: "2304", port_name: "LAREDO, TX", month: "2026-06", gen_val: 24201376152, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
+      { port: "2304", port_name: "LAREDO, TX", month: "2026-05", gen_val: 24288603574, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
+      { port: "3013", port_name: "GREAT FALLS, MT", month: "2026-06", gen_val: 270289178, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
+      { port: "1791", port_name: null, month: "2026-06", gen_val: 77310711, cnt_val: 0, cnt_wgt: 0, rt: "2026-08-20" },
+    ],
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
   "/api/data/appstore-rankings": {

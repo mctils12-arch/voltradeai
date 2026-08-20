@@ -13,7 +13,7 @@
   "cnt_val/cnt_wgt": "containerized value USD / vessel weight kg — the TEU-flow proxy; null when the active query variant lacks them, never zero",
   "rt": "as-seen UTC date"
  },
- "confidence_model": "RAW official monthly trade statistics. QUERY-SHAPE HONESTY: the porths parameter set was not live-verifiable at build (key absent from the build session's container); the fetch tries documented variants in order, parses header-driven, and logs Census's readable error bodies so a wrong shape is fixed from prod logs. LIVE VERIFICATION PENDING first deploy with the key.",
+ "confidence_model": "RAW official monthly trade statistics. QUERY-SHAPE HONESTY: the porths parameter set was not live-verifiable at build (key absent from the build session's container); the fetch tries documented variants in order, parses header-driven, and logs Census's readable error bodies so a wrong shape is fixed from prod logs. LIVE-VERIFIED 2026-08-20 (was 'PENDING first deploy with the key' for 46 days): production /api/data/imports serves 1,059 rows — QUERY_VARIANTS[0] (the full GEN_VAL_MO/CNT_VAL_MO/CNT_WGT_MO set) is the one answering, so no column is missing. INTEGRITY CHECK, computed not assumed: the per-port rows are a complete partition of Census's own published all-ports total (port code '-') — they sum to it EXACTLY (ratio 1.000000) in all three served months, so the client view recomputes and displays that reconciliation on every render rather than trusting it.",
  "geo_fields": [
   "(port code -> port; strategic-site join via port name is Everything Graph work)"
  ],

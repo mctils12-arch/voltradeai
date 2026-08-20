@@ -18,8 +18,16 @@
  * fixed at start). The fetch therefore (a) tries documented variants in
  * order, (b) parses HEADER-DRIVEN (never positional), and (c) logs the
  * Census error body verbatim on failure so the next session fixes the
- * query from prod logs instead of guessing. LIVE VERIFICATION PENDING —
- * the first DAILY session after deploy checks /api/data/imports.
+ * query from prod logs instead of guessing.
+ *
+ * LIVE-VERIFIED 2026-08-20 (this line said "PENDING" for 46 days): prod
+ * /api/data/imports serves 1,059 rows over 3 months from QUERY_VARIANTS[0]
+ * — the full column set, so no variant fallback is in play. Two shapes a
+ * consumer must know about, both found in that payload and both handled in
+ * client/src/lib/portImports.ts: Census ships its own national aggregate as
+ * a row under port code "-" (excluding it is the caller's job), and the
+ * per-port rows sum to that aggregate exactly, which makes it a free
+ * integrity check on every read.
  *
  * Monthly source (~45d lag, FT920 schedule); daily poll is a cheap no-op
  * between releases (dedup by port|month).
