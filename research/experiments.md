@@ -3,6 +3,131 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — facilities-near-active-fires gets its /data client view, closing one of the 4 named shipped-data-no-UI gaps (v1.0.752)
+
+TERRITORY: T-CLIENT (`client/src/pages/firesNearFacilities.tsx` new,
+`client/src/pages/datamap.tsx` wiring, `scripts/visual_check.mjs` fixture) +
+SHARED-but-minimal (`package.json`/`package-lock.json` version bump last,
+this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/` (PROGRAM_STATE.md,
+experiments.md head, open_questions.md KNOWN BROKEN, wishlist.md head,
+data_census.md, platform_program.md). Live `/api/health` (production):
+`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`, `drawdownPct:"0.0"`,
+alpaca `ACTIVE`, scanner `consecutiveFailures:0`, all 3 feeds `dead:false` — no
+LIVENESS ALARM, no repair blocker. AUDITS & DEBT register: STALENESS due
+2026-09-14, CONSTITUTIONAL due 2026-09-15, CALENDAR YEAR-ADD due 2026-12-01 —
+nothing overdue. KNOWN BROKEN: #1-#30 all RESOLVED/FIXED/CLOSED except #20
+(RULE-REVIEW-gated design judgment, non-blocking).
+
+PRIMARY-ACTION SELECTION: checked the two immediately-prior sessions' own
+NEXT notes first (SESSION BUDGET rule 1 — take the queue's own stated item
+before researching a new one). Two candidates surfaced: (a) `research/
+PROGRAM_STATE.md`'s MASTER PROGRAM queue (Q7/Q8/Q9/Q11, unclaimed since
+2026-08-15) — a T-CLIENT test/tsc-hygiene track, not itself a customer-facing
+product feature; (b) the immediately-prior session's own explicit NEXT note
+(this file, 2026-08-20 drought session): "4 remaining shipped-data-no-UI
+gaps — air-quality, facility-events, fires-near-facilities, imports — all
+reconfirmed live this session, still open for a future PRODUCT session."
+(b) is squarely this routine's own option (b) (build product UI/UX for
+already-shipped data) and the queue's own most concretely specified
+unclaimed PRODUCT item, so it took priority over (a).
+
+Also checked, before committing: two open stranded PRODUCT PRs from
+2026-08-06/12 (#707 macro UI, #794 submarine cables) that a same-day earlier
+session (this file, "stale-PR backlog" entry) found have ZERO CI check runs
+against their head commit — root cause unestablished, needs GitHub webhook
+delivery logs this session cannot reach. Did NOT attempt to revive them:
+both the empty-commit and close/reopen tricks that might force a fresh
+`pull_request` webhook are explicitly forbidden (kicking CI this way is
+banned), and reviving another session's stranded branch isn't this session's
+assigned territory or mandate. Left as filed in wishlist.md.
+
+READ BEFORE WRITE: delegated the "which of the 4 gaps is easiest/lowest-risk"
+survey to a subagent (grep-only, no writes) rather than guessing; it
+confirmed all 4 routes are live server-side with zero client references
+(`grep -rn` in `client/src` returns nothing for any of the 4) and ranked
+`fires-near-facilities`/`facility-events` lowest-risk (closest precedent to
+the just-shipped `droughtMonitor.tsx`/`midas.tsx` pattern, no schema work
+needed). Picked `fires-near-facilities`: read `server/routes.ts:1502-1526`
+(the route handler) and `server/firesFacilities.ts` (the pure join function
++ its `FacilityFireHit` return shape) directly before writing any client
+code, then read `droughtMonitor.tsx` and `midas.tsx` end-to-end for the
+established wiring recipe (4-point datamap.tsx integration: state hook +
+hashchange listener + render block + panel-top launcher button) and CSS
+class reuse (`.vt-filings-*`, zero new styles). Verified live on production
+(`curl .../api/data/fires-near-facilities`) that the feed is genuinely
+active (`NASA_FIRMS_MAP_KEY` is set in prod — 24,286 detections checked,
+7 facilities matched within the default 25km radius at check time), not an
+`awaiting_key` stub.
+
+WHAT SHIPPED: `client/src/pages/firesNearFacilities.tsx` (new) — RAW
+cross-tie display only, framed explicitly as gate-0 observation (no
+predictive claim; the fires-near-assets → insurer/utility-returns
+hypothesis stays filed and gated in open_questions.md, same disclosure
+language the server route's own code comment already uses). Handles all
+three server states honestly: `awaiting_key` (feed inactive, no fabricated
+data), `warming_up` (first poll in progress), and the populated table
+(facility, category, operator, fires-within-radius, nearest distance,
+max FRP — sorted by proximity, matching `firesNearFacilities()`'s own
+sort). `datamap.tsx` wiring: state hook, hashchange listener, render block,
+and a panel-top launcher (`#/data/fires-near-facilities`) placed directly
+after the drought launcher, matching the established page-wide-dashboard
+pattern (not a spatial map layer — this is a derived join, not its own
+`datacore/layers.json` registry entry, matching the drought/grid-stress/
+crop-conditions precedent rather than the ats_summary/midas one, which is
+inconsistent in the existing codebase and not required either way).
+
+GATES: `npm ci` (fresh sandbox, no prior `node_modules`) then `npx tsc
+--noEmit` — 12 errors, byte-identical to `ci/tsc_baseline.txt`'s pinned set
+(TS2304 = 0), none in touched files. `npm run build` — clean. `npx tsx
+--test server/*.test.ts client/src/pages/*.test.ts` — 1317/1317 pass, 0
+regressions (no server code touched, so no new server test was needed).
+`node scripts/visual_check.mjs --page firesnearfacilities` — 0 hard
+failures at 390/768/1440; screenshots self-reviewed (table renders cleanly
+desktop, stacks to card rows mobile per the shared `.vt-filings-table`
+responsive CSS — verified visually, not just by width). Only warnings are
+the pre-existing global-chrome touch-target/clipped-control class present
+on every page in this harness, unrelated to this diff (same as every
+recent session's write-up). `bash scripts/counter_ratchet.sh` — 3 counters
+(`tests_run_in_ci`/`tests_gating_merge`/`assertions`) show as IMPROVED
+(378→379/378→379/11562→11608); verified via `git stash` that this drift is
+present on unmodified `origin/main` too (this session added no test file,
+so it cannot be this diff's effect) — left un-re-pinned per PROMOTION RULE 5,
+same precedent as every prior session's identical finding for these two
+specific counters. All other 22 counters unchanged. No `.py` file touched,
+so `pytest` was not re-run, matching this repo's own established
+Python-only/client-only asymmetric-skip precedent.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure data-surface/UI feature, no
+scoring/sizing/trading-threshold code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this surfaces an already-built
+backend cross-tie (worldview-globe Pillar 6, `server/firesFacilities.ts`),
+it does not add a new archive or entity-graph join.
+
+MARKET-HOURS NOTE: diff touches only `client/src/`, `scripts/
+visual_check.mjs`, `package.json`/`package-lock.json`, `research/*` — no
+server route, no trading path. Per the standing PROCESS GAP entry in
+wishlist.md, this PR still notes a preference for an after-hours merge
+where wall-clock allows, though the risk here is minimal regardless.
+
+NEXT (queued, not this session): the remaining 3 shipped-data-no-UI gaps —
+air-quality, facility-events, imports — same recipe, ready for the next
+PRODUCT session. Also still open: session (7)'s broader finding that no
+periodic sweep exists for non-200 `/api/data/*` responses (REPAIR-flavored
+follow-up), and the two stranded zero-CI-run PRODUCT PRs (#707, #794) noted
+above, both still needing GitHub-side diagnosis this session cannot perform.
+
+Version bumped 1.0.751 -> 1.0.752 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD contained
+`origin/main` with no drift at bump time.
+
+STARVED: no — this was the queue's own most concretely specified unclaimed
+PRODUCT item, matched to session capacity, shipped with tests/gates/visual
+harness all green. No higher-priority queued item was skipped (no LIVENESS
+ALARM; thrash ratio well under threshold; both audits not yet due).
+
 ## 2026-08-20 (scheduled-routine PRODUCT session, continuation of the 2026-08-17 14:27 ET session) [NO-ACTION] — PR #867 (NHTSA vehicle complaints /data view) closed as a duplicate of the already-merged #869; correcting the stale-PR-backlog session's "no further action needed" call on this PR
 
 TERRITORY: none — this is process/PR-hygiene resolution, not a code
