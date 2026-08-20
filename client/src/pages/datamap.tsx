@@ -37,6 +37,7 @@ import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
 import DroughtMonitorView from "./droughtMonitor";
 import FiresNearFacilitiesView from "./firesNearFacilities";
+import AirQualityView from "./airQuality";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
@@ -2775,6 +2776,10 @@ export default function DataMapPage() {
   // own; server/firesFacilities.ts shipped API-only, worldview-globe Pillar
   // 6, no client view until now).
   const [firesFacilitiesOpen, setFiresFacilitiesOpen] = useState(() => window.location.hash === "#/data/fires-near-facilities");
+  // Air quality at strategic sites (#/data/air-quality) — same overlay
+  // pattern (RAW per-site readings, not a spatial layer of its own;
+  // server/airQuality.ts shipped API-only, no client view until now).
+  const [airQualityOpen, setAirQualityOpen] = useState(() => window.location.hash === "#/data/air-quality");
   const [appStoreOpen, setAppStoreOpen] = useState(() => window.location.hash === "#/data/appstore-rankings");
   const [githubActivityOpen, setGithubActivityOpen] = useState(() => window.location.hash === "#/data/github-activity");
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
@@ -3190,6 +3195,7 @@ export default function DataMapPage() {
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
       setDroughtOpen(window.location.hash === "#/data/drought");
       setFiresFacilitiesOpen(window.location.hash === "#/data/fires-near-facilities");
+      setAirQualityOpen(window.location.hash === "#/data/air-quality");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
@@ -13193,6 +13199,9 @@ export default function DataMapPage() {
       {firesFacilitiesOpen && (
         <FiresNearFacilitiesView onBack={() => { window.location.hash = "#/data"; setFiresFacilitiesOpen(false); }} />
       )}
+      {airQualityOpen && (
+        <AirQualityView onBack={() => { window.location.hash = "#/data"; setAirQualityOpen(false); }} />
+      )}
       {appStoreOpen && (
         <AppStoreRankingsView onBack={() => { window.location.hash = "#/data"; setAppStoreOpen(false); }} />
       )}
@@ -13728,6 +13737,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/fires-near-facilities"; setFiresFacilitiesOpen(true); }}>
               <Flame size={13} /> Facilities near active fires
               <span className="vt-streams-launch-sub">strategic assets × NASA FIRMS, live radius join · RAW</span>
+            </button>
+            {/* Air-quality launcher (2026-08-20): per-site current-conditions
+                readings over the strategic-sites archive, not a spatial layer
+                of its own, so it launches from the panel top like
+                fires-near-facilities immediately above. */}
+            <button type="button" className="vt-streams-launch" data-vt-airquality-launch
+                    onClick={() => { window.location.hash = "#/data/air-quality"; setAirQualityOpen(true); }}>
+              <Wind size={13} /> Air quality at strategic sites
+              <span className="vt-streams-launch-sub">Universal + US EPA AQI, PM2.5/NO2, 16 sites · RAW</span>
             </button>
             {/* App Store rankings launcher (2026-08-05): a 16-ticker
                 consumer-app watchlist, not a spatial layer, so it launches
