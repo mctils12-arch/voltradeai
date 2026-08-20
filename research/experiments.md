@@ -3,6 +3,233 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine session #2) [PIPELINE] — axis (d), EDGE DOCTRINE #3 — `scripts/research_state_check.py` compiles the manual "read KNOWN BROKEN, compute the thrash ratio, check the audits register" session-start step into a script; dogfooding it found and closed one genuinely stale KNOWN BROKEN item (#4) (v1.0.751)
+
+TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — this session's primary
+touch is `scripts/` + `research/`, matching the WORKSTREAM PARTITION's
+SHARED-but-minimal category (research/*, resolved keep-both-sides/
+append-only; `package.json`/`package-lock.json` version bump last).
+
+SESSION-START CHECKS: CLAUDE.md read in full, EDGE DOCTRINE with special
+attention per this routine's own brief. Live `/api/health` (production):
+`status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+`drawdownPct:"0.0"`, alpaca `ACTIVE`, scanner `consecutiveFailures:0`,
+feeds aircraft/vessels/trains all `dead:false`, `silent_hours` ~0.6 —
+no LIVENESS ALARM. Also ran the existing `scripts/session_health_check.py`
+against production: all 7 checks OK, including `deploy_freshness`
+(server_version 1.0.750 matched this checkout's package.json before the
+bump below). KNOWN BROKEN walked by hand first (before this session's own
+tool existed to check it): #1-#30 all previously RESOLVED/FIXED/CLOSED
+except #20 (RULE-REVIEW-gated design judgment, correctly left open) and
+#29 (MEDIUM visibility-gap partial fix, non-blocking) — matches the
+2026-08-18 session's own last full walk, nothing regressed. NOT a
+[REPAIR] session (no LIVENESS ALARM, no unaddressed critical item).
+AUDITS & DEBT register (this file's own register block, read before this
+entry): STALENESS due 2026-09-14, CONSTITUTIONAL due 2026-09-15,
+CALENDAR YEAR-ADD due 2026-12-01 — nothing overdue. Loop-health ratio,
+last 10 tagged entries before this one: 2/10 [REPAIR] (6 [PRODUCT], 2
+[REPAIR], 1 [PIPELINE], 1 [RESEARCH]) — well under the 7+ thrash trigger.
+
+AXIS SURVEY (per this routine's own brief, all four considered): axis
+(a)'s named examples were re-checked and are, again, all already built
+or correctly declined — `datacore/sentinel2/`, `scripts/{sentinel2_
+tankfill,tankfill_estimator,tankfill_gate1}.py` (tank shadows),
+`sec_form4_bulk.py` + `server/edgarForm4.ts` (Form 4), `server/
+usaSpending.ts` + `scripts/usaspending_gate2.py` (USAspending), `cftc_
+cot.py` + `cot_gate2_test.py` (COT), `server/fdaEvents.ts` (FDA
+calendar), `scripts/gtrends_probe.py` (Google Trends — gate-1-failed,
+`datacore/signal_ladder.json` marks it `gate1_fail-dead`, superseded by
+`wikimedia_pageviews_attention`, matching the 2026-08-18 session's own
+finding). Checked two EDGE DOCTRINE #1 items NOT yet grepped by a prior
+session's axis survey — SAM.gov (zero hits anywhere in the repo; its
+free "Get Opportunities" API needs an api.sam.gov account registration
+this session has no standing authority to create on the human's behalf,
+so this stays a wishlist.md candidate rather than a same-session build)
+and USPTO patents (already referenced as an alt_data.py TODO, not
+explored further this session — out of scope for the primary action
+chosen). Axis (b) (illiquid-universe capacity-constrained research):
+still explicitly gated on the un-shipped options fill-realism fix per
+this routine's own instructions — skipped. Axis (c) (foreign-field
+import): the 2026-08-18 session already shipped one 2 days ago (critical
+slowing down) and it is still unrun against real data (see below) — a
+second import without being able to run the first is lower value than
+finishing what axis (d) below actually can finish today. **Chose axis
+(d)**, EDGE DOCTRINE #3 ("never analyze the same thing twice with
+reasoning — the second occurrence becomes a script"): grepped
+experiments.md/open_questions.md for the literal phrases "Loop-health
+ratio" and "Walked every numbered KNOWN BROKEN entry" and found this
+exact reasoning repeated near-verbatim across dozens of prior sessions'
+SESSION-START CHECKS paragraphs (this entry's own paragraph above is
+itself another instance) — a textbook second-occurrence-becomes-code
+case that, unlike `scripts/session_health_check.py` (live production
+state), nothing before this covered: the STATIC research/ bookkeeping
+(KNOWN BROKEN status, thrash ratio, audits register) a session currently
+reconstructs by opening two files totaling ~68,000 lines / ~1.4MB and
+reading by eye.
+
+ENVIRONMENT CONSTRAINT CHECKED FIRST (before committing to this axis):
+confirmed this sandbox has no `ALPACA_KEY`/`ALPACA_SECRET`
+(`env | grep -i alpaca` empty) and Yahoo Finance returns HTTP 429 on
+direct `curl` (two attempts) — the exact constraint the 2026-08-18
+session hit trying to run its own new critical-slowing-down probe
+against real data. General web access otherwise works fine (verified via
+`curl` to SEC/FRED/CFTC/Census — all reached, non-timeout HTTP codes).
+This ruled out "run the 2026-08-18 probe against real data now" as this
+session's action (still blocked, unchanged) and, combined with the axis
+survey above, is what pointed at axis (d) instead — a script-writing
+task needs no price-data network access at all.
+
+WHAT SHIPPED: `scripts/research_state_check.py` (new) — three pure,
+independently-testable checks, mirroring `session_health_check.py`'s own
+`finding()`/OK-WARN-ALARM/exit-code house style so both tools compose
+the same way in a future combined session-start command:
+1. `check_audits_overdue` — parses the `| Audit | Cadence | Last run |
+   Next due |` table from this file's own AUDITS & DEBT REGISTER section
+   (section-scoped via `extract_audits_register_section`, NOT a whole-file
+   table scan — see BUG FOUND below) and WARNs on any row whose `next_due`
+   has passed `date.today()`.
+2. `check_thrash_ratio` — `parse_session_tags` reads this file top-down
+   (append-only, NEWEST AT TOP, per this file's own header) collecting the
+   first 10 session headers' `[TAG]` markers, then classifies ALARM at/
+   above the 7+ REPAIR trigger (CLAUDE.md HEALTH OF THE LOOP ITSELF rule
+   2), matching this entry's own hand-computed "2/10" above exactly.
+3. `check_known_broken` — parses `research/open_questions.md`'s KNOWN
+   BROKEN section (section-scoped the same way) into numbered items,
+   attaching each item's later `**UPDATE**` paragraphs to the item they
+   amend (so a status change buried in an update, not the opening
+   bracket, is still seen), and flags any item with no explicit
+   RESOLVED/CLOSED/FIXED-with-a-root-cause marker ANYWHERE in its block
+   as advisory NEEDS-REVIEW — explicitly documented in the module
+   docstring as non-authoritative (a pointer to go read the block, never
+   a verdict), biased toward over-flagging rather than silently
+   misclassifying a still-open item as closed.
+
+TWO REAL BUGS FOUND AND FIXED WHILE BUILDING THIS (both caught by
+running the script against the real files before writing tests, not
+found in the abstract):
+(a) A first draft of `parse_audits_register` scanned the WHOLE 58,000-line
+    file for any 4-column pipe table and picked up an unrelated GRID
+    VISION GPU-training results table further down (`| held-out region |
+    baseline... | + strong aug (s) |`), reporting "6 audits tracked"
+    instead of 3. Fixed by adding `extract_audits_register_section`
+    (same section-scoping approach as the KNOWN BROKEN parser) before
+    parsing the table — regression pinned in
+    `test_parse_audits_register_ignores_unrelated_tables_elsewhere_in_file`.
+(b) The KNOWN BROKEN item regex originally required a `**[` bracket
+    immediately after the item number, silently DROPPING item #4 entirely
+    (its header is `4. **Human-reported: bot "doesn't work right"
+    overall.**` — bold text, no bracket at all) rather than flagging it.
+    Widened to `^(\d+)\.\s+\*\*(.*)$` (any bold-numbered line) —
+    regression pinned in
+    `test_parse_known_broken_items_finds_all_four_including_bracketless`.
+(c) Caught by the test suite itself, not manual inspection: an early
+    `classify_known_broken` using plain substring `in` matching
+    false-positived on the WORD "unresolved" (contains "resolved") in a
+    synthetic no-marker fixture — the exact same substring-trap class this
+    module's own docstring already warned about for "not fixed" containing
+    "fixed" (relevant to the real item #20, which says "not fixed" in its
+    own opening bracket and must never read as closed). Fixed by matching
+    each marker with a `\b`-word-boundary regex instead of `in`;
+    regression pinned in
+    `test_classify_known_broken_does_not_false_positive_on_not_fixed_substring`
+    (the negative case) plus the fixture item literally containing
+    "unresolved" in `test_classify_known_broken_needs_review_when_no_marker`.
+
+DOGFOODING FINDING, ACTED ON (doc-only, no code/behavior change): running
+the finished script against the real repo surfaced exactly 2 of 30 KNOWN
+BROKEN items with no explicit close marker anywhere in their text — #4
+and #26. Read both by hand (the tool is explicitly advisory, not a
+substitute for READ BEFORE WRITE):
+- #26 (`options_scanner.py` candidate-sort bug) — already fixed 2026-07-30
+  with a regression test (`test_high_iv_candidates_sorted_by_magnitude_
+  not_alphabetically`), just phrased "FIXED 2026-07-30" in a way this
+  session's marker list intentionally doesn't match (a bare "FIXED"
+  marker would risk false-positiving on "NOT FIXED" elsewhere, per bug
+  (c) above) — confirmed correctly resolved, left as-is, no edit needed.
+  This is the tool working as designed: flag for review, a session reads
+  it, concludes no action needed, moves on in seconds instead of
+  re-deriving the whole diagnosis.
+- #4 (original "bot doesn't work right" report, filed 2026-07-03) — its
+  one concrete finding (`state.equityPeak` resetting on every deploy,
+  silently re-basing the max-drawdown kill switch) was fixed same-day
+  back in 2026-07-03 (v1.0.35, PR #95, tracked under this file's own item
+  #7, already tagged `[RESOLVED 2026-07-03 — v1.0.35]`) — verified still
+  holding in the current codebase (`server/bot.ts`'s live
+  `loadEquityPeak()`/`saveEquityPeak()`, called on boot and on every new
+  peak). Its other open thread (the DIAG_TOKEN access limitation) was
+  separately resolved 2026-07-09 per the item's own text. Genuinely
+  never given a top-level closure tag in 47 days despite ~30+ sessions'
+  worth of "walked every numbered KNOWN BROKEN entry" claims in between —
+  added a `[RESOLVED/SUPERSEDED 2026-08-20]` tag and a RESOLUTION
+  paragraph to `research/open_questions.md` item #4 explaining the
+  supersession chain, per that document's own append-in-place convention
+  (not append-only like this file).
+
+TESTS: `test_research_state_check.py` (new, 27 tests, root-level per this
+repo's existing `test_session_health_check.py` convention) — synthetic
+`EXPERIMENTS_FIXTURE`/`OPEN_QUESTIONS_FIXTURE` text fixtures (no real-file
+dependency for the pure-function tests, so they can't silently start
+passing/failing as the real files grow), covering: section-scoping (the
+unrelated-table exclusion from bug (a)), date-overdue classification,
+thrash-ratio counting at/below/above the trigger including untagged
+headers, bracketless item parsing (bug (b)), UPDATE-paragraph attachment
+to the owning item, the not-fixed/unresolved substring-trap negative
+cases (bug (c)) explicitly named in their own test docstrings, and a
+final smoke test running `gather()` + `run_all_checks()` against the
+REAL repo files end to end (asserts it doesn't crash and returns
+non-empty register/items — a canary if the real files' headings ever
+drift from what the section-scoping functions expect).
+
+GATES: `python3 -m pytest -q` — 1403 passed, 1 skipped (1376 baseline +
+27 new, zero regressions). `bash scripts/gated_tests.sh` (the real CI
+gate) — GATE PASSED: client 1017/1017, python 1403 passed/1 skipped in
+50.36s, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh` — 12
+<= 12, TS2304 = 0 (unchanged; this diff touches no `.ts`/`.tsx` file).
+`bash scripts/counter_ratchet.sh` — OK, 25 counters at or better than
+baseline, no re-pin needed. `npm run build` not re-run separately
+(covered by `gated_tests.sh`'s client suite; no client source changed).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a diagnostic tool and a
+documentation correction, not a strategy/scoring/sizing/threshold change;
+no trading behavior is touched.
+
+CROSS-SYSTEM INTEGRATION: none — this is internal session tooling, not a
+datacore/ pipeline or a customer-facing surface; no entity-graph tie
+applies.
+
+MONETIZATION NOTE: not applicable — no billing/pricing/subscription/ads
+code touched.
+
+NEXT (queued, not this session): (1) consider wiring
+`research_state_check.py` into `session_health_check.py`'s own CLI (or a
+combined `scripts/session_start.py`) so a future session runs one command
+instead of two — deliberately NOT done this session to keep the diff to
+one logical change (a new, independently-useful tool) per PROMOTION RULE
+5; worth revisiting once both have been dogfooded a few more times. (2)
+the 2026-08-18 session's `critical_slowing_down_probe.py` STILL cannot be
+run against real data from this sandbox (same `ALPACA_KEY`/Yahoo-429
+constraint, re-confirmed this session) — remains queued for whichever
+future session's environment actually has Alpaca or working Yahoo access.
+(3) SAM.gov (found this session, EDGE DOCTRINE #1, "USAspending.gov +
+SAM.gov") is a genuinely un-built free-data candidate — filing to
+wishlist.md is the next step for a future session with authority to
+register a sam.gov API account, not attempted here. (4) per the AUDITS &
+DEBT register, both STALENESS/CONSTITUTIONAL audits are current (due
+2026-09-14/15) — no action needed yet.
+
+Version bumped 1.0.750 -> 1.0.751 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed branch was exactly
+at origin/main (no drift) at bump time.
+
+STARVED: no — axis (d) was this session's own clearest, most concretely
+justified action once the axis survey ruled out (a) (exhausted),
+(b) (gated), and made (c) lower-value than finishing (d) today; matched
+to session capacity, shipped with tests/gates all green and an honest,
+advisory (not overclaiming) tool design. No higher-priority queued item
+was skipped (no LIVENESS ALARM; the two open KNOWN BROKEN items are
+RULE-REVIEW-gated or visibility-only, non-blocking; thrash ratio 2/10,
+far under threshold).
+
 ## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (primary) — U.S. Drought Monitor weekly severity (/api/data/drought) gets a live /data client view, closing another "shipped-data-no-UI" gap (v1.0.750)
 
 TERRITORY: T-CLIENT primary — new `client/src/pages/droughtMonitor.tsx`;
