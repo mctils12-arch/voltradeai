@@ -123,6 +123,9 @@ const PAGES = {
   // Facilities near active fires — NASA FIRMS × strategic-sites cross-tie
   // (2026-08-20) — same Phase 5 ratchet rule as drought/occvolume above.
   firesnearfacilities: { route: "/app#/data/fires-near-facilities", map: false },
+  // Air quality at strategic sites — Google Air Quality current conditions
+  // (2026-08-20) — same Phase 5 ratchet rule as firesnearfacilities above.
+  airquality: { route: "/app#/data/air-quality", map: false },
   // CFTC Traders in Financial Futures — same Phase 5 ratchet rule as
   // streams/secftd above.
   tff: { route: "/app#/data/tff", map: false },
@@ -535,6 +538,63 @@ const FIXTURES = {
     ],
     note: "RAW cross-tie: strategic assets with active VIIRS 375m fire detections nearby (NRT ~3h). No predictive claim — the fires-near-assets → insurer/utility hypothesis is validation-gated. Not for safety-of-life use. (fixture)",
     source: "NASA FIRMS/LANCE (VIIRS_SNPP_NRT) × datacore/sites strategic facilities",
+  },
+  // Air quality at strategic sites (2026-08-20, RAW display). Three sites so
+  // the fixture exercises the cases that can misrender: a provider colour with
+  // an OMITTED channel (usa_epa green-only), a full three-channel colour, and a
+  // reading whose two indexes disagree on the dominant pollutant. Values are
+  // the live 2026-08-20 shapes.
+  "/api/data/air-quality": {
+    kind: "raw",
+    source: "Google Maps Platform Air Quality API (current conditions) (fixture)",
+    attribution: "Air quality data © Google",
+    time: 1787241252746,
+    awaiting_enable: false,
+    note: "latest current-conditions reading per strategic site; universal + US EPA AQI, PM2.5/NO2; archived over time (Google exposes only 30d history). (fixture)",
+    budget: {
+      monthly_free_tier: 5000, daily_call_budget: 150, poll_interval_hours: 3,
+      site_count: 16, sites_this_cycle: 16, rotating_subset: false, projected_calls_per_day: 128,
+    },
+    count: 3,
+    sites: [
+      {
+        siteId: "cushing_enbridge", dateTime: "2026-08-20T13:00:00Z",
+        uaqi: 71, uaqi_category: "Good air quality", uaqi_dominant: "pm10",
+        epa_aqi: 41, epa_category: "Good air quality", epa_dominant: "pm25",
+        pm25: 12.27, pm25_units: "MICROGRAMS_PER_CUBIC_METER",
+        no2: 7.84, no2_units: "PARTS_PER_BILLION",
+        indexes: [
+          { code: "uaqi", displayName: "Universal AQI", aqi: 71, color: { red: 0.49803922, green: 0.8039216, blue: 0.2 }, category: "Good air quality", dominantPollutant: "pm10" },
+          { code: "usa_epa", displayName: "AQI (US)", aqi: 41, color: { green: 0.89411765 }, category: "Good air quality", dominantPollutant: "pm25" },
+        ],
+        rt: "2026-08-20",
+      },
+      {
+        siteId: "port_oakland", dateTime: "2026-08-20T13:00:00Z",
+        uaqi: 83, uaqi_category: "Excellent air quality", uaqi_dominant: "pm10",
+        epa_aqi: 32, epa_category: "Good air quality", epa_dominant: "pm25",
+        pm25: 2.91, pm25_units: "MICROGRAMS_PER_CUBIC_METER",
+        no2: 5.7, no2_units: "PARTS_PER_BILLION",
+        indexes: [
+          { code: "uaqi", displayName: "Universal AQI", aqi: 83, color: { red: 0.2, green: 0.8, blue: 0.4 }, category: "Excellent air quality", dominantPollutant: "pm10" },
+          { code: "usa_epa", displayName: "AQI (US)", aqi: 32, color: { green: 0.89411765 }, category: "Good air quality", dominantPollutant: "pm25" },
+        ],
+        rt: "2026-08-20",
+      },
+      {
+        siteId: "port_savannah", dateTime: "2026-08-20T13:00:00Z",
+        uaqi: 46, uaqi_category: "Moderate air quality", uaqi_dominant: "pm25",
+        epa_aqi: 62, epa_category: "Moderate air quality", epa_dominant: "pm25",
+        pm25: 25.75, pm25_units: "MICROGRAMS_PER_CUBIC_METER",
+        no2: 5.01, no2_units: "PARTS_PER_BILLION",
+        indexes: [
+          { code: "uaqi", displayName: "Universal AQI", aqi: 46, color: { red: 1, green: 0.87, blue: 0.2 }, category: "Moderate air quality", dominantPollutant: "pm25" },
+          { code: "usa_epa", displayName: "AQI (US)", aqi: 62, color: { red: 1, green: 1 }, category: "Moderate air quality", dominantPollutant: "pm25" },
+        ],
+        rt: "2026-08-20",
+      },
+    ],
+    issues: {},
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
   "/api/data/appstore-rankings": {

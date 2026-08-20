@@ -3,6 +3,152 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — air quality at strategic sites gets its /data client view; the two AQI scales in the payload run in OPPOSITE directions, so the colour decode is a tested lib module rather than a ramp of ours (v1.0.753)
+
+TERRITORY: T-CLIENT (`client/src/pages/airQuality.tsx` new,
+`client/src/lib/aqIndex.ts` + `.test.ts` new, `client/src/pages/datamap.tsx`
+wiring, `scripts/visual_check.mjs` page + fixture) + SHARED-but-minimal
+(`package.json`/`package-lock.json` version bump last, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/`
+(experiments.md head, open_questions.md KNOWN BROKEN, wishlist.md head,
+PROGRAM_STATE.md). Live `/api/health` (production): `status:"ok"`,
+`bot.status:"active"`, `liveness.dark:false`, `drawdownPct:"0.0"`, alpaca
+`ACTIVE`, scanner `consecutiveFailures:0`, all 3 feeds `dead:false` — no
+LIVENESS ALARM, no repair blocker. Thrash ratio over the last 10 tagged
+entries: 4 [REPAIR] — well under the 7 threshold, so normal work proceeds.
+AUDITS & DEBT register: STALENESS due 2026-09-14, CONSTITUTIONAL due
+2026-09-15, CALENDAR YEAR-ADD due 2026-12-01 — nothing overdue.
+
+PRIMARY-ACTION SELECTION: took the immediately-prior session's own explicit
+NEXT note (SESSION BUDGET rule 1 — the queue's own stated item before new
+research): "the remaining 3 shipped-data-no-UI gaps — air-quality,
+facility-events, imports — same recipe, ready for the next PRODUCT session."
+Verified all three live on production before choosing rather than trusting
+the note: `facility-events` 61 GDELT events, `imports` 1059 Census port
+rows, `air-quality` 16 site readings — all genuinely populated, none an
+`awaiting_key` stub. Picked `air-quality`: smallest, best-structured payload
+(16 rows, one reading per strategic site) and the strongest honesty surface
+(three distinct inactive/warming states, a free-tier call budget, and a
+per-site issues map). PROGRAM_STATE.md's MASTER PROGRAM queue (Q7/Q8/Q9/Q11,
+unclaimed since 2026-08-15) was considered and again deferred: it is a
+test/tsc-hygiene track, not a customer-facing product item, and this
+routine's own option (b) outranks it.
+
+READ BEFORE WRITE: read `server/routes.ts:2869-2892` (the route handler) and
+`server/airQuality.ts` (the `AqReading` interface, `parseCurrentConditions`,
+the budget guard) before writing any client code, then `firesNearFacilities.tsx`
+and `droughtMonitor.tsx` end-to-end for the established 4-point datamap.tsx
+wiring recipe and the inline-dynamic-colour idiom. Confirmed `Wind` was
+already imported in datamap.tsx and the `@/lib/*` alias is the page import
+convention — neither assumed.
+
+THE FINDING THAT SHAPED THE DIFF: the payload carries two indexes that run in
+OPPOSITE directions. Universal AQI is 0-100 where HIGHER is cleaner; US EPA
+AQI is 0-500 where HIGHER is dirtier. Established empirically from the 16
+live readings, not from memory of the vendor docs: `port_oakland` reads uaqi
+83 "Excellent air quality" alongside epa_aqi 32 "Good", while `port_savannah`
+reads uaqi 46 "Moderate" alongside epa_aqi 62 "Moderate" — within each index
+the category moves monotonically with the number, in opposite senses, across
+all 16 rows. **A single shared severity ramp over both columns would have
+painted the cleanest site in the set as the worst.** Google ships its own
+colour with each index, so the page renders THAT and infers no direction at
+all; the header states both directions explicitly and says the two are never
+combined.
+
+WHAT SHIPPED: `client/src/lib/aqIndex.ts` (new) — four pure decodes extracted
+out of the page precisely because they can silently misrepresent a reading:
+`indexColorCss` (Google's colour is protobuf JSON, so a zero-valued channel
+is OMITTED, not sent as 0 — `{"green":0.894}` is rgb(0,228,0); an object with
+no recognized channel returns null rather than rendering as black, which would
+invent a severity the provider never sent), `indexLuminance`/`indexTextColor`
+(WCAG relative luminance picks chip text, because the palette spans near-white
+greens to dark maroons and neither black nor white is legible across it),
+`unitSymbol` (decode table for the API's unit enums; an unrecognized enum falls
+through VERBATIM rather than being guessed), and `readingAge` (Law V data age;
+returns null for a missing/unparseable timestamp rather than a fabricated
+"0m"). `client/src/pages/airQuality.tsx` (new) — RAW display only, framed as
+gate-0 observation with no predictive claim; handles all three server states
+honestly (`enabled:false`/`awaiting_key`, `awaiting_enable` = API not yet
+switched on in the GCP project, `warming_up`) and surfaces the free-tier call
+budget and the per-site issues map rather than hiding either. `datamap.tsx`:
+the standard 4-point wiring (state hook, hashchange listener, render block,
+panel-top launcher at `#/data/air-quality`) placed directly after the
+fires-near-facilities launcher.
+
+UNITS: `client/src/lib/units.ts` deliberately NOT used — this payload carries
+no distance, speed, or temperature. µg/m³ and ppb are domain conventions
+(the same class as hPa/MW/knots that the UNITS PREFERENCE rule fixes in both
+systems), so they are rendered as-is and never converted.
+
+GATES: `npm ci` (fresh sandbox) then `npx tsc --noEmit` — 12 errors,
+byte-identical to `ci/tsc_baseline.txt`'s pinned set (TS2304 = 0), none in
+touched files. `bash scripts/gated_tests.sh` — GATE PASSED: server 1301/1301,
+client **1028/1028 across 98 files** (up from 1017/97), python OK after
+`pip install -r requirements.txt -r requirements-dev.txt`, quarantine 1/1 none
+overdue. `npm run build` clean. `node scripts/visual_check.mjs --page
+airquality` — 0 hard failures at 390/768/1440; screenshots self-reviewed, not
+just counted (desktop table renders with the provider colours correct —
+the omitted-channel EPA green resolves to the standard rgb(0,228,0) and the
+Savannah yellows read yellow, dark chip text legible on both; mobile stacks to
+labelled card rows via the shared `.vt-filings-table` responsive CSS). Only
+warnings are the pre-existing global-chrome touch-target/clipped-control class
+present on every page in this harness, unrelated to this diff.
+
+A/B DISCIPLINE, twice: (1) the new test file initially appeared NOT to be
+collected — the gate reported the same 97 files/1017 tests with and without
+it. Cause found rather than assumed: `gated_tests.sh`'s `collect()` runs
+`git ls-files`, which lists only TRACKED files, so an unstaged new test is
+invisible to the gate. Staging it took the count to 98/1028. Worth knowing
+for every future session that adds a test: **stage before you trust the
+gate's count.** (2) A/B-verified the new tests actually bite by deleting the
+omitted-channel guard from `indexColorCss` on a scratch copy — 11/11 pass
+became 9 pass/2 fail, restored clean.
+
+COUNTERS: `bash scripts/counter_ratchet.sh` — 25 counters at or better than
+baseline. Three report IMPROVED, and a `git stash -u` A/B separated mine from
+inherited drift exactly: unmodified `origin/main` alone already reports
+`tests_run_in_ci`/`tests_gating_merge` 379 and `assertions` 11608 against
+pins of 378/378/11562 (the same pre-existing drift the prior fires session
+measured and left un-pinned); this diff takes them to 380/380/11639, i.e. +1
+test file and +31 assertions are mine and the rest is not. Left all three
+un-re-pinned per PROMOTION RULE 5 and the immediately-prior session's
+precedent: pinning 11639 here would lock 46 foreign assertions into this
+PR's pin and blur attribution. All ratchets pass regardless (these are
+must-increase/non-decreasing). No `.py` file touched, so the Python suite was
+run but no new Python test was needed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure data-surface/UI feature, no
+scoring/sizing/trading-threshold code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this surfaces an already-built feed over
+the existing strategic-sites archive; it adds no new archive and no new
+entity-graph join. Stated honestly rather than claimed: the
+air-quality-at-industrial-sites → activity hypothesis remains filed and
+ladder-gated, and nothing on this page asserts it.
+
+MARKET-HOURS NOTE: this run fired during market hours. The diff touches only
+`client/src/`, `scripts/visual_check.mjs`, `package.json`/`package-lock.json`
+and `research/*` — no server route, no trading path — so it is not a critical
+live fix and the PR asks for merge after 16:00 ET.
+
+NEXT (queued, not this session): the last 2 shipped-data-no-UI gaps —
+`facility-events` (GDELT, 61 live events; note it needs a CAMEO root-code
+decode table, so it is the more involved of the two) and `imports` (Census,
+1059 live port rows; needs sorting/limiting for a payload that size). Also
+still open, unchanged: no periodic sweep exists for non-200 `/api/data/*`
+responses (REPAIR-flavoured), and the two stranded zero-CI-run PRODUCT PRs
+(#707, #794) still need GitHub-side diagnosis no session can perform from here.
+
+Version bumped 1.0.752 -> 1.0.753 (PROMOTION RULE 4); re-fetched `origin/main`
+immediately before bumping and confirmed HEAD contained it with zero drift at
+bump time.
+
+STARVED: no — this was the queue's own most concretely specified unclaimed
+PRODUCT item, matched to session capacity, shipped with tests/gates/visual
+harness all green. No higher-priority queued item was skipped (no LIVENESS
+ALARM; thrash ratio 4/10; neither audit due).
+
 ## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — facilities-near-active-fires gets its /data client view, closing one of the 4 named shipped-data-no-UI gaps (v1.0.752)
 
 TERRITORY: T-CLIENT (`client/src/pages/firesNearFacilities.tsx` new,
