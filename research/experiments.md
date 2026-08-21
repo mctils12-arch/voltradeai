@@ -60120,3 +60120,206 @@ session capacity; no higher-priority queued item was skipped (no LIVENESS
 ALARM, KNOWN BROKEN clean/advisory-only, thrash ratio 1/10 well under the
 repair-preempt threshold, MASTER PROGRAM queue is a different track this
 session correctly did not claim from).
+
+## 2026-08-21 (scheduled-routine session #4) [REPAIR] — T-BOT (options_execution.py, options_scanner.py) + SHARED (research/*, ci/counter_baseline.txt, package.json) — OCC option-symbol parsing crash on adjusted-contract roots, re-shipped from a stale never-merged PR (v1.0.760)
+
+TERRITORY: primary T-BOT (both changed files are chain-parsing/instrument-
+selection logic in the bot's Python engine). SHARED files (research/*,
+ci/counter_baseline.txt, package.json) kept as small, last-and-minimal
+edits per WORKSTREAM PARTITION merge-order protocol.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`python3 scripts/session_health_check.py`: liveness alive, all subsystems
+ok, daemon rss 386.1MB under trim_mb=400MB, ml_feedback age 15.3h no
+known-broken signature, deploy_freshness server_version 1.0.759 matched
+this checkout — no LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits register none overdue, thrash ratio 1/10 REPAIR (well under 7+),
+KNOWN BROKEN 30 items/1 advisory-only (#26). No blocker.
+
+WHY THIS ACTION: checked live `/api/diag/audit` (200 most recent entries,
+production) for an active bug per SESSION BUDGET's own first-priority
+rule ("fix a bug seen in audit logs") — none surfaced in the current
+window (dominated by `OPTIONS-SLOT-FULL`, options positions currently
+maxed 6/6, so the CSP tier isn't attempting new trades right now and
+wouldn't hit either of the bugs below even if still present). Checked
+`/api/diag/shadow` next for a matured experiment to judge (SESSION
+BUDGET's second-priority rule): `rejected_masterkill`'s win-rate check
+(open_questions.md item #20's own NEXT step) is still unsatisfiable —
+record count unchanged at 156 since the 2026-08-19 check, still absent
+from `win_rate_by_decision` — a deep backfill-frontier diagnosis, not a
+fast win, and not re-attempted this session.
+
+Fell through to `research/wishlist.md`'s own "STALE-PR BACKLOG" entry
+(filed 2026-08-20, explicitly flagged "its own dedicated session's
+primary action, not a fall-through item"). `list_pull_requests` confirmed
+the backlog is still live: 12 open PRs, 8 of them the same stale
+REPAIR/RESEARCH/PRODUCT work the entry named, 9-35 days old. Read the
+three REPAIR PRs in the list (#706, #708, #797) in full and grepped their
+target files in current `main` to check whether each diagnosed bug is
+still present (none had been independently fixed by other means since):
+all three still present, byte-verified. This makes them real, currently-
+unshipped correctness bugs discovered via the wishlist's own audit
+process — the closest available match to "fix a bug seen in audit logs"
+once the live 200-entry window came up empty, and higher-value than
+starting a new experiment from scratch per SESSION BUDGET's ordering.
+
+Picked #706 (OCC option-symbol parsing crash) as this session's ONE
+change, per PROMOTION RULE 5 (one logical change per PR) — it is the
+most severe of the three (drops an ENTIRE chain for any ticker with an
+adjusted-contract root, vs. #797's diagnostic-message-only fix) and the
+most self-contained (two isolated parsing call sites, no cross-cutting
+capital/field semantics like #708). #708 and #797 remain queued (see
+NEXT below).
+
+MECHANISM NOTE (why this shipped as a fresh PR from this session's own
+branch instead of reviving #706 directly): this session is scoped to
+develop and push only on its own designated branch. Pushing a merge
+commit to `claude/eloquent-dijkstra-k128c1` (PR #706's branch, authored
+by a different session) to revive its cancelled CI — the mechanism
+`wishlist.md`'s own SUGGESTED NEXT STEP describes — falls outside that
+scope. Read the stale PR's diagnosis and current code independently
+(READ BEFORE WRITE protocol: the actual fix below was re-derived from
+this session's own reading of `options_execution.py`/`options_scanner.py`
+as they exist today, not copy-pasted from the PR diff, and the git-stash
+A/B verification below was run fresh this session), then re-shipped it
+as new work with its own test file. PR #706 is closed as superseded once
+this PR opens, per the WORKSTREAM PARTITION supersession precedent
+("first-merged wins, the duplicate salvages its unique delta") already
+established in this repo for #867/#869.
+
+ROOT CAUSE (confirmed by reading the current code, not assumed from the
+stale PR's description): `options_execution._fetch_option_chain` (line
+~587) and `options_scanner._fetch_options_chain` (line ~359) both parsed
+OCC option symbols (`root + YYMMDD + C/P + 8-digit strike`) by slicing
+`occ_symbol[len(ticker):]` — stripping `len(ticker)` characters off the
+FRONT to isolate the date/type/strike suffix, where `ticker` is the
+caller-supplied stock symbol (e.g. "IONQ"), not the symbol's own OCC
+root. OCC's adjusted-contract convention (a root gaining an extra
+character after a corporate action, e.g. "IONQ1" instead of "IONQ")
+makes that slice land one character short: the parsed "strike" substring
+absorbs the C/P flag character itself (`'P00037000'` instead of
+`'00037000'`), and `int()` throws. Both functions wrap their entire body
+in a single `try/except Exception`, so the exception reports the WHOLE
+chain unavailable for that ticker — not just the one malformed contract
+— matching the live symptom the stale PR's diagnosis quoted verbatim:
+`IONQ: No options contracts available for this ticker (exception:
+invalid literal for int() with base 10: 'P00037000')`. Confirmed
+`options_scanner.py` already uses the correct anchor-from-the-end
+pattern elsewhere in the same file (its ATM-IV lookup, `occ_sym[-8:]`)
+— the two buggy call sites just hadn't been made to match it, same
+observation the stale PR made.
+
+FIX: both call sites now parse anchored from the END of the OCC symbol:
+`occ_symbol[-8:]` → strike, `occ_symbol[-9]` → C/P flag,
+`occ_symbol[-15:-9]` → expiry date (YYMMDD). These fields are
+fixed-width from the right regardless of root length. Chain-
+parsing/instrument-selection logic only — CLAUDE.md explicitly permits
+changing WHAT gets traded; does not touch `submit_options_order` or any
+raw order-transmission path, so no FROZEN PATH is implicated. Not a
+threshold/rule-value change (restores intended parsing correctness, not
+a new policy), so no RULE REVIEW evidence gate applies.
+
+SCOPE NOTE (read this session, not fixed): `options_manager.py`'s own
+`_parse_occ_symbol()` has a related but structurally different bug — it
+derives `ticker` by scanning the OCC symbol for its first digit (rather
+than being passed a known ticker), so an adjusted root's extra digit
+gets misdetected as the date's start. Confirmed present via manual trace
+this session. NOT fixed here: one logical change per PR, and that
+function's `ticker` return value feeds ~10 downstream call sites in
+`options_manager.py` used for live position bookkeeping (roll-candidate
+matching, DTE lookups for exit rules, position display) — touching it
+safely needs its own dedicated read-before-write session, not a
+drive-by alongside this fix. Filed as a queued NEXT item.
+
+RATCHET: `test_occ_symbol_parsing.py` (new, 4 tests) — reproduces the
+exact live crash shape for both functions using the real IONQ example
+from the diagnosis (adjusted root "IONQ1", 260418 expiry, $37 put) plus
+a plain-root control (AAPL). A/B-verified via `git stash`: both
+adjusted-root tests FAIL against pre-fix code with the identical
+`invalid literal for int() with base 10: 'P00037000'` error captured in
+`options_execution._last_chain_error`, and both plain-root tests pass
+unchanged on both sides of the stash (no regression on the common,
+un-adjusted case). All 4 pass post-fix (strike/expiry/type all correctly
+parsed for the adjusted-root case: $37.00, 2026-04-18, put).
+
+GATES: `npm ci` (node_modules incomplete at session start — missing
+`@types/node`/`vite/client`, same sandbox-provisioning gap recorded by
+several recent sessions). `pip install -r requirements.txt
+-r requirements-dev.txt` (pytest/dev deps absent at session start).
+`python3 -m pytest -q`: 1413 passed, 1 skipped (1409 baseline + 4 new,
+zero regressions). `bash scripts/gated_tests.sh`: GATE PASSED — client
+1069/1069 (unchanged, no `.test.ts`/`.test.tsx` touched), python
+1413/1 skipped (+4, this diff's own), quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (no `.ts`
+file touched). `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 384 -> 385 re-pinned (the one new required test
+file, staged before measuring per the established Q10/Q17 file-level
+counting precedent); `assertions` measured 11562 -> 11877 but left
+UN-PINNED per PROMOTION RULE 5 — only 17 of the ~315-assertion rise are
+this diff's own (`grep -c assert test_occ_symbol_parsing.py` = 17); the
+rest is pre-existing drift from concurrent merges since the pin was last
+set, same situation the last several sessions' entries already recorded
+for this same counter. All other 24 counters unchanged or
+non-decreasing. `npm run build` clean (pre-existing astronomy-engine ESM
+default-export notice and large-chunk warnings only, unrelated to this
+diff — no `.ts`/`.tsx` file was touched by the fix itself, the build was
+re-run only because `ci/counter_baseline.txt` was staged).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): N/A — no `client/` file touched,
+same precedent as every prior pure-Python T-BOT fix.
+
+BACKTEST: N/A per PROMOTION RULE 3 — restores intended chain-fetch
+behavior (a contract that should have been visible to the CSP/covered-
+call selector was silently dropped for the whole ticker whenever its OCC
+root carries an adjustment marker). No scoring, sizing, or threshold
+value changed. The live effect will be directly observable in
+`/api/diag/audit?type=T2-FAIL` (the "invalid literal for int()" message
+should stop recurring) over the coming days — a future session should
+check.
+
+CROSS-SYSTEM INTEGRATION: none new this session — pure bug fix in the
+existing options chain-fetch path, no new join or entity-graph edge.
+
+MONETIZATION NOTE: this session touches no billing/pricing/subscription/
+ads code — MONETIZATION TRIPWIRE does not apply.
+
+Version bumped 1.0.759 -> 1.0.760 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD was exactly at
+`origin/main` (507fc21) at bump time, no drift.
+
+MARKET HOURS NOTE: this session ran during market hours. This is a real,
+evidenced bug but — per the current live audit window (options slots
+maxed 6/6, CSP not currently attempting new trades) — not a LIVENESS
+ALARM or an active symptom right now, so the PR carries a "hold merge
+until after 4:00 PM ET" note per the scheduled-routine task's own
+instruction. (research/wishlist.md's PROCESS GAP entry already documents
+that this note is not currently enforced by anything and auto-merge will
+likely fire within minutes regardless — recorded there, not re-litigated
+here; harmless on a paper account either way.)
+
+NEXT (queued, not this session): (1) PR #708 (CSP capital-check used
+`acct.cash` instead of `acct.options_buying_power`) — bug confirmed still
+present in current `main` this session (`server/bot.ts:3720`,
+`cashAvailable = parseFloat(acct.cash || "0")`), stale PR never merged
+(zero CI runs ever recorded for its branch). (2) PR #797 (CSP
+no-affordable-puts error reports a fabricated "$0 strike" when the puts
+list is empty) — bug confirmed still present in current `main`
+(`options_execution.py`, `smallest_strike = min(..., default=0)`), same
+stale-PR situation. Both are real, byte-verified, currently-unshipped
+bugs — same re-derive-and-reship treatment as this session's #706 is the
+right path for each, one PR at a time. (3) `options_manager.py`'s
+`_parse_occ_symbol()` ticker-derivation bug (this entry's SCOPE NOTE) —
+needs its own dedicated read-before-write session given ~10 downstream
+call sites. (4) The remaining stale PRs in wishlist.md's backlog list
+(#767, #794, #817, #834, #844) — research/rendering/product work, not
+REPAIR, lower priority than (1)-(2) per GOAL's priority order but still
+real unshipped work sitting 9-35 days old.
+
+STARVED: no — this was the queue's own highest-value available action
+once the live audit window and the shadow-portfolio judgment check both
+came up empty (fix a bug seen in audit logs > judge a matured experiment
+> start a new experiment, per SESSION BUDGET) — a real, currently-
+unshipped correctness bug discovered via the wishlist's own flagged
+backlog, matched to session capacity. No higher-priority item was
+skipped (no LIVENESS ALARM, KNOWN BROKEN clean/advisory-only, thrash
+ratio 1/10 well under the repair-preempt threshold).

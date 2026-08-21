@@ -584,12 +584,22 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
                 
                 # Parse OCC symbol: AAPL260418C00250000
                 # ticker + YYMMDD + C/P + 8-digit strike (strike * 1000)
-                sym_body = occ_symbol[len(ticker):]
-                if len(sym_body) >= 15:
-                    exp_str = "20" + sym_body[:6]  # YYYYMMDD
+                # REPAIR: anchored from the END, not sliced by len(ticker) — OCC's
+                # adjusted-contract convention (a root gaining a char after a
+                # corporate action, e.g. IONQ1 instead of IONQ) made a front-anchored
+                # slice land one character short, so the parsed "strike" absorbed the
+                # C/P flag and int() threw, reporting the WHOLE chain unavailable for
+                # that ticker (live: "IONQ: ... invalid literal for int() with base
+                # 10: 'P00037000'"). These trailing fields are fixed-width from the
+                # right regardless of root length.
+                if len(occ_symbol) >= 15:
+                    date_digits = occ_symbol[-15:-9]
+                    type_char = occ_symbol[-9]
+                    strike_digits = occ_symbol[-8:]
+                    exp_str = "20" + date_digits  # YYYYMMDD
                     exp_date = f"{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}"
-                    opt_type = "call" if sym_body[6] == "C" else "put"
-                    strike = int(sym_body[7:]) / 1000
+                    opt_type = "call" if type_char == "C" else "put"
+                    strike = int(strike_digits) / 1000
                     
                     bid = float(quote.get("bp", 0) or 0)
                     ask = float(quote.get("ap", 0) or 0)

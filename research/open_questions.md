@@ -4389,6 +4389,63 @@
     gate is holding at the documented cap through the one scenario that
     broke it three times before. **ITEM #30 CLOSED.**
 
+31. **[FOUND + FIXED 2026-08-21, scheduled-routine session, v1.0.760]
+    OCC option-symbol parsing crashed on adjusted-contract roots,
+    reporting the ENTIRE chain unavailable for the affected ticker.**
+    Found while working through `research/wishlist.md`'s stale-PR
+    backlog: PR #706 (opened 2026-08-06, never merged — one of the 8
+    unresolved stale PRs that entry's SUGGESTED NEXT STEP names) had
+    already diagnosed and fixed this exact bug, but the PR itself was
+    stuck (CI's `changes` job cancelled minutes after opening, no
+    successor run, the "mechanism (2)" failure class that entry
+    describes). Rather than push to a stale foreign branch outside this
+    session's designated territory, the fix was independently re-derived
+    from the current code (read-before-write), verified against the
+    live symptom, and re-shipped fresh from this session's own branch;
+    PR #706 is closed as superseded, per the WORKSTREAM PARTITION
+    supersession precedent (first-merged wins).
+    ROOT CAUSE (confirmed live, `/api/diag/audit?type=T2-FAIL`, historical
+    entries): `options_execution._fetch_option_chain` and
+    `options_scanner._fetch_options_chain` both parsed OCC option symbols
+    (`root + YYMMDD + C/P + 8-digit strike`) by slicing
+    `occ_symbol[len(ticker):]` — stripping `len(ticker)` characters off
+    the FRONT to isolate the date/type/strike suffix. OCC's own
+    adjusted-contract convention (a root gaining an extra character after
+    a corporate action, e.g. `IONQ1` instead of `IONQ`) makes that slice
+    land one character short: the parsed "strike" substring absorbs the
+    C/P flag character itself (`'P00037000'` instead of `'00037000'`),
+    and `int()` throws. The exception unwinds to each function's outer
+    `except Exception`, which reports the WHOLE chain unavailable for
+    that ticker — not just the one malformed contract — matching the
+    exact live message this PR's diagnosis quoted: `IONQ: No options
+    contracts available for this ticker (exception: invalid literal for
+    int() with base 10: 'P00037000')`.
+    FIX: both call sites now parse anchored from the END of the OCC
+    symbol instead — `occ_symbol[-8:]` (strike), `occ_symbol[-9]` (C/P),
+    `occ_symbol[-15:-9]` (expiry) — fixed-width from the right regardless
+    of root length, mirroring a pattern `options_scanner.py` already used
+    successfully elsewhere in the same file (its ATM-IV lookup). Chain-
+    parsing/instrument-selection logic only — does not touch
+    `submit_options_order` or any order-transmission path, so no FROZEN
+    PATH is implicated; not a threshold/rule change, so no RULE REVIEW
+    evidence gate applies.
+    SCOPE NOTE: `options_manager.py`'s own `_parse_occ_symbol()` has a
+    related but structurally different bug (it derives `ticker` by
+    scanning the symbol for its first digit rather than being passed a
+    known ticker, so an adjusted root's extra digit is mis-detected as
+    the date's start) — confirmed present this session but deliberately
+    NOT fixed here (one logical change per PR; that function's `ticker`
+    return value is consumed by ~10 downstream call sites in
+    `options_manager.py` for live position bookkeeping, and touching it
+    safely needs its own dedicated read-before-write session). Filed as
+    a queued NEXT item, not left silently discovered.
+    RATCHET: `test_occ_symbol_parsing.py` (new, 4 tests) — reproduces the
+    exact live crash on an adjusted-root case for both functions
+    (A/B-verified via `git stash`: both adjusted-root tests fail
+    pre-fix with the identical `'P00037000'` message, pass post-fix; two
+    plain-root cases confirm no regression on the common case, unchanged
+    on both sides of the stash).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
