@@ -60323,3 +60323,135 @@ unshipped correctness bug discovered via the wishlist's own flagged
 backlog, matched to session capacity. No higher-priority item was
 skipped (no LIVENESS ALARM, KNOWN BROKEN clean/advisory-only, thrash
 ratio 1/10 well under the repair-preempt threshold).
+
+## 2026-08-21 (scheduled-routine PRODUCT session #5) [PRODUCT] — datacore/product PR-hygiene: found and closed the missing 11th PR (#707) from the 2026-08-20 stale-PR audit, verified fully superseded by already-shipped work (docs-only, research/*)
+
+TERRITORY: SHARED (research/wishlist.md, research/experiments.md only —
+no code territory touched, no version bump needed, same class as the
+2026-08-20 "docs: close PR #867" precedent this session extends).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+Live `/api/health`: `status:"ok"`, `bot.status:"active"`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, `alpaca.account_status:
+"ACTIVE"`, `scanner.consecutiveFailures:0`, `feeds.dead:[]` — no
+LIVENESS ALARM, no critical trading-loop break. KNOWN BROKEN
+(open_questions.md): the only 5 numbered items are all RESOLVED/
+SUPERSEDED or (item 20, not numbered in that list) an already-logged
+design/threshold judgment call awaiting RULE-REVIEW evidence, not an
+active break — nothing blocks or preempts product work this session.
+Loop-health ratio, last 10 tagged entries: REPAIR 3 / RESEARCH 3 /
+PIPELINE 2 / PRODUCT 2 — well under the 7+ thrash-preempt threshold.
+
+PRIMARY-ACTION SELECTION: checked option (a) first — `datacore/
+signal_ladder.json`'s 3 `gate2_pending` roots (`cftc_cot_positioning`,
+`sec_8k_earnings_language`, `gem_methane_plume_proximity`) all carry
+explicit `readiness_trigger`s, and none has fired yet: COT needs
+15-20 new weekly reports since 2026-07-08 (only ~6-7 have published by
+2026-08-21); 8-K earnings-language needs 90 archive-days since
+2026-07-04 (only 48 have elapsed); the methane join's own filed NEXT
+STEP explicitly says re-run gate-2(c) "once GEM ships a newer release"
+— checked live, `datacore/gem/methane_emitters.json.gz`'s own
+`provenance.release` is still `GMET_V3_12-12-2025.xlsx` (built_at
+2026-07-07), byte-identical to the release the 2026-07-20/07-23
+gate-2(c) runs already used, so a re-run today would reproduce the
+same N=32/FAIL result, not a new test. None of the three gate-2
+candidates are actually ready. Checked option (b) next — the
+"shipped-data-no-UI" sweep pattern this program runs repeatedly
+(experiments.md 2026-08-19 entry: "closing the LAST shipped-data-no-UI
+gap on a gate-2-attempted signal_ladder root") — cross-referenced every
+`/api/data/*` route in `server/*.ts` against `client/src/pages/`: every
+`gate1_pass`+ root with a dedicated-dashboard shape already has one
+(macro/EU-macro, MIDAS, ATS/OTC, COT, attention, fleet utilization,
+crop conditions, app-store rankings, GitHub org activity, grid demand,
+OCC volume, GNSS integrity, bank failures, and today's earlier JODI/
+GDELT/port-imports/air-quality/drought-monitor/facilities-near-fires
+ships) — sweep is clear, nothing new found.
+
+Fell through toward option (d) via the stale-PR queue instead:
+`list_pull_requests(state=open)` still shows the same 11 PRs the
+2026-08-20 audit found (plus #877/#888, opened after that audit). That
+audit's own text has an internal inconsistency worth checking: it says
+"remaining 9 PRs (11 minus #763 and #867)" but its SUGGESTED NEXT STEP
+enumerates only 8 by number. Read all 11 titles side by side with the
+audit's own parenthetical work-type list ("a repair, a research
+finding, a rendering fix, two /data views, an options-execution repair,
+a macro-regime UI, an OCC-parsing crash fix") — that's 8 items matching
+8 PR types, but the audit's own count implies 9 real work-items existed.
+PR #707 ("product: macro regime series gets its /data UI") is the
+missing one: its content is exactly the unenumerated "macro-regime UI"
+in that list, present in the audit's prose but absent from its
+numbered PR list and its SUGGESTED NEXT STEP.
+
+READ BEFORE WRITE / VERIFICATION: read PR #707's full diff
+(`pull_request_read` `get_files`) before doing anything — its one new
+file, `client/src/pages/macro.tsx`, is a combined `#/data/macro`
+dashboard joining `/api/data/macro` (FRED) and `/api/data/eu-macro`
+into one card grid. Then checked `main` for what actually exists today:
+`client/src/pages/fredMacro.tsx` (`#/data/fred-macro`) and
+`client/src/pages/euMacro.tsx` (`#/data/eu-macro`) are BOTH already
+live, separate pages, fully wired into `datamap.tsx` (own state hook,
+hashchange entry, render block, launcher button each) — confirmed via
+grep, not assumed. `datacore/signal_ladder.json`'s live
+`eu_macro_ecb_eurostat_bundesbank` entry itself documents "/data UI
+SHIPPED 2026-08-08 (client/src/pages/euMacro.tsx...)" — two full weeks
+after #707 opened (2026-08-06) and never merged, a different session
+independently closed the identical gap with a different design, unaware
+#707 existed. Shipping #707 now would add a THIRD, conflicting
+`#/data/macro` route — pure duplication, not additive.
+
+SALVAGE CHECK (the supersession precedent this session's own wishlist.md
+entry established for #867/#869, applied here before closing): #707's
+`fmtDelta()` fixes a real precision bug — a naive 2-decimal delta
+rounds a small nonzero move (its own example: EUR/USD +0.003) to a
+misleadingly unchanged "+0.00" next to a colored arrow. Checked whether
+`euMacro.tsx` (the live equivalent) carries the same live bug before
+assuming the fix was worth porting: it does not — `euMacro.tsx`'s
+`fmtDelta` renders `unit === "USD"` at a fixed 4 decimals
+(`d.toFixed(4)`), which already shows a genuinely nonzero digit for
+typical EUR/USD-sized moves without needing #707's dynamic
+widen-until-nonzero logic. Read both implementations side by side to
+confirm, not inferred. No unique delta worth porting.
+
+WHAT SHIPPED: closed PR #707 with an explanatory comment naming both
+superseding files and the salvage check's result (GitHub `add_issue_
+comment` + `update_pull_request(state:"closed")` — no `issue_write`
+close path exists for PRs on this server, confirmed by trying it first
+and getting "Could not resolve to an Issue"). `research/wishlist.md`'s
+2026-08-20 stale-PR-backlog section gained a dated UPDATE block naming
+the audit's own enumeration gap, the verification trail above, and the
+corrected remaining-work count (8 PRs, not 9, still need the
+rebase-and-retry treatment; #707 is fully resolved). No `datacore/
+signal_ladder.json` correction was needed — its live entries already
+correctly cite `fredMacro.tsx`/`euMacro.tsx`, never #707's unmerged
+`macro.tsx`.
+
+GATES: docs-only change (`research/wishlist.md`, `research/
+experiments.md`) — no code, test, or config file touched. Same class as
+the 2026-08-20 "docs: close PR #867" precedent (#889): no version bump
+(PROMOTION RULE 4 ties `code_version` to trading-behavior-relevant
+changes; this changes zero runtime code), no new test (no behavior to
+regression-test), no backtest (PROMOTION RULE 3 doesn't apply).
+
+CROSS-SYSTEM INTEGRATION: none — pure PR/registry bookkeeping, no new
+data source, join, or entity-graph edge.
+
+MONETIZATION NOTE: no billing/pricing/subscription/ads/paid-feature-
+gating code touched — MONETIZATION TRIPWIRE does not apply.
+
+NEXT (queued, not this session): (1) the 8 PRs actually named in the
+2026-08-20 audit's SUGGESTED NEXT STEP (#797, #767, #706, #844, #834,
+#817, #794, #708) still need the rebase-and-retry-or-close-as-superseded
+treatment, one at a time, its own dedicated session per that audit's own
+sizing note. (2) the 3 gate-2-pending signal_ladder roots remain
+correctly time-blocked — a future session should re-check their
+readiness_trigger fields (COT weekly-report count, 8-K archive-day
+count, GEM release version) before assuming they're still blocked. (3)
+#877/#888, opened after the 2026-08-20 audit, are not yet triaged by any
+stale-PR sweep.
+
+STARVED: no — this was the session's one primary action (a genuine,
+verified correction to an existing audit's own documented gap, closing
+a 15-day-old duplicate PR), matched to capacity after confirming no
+higher-priority item was available (no LIVENESS ALARM; KNOWN BROKEN
+clean; all 3 gate-2 candidates genuinely time-blocked, verified live
+rather than assumed stale; shipped-data-no-UI sweep genuinely clear).

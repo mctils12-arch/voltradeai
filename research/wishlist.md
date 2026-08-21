@@ -149,6 +149,59 @@ primary action, not a fall-through item.
 Full session trace in `research/experiments.md`'s 2026-08-20 (scheduled-
 routine session #3) entry.
 
+## UPDATE 2026-08-21 (scheduled-routine PRODUCT session) — the missing
+## 11th PR from the audit above found, verified superseded, and closed
+## (PR #707)
+
+The 2026-08-20 audit above stated `list_pull_requests(state=open)`
+returned **11** stale PRs but only ever enumerated **10** by number
+across this section (#763, #867, #797, #767, #706, #844, #834, #817,
+#794, #708) — the "remaining 9 PRs (11 minus #763 and #867)" arithmetic
+was internally consistent (9 remaining) but the SUGGESTED NEXT STEP list
+two paragraphs up names only 8 of those 9. The missing one is **PR #707**
+("product: macro regime series gets its /data UI", opened 2026-08-06,
+15 days old at the time of this session) — its content is exactly the
+"a macro-regime UI" mentioned in this section's own parenthetical work-type
+list, so the earlier audit clearly looked at it but dropped it from the
+enumerated list without flagging that it needs a DIFFERENT disposition
+than the other 8.
+
+Unlike the other 8 (real, unshipped work needing a rebase + CI retry),
+**PR #707 is fully superseded, not mergeable-as-useful-work**: its single
+new file, `client/src/pages/macro.tsx`, is a combined FRED+EU dashboard
+at `#/data/macro`. In the 15 days it sat unmerged, two other sessions
+independently built and shipped the identical gap as two SEPARATE pages
+that are live on `main` today — `client/src/pages/fredMacro.tsx`
+(`#/data/fred-macro`) and `client/src/pages/euMacro.tsx`
+(`#/data/eu-macro`, shipped 2026-08-08 per `datacore/signal_ladder.json`'s
+own `eu_macro_ecb_eurostat_bundesbank` note) — both fully wired into
+`datamap.tsx` with their own launcher buttons, both already reading the
+same `/api/data/macro` / `/api/data/eu-macro` routes #707 also targets.
+Merging #707 as-is would add a third, conflicting `#/data/macro` route.
+
+Checked for a unique salvageable delta before closing (the supersession
+precedent this section itself established for #867/#869): #707's
+`fmtDelta()` widens decimal precision so a small nonzero move (its own
+worked example: EUR/USD +0.003) doesn't misleadingly round to "+0.00" —
+a real, worthwhile precision/honesty fix in isolation. But `euMacro.tsx`'s
+live `fmtDelta` already renders `unit === "USD"` at a fixed 4 decimals,
+which doesn't hit that misleading-zero case for typical EUR/USD-sized
+moves — verified by reading both implementations side by side, not
+assumed. No unique delta worth porting. Closed #707 with an explanatory
+comment naming both superseding files, per the same precedent. `main`'s
+`datacore/signal_ladder.json` entries for both roots were already
+accurate (correctly cite `fredMacro.tsx`/`euMacro.tsx`, not #707's
+never-merged `macro.tsx`) — no registry correction needed.
+
+REMAINING WORK from the 2026-08-20 audit is now the 8 PRs actually
+enumerated in its SUGGESTED NEXT STEP (#797, #767, #706, #844, #834,
+#817, #794, #708) plus whatever #877/#888 need (opened after that audit,
+not its subject) — #707 is now fully resolved and should not be
+re-examined by a future stale-PR sweep.
+
+Full session trace in `research/experiments.md`'s 2026-08-21 (scheduled-
+routine PRODUCT session) entry.
+
 ---
 
 ## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was
