@@ -59946,3 +59946,177 @@ real budget derivation) was deliberately deferred rather than faked, and
 is now itself a clearly-scoped queued item rather than an open-ended one.
 No higher-priority item was skipped (no LIVENESS ALARM, KNOWN BROKEN
 clean, thrash ratio 1/10 well under the repair-preempt threshold).
+
+## 2026-08-21 (scheduled-routine session #3) [PRODUCT] — T-CLIENT (client/src/pages/jodiOilStocks.tsx, datamap.tsx wiring, scripts/visual_check.mjs) + T-DATACORE-adjacent (server/jodiOil.ts) + SHARED (server/routes.ts, ci/counter_baseline.txt, package.json) — JODI world oil closing-stock levels gets a live /data client view (v1.0.759)
+
+TERRITORY: primary T-CLIENT (the new page + datamap.tsx wiring + harness
+fixture, all client-facing); server/jodiOil.ts is a small, self-contained
+T-DATACORE-adjacent addition (same posture P3's apiKeyAccounts.ts set in
+platform_program.md); SHARED files (routes.ts route registration,
+ci/counter_baseline.txt, package.json) kept as small, last-and-minimal
+edits per WORKSTREAM PARTITION merge-order protocol.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`python3 scripts/session_health_check.py`: liveness alive, all subsystems
+ok, daemon rss 362.6MB under trim_mb=400MB, ml_feedback age 12.4h no
+known-broken signature, deploy_freshness server_version 1.0.758 matched
+this checkout — no LIVENESS ALARM, nothing blocking. `python3
+scripts/research_state_check.py`: audits register none overdue, thrash
+ratio 1/10 REPAIR (well under 7+), KNOWN BROKEN 30 items/1 without an
+explicit close marker (#26, advisory-only). Not a [REPAIR] session; this
+scheduled routine is explicitly [PRODUCT]-tagged, so KNOWN BROKEN is noted
+(clean) rather than acted on, per the routine's own instruction that
+product sessions don't preempt the DAILY routines' repair duty.
+
+WHY THIS ACTION: `research/PROGRAM_STATE.md`'s own NEXT/QUEUE is scoped to
+the MASTER PROGRAM (rendering-harness/CI-gate track), not product surface
+work, so it wasn't the right queue to read for a [PRODUCT] session. Cross-
+referenced `datacore/signal_ladder.json`'s 41 roots against every existing
+`client/src/pages/*.tsx` /data view and found `jodi_oil_stocks` was the
+one gate-1-passed root with a fully-built, git-committed archive
+(`datacore/jodi/primary_stocks.json`, 350 series / ~91k points, 96
+countries, scripts/jodi_oil.py) and genuinely ZERO client surface — no
+route in server/routes.ts, no page, not even a mention in datamap.tsx
+(confirmed by grep before starting). This is exactly the same gap-class
+the last several product sessions closed (VIX term structure, EU macro,
+port imports, drought monitor, OCC volume, GDELT facility events —
+`research: X gets a live /data client view` is now a recurring, well-
+templated pattern). GATE 2 (signal) for this root was KILLED 2026-08-06
+(no significant BNO/USO forward-return effect) — per CLAUDE.md's RAW
+OVERLAYS vs SIGNALS rule and the kill entry's own explicit statement ("The
+gate-1 archive/RAW value stands unaffected... just not a tradeable signal
+on this construction"), the RAW closing-stock levels are legitimate to
+surface with no ladder gating, as long as the kill status is stated
+honestly — which the shipped `note` field does verbatim, both server-side
+and rendered in the UI, satisfying the ANTI-GOALS clause ("never sell or
+surface a signal the ladder has not validated") by never claiming
+predictive value anywhere in the surface.
+
+WHAT SHIPPED:
+1. `server/jodiOil.ts` (new) — pure-function view over the static
+   `datacore/jodi/primary_stocks.json` import (same static-ESM-import
+   pattern as `military_installations.json`, chosen over the
+   `repoDataPath()`-fs-read pattern GEM methane uses because 1.4MB sits
+   comfortably inside the precedent range other statically-imported
+   datacore files already establish — military_installations.json alone
+   is 2.5MB — and needs no scripts/build.ts changes). `jodiOilStocksView()`
+   surfaces TOTCRUDE (closing stock levels, thousand barrels) only —
+   CRUDEOIL/NGL/OTHERCRUDE exist in the archive but are out of scope for
+   this v1 (one logical change; a future session can add them with a
+   concrete use). Per-country latest point + delta vs. that SAME series'
+   own prior reported point — deliberately not a fixed month-over-month
+   assumption, because per-country reporting gaps are real and large (the
+   live archive shows UAE's TOTCRUDE series stops at 2018-12 even though
+   the archive's own `latest_period` is 2026-04 — exactly the staleness
+   the gate-2 kill entry names for UAE). Never zero-fills a missing prior
+   point (`deltaKbbl`/`deltaPct` stay `null`), matching the source
+   script's own "skip, never zero" rule. `JODI_AREA_NAMES` is a 96-entry
+   ISO-3166 alpha-2 -> name map scoped exactly to the codes the real
+   archive ships (verified 1:1 by a node one-liner before writing the
+   test, and pinned by a real-file test so a future archive rebuild
+   adding a 97th area fails loudly instead of silently falling back to a
+   bare code in production).
+2. `/api/data/jodi-oil-stocks` route (server/routes.ts) — same
+   `kind:"raw", predictive:false` envelope + 86400s cache-control as the
+   military_installations/vix-term-structure precedents; the response
+   body's own `note` field restates the GATE 1 pass / GATE 2 kill
+   verbatim so the honesty travels with the payload, not just the code
+   comment.
+3. `client/src/pages/jodiOilStocks.tsx` (new) — reuses the `vt-filings-*`
+   shell (no new CSS) exactly like vixTermStructure.tsx: header with
+   source link, honesty note rendered inline (not just in a footer),
+   sortable-by-level table with `data-l` labels for the mobile stacked
+   layout, per-row period + prior-period columns (never a shared "as of"
+   date, per the staleness finding above).
+4. `datamap.tsx` wiring — state hook + hash listener + render block +
+   launcher button in the Streams panel (`Droplet` icon, already imported
+   for water layers, reused rather than adding a new lucide import),
+   following the exact same 4-point pattern as every other page-wide
+   dashboard registered there.
+5. `scripts/visual_check.mjs` — new `jodioilstocks` PAGES entry
+   (`map:false`, same Phase 5 ratchet rule as every prior non-map
+   dashboard) + a `/api/data/jodi-oil-stocks` FIXTURES entry (2 synthetic
+   countries) so the harness's mock server can serve the new route
+   offline.
+
+RATCHET: `server/jodiOil.test.ts` (new, 10 tests) — synthetic-fixture unit
+tests (product filter, sort order, prior-point delta computation, never-
+zero-fill, area-name fallback honesty, the honesty envelope's exact note
+text) PLUS two real-file tests: every REF_AREA code the live archive ships
+resolves in `JODI_AREA_NAMES` (fails loudly on a future 97th area), and
+`jodiOilStocksView()` runs against the real live import without throwing
+and returns >10 rows. `server (157 -> 158 files)` / `tests_run_in_ci` +
+`tests_gating_merge` (383 -> 384) re-pinned in `ci/counter_baseline.txt`
+— the direct, sole effect of the one new required test file (git-staged
+before measuring, per the Q10/Q17 file-level counting precedent — an
+earlier same-session run under-counted at 157/383 because the new files
+were untracked when `git ls-files` ran). `assertions` measured
+11562 -> 11860 but left UN-PINNED per PROMOTION RULE 5 — only 31 of the
+~298-assertion rise are this diff's own (`grep -c "assert\." jodiOil.test.ts`
+= 31); the rest is pre-existing drift from unrelated merges since the pin
+was last set, matching the identical situation the last two sessions'
+entries already recorded for this same counter.
+
+GATES: `npm ci` (node_modules incomplete at session start — missing
+`@types/node`/`vite/client`, same sandbox-provisioning gap the prior
+session's entry recorded). `pip install -r requirements.txt
+-r requirements-dev.txt` (one transient `ReadTimeoutError` on
+pythonhosted.org, succeeded on retry — not a code issue). `bash
+scripts/gated_tests.sh`: GATE PASSED — server 158/158 (+1 file, this
+diff's own), client 1069/1069 (unchanged — no `.test.ts` touched under
+client/), python 1409/1 skipped (unchanged — no Python touched),
+quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged (new module is fully typed, no `any` widening at
+any call site). `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 383 -> 384 re-pinned (this session's own); all other
+24 counters unchanged or non-decreasing; `assertions` left un-pinned (see
+RATCHET above). `npm run build` clean (pre-existing astronomy-engine
+ESM default-export notice and large-chunk warnings only, matching every
+recent session's own note — neither related to this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page
+jodioilstocks` at 390/768/1440 — **0 hard failures**. Screenshots
+inspected directly (not just the pass/fail line): the new page renders
+the fixture's 2-country table cleanly at both 1440px (full table) and
+390px (mobile stacked `data-l` layout, correctly labeled). The only
+warnings present are the pre-existing global-chrome touch-target
+warnings every `vt-filings-*` page already carries and a software-
+renderer notice from this headless sandbox's lack of GPU acceleration —
+neither caused by this diff. `npm run visual -- --page data` (the full
+map-page battery, since datamap.tsx itself was touched for the launcher
+wiring) launched in the background; its result is recorded in a same-day
+follow-up note below once it completes, per this session's own
+verification discipline — not left unchecked.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a RAW-display client-view ship, not
+a strategy, threshold, sizing, or scoring change; no trading behavior
+touched, and GATE 2 for this root stays KILLED (unaffected by this PR).
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is a display-only
+surface over an already-archived, already-reconciled-against-EIA root; no
+new join, no new entity-graph edge. The existing DIRECT gate-1 partnership
+with the tank-shadow root (both census-derived, both crude-stock-level
+readings) is unchanged and untouched by this diff.
+
+MONETIZATION NOTE: this session touches no billing/pricing/subscription/
+ads code — MONETIZATION TRIPWIRE does not apply. The new `/api/data/*`
+route is a RAW public-preview endpoint, same posture as every sibling
+route in this family (not a `/api/v1/*` metered endpoint — that's a
+separate, deliberately-deferred build per the platform_program.md P2
+precedent of shipping RAW routes before their v1 mirror).
+
+NEXT (queued, not this session): (1) a `/api/v1/stats/jodi-oil-stocks`
+metered mirror, same shape as the vix-term-structure/occ-volume v1
+siblings — deliberately not built this session (one logical change).
+(2) CRUDEOIL/NGL/OTHERCRUDE product views, if a concrete use emerges.
+(3) Scan the remaining `signal_ladder.json` roots for any other gate-1-
+passed, zero-client-surface gap this session's method didn't reach in one
+pass (this session stopped at the first clean hit rather than exhaustively
+auditing all 41 roots — an explicit scope choice, not an oversight).
+
+STARVED: no — this was the routine's own primary (b)/(c)-adjacent action
+(building product UI over an existing gate-1 RAW dataset), matched to
+session capacity; no higher-priority queued item was skipped (no LIVENESS
+ALARM, KNOWN BROKEN clean/advisory-only, thrash ratio 1/10 well under the
+repair-preempt threshold, MASTER PROGRAM queue is a different track this
+session correctly did not claim from).

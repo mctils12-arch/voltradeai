@@ -18,6 +18,7 @@ import datacoreNuclearTests from "../datacore/nuclear_tests.json";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
 import datacoreMilitaryInstallations from "../datacore/military_installations.json";
+import { jodiOilStocksView } from "./jodiOil";
 import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -3094,6 +3095,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       installations: d.installations,
       provenance: d.provenance,
     });
+  });
+
+  // JODI World oil closing-stock levels (#/data/jodi-oil-stocks) — same
+  // overlay pattern (RAW self-reported levels, not a spatial layer; static
+  // archive, session-run monthly via scripts/jodi_oil.py, no live poll —
+  // see server/jodiOil.ts). GATE 1 (data) PASSED, GATE 2 (signal) KILLED
+  // 2026-08-06 — the view surfaces the passed RAW layer only, with the
+  // kill status stated verbatim in its own `note` field, never a
+  // predictive claim.
+  app.get("/api/data/jodi-oil-stocks", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json(jodiOilStocksView());
   });
 
   // GEM Methane Emitters Tracker (GMET) — dated satellite methane-plume

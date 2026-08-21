@@ -82,6 +82,9 @@ const PAGES = {
   // Cboe VIX term structure (2026-08-07) — same Phase 5 ratchet rule as
   // streams/gridstress/githubactivity above.
   vixtermstructure: { route: "/app#/data/vix-term-structure", map: false },
+  // JODI world oil closing-stock levels (2026-08-21) — same Phase 5
+  // ratchet rule as streams/vixtermstructure above.
+  jodioilstocks: { route: "/app#/data/jodi-oil-stocks", map: false },
   // European macro cluster — ECB/Eurostat/Bundesbank regime input
   // (2026-08-08) — same Phase 5 ratchet rule as streams/vixtermstructure
   // above.
@@ -702,6 +705,26 @@ const FIXTURES = {
       { date: "2026-08-06", vix1d: 12.55, vix9d: 12.66, vix: 15.15, vix3m: 18.69, vix6m: 20.91, vvix: 88.72, vix_vix3m_ratio: 0.8106, vix9d_vix_ratio: 0.8356 },
     ],
     note: "GATE 1 (DATA) only — ratios are plain arithmetic, no predictive claim (fixture).",
+  },
+  // JODI world oil closing-stock levels (2026-08-21, RAW display; GATE 2
+  // signal killed 2026-08-06 — the note field restates that verbatim).
+  "/api/data/jodi-oil-stocks": {
+    kind: "raw",
+    predictive: false,
+    source: "JODI Oil World Primary database (fixture)",
+    attribution: "JODI Oil World Database (Joint Organisations Data Initiative)",
+    license: "free with acknowledgment (fixture)",
+    product: "TOTCRUDE",
+    archiveLatestPeriod: "2026-04",
+    seriesCount: 350,
+    countriesReporting: 2,
+    rows: [
+      { area: "SA", name: "Saudi Arabia", period: "2026-03", levelKbbl: 260000, assessmentCode: "3", priorPeriod: "2026-02", priorLevelKbbl: 258500, deltaKbbl: 1500, deltaPct: 0.6 },
+      { area: "US", name: "United States", period: "2026-03", levelKbbl: 415000, assessmentCode: "3", priorPeriod: "2026-02", priorLevelKbbl: 420000, deltaKbbl: -5000, deltaPct: -1.2 },
+    ],
+    note: "GATE 1 (data) PASSED — reconciles against EIA within 1.2%. GATE 2 (signal) KILLED 2026-08-06 — " +
+      "no significant forward-return signal found. Shown here as RAW, self-reported closing-stock levels " +
+      "only — no predictive claim (fixture).",
   },
   "/api/data/eu-macro": {
     kind: "raw",
