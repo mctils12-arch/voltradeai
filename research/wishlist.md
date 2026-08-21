@@ -202,6 +202,47 @@ re-examined by a future stale-PR sweep.
 Full session trace in `research/experiments.md`'s 2026-08-21 (scheduled-
 routine PRODUCT session) entry.
 
+## UPDATE 2026-08-21 (scheduled-routine session #2) — #708 worked and
+## merged (#902); #706 independently closed as a duplicate earlier the
+## same day; 6 of the 8 SUGGESTED NEXT STEP PRs now remain
+
+**#708** (`repair: CSP capital-check used wrong Alpaca field`, oldest
+[REPAIR] in the list, opened 2026-08-06) was taken as this session's
+primary action per this section's own instruction. Not a mechanical
+revive: cherry-picking its content onto a fresh branch (rather than
+merging `origin/main` into the stale branch, since #708's branch never
+got a single CI run — mechanism (3) above) forced a real read of every
+changed hunk against current `main`, which surfaced that a LATER session
+(the 2026-08-13 "CSP-CASH-RACE FIX") had added a fresh per-batch account
+refetch that silently reintroduced the exact wrong-field bug #708 fixes,
+on the code path that actually reaches Alpaca — #708 as originally
+written would have shipped with zero live effect. Both sites fixed;
+merged as #902. #708 closed with a comment naming #902 and the extra
+finding. Full trace: `research/experiments.md`'s 2026-08-21
+`[REPAIR]` session #2 entry.
+
+**#706** was found already closed (not merged) as of this session's
+check — a separate 2026-08-21 session shipped the identical fix as #899
+(`v1.0.760`, visible in current `main`'s history) earlier the same day,
+unclaimed by either this backlog note or that session's own log entry
+at the time each was written. No action needed; noted here so a future
+sweep doesn't re-investigate it.
+
+REMAINING from the original 8: **#797, #767, #844, #834, #817, #794**
+(6 PRs). Given this session's own finding — a stale PR can look
+mechanically revivable and still be silently defeated by later merged
+work touching adjacent code — the GENERALIZATION two sections up now
+has a second confirmed instance; a future session reviving any of these
+6 should re-read the surrounding code on current `main` in full, not
+assume the original diff still reaches the code path it targets. #797
+is next by the same [REPAIR]-first ordering this session used (a
+different CSP-related bug, worth checking for the identical silent-
+defeat pattern given both PRs touch neighboring code in the same
+function family).
+
+#877/#888 (opened after the 2026-08-20 audit) remain untriaged by any
+stale-PR sweep, as before.
+
 ---
 
 ## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was

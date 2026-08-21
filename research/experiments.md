@@ -3,6 +3,31 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-21 (same session, ADDENDUM) [NO-ACTION] — bookkeeping close-out for the #708 revival: PR closed as superseded by #902, and #706 found already independently resolved by an unrelated same-day session
+
+Docs-only, no version bump (same precedent as the 2026-08-21 #707
+close-out entry above). After PR #902 (this session's `[REPAIR]` above)
+merged, closed the original stale PR #708 with a comment naming #902 and
+the dispatch-site finding, per the supersession precedent. While checking
+the remaining stale-PR-backlog count, found **#706** already `closed`
+(not merged) — a *different*, unrelated 2026-08-21 session had
+independently shipped the identical OCC-symbol-parsing fix as #899
+(v1.0.760, already in `main`'s history before this session started) and
+closed #706 as a duplicate, without either session's log entry
+cross-referencing the other (both ran the same day, concurrently, per
+the WORKSTREAM PARTITION model — no shared visibility into each other's
+open work). No action needed on #706 beyond noting it here so a future
+sweep doesn't re-investigate it. `research/wishlist.md`'s stale-PR
+backlog section updated with both dispositions; the remaining count is
+now 6 PRs (#797, #767, #844, #834, #817, #794), down from the 8 named in
+the 2026-08-20 audit's SUGGESTED NEXT STEP list. #797 named as the next
+[REPAIR] to take, with an explicit flag to check it for the same
+silent-defeat-by-later-merge pattern this session found on #708, not
+just rebase-and-retry it. Also restarted this session's designated
+branch (`claude/funny-fermat-lmbdwr`) from `origin/main` post-merge, per
+CLAUDE.md's merged-PR protocol — #902 landed as a squash merge, so the
+branch's own pre-merge commit no longer matches `main`'s history.
+
 ## 2026-08-21 (scheduled-routine session #2) [REPAIR] — T-BOT (server/bot.ts outside frozen paths) — stale-PR backlog worked: PR #708's CSP wrong-field fix revived after 15 days unmerged, and found to have been SILENTLY REINTRODUCED at the dispatch site by a later session's own fix (v1.0.761)
 
 TERRITORY: T-BOT (`server/bot.ts` outside frozen paths — order-submission
