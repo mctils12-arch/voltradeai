@@ -166,6 +166,67 @@ class TestComputeLeadSignal(unittest.TestCase):
         self.assertEqual(r1["by_lead_days"][5]["control_mean_var"],
                           r2["by_lead_days"][5]["control_mean_var"])
 
+    def test_without_regime_at_control_is_unconditional(self):
+        n = 400
+        returns = [0.001 * ((-1) ** i) for i in range(n)]
+        onsets = [{"index": p, "from": "BULL", "to": "BEAR", "severity_jump": 3}
+                  for p in (80, 140, 200, 260, 320)]
+        result = probe.compute_lead_signal(returns, onsets, window=20,
+                                            lead_offsets=(10,))
+        self.assertFalse(result["regime_matched_control_requested"])
+        self.assertFalse(result["by_lead_days"][10]["control_regime_matched"])
+
+    def test_regime_matched_control_excludes_the_other_regime(self):
+        # A long CALM stretch (low variance) followed by a shorter STORMY
+        # stretch (high variance). Onsets transition OUT OF "CALM", so the
+        # honest comparison is against other CALM days, not the archive
+        # average, which the STORMY block would drag upward — the exact
+        # regime-duration confound the real 2026-08-20 SPY run exposed
+        # (variance in a persistent high-vol regime dominates an
+        # unconditional pool regardless of any real pre-onset signal).
+        n = 1000
+        returns = [0.0] * n
+        for i in range(800):
+            returns[i] = 0.001 * ((-1) ** i)
+        for i in range(800, n):
+            returns[i] = 0.05 * ((-1) ** i)
+        regime_at = ["CALM"] * 800 + ["STORMY"] * (n - 800)
+        onsets = [{"index": p, "from": "CALM", "to": "STORMY", "severity_jump": 1}
+                  for p in (700, 710, 720, 730, 740)]
+
+        unconditional = probe.compute_lead_signal(
+            returns, onsets, window=20, lead_offsets=(10,), rng_seed=7)
+        matched = probe.compute_lead_signal(
+            returns, onsets, window=20, lead_offsets=(10,), rng_seed=7,
+            regime_at=regime_at)
+
+        self.assertFalse(unconditional["by_lead_days"][10]["control_regime_matched"])
+        self.assertTrue(matched["regime_matched_control_requested"])
+        self.assertTrue(matched["by_lead_days"][10]["control_regime_matched"])
+        self.assertEqual(matched["by_lead_days"][10]["control_from_regimes"], ["CALM"])
+        # excluding the high-variance STORMY days from the control pool must
+        # pull the control mean DOWN toward the true CALM-only level.
+        self.assertLess(matched["by_lead_days"][10]["control_mean_var"],
+                         unconditional["by_lead_days"][10]["control_mean_var"])
+
+    def test_regime_matched_control_falls_back_honestly_when_too_sparse(self):
+        # Only a handful of days ever carry the "from" regime elsewhere in
+        # the archive -> not enough to estimate a control mean from. Must
+        # fall back to the unconditional pool AND say so, never silently.
+        n = 400
+        returns = [0.001 * ((-1) ** i) for i in range(n)]
+        regime_at = ["COMMON"] * n
+        for p in (80, 140, 200, 260, 320):
+            regime_at[p] = "RARE"
+        onsets = [{"index": p, "from": "RARE", "to": "BEAR", "severity_jump": 3}
+                  for p in (80, 140, 200, 260, 320)]
+        result = probe.compute_lead_signal(returns, onsets, window=20,
+                                            lead_offsets=(5,),
+                                            regime_at=regime_at)
+        self.assertTrue(result["regime_matched_control_requested"])
+        self.assertFalse(result["by_lead_days"][5]["control_regime_matched"])
+        self.assertGreater(result["by_lead_days"][5]["n_control"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

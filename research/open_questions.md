@@ -10986,3 +10986,106 @@ shows no advantage over variance at any lead, record that as a clean
 negative result in this entry (per REASONING STANDARD #10 — a beautiful
 ecology analogy never substitutes for validation) and do not proceed further
 down the ladder.
+
+**UPDATE 2026-08-21 (scheduled-routine session, RUN AGAINST REAL DATA —
+GATE 2 RESULT: DOES NOT SUPPORT THE HYPOTHESIS, KILLED for SPY at current
+sample size, EDGE DOCTRINE #3 tooling improvement kept):** this sandbox had
+working Yahoo Finance access this session (no `ALPACA_KEY`/`ALPACA_SECRET`
+needed — `backtest_v2.fetch_bars`'s existing fallback path worked directly),
+unblocking the exact NEXT step this entry names above.
+`PYTHONPATH=. python3 scripts/critical_slowing_down_probe.py --days 2520`
+against 2019-09-27 to 2026-08-20 SPY/VXX daily bars found **7** qualifying
+onsets (>= the 5-onset floor; 1 BEAR->PANIC, 6 BULL->NEUTRAL) — enough to
+compute the comparison this entry's NEXT step asked for.
+
+RAW RESULT (unconditional control pool, the code as it existed before this
+session): `onset_mean_var` was LOWER than `control_mean_var` at every one
+of the 4 lead offsets (20/10/5/1 days before onset) — the OPPOSITE
+direction from the stated PRIOR ("expect variance to rise before
+transitions"). Before trusting that as a real negative result, checked it
+for a base-rate confound per REASONING STANDARD #3: `find_transition_onsets`
+only fires MID-transition-into-a-still-calm-regime by construction (the
+"from" regime is BULL/BEAR, not yet the more-severe "to" regime), but the
+UNCONDITIONAL control pool draws from the WHOLE 2019-2026 archive —
+including the COVID crash and 2022 bear stretches, where PANIC/BEAR/NEUTRAL
+persist for many consecutive days once entered. A regime that persists
+inflates its own share of any archive-wide random sample regardless of any
+real pre-onset effect, which biases the unconditional control mean upward
+independent of CSD.
+
+FIX SHIPPED (own PR, this session): `compute_lead_signal()` gained an
+optional `regime_at` parameter (`scripts/critical_slowing_down_probe.py`) —
+when supplied (now always, from `run_probe()`), each lead's control pool is
+restricted to days classified in one of the SAME "from" regime(s) the
+contributing onsets transitioned out of, instead of the archive-wide pool.
+Falls back to the unconditional pool AND says so via a
+`control_regime_matched: False` flag if too few same-regime days exist to
+trust the sample (MEASUREMENT INTEGRITY — never silently swap the
+comparison). 4 new tests in `test_critical_slowing_down_probe.py` cover: the
+default (no `regime_at`) behavior is unchanged; a synthetic CALM/STORMY
+archive where matching demonstrably pulls the control mean down toward the
+true same-regime level; and the honest fallback when the matched pool is
+too sparse.
+
+RE-RUN WITH THE FIX: regime-matching moved the control means only slightly
+(e.g. lead=20 `control_mean_var` 0.0001962 -> 0.0001920) — this SPY archive
+turns out to be BULL-dominated overall, so the unconditional pool was
+already close to regime-matched for this particular sample; the confound
+was real (worth fixing permanently, and now compiled into reusable code
+per EDGE DOCTRINE #3 for any future onset-based probe in this codebase) but
+was not the dominant driver of THIS result. **The direction did not flip**:
+`onset_mean_var` stayed below `control_mean_var` at all 4 leads even
+regime-matched. `onset_mean_ar1` was also below `control_mean_ar1` at 3 of
+4 leads — the one exception, lead=1 (`onset_mean_ar1` +0.0047 vs
+`control_mean_ar1` -0.063), is the single cell anywhere in the grid that
+points the direction the PRIOR predicted.
+
+VERDICT (per REASONING STANDARD #4 — discount by what was tried, and #10 —
+record a negative result, don't drop it): this is a DESCRIPTIVE MEANS
+comparison only, no significance test computed (n=7 onsets, single ticker,
+single archive, 8 cells checked at once — a formal test at this n would be
+underpowered and REASONING STANDARD #4 already discounts any single "hit"
+among 8 comparisons). 7 of 8 cells (both metrics x 4 leads) point AWAY from
+the CSD hypothesis, not toward it. This is a clean, honest NEGATIVE result
+for "CSD variance/AR1 rises ahead of SPY regime-severity transitions, as
+currently defined" — **gate 2 FAILED, this specific candidate (rolling
+20-day AR1/variance ahead of `regime_series` severity onsets, SPY/VXX) is
+KILLED**, same disposition class as `occ_options_volume`'s original
+hypothesis and `tlt_dvol` in this same file. NOT killed: the foreign-field
+import technique itself, or the regime-matched-control fix, which is now
+reusable code for any future onset-style signal test (EDGE DOCTRINE #3) —
+compiling the reasoning was the load-bearing deliverable even though the
+specific hypothesis it was built to test did not survive contact with real
+data. Candidate follow-up if a future session wants to revisit CSD rather
+than abandon it: the lead=1 AR1 hint, a wider universe than SPY alone
+(illiquid/small-cap names are the EDGE DOCTRINE's own stated where-whales-
+can't-fish angle, and CSD's ecology precedent is about systems near a
+tipping point, which a single large-cap index may simply not exhibit the
+same way a thinner name would) — not filed as a new open item now, since
+REASONING STANDARD #5 (second-order thinking) has not yet been applied to
+say WHY a small-cap name would show it and SPY wouldn't; would need that
+reasoning stated as a fresh PRIOR before running, not just a broader sweep
+on the same untested premise.
+
+GATES: `PYTHONPATH=. python3 -m unittest test_critical_slowing_down_probe`
+20/20 (4 new). `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`, absent at session start): 1406
+passed, 1 skipped — unchanged. `npm ci` run (absent at session start —
+`node_modules` existed but was missing `react` and other deps, which had
+made an UNRELATED client suite read 8 failures on first attempt; confirmed
+via `git status` that zero `.ts`/`.tsx` files were touched this session
+before concluding it was a sandbox-provisioning gap, not a regression —
+`npm ci` alone fixed it to 1069/1069 green). `bash scripts/gated_tests.sh`:
+GATE PASSED, client 1069/1069, python 1406/1 skipped, quarantine 0/1 none
+overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no
+`.ts` touched). `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 378 -> 382 re-pinned (exactly the 4 new tests, clean
+attribution); `assertions` 11562 -> 11826 measured but left UN-pinned this
+session — only ~10 of the ~264-assertion rise trace to this diff (`git
+diff | grep -c 'self\.assert'`), the rest is pre-existing drift from
+concurrent sessions' merges since the pin was last set, and PROMOTION RULE
+5 says re-pinning someone else's gain here would blur attribution; all
+other 23 counters unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — still a research probe result, not a
+strategy/threshold/scoring change.

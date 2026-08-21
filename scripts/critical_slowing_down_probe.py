@@ -154,11 +154,27 @@ def _mean(vals: list[float]) -> float | None:
 def compute_lead_signal(returns: Sequence[float], onsets: list[dict],
                          window: int = 20,
                          lead_offsets: Sequence[int] = (20, 10, 5, 1),
-                         rng_seed: int = 1337) -> dict:
+                         rng_seed: int = 1337,
+                         regime_at: Sequence[str] | None = None) -> dict:
     """For each onset, read rolling AR1/variance at `lead_offsets` days
     before onset. Compare the onset-window mean against a control sample
     of the same size drawn from non-onset days (base rate per REASONING
-    STANDARD #3), using a fixed seed so the comparison is reproducible."""
+    STANDARD #3), using a fixed seed so the comparison is reproducible.
+
+    `regime_at`, when given, is the regime label classified for each index
+    of `returns` (same alignment). Regimes persist for many consecutive
+    days once entered (a BEAR/PANIC stretch can run for weeks), so an
+    UNCONDITIONAL control pool drawn from the whole archive is dominated by
+    days that are already inside an elevated-vol regime — that inflates the
+    control mean regardless of any real CSD effect, since the onset windows
+    are, by construction, still inside the calmer PRE-transition regime.
+    When `regime_at` is supplied, each lead's control pool is restricted to
+    days classified in one of the SAME "from" regimes the contributing
+    onsets transitioned out of — comparing like against like instead of
+    against the archive's regime-duration-weighted average. If too few
+    same-regime days exist to trust the sample, this falls back to the
+    unconditional pool and says so via `control_regime_matched: False`
+    (MEASUREMENT INTEGRITY — never silently swap the comparison)."""
     import random
 
     ar1 = rolling_ar1(returns, window)
@@ -170,7 +186,8 @@ def compute_lead_signal(returns: Sequence[float], onsets: list[dict],
 
     rng = random.Random(rng_seed)
     result: dict = {"n_onsets": len(onsets), "window": window,
-                     "by_lead_days": {}}
+                     "by_lead_days": {},
+                     "regime_matched_control_requested": regime_at is not None}
     if len(onsets) < MIN_ONSETS_FOR_STATS:
         result["insufficient_n"] = True
         result["note"] = (f"only {len(onsets)} qualifying onsets found "
@@ -181,23 +198,37 @@ def compute_lead_signal(returns: Sequence[float], onsets: list[dict],
         return result
 
     for lead in lead_offsets:
-        onset_ar1, onset_var = [], []
+        onset_ar1, onset_var, from_regimes = [], [], set()
         for o in onsets:
             j = o["index"] - lead
             if 0 <= j < len(returns) and ar1[j] is not None and var[j] is not None:
                 onset_ar1.append(ar1[j])
                 onset_var.append(var[j])
+                from_regimes.add(o.get("from"))
         if len(onset_ar1) < MIN_ONSETS_FOR_STATS:
             result["by_lead_days"][lead] = {
                 "insufficient_n": True, "n": len(onset_ar1)}
             continue
-        control_idx = rng.sample(valid_pool, min(len(valid_pool),
-                                                   len(onset_ar1) * 20))
+
+        pool = valid_pool
+        matched = False
+        if regime_at is not None:
+            regime_pool = [i for i in valid_pool
+                           if i < len(regime_at) and regime_at[i] in from_regimes]
+            # require enough same-regime days to actually estimate a mean
+            # from, not just avoid a crash — otherwise fall back and say so.
+            if len(regime_pool) >= max(MIN_ONSETS_FOR_STATS, len(onset_ar1)) * 5:
+                pool = regime_pool
+                matched = True
+
+        control_idx = rng.sample(pool, min(len(pool), len(onset_ar1) * 20))
         control_ar1 = [ar1[i] for i in control_idx]
         control_var = [var[i] for i in control_idx]
         result["by_lead_days"][lead] = {
             "n_onset": len(onset_ar1),
             "n_control": len(control_ar1),
+            "control_regime_matched": matched,
+            "control_from_regimes": sorted(from_regimes),
             "onset_mean_ar1": _mean(onset_ar1),
             "control_mean_ar1": _mean(control_ar1),
             "onset_mean_var": _mean(onset_var),
@@ -222,7 +253,8 @@ def run_probe(days: int = 2520, window: int = 20,
     aligned_labels = labels[1:]
     onsets = find_transition_onsets(aligned_labels)
     signal = compute_lead_signal(returns, onsets, window=window,
-                                  lead_offsets=lead_offsets)
+                                  lead_offsets=lead_offsets,
+                                  regime_at=aligned_labels)
     return {
         "vxx_data_quality": quality,
         "n_days": len(spy["date"]),
