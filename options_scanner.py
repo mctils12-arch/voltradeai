@@ -356,14 +356,20 @@ def _fetch_options_chain(ticker: str, price: float,
         for occ, snap in all_snapshots.items():
             quote  = snap.get("latestQuote", {})
             greeks = snap.get("greeks", {})
-            body   = occ[len(ticker):]
-            if len(body) < 15:
+            # REPAIR: anchored from the END, not sliced by len(ticker) — OCC's
+            # adjusted-contract convention (a root gaining a char after a
+            # corporate action, e.g. IONQ1 instead of IONQ) made a front-anchored
+            # slice land one character short, so the parsed "strike" absorbed the
+            # C/P flag and int() threw. These trailing fields are fixed-width
+            # from the right regardless of root length (same fix as the ATM-IV
+            # lookup below, which already anchors from the end).
+            if len(occ) < 15:
                 continue
 
-            exp_raw  = "20" + body[:6]
+            exp_raw  = "20" + occ[-15:-9]
             exp_date = f"{exp_raw[:4]}-{exp_raw[4:6]}-{exp_raw[6:8]}"
-            opt_type = "call" if body[6] == "C" else "put"
-            strike   = int(body[7:]) / 1000
+            opt_type = "call" if occ[-9] == "C" else "put"
+            strike   = int(occ[-8:]) / 1000
 
             bid = float(quote.get("bp", 0) or 0)
             ask = float(quote.get("ap", 0) or 0)
