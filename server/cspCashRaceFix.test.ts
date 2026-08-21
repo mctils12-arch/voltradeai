@@ -82,8 +82,12 @@ test("tierCashAvailable falls back to the pre-executeTrades cashAvailable if the
     "TIER DISPATCHER — routes tier_actions to the right execution path",
     "// ── TIER 3: BUY SPY/QQQ at 2x",
   );
+  // 2026-08-21: freshAcctForTiers.cash is no longer read unconditionally —
+  // it's now the inner fallback behind options_buying_power (see
+  // optionsCapitalCheckFix.test.ts) — but a failed re-fetch (freshAcctForTiers
+  // is null) must still fall back to the outer cashAvailable, never NaN/undefined.
   assert.ok(
-    /freshAcctForTiers\s*\?\s*parseFloat\(freshAcctForTiers\.cash[^)]*\)\s*:\s*cashAvailable/.test(dispatcherSection),
+    /freshAcctForTiers\s*\?\s*\([\s\S]*?parseFloat\(freshAcctForTiers\.cash[^)]*\)\)\s*:\s*cashAvailable/.test(dispatcherSection),
     "on a failed account re-fetch, tierCashAvailable must fall back to the outer cashAvailable rather than becoming NaN/undefined",
   );
 });
