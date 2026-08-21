@@ -43,6 +43,7 @@ import FacilityEventsView from "./facilityEvents";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
+import JodiOilStocksView from "./jodiOilStocks";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
@@ -2798,6 +2799,11 @@ export default function DataMapPage() {
   // Cboe VIX term structure view (#/data/vix-term-structure) — same
   // overlay pattern (RAW national-market reading, not a spatial layer).
   const [vixTermOpen, setVixTermOpen] = useState(() => window.location.hash === "#/data/vix-term-structure");
+  // JODI world oil closing-stock levels (#/data/jodi-oil-stocks) — same
+  // overlay pattern (RAW self-reported reading, not a spatial layer;
+  // gate1_pass since 2026-08-06, gate2 killed same day, no client view
+  // until now).
+  const [jodiOilOpen, setJodiOilOpen] = useState(() => window.location.hash === "#/data/jodi-oil-stocks");
   // European macro cluster view (#/data/eu-macro) — same overlay pattern
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-07, no client view until now).
@@ -3214,6 +3220,7 @@ export default function DataMapPage() {
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
+      setJodiOilOpen(window.location.hash === "#/data/jodi-oil-stocks");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
@@ -13232,6 +13239,9 @@ export default function DataMapPage() {
       {vixTermOpen && (
         <VixTermStructureView onBack={() => { window.location.hash = "#/data"; setVixTermOpen(false); }} />
       )}
+      {jodiOilOpen && (
+        <JodiOilStocksView onBack={() => { window.location.hash = "#/data"; setJodiOilOpen(false); }} />
+      )}
       {euMacroOpen && (
         <EuMacroView onBack={() => { window.location.hash = "#/data"; setEuMacroOpen(false); }} />
       )}
@@ -13813,6 +13823,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/vix-term-structure"; setVixTermOpen(true); }}>
               <Waves size={13} /> Volatility term structure
               <span className="vt-streams-launch-sub">VIX1D–VIX6M + VVIX daily close · RAW</span>
+            </button>
+            {/* JODI world oil closing-stock levels launcher (2026-08-21):
+                self-reported TOTCRUDE stock levels by country, not a
+                spatial layer, so it launches from the panel top like the
+                other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-jodioil-launch
+                    onClick={() => { window.location.hash = "#/data/jodi-oil-stocks"; setJodiOilOpen(true); }}>
+              <Droplet size={13} /> World oil closing-stock levels
+              <span className="vt-streams-launch-sub">JODI TOTCRUDE by country, monthly · RAW</span>
             </button>
             {/* European macro cluster launcher (2026-08-08): ECB/Eurostat/
                 Bundesbank regime-input reading, not a spatial layer, so it
