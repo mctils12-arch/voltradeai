@@ -59623,3 +59623,140 @@ prominently as the pass verdict. No higher-priority queued item was
 skipped (no LIVENESS ALARM; the two open KNOWN BROKEN items are RULE
 REVIEW-gated or visibility-only, not blocking; product sessions do not
 preempt DAILY repair duty per this task's own instructions).
+
+## 2026-08-21 (scheduled-routine session) [RESEARCH] — SHARED-only (scripts/critical_slowing_down_probe.py, test_critical_slowing_down_probe.py, research/*, ci/counter_baseline.txt, package.json) — critical-slowing-down (axis c) run against real data: FAILS/KILLED for SPY at n=7, a genuine control-sampling confound found and fixed as reusable code (axis d) (v1.0.757)
+
+TERRITORY: no T-DATACORE/T-CLIENT/T-BOT file touched — a standalone Python
+research probe + its test file, matching this file's own 2026-08-18 entry's
+precedent for this exact script.
+
+SESSION-START CHECKS: CLAUDE.md read in full, all of `research/`.
+`python3 scripts/session_health_check.py`: liveness loop alive not dark,
+all subsystems ok, daemon rss 160.9MB well under trim, ml_feedback model
+age 1.9h with no known-broken signature, `deploy_freshness` server_version
+1.0.756 matched this checkout's `package.json` — no LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits register none overdue,
+thrash ratio 1/10 REPAIR (well under the 7+ trigger), KNOWN BROKEN 30/30
+items closed (only #26 lacks an explicit close marker and that was already
+confirmed advisory-only by the 2026-08-20 session that built this exact
+checker). NOT a [REPAIR] session.
+
+AXIS SURVEY (per this routine's own brief, all four considered): axis (a)'s
+named free-data pipelines (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends/pytrends) are already
+built or correctly declined, and the 2026-08-14 session's own note already
+called the DATA CENSUS "effectively closed" (every keyless top-ranked item
+in `research/data_census.md`'s CENSUS MASTER RANKING built; DTCC SBSDR the
+one deliberate exception, blocked on a human volume-budget decision) —
+re-confirmed this session via `grep` for each named source's live artifact,
+nothing new found. Axis (b) (illiquid-universe capacity-constrained
+research) remains explicitly gated on the options fill-realism fix, which
+`research/open_questions.md`'s own "Options fill realism" entry still
+shows as not shipped for options specifically (correctly deferred behind
+KNOWN BROKEN #12(b)/(c) attribution ordering) — skipped per this routine's
+own instruction not to run (b) without it. Axis (c)/(d): the 2026-08-18
+session's own NEXT note named a fully-specified, ready-to-run action this
+sandbox could now actually execute — unlike that session, this one had
+working Yahoo Finance access (`query1.finance.yahoo.com` returned HTTP 200
+on a direct probe; no `ALPACA_KEY`/`ALPACA_SECRET` needed, `backtest_v2`'s
+existing Alpaca-first/Yahoo-fallback path just worked). Chose finishing
+this over starting a new foreign-field import: a half-run hypothesis left
+sitting is exactly the kind of unclaimed queued item SESSION BUDGET ranks
+above fresh research.
+
+READ BEFORE WRITE: read `scripts/critical_slowing_down_probe.py` and
+`test_critical_slowing_down_probe.py` in full before touching either —
+confirmed `compute_lead_signal`'s only two callers are `run_probe()` and
+the test file (no server/bot.ts call site to check, unlike a live-trading
+change).
+
+WHAT HAPPENED: `PYTHONPATH=. python3 scripts/critical_slowing_down_probe.py
+--days 2520` ran cleanly against real 2019-09-27..2026-08-20 SPY/VXX daily
+bars (`vxx_data_quality: "ok"`) and found 7 qualifying regime-severity-onset
+transitions — enough to clear the `MIN_ONSETS_FOR_STATS=5` floor the
+2026-08-18 session's own PRIOR named as the reporting threshold. The RAW
+result (control drawn from the whole unconditional archive, the code as it
+existed at the start of this session) showed `onset_mean_var` LOWER than
+`control_mean_var` at all 4 lead offsets — opposite the stated PRIOR.
+Traced this per REASONING STANDARD #3 (demand base rates) before trusting
+it: `find_transition_onsets` only fires on days still inside the CALMER
+"from" regime, but PANIC/BEAR/NEUTRAL persist for many consecutive days
+once entered in this 7-year archive (COVID crash, 2022 bear), so an
+unconditional random-day control sample over-represents those persistent
+high-vol stretches relative to the calm pre-onset days being measured —
+biasing the control mean upward independent of any real CSD effect. This
+is the same class of "the ruler wasn't measuring what it claimed to
+measure" finding this repo's MEASUREMENT INTEGRITY section exists for,
+just inside a research probe rather than the core P&L ruler.
+
+FIX (own change, compiled per EDGE DOCTRINE #3 so no future onset-style
+probe in this codebase has to re-derive it): `compute_lead_signal()` gained
+an optional `regime_at` parameter — when supplied, each lead's control pool
+is restricted to days classified in one of the SAME "from" regime(s) the
+contributing onsets transitioned out of, instead of the whole-archive pool.
+Falls back to the unconditional pool AND flags `control_regime_matched:
+False` when too few same-regime days exist to trust the sample (never
+silently swaps the comparison — MEASUREMENT INTEGRITY). `run_probe()` now
+always passes the aligned regime labels through. Re-running with the fix:
+this particular SPY archive turns out to be BULL-dominated overall, so
+regime-matching moved the control means only slightly and did NOT flip the
+direction — 7 of 8 cells (variance x4 leads, AR1 x4 leads) still point
+away from the CSD hypothesis, only `lead=1`'s AR1 cell points toward it.
+Full numbers, the exact before/after, and the final verdict are recorded in
+`research/open_questions.md`'s 2026-08-18 entry (kept there per this file's
+own established convention of not duplicating a research finding across
+both files — see the KNOWN BROKEN cross-reference precedent).
+
+VERDICT: gate 2 FAILED / KILLED for this specific candidate (rolling
+20-day AR1/variance ahead of `regime_series` severity onsets, SPY/VXX) at
+n=7 — a genuine, discounted-per-REASONING-STANDARD-#4 negative result, not
+silently dropped (REASONING STANDARD #10). The foreign-field IMPORT itself
+and the regime-matched-control code are not killed — the control-matching
+fix is reusable for any future onset-based signal test in this repo
+regardless of what becomes of CSD specifically.
+
+RATCHET: `test_critical_slowing_down_probe.py` gained 4 new tests (20/20
+total) — default behavior unchanged when `regime_at` is omitted; a
+synthetic CALM/STORMY archive proving regime-matching pulls the control
+mean toward the true same-regime level, not just toward a different random
+sample; and the honest-fallback path when the matched pool is too sparse to
+trust. `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, absent at session start): 1406 passed, 1 skipped —
+unchanged. `npm ci` also run this session (absent at session start —
+`node_modules` existed but was missing `react` and other deps; this first
+surfaced as 8 unrelated client-suite failures, confirmed via `git status`
+to be a sandbox-provisioning gap and not a regression from this diff, since
+zero `.ts`/`.tsx` files were touched, before running `npm ci` to fix it to
+1069/1069 green).
+
+GATES: `bash scripts/gated_tests.sh` GATE PASSED — client 1069/1069, python
+1406/1 skipped, quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`
+12/12, TS2304 0, unchanged (no `.ts` touched). `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge` 378 ->
+382 re-pinned in `ci/counter_baseline.txt` — exactly the 4 new tests, clean
+attribution. `assertions` measured 11562 -> 11826 but left UN-pinned this
+session per PROMOTION RULE 5: `git diff | grep -c "self\.assert"` on this
+session's own diff shows only ~10 new assertions, so ~254 of the rise is
+pre-existing drift from concurrent sessions' merges since the last pin —
+re-pinning here would credit this PR with other sessions' work. All other
+23 counters unchanged. `npx tsc --noEmit`/`npm run build` not re-run — no
+`.ts`/`.tsx` file in this diff, matching this repo's established
+Python-only-diff precedent (tsc_ratchet.sh above already confirms no
+drift).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a research probe result, not a
+strategy/threshold/scoring change; no trading behavior touched.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is a standalone
+statistical probe against already-verified SPY/VXX price data, not a new
+archive or entity-graph join.
+
+STARVED: no — this was the routine's own axis (c)/(d) assignment, matched
+to the 2026-08-18 session's own fully-specified NEXT step, which this
+sandbox's live Yahoo access finally unblocked. No higher-priority queued
+item was skipped (no LIVENESS ALARM, KNOWN BROKEN clean, axis (a)
+exhausted, axis (b) correctly gated off).
+
+Version bumped 1.0.756 -> 1.0.757 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD was exactly at
+`origin/main` (39eb0e7) at bump time, no drift.

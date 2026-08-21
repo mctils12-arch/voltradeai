@@ -17,8 +17,8 @@
 # gates them in node-build against ci/tsc_baseline.txt, and two pins for one
 # number is how they drift apart.
 
-tests_run_in_ci          378      non-decreasing
-tests_gating_merge       378      non-decreasing
+tests_run_in_ci          382      non-decreasing
+tests_gating_merge       382      non-decreasing
 silent_py_handlers       255      non-increasing
 bare_except              3        non-increasing
 empty_ts_catch           493      non-increasing
