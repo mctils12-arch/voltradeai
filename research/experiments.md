@@ -3,6 +3,199 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-21 (scheduled-routine session #2) [REPAIR] — T-BOT (server/bot.ts outside frozen paths) — stale-PR backlog worked: PR #708's CSP wrong-field fix revived after 15 days unmerged, and found to have been SILENTLY REINTRODUCED at the dispatch site by a later session's own fix (v1.0.761)
+
+TERRITORY: T-BOT (`server/bot.ts` outside frozen paths — order-submission
+internals/`submit_options_order` untouched; only WHICH capital figure feeds
+the CSP affordability pre-check changed). SHARED edits (package.json/
+package-lock.json version bump, research/open_questions.md's CSP CAPITAL
+ALLOCATION entry) kept last and minimal per MERGE-ORDER PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+head, open_questions.md KNOWN BROKEN, wishlist.md head. Live `/api/health`
+(production): `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+alpaca `ACTIVE`, `drawdownPct:"0.0"`, scanner `consecutiveFailures:0`, all
+three feeds `dead:false` — no LIVENESS ALARM. Thrash ratio (last 10 tagged
+entries): PIPELINE/PRODUCT/NO-ACTION/PRODUCT/PRODUCT/PRODUCT/NO-ACTION/
+REPAIR/PIPELINE/PRODUCT — 1/10 REPAIR, far under the 7/10 escalation bar.
+
+PRIMARY-ACTION SELECTION: wishlist.md's own ⚠ STALE-PR BACKLOG section
+(filed 2026-08-20, updated 2026-08-21) names this exact work as the next
+step and explicitly scopes it as "its own dedicated session's primary
+action, not a fall-through item": 8 enumerated PRs (#797, #767, #706, #844,
+#834, #817, #794, #708) carrying real, already-tested work unshipped for up
+to 26 days because CI never fired for them. That backlog is a direct
+Priority-1/2 concern — merged-but-unshipped repairs mean the live loop is
+running without fixes that were already written and validated. Took #708
+first because it is the oldest **[REPAIR]** in the list and its subject (CSP
+capital checks) is a live trading-path bug, outranking the product/research
+PRs beside it per SESSION BUDGET's own ordering.
+
+WHY A CHERRY-PICK ONTO A FRESH BRANCH, NOT A REBASE OF #708: the audit's
+suggested `git merge origin/main` on each stale branch was considered and
+rejected for this PR. #708's branch (`claude/funny-fermat-sdc1sx`) is 15 days
+behind and its CI never fired at all (mechanism (3) in the audit — zero check
+runs recorded, not cancelled); reviving it in place would still leave the
+merge depending on whatever suppressed its webhook. This session's own
+designated branch has working CI. Cherry-picked the content instead, which
+also forced a real read of every hunk against current `main` — and that is
+what surfaced the finding below.
+
+THE FINDING THE REVIVAL PRODUCED (the reason this is not a mechanical
+re-push): #708 changed `cashAvailable` at bot.ts:3720 from `acct.cash` to
+prefer `acct.options_buying_power`. Cherry-picking it applied cleanly to
+`server/bot.ts` — but #708's own third test then FAILED against current
+`main`, asserting `cash: cashAvailable` in the SELL_CSP dispatch payload.
+Reading the current code (READ BEFORE WRITE, not assumed from the 15-day-old
+diff) showed why: a LATER session's "CSP-CASH-RACE FIX 2026-08-13"
+(bot.ts:3832-3853) added a fresh per-batch account re-fetch,
+`freshAcctForTiers`/`tierCashAvailable`, and rewired the dispatch payload to
+`cash: tierCashAvailable`. That refetch reads `parseFloat(freshAcctForTiers
+.cash || "0")` — **the same wrong field #708 exists to fix, reintroduced on
+the path that actually reaches Alpaca**. `cashAvailable` (#708's original
+subject) is now only the fallback used when the fresh fetch fails. So
+merging #708 as written would have shipped a fix that no longer reached the
+live code path — green tests, zero live effect. This is a concrete instance
+of the audit's own GENERALIZATION ("a stale PR can go green and still be
+undeployable because the world moved on") in a form the audit did not
+anticipate: not superseded, not conflicted, but *silently defeated* by a
+later well-intentioned fix to adjacent code. Neither the 08-13 session (which
+could not see an unmerged PR) nor #708's own session (15 days earlier) was in
+a position to catch it.
+
+WHAT SHIPPED: both sites now prefer `options_buying_power`. (1) bot.ts:3720
+`cashAvailable` — #708's original fix, applied verbatim. (2) bot.ts:3850
+`tierCashAvailable` — `freshOptionsBp` computed from
+`freshAcctForTiers.options_buying_power`, used when finite, falling back to
+`freshAcctForTiers.cash` when absent/non-numeric, and to the outer
+`cashAvailable` only when the re-fetch itself fails (that last fallback is
+`cspCashRaceFix.test.ts`'s own pinned invariant and is preserved). The
+08-13 race fix's decrement logic (`tierCashAvailable -= cash_required`) is
+untouched — the two fixes compose, they don't conflict.
+
+FIELD VERIFIED, NOT ASSUMED: fetched Alpaca's live Account API reference
+this session rather than trusting the 15-day-old PR body's claim.
+`options_buying_power` is real and documented ("Your buying power for
+options trading"), distinct from `buying_power`, `regt_buying_power`,
+`non_marginable_buying_power`, and `effective_buying_power`. Alpaca's own
+rejection string in our audit logs ("insufficient options buying power for
+cash-secured put") names this field, which is what makes it the right one to
+pre-check against.
+
+MECHANICAL FIX, NO RULE-REVIEW GATE: this matches Alpaca's documented account
+schema to the value the code already intended to check. No threshold, score,
+size, or policy value changes; no order-transmission path touched (FROZEN
+PATHS' explicit allowance — "you may change WHAT gets traded... never HOW
+orders are transmitted"). DOWNSTREAM CHAIN (REASONING STANDARD #1):
+`tierCashAvailable` → `cspPayload.cash` → `options_execution.select_contract
+(cash_available=...)` → strike affordability filter. Effect is strictly to
+make our pre-check agree with Alpaca's real check. Two steps out: fewer
+doomed submissions means fewer T2-FAIL audit entries and less wasted
+rate-limit budget; it may also mean FEWER CSP attempts overall where
+options BP is genuinely below cash, which is correct behavior (those
+attempts were guaranteed rejections), not a tightening we chose.
+
+RATCHET (CLAUDE.md: repairs must ship a regression test that would have
+caught the break): `server/optionsCapitalCheckFix.test.ts` — #708's 3 tests
+plus 2 NEW ones pinning the `tierCashAvailable` site specifically, so the
+next session that adds another account re-fetch cannot silently undo this
+again. A/B verified via `git stash`: 4 of 5 FAIL against pre-fix code, all 5
+pass post-fix. `server/cspCashRaceFix.test.ts`'s third test updated — its
+regex asserted `freshAcctForTiers ? parseFloat(freshAcctForTiers.cash...) :
+cashAvailable` literally; the INVARIANT it pins (a failed re-fetch falls back
+to `cashAvailable`, never NaN) is unchanged and still asserted, only the
+pattern was widened for the now-nested ternary. No assertion was weakened or
+deleted; a comment records why the shape changed.
+
+GATES (all run this session, fresh container needed `npm install`,
+`pip3 install -r requirements.txt`, `pytest`, and `openpyxl` first — the
+same recurring environment gap prior sessions have logged, not a code
+issue): `bash scripts/gated_tests.sh` → **GATE PASSED**, all required
+suites green, quarantine 0/1, none overdue (python 1410 passed / 2 skipped;
+client 1069 passed / 0 failed). `bash scripts/tsc_ratchet.sh` → OK, 12 <= 12
+pin, TS2304 = 0. `npx tsc --noEmit` → 8 errors, byte-identical to the
+`git stash`-verified baseline (`diff` reports IDENTICAL), zero new. `npm run
+build` → clean. `npx tsx --test server/*.test.ts` → 1232 tests, 1224 pass, 8
+fail — all 8 (aircraftTiling/apiKeyAccounts/cdcCancer/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) are a pre-existing
+full-suite-only class: run as their own invocation they are **94 passed, 0
+failed**, identically with AND without this diff (`git stash` A/B), and this
+is the exact file list PR #767's body documented as pre-existing back on
+2026-08-11. No `client/` files touched — VISUAL VERIFICATION does not apply.
+
+COUNTER RATCHET — FOREIGN DRIFT, DELIBERATELY LEFT UN-REPINNED: `bash
+scripts/counter_ratchet.sh` reports `assertions: 11562 -> 11877` improved.
+`git stash -u` A/B (stashing the untracked new test file too, not just
+tracked edits) shows **11877 with this session's entire diff removed** — the
+gain is entirely other merged sessions' drift since the pin was last set, not
+this PR's. Re-pinning here would misattribute their work to this PR, so it is
+left alone per the discipline the 2026-08-19/20/21 sessions established. All
+25 other counters at or better than baseline.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or threshold value
+changed; `backtest_v2.py` does not simulate options/CSP legs at all (the
+same constraint the open_questions.md LADDER-PATH correction below records).
+Live effect is observable instead via `/api/diag/audit?type=T2-FAIL`.
+
+VERSION: 1.0.760 -> 1.0.761 (PROMOTION RULE 4), read-and-increment at commit
+time — re-fetched `origin/main` immediately before bumping and confirmed no
+advance since session start (still 1b1d875/#901). `package-lock.json`
+resynced via `npm install --package-lock-only`; diff confirms only the two
+version-string lines changed. Note #708's own bump (1.0.607 -> 1.0.608) was
+necessarily discarded — 15 days of merges have long since passed it.
+
+RECURRENCE HANDLING (CLAUDE.md HEALTH OF THE LOOP #4): this symptom's fix
+history is now 07-31 (threaded cash_available at all), 08-06 (wrong field —
+#708, never merged), 08-21 (this: #708 revived + the dispatch-site
+reintroduction). Counting attempts honestly, the 08-06 fix never reached
+production, so this is the SECOND fix to actually ship, not the third — the
+escalation clause has not yet fired. But it is close, and the failure mode
+has changed shape from "wrong field" to "right fix, wrong site". STANDING
+FLAG, recorded in open_questions.md too: if T2-FAIL "insufficient options
+buying power" recurs after THIS deploys, the next session must NOT attempt a
+fourth patch — that is the architecture smell RECURRENCE ESCALATES describes
+(three sessions have now each independently touched CSP capital plumbing
+without a shared abstraction for "what capital can a CSP actually use"), and
+the correct response is structural work filed in wishlist.md.
+
+HONEST CONSTRAINT — LIVE VERIFICATION NOT POSSIBLE THIS SESSION: no
+`DIAG_TOKEN` is present in this container, so `/api/diag/audit?type=T2-FAIL`
+returned `{"error":"unauthorized"}` — this session could NOT confirm the
+symptom is still firing today, only that the code defect is real (verified by
+direct reading) and that the live evidence existed on 2026-08-06 per #708's
+own trace. Recorded as a gap, not papered over. A future session with the
+token should check it.
+
+CROSS-SYSTEM INTEGRATION: none new — an internal risk/capital check within
+the existing CSP execution path; no new data stream, archive, or /data
+surface.
+
+`research/open_questions.md`'s CSP CAPITAL ALLOCATION entry updated (same PR,
+minimal diff), carrying forward #708's two documentation corrections: (1) the
+LADDER PATH redirected away from the infeasible `backtest_v2` ablation
+(backtest_v2 does not simulate options) toward the `shadow_portfolio`
+counterfactual-logging pattern already built for item #20's
+`rejected_masterkill` bucket; (2) the wrong-field finding and its
+recurrence flag, annotated with this session's revival so the 15-day gap is
+legible to a future reader.
+
+NEXT (queued, not this session): (1) **7 stale PRs remain** from the audit's
+list — #797, #767, #706, #844, #834, #817, #794 — each needing the same
+treatment; #797 is the next [REPAIR] and should be checked for the same
+class of silent defeat this session found, not just rebased. (2) build the
+shadow_portfolio counterfactual logger for capital-starved CSP candidates —
+still unbuilt, still the correct LADDER PATH for the CSP CAPITAL ALLOCATION
+question. (3) check `/api/diag/audit?type=T2-FAIL` a few days after this
+deploys, from a session that has DIAG_TOKEN. (4) the mechanism (2)/(3) CI
+root causes behind the whole backlog remain unfixed and outside autonomous
+authority (FROZEN `.github/workflows/ci.yml` / Actions billing) — still
+filed in wishlist.md awaiting the human.
+
+STARVED: yes — 7 more stale PRs carrying already-validated work sit unshipped,
+and this session could only take one (PROMOTION RULE 5, one logical change per
+PR). This is high-value queued work left undone at session end, logged per the
+STARVATION SIGNAL rule.
+
 ## 2026-08-21 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (server/datacoreArchive.ts, server/bot.ts diag `archive` probe) + SHARED-but-minimal (ci/counter_baseline.txt, test_ts_code_only.py, package.json/package-lock.json last-and-minimal) — the GDELT-facility-events gate-2 hypothesis gets its infrastructure precondition: the `/api/diag/archive` probe's global-population streams (e.g. `fires`) were silently truncating to an unrepresentative slice before any facility filter ran; a gate-2 script is written and unit-tested, live run deferred to next deploy (v1.0.756)
 
 TERRITORY: T-DATACORE primary. No trading/scoring/sizing code touched.
