@@ -1069,3 +1069,17 @@ export function mountCelestialSky(
     getPathsVisible: () => pathsVisible,
   };
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// Derived, not chosen to look reasonable (PROGRAM_STATE.md F-B / MASTER
+// PROGRAM Q7 — this module owns a second WebGL2 context but had never
+// declared one). maxFeatures is SKY_BODIES.length: a fixed catalog (sun,
+// moon, 7 planets), never user- or data-driven, so 9 is a real ceiling, not
+// an estimate. vramBudget: the only two buffers are bufQuad (12 floats,
+// static, 48B) and bufPaths (the ecliptic's 180 points plus 120 per body x
+// 9 bodies = 1,260 points x 4 floats x 4B = ~20KB, rebuilt on demand, never
+// per frame). No textures — every body is a procedural billboard shader,
+// not a sampled image. ~20KB of real buffer data; 1MB leaves >50x headroom
+// for the 4 compiled programs and driver padding.
+export const maxFeatures = SKY_BODIES.length;
+export const vramBudget = 1; // MB

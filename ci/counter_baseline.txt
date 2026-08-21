@@ -17,15 +17,15 @@
 # gates them in node-build against ci/tsc_baseline.txt, and two pins for one
 # number is how they drift apart.
 
-tests_run_in_ci          382      non-decreasing
-tests_gating_merge       382      non-decreasing
+tests_run_in_ci          383      non-decreasing
+tests_gating_merge       383      non-decreasing
 silent_py_handlers       255      non-increasing
 bare_except              3        non-increasing
 empty_ts_catch           493      non-increasing
 ts_any                   1239     non-increasing
 layers_full_schema       1        non-decreasing
 layers_with_lod          1        non-decreasing
-law_iv_scanned_files     5        non-decreasing
+law_iv_scanned_files     7        non-decreasing
 order_post_sites         6        non-increasing
 design_token_drift       0        non-increasing
 long_try_empty_catch     3        non-increasing

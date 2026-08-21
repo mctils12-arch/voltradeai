@@ -59760,3 +59760,189 @@ exhausted, axis (b) correctly gated off).
 Version bumped 1.0.756 -> 1.0.757 (PROMOTION RULE 4); re-fetched
 `origin/main` immediately before bumping, confirmed HEAD was exactly at
 `origin/main` (39eb0e7) at bump time, no drift.
+
+## 2026-08-21 (scheduled-routine session #2) [PIPELINE] — T-CLIENT (client/src/lib/celestial/celestialSky.ts, scripts/program_status.sh) + SHARED (new root test file, ci/counter_baseline.txt, package.json, research/*) — MASTER PROGRAM Q7 (T2.1/T2.2): Law IV predicate widened to context-acquiring modules, celestialSky.ts closed, spaceFrame.ts pinned as the honest remaining gap (v1.0.758)
+
+TERRITORY: primary T-CLIENT (celestialSky.ts, the one runtime file touched);
+SHARED files (package.json version bump, ci/counter_baseline.txt,
+scripts/program_status.sh, research/*, the new root-level python test file)
+kept as the last, minimal commit per WORKSTREAM PARTITION merge-order
+protocol.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: liveness alive not dark, all subsystems
+ok, daemon rss 361.1MB under trim, ml_feedback age 10.3h no known-broken
+signature, deploy_freshness server_version 1.0.757 matched this checkout —
+no LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits
+register none overdue, thrash ratio 1/10 REPAIR (well under 7+), KNOWN
+BROKEN 30/30 closed bar #26 (advisory-only). Not a [REPAIR] session.
+
+QUEUE CHECK: `research/PROGRAM_STATE.md`'s own NEXT/QUEUE named **Q7**
+(T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules) as
+the single highest-value unclaimed item, and it has shown up in this file's
+own STARVED lines across roughly 15 consecutive sessions going back to
+#839 (2026-08-14) without ever being claimed. Per SESSION BUDGET's own
+fall-through ordering (queued item before fresh research), this was the
+session's primary action.
+
+WHAT PROGRAM_STATE.md's F-B FINDING ACTUALLY SAYS (read before touching
+anything): `test_audit_critical.py`'s `_layer_modules()` selects Law IV's
+audited files by `basename.endswith("Layer.ts")` — 5 files. Its own
+LEARNED section already names the exact honest fix: "Two context-acquiring
+modules (celestialSky.ts, spaceFrame.ts) sit outside the *Layer.ts
+predicate" — not the broader `getContext()`-anywhere-in-lib set the
+program_status.sh shell counter uses for its own separate informational
+reading (that broader grep also catches lunarSymbols.ts/spaceAssets.ts/
+moonTiles.ts/elevation.ts/mapIcons.ts, none of which are "layers" in the
+Law IV sense — one-shot offscreen texture bakers, not owned render
+surfaces). Traced why celestialSky.ts/spaceFrame.ts sit outside the naming
+rule: both export a top-level `mount<Name>()` function returning a Handle
+with its own `dispose()` — the non-MapLibre equivalent of a
+CustomLayerInterface class's onAdd/onRemove lifecycle, structurally the
+same contract Law IV cares about, just shaped differently. Verified this
+is a genuine structural distinction and not coincidence: grepped every
+`.ts` file in the three layer dirs for `getContext(` (5 hits:
+celestialSky.ts, spaceFrame.ts, lunarSymbols.ts, spaceAssets.ts,
+moonTiles.ts) and separately for `^export function mount[A-Z]` (exactly 2
+hits, celestialSky.ts and spaceFrame.ts — the other 3 getContext callers
+create a throwaway `document.createElement("canvas")` inside a function,
+draw once, and let it get GC'd; no module-level ownership, no lifecycle,
+no `mount*` export).
+
+WHAT SHIPPED:
+1. `test_law_iv_context_modules.py` (new, repo root) — the widened
+   predicate (`*Layer.ts` UNION any layer-dir file exporting
+   `mount<Name>()`), still a naming/structural rule per
+   `_layer_modules()`'s own documented philosophy, not a hardcoded list.
+   Three tests: the predicate resolves to exactly the 7 expected files;
+   the 3 offscreen-texture-baker files are correctly NOT caught (guards
+   against over-widening to "every getContext call"); and the actual Law
+   IV budget/dispose check run against the widened set. NOT folded into
+   `test_audit_critical.py`'s existing REQUIRED test in place — that
+   would turn CI red for a gap this session is documenting, not fully
+   closing (spaceFrame.ts's own real budget number needs a session that
+   reads its ~4,300 LOC and several data-dependent CPU raster canvases;
+   inventing one here to make a test pass would violate the "derived, not
+   chosen to look reasonable" precedent satLayer.ts's own comment sets).
+2. `client/src/lib/celestial/celestialSky.ts` — genuinely FIXED, not just
+   audited. Gained `export const maxFeatures = SKY_BODIES.length` (= 9: a
+   fixed catalog — sun, moon, 7 planets — never user- or data-driven, so 9
+   is a real ceiling) and `export const vramBudget = 1` (MB; derived from
+   its actual two buffers — `bufQuad` 48B static, `bufPaths` at most 1,260
+   points x 4 floats x 4B = ~20KB, rebuilt only on demand, never per
+   frame; no textures at all, every body is a procedural billboard shader
+   — ~20KB of real data, 1MB leaves >50x headroom for the 4 compiled
+   programs and driver padding, comment states the arithmetic in the file
+   itself). `dispose()` was ALREADY present and passing (the returned
+   Handle's `dispose(): void { ... }` matches the existing regex) — only
+   the two budget constants were missing.
+3. `scripts/program_status.sh` — the `law_iv_scanned_files` counter was
+   quietly measuring the STALE bare-`*Layer.ts` count (5) even though the
+   real audit (item 1 above) now scans 7. Updated its computation to
+   mirror the same widened predicate so the NUMBERS report (which
+   PROGRAM_STATE.md itself says to "trust ... over any prose") is not
+   lying by omission. Kept the broader `getContext()`-anywhere reading as
+   a separate, honestly-relabeled informational number
+   (`law_iv_context_files`, unchanged computation) rather than deleting
+   it — it is still useful as a coarse "what else touches a canvas"
+   signal, just no longer conflated with the real audited count.
+
+WHAT DID NOT SHIP (spaceFrame.ts): its own `maxFeatures`/`vramBudget` are
+deliberately NOT added this session. It owns half a dozen 2D canvases at
+different, data-dependent sizes (a ~900x900 sky-glow raster, several
+per-body/per-site surface-imagery patches sized by `SPRITE_MAX_SHADE_
+RADIUS`/`TEXTURE_MAX_SHADE_RADIUS`, plus the moon tile managers it
+delegates to `createMoonTileManager`, which already carries ITS OWN Law II
+tile budget separately). A defensible single `maxFeatures`/`vramBudget`
+pair for the whole module needs that arithmetic actually worked out, not
+guessed to turn a test green — exactly the anti-pattern satLayer.ts's own
+"derived, not chosen to look reasonable" comment warns against repeating.
+`test_law_iv_context_modules.py`'s third test is PINNED to this exact
+2-line gap (`spaceFrame.ts: no maxFeatures` / `no vramBudget`), not to
+`[]`, so it starts green today without a quarantine slot and will fail
+the build the moment the gap grows instead of shrinks — same downward-
+only-ratchet discipline as `ci/tsc_baseline.txt`.
+
+RATCHET: `test_law_iv_context_modules.py` is a new REQUIRED file (pytest
+auto-discovers `test_*.py`; no quarantine entry needed since it starts
+green) — 3 new tests, 1409 passed/1 skipped total (1406 baseline this
+session's own predecessor entry recorded + 3 new). `tests_run_in_ci`/
+`tests_gating_merge` 382 -> 383, re-pinned in the same PR — the direct,
+sole, clean effect of the one new test file (counted at the FILE level by
+`program_status.sh`'s own methodology, matching its Q10/Q17 precedent).
+`law_iv_scanned_files` 5 -> 7, re-pinned — the direct, sole effect of item
+3 above.
+
+GATES: `npm ci` (needed — `node_modules` present but incomplete at session
+start, `@types/node`/`vite/client` types missing, which made a first
+`tsc_ratchet.sh` run misreport 12 -> 3 as a false "improvement"; re-ran
+clean after `npm ci` and confirmed 12/12 unchanged, no drift, matching this
+repo's own established sandbox-provisioning-gap precedent — did NOT lower
+the pin on the artifactual reading). `pip install -r requirements.txt -r
+requirements-dev.txt` (absent at session start). `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1069/1069 (unchanged, no
+`.test.ts` touched), python 1409/1 skipped (+3 new), quarantine 0/1 none
+overdue. `bash scripts/tsc_ratchet.sh`: 12 <= 12, TS2304 = 0, unchanged (no
+new TS error — the two added exports are plain `const` declarations of an
+already-typed `readonly` array's `.length` and a numeric literal). `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge`
+382 -> 383 and `law_iv_scanned_files` 5 -> 7 re-pinned (both this session's
+direct effect); `assertions` measured 11562 -> 11829 but left UN-PINNED —
+only ~5 of the ~267-assertion rise are this diff's own (the 3 new test
+methods), the rest is pre-existing drift from concurrent sessions' merges
+since the pin was last set (same situation and same reasoning the prior
+session's entry recorded for this exact counter); all other 22 counters
+unchanged. `npm run build` clean (pre-existing astronomy-engine ESM
+default-export notice and large-chunk warnings only, neither related to
+this diff).
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual -- --page data` at
+390/768/1440 — **0 hard failures**. Ran the full `data` page (not just a
+narrow smoke check) since celestialSky.ts is a runtime file even though
+this diff's only change to it is two additive module-level `const`
+exports with zero references anywhere in the render/mount path — confirmed
+by grep before running the harness that nothing reads `maxFeatures`/
+`vramBudget` from this module yet (the arithmetic cross-check in
+`client/src/render/layerContract.test.ts` is scoped to the 5 stride-based
+instanced GL layers only, per that file's own existing import list — not
+in scope for this predicate-existence fix). The only warnings present are
+the pre-existing global-chrome touch-target warnings and the 1440px
+"upload-hitch spikes" perf-gate noise Q25 already diagnosed as
+non-deterministic on this exact page — matches this diff's own prediction
+of zero visual delta.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a Law IV audit/harness fix, not a
+strategy, threshold, sizing, or scoring change; no trading behavior
+touched.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this closes an internal
+measurement-integrity gap in the RENDERING & MOTION LAW's own mechanical
+enforcement (CLAUDE.md's own "Mechanical enforcement" section), not a new
+data stream or entity-graph join.
+
+MONETIZATION NOTE: this session touches no billing/pricing/subscription/
+ads code — MONETIZATION TRIPWIRE does not apply.
+
+NEXT (queued, not this session): (1) spaceFrame.ts's own real
+`maxFeatures`/`vramBudget` — needs a session that reads the whole module
+(sky/star canvas sizing, per-body/per-site surface-imagery patch sizing,
+and how those relate to the moon tile managers' own separate Law II
+budget) and derives honest numbers, closing Q7 fully. (2) Q8 (T2.6 — the
+§2.1 F16 NaN-guard unit test, a PR open since 2026-08-12) and Q9 (T8.1 —
+design-token drift check, measured 0 today so it starts green) remain the
+next-highest unclaimed queue items per PROGRAM_STATE.md's own NEXT line.
+(3) Q11 (T4.1 `renderKind`/`lod` required in `layersRegistry.test.ts`)
+after those. (4) the AUDITS & DEBT register's STALENESS/CONSTITUTIONAL
+audits were checked (research_state_check.py: none overdue) but not
+re-run in full this session — capacity went to the primary action.
+
+Version bumped 1.0.757 -> 1.0.758 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed HEAD was exactly at
+`origin/main` (4589399) at bump time, no drift.
+
+STARVED: no — this was the queue's own longest-starved, fully-specified
+item (Q7), matched to session capacity; the harder half (spaceFrame.ts's
+real budget derivation) was deliberately deferred rather than faked, and
+is now itself a clearly-scoped queued item rather than an open-ended one.
+No higher-priority item was skipped (no LIVENESS ALARM, KNOWN BROKEN
+clean, thrash ratio 1/10 well under the repair-preempt threshold).
