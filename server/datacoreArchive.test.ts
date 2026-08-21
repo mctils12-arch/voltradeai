@@ -501,6 +501,46 @@ test("readArchiveDay: limit caps rows and sets truncated honestly rather than si
   fs.rmSync(base, { recursive: true, force: true });
 });
 
+// readArchiveDay rowFilter (2026-08-21): fixes the same defect class
+// readArchiveDayEvenSample's rowFilter fixed for hour-file streams, but for
+// a single-file-per-day GLOBAL-population stream (e.g. `fires`, fetched
+// world-wide) — confirmed live via /api/diag/archive?stream=fires that every
+// real day hits `truncated:true` at the probe's 5,000 cap, so a caller
+// isolating rows near a handful of facilities was getting an arbitrary
+// first-N-in-file-order slice, not a representative one.
+test("readArchiveDay: rowFilter applied inline keeps only matching rows and does not count non-matching rows against limit", async () => {
+  const base = tmp();
+  const dir = path.join(base, "fires");
+  fs.mkdirSync(dir, { recursive: true });
+  // 8 rows far from the target region, 2 rows inside it, in file order
+  // BEFORE the 2 matching rows — the old (unfiltered) reader at limit=2
+  // would return only the 2 far rows and report truncated, hiding both
+  // real matches entirely.
+  const far = Array.from({ length: 8 }, (_, i) => JSON.stringify({ id: `far${i}`, lat: 60 + i, lon: -140 }));
+  const near = [JSON.stringify({ id: "near0", lat: 36.0, lon: -96.5 }), JSON.stringify({ id: "near1", lat: 36.1, lon: -96.6 })];
+  fs.writeFileSync(path.join(dir, "2026-08-20.jsonl"), [...far, ...near].join("\n") + "\n");
+  const inBox = (row: Record<string, unknown>) => {
+    const lat = Number(row.lat), lon = Number(row.lon);
+    return lat >= 35 && lat <= 37 && lon >= -98 && lon <= -95;
+  };
+
+  const filtered = await readArchiveDay("fires", "2026-08-20", base, 5000, inBox);
+  assert.ok(filtered);
+  assert.deepEqual(filtered!.rows.map((r) => r.id).sort(), ["near0", "near1"],
+    "both in-box rows must be returned regardless of their position in the file");
+  assert.equal(filtered!.truncated, false, "10 total rows is well under the limit — reading the whole file is not truncation");
+
+  const capped = await readArchiveDay("fires", "2026-08-20", base, 1, inBox);
+  assert.ok(capped);
+  assert.equal(capped!.rows.length, 1, "limit still caps the number of MATCHING rows returned");
+  assert.equal(capped!.truncated, true, "a real match existed beyond the cap");
+
+  const unfiltered = await readArchiveDay("fires", "2026-08-20", base, 2);
+  assert.deepEqual(unfiltered!.rows.map((r) => r.id), ["far0", "far1"],
+    "omitting rowFilter is byte-identical to the pre-2026-08-21 behavior");
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
 // readArchiveDayEvenSample (2026-08-12): fixes the live symptom that blocked
 // the GNSS-integrity Phase 4 gate-2 read (research/open_questions.md, the
 // 2026-08-11 Bilawal-scan finding #1) — a bbox-scoped query over a busy

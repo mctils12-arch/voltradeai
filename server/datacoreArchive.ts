@@ -774,9 +774,29 @@ export function archiveDayFiles(dir: string, day: string): string[] {
  * caller's whitelist check) — this function itself does no path
  * validation beyond a plain path.join, so callers MUST reject anything
  * that isn't `^[a-z0-9_]+$` before reaching here.
+ *
+ * `rowFilter` (added 2026-08-21, same rationale as
+ * readArchiveDayEvenSample's own rowFilter below): a single-file-per-day
+ * GLOBAL-population stream (e.g. `fires` — NASA FIRMS is fetched over the
+ * whole world, `FIRMS_AREA = "-180,-90,180,90"`) hits this reader's
+ * `limit` (the diag probe caps it at 5,000) long before a busy day's file
+ * ends — confirmed live: `/api/diag/archive?stream=fires&day=...` returns
+ * `truncated:true` at the cap on every day checked. Without a filter, a
+ * caller trying to isolate rows near a handful of facilities gets an
+ * arbitrary FIRST-N-in-file-order slice of global detections, not a
+ * representative one — the exact "row budget spent on rows that get
+ * discarded downstream anyway" defect readArchiveDayEvenSample's own
+ * comment already diagnosed for bbox-scoped hour-file queries. Applying
+ * the filter INLINE, before a row counts against `limit`, means the
+ * budget is spent entirely on rows that will actually be used, and
+ * `truncated` keeps its honest meaning: "matching rows exist beyond what
+ * was returned," not "many non-matching rows were scanned." Optional and
+ * generic (a plain predicate) so this stays a no-op, zero-risk change for
+ * every existing caller that doesn't pass one.
  */
 export async function readArchiveDay(
   stream: string, day: string, baseDir?: string, limit = 1000,
+  rowFilter?: (row: Record<string, unknown>) => boolean,
 ): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
   const base = baseDir || archiveBaseDir();
   const dir = path.join(base, stream);
@@ -788,7 +808,10 @@ export async function readArchiveDay(
     if (rows.length >= limit) { truncated = true; break; }
     await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
       if (rows.length >= limit) { truncated = true; return; }
-      try { rows.push(JSON.parse(line)); } catch {}
+      let row: Record<string, unknown>;
+      try { row = JSON.parse(line); } catch { return; }
+      if (rowFilter && !rowFilter(row)) return;
+      rows.push(row);
     });
   }
   return { dir, files: files.map((f) => path.basename(f)), rows, truncated };

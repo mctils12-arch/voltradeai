@@ -173,6 +173,18 @@ test("archive probe (2026-07-26): wired, validates stream/day, reads via readArc
   assert.ok(block.includes("truncated"), "response must report whether the limit cut off real rows, never silently drop them");
 });
 
+test("archive probe (2026-08-21): optional bbox param is validated and threaded to readArchiveDay as an inline rowFilter", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const start = bot.indexOf('case "archive"');
+  const end = bot.indexOf("default:", start);
+  const block = bot.slice(start, end);
+  assert.ok(block.includes("bboxParam") || block.includes("req.query.bbox"), "must read an optional bbox query param");
+  assert.ok(block.includes("lamin") && block.includes("lomax"), "bbox must use the same lamin,lamax,lomin,lomax shape as the gnss_integrity probe");
+  assert.ok(block.includes("invalid bbox"), "a malformed bbox must 400, not silently ignore the filter");
+  assert.ok(block.includes("readArchiveDay(stream, day, undefined, limit, rowFilter)"),
+    "the bbox filter must be passed into readArchiveDay itself (inline, before the row budget is spent), not applied after the fact on a truncated result");
+});
+
 test("shadow probe (2026-08-03): wired, reuses get_shadow_stats() unchanged, sanitized like every other probe", () => {
   assert.ok((DIAG_PROBES as readonly string[]).includes("shadow"));
   const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
