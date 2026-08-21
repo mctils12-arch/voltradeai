@@ -367,6 +367,16 @@ having nothing enforce it — is the one option that keeps producing a
 false record. Still human-only: both require editing a FROZEN path or
 the scheduled-routine prompt.
 
+**NINTH OCCURRENCE, 2026-08-21.** PR #899 (this same day's repair — OCC
+option-symbol parsing crash re-shipped from a stale never-merged PR)
+carried the same "hold merge until after 4:00 PM ET" note and
+auto-merged at 16:22:56 UTC (**~12:22 PM ET**), 4m10s after opening
+(`created_at` 16:18:46Z, `merged_by: github-actions[bot]`) — verified via
+`pull_request_read` on the merged PR, not inferred. 9 consecutive
+occurrences across 8 days (2026-08-14 → 2026-08-21), still 0%
+compliance. No new information beyond confirming the pattern continues;
+still awaiting the human's pick of option 1 or 2 above.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
