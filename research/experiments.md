@@ -3,6 +3,218 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-21 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (server/datacoreArchive.ts, server/bot.ts diag `archive` probe) + SHARED-but-minimal (ci/counter_baseline.txt, test_ts_code_only.py, package.json/package-lock.json last-and-minimal) — the GDELT-facility-events gate-2 hypothesis gets its infrastructure precondition: the `/api/diag/archive` probe's global-population streams (e.g. `fires`) were silently truncating to an unrepresentative slice before any facility filter ran; a gate-2 script is written and unit-tested, live run deferred to next deploy (v1.0.756)
+
+TERRITORY: T-DATACORE primary. No trading/scoring/sizing code touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+head, open_questions.md KNOWN BROKEN — all 30 numbered items RESOLVED/FIXED/
+CLOSED or evidence-gated, none blocking; wishlist.md head). Live `/api/health`
+(production): `status:"ok"`, `bot.status:"active"`, `liveness.dark:false`,
+alpaca `ACTIVE`, `drawdownPct:"0.0"`, all three feeds `dead:false` — no
+LIVENESS ALARM, no repair blocker. Not a [REPAIR] session; product work
+proceeds per this routine's own instruction that product sessions don't
+preempt DAILY repair duty for non-blocking items.
+
+PRIMARY-ACTION SELECTION: the immediately-prior session (2026-08-20, GDELT
+facility-events client view) named its own NEXT item (3) directly: "The
+gate-2 hypothesis this feed exists for (unrest burst -> own-sensor
+confirmation) has never been attempted; the archive has been recording
+since 2026-07-05, so a retrospective burst-vs-sensor study is now possible."
+`server/gdeltEvents.ts`'s own docstring has carried this exact hypothesis,
+unattempted, since the stream shipped (2026-07-05). This is squarely
+CLAUDE.md's option (a) — advancing a datacore/ pipeline through its next
+ladder gate (gate 2, signal testing) — and the most concretely specified,
+most-ready item in the queue.
+
+READ BEFORE WRITE: read `server/gdeltEvents.ts` in full (the HYPOTHESIS
+docstring naming FIRMS/AIS/imagery as the "own sensors" to join against),
+`server/nasaFirms.ts` in full (confirmed `FIRMS_AREA` is the WORLD bbox —
+FIRMS is fetched globally, not facility-scoped at ingest, unlike GDELT),
+`server/firesFacilities.ts` (the existing `haversineKm`/`firesNearFacilities`
+live cross-tie plumbing — reused, not reimplemented, per EDGE DOCTRINE #3),
+`server/datacoreArchive.ts`'s `readArchiveDay`/`readArchiveDayEvenSample`
+in full, `server/bot.ts`'s `archive` and `gnss_integrity` diag probe cases,
+and `scripts/gnss_integrity_gate2.ts` + `scripts/statsUtils.ts` as the
+closest precedent for a diag-probe-driven gate-2 script's structure and
+pre-registration style, before writing anything.
+
+THE BLOCKER FOUND BEFORE ANY STATISTICAL CODE WAS WRITTEN: attempted to
+scope the join by fetching `/api/diag/archive?stream=fires&day=...` for a
+few real days first (methodology check, Reasoning Standard #7 — verify the
+data before trusting it). Every day checked came back `truncated:true` at
+the probe's 5,000-row cap. Root cause: `nasaFirms.ts`'s `FIRMS_AREA =
+"-180,-90,180,90"` — the fires archive is a WORLDWIDE VIIRS feed, and
+global daily detection counts (wildfire season) run well past 5,000. Unlike
+`gdelt` (already facility-filtered at ARCHIVE-WRITE time by
+`parseGdeltExport`'s bbox check, so its daily counts — 128-556 in spot
+checks — never approach the cap), a caller trying to isolate rows near our
+16 facilities from `fires` was getting an arbitrary first-N-in-file-order
+slice of the whole planet's detections, not a representative sample near
+any facility. This is the EXACT SAME defect class `readArchiveDayEvenSample`
+was already fixed for on 2026-08-12 (hour-file streams diluted by a small
+bbox's share of global traffic) — just never applied to the plain
+`readArchiveDay` path the generic `archive` probe uses, because no caller
+had needed a bbox-scoped GLOBAL day-file stream through it before.
+
+WHAT SHIPPED (the infra fix, this session's real logical change):
+1. `server/datacoreArchive.ts`'s `readArchiveDay` gained an optional 5th
+   parameter, `rowFilter?: (row: Record<string, unknown>) => boolean`,
+   applied INLINE — before a row counts against `limit` — mirroring
+   `readArchiveDayEvenSample`'s own rowFilter exactly. Omitting it is
+   byte-identical to the pre-existing behavior (verified by a dedicated
+   test); every one of the ~7 existing callers is unaffected.
+2. `server/bot.ts`'s `archive` diag probe case gained an optional `bbox`
+   query param (same `lamin,lamax,lomin,lomax` shape as the `gnss_integrity`
+   probe beside it, for consistency), validated and threaded into
+   `readArchiveDay` as a `row.lat`/`row.lon` inline filter. Malformed bbox
+   -> 400, not a silently-ignored filter. Response echoes `bbox` back
+   (`null` when omitted) so a caller can confirm the filter was applied.
+3. Both changes are additive/optional — zero behavior change for any
+   existing caller, confirmed by the full gate below staying green with no
+   new failures and by a dedicated "omitting rowFilter is byte-identical"
+   test.
+
+TYPES, NOT `any` (caught mid-session by the counter ratchet, same class the
+2026-08-16 GNSS session hit): the first draft typed the new param
+`(row: any) => boolean`, matching `readArchiveDayEvenSample`'s own
+pre-existing (baseline-pinned) signature — but that still ADDS a new `: any`
+occurrence via my own diff. Switched to `Record<string, unknown>` (property
+access still works; `Number(row.lat)` accepts `unknown` since `Number`'s own
+parameter type is `any`) — zero new `: any` in the full diff, verified by
+grepping the diff before running the gate. The gate-2 script's own first
+draft separately tripped `conflicting_const` (D5): it exported
+`RADIUS_KM = 25` / `WINDOW_DAYS = 3`, which collide by NAME with
+`server/siteTimeline.ts`'s already-exported `RADIUS_KM = 50` /
+`WINDOW_DAYS = 7` — a real different-value collision, exactly what D5
+exists to catch (an accidental same-name import would silently grab the
+wrong one). Renamed to `GATE2_RADIUS_KM`/`GATE2_WINDOW_DAYS`/
+`GATE2_MIN_UNREST_DAYS`/`GATE2_P_BAR` (grepped for collisions first this
+time) rather than reusing `siteTimeline.ts`'s constants — the values are
+genuinely different parameters for a different join, not the same
+constant restated.
+
+A GENUINE (not foreign-drift) COUNTER MOVEMENT, FIXED PROPERLY: refactoring
+`readArchiveDay`'s inner `try { rows.push(JSON.parse(line)); } catch {}` into
+`try { row = JSON.parse(line); } catch { return; }` incidentally turned an
+empty catch body non-empty, moving `empty_ts_catch` 494 -> 493. Verified via
+`git stash` that this counter passes at 494 with my diff stashed (i.e. it is
+MY change, not the same pre-existing foreign drift the last several sessions
+found and deliberately left un-re-pinned for `tests_run_in_ci`/
+`tests_gating_merge`/`assertions` below) — so, per MEASUREMENT INTEGRITY and
+`counter_ratchet.sh`'s own instruction ("if a counter legitimately improves,
+lower the pin in the same PR"), re-pinned BOTH `ci/counter_baseline.txt`
+(494->493) and `test_ts_code_only.py`'s own hardcoded parametrize value
+(the test that ties the module to the pin file), confirmed both now pass.
+
+FOREIGN DRIFT LEFT UN-REPINNED (same discipline the 2026-08-19/20 sessions
+already established, re-verified rather than assumed): `git stash`-diffing
+showed `tests_run_in_ci`/`tests_gating_merge` (378->382) and `assertions`
+(11562->11768, before my diff's own ~11 assertions bring it to 11779) are
+ALL present even with this session's changes fully stashed — pre-existing
+drift from other merged sessions since the pin was last set, not this PR's
+effect. Re-pinning here would misattribute other sessions' gains to this
+one; left alone per the established precedent.
+
+THE GATE-2 SCRIPT ITSELF: `scripts/gdelt_fires_gate2.ts` (new) — a fully
+pre-registered (methodology, radius, window, significance bar, and PRIOR all
+stated in the module docstring BEFORE any live run) join of GDELT unrest-day
+flags against FIRMS fire-hit flags per facility, reusing `haversineKm`
+(`firesFacilities.ts`) and `binomialUpperTailP` (`statsUtils.ts`) rather than
+reimplementing either. Radius 25km reuses the existing live `/api/data/
+fires-near-facilities` cross-tie's own default (not a newly tuned value).
+Pooled AND per-category (tank_farm/steel_mill/port) verdicts are both
+computed — the category split is pre-registered specifically because a
+steel mill's routine industrial heat signature is a plausible FIRMS
+false-positive source independent of any unrest event, which could inflate
+a pooled number without a per-category view to catch it (a Simpson's-
+paradox guard, not an afterthought). PRIOR stated in the docstring: expect
+NO significant pooled elevation — CAMEO unrest/strike codes and FIRMS
+thermal detections measure different physical phenomena; a clean negative
+result is the expected, useful outcome, and a steel-mill-only "pass" would
+be LESS credible than a port-only one, not more.
+
+WHY NOT RUN AGAINST REAL DATA THIS SESSION (honest constraint, not a
+shortcut — Reasoning Standard #10 applies to code, not just published
+numbers): a live smoke test against production, over a 3-day window,
+proved the new `bbox` param has no effect YET — the first row back from a
+~0.35deg box around a Cushing OK facility was a detection in Libya.
+Expected, not a bug: `bbox` is THIS SAME PR's own change, and production
+has not deployed it. Running the script against the currently-deployed
+(un-fixed) endpoint would silently truncate every facility-day fire query
+to an arbitrary global slice and produce a fabricated-looking but
+meaningless verdict — worse than not running it. All PURE functions
+(`nearbyDaysByFacility`, `hitWithinWindow`, `verdictFromRows`,
+`computeGate2`, date arithmetic) are fully unit-tested against synthetic
+data instead (10 tests, `scripts/gdelt_fires_gate2.test.ts`), including a
+dedicated Simpson's-paradox regression test. Also discovered and documented
+in the script's own comments (not a bug, a GDELT property): an archived
+day's file can carry events whose own `day` field is an earlier date (GDELT
+republishes/re-mentions old stories) — the script correctly keys off each
+event's own reported day, not the day it happened to be archived under.
+
+TESTS: `server/datacoreArchive.test.ts` (+1, rowFilter inline-filtering +
+truncated-semantics + byte-identical-when-omitted), `server/diag.test.ts`
+(+1, source-level bbox validation/wiring check, matching this file's
+existing probe-test convention), `scripts/gdelt_fires_gate2.test.ts` (new,
+10 tests — note: `scripts/*.test.ts` is NOT part of `gated_tests.sh`'s
+gate today, same as every other pre-existing `scripts/*_gate2.test.ts`;
+run directly via `npx tsx --test scripts/gdelt_fires_gate2.test.ts`, 10/10
+green).
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start). `bash scripts/tsc_ratchet.sh`: 12 <= 12,
+TS2304 = 0, unchanged. `bash scripts/gated_tests.sh` GATE PASSED — server
+1301+2, client 1069+0, python 1403 passed (+1 from the re-pinned counter
+test's own parametrize, net test count unchanged)/1 skipped, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: OK, 25/25 counters at
+or better than baseline (`empty_ts_catch` re-pinned 494->493 per above;
+`tests_run_in_ci`/`tests_gating_merge`/`assertions` left un-re-pinned per
+above). `npm run build` clean (pre-existing warnings only).
+
+VISUAL VERIFICATION: N/A — zero `client/src` files touched, no UI surface
+in this diff (PROMOTION RULE 6 applies to client/ PRs).
+
+BACKTEST: N/A per PROMOTION RULE 3 — infrastructure + an unrun research
+script; no scoring, sizing, or trading-threshold value changed.
+
+CROSS-SYSTEM INTEGRATION: this IS the join the SPINOUT-READY DATA LAYER /
+ACTIVE ANGLE-HUNTING rules call for — GDELT (unrest observation) x FIRMS
+(our own thermal sensor) at the SAME 16 strategic facilities the fires-near-
+facilities cross-tie already uses, now with the infrastructure to actually
+run the comparison without a truncation-bias artifact.
+
+NEXT (queued, not this session): (1) once this PR deploys, confirm
+`server_version` bumped past v1.0.756 (via `/api/health` or `/api/data/
+layers`), then run `DIAG_TOKEN=... npx tsx scripts/gdelt_fires_gate2.ts`
+(defaults: start=2026-07-05, end=2026-08-17 — widen `--end` as the archive
+deepens) and log the REAL pooled + per-category verdict here and, if gate 2
+passes, add a `gdelt_facility_events` entry to `datacore/signal_ladder.json`
+(which currently has none — also still true for several other RAW roots,
+per the 2026-08-20 session's own NEXT item (2), unbundled deliberately, not
+done this session either). (2) unchanged: no periodic sweep exists for
+non-200 `/api/data/*` responses. (3) unchanged: the stranded zero-CI-run
+PRs (#707, #794) still need GitHub-side diagnosis no session can perform
+here.
+
+Version bumped 1.0.755 -> 1.0.756 (PROMOTION RULE 4); re-fetched
+`origin/main` immediately before bumping, confirmed the branch was exactly
+at `origin/main` with zero drift at bump time.
+
+MARKET-HOURS NOTE: session ran ~20:25 ET, after the 16:00 ET close —
+merge does not need to wait.
+
+STARVED: no — this was the immediately-prior session's own stated NEXT
+item, matched to session capacity. The primary deliverable (the
+truncation-bias infra fix) is complete, tested, and gate-green; the
+gate-2 script it unblocks is written and unit-tested but honestly deferred
+from a live run until this PR's own fix is deployed, exactly the same
+"script built, not yet run" pattern the 2026-08-18 critical-slowing-down
+session used for the same class of constraint (there: no data access at
+all; here: the specific fix this data access needs isn't live yet). No
+higher-priority queued item was skipped (no LIVENESS ALARM; thrash ratio
+well under threshold; no audit overdue).
+
 ## 2026-08-20 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT — GDELT facility events get their /data client view, closing the LAST shipped-data-no-UI gap; the payload's severity column turns out to carry no information about any event on the page (v1.0.755)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/facilityEvents.tsx` new,

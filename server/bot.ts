@@ -2373,10 +2373,35 @@ print(json.dumps(s))
             return res.status(400).json({ error: "invalid day (expected YYYY-MM-DD)" });
           }
           const limit = Math.min(Math.max(parseInt(String(req.query.limit || "1000"), 10) || 1000, 1), 5000);
-          const result = await readArchiveDay(stream, day, undefined, limit);
+          // ADDED 2026-08-21: optional bbox filter (same "lamin,lamax,lomin,lomax"
+          // format as the gnss_integrity probe below), applied INLINE inside
+          // readArchiveDay so a global-population single-file stream (e.g.
+          // `fires` — NASA FIRMS is fetched world-wide) doesn't have its whole
+          // `limit` row budget spent on rows outside the region a caller
+          // actually wants before it ever reaches them — see readArchiveDay's
+          // own comment in datacoreArchive.ts. Omitting bbox is the exact
+          // pre-existing behavior (rowFilter undefined), zero risk to every
+          // caller that doesn't pass one.
+          let bbox: Bbox | undefined;
+          const bboxParam = String(req.query.bbox || "").trim();
+          if (bboxParam) {
+            const parts = bboxParam.split(",").map(Number);
+            if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+              return res.status(400).json({ error: "invalid bbox (expected lamin,lamax,lomin,lomax)" });
+            }
+            bbox = { lamin: parts[0], lamax: parts[1], lomin: parts[2], lomax: parts[3] };
+          }
+          const rowFilter = bbox
+            ? (row: Record<string, unknown>) => {
+                const lat = Number(row.lat), lon = Number(row.lon);
+                return Number.isFinite(lat) && Number.isFinite(lon) &&
+                  lat >= bbox!.lamin && lat <= bbox!.lamax && lon >= bbox!.lomin && lon <= bbox!.lomax;
+              }
+            : undefined;
+          const result = await readArchiveDay(stream, day, undefined, limit, rowFilter);
           if (!result) return res.status(404).json({ error: "unknown stream (no archive directory on this instance)" });
           return res.json({
-            probe: "archive", stream, day,
+            probe: "archive", stream, day, bbox: bbox || null,
             files: result.files, count: result.rows.length, truncated: result.truncated,
             rows: result.rows.map((r) => sanitizeDiag(r)),
           });
