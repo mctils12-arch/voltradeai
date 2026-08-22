@@ -61542,3 +61542,167 @@ capacity (a full generic infrastructure module + a live-validated result,
 not a stub); the standing PRODUCT playbook queue was otherwise empty per
 the pre-action survey (census fully built, platform_program clear except
 human-gated P5), so this was the correctly-scoped next concrete item.
+
+## 2026-08-22 (scheduled-routine session #6) [REPAIR] — T-BOT (server/bot.ts, server/executeTradesStaleOrderTracking.test.ts) + SHARED (ci/counter_baseline.txt, package.json, package-lock.json, research/*) — KNOWN BROKEN #32 continuation: stale-order sweeper's stock/ETF entry-side gap closed (v1.0.767)
+
+SESSION-START SURVEY: CLAUDE.md read in full. Live `/api/health`: `status:
+"ok"`, bot `active`, `drawdownPct:"0.0"`, all 3 feeds (aircraft/vessels/
+trains) silent 0.28h, zero dead — no LIVENESS ALARM. `/api/bot/audit` is
+`requireOwner`-gated and this sandbox holds no owner session cookie, so
+the audit log itself could not be read live this session (unlike the two
+prior 2026-08-22 sessions, which apparently had that access) — health and
+the written record (experiments.md/open_questions.md) were the available
+signal instead. Loop-health ratio, last 10 tagged entries before this one:
+2/10 REPAIR ([PIPELINE] 08-15#2, [PRODUCT] 08-16, [RESEARCH] 08-21,
+[PIPELINE] 08-21#2, [PRODUCT] 08-21#3, [REPAIR] 08-21#4, [PRODUCT] 08-21#5,
+[PIPELINE] 08-22, [REPAIR] 08-22#2, [PIPELINE] 08-22#3) — well under the
+7+ thrash trigger, no meta-problem. No progress-floor stall ([PIPELINE]/
+[PRODUCT] shipped within the last week). Market closed (Saturday, checked
+`TZ=America/New_York date`) — no market-hours merge-timing constraint
+applies to this session's change.
+
+PRIMARY ACTION: this session's own repair queue had a concretely-scoped,
+already-filed NEXT waiting — KNOWN BROKEN #32 (`research/open_questions.md`,
+filed by the immediately-prior scheduled session, v1.0.765): the stale-
+order sweeper (`sweepStaleOrders()`, `server/bot.ts`, `tier1Reflex`, ~45s
+cadence) reads an `openOrders` array that no order-submission call site
+populated until that session registered the two options-entry dispatch
+branches (SELL_CSP, BUY_PUT). That entry's own NEXT named the remaining
+gap explicitly and ranked it: "`executeTrades`' entry/exit paths are the
+highest-value next target — that is where the bulk of daily order volume
+flows." Per SESSION BUDGET, this is exactly the "next queued item from
+open_questions.md" the fall-through order calls for — no re-diagnosis
+needed, the finding was already root-caused; this session's job was to
+execute the named next step, one coherent call-site group at a time per
+ROOT VALIDATION LADDER discipline.
+
+READ-BEFORE-WRITE: read `executeTrades()` (`server/bot.ts:4272`+) in full
+this session before touching anything. Two stock-side order-submission
+call sites inside it were unregistered: (1) the ETF 2x-leverage entry
+branch (~line 4422, fires when the instrument selector picks a leveraged
+ETF over the underlying) and (2) the main stock execution branch (~line
+4610, the default path and the fallback when an options attempt declines)
+— together these are where ordinary stock/ETF entries actually get
+placed, distinct from the options-only branches the prior session fixed.
+Confirmed via direct read of `server/orderParams.ts` that
+`getOrderParams(price, 'new_entry')` — the context both call sites use —
+is ALWAYS a DAY limit order, both in regular hours (limit at ask+0.1%)
+and extended hours (limit at ask+0.5%, `extended_hours: true`); there is
+no market-order case for a new entry at either site. This confirms the
+gap is real, not theoretical: every stock/ETF entry submitted through
+`executeTrades()` can rest unfilled with nothing positioned to free it
+early, the same failure class the prior session found live evidence for
+on the options side.
+
+FIX SHIPPED: both call sites now capture their order-submission response
+(the ETF branch previously discarded it entirely — `await alpaca(...)`
+with no assignment) and, when an order id is returned, push a
+`TrackedOrder` onto `openOrders` — same shape, same gating pattern
+(`if (orderId) { openOrders.push({...}) }`) as the SELL_CSP/BUY_PUT
+branches already use. Unlike those two (which had no real score in scope
+and pushed `score: 0`), both new registrations carry the trade's actual
+`score`, which makes `replaceIfBetter()`'s weakest-score comparison
+meaningfully correct for these entries rather than trivially satisfied.
+
+SELF-CHECKED SIDE EFFECT (read-before-write applied to the surrounding
+code, not just the two new lines): the sweeper's stale-cancel path
+(`sweepStaleOrders()`, ~line 3082) clears `monitoredPositions[ticker]
+.pendingExit = false` on cancellation — a no-op for these entry
+registrations since `pendingExit` is never set true for entries (that
+flag exists for exit-order dedup). Also checked whether a stale ENTRY
+order that gets cancelled after `addPositionToMonitor()` already ran
+optimistically (both branches call it immediately after submission,
+before the batch fill-confirmation wait) would leave a phantom monitored
+position — confirmed it will not: the separate WS position-sync routine
+(`server/bot.ts` ~line 5473) already removes any `monitoredPositions`
+entry whose ticker isn't in the live Alpaca `activeTickers` set on every
+sync cycle, independent of and pre-dating this fix. This fix does not
+introduce that reconciliation; it was already the safety net for a
+never-filled optimistic entry even before today.
+
+NEW FINDING, NOT FIXED THIS SESSION (filed as an UPDATE to KNOWN BROKEN
+#32, not a new item — same root cause, next layer): `checkPositionOnTick
+()`'s scale-out exit path (~line 5676) reads `openOrders.find(o => o
+.ticker === ticker && o.side === exitSide)` as its stated PRIMARY defense
+against duplicate scale-out sell orders (a live Alpaca query is the
+named backup). The scale-out sell order it guards against duplicating
+(~line 5750, a `take_profit` limit order) never registers with
+`openOrders` either — so that "primary defense" has been silently doing
+nothing since its own introduction, same as the sweeper itself, resting
+entirely on its own backup this whole time. Not fixed this session
+(exits are a distinct call-site group from the entries fixed here, and
+verifying every exit-side site — stop-loss, trailing-stop, time-stop —
+needs its own read-before-write pass, not an assumption that they all
+match this one shape) — filed as the concrete NEXT for the exit half in
+`open_questions.md`'s KNOWN BROKEN #32 update, with the specific
+regression test this next session should write (prove the scale-out
+duplicate-guard can actually find a match post-fix, since today nothing
+can prove that path was ever exercised).
+
+RATCHET: `server/executeTradesStaleOrderTracking.test.ts` (4 new tests,
+source-scraping style matching `staleOrderSweepOptionsTracking.test.ts`'s
+own precedent since `openOrders`/`executeTrades` are closures inside the
+un-exported `registerBotRoutes()` with no export surface) — A/B-verified
+via `git stash -- server/bot.ts`: all 4 fail pre-fix (missing
+`etfOrderResult` capture, missing both `openOrders.push(` calls, missing
+real `limitPrice` sourcing), all 4 pass post-fix.
+
+GATES: sandbox needed both `pip install -r requirements.txt -r
+requirements-dev.txt` (missing `pytest` at session start) and `npm ci`
+(missing `node_modules` at session start — 8 client/server test FILES
+were failing on `ERR_MODULE_NOT_FOUND: express` etc. before this, same
+sandbox-provisioning class noted in nearly every prior session's log, not
+a real regression) before gates would run at all. After both: `bash
+scripts/gated_tests.sh` — GATE PASSED (client 100/100 files incl. the new
+one; python 1420/1421, 1 skipped; quarantine 0/1, none overdue). `bash
+scripts/tsc_ratchet.sh`: 12<=12, TS2304=0, unchanged (server/bot.ts edits
+are pure additive JS-shaped statements, no new type surface). `bash
+scripts/counter_ratchet.sh`: first run (before `git add`) showed no
+movement at all — traced this to `tests_run_in_ci`/`tests_gating_merge`/
+`assertions` all computing off `git ls-files`, which doesn't see an
+untracked new test file; staging it (`git add`) before re-running
+surfaced the real movement: `tests_run_in_ci`/`tests_gating_merge`
+390->391, `assertions` 12004->12016 — cleanly attributable to the one new
+test file (1 file, 4 `assert.ok(` calls minus overlap, matches expected
+count), no other session's gain being misattributed. Re-pinned both in
+`ci/counter_baseline.txt` per the script's own instruction; re-ran clean,
+0 counters flagged. `npm run build`: clean (one pre-existing, unrelated
+warning — `astronomy-engine`'s default-export interop notice on
+`celestialSky.ts`, not touched this session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure order-tracking/observability
+plumbing restoring intended stale-order-cancellation behavior; no
+scoring, sizing, or trading-decision logic changed, and no FROZEN order-
+transmission internals touched (additive local bookkeeping only).
+
+Version bumped 1.0.766 -> 1.0.767 (package.json + package-lock.json,
+read-and-increment verified against a fresh `git fetch origin main`
+immediately before this entry — HEAD matched origin/main exactly).
+
+MARKET-HOURS NOTE: N/A — market closed at session time (Saturday), no
+merge-timing constraint.
+
+CROSS-SYSTEM INTEGRATION: none new — pure execution-plumbing repair, same
+class as the prior session's options-side half; no new data source, join,
+or entity-graph edge.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code).
+
+NEXT (queued, not this session): (1) the exit-side half named above —
+`checkPositionOnTick()`'s scale-out branch first (its duplicate-guard is
+now a confirmed-dead check, not just a suspected one), then stop-loss/
+trailing-stop/time-stop exits, one group at a time, each A/B-verified.
+(2) the remaining non-`executeTrades` order-submission sites KNOWN
+BROKEN #32 originally scoped (manual API route, morning-queue execution,
+Tier 3 BUY) are still open — not attempted this session, entry/exit
+inside `executeTrades` was the explicitly-named highest-value target and
+is what this session scoped to. (3) the 8-PR stale-PR-backlog queue
+(2026-08-20 wishlist entry) remains unclaimed, same branch-scope caveat
+noted by the immediately-prior sessions.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (two real call sites fixed, live-verified reasoning for why the
+gap is real rather than theoretical, plus a genuinely new related finding
+filed rather than glossed over); the queue this session drew from was
+non-empty and explicitly ranked, so there was no idle capacity to explain
+away.

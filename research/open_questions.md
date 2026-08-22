@@ -4558,6 +4558,47 @@
     `git stash` on `server/bot.ts` alone — 3 of 4 fail pre-fix, all 4
     pass post-fix) pins the TS-side wiring in both dispatch branches.
 
+    **UPDATE 2026-08-22 (scheduled-routine session, ENTRY-SIDE STOCK/ETF
+    HALF SHIPPED, v1.0.767):** picked up this entry's own NEXT exactly as
+    scoped — `executeTrades`' two stock-side entry paths (the ETF 2x-
+    leverage branch and the main stock/fallback-from-options branch,
+    `server/bot.ts`) now capture their order submission's response and
+    push a `TrackedOrder` onto `openOrders` when an order id is returned,
+    the same pattern the SELL_CSP/BUY_PUT branches already use. Confirmed
+    by direct read that `getOrderParams(..., 'new_entry')`
+    (`server/orderParams.ts`) is ALWAYS a DAY limit order at both call
+    sites, in and out of regular hours — never a market order — so this
+    is a real (not theoretical) gap for every stock/ETF entry the bot
+    places, and matches the description of "the bulk of daily order
+    volume" this entry's own NEXT called out.
+
+    NOT FIXED THIS SESSION, and now with STRONGER evidence than a same-
+    shape guess: the **exit** side. `checkPositionOnTick()`'s scale-out
+    path (`server/bot.ts`, ~line 5676) reads `openOrders.find(o =>
+    o.ticker === ticker && o.side === exitSide)` as its PRIMARY defense
+    against submitting a duplicate scale-out sell order, falling back to
+    a live Alpaca `/v2/orders?status=open` query as backup — but the
+    scale-out sell order submitted a few lines later (~line 5750, a
+    `take_profit` limit order via the same `getOrderParams`) never
+    registers with `openOrders` either. That "primary defense" has
+    therefore been dead code from the same root cause as the sweeper
+    itself, silently relying entirely on its own stated backup this
+    whole time. Same gap almost certainly extends to the other stop-
+    loss/trailing-stop/time-stop exit submissions in this file (not
+    individually re-verified this session — flagging the pattern, not
+    re-deriving every site). NEXT for whichever session takes the exit
+    half: register the scale-out/stop-loss/take-profit exit submissions
+    with `openOrders` the same way, with its own A/B-verified test that
+    specifically proves the scale-out duplicate-guard (line ~5681) can
+    now actually find a match — that guard passing was silently
+    load-bearing on nothing before this fix and deserves a test that
+    would have caught it being dead.
+
+    RATCHET (this update): `server/executeTradesStaleOrderTracking.test.ts`
+    (4 new tests, source-scraping style matching `staleOrderSweepOptionsTracking
+    .test.ts`'s own precedent — A/B-verified via `git stash` on `server/bot.ts`
+    alone: all 4 fail pre-fix, all 4 pass post-fix).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

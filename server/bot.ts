@@ -4424,7 +4424,7 @@ else:
           const etfShares = Math.max(1, Math.floor(trade.shares / 2)); // Half shares for 2x leverage
           try {
             const etfOrderParams = getOrderParams(trade.price || 0);
-            await alpaca("/v2/orders", {
+            const etfOrderResult = await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
                 symbol: etfTicker, qty: String(etfShares), side: "buy",  // Always buy (short blocked)
@@ -4435,6 +4435,22 @@ else:
             notify("trade", `ETF: ${etfShares} ${etfTicker} (2x ${trade.ticker})`);
             slotsUsed++;
             totalDeployed += etfShares * trade.price; // Approximate
+            // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation): this ETF
+            // entry is always a DAY limit order (getOrderParams' 'new_entry'
+            // context never returns a market order) — register it so
+            // sweepStaleOrders() (tier1Reflex, every ~45s) can free it if it
+            // never fills, matching the options-entry fix already shipped.
+            if (etfOrderResult?.id) {
+              openOrders.push({
+                orderId: etfOrderResult.id,
+                ticker: etfTicker,
+                score: trade.score || 0,
+                placedAt: Date.now(),
+                side: "buy",
+                qty: etfShares,
+                limitPrice: Number(etfOrderParams.limit_price) || 0,
+              });
+            }
             // REPAIR 2026-07-31 (KNOWN BROKEN #12(c) contributor): this branch
             // monitored the position for WS exit but never wrote a track_fill
             // entry record, so its eventual exit always found no match and
@@ -4643,6 +4659,27 @@ else:
         // Collect order for batch confirmation
         if (orderId) {
           pendingOrderIds.push({ orderId, trade, side, qty });
+        }
+
+        // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, 2026-08-22
+        // partial fix shipped the options-entry half only): this is
+        // executeTrades' main stock entry path — the highest daily order
+        // volume of any submission site in this file — and getOrderParams'
+        // 'new_entry' context is always a DAY limit order, never a market
+        // order, so an unfilled entry can rest indefinitely with nothing to
+        // free it early. Register it the same way the SELL_CSP/BUY_PUT tier
+        // dispatch branches already do so sweepStaleOrders() has something
+        // to act on here too.
+        if (orderId) {
+          openOrders.push({
+            orderId,
+            ticker: trade.ticker,
+            score: trade.score || 0,
+            placedAt: Date.now(),
+            side,
+            qty,
+            limitPrice: Number(orderParams.limit_price) || 0,
+          });
         }
 
       } catch (err: any) {
