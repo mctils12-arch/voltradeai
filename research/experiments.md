@@ -61083,3 +61083,166 @@ a 15-day-old duplicate PR), matched to capacity after confirming no
 higher-priority item was available (no LIVENESS ALARM; KNOWN BROKEN
 clean; all 3 gate-2 candidates genuinely time-blocked, verified live
 rather than assumed stale; shipped-data-no-UI sweep genuinely clear).
+
+## 2026-08-22 (scheduled-routine PRODUCT session) [PIPELINE] — T-DATACORE (server/dtccSwaps.ts, server/dtccSwaps.test.ts, scripts/dtcc_swaps_gate1.ts, datacore/manifests/dtccswaps.json, datacore/signal_ladder.json) + SHARED (server/routes.ts, package.json, package-lock.json, research/data_census.md, research/experiments.md) — DTCC SBSDR equity swap stream built and GATE 1 (DATA) passed (v1.0.764)
+
+PRIMARY ACTION: system health checked first (LIVENESS ALARM clean — bot
+active, drawdown 0.0%, all feeds silent<1.1h, no dead feeds; KNOWN
+BROKEN clean per the survey below). Product queue survey (delegated to
+a research agent, cross-checked live): the "shipped-data-no-UI" sweep
+was declared clear 2026-08-20/21, all 3 gate-2-pending roots remain
+genuinely time-blocked, and platform_program.md is complete except the
+human-gated Stripe item — so the standing PRODUCT playbook (advance a
+pending root, or ship a missing /data view) was empty. Picked DATA
+CENSUS master-ranking #11, DTCC SBSDR equity swaps: the one concretely-
+scoped, unbuilt root left in the census, explicitly gated on "its own
+volume budget decision before build" (data_census.md §2 item 2,
+147MB/day raw) — advancing it through gate 1 is squarely PRODUCT work
+per this session's own charter (a).
+
+WHAT WAS BUILT: the census's recorded probe URL (pddata.dtcc.com) turned
+out to be only the Angular SPA shell — every path 200s to the same
+7KB app HTML (client-side router fallback), never real data. Found the
+actual file live this session: kgc0418-tdw-data-0.s3.amazonaws.com/
+sec/eod/SEC_CUMULATIVE_EQUITIES_YYYY_MM_DD.zip (same S3-bucket pattern
+DTCC uses for its older CFTC-side SDR data), probed 200, 132MB zip /
+1.15GB CSV, ~2.0M rows. Two findings changed the build from what the
+census assumed:
+1. The file is CUMULATIVE FROM PROGRAM INCEPTION (event timestamps back
+   to 2019-09-12), re-served in FULL every day, not just today's
+   trades — every row carries a unique Dissemination Identifier that
+   never repeats in meaning across days. This makes "archive it daily"
+   naively catastrophic (near-total day-over-day duplication) but also
+   means dedup-by-ID turns the ongoing cost into "new events only" —
+   typically low hundreds to low thousands of rows/day for any scoped
+   subset, not the full 2M.
+2. The file is GLOBAL — every SEC-regulated equity swap, dominated by
+   non-US underliers (live sample: mostly China A-share TRS, the
+   synthetic-exposure-around-QFII-limits use case). We only trade US
+   equities, so this session made the volume-budget decision itself
+   (BUILD-FIRST, no human input needed — it is a scoping choice, not a
+   spend request): archive US-underlier rows ONLY (CUSIP source, or
+   ISIN with a "US" country prefix). Live-measured 2026-08-21: 112,609
+   of 1,981,839 rows (5.68%). The full raw file is still fetched and
+   streamed through in full every poll (bandwidth, not storage) — a
+   dependency-free streaming zip reader (server/dtccSwaps.ts) buffers
+   only the local-file-header bytes (<64KB) and pipes the compressed
+   body through zlib.createInflateRaw() -> readline, so the ~1.15GB
+   decompressed CSV is never held in memory. This mattered enough to
+   build deliberately: this Node process also runs the trading loop
+   (KEEP THE SYSTEM ALIVE is priority 1) and secFtd.ts's existing
+   single-member zip reader buffers its whole member in memory — fine
+   at FTD's <1MB scale, unsafe at this stream's ~1000x larger scale.
+
+GATE 1 (DATA layer, pre-stated 2026-08-22 before running, Reasoning
+Standard #10): DTCC publishes no separate aggregate summary page to
+diff against (unlike OCC's daily-volume page or FINRA's per-facility
+files), so gate 1 used two INDEPENDENT external checksum standards
+applied to the same extracted string: ISO 6166 (ISIN check digit) and
+the CUSIP Global Services mod-10 algorithm, run against the CUSIP
+embedded inside every US ISIN (chars 3-11). A parser reading the wrong
+CSV column (100+ columns, header-name-indexed lookup used specifically
+to guard against this) would not pass either standard-format checksum
+at anywhere near 100% by chance. PRE-STATED BAR: >=99.9% on both
+checks. RESULT (scripts/dtcc_swaps_gate1.ts, run live against the
+2026-08-21 file): ISIN 112,609/112,609 = 100.0000%; CUSIP
+112,607/112,609 = 99.9982%. VERDICT: PASS. The 2 residual CUSIP
+failures are the same single malformed placeholder identifier
+(USFTUSLX0000) appearing twice — a DTCC-side data artifact, not a
+parsing defect: it passes the ISIN check (well-formed 12-char string,
+correct ISIN check digit) but fails the derived-CUSIP check, meaning
+DTCC's own reference data assigned it a syntactically valid but
+non-standard placeholder-style ISIN — logged as-is, not smoothed over.
+
+LIVE FINDING mid-run (an actual gate-1 catch, not a formality): basket-
+swap rows carry a semicolon-joined multi-ISIN list, and it turned out
+to be encoded TWO different ways in the wild — the common case repeats
+"ISIN;ISIN;..." in the SOURCE field, but a rarer variant keeps a
+singular "ISIN" source with the semicolon list in the ID field instead.
+The first pass only checked the source field and let ~8 basket-derived
+rows leak into the checksum denominator as false single-identifiers
+(still correctly failing the checksum, never silently miscounted as
+good, but mis-scoped). Fixed isUsUnderlier/isBasketField to check both
+fields before re-running gate 1 to the clean 100.0000% / 99.9982%
+result above. v1 drops ALL basket rows from the archive (no reliable
+per-component country attribution in this file) rather than guess;
+10,478 of 1,981,839 rows in the probed file, counted but not archived.
+
+SHIPPED: server/dtccSwaps.ts (streaming zip reader, CSV parser, US-
+underlier filter, checksum functions, dedup-by-Dissemination-ID
+archiver, 6h self-healing poll), 13 unit tests (all pure functions
+covered incl. the zip framing via a real deflate-compressed fixture —
+no live network in CI), scripts/dtcc_swaps_gate1.ts (the live gate-1
+runner, re-runnable), datacore/manifests/dtccswaps.json (the archive
+envelope), datacore/signal_ladder.json (+1 root, gate1_pass), a status-
+only /api/data/dtcc-swaps route + boot wiring in server/routes.ts (RAW
+kind, no predictive claim — counts and freshness only; the full per-
+event /data view with filtering is deliberately NOT in this PR, same
+sequencing this codebase already uses for every other freshly-gate1'd
+root — a dedicated client-view PR follows in a later session).
+
+GATES: full node:test suite run (1245 tests; 1236 pass, 9 fail before
+this session's changes minus 1 that was THIS session's own missing-
+manifest gap, self-caught and fixed — see below; the remaining 8
+failures are a pre-existing sandbox environment gap, `express` missing
+from node_modules entirely in this container, affecting 8 unrelated
+test files that transitively import it — confirmed by running one
+standalone and seeing ERR_MODULE_NOT_FOUND for 'express' itself, not a
+test assertion failure; ruled unrelated to this change and out of this
+PR's scope, noted here for the record rather than silently ignored).
+server/manifests.test.ts's FORWARD ENFORCEMENT check (every archive dir
+referenced in server code needs a manifest) caught the missing
+datacore/manifests/dtccswaps.json exactly as designed before the
+manifest was added — the test did its job. `npx tsc --noEmit`: 3
+errors, all pre-existing sandbox config/type-defs gaps (missing @types/
+node, vite/client, one tsconfig deprecation warning), zero new from
+this change. No client/ files touched — VISUAL VERIFICATION rule does
+not apply, no visual harness run needed. No strategy/parameter/trading-
+logic change — PROMOTION RULE 3's backtest requirement does not apply.
+CI CAUGHT A SECOND REAL GAP after the initial push: `scripts/
+counter_ratchet.sh` failed the `test` job (empty_ts_catch 493->495,
+ts_any 1239->1243) — two silent `catch {}` blocks and 5 `: any`
+annotations this session's first draft introduced. Per MASTER PROGRAM
+stop condition 2 ("fix the code, not the pin"), fixed the code: the two
+silent catches in loadSeenIds now count malformed archive lines and log
+non-silently instead of swallowing; the 3 `catch (e: any)` blocks switch
+to bare `catch (e)` (TS 'strict' gives e: unknown, matching the existing
+server/routes.ts:621 precedent of logging e directly rather than reading
+e.message); NodeFetchResponse/FetchFn's `body: any`/`init?: any` are now
+typed `ReadableStream<Uint8Array> | null` / a minimal headers-only
+options type. Re-ran `bash scripts/counter_ratchet.sh` locally: both
+counters back at exact baseline (493/1239), full ratchet OK. The 13 new
+tests genuinely raised tests_run_in_ci/tests_gating_merge (386->387) and
+assertions (11904->11950) — per the script's own "counters IMPROVED,
+lower the pins in the same PR" instruction, ci/counter_baseline.txt was
+updated to lock in the gain (not loosened — moved in the strict-improve
+direction only).
+Version bumped 1.0.763 -> 1.0.764 (package.json + package-lock.json).
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating
+code). Deploy timing: session ran on a Saturday (market closed) — no
+9:30-16:00 ET merge-timing constraint applies.
+
+CROSS-SYSTEM INTEGRATION: none new this session — the underlier ISIN/
+CUSIP identifiers are the natural future join key into the entity graph
+(ticker resolution) once gate 2 is attempted, noted for that session,
+not built now (no fabricated tie).
+
+NEXT (queued, not this session): (1) gate 2 — fresh large TRS notional
+clustering on small/mid-cap US underliers vs forward returns — blocked
+on accumulating archive depth, same precedent as every other freshly-
+archived root; earliest reasonable attempt is whenever enough NEWT
+events with non-null notional have accumulated on a diverse-enough
+underlier set, likely months out given daily net-new volume is modest.
+(2) the /data client view (status endpoint exists; no page yet) — a
+natural next PRODUCT session once there is enough archived data to make
+a view interesting, matching the JODI/GDELT precedent sequencing.
+(3) CUSIP-to-ticker resolution for the archived US rows (would enable
+matching against the bot's actual tradable universe) is unbuilt — the
+archived rows currently carry underlierId (raw CUSIP/ISIN) and
+underlierName (DTCC's own free-text UPI description) only.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (a full pipeline build + a genuine gate-1 result, not a
+stub); no higher-priority item was available per the pre-action survey
+(LIVENESS ALARM clean, KNOWN BROKEN clean, standard PRODUCT playbook
+queue empty).
