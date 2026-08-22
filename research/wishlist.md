@@ -516,6 +516,25 @@ occurrences across 8 days (2026-08-14 → 2026-08-21), still 0%
 compliance. No new information beyond confirming the pattern continues;
 still awaiting the human's pick of option 1 or 2 above.
 
+**TENTH OCCURRENCE, 2026-08-22.** PR #908 (this same day's repair —
+`server/bot.ts`'s stale-order sweeper found fully dead, the options half
+fixed) carried the same "hold merge until after 4:00 PM ET" note and
+auto-merged at 16:32:00 UTC (**~12:32 PM ET**), 4m17s after opening
+(`created_at` 16:27:43Z, `merged_by: github-actions[bot]`) — verified via
+`pull_request_read` on the merged PR, not inferred. 10 consecutive
+occurrences across 9 days (2026-08-14 → 2026-08-22), still 0%
+compliance. This one is a slightly higher-stakes instance than most of
+the prior nine: the fix touches live order-submission bookkeeping
+(`server/bot.ts` + `options_execution.py`), not a docs/UI/research-only
+change — still fully tested and gated before merge (see the PR's own
+gates section), and the underlying bug degrades gracefully rather than
+causing incorrect trades, so no harm resulted; but it underscores that
+"note the market-hours wait" cannot be relied on to actually delay
+anything, for any category of change, including ones a human might
+reasonably want a same-day look at before it ships. No new information
+beyond confirming the pattern continues; still awaiting the human's pick
+of option 1 or 2 above.
+
 ## DATACORE MAXIMUS — program state (standing directive 2026-07-06;
 ## RESUME HERE — this block is the cross-session handoff, update it
 ## every session that works the program)
