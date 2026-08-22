@@ -875,6 +875,43 @@
     threshold change. Item (c) — the options-monitor site and any
     remaining exit paths beyond WS — stays open below, unchanged.
 
+    **(c) PARTIALLY RESOLVED 2026-08-22 (scheduled-routine session,
+    [REPAIR], v1.0.762, T-BOT — standalone single-leg entries/exits
+    only).** Full trace and design rationale in the same-date
+    experiments.md entry. `options_manager.py`'s `register_options_entry()`
+    (single-leg entries) and all 8 single-leg CLOSE sites in
+    `manage_options_positions()` (dte_critical, assignment_close,
+    dte_close, dte_close_bought, profit_target, loss_limit,
+    bought_loss_limit, gamma_risk) now call `ml_model_v2.track_fill()`,
+    using Alpaca's own live `unrealized_pl` (real, quote-based dollar P&L
+    — not a new synthetic pricing model) for `pnl_pct`. This is CSP's own
+    code path (CSP/naked puts/covered calls are entirely single-leg,
+    confirmed by reading the grouping logic) — the system's documented
+    "standing options engine" — so the highest-volume options strategy is
+    now covered. STILL OPEN, deliberately: multi-leg strategies (iron
+    condor, straddles, spreads — closed as one combined mleg order,
+    `MULTI_LEG_STRATEGIES`) are excluded because `ml_model_v2.
+    _find_entry_record()` matches by ticker alone and every leg of a
+    multi-leg strategy shares one underlying ticker — recording 4
+    independent entry/exit pairs for one condor would create real per-leg
+    attribution collisions with no clean fix attempted yet. ROLL actions
+    (assignment_roll, dte_roll) are also excluded — a roll realizes real
+    P&L on the old leg and opens a fresh one economically, which needs its
+    own close+reopen design, not bolted onto this fix. 4 new tests in
+    `test_options_fixes.py` (`TestOptionsFeedbackWiring`) plus 2 existing
+    tests strengthened with new assertions; A/B-verified via `git stash`.
+    NEXT: (1) once this deploys and a few standalone CLOSEs happen live,
+    confirm `/api/diag/ml`'s outcome breakdown gains real win/loss/open
+    records attributable to options tickers, not just permanent
+    `orphan_exit`/silence; (2) once that live data accumulates, the
+    "Options fill realism" wishlist item's quote-based-pricing design
+    question — which explicitly gated this item — can finally be
+    evaluated against real evidence instead of staying deferred forever;
+    (3) multi-leg attribution (a genuinely different design problem, not
+    a bigger version of this fix) and ROLL-path recording remain the
+    natural next slices of this same item, whenever a future session picks
+    them up.
+
 13. **[RESOLVED 2026-07-07, T-CLIENT — v1.0.178]** ~~`--accent` CSS
     custom property silently redeclared in the SAME `:root` block,
     breaking every direct `var(--accent)` use as a `color`/`background`/
