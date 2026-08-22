@@ -242,8 +242,8 @@ export function tryParseLocalHeader(buf: Buffer): ZipLocalHeader | null {
   return { method, compressedSize, headerLen, flags };
 }
 
-type NodeFetchResponse = { ok: boolean; status: number; body: any };
-type FetchFn = (url: string, init?: any) => Promise<NodeFetchResponse>;
+type NodeFetchResponse = { ok: boolean; status: number; body: ReadableStream<Uint8Array> | null };
+type FetchFn = (url: string, init?: { headers?: Record<string, string> }) => Promise<NodeFetchResponse>;
 
 /** Streams the single CSV member of a DTCC zip line-by-line through onLine,
  *  yielding to the event loop between chunks the whole way (no synchronous
@@ -335,6 +335,7 @@ let seenIds: Set<string> | null = null;
 
 function loadSeenIds(dir: string): Set<string> {
   const seen = new Set<string>();
+  let malformedLines = 0;
   try {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith(".jsonl.gz") && !f.endsWith(".jsonl")) continue;
@@ -343,10 +344,16 @@ function loadSeenIds(dir: string): Set<string> {
         : fs.readFileSync(path.join(dir, f), "utf8");
       for (const line of raw.split("\n")) {
         if (!line) continue;
-        try { seen.add(JSON.parse(line).disseminationId); } catch {}
+        try { seen.add(JSON.parse(line).disseminationId); }
+        catch { malformedLines++; }
       }
     }
-  } catch {}
+  } catch (e) {
+    console.error("[datacore] dtccswaps loadSeenIds:", e);
+  }
+  if (malformedLines) {
+    console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
+  }
   return seen;
 }
 
@@ -368,8 +375,8 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
     const existing = fs.existsSync(file) ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf8") : "";
     const payload = existing + fresh.map((r) => JSON.stringify(r)).join("\n") + "\n";
     fs.writeFileSync(file, zlib.gzipSync(payload));
-  } catch (e: any) {
-    console.error("[datacore] dtccswaps archive:", e?.message || e);
+  } catch (e) {
+    console.error("[datacore] dtccswaps archive:", e);
   }
   return { newRows: fresh.length, seenTotal: seenIds.size };
 }
@@ -423,8 +430,8 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
     const { newRows, seenTotal } = archiveNewRows(rows, observedDate, baseDir);
     cache = { at: Date.now(), fileDate: observedDate, usRows: rows.length, newRows, totalArchived: seenTotal };
     console.log(`[datacore] dtccswaps ${observedDate}: ${lines} total lines, ${rows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
-  } catch (e: any) {
-    console.error("[datacore] dtccswaps refresh:", e?.message || e);
+  } catch (e) {
+    console.error("[datacore] dtccswaps refresh:", e);
   }
 }
 

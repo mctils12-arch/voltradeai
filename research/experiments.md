@@ -61199,6 +61199,24 @@ node, vite/client, one tsconfig deprecation warning), zero new from
 this change. No client/ files touched — VISUAL VERIFICATION rule does
 not apply, no visual harness run needed. No strategy/parameter/trading-
 logic change — PROMOTION RULE 3's backtest requirement does not apply.
+CI CAUGHT A SECOND REAL GAP after the initial push: `scripts/
+counter_ratchet.sh` failed the `test` job (empty_ts_catch 493->495,
+ts_any 1239->1243) — two silent `catch {}` blocks and 5 `: any`
+annotations this session's first draft introduced. Per MASTER PROGRAM
+stop condition 2 ("fix the code, not the pin"), fixed the code: the two
+silent catches in loadSeenIds now count malformed archive lines and log
+non-silently instead of swallowing; the 3 `catch (e: any)` blocks switch
+to bare `catch (e)` (TS 'strict' gives e: unknown, matching the existing
+server/routes.ts:621 precedent of logging e directly rather than reading
+e.message); NodeFetchResponse/FetchFn's `body: any`/`init?: any` are now
+typed `ReadableStream<Uint8Array> | null` / a minimal headers-only
+options type. Re-ran `bash scripts/counter_ratchet.sh` locally: both
+counters back at exact baseline (493/1239), full ratchet OK. The 13 new
+tests genuinely raised tests_run_in_ci/tests_gating_merge (386->387) and
+assertions (11904->11950) — per the script's own "counters IMPROVED,
+lower the pins in the same PR" instruction, ci/counter_baseline.txt was
+updated to lock in the gain (not loosened — moved in the strict-improve
+direction only).
 Version bumped 1.0.763 -> 1.0.764 (package.json + package-lock.json).
 MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating
 code). Deploy timing: session ran on a Saturday (market closed) — no
