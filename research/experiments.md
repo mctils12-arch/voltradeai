@@ -3,6 +3,182 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-22 (2) (scheduled-routine session) [REPAIR] — KNOWN BROKEN #12(c): standalone (single-leg) options entries/exits now flow into trade_feedback, closing a 47-day-old silent-recording gap (v1.0.762, T-BOT)
+
+TERRITORY: T-BOT (`options_manager.py`, `test_options_fixes.py`) + SHARED
+minimal (`package.json` version bump only, last commit).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`python3 scripts/session_health_check.py`: all OK (liveness alive,
+subsystems ok, daemon rss 166.5MB, ml_feedback age 1.4h, deploy_freshness
+matches). `python3 scripts/research_state_check.py`: audits none overdue,
+thrash ratio 1/10 REPAIR (well under 7+), KNOWN BROKEN 31 items/1
+advisory-only (#26) — no LIVENESS ALARM, no repair preemption. NOT a
+mandatory [REPAIR] session by the health gates; picked one anyway as the
+highest-EV item on file (see PRIMARY-ACTION SELECTION below).
+
+PRIMARY-ACTION SELECTION (axes a-d from this routine's own brief): (a)
+Sentinel-2/EDGAR Form 4/USAspending/CFTC COT/FDA calendar/pytrends are all
+already built or correctly declined per the 2026-08-21 axis-survey entry
+(open_questions.md line ~10968) — re-verified true, nothing new to build.
+(b) illiquid-universe capacity-constrained research is explicitly gated on
+"the fill-realism fix" per that same 2026-08-21 entry, which points at
+open_questions.md's "Options fill realism" item, itself gated on KNOWN
+BROKEN #12(b)/(c). (c)/(d) a foreign-field import (critical slowing down)
+was done and killed the session immediately prior (#896) — doing a second
+one back-to-back without letting (a)/(b) breathe seemed lower value than
+finally unblocking the standing (b) gate. Traced #12(c) fresh (READ BEFORE
+WRITE, not from memory): #12(b) resolved 2026-08-07 (v1.0.619, dead D3
+block removed); #12(c) — "Exit paths beyond the WS monitor (options_manager
+exits...) still record nothing; wire path-by-path after (b) resolves" —
+has sat open since 2026-08-07, 15 days, explicitly the next unblocked step
+per its own text. Also directly answers axis (b)'s stated blocker: once
+options exits are observable in trade_feedback, a future session has real
+win/loss data to decide whether the wishlist's quote-based-pricing design
+question even still matters, instead of guessing.
+
+WHAT I FOUND (read every entry/exit call site in options_manager.py and
+options_execution.py before touching anything): options entries
+(`register_options_entry`, called from both `options_execution.py`'s
+`execute_options_trade` and `server/bot.ts`'s scanner-direct path) and every
+exit in `options_manager.py`'s `manage_options_positions()` write ONLY to
+`voltrade_options_state.json` (position-management bookkeeping) — none of
+them ever call `ml_model_v2.track_fill()`. This is NOT the same gap as the
+"options fill realism" wishlist item describes for backtesting (that's
+about `backtest_v2.py`'s offline cost model, confirmed a dead concern for
+LIVE options in the 2026-07-23 update — options have zero live fill
+simulation because Alpaca fills them for real). The gap here is narrower
+and purely a RECORDING gap: `manage_options_positions()`'s 8 single-leg
+CLOSE sites (dte_critical, assignment_close, dte_close, dte_close_bought,
+profit_target, loss_limit, bought_loss_limit, gamma_risk) already compute
+real P&L from Alpaca's own live `unrealized_pl` field per position — this
+is genuine, quote-based, live market data, not a synthetic model — it just
+never left `options_manager.py`. `ml_model_v2._is_exit_fill()`'s own
+docstring even already names "exit_reason present (from options_manager
+exit logic)" as an anticipated exit-fill signal — this wiring was designed
+for, never implemented.
+
+SCOPE DECISION (one attribution at a time, per KNOWN BROKEN #12(c)'s own
+instruction to "wire path-by-path"): multi-leg strategies (iron condor,
+straddles, spreads — `MULTI_LEG_STRATEGIES`, new named constant) are
+closed as ONE combined mleg order by `_manage_strategy_group()`, and
+`ml_model_v2._find_entry_record()` matches by TICKER alone — every leg of
+a 4-leg condor shares one underlying ticker, so recording 4 independent
+entry/exit pairs would create real per-leg attribution collisions with no
+clean fix in this PR's scope. Standalone single-leg positions (CSP, naked
+puts/calls, covered calls — CSP specifically is the system's documented
+"standing options engine" and is ENTIRELY single-leg, confirmed by reading
+the grouping logic) have no such ambiguity. This PR wires standalone
+entries + all 8 standalone CLOSE sites only; multi-leg entries are
+explicitly excluded from `track_fill` (not silently half-wired — an
+excluded multi-leg entry would otherwise sit forever with `outcome: None`
+since its exit is never recorded, polluting `/api/diag/ml` with permanent
+opens). ROLL actions (assignment_roll, dte_roll) are also explicitly
+excluded — a roll realizes real P&L on the old leg and opens a fresh one,
+which deserves its own close+reopen design, not bolted onto this PR.
+
+FIX (own PR, v1.0.762, `options_manager.py`):
+- `MULTI_LEG_STRATEGIES` — named constant replacing a previously-inline
+  tuple in the grouping-decision code, now shared with the new entry-side
+  gate so the two lists can never drift apart.
+- `_code_version()` — options_manager.py runs inside the Python
+  daemon/subprocess with no access to `server/bot.ts`'s `pkgVersion`;
+  reads `package.json` directly (same source of truth bot.ts reads),
+  cached after first read, falls back to the same "1.0.34" literal
+  `ml_model_v2.track_fill()` itself falls back to.
+- `_record_options_exit_feedback()` — shared helper called from all 8
+  single-leg CLOSE sites. `pnl_pct` is Alpaca's own dollar `unrealized_pl`
+  divided by notional cost basis (`entry_price * qty * 100`, the standard
+  100x contract multiplier) — NOT a new synthetic pricing model, just
+  plumbing an already-accurate number into the existing feedback pipeline.
+  `entry_features: {}` on the entry side is deliberately honest — no ML
+  feature snapshot exists for options entries today, so these records
+  populate `/api/diag/ml`'s outcome breakdown (visibility — the actual
+  ask) but are correctly excluded from ML training by
+  `ml_model_v2`'s own `entry_features` schema gate (MEASUREMENT
+  INTEGRITY: not fabricating training-readiness). Both new functions
+  wrap `track_fill` in try/except-and-log — a feedback-recording failure
+  must never affect position management itself.
+- `register_options_entry()` gains the entry-side `track_fill` call,
+  gated on `strategy not in MULTI_LEG_STRATEGIES`.
+
+RATCHET: `test_options_fixes.py` — 4 new tests
+(`TestOptionsFeedbackWiring`): multi-leg entry does NOT call track_fill
+(gate correctness); `_record_options_exit_feedback`'s pnl_pct math pinned
+directly (2 contracts, $2.00 credit, $120 profit -> 30.0%, not eyeballed);
+never-raises-on-bad-input (must not crash position management); a new
+`assignment_close` end-to-end test (no prior coverage existed for this
+close path at all) proving the full `manage_options_positions()` ->
+`track_fill` wiring fires with the correct ticker/exit_reason/pnl_pct
+(-$300 on a $300 credit basis = -100%). 2 existing tests
+(`test_register_sold_option`, `test_50pct_profit_triggers_close`) gained
+new assertions on the `track_fill` payload rather than new test methods.
+A/B-verified via `git stash options_manager.py`: 3 of the 4 new tests plus
+the new assertions appended to `test_register_sold_option` and
+`test_50pct_profit_triggers_close` all fail against pre-fix code — 3 with
+`AssertionError: called 0 times` (assignment_close wiring, plus the 2
+modified tests), 2 with `ImportError: cannot import name
+'_record_options_exit_feedback'` (the direct unit tests of the new
+helper), matching exactly what the fix adds (pre-existing assertions in
+the 2 modified tests still pass unchanged either way). The 4th new test
+(`test_multi_leg_entry_does_not_call_track_fill`) correctly passes on
+BOTH sides of the stash — pre-fix, options entries never call track_fill
+for ANY strategy, so it can't discriminate the fix on its own; it exists
+to pin the exclusion invariant going forward, not to catch this specific
+regression. TEST-POLLUTION AVOIDANCE:
+found 6 EXISTING tests in `test_options_fixes.py`
+(`test_critical_dte_forces_close`, `test_21_dte_closes_bought_option`,
+`test_2x_loss_triggers_close`, `test_bought_option_50pct_loss_triggers_
+close`, `test_high_gamma_triggers_exit`, `test_register_bought_option`)
+that would otherwise now write real entries into `ml_model_v2.FEEDBACK_
+PATH` as an unrequested side effect of this change (previously a no-op
+for those tests) — added `@patch("ml_model_v2.track_fill")` to each so
+they stay isolated, without touching or weakening any of their existing
+assertions. Checked `test_options_v134_fixes.py` and
+`test_options_convexity_state.py` for the same risk: the former's
+`register_options_entry` calls all use multi-leg strategies
+(`buy_straddle`/`iron_condor`, correctly excluded by the new gate) and the
+latter's scenario never reaches Phase 2 (early-return branch) — neither
+needed changes, verified by reading, not assumed.
+SILENT-EXCEPT RATCHET CAUGHT A REAL ISSUE: the new `days_held` computation
+inside `_record_options_exit_feedback` used a bare `except Exception:
+pass`, which `test_silent_except_ratchet.py` correctly flagged as a new
+silent handler (options_manager.py pin 10 -> found 11). Narrowed to
+`except (ValueError, TypeError):` (the two errors
+`datetime.fromisoformat` can actually raise on a malformed timestamp) —
+this is exactly what that ratchet exists to catch, and it worked.
+GATES: `python3 -m pytest -q` — 1414 passed, 2 skipped (1409 baseline + 4
+new tests + 1 pre-existing skip-reason unchanged; zero regressions,
+including `test_silent_except_ratchet.py` after the narrowing fix). No
+`.ts`/`.tsx` files touched (`git status --short` confirms only
+`options_manager.py` + `test_options_fixes.py` + `package.json` version
+line) — `npx tsc --noEmit`/`npm run build` were not re-run, same
+established precedent as prior Python-only T-BOT sessions (e.g. the
+2026-08-15 item #30 fix, 2026-08-07 item #12(b) fix).
+BACKTEST: N/A per PROMOTION RULE 3 — this changes no scoring, sizing,
+threshold, or trading decision; it is a pure feedback-recording/
+observability fix using numbers Alpaca already computed. No live options
+CLOSE behavior, order transmission, or P&L to the account itself is
+touched (frozen order-submission paths in `options_execution.py`/
+`server/bot.ts` untouched; `options_manager.py`'s own `_submit_close_
+order`/`_close_strategy_mleg` order-POST internals untouched — only new
+code was ADDED after order submission, at the same point `actions.append`
+already records the close).
+NEXT: once this deploys and a few standalone CSP/covered-call/naked-option
+CLOSEs happen live, check `/api/diag/ml`'s `live_outcome_breakdown` for
+the first non-`orphan_exit` options-attributable win/open/loss records
+(distinguishing them from stock/ETF records isn't directly possible from
+that breakdown alone today — a future session could cross-reference
+against `/api/diag/audit?type=OPTIONS-SLOT-FULL`-adjacent CLOSE audit
+lines, or simply trust the new code path since it's the only wiring that
+sets `exit_reason` on an options ticker). Once real win/loss data
+accumulates, the wishlist's "Options fill realism" quote-based-pricing
+question can finally be evaluated against live evidence instead of
+staying a permanently-deferred design question. Multi-leg attribution and
+ROLL-path recording remain deliberately unwired — filed as the natural
+next slice in open_questions.md KNOWN BROKEN #12(c), not silently
+dropped.
+
 ## 2026-08-22 (scheduled-routine PRODUCT session) [PRODUCT] — datacore/product PR-hygiene: PR #794 (submarine cables /data view) closed as superseded by already-shipped work, docs-only, research/*
 
 TERRITORY: SHARED (research/wishlist.md, research/experiments.md only —

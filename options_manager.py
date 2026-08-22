@@ -61,6 +61,94 @@ MIN_HOLD_MINUTES = 60            # Minimum hold time before ANY exit (except DTE
 # Persistent state file for options positions
 OPTIONS_STATE_PATH = os.path.join(DATA_DIR, "voltrade_options_state.json")
 
+# KNOWN BROKEN #12(c) (research/open_questions.md): multi-leg strategies
+# (spreads/straddles/condors) are managed as ONE combined unit by
+# _manage_strategy_group() and closed via a single mleg order — there is no
+# clean way to attribute that combined fill back to one options_manager
+# ticker-keyed trade_feedback record without the per-leg collision problem
+# described in that item (multiple legs share one underlying ticker, and
+# _find_entry_record() matches by ticker alone). Standalone single-leg
+# positions (CSP, covered call, naked long calls/puts — the strategies NOT
+# in this set) have no such ambiguity and are wired into trade_feedback
+# below. Multi-leg attribution stays a deliberate follow-up, not silently
+# dropped — this is the SAME list manage_options_positions() already uses
+# to decide grouping, named here so the two can never drift apart.
+MULTI_LEG_STRATEGIES = (
+    "buy_straddle", "short_straddle", "iron_condor",
+    "bull_call_spread", "bear_put_spread",
+    "bull_put_credit_spread", "qqq_iron_condor",
+)
+
+_CODE_VERSION_CACHE = None
+
+
+def _code_version() -> str:
+    """Read the app's package.json version once and cache it, for
+    trade_feedback's code_version attribution field (PROMOTION RULES #4).
+    options_manager.py runs inside the Python daemon/subprocess, which has
+    no access to server/bot.ts's pkgVersion — package.json is the shared
+    source of truth both sides already read from independently. Falls back
+    to the same literal ml_model_v2.track_fill() itself falls back to for
+    any caller that can't determine a version, so an unreadable file never
+    breaks feedback recording, only its version attribution."""
+    global _CODE_VERSION_CACHE
+    if _CODE_VERSION_CACHE is not None:
+        return _CODE_VERSION_CACHE
+    try:
+        pkg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "package.json")
+        with open(pkg_path) as f:
+            _CODE_VERSION_CACHE = str(json.load(f).get("version") or "1.0.34")
+    except Exception:
+        _CODE_VERSION_CACHE = "1.0.34"
+    return _CODE_VERSION_CACHE
+
+
+def _record_options_exit_feedback(ticker: str, side: str, qty: int, entry_price: float,
+                                   exit_price: float, unrealized_pnl: float,
+                                   exit_reason: str, entry_timestamp: str = None) -> None:
+    """Record a standalone single-leg options CLOSE into trade_feedback so
+    it becomes a real win/open/loss/flat record instead of the permanent
+    silence KNOWN BROKEN #12(c) documented — options_manager.py's exits
+    previously recorded nothing at all. pnl_pct is derived from Alpaca's own
+    live unrealized_pl (already real, quote-based dollar P&L — this is NOT
+    a new synthetic pricing model, just plumbing an already-accurate number
+    into the existing feedback pipeline) against the position's notional
+    cost basis (entry_price * qty * 100, the standard option contract
+    multiplier). entry_features is deliberately {} — no ML feature snapshot
+    is captured at options entry today, so these records are visible in
+    /api/diag/ml's outcome breakdown but correctly excluded from ML
+    training by ml_model_v2's own entry_features schema gate (honest, not
+    fabricated). Best-effort: any failure is logged and swallowed, never
+    raised — this must not affect position management."""
+    try:
+        from ml_model_v2 import track_fill
+        cost_basis = abs(float(entry_price or 0)) * qty * 100
+        pnl_pct = (float(unrealized_pnl or 0) / cost_basis * 100) if cost_basis > 0 else 0.0
+        days_held = 0
+        if entry_timestamp:
+            try:
+                days_held = max(0, (datetime.now() - datetime.fromisoformat(entry_timestamp)).days)
+            except (ValueError, TypeError):
+                pass
+        now_iso = datetime.now().isoformat()
+        track_fill({
+            "ticker": ticker,
+            "side": "buy" if side == "short" else "sell",  # closing side reverses the opening side
+            "qty": qty,
+            "expected_price": exit_price,
+            "fill_price": exit_price,
+            "exit_reason": exit_reason,
+            "exit_context": {
+                "pnl_pct": round(pnl_pct, 3),
+                "exit_reason": exit_reason,
+                "days_held": days_held,
+            },
+            "time_filled": now_iso,
+            "code_version": _code_version(),
+        })
+    except Exception as e:
+        logger.warning(f"track_fill exit record failed for {ticker}: {e}")
+
 
 def _alpaca_headers():
     key = ALPACA_KEY or os.environ.get("ALPACA_KEY", "")
@@ -856,9 +944,7 @@ def manage_options_positions(equity: float = 100000) -> dict:
         # they get group-level profit target / max-loss / coordinated exit
         # management. Previously their 4 (or 2) legs were managed as
         # standalone positions which can't coordinate exits.
-        if strategy in ("buy_straddle", "short_straddle", "iron_condor",
-                         "bull_call_spread", "bear_put_spread",
-                         "bull_put_credit_spread", "qqq_iron_condor"):
+        if strategy in MULTI_LEG_STRATEGIES:
             key = f"{ticker}_{strategy}"
             if key not in strategy_groups:
                 strategy_groups[key] = {"legs": [], "strategy": strategy, "ticker": ticker, "setup": meta.get("setup", "")}
@@ -951,6 +1037,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
             if limit_px <= 0:
                 limit_px = current_price
             result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+            _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                           unrealized_pnl, "dte_critical", pos_state.get("entry_timestamp"))
             actions.append({
                 "action": "CLOSE",
                 "ticker": parsed["ticker"],
@@ -1000,6 +1088,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 close_side = "buy"  # Buy back the sold option
                 limit_px = snap.get("ask", current_price) if snap else current_price
                 result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                               unrealized_pnl, "assignment_close", pos_state.get("entry_timestamp"))
                 actions.append({
                     "action": "CLOSE",
                     "ticker": parsed["ticker"],
@@ -1039,6 +1129,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     close_side = "buy"
                     limit_px = snap.get("ask", current_price) if snap else current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                    _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                                   unrealized_pnl, "dte_close", pos_state.get("entry_timestamp"))
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1057,6 +1149,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                 if limit_px <= 0:
                     limit_px = current_price
                 result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                               unrealized_pnl, "dte_close_bought", pos_state.get("entry_timestamp"))
                 actions.append({
                     "action": "CLOSE",
                     "ticker": parsed["ticker"],
@@ -1082,6 +1176,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     if limit_px <= 0:
                         limit_px = current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                    _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                                   unrealized_pnl, "profit_target", pos_state.get("entry_timestamp"))
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1106,6 +1202,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     close_side = "buy"
                     limit_px = snap.get("ask", current_price) if snap else current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                    _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                                   unrealized_pnl, "loss_limit", pos_state.get("entry_timestamp"))
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1129,6 +1227,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
                     if limit_px <= 0:
                         limit_px = current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+                    _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                                   unrealized_pnl, "bought_loss_limit", pos_state.get("entry_timestamp"))
                     actions.append({
                         "action": "CLOSE",
                         "ticker": parsed["ticker"],
@@ -1149,6 +1249,8 @@ def manage_options_positions(equity: float = 100000) -> dict:
             if limit_px <= 0:
                 limit_px = current_price
             result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
+            _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                           unrealized_pnl, "gamma_risk", pos_state.get("entry_timestamp"))
             actions.append({
                 "action": "CLOSE",
                 "ticker": parsed["ticker"],
@@ -1240,3 +1342,26 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "max_loss": max_loss,  # v1.0.34: for 50%-of-max-loss early exit
     }
     _save_options_state(state)
+
+    # KNOWN BROKEN #12(c): wire standalone single-leg entries into
+    # trade_feedback so their eventual CLOSE has a real record to match
+    # against (see MULTI_LEG_STRATEGIES / _record_options_exit_feedback
+    # above for why multi-leg strategies are deliberately excluded here).
+    if strategy not in MULTI_LEG_STRATEGIES:
+        try:
+            from ml_model_v2 import track_fill
+            now_iso = datetime.now().isoformat()
+            track_fill({
+                "ticker": ticker,
+                "side": side,
+                "qty": qty,
+                "expected_price": entry_price,
+                "fill_price": entry_price,
+                "session": "regular",
+                "entry_features": {},
+                "time_placed": now_iso,
+                "time_filled": now_iso,
+                "code_version": _code_version(),
+            })
+        except Exception as e:
+            logger.warning(f"track_fill entry record failed for {ticker}: {e}")

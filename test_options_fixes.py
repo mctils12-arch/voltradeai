@@ -425,10 +425,11 @@ class TestDTEExitLogic(unittest.TestCase):
             "asset_class": "option",
         }
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_critical_dte_forces_close(self, mock_close, mock_snap, mock_get):
+    def test_critical_dte_forces_close(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Position at 3 DTE should be force-closed."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -455,10 +456,11 @@ class TestDTEExitLogic(unittest.TestCase):
         self.assertGreaterEqual(len(close_actions), 1, "Should close at critical DTE")
         self.assertIn("dte_critical", close_actions[0].get("type", ""))
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_21_dte_closes_bought_option(self, mock_close, mock_snap, mock_get):
+    def test_21_dte_closes_bought_option(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Bought option at 18 DTE should be closed (theta acceleration zone)."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -496,10 +498,11 @@ class TestDTEExitLogic(unittest.TestCase):
 class TestProfitTarget(unittest.TestCase):
     """Test the 50% profit target for sold premium."""
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_50pct_profit_triggers_close(self, mock_close, mock_snap, mock_get):
+    def test_50pct_profit_triggers_close(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Sold option at 60% profit should be closed."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -540,6 +543,15 @@ class TestProfitTarget(unittest.TestCase):
         result = manage_options_positions(100000)
         close_actions = [a for a in result["actions"] if a.get("type") == "profit_target"]
         self.assertGreaterEqual(len(close_actions), 1, "Should close at 50% profit target")
+
+        # KNOWN BROKEN #12(c): this CLOSE must now be recorded into
+        # trade_feedback with the real (Alpaca unrealized_pl-derived) pnl_pct,
+        # not silently dropped.
+        mock_track_fill.assert_called_once()
+        fill_payload = mock_track_fill.call_args[0][0]
+        self.assertEqual(fill_payload["ticker"], "AAPL")
+        self.assertEqual(fill_payload["exit_reason"], "profit_target")
+        self.assertAlmostEqual(fill_payload["exit_context"]["pnl_pct"], 60.0, places=1)
 
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
@@ -586,10 +598,11 @@ class TestProfitTarget(unittest.TestCase):
 class TestLossLimit(unittest.TestCase):
     """Test the 2x credit loss limit for sold options."""
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_2x_loss_triggers_close(self, mock_close, mock_snap, mock_get):
+    def test_2x_loss_triggers_close(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Sold option now costing 2.5x the credit should be force-closed."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -625,10 +638,11 @@ class TestLossLimit(unittest.TestCase):
         loss_closes = [a for a in result["actions"] if a.get("type") == "loss_limit"]
         self.assertGreaterEqual(len(loss_closes), 1, "Should close at 2x loss limit")
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_bought_option_50pct_loss_triggers_close(self, mock_close, mock_snap, mock_get):
+    def test_bought_option_50pct_loss_triggers_close(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Bought option down 60% should be closed."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -671,10 +685,11 @@ class TestLossLimit(unittest.TestCase):
 class TestGammaRisk(unittest.TestCase):
     """Test gamma threshold exit."""
 
+    @patch("ml_model_v2.track_fill")
     @patch("options_manager.requests.get")
     @patch("options_manager._get_option_snapshot")
     @patch("options_manager._submit_close_order")
-    def test_high_gamma_triggers_exit(self, mock_close, mock_snap, mock_get):
+    def test_high_gamma_triggers_exit(self, mock_close, mock_snap, mock_get, mock_track_fill):
         """Position with gamma > 0.08 and <=30 DTE should be closed."""
         from options_manager import manage_options_positions, _save_options_state, OPTIONS_STATE_PATH
 
@@ -799,7 +814,8 @@ class TestStatePersistence(unittest.TestCase):
 class TestRegisterOptionsEntry(unittest.TestCase):
     """Test that entry registration populates state correctly."""
 
-    def test_register_sold_option(self):
+    @patch("ml_model_v2.track_fill")
+    def test_register_sold_option(self, mock_track_fill):
         from options_manager import register_options_entry, _load_options_state, OPTIONS_STATE_PATH
 
         if os.path.exists(OPTIONS_STATE_PATH):
@@ -807,7 +823,7 @@ class TestRegisterOptionsEntry(unittest.TestCase):
 
         register_options_entry(
             "AAPL260418P00175000", 2.50, "sell", "sell_cash_secured_put",
-            delta=-0.30, qty=2,
+            delta=-0.30, qty=2, ticker="AAPL",
         )
 
         state = _load_options_state()
@@ -819,10 +835,21 @@ class TestRegisterOptionsEntry(unittest.TestCase):
         self.assertEqual(entry["strategy"], "sell_cash_secured_put")
         self.assertAlmostEqual(entry["max_profit_target"], 1.25)  # 50% of 2.50
 
+        # KNOWN BROKEN #12(c): a standalone (non-multi-leg) entry must be
+        # recorded into trade_feedback so its eventual exit has something
+        # to match against.
+        mock_track_fill.assert_called_once()
+        fill_payload = mock_track_fill.call_args[0][0]
+        self.assertEqual(fill_payload["ticker"], "AAPL")
+        self.assertEqual(fill_payload["side"], "sell")
+        self.assertEqual(fill_payload["fill_price"], 2.50)
+        self.assertIsNone(fill_payload.get("exit_context"), "must be an ENTRY, not an exit")
+
         if os.path.exists(OPTIONS_STATE_PATH):
             os.remove(OPTIONS_STATE_PATH)
 
-    def test_register_bought_option(self):
+    @patch("ml_model_v2.track_fill")
+    def test_register_bought_option(self, mock_track_fill):
         from options_manager import register_options_entry, _load_options_state, OPTIONS_STATE_PATH
 
         if os.path.exists(OPTIONS_STATE_PATH):
@@ -1210,6 +1237,124 @@ class TestCSPNormalMarketSetup(unittest.TestCase):
         import options_scanner as os_mod
         src = inspect.getsource(os_mod._setup_csp_normal_market)
         self.assertIn('vxx_ratio >= 1.15', src)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  TEST 20: KNOWN BROKEN #12(c) — standalone options entries/exits now flow
+#  into trade_feedback (research/open_questions.md)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestOptionsFeedbackWiring(unittest.TestCase):
+    """options_manager.py's exits used to record NOTHING into trade_feedback
+    (KNOWN BROKEN #12(c)). These tests pin the standalone (single-leg) wiring
+    added to close that gap, and — just as importantly — that multi-leg
+    strategies are deliberately excluded (they're closed as one combined
+    mleg order and ticker-based _find_entry_record() matching can't safely
+    attribute per-leg economics; see MULTI_LEG_STRATEGIES' docstring)."""
+
+    @patch("ml_model_v2.track_fill")
+    def test_multi_leg_entry_does_not_call_track_fill(self, mock_track_fill):
+        from options_manager import register_options_entry, OPTIONS_STATE_PATH
+        if os.path.exists(OPTIONS_STATE_PATH):
+            os.remove(OPTIONS_STATE_PATH)
+
+        register_options_entry(
+            "AAPL260418C00190000", 1.00, "sell", "iron_condor",
+            delta=-0.20, qty=1, ticker="AAPL",
+        )
+
+        mock_track_fill.assert_not_called()
+
+        if os.path.exists(OPTIONS_STATE_PATH):
+            os.remove(OPTIONS_STATE_PATH)
+
+    @patch("ml_model_v2.track_fill")
+    def test_record_options_exit_feedback_pnl_pct_matches_dollar_pnl(self, mock_track_fill):
+        """Direct unit test of the pnl_pct math: real Alpaca unrealized_pl
+        (dollars) against notional cost basis (entry_price * qty * 100),
+        not a fabricated/synthetic number."""
+        from options_manager import _record_options_exit_feedback
+
+        # Sold 2 contracts at $2.00 credit (cost basis $400), now $120 profit
+        # -> 120 / 400 * 100 = 30%
+        _record_options_exit_feedback(
+            ticker="XYZ", side="short", qty=2, entry_price=2.00,
+            exit_price=1.40, unrealized_pnl=120.0, exit_reason="profit_target",
+            entry_timestamp=(datetime.now() - timedelta(days=3)).isoformat(),
+        )
+
+        mock_track_fill.assert_called_once()
+        payload = mock_track_fill.call_args[0][0]
+        self.assertEqual(payload["ticker"], "XYZ")
+        self.assertEqual(payload["side"], "buy")  # closing side reverses a short entry
+        self.assertEqual(payload["exit_reason"], "profit_target")
+        self.assertAlmostEqual(payload["exit_context"]["pnl_pct"], 30.0, places=3)
+        self.assertEqual(payload["exit_context"]["days_held"], 3)
+        self.assertIn("code_version", payload)
+
+    @patch("ml_model_v2.track_fill")
+    def test_record_options_exit_feedback_never_raises_on_bad_input(self, mock_track_fill):
+        """Must never raise — this runs inside position management, which
+        must never crash on a feedback-recording failure."""
+        from options_manager import _record_options_exit_feedback
+        mock_track_fill.side_effect = Exception("boom")
+        try:
+            _record_options_exit_feedback("XYZ", "short", 1, 2.00, 1.00, 100.0,
+                                           "profit_target", None)
+        except Exception as e:
+            self.fail(f"_record_options_exit_feedback raised: {e}")
+
+    @patch("ml_model_v2.track_fill")
+    @patch("options_manager.requests.get")
+    @patch("options_manager._get_option_snapshot")
+    @patch("options_manager._attempt_roll")
+    @patch("options_manager._submit_close_order")
+    def test_assignment_close_wired_to_feedback(self, mock_close, mock_roll, mock_snap,
+                                                 mock_get, mock_track_fill):
+        """A deep-ITM sold option near expiry whose roll attempt fails must
+        force-close AND record the exit into trade_feedback (previously:
+        neither the close nor any prior single-leg CLOSE path recorded
+        anything at all)."""
+        from options_manager import manage_options_positions, _save_options_state
+
+        exp = (datetime.now() + timedelta(days=8)).strftime("%y%m%d")
+        occ = f"AAPL{exp}P00200000"
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: [{
+                "symbol": occ, "qty": "-1", "side": "short",
+                "avg_entry_price": "3.00", "current_price": "6.00",
+                "market_value": "-600", "unrealized_pl": "-300",
+                "asset_class": "option",
+            }]
+        )
+        # |delta| > 0.80 assignment threshold
+        mock_snap.return_value = {"bid": 5.80, "ask": 6.20, "mid": 6.00,
+                                   "delta": -0.90, "gamma": 0.05, "theta": -0.10, "vega": 0.04, "iv": 0.40}
+        mock_roll.return_value = {"rolled": False, "detail": "no valid roll candidate"}
+        mock_close.return_value = {"status": "submitted", "order_id": "assign999"}
+
+        _save_options_state({
+            occ: {
+                "entry_price": 3.00, "entry_delta": -0.30, "side": "short",
+                "entry_date": "2026-04-12",
+                "entry_timestamp": (datetime.now() - timedelta(hours=3)).isoformat(),
+                "strategy": "sell_cash_secured_put", "highest_value": 3.00, "qty": 1,
+                "initial_credit": 3.00,
+            }
+        })
+
+        result = manage_options_positions(100000)
+        close_actions = [a for a in result["actions"] if a.get("type") == "assignment_close"]
+        self.assertGreaterEqual(len(close_actions), 1, "Should force-close on failed assignment roll")
+
+        mock_track_fill.assert_called_once()
+        payload = mock_track_fill.call_args[0][0]
+        self.assertEqual(payload["ticker"], "AAPL")
+        self.assertEqual(payload["exit_reason"], "assignment_close")
+        # Lost $300 on a $300 credit basis (1 contract * $3.00 * 100) = -100%
+        self.assertAlmostEqual(payload["exit_context"]["pnl_pct"], -100.0, places=1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
