@@ -4483,6 +4483,81 @@
     plain-root cases confirm no regression on the common case, unchanged
     on both sides of the stash).
 
+32. **[FOUND + PARTIAL FIX 2026-08-22, scheduled-routine session]
+    `server/bot.ts`'s stale-order sweeper (`sweepStaleOrders()`,
+    `tier1Reflex`, every ~45s, meant to cancel DAY limit orders unfilled
+    for `STALE_ORDER_MINUTES` (12) minutes) has been fully dead code —
+    the `openOrders` tracked-order array it reads was never populated by
+    ANY order-submission call site in the file.**
+    LIVE EVIDENCE (this session's routine health check, `/api/diag/audit`
+    + `/api/diag/orders` + `/api/diag/positions-detail`, all live/token-
+    gated): the audit log showed `OPTIONS-SLOT-FULL` firing repeatedly
+    across at least 4 consecutive Tier-2 scan cycles (13:38-15:58 UTC)
+    for TLT/IBIT/CSX, each reporting `(6/6)`. `/api/diag/positions-
+    detail` showed only 4 REAL filled options positions — the other 2
+    "slots" were two options DAY limit sell orders (`NU260904P00014000`
+    @ $0.18, `XLP260918P00083000` @ $0.41) that had been sitting
+    `status: "accepted"` (never filled, never cancelled) for 2+ hours
+    since 13:48:4x UTC. `countOpenOptionsOpeningOrders()` correctly
+    counts still-open opening orders toward the cap (this is the
+    2026-08-15 fix for KNOWN BROKEN #30, working as designed — that part
+    is NOT the bug), but nothing was ever positioned to free those two
+    slots early if the resting orders never filled — they were fated to
+    sit until Alpaca's own end-of-day DAY-order expiration, needlessly
+    starving Tier 1 CSP for hours whenever a limit order rested unfilled.
+    ROOT CAUSE (grep confirmed, read-before-write): `openOrders: TrackedOrder[]`
+    is declared at `server/bot.ts:3053`; `sweepStaleOrders()` and
+    `replaceIfBetter()` both read/mutate it; `grep -n "openOrders.push"
+    server/bot.ts` returned **zero matches** anywhere in the file before
+    this session. Every one of the ~20 `/v2/orders` POST call sites in
+    the file (manual API route, morning-queue execution, Tier 3 BUY,
+    the CSP-tier-dispatcher SELL_CSP/BUY_PUT branches, `executeTrades`'
+    main entry/exit paths, position-management exits) places orders
+    without ever registering them — the sweeper has had nothing to act
+    on since whichever commit introduced it (not identified this
+    session; not relevant to the fix).
+    PARTIAL FIX SHIPPED THIS SESSION (v1.0.765): the two branches this
+    session found live evidence for — the Tier 1 `SELL_CSP` dispatch and
+    the Tier 4 `BUY_PUT` tail-hedge dispatch (`server/bot.ts`, both call
+    Python's `submit_options_order`) — now push a `TrackedOrder` onto
+    `openOrders` whenever the submission returns an `order_id`.
+    `options_execution.submit_options_order()`'s single-leg success
+    branch was extended to return `qty`/`limit_price`/`side` (previously
+    only embedded inside the human-readable `detail` string) so the
+    TS-side caller has the fields to build the tracked entry — a pure
+    additive return-value change; the raw HTTP POST body/headers/retry
+    behavior FROZEN PATHS reserves for this function is untouched.
+    DELIBERATELY NOT FIXED THIS SESSION (one logical layer at a time,
+    ROOT VALIDATION LADDER discipline — "never debug the whole pipeline
+    at once"): every OTHER order-submission call site in `server/bot.ts`
+    shares the identical gap — stock entries (`executeTrades`, morning
+    queue, Tier 3 BUY) and stock/option exits are equally unswept today.
+    Fixing all of them safely needs auditing each site's available
+    context (is a score/ticker/qty/limit-price in scope at that point?
+    is the order actually a LIMIT order that could rest, or a MARKET
+    order that fills immediately and gains little from tracking?) one at
+    a time — `openOrders`/`sweepStaleOrders`/`replaceIfBetter` are
+    closures inside the giant `registerBotRoutes()` function with no
+    export surface, so every claim here was verified by direct grep/read
+    of `server/bot.ts`, not assumed from the doc comments describing the
+    sweeper's intent.
+    NEXT: a dedicated future session should sweep the remaining ~18
+    order-submission call sites (`executeTrades`' entry/exit paths are
+    the highest-value next target — that is where the bulk of daily
+    order volume flows) the same way, one call site (or one coherent
+    group) at a time, each with its own A/B-verified test proving the
+    push actually happens and the sweep actually cancels a synthetic
+    aged entry. Until then, this item stays open rather than marked
+    resolved.
+    RATCHET: `test_submit_options_order_slot_tracking.py` (3 new tests,
+    A/B-verified via `git stash` on `options_execution.py` alone — 2 of
+    3 fail with `KeyError` pre-fix, pass post-fix) pins the Python-side
+    return-value change; `server/staleOrderSweepOptionsTracking.test.ts`
+    (4 new tests, source-scraping style matching this file's own
+    `optionsSlotOpenOrdersRace.test.ts` precedent — A/B-verified via
+    `git stash` on `server/bot.ts` alone — 3 of 4 fail pre-fix, all 4
+    pass post-fix) pins the TS-side wiring in both dispatch branches.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
