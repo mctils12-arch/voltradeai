@@ -61246,3 +61246,141 @@ capacity (a full pipeline build + a genuine gate-1 result, not a
 stub); no higher-priority item was available per the pre-action survey
 (LIVENESS ALARM clean, KNOWN BROKEN clean, standard PRODUCT playbook
 queue empty).
+
+## 2026-08-22 (scheduled-routine session #2, during market hours) [REPAIR] — T-BOT (server/bot.ts, options_execution.py) + SHARED (research/*, package.json, package-lock.json) — stale-order sweeper found fully dead (KNOWN BROKEN #32), options half fixed (v1.0.765)
+
+PRIMARY ACTION: standard session-start survey — CLAUDE.md re-read, then
+`research/experiments.md`/`open_questions.md`/`wishlist.md`. Loop-health
+ratio (last 10 tagged entries): 2 [REPAIR] / 8 non-repair — well clear of
+the 7+ thrash threshold, no meta-problem to address. LIVENESS ALARM
+checked live: `/api/health` `status:"ok"`, bot `active`, drawdown 0.0%,
+all 3 feeds silent <1.1h, zero dead — clean. Per SESSION BUDGET's own
+ordering ("fix a bug seen in audit logs" outranks starting new research),
+pulled `/api/diag/audit?limit=50` as the routine health check instructs,
+rather than jumping straight to the queued stale-PR-backlog item (wishlist
+$2026-08-20$'s own SUGGESTED NEXT STEP, which needs its own dedicated
+session per that entry's sizing note and — separately — would mean pushing
+to OTHER sessions' `claude/*` branches outside this run's assigned branch,
+which this run's own instructions reserve for explicit permission).
+
+WHAT WAS FOUND: the live audit log showed `OPTIONS-SLOT-FULL` firing on
+4 consecutive Tier-2 scan cycles (13:38-15:58 UTC, ~20min apart) for
+TLT/IBIT/CSX, every one reporting `(6/6)`. Cross-checked against
+`/api/diag/positions-detail`: only **4** real filled options positions
+existed, not 6. `/api/diag/orders` explained the other 2 "slots": two
+options DAY limit sell orders (`NU260904P00014000` @ $0.18,
+`XLP260918P00083000` @ $0.41) submitted at 13:48:4x UTC, still
+`status: "accepted"` — unfilled — 2+ hours later. `countOpenOptionsOpeningOrders()`
+correctly counts a resting opening order toward the cap (that's the
+2026-08-15 KNOWN BROKEN #30 fix working exactly as designed — verified,
+not the bug), but nothing exists to free a slot early if the resting
+order never fills.
+
+ROOT CAUSE (read-before-write, `grep -n "openOrders.push" server/bot.ts`
+returned **zero matches** anywhere in the 14k-line file before this
+session): `server/bot.ts`'s stale-order sweeper (`sweepStaleOrders()`,
+called from `tier1Reflex()` every ~45s, meant to cancel any DAY limit
+order unfilled for `STALE_ORDER_MINUTES` (12) minutes) reads a module-
+closure array `openOrders: TrackedOrder[]` that is declared, read, and
+mutated in several places — but **never populated** by any of the ~20
+`/v2/orders` POST call sites in the file. `sweepStaleOrders()` has been
+fully dead code (`if (openOrders.length === 0) return;` fires
+unconditionally) since whichever commit introduced it; `replaceIfBetter()`
+(score-based order replacement) shares the same dead input and is
+therefore equally dead. This is a distinct mechanism from KNOWN BROKEN
+#30 (which fixed what COUNTS toward the cap, using a live Alpaca fetch,
+unaffected by this bug) — this is about nothing ever being able to FREE a
+slot early once occupied by a resting, never-filling limit order.
+
+FIX SHIPPED (options half only, the layer this session found live
+evidence for — ROOT VALIDATION LADDER: "never debug the whole pipeline
+at once"): `options_execution.submit_options_order()`'s single-leg
+success branch now returns `qty`/`limit_price`/`side` alongside the
+existing `order_id` (previously only embedded in the human-readable
+`detail` string) — a pure additive return-value change, not touching the
+raw HTTP POST body/headers/retry behavior FROZEN PATHS reserves for this
+function. `server/bot.ts`'s Tier 1 `SELL_CSP` and Tier 4 `BUY_PUT`
+tier-dispatch branches (the two call sites that invoke
+`submit_options_order`) now push a `TrackedOrder` onto `openOrders`
+whenever the submission returns an `order_id`, so `sweepStaleOrders()`
+finally has something to act on for options entries.
+
+DELIBERATELY NOT FIXED (one logical change, filed instead): every other
+`/v2/orders` POST site in `server/bot.ts` — stock entries (`executeTrades`,
+morning-queue execution, Tier 3 BUY) and every stock/option exit path —
+shares the identical gap. Filed as **KNOWN BROKEN #32** in
+`research/open_questions.md` with the full evidence trail and a concrete
+NEXT (sweep the remaining ~18 sites one call-site/group at a time,
+`executeTrades`' entry/exit paths first since that's the bulk of daily
+order volume), rather than attempting a same-session rewrite of closures
+inside the un-exported, 13000+-line `registerBotRoutes()` function with
+no unit-test surface beyond source-scraping.
+
+RATCHET: `test_submit_options_order_slot_tracking.py` (3 new tests) —
+A/B-verified via `git stash` on `options_execution.py` alone: 2 of 3 fail
+with `KeyError` pre-fix (`'qty'` absent from the return dict), all 3 pass
+post-fix. `server/staleOrderSweepOptionsTracking.test.ts` (4 new tests,
+source-scraping style matching this file's own
+`optionsSlotOpenOrdersRace.test.ts` precedent, since `openOrders` is an
+un-exported closure) — A/B-verified via `git stash` on `server/bot.ts`
+alone: 3 of 4 fail pre-fix (the 4th pins a pre-existing invariant this
+change must not disturb — the slot-cap gate still reads live Alpaca
+state, not `openOrders` — and correctly stays green on both sides), all
+4 pass post-fix.
+
+GATES: `bash scripts/gated_tests.sh` — GATE PASSED (python 1417 passed/2
+skipped, includes the 3 new; client+server 2251/2267 passed — the same
+16 pre-existing failures as a clean-baseline run confirmed via `git
+stash` on all 3 changed tracked files, none touching bot.ts/
+options_execution.py; quarantine 0/1, none overdue). `bash scripts/
+tsc_ratchet.sh`: 12<=12, TS2304=0 — **note**: a first pre-`npm ci` run in
+this sandbox misleadingly reported 3 errors (dropped from the 12 pin) on
+BOTH pre-fix and post-fix trees identically — confirmed via `git stash`
+this was a stale/incomplete `node_modules` provisioning artifact, not a
+real improvement from this change, so `ci/tsc_baseline.txt` was correctly
+left untouched after `npm ci` restored the true 12-error baseline
+(re-pinning would have misattributed an environment quirk as this PR's
+gain — same discipline as the 2026-08-21 session's `assertions`-counter
+attribution note). `bash scripts/counter_ratchet.sh`: 25 counters at or
+better than baseline, no re-pin needed. `npm run build`: clean (required
+`npm ci` first — devDependency `tsx` was declared in package.json but not
+materialized in `node_modules` at session start, a sandbox-provisioning
+gap unrelated to this change, same class noted in several prior
+sessions).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this restores intended stale-order-
+cancellation behavior and adds observability fields; it changes no
+scoring, sizing, or trading-decision logic, and does not touch
+`submit_options_order`'s order-transmission mechanics (FROZEN).
+
+Version bumped 1.0.764 -> 1.0.765 (package.json + package-lock.json,
+read-and-increment verified against a fresh `git fetch origin main`
+immediately before this entry).
+
+MARKET-HOURS NOTE: this session ran during market hours. The fix is a
+genuine live starvation bug (CSP slots squatted by orders with no
+free-early mechanism) but is not a critical break — the sweep's absence
+degrades gracefully to "wait for Alpaca's own EOD DAY-order expiration,"
+not to any incorrect trade or halted loop. Per the scheduled-task
+instructions, the PR notes that merge should wait until after 4:00 PM ET
+unless a human decides otherwise.
+
+CROSS-SYSTEM INTEGRATION: none new — pure execution-plumbing repair, no
+new data source, join, or entity-graph edge.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code).
+
+NEXT (queued, not this session): (1) KNOWN BROKEN #32's own NEXT — sweep
+the remaining ~18 order-submission call sites in `server/bot.ts` the same
+way, one call site/group at a time, each with its own A/B-verified test;
+`executeTrades`' entry/exit paths first (highest daily order volume). (2)
+The 8-PR stale-PR-backlog rebase-and-retry queue from the 2026-08-20
+wishlist entry remains unclaimed — still sized as its own dedicated
+session, and (per this session's own branch-scope constraint) may need a
+session explicitly permitted to push to those PRs' own `claude/*`
+branches rather than this run's single assigned branch.
+
+STARVED: no — this was the session's one primary action (a live bug
+found via the routine audit-log check, root-caused, and partially fixed
+with the higher-value half of the mechanism shipped this session; the
+remainder is honestly scoped out and filed rather than rushed).

@@ -3907,6 +3907,27 @@ else:
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
                   tierCashAvailable -= (parseFloat(r.cash_required) || 0);
+                  // STALE-ORDER-SWEEP FIX 2026-08-22: options entries were never
+                  // registered in `openOrders`, so sweepStaleOrders() (tier1Reflex,
+                  // every ~45s) had nothing to cancel — a resting DAY limit CSP
+                  // that never fills squatted a MAX_OPTIONS_POSITIONS slot for
+                  // hours (live evidence: NU/XLP puts still "accepted" 2+ hours
+                  // after submission, both counted by countOpenOptionsOpeningOrders
+                  // into a real 6/6 OPTIONS-SLOT-FULL block on TLT/IBIT/CSX all
+                  // afternoon). This is the same dead-mechanism class for every
+                  // other order-submission site in this file — see the new KNOWN
+                  // BROKEN entry filed this session for the rest.
+                  if (r.order_id) {
+                    openOrders.push({
+                      orderId: r.order_id,
+                      ticker: action.ticker,
+                      score: 0,
+                      placedAt: Date.now(),
+                      side: r.side || "sell",
+                      qty: Number(r.qty) || 1,
+                      limitPrice: Number(r.limit_price) || 0,
+                    });
+                  }
                 } else {
                   audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
@@ -3981,6 +4002,20 @@ else:
                 const r = JSON.parse(stdout.trim());
                 if (r.status === "submitted" || r.status === "filled") {
                   audit("T4", `BUY_PUT ${action.ticker} hedge | ${action.reason}`);
+                  // STALE-ORDER-SWEEP FIX 2026-08-22: same gap as the SELL_CSP
+                  // branch above — register the resting DAY limit order so
+                  // sweepStaleOrders() can actually cancel it if it never fills.
+                  if (r.order_id) {
+                    openOrders.push({
+                      orderId: r.order_id,
+                      ticker: action.ticker,
+                      score: 0,
+                      placedAt: Date.now(),
+                      side: r.side || "buy",
+                      qty: Number(r.qty) || 1,
+                      limitPrice: Number(r.limit_price) || 0,
+                    });
+                  }
                 } else {
                   audit("T4-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }

@@ -2245,6 +2245,14 @@ def submit_options_order(contract: dict) -> dict:
                 "order_id": order.get("id", ""),
                 "detail": f"{'Sold' if side == 'sell' else 'Bought'} {qty}x {occ_symbol} @ ${limit_price} limit",
                 "occ_symbol": occ_symbol,
+                # STALE-ORDER-SWEEP FIX 2026-08-22: callers (server/bot.ts's tier
+                # dispatcher) need qty/limit_price/side to register this DAY limit
+                # order with the stale-order sweeper — a resting, never-filled
+                # options entry would otherwise squat a MAX_OPTIONS_POSITIONS slot
+                # for the rest of the session with no mechanism to free it early.
+                "qty": qty,
+                "limit_price": limit_price,
+                "side": side,
             }
         else:
             error = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"message": resp.text[:200]}
