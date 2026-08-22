@@ -128,8 +128,8 @@ def _record_options_exit_feedback(ticker: str, side: str, qty: int, entry_price:
         if entry_timestamp:
             try:
                 days_held = max(0, (datetime.now() - datetime.fromisoformat(entry_timestamp)).days)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Bad entry_timestamp {entry_timestamp!r} for {ticker}: {e}")
         now_iso = datetime.now().isoformat()
         track_fill({
             "ticker": ticker,
