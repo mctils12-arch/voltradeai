@@ -3,6 +3,138 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-22 (3) (scheduled-routine session) [PIPELINE] — MASTER PROGRAM Q7 CLOSED: spaceFrame.ts gets its real Law IV `maxFeatures`/`vramBudget` (v1.0.763, T-CLIENT)
+
+TERRITORY: T-CLIENT (`client/src/lib/celestial/spaceFrame.ts`,
+`test_law_iv_context_modules.py`) + SHARED-but-minimal (`research/*`,
+`package.json`/`package-lock.json` last-and-minimal, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(head), `open_questions.md` (KNOWN BROKEN + recent OPEN RESEARCH QUESTIONS),
+`wishlist.md` (head). `python3 scripts/session_health_check.py`: all OK
+(liveness alive, subsystems ok, daemon rss 393.4MB well under trim_mb,
+ml_feedback age 9.9h, deploy_freshness matches server_version=1.0.762).
+`python3 scripts/research_state_check.py`: audits none overdue, thrash ratio
+2/10 REPAIR (well under 7+), KNOWN BROKEN 31 items/1 advisory-only — no
+LIVENESS ALARM, no repair preemption. `bash scripts/program_status.sh`: 26
+of 27 counters at or better than their pin (`tsc_errors` skipped, no
+`node_modules` yet). This was the third scheduled-routine session today
+(after a [REPAIR] and a [PRODUCT] session, both already merged to main —
+confirmed `git fetch origin main` == this branch's base, no drift).
+
+PRIMARY-ACTION SELECTION: `research/PROGRAM_STATE.md`'s own MASTER PROGRAM
+queue (a standing multi-session charter under CLAUDE.md's RENDERING & MOTION
+LAW / Amendment 6) named its NEXT item explicitly: "spaceFrame.ts's own Law
+IV budget (close Q7 fully)... needs its own budget-derivation session." This
+queue item has been deferred by name across at least 5 prior sessions
+(2026-08-15 through 2026-08-20, each choosing PRODUCT work instead per its
+own stated tradeoff), so per SESSION BUDGET rule 1 ("take the next queued
+item... before new research") and to prevent the STARVED signal from
+accumulating further on this specific item, took it as this session's
+primary action rather than deferring an 6th time.
+
+READ BEFORE WRITE: read `test_law_iv_context_modules.py` in full first (the
+spec this PR needed to satisfy) — it quarantines exactly ONE known gap
+(spaceFrame.ts missing `maxFeatures`/`vramBudget`; `dispose()` already
+exists) after celestialSky.ts was fixed in the originating PR. Then read
+`celestialSky.ts`'s own Law IV comment block (the precedent for style/rigor:
+derive from real buffer sizes, cite the deriving math, never invent a
+number). Then read `spaceFrame.ts` (4,330 LOC) end to end for every
+`document.createElement("canvas")` site (9), every owned submodule it
+creates+disposes (`spaceAssets.ts`'s `createSpaceTextureManager()`,
+`moonTiles.ts`'s `createMoonTileManager()` via `bodyTileManagers`/
+`nacTileManagers`), and its existing `dispose()` (already tears down all of
+them — confirmed real, not just declared).
+
+THE DERIVATION (own PR, v1.0.763, `spaceFrame.ts`): `maxFeatures = 9096` —
+the Yale BSC5 star count (`starCatalog.ts`), the one genuinely data-driven
+per-primitive count this module draws every frame (`drawStarfield` loops
+star-by-star); the body registry (~9 Sun/planets/Moon) is two orders of
+magnitude smaller and never the binding constraint. `vramBudget = 460` (MB),
+summed from every real buffer this module creates and (per its existing
+`dispose()`) frees, at each buffer's own hard-enforced cap — full byte-math
+in the export's own comment:
+- texture manager (`spaceAssets.ts`, `DECODE_CAPS`, owned+disposed here):
+  10 low-tier maps + 2 ring strips + the milky-way panorama + moon:2k +
+  moon:8k (the latter matching the code's own pre-existing "33 MB working
+  buffer" `noteMoonView()` comment, independently derived and confirmed) ≈
+  97.5 MB.
+- moon/NAC tile managers (`moonTiles.ts`, owned+disposed here): each
+  instance caps at `TILE_CACHE_MAX=512` raw 256² tiles + one
+  `MOON_MOSAIC_MAX_PX=2048` mosaic ≈ 151.0 MB; `evictBodyPatch()` bounds
+  concurrent residency to at most one body-focused + one NAC-site-focused
+  instance ≈ 302.0 MB — two-thirds of the total.
+- shared sprite cache (hard-cleared above 48 entries,
+  `TEXTURE_MAX_SHADE_RADIUS=224` bounds the largest entry) ≈ 38.9 MB.
+- moon patch buffers (`MOON_PATCH_FULL_LONG_PX=1100` bounds the long side)
+  ≈ 9.7 MB.
+- sky canvas (self-capped width≤900) + star canvas (full CSS-px viewport,
+  no DPR), both evaluated at the repo's own 1440×900 canonical desktop
+  reference (CLAUDE.md VISUAL VERIFICATION widths, chosen over an arbitrary
+  number) ≈ 7.2 MB.
+- star catalog decoded arrays + sun glow sprite ≈ 0.4 MB.
+
+FINDING SURFACED, NOT FIXED (own open_questions.md entry, "SPACEFRAME
+TILE-CACHE CEILING"): the tile-manager term (302 MB) dominates the total,
+and `TILE_CACHE_MAX=512`'s own 2026-08-13 comment already calls itself
+"generous headroom" over the ~92 tiles its own stated real-approach example
+implies — roughly 5x. Declaring the honest enforced ceiling (not the
+typical case) is what Law IV asks for; whether 512 should be tightened
+against the 256 MB mobile band is a separate, real question, filed rather
+than acted on in this PR (MEASUREMENT INTEGRITY / one logical change at a
+time — tightening a cache cap is a behavior change with its own regression
+risk, the 2026-08-13 160→512 cold-refetch story being exactly that risk
+materializing once already).
+
+TEST CHANGES (`test_law_iv_context_modules.py`): `test_law_IV_budgets_and_
+teardown`'s `expected` list narrowed from the 2-item spaceFrame.ts gap to
+`[]`, per the test's own standing instruction ("if this SHRANK, celebrate
+and narrow `expected`"). Docstring updated to record the gap is closed and
+to correct a stale claim (the file said it was "QUARANTINED
+(ci/quarantine.txt)"; confirmed by reading `ci/quarantine.txt` that it was
+never actually listed there — it was already 2/3 green, just structurally
+isolated from test_audit_critical.py's REQUIRED gate so the one known-
+failing assertion couldn't turn that suite red). Explicitly NOT folded into
+test_audit_critical.py's `_layer_modules()` predicate in this PR — a
+separate, larger structural edit (retiring this file, widening a REQUIRED
+gate) that is its own logical change; left as a candidate follow-up in this
+file's own docstring rather than attempted here.
+
+GATES: `python3 -m pytest test_law_iv_context_modules.py -q` 3/3 (was 2/3
+failing pre-fix, exactly the predicted gap). `python3 -m pytest test_audit_
+critical.py -q` 43 passed/1 skipped, unchanged (that file's own predicate is
+untouched by this PR). `python3 -m pytest -q` (after `pip install -r
+requirements.txt -r requirements-dev.txt`, absent at session start): 1417
+passed, 1 skipped, unchanged aside from this file's own 3 tests moving from
+2/3 to 3/3. `npm ci` (absent at session start): clean. `bash scripts/tsc_
+ratchet.sh`: 12/12, TS2304 0, unchanged (pure comment/const addition, no
+type surface change). `npx tsx --test client/src/lib/celestial/spaceFrame.
+test.ts`: 58/58, unchanged. `bash scripts/gated_tests.sh`: GATE PASSED,
+client 1069/1069 (100 files), python 1417/1 skipped, quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: OK, 25 counters at or better
+than baseline, no re-pin needed — `law_iv_scanned_files` stays at 7 (this
+PR changes what those 7 modules declare, not how many are scanned).
+`npm run build`: clean production build (client + server), pre-existing
+unrelated astronomy-engine ESM interop warning only. No visual harness run:
+this PR is a pure `export const` + comment addition with zero rendering/
+behavior change (confirmed via the diff and the unchanged spaceFrame.test.ts
+58/58) — CLAUDE.md's VISUAL VERIFICATION rule targets PRs that touch
+rendered output, which this PR does not.
+
+BACKTEST: N/A per PROMOTION RULE 3 — client rendering-budget metadata, no
+trading behavior touched.
+
+NEXT (per PROGRAM_STATE.md's own queue, updated this session): Q8 (T2.6 F16
+NaN-guard unit test, closes a PR open since 2026-08-12), then Q9 (T8.1
+design-token drift check into the harness), then Q11 (T4.1 `renderKind`+
+`lod` required in `layersRegistry.test.ts`), then Track 2/3 (the Moon).
+Also queued: this session's own "SPACEFRAME TILE-CACHE CEILING" open
+question (instrument `stats().cachedTiles` from a live/scripted Moon
+approach before deciding whether `TILE_CACHE_MAX` should tighten).
+
+STARVED: no — this was the queue's own longest-deferred stated item, taken
+directly rather than deferred again.
+
 ## 2026-08-22 (2) (scheduled-routine session) [REPAIR] — KNOWN BROKEN #12(c): standalone (single-leg) options entries/exits now flow into trade_feedback, closing a 47-day-old silent-recording gap (v1.0.762, T-BOT)
 
 TERRITORY: T-BOT (`options_manager.py`, `test_options_fixes.py`) + SHARED

@@ -23,17 +23,29 @@ guards that.
 
 WHY THIS IS ITS OWN FILE AND NOT A WIDER PREDICATE IN test_audit_critical.py
 DIRECTLY: that file's Law IV test is REQUIRED (gates every merge). Widening
-it in place would turn CI red for a gap this session is documenting, not
-fully closing — celestialSky.ts is now fixed (this same PR added
-`maxFeatures`/`vramBudget`, derived from its real buffer sizes, not
-invented), but spaceFrame.ts owns half a dozen CPU-rasterised canvases at
-different, data-dependent sizes; a good-faith budget number for it needs
-its own read of the whole module, which is real future work, not a number
-to guess to make a test green. This file is QUARANTINED (ci/quarantine.txt)
-instead — same precedent as Q12's `gridTilesCoverage.test.ts` (REFRAMED
-into its own file rather than folded into a test that could not pass yet).
-It still RUNS, non-blocking, so the day spaceFrame.ts starts passing is
-visible instead of silently overdue.
+it in place would have turned CI red for a gap the originating session was
+documenting, not fully closing — celestialSky.ts was fixed in that same PR
+(`maxFeatures`/`vramBudget`, derived from its real buffer sizes, not
+invented), but spaceFrame.ts owned half a dozen CPU-rasterised canvases at
+different, data-dependent sizes; a good-faith budget number for it needed
+its own read of the whole module. This file was kept separate from
+test_audit_critical.py's REQUIRED gate for exactly that reason — never
+actually listed in ci/quarantine.txt (it was already green on its other two
+tests), just structurally isolated so the one known-failing assertion below
+couldn't turn the required suite red.
+
+UPDATE (MASTER PROGRAM Q7, budget-derivation session): spaceFrame.ts now
+carries real `maxFeatures`/`vramBudget` too (derived from its own owned
+buffers — the texture manager and moon/NAC tile managers it creates and
+disposes, the shared sprite cache, the moon-patch buffers, the sky/star
+canvases — see the export's own comment for the full byte-math). The gap
+this file existed to isolate is closed: `expected` below is narrowed to
+`[]` per this file's own standing instruction ("if this SHRANK, celebrate
+and narrow `expected`"). Kept as its own file rather than folded into
+test_audit_critical.py's `_layer_modules()` — that predicate change plus
+retiring this file is a second, separable structural edit (one logical
+change per PR, CLAUDE.md PROMOTION RULES #5); this file still runs
+every session and will fail loudly the moment either module regresses.
 """
 
 import glob
@@ -110,13 +122,12 @@ class TestLawIVContextAcquiringModules(unittest.TestCase):
     def test_law_IV_budgets_and_teardown(self):
         """Mirrors test_audit_critical.py's
         `test_law_IV_every_layer_declares_budgets_and_teardown`, run against
-        the WIDENED set. Pinned to the KNOWN remaining gap (spaceFrame.ts),
-        not to `[]` — celestialSky.ts is fixed as of this PR. Growth beyond
-        the pinned gap (spaceFrame.ts gaining a THIRD undeclared field, or a
-        new context-acquiring module also failing) still fails this
-        assertion, same downward-only-ratchet discipline as
-        ci/tsc_baseline.txt — quarantine means non-blocking in CI, not
-        unmonitored."""
+        the WIDENED set. Pinned to `[]` (MASTER PROGRAM Q7 CLOSED, budget-
+        derivation session) — both celestialSky.ts and spaceFrame.ts now
+        declare real `maxFeatures`/`vramBudget`. ANY future failure here means
+        a module regressed (lost its budget/dispose) or a new context-
+        acquiring module was added without them — fix it, never widen this
+        assertion back open to match a real regression."""
         missing = []
         for path in _context_acquiring_modules():
             rel = os.path.relpath(path, os.path.dirname(__file__))
@@ -128,19 +139,12 @@ class TestLawIVContextAcquiringModules(unittest.TestCase):
                 missing.append(f"{rel}: no `export const vramBudget`")
             if not re.search(r"^\s*dispose\s*\(\s*\)\s*:", src, re.M):
                 missing.append(f"{rel}: no `dispose()` teardown method")
-        expected = sorted(
-            [
-                "client/src/lib/celestial/spaceFrame.ts: no `export const maxFeatures`",
-                "client/src/lib/celestial/spaceFrame.ts: no `export const vramBudget`",
-            ]
-        )
         self.assertEqual(
             sorted(missing),
-            expected,
-            "Law IV context-acquiring gap changed. If this SHRANK, celebrate and "
-            "narrow `expected` (and consider whether the file still needs "
-            "quarantine at all). If this GREW, a module regressed or a new one "
-            "was added without budgets — fix it, don't widen `expected` to match.",
+            [],
+            "Law IV context-acquiring gap changed. A module lost its budget/"
+            "dispose, or a new context-acquiring module was added without "
+            "them — fix it, don't widen this assertion to match.",
         )
 
 

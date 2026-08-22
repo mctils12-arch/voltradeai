@@ -4528,7 +4528,42 @@
 
 ## OPEN RESEARCH QUESTIONS
 
-### USASPENDING SIZE-CONFOUND — is the wrong-signed award/mcap result actually a small-cap size effect? (filed 2026-08-15)
+### SPACEFRAME TILE-CACHE CEILING — is `TILE_CACHE_MAX=512` too loose against the 256 MB mobile Law IV budget? (filed 2026-08-22)
+
+CONTEXT: PROGRAM_STATE.md Q7's budget-derivation session gave
+`client/src/lib/celestial/spaceFrame.ts` real `maxFeatures`/`vramBudget`
+exports (~460 MB worst-case, full byte-math in the export's own comment).
+Two-thirds of that total (302 MB) is the two `moonTiles.ts`
+`MoonTileManager` instances spaceFrame can hold resident at once (one
+body-focused WAC/NAC-scheme manager + one active Apollo NAC-site manager),
+each capped at `TILE_CACHE_MAX=512` raw 256×256 RGBA tiles (134 MB) plus one
+`MOON_MOSAIC_MAX_PX=2048` stitched mosaic (17 MB). `TILE_CACHE_MAX`'s own
+2026-08-13 comment states 512 was sized for "generous headroom" over what a
+real approach actually uses (~36 WAC tiles + ~56 NAC tiles per its own
+example, ≈24 MB) — the enforced ceiling is roughly 5× the stated typical
+case.
+
+QUESTION: does the real-world resident tile count ever approach anywhere
+near 512 in practice, or is the ceiling so loose relative to typical usage
+that it should be tightened (e.g. toward the ~92-tile figure the comment's
+own example implies, plus real margin) without reintroducing the
+2026-08-13 cold-refetch regression that `TILE_CACHE_MAX`'s prior value (160)
+caused? PRIOR: expect live `__vtMoonTileBytes`/`stats().cachedTiles`
+telemetry (already exposed by `moonTiles.ts`) to show typical resident
+counts well under 200 combined across both managers during a normal Moon
+approach-and-explore session, making 512 mostly unused headroom rather than
+a number regularly approached — but this is a guess, not measured.
+
+LADDER PATH: not a data/signal/logic ladder item (this is a client render
+budget, not a trading signal) — the practical next step is instrumentation,
+not a backtest: log `stats().cachedTiles` (already computed) from a live
+Moon-focused session (or the visual harness driving a scripted zoom-to-Moon
+sequence) and compare peak observed against 512. Tighten only if the
+observed peak leaves real margin below whatever new cap is chosen; keep the
+160→512 regression (a mid-approach cold re-fetch storm, per the existing
+2026-08-13 comment) as the explicit thing not to reintroduce.
+
+
 
 CONTEXT: the KNOWN BROKEN #4 USAspending gate-2 re-run (2026-08-15, see
 above) rejected its pre-registered hypothesis and instead found a
