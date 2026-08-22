@@ -101,8 +101,21 @@ context-acquiring module ships without budgets. `scripts/program_status.sh`'s
 `law_iv_scanned_files` counter updated to mirror the same widened predicate
 (was counting bare `*Layer.ts` only) — 5 → **7**, re-pinned.
 
-**NEXT — spaceFrame.ts's own Law IV budget** (close Q7 fully), then **Q8–Q9**,
-**Q11**, then Track 2/3 — the moon.
+**Q7 is now DONE** (this session, scheduled-routine — the budget-derivation
+session this queue asked for). `spaceFrame.ts` gained real `maxFeatures`
+(9096, the Yale BSC5 star count) and `vramBudget` (~460 MB, summed from the
+module's own owned allocations: the spaceAssets.ts texture manager it creates
+and disposes, the two moonTiles.ts tile-manager instances it can hold
+resident at once, the shared sprite cache, moon-patch buffers, and the sky/
+star canvases — full byte-math in the export's own comment).
+`test_law_iv_context_modules.py`'s `expected` list narrowed to `[]` per its
+own standing instruction; all 3 of its tests pass. Two-thirds of the total
+(302 MB) is the tile managers' worst-case LRU ceiling, which `TILE_CACHE_MAX`
+'s own comment already calls "generous headroom" over real usage — filed as
+its own open_questions.md follow-up (is that ceiling too loose against the
+256 MB mobile band?) rather than tightened in this PR.
+
+**NEXT — Q8–Q9**, **Q11**, then Track 2/3 — the moon.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -143,7 +156,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q4 | Fix the 5 TS2304 real bugs + `tsc_2304` ratchet test | F-A + new | **DONE** — PR #823, session 2 |
 | Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **DONE** — PR #826, pinned at 12 |
 | Q6 | T2.4 — cap DPR in `celestialSky` + `spaceFrame` | T2.4 | **DONE** — PR #831. Bounds memory + fill rate. **NOT a moon speedup** — the audit's 9× claim is false, see L16 |
-| Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **PARTIAL** — this session (scheduled-routine). Predicate widened 5 → 7 in `test_law_iv_context_modules.py`; celestialSky.ts FIXED (real `maxFeatures`/`vramBudget` added); spaceFrame.ts is the one remaining gap, pinned not invented — needs its own budget-derivation session |
+| Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **DONE** — this session (scheduled-routine). Predicate widened 5 → 7 in `test_law_iv_context_modules.py`; both celestialSky.ts and spaceFrame.ts now carry real `maxFeatures`/`vramBudget`. `expected` narrowed to `[]`; not yet folded into test_audit_critical.py's REQUIRED `_layer_modules()` predicate (separable structural edit, left as-is) |
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |

@@ -4328,3 +4328,55 @@ export function mountSpaceFrame(container: HTMLElement, opts: SpaceFrameOptions)
     },
   };
 }
+
+// ── Law IV budget declaration ───────────────────────────────────────────────
+// Derived from this module's own real allocations (PROGRAM_STATE.md Q7/F-B —
+// spaceFrame.ts is the one context-acquiring module celestialSky.ts's fix
+// left as "needs its own budget-derivation session"; this is that session).
+// maxFeatures = 9096, the Yale BSC5 star count (starCatalog.ts) — the one
+// genuinely data-driven per-primitive count this module draws every frame
+// (drawStarfield loops it star-by-star); the body registry (~9 Sun/planets/
+// Moon) is two orders of magnitude smaller and never the binding constraint.
+//
+// vramBudget sums every real buffer this module creates and (per dispose()
+// above) frees, at each buffer's own hard-enforced cap — nothing here is
+// invented, every cap is a named constant already in this file or its two
+// owned submodules (spaceAssets.ts's texture manager, moonTiles.ts's tile
+// manager — both created and disposed here, so their memory is this
+// module's liability even though the decode code lives elsewhere):
+//   texman (spaceAssets.ts, DECODE_CAPS):
+//     10 low-tier maps (sun/moon/moon:bump/mercury/venus/mars/jupiter/
+//       saturn/uranus/neptune) @ 1024x512x4B ................  20.97 MB
+//     2 ring strips @ 1024x128x4B ..........................    1.05 MB
+//     milky way panorama @ 4096x2048x4B ....................   33.55 MB
+//     moon:2k @ 2048x1024x4B ................................    8.39 MB
+//     moon:8k @ 4096x2048x4B (only while Moon-focused — the
+//       "33 MB working buffer" noteMoonView() already names) ..  33.55 MB
+//   moon/NAC tile managers (moonTiles.ts, TILE_CACHE_MAX=512 tiles
+//     @ 256x256x4B + one MOON_MOSAIC_MAX_PX=2048 mosaic @ 4B/px,
+//     per instance; evictBodyPatch() clears every manager but the one
+//     body-focus + one NAC-site-focus that can ever be resident at once) .
+//     2 x (512x256x256x4B + 2048x2048x4B) ................... 301.99 MB
+//   sprite cache (shared texturedSprite/shadedSprite cache, hard-cleared
+//     above 48 entries; TEXTURE_MAX_SHADE_RADIUS=224 sets the largest
+//     entry) 48 x (2x224+2)^2 x4B ...........................   38.88 MB
+//   moon patch buffers (mpFast/mpFull/mpBuilding; MOON_PATCH_FULL_LONG_PX
+//     =1100 bounds the long side) ...........................    9.73 MB
+//   sky canvas (Milky Way raster; self-capped width<=900) and star canvas
+//     (full CSS-px viewport, no DPR), both at the repo's own 1440x900
+//     canonical desktop reference (CLAUDE.md VISUAL VERIFICATION widths) .
+//     2.03 MB + 5.18 MB ......................................   7.21 MB
+//   star catalog decoded arrays (9096 stars, fixed) ...........   0.17 MB
+//   sun glow sprite (fixed 256x256) ............................  0.26 MB
+//                                                          TOTAL ~455.8 MB
+// This is real and large — two-thirds of it is the two tile-manager
+// instances' worst-case LRU ceiling (302 MB), which TILE_CACHE_MAX=512's
+// own comment already states is "generous headroom" over the ~36-56 tiles
+// a real approach actually uses, not a typical figure. Declaring the true
+// enforced ceiling rather than the typical case is the honest number Law
+// IV asks for; whether that ceiling should be tightened against the
+// 256 MB mobile band is a separate, real question, filed as its own
+// open_questions.md follow-up rather than changed in this PR (one logical
+// change at a time).
+export const maxFeatures = 9096;
+export const vramBudget = 460; // MB
