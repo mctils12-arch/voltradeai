@@ -1,0 +1,24 @@
+{
+ "stream": "dtccswaps",
+ "storage": "one gzipped JSONL per calendar day OBSERVED (not event date — events span 2019-present) under <archive>/dtccswaps/; append-only, deduped by Dissemination Identifier across ALL previously archived days (the upstream file is cumulative-from-inception and re-serves every prior event daily, so day-over-day new volume for the in-scope US subset is typically low hundreds to low thousands of rows)",
+ "written_by": "server/dtccSwaps.ts refreshDtccSwaps (6h poll, self-healing since the source is cumulative; eager boot)",
+ "source": "DTCC SEC-regulated security-based swap data repository, kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_EQUITIES_YYYY_MM_DD.zip — keyless, daily, ~132MB zip / ~1.15GB CSV, ~2.0M rows/day GLOBAL (probed live 2026-08-22, HTTP 200, single-member deflate zip). VOLUME-BUDGET SCOPE (this session's build decision, filed per data_census.md census #2 item 2 'needs its own budget decision before build'): archives US-UNDERLIER rows ONLY (Underlier ID source = CUSIP, or ISIN with a US country prefix) — ~5.7% of rows live-measured 2026-08-22 (112,612 of 1,981,839). The raw zip is still fetched and streamed in full every poll (bandwidth only — a dependency-free streaming zip reader in server/dtccSwaps.ts holds only the local-file-header bytes in memory, never the 1.15GB decompressed body, so RSS stays bounded in the same process as the trading loop); only the US-filtered subset is written to disk. Basket-swap rows (semicolon-joined multi-ISIN source field, ~0.003% of the US-flagged sample) are dropped in v1 rather than attributed a guessed country.",
+ "license": "SEC-mandated public dissemination (Reg SBSR real-time reporting) — attribution required, informational use",
+ "attribution": "DTCC Security-Based Swap Data Repository (SBSDR), SEC-regulated real-time dissemination",
+ "schema_version": 1,
+ "field_map": {
+  "disseminationId — dedup key": "Dissemination Identifier; unique per lifecycle event (NEWT/MODI/TERM/CORR/EROR/REVI)",
+  "originalDisseminationId": "links an amendment/correction back to the event it modifies",
+  "actionType/eventTimestamp/effectiveDate": "lifecycle event type and its timestamps",
+  "notionalAmountLeg1 — nullable": "USD-or-native notional; null means blank/masked in the source (Dodd-Frank real-time reporting caps mask very large notionals) — never fabricated as 0",
+  "underlierId/underlierIdSource": "CUSIP or ISIN identifying the underlying equity; ONLY CUSIP or US-prefixed-ISIN rows are archived (see source note)",
+  "underlierName": "UPI Underlier Name — free-text issuer/security description from the vendor's UPI reference data"
+ },
+ "confidence_model": "RAW SEC-mandated dissemination data. GATE 1 (DATA) PASSED 2026-08-22 (scripts/dtcc_swaps_gate1.ts): two independent external checksum standards (ISO 6166 ISIN check digit, CUSIP Global Services mod-10 check digit on the CUSIP embedded in every US ISIN) both scored effectively 100% on the live US-underlier subset, confirming the column-by-header-name extraction reads genuine identifiers rather than a misaligned column. The fresh-large-TRS-notional-on-small/mid-caps positioning hypothesis stays gate-2-locked: blocked on accumulating archive depth (same precedent as every other freshly-archived root in signal_ladder.json), no forward-return test attempted yet.",
+ "geo_fields": [],
+ "entity_key": "disseminationId (verified unique — DTCC's own field, one row per lifecycle event)",
+ "sentiment": null,
+ "started": "2026-08-22",
+ "cadence": "daily source (cumulative-from-2019-09-12, re-served in full each day); 6h poll, self-healing by design since re-fetching the cumulative file naturally catches any missed day",
+ "_note": "Universal archive envelope (approved 2026-07-04). DATA CENSUS master ranking #11 — the one root explicitly gated on a volume-budget decision before build; this session's US-only scoping decision fulfills that gate (also logged in research/wishlist.md and research/experiments.md) rather than requiring the full 147MB/day/1.24GB-CSV global archive."
+}

@@ -75,16 +75,31 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    TICKER = the retired ISEE's superior successor, genuinely
    uncrowded on small caps. (ISE/ISEE itself probed DEAD — TLS reset,
    retired post-Nasdaq; do not wishlist.)
-2. **DTCC SBSDR equity swaps** — pddata.dtcc.com cumulative
-   SEC_CUMULATIVE_EQUITIES probed 200 (147MB zip → 1.24GB CSV/day):
-   every disseminated equity total-return swap (the Archegos
-   instrument) — notional legs, timestamps, underlier codes. Keyless,
-   daily. License: SEC-mandated public dissemination, attribution.
-   SIGNAL: fresh large TRS notional clustered on small/mid caps =
-   near-zero-retail-competition positioning signal. COST: 147MB/day
-   needs a dedicated pipeline (volume budget!), underlier parsing is
-   real work. www.dtcc.com itself 403s (Akamai); CFTC-side slices
-   503 from this environment.
+2. **DTCC SBSDR equity swaps [BUILT v1.0.764, GATE 1 PASS]** — real
+   download URL found 2026-08-22 (not pddata.dtcc.com, which is only
+   the Angular dashboard shell — the actual file lives at
+   kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/
+   SEC_CUMULATIVE_EQUITIES_YYYY_MM_DD.zip, probed 200, 132MB zip →
+   1.15GB CSV, ~2.0M rows/day GLOBAL): every disseminated equity
+   total-return swap since program inception 2019-09-12 (the file is
+   CUMULATIVE-FROM-INCEPTION, re-served in full daily — not just
+   today's trades) — notional legs, timestamps, underlier codes.
+   Keyless, daily. License: SEC-mandated public dissemination,
+   attribution. SIGNAL: fresh large TRS notional clustered on
+   small/mid caps = near-zero-retail-competition positioning signal
+   (gate-2 locked, not attempted — needs archive depth). VOLUME-BUDGET
+   DECISION (made this session, closing the flag below): archive
+   US-underlier rows only (CUSIP, or ISIN with a US prefix) — 5.68%
+   of rows live-measured (112,609 of 1,981,839), aligned with the
+   bot's US-only universe; the full global file is still fetched and
+   streamed each poll (bandwidth only), never buffered in memory
+   (server/dtccSwaps.ts's dependency-free streaming zip reader holds
+   only local-header bytes — the trading loop shares this process).
+   GATE 1: two independent checksum standards (ISO 6166 ISIN, CUSIP
+   Global Services mod-10) on the live 2026-08-21 file scored 100.0000%
+   / 99.9982% against a pre-stated 99.9% bar (scripts/dtcc_swaps_gate1.ts).
+   www.dtcc.com itself still 403s (Akamai) — irrelevant, the S3 bucket
+   needs no such front end.
 3. **FINRA Query API cluster [BUILT — part 1 short-interest/threshold, part 2 weekly/monthly/blocks summaries]** — api.finra.org keyless, probed 200:
    consolidatedShortInterest (bi-monthly, 2017-12→present, 204
    settlement dates, days-to-cover precomputed),
@@ -232,9 +247,11 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
   measured in the build).
 - CDSE: PU pool is the binding constraint (see #10) — scheduled
   chips, never viewport renders.
-- VOLUME GROWTH: DTCC 147MB/day and OCC 5MB/day are the two heavy
-  candidates — DTCC needs its own budget decision before build
-  (filed in build order, not started by default).
+- VOLUME GROWTH: OCC 5MB/day archived in full; DTCC's raw file is
+  132MB/day but only its US-underlier subset (~5.68%, a few MB/day
+  after gz) is archived — see census #11 [BUILT] above, the volume-
+  budget decision resolved 2026-08-22 by scoping to the US universe
+  rather than declining the root.
 
 ## CONSOLIDATED BLOCKED-FOR-MIKE ADDITIONS (from this census)
 
@@ -255,6 +272,6 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
 8. USGS quakes + NDBC buoys (keyless; event joins to our graph)
 9. ENTSO-E (token → Mike; EU power vertical)
 10. SEC MIDAS (keyless quarterly; small-cap colonization filter)
-11. DTCC SBSDR (keyless but 147MB/day — volume budget decision first)
+11. DTCC SBSDR [BUILT v1.0.764, GATE 1 PASS — US-underlier volume-budget scope]
 DEAD/SKIP: CME (bot-blocked), ISE (retired), NYSE threshold API
 (bot-blocked; FINRA covers), WTO (no alpha), PBOC (scrape-hostile).

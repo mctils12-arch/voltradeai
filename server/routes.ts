@@ -133,6 +133,7 @@ import {
 import { loadSignalLadder } from "./signalLadder";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
+import { bootDtccSwapsPoll, latestDtcc } from "./dtccSwaps";
 import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
@@ -3354,6 +3355,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.top.length,
       note: "top underlyings by cleared volume with customer/market-maker put-call splits (qty counts each clearing side; totals halved); source keeps only a rolling 2-year window — this archive is the durable copy; origin-split signals stay gate-locked until ladder validation",
       top: hit.top,
+    });
+  });
+
+  // DTCC SBSDR equity total-return-swap dissemination (RAW — DATA CENSUS
+  // #11, keyless, cumulative-from-2019, US-underlier-only volume-budget
+  // scope). Status/count surface only — the archived per-event rows get a
+  // dedicated /data view + filtering in a follow-up PRODUCT session, same
+  // sequencing as every other freshly-gate1'd root in this codebase.
+  bootDtccSwapsPoll();
+  app.get("/api/data/dtcc-swaps", (_req, res) => {
+    const hit = latestDtcc();
+    if (!hit) {
+      return res.json({ kind: "raw", source: "DTCC SBSDR equity swaps", warming_up: true });
+    }
+    res.set("Cache-Control", "public, max-age=3600");
+    res.json({
+      kind: "raw",
+      source: "DTCC Security-Based Swap Data Repository (SBSDR)",
+      attribution: "DTCC SBSDR real-time public dissemination (SEC Reg SBSR)",
+      time: hit.at,
+      file_date: hit.fileDate,
+      us_underlier_rows_today: hit.usRows,
+      new_rows_archived: hit.newRows,
+      total_archived: hit.totalArchived,
+      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); notional amounts above Dodd-Frank real-time reporting caps are masked by the source, not by us; positioning-clustering signal stays gate-2-locked until archive depth accumulates",
     });
   });
 
