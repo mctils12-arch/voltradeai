@@ -243,6 +243,51 @@ function family).
 #877/#888 (opened after the 2026-08-20 audit) remain untriaged by any
 stale-PR sweep, as before.
 
+## UPDATE 2026-08-22 (scheduled-routine PRODUCT session) — #794 closed as
+## superseded; a THIRD confirmed instance of the silent-defeat pattern
+
+Took **#794** (`product: submarine telecom/power cables — OSM ODbL raw
+overlay`) as this session's PRODUCT-territory pick from the remaining 6 —
+the only one of the six actually in product/`/data` territory (the other
+five are REPAIR/RESEARCH/RENDERING). Fetched the PR's branch and diffed
+it against its own direct parent (`git diff FETCH_HEAD^ FETCH_HEAD`, 928
+insertions/11 files — the PR's real content, not the noisy 41k-line diff
+against a 10-day-moved `main`) with the intent to cherry-pick it onto a
+fresh branch, per the #708 precedent above.
+
+Applying it surfaced the same class of finding #708 did: `client/src/
+pages/datamap.tsx` and `server/routes.ts` on current `main` **already**
+carry a full `submarine_cables` layer — `client/public/cables/
+submarine_cables.json` (committed static GeoJSON, 7,464 features,
+~267,658 km), wired with its own `LAYER_GROUP`/legend/detail-card/
+`useEffect`, built by a same-named `scripts/submarine_cables_build.py`,
+shipped independently via the squashed history around PR #850
+(2026-08-13/15) — one day after #794 opened, never seen by it. Full
+comparison (feature counts, the live version's power-tag exclusion logic,
+why its residual `category:power` entries are not a bug) posted as the
+PR-close comment on #794 and not reproduced here. No unique deliverable
+in #794 was missing from `main`; closed without merging, no code shipped
+this session (docs-only, matching the #707 close's precedent — no version
+bump, PROMOTION RULE 4 ties `code_version` to trading-behavior-relevant
+changes).
+
+**GENERALIZATION, now confirmed a third time** (#708 CSP capital-check,
+#706 OCC-parsing crash — both above — and now #794): every stale PR
+touching a subsystem this repo's many concurrent sessions actively work
+(CSP execution, options parsing, and now the `/data` product surface) is
+more likely than not to have been silently overtaken by later merged
+work by the time anyone gets to it. **Standing guidance for the
+remaining 5** (#797, #767, #844, #834, #817): read-before-write is not
+optional scaffolding here, it is the difference between real work and a
+duplicate PR — confirm the target code/feature is still absent or still
+broken on current `main` BEFORE spending effort reviving or re-deriving
+any of them.
+
+REMAINING from the original 8: **#797, #767, #844, #834, #817** (5 PRs,
+none in PRODUCT territory — #797 is [REPAIR], #767/#834 are [RESEARCH],
+#844/#817 are rendering/T-CLIENT). #877/#888 remain untriaged by any
+stale-PR sweep, as before.
+
 ---
 
 ## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was

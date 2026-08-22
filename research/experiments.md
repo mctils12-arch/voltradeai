@@ -3,6 +3,108 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-22 (scheduled-routine PRODUCT session) [PRODUCT] — datacore/product PR-hygiene: PR #794 (submarine cables /data view) closed as superseded by already-shipped work, docs-only, research/*
+
+TERRITORY: SHARED (research/wishlist.md, research/experiments.md only —
+no code territory touched, no version bump; same class as the 2026-08-21
+`#707`/`#708`/`#706` close-out entries above).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`python3 scripts/session_health_check.py`: all OK — liveness alive not
+dark, all subsystems ok, daemon rss 387.8MB under trim, ml_feedback age
+23.4h no known-broken signature, deploy_freshness server_version=1.0.761
+matches this checkout. `python3 scripts/research_state_check.py`: audits
+register none overdue, thrash ratio 2/10 REPAIR (well under 7+), KNOWN
+BROKEN 31 items/1 advisory-only (#26) — no LIVENESS ALARM, no repair
+preemption.
+
+PRIMARY-ACTION SELECTION (per this routine's own brief, options a-d):
+checked (a) — the 3 `gate2_pending` signal_ladder roots
+(`cftc_cot_positioning`, `sec_8k_earnings_language`,
+`gem_methane_plume_proximity`) all still carry unfired readiness_triggers
+per the 2026-08-21 check, one day later — none plausibly changed (weekly
+COT cadence, a 90-archive-day threshold, and GEM's release cadence don't
+move day to day). Checked (b) — the prior PRODUCT session's own
+shipped-data-no-UI sweep (2026-08-21) found the gap clear; re-verifying
+that sweep from scratch wasn't repeated this session (would duplicate
+filed work). Fell through to (d)-adjacent: `research/wishlist.md`'s own
+STALE-PR BACKLOG queue lists 5 remaining PRs after the 2026-08-21
+session's #708/#706 dispositions — of those, **#794** (submarine cables
+`/data` view) is the only one actually in PRODUCT territory (the other
+four are REPAIR/RESEARCH/rendering, outside this session's mandate).
+Picked it as the one PRODUCT-relevant item in the queue.
+
+READ BEFORE WRITE: fetched the PR's branch (`claude/beautiful-planck-
+3b32bl`) and diffed it against its own direct parent commit — NOT against
+current `main`, which would show a noisy ~41k-line diff from 10 days of
+unrelated drift — isolating the PR's actual content (928 insertions, 11
+files: a new `/api/data/submarine_cables` route, `datacore/
+submarine_cables.json`, `scripts/submarine_cables_build.py`, `datamap.tsx`
+render/legend wiring, tests). Began cherry-picking it onto a fresh branch
+(the #708 precedent's method) — a 3-way patch apply on
+`datamap.tsx`/`server/routes.ts`/`datacore/layers.json` surfaced small,
+resolvable conflicts, and resolving the first one (in `datamap.tsx`)
+revealed why: current `main` **already has** a `submarine_cables` layer,
+under a different implementation, that this PR's branch (opened
+2026-08-12) never saw.
+
+VERIFICATION: `client/public/cables/submarine_cables.json` (committed
+static GeoJSON, 7,464 features, ~267,658 km) plus a full `useEffect`/
+`LAYER_GROUP`/legend/detail-card wiring in `datamap.tsx` and a same-named
+`scripts/submarine_cables_build.py` are live on `main`, shipped via the
+squashed history around PR #850 (2026-08-13/15) — one day after #794
+opened. Compared the two implementations directly (not assumed
+equivalent): live version explicitly drops any way carrying OSM's generic
+`power` tag at build time (1,251 dropped, since the `cable_submarine`
+seamark tag also covers power interconnectors) with a documented
+live-verified secondary-tag check ruling out a larger unfiltered
+candidate set; disused cables render dashed; coverage-skew-to-Europe/
+NE-Atlantic honesty is stated in the registry description and the live
+status string. Checked one apparent inconsistency before flagging it as a
+finding (REASONING STANDARD — don't assert unverified): the live data
+still carries ~357 features tagged `category:power` despite the
+"power-tagged ways excluded" claim — read `submarine_cables_build.py`
+directly and confirmed this is NOT a bug: `category` is a pass-through of
+`seamark:cable_submarine:category` (a distinct OSM key from the generic
+`power` tag the exclusion filters on), so those are ways self-tagged as
+power-category within the seamark taxonomy that don't carry the generic
+key — correctly not excluded by a filter scoped to that key. No unique
+deliverable in #794 is missing from `main`.
+
+WHAT SHIPPED: closed PR #794 with a comment naming the live implementation
+and the full comparison (GitHub `add_issue_comment` + `update_pull_request
+(state:"closed")`). `research/wishlist.md`'s stale-PR-backlog section
+gained a dated UPDATE block naming this as a **third** confirmed instance
+of the pattern #708/#706 already established (a stale PR silently
+defeated by later merged work touching the same subsystem/feature before
+anyone revives it) and narrowing the remaining backlog to 5 PRs, none in
+PRODUCT territory.
+
+GATES: docs-only change (`research/wishlist.md`, `research/
+experiments.md`) — no code, test, or config file touched. No version bump
+(PROMOTION RULE 4 ties `code_version` to trading-behavior-relevant
+changes; this changes zero runtime code), no new test, no backtest.
+
+CROSS-SYSTEM INTEGRATION: none — pure PR/registry bookkeeping.
+
+MONETIZATION NOTE: no billing/pricing/subscription/ads/paid-feature-gating
+code touched — MONETIZATION TRIPWIRE does not apply.
+
+NEXT (queued, not this session): (1) the 5 remaining stale PRs (#797,
+#767, #844, #834, #817) — none in this session's PRODUCT territory; #797
+is next by REPAIR-first ordering per the 2026-08-21 entry, with the same
+silent-defeat check this session and the #708 session both now confirm is
+necessary before assuming any of them still applies. (2) the 3 gate-2-
+pending signal_ladder roots remain correctly time-blocked — re-check
+readiness_trigger fields in a future session, not assumed unchanged
+indefinitely. (3) #877/#888 remain untriaged by any stale-PR sweep.
+
+STARVED: no — this was the one PRODUCT-relevant item available in the
+queue this session's own selection process actually surfaced (gate-2
+candidates genuinely time-blocked, shipped-data-no-UI sweep already
+verified clear by the immediately preceding PRODUCT session), matched to
+capacity; no higher-priority queued PRODUCT item was skipped.
+
 ## 2026-08-21 (same session, ADDENDUM) [NO-ACTION] — bookkeeping close-out for the #708 revival: PR closed as superseded by #902, and #706 found already independently resolved by an unrelated same-day session
 
 Docs-only, no version bump (same precedent as the 2026-08-21 #707
