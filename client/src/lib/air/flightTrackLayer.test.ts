@@ -98,6 +98,35 @@ test('altitude gaps: trace continues (real position history), curtain + line bre
   assert.equal(t0[8], TRACE_WIDTH_PX, 'the survivor is the ground trace');
 });
 
+test('signal-lost-airborne (F16 hypothesis a): a multi-sample NaN run mid-flight only ' +
+  'costs curtain+line, never the trace, and both correctly resume once real altitude ' +
+  'returns on both ends of a segment', () => {
+  // Models research/rendering_motion_overhaul.md F16: the human's example flight is
+  // labelled SIGNAL LOST AIRBORNE, i.e. several CONSECUTIVE samples with no altitude
+  // report, not a single missing point. This pins the segment-skip-guard contract
+  // (F16 hypothesis (a)) for that realistic multi-sample shape; it does not by itself
+  // prove (a) over hypothesis (b) (globe-horizon culling) — that still needs the
+  // live human "rotate the globe" discriminating test F16 describes.
+  const n = 7;
+  const merc = new Float32Array(n * 2);
+  const groundZ = new Float32Array(n).fill(300);
+  for (let i = 0; i < n; i++) {
+    merc[i * 2] = 0.2 + i * 0.001;
+    merc[i * 2 + 1] = 0.4 + i * 0.001;
+  }
+  // real, real, [signal lost for 3 samples], real, real
+  const altM = new Float32Array([1000, 1500, NaN, NaN, NaN, 2500, 3000]);
+  const v = buildTrackVertices({ merc, altM, groundZ, altMin: 1000, altMax: 3000 }, 1);
+  const quads = v.length / FT_VERT_STRIDE / FT_VERTS_PER_SEG;
+  // trace: all 6 segments, unbroken by the 3-sample gap.
+  // curtain + line: only segment 0-1 (before) and segment 5-6 (after) have both
+  // endpoints real; the 4 segments touching a NaN sample are honestly dropped.
+  assert.equal(quads, 6 + 2 + 2, '6 trace + 2 curtain + 2 line quads survive');
+  for (let i = 0; i < 6; i++) {
+    assert.equal(vertAt(v, i)[8], TRACE_WIDTH_PX, `trace segment ${i} draws through the signal-lost run`);
+  }
+});
+
 test('antimeridian jumps split every geometry honestly', () => {
   const v = buildTrackVertices(input2({ merc: new Float32Array([0.01, 0.4, 0.99, 0.4]) }), 1);
   assert.equal(v.length, 0, 'no quad bridges the antimeridian');

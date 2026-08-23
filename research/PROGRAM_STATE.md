@@ -115,7 +115,17 @@ own standing instruction; all 3 of its tests pass. Two-thirds of the total
 its own open_questions.md follow-up (is that ceiling too loose against the
 256 MB mobile band?) rather than tightened in this PR.
 
-**NEXT — Q8–Q9**, **Q11**, then Track 2/3 — the moon.
+**Q8 is DONE** (this session, scheduled-routine, 2026-08-23). See the QUEUE
+table row below for the full account — a new `flightTrackLayer.test.ts` test
+models F16's realistic multi-sample SIGNAL-LOST-AIRBORNE gap (the existing
+test only covered a single missing point) and pins hypothesis (a)'s
+segment-skip-guard contract for it. This closes out the code side of the F16
+workstream that has sat open since 2026-08-12; the live discriminating test
+(rotate the globe, watch whether the cut-off moves with the camera) still
+needs a human at the map to actually decide (a) vs (b) — not something this
+session could run.
+
+**NEXT — Q9**, **Q11**, then Track 2/3 — the moon.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -157,7 +167,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q5 | T1.6 — replace `\|\| true` with a ratchet on the post-Q2/Q3 count | T1.6 | **DONE** — PR #826, pinned at 12 |
 | Q6 | T2.4 — cap DPR in `celestialSky` + `spaceFrame` | T2.4 | **DONE** — PR #831. Bounds memory + fill rate. **NOT a moon speedup** — the audit's 9× claim is false, see L16 |
 | Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **DONE** — this session (scheduled-routine). Predicate widened 5 → 7 in `test_law_iv_context_modules.py`; both celestialSky.ts and spaceFrame.ts now carry real `maxFeatures`/`vramBudget`. `expected` narrowed to `[]`; not yet folded into test_audit_critical.py's REQUIRED `_layer_modules()` predicate (separable structural edit, left as-is) |
-| Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **TODO** — closes a PR open since 2026-08-12 |
+| Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **DONE** — scheduled-routine session, 2026-08-23. New test in `flightTrackLayer.test.ts` models a multi-sample SIGNAL-LOST-AIRBORNE gap (not just the single-point gap the existing test covered); pins F16 hypothesis (a)'s segment-skip-guard contract for that realistic shape. Does NOT itself resolve F16 (a) vs (b) — that still needs the live human "rotate the globe" discriminating test the doc names |
 | Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |
 | Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |

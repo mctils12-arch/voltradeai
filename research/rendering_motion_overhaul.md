@@ -332,6 +332,18 @@ continue past the cut-off while the curtain and altitude line stop. **That
 asymmetry is itself a diagnostic: look at whether the thin ground line
 survives past where the curtain dies.**
 
+**UPDATE 2026-08-23 (scheduled-routine session, PROGRAM_STATE.md Q8):** the
+code CONTRACT for hypothesis (a) is now pinned by a unit test —
+`flightTrackLayer.test.ts`'s "signal-lost-airborne (F16 hypothesis a)" test
+models a realistic multi-sample gap (3 consecutive NaN altitude samples, not
+just the single missing point the pre-existing gap test covered) and asserts
+the trace draws through all of it while curtain+line only survive the
+segments with real altitude on both ends, correctly resuming after the gap.
+This confirms the CODE does exactly what (a) predicts — it does not by
+itself prove (a) is the true cause of the human's observed cut-off over (b);
+the live discriminating test below (rotate the globe; check whether the thin
+ground trace survives past the cut-off) still needs a human at the map.
+
 **(b) Globe horizon / occlusion culling** in the vertex shader
 (`mercatorToSphere` / `mercatorZFromAltitude` from `orbital/occlusion`).
 
