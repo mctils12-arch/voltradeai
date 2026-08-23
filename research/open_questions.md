@@ -4599,6 +4599,55 @@
     .test.ts`'s own precedent — A/B-verified via `git stash` on `server/bot.ts`
     alone: all 4 fail pre-fix, all 4 pass post-fix).
 
+    **UPDATE 2026-08-23 (scheduled-routine session #8, EXIT-SIDE HALF
+    SHIPPED, v1.0.769):** picked up this entry's own NEXT exactly as
+    scoped — `checkPositionOnTick()`'s scale-out branch (its duplicate-
+    guard read above is now a confirmed-dead check, matching this entry's
+    own prior evidence) and the full stop-loss/trailing-stop/take-profit/
+    time-stop exit branch (whose own `orderResult` was captured and never
+    used for anything) both now push a `TrackedOrder` onto `openOrders`
+    when their submission returns an order id, same shape/gating as the
+    four entry-side pushes already shipped.
+
+    NEW FINDING CAUGHT BEFORE SHIPPING (not fixed reactively — found by
+    tracing every consumer of `openOrders`, not just `sweepStaleOrders()`,
+    per CLAUDE.md's "variables interact" reasoning standard): `replaceIfBetter()`
+    picks the lowest-`score` entry in `openOrders` to cancel when a new
+    trade candidate needs buying power. Every exit pushed here carries
+    `score: 0` (no natural score in scope, same as the pre-existing
+    options-entry pushes) — without a guard, a live protective stop-loss
+    or take-profit order would look like the weakest ENTRY candidate and
+    get cancelled to "free buying power" for an unrelated new trade in a
+    different ticker. That would not even work as intended (cancelling a
+    SELL exit order returns no buying power the way cancelling a BUY
+    entry does) while stripping a held position's only protective order —
+    a strictly worse bug than the dead-guard one being fixed. FIX: a new
+    `TrackedOrder.isExit?: boolean` field, set `true` on both new exit
+    pushes; `replaceIfBetter()` now filters to `!o.isExit` before
+    reducing to the weakest candidate and returns `false` early if no
+    entry orders remain, making exits structurally invisible to it
+    regardless of score.
+
+    NOT FIXED THIS SESSION: the remaining non-`executeTrades`,
+    non-`checkPositionOnTick` order-submission sites this item originally
+    scoped (manual API route, morning-queue execution, Tier 3 BUY) are
+    still open. Also open: live-fire confirmation that a resting exit
+    limit order (scale-out take-profit, or an extended-hours stop) is
+    actually swept and freed after `STALE_ORDER_MINUTES` — unlike the
+    entry-side fix, which had direct live evidence (NU/XLP options orders
+    sitting 2+ hours), no live case of a stuck EXIT order has been
+    observed yet; this fix is read-before-write-verified as closing a
+    real code gap (confirmed via `server/orderParams.ts`: scale-out is
+    always a limit order, and stop/trailing-stop are limit orders during
+    extended hours, market orders — which don't rest — during regular
+    hours), but a future session should still check for a live sweep
+    event on an exit order specifically before calling this fully closed.
+
+    RATCHET (this update): `server/staleOrderSweepExitTracking.test.ts`
+    (5 new tests, source-scraping style matching this entry's own
+    precedent chain — A/B-verified via `git stash` on `server/bot.ts`
+    alone: all 5 fail pre-fix, all 5 pass post-fix).
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
