@@ -62521,3 +62521,8 @@ item, matched to this session's capacity; the two other standing queues
 (open_questions.md's angle-hunting menu, the SESSION BUDGET fall-through
 tiers) were not consulted further once a real, unclaimed, ready item was
 found in the first queue checked.
+
+PR #916 opened from `claude/eloquent-dijkstra-1lw3r4`, subscribed for
+CI/review follow-up. Market closed at session time (Sunday) — no
+merge-timing hold needed, noted in the PR body anyway per the run's own
+instruction.
