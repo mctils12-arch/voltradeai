@@ -357,7 +357,7 @@ function loadSeenIds(dir: string): Set<string> {
   return seen;
 }
 
-export function _resetDtccForTests(): void { seenIds = null; }
+export function _resetDtccForTests(): void { seenIds = null; cache = null; }
 
 /** Appends only rows whose Dissemination Identifier has never been archived
  *  before, to <archive>/dtccswaps/<observedDate>.jsonl.gz (one file per
@@ -386,6 +386,7 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
 export interface DtccPollResult {
   at: number;
   fileDate: string;
+  sourceDate: string;
   usRows: number;
   newRows: number;
   totalArchived: number;
@@ -402,34 +403,68 @@ function ymdUnderscore(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "_");
 }
 
-/** Fetches "today" (ET-naive UTC date; the source publishes end-of-day, a
- *  1-day-stale read on any given poll self-heals on the next poll — same
- *  tolerance as every other daily-cadence root in this codebase). */
+/** How many calendar days back to walk looking for a published file. Found
+ *  live 2026-08-23 (production had ZERO archived rows despite the pipeline
+ *  passing gate 1 two sessions earlier): the vendor does not keep every
+ *  dated zip permanently available under a stable "cumulative" URL as the
+ *  original build assumed — GET on the current or immediately-prior day
+ *  routinely 403s (S3 AccessDenied, the bucket's stand-in for "no such
+ *  key" when the caller lacks ListBucket) while a few days further back
+ *  200s. 7 covers a long weekend/holiday stretch generously without
+ *  hammering the source. */
+const DTCC_LOOKBACK_DAYS = 7;
+
+/** Walks backward from "today" (ET-naive UTC date) trying each calendar
+ *  day's dated zip until one is actually published, instead of assuming
+ *  "today" is always available and relying on the next 6h poll to
+ *  self-heal — that assumption silently never recovers on a day whose
+ *  own dated file is never going to exist (a weekend/holiday with no
+ *  trading activity to disseminate), which is exactly what left
+ *  production's archive directory never created at all. Rows are still
+ *  archived under TODAY's calendar day (`observedDate`, unchanged
+ *  semantics — "one file per calendar day this pipeline RAN") regardless
+ *  of which vendor-dated file supplied them; `sourceDate` records which
+ *  one actually did, for honesty (FRESHNESS LAW). */
 export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?: number, baseDir?: string): Promise<void> {
   try {
     const now = new Date(nowMs ?? Date.now());
-    const fileDate = ymdUnderscore(now);
-    let idx: Record<string, number> | null = null;
-    let expectedCols = 0;
-    const rows: DtccSwapRow[] = [];
-    const { ok, status, lines } = await streamDtccZip(dtccUrl(fileDate), (line, isHeader) => {
-      if (isHeader) {
-        idx = parseHeader(line);
-        expectedCols = parseCsvLine(line).length;
-        return;
+    let sourceDate = "";
+    let foundRows: DtccSwapRow[] = [];
+    let foundLines = 0;
+    let lastStatus = 0;
+    for (let back = 0; back <= DTCC_LOOKBACK_DAYS; back++) {
+      const candidate = new Date(now.getTime() - back * 86_400_000);
+      const candidateYmd = ymdUnderscore(candidate);
+      let idx: Record<string, number> | null = null;
+      let expectedCols = 0;
+      const rows: DtccSwapRow[] = [];
+      const { ok, status, lines } = await streamDtccZip(dtccUrl(candidateYmd), (line, isHeader) => {
+        if (isHeader) {
+          idx = parseHeader(line);
+          expectedCols = parseCsvLine(line).length;
+          return;
+        }
+        if (!idx) return;
+        const row = parseDtccLine(line, idx, expectedCols);
+        if (row) rows.push(row);
+      }, fetchImpl);
+      lastStatus = status;
+      if (ok) {
+        sourceDate = candidate.toISOString().slice(0, 10);
+        foundRows = rows;
+        foundLines = lines;
+        break;
       }
-      if (!idx) return;
-      const row = parseDtccLine(line, idx, expectedCols);
-      if (row) rows.push(row);
-    });
-    if (!ok) {
-      console.error(`[datacore] dtccswaps ${fileDate}: HTTP ${status} / no body`);
+      console.error(`[datacore] dtccswaps ${candidateYmd}: HTTP ${status} / no body${back < DTCC_LOOKBACK_DAYS ? " — trying the prior day" : ""}`);
+    }
+    if (!sourceDate) {
+      console.error(`[datacore] dtccswaps: no published file found across the last ${DTCC_LOOKBACK_DAYS + 1} days (last HTTP ${lastStatus})`);
       return;
     }
     const observedDate = now.toISOString().slice(0, 10);
-    const { newRows, seenTotal } = archiveNewRows(rows, observedDate, baseDir);
-    cache = { at: Date.now(), fileDate: observedDate, usRows: rows.length, newRows, totalArchived: seenTotal };
-    console.log(`[datacore] dtccswaps ${observedDate}: ${lines} total lines, ${rows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
+    const { newRows, seenTotal } = archiveNewRows(foundRows, observedDate, baseDir);
+    cache = { at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows, totalArchived: seenTotal };
+    console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
   } catch (e) {
     console.error("[datacore] dtccswaps refresh:", e);
   }

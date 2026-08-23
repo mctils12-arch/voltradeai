@@ -268,7 +268,7 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
 4. FINRA Query API cluster (keyless; settlement-stress composite)
 5. GEM asset registry (form-fill → Mike; CC BY 4.0 join spine)
 6. SEC FTD (keyless; composite ingredient)
-7. ECB + Eurostat + Bundesbank (keyless; regime features)
+7. ECB + Eurostat + Bundesbank (keyless; regime features) [BUILT — server/euMacro.ts + /data/eu-macro client view; this ranking line had gone stale, found already-shipped 2026-08-23]
 8. USGS quakes + NDBC buoys (keyless; event joins to our graph)
 9. ENTSO-E (token → Mike; EU power vertical)
 10. SEC MIDAS (keyless quarterly; small-cap colonization filter)

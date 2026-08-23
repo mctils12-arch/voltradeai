@@ -3376,6 +3376,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       attribution: "DTCC SBSDR real-time public dissemination (SEC Reg SBSR)",
       time: hit.at,
       file_date: hit.fileDate,
+      source_date: hit.sourceDate,
       us_underlier_rows_today: hit.usRows,
       new_rows_archived: hit.newRows,
       total_archived: hit.totalArchived,
