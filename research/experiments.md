@@ -62679,3 +62679,134 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 action and used it; the three sibling v1-mirror gaps and the sec_midas
 gate-2 hypothesis are real queued work for a future session, not evidence
 this one idled.
+
+## 2026-08-23 (scheduled-routine session #13) [REPAIR] — T-BOT (options_execution.py, test_options_fixes.py) + SHARED (ci/counter_baseline.txt, package.json, package-lock.json, research/*): CSP no-affordable-puts error stops lying about a $0 strike, revived from an 11-day zero-CI stale PR (v1.0.774)
+
+TERRITORY: T-BOT. SHARED kept last-and-minimal per WORKSTREAM PARTITION.
+
+SESSION START: read CLAUDE.md in full, then `research/experiments.md`'s
+tail (sessions #4-#12, 2026-08-21 through 2026-08-23), `open_questions.md`
+KNOWN BROKEN, `wishlist.md`'s register, and `PROGRAM_STATE.md`'s QUEUE (a
+disjoint, concurrently-running MASTER PROGRAM tech-debt track, not this
+session's territory). LOOP-HEALTH RATIO on the last 10 tagged entries
+before this session (DTCC-PIPELINE 08-22 through session #12 PRODUCT
+08-23): 5 REPAIR / 3 PIPELINE / 2 PRODUCT — under the 7-REPAIR thrash
+threshold; the REPAIR cluster is five sequential sessions closing the
+SAME KNOWN BROKEN #32 (stale-order sweeper) down to zero, which CLOSED
+in session #9 — convergence, not thrash. `python3 scripts/
+session_health_check.py`: all OK (liveness alive/not dark, daemon rss
+389MB, ML feedback age 18.9h, `deploy_freshness` confirmed
+`server_version=1.0.773` matched this checkout's package.json before this
+session's bump). No LIVENESS ALARM, nothing in KNOWN BROKEN blocking.
+`TZ=America/New_York date`: Sunday 2026-08-23, market closed — no
+merge-timing constraint.
+
+PRIMARY ACTION SELECTION: `research/wishlist.md`'s STALE-PR BACKLOG thread
+(opened 2026-08-20, updated three times since) explicitly names **#797**
+as "next by the same [REPAIR]-first ordering" among the 5 PRs still
+remaining from the original 8-PR sweep, and its own 2026-08-22 UPDATE
+gives standing instructions for reviving any of them: confirm the target
+bug is still live on current `main` before spending effort, since two
+siblings (#708, #794) had already been silently superseded by later
+merged work touching the same neighborhood. This is real, already-
+diagnosed REPAIR work sitting unmerged for 11 days (`options_execution.py`'s
+`_select_sell_put()` prints a false "$0 strike ... too expensive" message
+when the fetched put chain has zero strikes at/below price) — CLAUDE.md's
+priority order puts REPAIR ahead of new PRODUCT/PIPELINE work, and this
+is the single highest-value unclaimed item this session found.
+
+READ BEFORE WRITE: fetched PR #797's diff and confirmed via `git log`
+that `options_execution.py::_select_sell_put()` had not been restructured
+since 2026-08-12 in the surrounding ~60 lines (the `all_puts_any_type`
+variable the fix's error message references still exists at the same
+call site, line 867). Grepped current `main` and confirmed the exact bug
+(`min((p.get("strike", 0) for p in puts), default=0)`, no `if not puts`
+guard) is still present, unchanged, at line 915 — this is genuinely
+unfixed, not silently superseded like #708/#794/#707/#706 before it.
+`_select_sell_put`'s only caller is inside the same file
+(`options_execution.py:433`); `csp_universe.py`/`tiered_strategy.py`
+reference it only in comments — pure Python, no TS/JS call-site surface,
+confirmed via grep before touching anything.
+
+WHAT SHIPPED: not a mechanical cherry-pick of #797's stale branch (whose
+CI never ran once in 11 days — the mechanism-3 stale-PR class
+wishlist.md's audit documented: `total_count: 0` check runs on the head
+commit) — re-applied the identical fix fresh on top of current `main`,
+per the standing instruction and the #708/#794 precedent that a blind
+revive risks shipping a fix that no longer reaches its target code path.
+`_select_sell_put()` now checks `if not puts:` before computing
+`smallest_strike`, returning `"No OTM puts available for {ticker}: N
+put(s) in the fetched chain, none struck at or below the current price
+${price}"` instead of falling through to a fabricated `$0 strike` and a
+false "too expensive" claim. The graduated-degradation stretch path
+(cheapest strike still exceeds the 20%-of-equity stretch ceiling) is
+untouched — diagnostic-message-only change, does not affect which puts
+are selected, sized, or rejected as unaffordable for any candidate the
+function already accepts or rejects (REASONING STANDARD #1 — no
+downstream sizing/exposure/order-submission behavior changes).
+
+RATCHET: `test_sell_put_no_otm_strikes_gives_honest_error_not_zero_strike`
+in `test_options_fixes.py`, reproducing the original live KORU shape
+(chain entirely struck above the current price). A/B-verified via `git
+stash`: fails against pre-fix code with the exact `"smallest strike $0
+needs $0 ... Underlying too expensive at $19.89"` message reproduced
+byte-for-byte; passes post-fix.
+
+GATES: `python3 -m pytest -q` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, absent at session start): 1421 passed, 1 skipped —
+zero regressions. `npm ci` (node_modules was essentially empty at session
+start — 1 stray entry, no `tsx` binary; installing it was necessary
+before any gate could run meaningfully). `bash scripts/gated_tests.sh`:
+GATE PASSED — server 165/165, client 1070/1070, python 1421/1 skipped,
+quarantine 0/1 none overdue. The FIRST attempt at this gate (before `npm
+ci`) reported 8 client + 8 server failures, all `ERR_MODULE_NOT_FOUND` /
+missing-dependency shaped — isolated via a full A/B (git stash the diff,
+`npm ci`, re-run clean on bare `main`: still 0 failures; pop the stash,
+re-run: still 0 failures) that this was purely the empty-`node_modules`
+sandbox artifact, not a real regression and not caused by this diff —
+confirmed extra carefully here specifically because the standing
+STALE-PR BACKLOG guidance's own point is that silent breakage is easy to
+miss on a revived PR. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0,
+unchanged (no `.ts`/`.tsx` touched). `npm run build`: clean. `bash
+scripts/counter_ratchet.sh`: isolated this session's own contribution via
+`git stash`/`git stash pop` — `assertions` moves 12066->12070 with this
+diff applied vs. unchanged at 12066 with it stashed out, so the session's
+own direct effect is exactly +4 (the new test's 4 `assert*` calls); pinned
+**12070** in `ci/counter_baseline.txt`. `tests_run_in_ci`/
+`tests_gating_merge` 392->393 confirmed via the same stash isolation to be
+pre-existing drift (present identically with this session's diff
+stashed out) — left un-pinned per PROMOTION RULE 5.
+
+BACKTEST: N/A per PROMOTION RULE 3 — diagnostic-error-message fix only;
+the function's affordability decision and every non-empty-`puts` code
+path are byte-identical before and after, so no scoring/sizing/trading
+logic changed for any candidate this function already accepts or rejects.
+
+VERSION: v1.0.774 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; confirmed via `git fetch origin main` that origin/main's
+head still matched this branch's base, v1.0.773, before bumping).
+
+MARKET-HOURS NOTE: Sunday, market closed (`TZ=America/New_York date`
+confirmed) — no merge-timing constraint.
+
+DOCS: `research/open_questions.md`'s 2026-07-28 "RELATED SMALL DEFECT"
+note (the original filing of this exact bug) gained a dated CLOSED
+update pointing at this session and PR #797's supersession.
+
+PR #797 CLOSED as superseded by this session's new PR (same-content fix,
+re-derived fresh rather than merged from the dead branch) — comment
+posted naming the new PR number.
+
+NEXT (queued, not this session): the remaining 4 PRs from the original
+stale-PR-backlog 8 — **#767, #844, #834, #817** — per wishlist.md's own
+standing instruction, each needs the same read-before-write
+re-verification against current `main` before reviving (2 of the last 3
+attempts, #708 and #794, turned out to be silently superseded already).
+#877/#888 remain untriaged by any stale-PR sweep, as before. Separately,
+PROGRAM_STATE.md's own queue (Q9: design-token drift check into the
+harness) remains the next unclaimed item on that disjoint track.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR action (the highest-priority item per CLAUDE.md's own ordering)
+and used it in full, including the extra verification rigor the
+stale-PR-backlog thread's own standing guidance asks for.
