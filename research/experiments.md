@@ -62309,9 +62309,17 @@ existing `refreshDtccSwaps` test) — pinned as 12038+5=**12043** in
 scripts/counter_ratchet.sh` now reports `assertions: 12043 -> 12055`
 ("IMPROVED", the remaining +12 being the same pre-existing drift, still
 correctly unpinned) and all 25 counters pass. `npm run visual -- --page
-data` run at 390/768/1440 (self-see harness) — see the follow-up line
-below for the result once it completed (started before this entry was
-written; long-running headless-browser suite).
+data` run at 390/768/1440 (self-see harness) — **0 hard failures** at all
+three widths (`.visual/results.json`); the handful of pre-existing
+warnings printed (touch-target sizing on the nav bar/layers-panel chrome,
+a clipped "Media events near facilities"/"GitHub engineering momentum"
+tile label) name UI this session never touched, matching the shape of
+warnings several recent sessions' own data-page visual runs have also
+logged — none reference the new "Equity swap dissemination" launcher or
+the dtccSwaps.tsx page. Screenshots saved to
+`.visual/data-{390,768,1440}.png`, reviewed against DESIGN.md: the new
+launcher button renders inline with the existing JODI/VIX buttons (same
+`vt-streams-launch` styling, no new CSS), consistent at all three widths.
 
 BACKTEST: N/A per PROMOTION RULE 3 — this is a RAW read-only data-display
 feature (a new /data client view over an already-gate1'd, already-archived
