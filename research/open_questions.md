@@ -4483,7 +4483,8 @@
     plain-root cases confirm no regression on the common case, unchanged
     on both sides of the stash).
 
-32. **[FOUND + PARTIAL FIX 2026-08-22, scheduled-routine session]
+32. **[FOUND + PARTIAL FIX 2026-08-22, RESOLVED 2026-08-23 (scheduled-
+    routine session #9, v1.0.770 — see final UPDATE below)]
     `server/bot.ts`'s stale-order sweeper (`sweepStaleOrders()`,
     `tier1Reflex`, every ~45s, meant to cancel DAY limit orders unfilled
     for `STALE_ORDER_MINUTES` (12) minutes) has been fully dead code —
@@ -4647,6 +4648,93 @@
     (5 new tests, source-scraping style matching this entry's own
     precedent chain — A/B-verified via `git stash` on `server/bot.ts`
     alone: all 5 fail pre-fix, all 5 pass post-fix).
+
+    **RESOLVED 2026-08-23 (scheduled-routine session #9, v1.0.770, PR
+    #914):** picked up this entry's own NEXT exactly as scoped — the
+    manual `/api/bot/trade` route, `executeMorningQueue()`, and the
+    Tier 3 `BUY` dispatcher (`action.action === "BUY"`, same dispatcher
+    as the already-fixed `SELL_CSP`/`BUY_PUT` branches) were the last
+    three order-submission sites in `server/bot.ts` never registering a
+    `TrackedOrder`. All three confirmed real (not theoretical) gaps by
+    direct read: `executeMorningQueue()` and the T3 `BUY` dispatcher
+    both use `getOrderParams`'s `'new_entry'` default, which
+    `server/orderParams.ts` confirms is ALWAYS a DAY limit order, in and
+    out of regular hours; the manual route accepts an arbitrary `type`
+    from the caller (defaults to `"market"`, but any non-market type can
+    rest). Fixed the same shape as every prior site in this chain —
+    push to `openOrders` gated on the response actually carrying an
+    order id; the manual route additionally tags `isExit:
+    orderSide === "sell"` since a sell via that route always closes an
+    existing long (shorting is hard-blocked immediately above it).
+
+    Grepping all 16 `/v2/orders` POST call sites in the file (cross-
+    referenced against the then-6 pre-existing `openOrders.push()`
+    calls) turned up two MORE gaps of the identical shape, neither
+    named in this item's original scope: `runUpgradeCandidates()`'s
+    upgrade-buy order and the standalone `POS-KILL` per-position forced-
+    liquidation branch's `stop_loss` order (which, unlike the other
+    stop-loss/TP branches already fixed via `checkPositionOnTick`, CAN
+    rest — `getOrderParams(..., 'stop_loss')` returns a limit order with
+    `extended_hours: true` outside regular hours). NOT fixed in this PR
+    (one logical layer at a time) — filed as their own fresh entries
+    below (#33, #34) rather than reopening this item, per RECURRENCE
+    ESCALATES: a related-but-distinct gap found while closing the
+    original scope is a new finding, not the same root cause recurring.
+
+    With this fix, every order-submission site this item ever named
+    (options entry, ETF/stock entry, exit, manual route, morning queue,
+    Tier 3 BUY) registers with `openOrders` — 9 `openOrders.push()`
+    sites now exist where zero did four sessions ago. KNOWN BROKEN #32
+    is CLOSED. Remaining open work: (a) live-fire confirmation that a
+    resting order at any of the three sites fixed this session actually
+    gets swept after `STALE_ORDER_MINUTES` (12) — no live case observed
+    yet, same caveat every prior session in this chain carried for its
+    own newly-fixed sites; (b) #33 and #34 below.
+
+    RATCHET (this update): `server/finalOrderSitesStaleTracking.test.ts`
+    (4 new tests, source-scraping style matching this entry's own
+    precedent chain — A/B-verified via `git stash` on `server/bot.ts`
+    alone: all 4 fail pre-fix, all 4 pass post-fix).
+
+33. **[FOUND 2026-08-23, scheduled-routine session #9, not yet fixed]
+    `runUpgradeCandidates()`'s upgrade-buy order (`server/bot.ts`,
+    inside `runOvernightResearch`, ~line 4996) is unswept by
+    `sweepStaleOrders()` — same root cause class as KNOWN BROKEN #32,
+    found while closing that item but deliberately left open (one
+    logical change at a time).** When a higher-scoring overnight-
+    research candidate is found for an existing lower-scoring position,
+    this branch sells the old position and buys the new one via
+    `alpaca("/v2/orders", ...)` with `getOrderParams(betterPick.price ||
+    0)` — the same always-limit `'new_entry'` default confirmed for
+    KNOWN BROKEN #32's morning-queue and Tier 3 BUY sites. The order
+    response is discarded (only used to call `addPositionToMonitor`),
+    never pushed to `openOrders`. NEXT: fix the same way as #32's
+    sites — capture the response, push on a real order id, with its own
+    A/B-verified test (source-scraping style, matching the precedent
+    chain in `server/finalOrderSitesStaleTracking.test.ts` and its
+    siblings).
+
+34. **[FOUND 2026-08-23, scheduled-routine session #9, not yet fixed]
+    The standalone `POS-KILL` per-position forced-liquidation branch
+    (`server/bot.ts`, ~line 5424, `pnlPct <= POSITION_KILL_LOSS_PCT`)
+    can submit a resting limit order that `sweepStaleOrders()` cannot
+    see — distinct from KNOWN BROKEN #32's exit-side fix, which only
+    covers `checkPositionOnTick()`'s stop-loss/trailing-stop/take-
+    profit/time-stop branch.** This is a separate standalone risk-kill
+    check with its own `alpaca("/v2/orders", ...)` call, using
+    `getOrderParams(current, 'stop_loss')`. Per `server/orderParams.ts`,
+    that returns `type: "market"` during regular hours (fills
+    immediately, nothing to track) but `type: "limit", extended_hours:
+    true` outside regular hours — so a position that crosses the -25%
+    kill threshold during extended hours can leave a resting stop order
+    invisible to the sweeper, on exactly the kind of forced-liquidation
+    order where a stuck fill matters most. NEXT: register this branch's
+    order response with `openOrders` (tagged `isExit: true`, matching
+    the exit-side convention from KNOWN BROKEN #32's own fix), with its
+    own A/B-verified test. Lower urgency than a live-evidenced gap (no
+    live case of this specific order sitting unswept has been observed)
+    but the mechanism is confirmed real by direct read of
+    `orderParams.ts`, not assumed.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

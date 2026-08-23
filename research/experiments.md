@@ -62051,3 +62051,127 @@ stopping at the one function named in the prior session's NEXT); the
 queue this session drew from was non-empty and explicitly ranked by the
 prior session's own filed follow-up, so there was no idle capacity to
 explain away.
+
+## 2026-08-23 (scheduled-routine session #9) [REPAIR] — T-BOT (server/bot.ts, server/finalOrderSitesStaleTracking.test.ts) + SHARED (package.json, research/*) — KNOWN BROKEN #32 CLOSED: manual API route, morning-queue, and Tier 3 BUY were the last three unswept order-submission sites (v1.0.770)
+
+TERRITORY: T-BOT primary (server/bot.ts only), SHARED minimized to
+package.json (version bump) and research/* (this entry). No other
+session's territory touched.
+
+LOOP-HEALTH CHECK (session start): last 10 tags before this one — REPAIR,
+REPAIR, REPAIR, PIPELINE, REPAIR, PIPELINE, PRODUCT, REPAIR, PRODUCT,
+PIPELINE (2026-08-21 #2 through 2026-08-23 #8). 5 REPAIR / 3 PIPELINE /
+2 PRODUCT — under the 7-REPAIR thrash threshold, no meta-problem to
+address. SYSTEM HEALTH: `/api/health` returned `status: "ok"` across
+every subsystem (server/database/alpaca/python/bot/scanner/feeds/
+licensing/memory); `bot.liveness.dark: false`, `drawdownPct: "0.0"` — no
+LIVENESS ALARM condition. GitHub: 7 open PRs, all pre-existing stale-PR-
+backlog entries already filed in wishlist.md (2026-08-20 audit) or
+already-triaged fresh ones (#888) — nothing new needing action this
+session.
+
+PRIMARY ACTION: read `research/open_questions.md` KNOWN BROKEN #32
+(stale-order sweeper) per the REPAIR MANDATE. Its own text, updated
+across four prior sessions (2026-08-22 options+ETF/stock entries,
+2026-08-22 stock/ETF entry-side, 2026-08-23 exit-side), named an exact
+remaining scope in its most recent UPDATE: "the remaining non-
+`executeTrades`, non-`checkPositionOnTick` order-submission sites this
+item originally scoped (manual API route, morning-queue execution,
+Tier 3 BUY) are still open." Grepped every `/v2/orders` POST call site
+in `server/bot.ts` (16 total, cross-referenced against the 6 pre-existing
+`openOrders.push()` calls) to confirm exactly these three, plus two
+extra findings of the same shape not in the original scope (see NOT
+FIXED below), remained untracked.
+
+FIX SHIPPED (v1.0.770):
+1. **Manual `/api/bot/trade` route** (line ~2533) — this route accepts
+   an arbitrary `type` from the request body (defaults to `"market"`).
+   A non-market submission (e.g. an explicit `"limit"`) can rest
+   unswept; now pushed to `openOrders` gated on `order?.id && type !==
+   "market"`, tagged `isExit: orderSide === "sell"` (a "sell" via this
+   route always closes an existing long — stock shorting is hard-
+   blocked immediately above it, confirmed by direct read).
+2. **`executeMorningQueue()`** (line ~3320) — confirmed via
+   `server/orderParams.ts` direct read that `getOrderParams(trade.price
+   || 0)`'s default `context: 'new_entry'` returns `type: "limit"` in
+   BOTH the `isRegularHours` and extended-hours branches — never
+   `"market"` — so this is a real, not theoretical, gap for every
+   overnight-research trade the morning queue executes. Now pushed on
+   `order?.id`.
+3. **Tier 3 `BUY` dispatcher** (`action.action === "BUY"`, line ~3956,
+   the same dispatcher as the already-fixed `SELL_CSP`/`BUY_PUT`
+   branches a few lines above/below it) — the order submission's
+   response was previously **discarded entirely**, not even captured
+   into a variable (`await alpaca(...)` with no assignment). Same
+   always-limit `getOrderParams` default as (2). Now captured into
+   `t3OrderResult` and pushed on `t3OrderResult?.id`.
+
+NOT FIXED THIS SESSION (same discipline as every prior session in this
+chain — one logical layer at a time): tracing every remaining
+`/v2/orders` POST call site (16 total) turned up two more gaps of the
+identical shape, neither named in KNOWN BROKEN #32's original scope:
+- `runUpgradeCandidates()` (line ~4996, inside `runOvernightResearch`) —
+  the upgrade-buy order uses `getOrderParams(betterPick.price || 0)`,
+  same always-limit default, currently unswept.
+- The `POS-KILL` per-position forced-liquidation branch (line ~5424)
+  uses `getOrderParams(current, 'stop_loss')`, which per `orderParams.ts`
+  is `type: "market"` during regular hours but `type: "limit",
+  extended_hours: true` outside them — so this one CAN rest, unlike the
+  other stop-loss/TP branches already fixed (those fire from
+  `checkPositionOnTick`, this one is a distinct standalone risk-kill
+  check). Both filed in `research/open_questions.md` for a future
+  session rather than expanding this PR's scope.
+Six `/v2/orders` sites were correctly left untouched because they are
+pure market orders (cancel-all liquidation, LIQUIDATE-ALL kill-switch
+branch, TIME-EXIT, CC-UNWIND ×2) that fill immediately and gain nothing
+from tracking — matching the reasoning the file's own prior CC-UNWIND/
+TIME-EXIT code already applies.
+
+With this PR, KNOWN BROKEN #32's originally-scoped list (options entry,
+ETF/stock entry, exit, manual route, morning queue, Tier 3 BUY) is fully
+closed — 9 `openOrders.push()` call sites now exist where zero did
+before this chain started. Marking KNOWN BROKEN #32 RESOLVED in
+open_questions.md, with the two new same-shape findings above filed as
+their own fresh (unnumbered pending) entries rather than reopening #32
+per RECURRENCE ESCALATES (a related-but-distinct gap is a new finding,
+not a recurrence of the same root cause).
+
+RATCHET: `server/finalOrderSitesStaleTracking.test.ts` (4 new tests,
+source-scraping style matching this chain's own precedent — A/B-
+verified via `git stash` on `server/bot.ts` alone: all 4 fail pre-fix,
+all 4 pass post-fix).
+
+VALIDATION: full node suite (`npm run test:node`) — 1361/1361 pass.
+`bash scripts/counter_ratchet.sh` — clean, 25/25 counters at or better
+than baseline (`order_post_sites` unchanged at its pinned value — no new
+`/v2/orders` call sites were added, only tracking wired onto existing
+ones, consistent with the counter's own "files referencing /v2/orders"
+definition). `npx tsc --noEmit` — 4 pre-existing errors, confirmed via
+`git stash` to be identical before and after this diff (none in the
+lines touched). No strategy/sizing/scoring logic changed — execution-
+layer safety fix only, no backtest required per PROMOTION RULES (same
+justification as every prior PR in this chain).
+
+VERSION: v1.0.770 (bumped from v1.0.769, read-and-increment at commit
+time per WORKSTREAM PARTITION merge-order protocol).
+
+PR #914 opened from `claude/busy-fermi-1u1tp7`, subscribed for CI/review
+follow-up.
+
+NEXT: (1) live-verify via `/api/diag/audit` that a resting non-market
+manual-route order, a morning-queue limit, or a T3 BUY limit actually
+gets swept after `STALE_ORDER_MINUTES` (12) — no live case of any of
+these three specifically sitting unswept has been observed yet, same
+caveat every prior session in this chain has carried forward for its
+own newly-fixed sites. (2) a future session should pick up the two new
+findings above (`runUpgradeCandidates` upgrade-buy, `POS-KILL` extended-
+hours stop) the same way — one call site at a time, its own A/B-verified
+test. (3) the stale-PR-backlog queue (2026-08-20 wishlist entry) remains
+unclaimed, same branch-scope caveat noted by several prior sessions.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (three real call sites fixed, closing out a four-session repair
+chain, with two new same-shape findings caught and correctly deferred
+rather than scope-crept into this PR); the queue this session drew from
+was non-empty and explicitly ranked by the prior session's own filed
+follow-up, so there was no idle capacity to explain away.
