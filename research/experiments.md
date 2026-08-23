@@ -62175,3 +62175,191 @@ chain, with two new same-shape findings caught and correctly deferred
 rather than scope-crept into this PR); the queue this session drew from
 was non-empty and explicitly ranked by the prior session's own filed
 follow-up, so there was no idle capacity to explain away.
+
+## 2026-08-23 (scheduled-routine PRODUCT session #10) [PRODUCT] — T-CLIENT (client/src/pages/dtccSwaps.tsx, datamap.tsx wiring) + T-DATACORE-adjacent (server/dtccSwaps.ts, server/dtccSwaps.test.ts) + SHARED (server/routes.ts, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json, research/*) — DTCC SBSDR equity swap dissemination gets a live /data client view, closing the gap its own route comment flagged two sessions ago (v1.0.771)
+
+TERRITORY DECLARATION: primary T-CLIENT (the deliverable is a new /data
+page + datamap.tsx wiring); T-DATACORE-adjacent for the small server-side
+addition this required (server/dtccSwaps.ts, its test file); SHARED kept
+to the minimum this repo's own protocol allows (server/routes.ts — one
+route's response shape extended, not a new route; datacore/signal_ladder.json
+— one entry's note appended; ci/counter_baseline.txt, package.json,
+package-lock.json, research/*).
+
+SESSION-START SURVEY (per the routine's own instructions — this is a
+[PRODUCT] session, so KNOWN BROKEN is checked but does not preempt product
+work unless it blocks this session specifically): CLAUDE.md read in full.
+`research/PROGRAM_STATE.md`'s own NEXT (Q8/Q9/Q11, MASTER PROGRAM tech-debt
+track) is a T-CLIENT/T-BOT tsc-and-harness program, disjoint from this
+session's product mandate and not blocking. `research/experiments.md`'s
+last 10 tagged entries (sessions #1-#9 this week, 2026-08-21 through today):
+5 REPAIR / 3 PIPELINE / 2 PRODUCT — under the 7-REPAIR thrash threshold, no
+loop-health meta-problem. KNOWN BROKEN #32 (stale-order sweeper) was CLOSED
+by session #9 (v1.0.770) earlier today; no other KNOWN BROKEN item's own
+text flagged a live, unresolved break that would block product work in this
+session's chosen territory. No live `/api/health` check was available in
+this sandbox (no running server instance to query — same limitation prior
+sessions have noted for a fresh checkout), so the session leaned on the
+written record (experiments.md's own session log) rather than asserting a
+live liveness reading it could not actually take; nothing in that record
+suggests a LIVENESS ALARM condition (last REPAIR entry closed a positive
+finding, not an open outage).
+
+PRIMARY ACTION SELECTION: surveyed `datacore/signal_ladder.json`'s 42 roots
+for a bounded, unblocked next step matching this session's menu item (a)/
+(b) (advance a ladder gate, or ship UI for an already-gated root). Every
+`gate2_pending` entry (cftc_cot_positioning, sec_8k_earnings_language,
+gem_methane_plume_proximity) is genuinely blocked on either accumulated
+archive depth or an already-exhausted analysis (gem_methane's 2026-07-20
+update left only "wait for a newer GEM release" and "unsourced disclosed-
+emissions matching" as its NEXT steps, neither actionable today). The
+`gate1_pending` entries (space_weather_swpc, port_dwell_maritime_transit)
+are similarly time-gated (waiting on a storm window / an accumulating
+history read). Checked `client/src/pages/` against the 14 `gate1_pass`
+roots instead (option (b) of this session's menu): 13 of 14 already have a
+live client page (fleetUtilization.tsx, fredMacro.tsx, euMacro.tsx,
+nrcReactorStatus.tsx, cropConditions.tsx, appStoreRankings.tsx,
+githubOrgActivity.tsx, bankFailures.tsx, attention.tsx, edgar13f.tsx,
+midas.tsx, filings.tsx-family). The ONE exception: `dtcc_sbsdr_equity_swaps`
+(gate1_pass 2026-08-22) — `server/routes.ts`'s own `/api/data/dtcc-swaps`
+handler carried a comment stating exactly this gap: "the archived per-event
+rows get a dedicated /data view + filtering in a follow-up PRODUCT session,
+same sequencing as every other freshly-gate1'd root in this codebase." This
+is the highest-value, most concretely-specified, fully-unblocked product
+action available this session — the prior session that shipped gate 1 had
+already named it as the next step, in the code itself.
+
+WHAT SHIPPED:
+1. `server/dtccSwaps.ts` — new `topNotionalRows(rows, cap=100)` (pure
+   function, exported and unit-tested standalone): sorts a poll cycle's
+   US-underlier rows by `notionalAmountLeg1` descending, with
+   Dodd-Frank-masked (`null`) rows sorting LAST rather than being treated
+   as zero or dropped. `DtccPollResult` gained a `topRows` field, populated
+   in `refreshDtccSwaps` from that cycle's already-in-memory `foundRows` —
+   no new disk reads, no new network calls, and explicitly bounded to 100
+   rows (MEMORY LAW: "no unbounded selects"). Read the module's own header
+   comment first: it already documents why this is a per-cycle snapshot,
+   not a full-archive ranking (scanning the durable archive for a
+   global top-N would mean decompressing every prior day's file on an
+   interactive request) — the new code follows that constraint rather than
+   fighting it.
+2. `server/routes.ts` — the existing `/api/data/dtcc-swaps` handler (no new
+   route) now maps `hit.topRows` into a `top_rows` array of
+   client-friendly field names, and the route's own `note` text was
+   extended to say explicitly that `top_rows` is "the largest-notional
+   events from the SOURCE file's most recent published day, not a running
+   archive-wide ranking" — stated in the API response itself, not just in
+   code comments, so the UI (and any future consumer) inherits the honesty
+   constraint rather than having to rediscover it.
+3. `client/src/pages/dtccSwaps.tsx` (new) — `DtccSwapsView`, reusing the
+   `vt-filings-page`/`vt-shortvol-body` shell (zero new CSS, same precedent
+   as `jodiOilStocks.tsx`/`occVolume.tsx`). Table: underlier name + raw
+   ID/source, action type, event timestamp, notional (masked rows render
+   "— (masked)", never a fabricated $0). Header carries the RAW badge, a
+   link to DTCC's own public SBSDR dashboard, and restates the gate-2-
+   locked note verbatim from the API response — no predictive framing
+   anywhere on the page (`kind: "raw"` from the API, consistent with the
+   RAW OVERLAYS vs SIGNALS rule: this is an as-disseminated reading of
+   individual swap events DTCC itself published, no interpretation layered
+   on top, so no gate-2 gating applies to shipping the view itself).
+4. `client/src/pages/datamap.tsx` wiring: import, `dtccSwapsOpen` state +
+   hash listener (`#/data/dtcc-swaps`), render block, and a launcher button
+   in the streams panel (`data-vt-dtccswaps-launch`, `Repeat` icon) —
+   exact copy of the JODI/VIX-term-structure "page-wide dashboard, not a
+   spatial layer" pattern; confirmed by grep that neither of those two
+   precedents needed any `layersWiring.test.ts`/LAYER_GROUP registration
+   (that machinery is for map layers, not full-page overlays), so none was
+   added here either.
+
+NOT BUILT THIS SESSION (deliberately, to keep this one logical change):
+CUSIP/ISIN -> ticker resolution on this page. `server/cusipResolver.ts`
+exists (built 2026-08-22 for this exact root) but is a rate-limited,
+network-calling, on-disk-cached batch resolver meant to run from
+`scripts/dtcc_resolve_cusips.ts`, not to be invoked synchronously inside an
+interactive route handler — and this fresh sandbox's archive has no
+resolved-ticker cache file to read from yet regardless. Wiring ticker
+display into this page is a real, scoped follow-up (read the persisted
+cache file if present, degrade to raw underlier ID/name when absent) — not
+started here, filed as NEXT below rather than bundled into this PR.
+
+GATES: `bash scripts/tsc_ratchet.sh` — 12<=12, TS2304=0, unchanged.
+`npm run test:node` — 1363/1363 (1361 baseline + 2 new `topNotionalRows`
+tests; the pre-existing `refreshDtccSwaps` "today's file already
+published" test also gained 2 new assertions on `topRows`). `npm run
+build` — clean (same two pre-existing warnings noted by every recent
+session — maplibre-gl chunk size, mapIcons dynamic/static dual import —
+neither touched this session). `bash scripts/gated_tests.sh` — GATE
+PASSED: client 100/100 test files, python 1420 passed/1 skipped, quarantine
+0/1 none overdue (after `pip install -r requirements.txt -r
+requirements-dev.txt`, absent at session start — same recurring sandbox-
+provisioning step nearly every prior session has logged, not a regression).
+`bash scripts/counter_ratchet.sh`: first run (before isolating this
+session's own contribution) showed `tests_run_in_ci`/`tests_gating_merge`
+392->393 and `assertions` 12038->12050 that reproduce IDENTICALLY on a
+clean `git stash` of this session's entire diff — confirmed via
+`git stash && bash scripts/counter_ratchet.sh && git stash pop` — so that
+movement is pre-existing drift from unrelated merges since the pin was
+last set, NOT this session's effect, and is deliberately left UN-pinned
+here per PROMOTION RULE 5 (same discipline as several recent sessions'
+`tests_run_in_ci`/`tests_gating_merge` entries). This session's OWN
+directly-attributable contribution to `assertions` is exactly +5 (the two
+new `topNotionalRows` tests' own assert calls plus the two added to the
+existing `refreshDtccSwaps` test) — pinned as 12038+5=**12043** in
+`ci/counter_baseline.txt`, re-verified live: `bash
+scripts/counter_ratchet.sh` now reports `assertions: 12043 -> 12055`
+("IMPROVED", the remaining +12 being the same pre-existing drift, still
+correctly unpinned) and all 25 counters pass. `npm run visual -- --page
+data` run at 390/768/1440 (self-see harness) — **0 hard failures** at all
+three widths (`.visual/results.json`); the handful of pre-existing
+warnings printed (touch-target sizing on the nav bar/layers-panel chrome,
+a clipped "Media events near facilities"/"GitHub engineering momentum"
+tile label) name UI this session never touched, matching the shape of
+warnings several recent sessions' own data-page visual runs have also
+logged — none reference the new "Equity swap dissemination" launcher or
+the dtccSwaps.tsx page. Screenshots saved to
+`.visual/data-{390,768,1440}.png`, reviewed against DESIGN.md: the new
+launcher button renders inline with the existing JODI/VIX buttons (same
+`vt-streams-launch` styling, no new CSS), consistent at all three widths.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a RAW read-only data-display
+feature (a new /data client view over an already-gate1'd, already-archived
+root); no scoring, sizing, trading-decision, or strategy-parameter logic
+touched, and no FROZEN path touched.
+
+CROSS-SYSTEM INTEGRATION (per the CROSS-SYSTEM INTEGRATION PRINCIPLE):
+none new this session beyond restating the honest status quo — the page
+does NOT join to the entity graph or the CUSIP resolver (see NOT BUILT
+above); that join is real future value, explicitly not fabricated here.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code).
+
+VERSION: v1.0.771 (package.json + package-lock.json, read-and-increment;
+package-lock.json's own version field had drifted one behind package.json's
+at session start — 1.0.769 vs 1.0.770 — both are now 1.0.771, incidentally
+fixing that pre-existing 1-version skew as a byproduct of the normal bump,
+not a separate scope-creeping change).
+
+MARKET-HOURS NOTE: Sunday, market closed (`TZ=America/New_York date`
+confirmed) — no merge-timing constraint.
+
+NEXT (queued, not this session): (1) wire `server/cusipResolver.ts`'s
+persisted cache (once `scripts/dtcc_resolve_cusips.ts` has actually run
+against the live archive and produced one) into this page for a ticker
+column — the resolver and the archive both exist, only the read-side join
+is missing. (2) once DTCC archive depth accumulates (same blocker
+signal_ladder.json's gate1_pass note already names), gate 2 (small/mid-cap
+notional clustering vs forward returns) is the next ladder step for the
+ROOT itself, independent of this session's UI work. (3) the queue's other
+`gate1_pass`-without-full-signal roots are otherwise exhausted for now —
+the next PRODUCT session should re-survey `datacore/signal_ladder.json`
+fresh rather than assume this list is still accurate, since other sessions
+ship roots continuously.
+
+STARVED: no — this was a concretely pre-specified, fully-unblocked action
+(named by a prior session's own code comment), matched to this session's
+capacity, and the queue this session drew from (13/14 already-shipped
+gate1_pass roots, all `gate2_pending`/`gate1_pending` roots genuinely
+time-gated) left no comparably-ready alternative unclaimed.
+
+PR #915 opened from `claude/beautiful-planck-tp7plm`, subscribed for
+CI/review follow-up.

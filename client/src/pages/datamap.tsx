@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -44,6 +44,7 @@ import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
 import VixTermStructureView from "./vixTermStructure";
 import JodiOilStocksView from "./jodiOilStocks";
+import DtccSwapsView from "./dtccSwaps";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
@@ -2804,6 +2805,10 @@ export default function DataMapPage() {
   // gate1_pass since 2026-08-06, gate2 killed same day, no client view
   // until now).
   const [jodiOilOpen, setJodiOilOpen] = useState(() => window.location.hash === "#/data/jodi-oil-stocks");
+  // DTCC SBSDR equity swap dissemination (#/data/dtcc-swaps) — same overlay
+  // pattern (RAW per-event reading, not a spatial layer; gate1_pass since
+  // 2026-08-22, no client view until now).
+  const [dtccSwapsOpen, setDtccSwapsOpen] = useState(() => window.location.hash === "#/data/dtcc-swaps");
   // European macro cluster view (#/data/eu-macro) — same overlay pattern
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-07, no client view until now).
@@ -3221,6 +3226,7 @@ export default function DataMapPage() {
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
       setVixTermOpen(window.location.hash === "#/data/vix-term-structure");
       setJodiOilOpen(window.location.hash === "#/data/jodi-oil-stocks");
+      setDtccSwapsOpen(window.location.hash === "#/data/dtcc-swaps");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
@@ -13242,6 +13248,9 @@ export default function DataMapPage() {
       {jodiOilOpen && (
         <JodiOilStocksView onBack={() => { window.location.hash = "#/data"; setJodiOilOpen(false); }} />
       )}
+      {dtccSwapsOpen && (
+        <DtccSwapsView onBack={() => { window.location.hash = "#/data"; setDtccSwapsOpen(false); }} />
+      )}
       {euMacroOpen && (
         <EuMacroView onBack={() => { window.location.hash = "#/data"; setEuMacroOpen(false); }} />
       )}
@@ -13832,6 +13841,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/jodi-oil-stocks"; setJodiOilOpen(true); }}>
               <Droplet size={13} /> World oil closing-stock levels
               <span className="vt-streams-launch-sub">JODI TOTCRUDE by country, monthly · RAW</span>
+            </button>
+            {/* DTCC SBSDR equity swap dissemination launcher (2026-08-23):
+                per-event RAW reading, not a spatial layer, so it launches
+                from the panel top like the other page-wide dashboards
+                above. */}
+            <button type="button" className="vt-streams-launch" data-vt-dtccswaps-launch
+                    onClick={() => { window.location.hash = "#/data/dtcc-swaps"; setDtccSwapsOpen(true); }}>
+              <Repeat size={13} /> Equity swap dissemination
+              <span className="vt-streams-launch-sub">DTCC SBSDR largest notionals, US underliers · RAW</span>
             </button>
             {/* European macro cluster launcher (2026-08-08): ECB/Eurostat/
                 Bundesbank regime-input reading, not a spatial layer, so it

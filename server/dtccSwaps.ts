@@ -383,6 +383,32 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
 
 // ── Cache + poll ─────────────────────────────────────────────────────────
 
+// How many rows to keep in memory for the /data browsing view — a bounded
+// slice of the current cycle's US-underlier rows, never the full ~112k-row
+// set (MEMORY LAW: no unbounded selects). 100 is generous for a "largest
+// notionals" table without meaningfully growing this poller's footprint
+// (each row is a handful of short strings/numbers).
+const TOP_ROWS_CAP = 100;
+
+/** Largest-notional US-underlier rows from THIS poll cycle only, sorted
+ *  descending. Notional-masked rows (Dodd-Frank caps -> null, never a
+ *  fabricated 0) sort after every rated row rather than dropping out or
+ *  sorting as if notional were zero. This is a snapshot of one cycle's
+ *  observed file, not a running archive-wide ranking — archiveNewRows
+ *  already holds the durable history; scanning it for a global top-N would
+ *  mean decompressing every prior day's file on every request, which the
+ *  MEMORY LAW's "no unbounded selects" forbids for an interactive route. */
+export function topNotionalRows(rows: DtccSwapRow[], cap = TOP_ROWS_CAP): DtccSwapRow[] {
+  return [...rows]
+    .sort((a, b) => {
+      if (a.notionalAmountLeg1 == null && b.notionalAmountLeg1 == null) return 0;
+      if (a.notionalAmountLeg1 == null) return 1;
+      if (b.notionalAmountLeg1 == null) return -1;
+      return b.notionalAmountLeg1 - a.notionalAmountLeg1;
+    })
+    .slice(0, cap);
+}
+
 export interface DtccPollResult {
   at: number;
   fileDate: string;
@@ -390,6 +416,7 @@ export interface DtccPollResult {
   usRows: number;
   newRows: number;
   totalArchived: number;
+  topRows: DtccSwapRow[];
 }
 
 let cache: DtccPollResult | null = null;
@@ -463,7 +490,10 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
     }
     const observedDate = now.toISOString().slice(0, 10);
     const { newRows, seenTotal } = archiveNewRows(foundRows, observedDate, baseDir);
-    cache = { at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows, totalArchived: seenTotal };
+    cache = {
+      at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
+      totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
+    };
     console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
   } catch (e) {
     console.error("[datacore] dtccswaps refresh:", e);

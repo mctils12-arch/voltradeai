@@ -3360,14 +3360,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // DTCC SBSDR equity total-return-swap dissemination (RAW — DATA CENSUS
   // #11, keyless, cumulative-from-2019, US-underlier-only volume-budget
-  // scope). Status/count surface only — the archived per-event rows get a
-  // dedicated /data view + filtering in a follow-up PRODUCT session, same
-  // sequencing as every other freshly-gate1'd root in this codebase.
+  // scope). Status/count surface plus a bounded "largest notionals this
+  // cycle" table (topRows, capped in dtccSwaps.ts — see its MEMORY LAW
+  // comment) feeding the /data/dtcc-swaps client view shipped alongside
+  // this route change.
   bootDtccSwapsPoll();
   app.get("/api/data/dtcc-swaps", (_req, res) => {
     const hit = latestDtcc();
     if (!hit) {
-      return res.json({ kind: "raw", source: "DTCC SBSDR equity swaps", warming_up: true });
+      return res.json({ kind: "raw", source: "DTCC SBSDR equity swaps", warming_up: true, top_rows: [] });
     }
     res.set("Cache-Control", "public, max-age=3600");
     res.json({
@@ -3380,7 +3381,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       us_underlier_rows_today: hit.usRows,
       new_rows_archived: hit.newRows,
       total_archived: hit.totalArchived,
-      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); notional amounts above Dodd-Frank real-time reporting caps are masked by the source, not by us; positioning-clustering signal stays gate-2-locked until archive depth accumulates",
+      top_rows: hit.topRows.map((r) => ({
+        dissemination_id: r.disseminationId,
+        action_type: r.actionType,
+        event_timestamp: r.eventTimestamp,
+        effective_date: r.effectiveDate,
+        notional_amount: r.notionalAmountLeg1,
+        notional_currency: r.notionalCurrencyLeg1,
+        underlier_id: r.underlierId,
+        underlier_id_source: r.underlierIdSource,
+        underlier_name: r.underlierName,
+      })),
+      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); notional amounts above Dodd-Frank real-time reporting caps are masked by the source, not by us (shown as —, never a fabricated 0); top_rows is the largest-notional events from the SOURCE file's most recent published day, not a running archive-wide ranking; positioning-clustering signal stays gate-2-locked until archive depth accumulates",
     });
   });
 
