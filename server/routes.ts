@@ -4505,6 +4505,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FDIC bank failures keyed mirror (same "shipped-data-no-v1-API" sweep as
+  // fred-macro/eu-macro/nrc-reactor-status/crop-conditions above — one of
+  // four gate1_pass roots the 2026-08-23 PRODUCT session survey found still
+  // missing one; DTCC swaps/fleet-utilization/gnss-integrity-signal are the
+  // other three, queued as their own PRs, see research/experiments.md).
+  // Reuses the latestFailures() cache /api/data/bank-failures already uses
+  // — no new computation, no new poller. Public-domain US federal data
+  // (FDIC Bank Data API), resell ok — same class as crop-conditions/NRC/
+  // eu-macro/fred-macro, unlike the OCC/Cboe/issuer-authored conditional
+  // streams.
+  app.get("/api/v1/data/bank-failures", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestFailures();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/bank-failures", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/bank-failures", { count: hit.failures.length, failures: hit.failures }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/bank-failures", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/bank-failures", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

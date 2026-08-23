@@ -62526,3 +62526,156 @@ PR #916 opened from `claude/eloquent-dijkstra-1lw3r4`, subscribed for
 CI/review follow-up. Market closed at session time (Sunday) — no
 merge-timing hold needed, noted in the PR body anyway per the run's own
 instruction.
+
+## 2026-08-23 (scheduled-routine session #12) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FDIC bank failures gets its /api/v1 keyed mirror (v1.0.773)
+
+TERRITORY DECLARATION: this session's whole diff sits in SHARED files (no
+T-DATACORE/T-CLIENT/T-BOT production module touched) — kept as small and
+last as the WORKSTREAM PARTITION protocol asks: one route + its license
+mark + its agent-tool entry + the matching tests, plus the mechanical
+version/counter/doc updates every session carries.
+
+SESSION-START SURVEY: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md,
+open_questions.md's KNOWN BROKEN section, the tail of experiments.md,
+wishlist.md's register). `python3 scripts/session_health_check.py`: all OK
+— liveness alive/not dark, all subsystems ok, daemon rss 384MB (well under
+the 400MB trim threshold), ML feedback age 16.8h with no known-broken
+signature, `deploy_freshness` confirms `server_version=1.0.772` matched
+this checkout's package.json before this session's bump. No LIVENESS ALARM,
+nothing in KNOWN BROKEN's own text flagged a live unresolved break blocking
+PRODUCT work — proceeded per this routine's own instruction that a
+[PRODUCT] session does not preempt REPAIR duty for a non-blocking item.
+`TZ=America/New_York date`: Sunday 2026-08-23, market closed — no
+merge-timing constraint.
+
+PRIMARY ACTION SELECTION: re-surveyed `datacore/signal_ladder.json` fresh,
+per the immediately preceding [PIPELINE]/[PRODUCT] sessions' own queued
+NEXT note ("the next PRODUCT session should re-survey datacore/
+signal_ladder.json fresh rather than assume this list is still accurate").
+14 roots sit at `gate1_pass`. For each, checked whether GATE 2 (SIGNAL) is
+actually attemptable this session: most are explicitly time-gated (EDGAR
+13F needs a second quarterly filing period, ~Oct-Nov 2026; App Store /
+GitHub org need ~90 days of archive history not yet elapsed; NRC/crop-
+conditions/DTCC need a quarter or more of accumulated archive depth) or
+blocked on live market-return data this sandbox does not have (confirmed:
+no ALPACA_KEY/ALPACA_SECRET in env, yfinance not installed — same blocker
+the 2026-08-18 FDIC session hit and logged). Rather than re-attempt a
+gate-2 test this sandbox structurally cannot run, chose option (d) from
+this run's own menu: close a concrete, ready, non-time-gated
+spinout-readiness gap. Grepped `server/routes.ts` for every `/api/data/*`
+root lacking an `/api/v1/*` keyed mirror (the "shipped-data-no-v1-API"
+pattern five prior sessions have each closed once for their own root:
+earnings-language, appstore-rankings, github-activity, crop-conditions,
+nrc-reactor-status, eu-macro, fred-macro). Found FOUR gaps: DTCC swaps,
+fleet-utilization, gnss-integrity-signal, and FDIC bank-failures. Picked
+bank-failures alone (PROMOTION RULE 5 — one logical change per PR, same
+discipline every prior session in this exact pattern followed): it is the
+simplest (keyless, public-domain US federal data, no OPENFIGI/CUSIP-join
+complexity like DTCC, no archive-depth caveat like fleet-utilization) and
+its GATE 1 (DATA) ground-truth check was completed most recently
+(2026-08-18, thoroughly — see that entry above) of the four, so the mirror
+text can honestly cite a fresh verification rather than a stale one.
+
+WHAT SHIPPED: `/api/v1/data/bank-failures` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/bank-failures` raw route. Reuses
+`latestFailures()` (server/fdicBanks.ts) — no new computation, no new
+poller, matching every prior mirror in this pattern. `server/apiProduct.ts`
+gained `LICENSE_MARKS["data/bank-failures"]` (resell: "ok" — FDIC Bank Data
+API is US federal government work, same class as crop-conditions/NRC/
+eu-macro/fred-macro, not conditional like OCC/Cboe/issuer-authored
+streams), an `apiMeta().endpoints` entry (states GATE 1 PASS with its date
+and the one honestly-logged discrepancy, GATE 2 as not-attempted, and the
+null-until-estimated `cost_k` convention), and an `agentToolSpec().tools`
+entry (`voltrade_bank_failures`) so an AI agent calling the tool spec sees
+the same gate-status and null-cost honesty inline, not just in the docs
+page. `server/apiProduct.test.ts` gained one dedicated license-mark test
+(`bank-failures license mark: ...`) plus three existing tests' path/tool-
+count lists extended to include the new endpoint (`meta honesty`, `wiring
+pinned` — `>=18` guarded endpoints bumped to `>=19`).
+
+CAUGHT BY THE GATE, NOT BY EYE: first draft used `catch (e: any)` — the
+exact idiom every other v1 mirror in this file already uses for its error
+handler. `bash scripts/gated_tests.sh` failed on `test_ts_code_only.py`'s
+`ts_any` ratchet (1239 pinned, non-increasing; 1240 measured) — the new
+`: any` annotation is a real regression against that counter's OWN
+direction, not an allowed "improvement" like `assertions`. Fixed by using
+the `catch (e: unknown)` / `(e as Error)?.message` idiom
+`server/routes.ts`'s gnssIntegritySignal refresh handler already
+established (line ~4024) instead of copying the more common but
+counter-regressing pattern. Re-ran: 0 new `ts_any` sites, gate green. This
+is the MASTER PROGRAM tech-debt harness (a disjoint, concurrently-running
+track from this PRODUCT session's own queue) doing exactly its stated job
+— catching a copy-pasted pattern this session would otherwise have shipped
+unnoticed, same as every prior session that hit one of its ratchets.
+
+GATES: `npm ci` (node_modules absent at session start). `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `npx tsx --test server/
+apiProduct.test.ts`: 26/26 (25 pre-existing + 1 new). `npm run test:node`:
+1364/1364 (1363 pre-existing + 1 new), unchanged elsewhere. `pip install -r
+requirements.txt -r requirements-dev.txt` (absent at session start). `bash
+scripts/gated_tests.sh`: GATE PASSED after the ts_any fix above — client
+100/100 files green, python 1420 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: isolated this
+session's own contribution via `git stash`/`git stash pop` (same discipline
+the 2026-08-23 F16 session used) — `assertions` moved 12045->12066 with
+this diff applied vs. 12045->12057 with it stashed out, so this session's
+own direct effect is +9 (the new test's assert statements); pinned
+**12066** in `ci/counter_baseline.txt`. `tests_run_in_ci`/
+`tests_gating_merge` 392->393 confirmed via the same stash isolation to be
+pre-existing drift (present identically with this session's diff stashed
+out) — left un-pinned per PROMOTION RULE 5. All 25 counters OK after
+re-pinning. `npm run build`: clean (client + server), same two
+pre-existing warnings every recent session has logged (maplibre-gl chunk
+size, mapIcons dynamic/static dual import) — neither touched this session.
+No visual harness run: this diff touches zero client/src files (confirmed
+via `git diff --stat` — only server/*.ts, ci/counter_baseline.txt,
+datacore/signal_ladder.json, package.json/package-lock.json, research/*)
+— same exemption reasoning the two immediately preceding sessions in this
+file already applied for equivalent zero-rendering-delta PRs.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition over an
+already-gate-1-passed RAW data root, no trading/scoring/sizing logic
+touched, no FROZEN path touched.
+
+CROSS-SYSTEM INTEGRATION (per the CROSS-SYSTEM INTEGRATION PRINCIPLE): none
+new this session — the mirror surfaces the same rows the raw route and the
+`/data` client page already display; no new join, no new cross-layer tie
+claimed.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code —
+`/api/v1` key issuance stays env-seeded only, per apiProduct.ts's own
+header, and this session added no new issuance path).
+
+VERSION: v1.0.773 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; confirmed via `git fetch origin main` that origin/main's
+head still matched this branch's base, v1.0.772, before bumping — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Sunday, market closed (`TZ=America/New_York date`
+confirmed) — no merge-timing constraint.
+
+DOCS: `datacore/signal_ladder.json`'s `fdic_bank_failures` entry gained a
+dated UPDATE note (targeted string edit, not a full-file `json.dump` —
+the latter would have reformatted the entire file and produced a
+440-line noise diff for a 2-sentence change, caught before committing) and
+its `last_update_date`/`source_ref` updated to point at this session.
+
+NEXT (queued, not this session): the same survey found three more roots
+with the identical shipped-data-no-v1-API gap — DTCC swaps, fleet-
+utilization, and gnss-integrity-signal — each is its own PR, per PROMOTION
+RULE 5 (DTCC's mirror should also decide whether to expose the new
+`top_rows` field the 2026-08-23 [PRODUCT] session added; fleet-utilization
+and gnss-integrity-signal are both plain reuses of an existing cache, the
+same mechanical shape as this session's). Separately, the entity_map/
+fred-macro/eu-macro-class roots (regime-input or infrastructure roots that
+explicitly make no standalone gate-2 signal claim) are correctly NOT
+candidates for this pattern. `sec_midas`'s HFT-colonization-filter gate-2
+hypothesis remains the one gate-2-eligible, non-time-gated item this
+session found but did not attempt (deferred: needs the same live
+market-return data access this sandbox lacks, and is a genuinely separate,
+larger research task from this session's API-surface scope).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+action and used it; the three sibling v1-mirror gaps and the sec_midas
+gate-2 hypothesis are real queued work for a future session, not evidence
+this one idled.
