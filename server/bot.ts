@@ -2577,6 +2577,25 @@ print(json.dumps(get_shadow_stats()))
       });
       audit("TRADE", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
       notify("trade", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
+      // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, manual API
+      // route): a `type` other than "market" (e.g. a caller-specified
+      // "limit") can rest unfilled — register it so sweepStaleOrders()
+      // (tier1Reflex, every ~45s) can free it, matching every other
+      // order-submission site's fix. A market order fills immediately and
+      // gains nothing from tracking, so it's skipped like the file's other
+      // market-order-only sites (TIME-EXIT, CC-UNWIND).
+      if (order?.id && type !== "market") {
+        openOrders.push({
+          orderId: order.id,
+          ticker: ticker.toUpperCase(),
+          score: 0,
+          placedAt: Date.now(),
+          side: orderSide,
+          qty: Number(qty) || 0,
+          limitPrice: Number(order.limit_price) || 0,
+          isExit: orderSide === "sell",
+        });
+      }
       res.json(order);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -3330,6 +3349,24 @@ print(json.dumps(result[:20]))
         audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
         notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} (score: ${trade.score})`);
 
+        // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, morning-
+        // queue): getOrderParams' 'new_entry' default is ALWAYS a DAY limit
+        // order (never market, in or out of regular hours — see
+        // orderParams.ts) — register it so sweepStaleOrders() (tier1Reflex,
+        // every ~45s) can free it if it never fills, matching every other
+        // entry-side fix already shipped for this item.
+        if (order?.id) {
+          openOrders.push({
+            orderId: order.id,
+            ticker: trade.ticker,
+            score: trade.score || 0,
+            placedAt: Date.now(),
+            side: trade.side || "buy",
+            qty: _qtyToSubmit,
+            limitPrice: Number(order.limit_price) || 0,
+          });
+        }
+
         // Track fill with realistic slippage (morning queue = market open = wider slippage)
         try {
           const mVol = trade.volume || 1000000;
@@ -3966,7 +4003,7 @@ else:
                 if (shares > 0) {
                   const orderParams = getOrderParams(currentPrice);
                   try {
-                    await alpaca("/v2/orders", {
+                    const t3OrderResult = await alpaca("/v2/orders", {
                       method: "POST",
                       body: JSON.stringify({
                         symbol: action.ticker,
@@ -3976,6 +4013,23 @@ else:
                       }),
                     });
                     audit("T3", `BUY ${shares} ${action.ticker} @ ~$${currentPrice.toFixed(2)} | ${action.reason}`);
+                    // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation,
+                    // Tier 3 BUY): getOrderParams' 'new_entry' default is
+                    // ALWAYS a DAY limit order (never market — orderParams.ts)
+                    // — register it so sweepStaleOrders() (tier1Reflex, every
+                    // ~45s) can free it if it never fills, matching every
+                    // other entry-side fix already shipped for this item.
+                    if (t3OrderResult?.id) {
+                      openOrders.push({
+                        orderId: t3OrderResult.id,
+                        ticker: action.ticker,
+                        score: 0,
+                        placedAt: Date.now(),
+                        side: "buy",
+                        qty: shares,
+                        limitPrice: Number(orderParams.limit_price) || 0,
+                      });
+                    }
                   } catch (e: any) {
                     audit("T3-FAIL", `${action.ticker}: ${e?.message?.slice(0,120)}`);
                   }
