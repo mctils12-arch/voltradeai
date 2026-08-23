@@ -189,6 +189,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Source: FRED, Federal Reserve Bank of St. Louis",
     resell: "ok",
   },
+  "data/bank-failures": {
+    license: "FDIC Bank Data API bank-failures event stream (api.fdic.gov/banks/failures) — public domain (US federal government work), same class as the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro streams above.",
+    attribution: "Federal Deposit Insurance Corporation (FDIC Bank Data API)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -216,6 +221,7 @@ export function apiMeta() {
       { path: "/api/v1/data/13f-holdings", params: "-", desc: "Most-recent SEC EDGAR 13F-HR institutional holdings filings: manager identity, filing period, and the FULL as-filed holdings table (issuer, CUSIP, shares, value, discretion) for focused managers holding <=250 positions — mega-managers over that cap return a summary-only record (holdingsOmitted=true) instead of an index-hugging wall of rows, the same hypothesis-driven FOCUSED_MAX_HOLDINGS cap the archive itself applies. Unlike the /data map's top-25-by-value UI display trim, this endpoint returns every stored position for a focused filing. RAW as-filed display, no predictive claim — GATE 2 (new small-cap position clustering vs 60-90d forward returns; the 45-day filing lag is modeled honestly, holdings are stale when public) NOT attempted. Filings are submitted by the reporting manager, not government-authored — conditional resell, see license_marks.", preview: "/api/data/filings13f" },
       { path: "/api/v1/stats/eu-macro", params: "-", desc: "European macro regime cluster: ECB EUR/USD reference rate + €STR + weekly Eurosystem balance-sheet total, Eurostat EA20 industrial production, and the 10Y Bund yield (Deutsche Bundesbank) — 5 curated series, each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the FRED macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. Keyless (all three sources free with attribution). Commercial reuse permitted with attribution, verified verbatim from each source's own reuse-policy document — public-domain-equivalent resell, see license_marks.", preview: "/api/data/eu-macro" },
       { path: "/api/v1/stats/fred-macro", params: "-", desc: "FRED macro regime cluster: 28 Fed/US-government-produced rates-curve, financial-stress, labor, inflation, activity, and money/liquidity series (3-month through 30-year Treasury yields, Fed Funds, SOFR, jobless claims, CPI, industrial production, M2, Fed balance sheet, WTI, trade-weighted dollar, and more), each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the eu-macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. 3 third-party-copyrighted series (CBOE VIX, ICE BofA HY OAS, UMich Consumer Sentiment) are archived for internal regime use only and are EXCLUDED from this payload. Requires the server's FRED_API_KEY to be configured; returns 503 if not. Public-domain US federal/Fed data, freely resellable.", preview: "/api/data/macro" },
+      { path: "/api/v1/data/bank-failures", params: "-", desc: "Most-recent US bank failures/assistance events from the FDIC's own failures endpoint (institution, cert, fail date, city/state, charter class, assets/deposits at failure in $ thousands, estimated DIF loss). GATE 1 (DATA) PASSED 2026-08-18 (3/4 sampled failures exact-matched an independent FDIC Call Report AND the FDIC's own press-release figures; the 4th's discrepancy was traced to the FDIC financials index lagging its own failures record for the single most-recent event, not a parsing defect — research/experiments.md 2026-08-18 entry). RAW display only — the deposit-flight-leads-KRE SIGNAL hypothesis stays gate-2-locked (blocked on both live market-return data and the still-unbuilt ticker/entity-graph join for mostly-private regional banks). cost_k is null until the FDIC estimates it, never coerced to zero. Public-domain US federal data, freely resellable.", preview: "/api/data/bank-failures" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -380,6 +386,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/stats/eu-macro",
       returns_provenance: ["stats/eu-macro"],
+    },
+    {
+      name: "voltrade_bank_failures",
+      description: "Most-recent US bank failures/assistance events from the FDIC's own failures endpoint: institution name, FDIC cert, fail date, city/state, charter class, assets/deposits at failure ($ thousands), and estimated DIF loss (null until the FDIC estimates it). GATE 1 (DATA) PASSED — 3 of 4 sampled failures exact-matched an independent FDIC Call Report and the FDIC's own press-release figures; the one discrepancy was traced to the FDIC's financials index lagging its own failures record for the most recent event, not a parsing defect. RAW display — the deposit-flight-leads-KRE SIGNAL hypothesis has NOT been gate-2 tested. Public-domain US federal data, freely resellable.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/bank-failures",
+      returns_provenance: ["data/bank-failures"],
     },
   ];
   return {
