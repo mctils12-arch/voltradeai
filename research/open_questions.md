@@ -4938,6 +4938,20 @@ fetched chain simply had NO puts at/below price (min(default=0) leaks
 into the message — seen live on HYG 07-28). Message should distinguish
 "no OTM puts in fetched chain" from "underlying too expensive".
 
+**CLOSED 2026-08-23 (scheduled-routine session, [REPAIR], v1.0.774):**
+this defect was independently shipped once already as PR #797
+(2026-08-12) but that PR sat with zero CI runs ever recorded against its
+head commit (the mechanism-3 stale-PR class wishlist.md's 2026-08-20
+audit documented) and was never merged. Confirmed live in current
+`options_execution.py` this session that the bug was still present
+(`min((p.get("strike", 0) for p in puts), default=0)` at line 915,
+unchanged since 07-28) — re-verified via `git diff` against #797's
+recorded diff that the surrounding function had not been restructured in
+the 11 days since, then re-applied the identical fix fresh on top of
+current `main` (read-before-write, not a blind cherry-pick) rather than
+trying to resurrect the old branch. See experiments.md for the full
+session trace; PR #797 closed as superseded by the new PR.
+
 
 - **Insider Form 4 clustering as a signal** (gate 1 PASSED 2026-07-03 — see
   `server/edgarForm4.ts` / `edgarForm4.test.ts` / `datacore/README.md`; the
