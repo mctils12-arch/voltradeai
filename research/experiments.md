@@ -62363,3 +62363,166 @@ time-gated) left no comparably-ready alternative unclaimed.
 
 PR #915 opened from `claude/beautiful-planck-tp7plm`, subscribed for
 CI/review follow-up.
+
+## 2026-08-23 (scheduled-routine session #11) [PIPELINE] — T-CLIENT (client/src/lib/air/flightTrackLayer.test.ts) + SHARED minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/*) — PROGRAM_STATE.md Q8: the F16 NaN-guard unit test, pinning the multi-sample SIGNAL-LOST-AIRBORNE gap contract (v1.0.772)
+
+TERRITORY DECLARATION: T-CLIENT (the sole production-relevant file touched
+is a client-side test); SHARED kept to the minimum this repo's own protocol
+allows (`ci/counter_baseline.txt` — one counter's pin; `package.json`/
+`package-lock.json` — version bump; `research/*` — this entry plus
+PROGRAM_STATE.md/rendering_motion_overhaul.md updates).
+
+SESSION-START SURVEY (per this routine's own instructions): CLAUDE.md read
+in full. `python3 scripts/session_health_check.py`: all OK — liveness
+alive/not dark, all subsystems ok, daemon rss 396.4MB (well under the
+400MB trim threshold), ML feedback age 14.6h with no known-broken
+signature, `deploy_freshness` confirms `server_version=1.0.771` matched
+this checkout's `package.json` before this session's bump. Live
+`curl https://voltradeai.com/api/health`: `status:"ok"`, `bot.status:
+"active"`, `equityPeak: 110727.04`, `drawdownPct: "0.0"`,
+`liveness.dark: false`, all three feeds (aircraft/vessels/trains) alive
+(silent_hours < 1.1h each), scanner `consecutiveFailures: 0` — no
+LIVENESS ALARM, nothing in `/api/health` warranting a REPAIR preemption.
+LOOP-HEALTH RATIO: last 10 tagged entries before this session (sessions
+#4 2026-08-21 through #10 2026-08-23) = 6 REPAIR / 2 PRODUCT / 2 PIPELINE
+— under the 7-REPAIR thrash threshold (close to it; noted, not a trigger).
+`research/open_questions.md` KNOWN BROKEN #32 was CLOSED by session #9
+earlier today; no other KNOWN BROKEN entry's own text flagged a live,
+unresolved break blocking this session's chosen territory.
+
+PRIMARY ACTION SELECTION: `research/PROGRAM_STATE.md`'s own "NEXT" section
+(the MASTER PROGRAM tech-debt track, T-CLIENT/T-BOT, disjoint from and not
+blocking any of today's PRODUCT/REPAIR work) explicitly named **Q8** (T2.6
+— the §2.1 F16 NaN-guard unit test) as the next unclaimed queue item, ahead
+of Q9 and Q11 — a concretely pre-specified, fully-unblocked action per
+SESSION BUDGET fall-through rule 1 ("take the next queued item... own PR,
+own tagged log entry"). Checked GitHub for an actual open PR matching Q8's
+"closes a PR open since 2026-08-12" description
+(`list_pull_requests(state=open)`, 8 open PRs total) — none titled around
+the curtain cut-off / NaN guard; read that phrase as referring to the F16
+workstream itself (`research/rendering_motion_overhaul.md`, opened
+2026-08-12), not a literal still-open GitHub PR.
+
+READ BEFORE WRITE: read `research/rendering_motion_overhaul.md`'s full F16
+section before touching anything. F16 documents a real, still-unresolved
+human-reported bug (an archived flight's map trail cuts off while its
+altitude/time chart draws the full profile) with six eliminated hypotheses
+and two survivors: (a) the NaN-guard segment-skip logic in
+`buildTrackVertices` (client/src/lib/air/flightTrackLayer.ts) — leading
+candidate, since the human's example flight is labelled SIGNAL LOST
+AIRBORNE, exactly the condition that produces a NaN altitude run — and (b)
+globe-horizon occlusion culling in the vertex shader. F16's own text names
+a live "discriminating test" (rotate the globe; does the cut-off move with
+the camera, or stay pinned to a ground position; does the thin ground trace
+survive past where the curtain dies) that needs a human at the map — this
+session cannot run that test. Q8's actual deliverable, per its own name, is
+narrower and achievable without a human: a unit test pinning the CODE
+CONTRACT hypothesis (a) predicts, for the realistic case F16 describes.
+
+WHAT I FOUND: `flightTrackLayer.test.ts` already had one gap test
+("altitude gaps: trace continues... curtain + line break honestly",
+`git log` shows it added 2026-08-17, after F16 was filed) — but it only
+covers a single missing altitude sample in a 2-point track (`input2()`'s
+fixed shape). F16's own text is explicit that the human's flight has
+SEVERAL CONSECUTIVE samples with no altitude report, not one — the existing
+test does not exercise a multi-sample run, nor whether curtain/line
+correctly RESUME once real altitude data returns on both ends of a later
+segment (the code's per-segment `Number.isNaN(altM[i]) || Number.isNaN(altM[i+1])`
+check means one point of real data immediately after a gap is not enough —
+a segment only draws once BOTH its endpoints are real again).
+
+WHAT SHIPPED: one new test, "signal-lost-airborne (F16 hypothesis a): a
+multi-sample NaN run mid-flight only costs curtain+line, never the trace,
+and both correctly resume once real altitude returns on both ends of a
+segment" — a 7-point track (`altM = [1000, 1500, NaN, NaN, NaN, 2500,
+3000]`, real/real/[3-sample gap]/real/real) asserting: (1) all 6 trace
+segments draw, unbroken by the 3-sample gap (real position history, no
+altitude check); (2) curtain + altitude-line quads survive for exactly 2 of
+the 6 segments — the one before the gap (0-1) and the one after it
+regains BOTH real endpoints (5-6) — with the 4 segments touching any NaN
+sample honestly dropped. This is a genuinely new assertion shape, not a
+restatement of the existing 2-point test: it is the first test in this file
+to exercise resumption after a multi-sample gap, which is exactly the shape
+F16's own "SIGNAL LOST AIRBORNE" label describes.
+
+WHAT THIS DOES NOT DO (stated per F16's own framing, not overclaimed): this
+test proves the CODE behaves as hypothesis (a) predicts for a realistic
+multi-sample gap. It does NOT prove (a) is the actual cause of the human's
+observed cut-off over (b) (globe-horizon culling) — F16's own live
+discriminating test (rotate the globe with a human at the map) is the only
+thing that can settle that, and remains open, unattempted this session.
+
+GATES: `npx tsx --test client/src/lib/air/flightTrackLayer.test.ts`:
+17/17 (16 pre-existing + 1 new). `npm ci` (absent at session start — clean
+install). `npm run test:node`: 1363/1363, unchanged. `bash scripts/
+tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (test-only diff, no type
+surface change). `bash scripts/counter_ratchet.sh`: `assertions` moved
+12043 -> 12057 on the full diff; isolated via `git stash`/`git stash pop`
+to confirm this session's OWN direct contribution is exactly +2 (12055 ->
+12057 with only this session's diff applied) — the new test's 2 literal
+`assert.equal(` source sites (one outside the loop, one inside — the
+counter scans source statically, not runtime invocations, so the 6
+runtime executions of the loop's assertion count once). Pinned
+12043+2=**12045** in `ci/counter_baseline.txt`; re-verified live:
+`counter_ratchet.sh` now reports `assertions: 12045 -> 12057` and all 25
+counters OK. `tests_run_in_ci`/`tests_gating_merge` 392->393 confirmed
+via the same stash isolation to be pre-existing drift (present identically
+with this session's diff stashed out) — left un-pinned per PROMOTION RULE
+5, same discipline as the immediately preceding session's entry.
+`bash scripts/gated_tests.sh` (after `pip install -r requirements.txt -r
+requirements-dev.txt`, absent at session start): GATE PASSED — client
+1070/1070 (100 files), python 1420 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue. `npm run build`: clean (client + server), same two
+pre-existing warnings every recent session has logged (maplibre-gl chunk
+size, mapIcons dynamic/static dual import) — neither touched this session.
+No visual harness run: this diff touches only a test file and a counter
+pin — zero rendering/behavior change (confirmed via `git diff --stat`: only
+`flightTrackLayer.test.ts` and `ci/counter_baseline.txt` in the code/config
+surface) — same exemption reasoning the immediately preceding Q7 session
+in this file already applied for an equivalent zero-rendering-delta PR.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-side test addition, no
+trading/scoring/sizing logic touched, no FROZEN path touched.
+
+VERSION: v1.0.772 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; confirmed via `git fetch origin main` that origin/main's
+head still matched this branch's base, v1.0.771, before bumping — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: this run's own instructions assumed market hours, but
+`TZ=America/New_York date` at session start reads Sunday, 2026-08-23 —
+market closed, so no merge-timing constraint actually applies (same
+situation the immediately preceding session logged for the day before).
+Noting this explicitly rather than silently ignoring the instruction.
+
+DOCS: `research/PROGRAM_STATE.md`'s Q8 row marked DONE with a summary of
+what shipped and what remains open (the live discriminating test);
+`research/rendering_motion_overhaul.md`'s F16 section gained a dated
+UPDATE note pointing at the new test and restating the same "does not
+settle (a) vs (b)" caveat, so a future session reading F16 fresh sees the
+current state without re-deriving it.
+
+NEXT (queued, not this session): **Q9** (T8.1 — design-token drift check
+into the harness, measured 0 today so it starts green) is
+PROGRAM_STATE.md's own next unclaimed item, then **Q11** (T4.1 —
+`renderKind`+`lod` required in `layersRegistry.test.ts`, will fail on 237
+of 238 layers — that number is the deliverable), then Track 2/3 (the Moon).
+Separately, and not part of this queue: F16 itself remains genuinely open
+until a human runs the live discriminating test at the map (rotate the
+globe; watch whether the cut-off moves with the camera or stays pinned;
+check whether the thin ground trace survives past it) — no future
+autonomous session can close F16 outright without that human step, though
+a future session COULD still investigate hypothesis (b) (globe-horizon
+occlusion culling in the vertex shader) by reading the shader code, the
+same way this session read the CPU-side code for (a).
+
+STARVED: no — this was PROGRAM_STATE.md's own next-queued, fully-specified
+item, matched to this session's capacity; the two other standing queues
+(open_questions.md's angle-hunting menu, the SESSION BUDGET fall-through
+tiers) were not consulted further once a real, unclaimed, ready item was
+found in the first queue checked.
+
+PR #916 opened from `claude/eloquent-dijkstra-1lw3r4`, subscribed for
+CI/review follow-up. Market closed at session time (Sunday) — no
+merge-timing hold needed, noted in the PR body anyway per the run's own
+instruction.
