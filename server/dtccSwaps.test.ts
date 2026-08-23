@@ -16,7 +16,7 @@ import {
   isUsUnderlier, isBasketField, parseDtccLine,
   tryParseLocalHeader, streamDtccZip, dtccUrl,
   archiveNewRows, _resetDtccForTests,
-  refreshDtccSwaps, latestDtcc,
+  refreshDtccSwaps, latestDtcc, topNotionalRows,
 } from "./dtccSwaps";
 
 const HEADER_COLS = [...REQUIRED_COLUMNS, "Some Future Column"];
@@ -109,6 +109,30 @@ test("parseDtccLine: blank notional (Dodd-Frank masking) parses as null, never a
   const idx = parseHeader(HEADER_LINE);
   const r = parseDtccLine(row("4", "US0378331005", "ISIN", "APPLE INC", ""), idx, HEADER_COLS.length);
   assert.equal(r!.notionalAmountLeg1, null);
+});
+
+// ── topNotionalRows (the /data browsing view's row set) ─────────────────
+
+test("topNotionalRows: sorts descending by notional, masked (null) rows sort last rather than as zero", () => {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const small = parseDtccLine(row("1", "US0378331005", "ISIN", "APPLE INC", "1,000,000"), idx, n)!;
+  const large = parseDtccLine(row("2", "US88160R1014", "ISIN", "TESLA INC", "50,000,000"), idx, n)!;
+  const masked = parseDtccLine(row("3", "037833100", "CUSIP", "APPLE INC", ""), idx, n)!;
+  const mid = parseDtccLine(row("4", "88160R101", "CUSIP", "TESLA INC", "10,000,000"), idx, n)!;
+
+  const sorted = topNotionalRows([small, masked, large, mid]);
+  assert.deepEqual(sorted.map((r) => r.disseminationId), ["2", "4", "1", "3"],
+    "largest first; the Dodd-Frank-masked (null) row sorts after every rated row");
+});
+
+test("topNotionalRows: caps at the given size instead of returning every row", () => {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const rows = Array.from({ length: 5 }, (_, i) =>
+    parseDtccLine(row(String(i), "US0378331005", "ISIN", "APPLE INC", String((i + 1) * 1000)), idx, n)!);
+  assert.equal(topNotionalRows(rows, 2).length, 2);
+  assert.deepEqual(topNotionalRows(rows, 2).map((r) => r.disseminationId), ["4", "3"], "the two largest survive the cap");
 });
 
 // ── streaming zip reader ────────────────────────────────────────────────
@@ -244,6 +268,8 @@ test("refreshDtccSwaps: today's file already published — archives immediately,
   assert.equal(hit!.fileDate, "2026-08-21");
   assert.equal(hit!.usRows, 1);
   assert.equal(hit!.newRows, 1);
+  assert.equal(hit!.topRows.length, 1, "the one archived row surfaces in topRows for the /data view");
+  assert.equal(hit!.topRows[0].underlierId, "US0378331005");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
