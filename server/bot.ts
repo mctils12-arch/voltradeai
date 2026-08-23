@@ -3049,6 +3049,15 @@ print(json.dumps(result[:20]))
     side: string;
     qty: number;
     limitPrice: number;
+    // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32, exit-side half): exit orders
+    // (scale-out/stop-loss/take-profit/time-stop) are pushed here too so
+    // sweepStaleOrders() can free a resting exit limit that never fills —
+    // but replaceIfBetter() exists only to cancel a weak ENTRY to make room
+    // for a better one, and every exit is pushed with score: 0 (no natural
+    // score in scope), which would make it look like the "weakest" entry to
+    // sacrifice for buying power that cancelling a SELL order never actually
+    // frees. isExit marks these so replaceIfBetter can exclude them.
+    isExit?: boolean;
   }
   const openOrders: TrackedOrder[] = [];
 
@@ -3116,10 +3125,16 @@ print(json.dumps(result[:20]))
 
   // ── Score-Based Order Replacement ──────────────────────────────────────────
   async function replaceIfBetter(newTrade: any): Promise<boolean> {
-    // Find the lowest-score open order
-    if (openOrders.length === 0) return false;
+    // Find the lowest-score open order — ENTRY orders only. Exit orders
+    // (scale-out/stop-loss/take-profit/time-stop) are tracked in this same
+    // list for sweepStaleOrders' benefit but are pushed with score: 0, which
+    // would otherwise always look like the weakest entry; cancelling a SELL
+    // exit order doesn't free the buying power a BUY entry needs anyway, and
+    // it would strip a position's only protective order. See TrackedOrder.isExit.
+    const entryOrders = openOrders.filter(o => !o.isExit);
+    if (entryOrders.length === 0) return false;
 
-    const weakest = openOrders.reduce((a, b) => a.score < b.score ? a : b);
+    const weakest = entryOrders.reduce((a, b) => a.score < b.score ? a : b);
 
     // Only replace if new trade is significantly better (10+ points)
     if (newTrade.score <= weakest.score + 10) return false;
@@ -5747,7 +5762,7 @@ except: print('{}')
         const exitSide = pos.side === 'long' ? 'sell' : 'buy';
         const orderParams = getOrderParams(currentPrice, 'take_profit');
 
-        await alpaca("/v2/orders", {
+        const scaleOrderResult = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: ticker,
@@ -5756,6 +5771,27 @@ except: print('{}')
             ...orderParams,
           }),
         });
+
+        // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, exit-side
+        // half): this scale-out order is what the DUPLICATE SELL ORDER
+        // GUARD above (line ~5681) reads openOrders to detect — a guard that
+        // has been silently dead since this branch never registered its own
+        // submission. Registering it closes the exact race the guard exists
+        // for (two ticks firing this branch for the same ticker before
+        // scalesCompleted++ below has run) and lets sweepStaleOrders() free
+        // the slot if the limit order never fills.
+        if (scaleOrderResult?.id) {
+          openOrders.push({
+            orderId: scaleOrderResult.id,
+            ticker,
+            score: 0,
+            placedAt: Date.now(),
+            side: exitSide,
+            qty: scaleOutQty,
+            limitPrice: Number(orderParams.limit_price) || 0,
+            isExit: true,
+          });
+        }
 
         pos.scalesCompleted++;
         pos.remainingQty -= scaleOutQty;
@@ -5969,6 +6005,24 @@ if '${ticker}' in ss:
           ...orderParams,
         }),
       });
+
+      // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, exit-side
+      // half): the duplicate-order check above (line ~5943) already asked
+      // Alpaca directly, but registering here too lets sweepStaleOrders()
+      // (tier1Reflex, ~45s) free this slot if the stop/TP/time-stop limit
+      // order never fills, matching every other exit/entry submission site.
+      if (orderResult?.id) {
+        openOrders.push({
+          orderId: orderResult.id,
+          ticker,
+          score: 0,
+          placedAt: Date.now(),
+          side: exitSide,
+          qty: exitQty,
+          limitPrice: Number(orderParams.limit_price) || 0,
+          isExit: true,
+        });
+      }
 
       const scaleNote = pos.scalesCompleted > 0 ? ` (final ${exitQty}/${pos.originalQty} shares, ${pos.scalesCompleted} prior scale-outs)` : '';
       const reason = shouldStop ? stopReason + scaleNote

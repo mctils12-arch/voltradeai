@@ -61888,3 +61888,166 @@ STARVED: no — this was the session's one primary action, matched to
 capacity (a real, live-verified production defect in the most recently
 shipped datacore pipeline, root-caused end-to-end rather than patched
 around, with a regression test that would have caught it and does).
+
+## 2026-08-23 (scheduled-routine session #8) [REPAIR] — T-BOT (server/bot.ts, server/staleOrderSweepExitTracking.test.ts) + SHARED (ci/counter_baseline.txt, package.json, package-lock.json, research/*) — KNOWN BROKEN #32 continuation: stale-order sweeper's exit-side gap closed, plus a new replaceIfBetter safety guard the fix required (v1.0.769)
+
+SESSION-START SURVEY: CLAUDE.md read in full (EDGE DOCTRINE + REPAIR MANDATE
+emphasized per this session's own prompt). `git fetch origin main` — HEAD
+matched exactly (ab12bd9, v1.0.768), no rebase needed. Live `/api/health`
+(reachable this session, unlike #6's sandbox): `status: "ok"`, bot
+`active`, `drawdownPct: "0.0"`, `liveness.dark: false`, all 3 feeds
+(aircraft/vessels/trains) silent 0.73h, zero dead, `gates_top_level_status:
+false` (informational, not itself a failure flag) — no LIVENESS ALARM.
+Loop-health ratio, last 10 tagged entries before this one: 3/10 REPAIR
+([PIPELINE] 08-21#2, [PRODUCT] 08-21#3, [REPAIR] 08-21#4, [PRODUCT]
+08-21#5, [PIPELINE] 08-22, [REPAIR] 08-22#2, [PIPELINE] 08-22#3, [REPAIR]
+08-23#7) — well under the 7+ thrash trigger. No progress-floor stall
+([PIPELINE]/[PRODUCT] shipped within the last week, several this week).
+
+PRIMARY ACTION: per the Repair Mandate, `research/open_questions.md`'s
+KNOWN BROKEN section was consulted first. Item #32 (stale-order sweeper)
+had a concretely-scoped, already-filed NEXT from the immediately-prior
+2026-08-22 session (#6, v1.0.767): "the exit-side half ... —
+`checkPositionOnTick()`'s scale-out branch first (its duplicate-guard is
+now a confirmed-dead check, not just a suspected one), then stop-loss/
+trailing-stop/time-stop exits." This is exactly the highest-value queued
+repair item, matching the Repair Mandate's precedence over new research.
+
+READ-BEFORE-WRITE: read `checkPositionOnTick()` (`server/bot.ts:5608`+) in
+full this session before touching anything — two order-submission sites
+inside it:
+1. The scale-out branch (~line 5750, `getOrderParams(currentPrice,
+   'take_profit')`, always a LIMIT order both regular and extended hours)
+   — its own DUPLICATE SELL ORDER GUARD (~line 5680) reads `openOrders`
+   as PRIMARY defense against a double scale-out submission on a second
+   concurrent tick landing before `pos.scalesCompleted++` runs; the
+   guard has been dead since this branch discarded its own submission's
+   response (`await alpaca(...)` with no assignment).
+2. The full exit branch (~line 5963, stop-loss/trailing-stop/take-profit/
+   time-stop) — `const orderResult = await alpaca(...)` was captured but
+   never used for anything (confirmed via `grep -n "orderResult"
+   server/bot.ts` — only 3 hits total: this declaration, the pre-existing
+   entry-side `orderResult` at line 4642, and nothing referencing this
+   one afterward). Confirmed via `server/orderParams.ts` that
+   `getOrderParams()`'s `stop_loss`/`trailing_stop` context returns a
+   MARKET order (no `limit_price`) during regular hours ("Speed matters —
+   get out NOW") but a LIMIT order during extended hours (Alpaca requires
+   it there); `take_profit` is always a limit order in both sessions —
+   so this branch's exit-side gap is real for take-profit and
+   extended-hours stop exits, and harmless-but-inert for regular-hours
+   market stop exits (a market order fills or is gone in seconds — no
+   real "staleness" window, so registering it is a no-op that gets
+   cleaned up by the sweeper's own Alpaca-sync step within one ~45s
+   cycle).
+
+NEW FINDING BEFORE FIXING (caught by tracing `openOrders`' OTHER two
+consumers, not just the sweeper `sweepStaleOrders()` names): `replaceIfBetter()`
+(`server/bot.ts:3118`) picks the lowest-`score` entry in `openOrders` to
+cancel when a new candidate trade needs buying power a full slate can't
+supply. Every existing push into `openOrders` (SELL_CSP, BUY_PUT, ETF
+entry, main stock entry — the four sites shipped 2026-08-22) carries a
+real or `score: 0` value used consistently as an ENTRY signal. Naively
+pushing the two exit submissions this session targets with the same
+`score: 0` shape would make a live protective stop-loss/take-profit order
+look identical to a weak entry candidate to `replaceIfBetter` — which
+would then cancel it to "free buying power" for an unrelated new trade in
+a different ticker. This is a strictly worse bug than the one being
+fixed: cancelling a SELL exit order doesn't return any buying power (only
+cancelling a BUY entry does), so the mechanism wouldn't even achieve its
+own stated purpose, while stripping a held position's only working
+protective order. SECOND-ORDER CHECK applied per CLAUDE.md's REASONING
+STANDARD before shipping: this is exactly the "variables interact" case
+— extending `openOrders`' population without checking every consumer of
+that array, not just the one this session set out to fix, would have
+shipped a new live-trading risk under cover of a repair.
+
+FIX SHIPPED:
+1. `TrackedOrder` gained an optional `isExit?: boolean` field.
+2. `replaceIfBetter()` now filters `openOrders` to `!o.isExit` before
+   reducing to the weakest-score candidate, and returns `false` early if
+   no entry orders remain — exits are now structurally invisible to this
+   function regardless of their score.
+3. The scale-out branch captures `scaleOrderResult` from its submission
+   and, when an order id is returned, pushes a `TrackedOrder` with
+   `isExit: true` (score 0, matching the existing options-entry
+   precedent for "no natural score in scope").
+4. The full exit branch's pre-existing `orderResult` (already captured,
+   never used) now gates the same push, also `isExit: true`.
+
+Both pushes follow the exact shape and gating (`if (x?.id) { ... }`)
+established by the four 2026-08-22 entry-side pushes — no new pattern
+introduced, only the `isExit` field is new.
+
+RATCHET: `server/staleOrderSweepExitTracking.test.ts` (5 new tests,
+source-scraping style matching this file's own precedent chain —
+`staleOrderSweepOptionsTracking.test.ts` and
+`executeTradesStaleOrderTracking.test.ts` — since `openOrders`/
+`checkPositionOnTick`/`replaceIfBetter` are closures inside the
+un-exported `registerBotRoutes()` with no export surface). A/B-verified
+via `git stash -- server/bot.ts`: all 5 fail pre-fix (missing
+`scaleOrderResult` capture, missing both new `openOrders.push(` calls,
+missing the `isExit` field on `TrackedOrder`, missing the
+`replaceIfBetter` filter), all 5 pass post-fix.
+
+GATES: sandbox again needed both `npm ci` (missing `node_modules`) and
+`pip install -r requirements.txt -r requirements-dev.txt` (missing
+`pytest`) before anything would run — same class noted in nearly every
+prior session's log, not a new regression. After both: `bash
+scripts/gated_tests.sh` — GATE PASSED, client 1069/1069 (incl. the new
+file), python 1420/1421 (1 pre-existing skip, quarantine 0/1 none
+overdue). `bash scripts/tsc_ratchet.sh`: 12<=12, TS2304=0 — unchanged
+(pure additive JS-shaped statements, one new optional interface field, no
+new type surface). `bash scripts/counter_ratchet.sh`: first run (before
+`git add`) showed `tests_run_in_ci`/`tests_gating_merge` 391->392 and
+`assertions` 12026->12038 — cleanly attributable to the one new test file
+(same `git ls-files`-blindness-to-untracked-files quirk #6 already
+documented; staged before re-running). Re-pinned both in
+`ci/counter_baseline.txt`; re-ran clean, 25/25 counters at or better than
+baseline. `npm run build`: clean (same two pre-existing warnings as prior
+sessions — the maplibre-gl chunk-size notice and the `mapIcons.ts`
+dynamic/static dual-import notice, neither touched this session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure order-tracking/observability
+plumbing restoring intended stale-order-cancellation behavior for the
+exit side, plus a bookkeeping guard (`isExit`) that prevents a
+newly-possible mis-cancellation; no scoring, sizing, or trading-decision
+logic changed, and no FROZEN order-transmission internals touched
+(additive local bookkeeping only, same precedent as the three prior
+sessions in this chain).
+
+Version bumped 1.0.768 -> 1.0.769 (package.json + package-lock.json,
+read-and-increment verified against a fresh `git fetch origin main`
+immediately before this entry — HEAD matched origin/main exactly).
+
+MARKET-HOURS NOTE: market closed at session time (Saturday evening ET,
+`TZ=America/New_York date` confirmed) — no merge-timing constraint.
+
+CROSS-SYSTEM INTEGRATION: none new — pure execution-plumbing repair, same
+class as the three prior sessions in this chain; no new data source,
+join, or entity-graph edge.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code).
+
+NEXT (queued, not this session): (1) the remaining non-`executeTrades`,
+non-`checkPositionOnTick` order-submission sites KNOWN BROKEN #32
+originally scoped (manual API route, morning-queue execution, Tier 3 BUY)
+are still open. (2) a future session should live-verify via
+`/api/diag/audit?type=SWEEP` (or equivalent) that a resting take-profit
+scale-out or extended-hours stop limit order actually gets swept and
+freed after `STALE_ORDER_MINUTES` (12) minutes now that both exit
+branches register — no live evidence of a stale EXIT order sitting
+unswept has been observed yet (unlike the entry-side gap, which had
+direct live evidence from the 2026-08-22 NU/XLP options case); this
+session's fix is read-before-write-verified as closing a real code gap,
+but the live-fire confirmation for the exit side specifically is still
+open. (3) the 8-PR stale-PR-backlog queue (2026-08-20 wishlist entry)
+remains unclaimed, same branch-scope caveat noted by several prior
+sessions.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (two real call sites fixed plus a safety guard the fix itself
+required, found by tracing every consumer of the shared array rather than
+stopping at the one function named in the prior session's NEXT); the
+queue this session drew from was non-empty and explicitly ranked by the
+prior session's own filed follow-up, so there was no idle capacity to
+explain away.
