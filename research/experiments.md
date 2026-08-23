@@ -61706,3 +61706,185 @@ gap is real rather than theoretical, plus a genuinely new related finding
 filed rather than glossed over); the queue this session drew from was
 non-empty and explicitly ranked, so there was no idle capacity to explain
 away.
+
+## 2026-08-23 (scheduled-routine session #7) [REPAIR] — T-DATACORE (server/dtccSwaps.ts, server/dtccSwaps.test.ts) + SHARED (server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*) — DTCC SBSDR pipeline confirmed FULLY DEAD in production despite "GATE 1 passed" two sessions earlier; root cause found and fixed (v1.0.768)
+
+SESSION-START SURVEY: CLAUDE.md read in full, this is a [PRODUCT] scheduled
+routine (build datacore/ + /data). Live `/api/health`: `status:"ok"`, bot
+`active`, `drawdownPct:"0.0"`, `liveness.dark:false`, all 3 feeds
+(aircraft/vessels/trains) silent 0.04-0.28h — no LIVENESS ALARM, nothing
+blocking product work. Read `research/PROGRAM_STATE.md` (a separate
+code-quality MASTER PROGRAM track, last touched 2026-08-15, not this
+session's territory), `research/data_census.md`, and the tail of
+`research/experiments.md`/`open_questions.md`. `platform_program.md`'s
+queue is clear except P5 (HUMAN-GATED billing activation). The CENSUS
+MASTER RANKING (`data_census.md` §"CENSUS MASTER RANKING") lists 11 roots;
+checked each of the previously-"not built" ones (`ECB + Eurostat +
+Bundesbank`, item 7) against `server/` and found it in fact already
+shipped as `euMacro.ts` with a full `/data` client view
+(`client/src/pages/euMacro.tsx`) — the census doc itself is just stale on
+that one line (filed below as a small doc fix, not the session's primary
+action). Every census item is therefore built; the most recently shipped
+one, DTCC SBSDR (#907/#910, v1.0.764/766, "GATE 1 (DATA) passed"), had an
+explicit queued NEXT ("once the production archive has actual rows, run
+the resolver against it for real") — checking whether that NEXT was
+actionable is what surfaced this session's real finding.
+
+PRIMARY ACTION — FINDING: `curl /api/data/dtcc-swaps` on the live site
+returned `{"warming_up":true}`. That alone is not surprising for a fresh
+pipeline, but `DIAG_TOKEN` is present in this session's environment, so
+rather than assume "just needs more time" I checked the archive directly:
+`/api/diag/archive?stream=dtccswaps&day=<today>` returned `{"error":
+"unknown stream (no archive directory on this instance)"}` — the
+directory has NEVER been created. Confirmed the probe mechanism itself
+works (same call against `stream=vessels`/`aircraft` returns real rows).
+Read `archiveNewRows()` (`server/dtccSwaps.ts`): it unconditionally
+`mkdirSync`s the stream directory on its very first call, BEFORE checking
+whether there are any rows to write — so if the directory doesn't exist,
+`archiveNewRows` was never even called, meaning `refreshDtccSwaps()` was
+returning early every single time in production (either the HTTP fetch
+failed or an exception fired, both silently swallowed to a
+`console.error` with no other observable trace).
+
+ROOT CAUSE (found by reproducing the exact live request, not guessing):
+`curl -I`/`-o` against the real vendor host
+(`kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/SEC_CUMULATIVE_EQUITIES_
+<date>.zip`) for today's date (2026-08-23) AND yesterday's (2026-08-22)
+both returned **HTTP 403 AccessDenied** (S3's stand-in for "no such key"
+when the caller lacks `ListBucket`), while 2026-08-21 and 2026-08-20 both
+returned clean 200s at full size (~132-139MB). The prior build session's
+own comment says "probed live 2026-08-22, HTTP 200" — true at the time,
+but the file for a given date is evidently NOT permanently available
+under a stable URL the way "cumulative-from-inception" was read to imply;
+it appears to age out after roughly a day, and — this is the actual
+defect — the vendor does not publish a dated file for a day with no
+underlying activity to disseminate (i.e. a weekend). `refreshDtccSwaps()`
+only ever requested `ymdUnderscore(now)` ("today") and treated a 403 as a
+transient failure that "self-heals on the next poll" (its own doc
+comment). That assumption is false for a day whose own dated file is
+never going to exist: the next 6h poll re-requests the SAME now-still-
+"today" date (or, after midnight, a new "today" with the identical
+problem on a multi-day weekend/holiday), so the pipeline can loop forever
+without ever finding a real file — exactly what happened: multiple
+Railway redeploys since v1.0.764 merged (#908/#909/#910/#911), each
+re-triggering `bootDtccSwapsPoll()`'s eager-boot call, zero successful
+archives across all of them.
+
+FIX SHIPPED: `refreshDtccSwaps()` now walks backward from "today" up to
+`DTCC_LOOKBACK_DAYS` (7, generous enough for any holiday weekend) trying
+each calendar day's dated zip in turn, stopping at the first one that
+returns `ok`. Rows are still archived under TODAY's calendar day
+(`observedDate`/`fileDate` — unchanged semantics, "one file per calendar
+day this pipeline RAN, not per event date," since the file is cumulative
+and dedup is by Dissemination Identifier regardless of which day's file
+supplied a row) — a new `sourceDate` field on `DtccPollResult` records
+which vendor-dated file actually succeeded, and is now surfaced as
+`source_date` on `/api/data/dtcc-swaps` (FRESHNESS LAW: "every layer
+surfaces its own data age"). If every date in the lookback window fails,
+the function logs clearly and leaves the cache unset (still `warming_up`)
+rather than fabricating a result — same honest-failure shape as every
+other poller in this codebase.
+
+WHY THIS SLIPPED THROUGH GATE 1: the prior session's gate-1 work (checksum
+validation of parsed CUSIPs/ISINs, `scripts/dtcc_swaps_gate1.ts`) tested
+the PARSING logic thoroughly and correctly — that code has always been
+right. Zero test coverage existed for `refreshDtccSwaps()` itself (the
+date-selection/orchestration function) before this session; every
+existing test in `dtccSwaps.test.ts` exercised `streamDtccZip`/
+`parseDtccLine`/`archiveNewRows` directly with a hand-built fetch mock,
+never the function that decides WHICH date to request. The gate that
+would have caught this (an end-to-end test of the poll's date-walking
+behavior) simply didn't exist — same shape as L17 in
+`research/PROGRAM_STATE.md` ("a red test is worth reading before it is
+worth fixing" / a cheap-looking gap turning out to be the load-bearing
+one), except here there was no test at all rather than a disabled one.
+
+RATCHET: 3 new tests in `server/dtccSwaps.test.ts` — (1) today's file
+already published: archives immediately, `sourceDate == today`; (2)
+today + yesterday both 403 (the live weekend scenario): walks back
+exactly 2 days to the last real file, archives under today's run-date
+with `sourceDate` correctly pointing at the file that actually supplied
+the rows; (3) every date in the lookback window fails: cache stays
+`null`, no crash, no fabricated result. `_resetDtccForTests()` extended
+to also reset the module-level `cache` (previously only reset `seenIds`)
+so these tests don't leak state into each other or the pre-existing
+suite. A/B-verified via `git stash -- server/dtccSwaps.ts`: all 3 new
+tests fail against the pre-fix code (test 1 fails on the new `sourceDate`
+field not existing on the old `DtccPollResult` shape; tests 2 and 3 fail
+because the old code never looks past "today" — confirmed by reading the
+actual failure output, not just the pass/fail count) and all 3 pass
+post-fix; the 13 pre-existing tests are unaffected either way.
+
+CROSS-CHECK — is this actually novel, or did I misread "warming_up" as
+broken when it's merely slow: ruled out by the `archiveNewRows` code
+path itself — the directory-creation line runs unconditionally before
+any row-count check, so "directory literally does not exist" cannot mean
+"ran successfully with zero new rows" (that would still create the empty
+directory). It can only mean "never got that far." This is a stronger,
+falsifiable claim, not a hedge.
+
+GATES: `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`
+(both absent at session start, same recurring sandbox-provisioning gap
+noted in nearly every prior session). `npx tsx --test
+server/dtccSwaps.test.ts`: 16/16 (13 pre-existing + 3 new). `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1069/1069 (incl. the 3 new
+tests), python 1420 passed/1 skipped, quarantine 0/1 none overdue. `bash
+scripts/tsc_ratchet.sh`: 12<=12, TS2304=0, unchanged (additive JS-shaped
+statements + one new interface field, no new type-error surface). `bash
+scripts/counter_ratchet.sh`: `assertions` improved 12016->12026 (the 3
+new tests' own ~10 assert calls, the direct and sole cause) — pinned in
+the same PR (`ci/counter_baseline.txt`) per PROMOTION RULE 5; all other
+24 counters unchanged, re-ran clean. `npm run build`: clean (pre-existing
+unrelated warnings only — large-chunk notice, `astronomy-engine` default-
+export interop notice, neither touched this session).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a data-pipeline reliability
+fix (which dated source file to fetch), not a scoring, sizing, or
+trading-decision change. No FROZEN order-transmission paths touched.
+
+Version bumped 1.0.767 -> 1.0.768 (package.json + package-lock.json,
+read-and-increment verified against a fresh `git fetch origin main`
+immediately before this entry — HEAD matched origin/main exactly, no
+other session had merged in between).
+
+MARKET-HOURS NOTE: session time is Saturday evening ET (`TZ=America/
+New_York date`) — market closed, no merge-timing constraint; safe to
+merge whenever CI is green.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a reliability fix to an
+already-scoped pipeline, not a new join or data root.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code).
+
+DOC FIX (same PR, trivial): `research/data_census.md`'s CENSUS MASTER
+RANKING line 7 ("ECB + Eurostat + Bundesbank (keyless; regime features)")
+updated to note `[BUILT v1.0.186/v1.0.199-era, server/euMacro.ts]` —
+found already fully shipped (server route + poller + `/data` client view)
+while surveying the queue this session; the census doc had just never
+been updated to say so. Not a new build, filed here rather than as its
+own PR since it is a one-line factual correction discovered as a direct
+byproduct of this session's own survey, not a separable unit of work.
+
+NEXT (queued, not this session): (1) once this fix has run live for a
+few polls, verify via `/api/diag/archive?stream=dtccswaps&day=<date>`
+that the directory now exists and rows are landing, and that
+`source_date` on `/api/data/dtcc-swaps` reflects a real recent business
+day; only then does the prior session's original NEXT ("run the CUSIP
+resolver against the production archive for real, then build the /data
+client view") become actionable — both remain genuinely blocked on
+archive depth, not on this bug, until that live confirmation happens.
+(2) the same "assumes a file is always published for the exact requested
+date" pattern is worth a quick audit across this codebase's OTHER daily-
+cadence pollers (JODI, OCC, FINRA, EPA CAMD, etc.) — none were touched
+this session (scope discipline, one logical change), but if any of them
+also silently assume same-day/-1-day availability without a real
+backward-search, the same failure mode could be latent there too. Not
+filed as a formal open_questions.md entry since it's a "worth checking,"
+not yet a confirmed finding — a future STALENESS/REPAIR-flavored session
+could grep each poller's date-construction for a bare `now`/`today` with
+no fallback loop.
+
+STARVED: no — this was the session's one primary action, matched to
+capacity (a real, live-verified production defect in the most recently
+shipped datacore pipeline, root-caused end-to-end rather than patched
+around, with a regression test that would have caught it and does).

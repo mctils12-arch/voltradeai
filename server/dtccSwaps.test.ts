@@ -16,6 +16,7 @@ import {
   isUsUnderlier, isBasketField, parseDtccLine,
   tryParseLocalHeader, streamDtccZip, dtccUrl,
   archiveNewRows, _resetDtccForTests,
+  refreshDtccSwaps, latestDtcc,
 } from "./dtccSwaps";
 
 const HEADER_COLS = [...REQUIRED_COLUMNS, "Some Future Column"];
@@ -201,5 +202,75 @@ test("archiveNewRows: dedups by Dissemination Identifier across days, seeded fro
   const r3 = archiveNewRows(day2, "2026-08-23", dir);
   assert.equal(r3.newRows, 0, "already-archived ids stay deduped across a fresh in-memory Set");
 
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── refreshDtccSwaps: backward date-walk ────────────────────────────────
+// Live production finding, 2026-08-23: the archive directory had NEVER
+// been created despite the pipeline passing gate 1 two sessions earlier.
+// Root cause verified against the real vendor host (kgc0418-tdw-data-0.
+// s3.amazonaws.com): GET on the current day AND the immediately-prior day
+// both 403 (S3 AccessDenied, its stand-in for "no such key" without
+// ListBucket), while 3+ days back 200s cleanly. The old code fetched only
+// "today" and relied on the next 6h poll to "self-heal" — which never
+// recovers on a day whose own dated file is never going to be published
+// (a weekend). These tests pin the fix: walk backward until a real file
+// is found, archive rows under the day the pipeline ran, and record which
+// vendor-dated file actually supplied them.
+
+function dateBlockedFetch(unavailableUrlFragments: string[], zip: Buffer) {
+  return async (url: string) => {
+    if (unavailableUrlFragments.some((frag) => url.includes(frag))) {
+      return { ok: false, status: 403, body: undefined as any };
+    }
+    return {
+      ok: true,
+      status: 200,
+      body: Readable.toWeb ? Readable.toWeb(Readable.from([zip])) : Readable.from([zip]),
+    };
+  };
+}
+
+test("refreshDtccSwaps: today's file already published — archives immediately, sourceDate == today", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-"));
+  const csv = [HEADER_LINE, row("500", "US0378331005", "ISIN", "APPLE INC")].join("\n") + "\n";
+  const zip = buildZip(csv);
+  const nowMs = Date.parse("2026-08-21T18:00:00Z");
+  await refreshDtccSwaps(dateBlockedFetch([], zip), nowMs, dir);
+  const hit = latestDtcc();
+  assert.ok(hit);
+  assert.equal(hit!.sourceDate, "2026-08-21");
+  assert.equal(hit!.fileDate, "2026-08-21");
+  assert.equal(hit!.usRows, 1);
+  assert.equal(hit!.newRows, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: today + yesterday both 403 (weekend, no file ever published for either) — walks back to the last real file instead of staying warming_up forever", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-"));
+  const csv = [HEADER_LINE, row("501", "US88160R1014", "ISIN", "TESLA INC")].join("\n") + "\n";
+  const zip = buildZip(csv);
+  // "now" = Sunday 2026-08-23 — matches the live 403s found on 08-23 and 08-22.
+  const nowMs = Date.parse("2026-08-23T12:00:00Z");
+  await refreshDtccSwaps(dateBlockedFetch(["2026_08_23", "2026_08_22"], zip), nowMs, dir);
+  const hit = latestDtcc();
+  assert.ok(hit, "must not stay warming_up forever just because today itself never gets a file");
+  assert.equal(hit!.sourceDate, "2026-08-21", "walked back 2 days to the last published file");
+  assert.equal(hit!.fileDate, "2026-08-23", "still archived under the day the pipeline actually ran");
+  assert.equal(hit!.usRows, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: nothing published anywhere in the lookback window — leaves cache unset rather than crashing or fabricating a result", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-"));
+  const zip = buildZip(HEADER_LINE + "\n");
+  const nowMs = Date.parse("2026-08-23T12:00:00Z");
+  const allBlocked = Array.from({ length: 8 }, (_, i) =>
+    new Date(nowMs - i * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "_"));
+  await refreshDtccSwaps(dateBlockedFetch(allBlocked, zip), nowMs, dir);
+  assert.equal(latestDtcc(), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
