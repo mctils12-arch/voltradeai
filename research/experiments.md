@@ -63546,3 +63546,151 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 PRODUCT action (the explicit two-session-old queue item), used in full
 including reading the license language rather than copy-pasting the nearest
 neighbor's mark.
+
+## 2026-08-24 (scheduled-routine session #18) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): corporate-fleet utilization gets its /api/v1 keyed mirror, closing session #14's queue (v1.0.780)
+
+TERRITORY: SHARED, minimal and last per the WORKSTREAM PARTITION protocol —
+this diff only touches server/apiProduct.ts, server/routes.ts, their test
+file, and the version/counter bookkeeping files; no T-BOT/T-CLIENT/
+T-DATACORE-primary file is touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md,
+research/platform_program.md, research/data_census.md, tails of
+research/experiments.md, research/open_questions.md, research/wishlist.md.
+`python3 scripts/session_health_check.py`: all 7 OK — liveness alive/not
+dark, subsystems ok, daemon rss 360.8MB (under trim_mb=400), ml_feedback age
+15.9h, deploy_freshness server_version=1.0.779 matching this checkout
+pre-bump. No LIVENESS ALARM; nothing in KNOWN BROKEN blocked this session's
+territory (git log shows two KNOWN BROKEN #35/#33/#34 repairs already
+shipped and merged by other sessions today, unrelated to this territory).
+`TZ=America/New_York date`: Monday 2026-08-24 ~14:20 ET — inside market
+hours (opens 09:30, closes 16:00 ET); per this routine's own merge-timing
+instruction, this PR should wait for after-hours/close to merge (noted in
+the PR body).
+
+PRIMARY-ACTION SELECTION: sessions #14 (2026-08-23) and #16/#17
+(2026-08-24) each named the same explicit two-item queue: "the DTCC-swaps
+and fleet-utilization `/api/v1` mirrors ... remain untouched and still
+valid." Session #17 (immediately prior, same day) closed the DTCC-swaps
+half; this session closes the other half. Confirmed live via `grep -n
+"fleet-utilization" server/routes.ts server/apiProduct.ts` that the RAW
+`/api/data/fleet-utilization` route and its `/data` client view
+(`fleetUtilization.tsx`, shipped 2026-08-19) existed but no `/api/v1` mirror
+did — the identical "shipped-data-no-v1-API" gap shape this sweep has
+closed four times running (bank-failures/gnss-integrity-signal/dtcc-swaps
+before it).
+
+READ BEFORE WRITE: read `server/fleetUtilization.ts` in full this session
+(not from memory) — `fleetSeriesCached()`'s return shape (`{series,
+as_of}`), `OwnerSeries` fields, the `n_airframes>=2` exclusion the RAW route
+already applies, and the module's own header comment naming GATE 1 (join
+accuracy, 20/20 stratified hexes matched an independent adsbdb registration
+exactly, 2026-07-05) as PASSED and GATE 2 (utilization x earnings) as NOT
+attempted — did not guess either status. Read the existing
+`/api/data/fleet-utilization` RAW route (server/routes.ts:2331) as the
+field-mapping template. Read the two most recent mirrors in full as the
+wiring template: dtcc-swaps' (`v1Envelope` + `requireApiKey` + `meterUsage`
+shape, no 503-warming-up guard needed since `fleetSeriesCached()` never
+returns null — confirmed by reading the function, not assumed) and
+gnss-integrity-signal's LICENSE_MARKS entry (aircraft-archive-derived ODbL
+share-alike + the MONETIZATION TRIPWIRE note) as the license-language
+template, since fleet-utilization shares the exact same lineage (our own
+aircraft position archive, sourced from adsb.lol) — NOT the DTCC/bank-
+failures template, which is a different license class entirely (issuer-
+submitted / US-gov, respectively). This is a deliberate license-accuracy
+choice, not copy-paste from the nearest neighbor in file order.
+
+WHAT SHIPPED: `/api/v1/data/fleet-utilization` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/fleet-utilization` route, reusing
+`fleetSeriesCached()` directly (no new computation, no new poller). Same
+`n_airframes>=2` exclusion and `top=` cap (default 50, max 200) as the RAW
+route. Wrapped in `v1Envelope("data/fleet-utilization", {...}, as_of)`
+behind `requireApiKey` + `meterUsage`. `apiProduct.ts` gained: a new
+`LICENSE_MARKS["data/fleet-utilization"]` entry (resell: `share-alike`,
+inheriting ODbL 1.0 from adsb.lol via the aircraft archive, same lineage as
+`tracks/aircraft`/`data/gnss-integrity-signal`, with the MONETIZATION
+TRIPWIRE condition stated — a sold surface must derive from adsb.lol
+alone); a new `apiMeta().endpoints` entry naming the GATE 1 pass, GATE 2's
+not-attempted status, and the registrant-not-beneficial-owner /
+lower-bound-hours honesty caveats already carried by the RAW route's own
+`note` field; and a new `voltrade_fleet_utilization` tool in
+`agentToolSpec()` with a `top` parameter and the same honesty language.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the gnss-integrity-signal/dtcc-swaps precedent pair) asserting:
+the license mark is `share-alike` (not `conditional` or `ok`), the license
+text names ODbL and the MONETIZATION TRIPWIRE, the `voltrade_fleet_utilization`
+tool exists with `returns_provenance: ["data/fleet-utilization"]`, and its
+description carries "GATE 1", the gate-2-not-attempted phrasing, and the
+"LOWER BOUNDS" sampling caveat so the honesty status travels with the tool
+the way every prior mirror's does. Also added `/api/v1/data/fleet-utilization`
+to the existing generic "wiring pinned" route-presence list and
+"endpoint-count/preview" sweep tests — both already generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, so no hardcoded count needed
+bumping (`spec.tools.length === liveDataEndpoints.length` derives its
+expectation from `apiMeta()` itself).
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, clean) and
+Python was missing `pytest` (`pip install -r requirements.txt
+-r requirements-dev.txt` run, clean) at session start — same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a regression.
+`npx tsx --test server/apiProduct.test.ts`: 29/29 (1 new test, 17 new
+assertion lines). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged
+(no `.ts` type signatures touched beyond the new route/test, both plain JS
+shapes). `bash scripts/counter_ratchet.sh`: `assertions` 12119 -> 12128
+(this session's own new test, the direct and sole cause — re-fetched
+`origin/main` both before and after writing the diff and confirmed it still
+matched this branch's base exactly at `69d36c1`/v1.0.779, so zero
+concurrent-drift component to leave unpinned); pinned in
+`ci/counter_baseline.txt`. All other 24 counters unchanged; re-ran clean
+after the pin update. `bash scripts/gated_tests.sh`: GATE PASSED — client
+1070/1070, python 1421/1 skipped/54 subtests, quarantine 0/1 none overdue.
+`npm run build`: clean, only the same pre-existing warnings recent sessions
+log (maplibre-gl chunk size, astronomy-engine default-export interop,
+mapIcons dynamic/static dual import) — none touched this session. No visual
+harness run: zero `client/src` files touched (`git status --short`
+confirms), same exemption prior zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: touched by proximity (this endpoint's LICENSE_MARKS
+entry states the MONETIZATION TRIPWIRE condition explicitly, matching the
+gnss-integrity-signal precedent) but no billing/pricing/subscription/
+paid-gating CODE is added or changed in this diff; `server/
+providerCompliance.ts`'s existing enforcement is unchanged and unaffected —
+this is documentation of an existing condition on an existing data lineage,
+not a new billing surface.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing archive
+(itself already a fusion of the aircraft position archive x FAA entity
+spine, built 2026-07-05) through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or data
+stream.
+
+VERSION: v1.0.780 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; re-confirmed via a second `git fetch origin main`
+immediately before the bump that `origin/main` still matched this branch's
+base, v1.0.779 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Monday ~14:20 ET, inside market hours (opens 09:30,
+closes 16:00 ET). This diff touches server/apiProduct.ts and
+server/routes.ts but adds only a new, additive `/api/v1/*` GET route
+reading an existing cache — zero trading-loop blast radius, same profile as
+every prior `/api/v1` mirror PR in this sweep. Per CLAUDE.md's "prefer
+merging PRs outside 9:30-16:00 ET" guidance, this PR's description asks for
+an after-hours/close merge rather than requesting an immediate one.
+
+NEXT (queued, not this session): with both halves of session #14's
+DTCC-swaps/fleet-utilization queue now closed, the next standing item is
+the `sec_midas` gate-2 hypothesis (SEC MIDAS's own gate-2 signal-testing
+ladder path, named as still-open across multiple prior sessions). KNOWN
+BROKEN #35's remaining half (POS-KILL duplicate-fill-recording contract,
+measurement code, own PR per MEASUREMENT INTEGRITY) also remains queued —
+T-BOT territory, not this session's.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the explicit standing queue item), used in full including
+reading the source module and the correct license precedent rather than
+guessing either from the nearest file-order neighbor.

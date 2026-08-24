@@ -4608,6 +4608,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Corporate-fleet utilization keyed mirror — the last of the two
+  // "shipped-data-no-v1-API" gaps session #14 named (DTCC swaps closed
+  // above). Reuses the existing fleetSeriesCached() the RAW
+  // /api/data/fleet-utilization route already populates — no new
+  // computation, no new poller. GATE 1 (join accuracy) PASSED 2026-07-05
+  // (20/20 stratified hexes matched an independent adsbdb registration
+  // exactly, experiments.md v1.0.120) — GATE 2 (utilization x earnings) not
+  // attempted, so this stays descriptive, never a trading signal. Same
+  // ODbL share-alike lineage as tracks/aircraft and gnss-integrity-signal
+  // (both derived from the same adsb.lol-sourced position archive) — the
+  // MONETIZATION TRIPWIRE condition on that lineage (a sold surface must
+  // derive from adsb.lol alone) applies here unchanged.
+  app.get("/api/v1/data/fleet-utilization", async (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const { series, as_of } = await fleetSeriesCached();
+      const top = Math.min(parseInt(String(req.query.top || "50"), 10) || 50, 200);
+      const kept = series.filter((s) => s.n_airframes >= 2).slice(0, top);
+      res.json(v1Envelope("data/fleet-utilization", {
+        owners_total: series.length,
+        count: kept.length,
+        note: "owners are FAA registrants (trustee/leasing entities hide beneficial owners); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without coverage are absent, not zero; single-airframe registrants excluded (top= caps at 200)",
+        owners: kept,
+      }, as_of ? Date.parse(as_of) : undefined));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fleet-utilization", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/fleet-utilization", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

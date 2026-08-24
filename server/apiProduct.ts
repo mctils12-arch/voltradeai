@@ -204,6 +204,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "DTCC SBSDR real-time public dissemination (SEC Reg SBSR)",
     resell: "conditional",
   },
+  "data/fleet-utilization": {
+    license: "Derived from our own aircraft position archive (broadcast-origin ADS-B) joined against the FAA aircraft registry entity spine — inherits ODbL 1.0 share-alike from adsb.lol like tracks/aircraft and data/gnss-integrity-signal above. GATE 1 (join accuracy) PASSED 2026-07-05 (20/20 stratified hexes matched an independent adsbdb registration exactly). A SOLD surface of this series must derive from adsb.lol data alone (server/providerCompliance.ts), per the MONETIZATION TRIPWIRE — enforced while billing is inactive.",
+    attribution: "VolTradeAI datacore over adsb.lol (ODbL 1.0) + FAA Aircraft Registry (registrant identity)",
+    resell: "share-alike",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -234,6 +239,7 @@ export function apiMeta() {
       { path: "/api/v1/data/bank-failures", params: "-", desc: "Most-recent US bank failures/assistance events from the FDIC's own failures endpoint (institution, cert, fail date, city/state, charter class, assets/deposits at failure in $ thousands, estimated DIF loss). GATE 1 (DATA) PASSED 2026-08-18 (3/4 sampled failures exact-matched an independent FDIC Call Report AND the FDIC's own press-release figures; the 4th's discrepancy was traced to the FDIC financials index lagging its own failures record for the single most-recent event, not a parsing defect — research/experiments.md 2026-08-18 entry). RAW display only — the deposit-flight-leads-KRE SIGNAL hypothesis stays gate-2-locked (blocked on both live market-return data and the still-unbuilt ticker/entity-graph join for mostly-private regional banks). cost_k is null until the FDIC estimates it, never coerced to zero. Public-domain US federal data, freely resellable.", preview: "/api/data/bank-failures" },
       { path: "/api/v1/data/gnss-integrity-signal", params: "-", desc: "Per-altitude-band GNSS position-integrity degradation over the Baltic Bornholm corridor, from our own broadcast-origin ADS-B archive: one-tailed exact binomial test per band, candidate region's nic==0 (zero containment) rate vs. a control region's own observed rate as the null, at p<0.01. THE FIRST GATE 2 (SIGNAL)-PASSED root exposed on this API (datacore/signal_ladder.json, gnss_integrity_adsb, gate2_pass, re-confirmed and strengthened across two re-runs). GATE 1 is PARTIAL — DTU Space's Bornholm RF station independently corroborates the phenomenon/region, not this exact sample's specific dates. Not tradeable: this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/gnss-integrity-signal" },
       { path: "/api/v1/data/dtcc-swaps", params: "-", desc: "DTCC SBSDR equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22): file/source date, today's US-underlier row count, new rows archived, total archived, and the largest-notional events from the source file's most recent published day (dissemination id, action type, event/effective timestamps, notional amount + currency where not masked by the source's own Dodd-Frank real-time-reporting cap, underlier id/source/name). GATE 1 (DATA) PASSED 2026-08-22 (two independent checksum standards, ISO 6166 ISIN and CUSIP Global Services mod-10, both >=99.998% on the live file — scripts/dtcc_swaps_gate1.ts). RAW display only — the fresh-large-notional-clustering SIGNAL hypothesis stays gate-2-locked pending archive depth. top_rows is the current poll cycle's ranking, not a running archive-wide one. Not US-government work product — conditional resell, see license_marks.", preview: "/api/data/dtcc-swaps" },
+      { path: "/api/v1/data/fleet-utilization", params: "?top<=200 (default 50)", desc: "Corporate/LLC fleet utilization: per-owner weekly flight counts and airborne hours, sessionized from our own aircraft position archive and joined against the FAA registry entity spine (owners with <2 airframes excluded). GATE 1 (join accuracy) PASSED 2026-07-05 (20/20 stratified hexes matched an independent adsbdb registration exactly) — GATE 2 (utilization x earnings surprise) NOT attempted, this is descriptive, not a trading signal. Owners are FAA REGISTRANTS, not necessarily beneficial owners (trustee/leasing shells hide the real operator); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without archive coverage are absent, not zero. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/fleet-utilization" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -419,6 +425,19 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/dtcc-swaps",
       returns_provenance: ["data/dtcc-swaps"],
+    },
+    {
+      name: "voltrade_fleet_utilization",
+      description: "Corporate/LLC fleet utilization: per-owner weekly flight counts and airborne hours, sessionized from VolTradeAI's own aircraft position archive and joined against the FAA aircraft registry entity spine (owners with fewer than 2 airframes excluded). GATE 1 (join accuracy) PASSED — 20/20 stratified hexes matched an independent adsbdb registration exactly. NOT a trading signal — GATE 2 (utilization vs earnings surprise) has NOT been attempted. Owners are FAA REGISTRANTS, not necessarily beneficial owners (trustee/leasing shells hide the real operator); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without archive coverage are absent, never zero. Aircraft-archive-derived, ODbL 1.0 share-alike (adsb.lol) lineage, same as the tracks/aircraft and GNSS-integrity-signal tools above.",
+      input_schema: {
+        type: "object",
+        properties: {
+          top: { type: "integer", minimum: 1, maximum: 200, default: 50, description: "Max owners returned, ranked by airframe count." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/data/fleet-utilization?top={top}",
+      returns_provenance: ["data/fleet-utilization"],
     },
   ];
   return {
