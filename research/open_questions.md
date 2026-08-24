@@ -4696,7 +4696,8 @@
     precedent chain — A/B-verified via `git stash` on `server/bot.ts`
     alone: all 4 fail pre-fix, all 4 pass post-fix).
 
-33. **[FOUND 2026-08-23, scheduled-routine session #9, not yet fixed]
+33. **[FOUND 2026-08-23, scheduled-routine session #9; FIXED 2026-08-24,
+    v1.0.777, scheduled-routine session #16]
     `runUpgradeCandidates()`'s upgrade-buy order (`server/bot.ts`,
     inside `runOvernightResearch`, ~line 4996) is unswept by
     `sweepStaleOrders()` — same root cause class as KNOWN BROKEN #32,
@@ -4713,6 +4714,32 @@
     A/B-verified test (source-scraping style, matching the precedent
     chain in `server/finalOrderSitesStaleTracking.test.ts` and its
     siblings).
+    **FIXED 2026-08-24 (v1.0.777), exactly as this item's own NEXT
+    specified.** `runUpgradeCandidates()`'s upgrade-buy branch now
+    captures its submission into `upgradeOrderResult` and pushes a
+    `TrackedOrder` (`ticker: betterPick.ticker`, `score: betterPick.score
+    || 0`, `qty: upgradeQty`, `limitPrice` read from the submitted
+    params) when the response carries a real id — no `isExit` tag, since
+    this branch BUYS the replacement position (an entry, matching the T3
+    BUY dispatcher's convention, not the exit-side sites #32/#34 fixed).
+    The FROZEN order-submission path itself is untouched — the
+    `alpaca("/v2/orders", ...)` POST, its body, and its params are
+    byte-identical; only the previously-discarded response is now read.
+    RATCHET: `server/upgradeCandidatesStaleOrderTracking.test.ts` (NEW, 5
+    tests, source-scraping style per the `finalOrderSitesStaleTracking`/
+    `posKillStaleOrderTracking` precedent chain), A/B-verified via `git
+    stash` — 4 of 5 fail against pre-fix `bot.ts` (the 5th, pinning the
+    absence of `isExit:`, is a true-both-ways invariant rather than a
+    fix-pinning assertion, since the pre-fix branch never pushed
+    anything at all), all 5 pass post-fix.
+    With this fix, every order-submission site KNOWN BROKEN #32/#33/#34
+    ever named now registers with `openOrders` — the full #32-class
+    chain (options entry, ETF/stock entry, exit, manual route, morning
+    queue, Tier 3 BUY, upgrade-buy, POS-KILL) is closed. KNOWN BROKEN #35
+    (POS-KILL's duplicate-submission and duplicate-fill-recording gaps,
+    filed while closing #34) remains open and is NOT the same root cause
+    — it is a missing guard, not a missing registration — so this fix
+    does not touch it.
 
 34. **[FOUND 2026-08-23, scheduled-routine session #9; FIXED 2026-08-24,
     v1.0.776, scheduled-routine session #15]

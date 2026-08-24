@@ -5047,11 +5047,32 @@ print(json.dumps(run_update()))
           await new Promise(r => setTimeout(r, 1000));
           const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
           if (upgradeQty > 0) {
-            await alpaca("/v2/orders", {
+            const upgradeOrderParams = getOrderParams(betterPick.price || 0);
+            const upgradeOrderResult = await alpaca("/v2/orders", {
               method: "POST",
-              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: "buy", ...getOrderParams(betterPick.price || 0) }),  // Always buy (short blocked)
+              body: JSON.stringify({ symbol: betterPick.ticker, qty: String(upgradeQty), side: "buy", ...upgradeOrderParams }),  // Always buy (short blocked)
             });
             addPositionToMonitor(betterPick.ticker, "long", betterPick.price || 0, upgradeQty);  // Always long (short blocked)
+
+            // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #33): this branch's order
+            // response was previously discarded entirely. getOrderParams'
+            // 'new_entry' default (orderParams.ts) is ALWAYS a DAY limit
+            // order, in and out of regular hours, so an unfilled upgrade-buy
+            // could rest indefinitely with nothing to sweep it — same root
+            // cause class as the sites KNOWN BROKEN #32 fixed. Registering it
+            // the same way the T3 BUY dispatcher does (no isExit tag — this
+            // is an ENTRY, not an exit).
+            if (upgradeOrderResult?.id) {
+              openOrders.push({
+                orderId: upgradeOrderResult.id,
+                ticker: betterPick.ticker,
+                score: betterPick.score || 0,
+                placedAt: Date.now(),
+                side: "buy",
+                qty: upgradeQty,
+                limitPrice: Number(upgradeOrderParams.limit_price) || 0,
+              });
+            }
           }
         } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
       }
