@@ -194,6 +194,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Federal Deposit Insurance Corporation (FDIC Bank Data API)",
     resell: "ok",
   },
+  "data/gnss-integrity-signal": {
+    license: "Derived from our own aircraft position archive (broadcast-origin ADS-B nic field) — inherits ODbL 1.0 share-alike from adsb.lol like tracks/aircraft above. A SOLD surface of this signal must derive from adsb.lol data alone (server/gnssIntegritySignal.ts's own LICENSE_NOTE), per the MONETIZATION TRIPWIRE — server/providerCompliance.ts enforces adsb.lol stays primary while billing is inactive.",
+    attribution: "VolTradeAI datacore over adsb.lol (ODbL 1.0)",
+    resell: "share-alike",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -222,6 +227,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/eu-macro", params: "-", desc: "European macro regime cluster: ECB EUR/USD reference rate + €STR + weekly Eurosystem balance-sheet total, Eurostat EA20 industrial production, and the 10Y Bund yield (Deutsche Bundesbank) — 5 curated series, each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the FRED macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. Keyless (all three sources free with attribution). Commercial reuse permitted with attribution, verified verbatim from each source's own reuse-policy document — public-domain-equivalent resell, see license_marks.", preview: "/api/data/eu-macro" },
       { path: "/api/v1/stats/fred-macro", params: "-", desc: "FRED macro regime cluster: 28 Fed/US-government-produced rates-curve, financial-stress, labor, inflation, activity, and money/liquidity series (3-month through 30-year Treasury yields, Fed Funds, SOFR, jobless claims, CPI, industrial production, M2, Fed balance sheet, WTI, trade-weighted dollar, and more), each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the eu-macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. 3 third-party-copyrighted series (CBOE VIX, ICE BofA HY OAS, UMich Consumer Sentiment) are archived for internal regime use only and are EXCLUDED from this payload. Requires the server's FRED_API_KEY to be configured; returns 503 if not. Public-domain US federal/Fed data, freely resellable.", preview: "/api/data/macro" },
       { path: "/api/v1/data/bank-failures", params: "-", desc: "Most-recent US bank failures/assistance events from the FDIC's own failures endpoint (institution, cert, fail date, city/state, charter class, assets/deposits at failure in $ thousands, estimated DIF loss). GATE 1 (DATA) PASSED 2026-08-18 (3/4 sampled failures exact-matched an independent FDIC Call Report AND the FDIC's own press-release figures; the 4th's discrepancy was traced to the FDIC financials index lagging its own failures record for the single most-recent event, not a parsing defect — research/experiments.md 2026-08-18 entry). RAW display only — the deposit-flight-leads-KRE SIGNAL hypothesis stays gate-2-locked (blocked on both live market-return data and the still-unbuilt ticker/entity-graph join for mostly-private regional banks). cost_k is null until the FDIC estimates it, never coerced to zero. Public-domain US federal data, freely resellable.", preview: "/api/data/bank-failures" },
+      { path: "/api/v1/data/gnss-integrity-signal", params: "-", desc: "Per-altitude-band GNSS position-integrity degradation over the Baltic Bornholm corridor, from our own broadcast-origin ADS-B archive: one-tailed exact binomial test per band, candidate region's nic==0 (zero containment) rate vs. a control region's own observed rate as the null, at p<0.01. THE FIRST GATE 2 (SIGNAL)-PASSED root exposed on this API (datacore/signal_ladder.json, gnss_integrity_adsb, gate2_pass, re-confirmed and strengthened across two re-runs). GATE 1 is PARTIAL — DTU Space's Bornholm RF station independently corroborates the phenomenon/region, not this exact sample's specific dates. Not tradeable: this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/gnss-integrity-signal" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -393,6 +399,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/bank-failures",
       returns_provenance: ["data/bank-failures"],
+    },
+    {
+      name: "voltrade_gnss_integrity_signal",
+      description: "Per-altitude-band GNSS position-integrity degradation over the Baltic Bornholm corridor, from our own broadcast-origin ADS-B archive: a one-tailed exact binomial test per altitude band, testing whether the candidate region's nic==0 (zero position-integrity containment) rate is elevated beyond chance versus a control region's own observed rate as the null, at p<0.01. THE FIRST GATE 2 (SIGNAL)-PASSED root on this API — re-confirmed and strengthened across two re-runs (datacore/signal_ladder.json, gnss_integrity_adsb, gate2_pass). GATE 1 is PARTIAL, not full: DTU Space's Bornholm RF station independently corroborates the phenomenon and region, not this exact sample's specific dates. NOT tradeable — this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit); no position sizing or trading decision is made from it. Aircraft-archive-derived, ODbL 1.0 share-alike (adsb.lol) lineage, same as the tracks/aircraft tool above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/gnss-integrity-signal",
+      returns_provenance: ["data/gnss-integrity-signal"],
     },
   ];
   return {
