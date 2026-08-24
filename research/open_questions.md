@@ -4714,7 +4714,8 @@
     chain in `server/finalOrderSitesStaleTracking.test.ts` and its
     siblings).
 
-34. **[FOUND 2026-08-23, scheduled-routine session #9, not yet fixed]
+34. **[FOUND 2026-08-23, scheduled-routine session #9; FIXED 2026-08-24,
+    v1.0.776, scheduled-routine session #15]
     The standalone `POS-KILL` per-position forced-liquidation branch
     (`server/bot.ts`, ~line 5424, `pnlPct <= POSITION_KILL_LOSS_PCT`)
     can submit a resting limit order that `sweepStaleOrders()` cannot
@@ -4735,6 +4736,75 @@
     live case of this specific order sitting unswept has been observed)
     but the mechanism is confirmed real by direct read of
     `orderParams.ts`, not assumed.
+    **FIXED 2026-08-24 (v1.0.776), exactly as this item's own NEXT
+    specified.** `syncMonitoredPositions()`'s POS-KILL branch now captures
+    its submission into `killOrderResult` and pushes a `TrackedOrder`
+    (`isExit: true`, `score: 0`, `limitPrice` read from the submitted
+    params) when the response carries a real id. Pushed unconditionally on
+    an id rather than gated on `type !== "market"` — matching the two
+    sibling EXIT sites (scale-out, WS-EXIT), whose `getOrderParams`
+    contexts are likewise market-during-RTH: `sweepStaleOrders()`'s own
+    Alpaca reconciliation pass prunes any already-filled order, so a
+    tracked market order is harmless, and uniformity with the siblings
+    beats a third distinct convention. The FROZEN order-submission path
+    itself is untouched — the `alpaca("/v2/orders", ...)` POST, its body,
+    and its params are byte-identical; only the discarded response is now
+    read. RATCHET: `server/posKillStaleOrderTracking.test.ts` (NEW, 5
+    tests, source-scraping style per the `finalOrderSitesStaleTracking`
+    precedent chain), A/B-verified via `git stash` — 5/5 fail against
+    pre-fix `bot.ts`, 5/5 pass after. One of the five deliberately also
+    pins `replaceIfBetter`'s `!o.isExit` filter, so the `isExit` tag
+    cannot silently become decorative.
+    TRACED DOWNSTREAM (REASONING STANDARD 1, two steps): (1)
+    `replaceIfBetter` filters `!o.isExit` → this order is excluded from
+    entry-replacement, which is the whole reason the tag exists; (2)
+    `sweepStaleOrders` may now cancel it after 12 min unfilled and set
+    `monitoredPositions[ticker].pendingExit = false` — POS-KILL never sets
+    `pendingExit`, so that clear is a no-op for this branch, and the
+    freed slot lets the next sync re-attempt the liquidation instead of
+    leaving a dead resting order forever. Strictly an improvement over
+    the prior state; same risk profile as the already-merged #32 exit
+    push.
+
+35. **[FOUND 2026-08-24, scheduled-routine session #15, NOT fixed —
+    found while closing #34, deliberately left open (one logical change
+    at a time, PROMOTION RULE 5)]
+    The same POS-KILL branch has NO duplicate-order guard and records an
+    ML exit fill unconditionally, so an extended-hours forced liquidation
+    whose limit does not fill is re-submitted — and re-recorded — on every
+    subsequent sync.** Two confirmed-by-direct-read mechanisms, one cause:
+    - `syncMonitoredPositions()` is invoked from three sites, including
+      `tier1Reflex` (~45s cadence). Unlike the `checkPositionOnTick`
+      exit path — which first queries
+      `/v2/orders?status=open&symbols=…&side=…` and bails if any exist —
+      POS-KILL has no such pre-check and no `pendingExit` gate. A
+      position sitting below -25% during extended hours therefore gets a
+      fresh resting liquidation limit submitted on each sync until one
+      fills. (#34's fix makes these sweepable after 12 min, which bounds
+      the pile-up; it does not prevent it.)
+    - `recordExitFill(...)` is called immediately after the POST returns,
+      with `fillPrice: current`, gated on nothing — and `recordExitFill`
+      itself has no dedup (each call writes a fresh
+      `/tmp/fill_x_<ticker>_<ts>.json` and invokes `track_fill`). So each
+      repeat submission also writes another exit record for a fill that
+      may never have happened.
+    SEVERITY: the second half is a PRIORITY-2 (integrity of learning)
+    issue, not merely cosmetic — it feeds the ML loop duplicate exits at
+    a synthetic price for the worst-drawdown trades specifically, which
+    is exactly the tail the loop should be learning from most honestly.
+    NOT UNIQUE TO POS-KILL: the `checkPositionOnTick` exit site
+    (`server/bot.ts` ~line 6092) calls `recordExitFill` unconditionally
+    after its own submit too, so the fill-recording half is a wider
+    pattern — it is simply harmless there in the market-order case and
+    partly masked by that site's duplicate-order pre-check. NEXT: one PR
+    for the duplicate-submission guard (mirror the existing
+    open-orders pre-check, or reuse the `openOrders` list #34's fix now
+    populates — the latter is cheaper and needs no extra API call), and a
+    SEPARATE PR deciding the fill-recording contract for resting limits
+    across both sites (record on confirmed fill, not on submit). Do not
+    bundle: the second is measurement code, which per MEASUREMENT
+    INTEGRITY must be its own PR and must state the before/after metric
+    effect on identical historical inputs.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 

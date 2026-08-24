@@ -5475,13 +5475,35 @@ except: print('{}')
           try {
             const closeSide = side === "long" ? "sell" : "buy";
             const orderParams = getOrderParams(current, 'stop_loss');
-            await alpaca("/v2/orders", {
+            const killOrderResult = await alpaca("/v2/orders", {
               method: "POST",
               body: JSON.stringify({
                 symbol: ticker, qty: String(qty), side: closeSide,
                 ...orderParams,
               }),
             });
+
+            // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #34): this standalone
+            // forced-liquidation branch is NOT the checkPositionOnTick exit
+            // path #32 fixed, and never registered its own submission. Per
+            // orderParams.ts, 'stop_loss' is a market order during regular
+            // hours (fills immediately, pruned by the sweeper's own Alpaca
+            // reconciliation on the next pass) but a resting extended_hours
+            // limit outside them — so a -25% position killed pre-market or
+            // after-hours could leave an unfilled order nothing would ever
+            // cancel, on exactly the order where a stuck fill matters most.
+            if (killOrderResult?.id) {
+              openOrders.push({
+                orderId: killOrderResult.id,
+                ticker,
+                score: 0,
+                placedAt: Date.now(),
+                side: closeSide,
+                qty,
+                limitPrice: Number(orderParams.limit_price) || 0,
+                isExit: true,
+              });
+            }
             notify("alert", `POSITION KILL: ${ticker} at ${pnlPct.toFixed(1)}% — liquidated`);
             // REPAIR 2026-07-06 (R12-D2): a forced liquidation is a full
             // exit — record the outcome so the ML loop learns from the
