@@ -62810,3 +62810,161 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 REPAIR action (the highest-priority item per CLAUDE.md's own ordering)
 and used it in full, including the extra verification rigor the
 stale-PR-backlog thread's own standing guidance asks for.
+
+## 2026-08-24 (scheduled-routine session #14) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, datacore/signal_ladder.json, ci/counter_baseline.txt, package.json, package-lock.json, research/*): GNSS integrity signal — the first GATE 2 (SIGNAL)-passed root — gets its /api/v1 keyed mirror (v1.0.775)
+
+TERRITORY DECLARATION: this session's whole diff sits in SHARED files (no
+T-DATACORE/T-CLIENT/T-BOT production module touched) — kept as small and
+last as the WORKSTREAM PARTITION protocol asks: one route + its license
+mark + its agent-tool entry + the matching tests, plus the mechanical
+version/counter/doc updates every session in this pattern carries.
+
+SESSION-START SURVEY: CLAUDE.md read in full, then research/ (PROGRAM_STATE.md
+NEXT section — confirmed it is the disjoint MASTER PROGRAM tech-debt track,
+not this [PRODUCT] session's territory, per the immediately preceding
+session's own note; open_questions.md KNOWN BROKEN — walked, nothing open;
+experiments.md's tail, sessions #12-#13, 2026-08-23). `python3 scripts/
+session_health_check.py`: all OK — liveness alive/not dark, daemon rss
+378.2MB (well under the 400MB trim threshold), ML feedback age 22.6h with
+no known-broken signature, `deploy_freshness` confirmed
+`server_version=1.0.774` matched this checkout's package.json before this
+session's bump. No LIVENESS ALARM, nothing in KNOWN BROKEN's own text
+flagged a live unresolved break blocking PRODUCT work. `TZ=America/New_York
+date`: Sunday 2026-08-23 ~20:00 ET, market closed — no merge-timing
+constraint.
+
+PRIMARY ACTION SELECTION: session #12's own NEXT note (2026-08-23) named
+three concrete, ready, unclaimed "shipped-data-no-v1-API" gaps found by its
+survey of every `/api/data/*` root lacking an `/api/v1/*` keyed mirror: DTCC
+swaps, fleet-utilization, and gnss-integrity-signal — each queued as its own
+PR per PROMOTION RULE 5. Re-verified all three gaps still existed
+(`grep -n "app.get(\"/api/v1/data/" server/routes.ts` — confirmed no
+gnss/fleet/dtcc v1 mirror shipped between sessions #12 and #14; session #13
+was [REPAIR]-scoped to `options_execution.py`, untouched this area).
+Picked **gnss-integrity-signal** over the other two: per this routine's own
+selection menu, option (a)/(b) rank "validated signal products" above
+"data products with clean licensing" (GOAL Amendment 5) — gnss_integrity_adsb
+is the ONLY one of the three that is a GATE 2 (SIGNAL)-passed root
+(datacore/signal_ladder.json: gnss_integrity_adsb gate2_pass vs.
+fleet_utilization_aircraft/dtcc_sbsdr_equity_swaps both gate1_pass only), so
+exposing it is the FIRST validated signal to reach the API product, not
+another raw-data mirror. It is also the mechanically simplest of the three
+(plain cache reuse via the raw route's own `gnssSignalCache`/
+`refreshGnssIntegritySignal` poller — no query params, no OPENFIGI/CUSIP-join
+complexity like DTCC, no archive-depth caveat like fleet-utilization).
+
+READ BEFORE WRITE: read `server/gnssIntegritySignal.ts` in full before
+touching anything — `GnssIntegritySignalSummary`'s own `license` field and
+header comment state the exact provenance and caveat language (GATE 1
+PARTIAL not full; "any future SOLD surface of this signal must derive from
+adsb.lol data alone, per the MONETIZATION TRIPWIRE license condition on this
+root"). Confirmed this v1 mirror does NOT itself trigger the MONETIZATION
+TRIPWIRE re-run requirement (billing/pricing/subscriptions/ads/paid-feature
+gating) — it reuses the EXISTING `requireApiKey`/tier/metering
+infrastructure already live across 19 other `/api/v1/*` endpoints, the same
+posture `tracks/aircraft` (LICENSE_MARKS resell:"share-alike", identical
+ODbL-via-adsb.lol lineage) and `stats/portdwell`/`stats/shadow`/`graph`
+(AIS-derived) already established without re-running that check per
+session; the new LICENSE_MARKS entry restates the sold-surface condition
+verbatim so it travels with every response. Read `server/routes.ts`'s
+existing bank-failures/fred-macro/crop-conditions mirrors (lines
+4230-4534) as the template before writing the new route; grepped
+`gnssSignalCache`'s only declaration (line ~4017, `let` in the same
+`registerRoutes` closure) to confirm the new route — inserted after the
+bank-failures block, later in the same function — can safely close over it
+(a closure captures the binding, not a snapshot; by request time the
+poller has long since run).
+
+WHAT SHIPPED: `/api/v1/data/gnss-integrity-signal` (server/routes.ts) — a
+keyed mirror of the existing `/api/data/gnss-integrity-signal` route, both
+reading the SAME `gnssSignalCache` the raw route's own 10-min poller
+populates (no new computation, no new poller, matching every prior mirror
+in this pattern). `server/apiProduct.ts` gained
+`LICENSE_MARKS["data/gnss-integrity-signal"]` (resell: "share-alike" —
+inherits ODbL 1.0 from adsb.lol via the aircraft archive, same lineage as
+`tracks/aircraft`, not "conditional" like the AIS-derived stats — the mark's
+own license text restates the MONETIZATION TRIPWIRE condition on any sold
+surface), an `apiMeta().endpoints` entry (states this is the FIRST gate-2
+signal on the API, gate 1's PARTIAL status, and the not-tradeable/gate-2-not-
+gate-3 caveat), and an `agentToolSpec().tools` entry
+(`voltrade_gnss_integrity_signal`) carrying the identical honesty language
+inline for an AI agent consumer, not just the docs page.
+`server/apiProduct.test.ts` gained one dedicated license-mark test
+(`gnss-integrity-signal license mark: ...`, mirroring the bank-failures
+test's structure) plus three existing tests' path/tool-count lists extended
+(`meta honesty`, `wiring pinned` — `>=19` guarded endpoints bumped to
+`>=20`).
+
+GATES: `npm ci` (node_modules absent at session start; first attempt hit an
+`ENOTEMPTY` mid-install collision from a stray earlier background `npm ci`
+this session had itself started and left running — waited for that process
+to exit, then re-ran clean). `npx tsx --test server/apiProduct.test.ts`:
+27/27 (25 pre-existing + 2 new). `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304 0, unchanged. `npm run test:node`: 1365/1365 (1363 pre-existing + 2
+new), unchanged elsewhere. `pip install -r requirements.txt -r
+requirements-dev.txt` (absent at session start). `bash scripts/
+gated_tests.sh`: GATE PASSED — client 1070/1070, python 1421 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: isolated this session's own contribution via `git
+stash`/`git stash pop` — `assertions` moved 12070->12079 with this diff
+applied vs. unchanged at 12070 with it stashed out, so this session's own
+direct effect is exactly +9 (the new test's 8 assertions plus the one
+`paths.includes` line added to the existing `meta honesty` test); pinned
+**12079** in `ci/counter_baseline.txt`. `tests_run_in_ci`/
+`tests_gating_merge` 392->393 confirmed via the same stash isolation to be
+pre-existing drift (present identically with this session's diff stashed
+out — inherited from session #13's already-committed test, predating this
+session's own pin) — left un-pinned per PROMOTION RULE 5. All 25 counters
+OK after re-pinning. `npm run build`: clean (client + server), same
+pre-existing warnings every recent session has logged (maplibre-gl chunk
+size, astronomy-engine default-export interop, mapIcons dynamic/static dual
+import) — none touched this session. No visual harness run: this diff
+touches zero client/src files (confirmed via `git status --short` — only
+server/*.ts, ci/counter_baseline.txt, datacore/signal_ladder.json,
+package.json/package-lock.json, research/*) — same exemption reasoning the
+prior mirror-pattern sessions in this file already applied for equivalent
+zero-rendering-delta PRs.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition over an
+already-gate-2-passed SIGNAL root, no trading/scoring/sizing logic touched,
+no FROZEN path touched.
+
+CROSS-SYSTEM INTEGRATION: none new this session — the mirror surfaces the
+same computed summary the raw route and the `/data/gnss-integrity` client
+page already display; no new join, no new cross-layer tie claimed.
+
+MONETIZATION TRIPWIRE: not touched (no billing/pricing/paid-gating code —
+`/api/v1` key issuance stays env-seeded only per apiProduct.ts's own header,
+and this session added no new issuance path). The new LICENSE_MARKS entry
+restates, but does not itself enforce or change, the existing
+`server/providerCompliance.ts` adsb.lol-primary requirement.
+
+VERSION: v1.0.775 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; confirmed via `git fetch origin main` that origin/main's
+head still matched this branch's base, v1.0.774, before bumping — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Sunday ~20:00 ET, market closed (`TZ=America/New_York
+date` confirmed) — no merge-timing constraint.
+
+DOCS: `datacore/signal_ladder.json`'s `gnss_integrity_adsb` entry gained a
+dated UPDATE note (targeted string edit, not a full-file `json.dump` — the
+latter would have reformatted the entire 50-line file for a 2-sentence
+change) and its `last_update_date`/`source_ref` updated to point at this
+session.
+
+NEXT (queued, not this session): the same survey found two more roots with
+the identical shipped-data-no-v1-API gap — DTCC swaps and fleet-utilization
+— each its own PR per PROMOTION RULE 5 (DTCC's mirror should also decide
+whether to expose the `top_rows` field the 2026-08-23 [PRODUCT] session
+added; fleet-utilization is a plain reuse of `fleetSeriesCached()`, the same
+mechanical shape as this session's, but note its `top=` query param would
+need a decision on whether the v1 mirror exposes it or fixes a default).
+`sec_midas`'s HFT-colonization-filter gate-2 hypothesis remains the one
+gate-2-eligible, non-time-gated item found in the 2026-08-23 survey but not
+attempted (deferred: needs live market-return data this sandbox lacks).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+action and used it; the two sibling v1-mirror gaps and the sec_midas gate-2
+hypothesis are real queued work for a future session, not evidence this one
+idled.

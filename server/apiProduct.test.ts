@@ -73,6 +73,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/stats/eu-macro"), "European macro cluster keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/stats/fred-macro"), "FRED macro cluster keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/bank-failures"), "FDIC bank failures keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/gnss-integrity-signal"), "GNSS integrity signal keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -80,12 +81,12 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
   const guarded = (v1Block.match(/requireApiKey\(req, res\)/g) || []).length;
-  assert.ok(guarded >= 19, `expected >=19 key-guarded endpoints, found ${guarded}`);
+  assert.ok(guarded >= 20, `expected >=20 key-guarded endpoints, found ${guarded}`);
   assert.ok(routes.includes("meterUsage"), "metering must be wired");
 });
 
@@ -257,6 +258,20 @@ test("bank-failures license mark: public-domain US-gov data resells freely like 
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
   assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: gate-2's not-yet-attempted status must travel with the tool description");
   assert.ok(tool.description.includes("null"), "honesty: the never-coerce-cost-to-zero rule must travel with the tool description");
+});
+
+test("gnss-integrity-signal license mark: aircraft-archive-derived ODbL share-alike like tracks/aircraft, not conditional like the AIS-derived stats; agent tool documents it as the first gate-2-passed signal on the API", () => {
+  assert.equal(LICENSE_MARKS["data/gnss-integrity-signal"].resell, "share-alike",
+    "inherits ODbL from adsb.lol via the aircraft archive, same lineage as tracks/aircraft — must not be mismarked conditional like the AIS-derived stats");
+  assert.ok(LICENSE_MARKS["data/gnss-integrity-signal"].license.includes("ODbL"));
+  assert.ok(LICENSE_MARKS["data/gnss-integrity-signal"].license.includes("MONETIZATION TRIPWIRE"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_gnss_integrity_signal");
+  assert.ok(tool, "voltrade_gnss_integrity_signal tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/gnss-integrity-signal"]);
+  assert.ok(tool.description.includes("GATE 2"), "honesty: gate-2-pass status must travel with the tool description");
+  assert.ok(tool.description.includes("PARTIAL"), "honesty: gate-1's partial (not full) status must travel with the tool description");
+  assert.ok(tool.description.includes("NOT tradeable"), "honesty: this is a statistical signal, not a trading decision — must say so");
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {

@@ -4533,6 +4533,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GNSS integrity signal keyed mirror — same "shipped-data-no-v1-API" sweep
+  // as bank-failures/fred-macro/eu-macro/etc. above, but this is the FIRST
+  // GATE 2 (SIGNAL)-passed root to get a v1 mirror rather than a still-
+  // gate-1/gate-2-unattempted RAW stream (datacore/signal_ladder.json,
+  // gnss_integrity_adsb, current_gate 2, status gate2_pass). Reuses the
+  // existing gnssSignalCache the raw /api/data/gnss-integrity-signal route
+  // already populates via its own 10-min poller — no new computation, no new
+  // poller, same discipline as every other mirror in this sweep. Aircraft-
+  // archive-derived, same ODbL share-alike lineage as tracks/aircraft — the
+  // module's own LICENSE_NOTE additionally requires any SOLD surface to
+  // derive from adsb.lol data alone (MONETIZATION TRIPWIRE condition on this
+  // root); server/providerCompliance.ts enforces adsb.lol stays primary
+  // while billing is inactive, unchanged by this endpoint.
+  app.get("/api/v1/data/gnss-integrity-signal", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      if (!gnssSignalCache) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/gnss-integrity-signal", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/gnss-integrity-signal", gnssSignalCache.data, gnssSignalCache.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/gnss-integrity-signal", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/gnss-integrity-signal", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
