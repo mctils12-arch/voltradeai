@@ -63120,3 +63120,168 @@ any doctrine-axis work, and used it in full including the extra A/B and
 downstream-trace rigor. The doctrine axes (a)-(d) in the prompt were not reached
 because the prompt's own precondition routed this session to [REPAIR]; the
 queued items above are real future work, not evidence this session idled.
+
+## 2026-08-24 (scheduled-routine session #16) [REPAIR] — KNOWN BROKEN #33 CLOSED: runUpgradeCandidates()'s upgrade-buy order stops being invisible to the stale-order sweeper (v1.0.777, T-BOT)
+
+TERRITORY: T-BOT (`server/bot.ts`, new
+`server/upgradeCandidatesStaleOrderTracking.test.ts`) + SHARED-and-minimal-
+and-last (`ci/counter_baseline.txt`, `package.json`/`package-lock.json`,
+`research/*`).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+tail, `open_questions.md`'s KNOWN BROKEN section walked end to end,
+`wishlist.md` head. `python3 scripts/session_health_check.py`: all 7 OK —
+liveness alive/not dark, subsystems ok, daemon rss 379.4MB (under
+trim_mb=400), ml_feedback age 8.8h, `deploy_freshness` server_version=1.0.776
+matching this checkout pre-bump. No LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits none overdue, thrash ratio 2/10
+REPAIR (well below the 7+ trigger), KNOWN BROKEN 35 items with 4 lacking a
+close marker (#26, #33, #34, #35 — advisory only; #34 already carries an
+in-text FIXED note from session #15, its close marker just wasn't machine-
+detected). `TZ=America/New_York date`: Monday 2026-08-24 ~07:19 ET,
+pre-market (opens 09:30 ET) — no merge-timing constraint for a repair PR
+with this profile (no strategy/threshold change).
+
+BRANCH NOTE: this session's designated branch (`claude/busy-fermi-eb93zd`)
+was found already fully merged into `origin/main` (both at `113e7d9`, PR
+#920 — session #15's own POS-KILL fix) with zero unique unmerged commits.
+Per the routing instructions for a merged designated branch, treated this as
+a fresh change on the same branch name, already correctly based on latest
+`origin/main` (no reset needed — branch and `origin/main` were identical).
+
+PRIMARY-ACTION SELECTION: read all four unclosed KNOWN BROKEN items before
+choosing. #26 carries an in-text FIXED note, no action needed. #34 is
+likewise already fixed in-text (session #15) — its close-marker miss is a
+detector quirk, not real open work. #33 and #35 are the two genuinely open
+items, both filed while closing #32/#34. Picked **#33** — it is next in the
+explicit queue both session #14 and #15 left ("#33 remains queued" /
+"KNOWN BROKEN #33 ... and the two halves of the newly filed #35"), it is the
+last remaining member of the well-understood #32-class order-registration
+gap (same root cause, same fix shape, already applied 7 times this week), and
+it is scoped as a single logical change. #35's two halves were each
+explicitly flagged by session #15 as needing their OWN separate PRs (one
+behavioral guard, one MEASUREMENT-INTEGRITY-gated fill-recording contract
+change) — correctly deferred rather than attempted alongside #33 per
+PROMOTION RULE 5.
+
+READ BEFORE WRITE: read `runUpgradeCandidates()` in full (`server/bot.ts`,
+current line ~5028, shifted from #33's original ~4996 note by session #15's
+own additions); confirmed via `orderParams.ts` that `getOrderParams`'s
+default context is `'new_entry'`, which returns a DAY limit order
+unconditionally (`extended_hours: true` outside RTH, no `extended_hours` flag
+but still `type: "limit"` during RTH) — matching #32's morning-queue/Tier-3-
+BUY sites exactly, confirming #33's claim first-hand rather than trusting its
+text. Read the `TrackedOrder` interface and the T3 BUY entry-side push
+(~line 4742, no `isExit`) and the #34 POS-KILL exit-side push (~line 5495,
+`isExit: true`) as the two sibling conventions to choose between — this
+branch buys the replacement position, so it follows the T3 BUY (entry, no
+tag) convention, not POS-KILL's.
+
+FROZEN-PATH CHECK: the `alpaca("/v2/orders", ...)` POST, its method, body,
+and params are byte-identical before and after this diff — only the
+previously-discarded response is now captured and read. Same posture under
+which #32's and #34's pushes merged.
+
+WHAT SHIPPED (v1.0.777): the upgrade-buy branch captures its submission into
+`upgradeOrderResult` (params captured separately into `upgradeOrderParams` so
+`limitPrice` can read them after the call) and, when the response carries a
+real id, pushes `{orderId, ticker: betterPick.ticker, score: betterPick.score
+|| 0, placedAt, side: "buy", qty: upgradeQty, limitPrice}` to `openOrders` —
+no `isExit` tag.
+
+DOWNSTREAM TRACE (REASONING STANDARD 1, two steps): (1) this order is now
+visible to `sweepStaleOrders()` (~45s cadence via `tier1Reflex`), so an
+unfilled upgrade-buy limit gets cancelled after `STALE_ORDER_MINUTES` (12)
+instead of resting indefinitely — the position the branch already sold out
+of stays sold, so a stuck buy leg previously meant the bot silently held
+LESS exposure than `monitoredPositions` believed, invisible to any downstream
+sizing/exposure check that trusts that map. (2) `replaceIfBetter` filters
+`!o.isExit` when hunting for the weakest entry to cancel for buying power —
+this new order correctly enters that pool (it IS an entry, unlike POS-KILL's
+liquidation), so a fresh higher-score candidate can still displace a stuck
+upgrade-buy exactly the way it could displace any other resting entry. Both
+effects are strict improvements over the prior silently-discarded state.
+
+RATCHET: `server/upgradeCandidatesStaleOrderTracking.test.ts`, NEW, 5 tests,
+source-scraping style matching the `finalOrderSitesStaleTracking`/
+`posKillStaleOrderTracking` precedent chain. A/B-verified via `git stash` on
+`server/bot.ts` alone: 4/5 fail pre-fix, 5/5 pass post-fix (the 5th test,
+pinning the ABSENCE of an `isExit:` tag, is a true-both-ways invariant since
+the pre-fix branch pushed nothing at all — not a fix-pinning assertion, so it
+passing pre-fix too is expected and correct, not a test-quality bug). Caught
+one authoring mistake before finalizing: an early draft of the "not tagged
+isExit" test matched on the bare substring `isExit` and false-failed against
+this PR's own explanatory code comment (which itself contains the word
+"isExit" while explaining why the tag is absent) — tightened to `/isExit:/`
+to match only the field assignment, not prose.
+
+GATES: `npm ci`. `npx tsx --test
+server/upgradeCandidatesStaleOrderTracking.test.ts` 5/5. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `npm run test:node`:
+1375/1375 (1370 pre-existing + 5 new), nothing else moved. `pip install -r
+requirements.txt -r requirements-dev.txt`. `bash scripts/gated_tests.sh`:
+GATE PASSED — client 1070/1070, python 1421 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `npm run build`: clean, only the same
+pre-existing warnings recent sessions log (maplibre-gl chunk size,
+astronomy-engine default-export interop, mapIcons dynamic/static dual
+import) — none touched this session. No visual harness run: zero
+`client/src` files touched (confirmed via `git status --short`), same
+exemption prior zero-rendering-delta PRs applied.
+
+COUNTER-RATCHET: applied session #15's own corrected method directly —
+`git add`-ed the new test file before measuring, since `program_status.sh`'s
+file-enumerating counters (`git ls-files`) see only tracked files and would
+silently under-count an untracked new file otherwise. With the file tracked:
+`assertions` 12089 -> 12099 (+10, entirely this session's new `assert.ok`
+calls — the `bot.ts` half adds none), `tests_run_in_ci`/`tests_gating_merge`
+394 -> 395 (+1, the new test file). Re-fetched `origin/main` immediately
+before measuring and confirmed it still matched this branch's base exactly
+(no concurrent merge), so both movements are cleanly this session's own with
+zero pre-existing-drift component to leave unpinned. All other 22 counters
+(including `order_post_sites`, unchanged at 6 — this diff adds no new
+`/v2/orders` POST call site, only reads an existing one's response) confirmed
+unchanged. Pinned 395/395/12099 in `ci/counter_baseline.txt`. All 25 counters
+OK after re-pin.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no strategy, scoring, sizing, or
+parameter change; no threshold moved; no FROZEN path touched. Same
+mechanical-bookkeeping-repair disposition as #32's and #34's fixes.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-gating code in this diff.
+
+CROSS-SYSTEM INTEGRATION: none claimed — bot-internal repair, no new data
+stream, join, or surface.
+
+VERSION: v1.0.777 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; re-confirmed via a second `git fetch origin main`
+immediately before bumping that `origin/main` still matched this branch's
+base, v1.0.776 — no concurrent session had merged ahead of this one between
+the session-start fetch and the bump).
+
+MARKET-HOURS NOTE: Monday ~07:19 ET, pre-market (opens 09:30 ET) — this PR
+is a mechanical order-tracking repair with no strategy/threshold change, so
+it carries none of the market-hours auto-merge-draft concerns the wishlist's
+stale-PR backlog entry describes for research-heavy PRs; opened as a normal
+(non-draft) PR.
+
+KNOWN BROKEN STATUS: with #33 closed, every order-submission site the #32
+lineage ever named (options entry, ETF/stock entry, exit, manual route,
+morning queue, Tier 3 BUY, upgrade-buy, POS-KILL) now registers with
+`openOrders` — 11 `openOrders.push()` sites exist where zero did three weeks
+ago. Only #35 (POS-KILL's duplicate-submission/duplicate-fill-recording gaps,
+a different root cause — a missing guard, not a missing registration) remains
+open in this family, already split into its own two future PRs by session
+#15's filing and not attempted here per PROMOTION RULE 5 (one logical change)
+and MEASUREMENT INTEGRITY (the fill-recording half is measurement code and
+must be its own PR stating the before/after metric effect).
+
+NEXT (queued, not this session): KNOWN BROKEN #35's two halves (duplicate-
+submission guard; fill-recording-on-confirmed-fill contract, separately).
+Session #14's queue — the DTCC-swaps and fleet-utilization `/api/v1` mirrors,
+and the `sec_midas` gate-2 hypothesis — remains untouched and still valid.
+
+STARVED: no — this session had capacity for exactly one clean, scoped REPAIR
+action, which the Repair Mandate made the priority action over any doctrine-
+axis work, and used it in full including the downstream trace and A/B rigor.
+The queued items above are real future work, not evidence this session idled.
