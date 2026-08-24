@@ -4832,6 +4832,70 @@
     bundle: the second is measurement code, which per MEASUREMENT
     INTEGRITY must be its own PR and must state the before/after metric
     effect on identical historical inputs.
+    **HALF ONE FIXED 2026-08-24 (scheduled-routine session, [REPAIR],
+    v1.0.779): the duplicate-submission guard shipped** — the POS-KILL
+    branch now runs the two-layer check the scale-out DUPLICATE SELL
+    ORDER GUARD in the same file has always run, BEFORE its POST: the
+    free in-memory `openOrders.find(ticker + closeSide)` (populated for
+    this branch only since #34), then the authoritative
+    `/v2/orders?status=open&symbols=…&side=…` query, because
+    `openOrders` is process-local and `sweepStaleOrders()` only ever
+    PRUNES it against Alpaca, never repopulates it — so after a restart
+    the cheap layer alone is blind to a resting pre-restart liquidation.
+    Either hit audits `POS-KILL-SKIP` and `continue`s, which also stops
+    the duplicate `recordExitFill` writes for the repeat submissions
+    (the PRIORITY-2 half) as a direct consequence. A failed broker query
+    deliberately does NOT block: `brokerExitOpen` stays 0 and submission
+    proceeds on the in-memory guard alone — losing the check is not a
+    reason to leave a -25% position unliquidated. Regression test:
+    `server/posKillDuplicateOrderGuard.test.ts` (5 assertions, all 5 fail
+    on the pre-fix tree, verified by stashing the fix). DOWNSTREAM
+    TRADE-OFF, stated rather than hidden: the guard is side-based, not
+    kill-specific, so a POS-KILL is now also suppressed while an
+    UNRELATED resting exit limit (a `checkPositionOnTick` stop/TP) is
+    open on the same ticker. That is the correct call — the alternative
+    is two live exit orders against one position, which can over-sell
+    into a short — and it is bounded: `sweepStaleOrders()` cancels an
+    unfilled limit after `STALE_ORDER_MINUTES`=12 and clears
+    `pendingExit`, so the kill fires on the next ~45s sync after that,
+    i.e. a worst-case ~12-minute delay on a position that already has a
+    live exit working. **STILL OPEN: half two** — the fill-recording
+    contract (record on confirmed fill, not on submit) across BOTH this
+    site and `checkPositionOnTick`, unchanged by this PR and still owed
+    its own measurement-code PR per the paragraph above.
+
+36. **[FOUND 2026-08-24, scheduled-routine session #18, NOT fixed —
+    found while writing that session's own log entry]
+    `research/experiments.md` has drifted out of its stated ordering, and
+    the loop-health thrash-ratio instrument silently reads a stale
+    window because of it.** The file's own header says "Append-only.
+    Newest at top", and `scripts/research_state_check.py`'s
+    `parse_session_tags()` depends on that literally — its docstring
+    says so ("the first `window` session headers found scanning top-down
+    are the most recent"). But the last 12 session entries (2026-08-22
+    session #6 at line ~61546 onward, through 2026-08-24 session #17)
+    were appended at the BOTTOM of a 63k-line file instead. Effect: the
+    thrash ratio has been computed from a window that is 12 sessions
+    stale. Measured this session — the checker reported **2/10 REPAIR**;
+    the true newest ten (sessions #8 through #17) are **5/10 REPAIR**.
+    SEVERITY: no live trading effect, but this is the CLAUDE.md HEALTH OF
+    THE LOOP ITSELF rule-2 instrument — the one thing that is supposed to
+    notice "the system generates breaks faster than fixes hold". Being
+    below the 7+ Priority-1 trigger on both the wrong and the right
+    number today is luck, not design: at 5/10 the real window is
+    materially closer to the trigger than the reported one, and a session
+    trusting the printed number would not know that. NEXT (its own PR,
+    not bundled): decide the ordering contract ONCE and make the parser
+    and the file agree — either (a) teach `parse_session_tags()` to read
+    the LAST `window` headers and change the file header to say
+    newest-at-bottom, which matches what sessions actually do and touches
+    no history, or (b) keep newest-at-top and add a harness assertion
+    that the session-header dates are monotonically non-increasing
+    top-down, so the next misplacement fails CI instead of rotting the
+    instrument. (a) is the honest read of revealed behaviour: 12
+    consecutive sessions independently chose bottom-append. Whichever is
+    chosen, the 12 misplaced entries stay where they are — moving them is
+    history rewriting, which the MEMORY PROTOCOL forbids.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
