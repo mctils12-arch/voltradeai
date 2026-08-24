@@ -199,6 +199,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "VolTradeAI datacore over adsb.lol (ODbL 1.0)",
     resell: "share-alike",
   },
+  "data/dtcc-swaps": {
+    license: "DTCC Security-Based Swap Data Repository (SBSDR) real-time public dissemination, SEC-mandated under Reg SBSR — informational-use terms (server/dtccSwaps.ts's own LICENSE_NOTE), NOT US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures streams above; each event is submitted by the reporting swap participant, not authored by DTCC or the SEC. Same conditional posture as OCC/Cboe — redistribution of the raw dissemination stream needs separate review, unresolved.",
+    attribution: "DTCC SBSDR real-time public dissemination (SEC Reg SBSR)",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -228,6 +233,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/fred-macro", params: "-", desc: "FRED macro regime cluster: 28 Fed/US-government-produced rates-curve, financial-stress, labor, inflation, activity, and money/liquidity series (3-month through 30-year Treasury yields, Fed Funds, SOFR, jobless claims, CPI, industrial production, M2, Fed balance sheet, WTI, trade-weighted dollar, and more), each with latest/prev values and a recent history window. REGIME INPUT feed (same framing as the eu-macro cluster) — never a direct trading signal, gate-2 signal testing not attempted. 3 third-party-copyrighted series (CBOE VIX, ICE BofA HY OAS, UMich Consumer Sentiment) are archived for internal regime use only and are EXCLUDED from this payload. Requires the server's FRED_API_KEY to be configured; returns 503 if not. Public-domain US federal/Fed data, freely resellable.", preview: "/api/data/macro" },
       { path: "/api/v1/data/bank-failures", params: "-", desc: "Most-recent US bank failures/assistance events from the FDIC's own failures endpoint (institution, cert, fail date, city/state, charter class, assets/deposits at failure in $ thousands, estimated DIF loss). GATE 1 (DATA) PASSED 2026-08-18 (3/4 sampled failures exact-matched an independent FDIC Call Report AND the FDIC's own press-release figures; the 4th's discrepancy was traced to the FDIC financials index lagging its own failures record for the single most-recent event, not a parsing defect — research/experiments.md 2026-08-18 entry). RAW display only — the deposit-flight-leads-KRE SIGNAL hypothesis stays gate-2-locked (blocked on both live market-return data and the still-unbuilt ticker/entity-graph join for mostly-private regional banks). cost_k is null until the FDIC estimates it, never coerced to zero. Public-domain US federal data, freely resellable.", preview: "/api/data/bank-failures" },
       { path: "/api/v1/data/gnss-integrity-signal", params: "-", desc: "Per-altitude-band GNSS position-integrity degradation over the Baltic Bornholm corridor, from our own broadcast-origin ADS-B archive: one-tailed exact binomial test per band, candidate region's nic==0 (zero containment) rate vs. a control region's own observed rate as the null, at p<0.01. THE FIRST GATE 2 (SIGNAL)-PASSED root exposed on this API (datacore/signal_ladder.json, gnss_integrity_adsb, gate2_pass, re-confirmed and strengthened across two re-runs). GATE 1 is PARTIAL — DTU Space's Bornholm RF station independently corroborates the phenomenon/region, not this exact sample's specific dates. Not tradeable: this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/gnss-integrity-signal" },
+      { path: "/api/v1/data/dtcc-swaps", params: "-", desc: "DTCC SBSDR equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22): file/source date, today's US-underlier row count, new rows archived, total archived, and the largest-notional events from the source file's most recent published day (dissemination id, action type, event/effective timestamps, notional amount + currency where not masked by the source's own Dodd-Frank real-time-reporting cap, underlier id/source/name). GATE 1 (DATA) PASSED 2026-08-22 (two independent checksum standards, ISO 6166 ISIN and CUSIP Global Services mod-10, both >=99.998% on the live file — scripts/dtcc_swaps_gate1.ts). RAW display only — the fresh-large-notional-clustering SIGNAL hypothesis stays gate-2-locked pending archive depth. top_rows is the current poll cycle's ranking, not a running archive-wide one. Not US-government work product — conditional resell, see license_marks.", preview: "/api/data/dtcc-swaps" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -406,6 +412,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/gnss-integrity-signal",
       returns_provenance: ["data/gnss-integrity-signal"],
+    },
+    {
+      name: "voltrade_dtcc_swaps",
+      description: "DTCC Security-Based Swap Data Repository (SBSDR) equity total-return-swap dissemination events, scoped to US-CUSIP/ISIN underliers only: file/source date, today's US-underlier row count, new rows archived since the last poll, total rows archived, and the largest-notional events from the source file's most recent published day (dissemination id, action type, event/effective timestamps, notional amount + currency where not masked by the source's own Dodd-Frank real-time-reporting cap, underlier id/source/name). GATE 1 (DATA) PASSED — two independent checksum standards (ISO 6166 ISIN, CUSIP Global Services mod-10) both scored >=99.998% against a pre-stated 99.9% bar on the live file. RAW display — the fresh-large-notional-clustering SIGNAL hypothesis has NOT been gate-2 tested (blocked on accumulating archive depth). SEC-mandated public dissemination (Reg SBSR), informational-use terms, not government-authored — conditional resell.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/dtcc-swaps",
+      returns_provenance: ["data/dtcc-swaps"],
     },
   ];
   return {

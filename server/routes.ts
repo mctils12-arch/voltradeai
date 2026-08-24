@@ -4563,6 +4563,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // DTCC SBSDR equity swaps keyed mirror — same "shipped-data-no-v1-API"
+  // sweep as bank-failures/gnss-integrity-signal above (session #14's own
+  // queue named DTCC swaps and fleet-utilization as the two remaining gaps).
+  // Reuses the existing latestDtcc() cache the raw /api/data/dtcc-swaps
+  // route already populates via bootDtccSwapsPoll() above — no new
+  // computation, no new poller. GATE 1 (DATA) PASSED (datacore/
+  // signal_ladder.json, dtcc_sbsdr_equity_swaps, gate1_pass); the
+  // large-notional-clustering SIGNAL hypothesis stays gate-2-locked. Not US
+  // government work product (submitted by reporting swap participants) —
+  // conditional resell, same posture as OCC/Cboe.
+  app.get("/api/v1/data/dtcc-swaps", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestDtcc();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/dtcc-swaps", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/dtcc-swaps", {
+        file_date: hit.fileDate,
+        source_date: hit.sourceDate,
+        us_underlier_rows_today: hit.usRows,
+        new_rows_archived: hit.newRows,
+        total_archived: hit.totalArchived,
+        top_rows: hit.topRows.map((r) => ({
+          dissemination_id: r.disseminationId,
+          action_type: r.actionType,
+          event_timestamp: r.eventTimestamp,
+          effective_date: r.effectiveDate,
+          notional_amount: r.notionalAmountLeg1,
+          notional_currency: r.notionalCurrencyLeg1,
+          underlier_id: r.underlierId,
+          underlier_id_source: r.underlierIdSource,
+          underlier_name: r.underlierName,
+        })),
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/dtcc-swaps", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/dtcc-swaps", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
