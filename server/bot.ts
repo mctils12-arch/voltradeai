@@ -5492,9 +5492,43 @@ except: print('{}')
         const POSITION_KILL_LOSS_PCT = -25.0;  // -25% per position
         const POSITION_WARN_LOSS_PCT = -15.0;  // -15% warn threshold
         if (pnlPct <= POSITION_KILL_LOSS_PCT) {
+          const closeSide = side === "long" ? "sell" : "buy";
+
+          // ── DUPLICATE LIQUIDATION GUARD (KNOWN BROKEN #35) ──────────────
+          // syncMonitoredPositions() runs from three sites including
+          // tier1Reflex (~45s). Unlike checkPositionOnTick()'s exit path,
+          // this branch had no open-order pre-check, so a position sitting
+          // below -25% during extended hours — where getOrderParams returns
+          // a RESTING extended_hours limit, not a market order — got a fresh
+          // liquidation order submitted on every single sync until one
+          // filled. #34's sweeper registration bounds the pile-up at ~12
+          // minutes' worth; it does not prevent it. Two layers, mirroring
+          // the scale-out DUPLICATE SELL ORDER GUARD below: the in-memory
+          // list is free but empty after a restart (it is only ever pruned
+          // against Alpaca, never repopulated), so the authoritative broker
+          // query backs it up — POS-KILL is rare enough that the extra call
+          // costs nothing.
+          const trackedExit = openOrders.find(o => o.ticker === ticker && o.side === closeSide);
+          if (trackedExit) {
+            audit("POS-KILL-SKIP", `${ticker}: down ${pnlPct.toFixed(1)}% but a ${closeSide} order is already in flight (id=${trackedExit.orderId}) — not resubmitting`);
+            continue;
+          }
+          let brokerExitOpen = 0;
+          try {
+            const existingResp = await alpaca(`/v2/orders?status=open&symbols=${ticker}&side=${closeSide}`);
+            const existingOrders = JSON.parse(typeof existingResp === 'string' ? existingResp : JSON.stringify(existingResp));
+            if (Array.isArray(existingOrders)) brokerExitOpen = existingOrders.length;
+          } catch (_) {
+            // Broker check failed — fall through on the in-memory guard alone
+            // rather than leaving a -25% position unliquidated.
+          }
+          if (brokerExitOpen > 0) {
+            audit("POS-KILL-SKIP", `${ticker}: down ${pnlPct.toFixed(1)}% but ${brokerExitOpen} open ${closeSide} order(s) already exist on Alpaca — not resubmitting`);
+            continue;
+          }
+
           audit("POS-KILL", `${ticker}: position down ${pnlPct.toFixed(1)}% — forcing liquidation (threshold: ${POSITION_KILL_LOSS_PCT}%)`);
           try {
-            const closeSide = side === "long" ? "sell" : "buy";
             const orderParams = getOrderParams(current, 'stop_loss');
             const killOrderResult = await alpaca("/v2/orders", {
               method: "POST",

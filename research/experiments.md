@@ -3,6 +3,120 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-24 (scheduled-routine session #18) [REPAIR] — KNOWN BROKEN #35 (half one) CLOSED: the POS-KILL forced liquidation stops resubmitting itself on every 45-second sync (v1.0.779, T-BOT)
+
+TERRITORY: T-BOT (`server/bot.ts` outside frozen paths,
+`server/posKillDuplicateOrderGuard.test.ts`) + SHARED-but-minimal
+(`ci/counter_baseline.txt`, `package.json`/`package-lock.json`
+last-and-minimal, `research/*`, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then experiments.md,
+open_questions.md (KNOWN BROKEN), wishlist.md (head).
+`scripts/session_health_check.py`: liveness alive (not dark), subsystems
+ok, deploy_freshness `server_version=1.0.778` matching this checkout —
+one WARN, `daemon_memory rss=412.8MB >= trim_mb=400MB` (deep_score in
+trimmed mode; the documented soft-degrade path, not a break).
+`/api/health` live: `status: ok`, alpaca ACTIVE, drawdown 0.0%, all three
+feeds alive. `scripts/research_state_check.py`: audits none overdue,
+thrash_ratio reported 2/10 REPAIR, KNOWN BROKEN 35 items. `git fetch
+origin main` == this branch's base (0/0), so no drift from today's three
+already-merged sessions (#920/#921/#922).
+
+PRIMARY-ACTION SELECTION: SESSION BUDGET's own order puts a live bug
+ahead of queued program work, and the REPAIR MANDATE puts a broken
+pipeline ahead of research. KNOWN BROKEN #35 was filed EARLIER TODAY by
+session #15 while closing #34 and deliberately left open (one logical
+change at a time) — it is both the newest and the only KNOWN BROKEN item
+carrying an explicit unstarted NEXT step, and its own severity note calls
+half of it a PRIORITY-2 (integrity of learning) issue. Taken over
+PROGRAM_STATE.md's Q9/Q11 queue items, which are T-CLIENT/T0 work with no
+live consequence.
+
+READ BEFORE WRITE: read `syncMonitoredPositions()`'s POS-KILL branch end
+to end (server/bot.ts ~5487-5551), the `checkPositionOnTick` exit-path
+pre-check it was compared against (~6073-6086), the scale-out DUPLICATE
+SELL ORDER GUARD (~5788-5812) whose two-layer shape this fix mirrors, the
+`TrackedOrder`/`openOrders` declaration and `sweepStaleOrders()`
+(~3062-3143) to establish what the in-memory list can and cannot know,
+and `server/posKillStaleOrderTracking.test.ts` (#34's regression test,
+which slices this same branch and therefore had to keep passing).
+
+THE CHANGE (own PR, v1.0.779): the POS-KILL branch now runs a
+duplicate-liquidation guard BEFORE its order POST. `closeSide` moved up
+to branch scope (it is now needed by the guard), then two layers:
+(1) `openOrders.find(o => o.ticker === ticker && o.side === closeSide)` —
+free, and populated for this branch only since #34 shipped this morning;
+(2) `/v2/orders?status=open&symbols=…&side=…` at the broker. Layer 2 is
+not redundant: `openOrders` is process-local and `sweepStaleOrders()` only
+ever PRUNES it against Alpaca, never repopulates it, so after a restart
+layer 1 is blind to a resting pre-restart liquidation — and POS-KILL
+fires rarely enough (a position below -25%) that the extra call costs
+nothing. Either hit audits `POS-KILL-SKIP` with the reason and
+`continue`s. A THROWN broker query deliberately does not block:
+`brokerExitOpen` stays 0 and submission proceeds on layer 1 alone, because
+losing the check is not a reason to leave a -25% position unliquidated.
+The order POST itself, its params, and its #34 `openOrders.push` are
+untouched (FROZEN PATHS: this changes WHETHER an order is sent, never HOW
+it is transmitted).
+
+WHY IT MATTERED: `syncMonitoredPositions()` runs from three sites, one of
+them `tier1Reflex` at ~45s. `getOrderParams(current, 'stop_loss')` is a
+market order during regular hours (fills at once, so the next sync sees no
+position) but a RESTING `extended_hours` limit outside them — so a
+position below -25% pre-market or after-hours got a fresh liquidation
+order on every single sync until one filled. #34's sweeper registration
+bounds the pile-up at ~12 minutes' worth; only a pre-check prevents it.
+
+DOWNSTREAM CHAIN, traced two steps and stated rather than hidden
+(REASONING STANDARD 1): the guard keys on ticker + side, not on
+"is this a kill order", so a POS-KILL is now also suppressed while an
+UNRELATED resting exit limit (a `checkPositionOnTick` stop/TP) is open on
+the same ticker. That is the correct trade — the alternative is two live
+exit orders against one position, which can over-sell into a short — and
+it is bounded: `sweepStaleOrders()` cancels an unfilled limit after
+`STALE_ORDER_MINUTES`=12 and clears `pendingExit`, so the kill fires on
+the next ~45s sync after that. Worst case: a ~12-minute delay on a
+position that already has a live exit working. Second step: fewer
+duplicate submissions also means fewer `recordExitFill` writes, which is
+the PRIORITY-2 half of #35 partially relieved as a CONSEQUENCE — not
+fixed. The fill-recording contract itself (record on confirmed fill, not
+on submit, at BOTH this site and `checkPositionOnTick`) is measurement
+code and stays owed its own PR per MEASUREMENT INTEGRITY.
+
+TEST (REPAIRS MUST RATCHET): new `server/posKillDuplicateOrderGuard.test.ts`,
+5 assertions in the source-slice style #34's test established — the
+in-memory check exists and short-circuits, the broker query exists and
+short-circuits, the catch does NOT set the skip condition, the skip path
+audits and writes no exit fill, and the guard sits BEFORE the submission
+(a duplicate-order guard that runs after the POST prevents nothing).
+Verified failing on the pre-fix tree by stashing only the `bot.ts` diff:
+**5/5 fail before, 5/5 pass after**. Full node suite 1381/1381 pass
+(1376 before + 5). `tsc_ratchet.sh` 12 errors / TS2304 = 0, unchanged.
+`counter_ratchet.sh` green; three counters re-pinned as the direct sole
+effect of this PR (`tests_run_in_ci`/`tests_gating_merge` 395 → 396,
+`assertions` 12107 → 12119) and nothing else touched.
+
+NO BACKTEST: PROMOTION RULE 3 governs strategy/parameter changes. This
+changes no signal, threshold, or sizing input — POSITION_KILL_LOSS_PCT is
+untouched at -25.0 — only whether an already-decided liquidation is sent
+twice. A backtest cannot see it: the engine models one exit per decision.
+
+FINDING SURFACED, NOT FIXED (filed as KNOWN BROKEN #36): this file's own
+ordering has drifted. Its header says newest-at-top and
+`scripts/research_state_check.py`'s `parse_session_tags()` depends on
+that literally — but the last 12 entries (2026-08-22 session #6 onward)
+were appended at the BOTTOM instead, so the thrash-ratio instrument has
+been reading a 12-session-stale window. Its "2/10 REPAIR" this morning is
+not the real number: the true newest ten (sessions #8-#17) are 5/10
+REPAIR. Still below the 7+ Priority-1 trigger, so no preemption either
+way today — but the instrument was wrong, and being wrong in the safe
+direction is luck, not design. This entry is placed at the TOP per the
+stated convention. Not fixed here: moving 12 entries is history rewriting
+and the parser question is its own change.
+
+STARVED: yes — PROGRAM_STATE.md's Q9/Q11 and #35's second (measurement)
+half all remain queued and unclaimed at session end.
+
 ## 2026-08-22 (3) (scheduled-routine session) [PIPELINE] — MASTER PROGRAM Q7 CLOSED: spaceFrame.ts gets its real Law IV `maxFeatures`/`vramBudget` (v1.0.763, T-CLIENT)
 
 TERRITORY: T-CLIENT (`client/src/lib/celestial/spaceFrame.ts`,
