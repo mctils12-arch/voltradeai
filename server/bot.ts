@@ -18,7 +18,7 @@ import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
-import { buildExitFillPayload } from "./exitFill";
+import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { buildEntryFillPayload } from "./entryFill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
@@ -3077,6 +3077,17 @@ print(json.dumps(result[:20]))
     // sacrifice for buying power that cancelling a SELL order never actually
     // frees. isExit marks these so replaceIfBetter can exclude them.
     isExit?: boolean;
+    // KNOWN BROKEN #35 (half two, fill-recording contract): everything
+    // buildExitFillPayload() needs EXCEPT fillPrice/qty, which are only
+    // known once Alpaca confirms a real fill — see sweepStaleOrders()'s
+    // resolvePendingExitFill(). Recording at submit time (the pre-fix
+    // behavior) wrote a synthetic-price ML feedback record even for a
+    // resting extended-hours limit that never filled, or one that filled
+    // at a different price than the WS `current` snapshot used as
+    // fillPrice — on exactly the worst-drawdown trades (POS-KILL)
+    // specifically. Absent on non-exit orders and anything not yet
+    // migrated to this contract.
+    pendingExitFill?: Omit<ExitFillArgs, "fillPrice" | "qty">;
   }
   const openOrders: TrackedOrder[] = [];
 
@@ -3093,6 +3104,35 @@ print(json.dumps(result[:20]))
 
   // ── Stale Order Sweeper ──────────────────────────────────────────────────
   const STALE_ORDER_MINUTES = 12; // cancel unfilled limits after 12 minutes
+
+  // KNOWN BROKEN #35 (half two, MEASUREMENT INTEGRITY — fill-recording
+  // contract): resolve a tracked exit order's real outcome from Alpaca
+  // before the caller drops it from openOrders, and record the ML feedback
+  // fill ONLY on a confirmed "filled" status, at the CONFIRMED
+  // filled_avg_price/filled_qty — never at the WS `current` price snapshot
+  // taken at submit time. Returns true once the order's fate is known
+  // (recorded-if-filled, or genuinely not filled — either way safe to drop
+  // from openOrders); returns false only when the status query itself
+  // failed, so the caller can leave the entry tracked for the next sweep
+  // instead of silently losing the fill.
+  async function resolvePendingExitFill(tracked: TrackedOrder): Promise<boolean> {
+    if (!tracked.pendingExitFill) return true;
+    try {
+      const final = await alpaca(`/v2/orders/${tracked.orderId}`);
+      if (final?.status === "filled") {
+        recordExitFill(buildExitFillPayload({
+          ...tracked.pendingExitFill,
+          qty: Number(final.filled_qty) || tracked.qty,
+          fillPrice: Number(final.filled_avg_price) || tracked.limitPrice,
+        }));
+      }
+      // Any other terminal status (canceled/expired/rejected) — no fill
+      // happened, nothing to record.
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async function sweepStaleOrders() {
     if (openOrders.length === 0) return;
@@ -3119,7 +3159,11 @@ print(json.dumps(result[:20]))
           monitoredPositions[stale.ticker].pendingExit = false;
         }
       } catch (e: any) {
-        // Order may have already filled or been cancelled
+        // Order may have already filled or been cancelled — resolve which
+        // (KNOWN BROKEN #35 half two) before dropping it, so a real fill on
+        // a just-cancelled-in-race order isn't silently lost.
+        const resolved = await resolvePendingExitFill(stale);
+        if (!resolved) continue; // status unknown this cycle — retry next sweep
         const idx = openOrders.findIndex(o => o.orderId === stale.orderId);
         if (idx >= 0) openOrders.splice(idx, 1);
         // Also clear pendingExit — if the order filled, the next sync will remove
@@ -3135,9 +3179,12 @@ print(json.dumps(result[:20]))
       const alpacaOrders = await alpaca("/v2/orders?status=open");
       const alpacaIds = new Set((alpacaOrders as any[]).map((o: any) => o.id));
       for (let i = openOrders.length - 1; i >= 0; i--) {
-        if (!alpacaIds.has(openOrders[i].orderId)) {
-          openOrders.splice(i, 1); // Filled or cancelled externally
-        }
+        const tracked = openOrders[i];
+        if (alpacaIds.has(tracked.orderId)) continue;
+        // KNOWN BROKEN #35 half two: confirm fill/no-fill before dropping.
+        const resolved = await resolvePendingExitFill(tracked);
+        if (resolved) openOrders.splice(i, 1); // Filled or cancelled externally
+        // else: status unknown this cycle — leave tracked, retry next sweep
       }
     } catch (err: any) { console.error("[bot]", err?.message || err); }
   }
@@ -5557,17 +5604,27 @@ except: print('{}')
                 qty,
                 limitPrice: Number(orderParams.limit_price) || 0,
                 isExit: true,
+                // REPAIR 2026-07-06 (R12-D2): a forced liquidation is a full
+                // exit — record the outcome so the ML loop learns from the
+                // worst trades too, not only the graceful ones. KNOWN BROKEN
+                // #35 (half two, 2026-08-24): recording used to happen right
+                // here at submit time, with `current` as the fill price —
+                // for the resting extended-hours limit case, this order may
+                // not have filled yet (or at all), so that was a synthetic
+                // price on exactly the worst-drawdown trades the ML loop
+                // should be learning from most honestly. Deferred to
+                // sweepStaleOrders()'s resolvePendingExitFill(), which
+                // records only once Alpaca confirms status:"filled", at the
+                // confirmed filled_avg_price/filled_qty.
+                pendingExitFill: {
+                  ticker, exitSide: closeSide, pnlPct,
+                  exitReason: "position_kill", codeVersion: pkgVersion,
+                },
               });
+            } else {
+              audit("POS-KILL-WARN", `${ticker}: liquidation order returned no id — cannot track for ML fill recording`);
             }
             notify("alert", `POSITION KILL: ${ticker} at ${pnlPct.toFixed(1)}% — liquidated`);
-            // REPAIR 2026-07-06 (R12-D2): a forced liquidation is a full
-            // exit — record the outcome so the ML loop learns from the
-            // worst trades too, not only the graceful ones.
-            recordExitFill(buildExitFillPayload({
-              ticker, exitSide: closeSide, qty: Number(qty) || 0,
-              fillPrice: current, pnlPct, exitReason: "position_kill",
-              codeVersion: pkgVersion,
-            }));
             continue; // Skip the rest of the loop for this position
           } catch (killErr: any) {
             audit("POS-KILL-ERROR", `${ticker}: failed to liquidate — ${killErr?.message?.slice(0, 120)}`);
@@ -6152,7 +6209,24 @@ if '${ticker}' in ss:
           qty: exitQty,
           limitPrice: Number(orderParams.limit_price) || 0,
           isExit: true,
+          // REPAIR 2026-07-06 (R12-D2): close the ML feedback entry record
+          // with the bot's own P&L accounting. Full exits only — scale-outs
+          // leave the position (and its record) open by design. KNOWN
+          // BROKEN #35 (half two, 2026-08-24): recording used to happen
+          // right here at submit time with `currentPrice` as the fill
+          // price — for a resting stop/TP/time-stop limit this order may
+          // not have filled yet (or at all), so that was a synthetic price
+          // written unconditionally on every exit. Deferred to
+          // sweepStaleOrders()'s resolvePendingExitFill(), which records
+          // only once Alpaca confirms status:"filled", at the confirmed
+          // filled_avg_price/filled_qty.
+          pendingExitFill: {
+            ticker, exitSide, pnlPct, exitReason: exitType,
+            entryDate: pos.entryDate, codeVersion: pkgVersion,
+          },
         });
+      } else {
+        audit("WS-EXIT-WARN", `${ticker}: exit order returned no id — cannot track for ML fill recording`);
       }
 
       const scaleNote = pos.scalesCompleted > 0 ? ` (final ${exitQty}/${pos.originalQty} shares, ${pos.scalesCompleted} prior scale-outs)` : '';
@@ -6162,15 +6236,6 @@ if '${ticker}' in ss:
 
       audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
       notify("exit", `WS exit ${ticker}: ${reason}`);
-
-      // REPAIR 2026-07-06 (R12-D2): close the ML feedback entry record with
-      // the bot's own P&L accounting. Full exits only — scale-outs leave the
-      // position (and its record) open by design.
-      recordExitFill(buildExitFillPayload({
-        ticker, exitSide, qty: exitQty, fillPrice: currentPrice,
-        pnlPct, exitReason: exitType, entryDate: pos.entryDate,
-        codeVersion: pkgVersion,
-      }));
 
       // Write stop-loss cooldown
       if (exitType === 'stop_loss' || exitType === 'trailing_stop') {

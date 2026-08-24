@@ -4859,10 +4859,29 @@
     unfilled limit after `STALE_ORDER_MINUTES`=12 and clears
     `pendingExit`, so the kill fires on the next ~45s sync after that,
     i.e. a worst-case ~12-minute delay on a position that already has a
-    live exit working. **STILL OPEN: half two** — the fill-recording
-    contract (record on confirmed fill, not on submit) across BOTH this
-    site and `checkPositionOnTick`, unchanged by this PR and still owed
-    its own measurement-code PR per the paragraph above.
+    live exit working.
+    **HALF TWO FIXED 2026-08-24 (scheduled-routine session #19,
+    v1.0.781): the fill-recording contract shipped — record on
+    confirmed fill, not on submit, across BOTH this site and
+    `checkPositionOnTick`.** Both exit-submission sites now attach a
+    `pendingExitFill` (everything `buildExitFillPayload()` needs except
+    `fillPrice`/`qty`) to their `openOrders.push(...)` instead of
+    calling `recordExitFill(...)` directly. A new
+    `resolvePendingExitFill(tracked)` helper in `sweepStaleOrders()`
+    queries `GET /v2/orders/{orderId}` and records the ML feedback fill
+    ONLY when Alpaca confirms `status: "filled"`, using the CONFIRMED
+    `filled_avg_price`/`filled_qty` — never the WS `current` snapshot
+    taken at submit time. A status query that itself throws leaves the
+    order tracked for the next sweep rather than silently dropping a
+    possibly-real fill. Regression test:
+    `server/exitFillRecordingContract.test.ts` (8 assertions,
+    A/B-verified via `git stash` — the pre-fix tree has no
+    `resolvePendingExitFill` function at all, so the whole file fails
+    to load rather than passing individually). KNOWN BROKEN #35 is now
+    FULLY CLOSED (both halves shipped). Full account, including the
+    MEASUREMENT INTEGRITY before/after statement this class of change
+    requires, in `research/experiments.md`'s 2026-08-24 session #19
+    entry.
 
 36. **[FOUND 2026-08-24, scheduled-routine session #18, NOT fixed —
     found while writing that session's own log entry]

@@ -3,6 +3,246 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-24 (scheduled-routine session #19) [REPAIR] — T-BOT (server/bot.ts, server/exitFillRecordingContract.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/*): KNOWN BROKEN #35 half two — exit fills record only on a confirmed Alpaca fill, not at submit time (v1.0.781)
+
+TERRITORY: T-BOT (`server/bot.ts` outside frozen paths,
+`server/exitFillRecordingContract.test.ts`) + SHARED-but-minimal
+(`ci/counter_baseline.txt`, `package.json`/`package-lock.json`
+last-and-minimal, `research/*`, this entry).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then this file's tail,
+`research/open_questions.md`'s KNOWN BROKEN section in full, and
+`research/wishlist.md`'s head. Loop-health ratio, last 10 tagged entries
+(sessions #9-#18): REPAIR #9, PRODUCT #10, PIPELINE #11, PRODUCT #12,
+REPAIR #13, PRODUCT #14, REPAIR #15, REPAIR #16, PRODUCT #17, PRODUCT
+#18 — 4/10 REPAIR, well under the 7+ Priority-1 thrash trigger, no
+meta-problem to divert to. (Noted but not chased down this session:
+open_questions.md #36, filed by session #18, says this exact
+top-of-file window may itself be stale due to a research/experiments.md
+append-ordering drift — its own fix is queued as its own PR per
+PROMOTION RULE 5, not bundled here.) `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+subsystems ok, alt-data enrichment fresh, daemon rss well under
+trim_mb, 0 tier2 daemon timeouts, ml_feedback fresh, deploy_freshness
+server_version=1.0.780 matching this checkout pre-bump. No LIVENESS
+ALARM.
+
+PRIMARY-ACTION SELECTION: per the REPAIR MANDATE ("consult
+open_questions.md's KNOWN BROKEN section first... repair before
+research") and CLAUDE.md's GOAL priority order (Priority 2, PROTECT THE
+INTEGRITY OF LEARNING, never loses to Priority 3/4 platform-growth
+work), picked KNOWN BROKEN #35's still-open half two over the standing
+`/api/v1` mirror sweep / `sec_midas` gate-2 queue items sessions
+#14/16/17/18 left behind — #35 half two is explicitly logged as "a
+PRIORITY-2 (integrity of learning) issue, not merely cosmetic" in
+open_questions.md, and had been sitting open since session #15
+(2026-08-24, earlier same day) with a fully specified NEXT ("one PR ...
+deciding the fill-recording contract for resting limits across both
+sites (record on confirmed fill, not on submit)"). Confirmed via `grep
+-n "recordExitFill" server/bot.ts` that both named call sites still
+called it unconditionally at submit time before this session's change.
+
+READ BEFORE WRITE: read both call sites in full this session — the
+standalone POS-KILL branch (`syncMonitoredPositions()`, ~line 5577,
+after half one's duplicate-order guard) and `checkPositionOnTick()`'s
+WS exit branch (~line 6122) — plus `recordExitFill()`/
+`buildExitFillPayload()` (`server/exitFill.ts`, pure and already
+unit-tested) and `sweepStaleOrders()`'s existing two loops (the
+stale-timeout DELETE loop and the "sync with Alpaca" reconciliation
+loop) before writing anything. Confirmed via `orderParams.ts` (read,
+not assumed) that both sites' order type is `market` during regular
+hours but a RESTING `extended_hours` LIMIT outside them — the exact
+condition under which a synthetic submit-time price/qty could
+misrepresent (or entirely fabricate) an unconfirmed fill.
+
+WHAT SHIPPED: recording is now DEFERRED to a confirmed fill.
+`TrackedOrder` gained an optional `pendingExitFill: Omit<ExitFillArgs,
+"fillPrice" | "qty">` field (everything `buildExitFillPayload()` needs
+except the two values only Alpaca's own fill record can supply). Both
+exit-submission sites now attach `pendingExitFill` to their
+`openOrders.push(...)` (gated on a real order id, same as half one; an
+id-less response now audits `POS-KILL-WARN`/`WS-EXIT-WARN` instead of
+silently losing trackability) and no longer call `recordExitFill(...)`
+directly. A new `resolvePendingExitFill(tracked)` helper, defined
+immediately above `sweepStaleOrders()`, queries
+`GET /v2/orders/{orderId}` and calls `recordExitFill(...)` — with
+`fillPrice`/`qty` taken from Alpaca's own `filled_avg_price`/
+`filled_qty` — ONLY when `status === "filled"`; any other terminal
+status (canceled/expired/rejected) records nothing. It returns `true`
+once the order's fate is known (recorded-if-filled or genuinely
+unfilled — either way safe to drop) and `false` only when the status
+query itself throws, so the caller leaves the entry tracked for the
+next ~45s sweep instead of silently losing a fill that may have
+happened. Both of `sweepStaleOrders()`'s existing removal points now
+call it before splicing an order out of `openOrders`: the
+DELETE-failure branch of the stale-timeout loop (an order whose
+cancel-attempt failed because it had just filled — previously this
+branch dropped the entry with NO fill-resolution at all, a gap #35's
+own filing didn't call out explicitly but which the same root cause
+covers) and the "sync with Alpaca" reconciliation loop (the common
+case — a market order that filled well within the stale threshold).
+Non-exit `TrackedOrder`s (`pendingExitFill` absent) pass through
+`resolvePendingExitFill` as a no-op (`return true` immediately) — fully
+backward-compatible with every entry-side registration from the #32/
+#33/#34 chain.
+
+RATCHET: `server/exitFillRecordingContract.test.ts`, NEW, 8 tests,
+source-scraping style matching the `posKillStaleOrderTracking.test.ts`/
+`posKillDuplicateOrderGuard.test.ts` precedent chain. Asserts:
+`resolvePendingExitFill` queries the order-status endpoint and gates
+`recordExitFill` on `status === "filled"`, sources `fillPrice`/`qty`
+from Alpaca's confirmed fields, no-ops on an order with no
+`pendingExitFill`, and returns `false` (not silently drops) on a
+thrown status query; both `sweepStaleOrders()` call sites invoke it and
+only splice once resolved; both submit sites no longer call
+`recordExitFill(buildExitFillPayload(...))` directly and instead attach
+`pendingExitFill`; both submit sites audit a `*-WARN` line on a missing
+order id; and exactly one `recordExitFill(buildExitFillPayload(...))`
+call site exists repo-wide (inside `resolvePendingExitFill`) now that
+both submit-time call sites are gone. A/B-verified via `git stash push
+-- server/bot.ts`: the pre-fix tree has no `resolvePendingExitFill`
+function at all, so every one of the 8 tests' `slice()` marker lookups
+throws immediately — the whole file fails to even enumerate its tests
+(reported as `not ok 1`, 1/1 fail) rather than passing individually,
+which is the expected all-or-nothing signature for a test file whose
+very structure depends on code that doesn't exist pre-fix. Restored via
+`git stash pop`, re-ran clean (8/8) post-restore.
+
+CAUGHT DURING AUTHORING (measurement-integrity-adjacent, not a code
+bug): the test file's own source contained a JS regex literal
+`/catch \(e: any\) \{.../ ` whose PATTERN TEXT itself matched
+`program_status.sh`'s `ts_any` detector (`r':\s*any\b'`, scanned over
+raw code-only text — comments are stripped but string/regex literals
+are not) — the exact "text-based counters can be moved by prose" trap
+`PROGRAM_STATE.md`'s L9 names, except via a regex literal rather than a
+comment. Caught by running `program_status.sh` before finalizing (per
+L9's own stated general lesson), which showed `ts_any` 1239 -> 1240 for
+this session's diff alone. Per that lesson ("fixed the code, not the
+ruler") and MEASUREMENT INTEGRITY (never tune the ruler and the thing
+measured together), reworded the regex to `catch \(e[^)]*\)` —
+identical match against the real `bot.ts` source, since `[^)]*` is
+regex-equivalent to the literal type annotation for this purpose, but
+the substring `: any` no longer appears contiguously in the test file's
+own bytes. Re-measured: `ts_any` back to 1239, unchanged.
+
+GATES: this sandbox's `node_modules` was present but incomplete (only 1
+package) and Python was missing `pytest`/`pytest-subtests` — same
+fresh-sandbox provisioning gap prior sessions have logged repeatedly,
+not a regression; confirmed the same way those sessions did (`bash
+scripts/tsc_ratchet.sh` pre-`npm ci` read only 3 errors instead of the
+pinned 12, isolated as a provisioning artifact by running it again
+post-`npm ci` and getting 12 both with and without this session's diff
+via `git stash`). `npm ci` and `pip install -r requirements.txt
+-r requirements-dev.txt` run. `npx tsx --test
+server/exitFillRecordingContract.test.ts`: 8/8. `npx tsx --test
+server/executeTradesStaleOrderTracking.test.ts server/exitFill.test.ts
+server/posKillDuplicateOrderGuard.test.ts
+server/posKillStaleOrderTracking.test.ts
+server/staleOrderSweepExitTracking.test.ts
+server/staleOrderSweepOptionsTracking.test.ts
+server/upgradeCandidatesStaleOrderTracking.test.ts
+server/finalOrderSitesStaleTracking.test.ts`: all 8 files individually
+green (37/37 total), confirming half one's and the #32/#33 chain's own
+regression tests still pass unmodified — their assertions are scoped to
+the pre-submission guard code and the push-call shape, both untouched
+in substance by this session's deferral of the recording call.
+`bash scripts/tsc_ratchet.sh`: 12/12 (post-provisioning-fix), TS2304 0,
+unchanged. `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 396 -> 397 (+1, this session's own new test file —
+re-fetched `origin/main` immediately before measuring and confirmed it
+still matched this branch's base exactly at v1.0.780/`0f31517`, zero
+concurrent-drift component), `assertions` 12128 -> 12145 (+17, this
+session's own new assertions); pinned both in `ci/counter_baseline.txt`
+in this PR. All other 22 counters unchanged, including `ts_any`
+(confirmed 1239, see the CAUGHT DURING AUTHORING note above) and
+`order_post_sites` (unchanged at 6 — this diff adds no new `/v2/orders`
+POST call site, only a new GET status-check call and reads of existing
+POST responses). `bash scripts/gated_tests.sh`: GATE PASSED — client
+1070/1070, python 1421/1 skipped/54 subtests, quarantine 0/1 none
+overdue. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms), same exemption prior
+zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a measurement/bookkeeping
+repair (WHEN an ML feedback record is written and at WHAT price/qty),
+not a strategy, scoring, sizing, or threshold change; no FROZEN path
+touched. The order-submission calls themselves (`alpaca("/v2/orders",
+...)`, their bodies, their params) are byte-identical to before this
+session — only the previously-unconditional, submit-time recording of
+their outcome is now deferred to a confirmed fill.
+
+MEASUREMENT INTEGRITY (this diff IS measurement code, per that
+section's own scope — ML feedback recording, not P&L/backtest/slippage
+computation, but the same "code that measures" class): stated per that
+section's requirement — WHAT THE METRIC REPORTED BEFORE: an ML feedback
+exit-fill record was written unconditionally at submit time, with
+`fillPrice`/`qty` set to the WS `current`/`currentPrice` snapshot and
+the position's own `qty`, regardless of whether the order had actually
+filled, at what price, or for how many shares. AFTER: the identical
+record is written only once Alpaca confirms `status: "filled"`, with
+`fillPrice`/`qty` read from Alpaca's own `filled_avg_price`/
+`filled_qty`. DIRECTION OF BIAS: this is a correctness fix, not a
+metric redefinition that could flatter any strategy — for a market
+order during regular hours the two prices are typically close (the WS
+snapshot and the near-instant fill happen within one ~45s sweep of each
+other) so most historical records are barely affected; the fix's real
+effect is on the RESTING extended-hours-limit case, where the old
+behavior could previously (a) record a fill for an order that never
+filled at all (KNOWN BROKEN #35's original finding — most acute on
+POS-KILL, the worst-drawdown trades specifically) or (b) record the
+wrong price for an order that filled later at a different level. Both
+of those are removed; no case exists where this change makes a
+genuinely-filled market order's record MORE synthetic than before. No
+strategy is measured as looking better BY this change — if anything, a
+resting extended-hours position-kill that never fills now correctly
+produces NO feedback record instead of a fabricated one, which if
+anything REMOVES previously-inflated (fabricated) trade-outcome
+records from the training set, the opposite direction "flattering by
+default" would predict. Independent justification per that section's
+standard: a NAMED bug (KNOWN BROKEN #35, filed by session #15 the same
+day from a direct code read, not from a metric looking suspiciously
+good).
+
+CROSS-SYSTEM INTEGRATION: none claimed — bot-internal repair to the ML
+feedback recording path, no new data stream, join, or surface.
+
+VERSION: v1.0.781 (`package.json` + `package-lock.json`,
+read-and-increment at commit time; re-confirmed via a second `git fetch
+origin main` immediately before the bump that `origin/main` still
+matched this branch's base, v1.0.780 — no concurrent session had merged
+ahead of this one).
+
+MARKET-HOURS NOTE: this diff touches `server/bot.ts`'s exit paths
+(POS-KILL, WS exit) but changes ONLY when/how the ML feedback record is
+written after an order already succeeded or failed on its own — no
+order-submission call, order body, order param, guard condition, or
+control-flow branch that decides WHETHER/WHAT to submit is altered.
+Blast radius on the live trading loop itself is zero; this PR's
+description asks for a normal (not urgency-gated) merge.
+
+KNOWN BROKEN STATUS: with this fix, KNOWN BROKEN #35 is now FULLY
+CLOSED — both half one (duplicate-submission guard, v1.0.779) and half
+two (fill-recording contract, this session, v1.0.781) are shipped. The
+full #32-through-#35 stale-order/fill-integrity family opened
+2026-08-22 is now closed end to end.
+
+NEXT (queued, not this session): the `sec_midas` gate-2 hypothesis and
+open_questions.md #36 (the research/experiments.md append-ordering
+drift affecting the loop-health thrash-ratio instrument, filed by
+session #18) both remain open and unclaimed. Neither was in scope here
+per PROMOTION RULE 5 (one logical change) — #36 explicitly asks for its
+own PR deciding the ordering contract, not a fix bundled into unrelated
+work.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR action (KNOWN BROKEN #35's own fully-specified NEXT from earlier
+the same day), used in full including the MEASUREMENT INTEGRITY
+before/after statement its own class of change requires and an
+in-session ruler-collision catch or the counters.
+
 ## 2026-08-24 (scheduled-routine session #18) [REPAIR] — KNOWN BROKEN #35 (half one) CLOSED: the POS-KILL forced liquidation stops resubmitting itself on every 45-second sync (v1.0.779, T-BOT)
 
 TERRITORY: T-BOT (`server/bot.ts` outside frozen paths,
