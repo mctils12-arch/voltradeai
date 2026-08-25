@@ -4967,6 +4967,56 @@
     against the NEXT drift, not a correction to today's reading). Full
     trace: `research/experiments.md`'s 2026-08-25 session #22 entry.
 
+    **STALE-PR-BACKLOG REVIVAL 2026-08-25 (scheduled-routine session) —
+    PR #767's `node_uptime_s` observability shipped, re-derived against
+    current `main` rather than mechanically applied.** #767 (opened
+    2026-08-11, one of the `changes`-job-cancelled/never-retried PRs
+    named in `wishlist.md`'s STALE-PR BACKLOG) proposed adding
+    `node_uptime_s=${Math.round(process.uptime())}` to the TIER3-DIAG
+    audit line so a future session could tell "just booted" from
+    "long-running but still degraded" straight from the audit log,
+    without reconstructing deploy timestamps from git log by hand (as
+    the 2026-08-11 session had to). READ BEFORE WRITE confirmed the
+    target text was still absent from current `main`'s TIER3-DIAG audit
+    call (`server/bot.ts`, `grep -n "node_uptime_s" server/bot.ts` was
+    empty pre-change) — NOT superseded, unlike the three prior
+    stale-PR-backlog closes (#708/#706/#794) this same sweep found. But
+    the surrounding mechanism DID change underneath it: the RECURRENCE #2
+    entry immediately above this one (v1.0.675, 2026-08-12, one day after
+    #767 opened) replaced the entire clock-based grace-period check with
+    a `tier2_ran_since_boot` BOOLEAN precisely because raw uptime alone
+    was shown to be the wrong signal (a restart landing in the overnight
+    dark window needs hours of grace, not #767's implicit "uptime low =
+    recent boot" framing). Reviving #767's diff verbatim would have
+    shipped a diagnostic field the codebase's own later fix had partially
+    outgrown. Instead this session ported the INTENT (make the grace
+    decision visible in the persisted audit log) onto the CURRENT
+    mechanism: the TIER3-DIAG audit line now carries both
+    `node_uptime_s=` (still useful — a human glancing at the log wants
+    the raw number) AND `tier2_ran_since_boot=` (the value that actually
+    drives the auto-fix decision post-v1.0.675). Full technical trace,
+    tests, and gates in `research/experiments.md`'s 2026-08-25 entry
+    (this session, [RESEARCH], stale-PR-backlog sweep). PR #767 itself
+    closed with a comment pointing at the new PR and explaining the
+    divergence from its original diff.
+    GENERALIZATION note for future stale-PR triage (a fourth data point
+    alongside #708/#706/#794's "silently superseded" pattern, but a
+    different shape): a stale PR can be neither fully superseded NOR
+    safely mergeable as-is — its target gap can still be real while its
+    proposed MECHANISM has been partially overtaken by later work on the
+    same subsystem. The fix is to re-derive against current code (same
+    READ BEFORE WRITE discipline as a fresh PR), not to choose only
+    between "cherry-pick verbatim" and "close as duplicate."
+    DISPOSITION: item stays RESOLVED PENDING CONTINUED MONITORING,
+    unchanged — this is observability only, no new behavior change to
+    monitor.
+    NEXT: whichever session catches the next "Multiple API sources down"
+    occurrence should read both new fields off the TIER3-DIAG audit line.
+    `tier2_ran_since_boot=false` explains any occurrence regardless of
+    uptime (grace correctly applies); `tier2_ran_since_boot=true` with a
+    recurrence means grace was correctly denied and RECURRENCE ESCALATES
+    applies for real per the discipline already established above.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

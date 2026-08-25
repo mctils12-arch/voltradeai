@@ -5038,7 +5038,21 @@ print(json.dumps(run_diagnostics(server_uptime_s=${Math.round(process.uptime())}
         const detail = (diagReport.problems || [])
           .map((p: any) => `[${String(p.severity || "?").toUpperCase()}] ${p.system || "?"}: ${p.message || ""}`)
           .join(" | ");
-        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues: ${detail}`);
+        // node_uptime_s (open_questions.md KNOWN BROKEN #29, stale-PR-backlog
+        // revival of #767): the "Multiple API sources down" api-down problem
+        // checks /tmp cache file existence (diagnostics.py), which is
+        // intentionally ephemeral-on-redeploy per storage_config.py's own
+        // docstring — a fresh boot has empty caches by design, not a real
+        // API outage, and a burst of redeploys was found live to correlate
+        // with a burst of this exact warning (2026-08-11). v1.0.675 later
+        // replaced the grace-period CLOCK check with a tier2_ran_since_boot
+        // BOOLEAN for the auto-fix decision itself (a more robust fix than
+        // this PR's raw-uptime approach), but that value is not surfaced in
+        // this audit line's TEXT — a human/session skimming the persisted
+        // audit log still cannot tell "just booted" from "long-running but
+        // still degraded" without separately reconstructing deploy
+        // timestamps from git log. Surfacing both here closes that gap.
+        audit("TIER3-DIAG", `System health: ${diagReport.overall_status} — ${diagReport.problems?.length || 0} issues (node_uptime_s=${Math.round(process.uptime())}, tier2_ran_since_boot=${tier2CompletedSinceBoot}): ${detail}`);
       }
     } catch (err: any) { console.error("[tier3-diag]", err?.message || err); }
 
