@@ -3,6 +3,153 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #25) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC EDGAR Form 4 insider transactions gets its /api/v1 keyed mirror (v1.0.787)
+
+TERRITORY: SHARED-but-minimal, same footprint as every prior session in
+this sweep (#14/#17/#18/#20) — no T-CLIENT or T-BOT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+from the actual top (newest-at-top, per #24's own correction of the
+tail-based mistake) through session #24 (2026-08-25, RESEARCH,
+v1.0.786). `research/open_questions.md`'s KNOWN BROKEN section walked
+end to end: all 36 numbered items carry an explicit close marker or are
+design-gated-open — #30 (options-slot-overshoot) remains a proposed,
+not-shipped structural fix in wishlist.md, T-BOT territory, does not block
+this session's scope. No LIVENESS ALARM condition found (no loop-paused/
+halted/broker-unreadable report anywhere in the walked section). Loop-
+health thrash ratio over the last 10 tagged entries including this one:
+[PRODUCT #25(this), RESEARCH #24, PRODUCT #23, REPAIR #22, PIPELINE #21,
+PRODUCT #20, REPAIR #19, REPAIR #18, PIPELINE (08-22 Q7), REPAIR (08-22
+options-feedback)] — 4/10 REPAIR, well under the 7/10 trigger, no
+meta-problem flag. `research/wishlist.md`'s top carries the STALE-PR
+BACKLOG finding (a separate, already-owned [RESEARCH] sweep — #24 above),
+not a PROGRESS FLOOR or STARVATION warning against product work.
+
+PRIMARY-ACTION SELECTION: this session's own audit (diffing
+`datacore/signal_ladder.json`'s `gate1_pass`/`gate2_pass` roots against the
+live `/api/v1/data/*` + `/api/v1/stats/*` routes already registered in
+`server/routes.ts`) found exactly two GATE-1-PASSED roots with a shipped
+RAW route and a shipped /data client view but no /api/v1 mirror —
+`sec_form4_bulk_archive` and `wikimedia_pageviews_attention` — the same
+"shipped-data-no-v1-API" gap this multi-session sweep (bank-failures ->
+gnss-integrity-signal -> dtcc-swaps -> fleet-utilization) has closed
+repeatedly. Took `sec_form4_bulk_archive` first: it is the flagship EDGAR
+Form 4 pipeline CLAUDE.md's EDGE DOCTRINE #1 names as a standing example,
+and its RAW route/client view (`server/edgarForm4.ts`,
+`/api/data/insider`, `InsightsView`/filings pages) were already live.
+`wikimedia_pageviews_attention` is the natural next item, left queued
+below (one logical change per PR).
+
+CHANGE: `/api/v1/data/insider` (server/routes.ts, new route, keyed via the
+existing `requireApiKey`/`v1Envelope`/`meterUsage` scaffolding) mirrors the
+existing `/api/data/insider` route via the same `latestForm4Filings()`
+cache `bootForm4Poll()` already populates — no new fetch, no new poller,
+no new computation. Response: `{count, filings}` (issuer, reporting-owner
+flags, full derivative/non-derivative transaction table), enveloped with
+freshness (`hit.at`) like every other v1 mirror.
+
+LICENSE MARK (server/apiProduct.ts LICENSE_MARKS["data/insider"]): marked
+`conditional` resell, NOT `ok` like the government-produced CAMD/FTD/
+MIDAS/crop-conditions/NRC streams — Form 4 filings are submitted by the
+reporting insider/issuer, not authored or computed by the SEC itself, same
+posture as the issuer-authored earnings-language and manager-submitted
+13F-holdings mirrors. Departure from the DTCC/fleet-utilization precedent
+pair worth naming explicitly: the license text and the `voltrade_insider`
+agent tool description both state the buy-clustering SIGNAL hypothesis
+this same parser feeds was GATE 2 **KILLED** in both directions
+(datacore/signal_ladder.json `sec_form4_insider_clustering`, status
+"killed" — code-S sales mirror test and full-8-quarter code-P re-run both
+reversed the stated prior significantly at 60d), not merely
+"gate-2-not-attempted" like the other three product mirrors added this
+sweep. Stating a KILL rather than silently reusing the more common
+not-attempted phrasing is the honest per-root status — MEASUREMENT
+INTEGRITY and the ROOT VALIDATION LADDER both require the ladder gate's
+actual state to travel with the endpoint, and "not attempted" would have
+been a downgrade of a real, already-known negative result into a milder
+unknown one.
+
+`apiMeta()` gained the `/api/v1/data/insider` entry (endpoints list);
+`agentToolSpec()` gained `voltrade_insider` (no params — the RAW route
+takes none either).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the 13f-holdings/dtcc-swaps precedent) asserting: the license
+mark is `conditional` (not `ok` or `share-alike`), the license text names
+"Form 4" and "KILLED", the `voltrade_insider` tool exists with
+`returns_provenance: ["data/insider"]`, and its description carries
+"GATE 1" and "KILLED" (not just the more common "NOT been attempted"
+phrase) — the dedicated honesty check this session's departure from
+precedent needed. Also added `/api/v1/data/insider` to the existing
+generic "wiring pinned" route-presence list and the "endpoint-count/
+preview" sweep test.
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, clean) and
+Python was missing `pytest` (`pip install -r requirements.txt
+-r requirements-dev.txt` run, clean) at session start — same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a regression.
+First pass caught one self-inflicted issue: an initial `(t: any) =>` in
+the new test (copied from the older 13f-holdings test's style rather than
+the newer parameterless-inference style dtcc-swaps/fleet-utilization/
+bank-failures use) pushed `ts_any` 1239 -> 1240, caught by
+`counter_ratchet.sh` before commit; fixed by dropping the redundant
+annotation (TS already infers the callback's parameter type), re-ran
+clean. `npx tsx --test server/apiProduct.test.ts`: 30/30. `npx tsx --test
+server/*.test.ts` (full suite): 1394/1394. `bash scripts/tsc_ratchet.sh`:
+12/12, TS2304 0, unchanged. `bash scripts/counter_ratchet.sh`: `assertions`
+12215 -> 12223 (this session's own new test, the direct and sole cause),
+pinned in `ci/counter_baseline.txt`; all other 24 counters unchanged,
+re-ran clean after the pin update. `bash scripts/gated_tests.sh`: GATE
+PASSED — client 100/100 files, python 1451 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms), same exemption prior
+zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not applicable — this lineage (SEC EDGAR Form 4)
+carries no adsb.lol/aisstream provider-compliance condition; unlike the
+gnss-integrity-signal/fleet-utilization entries, no MONETIZATION TRIPWIRE
+language appears in this LICENSE_MARKS entry because none applies. No
+billing/pricing/subscription/paid-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing archive
+(the EDGAR Form 4 pipeline, already gate-1-passed and already feeding the
+Everything Graph's `insider_of` edges via `server/entityGraph.ts`) through
+the existing v1 API boundary, the same pattern every prior mirror in this
+sweep has followed; no new join or data stream.
+
+VERSION: v1.0.787 (`package.json`, read-and-increment at commit time;
+confirmed via `git fetch origin main` immediately before the bump that
+`origin/main` still matched this branch's base, v1.0.786 — no concurrent
+session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Tuesday ~14:14 ET, inside market hours (opens 09:30,
+closes 16:00 ET). This diff touches server/apiProduct.ts and
+server/routes.ts but adds only a new, additive `/api/v1/*` GET route
+reading an existing cache — zero trading-loop blast radius, same profile
+as every prior `/api/v1` mirror PR in this sweep. Per CLAUDE.md's "prefer
+merging PRs outside 9:30-16:00 ET" guidance, this PR's description asks
+for an after-hours/close merge rather than requesting an immediate one.
+
+NEXT (queued, not this session): `wikimedia_pageviews_attention`
+(gate1_pass, RAW routes `/api/data/attention` + `/api/data/attention/
+history` already shipped, client view `client/src/pages/attention.tsx`
+already shipped) is the last remaining "shipped-data-no-v1-API" gap found
+by this session's own audit — natural next item for a future session.
+KNOWN BROKEN #30 (options-slot-overshoot structural fix) remains queued,
+T-BOT territory, not this session's.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (found by re-running the sweep's own audit rather than
+assuming the queue was empty), used in full including reading the source
+module, the signal_ladder.json entry, and the correct license precedent
+rather than guessing from the nearest file-order neighbor.
+
 ## 2026-08-25 (scheduled-routine session #24) [RESEARCH] — T-BOT (server/bot.ts, server/tier3DiagVisibility.test.ts) + SHARED-but-minimal (research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): stale-PR-backlog sweep resumes — PR #767's TIER3-DIAG `node_uptime_s` observability revived and re-derived against post-v1.0.675 code, not cherry-picked verbatim (v1.0.786)
 
 TERRITORY: T-BOT (`server/bot.ts`'s TIER3-DIAG audit call site only, no
