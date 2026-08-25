@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #24) [RESEARCH] — T-BOT (server/bot.ts, server/tier3DiagVisibility.test.ts) + SHARED-but-minimal (research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): stale-PR-backlog sweep resumes — PR #767's TIER3-DIAG `node_uptime_s` observability revived and re-derived against post-v1.0.675 code, not cherry-picked verbatim (v1.0.786)
+
+TERRITORY: T-BOT (`server/bot.ts`'s TIER3-DIAG audit call site only, no
+trading-decision path touched, matching #767's own original territory
+declaration) + SHARED-but-minimal (research/open_questions.md's one
+KNOWN BROKEN #29 update, ci/counter_baseline.txt's 1-counter re-pin,
+package.json/package-lock.json version bump).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(discovered the file is newest-at-top, not append-at-bottom — re-read the
+actual top of the file rather than trusting an initial tail-based read
+that only showed session #18's entry), research/open_questions.md's KNOWN
+BROKEN section, research/wishlist.md's STALE-PR BACKLOG section and all
+its dated UPDATEs through 2026-08-22. `python3 scripts/session_health_check.py`
+(after `npm ci` + `pip install -r requirements.txt -r requirements-dev.txt`,
+fresh-sandbox, same recurring provisioning gap prior sessions log): 6 OK +
+1 WARN (daemon_memory rss=416.8MB >= trim_mb=400MB, deep_score running in
+trimmed mode — a known degraded-but-not-broken state, not a fresh finding).
+No LIVENESS ALARM; deploy_freshness server_version=1.0.785 matched this
+checkout pre-bump. Loop-health thrash ratio over the actual last 10 tagged
+entries (top-down, newest first): [PRODUCT #23, REPAIR #22, PIPELINE #21,
+PRODUCT #20, REPAIR #19, REPAIR #18, PIPELINE (08-22 Q7), REPAIR (08-22
+options-feedback), PRODUCT (08-22 cables-close), NO-ACTION (08-21
+addendum)] — 4/10 REPAIR, well under the 7/10 trigger; no meta-problem
+flag. Walked KNOWN BROKEN #1-36: all carry an explicit close marker or are
+correctly design-gated-open (#30's options-slot-overshoot structural fix
+remains proposed-not-shipped per wishlist.md, T-BOT territory, does not
+block this session's scope) — matches sessions #22/#23's own same-day
+audits exactly, re-verified rather than trusted secondhand.
+
+PRIMARY-ACTION SELECTION: sessions #22 and #23 (both earlier today) each
+independently named the stale-PR-backlog sweep (#767/#817/#834/#844/#877/
+#888) as "a future dedicated session's primary action," not claimed by
+either. No LIVENESS ALARM, no fresh audit-log bug, and open_questions.md's
+KNOWN BROKEN section had no unaddressed item ahead of it in priority — per
+SESSION BUDGET's fall-through order this queued item is the correct pick.
+Checked all six via `list_pull_requests(state=open)` first: **#797 (the
+listed "next by REPAIR-first ordering" candidate) was already CLOSED
+2026-08-23** — session #13's KNOWN BROKEN CSP-$0-strike fix (v1.0.774,
+its own PR body says "revived from an 11-day zero-CI stale PR") already
+consumed it; wishlist.md's 2026-08-22 UPDATE predates that close and is
+now stale on this one point. Of the six genuinely still open (#767, #817,
+#834, #844, #877, #888), #767 is next by the established
+REPAIR-then-RESEARCH-then-rendering ordering the 2026-08-21 UPDATE set.
+
+READ BEFORE WRITE: fetched #767's full diff via `pull_request_read`
+(get_files) rather than trusting its title/body summary — its actual code
+change is an 11-line diff to one audit-log template string in `server/
+bot.ts` (`server/tier3DiagVisibility.test.ts` and two research/*.md files
+carry the rest of its diff). Confirmed via `grep -n "node_uptime_s"
+server/bot.ts` (empty) that the target text is still absent from current
+`main` — NOT one of the three prior "silently superseded" closes
+(#708/#706/#794) this same sweep already found. But reading
+open_questions.md's KNOWN BROKEN #29 entry in full (not just #767's own
+excerpt of it) surfaced that the RECURRENCE #2 fix (v1.0.675, merged ONE
+DAY after #767 opened) replaced the entire uptime-clock grace-period
+check with a `tier2_ran_since_boot` boolean specifically BECAUSE raw
+uptime was the wrong signal for a restart landing in the overnight dark
+window. Read `server/bot.ts`'s current TIER3-DIAG call site (the exact
+template string, confirmed against #767's diff position which had since
+shifted ~490 lines from intervening commits) and confirmed
+`tier2CompletedSinceBoot` (module-scope `let`, declared later in the file
+but already safely referenced earlier at the `run_diagnostics()` call two
+lines above this edit — the existing v1.0.675 code already establishes
+this closure-before-declaration pattern works, since `bot.ts` is a
+long-running orchestrator whose functions execute after full module
+init, not a script that runs top-to-bottom once) is in scope at the audit
+call site.
+
+WHAT SHIPPED: NOT a verbatim cherry-pick of #767's diff. The TIER3-DIAG
+audit line now surfaces BOTH `node_uptime_s=` (#767's original ask — a
+human skimming the audit log still wants the raw number) AND
+`tier2_ran_since_boot=` (the value that actually drives the post-v1.0.675
+auto-fix decision, which #767 could not have known to add since it
+predates that fix). This ports #767's INTENT (make the api-down grace
+decision legible from the persisted audit log alone, without git-log
+archaeology) onto the CURRENT mechanism rather than reintroducing a
+diagnostic field the codebase's own later work had partially outgrown.
+
+RATCHET: `server/tier3DiagVisibility.test.ts` gained one new test
+(alongside the 3 pre-existing, all confirmed still passing unmodified)
+asserting the audited string contains `process.uptime()`, `node_uptime_s=`,
+`tier2CompletedSinceBoot`, and `tier2_ran_since_boot=` — all four, so a
+future edit can't silently drop either half.
+
+GATES: fresh sandbox (`npm ci` — 488 packages; `pip install -r
+requirements.txt -r requirements-dev.txt` — pytest/numpy/pandas/lightgbm/
+etc. all missing at start, same recurring provisioning gap). `npx tsx
+--test server/tier3DiagVisibility.test.ts`: 4/4 (1 new). `python3 -m
+pytest -q`: 1451 passed, 1 skipped, 54 subtests — byte-identical to
+session #23's own count (zero `.py` files touched). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no `.ts` type
+signature changed, only a template-literal value and a comment added).
+`bash scripts/gated_tests.sh`: GATE PASSED — client/python/quarantine all
+green (1451 passed/1 skipped/54 subtests). `bash scripts/counter_ratchet.sh`:
+`assertions` 12211 -> 12215 (this session's own 1 new test, sole cause —
+`git fetch origin main` before AND after writing the diff confirmed
+`origin/main` stayed at `e1a148c`/v1.0.785 throughout, zero concurrent-drift
+component); pinned in `ci/counter_baseline.txt`; re-ran clean. `npm run
+build`: clean, same pre-existing maplibre-gl/astronomy-engine/mapIcons
+warnings recent sessions already log. No visual harness run: zero
+`client/src` files touched (`git status --short` confirms).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure audit-log observability
+addition; `auto_fix: "reduce_position_size"` fires on exactly the same
+condition as before (untouched), no scoring/sizing/threshold value
+changed. No FROZEN path touched.
+
+MEASUREMENT INTEGRITY: not applicable in the "tune the ruler" sense (no
+backtest engine, fill/slippage model, or P&L computation touched) — this
+adds a diagnostic field to an audit-log STRING, not a metric definition.
+
+CROSS-SYSTEM INTEGRATION: none new — this closes an observability gap on
+an existing internal diagnostics subsystem; no new join, no new
+Everything Graph edge.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-gating code in this diff.
+
+VERSION: v1.0.786 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.785 — no
+concurrent session had merged ahead of this one).
+
+PR HYGIENE: #767 closed with a comment naming this session's PR and
+explaining the divergence from its original diff (ported intent, not
+mechanism, per the READ BEFORE WRITE finding above) — not a mechanical
+merge of stale content.
+
+MARKET-HOURS NOTE: session ran mid-morning ET, inside market hours. This
+diff's blast radius is a single audit-log template string with zero
+trading-decision path touched (`tier2CompletedSinceBoot` is read, never
+written, by this change) — same near-zero-risk profile as every prior
+pure-observability PR in this repo's history. Per CLAUDE.md's scheduled-
+routine instruction, the PR body asks for an after-hours/close merge
+rather than requesting an immediate one; per wishlist.md's own
+already-filed PROCESS GAP finding, the auto-merge job has no time gate
+and will likely merge this immediately regardless — not this session's
+problem to fix, already filed.
+
+NEXT (queued, not this session): five stale-PR-backlog items remain
+untouched — #817 and #844 (both T-CLIENT/rendering, need the visual
+harness), #834 ([RESEARCH], microcap cost-floor + LULD halt-band
+pricing), and #877/#888 (still untriaged by any sweep — #877 is itself a
+docs-only KNOWN BROKEN #31 filing per its own title, #888 is a PROCESS
+GAP docs PR about #763's supersession). A future session should continue
+this same READ BEFORE WRITE discipline per PR — this session's own #767
+finding (a stale PR can be neither fully superseded nor safely
+mergeable-as-is, requiring re-derivation rather than a binary
+cherry-pick-or-close choice) is a fourth generalization data point
+alongside the backlog's existing #708/#706/#794 pattern and should be
+checked for on each remaining PR, not assumed away.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+[RESEARCH] action (reviving #767 correctly, including the re-derivation
+work its own content required), used in full.
+
 ## 2026-08-25 (scheduled-routine PRODUCT session #23) [PRODUCT] — T-DATACORE (scripts/midas_gate2.py, test_midas_gate2.py) + SHARED-but-minimal (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): MIDAS HFT-colonization filter GATE 2 run — clean negative, sec_midas moves gate1_pass -> gate2_fail (v1.0.785)
 
 TERRITORY: T-DATACORE primary (new committed gate-2 script + its pure-
