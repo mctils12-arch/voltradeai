@@ -139,21 +139,46 @@ _TAG_RE = re.compile(r"\[(" + "|".join(re.escape(t) for t in VALID_TAGS) + r")\]
 
 
 def parse_session_tags(experiments_md_text, window=THRASH_WINDOW):
-    """research/experiments.md is append-only, NEWEST AT TOP (its own
-    header says so) — so the first `window` session headers found scanning
-    top-down are the most recent `window` sessions. Returns their tags in
-    that same newest-first order; a header with no recognizable [TAG] on
-    its own line is recorded as None (counted as "untagged", not silently
-    dropped, so a malformed entry cannot hide from the ratio)."""
-    tags = []
-    for line in experiments_md_text.splitlines():
-        if not _SESSION_HEADER_RE.match(line):
+    """research/experiments.md is append-only and its header says NEWEST
+    AT TOP — but physical position cannot be trusted as a proxy for
+    recency: KNOWN BROKEN #36 found a same-day block of a dozen sessions
+    landing at the file's tail instead of its head, because the
+    WORKSTREAM PARTITION MERGE-ORDER PROTOCOL resolves concurrent
+    research/* conflicts by keeping both sides (append-only spirit), which
+    can place a session's entry anywhere relative to other concurrent
+    sessions' entries, not just at the head. What every header DOES
+    reliably carry is an accurate `YYYY-MM-DD` date (sessions get the date
+    right; only physical placement drifts under concurrent merges) — so
+    this scans the WHOLE file, parses each header's date, and sorts
+    newest-date-first regardless of physical position. Original top-down
+    file order is used only as a tiebreaker among headers sharing the same
+    calendar date (the one residual ambiguity plain-text dates can't
+    resolve — same-day session order — versus the multi-day
+    misordering this replaces). Returns the `window` most-recent tags,
+    newest first; a header with no recognizable [TAG] on its own line is
+    recorded as None (counted as "untagged", not silently dropped, so a
+    malformed entry cannot hide from the ratio)."""
+    entries = []
+    for idx, line in enumerate(experiments_md_text.splitlines()):
+        m = _SESSION_HEADER_RE.match(line)
+        if not m:
             continue
-        m = _TAG_RE.search(line)
-        tags.append(m.group(1) if m else None)
-        if len(tags) >= window:
-            break
-    return tags
+        try:
+            header_date = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+        except ValueError:
+            # The regex only checks digit-shape (\d{4}-\d{2}-\d{2}), not a
+            # valid calendar date, so a typo like "2026-13-01" matches here
+            # and fails here. Don't silently drop it (same "malformed entry
+            # cannot hide" principle as the untagged-header case below) —
+            # surface it and sort it as the oldest possible entry, so a
+            # malformed date can fall out of a small window on its own
+            # merits rather than vanishing unreported.
+            print(f"[research_state_check] WARNING: unparseable date in header: {line!r}", file=sys.stderr)
+            header_date = date.min
+        tag_m = _TAG_RE.search(line)
+        entries.append((header_date, idx, tag_m.group(1) if tag_m else None))
+    entries.sort(key=lambda e: (-e[0].toordinal(), e[1]))
+    return [tag for _, _, tag in entries[:window]]
 
 
 def check_thrash_ratio(tags, trigger=THRASH_TRIGGER, window=THRASH_WINDOW):
