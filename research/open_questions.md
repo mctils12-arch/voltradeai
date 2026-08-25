@@ -5648,6 +5648,68 @@ scoped without reading this update first; the MIDAS raw feed itself
 (gate 1 DATA, the UI, the API) is unaffected — only the specific
 cross-stream SIGNAL hypothesis is downgraded.
 
+UPDATE 2026-08-25 (scheduled-routine PRODUCT session) — GATE 2 READ SURFACE
+BUILT (own PR, v1.0.782), the specific test NOT YET RUN: re-diagnosed why
+this item kept getting copy-pasted as "still open" across five-plus
+sessions without progress since the 2026-07-28 downgrade above. The
+downgrade correctly killed the ORIGINAL framing (join against Form-4
+clusters, which failed its own gate 2), but the hypothesis's actual core
+claim — persistently high cancel-to-trade/hidden-rate/odd-lot-rate on a
+small cap predicts worse forward returns than a McapRank/TurnRank-matched
+low-metric peer — needs no Form-4 join at all; it is directly testable on
+price data alone. What was ACTUALLY blocking it was never the missing
+partner stream, it was a missing READ SURFACE: `summarizeMidas`/
+`summarizeMidasStreamed` only ever expose a single day's top-N
+cross-section (the `smallcap_watch` UI list), and "persistently high" is a
+multi-day claim a one-day snapshot cannot test. Shipped
+`aggregateMidasQuarterByTicker` (server/secMidas.ts) — streams an archived
+quarter once, restricted to Stock rows at McapRank<=`MIDAS_SMALLCAP_MAX_RANK`,
+and returns one row per ticker with ratios computed from the QUARTER-SUMMED
+numerator/denominator (cancels/litTrades etc., not an average of daily
+ratios, which a single thin day could swing), `n_days` observed, and the
+rounded mean McapRank/TurnRank — floored at a new `MIDAS_MIN_DAYS_FOR_AGG`
+(20, ~1/3 of a quarter) so a one-off spike day can't pass as "persistent."
+Exposed read-only via a new token-gated `midas_quarter` diag probe
+(`GET /api/diag/midas_quarter?period=YYYYqN&token=...`), mirroring the
+gnss_integrity/portdwell_window aggregator-probe precedent — no per-day row
+ever leaves the endpoint. Live-checked this session: the deployed instance
+already carries 2025q4 through 2026q2 archived (confirmed via
+`/api/data/microstructure`'s live `period: "2026q2"` cache).
+
+NEXT (for whichever session, this one or a future one, picks up the actual
+statistical test): call `/api/diag/midas_quarter?period=2025q4&token=...`
+(then 2026q1, 2026q2 — three quarters already archived, enough for an
+out-of-sample split: fit/eyeball the bucket cut on one quarter, confirm the
+direction holds on a held-out later quarter per REASONING STANDARD #10) to
+get each quarter's ticker-level `cancelToTrade`/`hiddenRatePct`/
+`oddLotRatePct`/`mcapRank`/`turnRank`/`n_days`. Bucket into terciles by
+each metric MATCHED on `mcapRank` (and ideally `turnRank`, to isolate the
+colonization signal from a pure turnover confound per the hypothesis's own
+framing), then compute forward 5/20/60d returns for each bucket's tickers
+using this repo's existing Yahoo Finance fallback path (confirmed working
+in-sandbox by the 2026-08-21 critical-slowing-down probe session,
+`backtest_v2.fetch_bars`) against the SAME random-entry baseline standard
+REASONING STANDARD #3 demands. Discount for 3 candidate metrics tried
+(REASONING STANDARD #4) and require both the direction AND magnitude to
+hold on a held-out quarter before calling this gate 2 PASSED — a single
+quarter's tercile split is not enough evidence on its own, same discipline
+the CSD probe session applied. If the effect doesn't show or doesn't
+replicate out-of-sample, log it as a clean negative per REASONING STANDARD
+#10, same disposition class as the Form-4-cluster and CSD entries in this
+file — a beautiful structural story (EDGE DOCTRINE #2's own second-order
+reasoning) still doesn't substitute for validation.
+
+RATCHET (this PR): `aggregateMidasQuarterByTicker` gets a dedicated test in
+secMidas.test.ts proving ratios are computed from summed, not averaged,
+per-day numerators/denominators (a synthetic single huge-ratio day mixed
+with 20 small-ratio days would read ~495 under a naive per-day average vs.
+~3334 under the correct summed computation — the test pins the summed
+value) plus the Stock-kind/maxRank/min-days floors and the honest-null
+unarchived-period case; midas_quarter probe wiring gets a dedicated test in
+diag.test.ts mirroring the gnss_integrity/portdwell_window precedent
+(period validated, sanitizeDiag applied, activity floor surfaced in the
+response, aggregator reused not re-derived).
+
 WHAT DIDN'T WORK (logged so nobody re-walks it, corrects the record left
 by two prior sessions): the 2026-07-06 census entry flagged MIDAS "probed
 200" without recording the actual URL used, and the 2026-07-08 COT

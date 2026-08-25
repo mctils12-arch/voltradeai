@@ -14,6 +14,7 @@ import {
   archiveMidasPeriod, isMidasPeriodArchived, readMidasPeriod, summarizeMidas,
   refreshMidas, latestMidas, _resetMidasForTests,
   MIDAS_SMALLCAP_MAX_RANK, MIDAS_MIN_TRADES_FOR_HIDDEN,
+  aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG,
 } from "./secMidas";
 
 function tmp(): string {
@@ -239,4 +240,50 @@ test("refresh end-to-end: archives at most ONE new period per call, caches newes
   await refreshMidas(fetchImpl as any, NOW + 120_000, base);
   const dataFetches = calls.slice(before).filter((u) => /2025_q[34]/.test(u));
   assert.equal(dataFetches.length, 0, "fully-archived periods are never re-fetched");
+});
+
+function dateStr(i: number): string {
+  const d = new Date(Date.UTC(2026, 3, 1));
+  d.setUTCDate(d.getUTCDate() + i);
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+test("aggregateMidasQuarterByTicker: ratios summed across days (not averaged per-day), Stock+maxRank+min-days floors enforced, unarchived period -> null", async () => {
+  const base = tmp();
+  const days = Array.from({ length: 21 }, (_, i) => dateStr(i));
+  const rows: string[] = [];
+  // SMOL: 21 days. Day 0 carries a huge single-day cancel/trade ratio;
+  // days 1-20 carry a small, steady ratio -- the SUMMED ratio must land far
+  // from a naive average-of-21-daily-ratios (~495), proving the aggregator
+  // sums numerators/denominators rather than averaging per-day ratios.
+  rows.push(row(days[0], "Stock", "SMOL", 1, { cancels: 1_000_000, litTrades: 100, turn: 2 }));
+  for (let i = 1; i < 21; i++) rows.push(row(days[i], "Stock", "SMOL", 1, { cancels: 10, litTrades: 10, turn: 4 }));
+  // FEW: only 5 days -- under MIDAS_MIN_DAYS_FOR_AGG (20), must be excluded
+  for (let i = 0; i < 5; i++) rows.push(row(days[i], "Stock", "FEW", 1));
+  // BIGCO: 21 days but large-cap (rank 10) -- excluded by maxRank
+  for (let i = 0; i < 21; i++) rows.push(row(days[i], "Stock", "BIGCO", 10));
+  // SPYX: 21 days but an ETF -- excluded by kind regardless of its own rank scale
+  for (let i = 0; i < 21; i++) rows.push(row(days[i], "ETF", "SPYX", 1));
+
+  const parsed = parseMidas(midasCsv(rows), "2026-08-25");
+  assert.equal(archiveMidasPeriod("2026q3", parsed, base), parsed.length);
+
+  const agg = await aggregateMidasQuarterByTicker("2026q3", base);
+  assert.ok(agg);
+  const byTicker = Object.fromEntries(agg!.map((r) => [r.ticker, r]));
+  assert.deepEqual(Object.keys(byTicker), ["SMOL"],
+    "FEW under the days floor, BIGCO over maxRank, SPYX an ETF -- all excluded");
+
+  const s = byTicker.SMOL;
+  assert.equal(s.n_days, 21);
+  assert.equal(s.mcapRank, 1);
+  assert.equal(s.turnRank, 4, "rounded mean turnRank across observed days: round((2 + 4*20)/21) = 4");
+  const expectedCancelToTrade = (1_000_000 + 10 * 20) / (100 + 10 * 20);
+  assert.equal(s.cancelToTrade, expectedCancelToTrade,
+    "ratio from SUMMED numerator/denominator across the quarter");
+  assert.ok(s.cancelToTrade! > 3000 && s.cancelToTrade! < 3500,
+    "sanity: nowhere near the naive average-of-daily-ratios value (~495)");
+
+  assert.equal(await aggregateMidasQuarterByTicker("2099q1", base), null, "unarchived period -> honest null");
+  _resetMidasForTests();
 });

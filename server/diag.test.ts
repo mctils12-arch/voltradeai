@@ -272,3 +272,22 @@ test("portdwell_window probe (2026-08-19 REPAIR): reports the true raw-retention
   assert.ok(!block.includes("generously covers the archive's full depth"),
     "the corrected comment must not still claim full archive depth back to 2026-07-03");
 });
+
+test("midas_quarter probe (2026-08-25, MIDAS gate-2 support): wired, validates period, reuses the shared aggregator, never leaks per-day rows", () => {
+  assert.ok((DIAG_PROBES as readonly string[]).includes("midas_quarter"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  assert.ok(bot.includes('from "./secMidas"') && bot.includes("aggregateMidasQuarterByTicker"),
+    "midas_quarter probe must reuse the shared aggregateMidasQuarterByTicker aggregator, not re-derive ratios inline");
+  const start = bot.indexOf('case "midas_quarter"');
+  const end = bot.indexOf("default:", start);
+  assert.ok(start > 0 && end > start, "midas_quarter probe block not found");
+  const block = bot.slice(start, end);
+  assert.ok(/\\d\{4\}q\[1-4\]/.test(block), "period param must be validated as YYYYqN");
+  assert.ok(block.includes("aggregateMidasQuarterByTicker("), "must call the shared aggregator");
+  assert.ok(block.includes("sanitizeDiag"), "midas_quarter probe must pass the sanitizer like every other probe");
+  assert.ok(block.includes("MIDAS_MIN_DAYS_FOR_AGG"),
+    "response must surface the activity floor it enforced, so a caller can judge sample depth");
+  const mod = fs.readFileSync(path.join(here, "secMidas.ts"), "utf8");
+  assert.ok(mod.includes("MIDAS_MIN_DAYS_FOR_AGG") && mod.includes("cancelToTrade: a.litTrades > 0 ? a.cancels / a.litTrades : null"),
+    "the aggregator must compute ratios from summed numerator/denominator across the quarter, not average per-day ratios");
+});

@@ -14,6 +14,7 @@ import { readArchiveDay, oldestRawHour } from "./datacoreArchive";
 import { observeFeedDeadAir } from "./feedDeadAir";
 import { readGnssIntegrityWindow, type Bbox } from "./gnssIntegrityQuery";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
+import { aggregateMidasQuarterByTicker, MIDAS_MIN_DAYS_FOR_AGG } from "./secMidas";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
@@ -2520,6 +2521,27 @@ print(json.dumps(get_shadow_stats()))
               : null,
             ...data,
           }));
+        }
+        case "midas_quarter": {
+          // ADDED 2026-08-25 (scheduled-routine PRODUCT session): see the
+          // "midas_quarter" entry in diag.ts's DIAG_PROBES for why — runs
+          // aggregateMidasQuarterByTicker (secMidas.ts) server-side over an
+          // already-archived quarter and returns only the per-ticker
+          // quarter-summed ratios (McapRank<=2 Stock rows, >=
+          // MIDAS_MIN_DAYS_FOR_AGG observed days), never a per-day row.
+          // `period` = "YYYYqN" (e.g. "2026q2").
+          const period = String(req.query.period || "").trim();
+          if (!/^\d{4}q[1-4]$/.test(period)) {
+            return res.status(400).json({ error: "invalid period (expected YYYYqN, e.g. 2026q2)" });
+          }
+          const rows = await aggregateMidasQuarterByTicker(period);
+          if (rows === null) return res.status(404).json({ error: "unarchived period (no secmidas archive for this period on this instance)" });
+          return res.json({
+            probe: "midas_quarter", period,
+            min_days_floor: MIDAS_MIN_DAYS_FOR_AGG,
+            n_tickers: rows.length,
+            rows: rows.map((r) => sanitizeDiag(r)),
+          });
         }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });

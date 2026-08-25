@@ -80,6 +80,20 @@ export const DIAG_PROBES = [
   // same posture as every other probe here. See the "portdwell_window"
   // case in bot.ts for the end/hours query params.
   "portdwell_window",
+  // ADDED 2026-08-25 (scheduled-routine PRODUCT session): unblocks the
+  // MIDAS HFT-colonization-filter GATE 2 test (open_questions.md) —
+  // summarizeMidas/summarizeMidasStreamed only ever exposed a single day's
+  // top-N cross-section, never a per-ticker QUARTER-LONG aggregate, so
+  // "persistently high cancel-to-trade/hidden-rate/odd-lot-rate" (the
+  // hypothesis's own framing) had no data to test against. Runs the
+  // compiled aggregator (aggregateMidasQuarterByTicker in secMidas.ts)
+  // server-side and returns one row per small-cap ticker for the requested
+  // quarter — ticker, rounded McapRank/TurnRank, n_days observed, and the
+  // three quarter-summed ratios. No per-day/per-trade rows leave this
+  // endpoint, same reduced-exposure posture as gnss_integrity/
+  // portdwell_window. See the "midas_quarter" case in bot.ts for the
+  // `period` query param.
+  "midas_quarter",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
