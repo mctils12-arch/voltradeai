@@ -3,6 +3,161 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #26) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): Wikimedia pageviews attention proxy gets its /api/v1 keyed mirror, closing session #25's own audit finding (v1.0.788)
+
+TERRITORY: SHARED-but-minimal, same footprint as every prior session in
+this /api/v1 mirror sweep — no T-CLIENT or T-BOT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+from the actual top (newest-at-top, per session #24's own correction of the
+earlier tail-based mistake) through session #25 (2026-08-25, PRODUCT,
+v1.0.787). `research/open_questions.md`'s KNOWN BROKEN section confirmed
+all numbered items carry an explicit close marker or are design-gated-open
+(#30 options-slot-overshoot remains a proposed, not-shipped structural fix,
+T-BOT territory, does not block this session's scope) — no new item since
+session #25's own walk. `python3 scripts/session_health_check.py`: all 7
+OK — liveness alive/not dark, subsystems ok, daemon rss 398.1MB (under
+trim_mb=400), ml_feedback age 17.9h, deploy_freshness server_version=
+1.0.787 matching this checkout pre-bump. No LIVENESS ALARM. Loop-health
+thrash ratio over the last 10 tagged entries (top-down, newest first):
+[PRODUCT #25, RESEARCH #24, PRODUCT #23, REPAIR #22, PIPELINE #21, PRODUCT
+#20, REPAIR #19, REPAIR #18, PIPELINE (08-22 Q7), REPAIR (08-22
+options-feedback)] — 4/10 REPAIR, well under the 7/10 trigger, no
+meta-problem flag. `research/wishlist.md`'s top carries the STALE-PR
+BACKLOG finding (a separate, already-owned [RESEARCH] sweep), not a
+PROGRESS FLOOR or STARVATION warning against product work.
+
+PRIMARY-ACTION SELECTION: session #25's own NEXT note named
+`wikimedia_pageviews_attention` explicitly as "the last remaining
+'shipped-data-no-v1-API' gap found by this session's own audit" against
+`datacore/signal_ladder.json`'s gate1_pass roots. Confirmed live via `grep
+-n "attention" server/routes.ts` that the RAW `/api/data/attention` +
+`/api/data/attention/history` routes and the client view
+(`client/src/pages/attention.tsx` per session #25's own note) were already
+live, but no `/api/v1` mirror existed in `server/apiProduct.ts` — the
+identical gap shape this sweep has closed seven times running.
+
+READ BEFORE WRITE: read `server/wikiAttention.ts` in full this session —
+its module header already states "CC0/CC-BY data; attribution 'Wikimedia
+pageviews API'" and names the gate-1-locked hypothesis (attention spikes
+lead volume/volatility 1-5d) as untested. Read the existing
+`/api/data/attention` RAW route (server/routes.ts:3503) as the
+field-mapping template — `latestAttention()`'s cache shape (`{at, day:
+{date, tickers}}`), `bootAttentionPoll()`'s warm-up, `WIKI_ARTICLES`'s seed
+size. Read the two most recent mirrors in full as the wiring template:
+insider's (`v1Envelope` + `requireApiKey` + `meterUsage` shape, 503
+warming-up guard since `latestAttention()` CAN return null pre-first-poll,
+unlike `fleetSeriesCached()`) and the datacore/signal_ladder.json
+`wikimedia_pageviews_attention` entry itself (status `gate1_pass`,
+GATE 1 note: 11/11 hand-checked tickers peaked above trailing baseline in
+the [8-K filing date, +1] window, with a redirect-stub undercount fix the
+same session; GATE 2 explicitly not attempted) as the honesty-language
+source — NOT copy-pasted from the nearest file-order neighbor.
+
+LICENSE VERIFICATION (before marking, not guessed): fetched
+dumps.wikimedia.org/other/pageviews/readme.html live this session — "All
+Analytics datasets are available under the Creative Commons CC0
+dedication." This is a DEPARTURE from every prior "shipped-data-no-v1-API"
+mirror this sweep has closed (bank-failures/gnss-integrity-signal/
+dtcc-swaps/fleet-utilization/insider): the first FOUR of those five are
+either US-gov public-domain or ODbL-inherited share-alike, and insider is
+conditional (issuer-submitted). Wikimedia pageview counts are computed by
+the Wikimedia Foundation ITSELF from its own server logs — not
+user/issuer-submitted content like Form 4/13F/earnings-language — so this
+is the first mirror in the sweep marked `resell: "ok"` on a NON-government
+source, verified against the source's own published terms rather than
+assumed from the module comment's shorthand "CC0/CC-BY".
+
+WHAT SHIPPED: `/api/v1/data/attention` (server/routes.ts) — a keyed mirror
+of the existing `/api/data/attention` route, reusing `latestAttention()`
+directly (no new fetch, no new poller). Response: `{date, seed_size,
+count, note, tickers}`, enveloped with freshness (`hit.at`) like every
+other v1 mirror. Did NOT mirror `/api/data/attention/history` (the
+per-ticker/trend sub-endpoint) — one logical change per PR, matching every
+prior mirror's scope of the single base RAW route only (insider,
+fleet-utilization, dtcc-swaps all did the same). `apiProduct.ts` gained: a
+new `LICENSE_MARKS["data/attention"]` entry (resell: `ok`, citing the CC0
+dedication verbatim); a new `apiMeta().endpoints` entry naming GATE 1 PASS
+and GATE 2 not-attempted; and a new `voltrade_attention` tool in
+`agentToolSpec()` (no params, matching the base route) with the same
+honesty language.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+asserting: the license mark is `ok` (not `conditional` or `share-alike`),
+the license text names "CC0" and "Wikimedia", the `voltrade_attention`
+tool exists with `returns_provenance: ["data/attention"]`, and its
+description carries both "GATE 1" and "NOT been attempted" so the gate-2
+status travels with the tool. Also added `/api/v1/data/attention` to the
+existing generic "wiring pinned" route-presence list and the
+"endpoint-count/preview" sweep test (both already generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, no hardcoded count needed
+bumping).
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, 488
+packages, clean) and Python was missing `pytest` (`pip install -r
+requirements.txt -r requirements-dev.txt` run, clean) at session start —
+same recurring fresh-sandbox provisioning gap prior sessions have logged,
+not a regression. First pass caught one self-inflicted issue:
+`counter_ratchet.sh` failed on `ts_any` 1239 -> 1240 from an initial `(t:
+any) =>` in the new test (copied from the older insider-test's
+neighboring style rather than the parameterless-inference the callback's
+context already allows) — fixed by dropping the redundant annotation
+(TS already infers the callback's parameter type from `spec.tools.find`),
+re-ran clean. `npx tsx --test server/apiProduct.test.ts`: 31/31 (1 new).
+`npx tsx --test server/*.test.ts` (full suite): 1395/1395. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/counter_ratchet.sh`: `assertions` 12223 -> 12231 (this session's
+own new test, the direct and sole cause — `git fetch origin main` before
+AND after writing the diff confirmed `origin/main` stayed at
+`55deac4`/v1.0.787 throughout, zero concurrent-drift component); pinned in
+`ci/counter_baseline.txt`; all other 24 counters unchanged, re-ran clean
+after the pin update. `bash scripts/gated_tests.sh`: GATE PASSED — client
+100/100 files, python 1451 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, mapIcons dynamic/static dual
+import) — none touched this session. No visual harness run: zero
+`client/src` files touched (`git status --short` confirms), same exemption
+prior zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not applicable — this lineage (Wikimedia pageviews)
+carries no adsb.lol/aisstream provider-compliance condition; no
+billing/pricing/subscription/paid-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing archive
+through the existing v1 API boundary, the same pattern every prior mirror
+in this sweep has followed; no new join or data stream.
+
+VERSION: v1.0.788 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.787 — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Tuesday afternoon ET, inside market hours (opens 09:30,
+closes 16:00 ET). This diff touches server/apiProduct.ts and
+server/routes.ts but adds only a new, additive `/api/v1/*` GET route
+reading an existing cache — zero trading-loop blast radius, same profile
+as every prior `/api/v1` mirror PR in this sweep. Per CLAUDE.md's "prefer
+merging PRs outside 9:30-16:00 ET" guidance, this PR's description asks
+for an after-hours/close merge rather than requesting an immediate one.
+
+NEXT (queued, not this session): this session's own audit (the same
+gate1_pass-vs-shipped-v1-mirror diff session #25 ran) found no further
+"shipped-data-no-v1-API" gaps remaining — a future session should re-run
+that audit rather than assume it's permanently exhausted, since new roots
+reach gate 1 regularly. KNOWN BROKEN #30 (options-slot-overshoot
+structural fix) remains queued, T-BOT territory, not this session's. The
+stale-PR backlog (#817, #834, #844, #877, #888 per session #24's account)
+also remains queued, T-CLIENT/RESEARCH territory.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the explicit queue item named by the immediately prior
+session), used in full including live-verifying the license terms rather
+than trusting the module comment's shorthand.
+
 ## 2026-08-25 (scheduled-routine session #25) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC EDGAR Form 4 insider transactions gets its /api/v1 keyed mirror (v1.0.787)
 
 TERRITORY: SHARED-but-minimal, same footprint as every prior session in
