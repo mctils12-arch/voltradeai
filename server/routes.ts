@@ -4640,6 +4640,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC EDGAR Form 4 (insider transactions) keyed mirror — closes the
+  // "shipped-data-no-v1-API" gap this sweep has repeatedly closed (see
+  // DTCC-swaps/fleet-utilization above), the last one found by this
+  // session's own audit against datacore/signal_ladder.json's gate1_pass
+  // roots. Reuses the existing latestForm4Filings() cache the RAW
+  // /api/data/insider route already populates via bootForm4Poll() above —
+  // no new fetch, no new poller. GATE 1 (DATA) PASSED
+  // (server/edgarForm4.test.ts, every field hand-checked against filed
+  // XML). NOT a trading signal — the buy-clustering hypothesis this same
+  // parser feeds was GATE 2 KILLED in both directions (datacore/
+  // signal_ladder.json, sec_form4_insider_clustering). Filings are
+  // submitted by the reporting insider/issuer, not SEC-authored —
+  // conditional resell like earnings-language/13F-holdings.
+  app.get("/api/v1/data/insider", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestForm4Filings();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/insider", {
+        count: hit.filings.length,
+        filings: hit.filings,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

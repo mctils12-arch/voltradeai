@@ -209,6 +209,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "VolTradeAI datacore over adsb.lol (ODbL 1.0) + FAA Aircraft Registry (registrant identity)",
     resell: "share-alike",
   },
+  "data/insider": {
+    license: "SEC EDGAR Form 4 (insider transaction) filings — the EDGAR record is public, but each filing (issuer, reporting owner, transaction table) is submitted by the reporting insider/company, NOT authored or computed by the SEC itself like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures streams above; same conditional posture as the issuer-authored earnings-language and manager-submitted 13F-holdings streams. GATE 1 (DATA) PASSED (server/edgarForm4.test.ts — every extracted field hand-checked against filed XML). The buy-clustering SIGNAL hypothesis this parser feeds was GATE 2 KILLED in both directions (datacore/signal_ladder.json, sec_form4_insider_clustering) — this endpoint is RAW as-filed display only, never a predictive claim.",
+    attribution: "SEC EDGAR (Form 4) filings, per reporting insider/issuer",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -240,6 +245,7 @@ export function apiMeta() {
       { path: "/api/v1/data/gnss-integrity-signal", params: "-", desc: "Per-altitude-band GNSS position-integrity degradation over the Baltic Bornholm corridor, from our own broadcast-origin ADS-B archive: one-tailed exact binomial test per band, candidate region's nic==0 (zero containment) rate vs. a control region's own observed rate as the null, at p<0.01. THE FIRST GATE 2 (SIGNAL)-PASSED root exposed on this API (datacore/signal_ladder.json, gnss_integrity_adsb, gate2_pass, re-confirmed and strengthened across two re-runs). GATE 1 is PARTIAL — DTU Space's Bornholm RF station independently corroborates the phenomenon/region, not this exact sample's specific dates. Not tradeable: this is gate 2 (statistical discrimination), not gate 3 (backtested entry/exit) — no position sizing or trading decision is made from it. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/gnss-integrity-signal" },
       { path: "/api/v1/data/dtcc-swaps", params: "-", desc: "DTCC SBSDR equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22): file/source date, today's US-underlier row count, new rows archived, total archived, and the largest-notional events from the source file's most recent published day (dissemination id, action type, event/effective timestamps, notional amount + currency where not masked by the source's own Dodd-Frank real-time-reporting cap, underlier id/source/name). GATE 1 (DATA) PASSED 2026-08-22 (two independent checksum standards, ISO 6166 ISIN and CUSIP Global Services mod-10, both >=99.998% on the live file — scripts/dtcc_swaps_gate1.ts). RAW display only — the fresh-large-notional-clustering SIGNAL hypothesis stays gate-2-locked pending archive depth. top_rows is the current poll cycle's ranking, not a running archive-wide one. Not US-government work product — conditional resell, see license_marks.", preview: "/api/data/dtcc-swaps" },
       { path: "/api/v1/data/fleet-utilization", params: "?top<=200 (default 50)", desc: "Corporate/LLC fleet utilization: per-owner weekly flight counts and airborne hours, sessionized from our own aircraft position archive and joined against the FAA registry entity spine (owners with <2 airframes excluded). GATE 1 (join accuracy) PASSED 2026-07-05 (20/20 stratified hexes matched an independent adsbdb registration exactly) — GATE 2 (utilization x earnings surprise) NOT attempted, this is descriptive, not a trading signal. Owners are FAA REGISTRANTS, not necessarily beneficial owners (trustee/leasing shells hide the real operator); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without archive coverage are absent, not zero. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/fleet-utilization" },
+      { path: "/api/v1/data/insider", params: "-", desc: "Most-recent SEC EDGAR Form 4 (insider transaction) filings: issuer, reporting owner (director/officer/10%-owner flags), and the full derivative/non-derivative transaction table (transaction code, shares, price, shares owned after) — RAW as-filed display, no predictive claim. GATE 1 (DATA) PASSED (server/edgarForm4.test.ts). The buy-clustering SIGNAL hypothesis this parser feeds was GATE 2 KILLED in both directions (research/open_questions.md; datacore/signal_ladder.json sec_form4_insider_clustering) — filings are submitted by the reporting insider/issuer, not government-authored, conditional resell, see license_marks.", preview: "/api/data/insider" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -438,6 +444,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       },
       endpoint: "GET /api/v1/data/fleet-utilization?top={top}",
       returns_provenance: ["data/fleet-utilization"],
+    },
+    {
+      name: "voltrade_insider",
+      description: "Most-recent SEC EDGAR Form 4 (insider transaction) filings: issuer identity, reporting owner (director/officer/10%-owner flags), and the full derivative/non-derivative transaction table (transaction code, shares, price per share, shares owned after). RAW as-filed display, no predictive claim. GATE 1 (DATA) PASSED — every extracted field hand-checked against filed XML (server/edgarForm4.test.ts). NOT a trading signal — the buy-clustering hypothesis this same parser feeds was GATE 2 KILLED in both directions (code-S sales mirror test and full-8-quarter code-P re-run both reversed the stated prior significantly at 60d). Filings are submitted by the reporting insider/issuer, not SEC-authored, same conditional-resell posture as the earnings-language and 13F-holdings tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/insider",
+      returns_provenance: ["data/insider"],
     },
   ];
   return {
