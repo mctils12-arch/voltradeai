@@ -4674,6 +4674,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Wikimedia pageviews attention proxy keyed mirror — closes the last
+  // "shipped-data-no-v1-API" gap found by session #25's own audit against
+  // datacore/signal_ladder.json's gate1_pass roots (wikimedia_pageviews_attention).
+  // Reuses the existing latestAttention() cache the RAW /api/data/attention
+  // route already populates via bootAttentionPoll() above — no new fetch,
+  // no new poller. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked
+  // tickers, see datacore/signal_ladder.json). GATE 2 (spike leads volume/
+  // vol 1-5d) NOT attempted — RAW daily views only, no spike/z-score claim.
+  // Computed by Wikimedia itself from server logs, CC0 — freely resellable,
+  // unlike the issuer-authored insider/13F/earnings-language mirrors above.
+  app.get("/api/v1/data/attention", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestAttention();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first poll in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/attention", {
+        date: hit.day.date,
+        seed_size: Object.keys(WIKI_ARTICLES).length,
+        count: hit.day.tickers.length,
+        note: "RAW daily user pageviews for a curated ticker->article seed; an attention PROXY, not a signal — no spike claims until gate 2 runs",
+        tickers: hit.day.tickers,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/attention", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
