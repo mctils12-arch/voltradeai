@@ -158,6 +158,77 @@ def test_parse_session_tags_records_none_for_untagged_header():
     assert tags == [None]
 
 
+def test_parse_session_tags_keeps_header_with_unparseable_date_instead_of_dropping_it():
+    # "2026-13-01" matches the header regex's digit-shape but is not a real
+    # calendar date (month 13). It must still surface in the tag list (sorted
+    # as oldest) rather than silently vanishing, per the same "malformed
+    # entry cannot hide from the ratio" principle as the untagged case above.
+    text = (
+        "## 2026-08-20 — [PRODUCT] real entry\n\nbody\n\n"
+        "## 2026-13-01 — [REPAIR] entry with a typo'd month\n\nbody\n"
+    )
+    tags = rsc.parse_session_tags(text, window=10)
+    assert tags == ["PRODUCT", "REPAIR"]
+
+
+# KNOWN BROKEN #36 regression: a same-or-later-dated block landed at the
+# file's TAIL (not its head) — reproduces the real bug where a dozen
+# sessions were merged in below older content instead of above it.
+MISORDERED_FIXTURE = """# Experiment Log
+
+Append-only. Newest at top.
+
+## 2026-08-20 — [PRODUCT] correctly-placed newest entry at the top
+
+body
+
+## 2026-08-10 — [PIPELINE] an old entry, correctly near the top for its date
+
+body
+
+## 2026-08-19 — [REPAIR] a NEWER entry that landed below an older one
+
+body
+
+## 2026-08-18 — [REPAIR] another newer-than-08-10 entry, also misplaced
+
+body
+
+## 2026-07-03 — [RESEARCH] a genuinely ancient entry, correctly at the tail
+
+body
+"""
+
+
+def test_parse_session_tags_sorts_by_date_not_physical_position():
+    # Physical top-down order is: 08-20, 08-10, 08-19, 08-18, 07-03.
+    # Chronological order must be: 08-20, 08-19, 08-18, 08-10, 07-03.
+    tags = rsc.parse_session_tags(MISORDERED_FIXTURE, window=10)
+    assert tags == ["PRODUCT", "REPAIR", "REPAIR", "PIPELINE", "RESEARCH"]
+
+
+def test_parse_session_tags_same_date_ties_break_by_file_order():
+    text = (
+        "## 2026-08-20 — [PRODUCT] first physically, same date\n\nbody\n\n"
+        "## 2026-08-20 — [REPAIR] second physically, same date\n\nbody\n"
+    )
+    tags = rsc.parse_session_tags(text, window=10)
+    assert tags == ["PRODUCT", "REPAIR"]
+
+
+def test_check_thrash_ratio_reflects_misordered_dates_not_physical_position():
+    # This is the actual #36 failure mode: truncating to a small window.
+    # Physical top-down scan of the first 3 headers hits 08-20/08-10/08-19
+    # (1 REPAIR — the 08-10 PIPELINE entry displaces a real REPAIR out of
+    # the window). Chronological order is 08-20/08-19/08-18, both REPAIR —
+    # a materially different, correct ratio.
+    tags = rsc.parse_session_tags(MISORDERED_FIXTURE, window=3)
+    assert tags == ["PRODUCT", "REPAIR", "REPAIR"]
+    f = rsc.check_thrash_ratio(tags, trigger=2, window=3)
+    assert f["severity"] == rsc.ALARM
+    assert "2/3 REPAIR" in f["detail"]
+
+
 def test_check_thrash_ratio_ok_below_trigger():
     tags = rsc.parse_session_tags(EXPERIMENTS_FIXTURE, window=10)
     f = rsc.check_thrash_ratio(tags)

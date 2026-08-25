@@ -4915,6 +4915,57 @@
     consecutive sessions independently chose bottom-append. Whichever is
     chosen, the 12 misplaced entries stay where they are — moving them is
     history rewriting, which the MEMORY PROTOCOL forbids.
+    **CLOSED 2026-08-25 (scheduled-routine session #22, v1.0.784) — a
+    THIRD option, better than either (a) or (b), found while investigating
+    which to pick.** Neither (a) nor (b) fit the evidence once re-examined
+    this session: sessions #18-#21 (2026-08-24/25, physically the top of
+    the file today) had already resumed correct top-append — so "12
+    sessions chose bottom-append" was not a stable revealed preference,
+    it was a one-time git-merge artifact (this repo's own MERGE-ORDER
+    PROTOCOL resolves concurrent `research/*` conflicts "keep-both-sides
+    (append-only spirit)", which can legitimately land one session's
+    entry anywhere relative to another's, not just at the head) — so (a)
+    would be rewriting the convention to match a fluke, and a second,
+    WORSE instance of the same fluke was found this session (two
+    same-day `## 2026-08-24 ... session #18` headers, one at line 579
+    the other at the file's physical tail, line 64123 — proof the drift
+    recurred even after item #36 itself was filed, meaning neither a
+    prose convention nor a point-in-time header-ordering assertion (b)
+    can be trusted to hold under this repo's own concurrent-merge model
+    going forward).
+    FIX SHIPPED: `scripts/research_state_check.py`'s `parse_session_tags()`
+    no longer treats physical file position as a proxy for recency at
+    all — it now scans every header in the whole file, parses each one's
+    `YYYY-MM-DD` date (which sessions reliably get right even when
+    placement drifts), and sorts newest-date-first; physical top-down
+    order is used only as a same-calendar-date tiebreak, the one residual
+    ambiguity plain text can't resolve. This is root-cause-correct rather
+    than convention-correct: it stays right regardless of where in the
+    file a future concurrent merge happens to land an entry, so long as
+    the date on the header is accurate — which every session's own
+    PROMOTION RULES / dated log-entry convention already requires. No
+    history was moved or rewritten; the 12 (now 13, including the second
+    `session #18`) misplaced entries stay exactly where they physically
+    are, per MEMORY PROTOCOL.
+    VERIFIED: new `test_parse_session_tags_sorts_by_date_not_physical_position`,
+    `test_parse_session_tags_same_date_ties_break_by_file_order`, and
+    `test_check_thrash_ratio_reflects_misordered_dates_not_physical_position`
+    in `test_research_state_check.py` reproduce this item's exact failure
+    shape (a chronologically-newer block physically below an older one,
+    and a window-truncation case where the old top-down scan would have
+    silently displaced a real REPAIR entry out of the window). A/B-verified
+    via `git stash` on `scripts/research_state_check.py` alone: both new
+    ordering-dependent tests fail on the pre-fix parser and pass post-fix;
+    all pre-existing tests (including the untouched
+    `test_parse_session_tags_reads_newest_first_up_to_window` fixture,
+    which is already in correct top-down date order and unaffected by the
+    sort) are unchanged. Live re-run of `python3 scripts/research_state_check.py`
+    against the real files post-fix: thrash ratio unchanged at 4/10 REPAIR
+    (the true newest 10 sessions were already contiguous and correctly
+    dated at the physical top when this session started, so today's
+    reported number was not itself wrong — the fix is about robustness
+    against the NEXT drift, not a correction to today's reading). Full
+    trace: `research/experiments.md`'s 2026-08-25 session #22 entry.
 
 ## RULE COST AUDIT — after counterfactual logging exists
 
