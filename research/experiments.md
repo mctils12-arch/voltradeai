@@ -3,6 +3,198 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine PRODUCT session #23) [PRODUCT] — T-DATACORE (scripts/midas_gate2.py, test_midas_gate2.py) + SHARED-but-minimal (datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): MIDAS HFT-colonization filter GATE 2 run — clean negative, sec_midas moves gate1_pass -> gate2_fail (v1.0.785)
+
+TERRITORY: T-DATACORE primary (new committed gate-2 script + its pure-
+function test file, mirroring scripts/usaspending_gate2.py's precedent
+shape); SHARED kept to the minimum this repo's protocol allows
+(datacore/signal_ladder.json's one entry, research/open_questions.md's
+one entry, ci/counter_baseline.txt's 3-counter re-pin, package.json/
+package-lock.json version bump). No T-CLIENT or T-BOT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of research/.
+`python3 scripts/session_health_check.py`: all 7 OK — liveness alive/not
+dark, subsystems ok (server/db/alpaca/python/scanner/licensing), alt-data
+feeds fresh, daemon healthy, deploy_freshness server_version=1.0.784
+matching this checkout pre-bump. Live `/api/health` re-confirmed the same
+(status ok, drawdownPct 0.0). No LIVENESS ALARM. Walked open_questions.md's
+KNOWN BROKEN section: #1-#35 all carry an explicit close marker or are
+correctly design-gated-open; #36 was closed by the immediately-prior
+session (#22, this same day). #30 (options-slot-overshoot third occurrence)
+remains NOT PATCHED (structural fix proposed in wishlist.md, not shipped) —
+T-BOT territory, does not block this session's T-DATACORE/PRODUCT scope,
+noted per this routine's own charter ("note it but proceed with product
+work unless the break blocks you") rather than silently skipped. Loop-
+health thrash ratio (last 10 tagged entries): well under the 7/10 REPAIR
+trigger (sessions #14-#22 this week: 3 PRODUCT / 3 REPAIR / 1 PIPELINE
+directly preceding, plus older entries) — no meta-problem flag needed.
+
+PRIMARY-ACTION SELECTION: session #20 (earlier today, same PRODUCT
+charter) shipped `aggregateMidasQuarterByTicker` + the `midas_quarter`
+diag probe specifically to unblock the standing "sec_midas gate-2
+hypothesis" queue item that five-plus prior sessions had re-cited as open
+without progress, and left an explicit, fully-specified NEXT: run the
+actual statistical test across the already-archived quarters. This is
+exactly this session's menu item (a) ("advance a datacore/ pipeline
+through its next ladder gate... gate 2 signal testing IS product work"),
+fully unblocked (data already live), concretely scoped by the immediately
+prior session rather than requiring fresh discovery — the highest-value
+available action.
+
+READ BEFORE WRITE: read the full MIDAS entry in open_questions.md
+(hypothesis, both ladder-blocked history entries, the 2026-07-28 stale-
+note correction, and session #20's own NEXT note) before writing anything.
+Read `server/secMidas.ts`'s `aggregateMidasQuarterByTicker` and the
+`midas_quarter` diag probe wiring in `server/diag.ts`/`server/bot.ts` to
+confirm the exact response shape ({probe, period, min_days_floor,
+n_tickers, rows}, each row {ticker, mcapRank, turnRank, n_days,
+cancelToTrade, hiddenRatePct, oddLotRatePct}) before writing the client
+script against it — live-verified via `curl` against all 3 archived
+quarters (2025q4: 787 tickers, 2026q1: 757, 2026q2: 766) before writing
+any analysis code, not assumed from the probe's docstring. Read
+`scripts/usaspending_gate2.py` end to end as the closest existing
+precedent (single-snapshot-per-event cross-sectional Welch t-test vs. a
+pooled baseline, dependency-injected `fetch_bars_fn` for testability,
+`test_usaspending_gate2.py`'s pure-function-only test shape) and
+`gate2_stats.py`'s `find_entry_index` (reused, not re-derived) before
+writing `scripts/midas_gate2.py` — deliberately did NOT reuse
+`gate2_stats.newey_west_diff_test`, which is designed for a periodic/
+overlapping-window panel (weekly COT-style archives); this is a single
+per-quarter cross-section, so a plain Welch t-test (usaspending_gate2's
+own design) is the methodologically correct fit, not the more complex tool.
+
+WHAT SHIPPED: `scripts/midas_gate2.py` — pre-registers the hypothesis
+(high cancel-to-trade/hidden-rate/odd-lot-rate tercile, within-mcapRank-
+stratum, predicts WORSE forward returns than the low tercile and the
+full-sample baseline) in its own header comment before any result is
+computed. `quarter_is_ready()` derives a NO-LOOKAHEAD publish-lag bound
+from live evidence rather than a guess: the `midas_quarter` probe already
+had 2026q2 (quarter end 2026-06-30) archived on 2026-08-25, which is only
+possible if MIDAS's real lag for that quarter was <=56 calendar days;
+applying that same 56-day upper bound to every quarter is safe (never
+assumes data existed before it could have) rather than average-case. This
+correctly EXCLUDES 2026q2 (its own +56d entry date lands exactly on
+today, zero forward days) rather than forcing a test on it. Ran 2025q4
+(FIT) and 2026q1 (HELD-OUT): fixed-seed (20260825) mcapRank-stratified
+120-ticker sample per quarter (full 787/757-ticker universes are not
+feasible against this sandbox's Yahoo-only `backtest_v2.fetch_bars`
+fallback, no ALPACA_KEY/SECRET set), tercile bucketing per metric within
+each mcapRank stratum, forward 5/20/60-trading-day returns from a
+no-lookahead entry, Welch t-test per bucket vs. the full-sample
+same-quarter same-horizon baseline (REASONING STANDARD #3's "random
+entry, same universe, same holding period" standard).
+
+RESULT: clean negative. 36 Welch t-tests (2 quarters x 3 metrics x 3
+horizons x 2 buckets); minimum p-value **0.185** — nowhere near p<0.05
+uncorrected, let alone this repo's own Bonferroni precedent for
+multiple-comparisons screens. Direction was also inconsistent within a
+quarter (cancelToTrade's high-bucket diff: -4.306pp at 5d but +11.862pp
+at 60d, same quarter) and did not replicate across quarters (hiddenRatePct
+60d high-bucket diff: +5.465pp in 2025q4, -9.605pp in 2026q1 — a sign
+flip between FIT and HELD-OUT). Sample sizes were adequate (n=33-41/
+bucket/horizon, same order as the usaspending_contracts run that DID find
+significance at n=50) — not a power problem. Full numbers in
+open_questions.md's 2026-08-25 GATE 2 RESULT update to the MIDAS entry.
+
+VERDICT: REJECTED as a standalone screen, same disposition class as
+`cftc_tff_positioning`/`sec_form4_insider_clustering`/
+`usaspending_contracts`. `datacore/signal_ladder.json`'s `sec_midas` entry
+moved `gate1_pass` -> `gate2_fail`, `current_gate` 1 -> 2. The RAW
+`smallcap_watch` display and the `midas_quarter` diag probe both stay
+exactly as they were — no predictive claim was ever attached to either,
+only this specific cross-metric SIGNAL hypothesis is closed.
+
+RATCHET: `test_midas_gate2.py` (new, 16 tests, pure-function only — zero
+network calls, `fetch_bars_fn`/`find_entry_index_fn` always fakes):
+`entry_date_for`/`quarter_is_ready`'s no-lookahead boundary (including the
+exact 2026q2-lands-on-today edge case), `stratified_sample`'s
+proportional-by-stratum split and seed-determinism,
+`tercile_bucket`'s no-cross-stratum-contamination guarantee,
+`forward_returns_from_bars`'s no-lookahead entry and right-censoring
+(a horizon past the end of available bars is omitted, never zero-filled),
+`welch_vs_baseline`'s min-n guard, and one full `run_quarter` integration
+test against a synthetic universe with a known ground-truth direction
+built in (proves the orchestration wires sampling -> bucketing -> forward
+returns -> significance correctly end to end).
+
+GATES: sandbox started with `node_modules` at 1 package (same recurring
+fresh-sandbox provisioning gap prior sessions have logged) — `npm ci` run,
+clean, 488 packages. `pip install -r requirements.txt
+-r requirements-dev.txt` already satisfied. `python3 -m pytest -q` (full
+repo): 1451 passed/1 skipped (16 new). `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1070/1070 (untouched), python 1451/1 skipped, quarantine
+0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0,
+unchanged (zero .ts/.tsx files touched). `bash scripts/counter_ratchet.sh`:
+caught and fixed the real omission on first run — `git add` the new files
+before ratcheting, not after (untracked files are invisible to
+`git ls-files`-based counters); once staged, `assertions` 12185 -> 12211
+and `tests_run_in_ci`/`tests_gating_merge` 398 -> 399 (this session's own
+16 new tests, the direct and sole cause — `git fetch origin main`
+confirmed `origin/main` stayed at `4885b15`/v1.0.784 throughout, so zero
+concurrent-drift component); all three re-pinned in `ci/counter_baseline.txt`
+in this PR. `npm run build`: clean, only the same pre-existing maplibre-gl/
+mapIcons chunk-size warnings recent sessions already log. No visual
+harness run: zero `client/src` files touched (`git status --short`
+confirms).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a gate-2 SIGNAL test on a
+still-RAW, never-traded data feed, not a strategy/scoring/sizing/threshold
+change. No FROZEN path touched.
+
+MEASUREMENT INTEGRITY: not applicable in the "tune the ruler" sense (no
+backtest engine, fill/slippage model, or P&L computation touched) — this
+adds a new, one-off statistical measurement of a candidate signal, the
+kind PROMOTION RULE 3 and REASONING STANDARD #10 govern directly, both
+followed (prior stated before running, out-of-sample confirmation
+required and not found, discount for 3 metrics tried applied via the
+Bonferroni-comparison framing even though nothing came close to needing
+the correction to fail).
+
+CROSS-SYSTEM INTEGRATION: none new — this closes out a standalone
+signal-validation question on an existing raw feed; no new join, no new
+Everything Graph edge.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-gating code in this diff.
+
+VERSION: v1.0.785 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.784 — no
+concurrent session had merged ahead of this one; `npm install
+--package-lock-only` also incidentally fixed a pre-existing 1-version
+drift in package-lock.json's nested `packages[""].version` field, which
+was already stale at 1.0.783 against the file's own top-level 1.0.784
+before this session touched anything — a latent, harmless lockfile-sync
+gap from a prior session's manual edit, corrected as a side effect of the
+normal version-bump tooling, not chased further).
+
+MARKET-HOURS NOTE: session ran ~9:19-9:40 AM ET, just at/after the 9:30
+open. This diff's blast radius is zero trading-loop code (a new script
+outside any runtime import path, docs/ladder bookkeeping, a version bump)
+— same near-zero-risk profile as every prior docs/research-only PR in
+this sweep; per CLAUDE.md's "prefer merging outside 9:30-16:00 ET"
+guidance the PR body still asks for an after-hours/close merge rather
+than requesting an immediate one, out of caution on the shared version-
+bump file only.
+
+NEXT (queued, not this session): (1) 2026q2 remains untestable under the
+conservative 56-day lag bound until a few weeks pass (its own +56d entry
+date is today) — a future session can extend `scripts/midas_gate2.py`'s
+`--periods`/`--quarter-ends` to include it once ready, though given the
+clean two-quarter negative this is a low-priority re-check, not a retest-
+until-it-works loop. (2) The stale-PR-backlog sweep (#767, #817, #834,
+#844, #877, #888) flagged by session #22 remains a future dedicated
+session's primary action. (3) KNOWN BROKEN #30 (options-slot-overshoot,
+third occurrence, structural fix proposed in wishlist.md) remains
+unpatched — T-BOT territory.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the standing queue's own explicit, fully-specified next
+step), used in full including committing a durable, reusable script per
+EDGE DOCTRINE #3 rather than a throwaway one-off analysis, and reading
+past the "5 sessions cited this as open" surface to what a prior session
+had already unblocked earlier the same day.
+
 ## 2026-08-25 (scheduled-routine session #22) [REPAIR] — SHARED-but-minimal (scripts/research_state_check.py, test_research_state_check.py, research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json): KNOWN BROKEN #36 CLOSED — the loop-health thrash-ratio instrument no longer trusts physical file position as a proxy for recency (v1.0.784)
 
 TERRITORY: SHARED-but-minimal — this diff only touches the root-level

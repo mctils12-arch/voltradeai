@@ -5774,6 +5774,82 @@ against `sec.gov/data-research/sec-markets-data/marketstructure
 data-security`), not by pattern-guessing from memory — the general lesson
 for any future "known endpoint moved" case in this repo.
 
+UPDATE 2026-08-25 (scheduled-routine PRODUCT session, same day as the
+read-surface PR above) — **GATE 2 RESULT: FAIL, clean negative.** Ran the
+statistical test the prior session's own NEXT note specified, script
+committed as `scripts/midas_gate2.py` (+ `test_midas_gate2.py`, pure-function
+tests, no network).
+
+METHOD: called the live `midas_quarter` diag probe for 2025q4 (FIT) and
+2026q1 (HELD-OUT). 2026q2 was excluded — see NO-LOOKAHEAD note below, it
+genuinely cannot be tested yet. For each quarter: a fixed-seed (20260825),
+mcapRank-stratified random sample of 120 tickers from the archived
+universe (787/757 tickers respectively — full-population fetch is not
+feasible against this repo's Yahoo-only fallback in one session); within
+each mcapRank stratum (1 vs 2), bucketed the sample into low/mid/high
+terciles independently per metric (cancelToTrade, hiddenRatePct,
+oddLotRatePct); fetched forward 5/20/60-trading-day returns via
+`backtest_v2.fetch_bars` (Yahoo fallback, this sandbox has no
+ALPACA_KEY/SECRET) from a no-lookahead entry (`gate2_stats.find_entry_index`,
+first bar strictly after the entry date); Welch two-sample t-test, each
+bucket vs. the full-sample same-quarter same-horizon baseline (the
+"random entry, same universe, same holding period" standard REASONING
+STANDARD #3 demands).
+
+NO-LOOKAHEAD / PUBLISH-LAG: SEC MIDAS publishes on its own lag and nothing
+in this repo records each quarter's actual first-archived timestamp. Used
+an evidence-derived upper bound instead of a guess: the live probe already
+had 2026q2 (quarter end 2026-06-30) archived on 2026-08-25, which is only
+possible if that quarter's real lag was <=56 calendar days — applying that
+same 56-day bound to every quarter is a safe, never-before-actual-
+availability assumption. Consequence, accepted rather than engineered
+around: 2026q2's own +56d entry date lands exactly on today (2026-08-25),
+leaving zero forward days — correctly excluded by `quarter_is_ready()`
+rather than force-tested. 2025q4 entry = 2026-02-25; 2026q1 entry =
+2026-05-26 (its own 60-trading-day exit lands ~2026-08-18, just inside
+today's window).
+
+RESULT: **no comparison reached nominal significance.** Across both
+quarters, 3 metrics x 3 horizons x 2 buckets (high, low) = 36 Welch
+t-tests; minimum p-value across all 36 was **0.185** (2025q4
+cancelToTrade high-bucket, 60d) — nowhere close to p<0.05 uncorrected,
+let alone the Bonferroni bar this repo's own precedent
+(`cftc_cot_positioning`, the 2026-08-15 usaspending_contracts run) applies
+before trusting a single comparison out of many tried. Sample sizes were
+adequate (n=33-41 per bucket per horizon, same order of magnitude as the
+usaspending_contracts run that DID find a significant, if wrong-signed,
+effect at n=50) — this is not a power problem.
+
+DIRECTION WAS ALSO NOT CONSISTENT, the second and more decisive strike
+against the hypothesis: the pre-registered claim was high < baseline < low
+for all three metrics at all three horizons. In the FIT quarter alone,
+cancelToTrade's high-bucket diff flips from -4.306pp (5d, correct
+direction) to +7.64pp (20d) to +11.862pp (60d, both wrong direction); the
+HELD-OUT quarter does not reproduce even the pieces that happened to point
+the right way in FIT — e.g. hiddenRatePct's 60d high-bucket diff is
++5.465pp in 2025q4 but -9.605pp in 2026q1, a full sign flip between the fit
+and confirmation windows. A real effect should show a stable sign at a
+given horizon across an out-of-sample quarter even if the magnitude moves;
+this instead looks exactly like independent draws from noise.
+
+VERDICT: **REJECTED as a standalone screen**, same disposition class as
+`cftc_tff_positioning`, `sec_form4_insider_clustering`, and
+`usaspending_contracts` in this file — a structurally well-motivated story
+(EDGE DOCTRINE #2's own second-order reasoning for why this SHOULD be
+under-arbitraged) still needs to clear gate 2, and this one does not.
+`datacore/signal_ladder.json`'s `sec_midas` entry moved `gate1_pass` ->
+`gate2_fail`. The RAW `smallcap_watch` display and the `midas_quarter`
+diag probe are both completely unaffected (raw overlay + read-surface
+infra, no predictive claim ever attached to either) — only this specific
+cross-metric SIGNAL hypothesis is closed.
+
+NOT CHASED FURTHER this session (stopping rule, REASONING STANDARD #4 —
+distrust in proportion to variants tried): did not additionally test a
+composite of the 3 metrics, a different tercile split (quartile/quintile),
+or a different lag assumption. Any of those would be a NEW,
+un-pre-registered hypothesis needing its own fresh out-of-sample
+confirmation, not a post-hoc rescue of this one's already-clear null.
+
 ## OPS GOTCHAS (avoid re-learning)
 
 - **/api/health IS RAILWAY'S DEPLOY GATE — A CHECK THAT DEGRADES IT CAN
