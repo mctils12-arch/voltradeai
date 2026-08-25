@@ -189,8 +189,15 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
    alive (probed: token-enforced XML). Hourly EU load/generation/prices
    by bidding zone, 2015→. 400 req/min. SIGNAL: EU zonal spreads →
    utilities, gas, carbon. Shipped: actual total load (A65/A16) for 8
-   zones; generation mix + day-ahead prices filed as follow-ups (same
-   token, separate builds, not yet built).
+   zones; generation mix [BUILT v1.0.322, server/euGenerationMix.ts,
+   /api/data/eu-generation-mix, 2026-07-21] and day-ahead prices
+   [BUILT v1.0.510, server/euDayAheadPrices.ts,
+   /api/data/eu-day-ahead-prices, 2026-07-27] both shipped — this
+   line was stale (found + corrected 2026-08-25, scheduled-routine
+   session; both follow-ups also got a live /data client view
+   2026-08-16, v1.0.729). Axis (a) build queue for this census is now
+   fully exhausted: nothing in the CENSUS MASTER RANKING remains
+   unbuilt or undeclined.
 4. **OSM power features** — Overpass main instance probed 200 (1.2s);
    CRITICAL OPS FINDINGS: no-User-Agent = 406; both community
    mirrors UNREACHABLE from our proxy (mirror failover is worthless

@@ -104,11 +104,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import urllib.request
 from datetime import date, datetime, timedelta
 
 import numpy as np
-from scipy.stats import norm
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
+from gate2_stats import find_entry_index, newey_west_diff_test as _newey_west_diff_test  # noqa: E402
 
 EIA_URL = "https://api.eia.gov/v2/electricity/rto/daily-region-data/data/"
 DEGREE_DAYS_PATH = os.path.join(os.path.dirname(__file__), "..", "datacore", "cpc", "degree_days.json")
@@ -277,13 +280,6 @@ def bucket_for(pctile):
     return "mid"
 
 
-def find_entry_index(bar_dates: list, after_date: str):
-    for i, d in enumerate(bar_dates):
-        if d > after_date:
-            return i
-    return None
-
-
 def compute_forward_returns(entry_dates: list[str], index_by_date: dict, bars: dict):
     bar_dates, bar_closes = bars["date"], bars["close"]
     out = []
@@ -323,50 +319,6 @@ def summarize(rows):
             for bucket, v in vals.items()
         }
     return summary
-
-
-def _newey_west_diff_test(rows, horizon, bucket, lag=None):
-    """Identical construction to cftc_tff_gate2_test.py's
-    _newey_west_diff_test — see that function's docstring. lag = round(h/5)
-    per this script's own pre-registration (weekly-cadence entries)."""
-    y, x = [], []
-    for r in rows:
-        fr = r["forward_returns"].get(horizon)
-        if fr is None:
-            continue
-        y.append(fr)
-        x.append(1.0 if r["bucket"] == bucket else 0.0)
-    n = len(y)
-    if lag is None:
-        lag = max(1, round(horizon / 5))
-    if n < 2 * lag + 4 or sum(x) == 0 or sum(x) == n:
-        return None
-
-    y_arr = np.asarray(y, dtype=float)
-    X = np.column_stack([np.ones(n), np.asarray(x, dtype=float)])
-    beta, *_ = np.linalg.lstsq(X, y_arr, rcond=None)
-    resid = y_arr - X @ beta
-
-    xu = X * resid[:, None]
-    S = xu.T @ xu
-    for l in range(1, lag + 1):
-        w = 1.0 - l / (lag + 1)
-        cross = xu[l:].T @ xu[:-l]
-        S += w * (cross + cross.T)
-
-    xtx_inv = np.linalg.inv(X.T @ X)
-    cov = xtx_inv @ S @ xtx_inv
-    se = float(np.sqrt(max(cov[1, 1], 0.0)))
-    beta1 = float(beta[1])
-    t_stat = beta1 / se if se > 0 else 0.0
-    p_value = float(2 * (1 - norm.cdf(abs(t_stat))))
-    return {
-        "n": n, "lag_weeks": lag,
-        "mean_diff_pct": round(beta1 * 100, 3),
-        "hac_se_pct": round(se * 100, 3),
-        "t_stat": round(t_stat, 3),
-        "p_value": round(p_value, 4),
-    }
 
 
 def hac_significance(rows):

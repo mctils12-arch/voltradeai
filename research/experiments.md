@@ -3,6 +3,170 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #21) [PIPELINE] — SHARED-but-minimal (new gate2_stats.py + test_gate2_stats.py at repo root, cot_gate2_test.py, cftc_tff_gate2_test.py, scripts/eia930_gate2.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): EDGE DOCTRINE #3 compile — the triple-hand-written Newey-West gate-2 significance test consolidated into one shared module (v1.0.783)
+
+TERRITORY: SHARED-but-minimal — this diff only touches root-level Python
+gate-2 scripts + their test files (none owned by T-BOT/T-CLIENT/
+T-DATACORE), plus version/counter bookkeeping and research/*.
+
+SESSION-START CHECKS: CLAUDE.md read in full (EDGE DOCTRINE + REPAIR
+MANDATE + PROMOTION RULES). `python3 scripts/session_health_check.py`:
+all 7 OK (liveness alive/not dark, subsystems ok, daemon rss 165.4MB,
+ml_feedback age 0.2h, deploy_freshness server_version=1.0.782 matching
+this checkout pre-bump). Walked open_questions.md's KNOWN BROKEN section
+end to end: #1-#19, #21-#34 RESOLVED/CLOSED; #20 (design/threshold
+judgment call, evidence-logging-built, awaiting live accumulation) and
+#36 (experiments.md ordering drift feeding a stale thrash-ratio window —
+no live-trading effect, its own follow-up PR named, not a REPAIR trigger
+by its own severity note) remain open but neither is a LIVENESS ALARM or
+newly-critical — NOT a [REPAIR] session.
+
+AXIS SURVEY (per the routine's own brief, all four axes considered
+before picking): axis (a)'s standing examples (Sentinel-2 tank shadows,
+EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google Trends) are ALL
+already built or correctly declined per datacore/signal_ladder.json's
+42-root list — re-walked this session. One apparent gap surfaced while
+checking: research/data_census.md's ENTSO-E entry still read "generation
+mix + day-ahead prices filed as follow-ups ... not yet built" — traced
+via experiments.md and found this was STALE (both shipped 2026-07-21/
+2026-07-27, live /data view 2026-08-16); corrected the census note this
+session (no code implication, doc-only). Axis (a) build queue is
+genuinely exhausted. Axis (b) (illiquid-universe capacity-constrained
+research) needs the fill-realism fix first and prior sessions flagged it
+as "higher-risk, strategy-adjacent work better suited to a dedicated
+session" — out of this routine's scope today. Axis (c) (foreign-field
+import) would mean inventing a fresh hypothesis with no time left this
+session to actually run its gate-2 test against real data — REASONING
+STANDARD #10 requires a stated prior BEFORE running, not a same-session
+invent-and-abandon. Axis (d) (compile recurring reasoning into code) had
+a concrete, already-evidenced target: delegated a research pass (general-
+purpose subagent, read-only) to survey open_questions.md/wishlist.md for
+an axis-(c)/(d) candidate; it found that `_newey_west_diff_test` — the
+HAC (Newey-West, Bartlett-kernel) gate-2 significance test — had been
+independently hand-written THREE times (cot_gate2_test.py 2026-07-08
+[origin], cftc_tff_gate2_test.py, scripts/eia930_gate2.py), the last of
+which recorded manually re-deriving and re-verifying it "identical ...
+EXCEPT the lag ... explicitly checked before writing this script, not
+assumed" rather than importing a shared function — exactly EDGE DOCTRINE
+#3's target (an insight reasoned about more than once that should have
+become code the second time, not the fourth).
+
+READ BEFORE WRITE: read all three `_newey_west_diff_test` definitions and
+their surrounding `find_entry_index`/`summarize`/`hac_significance` code
+in full this session (not from memory) before touching anything, and
+diffed them by eye — confirmed the OLS-with-dummy/HAC-sandwich body is
+byte-for-byte identical across all three (only whitespace/type-hint style
+differs), and `find_entry_index` (the no-lookahead entry rule) the same.
+Also read `scripts/jodi_gate2_test.py` (imports `_newey_west_diff_test`/
+`find_entry_index` FROM `cftc_tff_gate2_test.py`, via its own
+`sys.path.insert(root)`) and `cftc_tff_tlt_disjoint_replication.py`
+(imports from `cftc_tff_gate2_test.py` too) — both left untouched
+deliberately: since `cftc_tff_gate2_test.py` still exports the same two
+names post-refactor (now re-exports rather than local defs), this chain
+keeps working with zero changes, verified by import + the full test run
+below rather than assumed.
+
+WHAT SHIPPED: new `gate2_stats.py` at repo root — `find_entry_index` and
+`newey_west_diff_test` (public name; no leading underscore, since this is
+now library code), function bodies copied verbatim from `cot_gate2_test.py`
+(the oldest/most-copied original), docstring consolidated from all three
+originals' near-duplicate versions into one. Each of the three consumers
+now does `from gate2_stats import find_entry_index, newey_west_diff_test
+as _newey_west_diff_test` instead of defining its own copy — the
+`_newey_west_diff_test` alias keeps every existing call site
+(`hac_significance()` in each file) and, more importantly, every existing
+TEST file's `from <module> import _newey_west_diff_test` working with ZERO
+test-file edits, which is also this PR's main verification mechanism (see
+GATES). Removed now-dead `import numpy as np` / `from scipy.stats import
+norm` from `cot_gate2_test.py` and `cftc_tff_gate2_test.py` (both used
+`np`/`norm` exclusively inside the extracted function — confirmed by grep
+before deleting, not assumed); `scripts/eia930_gate2.py` keeps `numpy`
+(used elsewhere in that file for `build_design_matrix` etc.) but drops
+`scipy.stats.norm` and gains a `sys.path.insert(root)` shim (matching
+`jodi_gate2_test.py`'s existing pattern, since this file lives under
+`scripts/` while `gate2_stats.py` lives at repo root alongside
+`cot_gate2_test.py`/`cftc_tff_gate2_test.py`, which import it directly).
+
+MEASUREMENT INTEGRITY (this is metric-definition code — CLAUDE.md
+requires stating before/after on identical inputs and the bias
+direction): before vs. after is IDENTICAL by construction — the
+consolidation moves the exact same statistical body into one place and
+every consumer imports it rather than redefining it; no formula, constant,
+rounding, or default changed. Verified, not just asserted: all 88
+pre-existing tests across `test_cot_gate2.py`/`test_cftc_tff_gate2.py`/
+`test_eia930_gate2.py`/`test_jodi_gate2.py` — which import
+`_newey_west_diff_test`/`find_entry_index` BY NAME from each consumer
+module and exercise them with concrete fixtures (conditional-mean-equals-
+OLS-beta algebra, HAC-vs-naive SE inflation under synthetic autocorrelated
+noise, degenerate-bucket None-returns) — pass unchanged, byte-for-byte,
+post-refactor. Bias direction: none — this cannot make any gate-2 result
+look better or worse, since the computation is unchanged; it only removes
+the chance of the three copies silently drifting apart in the future.
+
+RATCHET: new `test_gate2_stats.py` (14 tests) — direct behavioral
+coverage of `find_entry_index`/`newey_west_diff_test` (mirroring the
+core cases already covered per-consumer) PLUS a `TestConsolidationIdentity`
+class asserting `cot_gate2_test._newey_west_diff_test IS
+gate2_stats.newey_west_diff_test` (Python `is`, not just equal output) for
+all three consumers — this is the regression guard EDGE DOCTRINE #3 needs:
+a future session re-introducing a local copy in any consumer breaks this
+test immediately (the rebound name would no longer be the same object)
+rather than silently re-diverging. A/B-verified via `git stash`: the new
+test file does not exist on the pre-fix tree (collection error), confirms
+it exercises only this session's addition.
+
+GATES: sandbox had empty `node_modules` and missing Python deps at
+session start (`pip install -r requirements.txt -r requirements-dev.txt`,
+`npm ci` — both run, clean; same recurring fresh-sandbox provisioning gap
+prior sessions have logged, not a regression). `python3 -m pytest -q`:
+1421 passed, 1 skipped — zero regressions (confirmed the 88 gate-2 tests
+specifically pass in isolation too). `bash scripts/gated_tests.sh`: GATE
+PASSED — server 169/169, client 1070/1070, python 1431/1 skipped,
+quarantine 0/1 none overdue (the first attempt, before `npm ci`, showed
+the same "8 fail, ERR_MODULE_NOT_FOUND-shaped" sandbox artifact this
+routine has logged repeatedly before — resolved by `npm ci`, not a
+regression from this diff, which touches zero client/server TS files).
+`bash scripts/tsc_ratchet.sh`: 12 -> 3 (TS2304 0) — confirmed via
+`git stash` A/B this is PRE-EXISTING drift on `main`, not caused by this
+Python-only diff; left `ci/tsc_baseline.txt` unpinned per the Q23
+precedent in PROGRAM_STATE.md ("not caused by this PR ... left for
+whichever session's change actually produced them") — attribution stays
+clean. `bash scripts/counter_ratchet.sh`: isolated this session's own
+effect via `git stash`/`git stash pop` (clean baseline both ways
+confirmed first) — `tests_run_in_ci`/`tests_gating_merge` 397->398
+(the one new test file) and `assertions` 12162->12179 (this session's own
+17 new `assert*`/`assertIs` calls), both pinned in `ci/counter_baseline.txt`.
+`npm run build`: clean, only the pre-existing maplibre-gl/astronomy-engine/
+mapIcons warnings recent sessions already log. No visual harness run:
+zero `client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no strategy/scoring/sizing/threshold
+change; this PR touches only how a shared statistic is DEFINED ONCE, not
+what any script does with its output. No FROZEN path touched.
+
+VERSION: v1.0.783 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; re-confirmed via `git fetch origin main` immediately before
+the bump that `origin/main` still matched this branch's base, v1.0.782 —
+no concurrent session had merged ahead of this one).
+
+NEXT (queued, not this session): the same subagent's alternatives survey
+ruled out (1) the SEC MIDAS gate-2 statistical test itself — hot and
+explicitly queued, but out of axis (c)/(d) scope, belongs to whichever
+session next runs it; (2) inventing a second foreign-field hypothesis
+from scratch (axis c) — no time to run its gate-2 test honestly this
+session, would violate REASONING STANDARD #10. KNOWN BROKEN #36
+(experiments.md ordering-contract decision) and #20 remain queued, not
+this session's territory. `scripts/jodi_gate2_test.py`'s own import
+chain through `cftc_tff_gate2_test.py` could be pointed at `gate2_stats`
+directly in a future cleanup pass — left as-is here since it works
+unchanged and touching it would widen this PR's diff for zero behavior
+change.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+[PIPELINE] action (the EDGE DOCTRINE #3 compile target), used in full
+including a full A/B verification pass rather than assuming the
+consolidation was behavior-preserving.
+
 ## 2026-08-25 (scheduled-routine session #20) [PRODUCT] — SHARED-but-minimal (server/bot.ts, server/diag.ts, server/secMidas.ts, server/secMidas.test.ts, server/diag.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC MIDAS gate-2 quarter-level aggregator + diag probe — the standing "sec_midas gate-2 hypothesis" queue item, re-diagnosed and unblocked (v1.0.782)
 
 TERRITORY: SHARED-but-minimal per the WORKSTREAM PARTITION protocol —

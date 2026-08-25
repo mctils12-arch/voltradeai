@@ -59,9 +59,9 @@ import argparse
 import json
 from datetime import datetime, timedelta
 
-import numpy as np
 import requests
-from scipy.stats import norm
+
+from gate2_stats import find_entry_index, newey_west_diff_test as _newey_west_diff_test
 
 DATASET_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
 USER_AGENT = "VolTradeAI research@voltradeai.com"
@@ -234,14 +234,6 @@ def attach_lev_money_index(records, lookback=LOOKBACK_WEEKS):
     return records
 
 
-def find_entry_index(bar_dates: list, publish_date: str):
-    """First bar strictly after `publish_date` (no lookahead) — byte-for-
-    byte the same rule as cot_gate2_test.py's find_entry_index."""
-    for i, d in enumerate(bar_dates):
-        if d > publish_date:
-            return i
-    return None
-
 
 def bucket_for(index_value):
     if index_value is None:
@@ -305,57 +297,6 @@ def summarize(rows):
             for bucket, v in vals.items()
         }
     return summary
-
-
-def _newey_west_diff_test(rows, horizon, bucket, lag=None):
-    """HAC (Newey-West, Bartlett-kernel) test of whether `bucket` weeks'
-    forward return differs from the COMPLEMENT (non-bucket weeks) at this
-    horizon. Byte-for-byte the same construction as cot_gate2_test.py's
-    _newey_west_diff_test (OLS of forward return on a 0/1 bucket-dummy,
-    Newey-West sandwich variance with lag = round(horizon / 5) weeks) —
-    see that function's docstring for the full derivation and the
-    baseline-definition caveat vs summarize(). Returns None (never a
-    fabricated number) if there are too few observations or the bucket
-    dummy is degenerate."""
-    y, x = [], []
-    for r in rows:
-        fr = r["forward_returns"].get(horizon)
-        if fr is None:
-            continue
-        y.append(fr)
-        x.append(1.0 if r["bucket"] == bucket else 0.0)
-    n = len(y)
-    if lag is None:
-        lag = max(1, round(horizon / 5))
-    if n < 2 * lag + 4 or sum(x) == 0 or sum(x) == n:
-        return None
-
-    y_arr = np.asarray(y, dtype=float)
-    X = np.column_stack([np.ones(n), np.asarray(x, dtype=float)])
-    beta, *_ = np.linalg.lstsq(X, y_arr, rcond=None)
-    resid = y_arr - X @ beta
-
-    xu = X * resid[:, None]
-    S = xu.T @ xu
-    for l in range(1, lag + 1):
-        w = 1.0 - l / (lag + 1)
-        cross = xu[l:].T @ xu[:-l]
-        S += w * (cross + cross.T)
-
-    xtx_inv = np.linalg.inv(X.T @ X)
-    cov = xtx_inv @ S @ xtx_inv
-    se = float(np.sqrt(max(cov[1, 1], 0.0)))
-    beta1 = float(beta[1])
-    t_stat = beta1 / se if se > 0 else 0.0
-    p_value = float(2 * (1 - norm.cdf(abs(t_stat))))
-    return {
-        "n": n,
-        "lag_weeks": lag,
-        "mean_diff_pct": round(beta1 * 100, 3),
-        "hac_se_pct": round(se * 100, 3),
-        "t_stat": round(t_stat, 3),
-        "p_value": round(p_value, 4),
-    }
 
 
 def hac_significance(rows):
