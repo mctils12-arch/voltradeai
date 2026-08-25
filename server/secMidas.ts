@@ -488,6 +488,92 @@ export async function summarizeMidasStreamed(period: string, baseDir?: string): 
   };
 }
 
+// ── Quarter-long ticker aggregate (GATE 2 signal-testing support) ──────────
+// ADDED 2026-08-25 (scheduled-routine PRODUCT session): the HFT-colonization
+// FILTER hypothesis (open_questions.md "MIDAS HFT-COLONIZATION FILTER
+// HYPOTHESIS") was framed from day one as needing a JOIN against a
+// small-cap candidate stream to test — the 2026-07-28 update in that entry
+// found the originally-named partner (Form-4 officer/director clusters)
+// already KILLED at its own gate 2, leaving the join as originally scoped
+// low-value. But the hypothesis's OWN core claim ("persistently high
+// cancel-to-trade / hidden-rate / odd-lot-rate on a small cap flags it as
+// already colonized, vs. low-metric peers of similar McapRank/TurnRank
+// being the genuinely under-arbitraged corner") is directly testable on
+// price data ALONE — no Form-4 or any other second stream required, just
+// forward returns bucketed by colonization metric. What blocked THAT
+// simpler, still-valid test wasn't a missing partner stream, it was a
+// missing READ SURFACE: summarizeMidas/summarizeMidasStreamed only ever
+// expose a single day's top-N cross-section (the smallcap_watch UI list),
+// never a per-ticker QUARTER-LONG aggregate — and "persistently high" is a
+// multi-day claim a one-day snapshot can't test. This function is that
+// aggregate: one row per (period, ticker) with the ratios computed from
+// the SUM of the quarter's numerators/denominators (not an average of
+// daily ratios, which would let a single thin day swing the result) plus
+// n_days so a consumer can apply its own activity floor.
+export const MIDAS_MIN_DAYS_FOR_AGG = 20; // ~1/3 of a trading quarter — "persistent," not a one-day spike
+
+export interface MidasQuarterTickerAgg {
+  ticker: string;
+  mcapRank: number;          // rounded mean over observed days (rank is near-constant per ticker within a quarter)
+  turnRank: number | null;
+  n_days: number;
+  cancelToTrade: number | null;
+  hiddenRatePct: number | null;
+  oddLotRatePct: number | null;
+}
+
+/** Streams the archived quarter once (same O(candidates)-memory pattern as
+ *  summarizeMidasStreamed, never re-materializes the ~533k-row quarter),
+ *  restricted to Stock rows at or below `maxRank` (small-cap universe,
+ *  matching MIDAS_SMALLCAP_MAX_RANK by default), floored at
+ *  MIDAS_MIN_DAYS_FOR_AGG observed days. Returns null only if the period
+ *  isn't archived at all (distinct from "archived but zero tickers cleared
+ *  the floor", which is a valid empty array). */
+export async function aggregateMidasQuarterByTicker(
+  period: string, baseDir?: string, maxRank = MIDAS_SMALLCAP_MAX_RANK,
+): Promise<MidasQuarterTickerAgg[] | null> {
+  const fp = path.join(midasDir(baseDir), `${period}.jsonl.gz`);
+  if (!fs.existsSync(fp)) return null;
+  interface Acc {
+    days: Set<string>; mcapRankSum: number; mcapRankN: number;
+    turnRankSum: number; turnRankN: number;
+    cancels: number; litTrades: number; hidden: number; tradesForHidden: number;
+    oddLots: number; tradesForOddLots: number;
+  }
+  const byTicker = new Map<string, Acc>();
+  await streamJsonlLines(fp, true, (line) => {
+    let r: MidasRow;
+    try { r = JSON.parse(line); } catch { return; }
+    if (r.kind !== "Stock" || r.mcapRank == null || r.mcapRank > maxRank) return;
+    let a = byTicker.get(r.ticker);
+    if (!a) {
+      a = { days: new Set(), mcapRankSum: 0, mcapRankN: 0, turnRankSum: 0, turnRankN: 0,
+        cancels: 0, litTrades: 0, hidden: 0, tradesForHidden: 0, oddLots: 0, tradesForOddLots: 0 };
+      byTicker.set(r.ticker, a);
+    }
+    a.days.add(r.date);
+    a.mcapRankSum += r.mcapRank; a.mcapRankN++;
+    if (r.turnRank != null) { a.turnRankSum += r.turnRank; a.turnRankN++; }
+    a.cancels += r.cancels; a.litTrades += r.litTrades;
+    a.hidden += r.hidden; a.tradesForHidden += r.tradesForHidden;
+    a.oddLots += r.oddLots; a.tradesForOddLots += r.tradesForOddLots;
+  });
+  const out: MidasQuarterTickerAgg[] = [];
+  for (const [ticker, a] of byTicker) {
+    if (a.days.size < MIDAS_MIN_DAYS_FOR_AGG) continue;
+    out.push({
+      ticker,
+      mcapRank: Math.round(a.mcapRankSum / a.mcapRankN),
+      turnRank: a.turnRankN > 0 ? Math.round(a.turnRankSum / a.turnRankN) : null,
+      n_days: a.days.size,
+      cancelToTrade: a.litTrades > 0 ? a.cancels / a.litTrades : null,
+      hiddenRatePct: a.tradesForHidden > 0 ? (100 * a.hidden) / a.tradesForHidden : null,
+      oddLotRatePct: a.tradesForOddLots > 0 ? (100 * a.oddLots) / a.tradesForOddLots : null,
+    });
+  }
+  return out;
+}
+
 let cache: { at: number; summary: MidasSummary } | null = null;
 let polling = false;
 

@@ -3,6 +3,175 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #20) [PRODUCT] — SHARED-but-minimal (server/bot.ts, server/diag.ts, server/secMidas.ts, server/secMidas.test.ts, server/diag.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC MIDAS gate-2 quarter-level aggregator + diag probe — the standing "sec_midas gate-2 hypothesis" queue item, re-diagnosed and unblocked (v1.0.782)
+
+TERRITORY: SHARED-but-minimal per the WORKSTREAM PARTITION protocol —
+this diff only touches `server/bot.ts`/`server/diag.ts`/`server/secMidas.ts`
+and their test files, plus version/counter bookkeeping; no T-CLIENT or
+T-DATACORE-primary-owned module is touched (`secMidas.ts` is a datacore
+source module but this PR extends it minimally, additively, same posture
+prior sessions' `/api/v1` mirror sweep used for other datacore modules).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+(head), research/open_questions.md's KNOWN BROKEN section in full, tails of
+research/experiments.md and research/open_questions.md. `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+subsystems ok (server/db/alpaca/python/scanner/licensing), alt-data
+enrichment fresh, daemon rss 376.7MB (under trim_mb=400), ml_feedback
+model_age_hours=21.7 no known-broken signature, deploy_freshness
+server_version=1.0.781 matching this checkout pre-bump. No LIVENESS ALARM.
+Nothing in KNOWN BROKEN blocked this session's territory (git log shows
+session #19's KNOWN BROKEN #35 half-two repair already shipped and merged
+before this session started).
+
+PRIMARY-ACTION SELECTION: per SESSION BUDGET, checked the standing queue
+first — sessions #14/16/17/18 all named "the `sec_midas` gate-2 hypothesis"
+as the next queued item and none had picked it up (each instead found and
+closed a different, more concretely-scoped item). Read the full MIDAS
+open_questions.md entry (not from memory) before touching anything: the
+2026-07-28 UPDATE in that same entry already found the entry's ORIGINAL
+framing (a join against Form-4 officer/director clusters) low-value, since
+Form-4 clustering independently failed its own gate 2 on 2026-07-22 — five
+sessions since then kept re-citing "the sec_midas gate-2 hypothesis" as
+open without anyone reading past the headline to that downgrade, which is
+exactly the kind of stale-queue-item drift the STARVED/thrash-ratio
+machinery exists to catch. Re-derived the actual unblocked path from the
+hypothesis's OWN stated core claim (open_questions.md: "the inverse — small
+caps with LOW colonization metrics ... are the genuinely under-arbitraged
+corner EDGE DOCTRINE #2 describes") — that claim is testable on price data
+alone, no Form-4 join needed. What was actually missing was a read surface:
+`summarizeMidas`/`summarizeMidasStreamed` only ever expose a single day's
+top-N cross-section, and "persistently high" (the hypothesis's own word) is
+a multi-day claim a one-day snapshot cannot test.
+
+READ BEFORE WRITE: read `server/secMidas.ts` in full this session — the
+`MidasRow` shape, `midasDir`/`archiveMidasPeriod`/`readMidasPeriod`'s
+period-keyed (not day-keyed) storage layout, `summarizeMidas` and its
+streamed twin `summarizeMidasStreamed` as the exact per-ticker-ratio
+computation template (litTrades/cancels -> cancelToTrade,
+tradesForHidden/hidden -> hiddenRatePct, tradesForOddLots/oddLots ->
+oddLotRatePct), and `MIDAS_SMALLCAP_MAX_RANK`/`MIDAS_MIN_TRADES_FOR_HIDDEN`
+as the existing small-cap/activity-floor constants to reuse rather than
+reinvent. Read `server/diag.ts` in full (the DIAG_PROBES whitelist,
+`sanitizeDiag`'s 200-item array cap) and the `gnss_integrity`/
+`portdwell_window` cases in `server/bot.ts` in full as the aggregator-probe
+precedent (run a compiled aggregator server-side, return only
+already-reduced stats, never raw per-row data) — confirmed via `grep -n
+"case \"archive\"" server/bot.ts` that MIDAS's period-keyed storage is
+NOT compatible with the existing "archive" probe's day-keyed
+`readArchiveDay`, ruling out reusing that probe unmodified.
+
+WHAT SHIPPED: `aggregateMidasQuarterByTicker(period, baseDir?, maxRank?)`
+(server/secMidas.ts) — streams an already-archived quarter's jsonl.gz once
+(same `streamJsonlLines` O(candidates)-memory pattern as
+`summarizeMidasStreamed`, never re-materializes the ~533k-row quarter),
+restricted to Stock rows at or below `maxRank` (defaults to
+`MIDAS_SMALLCAP_MAX_RANK`), and returns one row per ticker: rounded mean
+`mcapRank`/`turnRank` across observed days, `n_days`, and the three ratios
+computed from the QUARTER-SUMMED numerator/denominator (e.g.
+`sum(cancels)/sum(litTrades)`, not an average of daily ratios — a single
+thin day could otherwise swing the result). Floored at a new
+`MIDAS_MIN_DAYS_FOR_AGG` (20, ~1/3 of a trading quarter) so a one-off spike
+day can't read as "persistent." Returns `null` only when the period isn't
+archived at all (an archived-but-empty-after-the-floor result is a valid
+`[]`, kept distinct). Exposed read-only via a new `midas_quarter` diag
+probe (`server/diag.ts` DIAG_PROBES + the `case "midas_quarter"` in
+`server/bot.ts`, inserted before `default:`): `GET
+/api/diag/midas_quarter?period=YYYYqN&token=...`, validates `period`
+against `^\d{4}q[1-4]$`, calls the aggregator, and returns each row through
+`sanitizeDiag` individually (following the "archive" probe's own precedent
+of NOT passing the whole array through `sanitizeDiag`'s top-level 200-item
+cap, since a real gate-2 sample needs more than 200 tickers).
+
+LIVE CHECK (this session, via DIAG_TOKEN): confirmed the deployed instance
+already has real quarters archived to test against — `curl
+"https://.../api/data/microstructure"` returned `period: "2026q2"`,
+`rows: 542295`, meaning 2025q4, 2026q1, and 2026q2 are all already
+archived (MIDAS_LOOKBACK_QUARTERS=6 backfilling one-per-poll since
+2026-07-10) — three quarters, enough for an in-sample/held-out-quarter
+split once the actual statistical test runs (see NEXT below, filed in
+open_questions.md this session, not run this session — this PR ships the
+infrastructure, not the test result).
+
+RATCHET: `server/secMidas.test.ts` gained one new dedicated test building a
+synthetic quarter (a ticker with 21 days where day 0 carries a huge
+single-day cancel/trade ratio and days 1-20 carry a small steady one —
+pins that the summed-ratio result (~3334) is nowhere near what a naive
+average-of-21-daily-ratios would read (~495), proving the aggregator sums
+numerators/denominators rather than averaging per-day ratios) plus three
+exclusion cases in the same fixture (a ticker under the `n_days` floor, a
+large-cap-ranked ticker, an ETF) and the honest-null-on-unarchived-period
+case. `server/diag.test.ts` gained one new test mirroring the
+gnss_integrity/portdwell_window precedent: probe registered in
+`DIAG_PROBES`, wired in `bot.ts`, reuses the shared aggregator (not
+re-derived inline), period validated, `sanitizeDiag` applied, and the
+`MIDAS_MIN_DAYS_FOR_AGG` floor surfaced in the response so a caller can
+judge sample depth without re-deriving it.
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, clean) and
+Python was missing `pytest` (`pip install -r requirements.txt
+-r requirements-dev.txt` run, clean) at session start — same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a regression.
+`npx tsx --test server/secMidas.test.ts`: 11/11 (1 new test). `npx tsx
+--test server/diag.test.ts`: 17/17 (1 new test). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no `.ts` type
+signatures changed beyond the new function/route/tests, all plain
+JS-compatible shapes). `bash scripts/gated_tests.sh`: GATE PASSED — client
+1070/1070 (untouched, zero client files in this diff), python 1421/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: `assertions` 12145 -> 12162 (this session's
+own two new tests, the direct and sole cause — re-fetched `origin/main`
+both before writing the diff and immediately before the version bump,
+confirmed it stayed at `8eb517f`/v1.0.781 throughout, so zero
+concurrent-drift component); pinned in `ci/counter_baseline.txt`. All other
+24 counters unchanged (`tests_run_in_ci`/`tests_gating_merge` did not move
+— the script's own definition counts something other than raw test-file
+additions here, confirmed by re-running after the change and seeing no
+diff on those two lines specifically). `npm run build`: clean, only the
+same pre-existing warnings recent sessions log (maplibre-gl chunk size,
+mapIcons dynamic/static dual import) — none touched this session. No
+visual harness run: zero `client/src` files touched (`git status --short`
+confirms), same exemption prior zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a read-only aggregator and
+a token-gated diag probe (infrastructure to enable a future gate-2
+statistical test), not a strategy/threshold/scoring/sizing change; no
+trading behavior is touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-gating code in this diff.
+
+CROSS-SYSTEM INTEGRATION: none new this PR — this is a read surface over
+an existing archive (secmidas), following the exact aggregator-probe
+pattern gnss_integrity/portdwell_window already established; the actual
+cross-stream/cross-metric analysis (McapRank/TurnRank-matched tercile
+comparison against forward returns) is the NEXT step, not yet run.
+
+VERSION: v1.0.782 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; re-confirmed via a second `git fetch origin main`
+immediately before the bump that `origin/main` still matched this branch's
+base exactly at `8eb517f`/v1.0.781 — no concurrent session had merged
+ahead of this one).
+
+MARKET-HOURS NOTE: checked `TZ=America/New_York date` — outside 9:30-16:00
+ET at the time this PR is being prepared; even so, this diff's blast radius
+is a new read-only, token-gated diag probe (no write path, no scoring/
+sizing/order-submission code touched) — same near-zero-risk profile as
+every prior `/api/v1`/diag-probe addition in this sweep.
+
+NEXT (queued, not this session — filed in detail in open_questions.md's
+MIDAS entry): run the actual gate-2 statistical test using this session's
+new `midas_quarter` probe across the three already-archived quarters
+(2025q4/2026q1/2026q2) joined against forward 5/20/60d returns via the
+existing Yahoo Finance fallback path, matched-tercile bucketed by
+McapRank/TurnRank, held-out-quarter confirmed before calling it PASSED.
+KNOWN BROKEN items: none open per the session-start check.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (re-diagnosing and unblocking the standing queue item),
+used in full including reading past the headline of a five-times-repeated
+queue note to find what had actually changed underneath it.
+
 ## 2026-08-24 (scheduled-routine session #19) [REPAIR] — T-BOT (server/bot.ts, server/exitFillRecordingContract.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/*): KNOWN BROKEN #35 half two — exit fills record only on a confirmed Alpaca fill, not at submit time (v1.0.781)
 
 TERRITORY: T-BOT (`server/bot.ts` outside frozen paths,
