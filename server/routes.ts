@@ -4769,6 +4769,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FINRA Reg SHO daily short-sale volume keyed mirror — closes the last
+  // remaining "gate1-passed, no /api/v1 mirror" gap this sweep's own audits
+  // named alongside usaspending_contracts/gem_methane_plume_proximity (see
+  // the COT/contracts mirrors' comments above; usaspending_contracts closed
+  // 2026-08-26). Reuses the existing latestShortVol() cache the RAW
+  // /api/data/short-volume route already populates — no new fetch, no new
+  // poller, no new computation.
+  app.get("/api/v1/data/short-volume", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestShortVol();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-volume", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/short-volume", {
+        date: hit.summary.date,
+        symbols: hit.summary.symbols,
+        agg_short_ratio: hit.summary.agg_short_ratio,
+        floor_total_vol: hit.summary.floor_total_vol,
+        top_cap: hit.summary.top_cap,
+        note: "daily short-marked EXECUTION volume (a flow proxy — NOT short interest); top_ratio floors total volume at " +
+              `${hit.summary.floor_total_vol.toLocaleString()} shares and caps at ${hit.summary.top_cap} symbols. GATE 2 (short-ratio extremes predict reversals) FAILED/INCONCLUSIVE across two pre-registered tests on the same window — RAW display only, not a trading signal.`,
+        top_ratio: hit.summary.top_ratio,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-volume", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-volume", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

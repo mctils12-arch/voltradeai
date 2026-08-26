@@ -65996,3 +65996,178 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 PRODUCT action (the standing gap the sweep's own prior audit had already
 named), used in full including reading the source pipeline module and the
 ladder's exact gate-2 verdict language rather than paraphrasing from memory.
+
+
+## 2026-08-26 (scheduled-routine session #5) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA Reg SHO short-volume gets its /api/v1 keyed mirror, closing the last gap this sweep's own audit named (v1.0.794)
+
+TERRITORY: SHARED, minimal and last per the WORKSTREAM PARTITION protocol —
+this diff only touches server/apiProduct.ts, server/routes.ts, their test
+file, and the version/counter bookkeeping files; no T-BOT/T-CLIENT/
+T-DATACORE-primary file is touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail), research/open_questions.md (KNOWN BROKEN section + tail),
+research/wishlist.md (top). `python3 scripts/session_health_check.py`: all
+7 OK — liveness alive/not dark, subsystems ok, daemon rss 397MB (under
+trim_mb=400), ml_feedback age 17.9h, deploy_freshness server_version=
+1.0.793 matching this checkout pre-bump. No LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 0/10 REPAIR in the last 10 tagged sessions, well below the 7+
+trigger; known_broken 36 items, only #26/#34 lack an explicit close marker
+— both read and confirmed already resolved in prior sessions (advisory
+only, correctly not a blocker). `TZ=America/New_York date`: Wednesday
+2026-08-26 ~16:27 ET — after market close, no merge-timing caveat needed.
+
+PRIMARY-ACTION SELECTION: this repo already ran 4 scheduled-routine
+sessions earlier today (session #2 RESEARCH reviving stale PR #834,
+session #3 PRODUCT the usaspending-contracts /data client view, session #4
+NO-ACTION/PROCESS landing PR #888's stranded log entries, and the
+just-prior unlabeled PRODUCT session that shipped the usaspending-contracts
+/api/v1 mirror, v1.0.793) — confirmed via `grep "^## 2026-08-26"
+experiments.md` before picking anything, so this session's job was to find
+the NEXT unclaimed item, not repeat one. Checked in SESSION BUDGET order:
+no bug in the health check or audit log (all 7 OK); `python3
+scripts/ladder_readiness_check.py` showed both gate2_pending roots
+(cftc_cot_positioning ~56d elapsed of ~105d needed at 7d cadence;
+sec_8k_earnings_language 53d of 90d) still WAITING, nothing ready to judge;
+`python3 scripts/data_stream_registry_check.py --unbuilt` showed no
+axis-(a) candidate unblocked today (dtcc_sbsdr needs a human volume-budget
+call, un_comtrade is structural-thesis-only). Fell through to SESSION
+BUDGET step 1 (next queued item): the just-prior v1.0.793 session's own
+NEXT section named two remaining roots without an `/api/v1` mirror —
+`finra_short_volume` and `gem_methane_plume_proximity` — the last two gaps
+from the COT mirror's original three-item audit (`usaspending_contracts`,
+closed this same day). Picked `finra_short_volume`: it already has a live,
+populated RAW route (`/api/data/short-volume`, server/routes.ts:2470,
+`latestShortVol()` cache from `bootShortVolPoll()`) with real accumulated
+data, matching the exact "shipped-data-no-v1-mirror" gap shape this sweep
+closes each time; `gem_methane_plume_proximity` is a valid alternative for
+a future session but its own ladder entry already reads gate 2(a)-only
+with (b)-(d) explicitly unbuilt, one more open thread than finra's cleaner
+"two gate-2 tests both run and reported, RAW mirror is honestly labeled"
+state.
+
+READ BEFORE WRITE: read `server/finraShortVolume.ts` in full this session
+(not from memory) — the file header (CNMS = exchange-listed-only,
+short-marked EXECUTION volume not short interest, FINRA's own "free for
+use with attribution" terms), `ShortVolSummary`'s exact field shape
+(date/symbols/agg_short_ratio/top_ratio/floor_total_vol/top_cap), and
+`latestShortVol()`'s `{at, summary}` cache shape — did not guess any field
+name. Read the existing `/api/data/short-volume` route (server/
+routes.ts:2470) as the field-mapping template. Read the two most recent
+mirrors (COT and USAspending contracts, server/routes.ts ~4711-4770) in
+full as the wiring template (`v1Envelope` + `requireApiKey` + `meterUsage`
+shape, 503 warming-up guard, 500 catch path). Read
+`datacore/signal_ladder.json`'s `finra_short_volume` entry for the exact
+two-test gate-2 verdict language (2026-08-06 first-pass FAIL on ordering;
+2026-08-15 pre-registered retest FAIL/INCONCLUSIVE on significance,
+t=1.303 vs crit=2.131 — explicitly NOT killed, same window twice rather
+than a disjoint out-of-sample replication or sign reversal) so the
+mirror's honesty language matches the ladder's own record rather than a
+paraphrase. Checked the existing LICENSE_MARKS entries for OCC and Cboe
+(both "conditional" — self-regulatory-org informational-use terms, not
+government work product) as the license-class precedent, since FINRA is
+the same class of publisher (a self-regulatory organization compiling and
+releasing its own file under attribution-required terms) — NOT the
+CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/
+attention/cot/contracts "ok" (freely resellable, government-authored)
+class. This is a deliberate license-accuracy choice, not copy-paste from
+the immediately preceding contracts entry.
+
+WHAT SHIPPED: `/api/v1/data/short-volume` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/short-volume` route, reusing
+`latestShortVol()` directly (no new fetch, no new poller, no new
+computation). Field mapping is byte-identical to the RAW route's own
+`summary` shape (date/symbols/agg_short_ratio/floor_total_vol/top_cap/
+top_ratio), wrapped in `v1Envelope("data/short-volume", {...}, hit.at)`
+behind `requireApiKey` + `meterUsage`, with the same 503+Retry-After
+warming-up guard as every other mirror in this family. `apiProduct.ts`
+gained: a new `LICENSE_MARKS["data/short-volume"]` entry (resell:
+`conditional`, license text names FINRA explicitly and the
+attribution-required informational-use posture, distinguishing it from
+both the government-authored "ok" class and the issuer-submitted
+Form4/13F/DTCC "conditional" class); a new `apiMeta().endpoints` entry
+naming the GATE 1 pass and the two-test FAIL/INCONCLUSIVE gate-2 verdict
+verbatim from the ladder record; and a new `voltrade_short_volume` tool in
+`agentToolSpec()` with the same honesty language, explicit that this is
+short-marked EXECUTION volume, not short interest.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the COT/contracts precedent pair) asserting: the license mark
+is `conditional` (not `ok`), the license text names FINRA and
+"attribution", the `voltrade_short_volume` tool exists with
+`returns_provenance: ["data/short-volume"]`, its description carries both
+"GATE 1" and the exact "FAIL/INCONCLUSIVE" verdict string (so a silent
+gate-2-not-attempted reading or a false "KILLED" reading are both ruled
+out), and that "NOT short interest" appears so the flow-vs-position
+distinction travels with the tool. Also added `/api/v1/data/short-volume`
+to the existing generic "wiring pinned" route-presence list and
+"endpoint-count/preview" sweep tests — both already generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, so no other hardcoded count
+needed bumping (`spec.tools.length === liveDataEndpoints.length` derives
+its expectation from `apiMeta()` itself).
+
+GATES: this sandbox's `node_modules` was present but under-provisioned
+(`npm ci` run, clean, 488 packages added) and Python was missing several
+dev dependencies (`pip install -r requirements.txt -r
+requirements-dev.txt` run, clean) at session start — same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a regression.
+A pre-`npm ci` run of `tsc_ratchet.sh` read 3 errors (vs. the 12 pin);
+confirmed via `git stash` (both with and without this session's diff) that
+the "3" reading was itself the sandbox-provisioning artifact, not a real
+improvement — re-ran post-`npm ci` and it read 12 both times, matching the
+pin exactly; did NOT lower the pin on the false reading (same precedent as
+the 2026-08-24 session #17 entry). `npx tsx --test server/apiProduct.test.ts`:
+34/34 pass (was 33; +1 new dedicated test). `bash scripts/counter_ratchet.sh`:
+`assertions` IMPROVED 12301 -> 12310 (this session's own new test, the
+direct and sole cause — re-fetched `origin/main` immediately before the
+pin and confirmed it still matched this branch's base exactly at `3c10ba9`
+/v1.0.793, so zero concurrent-drift component); pinned in
+`ci/counter_baseline.txt` in the same PR. All other 24 counters unchanged.
+`bash scripts/gated_tests.sh`: GATE PASSED — server 169 files OK, client
+100 files OK, python 1485 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms only server/ci/package/research
+files), same exemption prior zero-rendering-delta mirror PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's LICENSE_MARKS entry
+carries no aircraft/AIS-derived provider-compliance condition (unlike the
+gnss-integrity-signal/fleet-utilization entries); FINRA's own terms are
+attribution-only, no adsb.lol-lineage constraint applies. No
+billing/pricing/subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing FINRA
+short-volume archive through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or data
+stream.
+
+VERSION: v1.0.794 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.793/PR
+#938 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday ~16:27 ET, after market close (16:00 ET).
+This diff also has zero trading-loop blast radius regardless (additive
+`/api/v1/*` GET route reading an existing cache), so no merge-timing
+caveat is needed either way.
+
+NEXT (queued, not this session): `gem_methane_plume_proximity` remains the
+last named root without an `/api/v1` mirror from the COT mirror's original
+gap audit — a valid next pick for a future session (same small,
+single-file-pattern shape as this one). No other queued item or matured
+experiment was found this session; both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py`.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the standing queue item named by the immediately prior
+session), used in full including reading the source module and the
+ladder's exact two-test gate-2 verdict language rather than paraphrasing
+or reusing the nearest neighbor's "REJECTED"/"KILLED" language incorrectly.
