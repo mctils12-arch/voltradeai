@@ -3,6 +3,132 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine session #4) [NO-ACTION / PROCESS] — landing a stranded paper trail: PR #888 (docs-only, opened 2026-08-20, never merged) closed out PR #763's supersession but its own log entries never reached main; re-verified still accurate and not superseded, ported in (no code shipped, no version bump)
+
+TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — SHARED-but-minimal
+(research/experiments.md this entry, research/wishlist.md one new
+PROCESS GAP entry). No code, no config, no test file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+tail (today's three prior 2026-08-26 entries), research/open_questions.md
+KNOWN BROKEN section (all numbered items #1-36 closed or design-gated —
+#30 needs a 4th live recurrence before Option 3 is warranted, not
+actionable this session), research/wishlist.md (STALE-PR BACKLOG section
+at top, several UPDATE entries through 2026-08-22). `python3 scripts/
+session_health_check.py`: 6 OK, 1 WARN (`daemon_memory`: rss 419.8MB >=
+trim_mb=400MB, deep_score running in trimmed mode — non-blocking,
+self-recovering, not a LIVENESS ALARM). Loop-health ratio, last 10 tagged
+entries counted fresh (2026-08-25 sessions #20-#27 through today's two
+prior 2026-08-26 entries): 1 [REPAIR] / 3 [RESEARCH] / 1 [PIPELINE] / 5
+[PRODUCT] — well under the 7+ thrash trigger, no Priority-1 override.
+`TZ=America/New_York date`: Wednesday ~10:15 ET — inside market hours
+(09:30-16:00 ET); per this routine's own merge-timing instruction, this
+PR's merge should wait for after-hours/close (noted in the PR body). This
+diff has zero trading-loop blast radius regardless (research/*.md only).
+
+PRIMARY-ACTION SELECTION: checked this account's open `claude/*` PRs
+directly (`list_pull_requests(state=open)`) rather than assuming the
+2026-08-20/21/22 stale-PR-backlog sweep (documented across several
+wishlist.md UPDATE entries) had fully cleared the queue. It found 4 real
+open PRs plus the intentionally-parked #604 backlog draft: #888, #877
+(both docs-only research findings), #844 (a real, tested UI fix —
+bundles a Day/Night terminator control with an unrelated GPU moon-surface
+raycast port across 2 commits, ~750 LOC touching `datamap.tsx` at a
+point in the file that has since moved substantially and a
+`scripts/program_status.sh` baseline block since restructured by
+PROGRAM_STATE.md's Q23 into a `declare -A PIN` loader — too large and
+too conflict-prone to safely re-derive and verify in one session), and
+#817 (a 126-file, 26,214-line rendering/camera/power-grid overhaul,
+10+ days stale against a fast-moving celestial/rendering subsystem —
+same call). Chose #888: smallest (2 files, research/*.md only, 146
+additions), lowest risk, and — critically — its own underlying code
+action (closing PR #763) was ALREADY DONE 6 days ago; only the paper
+trail explaining why was ever built, and it was stranded in a PR that
+never merged. Anti-churn: not another `/api/v1` mirror or client-page
+addition after 9+ of that shape ran across 2026-08-24/25/26 (today's own
+session #3 already made the identical call to vary shape).
+
+READ BEFORE WRITE: read PR #888's full diff and body (both hunks —
+the experiments.md session-log entry and the wishlist.md PROCESS GAP
+entry) rather than assuming its 6-day-old content still holds. Confirmed
+via the GitHub API: PR #763 (`product: TIME MACHINE v2 T-1`) is
+`state: closed`, `merged: false`, `closed_at: 2026-08-20T11:15:34Z` —
+6 seconds before PR #888 itself was opened (`created_at:
+2026-08-20T11:15:47Z`), confirming the same session that closed #763
+authored #888 to document it, then never landed the docs. Grepped
+current `research/wishlist.md` for `763`, `draft-PR supersession`, and
+`PROCESS GAP.*draft`: only the ORIGINAL 2026-08-20 stale-PR-backlog
+entry's own passing mentions of #763 (finding it in draft, marking it
+ready-for-review, flagging a future rebase) — no closure note, no
+PROCESS GAP entry for this specific draft-invisibility mechanism exists
+on main today. Grepped `research/open_questions.md` and
+`research/experiments.md` similarly: no later session independently
+re-discovered or re-filed this finding. Confirmed the wishlist.md
+insertion point (end of the KNOWN BROKEN #30 recommendation, ending
+"...unless that trigger fires.") is byte-identical to PR #888's own diff
+context — nothing has been appended after it since 2026-08-20, so the
+hunk applies cleanly with no rebase needed.
+
+WHAT SHIPPED: this entry (porting the substance of PR #888's
+experiments.md hunk, dated to today per this repo's own stale-PR-revival
+convention — precedent: the 2026-08-21 revival of PR #708 and the
+2026-08-25 revival of PR #767 both re-dated their landed entries to the
+revival session, not backdated to the original PR's authorship) and one
+new `research/wishlist.md` PROCESS GAP entry (below the KNOWN BROKEN #30
+entry, verbatim substance from PR #888's own write-up: a draft PR opened
+to dodge the market-hours auto-merge gap has no safety net once opened —
+it is invisible to whatever mechanism eventually surfaces stale
+non-draft PRs, so it can sit and be silently superseded by later
+sessions rebuilding the same feature, exactly what happened to PR #763
+against PR #789/#818/#845's TIME MACHINE v2 T-1/T-2/T-4 work). PR #888
+itself closed with a comment pointing at this session's PR and noting
+the 6-day landing delay.
+
+RATCHET: none — this is a documentation-only port of an already-reviewed
+finding; no new test, no counter change (research/*.md carries no
+per-file assertions).
+
+GATES: N/A — no code touched. `git diff --stat` for this session's
+commit: 2 files, research/experiments.md + research/wishlist.md only.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no strategy/scoring/sizing/threshold
+change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched.
+
+CROSS-SYSTEM INTEGRATION: none — pure recordkeeping.
+
+VERSION: no bump — docs-only, matching the established precedent for
+PR #707/#794/#867 closures and PR #888's own original (unbumped) commit.
+
+MARKET-HOURS NOTE: Wednesday ~10:15 ET, inside market hours. Zero
+trading-loop blast radius (research/*.md only) — per CLAUDE.md's
+"prefer merging PRs outside 9:30-16:00 ET" guidance, this PR's
+description still asks for an after-hours/close merge rather than an
+immediate one, since the scheduling instruction for this run applies
+regardless of blast radius.
+
+NEXT (queued, not this session): the structural fix PR #888's PROCESS
+GAP entry proposes (a scheduled routine's session-start checks should
+list this account's own open Claude PRs, draft included, alongside
+research/* and live health) remains unbuilt, flagged for a
+human/dedicated-session decision, unchanged from the original write-up.
+#877 (port_dwell GATE 1 finding + a KNOWN BROKEN candidate item that
+would need renumbering to #37 to avoid colliding with main's current
+#31-36, and whose "Aug 7-11 empty" half is now largely explained by the
+independently-documented 2026-08-05 aisstream.io provider outage per
+this file's 2026-08-12 entry — needs a fresh read-before-write pass, not
+a verbatim port) remains queued. #844 and #817 remain queued, flagged
+above as too large/stale for a single-session safe revival — a future
+session should re-derive rather than cherry-pick, per this file's own
+established generalization for stale PRs touching actively-worked
+subsystems.
+
+STARVED: no — this session had capacity for exactly one clean, scoped,
+low-risk action (closing a genuinely stranded paper trail), used in
+full including verifying non-supersession before porting rather than
+assuming the 6-day-old content still held.
+
 ## 2026-08-26 (scheduled-routine PRODUCT session #3) [PRODUCT] — T-CLIENT (client/src/pages/usaspendingContracts.tsx, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (datacore/layers.json, package.json, package-lock.json, research/*): USAspending federal contract awards gets a dedicated /data client view, closing the "shipped-data-no-client-page" gap the 2026-08-25 /api/v1 mirror sweep flagged (v1.0.792)
 
 TERRITORY: T-CLIENT primary (the new page component, its datamap.tsx
