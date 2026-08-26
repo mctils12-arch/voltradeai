@@ -229,6 +229,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "USAspending.gov, U.S. Department of the Treasury",
     resell: "ok",
   },
+  "data/short-volume": {
+    license: "FINRA Reg SHO daily consolidated short-sale volume (CNMS file) — FINRA itself compiles and publishes this file from exchange/TRF/ADF member reporting, free for use with attribution (server/finraShortVolume.ts's own header), NOT US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention/cot/contracts streams above — same informational-use-terms posture as the OCC/Cboe streams, not submitted-content conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams either.",
+    attribution: "FINRA Reg SHO daily short sale volume",
+    resell: "conditional",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -264,6 +269,7 @@ export function apiMeta() {
       { path: "/api/v1/data/attention", params: "-", desc: "Daily Wikimedia pageviews for a curated 23-ticker company-article seed (en.wikipedia, all-access/agent=user) — RAW daily view counts, an attention PROXY, no spike/z-score claim until the archive holds trailing history and gate 2 runs. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked tickers show pageviews peaking above trailing baseline in the [8-K Item 2.02 filing date, +1] window; a redirect-stub undercount affecting 3 seed pairs was found and fixed the same session). GATE 2 (does an attention spike lead volume/volatility 1-5d) NOT attempted. Computed by the Wikimedia Foundation from its own server logs, CC0 — freely resellable, see license_marks.", preview: "/api/data/attention" },
       { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
       { path: "/api/v1/data/contracts", params: "-", desc: "Most-recent USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000; each row carries a precision-first ticker match — persistent UEI cache -> exact SEC company-name match -> award-detail FPDS parent, never fuzzy; unmatched rows return tkr:null and must be skipped, never guessed). GATE 1 (recipient->ticker matcher) PASSED 2026-07-24. GATE 2 (large award/market-cap ratio predicts better forward returns for small caps) was REJECTED 2026-08-15 (adequately powered at 5d, n=50 high_ratio/n=43 low_ratio, no positive separation at any horizon; the one nominally-interesting result was WRONG-SIGNED and fails the multi-comparison Bonferroni bar) — RAW as-seen display only, no predictive claim. action_date is the contract's signature date, not an event date; rt (as-seen date) is the only honest event date, and DoD/USACE awards publish roughly 90 days late. Public-domain US federal data, freely resellable.", preview: "/api/data/contracts" },
+      { path: "/api/v1/data/short-volume", params: "-", desc: "FINRA Reg SHO daily consolidated (CNMS) short-sale volume: market-wide aggregate short ratio plus a top-ratio list of symbols clearing a stated total-volume floor. This is short-marked EXECUTION volume (a flow proxy), NOT short interest — the distinction matters and is stated on every response. GATE 1 (DATA) PASSED 2026-07-05. GATE 2 (short-ratio extremes predict reversals) FIRST-PASS RUN 2026-08-06 FAILED the pre-registered composite bar (ordering); a PRE-REGISTERED FOLLOW-UP RETEST 2026-08-15 against an unbiased population baseline also failed to clear significance (t=1.303 vs crit=2.131) — two consecutive fails on the same window, VERDICT FAIL/INCONCLUSIVE, not killed (same window twice, not a disjoint out-of-sample replication or sign reversal). RAW display only, no predictive claim. FINRA informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/short-volume" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -490,6 +496,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/contracts",
       returns_provenance: ["data/contracts"],
+    },
+    {
+      name: "voltrade_short_volume",
+      description: "FINRA Reg SHO daily consolidated (CNMS) short-sale volume: market-wide aggregate short ratio plus a top-ratio list of symbols above a stated total-volume floor. Short-marked EXECUTION volume (a flow proxy), NOT short interest. RAW display, no predictive claim. GATE 1 (DATA) PASSED — 0 rejections across the file's own sum-of-parts identity check. NOT a trading signal — GATE 2's pre-registered first-pass screen FAILED the composite-bar ordering test, and a pre-registered follow-up retest against an unbiased population baseline also failed to clear significance (t=1.303 < crit=2.131) — two consecutive fails on the same window, VERDICT FAIL/INCONCLUSIVE, not a killed hypothesis (would need a disjoint out-of-sample window or a sign reversal). FINRA informational-use terms, not government work product — conditional resell, unlike the CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/short-volume",
+      returns_provenance: ["data/short-volume"],
     },
   ];
   return {
