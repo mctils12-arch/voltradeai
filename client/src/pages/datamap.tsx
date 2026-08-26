@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -61,6 +61,7 @@ import TreasuryDtsView from "./treasuryDts";
 import FdaEventsView from "./fdaEvents";
 import VehicleComplaintsView from "./vehicleComplaints";
 import BankFailuresView from "./bankFailures";
+import UsaspendingContractsView from "./usaspendingContracts";
 // W6 ANALYST pane (console charter): lazy chunk — a closed pane loads no
 // analyst code at all (zero-cost-when-off spirit) and never polls.
 const AnalystPane = lazy(() => import("@/components/AnalystPane"));
@@ -893,7 +894,7 @@ const LAYER_GROUP: Record<string, string> = {
   buoys: "environmental",
   biomass: "environmental",
   insider: "filings", earnings: "filings", shortvol: "filings", attention: "filings", cot: "filings", shadowstats: "filings", portdwell: "filings",
-  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings",
+  ats_summary: "filings", midas: "filings", secftd: "filings", tff: "filings", treasury_auctions: "filings", treasury_dts: "filings", fda_events: "filings", vehicle_complaints: "filings", bank_failures: "filings", fleet_utilization: "filings", occ_volume: "filings", contracts: "filings",
   graph: "graph",
   grid_demand: "facilities",
   powergrid: "facilities",
@@ -2904,6 +2905,7 @@ export default function DataMapPage() {
   // 2026-07-06; no client view AND no registry entry until now — same
   // "double zero" gap class as vehicle_complaints above).
   const [bankFailuresOpen, setBankFailuresOpen] = useState(() => window.location.hash === "#/data/bank-failures");
+  const [contractsOpen, setContractsOpen] = useState(() => window.location.hash === "#/data/contracts");
   // v2.3: groups beyond the first fold start collapsed — the panel stays
   // scannable and everything below is one visible tap away. Derived from
   // PANEL_GROUPS + OPEN_GROUPS_BY_DEFAULT (BUILD ORDER 4 #2) instead of a
@@ -3246,6 +3248,7 @@ export default function DataMapPage() {
       setFdaEventsOpen(window.location.hash === "#/data/fda-events");
       setVehicleComplaintsOpen(window.location.hash === "#/data/vehicle-complaints");
       setBankFailuresOpen(window.location.hash === "#/data/bank-failures");
+      setContractsOpen(window.location.hash === "#/data/contracts");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -12316,6 +12319,34 @@ export default function DataMapPage() {
     return () => { stop = true; window.clearInterval(iv); };
   }, [enabled.bank_failures, mapSettled, setStatus]);
 
+  // ── USAspending.gov federal contract awards (RAW; non-geospatial — same
+  // inline-panel-row + full-view pattern as bank_failures/fleet_utilization
+  // above). Server refreshes on a 6h poll; this poll only refreshes the
+  // panel's award-count badge, same 300s convention as the sibling filings
+  // layers. GATE 2's award/mcap-ratio hypothesis was REJECTED 2026-08-15 —
+  // RAW display only, never surfaced as a signal (usaspendingContracts.tsx
+  // carries the full honesty account). ──
+  useEffect(() => {
+    if (!enabled.contracts) { setStatus("contracts", "off"); return; }
+    if (!mapSettled) { setStatus("contracts", "loading", undefined, "queued — mounts after the map settles"); return; }
+    setStatus("contracts", "loading");
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/data/contracts");
+        const d = await r.json();
+        if (stop) return;
+        if (d.warming_up) { setStatus("contracts", "loading", 0, "warming up — first poll can take a minute"); return; }
+        setStatus("contracts", "active", d.count);
+      } catch {
+        if (!stop) setStatus("contracts", "error", undefined, "feed error — retrying");
+      }
+    };
+    load();
+    const iv = window.setInterval(() => { if (!document.hidden) load(); }, 300_000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [enabled.contracts, mapSettled, setStatus]);
+
   // ── Wikipedia pageviews attention proxy (RAW; non-geospatial — same
   // inline-panel-row + full-view pattern as insider/earnings/shortvol).
   // BUILD ORDER 5 #3 pipeline shipped API-only 2026-07-05; this is its
@@ -12446,6 +12477,7 @@ export default function DataMapPage() {
     id === "fda_events" ? <Pill size={15} /> :
     id === "vehicle_complaints" ? <Car size={15} /> :
     id === "bank_failures" ? <Building2 size={15} /> :
+    id === "contracts" ? <Handshake size={15} /> :
     id === "graph" ? <Share2 size={15} /> : <LayersIcon size={15} />;
 
   const statusFor = (l: LayerMeta): { dot: string; text: string; note?: string } => {
@@ -12462,7 +12494,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };
@@ -12994,6 +13026,16 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "contracts" && on && (
+          // Same pattern as bank_failures/fleet_utilization/tff: a ranked
+          // contract-award listing doesn't belong in a layer-toggle sidebar.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/contracts"; setContractsOpen(true); }}>
+              Open contract awards view — ranked by amount →
+            </button>
+          </div>
+        )}
         {l.id === "attention" && on && (
           // Same pattern as insider/earnings/shortvol: a ticker search +
           // trend table doesn't belong in a layer-toggle sidebar.
@@ -13193,6 +13235,9 @@ export default function DataMapPage() {
       )}
       {bankFailuresOpen && (
         <BankFailuresView onBack={() => { window.location.hash = "#/data"; setBankFailuresOpen(false); }} />
+      )}
+      {contractsOpen && (
+        <UsaspendingContractsView onBack={() => { window.location.hash = "#/data"; setContractsOpen(false); }} />
       )}
       {attentionOpen && (
         <AttentionView onBack={() => { window.location.hash = "#/data"; setAttentionOpen(false); }} />

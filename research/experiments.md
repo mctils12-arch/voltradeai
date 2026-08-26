@@ -3,6 +3,210 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine PRODUCT session #3) [PRODUCT] — T-CLIENT (client/src/pages/usaspendingContracts.tsx, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (datacore/layers.json, package.json, package-lock.json, research/*): USAspending federal contract awards gets a dedicated /data client view, closing the "shipped-data-no-client-page" gap the 2026-08-25 /api/v1 mirror sweep flagged (v1.0.792)
+
+TERRITORY: T-CLIENT primary (the new page component, its datamap.tsx
+wiring, and the visual-harness registration/fixture) + SHARED-but-minimal
+last (registry entry, version/research bookkeeping) — no T-BOT file
+touched, no server route added or changed (the existing `/api/data/contracts`
+route is reused verbatim, read-only).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+(a different, T-CLIENT-audit-thrash program — not this session's queue),
+research/platform_program.md, tails of research/experiments.md (today's
+two prior [RESEARCH] entries, back through the 2026-08-25 /api/v1 sweep),
+research/open_questions.md's KNOWN BROKEN section (all numbered items
+closed or design-gated-open; #30 remains a proposed structural fix,
+T-BOT, out of scope for a PRODUCT/T-CLIENT session), research/wishlist.md
+(top carries the STALE-PR BACKLOG finding, already its own owned
+[RESEARCH] sweep — no PROGRESS FLOOR/STARVATION warning against product
+work). `python3 scripts/session_health_check.py`: all 7 OK — liveness
+alive/not dark, subsystems ok, daemon rss under trim_mb, ml_feedback age
+nominal, deploy_freshness server_version matching this checkout pre-bump.
+No LIVENESS ALARM; this session's territory (client-only, read-only data
+route reuse) is unaffected by anything in KNOWN BROKEN regardless.
+Loop-health ratio, last 10 tagged entries counted fresh: 2 [RESEARCH] / 1
+[REPAIR] / 7 non-REPAIR-non-RESEARCH — well under the 7+ thrash trigger.
+`TZ=America/New_York date`: Wednesday ~09:29 ET — right at the 09:30 ET
+open; per this routine's own merge-timing instruction, this PR should wait
+for after-hours/close to merge (noted in the PR body).
+
+PRIMARY-ACTION SELECTION: session #27's own 2026-08-25 audit (re-checking
+`datacore/signal_ladder.json` roots against BOTH `stats/*` and `data/*`
+LICENSE_MARKS prefixes, not just the literal string `gate1_pass`) named
+four real gaps between a gate1-or-beyond root and its `/api/v1` surface.
+Sessions #25-#27 (this same 2026-08-25/26 window) closed three via the
+mirror sweep (SEC EDGAR Form 4, Wikimedia pageviews, CFTC COT); the fourth,
+`usaspending_contracts`, was explicitly called out as different in kind —
+its RAW route (`/api/data/contracts`, server/usaSpending.ts) has NO
+dedicated `/data` client page at all (only an indirect 5-row cross-join
+inside the entity dossier panel), unlike every other gap in that audit,
+which all had a live page and were missing only the `/api/v1` mirror.
+Session #27's own words: "that gap alone may be worth its own [PRODUCT]
+session before the v1 mirror." Confirmed live this session via
+`grep -n '"contracts"' client/src/pages/datamap.tsx` (only the dossier's
+`contracts:` field, no toggle id) and `grep -n "id === \"contracts\""
+client/src/pages/datamap.tsx` (zero hits pre-change) — the gap was real,
+not stale. Chose to build the client page over the `/api/v1` mirror: this
+scheduled routine's own task framing lists building `/data` UI/UX as a
+first-class PRODUCT action alongside API-boundary work, and a real,
+previously-invisible archive becoming visible to a human is higher signal
+than the ninth mechanical `/api/v1` route addition in ten sessions
+(CLAUDE.md anti-churn: prefer work with a different shape once one shape
+has run this many times in a row, when a comparably-scoped alternative is
+queued and flagged). The `/api/v1` mirror itself remains queued, unbuilt,
+for a future session — not attempted here (one logical change per PR).
+
+READ BEFORE WRITE: read `server/usaSpending.ts` in full — the `ContractTxn`
+interface (aid/piid/ad/amt/r/pn/tkr/ag/desc/rt, precision-first ticker
+matching with `tkr:null` for unmatched rows, `rt` as the only honest event
+date since `ad`/action_date is the signature date), the module's own
+GATE 2 hypothesis framing (award/mcap ratio, explicitly "not attempted
+here" in the header at build time), and the `CONTRACT_FLOOR_USD` (25,000)
+constant. Read `server/routes.ts`'s existing `/api/data/contracts` route
+(~line 3711) as the exact response shape template
+(`{kind,source,attribution,time,count,note,contracts}`, capped at the 500
+most recent rows server-side, `warming_up` before the first poll) — reused
+verbatim, zero server changes. Read `datacore/signal_ladder.json`'s
+`usaspending_contracts` entry fresh (not from memory) for the current GATE
+2 status: FAILED 2026-08-15 — "pre-registered hypothesis... REJECTED —
+adequately powered... no positive separation at any horizon... the one
+nominally-interesting result is WRONG-SIGNED... does not survive
+Bonferroni," with a fresh, un-pre-registered market-cap-matched redesign
+filed separately in open_questions.md and explicitly "not promoted from
+this run." This is the honesty text the new page and its layers.json entry
+both carry verbatim, not a paraphrase. Read two client-page templates in
+full before writing: `cot.tsx` (search+rank UI conventions, the
+`.vt-filings-*`/`.vt-shortvol-*` shared CSS, the `vt-filings-ticker` span
+class) and `bankFailures.tsx` (the simpler no-server-search flat-listing
+shape, since `/api/data/contracts` — unlike `/api/data/cot` — has no
+`/history` or search sub-route to page against). Read the full
+`datamap.tsx` wiring chain for `bank_failures` (the most recently added
+sibling in this exact "RAW, non-geospatial, inline-panel-row + full-view"
+family): `LAYER_GROUP` map entry, `useState`/`hashchange` listener,
+polling `useEffect`, icon ternary, unit ternary, "open full view" button
+block, and the final conditional render — copied the pattern exactly
+rather than improvising a new one, and confirmed via
+`server/layersRegistry.test.ts`/`server/layersWiring.test.ts` (existing,
+unmodified) what a new registry entry is required to carry.
+
+WHAT SHIPPED: `client/src/pages/usaspendingContracts.tsx` (new) —
+`UsaspendingContractsView`, a RAW browse of `/api/data/contracts`: header
+with live count + ticker-matched count, two honesty paragraphs (GATE 1
+PASS date, GATE 2 REJECTED result verbatim including the wrong-signed and
+Bonferroni-failure detail, the DoD/USACE ~90-day publish-lag caveat, and
+the action_date-vs-rt distinction), a client-side search (ticker/
+recipient/agency — the route has no server-side search) with a
+"ticker-matched only" toggle defaulting ON (so an unmatched, guessed-at
+recipient is never the default view — matches `usaSpending.ts`'s own
+"unmatched rows... skipped by consumers" convention), and a table ranked
+by `|amount|` descending, capped at 100 rows, showing date/recipient(or
+parent)/ticker/agency/amount/description; amounts format compactly
+(K/M/B) and a negative amount (a deobligation) renders with its sign
+rather than as an unexplained negative-looking dash. `datamap.tsx` gained:
+the import, a `contracts: "filings"` `LAYER_GROUP` entry, a `contractsOpen`
+state + hash-listener line (`#/data/contracts`), a polling `useEffect`
+mirroring `bank_failures`'s (300s badge-count refresh, `warming_up`-aware),
+a `Handshake` icon (new lucide-react import) and `"awards"` unit ternary
+case, an "Open contract awards view" button in the layer panel, and the
+final conditional render wired to the back button clearing the hash.
+`datacore/layers.json` gained a `contracts` entry (`kind: "raw"`,
+`group: "filings"`, source/description carrying the same GATE 1 PASS /
+GATE 2 REJECTED honesty text). `scripts/visual_check.mjs` gained a
+`contracts` `PAGES` entry (`/app#/data/contracts`, `map: false`, following
+the established "every new /data view passes the harness" Phase 5 ratchet
+already applied to `bankfailures`/`fleetutilization`/etc.) and an
+`/api/data/contracts` fixture covering one ticker-matched award, one
+unmatched recipient (exercising the never-guess-a-ticker default filter),
+and one negative deobligation (exercising the signed-amount formatting).
+
+RATCHET: no new automated test file — this repo's own established
+convention (confirmed by inspection: `cot.tsx`/`shortvol.tsx`/
+`dtccSwaps.tsx`/`bankFailures.tsx` all ship with zero dedicated
+`*.test.tsx` files) leaves individual `/data` page components covered by
+the visual harness + the two existing generic registry tests
+(`layersRegistry.test.ts`'s "every layer carries kind/status/source/
+description" and `layersWiring.test.ts`'s "every live registry layer is
+declared in LAYER_GROUP") rather than a per-page unit test; both existing
+tests were re-run (unmodified) and pass against the new `contracts` entry,
+which is the ratchet this class of change actually has.
+
+GATES: fresh sandbox provisioning gap recurred exactly as prior sessions
+have logged (`node_modules` absent, Python missing `pytest`) — `npm ci`
+(488 packages) and `pip install -r requirements.txt -r requirements-dev.txt`
+fixed it, confirmed not a regression (only `.tsx`/`.json`/`.mjs` files
+touched this session, all client/config). `bash scripts/tsc_ratchet.sh`:
+12/12, TS2304 0, unchanged. `npx tsx --test server/layersRegistry.test.ts
+server/layersWiring.test.ts`: 25/25 pass, including the ratchet asserting
+the new `contracts` id is present in `LAYER_GROUP`. `npx tsx --test
+server/*.test.ts` (full server suite): 1396/1396, unchanged — this session
+added no server-side test file, matching zero server code touched. `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1070/1070, python 1485
+passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `npm run
+build`: clean, only the same pre-existing warnings recent sessions log
+(maplibre-gl chunk size, astronomy-engine default-export interop, mapIcons
+dynamic/static dual import) — none touched this session. `bash
+scripts/counter_ratchet.sh`: all 25 counters at or better than baseline,
+none moved (this repo's page components carry no per-file assertions, so
+a new page alone does not move `assertions`); nothing re-pinned. VISUAL
+HARNESS (PROMOTION RULE 6, run and reviewed before opening the PR): `node
+scripts/visual_check.mjs --page contracts` at 390/768/1440 — 0 hard
+failures at all three widths. The only warnings logged (small touch
+targets on shared chrome buttons — "Sign in", "About the Bot", map-control
+icons — and one clipped legend label on an unrelated existing layer at
+1440px) are pre-existing site-wide chrome findings that show up on every
+page in this harness family, not introduced by this page; confirmed by
+their exact wording matching prior sessions' own logged warnings for
+sibling pages (e.g. the identical "touch target < 44px: 'Sign in' (32x32)"
+line appears in this session's own bankfailures-equivalent run pattern).
+
+BACKTEST: N/A per PROMOTION RULE 3 — a client-only display surface over an
+already-shipped, already-gated RAW route; no strategy/scoring/sizing/
+threshold change, no FROZEN path touched, no server code added or changed.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff; USAspending.gov is US-government public-
+domain data, no adsb.lol/aisstream provider-compliance condition applies.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing archive
+(already cross-tied into the entity dossier's "related contracts" panel
+since 2026-07-24) through a dedicated first-class `/data` view for the
+first time; no new join, data stream, or entity-graph tie is added.
+
+VERSION: v1.0.792 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.791 — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday ~09:29 ET, at the 09:30 ET open. This diff is
+entirely client-side (a new page component, its map-panel wiring, and
+harness/registry bookkeeping) reading an existing, already-live server
+route — zero trading-loop blast radius — but per CLAUDE.md's "prefer
+merging PRs outside 9:30-16:00 ET" guidance, this PR's description asks
+for an after-hours/close merge rather than requesting an immediate one.
+
+NEXT (queued, not this session): the `usaspending_contracts` `/api/v1`
+keyed mirror (the reason this gap was found in the first place) remains
+queued — now that the page exists, a future session can build the mirror
+with a real client consumer to point to, per the same discipline every
+prior mirror in this sweep followed. The other two gaps session #27's
+audit named (`finra_short_volume`, `gem_methane_plume_proximity`) remain
+queued from that session, one PR each. KNOWN BROKEN #30
+(options-slot-overshoot structural fix) remains queued, T-BOT territory.
+The stale-PR backlog (#817, #844, #877, #888) also remains queued,
+T-CLIENT/RESEARCH territory. A future session should also consider
+whether `finra_short_volume`/`gem_methane_plume_proximity` (both gate2_fail
+RAW routes with a shipped page already, per session #27's audit) need
+anything beyond their `/api/v1` mirror, now that this session has
+established the "RAW route with no client page at all" gap class is worth
+checking explicitly rather than assumed closed.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a previously-flagged, well-scoped UI gap), used in full
+including reading both the source module and two template pages in full
+rather than improvising, plus the PROMOTION RULE 6 visual harness run this
+class of change requires.
+
 ## 2026-08-26 (scheduled-routine session #2) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json), scripts/ + top-level test file — REVIVES STALE PR #834: microcap cost-floor + LULD halt-band pricing for the deferred MIN_PRICE/MIN_VOLUME loosening question (v1.0.791)
 
 TERRITORY: same SHARED-but-minimal footprint as this same day's earlier
