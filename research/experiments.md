@@ -3,6 +3,155 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine session) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json), scripts/ + top-level test file — FOREIGN-FIELD IMPORT (axis c): epidemiological reproduction number (R_t) as a cross-sectional sector-contagion signal, run against real data same session, GATE 2 KILLED (v1.0.790)
+
+TERRITORY: SHARED-but-minimal, same footprint the 2026-08-18 critical-
+slowing-down (CSD) entry used for the same class of work — a new
+`scripts/*.py` probe + its top-level `test_*.py` file, plus the
+research-log/counter-baseline/version bookkeeping every session touches.
+No T-CLIENT/T-BOT/T-DATACORE-primary file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full (GOAL, EDGE DOCTRINE, RULE
+REVIEW, MEASUREMENT INTEGRITY, PROMOTION RULES, WORKSTREAM PARTITION, all
+re-read this session, not from memory). `python3 scripts/session_health_check.py`:
+7/7 OK — liveness alive/not dark, subsystems ok, daemon rss 164.6MB,
+ml_feedback age 0.2h, deploy_freshness server_version=1.0.789 matching
+this checkout pre-bump. No LIVENESS ALARM — NOT a [REPAIR] session.
+`python3 scripts/research_state_check.py`: audits register none overdue
+(STALENESS next 2026-09-14, CONSTITUTIONAL next 2026-09-15); thrash_ratio
+3/10 REPAIR, well under the 7+ trigger; known_broken 36 items, all
+resolved/closed or design-gated-open, walked every numbered entry rather
+than trusting the summary line (#20 gated on live TIER-KILL data, #30/#35/
+#36 all explicitly closed with live verification). `bash scripts/program_status.sh`:
+27-row counter table clean, `baseline_divergence` 0, `quarantine_size` 0.
+
+PRIMARY-ACTION SELECTION: this routine's own brief names four axes and
+says pick the highest-EV one given what research/ shows is already done.
+Surveyed all four (full reasoning + grep evidence in the
+research/open_questions.md ladder entry filed this session, condensed
+here): (a) every named free-data-pipeline example (Sentinel-2 tank
+shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google Trends)
+is already built, `/api/v1`-mirrored, or correctly routed to a declined/
+substitute outcome — re-verified via grep this session, not assumed from
+a prior session's note. (b) illiquid-universe capacity research is still
+gated on the options-side fill-realism fix (open_questions.md's own
+"Options fill realism" entry, unchanged since 2026-07-23, deferred behind
+KNOWN BROKEN #12(b)/(c)) — skipped, matching the 2026-08-18 session's own
+precedent for the identical reason. (c) grepped both research files for
+"reproduction number"/"epidemiology"/"contagion"/"R_t"/"SIR": zero prior
+hits — genuinely unclaimed. The one existing foreign-field import on file
+(CSD, ecology) already ran to completion and a clean negative
+(2026-08-21) — not a matured-but-unrun item sitting in the queue, a fresh
+import was actually needed. (d) converges with (c), same precedent as the
+CSD entry: shipping a new probe as reusable, tested code satisfies both.
+
+WHY EPIDEMIOLOGY'S R_t, NOT A SECOND ECOLOGY VARIANT: CLAUDE.md's EDGE
+DOCTRINE #4 names ecology, epidemiology, and aviation-maintenance as the
+standing foreign-field targets; only ecology had been drawn on before this
+session. R_t (Cori et al. 2013) is also a genuinely different STATISTICAL
+SHAPE from CSD's AR1/variance — cross-sectional event-counting across a
+basket of names, not a single index's own autocorrelation — not just the
+same technique with a new label. Full method, hypothesis, prior, and
+honest limitations are in the research/open_questions.md ladder entry
+filed this session (condensed summary below, not duplicated in full here).
+
+WHAT SHIPPED: `scripts/contagion_reproduction_probe.py` (pure functions:
+`new_low_flags`/`align_common_dates`/`cross_sectional_event_counts`/
+`windowed_reproduction_number`/`forward_return_pct`/`compute_lead_signal`,
+plus `run_probe()`) + `test_contagion_reproduction_probe.py` (18 new
+tests, synthetic data only, no network — mirrors
+`test_critical_slowing_down_probe.py`'s existing convention for this class
+of script). Reuses `backtest_v2.fetch_bars` (Alpaca-first/Yahoo-fallback,
+already gate-1-verified) and `bot_engine.SECTOR_MAP`'s existing
+"Technology" ticker list (18 entries, 17 unique) rather than re-deriving
+either (EDGE DOCTRINE #3). Every function reports `None`/`insufficient_n`
+on undefined inputs (a zero-case prior window, a not-yet-filled trailing
+window, a sub-floor sample) instead of fabricating a statistic — same
+discipline as the CSD probe's `rolling_ar1` constant-series case and
+`regime_detector_compare.py`'s `MIN_N_FOR_STATS` floor.
+
+RUN AGAINST REAL DATA THIS SESSION (unlike CSD's first pass — this
+sandbox had working Yahoo Finance access, confirmed via a direct HTTP
+200 check before writing any code, so there was no reason to defer):
+`PYTHONPATH=. python3 scripts/contagion_reproduction_probe.py --days 2520`
+— Technology universe (17 tickers) vs. QQQ, 2020-09-30 to 2026-08-25,
+n_dates=1482. RESULT: every cell (R_t and the raw case-level, at 5/10/20-
+day horizons) is statistically indistinguishable from zero — all |rho| <
+0.05, all p > 0.10, no borderline survivor anywhere in the 3x2 grid.
+**GATE 2 FAILED — this specific candidate (new-20d-low reproduction rate
+across the Technology sector predicting QQQ forward return, tau=5) is
+KILLED.** The PRIOR's own comparison also does not survive: R_t showed no
+more predictive power than the raw level it was meant to improve on (in
+fact marginally less at 2 of 3 horizons) — the acceleration view added
+nothing measurable here. Full table, honest caveats (single sector/
+target/event-definition/window — one spec tested, not the design space),
+and the not-yet-justified follow-up note (a less index-dominated sector,
+per REASONING STANDARD #5, would need its own stated prior before
+running) are in the open_questions.md entry, not duplicated here.
+
+RATCHET: `python3 -m unittest test_contagion_reproduction_probe -v`:
+18/18 passed, all new. `python3 -m pytest -q`: 1469 passed, 1 skipped
+(1451 baseline-at-session-start + 18 new, zero regressions).
+
+GATES: `pip install -r requirements.txt -r requirements-dev.txt` run
+(scipy/numpy/pandas absent at session start — same recurring fresh-
+sandbox provisioning gap prior sessions have logged). `bash
+scripts/gated_tests.sh` FAILED on the first run — 8 unrelated `server/
+*.test.ts` files (aircraftTiling/apiKeyAccounts/cdcCancer/compression/
+gdeltEvents/owmTiles/seafloorTiles/securityMiddleware) crashed at import
+with `ERR_MODULE_NOT_FOUND: express`, confirmed via a direct
+`npx tsx --test server/compression.test.ts` run before assuming anything
+— zero `.ts`/`.tsx` files touched this session (`git status --short`
+checked), so this was `node_modules` missing packages, not a regression;
+`npm ci` (488 packages added) fixed it. Re-run clean: `bash
+scripts/gated_tests.sh` GATE PASSED — client 1310/1310 (post-`npm ci`;
+was crashing 8 files pre-fix), python 1469/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304
+0, unchanged (no `.ts` touched). `bash scripts/counter_ratchet.sh`:
+IMPROVED `tests_run_in_ci`/`tests_gating_merge` 399->400 (the one new
+Python test file) and `assertions` 12240->12262 (this session's 18 new
+tests' own assertion lines, the direct and sole cause — re-fetched
+`origin/main` both before writing the diff and again immediately before
+pinning, confirmed byte-identical to this branch's base at both checks,
+`a6ffdd2`/v1.0.789, so zero concurrent-drift component to leave
+un-pinned); all three re-pinned in `ci/counter_baseline.txt` per
+PROMOTION RULE 5. All other 22 counters unchanged; re-ran clean after the
+pin update. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, dist/index.cjs size,
+mapIcons dynamic/static dual import) — none touched this session.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a research probe script and its
+tests, no strategy/scoring/sizing/threshold change, no FROZEN path
+touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff.
+
+CROSS-SYSTEM INTEGRATION: none — a standalone research probe against
+already-existing price-bar plumbing and the live bot's own sector
+classification; no new data stream, join, or entity-graph tie.
+
+VERSION: v1.0.790 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; re-confirmed via a second `git fetch origin
+main` immediately before the bump that `origin/main` still matched this
+branch's base, v1.0.789 — no concurrent session had merged ahead of this
+one).
+
+NEXT (queued, not this session): if a future session wants to revisit
+sector-contagion R_t rather than abandon the concept, REASONING STANDARD
+#5 (second-order thinking) needs to state WHY a different sector/target
+pairing (one less dominated by its own forward-return target than
+Technology is by QQQ) would show something this spec did not — a fresh
+stated prior, not a parameter sweep on the same untested premise. Not
+filed as a new open item now, matching the CSD entry's own precedent for
+an unproven follow-up. The standing `/api/v1` mirror queue (finra_short_volume,
+gem_methane_plume_proximity, usaspending_contracts — named in session
+#27's own NEXT) remains open, T-DATACORE-adjacent, not this session's.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+[RESEARCH] action (survey all four axes, then execute the highest-EV one
+end to end including a real-data run), used in full.
+
 ## 2026-08-25 (scheduled-routine session #27) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CFTC COT positioning gets its /api/v1 keyed mirror — and the sweep's own "no gaps remain" audit is corrected, 4 more found (v1.0.789)
 
 TERRITORY: SHARED-but-minimal, same footprint as every prior session in
