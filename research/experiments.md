@@ -3,6 +3,162 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine session #2) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json), scripts/ + top-level test file — REVIVES STALE PR #834: microcap cost-floor + LULD halt-band pricing for the deferred MIN_PRICE/MIN_VOLUME loosening question (v1.0.791)
+
+TERRITORY: same SHARED-but-minimal footprint as this same day's earlier
+entry (a pre-existing `scripts/*.py` probe + its top-level `test_*.py`
+file, plus research-log/counter-baseline/version bookkeeping). No
+T-CLIENT/T-BOT/T-DATACORE-primary file touched.
+
+SESSION-START CHECKS (this is the second primary action of the day, run
+as its own fresh session per the standing scheduled-routine cadence — not
+a continuation of the earlier R_t session): CLAUDE.md re-read in full.
+`git status`/`git log` confirmed a clean tree at `origin/main` HEAD
+(84a5584, v1.0.790) before starting. Loop-health ratio, last 10 tagged
+entries counted fresh (including the same-day R_t entry): 2 REPAIR / 8
+non-REPAIR — well under the 7+ thrash trigger, no meta-problem.
+
+PRIMARY-ACTION SELECTION: `list_pull_requests(state=open)` on this repo
+returned 6 open PRs. One (#604) is an intentionally-labeled draft
+backlog, explicitly excluded by wishlist.md's own STALE-PR BACKLOG
+finding. Two (#877, #888) are recent (6-7 days) docs-only PRs already
+covered by that finding's own untriaged note. The remaining three —
+#817 (13 days, 126 files/26k lines, a full Rendering & Motion Overhaul
+bundling many logical changes — flagged by wishlist.md itself as "its own
+dedicated session's primary action, not a fall-through item," correctly
+deferred here), #834 (12 days, 1 commit, 600 lines, self-contained
+research script), #844 (12 days, 2 commits, bundles an unrelated
+moonSurfaceGL.ts GPU-raycast port into a PR whose title/body only
+describe the Day/Night control fix — a PROMOTION RULE 5 bundling issue in
+the stale PR itself, would need splitting to revive cleanly) — of these,
+#834 is the cleanest single-logical-change candidate and matches this
+routine's own queued-item-first fall-through order (research/wishlist.md
+explicitly names reviving these stale PRs as real, already-tested,
+already-reviewed work sitting unshipped). Chose #834 over #844 to avoid
+inheriting the bundling problem into a fresh revival, and over #817 given
+its own explicit "own dedicated session" sizing note.
+
+READ-BEFORE-WRITE (confirming #834's content is NOT superseded before
+reviving verbatim, per the wishlist.md GENERALIZATION established by the
+#708/#706/#794 revival sessions — "a stale PR can look mechanically
+revivable and still be silently defeated by later merged work"): grepped
+current `main` for every fact #834's diff depends on. `scripts/
+illiquid_universe_probe.py`'s `ILLIQUID`/`MODERATE` ticker lists are
+byte-identical to what the PR's snapshot assumes. `backtest_v2.py`'s
+`_ILLIQUID_COST_PCT` is still `0.00185` (0.185%), matching the PR's cited
+model cost exactly. `system_config.py`'s `MIN_PRICE` is still `5.0` —
+the question #834 was pricing risk for is still open, not resolved by a
+later session. No `scripts/microcap_cost_floor_check.py` or
+`test_microcap_cost_floor_check.py` exists anywhere in `main`'s history
+(`git log --all` on both paths: empty) — not a duplicate of later work.
+Confirmed genuinely revivable, not superseded, so the diff was ported
+verbatim rather than re-derived.
+
+WHAT SHIPPED (byte-identical to PR #834's diff, only the surrounding
+docs-log entries differ — see below): `scripts/microcap_cost_floor_check.py`
++ `test_microcap_cost_floor_check.py` (16 new tests). Prices two of the
+three risks the 2026-08-11 `illiquid_universe_probe` ladder-step-5 entry
+deferred, against the same 16 pinned illiquid/moderate microcap tickers
+that session's live universe-gate run used: (1) a Reg NMS Rule 612
+tick-size spread floor (a structural lower bound on real spread cost,
+requiring no live market data) and (2) FINRA/Nasdaq's published LULD
+volatility-halt band table (verified via WebSearch by the original
+2026-08-14 session, re-confirmed unchanged by this session's own read).
+FINDING (unchanged from the original session, reproduced now that it's
+merged): 7 of 11 tick-priceable names have a spread floor alone exceeding
+the backtest's flat 0.185% per-side cost (up to 2.7x), and the group's
+LULD bands run 20-40% (57-115% for sub-$0.75 names) vs. 5-10% for a
+liquid comparator — neither risk is represented in the current cost
+model at all. This STRENGTHENS the case against loosening MIN_PRICE/
+MIN_VOLUME, on top of the 2026-08-11 finding that the live bot never
+reaches 16 of 17 of these names today regardless. **No strategy,
+threshold, or config change ships from this PR** — pure informational
+pricing exercise, matching the original session's own framing. Full
+method/prior/result/verdict text (identical to the original PR body) is
+filed as a dated UPDATE in `research/open_questions.md`, appended in this
+session directly beneath the 2026-08-11 thread's existing "Reproducibility
+artifact" line — the natural insertion point, keeping the append-only
+thread coherent rather than tacking the revival note onto the end of the
+file.
+
+RATCHET: `python3 -m unittest`/`pytest -q test_microcap_cost_floor_check.py`:
+16/16 passed, all new (re-run fresh this session, not assumed from the
+stale PR's own CI, which never produced a green run — mechanism (3) from
+wishlist.md's stale-PR audit: `total_count: 0` check runs on #834's head).
+A/B-verified via `git stash -u`: pre-change collection fails with `file or
+directory not found`; post-change 16/16 pass.
+
+GATES: fresh sandbox provisioning gap recurred exactly as prior sessions
+have logged (`node_modules` had 1 entry at session start) — `bash
+scripts/gated_tests.sh` FAILED on the first run: the same 8 `server/
+*.test.ts` files this session's own earlier same-day entry didn't touch
+(aircraftTiling/apiKeyAccounts/cdcCancer/compression/gdeltEvents/
+owmTiles/seafloorTiles/securityMiddleware) plus 8 `client/*.test.ts`
+files crashed at import with `ERR_MODULE_NOT_FOUND` (express /
+@maplibre/maplibre-gl-style-spec / others) — confirmed via direct log
+inspection that every failure was the identical missing-package error,
+zero test-logic failures, and `git status --short` confirmed zero
+`.ts`/`.tsx` files touched this session, so this was `node_modules`
+provisioning, not a regression. `npm ci` (488 packages) fixed it. Re-run
+clean: `bash scripts/gated_tests.sh` GATE PASSED — server+client all
+green, python 1485 passed/1 skipped/54 subtests (1469 baseline-at-
+session-start + 16 new, zero regressions), quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no `.ts`
+touched). `bash scripts/counter_ratchet.sh`: IMPROVED
+`tests_run_in_ci`/`tests_gating_merge` 400->401 (the one new Python test
+file) and `assertions` 12262->12292 (a delta of 30, matching
+`test_microcap_cost_floor_check.py`'s own `grep -c assert` count exactly
+— re-checked before writing this line rather than assumed); re-fetched
+`origin/main` both before writing the diff and again immediately before
+pinning, confirmed byte-identical to this branch's base at both checks
+(84a5584/v1.0.790), so zero concurrent-drift component to leave
+un-pinned; both re-pinned in `ci/counter_baseline.txt` per PROMOTION RULE
+5. All other 23 counters unchanged; re-ran clean after the pin update.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a research probe script and its
+tests (identical in substance to the original 2026-08-14 session's own
+N/A determination), no strategy/scoring/sizing/threshold change, no
+FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff.
+
+CROSS-SYSTEM INTEGRATION: none — a standalone research probe reusing
+already-existing pinned-ticker and live-cost-constant plumbing; no new
+data stream, join, or entity-graph tie.
+
+VERSION: v1.0.791 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; re-confirmed via a second `git fetch origin
+main` immediately before the bump that `origin/main` still matched this
+branch's base, v1.0.790 — no concurrent session had merged ahead of this
+one).
+
+STALE-PR DISPOSITION: PR #834 closed with a comment pointing to this
+session's replacement PR (content identical; only the docs-log framing
+differs to reflect the revival mechanics) per the wishlist.md STALE-PR
+BACKLOG's own established precedent (#708→#902, #767→this file's earlier
+2026-08-25 entry). Remaining from the original backlog after this
+session: #817 (needs its own dedicated large session), #844 (needs
+splitting before it can revive cleanly — the bundled moonSurfaceGL.ts
+port is a second, undescribed logical change), #877/#888 (untriaged
+docs-only, not yet checked this session).
+
+NEXT (queued, not this session): (a) #844's bundling problem — a future
+session should split it into two PRs (the Day/Night control fix, and the
+moonSurfaceGL.ts GPU raycast port) before attempting revival, rather than
+reviving the bundle as-is; (b) #817 remains its own dedicated session per
+wishlist.md's own sizing note; (c) the original PR's own NEXT items
+(sub-$1.00 tick-floor gap needs live-market-hours quote data; a
+per-price-tier split of `liquidity_cost_pct()`'s single volume bucket
+would be its own [RULE-REVIEW] MEASUREMENT INTEGRITY PR; data-source
+staleness remains unpriced) are unchanged and still queued.
+
+STARVED: no — one well-scoped primary action (reviving one specific,
+already-evidenced, already-reasoned-about stale PR), matched to a
+routine-scope budget. No higher-priority queued item was skipped: no
+LIVENESS ALARM, no thrash, KNOWN BROKEN items all correctly gated or
+deferred. One logical change, one PR, per PROMOTION RULE 5.
+
 ## 2026-08-26 (scheduled-routine session) [RESEARCH] — SHARED (research/*, ci/counter_baseline.txt, package.json, package-lock.json), scripts/ + top-level test file — FOREIGN-FIELD IMPORT (axis c): epidemiological reproduction number (R_t) as a cross-sectional sector-contagion signal, run against real data same session, GATE 2 KILLED (v1.0.790)
 
 TERRITORY: SHARED-but-minimal, same footprint the 2026-08-18 critical-
