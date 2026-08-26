@@ -219,6 +219,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Wikimedia pageviews API (Wikimedia Foundation, CC0)",
     resell: "ok",
   },
+  "data/cot": {
+    license: "CFTC Commitments of Traders (disaggregated futures-only) — publicreporting.cftc.gov Socrata dataset 72hh-3qpy. The weekly report is compiled and published BY the CFTC itself from clearing-member position filings, a US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention streams above (server/cftcCot.ts's own header: 'US government work, public domain') — not submitted-content conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams.",
+    attribution: "CFTC Commitments of Traders (disaggregated)",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -252,6 +257,7 @@ export function apiMeta() {
       { path: "/api/v1/data/fleet-utilization", params: "?top<=200 (default 50)", desc: "Corporate/LLC fleet utilization: per-owner weekly flight counts and airborne hours, sessionized from our own aircraft position archive and joined against the FAA registry entity spine (owners with <2 airframes excluded). GATE 1 (join accuracy) PASSED 2026-07-05 (20/20 stratified hexes matched an independent adsbdb registration exactly) — GATE 2 (utilization x earnings surprise) NOT attempted, this is descriptive, not a trading signal. Owners are FAA REGISTRANTS, not necessarily beneficial owners (trustee/leasing shells hide the real operator); airborne hours are LOWER BOUNDS under adaptive archive sampling; weeks without archive coverage are absent, not zero. Aircraft-archive-derived, ODbL share-alike lineage — see license_marks.", preview: "/api/data/fleet-utilization" },
       { path: "/api/v1/data/insider", params: "-", desc: "Most-recent SEC EDGAR Form 4 (insider transaction) filings: issuer, reporting owner (director/officer/10%-owner flags), and the full derivative/non-derivative transaction table (transaction code, shares, price, shares owned after) — RAW as-filed display, no predictive claim. GATE 1 (DATA) PASSED (server/edgarForm4.test.ts). The buy-clustering SIGNAL hypothesis this parser feeds was GATE 2 KILLED in both directions (research/open_questions.md; datacore/signal_ladder.json sec_form4_insider_clustering) — filings are submitted by the reporting insider/issuer, not government-authored, conditional resell, see license_marks.", preview: "/api/data/insider" },
       { path: "/api/v1/data/attention", params: "-", desc: "Daily Wikimedia pageviews for a curated 23-ticker company-article seed (en.wikipedia, all-access/agent=user) — RAW daily view counts, an attention PROXY, no spike/z-score claim until the archive holds trailing history and gate 2 runs. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked tickers show pageviews peaking above trailing baseline in the [8-K Item 2.02 filing date, +1] window; a redirect-stub undercount affecting 3 seed pairs was found and fixed the same session). GATE 2 (does an attention spike lead volume/volatility 1-5d) NOT attempted. Computed by the Wikimedia Foundation from its own server logs, CC0 — freely resellable, see license_marks.", preview: "/api/data/attention" },
+      { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -464,6 +470,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/attention",
       returns_provenance: ["data/attention"],
+    },
+    {
+      name: "voltrade_cot",
+      description: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable) across every reported contract market. RAW display, no predictive claim. GATE 1 (DATA) PASSED — 0 rejections across a 156-week backfill (7 symbols). NOT a trading signal — GATE 2's first-pass screen KILLED the positioning-extreme mean-reversion hypothesis on GLD/CORN/SPY/QQQ/TLT/SLV; the one nominal survivor (USO, p=0.0355) fails the Bonferroni multi-comparison bar and was not promoted. US government work product, public domain, freely resellable — unlike the issuer-authored insider/13F-holdings/earnings-language/DTCC tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/cot",
+      returns_provenance: ["data/cot"],
     },
   ];
   return {

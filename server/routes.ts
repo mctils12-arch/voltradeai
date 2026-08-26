@@ -4708,6 +4708,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // CFTC COT keyed mirror — closes a "gate1-passed, no /api/v1 mirror" gap
+  // this sweep's own prior audits missed: they pattern-matched literally on
+  // status "gate1_pass" and skipped roots whose ladder status had already
+  // moved on to gate2_pending/gate2_fail even though gate 1 (DATA) stayed
+  // passed (datacore/signal_ladder.json cftc_cot_positioning; same true gap
+  // shape found this session for finra_short_volume/usaspending_contracts/
+  // gem_methane_plume_proximity, left queued). Reuses the existing
+  // latestCot() cache the RAW /api/data/cot route already populates — no
+  // new fetch, no new poller, no new computation.
+  app.get("/api/v1/data/cot", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestCot();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/cot", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/cot", {
+        report_date: hit.report_date,
+        count: hit.rows.length,
+        note: "weekly positioning by trader category (Tuesday as-of, Friday publish); futures-ONLY report; GATE 2's first-pass screen killed the positioning-extreme mean-reversion hypothesis on GLD/CORN/SPY/QQQ/TLT/SLV, and its one nominal survivor (USO) fails the Bonferroni multi-comparison bar — RAW display only, not a trading signal",
+        markets: hit.rows,
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/cot", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/cot", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one
