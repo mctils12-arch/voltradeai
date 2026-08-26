@@ -3,6 +3,186 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-25 (scheduled-routine session #27) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CFTC COT positioning gets its /api/v1 keyed mirror — and the sweep's own "no gaps remain" audit is corrected, 4 more found (v1.0.789)
+
+TERRITORY: SHARED-but-minimal, same footprint as every prior session in
+this /api/v1 mirror sweep — no T-CLIENT or T-BOT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+(the MASTER PROGRAM audit-thrash-reduction resume file — its own QUEUE is
+a DIFFERENT, T-CLIENT-focused program, not this session's territory),
+research/experiments.md from the top (session #26, 2026-08-25, PRODUCT,
+v1.0.788) back through session #18. `research/open_questions.md`'s KNOWN
+BROKEN section: all numbered items closed or design-gated-open (#30
+options-slot-overshoot remains a proposed structural fix, T-BOT, out of
+scope). `python3 scripts/session_health_check.py`: all 7 OK — liveness
+alive/not dark, subsystems ok, daemon rss 388.6MB (under trim_mb=400),
+ml_feedback age 21.7h, deploy_freshness server_version=1.0.788 matching
+this checkout pre-bump. No LIVENESS ALARM. `research/wishlist.md`'s top
+carries the STALE-PR BACKLOG finding (a separate, already-owned
+[RESEARCH] sweep) and the OPTIONS-SLOT-CAP structural proposal, neither a
+PROGRESS FLOOR/STARVATION warning against product work. `TZ=America/
+New_York date`: Tuesday ~20:13 ET — after the 16:00 ET close, so this PR's
+merge needs no after-hours wait (unlike every prior session in this sweep,
+each opened during market hours).
+
+PRIMARY-ACTION SELECTION: session #26's own NEXT note said the
+gate1_pass-vs-shipped-v1-mirror audit "found no further gaps... a future
+session should re-run that audit rather than assume it's permanently
+exhausted." Re-ran it properly this session — and found the PRIOR AUDITS
+WERE WRONG, not just stale. Read `datacore/signal_ladder.json` roots
+programmatically: 20 roots have PASSED gate 1 (DATA), but every session in
+this sweep from #14 onward filtered candidates by pattern-matching the
+literal string `status: "gate1_pass"`. That misses any root whose ladder
+status has since MOVED PAST gate 1 to `gate2_pending` or `gate2_fail` —
+gate 1 stays passed in both cases (the ladder tracks CURRENT gate, not a
+running list of gates cleared), but the literal-status filter silently
+drops them. Cross-referencing all 20 gate1-or-beyond roots against
+`server/apiProduct.ts`'s LICENSE_MARKS keys (grepping for both the
+`stats/*` and `data/*` prefixes — the first pass on THIS session's own
+audit missed 4 `stats/*`-prefixed matches before re-checking and finding
+them, worth naming since it's the same class of mistake being corrected)
+found FOUR real, live gaps the "no further gaps" claim missed:
+`cftc_cot_positioning` (gate2_pending, RAW route `/api/data/cot` + client
+view `cot.tsx`), `finra_short_volume` (gate2_fail, `/api/data/short-volume`
++ `shortvol.tsx`), `gem_methane_plume_proximity` (gate2_pending,
+`/api/data/methane-plumes` + `methaneHotspots.tsx`), and
+`usaspending_contracts` (gate2_fail, `/api/data/contracts` — no dedicated
+client page, only a datamap.tsx layer). Per PRECEDENT (dtcc-swaps/insider
+are both gate1_pass raw archives; bank-failures is gate1_pass raw factual
+data — none of the 8 already-shipped mirrors required a PASSED gate-2 to
+qualify, only a live RAW route + honest gate-status labeling), a
+gate2_fail root's RAW archive is exactly as legitimate to mirror as a
+gate2_pending one — the license text just has to say so honestly, which
+every mirror in this sweep already does by convention.
+
+Per "one logical change per PR" (this sweep's own established discipline
+— never more than one mirror per session), picked ONE: **CFTC COT
+positioning**, the least controversial of the four (gate2_pending, not
+yet a rejected hypothesis like the other three's gate2_fail, and its
+gate-1 pass is the cleanest — 0 rejections across a 156-week backfill).
+The other three (`finra_short_volume`, `gem_methane_plume_proximity`,
+`usaspending_contracts`) are queued below for future sessions, one PR
+each, same discipline.
+
+READ BEFORE WRITE: read `server/cftcCot.ts` in full this session — its
+module header states "US government work, public domain; attribution
+'CFTC Commitments of Traders (disaggregated)'" (the CFTC compiles and
+publishes the weekly report itself from clearing-member filings — same
+government-work-product class as CAMD/FTD/MIDAS/crop-conditions/NRC/
+eu-macro/fred-macro/bank-failures/attention, NOT the issuer-submitted
+conditional class Form 4/13F/earnings-language/DTCC fall into), the
+`latestCot()` cache shape (`{at, report_date, rows}`), and `CotRow`'s full
+field set. Read the existing `/api/data/cot` RAW route
+(server/routes.ts:2660) as the field-mapping template — reused verbatim,
+no new computation. Read `datacore/signal_ladder.json`'s
+`cftc_cot_positioning` entry as the honesty-language source: GATE 1 (DATA)
+PASSED 2026-07-05; GATE 2's first-pass screen already ran and KILLED
+GLD/CORN/SPY/QQQ/TLT/SLV outright, with USO the one nominal survivor
+(p=0.0355) that fails the Bonferroni multi-comparison bar and was
+explicitly "not promoted to LOGIC gate 3" — a re-run trigger exists
+(`readiness_trigger`, needs ~15-20 more weekly reports; `scripts/
+ladder_readiness_check.py` reports 0/2 gated roots ready today, this one
+included) but has not fired. This is a materially different honesty
+posture than every prior mirror in this sweep (all previously either
+gate1_pass-unresolved or one gate2_pass) — the license mark and both the
+endpoint doc and the agent tool description all state the KILL explicitly,
+not just "gate 2 not attempted", per the same discipline
+`LICENSE_MARKS["data/insider"]` already established for a gate-2-killed
+root.
+
+WHAT SHIPPED: `/api/v1/data/cot` (server/routes.ts) — a keyed mirror of
+the existing `/api/data/cot` route, reusing `latestCot()` directly (no new
+fetch, no new poller). Did NOT mirror `/api/data/cot/history` (the
+per-market search/trend sub-endpoint) — one logical change per PR, same
+scope discipline as every prior mirror in this sweep (attention/insider/
+fleet-utilization/dtcc-swaps all mirrored only their base RAW route).
+`apiProduct.ts` gained: a new `LICENSE_MARKS["data/cot"]` entry (resell:
+`ok`, citing the module's own "US government work, public domain"
+framing); a new `apiMeta().endpoints` entry naming GATE 1 PASS and the
+GATE 2 first-pass KILL with the Bonferroni caveat; and a new `voltrade_cot`
+tool in `agentToolSpec()` with the same honesty language.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+asserting: the license mark is `ok` (not `conditional`), the license text
+names "CFTC" and "public domain", the `voltrade_cot` tool exists with
+`returns_provenance: ["data/cot"]`, and its description carries "GATE 1",
+"KILLED" (not just "not attempted" — this hypothesis was actually tested),
+and "Bonferroni" (so the one nominal survivor doesn't read as a validated
+signal). Also added `/api/v1/data/cot` to the existing generic "wiring
+pinned" route-presence list and "meta honesty" live-endpoint list; the
+"endpoint-count/preview" sweep test stayed generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, no hardcoded count needed
+bumping.
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, 488
+packages, clean) and Python was missing `pytest` (`pip install -r
+requirements.txt -r requirements-dev.txt` run, clean) at session start —
+same recurring fresh-sandbox provisioning gap prior sessions have logged,
+not a regression. `npx tsx --test server/apiProduct.test.ts`: 32/32 (1
+new). `npx tsx --test server/*.test.ts` (full suite): 1396/1396 (up from
+1395). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/counter_ratchet.sh`: `assertions` 12231 -> 12240 (this session's
+own new test, the direct and sole cause — `git fetch origin main` before
+AND after writing the diff confirmed `origin/main` stayed at
+`aa4d3dc`/v1.0.788 throughout, zero concurrent-drift component); pinned in
+`ci/counter_baseline.txt`; all other 24 counters unchanged, re-ran clean
+after the pin update. `bash scripts/gated_tests.sh`: GATE PASSED — client
+100/100 files, python 1451 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine default-
+export interop, mapIcons dynamic/static dual import) — none touched this
+session. No visual harness run: zero `client/src` files touched (`git
+status --short` confirms), same exemption prior zero-rendering-delta PRs
+applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not applicable — this lineage (CFTC COT) carries no
+adsb.lol/aisstream provider-compliance condition; no billing/pricing/
+subscription/paid-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an existing archive
+through the existing v1 API boundary, the same pattern every prior mirror
+in this sweep has followed; no new join or data stream.
+
+VERSION: v1.0.789 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.788 — no
+concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Tuesday ~20:13 ET, AFTER the 16:00 ET close — this PR
+may merge whenever CI passes, no after-hours wait needed (unlike every
+prior PR in this sweep, each opened mid-session).
+
+NEXT (queued, not this session): the SAME audit method (cross-reference
+`datacore/signal_ladder.json` roots with `status` != `raw_only`/
+`gate1_pending`/`gate1_fail`/`killed` against BOTH `stats/*` and `data/*`
+LICENSE_MARKS prefixes, not just literal `gate1_pass`) found three more
+real gaps this session did not close, one PR each: `finra_short_volume`
+(gate2_fail — the composite bar's required monotonic ordering failed, a
+U-shape not a gradient; RAW `/api/data/short-volume` + `shortvol.tsx` live),
+`gem_methane_plume_proximity` (gate2_pending — only gate 2(a) proximity-join
+shipped, 2(b)-(d) not attempted; RAW `/api/data/methane-plumes` +
+`methaneHotspots.tsx` live), and `usaspending_contracts` (gate2_fail — the
+pre-registered ratio hypothesis was rejected and wrong-signed; RAW
+`/api/data/contracts` live, no dedicated client page yet — that gap alone
+may be worth its own [PRODUCT] session before the v1 mirror). A future
+session should ALSO consider compiling this cross-reference into a durable
+script (EDGE DOCTRINE #3 — this exact audit has now been hand-run
+incorrectly at least 8 times) rather than re-deriving it by hand a ninth
+time; not done this session to keep this PR to one logical change. KNOWN
+BROKEN #30 (options-slot-overshoot structural fix) remains queued, T-BOT
+territory. The stale-PR backlog (#817, #834, #844, #877, #888) also
+remains queued, T-CLIENT/RESEARCH territory.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action, used in full: re-verifying a departing session's "queue
+exhausted" claim instead of trusting it, which surfaced 4 real gaps
+instead of 0, then shipping the cleanest one and filing the rest.
+
 ## 2026-08-25 (scheduled-routine session #26) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): Wikimedia pageviews attention proxy gets its /api/v1 keyed mirror, closing session #25's own audit finding (v1.0.788)
 
 TERRITORY: SHARED-but-minimal, same footprint as every prior session in
