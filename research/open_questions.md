@@ -10477,6 +10477,157 @@ Reproducibility artifact: `scripts/illiquid_universe_probe_universe_gate.py`
 + `test_illiquid_universe_probe_universe_gate.py`. Full session log and
 version bump in `research/experiments.md`, 2026-08-11 entry.
 
+**UPDATE 2026-08-14 (scheduled-routine EDGE session, [RESEARCH], axis (b),
+v1.0.712; content revived from stale PR #834 by the 2026-08-26
+scheduled-routine session — see that session's experiments.md entry for
+the revival mechanics) — costs-and-frictions-first workup on the deferred
+MIN_PRICE/MIN_VOLUME loosening question: 2 of the 3 named risks priced
+with structural (non-live-data) facts; both make the case AGAINST
+loosening stronger, not weaker. No threshold/config change ships.**
+
+WHY NOW: axis (a) (build a free-data pipeline) was checked first via
+`python3 scripts/data_stream_registry_check.py --unbuilt` — every named
+example (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+calendar, Google Trends/pytrends) is already `built` or
+`declined_gate1_fail`, matching every prior EDGE session back to 2026-07-26.
+The two remaining keyless `candidate_unbuilt` roots (`dtcc_sbsdr`,
+147MB/day, needs a volume-budget decision; `un_comtrade`, 1-6mo lag,
+structural-thesis-only) are both real but neither is a same-session
+unblocked build. `python3 scripts/ladder_readiness_check.py` showed all 3
+gate2_pending roots still WAITING (`usaspending_contracts` 1 more day,
+`cftc_cot_positioning` ~70d, `sec_8k_earnings_language` ~49d). This
+session's own NEXT note (quoted above) is the one item on the board that
+is BOTH unblocked today AND explicitly pre-scoped by a prior session as a
+fresh axis (b) hypothesis with a stated first step — picked it over
+starting a new hypothesis from zero, matching the 2026-08-13(2) session's
+same reasoning for preferring an already-reasoned-about opportunity.
+
+PRIOR (stated before pricing, REASONING STANDARD #10): expected the
+tick-size spread floor to exceed the model's flat sub-1M-share/day cost
+for a meaningful minority of the pinned names (the model's own
+MEASUREMENT INTEGRITY comment already concedes it applies "the MIDPOINT
+of each live tier's range," which is by construction not a worst case),
+and expected the LULD band comparison to show materially wider bands for
+sub-$3 names than the model implicitly assumes (none). Did not have a
+strong prior on the exact undercharged fraction.
+
+METHOD (`scripts/microcap_cost_floor_check.py`, new): for the same 16
+pinned ILLIQUID(n=10)+sub-$5-of-MODERATE(n=6, excluding IMNM which already
+clears MIN_PRICE) tickers the 2026-08-11 universe-gate finding used,
+transcribed verbatim from that session's filed live-run result (not
+re-fetched — no market-data credentials in this sandbox, stated plainly
+in the script and flagged as a point-in-time snapshot needing refresh
+before any live decision):
+1. TICK FLOOR — Reg NMS Rule 612 sets the minimum quoted variation at
+   $0.01 for any stock priced >= $1.00; the tightest possible spread is
+   exactly one tick, so the theoretical MINIMUM per-side cost of crossing
+   it is half a tick / price. This is a lower bound — real quoted spreads
+   for thin names run several ticks wide, not one — so a name whose floor
+   ALONE exceeds the model's flat cost proves undercharging, it does not
+   merely suggest it. Computed against `backtest_v2._ILLIQUID_COST_PCT`
+   imported live (not copied). Sub-$1.00 names are explicitly NOT given a
+   substitute floor (sub-penny quoting is permitted there, so tick math
+   doesn't apply) — flagged as "needs live quote data," not guessed.
+2. LULD HALT BANDS — FINRA's and Nasdaq's published Limit Up-Limit Down
+   table, verified via WebSearch this session against
+   finra.org/investors/insights/guardrails-market-volatility and the
+   Nasdaq LULD FAQ (a static regulatory constant, worth checking rather
+   than trusting training-data recall for a value going into a permanent
+   research record — re-verify against the live NMS Plan text if this
+   becomes decision-relevant, neither source was an authenticated primary
+   filing). None of the pinned tickers are S&P 500/Russell 1000 members,
+   so all are Tier 2: 10% band above $3, widening to 20% for $0.75-$3 and
+   to "lesser of $0.15-or-75%" below $0.75, doubling in the last 25
+   minutes of the session for sub-$3 names.
+3. DATA-SOURCE STALENESS — NOT attempted. No Alpaca/market-data
+   credentials exist in this sandbox (confirmed via `env`), so
+   Yahoo-fallback staleness for these tickers cannot be checked without
+   a live-market-hours session. Explicitly left open, not silently
+   skipped.
+
+RESULT (`python3 scripts/microcap_cost_floor_check.py`, run 2026-08-14):
+- **7 of 11 tick-priceable names (64%) have a tick-size spread floor ALONE
+  exceeding the model's flat 0.185% per-side cost**: AXG (0.195% vs
+  0.185%, essentially tied), CRDF (0.485%, 2.6x), DYAI (0.500%, 2.7x),
+  SNOA (0.388%, 2.1x), SXTP (0.442%, 2.4x), WNW (0.187%, tied), ZCMD
+  (0.439%, 2.4x). Only GALT/NRXP/PROF/VIVO ($3+) clear the model's
+  charged cost with room. The un-priceable sub-$1.00 names (CISO, EPOW,
+  KTTA, ONCY, TRAW — 5 of 16, nearly a third of the full pinned set) are
+  where real spreads are typically WORST in practice (thinnest names,
+  least market-maker competition) despite this script being structurally
+  unable to floor them; the true undercharged fraction across all 16 is
+  very likely higher than the 7/11 measured, not lower.
+- **LULD bands for the sub-$3 majority of this group run 20-40% intraday
+  (57-115% for the sub-$0.75 names)**, 2-8x the 5% band a Tier 1 mega-cap
+  gets and 2-4x the 10% a >$3 Tier 2 name gets. Neither `backtest_v2.py`'s
+  cost model nor `server/bot.ts`'s synthetic fill haircut represents halt/
+  gap risk in any form — a flat percentage cost cannot.
+
+VERDICT: this does not merely fail to help the MIN_PRICE/MIN_VOLUME
+loosening case — it actively strengthens the KILL. The 2026-08-11 finding
+already showed the live bot never reaches 16 of these 17 names today via
+an unrelated filter (the universe gate); this session's finding shows
+that EVEN IF that gate were loosened, the backtest cost model this
+system would use to evaluate the resulting edge is demonstrably
+optimistic for the majority of the group it would newly admit, at the
+theoretical BEST case. Any Sharpe measured for this segment via the
+current cost model (the same one steps 1-4 of this thread used) should be
+read as an upper bound on the true economics, not a point estimate — and
+the LULD exposure is a real, currently-unmodeled tail risk on top of
+that, independent of the average-cost question entirely. Per REASONING
+STANDARD #6 ("costs and frictions first") and #8 (asymmetry over
+accuracy — tail risk, not just average slippage, is what this LULD
+finding prices), this makes MIN_PRICE/MIN_VOLUME loosening a WEAKER
+candidate than it looked after the 2026-08-11 finding alone, not a
+stronger one. No RULE-REVIEW PR is warranted from this thread without (a)
+a cost model that varies per-name rather than by one flat sub-1M-share
+bucket, and (b) live quote data for the sub-$1.00 names this script could
+not floor.
+
+RATCHET: `test_microcap_cost_floor_check.py` (new, 16 tests) — tick-floor
+boundary behavior (exactly $1.00 applies, $0.99 does not; inverse-price
+scaling; exact half-tick-over-price formula), LULD boundary behavior at
+$0.75/$3.00 exactly, Tier 1 vs Tier 2 above $3, the near-close doubling
+rule (Tier 1 always, Tier 2 only at/under $3), live-import verification
+against `backtest_v2._ILLIQUID_COST_PCT` (not a copied constant),
+undercharged-flag correctness against both a known-undercharged (SNOA)
+and known-clear (PROF) fixture, sub-penny names counted but never
+silently dropped from the report, and a pinned-snapshot-coverage test
+against `illiquid_universe_probe.ILLIQUID` by set identity (would fail if
+the price snapshot silently drifted from the tickers the live 2026-08-11
+run actually evaluated). A/B-verified via `git stash -u`: collection
+fails with `file or directory not found` pre-change, 16/16 pass
+post-change.
+
+GATES: `python3 -m pytest -q test_microcap_cost_floor_check.py`: 16/16
+pass. Full suite re-run by the 2026-08-26 revival session: 1485 passed, 1
+skipped (1469 baseline-at-revival-time + 16 new, zero regressions). No
+`.ts`/`.tsx` files touched (pure Python + two research docs), matching
+the established convention for pure-Python sessions in this file — `npx
+tsc --noEmit`/`npx tsx --test`/`npm run build`/VISUAL VERIFICATION do not
+apply.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure structural/regulatory pricing
+exercise over a fixed, dated ticker/price snapshot; ships no strategy,
+sizing, or threshold change, and computes no new trading signal.
+
+NEXT: (a) the sub-$1.00 tick-floor gap (5 of 16 pinned names) needs a
+live-market-hours session with real quote/spread data — this session's
+structural floor cannot reach that segment; (b) `backtest_v2.py`'s
+`liquidity_cost_pct()` itself could gain a genuine improvement independent
+of this thread: split its single "<=1M shares/day" bucket by price
+(the tick-floor math here shows price, not just volume, drives the floor)
+— that would be its own [RULE-REVIEW]-tagged measurement-integrity PR,
+own session, per this file's MEASUREMENT INTEGRITY rule (never tune the
+ruler and the thing being measured in the same session as this one);
+(c) data-source staleness (risk 3 of 3) remains unpriced, needs live
+Alpaca/Yahoo comparison during market hours.
+
+Reproducibility artifact: `scripts/microcap_cost_floor_check.py` +
+`test_microcap_cost_floor_check.py`. Full session log and version bump in
+`research/experiments.md`, 2026-08-14 entry (original) and 2026-08-26
+entry (revival mechanics).
+
 ## [MEASUREMENT-DEBT · filed 2026-07-25] Visual harness /data perf gate fails on an untouched baseline — 768px median-frame AND 1440px p95-frame, both "upload-hitch spikes"
 
 SYMPTOM: `node scripts/visual_check.mjs --page data` run against a clean
