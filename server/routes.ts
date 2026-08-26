@@ -4740,6 +4740,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // USAspending federal contract-award transactions keyed mirror — closes
+  // the same "gate1-passed, no /api/v1 mirror" gap the COT mirror above
+  // closed (this sweep's own audits named usaspending_contracts alongside
+  // finra_short_volume/gem_methane_plume_proximity as the remaining gaps —
+  // see the COT mirror's comment). Reuses the existing latestContracts()
+  // cache the RAW /api/data/contracts route already populates — no new
+  // fetch, no new poller, no new computation.
+  app.get("/api/v1/data/contracts", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestContracts();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/contracts", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/contracts", {
+        count: hit.txns.length,
+        note: "contracts A-D, |Transaction Amount| >= $25,000; action_date (ad) is the signature date, not the event date — rt (as-seen date) is the only honest event date, and DoD/USACE awards publish ~90 days late. GATE 2 (award/market-cap ratio predicts better small-cap forward returns) was REJECTED 2026-08-15 — RAW display only, not a trading signal. tkr:null rows are unmatched and must be skipped, never guessed.",
+        contracts: hit.txns.slice(0, 500),
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/contracts", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/contracts", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

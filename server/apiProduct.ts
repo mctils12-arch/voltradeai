@@ -224,6 +224,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "CFTC Commitments of Traders (disaggregated)",
     resell: "ok",
   },
+  "data/contracts": {
+    license: "USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000) — the award/transaction record is compiled and published BY the U.S. Department of the Treasury itself from agency-submitted FPDS actions, a US government work product like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention/cot streams above (server/usaSpending.ts's own header: 'US-government work, free incl. commercial') — not submitted-content conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams.",
+    attribution: "USAspending.gov, U.S. Department of the Treasury",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -258,6 +263,7 @@ export function apiMeta() {
       { path: "/api/v1/data/insider", params: "-", desc: "Most-recent SEC EDGAR Form 4 (insider transaction) filings: issuer, reporting owner (director/officer/10%-owner flags), and the full derivative/non-derivative transaction table (transaction code, shares, price, shares owned after) — RAW as-filed display, no predictive claim. GATE 1 (DATA) PASSED (server/edgarForm4.test.ts). The buy-clustering SIGNAL hypothesis this parser feeds was GATE 2 KILLED in both directions (research/open_questions.md; datacore/signal_ladder.json sec_form4_insider_clustering) — filings are submitted by the reporting insider/issuer, not government-authored, conditional resell, see license_marks.", preview: "/api/data/insider" },
       { path: "/api/v1/data/attention", params: "-", desc: "Daily Wikimedia pageviews for a curated 23-ticker company-article seed (en.wikipedia, all-access/agent=user) — RAW daily view counts, an attention PROXY, no spike/z-score claim until the archive holds trailing history and gate 2 runs. GATE 1 (DATA) PASSED 2026-08-18 (11/11 hand-checked tickers show pageviews peaking above trailing baseline in the [8-K Item 2.02 filing date, +1] window; a redirect-stub undercount affecting 3 seed pairs was found and fixed the same session). GATE 2 (does an attention spike lead volume/volatility 1-5d) NOT attempted. Computed by the Wikimedia Foundation from its own server logs, CC0 — freely resellable, see license_marks.", preview: "/api/data/attention" },
       { path: "/api/v1/data/cot", params: "-", desc: "CFTC Commitments of Traders, disaggregated futures-only: weekly positioning by trader category (producer/merchant, swap, managed-money, other-reportable — long/short/spread) for every reported contract market, Tuesday as-of/Friday-publish. GATE 1 (DATA) PASSED 2026-07-05 (0 rejections across a 156-week backfill, 7 symbols). GATE 2 (managed-money positioning-extreme mean-reversion) has already run a first-pass screen: GLD/CORN/SPY/QQQ/TLT/SLV were KILLED; only USO shows a marginal effect (p=0.0355) that fails the multi-comparison Bonferroni bar and was explicitly NOT promoted to logic gate 3. RAW display + archive only, no predictive claim. US government work product, public domain, freely resellable.", preview: "/api/data/cot" },
+      { path: "/api/v1/data/contracts", params: "-", desc: "Most-recent USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000; each row carries a precision-first ticker match — persistent UEI cache -> exact SEC company-name match -> award-detail FPDS parent, never fuzzy; unmatched rows return tkr:null and must be skipped, never guessed). GATE 1 (recipient->ticker matcher) PASSED 2026-07-24. GATE 2 (large award/market-cap ratio predicts better forward returns for small caps) was REJECTED 2026-08-15 (adequately powered at 5d, n=50 high_ratio/n=43 low_ratio, no positive separation at any horizon; the one nominally-interesting result was WRONG-SIGNED and fails the multi-comparison Bonferroni bar) — RAW as-seen display only, no predictive claim. action_date is the contract's signature date, not an event date; rt (as-seen date) is the only honest event date, and DoD/USACE awards publish roughly 90 days late. Public-domain US federal data, freely resellable.", preview: "/api/data/contracts" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -477,6 +483,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/cot",
       returns_provenance: ["data/cot"],
+    },
+    {
+      name: "voltrade_usaspending_contracts",
+      description: "Most-recent USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000), each with a precision-first ticker match (persistent UEI cache -> exact SEC company-name match -> award-detail FPDS parent; unmatched rows return tkr:null and must never be guessed). RAW as-seen display, no predictive claim. GATE 1 (recipient->ticker matcher) PASSED. NOT a trading signal — GATE 2 (large award/market-cap ratio predicts better small-cap forward returns) was REJECTED 2026-08-15 (no positive separation at any horizon across an adequately powered n=50/43 split; the one nominally-interesting result was wrong-signed and fails the multi-comparison Bonferroni bar). action_date is the contract's signature date, not an event date — rt (as-seen date) is the only honest event date, and DoD/USACE awards publish roughly 90 days late. US government work product, public domain, freely resellable — same posture as the CFTC COT/FRED/crop-conditions/bank-failures/NRC/attention tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/contracts",
+      returns_provenance: ["data/contracts"],
     },
   ];
   return {

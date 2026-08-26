@@ -65893,3 +65893,106 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 PRODUCT action (the explicit standing queue item), used in full including
 reading the source module and the correct license precedent rather than
 guessing either from the nearest file-order neighbor.
+
+## 2026-08-26 (scheduled-routine session) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, research/*): USAspending federal contract-award transactions gets its /api/v1 keyed mirror (v1.0.793)
+
+Territory: SHARED files only, minimal footprint, following the exact
+pattern of the sweep's prior mirrors (sessions #14/#17/#18, PRs #929-#936).
+
+HEALTH CHECK: read CLAUDE.md, KNOWN BROKEN (research/open_questions.md) —
+36 items, all resolved/closed or design-gated-open (#20 master_kill_switch
+gated on live TIER-KILL data, not blocking). No unfixed CRITICAL
+trading-loop item; nothing blocks product work this session. wishlist.md
+top carries a STALE-PR BACKLOG finding (2026-08-20), not a progress-floor
+or starvation notice — not this session's territory.
+
+WHAT: found via a subagent survey of data_census.md/platform_program.md
+(axis-(a) build queue and the PLATFORM INTEGRATION PROGRAM are both fully
+shipped/human-gated) that the commit `a6ffdd2` COT-mirror PR had already
+named the exact remaining gap: three `gate1_pass`+ roots with a live
+`/api/data/*` route but no `/api/v1` mirror — `usaspending_contracts`,
+`finra_short_volume`, `gem_methane_plume_proximity`. `usaspending_contracts`
+is the cleanest pick: it just got a dedicated `/data` client page
+(`client/src/pages/usaspendingContracts.tsx`, PR #936, the prior commit) but
+still had no `/api/v1` mirror — completing the UI+API pair in one push, the
+same shape as the DTCC-swaps and fleet-utilization mirrors before it. The
+other two are worse picks: `finra_short_volume`'s gate-2 retest already
+FAILED/INCONCLUSIVE (a mirror is still valid RAW-display work, but no fresher
+momentum) and `gem_methane_plume_proximity`'s gate 2 stays genuinely blocked
+on accumulating archive depth.
+
+READ-BEFORE-WRITE: read `server/usaSpending.ts` in full (the RAW pipeline —
+`latestContracts()` cache, `ContractTxn` field shapes, the DoD ~90-day
+publication-lag honesty note, the UEI-only/no-DUNS license restriction) and
+the existing `/api/data/contracts` route in `server/routes.ts` (the RAW
+route this mirror reuses verbatim, zero new fetch/poller/computation) before
+writing anything. Cross-checked `datacore/signal_ladder.json`'s
+`usaspending_contracts` entry for the exact GATE 2 verdict language (REJECTED
+2026-08-15, n=50/43, wrong-signed nominal survivor, fails Bonferroni) so the
+mirror's honesty language matches the ladder's own record rather than a
+paraphrase. Followed the COT mirror (`a6ffdd2`) as the structural template:
+LICENSE_MARKS entry -> `apiMeta().endpoints` entry -> `agentToolSpec().tools`
+entry -> the actual `app.get("/api/v1/data/contracts", ...)` route in
+routes.ts (requireApiKey + v1Envelope + meterUsage, 503 warming-up path,
+500 catch path) -> matching test assertions in `apiProduct.test.ts` (the
+existing 3 catalog/wiring tests extended, plus a new dedicated license-mark
+test mirroring the COT one exactly, asserting `resell==="ok"` and that the
+agent-tool description carries both "REJECTED" and "Bonferroni" so the
+gate-2 failure travels with the tool, never reading as gate-2-not-attempted).
+
+GATES: `npx tsc --noEmit`: 12 errors, TS2304=0 — unchanged, all 12
+pre-existing and none touch these 4 files (`bash scripts/tsc_ratchet.sh`
+confirms OK: 12<=12). `npx tsx --test server/apiProduct.test.ts`: 33/33 pass
+(was 27; +6 assertions: 2 catalog/wiring list extensions + 4 in the new
+dedicated license-mark test). `npx tsx --test server/usaSpending.test.ts`:
+10/10 pass, unchanged (this diff reuses `latestContracts()` read-only, no
+change to usaSpending.ts itself). `bash scripts/counter_ratchet.sh`:
+`assertions` IMPROVED 12292 -> 12301 (re-pinned in `ci/counter_baseline.txt`
+in this same PR, this session's own direct effect); all 25 counters OK
+after the re-pin. `bash scripts/gated_tests.sh`: GATE PASSED — client
+1070/1070, python 1485/1 skipped/54 subtests (full `pip install -r
+requirements.txt -r requirements-dev.txt` run in this sandbox), quarantine
+0/1 none overdue. No visual harness run: zero `client/src` files touched
+(`git status --short` confirms only server/ci/research/package.json),
+same exemption prior zero-rendering-delta mirror PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's LICENSE_MARKS entry
+carries no aircraft/AIS-derived provider-compliance condition (unlike the
+gnss-integrity-signal/fleet-utilization entries); it is US-government work
+product (USAspending.gov, Treasury), same posture as the COT/FRED/
+crop-conditions/bank-failures/NRC entries already in LICENSE_MARKS. No
+billing/pricing/subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing USAspending
+contracts archive (already joined to the entity graph via
+`server/dossier.ts`'s `contracts: latestContracts()?.txns` wiring, built
+earlier) through the existing v1 API boundary, the same pattern every prior
+mirror in this sweep has followed; no new join or data stream.
+
+VERSION: v1.0.793 (`package.json`, read-and-increment at commit time;
+`git fetch origin main` immediately before the bump confirmed `origin/main`
+still matched this branch's base, v1.0.792/PR #937 — no concurrent session
+had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday ~14:26 ET, inside market hours (opens 09:30,
+closes 16:00 ET). This diff touches server/apiProduct.ts and
+server/routes.ts but adds only a new, additive `/api/v1/*` GET route
+reading an existing cache — zero trading-loop blast radius, same profile as
+every prior `/api/v1` mirror PR in this sweep. Per CLAUDE.md's "prefer
+merging PRs outside 9:30-16:00 ET" guidance, this PR's description asks for
+an after-hours/close merge rather than requesting an immediate one.
+
+NEXT (queued, not this session): `finra_short_volume` and
+`gem_methane_plume_proximity` remain the last two roots named in the COT
+mirror's own gap-audit without an `/api/v1` mirror — either is a valid
+next pick for a future session (both are small, single-file-pattern PRs
+like this one).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the standing gap the sweep's own prior audit had already
+named), used in full including reading the source pipeline module and the
+ladder's exact gate-2 verdict language rather than paraphrasing from memory.

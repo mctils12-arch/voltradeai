@@ -79,6 +79,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/insider"), "SEC Form 4 insider transactions keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/attention"), "Wikimedia pageviews attention proxy keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/cot"), "CFTC Commitments of Traders keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/contracts"), "USAspending federal contract awards keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
   assert.ok(meta.disclaimer.includes("safety-of-life"));
@@ -86,7 +87,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -345,6 +346,20 @@ test("CFTC COT license mark: government-published weekly report resells freely l
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
   assert.ok(tool.description.includes("KILLED"), "honesty: the gate-2 first-pass KILL on 6 of 7 markets (not a silent 'not attempted') must travel with the tool description");
   assert.ok(tool.description.includes("Bonferroni"), "honesty: the one nominal survivor's failure to clear multi-comparison correction must travel with the tool description, not read as a validated signal");
+});
+
+test("USAspending contracts license mark: government-published award record resells freely like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention/cot streams, not conditional like the issuer-submitted insider/13F/earnings-language/DTCC streams; agent tool documents the gate-2 REJECTION honestly, not a silent gate-2-not-attempted", () => {
+  assert.equal(LICENSE_MARKS["data/contracts"].resell, "ok",
+    "the Treasury Department compiles and publishes this award record itself as a government work product — must not be mismarked conditional like the issuer-submitted streams");
+  assert.ok(LICENSE_MARKS["data/contracts"].license.includes("USAspending"));
+  assert.ok(LICENSE_MARKS["data/contracts"].license.includes("public domain") || LICENSE_MARKS["data/contracts"].license.includes("free incl. commercial"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_usaspending_contracts");
+  assert.ok(tool, "voltrade_usaspending_contracts tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/contracts"]);
+  assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
+  assert.ok(tool.description.includes("REJECTED"), "honesty: the gate-2 REJECTION (not a silent 'not attempted') must travel with the tool description");
+  assert.ok(tool.description.includes("Bonferroni"), "honesty: the one nominally-interesting result's failure to clear multi-comparison correction must travel with the tool description, not read as a validated signal");
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
