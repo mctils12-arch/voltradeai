@@ -11953,3 +11953,172 @@ other 23 counters unchanged.
 
 BACKTEST: N/A per PROMOTION RULE 3 — still a research probe result, not a
 strategy/threshold/scoring change.
+
+## [2026-08-26 — FOREIGN-FIELD IMPORT (axis c): epidemiological "reproduction number" as a cross-sectional sector-contagion signal — RUN AGAINST REAL DATA, GATE 2 RESULT: CLEAN NEGATIVE, KILLED for this exact spec]
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3 scripts/session_health_check.py`:
+all 7 OK — liveness alive/not dark, subsystems ok, no LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits register none overdue
+(next STALENESS 2026-09-14, CONSTITUTIONAL 2026-09-15); thrash_ratio 3/10
+REPAIR (well under the 7+ trigger); known_broken 36 items, all resolved/
+closed or design-gated-open (#20 master_kill_switch — gated on live
+TIER-KILL data accumulating, not blocking; #30/#35/#36 all closed). NOT a
+[REPAIR] session.
+
+AXIS SURVEY (all four options in this routine's brief considered):
+axis (a)'s named examples (Sentinel-2 tank shadows, EDGAR Form 4,
+USAspending, CFTC COT, FDA calendar, Google Trends/pytrends) are all
+already built, shipped as `/api/v1` mirrors, or correctly routed to a free
+substitute/declined (grep-confirmed this session: `datacore/sentinel2/`,
+`server/fdaEvents.ts`, `datacore/manifests/{cot,cftctff,usaspending}.json`
+all exist; `google_trends_pytrends` is gate1_fail-dead in
+`datacore/signal_ladder.json`). Axis (b) (illiquid-universe capacity
+research) is explicitly gated on the options-side fill-realism fix, which
+this file's own "Options fill realism" entry still shows as open (deferred
+behind KNOWN BROKEN #12(b)/(c) as of the 2026-07-23 update) — skipped per
+the 2026-08-18 session's own precedent for the same reason. Axis (c):
+grepped experiments.md + open_questions.md for "reproduction number",
+"epidemiology", "contagion", "R_t"/"Rt", "SIR" — zero prior hits. The one
+existing foreign-field import on file (2026-08-18/21, ecology's "critical
+slowing down") already ran to a clean negative and is fully closed — not a
+matured-but-unrun item to pick up, a genuinely new import was needed.
+Axis (d) converges with (c) here, same precedent as the CSD entry: this
+both imports a new field AND ships reusable, tested code.
+
+FOREIGN FIELD: epidemiology's time-varying reproduction number R_t (Cori
+et al. 2013, "A New Framework and Software to Estimate Time-Varying
+Reproduction Numbers During Epidemics," Am J Epidemiol 178(9):1505-1512).
+R_t answers "is the outbreak still accelerating right now" as the ratio of
+new cases in a recent window to new cases in the window immediately before
+it (the full method additionally convolves by a serial-interval
+distribution — this probe uses the simpler uniform-window special case,
+an honest simplification, not a claim of reproducing the full parametric
+model). This is a DIFFERENT import from the 2026-08-18/21 ecology one:
+critical slowing down measured a SINGLE index's own autocorrelation/
+variance (a within-series diagnostic); this measures how fast a "case" —
+a fresh technical breakdown — is spreading ACROSS a basket of sector
+peers (a cross-sectional, event-counting diagnostic). Structurally both
+ask "does the rate-of-change of a stress signal add value beyond its
+level," but the underlying math (event-counting + a growth ratio, vs.
+continuous AR1/variance) and the data shape (cross-sectional multi-ticker,
+vs. single-index) are genuinely distinct.
+
+HYPOTHESIS (pre-registered, testable form): define a daily "case" for a
+ticker as its close making a new 20-trading-day low (a discrete,
+threshold-free event, mirroring epidemiological case counting — not a
+volatility-normalized shock, a simpler operationalization, stated as a
+limitation, not the whole design space per REASONING STANDARD #4). Sum
+cases across a sector's constituent stocks each day (I_t). R_t = sum(I_t
+over the last tau=5 days) / sum(I_t over the tau days before that). CLAIM:
+R_t carries predictive information about the sector's forward index
+return beyond what the raw case LEVEL (I_t) already carries.
+
+PRIOR (stated before running against real data, REASONING STANDARD #10):
+the raw level I_t (how many sector peers are breaking down right now) is
+already a fairly direct breadth-deterioration signal, similar in spirit to
+`stress_index.py`'s existing crude "SPY vs MA50/MA200" breadth component.
+The genuinely non-obvious claim is whether R_t (the second-order,
+acceleration view) adds INDEPENDENT lead-time value on top of the level —
+if R_t's correlation with forward returns is no stronger than I_t's own,
+this import adds nothing new, a valid negative result to record honestly
+(same discipline the CSD probe's own outcome required), not a reason to
+hide the entry.
+
+LADDER PATH: gate-2 SIGNAL test (statistical predictive power, no
+trading), built on daily bars already gate-1-verified elsewhere in this
+codebase (`backtest_v2.fetch_bars`, Alpaca-first/Yahoo-fallback) — no new
+gate-1 needed, same precedent as `critical_slowing_down_probe.py`.
+
+UNIVERSE: `bot_engine.SECTOR_MAP`'s existing "Technology" tickers (18
+entries, 17 unique after the GOOG/GOOGL alias — the live bot's own sector
+classification, reused rather than re-derived per EDGE DOCTRINE #3), QQQ
+(tech-heavy, already used elsewhere in this codebase) as the forward-
+return target.
+
+WHAT SHIPPED: `scripts/contagion_reproduction_probe.py` — pure statistical
+core (`new_low_flags`/`align_common_dates`/`cross_sectional_event_counts`/
+`windowed_reproduction_number`/`forward_return_pct`/`compute_lead_signal`)
+plus `run_probe()`, reusing `backtest_v2.fetch_bars` and
+`bot_engine.SECTOR_MAP` verbatim rather than re-deriving either. Every
+function reports `None`/`insufficient_n` rather than fabricating a
+statistic on undefined or zero-base-rate inputs (a zero-case prior window
+makes the growth ratio None, never +inf or a silently clamped value; below
+`MIN_N_FOR_STATS=30`, the Spearman cell reports `insufficient_n` instead of
+a number computed on too few points — mirrors `regime_detector_compare.py`'s
+own floor). `test_contagion_reproduction_probe.py` — 18 new tests, pure
+synthetic data, no network: new-low flagging (window warm-up, a genuine
+new low, a bounce correctly NOT flagged, a flat/tied series); date
+alignment (intersection + reindex, empty input); cross-sectional summation
+(sums correctly, honestly propagates `None` when the aligned window hasn't
+filled yet for either ticker, empty input); the R_t ratio (`None` before
+two full windows exist, a hand-computed 8/2=4.0 growth case, a zero-prior-
+sum case reports `None` not infinity, a `None` anywhere in either window
+propagates); forward-return edge cases (in-range, out-of-range, non-
+positive base); and an end-to-end wiring smoke test (a fully deterministic
+synthetic archive where next-day return is an exact linear decreasing
+function of R_t at horizon=1 — chosen specifically to avoid the overlapping-
+window blur a periodic R_t series produces at longer horizons, verified by
+hand before trusting the assertion — correctly yields a strongly negative,
+non-`insufficient_n` Spearman rho).
+
+WHY RUN AGAINST REAL DATA THIS SESSION (unlike the CSD probe's first
+pass): this sandbox had working network access to Yahoo Finance this
+session (`query1.finance.yahoo.com` returned HTTP 200 on a direct check;
+no `ALPACA_KEY`/`ALPACA_SECRET` needed), so `backtest_v2.fetch_bars`
+could be exercised directly — no reason to defer the real-data run to a
+future session per this codebase's own established precedent (compare the
+2026-08-21 CSD follow-up, which ran the moment data access existed).
+
+RESULT (real run, `PYTHONPATH=. python3 scripts/contagion_reproduction_probe.py
+--days 2520`, Technology universe: AAPL/ADBE/AMAT/AMD/AVGO/CRM/GOOG/GOOGL/
+INTC/META/MSFT/NOW/NVDA/ORCL/PLTR/QCOM/SNOW/TXN vs. QQQ, 2020-09-30 to
+2026-08-25, n_dates=1482):
+
+| horizon | n (R_t) | rho (R_t) | p (R_t) | n (level) | rho (level) | p (level) |
+|---|---|---|---|---|---|---|
+| 5d  | 1171 | -0.0194 | 0.506 | 1458 | 0.0429 | 0.101 |
+| 10d | 1168 |  0.0130 | 0.656 | 1453 | 0.0133 | 0.613 |
+| 20d | 1158 |  0.0096 | 0.745 | 1443 | -0.0122 | 0.645 |
+
+VERDICT (per REASONING STANDARD #4/#10 — record a negative result, don't
+drop it): every cell, both R_t and the raw level, at all three horizons,
+is statistically indistinguishable from zero (all p > 0.10, all |rho| <
+0.05, no cell even nominally significant before any multiple-comparison
+discount, unlike the CSD probe's one borderline USO-style survivor
+elsewhere in this file). This is a clean, unambiguous NEGATIVE result for
+"new-20d-low reproduction-rate ACROSS the Technology sector predicts QQQ's
+forward return, at tau=5/window=20, over 2020-2026" — **gate 2 FAILED,
+this specific candidate is KILLED**, same disposition class as the CSD
+probe's SPY/VXX result. The PRIOR's own comparison also does not survive:
+R_t shows no more (in fact slightly less, at 2 of 3 horizons) predictive
+power than the raw case level — the acceleration view adds nothing
+measurable beyond the level here, so even IF the level itself had shown
+something, this specific epidemiological refinement would not have been
+the reason. NOT killed: the foreign-field import technique or the reusable
+code, which stands ready for a different universe/target/event-definition
+per EDGE DOCTRINE #3 (compile the reasoning, not just the one result).
+
+HONEST CAVEATS (stated up front in the module docstring, restated here):
+single sector (Technology), single target (QQQ), single event definition
+(new 20d low), single archive window, single R_t window size (tau=5) —
+one reasonable specification tested, not the whole design space. A
+different sector (financials, energy — sectors with more idiosyncratic,
+less index-correlated moves than mega-cap tech, which QQQ itself is
+heavily weighted toward, arguably confounding "sector distress" with "QQQ
+itself" for this specific universe/target pairing), a volatility-normalized
+event definition, or a different tau could show something this spec does
+not — REASONING STANDARD #5 (second-order thinking) would need to state
+WHY before any such follow-up runs, not just a broader parameter sweep on
+the same untested premise (the exact discipline the CSD entry's own
+lead=1 AR1 hint follow-up note already established as the bar).
+
+RATCHET: `python3 -m unittest test_contagion_reproduction_probe -v`: 18/18
+passed. `python3 -m pytest -q`: 1469 passed, 1 skipped (1451 baseline +
+18 new, zero regressions). No `.ts`/`.tsx` files touched (pure Python
+addition) — see experiments.md for the full gates trace including the
+pre-existing, unrelated sandbox-provisioning gap this session found and
+fixed (`npm ci`) before confirming that.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a research probe script
+and its tests, not a strategy, threshold, or scoring change; no trading
+behavior is touched.
