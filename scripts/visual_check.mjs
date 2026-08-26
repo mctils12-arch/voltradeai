@@ -152,6 +152,11 @@ const PAGES = {
   // FDIC bank failures — same Phase 5 ratchet rule as
   // streams/vehiclecomplaints above.
   bankfailures: { route: "/app#/data/bank-failures", map: false },
+  // Federal contract awards (USAspending) — same Phase 5 ratchet rule as
+  // bankfailures/vehiclecomplaints above; closes the "shipped-data-no-
+  // client-page" gap the 2026-08-25 /api/v1 mirror sweep flagged (session
+  // #27, research/experiments.md).
+  contracts: { route: "/app#/data/contracts", map: false },
   // Attention proxy (Wikipedia pageviews) — existing page, brought under
   // the Phase 5 ratchet this session (GATE 1 pass + honesty-note addition,
   // 2026-08-18) alongside the other /data detail views above.
@@ -1347,6 +1352,28 @@ const FIXTURES = {
       { cert: 57488, name: "Pulaski Savings Bank", fail_date: "2026-01-30",
         city_state: "CHICAGO, IL", state: "IL", charter_class: "NM", restype: "FAILURE",
         assets_k: 41200, deposits_k: 39800, cost_k: 19647, fund: "DIF", rt: "2026-08-18" },
+    ],
+  },
+  // USAspending federal contract awards (2026-08-26, RAW display,
+  // usaspendingContracts.tsx). Fixture covers one ticker-matched award, one
+  // unmatched recipient (tkr:null, excluded by the "ticker-matched only"
+  // default filter), and one negative deobligation so the harness exercises
+  // both the never-guess-a-ticker rule and the signed-amount formatting.
+  "/api/data/contracts": {
+    kind: "raw", source: "USAspending.gov, U.S. Department of the Treasury (fixture)",
+    attribution: "Source: USAspending.gov, U.S. Department of the Treasury",
+    time: "2026-08-26T12:00:00.000Z", count: 3,
+    note: "action dates are signature dates — DoD/USACE publish ~90 days late; rt is the as-seen date",
+    contracts: [
+      { aid: "CONT_AWD_FIXTURE1", piid: "FA123", ad: "2026-05-20", amt: 4200000, r: "LOCKHEED MARTIN CORP",
+        pn: null, tkr: "LMT", ag: "Department of Defense", sub: "Department of the Air Force",
+        desc: "Sustainment support services", rt: "2026-08-26" },
+      { aid: "CONT_AWD_FIXTURE2", piid: "GS456", ad: "2026-08-15", amt: 88000, r: "RIVERBEND LOCAL CONSTRUCTION LLC",
+        pn: null, tkr: null, ag: "General Services Administration", sub: "Public Buildings Service",
+        desc: "Facility repair, region 4", rt: "2026-08-26" },
+      { aid: "CONT_AWD_FIXTURE3", piid: "N789", ad: "2026-07-01", amt: -150000, r: "HUNTINGTON INGALLS INDUSTRIES",
+        pn: null, tkr: "HII", ag: "Department of Defense", sub: "Department of the Navy",
+        desc: "Deobligation, contract modification 0003", rt: "2026-08-26" },
     ],
   },
   "/api/data/cot": {

@@ -2458,6 +2458,16 @@
    "description": "Most recent US bank failure and assistance events (name, state, type, assets/deposits, estimated DIF cost) back to 1934; v1 scope is failures only, not the quarterly financials snapshot. No ticker join — most failed institutions are small, non-public regional banks. Deposit-flight-and-failures-at-small-regional-banks-lead-KRE-and-listed-small-cap-banks is an open hypothesis: gate 1 (data ground-truth vs FDIC's own Call Reports) passed 2026-08-18 with a documented caveat; gate 2 not yet attempted, not yet surfaced as a signal."
   },
   {
+   "id": "contracts",
+   "name": "Federal contract awards (USAspending)",
+   "kind": "raw",
+   "status": "live",
+   "group": "filings",
+   "costTier": "light",
+   "source": "USAspending.gov, U.S. Department of the Treasury (US government work, public domain, keyless, no API key required)",
+   "description": "Contracts A-D with |transaction amount| >= $25K, ticker-matched where a recipient resolves via exact-name or FPDS parent lookup (unmatched rows carry no ticker and are excluded, never guessed). GATE 1 (recipient->ticker matcher) PASSED 2026-07-24. GATE 2's pre-registered hypothesis — a high award/market-cap ratio predicts better forward small-cap returns — was REJECTED 2026-08-15 (adequately powered, no positive separation at any horizon, the one nominal result is wrong-signed and fails Bonferroni); RAW display only, not a signal. DoD/USACE awards publish roughly 90 days after signature — a recent row can describe an older commitment."
+  },
+  {
    "id": "shadowstats",
    "name": "Dark-ship statistics",
    "kind": "raw",
