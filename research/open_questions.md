@@ -5017,6 +5017,101 @@
     recurrence means grace was correctly denied and RECURRENCE ESCALATES
     applies for real per the discipline already established above.
 
+37. **[FOUND 2026-08-19, PR #877, RE-CONFIRMED LIVE 2026-08-27,
+    scheduled-routine session — NOT diagnosed, NOT fixed; filed for a
+    dedicated future REPAIR session with Railway volume access.] The
+    vessel-position (AIS) archive has an unexplained, PATCHY gap in the
+    first half of August 2026 that is STILL PRESENT in production today,
+    eight days after it was first found and never landed (the finding
+    sat stranded in PR #877, which was never merged — one of the
+    zero-CI-run stale PRs `wishlist.md`'s STALE-PR BACKLOG names).**
+    RE-VERIFIED LIVE this session via `/api/diag/portdwell_window?
+    end=2026-08-0{3..13}T12:00:00Z&hours=24&token=$DIAG_TOKEN` against
+    production (`server_version:"1.0.796"`) — numbers are byte-identical
+    to PR #877's 8-day-old readings, confirming this is not a transient
+    blip that self-resolved: `2026-08-03: 0, 08-04: 0, 08-05: 34985,
+    08-06: 24862, 08-07: 0, 08-08: 0, 08-09: 0, 08-10: 0, 08-11: 0,
+    08-12: 664, 08-13: 1245`. `raw_vessel_archive_from` reads
+    `2026-08-05T00:00:00.000Z` (the archive's earliest surviving raw
+    hour, per the 2026-08-19(2)/v1.0.744 `oldestRawHour()` mechanism —
+    see the PORT DWELL ANALYTICS section's "GATE 1 disposition" note;
+    that session's own retention-boundary finding is what makes 08-05
+    the archive's true floor, not a coincidence).
+    TWO ANOMALIES, deliberately not conflated:
+    (a) **Aug 7-11 reads entirely empty.** The already-documented
+    aisstream.io provider outage (2026-08-05 13:00 to 2026-08-12 10:00
+    UTC, RESOLVED 2026-08-15 per `wishlist.md`) plausibly explains a
+    LOW/zero-traffic window here — this half of the anomaly likely has a
+    known, already-filed cause and may not need its own investigation;
+    flagged for confirmation, not re-opened as mysterious.
+    (b) **Aug 5-6 reads implausibly HIGH — 34,985 and 24,862 unique
+    vessels in a single 24h window, vs. ~1,500/24h implied by the
+    confirmed-good 2026-08-13/19 windows (1,245 and 37,174 respectively,
+    both re-verified live this session too).** A single day at roughly
+    6-20x the surrounding normal rate does NOT fit the provider-outage
+    explanation (an outage suppresses traffic, it does not inflate it) —
+    this half remains genuinely unexplained.
+    NEW EVIDENCE THIS SESSION (beyond what PR #877 had — a genuine
+    contradiction, not just a re-confirmation): `/api/diag/archive?
+    stream=vessels&day=2026-08-0{4..13}&token=$DIAG_TOKEN` (the raw
+    per-day file listing, exact-filename-prefix match per
+    `archiveDayFiles()` in `server/datacoreArchive.ts`) reports **ZERO
+    files on disk for `day=2026-08-06`** — yet the window-based
+    `portdwell_window` probe (`server/shadowFleet.ts`'s
+    `readVesselTracks`/`foldVesselArchiveAsync`, which parse each
+    file's own name for its timestamp rather than trusting a `day`
+    string match) reports 24,862 vessels for the 24h window ENDING
+    2026-08-06T12:00. File counts by day, live this session:
+    `08-04: 0, 08-05: 14 (hours 00-13 only — 14-23 also missing), 08-06:
+    0, 08-07 through 08-11: 0, 08-12: 14, 08-13: 24 (full day)`. Two
+    readers of the same archive directory disagree about whether Aug 6
+    data exists at all — this is a STRONGER, more specific lead than
+    PR #877 had (it only had the aggregate counts, not the file-level
+    contradiction) and points at a real divergence between
+    `archiveDayFiles()`'s literal `f.startsWith(day)` filename match and
+    `readVesselTracks`'s filename-parsed-timestamp-range match, OR at
+    files that exist under a misdated/duplicate name (e.g. an Aug 5
+    hour-14-23 write that landed under a different date string due to a
+    timezone or clock-skew defect in the AIS ingestion writer, then got
+    counted into an Aug-5/Aug-6-adjacent window read but never appears
+    under either day's literal file-prefix listing). NOT diagnosed
+    further this session — no Railway volume/shell access from this
+    sandbox to inspect the actual file names and their `mtime`/content
+    directly, which is what would settle it in one look (same
+    limitation PR #877's own filing already named).
+    IMPACT: bounds what `port_dwell_maritime_transit` GATE 1 (already
+    `gate1_pending`, see the PORT DWELL ANALYTICS section) and any other
+    vessel-archive-dependent historical analysis (shadow fleet, future
+    GNSS/AIS joins) can honestly claim about the 2026-08-05/06 window
+    specifically — a naive read would treat Aug 5-6 as the busiest days
+    in the archive's history, which the file-level evidence above says
+    is very unlikely to be real traffic. Does NOT affect the live
+    rolling-window RAW surfaces (`/api/data/portdwell`,
+    `/api/data/shadowstats`) — those only ever read trailing days,
+    confirmed sane this session (08-19: 37,174 vessels/24h, in line with
+    the 08-13 baseline). NOT a LIVENESS or KILL-SWITCH issue — no
+    trading path reads this archive; purely a datacore product-layer
+    data-integrity question.
+    NEXT for whichever REPAIR session picks this up: (1) with Railway
+    shell/volume access, `ls -la` the `vessels/` archive directory for
+    2026-08-05 through 2026-08-07 directly — file presence, exact names,
+    and mtimes settle in one look whether this is a writer-side
+    misdating bug, a rollup that deleted Aug 6's files while leaving
+    Aug 5's partial, or something else. (2) if no volume access, extend
+    `/api/diag/archive` (or a narrow one-off diag case) to report a
+    file's OWN embedded timestamp range (min/max `t` in its rows) next
+    to its filename, so a name/content mismatch would be visible from
+    this sandbox without volume access. (3) do not assume either the
+    gap or the spike without a file-level read — this entry's evidence
+    is probe-derived aggregate + filename-listing only, not a raw byte
+    inspection. (4) PR #877 (never merged, contains this same finding
+    from 2026-08-19 plus a stale/superseded docs-only account of the
+    port_dwell GATE 1 disposition, since fully superseded by the merged
+    2026-08-19(2)/v1.0.744 session's `oldestRawHour()`/`coverage_caveat`
+    work) is closed this session as superseded, its unique un-landed
+    delta salvaged into this entry.
+    NOT A SPEND REQUEST.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?

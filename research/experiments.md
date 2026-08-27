@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-27 (scheduled-routine session) [NO-ACTION / PROCESS] — landing the one genuinely unique, never-merged delta from stale PR #877 (vessel-archive Aug 5-11 2026 anomaly), re-verified live 8 days later and strengthened with new file-level evidence; PR #877 closed as superseded (no code shipped, no version bump)
+
+TERRITORY: SHARED, docs/data-only — `research/open_questions.md` and
+`datacore/signal_ladder.json` only. No T-BOT/T-CLIENT/T-DATACORE code
+file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(learned this file is newest-at-top, per its own header and KNOWN BROKEN
+#36's fix — an earlier `tail`-based read of this same session momentarily
+mis-read the file's oldest entries as newest before this was caught and
+corrected). `python3 scripts/session_health_check.py`: 6 OK, 1 WARN
+(daemon_memory rss=413.3MB >= trim_mb=400MB, deep_score running in
+trimmed mode — same known, previously-logged degraded-but-graceful state
+prior sessions have noted, not a new regression; liveness alive/not dark,
+subsystems ok, alt-data fresh, 0 tier2 timeouts, ml_feedback age 8.1h no
+known-broken signature, deploy_freshness server_version=1.0.796 matching
+this checkout). Live `/api/health` (production) independently confirmed:
+`status:"ok"`, `bot.liveness.dark:false`, `drawdownPct:"0.0"`, no dead
+feeds. No LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits_register none overdue (3 tracked); thrash_ratio 0/10 REPAIR in the
+last 10 tagged sessions (well under the 7+ trigger — NOT a repair-thrash
+situation); known_broken 36 items, only #26/#34 lack an explicit close
+marker (advisory only, both already resolved per prior sessions' notes,
+not re-verified again this session). `starvation_signal`: 0 consecutive
+STARVED at the front, below the 10+ trigger.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed both gate2_pending roots (cftc_cot_positioning ~56d of ~105d
+needed; sec_8k_earnings_language 36d of 90d) still WAITING, nothing ready
+to judge. `python3 scripts/data_stream_registry_check.py --unbuilt`
+showed no axis-(a) candidate unblocked today — same human-key/
+volume-budget-gated set every recent session has found (`dtcc_sbsdr`,
+`un_comtrade`, `viirs_nightfire`, `uspto_patents`, `cloudflare_radar`,
+`openaq_v3`). The immediately prior session's own NEXT note (v1.0.796)
+found no unblocked axis (a)/(b)/(c) either and suggested a future session
+either wait for a human-gated root to clear or start a genuinely fresh
+axis (b)/(c) hypothesis from zero. Before doing that, checked this
+session's own required PR-hygiene step: `mcp__github__list_pull_requests`
+(state=open) returned 4 open PRs — #604 (draft, explicitly "do not merge
+as-is", correctly excluded), #817/#844 (T-CLIENT/rendering, already
+flagged in `wishlist.md`'s STALE-PR BACKLOG as too large for a
+single-session safe revival, still true), and **#877** (docs-only per its
+own title, opened 2026-08-19, zero check runs on its head commit — the
+exact "mechanism (3)" class `wishlist.md`'s STALE-PR BACKLOG entry
+already named and had NOT yet triaged: "#877 ... noted for completeness"
+as of the 2026-08-20 sweep, and still untouched a week later). This is
+the same shape as the precedent 2026-08-26 session #4 landed for PR #888
+(a stale, docs-only PR whose findings never reached `main`) — a concrete,
+bounded, queued PROCESS item, picked over starting a fresh, larger
+RESEARCH thread from zero.
+
+READ BEFORE WRITE: read PR #877's full diff and body (via
+`pull_request_read get_diff`/`get`) before assuming any of its content
+was still accurate or unlanded. Cross-referenced against PR #876 (a
+DIFFERENT PR, same branch lineage, confirmed `merged:true` at v1.0.743)
+and grepped `server/shadowFleet.ts` for its "stamp > now"/"p.t > nowSec"
+upper-bound fix: **already present on `main`** — #877's diff included
+this code only because its branch stacked on #876's unmerged-at-diff-time
+commit, not because it was unlanded. Grepped `research/experiments.md`
+and `research/open_questions.md` for #877's other claims
+("RAW_RETENTION_DAYS was 7", "second-busiest July", the exact
+`vessels_seen` numbers) and found a THIRD, later, independently-run and
+merged session (2026-08-19(2), v1.0.744) had already re-derived the same
+retention-boundary root cause from scratch and shipped a better fix
+(`oldestRawHour()` + `coverage_caveat`, so the probe self-reports
+undercounted-vs-zero-activity instead of a bare misleading zero) —
+`port_dwell_maritime_transit` GATE 1's disposition is correctly already
+`gate1_pending` in spirit, but `datacore/signal_ladder.json`'s own entry
+had NOT been updated since 2026-07-04 and read the older, superseded
+wording. #877's ONE claim never independently reproduced anywhere in
+`main`: the Aug 5-11 vessel-archive PATCHY anomaly (KNOWN BROKEN #31 in
+#877's own unlanded numbering — that number has since been reassigned to
+an unrelated, already-closed OCC-symbol-parsing item, so re-using it
+would have collided; filed fresh as #37 instead).
+
+LIVE RE-VERIFICATION (the reason this is more than a mechanical port):
+before trusting an 8-day-old, never-merged finding, re-ran the exact
+probe against CURRENT production (`server_version:"1.0.796"`) rather than
+assuming it still held. `/api/diag/portdwell_window?end=2026-08-0{3..13}
+T12:00:00Z&hours=24&token=$DIAG_TOKEN`: numbers are byte-identical to
+PR #877's account (`08-05: 34985, 08-06: 24862, 08-07..11: 0`) — not a
+transient blip, still live today. Went further than #877 had capacity
+for: `/api/diag/archive?stream=vessels&day=2026-08-0{4..13}&token=
+$DIAG_TOKEN` (the per-day file listing, exact-filename-prefix match)
+shows **zero files under the literal `2026-08-06` filename prefix** —
+directly contradicting the window-based reader's 24,862-vessel count for
+a window ending 2026-08-06T12:00. This file-vs-window contradiction is
+new evidence #877 never had (it only had the aggregate counts) and is a
+sharper lead for whichever REPAIR session has Railway volume access next.
+Also spot-checked `2026-08-13`/`2026-08-19` as in-range sanity controls
+(1245/37174 vessels respectively) — both match prior sessions' own
+independently-recorded readings exactly, confirming the archive's older
+content is stable/unchanged, not actively corrupting further.
+
+WHAT SHIPPED: `research/open_questions.md` KNOWN BROKEN #37 (new) — full
+evidence table, the file-vs-window contradiction, four concrete NEXT
+options for a future REPAIR session, explicitly NOT diagnosed further
+(no Railway volume/shell access from this sandbox). `datacore/
+signal_ladder.json`'s `port_dwell_maritime_transit` entry updated
+(`last_update_date` 2026-07-04 -> 2026-08-27) to reflect the merged
+v1.0.744 mechanism and point at KNOWN BROKEN #37, replacing the stale
+2026-07-04 wording that predated three later sessions' worth of findings.
+PR #877 closed on GitHub with an explanation comment (superseded by
+#876/v1.0.744, unique delta salvaged into #37) per the WORKSTREAM
+PARTITION supersession precedent (first-merged wins, the duplicate
+salvages its unique delta) — same disposition class as the 2026-08-20
+PR #763/#888 precedent.
+
+GATES: docs/JSON-only change, same class as the 2026-08-16 CONSTITUTIONAL
+AUDIT entry and the 2026-08-26 session #4 (PR #888 landing) precedent —
+no code touched, so `pytest`/`tsc`/`gated_tests.sh` do not apply.
+`python3 -c "import json; json.load(open('datacore/signal_ladder.json'))"`:
+valid JSON, minimal targeted diff (one entry's `last_update_date`/`note`/
+`source_ref` fields, not a reformat). Grepped for any code or test that
+hardcodes this entry's note text (`grep -rn port_dwell_maritime_transit
+--include=*.py --include=*.ts`): only comments in `server/diag.ts`,
+`server/bot.ts`, `server/datacoreArchive.ts` reference the id by name in
+prose, nothing parses or pins the note string. Re-ran `python3
+scripts/ladder_readiness_check.py` and `python3
+scripts/data_stream_registry_check.py` against the edited file: both run
+clean, output unchanged in shape (this root isn't gate2_pending or
+unbuilt, so neither script's own logic touches it). No version bump per
+PROMOTION RULE 4 (nothing to attribute a code change to).
+
+BACKTEST: N/A per PROMOTION RULE 3 — docs/data-only, no strategy/scoring/
+sizing/threshold value changed, no FROZEN path touched, zero trading-loop
+or client-rendering blast radius.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code in this diff.
+
+CROSS-SYSTEM INTEGRATION: none new — this corrects bookkeeping on an
+existing ladder entry and files a bounded data-integrity finding on an
+existing archive; no new join, stream, or entity-graph tie.
+
+MARKET-HOURS NOTE: Thursday ~07:11 ET, well before open (09:30 ET) —
+moot regardless, since this diff has zero trading-loop blast radius
+(docs/JSON bookkeeping only, no server/client runtime file touched).
+
+NEXT (queued, not this session): KNOWN BROKEN #37's own four NEXT options
+stand as filed — the highest-leverage one is direct Railway volume/shell
+access to `ls -la` the vessels/ archive directory for 2026-08-05 through
+2026-08-07, which would likely settle the file-vs-window contradiction in
+one look; absent that, extending `/api/diag/archive` to report a file's
+own embedded min/max row timestamp next to its filename would make the
+mismatch visible from this sandbox without volume access. #817 and #844
+remain the two still-untriaged large T-CLIENT stale PRs (both need the
+visual harness, correctly deferred again this session — out of scope for
+a docs-only PROCESS action).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PROCESS action (closing a genuinely stranded, 8-day-old finding after
+re-verifying it live and strengthening it with new evidence rather than
+mechanically porting stale content), used in full including the PR-diff
+cross-referencing needed to confirm what was and wasn't already merged
+before writing anything.
+
 ## 2026-08-26 (scheduled-routine session #7) [PIPELINE] — SHARED (scripts/research_state_check.py, test_research_state_check.py, ci/counter_baseline.txt, package.json, package-lock.json): STARVATION SIGNAL (CLAUDE.md HEALTH OF THE LOOP rule 6) gets a compiled check — the one rule in that section research_state_check.py didn't already automate (v1.0.796)
 
 TERRITORY: SHARED, minimal — this diff touches only scripts/
