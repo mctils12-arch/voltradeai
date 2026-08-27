@@ -125,7 +125,13 @@ workstream that has sat open since 2026-08-12; the live discriminating test
 needs a human at the map to actually decide (a) vs (b) — not something this
 session could run.
 
-**NEXT — Q9**, **Q11**, then Track 2/3 — the moon.
+**Q9 is DONE** (this session, scheduled-routine — see the QUEUE table row for
+the full account: it turned out to already be CI-gated since #833; what
+this session actually shipped was correcting the detector's own
+mismatched-claim comment, extracting it to `scripts/design_token_drift.py`,
+and adding `test_design_token_drift.py`).
+
+**NEXT — Q11**, then Track 2/3 — the moon.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -168,7 +174,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q6 | T2.4 — cap DPR in `celestialSky` + `spaceFrame` | T2.4 | **DONE** — PR #831. Bounds memory + fill rate. **NOT a moon speedup** — the audit's 9× claim is false, see L16 |
 | Q7 | T2.1/T2.2 — widen the Law IV predicate to context-acquiring modules | T2.1 | **DONE** — this session (scheduled-routine). Predicate widened 5 → 7 in `test_law_iv_context_modules.py`; both celestialSky.ts and spaceFrame.ts now carry real `maxFeatures`/`vramBudget`. `expected` narrowed to `[]`; not yet folded into test_audit_critical.py's REQUIRED `_layer_modules()` predicate (separable structural edit, left as-is) |
 | Q8 | T2.6 — the §2.1 F16 NaN-guard unit test | T2.6 | **DONE** — scheduled-routine session, 2026-08-23. New test in `flightTrackLayer.test.ts` models a multi-sample SIGNAL-LOST-AIRBORNE gap (not just the single-point gap the existing test covered); pins F16 hypothesis (a)'s segment-skip-guard contract for that realistic shape. Does NOT itself resolve F16 (a) vs (b) — that still needs the live human "rotate the globe" discriminating test the doc names |
-| Q9 | T8.1 — design-token drift check into the harness | T8.1 | **TODO** — measured 0 today, so it starts green |
+| Q9 | T8.1 — design-token drift check into the harness | T8.1 | **DONE** — this session (scheduled-routine). It was already CI-gated: `design_token_drift` has lived in `ci/counter_baseline.txt` since that file's creation and `counter_ratchet.sh` (Q20) ratchets every line in it generically, so this queue row was stale the moment #833 shipped — nobody had re-checked it. What this session actually found and fixed: the detector's own comment claimed "a mismatch in either direction is drift" but the code only ever walked `md.items()` — a one-directional check, and correctly so (DESIGN.md documents 15 curated author-facing tokens; the other 72 real `:root` custom properties in `client/src/index.css` are shadcn/ui internal plumbing, verified by reading both files directly, not assumed). Extracted the inline heredoc to `scripts/design_token_drift.py` (gate2_stats.py precedent) with the corrected docstring, and added `test_design_token_drift.py` — a live-pair regression pin (0, matching the baseline) plus three synthetic cases that lock in the intentional one-directional semantics so a future "fix" can't quietly turn 72 healthy tokens into false positives. Counter value unchanged (0 before/after on the identical live DESIGN.md/index.css pair) |
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |
 | Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |
 | Q20 | T1.7 — wire the §4.2 counters into CI as ratchets | T1.7 | **DONE** — PR #833. 22 counters now fail the build on a wrong-direction move |
