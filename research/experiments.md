@@ -3,6 +3,191 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine session #7) [PIPELINE] — SHARED (scripts/research_state_check.py, test_research_state_check.py, ci/counter_baseline.txt, package.json, package-lock.json): STARVATION SIGNAL (CLAUDE.md HEALTH OF THE LOOP rule 6) gets a compiled check — the one rule in that section research_state_check.py didn't already automate (v1.0.796)
+
+TERRITORY: SHARED, minimal — this diff touches only scripts/
+research_state_check.py, its test file, and version/counter bookkeeping;
+no T-BOT/T-CLIENT/T-DATACORE-primary file is touched. Same precedent as
+the KNOWN BROKEN #36 session that last modified this exact script.
+
+SESSION-START CHECKS: CLAUDE.md read in full (this scheduled task's own
+prompt), then research/ per the MEMORY PROTOCOL order. `python3
+scripts/session_health_check.py`: 7 OK (liveness alive/not dark; server/
+db/alpaca/python/scanner/licensing all ok; alt-data fresh; daemon rss well
+under trim_mb; 0 tier2 timeouts; ml_feedback age 24.2h, no known-broken
+signature; deploy_freshness server_version=1.0.795 matching this
+checkout). Live `/api/health` (production) also checked directly: `status:
+"ok"`, `bot.liveness.dark: false`, `equityPeak` positive with 0%
+drawdown, no dead feeds — no LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 0/10 REPAIR in the last 10 tagged sessions, well below the
+7+ trigger — this is NOT a [REPAIR] session. known_broken: 36 items, only
+#26/#34 lack an explicit close marker; read both this session and
+confirmed already fully resolved (the checker's own advisory caveat,
+correctly not a blocker) — all 36 KNOWN BROKEN items are closed.
+
+PRIMARY-ACTION SELECTION (this scheduled task's own instruction: pick ONE
+EDGE DOCTRINE axis by expected value given what research/ already shows
+done). Checked all four named axes before picking:
+(a) BUILD A FREE-DATA PIPELINE — `python3 scripts/data_stream_registry_check.py
+    --unbuilt` showed every named example in the task's own prompt
+    (Sentinel-2 tank shadows, EDGAR Form 4, USAspending, CFTC COT, FDA
+    calendar, Google Trends/pytrends) already `built` or
+    `declined_gate1_fail`, matching every prior EDGE session back to
+    2026-07-26. The two remaining keyless `candidate_unbuilt` roots
+    (`dtcc_sbsdr`, needs a human volume-budget call per its own entry;
+    `un_comtrade`, structural-thesis-only, too lagged for direct alpha)
+    are both real but neither is a same-session unblocked build; every
+    other unbuilt root is gated on a human key/registration step this
+    session cannot supply. Not picked.
+(b) CAPACITY-CONSTRAINED/ILLIQUID RESEARCH — read the full illiquid
+    mean_reversion thread (2026-07-24 through the 2026-08-14/08-26-revived
+    microcap cost-floor pricing, `open_questions.md` ~line 10480): the
+    LADDER PATH is fully walked (steps 1-5 closed) and the deferred
+    MIN_PRICE/MIN_VOLUME-loosening follow-on was just costs-and-frictions
+    priced this same week, with the pricing making the case AGAINST
+    loosening stronger — no unblocked next step sits on this thread today
+    beyond "start a genuinely fresh axis (b) hypothesis from zero," which
+    the entry's own NEXT note says should get its own prior/ladder path
+    rather than being treated as an automatic follow-on. Not picked.
+(c) FOREIGN-FIELD IMPORT — the most recent EDGE session (2026-08-24(2),
+    v1.0.790) already ran this axis (epidemiological R_t contagion
+    probe, clean negative, gate 2 killed). Repeating the same axis two
+    sessions in a row when (d) had a concrete, never-yet-compiled gap
+    would be axis-cycling for its own sake, not picking by expected
+    value. Not picked this session.
+(d) COMPRESS THE SYSTEM'S OWN COST — PICKED. `scripts/research_state_check.py`'s
+    own module docstring claims it "compiles the SESSION-START CHECKS
+    narrative" (audits register, thrash ratio, KNOWN BROKEN status) into
+    one script, but a fourth rule in the same CLAUDE.md section it targets
+    — HEALTH OF THE LOOP ITSELF rule 6, STARVATION SIGNAL ("if 10+
+    consecutive sessions log STARVED, flag in wishlist.md") — had no
+    compiled check at all. Confirmed by grep: `research/experiments.md`
+    carries a real historical run of 13 consecutive `STARVED: yes` lines
+    (physically ~line 60573-61926, during the MASTER PROGRAM Track 1
+    build) that nothing flagged mechanically at the time — exactly the
+    EDGE DOCTRINE #3 shape this script's own docstring names ("the second
+    occurrence becomes a script"), just one rule of the four this script
+    already covers that was still being checked by eye.
+
+READ BEFORE WRITE: read `scripts/research_state_check.py` and
+`test_research_state_check.py` in full this session (not from memory) —
+the existing `parse_session_tags`/`_TAG_RE`/`_SESSION_HEADER_RE` machinery,
+the KNOWN BROKEN #36 date-sorted-not-physical-position convention it
+already established, and the existing test fixture shapes — before adding
+anything, so the new code reuses the same session-splitting logic rather
+than inventing a second, divergent one.
+
+WHAT SHIPPED: `_sorted_session_blocks()` (new) factors the date-sorted
+session-splitting step that `parse_session_tags` already did inline into
+a shared helper returning `(header_date, idx, header_line, block_text)` —
+`parse_session_tags` itself is refactored to call it and still searches
+its tag on the header line only (byte-identical behavior, confirmed by
+the pre-existing tests passing unmodified). `block_text` is the new part:
+it spans from a session's own header to the next header, the same span
+convention `parse_known_broken_items` already uses for KNOWN BROKEN
+items — needed because a `STARVED:` line lives inside a session's body,
+not its header line. `parse_starved_flags()` (new) uses that block text
+to find each session's own `STARVED: yes/no` line (best-effort, first
+match per block — documented in its own docstring as the one way this
+could misfire, mirroring `classify_known_broken`'s equivalent caveat) and
+returns flags newest-first. `check_starvation_signal()` (new) counts the
+LEADING streak of `"yes"` flags from the most recent session backwards —
+a `"no"` OR a missing `STARVED:` line alike breaks the streak, so a stale
+ancient run of yeses buried behind recent nos (the real 13-in-a-row from
+2026-08 does not read as active today) cannot register as a live alarm —
+and returns WARN naming the CLAUDE.md rule and the wishlist.md action it
+calls for once the streak reaches 10. Wired into `gather()`/`run_all_checks()`/
+`main()`; `run_all_checks()`'s new `starved_flags` parameter defaults to
+`None` (skips the check silently) so any external caller still on the
+three-argument call shape keeps its exact prior behavior instead of
+crashing.
+
+RATCHET: 16 new tests in `test_research_state_check.py` — synthetic
+fixtures for `_sorted_session_blocks` (confirms full-block capture, not
+just the header line), `parse_session_tags` (unchanged-behavior pin,
+post-refactor), `parse_starved_flags` (newest-first ordering, a
+missing-STARVED-line session correctly reads as `None` not `"no"`), and
+`check_starvation_signal` (streak broken by a `"no"`, streak broken by a
+missing line, below-trigger OK, at-trigger WARN naming wishlist.md,
+empty-input OK) — plus a live-repo smoke assertion that the real file's
+most recent session reads `STARVED: "no"` today. A/B-verified by
+restoring the pre-fix script (`git show HEAD:scripts/research_state_check.py`)
+against the new test file: 9 of the 16 new tests fail (the tenth,
+`test_run_all_checks_without_starved_flags_stays_three_findings`, passes
+on both — correctly, since it pins NO-CHANGE behavior for callers that
+don't pass the new argument) and all pre-existing tests keep passing
+unmodified (the refactor is behavior-preserving) — restoring the fixed
+script brings all 16 new tests green, 41/41 total.
+
+GATES: fresh sandbox needed `pip install -r requirements.txt -r
+requirements-dev.txt` and `npm ci` (same recurring clean-container
+provisioning gap this queue has logged repeatedly, not a regression).
+`python3 -m pytest -q` (full suite): 1495 passed, 1 skipped, 54 subtests
+— unchanged from the pre-session baseline plus this session's own 16 new
+tests (test count matches: 1479 baseline + 16 new = 1495). `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1070/1070 (unchanged;
+zero .ts/.tsx files touched, so no visual harness run needed — same
+exemption prior zero-rendering-delta sessions applied), server clean,
+python 1495 passed/1 skipped/54 subtests, quarantine 0/1 none overdue.
+`bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged. `bash
+scripts/counter_ratchet.sh`: `assertions` IMPROVED 12320 -> 12340 (this
+session's own 16 new tests plus 4 new assertion-bearing production
+functions, re-pinned in `ci/counter_baseline.txt` in this same PR; `git
+fetch origin main` immediately before both the pin and the version bump
+confirmed `origin/main` still matched this branch's base, v1.0.795/PR
+#940 — no concurrent session had merged ahead of this one). All other 24
+counters unchanged. `npm run build`: clean, only the same pre-existing
+warnings recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. Live run against the real repo files: `python3
+scripts/research_state_check.py` now prints a fourth line,
+`starvation_signal: 0 consecutive STARVED session(s) at the front —
+below the 10+ trigger` (the most recent session logged `STARVED: no`),
+confirming the new check reads real production data correctly, not just
+synthetic fixtures.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure research-tooling addition
+(a read-only static-text parser over research/*.md), no strategy/scoring/
+sizing/threshold value changed, no FROZEN path touched, zero trading-loop
+or client-rendering blast radius.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-feature-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none — this is internal session tooling
+(MEMORY PROTOCOL / HEALTH OF THE LOOP enforcement), not a data pipeline
+or user-facing feature; no new join, stream, or entity-graph tie.
+
+VERSION: v1.0.796 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` confirmed `origin/main` still
+matched this branch's base, v1.0.795/PR #940, immediately before the bump
+— no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday ~22:50 ET, well after close (16:00 ET) —
+moot regardless, since this diff has zero trading-loop blast radius
+(research tooling only, no server/client runtime file touched).
+
+NEXT (queued, not this session): none of axes (a)/(b)/(c) had a concretely
+unblocked next step today per the survey above — a future EDGE session
+should either wait for one of axis (a)'s two human-gated roots to clear
+(`dtcc_sbsdr` volume-budget decision, or a registration/key grant for
+`viirs_nightfire`/`uspto_patents`/`cloudflare_radar`/`openaq_v3` from
+`data_stream_registry_check.py --unbuilt`), or start a genuinely fresh
+axis (b)/(c) hypothesis from zero with its own stated prior, rather than
+extending the already-concluded illiquid-universe or epidemiological
+threads. The STARVATION SIGNAL check itself needs no further work; a
+future session should just let `research_state_check.py` keep running at
+session start as it already does.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+[PIPELINE] action (a concrete, previously-uncompiled gap in an existing
+tool, found by reading that tool's own docstring against the CLAUDE.md
+section it claims to cover), used in full including a real A/B
+verification against the pre-fix script and a live run against the
+production research/ files, not just synthetic fixtures.
+
+
 ## 2026-08-26 (scheduled-routine session #6) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): GEM methane-plume x extraction-registry proximity gets its /api/v1 keyed mirror, closing the last remaining gap this sweep's own audit named (v1.0.795)
 
 TERRITORY: SHARED, minimal and last per the WORKSTREAM PARTITION protocol —

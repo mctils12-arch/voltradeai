@@ -31,6 +31,19 @@ since a false CLOSED risks silently skipping a still-open repair item
 while a false NEEDS-REVIEW only costs a future session a few seconds of
 re-confirming something that was already fine.
 
+STARVATION SIGNAL (CLAUDE.md HEALTH OF THE LOOP ITSELF rule 6) was, until
+this addition, the one rule in that section with no compiled check at all:
+"if 10+ consecutive sessions log STARVED, flag in wishlist.md" requires
+someone to grep every session's own `STARVED: yes/no` line and count a
+streak by hand — exactly the EDGE DOCTRINE #3 shape (a diagnosis repeated
+near-identically, session after session, that had never been turned into
+code). A real streak of 13 consecutive STARVED sessions is visible in
+research/experiments.md's own history (physically ~line 60573-61926,
+during the MASTER PROGRAM Track 1 build) and nothing flagged it
+mechanically at the time. This does not retroactively judge that episode —
+it only makes the CURRENT streak (from the most recent session backwards)
+checkable in one command going forward.
+
 Usage:
   python3 scripts/research_state_check.py [--repo-root PATH] [--json]
 
@@ -50,6 +63,8 @@ _SEVERITY_RANK = {OK: 0, WARN: 1, ALARM: 2}
 VALID_TAGS = ("REPAIR", "RESEARCH", "RULE-REVIEW", "PIPELINE", "PRODUCT", "NO-ACTION")
 THRASH_WINDOW = 10
 THRASH_TRIGGER = 7
+STARVATION_TRIGGER = 10
+STARVATION_MAX_SCAN = 50
 
 # Explicit closing phrasings actually used in research/open_questions.md's
 # KNOWN BROKEN section as of 2026-08-20 (grepped, not guessed) — kept as a
@@ -138,12 +153,13 @@ _SESSION_HEADER_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\b")
 _TAG_RE = re.compile(r"\[(" + "|".join(re.escape(t) for t in VALID_TAGS) + r")\]")
 
 
-def parse_session_tags(experiments_md_text, window=THRASH_WINDOW):
-    """research/experiments.md is append-only and its header says NEWEST
-    AT TOP — but physical position cannot be trusted as a proxy for
-    recency: KNOWN BROKEN #36 found a same-day block of a dozen sessions
-    landing at the file's tail instead of its head, because the
-    WORKSTREAM PARTITION MERGE-ORDER PROTOCOL resolves concurrent
+def _sorted_session_blocks(experiments_md_text):
+    """Shared split-and-sort step behind parse_session_tags and
+    parse_starved_flags. research/experiments.md is append-only and its
+    header says NEWEST AT TOP — but physical position cannot be trusted as
+    a proxy for recency: KNOWN BROKEN #36 found a same-day block of a
+    dozen sessions landing at the file's tail instead of its head, because
+    the WORKSTREAM PARTITION MERGE-ORDER PROTOCOL resolves concurrent
     research/* conflicts by keeping both sides (append-only spirit), which
     can place a session's entry anywhere relative to other concurrent
     sessions' entries, not just at the head. What every header DOES
@@ -154,15 +170,22 @@ def parse_session_tags(experiments_md_text, window=THRASH_WINDOW):
     file order is used only as a tiebreaker among headers sharing the same
     calendar date (the one residual ambiguity plain-text dates can't
     resolve — same-day session order — versus the multi-day
-    misordering this replaces). Returns the `window` most-recent tags,
-    newest first; a header with no recognizable [TAG] on its own line is
-    recorded as None (counted as "untagged", not silently dropped, so a
-    malformed entry cannot hide from the ratio)."""
+    misordering this replaces).
+
+    Returns a list of (header_date, idx, header_line, block_text) sorted
+    newest-first, where block_text spans from a session's own header line
+    up to (not including) the next header — the same span convention
+    parse_known_broken_items uses for KNOWN BROKEN items, so a STARVED:
+    line anywhere in a session's own entry is captured, not just its
+    header line."""
+    lines = experiments_md_text.splitlines()
+    starts = [i for i, line in enumerate(lines) if _SESSION_HEADER_RE.match(line)]
     entries = []
-    for idx, line in enumerate(experiments_md_text.splitlines()):
-        m = _SESSION_HEADER_RE.match(line)
-        if not m:
-            continue
+    for pos, i in enumerate(starts):
+        j = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+        header_line = lines[i]
+        block_text = "\n".join(lines[i:j])
+        m = _SESSION_HEADER_RE.match(header_line)
         try:
             header_date = datetime.strptime(m.group(1), "%Y-%m-%d").date()
         except ValueError:
@@ -173,12 +196,73 @@ def parse_session_tags(experiments_md_text, window=THRASH_WINDOW):
             # surface it and sort it as the oldest possible entry, so a
             # malformed date can fall out of a small window on its own
             # merits rather than vanishing unreported.
-            print(f"[research_state_check] WARNING: unparseable date in header: {line!r}", file=sys.stderr)
+            print(f"[research_state_check] WARNING: unparseable date in header: {header_line!r}", file=sys.stderr)
             header_date = date.min
-        tag_m = _TAG_RE.search(line)
-        entries.append((header_date, idx, tag_m.group(1) if tag_m else None))
+        entries.append((header_date, i, header_line, block_text))
     entries.sort(key=lambda e: (-e[0].toordinal(), e[1]))
-    return [tag for _, _, tag in entries[:window]]
+    return entries
+
+
+def parse_session_tags(experiments_md_text, window=THRASH_WINDOW):
+    """Returns the `window` most-recent [TAG]s, newest first; a header with
+    no recognizable [TAG] on its own line is recorded as None (counted as
+    "untagged", not silently dropped, so a malformed entry cannot hide
+    from the ratio)."""
+    blocks = _sorted_session_blocks(experiments_md_text)
+    tags = []
+    for _, _, header_line, _ in blocks[:window]:
+        tag_m = _TAG_RE.search(header_line)
+        tags.append(tag_m.group(1) if tag_m else None)
+    return tags
+
+
+_STARVED_RE = re.compile(r"^STARVED:\s*(yes|no)\b", re.IGNORECASE | re.MULTILINE)
+
+
+def parse_starved_flags(experiments_md_text, max_scan=STARVATION_MAX_SCAN):
+    """CLAUDE.md HEALTH OF THE LOOP ITSELF rule 6 (STARVATION SIGNAL): each
+    session's own log entry ends with a `STARVED: yes/no — ...` line.
+    Returns up to `max_scan` flags ("yes"/"no"/None), newest session
+    first, using the same date-sorted (not physical-position) ordering as
+    parse_session_tags. None means no STARVED: line was found in that
+    session's block at all (an omission, not a "no" — counted separately
+    so it cannot silently extend or hide a streak).
+
+    Best-effort, like classify_known_broken: takes the FIRST STARVED:
+    line found in a session's block, which is correct for the standard
+    one-entry-per-header shape but could misfire if a session's prose
+    quotes an earlier session's STARVED: line verbatim before its own —
+    not observed in practice as of this writing, but a reason this stays
+    advisory rather than a hard gate."""
+    out = []
+    for _, _, _, block_text in _sorted_session_blocks(experiments_md_text)[:max_scan]:
+        m = _STARVED_RE.search(block_text)
+        out.append(m.group(1).lower() if m else None)
+    return out
+
+
+def check_starvation_signal(flags, trigger=STARVATION_TRIGGER):
+    """CLAUDE.md HEALTH OF THE LOOP ITSELF rule 6: 10+ CONSECUTIVE sessions
+    (newest-first) logging STARVED: yes means continuous operation via the
+    Agent SDK is now evidence-justified and must be flagged in
+    wishlist.md. The streak is counted from the most recent session
+    backwards and stops at the first non-"yes" (a "no" or a missing
+    STARVED: line alike break it) — a stale ancient streak buried behind
+    recent "no"s must not still read as active."""
+    streak = 0
+    for f in flags:
+        if f != "yes":
+            break
+        streak += 1
+    if streak >= trigger:
+        return finding(
+            WARN, "starvation_signal",
+            f"{streak} consecutive STARVED sessions at the front (trigger {trigger}+) — "
+            "CLAUDE.md HEALTH OF THE LOOP ITSELF rule 6: flag in wishlist.md that "
+            "continuous operation via the Agent SDK is now evidence-justified, with a "
+            "cost estimate, if not already flagged there",
+        )
+    return finding(OK, "starvation_signal", f"{streak} consecutive STARVED session(s) at the front — below the {trigger}+ trigger")
 
 
 def check_thrash_ratio(tags, trigger=THRASH_TRIGGER, window=THRASH_WINDOW):
@@ -278,12 +362,15 @@ def check_known_broken(items):
     return finding(OK, "known_broken", f"{len(items)} items total, all carry an explicit close marker")
 
 
-def run_all_checks(register, tags, known_broken_items, today):
-    return [
+def run_all_checks(register, tags, known_broken_items, today, starved_flags=None):
+    checks = [
         check_audits_overdue(register, today),
         check_thrash_ratio(tags),
         check_known_broken(known_broken_items),
     ]
+    if starved_flags is not None:
+        checks.append(check_starvation_signal(starved_flags))
+    return checks
 
 
 def overall_exit_code(findings):
@@ -308,9 +395,10 @@ def gather(repo_root):
     open_questions = _read(repo_root, "research/open_questions.md")
     register = parse_audits_register(experiments)
     tags = parse_session_tags(experiments)
+    starved_flags = parse_starved_flags(experiments)
     kb_section = extract_known_broken_section(open_questions)
     items = parse_known_broken_items(kb_section)
-    return register, tags, items
+    return register, tags, items, starved_flags
 
 
 def main():
@@ -322,8 +410,8 @@ def main():
     ap.add_argument("--json", action="store_true", help="emit findings as JSON instead of text")
     args = ap.parse_args()
 
-    register, tags, items = gather(os.path.abspath(args.repo_root))
-    findings = run_all_checks(register, tags, items, date.today())
+    register, tags, items, starved_flags = gather(os.path.abspath(args.repo_root))
+    findings = run_all_checks(register, tags, items, date.today(), starved_flags)
 
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "findings": findings}, indent=2))
