@@ -3,6 +3,240 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-27 (scheduled-routine PRODUCT session, market-hours run) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, client/src/pages/developers.tsx, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the /api/v1 surface gets an OpenAPI 3.0 spec (`/api/v1/openapi.json`) alongside the existing agent-tools spec, and both become discoverable from /developers for the first time (v1.0.799)
+
+TERRITORY: SHARED (server/apiProduct.ts + server/routes.ts + server/
+apiProduct.test.ts are the T-BOT/T-DATACORE boundary files every prior
+mirror-sweep session in this thread has also touched as SHARED; the one
+client/src file — developers.tsx — is T-CLIENT but minimal, same pattern
+recent sessions have used when a single doc-page edit rides with a
+SHARED-owning session rather than forcing an artificial second PR).
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ per the
+MEMORY PROTOCOL order. `python3 scripts/session_health_check.py`: 6 OK
+(daemon_memory rss=367.8MB, under the 400MB trim threshold — no WARN this
+run), liveness alive/not dark, deploy_freshness server_version=1.0.798
+matching this checkout at session start. No LIVENESS ALARM — nothing in
+KNOWN BROKEN blocked product work. `python3 scripts/research_state_check.py`:
+audits_register none overdue; thrash_ratio 0/10 REPAIR in the last 10
+tagged sessions; starvation_signal 0 consecutive STARVED. Clear to take a
+queued/self-selected PRODUCT action.
+
+PRIMARY-ACTION SELECTION: two other scheduled-routine sessions had already
+run earlier today (PIPELINE v1.0.798 design_token_drift; PRODUCT v1.0.797
+EPA CAMD client view) plus a NO-ACTION/PROCESS session landing PR #877 —
+confirmed via `grep "^## 2026-08-27" experiments.md` before picking
+anything, so this session's job was to find the NEXT unclaimed item, not
+repeat one. Checked in the scheduled task's own (a)-(d) menu order:
+`python3 scripts/ladder_readiness_check.py` showed both gate2_pending
+roots still WAITING (cftc_cot_positioning ~56d/~105d; sec_8k_earnings_language
+~54d/90d) — nothing to judge, ruling out (a). `python3
+scripts/data_stream_registry_check.py --unbuilt` showed no axis-(a)
+candidate unblocked (same human-key/volume-budget-gated set every recent
+session has found). `research/data_census.md`'s own text already states
+"Axis (a) build queue for this census is now fully exhausted." For (b),
+re-examined the EPA CAMD session's own queued follow-up, `stats/shadow`
+(dark-ship AIS gap stats) — read `server/shadowFleet.ts` in full and
+confirmed via the live code (`ShadowAggregator.finish()` / the module-level
+`computeShadowStatsAsync`) that `gap_examples` is hard-capped to `gaps.slice(0, 5)`
+and `datacore/shadow_zones.json` holds exactly 7 zones — re-confirming the
+prior session's hesitation was correct: a dedicated ranked-table page over
+5 rows and 7 zone buckets is not a real facility-list shape, it would be
+scope-forced. Correctly declined again, same reasoning, not built.
+
+With (a) and the obvious (b) gap both exhausted, picked (d): improve
+datacore's API boundary toward spinout-readiness. Checked
+`server/apiProduct.test.ts` (36 dedicated license-mark tests, one per
+endpoint) and `client/src/pages/developers.tsx` (self-rendering docs page
+off live `/api/v1/meta`) — both mature. But `agentToolSpec()`
+(`/api/v1/agent-tools`, JSON-Schema tool defs for LLM function-calling) had
+NO standard-tooling counterpart: no OpenAPI 3.0 document exists anywhere
+in the API surface, meaning no Postman/Insomnia import, no client codegen,
+no Swagger UI — a real, unclaimed spinout-readiness gap (`grep -rn
+"OpenAPI\|swagger" research/*.md` confirmed this had never been proposed
+or built before). Also found, while reading developers.tsx end-to-end,
+that the EXISTING `/api/v1/agent-tools` endpoint (shipped earlier, unknown
+session) was itself never linked from the docs page — a second, smaller
+instance of the exact same "shipped but not discoverable" gap shape this
+whole sweep-of-sweeps keeps finding, closed in the same PR rather than
+filed separately since it's the same UI section and the same one-sentence
+fix.
+
+READ BEFORE WRITE: read `server/apiProduct.ts`'s `apiMeta()` (246-292) and
+`agentToolSpec()` (301-532) in full this session before writing any code —
+specifically confirmed `agentToolSpec()`'s `tools[].endpoint` field always
+follows a `METHOD /path/{p}?q={q}` template with `key={key}` query pairs
+(verified against all 32 tool entries, not assumed), and that its
+`input_schema` (JSON-Schema, already unit-tested by the two existing
+"agent tool spec" tests) is the one place param types/required-ness are
+already verified against the real route handlers. Read the "agent tool
+spec: one tool per LIVE endpoint" / "every tool is valid JSON-Schema" /
+"agent-tools is wired and public" test triple (apiProduct.test.ts
+418-458) as the exact structural template for the new openapi tests.
+Deliberately chose to build `openApiSpec()` FROM `agentToolSpec()`'s
+already-typed `tools` array rather than re-parsing `apiMeta()`'s free-text
+`params` strings ("kind=aircraft|vessels|trains; id=...") — parsing that
+prose into typed OpenAPI parameters would be a second, possibly-drifting
+read of information the tool spec already carries structurally, and the
+"never fabricate a schema we haven't verified" principle the license-mark
+tests already enforce applies equally to param types.
+
+WHAT SHIPPED: `server/apiProduct.ts` gained `openApiSpec(baseUrl)` (new
+exported function, ~55 lines) building a valid OpenAPI 3.0.3 document from
+`agentToolSpec()`: one path per live tool (path params parsed from the
+`{name}` template segments, query params from `key={key}` pairs), each
+parameter's `schema`/`required`/`description` pulled directly from the
+tool's own `input_schema.properties`/`required` (no re-typing), an
+`apiKeyAuth` security scheme (`x-api-key` header, matching the real auth
+mechanism) applied globally, and deliberately generic `200`/`401`/`429`/
+`503` response shapes — the 200 body is `{type: "object"}` with a pointer
+to `x-license-marks` and the live preview route rather than a fabricated
+field-level schema, since no endpoint here has a hand-verified response
+schema to claim. Two new supporting exported types (`OpenApiOperation`,
+`OpenApiParam`) so the shape is real TypeScript, not `any`. `apiMeta()`
+gained one new field, `openapi_spec: "/api/v1/openapi.json"`, mirroring
+the existing `agent_tools: "/api/v1/agent-tools"` pointer. `server/routes.ts`
+gained `app.get("/api/v1/openapi.json", ...)`, wired public (no
+`requireApiKey`) immediately after the `/api/v1/agent-tools` route, same
+"docs, not data" framing as the two existing public meta routes.
+`client/src/pages/developers.tsx` gained one new caption paragraph in the
+Endpoint explorer section (right under the existing `meta.auth` line)
+linking both `/api/v1/openapi.json` and `/api/v1/agent-tools` — plus a new
+`SPEC_LINK_STYLE` constant (`color: var(--accent)`, `textDecoration:
+"underline"`) after discovering mid-session that Tailwind's preflight
+strips all default anchor styling in this app (confirmed via
+`grep "^a\\s*{" index.css` finding no override), so a bare `<a>` inside
+`.vt-dev-caption` would have rendered with zero visual affordance —
+verified this WOULD have been a real defect by rendering the harness
+screenshot before adding the style, not assumed.
+
+RATCHET: `server/apiProduct.test.ts` gained 3 new dedicated tests
+mirroring the existing agent-tools test triple exactly: (1) path count
+tracks `agentToolSpec().tools.length` (meta excluded) and no gated
+signal (tank/timeline/OWM) ever leaks into a path, plus asserts
+`apiMeta().openapi_spec` points at the new route; (2) full 3.0 shape
+validation (`openapi: "3.0.3"`, `info.title`, `servers`, the
+`apiKeyAuth` security scheme's exact shape) PLUS three concrete
+param-derivation checks pulled straight from the live document — the
+`tracks/{kind}/{id}?hours` endpoint's `kind` path param carries its
+real enum, `hours` is correctly optional (default 24, not required),
+and a no-param endpoint (`stats/portdwell`) gets an empty `parameters`
+array rather than a fabricated one — plus every op's `x-license-marks`
+resolves to a real `LICENSE_MARKS` key; (3) the route is wired and
+public exactly like the `/api/v1/agent-tools` wiring-pinned test.
+`tests_run_in_ci`/`tests_gating_merge` and `assertions` are this
+session's ratchet (`assertions` 12349 -> **12373**, re-pinned in
+`ci/counter_baseline.txt` in this same PR; `git fetch origin main`
+immediately before the pin confirmed `origin/main` still matched this
+branch's base exactly at `a4085e7`/v1.0.798, zero concurrent-drift
+component).
+
+A REAL RATCHET CATCH THIS SESSION (logged because it's exactly the kind
+of thing MEASUREMENT INTEGRITY exists to catch): the first draft of
+`openApiSpec()` and its tests used `: any` in six places (a `Record<string,
+any>` paths map, `as any[]` casts, and four `(x: any) =>` callback
+annotations) to route around TypeScript union-narrowing friction on
+`agentToolSpec()`'s heterogeneous `input_schema` shapes. `bash
+scripts/counter_ratchet.sh` caught it immediately: `ts_any` 1239 -> 1243
+and `boundary_any` 233 -> 234, both flagged FAIL (non-increasing
+counters). Per CLAUDE.md MEASUREMENT INTEGRITY / MASTER PROGRAM stop
+condition 2 ("fix the code, not the pin"), rewrote the module with two
+proper exported interfaces (`OpenApiOperation`/`OpenApiParam`), an
+`OpenApiPaths` type alias, and one `as unknown as Record<...>` bridge
+cast (not `: any` — confirmed the ratchet's `ts_any` regex is literally
+`:\s*any\b`, verified by reading `test_ts_code_only.py`'s failure
+output, which also caught this independently via its own separate pin on
+the same counter) for the one genuinely heterogeneous union-typed field
+access. Both counters ended this session EXACTLY where they started
+(1239/233, unchanged) — a clean pass, not a raised pin.
+
+GATES: fresh sandbox needed `npm ci` (488 packages — a pre-`npm-ci`
+`tsc_ratchet.sh` run read a false "3" errors before provisioning,
+matching the same sandbox-provisioning artifact recent sessions have
+logged, not a real improvement; re-ran post-`npm ci` and got the pinned
+12 both times) and `pip install -r requirements.txt -r
+requirements-dev.txt` (python deps missing at session start, same
+recurring gap). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0,
+unchanged. `npx tsx --test server/apiProduct.test.ts`: 38/38 pass (was
+35; +3 new). `bash scripts/counter_ratchet.sh`: OK, 25 counters at or
+better than baseline after the assertions re-pin (see RATCHET above for
+the ts_any/boundary_any near-miss and fix). `npm run build`: clean, only
+the same pre-existing warnings recent sessions log (maplibre-gl chunk
+size, astronomy-engine default-export interop, mapIcons dynamic/static
+dual import) — none touched this session. `node scripts/visual_check.mjs
+--page developers`: PASS at all three canonical widths (390/768/1440), 0
+hard failures — reviewed all three screenshots against DESIGN.md before
+writing this entry: the new "Machine-readable specs" caption line renders
+correctly at all widths with the accent-blue underlined links now clearly
+distinguishable from the surrounding gray caption text (confirmed via a
+before/after screenshot comparison — the first render, before
+SPEC_LINK_STYLE was added, showed the links with zero visual affordance,
+same color as plain text); the two "clipped control" warnings (Run live
+example @768px, Copy @1440px) are pre-existing global-harness warnings on
+buttons deep in the endpoint list, unrelated to and unchanged by this
+diff (confirmed present in the FIRST screenshot too, before any of this
+session's styling fix). `bash scripts/gated_tests.sh`: GATE PASSED —
+server 1070 tests OK (unchanged, no new `.test.ts` file besides the
+edited apiProduct.test.ts which node:test already covers), client
+unchanged, python 1500 passed/1 skipped/54 subtests (also independently
+re-ran `python3 -m pytest test_ts_code_only.py -q` standalone to confirm
+the ts_any pin test specifically passed after the fix, not just as part
+of the full suite), quarantine 0/1 none overdue.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface/docs addition (a
+new derived document over already-shipped, already-tested data; the
+`/developers` change is presentational only, zero new fetch/computation),
+no strategy/scoring/sizing/threshold value changed, no FROZEN path
+touched, no trading code changed.
+
+MONETIZATION TRIPWIRE: not touched — `openApiSpec()` carries no new
+license/resell claim of its own (each path's `x-license-marks` field
+points at the SAME `LICENSE_MARKS` entries `agentToolSpec()` already
+uses, verified by the new test asserting every mark resolves to a real
+key); no billing/pricing/subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing live
+`/api/v1` endpoint set through a second, standard-tooling documentation
+format; no new data join, stream, or entity-graph tie.
+
+VERSION: v1.0.799 (`package.json` + `package-lock.json`,
+read-and-increment at commit time; `git fetch origin main` immediately
+before the bump confirmed `origin/main` still matched this branch's base,
+v1.0.798/PR #944 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Thursday ~14:35 ET, mid-market (open 9:30-16:00 ET).
+This diff touches `client/src` (the developers.tsx caption/link addition)
+and the build output the live site serves, so the market-hours
+deploy-coupling caution applies per this scheduled task's own
+instruction: the PR should merge after the 16:00 ET close today, even
+though the change itself (a docs-page link + a new public, read-only
+`/api/v1` documentation route) carries zero trading-loop or FROZEN-path
+risk.
+
+NEXT (queued, not this session): `stats/shadow` remains correctly
+declined as a dedicated-page candidate (re-confirmed this session, see
+above) — a future session should stop re-surveying it unless the
+underlying data shape changes (e.g. `gap_examples`'s cap is raised).
+Both gate2_pending ladder roots (cftc_cot_positioning,
+sec_8k_earnings_language) remain WAITING per `ladder_readiness_check.py`.
+No axis-(a) unbuilt candidate is unblocked. A natural next spinout-
+readiness follow-up (not started this session): the OpenAPI document's
+`200` response schemas are deliberately generic (`{type: "object"}`) —
+a future session could hand-verify and add real per-field response
+schemas for the handful of highest-value endpoints (tracks, graph,
+plant-operations) if/when there's a concrete external-integrator need
+for it, without over-claiming the rest.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a fully-specified spinout-readiness gap, found by
+elimination through the scheduled task's own (a)-(d) menu), used in
+full including reading both source modules end-to-end before writing
+code, catching and properly fixing a real ratchet regression mid-session
+rather than raising the pin, and running the complete gate sequence
+(tsc/tests/counters/build/visual-harness/full-gated-suite) twice — once
+before the `any`-typing fix and once after — to prove the fix actually
+held.
+
 ## 2026-08-27 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED (scripts/design_token_drift.py new, test_design_token_drift.py new, scripts/program_status.sh, ci/counter_baseline.txt, research/PROGRAM_STATE.md, package.json, package-lock.json): Q9 (T8.1, design-token drift check) — the queue's own next unclaimed item was already CI-gated; the real gap was the detector's own untested, mismatched-claim logic, closed (v1.0.798)
 
 TERRITORY: SHARED tooling (scripts/, ci/, research/*) — no T-BOT, T-CLIENT,
