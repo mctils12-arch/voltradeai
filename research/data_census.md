@@ -176,7 +176,12 @@ RANKED: 1. EPA CAMD CEMS, 2. Global Energy Monitor, 3. ENTSO-E.
    TX pilot, it was never a hard blocker on building this. /data map
    layer SHIPPED 2026-07-20 (`plant_operations`, facilities group) —
    TX facility markers tinted by ground-truth operating-hours
-   utilization, not fuel type.
+   utilization, not fuel type. Dedicated /data client view SHIPPED
+   2026-08-27 (v1.0.797, `client/src/pages/plantOperations.tsx`,
+   `#/data/plant-operations`) — same map-layer-first-then-ranked-table
+   follow-up sequencing as EU generation-mix/day-ahead-prices below;
+   this had been the one remaining "shipped-data-no-client-page" gap on
+   the board (research/experiments.md 2026-08-27 entry).
 2. **Global Energy Monitor [BUILT v1.0.176, scripts/gem_ingest.py —
    9b resolved, Mike enabled Drive access]** — March 2026 release:
    182,400 facilities, 22,296 GW, 200 countries, unit-level with status
