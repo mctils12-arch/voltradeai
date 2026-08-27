@@ -131,7 +131,36 @@ this session actually shipped was correcting the detector's own
 mismatched-claim comment, extracting it to `scripts/design_token_drift.py`,
 and adding `test_design_token_drift.py`).
 
-**NEXT — Q11**, then Track 2/3 — the moon.
+**Q11 is DONE** (this session, scheduled-routine, v1.0.800). Re-measured live
+before writing anything: the registry has grown to 249 layers since this row
+was written (not 238); 9 carry `renderKind`, only `orbital_sats` carries
+`lod`, so 248 of 249 lack at least one of the two (the "will fail on 237 of
+238" framing is now 248/249 — same shape, updated number). Requiring both
+fields on every layer today, the way the file's other REQUIRED tests already
+do line-by-line, would mean either (a) backfilling metadata for 248
+pre-existing layers in one PR — the exact "big-bang rewrite" A2 forbids
+("MIGRATION IS OPPORTUNISTIC ... never a big-bang rewrite ... every layer
+TOUCHED afterward migrates in that PR") — or (b) a per-layer assertion that
+fails immediately on the first offending layer, which cannot report "N of
+M failing" as a single number at all (`assert.ok` inside a loop throws on
+the first miss). Built instead: a new REQUIRED test in
+`server/layersRegistry.test.ts` (not a separate/quarantined file — it
+PASSES today, so it does not need the quarantine mechanism Q12 needed for a
+test that genuinely couldn't pass) that computes `missing = layers lacking
+renderKind or lod` and pins the exact count (248) with `assert.equal` — a
+number that moves in EITHER direction now fails the build, forcing the PR
+that migrates a layer (or regresses one) to consciously update the pin, the
+same discipline `dup_precise_literal`/`conflicting_const` already use.
+A/B-verified live this session (not assumed): temporarily set the pin to
+247 and confirmed the test fails with a clear message naming the mismatch
+and the first offending layer IDs; restored to 248, green again. This
+makes "required" real in the sense Track 4 asked for — a hard, CI-checked
+number instead of the previously fully-optional "when present" tests above
+it — without a false claim that 248 layers were migrated this session (they
+were not; this is instrumentation, not backfill). Full account in
+experiments.md.
+
+**NEXT**, then Track 2/3 — the moon.
 
 Prior Q22 (DONE, now merged). A diagnostic
 probe plugin (patched `yfinance.Ticker.history` to log the current pytest
@@ -178,7 +207,7 @@ when you take it, `DONE` with the PR number when it merges.
 | Q10 | T1.1 — all three suites into CI non-blocking | T1.1 | **DONE** — PR #829. 368/368 files now RUN in CI; 4/368 gate |
 | Q17 | T1.2/T1.3 — quarantine file + pin, green set BLOCKING, quarantine may only shrink and no entry may age past 30d | T1.2 | **DONE** — PR #832. `tests_gating_merge` 4 → **367/368** |
 | Q20 | T1.7 — wire the §4.2 counters into CI as ratchets | T1.7 | **DONE** — PR #833. 22 counters now fail the build on a wrong-direction move |
-| Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **TODO** — will fail on 237 of 238 layers; that number is the deliverable |
+| Q11 | T4.1 — `renderKind` + `lod` required in `layersRegistry.test.ts` | T4.1 | **DONE** — this session (scheduled-routine), v1.0.800. Registry now 249 layers, 248 missing at least one field; pinned as a hard `assert.equal` ratchet (not a per-layer requirement — that would be the big-bang rewrite A2 forbids), A/B-verified to actually fail on a wrong pin |
 | Q12 | ≥50 state+national power pmtiles asserted, 3 exist | T1.2 | **REFRAMED** — PR #834. Split into `gridTilesCoverage.test.ts` (quarantined, review 2026-09-13). Cannot be resolved by committing tiles: `build_power_tiles.sh:53` forbids it at US scale. Real work = the boot-fetch path (A4 PHASE 2 item 2) |
 | Q21 | The magic-byte guard in `gridTiles.test.ts` had been DEAD since it was written — the `>=50` assertion ran first and prevented it | T1.2 | **DONE** — PR #834. Split; the guard now passes and gates |
 | Q14 | `EARTH_RADIUS_KM` 6371 vs 6378.137 (both in `client/src/lib/orbital/`) and `EARTH_CIRCUMFERENCE_M` 2πR vs 40075016.686 | T2/orbital | **DONE** — PR #839. All FOUR values are CORRECT where they live; the collision was the defect, so renamed not unified. `conflicting_const` 5 → **3**. The "~7km altitude error" framing was wrong — the constant cancels; measured 0.02–0.20%. See L21 |

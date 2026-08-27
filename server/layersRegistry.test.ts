@@ -203,11 +203,14 @@ test("seafloor_confidence layer: GEBCO TID attribution + measured-vs-predicted h
 });
 
 // ── REGISTRY v2 (EARTH TWIN E0-1, research/earth_twin_program.md A2) ──
-// All v2 fields are OPTIONAL and additive: entries that omit them stay valid
-// forever; entries that carry them must carry them WELL-FORMED so the LOD
-// director, global time axis, and license tripwire can trust what they read.
-// Extending a vocabulary below is a deliberate, reviewed act: add the value
-// here and in layers.json's _doc in the same PR.
+// altitudeRef/time/provenance stay OPTIONAL and additive: entries that omit
+// them stay valid forever; entries that carry them must carry them
+// WELL-FORMED so the LOD director, global time axis, and license tripwire
+// can trust what they read. renderKind + lod are the same "well-formed when
+// present" story below, PLUS a Track 4 pinned-gap test further down that
+// starts tracking their eventual graduation to required (see that test's
+// own comment). Extending a vocabulary below is a deliberate, reviewed act:
+// add the value here and in layers.json's _doc in the same PR.
 
 const V2_ALTITUDE_REFS = new Set(["surface", "agl", "msl", "orbit", "depth", "underground"]);
 const V2_TIME_MODES = new Set(["live", "dated-daily", "dated-subdaily", "archive", "static"]);
@@ -295,6 +298,28 @@ test("LICENSE RATCHET: no layer ships with a declared non-commercial license (mo
     `layers declaring provenance.commercialOk=false may never ship (EARTH TWIN charter: NC data is a ` +
     `guaranteed rip-out at billing activation): ${violations.join(", ")} — use the build-first alternative ` +
     `(OSM/ODbL, US-gov public domain) or file a paid-license wishlist entry instead`);
+});
+
+// ── REGISTRY v2 TRACK 4 (T4.1, research/PROGRAM_STATE.md Q11 / earth_twin_
+// program.md A2) — renderKind + lod start graduating out of pure-optional.
+// Requiring them on the full, already-249-layer registry today would mean
+// backfilling metadata for every pre-existing layer in one PR — exactly the
+// "big-bang rewrite" A2 forbids ("MIGRATION IS OPPORTUNISTIC ... never a
+// big-bang rewrite of 113 layers ... every layer TOUCHED afterward migrates
+// in that PR"). So the requirement is enforced as a PINNED COUNT instead of
+// a per-layer assertion: the gap is real, tracked, and can only move if a
+// PR consciously updates the pin — silent drift in either direction fails.
+test("registry v2 Track 4 (T4.1): renderKind + lod required — the migration gap is pinned, not silent", () => {
+  const missing = registry.layers.filter((l) => !("renderKind" in l) || !("lod" in l));
+  const PINNED_GAP = 248; // lower this in the SAME PR that migrates a layer; a rise means a new/edited layer shipped without the v2 fields it should now carry
+  assert.equal(
+    missing.length,
+    PINNED_GAP,
+    `${missing.length}/${registry.layers.length} layers are missing renderKind and/or lod (pinned at ${PINNED_GAP}). ` +
+    `Per EARTH TWIN A2 this is an opportunistic migration, not a rewrite — every layer touched from here on should ` +
+    `gain both fields in that same PR, lowering this pin. First few offenders: ` +
+    `${missing.slice(0, 8).map((l) => l.id).join(", ")}${missing.length > 8 ? ", ..." : ""}`,
+  );
 });
 
 test("registry v2 exemplars: the five annotated layers keep their contract (E0-1 ships wired, not vacuous)", () => {

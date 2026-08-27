@@ -3,6 +3,219 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-27 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED (server/layersRegistry.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): PROGRAM_STATE.md Q11 (EARTH TWIN Track 4.1) — renderKind + lod become a hard, pinned requirement across the layer registry, not just "well-formed when present" (v1.0.800)
+
+TERRITORY: SHARED-but-minimal (server/layersRegistry.test.ts is a T-CLIENT-
+adjacent registry-contract file every recent EARTH TWIN session has also
+touched as shared, per WORKSTREAM PARTITION's own precedent for this exact
+file) + version/counter bookkeeping.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(this file's newest-at-top header confirmed — see below), research/
+open_questions.md (KNOWN BROKEN section + tail), research/wishlist.md (top
+and tail). `curl https://voltradeai.com/api/health`: `status:"ok"`,
+`bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:"0.0"`,
+`liveness.dark:false`, feeds (aircraft/vessels/trains) all `dead:false` at
+0.3h silent. `python3 scripts/session_health_check.py`: all 7 OK — daemon
+rss 382.9MB (under 400MB trim), ml_feedback age 17.3h, deploy_freshness
+server_version=1.0.799 matching this checkout pre-bump. No LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 0/10 REPAIR in the last 10 tagged sessions (well below the 7+
+trigger); known_broken 37 items, 2 advisory-only; starvation_signal 0
+consecutive STARVED. Loop health is clean — no repair-thrash meta-problem.
+
+CORRECTION MADE THIS SESSION (process, not code): my first read of this
+file used `tail`/`offset`-near-the-end, which — because this file is
+NEWEST-AT-TOP, not append-at-bottom, per its own line 3 header I had not
+yet internalized — surfaced a 2026-08-26 entry as if it were the latest.
+`git fetch origin main` + a fresh `git log` immediately caught the actual
+HEAD (v1.0.799, PR #945, dated today) before any decision was made on stale
+information; re-read the top of the file and confirmed the real last 10
+tagged sessions before proceeding. Recorded here per REASONING STANDARD
+#10 (state the correction, don't silently fix and move on) since a future
+session skimming this file's structure should not repeat the same
+tail-read mistake.
+
+PRIMARY-ACTION SELECTION: no bug in the health check or audit log (all 7
+OK, health endpoint clean). `python3 scripts/ladder_readiness_check.py`:
+0/2 gated roots ready (cftc_cot_positioning ~56d/~105d, sec_8k_earnings_
+language ~54d/90d, both still WAITING) — nothing to judge. `python3
+scripts/data_stream_registry_check.py --unbuilt`: no axis-(a) candidate
+unblocked (same human-key/volume-budget-gated set every recent session has
+found: openaq_v3, uspto_patents, cloudflare_radar, viirs_nightfire,
+dtcc_sbsdr, un_comtrade). Fell through to SESSION BUDGET step 1 (next
+queued item): `research/PROGRAM_STATE.md`'s own NEXT pointer named Q11 as
+the single highest-value unclaimed item ("Track 1 is COMPLETE... NEXT —
+Q11, then Track 2/3 — the moon"), and `bash scripts/program_status.sh`
+confirmed the live counters it's built on (`layers_full_schema` 1/249,
+`layers_with_lod` 1) rather than trusting the queue's own possibly-stale
+238 count. Track 2/3 (the moon pyramid, Rendering & Motion Law territory)
+is explicitly gated behind Track 1 completing, which it has — but is a
+much larger, multi-PR body of work than this session's remaining capacity;
+Q11 was the correctly-scoped next item, not a corner cut.
+
+READ BEFORE WRITE: read `server/layersRegistry.test.ts` in full this
+session (312 lines, all 23 existing tests) before writing anything — the
+base REQUIRED test's per-layer `assert.ok` pattern (kind/status/source/
+description, throws on first miss), the "when present" v2 tests for
+altitudeRef/time/lod/provenance/renderKind (lines 205-288, explicitly
+documented as OPTIONAL and additive), and the exemplars test pinning the
+5 annotated E0-1 layers. Read `scripts/program_status.sh`'s own comment
+on `layers_full_schema` verbatim ("renderKind/time/provenance/altitudeRef
+are on a handful; lod is on ONE. The schema is exactly as complete as the
+test forces and not one field further — so this counter tracks the five
+UNENFORCED fields, and Track 4 makes them required") — this is what
+"required" in Q11's own queue-row title means: not a claim that Track 4
+would migrate all layers, but that the gap graduates from purely
+optional/unmeasured to a hard, CI-checked number. Read `research/
+earth_twin_program.md`'s A2 section (registry v2 contract) for the exact
+"MIGRATION IS OPPORTUNISTIC... never a big-bang rewrite... every layer
+TOUCHED afterward migrates in that PR" language quoted in the new test's
+own comment, so the design decision below traces to the charter's own
+words rather than my paraphrase. Read `server/gridTilesCoverage.test.ts`
+and `ci/quarantine.txt`/`ci/quarantine_max.txt` as the Q12 precedent for
+"a test that cannot currently pass" before ruling that path out (see WHY
+NOT QUARANTINE below).
+
+RE-MEASURED LIVE (did not trust the queue row's 238/237 numbers): `python3`
+one-liner against `datacore/layers.json` — 249 layers total (not 238; the
+registry has grown since Q11 was written), `renderKind` present on 9
+(terrain, seafloor, seafloor_confidence, aircraft, orbital_sats,
+military_installations, submarine_cables, nightlights, soilmoisture),
+`lod` present on exactly 1 (orbital_sats), both present on exactly 1
+(orbital_sats). So 248 of 249 layers lack at least one of the two fields —
+same shape as the queue row's "237 of 238", updated for six weeks of
+registry growth.
+
+WHY NOT QUARANTINE (the Q12 precedent, deliberately not followed here):
+Q12's `gridTilesCoverage.test.ts` was quarantined because it asserted
+something that literally could not pass with the shipped architecture
+(committing >=50 tile files the build script forbids committing) — a
+genuinely unresolvable-today failure. A hard per-layer requirement here
+would ALSO currently fail (on 248 layers) — but unlike Q12, quarantining
+it now hits a gate Q12's original 2026-08-14 vintage predates:
+`ci/counter_baseline.txt`'s `quarantine_size` counter is pinned
+`non-increasing` at 0 (`bash scripts/counter_ratchet.sh` confirmed this
+live before any file was written), and MASTER PROGRAM stop condition 2
+reserves raising a non-increasing pin for a human. Quarantining a new
+failing test this session would have meant either silently bumping that
+pin (forbidden) or asking the human mid-session for a routine PIPELINE
+action that doesn't need to block on that ask at all — because a PASSING,
+pinned-count test achieves the identical "the gap is real, tracked, and
+visible" goal without touching the quarantine mechanism. Chose the design
+that needs no human sign-off and ships the exact same information.
+
+WHAT SHIPPED: `server/layersRegistry.test.ts` gained one new REQUIRED test
+("registry v2 Track 4 (T4.1): renderKind + lod required — the migration
+gap is pinned, not silent") computing `missing = layers.filter(l =>
+!("renderKind" in l) || !("lod" in l))` and asserting `missing.length ===
+248` via `assert.equal`, with a failure message naming the live count,
+total, and the first 8 offending layer IDs so a future regression is
+immediately actionable without re-deriving the list by hand. A rise in
+the pinned number (a new/edited layer shipping without the v2 fields) or
+a fall without updating the pin (an unacknowledged migration) both fail
+the build — the same discipline this file's `dup_precise_literal`/
+`conflicting_const`-style counters already use elsewhere in the harness,
+applied here as an in-suite test rather than a shell-level counter, which
+is what makes it visible in a plain `npx tsx --test` run and not only in
+`program_status.sh`'s separate output. Also corrected the now-stale
+"All v2 fields are OPTIONAL and additive" blanket comment at the top of
+the v2 test block (lines 205-210) to note that renderKind+lod now carry
+the additional Track 4 pinned-gap test below, since leaving the old
+blanket claim unedited next to a test that ratchets two of those five
+fields would have been a live self-contradiction in the same file.
+
+A REAL RATCHET CATCH THIS SESSION (logged per MEASUREMENT INTEGRITY, same
+discipline the 2026-08-27 OpenAPI session logged for the identical
+pitfall): the test's first draft used `.filter((l: any) => ...)` and
+`.map((l: any) => l.id)` — two explicit `: any` annotations, unnecessary
+since `registry` is `JSON.parse(...)`-typed `any` already and TypeScript
+infers `l` as `any` from context without an explicit annotation under
+`strict: true` (this is inferred-from-`any`, not `noImplicitAny`'s
+truly-unannotated case). `bash scripts/counter_ratchet.sh` caught it
+immediately: `ts_any` 1239 -> 1241, FAIL (non-increasing). Removed both
+explicit annotations; re-ran — `ts_any` back to 1239, unchanged, gate
+clean. Verified this was the whole story (not a coincidence) by isolating
+the counter re-run before and after the one-line edit.
+
+RATCHET / A-B VERIFICATION: this test IS the ratchet (a new REQUIRED
+assertion, not a repair, so there's no "did it used to fail" question —
+instead the standard here is "does it actually catch what it claims to
+catch"). Verified live: temporarily set `PINNED_GAP = 247` and re-ran
+`npx tsx --test server/layersRegistry.test.ts` — test 24 failed with the
+expected mismatch message naming the live count and offending layer IDs;
+restored to 248 and re-ran — 25/25 pass (was 24/24 before this session's
+addition). This is a real, working assertion, not a vacuous one.
+
+GATES: this sandbox needed `npm ci` (488 packages, node_modules was stale/
+incomplete) and `pip install -r requirements.txt -r requirements-dev.txt`
+at session start — the same recurring fresh-sandbox provisioning gap prior
+sessions have logged repeatedly, not a regression; confirmed by re-running
+`tsc_ratchet.sh` before and after `npm ci` (12 -> 3 pre-provisioning
+artifact -> 12 again post-`npm ci`, matching the pin exactly, same false-
+improvement trap the 2026-08-26 FINRA session already documented and
+declined to bank). `npx tsx --test server/layersRegistry.test.ts`: 25/25
+pass (was 24/24). `bash scripts/tsc_ratchet.sh`: 12, TS2304 = 0, unchanged.
+`bash scripts/counter_ratchet.sh`: `assertions` IMPROVED 12373 -> 12374
+(this session's own new test, the direct and sole cause — `git fetch
+origin main` immediately before the pin confirmed `origin/main` still
+matched this branch's base exactly at `e544b5f`/v1.0.799, zero concurrent-
+drift component); re-pinned in `ci/counter_baseline.txt` in this same PR.
+All other 24 counters unchanged (ts_any confirmed still 1239 after the
+any-annotation fix above). `bash scripts/gated_tests.sh`: GATE PASSED —
+server files OK (client 1070/1070, python 1500 passed/1 skipped/54
+subtests), quarantine 0/1 none overdue (this session added zero
+quarantine entries, per the WHY NOT QUARANTINE reasoning above).
+`npm run build`: clean, only the same pre-existing warnings recent
+sessions log (maplibre-gl chunk size, mapIcons dynamic/static dual
+import) — none touched this session. No visual harness run: zero
+`client/src` files touched (`git status --short` confirms only
+server/layersRegistry.test.ts, ci/counter_baseline.txt, package.json,
+package-lock.json, and research/*), same exemption prior zero-rendering-
+delta sessions have applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is test/harness instrumentation
+(a new CI-checked assertion on a data-registry schema), not a strategy,
+scoring, sizing, or threshold change; no trading behavior or FROZEN path
+touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed. The existing, separate "LICENSE
+RATCHET: no layer ships with commercialOk=false" test (line ~290) is
+unmodified and unaffected by this session's diff.
+
+CROSS-SYSTEM INTEGRATION: none new — this is a harness/schema-contract
+change internal to the EARTH TWIN registry v2 effort already chartered in
+research/earth_twin_program.md; no new data stream, join, or external
+integration.
+
+VERSION: v1.0.800 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.799/PR
+#945 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday 2026-08-27, checked `TZ=America/New_York
+date` at session end: within market hours. This diff touches only a
+server-side test file and version/counter bookkeeping — zero trading-loop
+blast radius (no bot.ts/bot_engine.py/system_config.py/risk_kill_switch.py
+touched), so no merge-timing caveat is needed regardless of the hour.
+
+NEXT (queued, not this session): `research/PROGRAM_STATE.md`'s own NEXT
+pointer now reads "Track 2/3 — the moon" (the Rendering & Motion Law raster
+pyramid work, per CLAUDE.md's RENDERING & MOTION LAW / Amendment 6) — a
+much larger, multi-PR body of work that should get its own dedicated
+session(s) to scope rather than being started as a fall-through item here.
+A future Track 4 continuation (T4.2, presumably time/provenance/
+altitudeRef graduating the same way) is also a valid next pick if a
+session prefers to stay in registry-contract territory a while longer.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action (the queue's own named next item), used in full including
+re-measuring the live registry rather than trusting the queue row's
+six-week-stale numbers, and deliberately choosing a design that needed no
+human sign-off over one (quarantine) that would have.
+
+
 ## 2026-08-27 (scheduled-routine PRODUCT session, market-hours run) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, client/src/pages/developers.tsx, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the /api/v1 surface gets an OpenAPI 3.0 spec (`/api/v1/openapi.json`) alongside the existing agent-tools spec, and both become discoverable from /developers for the first time (v1.0.799)
 
 TERRITORY: SHARED (server/apiProduct.ts + server/routes.ts + server/
