@@ -372,12 +372,125 @@ def test_overall_exit_code_zero_when_all_ok():
 
 def test_run_all_checks_against_real_repo_files_does_not_crash():
     repo_root = os.path.join(os.path.dirname(__file__))
-    register, tags, items = rsc.gather(repo_root)
-    findings = rsc.run_all_checks(register, tags, items, date.today())
-    assert len(findings) == 3
+    register, tags, items, starved_flags = rsc.gather(repo_root)
+    findings = rsc.run_all_checks(register, tags, items, date.today(), starved_flags)
+    assert len(findings) == 4
     assert all(f["severity"] in (rsc.OK, rsc.WARN, rsc.ALARM) for f in findings)
     # the real register and KNOWN BROKEN section must both be non-empty —
     # an empty result here would mean the section-boundary parsing drifted
     # from the real files' current headings.
     assert len(register) >= 1
     assert len(items) >= 1
+    # the real file's most recent sessions are STARVED: no (checked by hand
+    # this session) — this is a live-data smoke assertion, not a synthetic
+    # pin, so it only guards against the parser crashing or mis-reading the
+    # real format, not against the file's content ever changing.
+    assert starved_flags[0] == "no"
+
+
+def test_run_all_checks_without_starved_flags_stays_three_findings():
+    """starved_flags is optional (defaults to None) so existing callers that
+    predate this check keep their exact prior findings count/shape."""
+    findings = rsc.run_all_checks([], [], [], date.today())
+    assert len(findings) == 3
+
+
+# ── _sorted_session_blocks / parse_session_tags (post-refactor) ──────────
+
+def test_sorted_session_blocks_captures_full_block_not_just_header_line():
+    text = (
+        "## 2026-08-20 — [PRODUCT] entry\n\n"
+        "body line one\n"
+        "STARVED: no — queue empty\n\n"
+        "## 2026-08-19 — [REPAIR] older entry\n\nbody\n"
+    )
+    blocks = rsc._sorted_session_blocks(text)
+    assert len(blocks) == 2
+    _, _, header0, block0 = blocks[0]
+    assert header0 == "## 2026-08-20 — [PRODUCT] entry"
+    assert "STARVED: no" in block0
+    assert "older entry" not in block0
+
+
+def test_parse_session_tags_unchanged_after_refactor():
+    tags = rsc.parse_session_tags(EXPERIMENTS_FIXTURE, window=10)
+    assert tags == [
+        "PRODUCT", "PRODUCT", "REPAIR", "REPAIR", "REPAIR",
+        "REPAIR", "REPAIR", "PIPELINE", "RESEARCH", "RULE-REVIEW",
+    ]
+
+
+# ── parse_starved_flags / check_starvation_signal ─────────────────────────
+
+STARVED_FIXTURE = """# Experiment Log
+
+## 2026-08-20 — [PRODUCT] newest, not starved
+
+body text
+
+STARVED: no — queue empty, nothing left to do this session.
+
+## 2026-08-19 — [PRODUCT] second newest, starved
+
+body text
+
+STARVED: yes — 3 items queued and unclaimed.
+
+## 2026-08-18 — [REPAIR] third, starved
+
+STARVED: yes (Q2 through Q11 queued and unclaimed).
+
+## 2026-08-17 — [REPAIR] fourth, no STARVED line at all
+
+body text, this session predates the convention.
+
+## 2026-08-16 — [RESEARCH] fifth, starved again
+
+STARVED: yes — more queue.
+"""
+
+
+def test_parse_starved_flags_reads_newest_first():
+    flags = rsc.parse_starved_flags(STARVED_FIXTURE, max_scan=10)
+    assert flags == ["no", "yes", "yes", None, "yes"]
+
+
+def test_check_starvation_signal_ok_when_broken_by_a_no():
+    flags = rsc.parse_starved_flags(STARVED_FIXTURE, max_scan=10)
+    f = rsc.check_starvation_signal(flags, trigger=2)
+    # streak from the front is 0 — the newest session is "no", which
+    # immediately breaks it, even though older "yes" runs exist further back.
+    assert f["severity"] == rsc.OK
+    assert "0 consecutive" in f["detail"]
+
+
+def test_check_starvation_signal_counts_leading_yes_streak():
+    flags = ["yes", "yes", "yes", "no", "yes"]
+    f = rsc.check_starvation_signal(flags, trigger=3)
+    assert f["severity"] == rsc.WARN
+    assert "3 consecutive" in f["detail"]
+
+
+def test_check_starvation_signal_missing_line_breaks_streak_like_a_no():
+    flags = ["yes", "yes", None, "yes", "yes", "yes"]
+    f = rsc.check_starvation_signal(flags, trigger=2)
+    assert f["severity"] == rsc.WARN
+    assert "2 consecutive" in f["detail"]
+
+
+def test_check_starvation_signal_ok_below_trigger():
+    f = rsc.check_starvation_signal(["yes"] * 9, trigger=10)
+    assert f["severity"] == rsc.OK
+    assert "9 consecutive" in f["detail"]
+
+
+def test_check_starvation_signal_warn_at_trigger():
+    f = rsc.check_starvation_signal(["yes"] * 10, trigger=10)
+    assert f["severity"] == rsc.WARN
+    assert "wishlist.md" in f["detail"]
+
+
+def test_check_starvation_signal_empty_flags_is_ok():
+    f = rsc.check_starvation_signal([])
+    assert f["severity"] == rsc.OK
+    assert "0 consecutive" in f["detail"]
