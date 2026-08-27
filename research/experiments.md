@@ -3,6 +3,128 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-27 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED (scripts/design_token_drift.py new, test_design_token_drift.py new, scripts/program_status.sh, ci/counter_baseline.txt, research/PROGRAM_STATE.md, package.json, package-lock.json): Q9 (T8.1, design-token drift check) — the queue's own next unclaimed item was already CI-gated; the real gap was the detector's own untested, mismatched-claim logic, closed (v1.0.798)
+
+TERRITORY: SHARED tooling (scripts/, ci/, research/*) — no T-BOT, T-CLIENT,
+or T-DATACORE file touched. This session's PR is opened during market
+hours; per this scheduled task's own instruction, the PR body notes merge
+should wait until after 4:00 PM ET (no FROZEN path touched, no trading
+logic changed, nothing here is a critical live-break fix that would
+justify an earlier merge).
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: 6 OK, 1 WARN (daemon_memory rss=417.7MB
+>= trim_mb=400MB, deep_score running in trimmed mode — same
+previously-logged degraded-but-graceful state, not a regression); no
+LIVENESS ALARM, deploy_freshness server_version=1.0.797 matched this
+checkout at session start. `python3 scripts/research_state_check.py`:
+audits_register none overdue; thrash_ratio 0/10 REPAIR in the last 10
+tagged sessions (well under the 7+ trigger); starvation_signal 0
+consecutive STARVED. No repair-thrash, no starvation, system healthy —
+clear to take a queued PRODUCT/PIPELINE item per SESSION BUDGET.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed both gate2_pending roots still WAITING (cftc_cot_positioning ~56d
+of ~105d; sec_8k_earnings_language 36d of 90d) — nothing to judge.
+`research/PROGRAM_STATE.md`'s own "NEXT" line named **Q9** (T8.1 —
+"design-token drift check into the harness") as the queue's
+next-highest-priority unclaimed item, ahead of Q11 and the moon-bake
+track. Took it, per QUEUE table instructions ("take the highest-priority
+unclaimed item").
+
+READ BEFORE WRITE: read `scripts/program_status.sh`'s `design_token_drift`
+section (§8, ~40 lines of inline heredoc) in full before touching
+anything, plus `DESIGN.md`'s "Canonical theme tokens" section and
+`client/src/index.css`'s `:root` block directly — not from memory. Also
+read `gate2_stats.py` + `test_gate2_stats.py` and
+`test_law_iv_context_modules.py` as the established precedent for "inline
+detector logic extracted into an importable, directly-tested module,"
+since program_status.sh's other 21 detectors are ALL inline heredocs with
+no precedent of extraction until this session.
+
+WHAT WAS ACTUALLY FOUND (the queue entry's premise didn't fully survive
+reading the code — same pattern this program has logged repeatedly, e.g.
+Q12/Q18/Q13/L21): `design_token_drift` was already wired into CI. It has
+lived in `ci/counter_baseline.txt` since that file's own creation, and
+`counter_ratchet.sh` (Q20, already `bash scripts/counter_ratchet.sh` in
+`.github/workflows/ci.yml`) ratchets every line in that file generically —
+so the moment the pin existed, the counter was already enforced. Q9's
+"TODO" status in PROGRAM_STATE.md's QUEUE table was simply stale; nobody
+had gone back to check it against the generic mechanism Q20 shipped.
+
+What WAS a real, previously-unverified gap: the detector's own comment
+claimed "a mismatch in either direction is drift," but the code beneath it
+only ever walked `md.items()` (DESIGN.md's documented tokens) — checking
+one direction only. Measured directly against the live files: 87 real
+`:root` custom properties in `client/src/index.css`, only 15 documented in
+DESIGN.md's "Canonical theme tokens" table, the other 72 verified to be
+shadcn/ui-style internal plumbing (`--background`, `--card`, `--popover`,
+HSL triplets, radii) in a completely different naming style from the 15
+canonical semantic tokens DESIGN.md's own rule 5 tells page authors to
+use ("Theme tokens only ... canonical values below"). Making the check
+bidirectional would therefore not find real drift — it would produce 72
+false positives against intentional, healthy internal tokens with no
+actionable fix. The one-directional implementation was already CORRECT;
+only its own comment overclaimed what it did, and it had zero direct unit
+test coverage of its own logic (only ever exercised embedded inside
+`program_status.sh`, matching the same "measured, never verified" gap
+Q20's own docstring named for the counters generally).
+
+WHAT SHIPPED: extracted the inline heredoc into `scripts/design_token_drift.py`
+(`css_tokens`/`md_tokens`/`compute_drift`, CLI entry point unchanged in
+behavior) with a corrected docstring stating the real, intentional
+one-directional semantics and why. `scripts/program_status.sh`'s §8 now
+calls `python3 scripts/design_token_drift.py` in place of the 35-line
+heredoc. New `test_design_token_drift.py` (5 tests): (1) a live-pair
+regression pin — the real DESIGN.md/index.css pair drifts 0 today,
+matching the ratchet's pin; (2)-(4) synthetic cases pinning that a
+documented-but-undefined token counts, a documented-but-wrong-value token
+counts, and a matching pair stays clean; (5) the one that actually locks
+in the intentional asymmetry — a css-only, undocumented token must NOT
+count as drift, so a future session cannot "fix" this into bidirectional
+mode and silently turn 72 healthy tokens into false-positive failures.
+`research/PROGRAM_STATE.md`'s Q9 row and "NEXT" line updated to DONE with
+the full account above; NEXT now points at Q11.
+
+RATCHET: the new test file is the ratchet — `tests_run_in_ci`/
+`tests_gating_merge` 401→**402**, `assertions` 12340→**12349** (+9, this
+session's own direct effect), both re-pinned in this PR per PROMOTION RULE
+5 (this session's sole cause, no concurrent-merge drift to attribute
+elsewhere). `design_token_drift` itself unchanged: 0 before this PR, 0
+after, on the identical live DESIGN.md/index.css pair — this is a
+comment/coverage/structure fix, not a behavior change, so its own pin does
+not move.
+
+GATES: fresh sandbox needed `npm ci` (488 packages) and `pip install -r
+requirements.txt -r requirements-dev.txt` — same recurring
+clean-container provisioning gap prior sessions have logged, not a
+regression (confirmed by re-running the affected suites cleanly
+afterward). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+`npm run build`: clean, only the same pre-existing warnings recent
+sessions log (maplibre-gl chunk size, mapIcons dynamic/static dual
+import) — nothing this diff touches. `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1019/1019 (unchanged; this diff adds no `.test.ts` file),
+python 1500 passed/1 skipped/54 subtests (1495 baseline + 5 new), quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: OK, 25 counters at or
+better than baseline (the two re-pinned counters above are this session's
+own improvement, not a regression).
+
+BACKTEST: N/A per PROMOTION RULE 3 — build-tooling/measurement-integrity
+change to a CI counter's own implementation, no strategy/scoring/sizing/
+threshold value touched, no FROZEN path touched, no trading code changed.
+
+MARKET-HOURS NOTE (per this scheduled task's own instruction): this run
+occurred during market hours. The PR notes merge should wait until after
+4:00 PM ET — nothing here is a critical live-break fix.
+
+HYPOTHESIS FOR FUTURE SESSIONS: PROGRAM_STATE.md's QUEUE table can go
+stale relative to generic mechanisms shipped by a LATER queue item (Q20's
+counter_ratchet.sh retroactively satisfied Q9, filed earlier, without
+either being reconciled) — a future STALENESS-AUDIT-flavored pass over
+the QUEUE table itself (cross-checking each remaining TODO row against
+what the generic gates already cover) could find more of these before a
+session spends a full primary action re-discovering just one.
+
 ## 2026-08-27 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (client/src/pages/plantOperations.tsx, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (research/data_census.md, package.json, package-lock.json): EPA CAMD power-plant utilization gets a dedicated /data client view, closing the last remaining "shipped-data-no-client-page" gap on the board (v1.0.797)
 
 TERRITORY: T-CLIENT (client/src/pages/plantOperations.tsx new,

@@ -276,48 +276,13 @@ order_post_sites=$( { py_files; ts_files; } | grep -viE '(test|spec)' \
 # ---------------------------------------------------------------------------
 # 8. design_token_drift — T8.1 / D12.
 #
-# DESIGN.md carries a canonical token table and client/src/index.css defines
-# the tokens. They agree today (D12, verified 2026-08-13). This counter keeps
-# them agreeing: index.css is the source of truth, DESIGN.md documents it, and
-# a mismatch in either direction is drift. Must stay 0.
+# DESIGN.md's canonical table documents a curated subset of index.css's
+# :root tokens; a documented token missing or mismatched vs. index.css is
+# drift (a CSS-only, undocumented token is not — see
+# scripts/design_token_drift.py's docstring for why, and for the extracted,
+# directly-unit-tested logic this used to carry inline). Must stay 0.
 # ---------------------------------------------------------------------------
-design_token_drift=$(python3 - <<'PY'
-import re
-def css_tokens(path):
-    out = {}
-    try:
-        src = open(path).read()
-    except OSError:
-        return out
-    # Only the :root block — later scoped overrides are legitimately different.
-    m = re.search(r':root\s*\{(.*?)\}', src, re.S)
-    if not m:
-        return out
-    for name, val in re.findall(r'(--[a-z0-9-]+)\s*:\s*([^;]+);', m.group(1)):
-        out[name] = re.sub(r'\s+', ' ', val).strip()
-    return out
-
-def md_tokens(path):
-    out = {}
-    try:
-        src = open(path).read()
-    except OSError:
-        return out
-    for name, val in re.findall(r'^\|\s*`(--[a-z0-9-]+)`\s*\|\s*`([^`]+)`\s*\|', src, re.M):
-        out[name] = re.sub(r'\s+', ' ', val).strip()
-    return out
-
-css = css_tokens('client/src/index.css')
-md  = md_tokens('DESIGN.md')
-drift = 0
-for name, val in md.items():
-    if name not in css:
-        drift += 1          # documented but undefined
-    elif css[name] != val:
-        drift += 1          # documented with the wrong value
-print(drift)
-PY
-)
+design_token_drift=$(python3 scripts/design_token_drift.py)
 
 # ---------------------------------------------------------------------------
 # 9. harness_rules_checked — F-H, how much of DESIGN.md is machine-checked.
