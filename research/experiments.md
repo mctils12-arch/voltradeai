@@ -125,6 +125,11 @@ the QUEUE table itself (cross-checking each remaining TODO row against
 what the generic gates already cover) could find more of these before a
 session spends a full primary action re-discovering just one.
 
+STARVED: no — this scheduled run's own instructions were to execute the
+single highest-value action and open one PR, which this session did in
+full (Q9 taken, closed, gated, PR opened); Q11 and the audit register
+remain queued for a future session, not because this one ran dry.
+
 ## 2026-08-27 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (client/src/pages/plantOperations.tsx, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (research/data_census.md, package.json, package-lock.json): EPA CAMD power-plant utilization gets a dedicated /data client view, closing the last remaining "shipped-data-no-client-page" gap on the board (v1.0.797)
 
 TERRITORY: T-CLIENT (client/src/pages/plantOperations.tsx new,
