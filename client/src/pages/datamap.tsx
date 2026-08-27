@@ -49,6 +49,7 @@ import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
 import NrcReactorStatusView from "./nrcReactorStatus";
+import PlantOperationsView from "./plantOperations";
 import GnssIntegritySignalView from "./gnssIntegritySignal";
 import EuPowerView from "./euPower";
 import SecFtdView from "./secFtd";
@@ -2828,6 +2829,12 @@ export default function DataMapPage() {
   // sidebar); complements the nrc_reactor_status map layer, not a
   // replacement for it.
   const [nrcStatusOpen, setNrcStatusOpen] = useState(() => window.location.hash === "#/data/nrc-reactor-status");
+  // EPA CAMD power-plant utilization full view (#/data/plant-operations) —
+  // same "open full view" overlay pattern as nrc-reactor-status above;
+  // complements the plant_operations map layer (BUILT v1.0.385/shipped
+  // 2026-07-20), not a replacement for it. Closes the standing
+  // "shipped-data-no-client-page" gap for this root (research/data_census.md).
+  const [plantOpsOpen, setPlantOpsOpen] = useState(() => window.location.hash === "#/data/plant-operations");
   // Methane repeat-detection hotspots (#/data/methane-hotspots) — same
   // overlay pattern (gate-2(b) of the GEM METHANE-PLUME × EXTRACTION-
   // REGISTRY PROXIMITY hypothesis, research/open_questions.md).
@@ -3233,6 +3240,7 @@ export default function DataMapPage() {
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
       setNrcStatusOpen(window.location.hash === "#/data/nrc-reactor-status");
+      setPlantOpsOpen(window.location.hash === "#/data/plant-operations");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
       setAtsSummaryOpen(window.location.hash === "#/data/ats-summary");
       setMidasOpen(window.location.hash === "#/data/midas");
@@ -13078,6 +13086,17 @@ export default function DataMapPage() {
             </button>
           </div>
         )}
+        {l.id === "plant_operations" && on && (
+          // Same pattern as nrc_reactor_status above: a ranked per-facility
+          // utilization table doesn't belong in a layer-toggle sidebar —
+          // this complements the map layer's markers, not a replacement.
+          <div style={{ padding: "0 14px" }}>
+            <button className="vt-filings-openfull"
+                    onClick={() => { window.location.hash = "#/data/plant-operations"; setPlantOpsOpen(true); }}>
+              Open plant utilization — ranked table, EPA CAMD ground truth →
+            </button>
+          </div>
+        )}
         {l.id === "methane_plumes" && on && (
           // Same pattern as insider/earnings/shortvol/attention/cot/graph:
           // a per-asset ranked stat table doesn't belong in a layer-toggle
@@ -13307,6 +13326,9 @@ export default function DataMapPage() {
       )}
       {nrcStatusOpen && (
         <NrcReactorStatusView onBack={() => { window.location.hash = "#/data"; setNrcStatusOpen(false); }} />
+      )}
+      {plantOpsOpen && (
+        <PlantOperationsView onBack={() => { window.location.hash = "#/data"; setPlantOpsOpen(false); }} />
       )}
       {methaneHotspotsOpen && (
         <MethaneHotspotsView onBack={() => { window.location.hash = "#/data"; setMethaneHotspotsOpen(false); }} />

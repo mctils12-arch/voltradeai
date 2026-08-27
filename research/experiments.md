@@ -3,6 +3,195 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-27 (scheduled-routine PRODUCT session) [PRODUCT] — T-CLIENT (client/src/pages/plantOperations.tsx, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (research/data_census.md, package.json, package-lock.json): EPA CAMD power-plant utilization gets a dedicated /data client view, closing the last remaining "shipped-data-no-client-page" gap on the board (v1.0.797)
+
+TERRITORY: T-CLIENT (client/src/pages/plantOperations.tsx new,
+client/src/pages/datamap.tsx wiring, scripts/visual_check.mjs fixture +
+route registration) + SHARED-but-minimal (research/data_census.md,
+package.json, package-lock.json). No T-BOT file touched; T-DATACORE
+untouched (server/epaCamd.ts's existing `/api/data/plant-operations`
+route is read as-is, not modified).
+
+SESSION-START CHECKS: CLAUDE.md read in full (this scheduled task's own
+prompt), then research/ per the MEMORY PROTOCOL order (experiments.md,
+open_questions.md, wishlist.md, PROGRAM_STATE.md). `python3
+scripts/session_health_check.py`: 6 OK, 1 WARN (daemon_memory
+rss=400.5MB >= trim_mb=400MB, deep_score running in trimmed mode — same
+known, previously-logged degraded-but-graceful state, not a regression);
+liveness alive/not dark, subsystems ok, alt-data fresh, 0 tier2
+timeouts, ml_feedback age 10.1h no known-broken signature,
+deploy_freshness server_version=1.0.796 matching this checkout at
+session start. No LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits_register none overdue (3 tracked); thrash_ratio 0/10 REPAIR in
+the last 10 tagged sessions (well under the 7+ trigger); known_broken 37
+items, only #26/#34 lack an explicit close marker (advisory only, both
+already resolved per prior sessions, not re-verified again this
+session); starvation_signal 0 consecutive STARVED — no repair-thrash,
+no starvation. Per this scheduled task's own instruction ("if a critical
+trading-loop item is unfixed, note it but proceed with product work
+unless the break blocks you") — nothing did.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed both gate2_pending roots (cftc_cot_positioning ~56d of ~105d
+needed; sec_8k_earnings_language 36d of 90d) still WAITING — nothing
+ready to judge. `python3 scripts/data_stream_registry_check.py
+--unbuilt` showed no axis-(a) candidate unblocked today (same
+human-key/volume-budget-gated set every recent session has found:
+dtcc_sbsdr, un_comtrade, viirs_nightfire, uspto_patents,
+cloudflare_radar, openaq_v3) — option (a) in this session's own PRODUCT
+menu (advance a datacore pipeline through its next ladder gate) had no
+unblocked target. The `/api/v1` keyed-mirror sweep that ran 2026-08-23
+through 2026-08-26 (sessions #12 through #7, ending v1.0.796) had
+already closed every remaining "shipped-data-no-v1-API" gap it found.
+Checked the PARALLEL gap shape instead — "shipped-data-no-client-page"
+(the same gap the 2026-08-16 EU generation-mix/day-ahead-prices session,
+the 2026-08-21 JODI session, the 2026-08-23 DTCC-swaps session, and the
+2026-08-26 USAspending session #3 each closed for their own root) — by
+cross-referencing every `server/apiProduct.ts` endpoint id against
+`client/src/pages/*.tsx` and `datamap.tsx`'s hash-route state list.
+Found exactly one gap: `stats/plant-operations` (EPA CAMD CEMS,
+server/epaCamd.ts, GATE-1-equivalent RAW public-domain federal data,
+`/data` map layer SHIPPED 2026-07-20) had never gotten a standalone
+`#/data/*` page — every other endpoint id in `apiProduct.ts`'s
+`LICENSE_MARKS` table maps to either an existing dedicated page
+(secftd.tsx, midas.tsx, dtccSwaps.tsx, cot.tsx, cropConditions.tsx,
+earnings.tsx, etc.) or is inherently spatial-only by nature (aircraft/
+vessels/trains tracks, the Everything Graph). `stats/shadow` (dark-ship
+AIS gaps) was considered and correctly ruled OUT: it is a `/data/
+shadowstats`-shaped aggregate stat surface embedded in the map's own
+info panel, not a facility-list shape that benefits from a standalone
+ranked table the way plant-operations does — filed as a candidate for a
+future session to re-examine, not built here (avoiding scope creep
+beyond the one confirmed gap).
+
+READ BEFORE WRITE: read `server/epaCamd.ts` in full this session (not
+from memory) — the exact `/api/data/plant-operations` response shape
+(`FacilitySummary`: facilityId/facilityName/unitCount/sumOpTime/
+sumGrossLoad/primaryFuelInfo/lat/lon/ownerOperator, pre-sorted by
+sumGrossLoad descending via `aggregateByFacility()`), the top-level
+payload fields (kind/predictive/source/attribution/state/note/key_mode/
+time/year/quarter/unit_days), and the warming-up shape
+(`{kind:"raw", source, warming_up:true, state, facilities:[]}`) — before
+writing any field name. Read `client/src/pages/nrcReactorStatus.tsx`
+(closest precedent: a per-facility power-data table complementing an
+existing map layer) and `client/src/pages/dtccSwaps.tsx` (closest
+precedent for "server pre-sorts, no client-side sort state needed") as
+the two templates. Grepped `datamap.tsx` for the exact wiring triple
+every prior `#/data/*` view uses (hash-init `useState`, the
+`window.location.hash ===` line inside the hashchange listener, the
+`l.id === "<layer>" && on` "Open full view" button block, and the final
+render-gate block) before adding a fourth copy of the same pattern
+rather than inventing a new one.
+
+WHAT SHIPPED: `client/src/pages/plantOperations.tsx` (new) —
+`PlantOperationsView`, a RAW (`kind:"raw"`, `predictive:false`
+restated verbatim, no threshold/ranking/color implies a signal)
+sortable-by-server-only facility table: Facility / Owner-operator /
+Primary fuel / Units / Gross load (MW-days) / Operating hours, fetching
+`/api/data/plant-operations` directly (no new server code). Reuses the
+existing `vt-filings-*`/`vt-shortvol-body` CSS shell — no new CSS.
+`datamap.tsx` gained: the import, a `plantOpsOpen` hash-init state, its
+line in the hashchange listener, an "Open full view — ranked table, EPA
+CAMD ground truth →" button under the existing `plant_operations` layer
+toggle (same slot pattern as `nrc_reactor_status`'s button immediately
+above it), and the final `{plantOpsOpen && <PlantOperationsView .../>}`
+render block. `scripts/visual_check.mjs` gained a `plantoperations`
+PAGES entry (`/app#/data/plant-operations`, map:false) and a
+`/api/data/plant-operations` FIXTURES entry (three facilities of
+varying unit count/fuel mix — coal/nuclear/gas — so the table exercises
+multiple rows and a numeric-formatting range at every canonical width;
+shape copied field-for-field from `aggregateByFacility()`'s real output,
+not invented). `research/data_census.md`'s EPA CAMD CEMS entry (SECTION
+3 item 1) updated with the new client-view line, same
+"map-layer-first-then-dedicated-view" sequencing note the EU
+generation-mix/day-ahead-prices entry already carries.
+
+RATCHET: no new assertion-bearing test file — this follows the
+`dtccSwaps.tsx`/`usaspendingContracts.tsx` precedent exactly (a
+presentation-only page over a server-pre-sorted payload needs no
+client-side sort/filter logic to unit-test, unlike `nrcReactorStatus.tsx`
+which extracted its status-tally/sort logic into a separately-tested
+`client/src/lib/nrcReactorStatus.ts`). The `plantoperations` visual-harness
+entry IS the regression guard for this page (Phase 5 ratchet — every new
+`/data` view must pass the harness at 390/768/1440 before it ships, and
+stays registered permanently afterward as a standing regression check).
+
+GATES: fresh sandbox needed `npm ci` (488 packages) and `pip install -r
+requirements.txt -r requirements-dev.txt` — same recurring
+clean-container provisioning gap this queue has logged repeatedly, not
+a regression. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged.
+`npm run build`: clean, only the same pre-existing warnings recent
+sessions log (maplibre-gl chunk size, astronomy-engine default-export
+interop, mapIcons dynamic/static dual import) — none touched this
+session. `node scripts/visual_check.mjs --page plantoperations`: PASS at
+all three canonical widths (390/768/1440), 0 hard failures — reviewed
+all three screenshots against DESIGN.md before writing this entry: the
+390px card layout, 768px table, and 1440px full-width table all render
+correctly with the standard `vt-filings-*` chrome; the only warnings
+(sub-44px touch targets on the global nav, a software-WebGL-renderer
+notice overlapping one row at 390px, a tooltip clipping on an unrelated
+GitHub-activity layer control at 768px) are pre-existing global-chrome
+warnings that appear on every page in this headless harness, not
+regressions this diff introduced. `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1070/1070 (unchanged from the pre-session baseline —
+this diff adds no `.test.ts` file, per the RATCHET note above; the new
+page is exercised by the separate visual harness, not this suite),
+server clean, python 1495 passed/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/counter_ratchet.sh`: all 25 counters OK, 0
+moved — this diff adds no `any`, no empty catch, no new literal
+constant, nothing any counter tracks. `npm run build` re-confirmed
+clean post-fixture-edit.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-UI addition over an
+already-shipped, already-live RAW server route (no new fetch, no new
+computation, no new server code at all), no strategy/scoring/sizing/
+threshold value changed, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — `stats/plant-operations`'s
+`LICENSE_MARKS` entry (`resell: "ok"`, public-domain US federal data)
+carries no aircraft/AIS-derived provider-compliance condition; this PR
+adds no billing/pricing/subscription/paid-gating code.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing,
+already-archived EPA CAMD facility rollup through a new client view; no
+new join, stream, or entity-graph tie. The underlying root already
+feeds the power vertical's ladder-gate-1 truth-source role
+(research/data_census.md) unchanged.
+
+VERSION: v1.0.797 (`package.json` + `package-lock.json`,
+read-and-increment at commit time; `git fetch origin main` immediately
+before the bump confirmed `origin/main` still matched this branch's
+base, v1.0.796/PR #942 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Thursday ~09:20 ET, 10 minutes before the 09:30 ET
+open. This diff is a pure additive client page (a new hash-route +
+fixture, zero touch to `server/bot.ts`, any Python trading module, or
+any order-submission path) but DOES touch `client/src` and the build
+output the live site serves, so the market-hours deploy-coupling
+caution applies per this scheduled task's own instruction: the PR
+should merge after the 16:00 ET close today, not during the session
+this ships in, even though the change itself carries no trading-loop
+risk.
+
+NEXT (queued, not this session): `stats/shadow` (dark-ship AIS gap
+stats) was surveyed and NOT built this session — it's an aggregate
+stat surface, not a facility-list shape, and needs its own session to
+decide whether a dedicated view adds real value over the existing map
+info-panel exposure, rather than being force-fit into the same
+ranked-table template used here. Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py`. No axis-(a) unbuilt candidate is unblocked
+today (all human-key/volume-budget-gated, per
+`data_stream_registry_check.py --unbuilt`).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a fully-specified client-UI gap with an exact
+precedent shape from four prior sessions), used in full including
+reading the source module and two template pages before writing any
+code, plus the full gated-tests/visual-harness/counter-ratchet gate
+sequence.
+
 ## 2026-08-27 (scheduled-routine session) [NO-ACTION / PROCESS] — landing the one genuinely unique, never-merged delta from stale PR #877 (vessel-archive Aug 5-11 2026 anomaly), re-verified live 8 days later and strengthened with new file-level evidence; PR #877 closed as superseded (no code shipped, no version bump)
 
 TERRITORY: SHARED, docs/data-only — `research/open_questions.md` and

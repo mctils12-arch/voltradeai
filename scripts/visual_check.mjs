@@ -161,6 +161,10 @@ const PAGES = {
   // the Phase 5 ratchet this session (GATE 1 pass + honesty-note addition,
   // 2026-08-18) alongside the other /data detail views above.
   attention: { route: "/app#/data/attention", map: false },
+  // EPA CAMD power-plant utilization — same Phase 5 ratchet rule as
+  // contracts/attention above; closes the "shipped-data-no-client-page"
+  // gap for plant_operations (map layer only since 2026-07-20).
+  plantoperations: { route: "/app#/data/plant-operations", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -1490,6 +1494,25 @@ const FIXTURES = {
       "Not tradeable — this is GATE 2 statistical discrimination, not a trading signal (fixture text).",
     ],
     license: { source: "adsb.lol (ODbL 1.0) + adsb.fi/airplanes.live (non-commercial fallbacks)", note: "Fixture license note." },
+  },
+  // EPA CAMD power-plant utilization full view — three facilities of
+  // varying unit count/fuel mix so the table renders multiple rows at
+  // every canonical width; shape mirrors server/epaCamd.ts's
+  // aggregateByFacility() output exactly (facilities pre-sorted by
+  // sumGrossLoad descending).
+  "/api/data/plant-operations": {
+    kind: "raw", predictive: false,
+    source: "U.S. EPA Clean Air Markets Division (CAMD) — Continuous Emissions Monitoring, unit-level daily (fixture)",
+    attribution: "U.S. EPA Clean Air Markets Division (CAMD)",
+    state: "TX",
+    note: "Per-facility rollup (sum grossLoad MW-days, sum operating hours) of the newest archived quarter (fixture text).",
+    key_mode: "shared api.data.gov DEMO_KEY (rate-limited)",
+    time: 1, year: 2026, quarter: 2, unit_days: 9009,
+    facilities: [
+      { facilityId: 1, facilityName: "W A Parish", unitCount: 4, sumOpTime: 5824.5, sumGrossLoad: 612340.2, primaryFuelInfo: "Coal", lat: 29.479, lon: -95.638, ownerOperator: "NRG Texas" },
+      { facilityId: 2, facilityName: "Comanche Peak", unitCount: 2, sumOpTime: 4368.0, sumGrossLoad: 421980.7, primaryFuelInfo: "Nuclear", lat: 32.298, lon: -97.785, ownerOperator: "Vistra" },
+      { facilityId: 3, facilityName: "Barney M Davis", unitCount: 1, sumOpTime: 980.3, sumGrossLoad: 58210.4, primaryFuelInfo: "Natural Gas", lat: 27.634, lon: -97.322, ownerOperator: "Talen Energy" },
+    ],
   },
 };
 
