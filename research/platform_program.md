@@ -150,3 +150,18 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   a missing tier. Same unchecked-non-ok bug class as the satellite
   layer's CelesTrak 403 (v1.0.252). Program queue remains: P5 only
   (HUMAN-GATED).
+- 2026-08-27 (scheduled-routine PRODUCT session): P2 surface EXTENDED
+  (v1.0.799) — a real gap surfaced while re-checking P2's "premium pass"
+  claim: the existing `agentToolSpec()`/`/api/v1/agent-tools` (LLM
+  function-calling defs) had no standard-tooling counterpart and wasn't
+  even linked from `/developers`. Added `openApiSpec()` (`server/
+  apiProduct.ts`) serving a real OpenAPI 3.0.3 document at `/api/v1/
+  openapi.json` (Postman/Insomnia import, client codegen, Swagger UI),
+  built from `agentToolSpec()`'s already-typed `tools` rather than a
+  second parse of `apiMeta()`'s free text — plus a new "Machine-readable
+  specs" line on `/developers` linking both the new OpenAPI doc and the
+  pre-existing (previously unlinked) agent-tools spec. Full trace in
+  experiments.md. Program queue remains: P5 only (HUMAN-GATED); the
+  OpenAPI doc's `200` response schemas are deliberately generic
+  (`{type:"object"}`) — hand-verified per-field response schemas for the
+  highest-value endpoints is a valid future P2 follow-up, not started.

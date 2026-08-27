@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta, agentToolSpec,
-  LICENSE_MARKS, TIER_LIMITS,
+  parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta, agentToolSpec, openApiSpec,
+  LICENSE_MARKS, TIER_LIMITS, type OpenApiOperation, type OpenApiParam,
 } from "./apiProduct";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -454,5 +454,63 @@ test("agent tool spec: /api/v1/agent-tools is wired and public (docs, not data �
   assert.ok(routes.includes("agentToolSpec()"), "agent-tools must serve agentToolSpec()");
   // It sits with the public meta doc, NOT behind requireApiKey (it's a spec, not data).
   const specLine = routes.split("\n").find((l) => l.includes('"/api/v1/agent-tools"')) || "";
+  assert.ok(!specLine.includes("requireApiKey"), "the spec itself is public documentation");
+});
+
+test("openapi spec: one path per LIVE endpoint (meta excluded), gated signals never leak in", () => {
+  const doc = openApiSpec();
+  const liveDataEndpoints = apiMeta().endpoints.filter((e) => e.path !== "/api/v1/meta");
+  assert.equal(Object.keys(doc.paths).length, liveDataEndpoints.length,
+    "path count must track the live data endpoints, same as agent-tools");
+  const pathsBlob = JSON.stringify(doc.paths).toLowerCase();
+  assert.ok(!pathsBlob.includes("tank"), "gated tank-fill signal must never appear as a path");
+  assert.ok(!pathsBlob.includes("timeline"), "gated entity timelines must never appear as a path");
+  assert.ok(!pathsBlob.includes("openweathermap"), "OWM is a display product, not on the data API");
+  assert.equal(apiMeta().openapi_spec, "/api/v1/openapi.json", "meta must point tooling at the OpenAPI doc");
+});
+
+test("openapi spec: valid 3.0 shape, apiKey security scheme, and params derived from the SAME input_schema agent-tools already unit-tests (no second, drifting parse)", () => {
+  const doc = openApiSpec("https://voltradeai.com");
+  assert.equal(doc.openapi, "3.0.3");
+  assert.equal(doc.info.title, "VolTradeAI Data API");
+  assert.deepEqual(doc.servers, [{ url: "https://voltradeai.com" }]);
+  assert.deepEqual(doc.components.securitySchemes.apiKeyAuth, { type: "apiKey", in: "header", name: "x-api-key" });
+  assert.deepEqual(doc.security, [{ apiKeyAuth: [] }]);
+
+  // tracks/{kind}/{id}?hours — one required path param with an enum, one
+  // required path param with no enum, one optional integer query param —
+  // every field pulled from agentToolSpec()'s own input_schema, not re-typed.
+  const trackOp = doc.paths["/api/v1/tracks/{kind}/{id}"].get;
+  const byName = (op: OpenApiOperation, n: string): OpenApiParam | undefined => op.parameters.find((p) => p.name === n);
+  assert.deepEqual(byName(trackOp, "kind"), { name: "kind", in: "path", required: true, schema: { type: "string", enum: ["aircraft", "vessels", "trains"], description: "Asset class." }, description: "Asset class." });
+  assert.equal(byName(trackOp, "id")!.required, true);
+  const hoursParam = byName(trackOp, "hours")!;
+  assert.equal(hoursParam.in, "query");
+  assert.equal(hoursParam.required, false, "hours is optional (default 24) per the agent tool's own schema");
+  assert.equal(hoursParam.schema.type, "integer");
+  assert.equal(hoursParam.schema.maximum, 168);
+  assert.ok(trackOp.security.length && trackOp.responses["200"] && trackOp.responses["401"], "every op needs security + documented error responses");
+
+  // graph?entity&hops — both optional query params, no path params.
+  const graphOp = doc.paths["/api/v1/graph"].get;
+  assert.equal(graphOp.parameters.length, 2);
+  assert.ok(graphOp.parameters.every((p) => p.in === "query" && p.required === false));
+
+  // a no-param endpoint gets zero parameters, not a fabricated one.
+  assert.deepEqual(doc.paths["/api/v1/stats/portdwell"].get.parameters, []);
+
+  // every op's x-license-marks resolves to a real, exported license mark.
+  for (const item of Object.values(doc.paths)) {
+    for (const marks of [item.get["x-license-marks"]]) {
+      for (const m of marks) assert.ok(LICENSE_MARKS[m], `unknown license mark ${m}`);
+    }
+  }
+});
+
+test("openapi spec: /api/v1/openapi.json is wired and public (docs, not data — like /meta and /agent-tools)", () => {
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/openapi.json"'), "openapi.json route missing");
+  assert.ok(routes.includes("openApiSpec()"), "openapi.json must serve openApiSpec()");
+  const specLine = routes.split("\n").find((l) => l.includes('"/api/v1/openapi.json"')) || "";
   assert.ok(!specLine.includes("requireApiKey"), "the spec itself is public documentation");
 });

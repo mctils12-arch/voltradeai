@@ -282,6 +282,7 @@ export function apiMeta() {
       "tank-fill readings (Sentinel-2 — ladder gate 2 not yet passed; experimental readings stay internal)",
     ],
     agent_tools: "/api/v1/agent-tools",
+    openapi_spec: "/api/v1/openapi.json",
     limits: TIER_LIMITS,
     license_marks: LICENSE_MARKS,
     disclaimer: "Data as-is; not for safety-of-life use; attribution and share-alike marks travel with each response.",
@@ -528,5 +529,99 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
     license_marks: LICENSE_MARKS,
     excluded_gated: apiMeta().coming_gated,
     disclaimer: apiMeta().disclaimer,
+  };
+}
+
+/** OpenAPI 3.0 document for the live /api/v1 surface — the standard-tooling
+ *  counterpart to agentToolSpec() (Postman/Insomnia import, client codegen,
+ *  Swagger UI), for spinout-readiness (CLAUDE.md STANDING BEHAVIORS,
+ *  SPINOUT-READY DATA LAYER). Deliberately built FROM agentToolSpec()'s
+ *  `tools` rather than re-parsing apiMeta()'s free-text `params` strings —
+ *  each tool's `input_schema` (JSON-Schema, already unit-tested) and
+ *  `endpoint` template ("GET /path/{p}?q={q}") are the one place param
+ *  names/types/required-ness are already verified against the real route
+ *  handlers, so this reuses that structure instead of inventing a second,
+ *  possibly-drifting parse of the same information. Response bodies are
+ *  intentionally left as an untyped object with a pointer to the live
+ *  preview/provenance rather than a fabricated field-level schema — no
+ *  endpoint here has a hand-verified OpenAPI response schema, and claiming
+ *  one would violate the "never fabricate" rule the rest of this module
+ *  follows for license/gate claims. */
+export interface OpenApiParam {
+  name: string;
+  in: "path" | "query";
+  required: boolean;
+  schema: Record<string, unknown>;
+  description?: string;
+}
+export interface OpenApiOperation {
+  operationId: string;
+  summary: string;
+  description: string;
+  tags: string[];
+  parameters: OpenApiParam[];
+  security: Array<Record<string, unknown[]>>;
+  "x-license-marks": string[];
+  responses: Record<string, { description: string; content?: Record<string, unknown> }>;
+}
+export type OpenApiPaths = Record<string, Record<string, OpenApiOperation>>;
+
+export function openApiSpec(baseUrl = "https://voltradeai.com") {
+  const spec = agentToolSpec(baseUrl);
+  const paths: OpenApiPaths = {};
+  for (const tool of spec.tools) {
+    const [method, rest] = tool.endpoint.split(" ");
+    const [pathTemplate, queryPart] = rest.split("?");
+    const pathParamNames = [...pathTemplate.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    const queryParamNames = queryPart
+      ? [...queryPart.matchAll(/(\w+)=\{(\w+)\}/g)].map((m) => m[2])
+      : [];
+    const required: string[] = tool.input_schema.required;
+    const properties = tool.input_schema.properties as unknown as
+      Record<string, (Record<string, unknown> & { description?: string }) | undefined>;
+    const paramFor = (name: string, kind: "path" | "query"): OpenApiParam => ({
+      name,
+      in: kind,
+      required: kind === "path" ? true : required.includes(name),
+      schema: properties[name] || { type: "string" },
+      description: properties[name]?.description,
+    });
+    const tag = (tool.returns_provenance[0] || "data").split("/")[0];
+    paths[pathTemplate] = {
+      [method.toLowerCase()]: {
+        operationId: tool.name,
+        summary: tool.description.split(". ")[0] + ".",
+        description: tool.description,
+        tags: [tag],
+        parameters: [...pathParamNames.map((n) => paramFor(n, "path")), ...queryParamNames.map((n) => paramFor(n, "query"))],
+        security: [{ apiKeyAuth: [] }],
+        "x-license-marks": tool.returns_provenance,
+        responses: {
+          "200": {
+            description: "Live data — exact field shape not pinned here; see x-license-marks and the endpoint's own /api/v1/meta preview for a live example.",
+            content: { "application/json": { schema: { type: "object" } } },
+          },
+          "401": { description: "missing or invalid x-api-key." },
+          "429": { description: "rate limit exceeded for this key's tier." },
+          "503": { description: "archive still warming up on a fresh deploy." },
+        },
+      },
+    };
+  }
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "VolTradeAI Data API",
+      version: "v1",
+      description: `${spec.ground_truth_note} ${spec.disclaimer}`,
+    },
+    servers: [{ url: baseUrl }],
+    security: [{ apiKeyAuth: [] }],
+    components: {
+      securitySchemes: {
+        apiKeyAuth: { type: "apiKey", in: "header", name: "x-api-key" },
+      },
+    },
+    paths,
   };
 }

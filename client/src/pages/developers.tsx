@@ -28,6 +28,8 @@ type RunState =
   | { status: "done"; data: any }
   | { status: "error"; err: string };
 
+const SPEC_LINK_STYLE: React.CSSProperties = { color: "var(--accent)", textDecoration: "underline" };
+
 const TIER_LABEL: Record<string, string> = { dev: "Developer", pro: "Pro", enterprise: "Enterprise" };
 const TIER_PRICE: Record<string, string> = { dev: "Free", pro: "TBA", enterprise: "Contact" };
 
@@ -170,6 +172,14 @@ export default function DevelopersPage() {
         {meta && (
           <>
             <p className="vt-dev-caption">{meta.auth}</p>
+            <p className="vt-dev-caption">
+              Machine-readable specs — both render straight off this same live
+              reference, never a hand-maintained copy:{" "}
+              <a href="/api/v1/openapi.json" target="_blank" rel="noreferrer" style={SPEC_LINK_STYLE}>OpenAPI 3.0</a>{" "}
+              (Postman/Insomnia import, client codegen, Swagger UI) ·{" "}
+              <a href="/api/v1/agent-tools" target="_blank" rel="noreferrer" style={SPEC_LINK_STYLE}>Agent tool spec</a>{" "}
+              (Anthropic tool use / OpenAI functions / MCP).
+            </p>
             <div className="vt-dev-endpoints">
               {meta.endpoints.map((e) => {
                 const run = runs[e.path] || { status: "idle" as const };

@@ -61,7 +61,7 @@ import {
 } from "./owmTiles";
 import { createApiKeyStore, SELF_SERVE_MAX_KEYS, SELF_SERVE_TIER } from "./apiKeyAccounts";
 import {
-  parseApiKeys, makeRateLimiter, meterUsage, apiMeta, agentToolSpec, LICENSE_MARKS, ApiTier,
+  parseApiKeys, makeRateLimiter, meterUsage, apiMeta, agentToolSpec, openApiSpec, LICENSE_MARKS, ApiTier,
 } from "./apiProduct";
 import { addToWaitlist } from "./waitlist";
 import {
@@ -3831,6 +3831,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // OpenAI functions / MCP). Public like /meta — it's documentation, not
   // data; the tool calls themselves still require an x-api-key.
   app.get("/api/v1/agent-tools", (_req, res) => res.json(agentToolSpec()));
+  // Standard-tooling counterpart to agent-tools: an OpenAPI 3.0 document
+  // (Postman/Insomnia import, client codegen, Swagger UI). Public like meta/
+  // agent-tools — it's documentation, not data; the calls themselves still
+  // require an x-api-key.
+  app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec()));
 
   // Waitlist capture (/developers) — email only, no billing, "coming soon".
   // The monetization tripwire stays untripped: no pricing enablement here.
