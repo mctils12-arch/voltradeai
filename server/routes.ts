@@ -4803,6 +4803,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GEM methane-plume x extraction-registry proximity keyed mirror — closes
+  // the last remaining "gate1-passed, no /api/v1 mirror" gap this sweep's
+  // own audits named (see the COT/contracts/short-volume mirrors' comments
+  // above; usaspending_contracts and finra_short_volume both closed
+  // 2026-08-26). Reuses the existing cachedGemMethaneProximity() cache the
+  // RAW /api/data/methane-plumes route already populates — no new fetch, no
+  // new poller, no new computation. gate2_pending per datacore/
+  // signal_ladder.json (2(a) shipped, 2(b)-(d) unbuilt) — same RAW-display-
+  // only posture the route's own comment above already states.
+  app.get("/api/v1/data/methane-plumes", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = cachedGemMethaneProximity();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/methane-plumes", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/methane-plumes", {
+        count: hit.plumes.length,
+        matchedCount: hit.matchedCount,
+        ambiguousCount: hit.ambiguousCount,
+        note: "satellite methane-plume detections joined to the nearest catalogued GEM oil/gas-extraction or coal-mine "
+          + `asset within ${MATCH_RADIUS_KM}km (null when nothing catalogued is that close). nearestAsset is a geometric `
+          + "proximity fact, not a confirmed emissions attribution. GATE 2(a) (this join) shipped; gates 2(b)-(d) "
+          + "(repeat-detection rate, base rate, disclosed-intensity match) are unbuilt — RAW display only, not a trading signal.",
+        plumes: hit.plumes,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/methane-plumes", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/methane-plumes", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

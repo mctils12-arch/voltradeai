@@ -3,6 +3,197 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-26 (scheduled-routine session #6) [PRODUCT] — SHARED (server/apiProduct.ts, server/routes.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): GEM methane-plume x extraction-registry proximity gets its /api/v1 keyed mirror, closing the last remaining gap this sweep's own audit named (v1.0.795)
+
+TERRITORY: SHARED, minimal and last per the WORKSTREAM PARTITION protocol —
+this diff only touches server/apiProduct.ts, server/routes.ts, their test
+file, and the version/counter bookkeeping files; no T-BOT/T-CLIENT/
+T-DATACORE-primary file is touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/PROGRAM_STATE.md
+and research/experiments.md (tail) for the two-track history this repo
+carries. `python3 scripts/session_health_check.py`: 6 OK, 1 WARN
+(daemon_memory: rss=402.9MB >= trim_mb=400MB, deep_score running in
+trimmed mode — a known, previously-logged degraded-but-graceful state, not
+a LIVENESS ALARM; liveness alive/not dark, subsystems ok, tier2 timeouts
+0, ml_feedback age 21.6h no known-broken signature, deploy_freshness
+server_version=1.0.794 matching this checkout pre-bump). `python3
+scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 0/10 REPAIR in the last 10 tagged sessions, well below the 7+
+trigger; known_broken 36 items, only #26/#34 lack an explicit close
+marker (advisory only, both already resolved per prior sessions' own
+notes — not re-verified again this session, per the PRODUCT charter's
+"note it but proceed... unless the break blocks you"). No LIVENESS ALARM,
+no blocking break.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed both gate2_pending roots (cftc_cot_positioning ~56d elapsed of
+~105d needed; sec_8k_earnings_language 36d of 90d — the script's own
+"live-verify before trusting" caveat noted, not re-derived by hand this
+session) still WAITING, nothing ready to judge. `python3
+scripts/data_stream_registry_check.py --unbuilt` showed no axis-(a)
+candidate unblocked today (dtcc_sbsdr needs a human volume-budget call;
+un_comtrade is structural-thesis-only; viirs_nightfire needs a BUILD-FIRST
+writeup, a bigger task than this session's remaining capacity). Fell
+through to SESSION BUDGET step 1 (next queued item): `grep "^## 2026-08-26"
+experiments.md` confirmed 5 scheduled-routine sessions had already run
+today (the most recent, session #5, shipped `finra_short_volume`'s /api/v1
+mirror, v1.0.794) — so this session's job was to find the NEXT unclaimed
+item, not repeat one. Session #5's own NEXT section named exactly one
+remaining item: `gem_methane_plume_proximity` is the last root named in
+this sweep's original three-item gap audit (`usaspending_contracts`,
+`finra_short_volume`, `gem_methane_plume_proximity`) still without an
+`/api/v1` mirror.
+
+HONESTY CHECK BEFORE BUILDING (this root differs from the prior three —
+it is gate2_pending, not gate1_pass-only): read `datacore/
+signal_ladder.json`'s `gem_methane_plume_proximity` entry
+(`current_gate: 1`, note: "Gate 1 ... effectively trivial. Gate 2(a)
+(proximity join + map layer) SHIPPED 2026-07-19; gate 2(b)-(d) ...
+explicitly not done — still not a signal.") and the existing RAW
+`/api/data/methane-plumes` + `/api/data/methane-plumes/asset-stats`
+routes' own header comments (server/routes.ts:3113-3179) before deciding
+this was safe to mirror. Both existing RAW routes already return
+`kind: "raw", predictive: false` and state the gate-2(a)-shipped/
+2(b)-(d)-unbuilt split verbatim in their own `note`/`assetSource` fields
+— this is the SAME RAW-OVERLAY posture (CLAUDE.md's "RAW OVERLAYS vs
+SIGNALS" rule: a geometric proximity fact carries no predictive claim,
+same class as the COT/contracts/short-volume mirrors' own gate-2-fail/
+inconclusive RAW postures) as every prior mirror in this sweep, not a
+step up in claim — so mirroring it at `/api/v1` is the same "expose an
+already-shipped, already-honest RAW route" action as the three before
+it, not a new decision to surface an unvalidated signal. Chose to mirror
+only `/api/data/methane-plumes` (the plume-level detections, matching the
+"one endpoint per named root" pattern every prior mirror in this sweep
+used) — NOT `/api/data/methane-plumes/asset-stats` (gate 2(b), a
+descriptive stat one layer further from the raw detections), left as a
+separate, smaller future pick if ever wanted.
+
+READ BEFORE WRITE: read server/gemMethaneProximity.ts in full (its own
+header explaining MATCH_RADIUS_KM/AMBIGUOUS_MARGIN_KM as stated, tunable
+constants, not tuned parameters; `MethaneProximityResult`'s exact field
+shape — `plumes`/`matchedCount`/`ambiguousCount`/`assetStats`/
+`plumeProvenance`/`assetProvenance`) and the existing `/api/data/
+methane-plumes` route (server/routes.ts:3127-3151) as the field-mapping
+template — did not guess any field name. Read the three most recent
+mirrors (COT, contracts, short-volume; server/routes.ts ~4711-4802) in
+full as the wiring template (`v1Envelope` + `requireApiKey` + `meterUsage`
+shape, 503 warming-up guard, 500 catch path) and `v1Envelope`'s own
+signature (server/routes.ts:3821 — `generatedAt?: number`, defaults to
+`Date.now()`) before deciding NOT to pass GEM's `release` string (a
+spreadsheet-release label like `GMET_V3_12-12-2025.xlsx`, not a
+`Date`-parseable timestamp) into that slot — passing it would either
+produce an Invalid Date or silently misrepresent the response's actual
+generation time, so the mirror omits the third arg and lets it default,
+same as every route in this file that lacks its own `hit.at`-style cache
+timestamp. Checked LICENSE_MARKS' existing CC BY 4.0 precedent
+(`tracks/trains`, resell: "ok") before marking this entry `ok` rather
+than `conditional` — GEM's own Copyright sheet (cited in
+server/gemMethane.ts's header) states CC BY 4.0 for both source
+datasets, the same open-attribution class as the government-produced
+streams already marked `ok`, not the issuer-authored/informational-use-
+terms class marked `conditional`.
+
+WHAT SHIPPED: `/api/v1/data/methane-plumes` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/methane-plumes` route, reusing
+`cachedGemMethaneProximity()` directly (no new fetch, no new poller, no
+new computation). Response carries `count`/`matchedCount`/
+`ambiguousCount`/`plumes` (byte-identical to the RAW route's own fields),
+wrapped in `v1Envelope("data/methane-plumes", {...})` behind
+`requireApiKey` + `meterUsage`, with the same 503+Retry-After warming-up
+guard as every other mirror in this family. `apiProduct.ts` gained: a new
+`LICENSE_MARKS["data/methane-plumes"]` entry (resell: `ok`, CC BY 4.0,
+same class as trains/COT/contracts/attention); a new `apiMeta().endpoints`
+entry naming the GATE 1 (trivial-to-inherit) and GATE 2(a)-shipped/
+2(b)-(d)-unbuilt state verbatim; and a new `voltrade_methane_plumes` tool
+in `agentToolSpec()` stating the same honesty language, explicit that
+`nearestAsset` is a geometric proximity fact, never a confirmed or
+claimed emissions attribution.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the COT/contracts/short-volume precedent pair) asserting: the
+license mark is `ok` (not `conditional`) and names CC BY 4.0 + Global
+Energy Monitor; the `voltrade_methane_plumes` tool exists with
+`returns_provenance: ["data/methane-plumes"]`; its description carries
+"GATE 1", the "2(a)"/"SHIPPED" pair, the "2(b)-(d)"/"NOT BUILT" pair (so a
+silent full-gate-2-pass reading is ruled out as surely as a silent
+gate-2-not-attempted reading would be for the other mirrors), and the
+"not a confirmed or claimed emissions attribution" honesty clause. Also
+added `/api/v1/data/methane-plumes` to the existing generic "wiring
+pinned" route-presence list and "meta honesty" live-endpoint check — the
+endpoint-count/preview and agent-tool-count sweep tests are already
+generic over `apiMeta().endpoints`/`agentToolSpec().tools`, so no other
+hardcoded count needed bumping.
+
+GATES: this sandbox's `node_modules` was empty and Python was missing
+dev dependencies at session start (same recurring fresh-sandbox
+provisioning gap prior sessions have logged, not a regression) —
+`npm ci` (488 packages, clean) + `pip install -r requirements.txt -r
+requirements-dev.txt` (clean) run first. `npx tsx --test
+server/apiProduct.test.ts`: 35/35 pass (was 34; +1 new dedicated test).
+`bash scripts/tsc_ratchet.sh`: 12, TS2304 0 — matches the pin exactly.
+`bash scripts/counter_ratchet.sh`: `assertions` IMPROVED 12310 -> 12320
+(this session's own new test, the direct and sole cause — re-fetched
+`origin/main` immediately before the pin and confirmed it still matched
+this branch's base exactly at `4a0b38d`/v1.0.794, zero concurrent-drift
+component); pinned in `ci/counter_baseline.txt` in the same PR, re-ran
+after pinning to confirm 25/25 OK. All other 24 counters unchanged.
+`bash scripts/gated_tests.sh`: GATE PASSED — client 1070/1070, python
+1485 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `npm run
+build`: clean, only the same pre-existing warnings recent sessions log
+(maplibre-gl chunk size, astronomy-engine default-export interop,
+mapIcons dynamic/static dual import) — none touched this session. No
+visual harness run: zero `client/src` files touched (`git status
+--short` confirms only server/ci/package/research files), same exemption
+prior zero-rendering-delta mirror PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's LICENSE_MARKS entry
+carries no aircraft/AIS-derived provider-compliance condition; GEM's own
+CC BY 4.0 terms carry no adsb.lol-lineage constraint. No billing/pricing/
+subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing GEM
+methane-plume-proximity archive through the existing v1 API boundary, the
+same pattern every prior mirror in this sweep has followed; no new join
+or data stream. The underlying proximity join itself already ties into
+the GEM oil/gas-extraction and coal-mine asset registries (server/
+gemMethaneProximity.ts) — unchanged by this PR.
+
+VERSION: v1.0.795 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base, v1.0.794/PR
+#939 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Wednesday ~20:09 ET, well after market close (16:00
+ET). This diff also has zero trading-loop blast radius regardless
+(additive `/api/v1/*` GET route reading an existing cache), so no
+merge-timing caveat is needed either way.
+
+NEXT (queued, not this session): this session's own sweep audit found no
+further "shipped-data-no-v1-mirror" root remaining among the three named
+gaps (usaspending_contracts, finra_short_volume, gem_methane_plume_proximity
+— all three now closed). A future session should re-run the sweep's
+audit methodology (cross-reference `datacore/signal_ladder.json`'s
+gate1_pass+ roots against `apiMeta().endpoints`) fresh rather than assume
+"no gaps remain" — the 2026-08-25 session #27 entry found exactly that
+kind of stale "no gaps" claim wrong by 4 items the first time it was
+checked. Both gate2_pending ladder roots (cftc_cot_positioning,
+sec_8k_earnings_language) remain WAITING per `ladder_readiness_check.py`.
+`gem_methane_plume_proximity`'s `/api/data/methane-plumes/asset-stats`
+(gate 2(b) descriptive stat) remains unmirrored — a smaller, separate
+future pick if ever wanted, not part of this sweep's original 3-item
+scope.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the standing queue item named by the immediately prior
+session), used in full including reading the ladder entry, the license
+class, and the v1Envelope timestamp-parameter contract before writing
+any code rather than pattern-matching the nearest neighbor blindly.
+
 ## 2026-08-26 (scheduled-routine session #4) [NO-ACTION / PROCESS] — landing a stranded paper trail: PR #888 (docs-only, opened 2026-08-20, never merged) closed out PR #763's supersession but its own log entries never reached main; re-verified still accurate and not superseded, ported in (no code shipped, no version bump)
 
 TERRITORY: none of T-DATACORE/T-CLIENT/T-BOT — SHARED-but-minimal
