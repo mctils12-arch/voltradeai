@@ -4844,6 +4844,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // JODI World oil closing-stock levels keyed mirror — closes the same
+  // "gate1-passed, no /api/v1 mirror" gap the COT/contracts/short-volume/
+  // methane-plumes mirrors above closed (server/jodiOil.ts backs the RAW
+  // /api/data/jodi-oil-stocks view this reuses verbatim). UNLIKE those four,
+  // JODI's archive is a static, session-run file (scripts/jodi_oil.py,
+  // monthly after JODI's ~19th release) rather than a live Railway poller,
+  // so jodiOilStocksView() always has data once the file is checked in —
+  // no warming_up cache-miss state to model. GATE 1 (DATA) passed
+  // 2026-08-06 (reconciles against EIA within 1.2%); GATE 2 (SIGNAL) was
+  // KILLED the same day (no pre-registered non-OECD stock-build comparison
+  // cleared even an uncorrected 0.05 bar against BNO/USO forward returns) —
+  // RAW self-reported closing-stock levels only, no predictive claim.
+  app.get("/api/v1/data/jodi-oil-stocks", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const view = jodiOilStocksView();
+      res.json(v1Envelope("data/jodi-oil-stocks", {
+        product: view.product,
+        archiveLatestPeriod: view.archiveLatestPeriod,
+        seriesCount: view.seriesCount,
+        countriesReporting: view.countriesReporting,
+        note: view.note,
+        rows: view.rows,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/jodi-oil-stocks", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/jodi-oil-stocks", status: 500, tier: auth.tier });
+    }
+  });
+
   // ENTITY DOSSIER v2 (ANALYST CONSOLE charter W5, research/console_charter.md)
   // — "click anything -> one panel": identity + cross-layer graph
   // neighborhood + related USAspending contracts (ticker-matched, the one

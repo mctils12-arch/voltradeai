@@ -239,6 +239,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "Global Energy Monitor — Methane Emitters Tracker + Oil & Gas Extraction Tracker + Global Coal Mine Tracker (CC BY 4.0)",
     resell: "ok",
   },
+  "data/jodi-oil-stocks": {
+    license: "JODI (Joint Organisations Data Initiative) World Primary database, TOTCRUDE closing-stock levels — JODI's own terms are free with acknowledgment (JODI data are publicly available for use with attribution), the same open-attribution class as the eu-macro/attention/CFTC-COT/USAspending/FRED/crop-conditions/bank-failures/NRC streams above, NOT conditional like the issuer-authored Form 4/13F/earnings-language/DTCC streams or the informational-use-terms OCC/Cboe/FINRA streams.",
+    attribution: "JODI (Joint Organisations Data Initiative) World Primary database",
+    resell: "ok",
+  },
 };
 
 /** Self-documenting endpoint reference — /developers renders this; gated
@@ -276,6 +281,7 @@ export function apiMeta() {
       { path: "/api/v1/data/contracts", params: "-", desc: "Most-recent USAspending.gov federal contract-award transactions (award types A-D, |Transaction Amount| >= $25,000; each row carries a precision-first ticker match — persistent UEI cache -> exact SEC company-name match -> award-detail FPDS parent, never fuzzy; unmatched rows return tkr:null and must be skipped, never guessed). GATE 1 (recipient->ticker matcher) PASSED 2026-07-24. GATE 2 (large award/market-cap ratio predicts better forward returns for small caps) was REJECTED 2026-08-15 (adequately powered at 5d, n=50 high_ratio/n=43 low_ratio, no positive separation at any horizon; the one nominally-interesting result was WRONG-SIGNED and fails the multi-comparison Bonferroni bar) — RAW as-seen display only, no predictive claim. action_date is the contract's signature date, not an event date; rt (as-seen date) is the only honest event date, and DoD/USACE awards publish roughly 90 days late. Public-domain US federal data, freely resellable.", preview: "/api/data/contracts" },
       { path: "/api/v1/data/short-volume", params: "-", desc: "FINRA Reg SHO daily consolidated (CNMS) short-sale volume: market-wide aggregate short ratio plus a top-ratio list of symbols clearing a stated total-volume floor. This is short-marked EXECUTION volume (a flow proxy), NOT short interest — the distinction matters and is stated on every response. GATE 1 (DATA) PASSED 2026-07-05. GATE 2 (short-ratio extremes predict reversals) FIRST-PASS RUN 2026-08-06 FAILED the pre-registered composite bar (ordering); a PRE-REGISTERED FOLLOW-UP RETEST 2026-08-15 against an unbiased population baseline also failed to clear significance (t=1.303 vs crit=2.131) — two consecutive fails on the same window, VERDICT FAIL/INCONCLUSIVE, not killed (same window twice, not a disjoint out-of-sample replication or sign reversal). RAW display only, no predictive claim. FINRA informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/short-volume" },
       { path: "/api/v1/data/methane-plumes", params: "-", desc: "Global Energy Monitor Methane Emitters Tracker (GMET): dated satellite methane-plume detections (CarbonMapper/GHGSat-class providers, as catalogued by GEM), each joined to its nearest catalogued GEM oil/gas-extraction or coal-mine asset within a stated match radius (or null when nothing catalogued is that close). GATE 1 (plume detection itself) is calibrated upstream by GEM/CarbonMapper/GHGSat and effectively trivial to inherit. GATE 2(a) (the proximity join) SHIPPED 2026-07-19 — gates 2(b)-(d) (repeat-detection rate, a same-universe base rate, and matching operators' own disclosed emissions) are explicitly NOT built. nearestAsset is a GEOMETRIC PROXIMITY FACT, not a confirmed or claimed emissions attribution — RAW display only, no predictive claim. GEM publishes both source datasets under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/methane-plumes" },
+      { path: "/api/v1/data/jodi-oil-stocks", params: "-", desc: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported closing crude-oil stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness is never smoothed over, some areas stopped reporting TOTCRUDE years before the archive's overall latest period. GATE 1 (DATA) PASSED 2026-08-06 (reconciles against EIA within 1.2%, scripts/jodi_eia_reconcile.py). GATE 2 (SIGNAL) KILLED 2026-08-06 — a pre-registered non-OECD stock-build composite found no significant BNO/USO forward-return signal in any of 4 pre-registered comparisons. RAW self-reported levels only, no predictive claim. JODI data are free with acknowledgment, freely resellable with attribution.", preview: "/api/data/jodi-oil-stocks" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
     coming_gated: [
@@ -517,6 +523,13 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       input_schema: { type: "object", properties: {}, required: [] },
       endpoint: "GET /api/v1/data/methane-plumes",
       returns_provenance: ["data/methane-plumes"],
+    },
+    {
+      name: "voltrade_jodi_oil_stocks",
+      description: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported crude-oil closing stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness (some areas stopped reporting TOTCRUDE years ago) is never smoothed over. RAW self-reported display, no predictive claim. GATE 1 (DATA) PASSED — reconciles against EIA within 1.2%. NOT a trading signal — GATE 2 (a pre-registered non-OECD stock-build composite vs. BNO/USO forward returns) was KILLED: none of 4 pre-registered comparisons cleared even an uncorrected 0.05 bar. JODI data are free with acknowledgment — freely resellable with attribution, same posture as the CFTC COT/USAspending/FRED/crop-conditions/bank-failures/NRC/attention/methane-plume tools above.",
+      input_schema: { type: "object", properties: {}, required: [] },
+      endpoint: "GET /api/v1/data/jodi-oil-stocks",
+      returns_provenance: ["data/jodi-oil-stocks"],
     },
   ];
   return {
