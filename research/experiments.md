@@ -3,6 +3,166 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine session) [REPAIR] — T-BOT (server/bot.ts, server/deployTimestampPersistence.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt not touched, package.json, package-lock.json, research/*): DEPLOY_TIMESTAMP no longer resets on every Railway redeploy, closing a live PRIORITY-2 learning-integrity bug found via the audit log (v1.0.805)
+
+TERRITORY: T-BOT primary (`server/bot.ts`, `bot_engine.py`/`system_config.py`/
+`strategies/` list per WORKSTREAM PARTITION) plus SHARED-but-minimal version
+bookkeeping and this log entry.
+
+MARKET-HOURS NOTE: this session ran during market hours (~12:03 ET,
+Friday 2026-08-28). Per the scheduling instruction for this run, the PR
+requests merge be held until after 4:00 PM ET rather than immediately,
+since it is not a fix for a currently-active LIVENESS/KILL-SWITCH break —
+see SEVERITY below for why it was still judged worth fixing same-session
+rather than deferred.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: all 7 OK except one WARN —
+`daemon_memory: daemon rss=446.8MB >= trim_mb=400MB — deep_score running
+in trimmed mode` (a documented degrade, not a failure; no LIVENESS ALARM).
+`python3 scripts/research_state_check.py`: audits register none overdue;
+thrash_ratio 1/10 REPAIR in the last 10 tagged sessions (well below the 7+
+trigger — this session's own [REPAIR] tag does not create a thrash
+concern); known_broken 37 items, only #26/#34 lack an explicit close
+marker (advisory only, both previously confirmed resolved). No
+progress-floor or starvation flag. Live `curl https://voltradeai.com/api/health`:
+`status:"ok"`, bot active, `drawdownPct:"0.0"`, `liveness.dark:false` — no
+LIVENESS ALARM.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): checked "fix a bug seen
+in audit logs" first, per this run's own instruction to check
+`/api/health` and the audit log before picking an action. `curl
+"https://voltradeai.com/api/diag/audit?limit=300&token=$DIAG_TOKEN"`
+surfaced a real, currently-recurring pattern: a `LEARN` audit line every
+~30 minutes reading "Win rate 0% (20 post-deploy trades) — shifting
+weight toward VRP/squeeze (momentum: 15%, VRP: 40%)" — i.e. VRP already
+pinned at its 40% cap and momentum at its 15% floor. Cross-checked against
+the same window's `TIER3-DIAG` line (`node_uptime_s=7201` at 15:23:39Z,
+i.e. the process had been up only ~2 hours) and confirmed
+`server_version` matched the day's most recent merge (v1.0.804, PR #950 —
+a compiled-knowledge-registry data-fix with zero trading-logic
+relevance, merged 09:21:41 ET). The process's boot time lines up exactly
+with that merge's deploy, not with any change to trading logic.
+
+READ BEFORE WRITE: read `server/bot.ts`'s `adjustStrategyWeights()` and
+the `DEPLOY_TIMESTAMP` constant above it in full this session (not from
+memory). The comment above `DEPLOY_TIMESTAMP` states its purpose plainly:
+exclude trades that ran "pre-27-bug-fix, pre-scale-out, pre-HEAT-CAP
+fix" — a ONE-TIME historical cutover. But the code was
+`const DEPLOY_TIMESTAMP = new Date().toISOString();`, recomputed fresh at
+module load on every process boot. Confirmed via `git log --since`
+that this repo merges to main (each triggering a Railway redeploy of the
+whole app, restarting this same Node process) multiple times per day,
+routinely for changes with no relation to trading logic — a `/data`
+mirror route, a docs fix, a registry correction. Every such redeploy
+silently moved "only trust trades after this instant" to "right now,"
+so `adjustStrategyWeights()` could never accumulate more than a few
+hours of post-deploy sample before the boundary reset again. This is a
+PRIORITY-2 (integrity of learning) defect distinct from a threshold
+question: live capital-allocation weights (`strategyWeights.vrp`/
+`momentum`/`volume`) were being whipsawed by small-sample noise on a
+cadence set by unrelated commit activity, not by any real belief update
+about strategy performance — and the very comment describing the
+intended one-time boundary had been silently defeated by the mechanism's
+own implementation for as long as Railway has auto-deployed on merge.
+
+WHAT SHIPPED: a new `loadOrInitDeployTimestamp(paths)` helper in
+`server/bot.ts` that persists `DEPLOY_TIMESTAMP` to
+`/data/voltrade/voltrade_deploy_timestamp.json` (falling back to
+`/tmp/voltrade_deploy_timestamp.json` when the Railway volume path isn't
+writable) — the exact survive-the-redeploy pattern `EQUITY_CURVE_PATH`/
+`saveEquityCurve()` already use a few lines above it in the same file,
+reused rather than inventing a new persistence idiom (EDGE DOCTRINE #3).
+First-ever boot mints `new Date().toISOString()` and writes it to every
+candidate path; every subsequent boot reads the persisted value back
+rather than minting a new one, so the boundary now only moves when a
+human deliberately clears the file for a genuine future cutover. No
+weight-adjustment threshold was touched — the win-rate cutoffs (0.4,
+0.65), the per-cycle step sizes (0.02, 0.01), and the caps/floors (0.40,
+0.15, 0.10, 0.30) are byte-identical to before. Filed as KNOWN BROKEN
+item #38 in `research/open_questions.md` with the full live-evidence
+trace.
+
+RATCHET: new `server/deployTimestampPersistence.test.ts` (5 tests),
+extracting and actually EXECUTING `loadOrInitDeployTimestamp` via
+`new Function` against real temp files (the same technique
+`optionSymbolStreamSubscribe.test.ts`'s `loadIsOptionSymbol` already
+uses for a closure-free pure function) rather than only regex-asserting
+on source text: first-ever-boot minting and persistence; a restart
+reading the persisted value back instead of minting a new one (simulated
+via a mocked `Date.now()` 6 hours later — the exact scenario this bug
+produced in production); falling back to the second path when the first
+directory can't be created; a corrupt/unreadable persisted file failing
+safe rather than throwing; and a static check that `DEPLOY_TIMESTAMP` is
+wired through the persisted loader rather than a bare `new Date()` call
+at module load. A/B-verified via `git stash -- server/bot.ts`: all 5 fail
+against the pre-fix tree (the function does not exist there) and all 5
+pass post-fix.
+CODE-QUALITY NOTE: the first draft used `catch (e: any)` and a nested
+`try { fs.mkdirSync(...) } catch {}` to mirror `saveEquityCurve()`'s
+existing shape exactly, but `bash scripts/gated_tests.sh` caught this
+immediately — `ci/counter_baseline.txt` pins both `ts_any` (1239) and
+`empty_ts_catch` (493) as `non-increasing`, and the draft pushed each to
++1/+2. Rewrote using bare `catch (e)` (typed `unknown` under this repo's
+`strict: true`) narrowed via `e instanceof Error`, and let `mkdirSync`
+throw into the existing outer catch instead of swallowing it separately —
+zero new instances of either anti-pattern, no re-pin needed, and arguably
+a small quality improvement over the precedent it was mirroring.
+
+GATES: this sandbox's `node_modules` was absent (`npm ci` run, clean, 488
+packages) and Python was missing `pytest`/dev deps (`pip install -r
+requirements.txt -r requirements-dev.txt` run, clean) at session start —
+same fresh-sandbox provisioning gap prior sessions have logged
+repeatedly, not a regression. `npx tsx --test
+server/deployTimestampPersistence.test.ts`: 5/5 pass. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no pre-existing `.ts`
+signature touched; the new function's only external-facing shape is a
+private top-of-module constant). `bash scripts/counter_ratchet.sh`: OK,
+all 25 counters at or better than baseline — no re-pin needed (see
+CODE-QUALITY NOTE above; the new test file's assertions land within the
+existing `non-decreasing` `assertions` counter's slack without needing an
+explicit bump). `bash scripts/gated_tests.sh`: GATE PASSED — client
+1074/1074, python 1507/1 skipped/54 subtests (the two `test_ts_code_only.py`
+pinned-value checks that failed on the pre-cleanup draft now pass), quarantine
+0/1 none overdue. `npm run build`: clean, only the same pre-existing
+warnings recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms), same exemption prior
+zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or threshold
+value changed; this changes only which historical trades are eligible to
+feed an existing live adjustment mechanism, restoring the one-time
+historical boundary the surrounding code comment already documented as
+intended.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code involved.
+
+CROSS-SYSTEM INTEGRATION: none — this is an internal live-trading
+control-loop bookkeeping fix, not a new data join or stream.
+
+VERSION: v1.0.805 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`44cf05d`/v1.0.804 — no concurrent session had merged ahead of this one).
+
+NEXT (queued, not this session): a future session with live access, a few
+days out, should check `/api/diag/audit?type=LEARN` for whether the
+weight-shift cadence has settled (fewer, more stable transitions) now
+that the window persists across redeploys instead of resetting every few
+hours. The `research/wishlist.md` STALE-PR-BACKLOG and
+`research/open_questions.md` STALE PR #817 RE-QUEUE items (four
+independently-buildable rendering fixes) remain valid picks for a future
+T-CLIENT session.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+REPAIR action (a bug found live via the audit log, per this run's own
+priority order), used in full including the A/B-verified regression test
+and the mid-flight cleanup once the counter ratchet caught the first
+draft's quality regression.
+
 ## 2026-08-28 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (scripts/data_stream_registry_check.py, package.json, package-lock.json, research/*): the compiled-knowledge data-stream registry itself had drifted — `dtcc_sbsdr` was still marked `candidate_unbuilt` months after it shipped, fixed (v1.0.804)
 
 TERRITORY: SHARED-but-minimal — one script file, no T-BOT/T-CLIENT/

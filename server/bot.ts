@@ -817,7 +817,56 @@ let lastWeightAdjustLog = 0; // Throttle LEARN audit log — max once per 30 min
 // Deployment timestamp — only trades AFTER this should influence weight adjustments.
 // All pre-deploy trades ran on broken code (pre-27-bug-fix, pre-scale-out,
 // pre-HEAT-CAP fix) and their outcomes reflect bugs, not strategy quality.
-const DEPLOY_TIMESTAMP = new Date().toISOString();
+//
+// REPAIR (research/open_questions.md KNOWN BROKEN — found via live
+// /api/diag/audit this session): this used to be `new Date().toISOString()`,
+// recomputed on every process boot. Railway redeploys on every merge to
+// main — including merges with zero trading-logic relevance (a new
+// /api/v1 data mirror, a docs fix) — multiple times per day. Each redeploy
+// silently moved the "clean code" boundary to "right now," so
+// adjustStrategyWeights() below was never actually learning from a stable
+// post-fix sample — it was reacting to whatever handful of trades closed
+// in the few hours since the last unrelated merge, live-verified this
+// session: a 0% win rate over exactly 20 trades closed in the ~2 hours
+// since the day's most recent deploy was driving real weight shifts
+// (VRP toward its 40% cap, momentum toward its 15% floor) on pure
+// small-sample noise, then resetting again at the next restart. This is a
+// PRIORITY-2 (integrity of learning) defect: the boundary must reflect one
+// deliberate historical cutover, not "since last boot." Persisted the same
+// way EQUITY_CURVE_PATH survives redeploys above — set once, read back on
+// every subsequent boot — so it only moves when a human deliberately
+// clears the file for a real future cutover (e.g. after fixing another
+// broad, outcome-corrupting bug).
+const DEPLOY_TIMESTAMP_PATH = "/data/voltrade/voltrade_deploy_timestamp.json";
+const DEPLOY_TIMESTAMP_FALLBACK = "/tmp/voltrade_deploy_timestamp.json";
+function loadOrInitDeployTimestamp(paths: string[]): string {
+  for (const p of paths) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.deployTimestamp === "string") return parsed.deployTimestamp;
+      }
+    } catch (e) {
+      console.error(`[deploy-timestamp] could not load ${p}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  // First boot ever (or every persisted copy was unreadable) — mint one now
+  // and persist it so it survives every future restart.
+  const now = new Date().toISOString();
+  for (const p of paths) {
+    try {
+      const dir = p.substring(0, p.lastIndexOf("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(p, JSON.stringify({ deployTimestamp: now }));
+      return now;
+    } catch (e) {
+      console.error(`[deploy-timestamp] could not save to ${p}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return now;
+}
+const DEPLOY_TIMESTAMP = loadOrInitDeployTimestamp([DEPLOY_TIMESTAMP_PATH, DEPLOY_TIMESTAMP_FALLBACK]);
 
 function adjustStrategyWeights() {
   // Only learn from trades that closed AFTER this deployment (clean code)
