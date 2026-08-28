@@ -165,6 +165,12 @@ const PAGES = {
   // contracts/attention above; closes the "shipped-data-no-client-page"
   // gap for plant_operations (map layer only since 2026-07-20).
   plantoperations: { route: "/app#/data/plant-operations", map: false },
+  // FINRA consolidated short interest + Reg SHO threshold list (2026-08-28)
+  // — same Phase 5 ratchet rule as plantoperations/contracts above; closes
+  // the last "shipped-data-no-client-page" gap in the FINRA Query API
+  // cluster (short-volume/threshold/ATS already had client views —
+  // consolidatedShortInterest did not).
+  shortinterest: { route: "/app#/data/short-interest", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -734,6 +740,41 @@ const FIXTURES = {
     note: "GATE 1 (data) PASSED — reconciles against EIA within 1.2%. GATE 2 (signal) KILLED 2026-08-06 — " +
       "no significant forward-return signal found. Shown here as RAW, self-reported closing-stock levels " +
       "only — no predictive claim (fixture).",
+  },
+  // FINRA consolidated short interest + Reg SHO threshold list (2026-08-28,
+  // RAW display; DISTINCT from /api/data/short-volume above — settlement
+  // POSITIONS, not daily execution flow).
+  "/api/data/short-interest": {
+    kind: "raw",
+    source: "FINRA Query API — consolidated short interest (semi-monthly) + Reg SHO threshold list (daily) (fixture)",
+    attribution: "FINRA Query API",
+    time: 1786102149033,
+    settlement_date: "2026-08-15",
+    si_records: 2,
+    note: "SHORT INTEREST (positions, ~T+9 semi-monthly publish) — distinct from /api/data/short-volume (daily flow) (fixture).",
+    si: {
+      settlement_date: "2026-08-15",
+      records: 2,
+      top_days_to_cover: [
+        { symbol: "GME", name: "GameStop Corp", days_to_cover: 6.2, short_qty: 42_500_000, adv: 6_850_000 },
+        { symbol: "AMC", name: "AMC Entertainment Holdings", days_to_cover: 4.1, short_qty: 118_000_000, adv: 28_800_000 },
+      ],
+      top_change_pct: [
+        { symbol: "GME", name: "GameStop Corp", change_pct: 12.4, short_qty: 42_500_000 },
+        { symbol: "AMC", name: "AMC Entertainment Holdings", change_pct: -3.8, short_qty: 118_000_000 },
+      ],
+      adv_floor: 100_000,
+      position_floor: 1_000_000,
+      top_cap: 15,
+    },
+    threshold: {
+      trade_date: "2026-08-27",
+      count: 2,
+      symbols: [
+        { symbol: "GME", name: "GameStop Corp", market: "NYSE" },
+        { symbol: "AMC", name: "AMC Entertainment Holdings", market: "NYSE" },
+      ],
+    },
   },
   "/api/data/eu-macro": {
     kind: "raw",

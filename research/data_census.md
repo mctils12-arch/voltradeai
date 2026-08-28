@@ -108,7 +108,11 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    SIGNAL: aggregate dark-pool % is crowded (DIX clones); venue-level
    COMPOSITION shift pre-announcement × Form 4 clusters is not.
    Threshold persistence × FTD × daily short volume = the
-   settlement-stress composite nobody computes.
+   settlement-stress composite nobody computes. Client views: short-volume
+   (shortvol.tsx) and ATS/OTC venue volume (atsSummary.tsx) shipped
+   earlier; consolidatedShortInterest + thresholdList's /data client view
+   [BUILT v1.0.806, client/src/pages/finraShortInterest.tsx] closes the
+   last shipped-data-no-client-page gap in this cluster.
 4. **SEC fails-to-deliver [BUILT v1.0.171, server/secFtd.ts]** — sec.gov cnsfails zips probed 200
    (bi-monthly halves, 2004→present, public domain, resale-safe).
    SIGNAL: raw FTD spikes maximally crowded; edge only in the

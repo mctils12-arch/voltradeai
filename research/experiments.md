@@ -3,6 +3,188 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine [PRODUCT] session) — T-CLIENT (client/src/pages/finraShortInterest.tsx new, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (package.json, package-lock.json, research/*): FINRA consolidated short interest + Reg SHO threshold list gets its /data client view, the last "shipped-data-no-client-page" gap in the FINRA Query API cluster (v1.0.806)
+
+TERRITORY: T-CLIENT (primary), touching only client/src/pages/datamap.tsx,
+the new client/src/pages/finraShortInterest.tsx, and the visual-harness
+PAGES/FIXTURES tables (scripts/visual_check.mjs) — no T-BOT/T-DATACORE
+file touched, package.json/package-lock.json bookkeeping only for SHARED.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ in full order
+(experiments.md tail, open_questions.md KNOWN BROKEN + tail, wishlist.md
+top, PROGRAM_STATE.md). `python3 scripts/session_health_check.py`: all 7
+OK — liveness alive/not dark, subsystems ok, daemon rss 393.8MB (under
+trim_mb=400), ml_feedback age 14.3h, deploy_freshness server_version=
+1.0.805 matching this checkout's package.json pre-bump. No LIVENESS
+ALARM — proceeded straight to PRODUCT work per this routine's own
+instruction. `python3 scripts/research_state_check.py`: audits_register
+none overdue; thrash_ratio 2/10 REPAIR in the last 10 tagged sessions,
+well under the 7+ trigger; known_broken 38 items, 3 without an explicit
+close marker (#26/#34/#38) — advisory only, not treated as a blocker
+(matches this script's own documented behavior).
+
+PRIMARY-ACTION SELECTION: today already had 5 prior scheduled-routine
+sessions (v1.0.801 through v1.0.805, 2 of them [PRODUCT]) — confirmed via
+`grep "^## 2026-08-28" experiments.md` before picking anything, so the job
+was to find the next unclaimed item, not repeat one. Checked in order:
+`python3 scripts/ladder_readiness_check.py` — 0/2 gate2_pending roots
+ready (cftc_cot_positioning ~56d of ~105d needed, sec_8k_earnings_language
+35d of 90d — both still WAITING). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — the 10 NOT-BUILT candidates are all declined_dead_source/
+blocked_free_key/blocked_registration/structural-thesis-only; nothing
+newly actionable. research/data_census.md's own CENSUS MASTER RANKING
+already states "axis (a) build queue for this census is now fully
+exhausted: nothing ... remains unbuilt or undeclined" (confirmed still
+true, not re-probed) — the pipeline-build axis (a) is genuinely closed for
+now. Checked the recently-completed "/api/v1 mirror sweep" (COT/contracts/
+finra_short_volume/JODI/methane-plumes, 2026-08-25 through today) for a
+remaining gap: `gem_methane_plume_proximity`'s mirror, named as the last
+queued item in an earlier session's NEXT note, turned out to ALREADY be
+shipped (server/apiProduct.ts:237/283, `data/methane-plumes` — the queue
+note was stale). With the mirror sweep and the census both genuinely
+exhausted, fell through to the "shipped-data-no-client-page" sweep this
+program runs repeatedly (research/data_census.md census build #4):
+grepped every FINRA Query API cluster route in server/routes.ts against
+client/src/pages/ — short-volume (shortvol.tsx) and ats-summary
+(atsSummary.tsx) both have client views; `/api/data/short-interest`
+(server/routes.ts:2530, consolidatedShortInterest + threshold list,
+bootFinraQueryPoll(), live since v1.0.207/2026-07-07) had NEITHER a
+client page nor a map-layer toggle — a genuine, real gap, not previously
+named in any session's NEXT note (verified via grep across experiments.md
+and open_questions.md for "short-interest"/"shortInterest" turning up only
+the RAW-route shipping entry itself, never a UI follow-up).
+
+READ BEFORE WRITE: read `server/finraQuery.ts` in full this session (not
+from memory) — `ShortInterestSummary`'s exact field shape
+(settlement_date/records/top_days_to_cover/top_change_pct/adv_floor/
+position_floor/top_cap), `ThresholdSummary`'s shape (trade_date/count/
+symbols), and the ADV/position/prev-position floors' own stated purpose
+(SI_ADV_FLOOR=100k keeps illiquid junk out of days-to-cover; SI_PREV_FLOOR/
+SI_POSITION_FLOOR=1M/100k prevent a near-zero base from exploding
+change_pct — the file's own comment cites a live NVRI +259,847,500%
+artifact this floor prevents). Read the `/api/data/short-interest` route
+(server/routes.ts:2526-2543) for the exact top-level payload shape
+(kind/source/attribution/time/settlement_date/si_records/note/si/
+threshold) — did not guess any field name. Read `jodiOilStocks.tsx` and
+`atsSummary.tsx` in full as the two closest structural templates (single-
+table RAW view vs. tabbed multi-table view respectively) — this root
+needed the tabbed shape (three leaderboards: days-to-cover, change%,
+threshold list), so atsSummary.tsx's `TabKey`/filter-button pattern was
+the closer fit, adapted rather than copied verbatim (different field
+names throughout). Read the datamap.tsx wiring for jodi-oil-stocks/
+ats-summary/fred-macro end to end (import, useState hash-derived open
+flag, the hash-listener effect, the panel-top launcher button, the
+full-view render block) before adding a fifth copy of the same five-point
+pattern.
+
+WHAT SHIPPED: `client/src/pages/finraShortInterest.tsx` (new) — RAW
+display only (no predictive claim stated anywhere in the copy), three
+tabs (Top days-to-cover, Top change % (settlement), Reg SHO threshold
+list) with the same `vt-filings-filter` tab-button pattern as
+atsSummary.tsx, reusing the existing `.vt-filings-*`/`.vt-shortvol-body`
+CSS shell verbatim (no new styles). The page text explicitly and
+repeatedly distinguishes SHORT INTEREST (settlement positions, ~T+9
+publish lag) from SHORT VOLUME (daily execution flow, the separate
+existing /data/short-volume view) — both in the page-level sub-header and
+inline above the tab bar — so a viewer cannot conflate "high days-to-cover"
+with "heavy selling today." Every floor FINRA's own summarizer applies
+(ADV floor, position floor) is surfaced in the UI copy, not hidden.
+`datamap.tsx` wiring: new import, `shortInterestOpen` state (hash-derived,
+`#/data/short-interest`), the hash-listener effect line, a new
+`data-vt-shortinterest-launch` panel-top launcher button (TrendingDown
+icon, appended after the fred-macro launcher — the chronologically last
+slot in that list), and the full-view render block. Not a spatial layer
+(per-symbol settlement data, no coordinates) — same "launches from the
+panel top" treatment as jodi-oil-stocks/fred-macro/dtcc-swaps, not a
+`datacore/layers.json` map-toggle entry.
+
+RATCHET (Phase 5 visual-harness rule, same discipline as every prior
+"shipped-data-no-client-page" session): `scripts/visual_check.mjs` gained
+a `shortinterest` PAGES entry (`/app#/data/short-interest`, map:false) and
+a matching FIXTURES["/api/data/short-interest"] deterministic mock (two
+symbols, GME/AMC, chosen only for recognizability — not real settlement
+data) mirroring the live payload shape exactly. `node scripts/
+visual_check.mjs --page shortinterest`: **0 hard failures at all three
+canonical widths (390/768/1440)** — PASS/PASS/PASS. Screenshots reviewed
+directly (not just the exit code): the page renders the header, the
+distinguishing SHORT INTEREST vs. SHORT VOLUME copy, the tab bar, and the
+days-to-cover table cleanly at both 1440 and 390 (390 correctly falls back
+to the existing card-per-row `data-l` mobile layout already used by every
+other `.vt-filings-table` page — no new mobile CSS needed). The touch-
+target warnings and one clipped-control warning present in the screenshots
+are pre-existing site chrome (nav bar, map-panel controls still mounted
+behind the full-page overlay) identical to what the base `data` page run
+already shows — not new, not caused by this diff.
+
+GATES: this sandbox needed `npm ci` (node_modules present but missing
+typings) and `pip install -r requirements.txt -r requirements-dev.txt`
+(python deps absent) at session start — same fresh-sandbox provisioning
+gap prior sessions have logged repeatedly, not a regression. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304=0, unchanged (no pre-existing `.ts`
+file's error surface touched by this diff). `npm run build`: clean, only
+the same pre-existing warnings recent sessions log (maplibre-gl chunk
+size, astronomy-engine default-export interop, mapIcons dynamic/static
+dual import) — none touched this session. `bash scripts/gated_tests.sh`:
+GATE PASSED — client 1074/1074 (0 new test files; this page class has no
+dedicated-file precedent, per jodiOilStocks.tsx/atsSummary.tsx/
+dtccSwaps.tsx all shipping without one — the visual-harness PAGES/FIXTURES
+ratchet above is this class's regression gate, same as those three), 101
+files OK; python 1507 passed/1 skipped/54 subtests, quarantine 0/1 none
+overdue. `bash scripts/counter_ratchet.sh`: 3 counters read IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 403->404, `assertions`
+12405->12418) — NOT re-pinned here per PROMOTION RULE 5: this diff adds
+zero new test files and zero new test assertions, so none of the three
+is this session's own effect; `git fetch origin main` immediately before
+and again immediately before the version bump both confirmed this
+branch's base exactly matches `origin/main` at `d7112cd`/v1.0.805 (no
+concurrent session merged ahead), so the drift predates this PR entirely
+and belongs to whichever earlier session actually produced it. All other
+22 counters unchanged.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure client-side display addition of
+an already-shipped RAW route (consolidatedShortInterest has been live and
+polling since v1.0.207), no strategy/scoring/sizing/threshold change, no
+FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed; this page reads the existing free
+`/api/data/short-interest` RAW route, which carries no aircraft/AIS-
+derived provider-compliance condition.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes an already-archived,
+already-polling FINRA Query API stream through a new client view; no new
+join, no new server-side computation, no entity-graph change.
+
+VERSION: v1.0.806 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`d7112cd`/v1.0.805 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Friday ~18:2x UTC (~14:2x ET), inside market hours
+(opens 09:30, closes 16:00 ET). This diff touches client/src/pages/
+datamap.tsx and adds a new client-only page — zero trading-loop blast
+radius (no server/bot.ts, bot_engine.py, or Python file touched). Per
+CLAUDE.md's "prefer merging PRs outside 9:30-16:00 ET" guidance, this
+PR's description asks for an after-hours/close merge rather than
+requesting an immediate one.
+
+NEXT (queued, not this session): no other "shipped-data-no-client-page"
+gap was found this session in the FINRA Query API cluster (weeklySummary/
+monthlySummary/blocksSummary already have atsSummary.tsx) — a future
+session doing this same sweep should re-scan the full `server/routes.ts`
+`/api/data/*` route list against `client/src/pages/` from scratch rather
+than assume this file's account is exhaustive, since new pipelines ship
+between sessions. Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py` — nothing to judge yet.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a genuine, previously-unnamed shipped-data-no-UI gap
+found by a fresh sweep, not a stale queue item), used in full including
+reading the source module's exact field shapes and floors rather than
+guessing, plus the visual-harness PAGES/FIXTURES ratchet most of this
+program's recent PRODUCT sessions have also added.
+
 ## 2026-08-28 (scheduled-routine session) [REPAIR] — T-BOT (server/bot.ts, server/deployTimestampPersistence.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt not touched, package.json, package-lock.json, research/*): DEPLOY_TIMESTAMP no longer resets on every Railway redeploy, closing a live PRIORITY-2 learning-integrity bug found via the audit log (v1.0.805)
 
 TERRITORY: T-BOT primary (`server/bot.ts`, `bot_engine.py`/`system_config.py`/
