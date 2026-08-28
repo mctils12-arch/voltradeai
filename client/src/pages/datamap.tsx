@@ -33,6 +33,7 @@ import PipelineHealthDashboardView from "./pipelineHealthDashboard";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
 import AtsSummaryView from "./atsSummary";
+import FinraShortInterestView from "./finraShortInterest";
 import MidasView from "./midas";
 import CropConditionsView from "./cropConditions";
 import DroughtMonitorView from "./droughtMonitor";
@@ -2823,6 +2824,12 @@ export default function DataMapPage() {
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-05, no client view until now).
   const [fredMacroOpen, setFredMacroOpen] = useState(() => window.location.hash === "#/data/fred-macro");
+  // FINRA consolidated short interest + Reg SHO threshold list
+  // (#/data/short-interest) — same overlay pattern (RAW semi-monthly
+  // settlement-position reading, not a spatial layer; API-only since
+  // v1.0.207/2026-07-07, no client view until now — the last FINRA Query
+  // API cluster root missing one, see research/data_census.md section 2).
+  const [shortInterestOpen, setShortInterestOpen] = useState(() => window.location.hash === "#/data/short-interest");
   // NRC daily reactor status full view (#/data/nrc-reactor-status) — same
   // "open full view" overlay pattern as methane_plumes below (a spatial
   // layer whose per-asset ranked table doesn't belong in the layer-toggle
@@ -3239,6 +3246,7 @@ export default function DataMapPage() {
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
+      setShortInterestOpen(window.location.hash === "#/data/short-interest");
       setNrcStatusOpen(window.location.hash === "#/data/nrc-reactor-status");
       setPlantOpsOpen(window.location.hash === "#/data/plant-operations");
       setMethaneHotspotsOpen(window.location.hash === "#/data/methane-hotspots");
@@ -13269,6 +13277,9 @@ export default function DataMapPage() {
       {atsSummaryOpen && (
         <AtsSummaryView onBack={() => { window.location.hash = "#/data"; setAtsSummaryOpen(false); }} />
       )}
+      {shortInterestOpen && (
+        <FinraShortInterestView onBack={() => { window.location.hash = "#/data"; setShortInterestOpen(false); }} />
+      )}
       {midasOpen && (
         <MidasView onBack={() => { window.location.hash = "#/data"; setMidasOpen(false); }} />
       )}
@@ -14004,6 +14015,15 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/fred-macro"; setFredMacroOpen(true); }}>
               <Percent size={13} /> US macro cluster (FRED)
               <span className="vt-streams-launch-sub">28 series — rates, curve, labor, inflation, activity · RAW</span>
+            </button>
+            {/* FINRA consolidated short interest + Reg SHO threshold list
+                launcher (2026-08-28): semi-monthly settlement positions,
+                not a spatial layer, so it launches from the panel top like
+                the other page-wide dashboards above. */}
+            <button type="button" className="vt-streams-launch" data-vt-shortinterest-launch
+                    onClick={() => { window.location.hash = "#/data/short-interest"; setShortInterestOpen(true); }}>
+              <TrendingDown size={13} /> Short interest &amp; threshold list (FINRA)
+              <span className="vt-streams-launch-sub">days-to-cover, settlement change %, threshold securities · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
               const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
