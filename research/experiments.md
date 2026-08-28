@@ -3,6 +3,220 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine [REPAIR] session) — T-CLIENT (client/src/pages/datamap.tsx, client/src/lib/bodyDayNightControl.test.ts new, server/celestialToggleWiring.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, research/open_questions.md, package.json, package-lock.json): stale-PR-backlog PRIMARY ACTION — PR #844 salvaged (Day/Night body-lighting control re-derived and shipped, GPU raycast port re-queued), PR #817 closed and its 4 findings re-queued fresh, both orphaned by a main history rewrite (v1.0.803)
+
+TERRITORY: T-CLIENT primary (`client/src/pages/datamap.tsx` +
+`client/src/lib/bodyDayNightControl.test.ts`, a new client-lib test file) +
+one T-CLIENT-adjacent server test (`server/celestialToggleWiring.test.ts`,
+already the home of the celestial-toggle-wiring contract this session
+extends) + SHARED-but-minimal bookkeeping (`ci/counter_baseline.txt`,
+`research/open_questions.md`, `package.json`/`package-lock.json`). No
+T-BOT/T-DATACORE file touched, no FROZEN path touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `curl /api/health`:
+`status:"ok"`, bot active, `drawdownPct:"0.0"`, `liveness.dark:false`, all
+three feeds (aircraft/vessels/trains) alive — no LIVENESS ALARM. Last 10
+experiments.md session tags: RULE-REVIEW, PRODUCT, PIPELINE, PRODUCT,
+PIPELINE, PRODUCT, NO-ACTION/PROCESS, PIPELINE, PRODUCT, NO-ACTION/PROCESS
+— REPAIR count 0/10, well under the 7+ thrash-ratio trigger, no
+Priority-1 meta-problem override. `research/wishlist.md`'s STALE-PR
+BACKLOG section already substantially worked through by prior sessions
+(#877/#888/#763 triaged). `mcp__github__list_pull_requests(state=open)`:
+3 open PRs — #604 (explicitly draft/"do not merge as-is", correctly
+excluded) and two untriaged stale PRs, #844 (opened 2026-08-14, last
+updated 2026-08-16) and #817 (opened 2026-08-13, last updated 2026-08-16).
+Note: the 2026-08-26 session #4 entry had ALREADY looked at both of these
+(found while porting PR #888) and deferred them as "too large/
+conflict-prone to safely re-derive in one session" without opening a
+dedicated investigation — this session is that dedicated investigation,
+not a first sighting.
+
+READ BEFORE WRITE: read both PRs' full bodies and diffs via
+`pull_request_read` (`get`, `get_files`, `get_commits`, `get_check_runs`,
+`get_status`) before touching anything. `get_check_runs` and `get_status`
+both returned 0/empty for BOTH PRs' actual head SHAs — no CI ever
+completed on their final commits, despite `actions_list` showing many
+`success` runs against EARLIER SHAs on the same branches. Tried
+`git merge-base origin/main origin/<branch>` for both — both returned
+nothing, and a trial `git merge --no-commit --no-ff` in a scratch
+worktree on #844's branch failed with "refusing to merge unrelated
+histories". CONCLUSION, not assumed: both branches are orphaned by a main
+history rewrite, the same failure class KNOWN STATE already names for
+PR #399/#415 — not merely "stale," but git-unmergeable regardless of CI
+state or how much conflict-resolution effort is spent. This changes the
+correct action from "attempt a merge, bail if conflicts are too large" to
+"extract unique content and manually re-derive it against current main,
+or close and re-queue."
+
+For #844 (2 commits, 747 insertions/11 deletions, 7 files): read both
+commit bodies individually via `get_commits` — commit 1
+("Day/Night row now CARRIES the body terminator") is the real,
+human-reported, well-tested UI fix; commit 2 ("body-surface raycast,
+ported to the GPU") explicitly states in its own message "NOT WIRED IN
+YET, deliberately" — an unused `moonSurfaceGL.ts` module with no caller,
+proven only by a TS-mirror unit test and a headless-SwiftShader render,
+no production wiring, no measured real-GPU speedup. Read current
+`client/src/lib/celestial/moonSurface.ts` and `textureSphere.ts` in full
+and confirmed every function `moonSurfaceGL.ts` depends on
+(`raySphereNearT`, `surfaceLonLat`, `DetailOverlay`, `MoonSurfaceView`,
+`sampleDetail`, `lambertWeight`) is UNCHANGED on current main despite
+~1,200 commits of drift — the API surface this PR's first commit touches
+has not moved. Read current `datamap.tsx` around the `"daynight"` status
+line (~line 6000) and the layer-row rendering block (~line 12606,
+`l.id === "aircraft" && on &&`) to find a safe, unmoved insertion point;
+confirmed `celRealistic`/`setRealisticLightingPref`/`spaceActive` all
+still exist with the same names and the same "one pref, two surfaces"
+pattern the PR's own tests require (`>=2` call sites of
+`setRealisticLightingPref(!celRealistic)`).
+
+For #817 (20 commits, 26,214 insertions/3,236 deletions, 126 files): read
+the full PR body (its own "Merge note" already documents one prior
+61-commit main-merge at v1.0.732) and grepped current main for each of
+its 4 sub-features' signature symbols: `polarClampDots`/`camBasis` in
+`spaceFrame.ts` (STILL the old, unfixed form — the exact test the PR
+deleted, `"polarClampDots: lock forbids under-ecliptic, unlock only
+widens"`, still exists and still passes on main, meaning the bug it
+pins is still live), `GRID_MASTER_IDS` in `gridMaster.ts` (still 4
+continents, comment still literally says "Africa/Asia/Oceania pending"),
+`MOON_PATCH_COVER_MARGIN` in `spaceFrame.ts` (still `2.8`, unchanged),
+and `scripts/moon_bake.py` (absent from the tree — `ls`/`grep` both
+confirm no LROC bake pipeline exists on main). All 4 findings are
+therefore CONFIRMED still real and still un-landed, not stale
+speculation — but re-deriving 126 files of camera math, grid-registry
+wiring, and a 5.55 GiB imagery bake, blind, in one session, against 82
+versions of unknown drift, is exactly the kind of resurrection CLAUDE.md
+warns against shipping without independent re-verification. Per the
+2026-08-26 session's own prior judgment (re-confirmed, not overridden)
+this PR is closed rather than merged.
+
+WHAT SHIPPED:
+1. **PR #844's Day/Night fix, re-derived (not git-merged) against
+   current `datamap.tsx`.** Added a `BODY` control row (`data-vt-body-
+   daynight`, a `role="switch"` button) rendered only when
+   `l.id === "daynight" && spaceActive` — i.e. the camera is at a body —
+   toggling the SAME `vt-celestial-realistic` pref the CELESTIAL panel
+   drives (`setRealisticLightingPref(!celRealistic)`), never a second
+   source of truth. Deliberately NOT gated on the row's own `on` switch:
+   out at a body the flat-map night shade is invisible, so gating the
+   body control behind it would hide the only control that does anything
+   there. Updated the `"daynight"` layer's `setStatus(...)` text to stop
+   naming "CELESTIAL › Realistic lighting" (the 2026-08-13 fix that
+   provably did not work — the identical report recurred 2026-08-14) and
+   instead say the row itself now carries the control.
+2. **PR #844's GPU raycast port (`moonSurfaceGL.ts`) — deliberately NOT
+   ported.** Larger (351+243 new lines), unwired even in the original
+   PR, not user-reported-broken. Left in git history on
+   `claude/voltradeai-master-program-dsbeve`'s `fc1479c` commit for a
+   future session to re-derive fresh if wanted.
+3. **PR #817 — NOT ported.** Closed with its 4 sub-findings filed as
+   independently-buildable items in `research/open_questions.md`
+   ("STALE PR #817 RE-QUEUE"), each re-verified against current main
+   (see READ BEFORE WRITE above) rather than copied from the 16-day-old
+   PR body, with an explicit instruction not to bundle them the way the
+   original PR did.
+4. Both PRs closed on GitHub via `update_pull_request` with comments
+   explaining the orphaned-history finding, what was salvaged/re-queued,
+   and pointing at the original branches' commits for anyone who wants
+   the full numeric/measurement detail later.
+
+RATCHET: new `client/src/lib/bodyDayNightControl.test.ts` (4 tests,
+source-scraped against `datamap.tsx` with comments stripped, matching
+the PR's own original test design) — the control exists in the row;
+it drives the SAME pref as the CELESTIAL panel (>=2 call sites);
+it's gated on `spaceActive` not the row's own switch; the status text no
+longer sends the user hunting through panels. `assertions` 12394 -> 12405
+(+11, measured via `scripts/program_status.sh`, not estimated) across
+both files together. `server/celestialToggleWiring.test.ts`'s pre-existing
+test
+`"the Earth-map daynight status line points at the space-view lighting
+toggle"` pinned the OLD (broken) 2026-08-13 fix — RECURRENCE ESCALATES
+applies (the identical report came back once already), so this test is
+STRENGTHENED, not weakened: renamed to `"...states its map-only shading
+AND carries a real body-lighting control"`, keeps the original "shades
+THIS MAP" requirement, ADDS a requirement that the old pointer text is
+GONE, and ADDS 3 new assertions that the actual control exists, is
+correctly gated, and drives the shared pref. `tests_run_in_ci`/
+`tests_gating_merge` 402 -> 403 (one new tracked test file). Both counters
+re-pinned in `ci/counter_baseline.txt` in this same PR.
+
+GATES: fresh sandbox provisioning gap recurred (`node_modules` absent,
+Python `pytest`/`openpyxl` absent at session start) — `npm install` (487
+packages) and `pip install pytest openpyxl` (requirements.txt itself
+lacks both, a pre-existing gap, not introduced this session) run, both
+clean. `python3 -m pytest -q`: 1504 passed, 2 skipped, 54 subtests —
+unrelated to this client-only change but run per PROMOTION RULE 1.
+`bash scripts/gated_tests.sh`: first run caught a real regression
+(the pre-existing `celestialToggleWiring.test.ts` assertion above failing
+against the new status text) — fixed by strengthening the test, not
+weakening the fix; second run GATE PASSED, server 169 files OK (1074
+tests), client 100 files OK (1070 tests, includes the new file), python
+1504/2 skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0 (unchanged — no `.ts` type
+surface touched, only JSX/test bodies). `bash scripts/counter_ratchet.sh`:
+OK after the assertions/tests_run_in_ci/tests_gating_merge re-pin above,
+all 25 counters at or better than baseline. `npm run build`: clean, same
+pre-existing warnings prior sessions log (maplibre-gl chunk size,
+mapIcons dynamic/static dual import, astronomy-engine default-export
+warning) — none touched this session.
+
+VISUAL VERIFICATION (CLAUDE.md PROMOTION RULE 6, required — `client/`
+touched): `npm run visual` run in full at 390/768/1440.
+**0 hard failures across all 122 page/viewport combinations**
+(`.visual/results.json`). Reviewed `.visual/data-globe-1440.png` and
+`.visual/data-1440.png` directly: the `/data` page (layers panel,
+default Earth-globe view) renders cleanly with no visual regression from
+the `datamap.tsx` change. The new BODY control itself is gated on
+`spaceActive` (camera at a Moon/planet with the layers panel open to the
+`"daynight"` row) — a state the harness's scripted navigation does not
+drive into, so no screenshot directly frames the new control; its
+correctness is covered instead by the 7 unit-test assertions above
+(construct-level, not pixel-level) plus manual confirmation that the
+CSS classes it reuses (`vt-field-controls`, `vt-layer-covnote`,
+`vt-switch`) are pre-existing, already-styled classes used identically
+elsewhere on the same page (the terrain-controls row immediately
+following it), so no new/unstyled CSS was introduced.
+
+BACKTEST: N/A — pure client UI + test-file change, no trading-loop code
+path, no strategy/parameter/threshold touched. PROMOTION RULE 3 does not
+apply.
+
+MONETIZATION TRIPWIRE: N/A — no billing/pricing/subscription/ads/paid-
+feature-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none new. This is a UI-control wiring fix for
+an existing pref (`vt-celestial-realistic`) that already drives both the
+CELESTIAL panel and the Moon/planet renderers; no new data stream, no new
+entity-graph tie, no new cross-tie hypothesis. The open_questions.md
+re-queue entries for #817 name their own future cross-system relevance
+(the Moon bake pipeline is a standing Law II.8 compliance item) but
+nothing ties in as part of THIS PR.
+
+VERSION: v1.0.803 (re-fetched `origin/main` immediately before bumping —
+confirmed still at 98e2083/v1.0.802/#948, byte-identical to this branch's
+base, zero concurrent-drift component).
+
+NEXT (queued, not this session): (1) the GPU `moonSurfaceGL.ts` raycast
+port, re-derive fresh from `claude/voltradeai-master-program-dsbeve`'s
+`fc1479c` commit or from scratch, wire it into `spaceFrame.ts` as its own
+PR with a real-GPU (not SwiftShader) speedup measurement; (2)-(5) the four
+`research/open_questions.md` "STALE PR #817 RE-QUEUE" items (polar
+camera-crossing fix, Asia/Africa/Oceania grid-master-switch wiring, Moon
+patch-fuzz margin fix, LROC WAC own-tile bake pipeline / Law II.8 audit)
+— each independently buildable, explicitly NOT to be bundled together.
+
+STARVED: no — this session's primary action (the stale-PR-backlog
+investigation the task brief itself specified) is complete: both PRs
+resolved (one salvaged, one closed-and-re-queued), no code left half-done,
+no higher-priority queued item skipped (no LIVENESS ALARM, no thrash,
+both gate2_pending ladder roots still WAITING per the prior session's
+same-day check). Session capacity was consumed by this one primary
+action (investigation + manual re-derivation + full gate suite + visual
+harness), so no additional fall-through item was started this session —
+correct per SESSION BUDGET's own logic that a single well-scoped PRIMARY
+action fully discharges the session when it is the highest-value item
+available, rather than padding with a second unrelated change to look
+busier.
+
 ## 2026-08-28 (scheduled-routine [RULE-REVIEW] session) — SHARED-but-minimal (backtest_v2.py, test_backtest_v2_liquidity_cost.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): equity-side fill-realism gets a price-based tick-floor cost, closing the microcap cost-floor probe's own queued follow-up (v1.0.802)
 
 TERRITORY: SHARED-but-minimal — a single T-BOT-adjacent measurement-code

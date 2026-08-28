@@ -5155,6 +5155,92 @@
   behind those firings — no firings recorded yet as of this session
   (`/api/diag/audit?type=TIER-KILL` empty).
 
+## STALE PR #817 RE-QUEUE (filed 2026-08-28 — orphaned by a main history
+rewrite, closed without merging; specific findings re-verified live against
+current main and re-queued fresh rather than resurrected)
+
+`git merge-base origin/main origin/claude/rendering-motion-overhaul-x0efmb`
+returns nothing — "refusing to merge unrelated histories" — confirming this
+branch is orphaned the same way #399/#415 were (a main history rewrite cut it
+loose before its final commits ever got fresh CI; `pull_request_read
+get_check_runs` returns 0 check runs on the PR's actual head SHA). The
+2026-08-26 session #4 already assessed this PR as "too large/conflict-prone
+to safely re-derive in one session" (126 files, 26,214 lines, 20 commits
+across 4 unrelated sub-features) and deferred it without action; this session
+re-confirms that call still holds — the branch is now 2 further days stale
+against a fast-moving celestial/rendering subsystem, not less. Rather than
+leave the finding to rot a third time, each sub-finding is re-verified against
+CURRENT main below and re-queued as its own small, independently-buildable
+item, so a future session can pick ONE without re-deriving the other three.
+
+1. **Camera cannot cross a pole (STILL PRESENT on main, re-verified
+   2026-08-28).** `client/src/lib/celestial/spaceFrame.ts` still has
+   `polarClampDots(locked)` (line ~380) and the test
+   `"polarClampDots: lock forbids under-ecliptic, unlock only widens"` still
+   asserts the clamp behavior as correct — i.e. the defect PR #817 diagnosed
+   (camera stops 66° short of the Moon's south pole on the default lock,
+   `camBasis`'s up-vector derived from a constant world axis degenerating at
+   the pole) is UNCHANGED on main. PR #817's fix (parallel-transport the
+   up-vector along the view's own rotation instead of re-deriving it every
+   frame, delete the clamp, re-scope `lockHorizon` to release only inside a
+   small cap) is architecturally sound per its own write-up but was never
+   independently verified by this session — re-derive fresh against current
+   `spaceFrame.ts` (its `camBasis`/`setDir` shape may have moved since
+   2026-08-12) rather than porting the old diff. Ladder: N/A, pure rendering
+   correctness, not a trading signal — verify via the same 400-step
+   pole-crossing sweep the original PR used (up-vector must never jump
+   >0.05) plus orthonormality at `(0,0,±1)` exactly.
+
+2. **"All power grids" master switch still omits Asia/Africa/Oceania
+   (STILL PRESENT on main, re-verified 2026-08-28).**
+   `client/src/lib/gridMaster.ts`'s `GRID_MASTER_IDS` still lists only 4
+   continents (`powergrid`, `powergrid_canada`, `powergrid_southamerica`,
+   `powergrid_europe`) with a comment "Africa/Asia/Oceania pending" — so
+   `powergrid_asia`/`powergrid_africa`/`powergrid_oceania`, if they are live
+   registry entries and served tiles today, remain unreachable from the
+   master switch exactly as PR #817 found. NOT re-verified this session
+   whether those three continental masters and their ~78 per-country tiles
+   are still live in the bucket/registry (PR #817 measured this 2026-08-13;
+   16 days of subsequent registry churn make it unsafe to assume unchanged)
+   — first step for whoever picks this up is `GET` the registry for any
+   `powergrid_asia`/`powergrid_africa`/`powergrid_oceania` layer with
+   `status: "live"` and confirm the tiles still 206. If confirmed, the fix
+   is a one-line `GRID_MASTER_IDS` append per continent plus the parity
+   test PR #817 added (every live continental master must be listed).
+   RAW OVERLAY, no ladder gating needed (map layer, not a signal).
+
+3. **Moon patch fuzz — `MOON_PATCH_COVER_MARGIN` still 2.8 (STILL PRESENT
+   on main, re-verified 2026-08-28).** `spaceFrame.ts:642` still defines
+   `MOON_PATCH_COVER_MARGIN = 2.8`, inflating the requested tile span ~7.8×
+   in area against a fixed 2048px cap, so the planner still drops zoom
+   levels to fit — PR #817 measured this as the Moon rendering 1-3 levels
+   under what the screen deserves, worse on bigger displays. Fix direction
+   per #817: invert the sacrifice order (give back margin first, drop a
+   level only as a last resort). Re-derive and re-measure fresh (the
+   original 10-case before/after matrix is 16 days old) rather than porting
+   the number blind — `MOON_PATCH_COVER_MARGIN`'s current callers may have
+   shifted.
+
+4. **Our-own-tile Moon pyramid (Law II.8) — NOT built on main
+   (`scripts/moon_bake.py` absent, re-verified 2026-08-28).** PR #817
+   claimed a full native LROC WAC bake (z0-z7, 43,690 tiles, $0, no RunPod)
+   already shipped to R2/CDN in this same PR, replacing the runtime's
+   upstream-WMTS reads with our own tile pyramid per the RENDERING & MOTION
+   LAW (Law II.8: "runtime never touches an upstream WMTS"). None of that
+   exists on current main — `scripts/moon_bake.py` is not in the tree and
+   `lroc.ts`'s current tile source was not re-audited this session. This is
+   the largest and highest-value piece of the four (a standing Law II.8
+   violation if the runtime is still reading an upstream WMTS directly) but
+   also the most expensive to redo (a 5.55 GiB source bake) — a future
+   session should FIRST re-audit whether `lroc.ts` still reads upstream
+   live before assuming this gap is real, since 16 days of celestial work
+   may have addressed it a different way.
+
+None of these four block anything else; each is independently buildable and
+should be its own PR per CLAUDE.md promotion rule 5 — do not bundle them the
+way #817 did (that bundling is exactly why it could not be safely resurrected
+in one session).
+
 ## OPEN RESEARCH QUESTIONS
 
 ### SPACEFRAME TILE-CACHE CEILING — is `TILE_CACHE_MAX=512` too loose against the 256 MB mobile Law IV budget? (filed 2026-08-22)
