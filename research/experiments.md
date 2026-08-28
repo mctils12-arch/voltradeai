@@ -3,6 +3,108 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, research/*): JODI world-oil closing-stock levels gets its /api/v1 keyed mirror (v1.0.801)
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md
+newest-at-top confirmed, PROGRAM_STATE.md, open_questions.md tail,
+wishlist.md head/tail, data_census.md). `curl https://voltradeai.com/api/health`:
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`, `drawdownPct:
+"0.0"`, `liveness.dark:false`, all three feeds (aircraft/vessels/trains)
+`dead:false`. No LIVENESS ALARM — proceeded straight to product work per
+this routine's own instruction (product sessions do not preempt DAILY
+repair duty; nothing critical was outstanding anyway). `git fetch origin
+main` confirmed local HEAD (f1eae47, v1.0.800, #946) matched origin/main
+exactly before starting (a first `git fetch` had returned a stale cached
+ref claiming main was 46 commits behind; a forced re-fetch corrected this
+before any decision was made on it — logged per REASONING STANDARD #10,
+same discipline as a prior session's tail-read correction).
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` — 0/2
+gated roots ready (cftc_cot_positioning, sec_8k_earnings_language both
+still time-WAITING, nothing to judge). `python3
+scripts/data_stream_registry_check.py --unbuilt` — 11/35 unbuilt, all
+either declined (dead/hostile sources) or blocked on a human key/registration/
+volume-budget decision; no free axis-(a) candidate unblocked. Rather than
+start a new data root from scratch, surveyed the established "shipped-
+data-no-/api/v1-mirror" sweep this program has run repeatedly (COT,
+contracts, short-volume, methane-plumes all closed this exact gap in the
+five sessions before this one — see their own PR comments in routes.ts).
+Cross-referenced `datacore/data_census.md`'s BUILT roots against
+`server/apiProduct.ts`'s `apiMeta()` endpoint list and found one clean
+survivor: JODI world-oil closing-stock levels (`server/jodiOil.ts`,
+`/api/data/jodi-oil-stocks`, live client view `jodiOilStocks.tsx`, GATE 1
+PASSED 2026-08-06 / GATE 2 KILLED 2026-08-06) has a RAW /data view and a
+gate-1-passed archive but was never given the keyed `/api/v1` mirror the
+other four gate-1-passed streams already have — the exact gap-closing
+pattern option (d) of this routine's own brief names ("improve datacore's
+API boundary"). Confirmed by grepping `server/apiProduct.ts` for "jodi"
+(zero hits) before writing anything.
+
+READ BEFORE WRITE: read `server/jodiOil.ts` in full (the pure
+`jodiOilStocksView()` builder, JODI_GATE_NOTE, the per-row never-zero-fill
+contract) and the existing `/api/data/jodi-oil-stocks` route in
+`routes.ts` before touching anything. Read the COT and methane-plumes
+`/api/v1` mirrors end-to-end (route handler, `LICENSE_MARKS` entry,
+`apiMeta()` endpoint entry, `agentToolSpec()` tool entry) as the exact
+template — confirmed `openApiSpec()` is derived entirely from
+`agentToolSpec()` so no separate edit is needed there, and confirmed via
+`apiProduct.test.ts` that endpoint/tool counts are asserted dynamically
+(`spec.tools.length === liveDataEndpoints.length`, same for OpenAPI paths)
+so adding exactly one of each keeps every existing count-based test green
+without touching a pinned number.
+
+WHAT SHIPPED: one new `GET /api/v1/data/jodi-oil-stocks` route
+(`server/routes.ts`) — UNLIKE the four prior mirrors, JODI's archive is a
+static, session-run file (`scripts/jodi_oil.py`, monthly) rather than a
+live Railway poller, so `jodiOilStocksView()` always has data once the
+file is checked in and the route needed no `warming_up`/503 cache-miss
+branch, stated as such in its own comment rather than copying an
+unneeded branch from the other four. One new `LICENSE_MARKS["data/
+jodi-oil-stocks"]` entry (`resell: "ok"` — JODI's own terms are "free with
+acknowledgment," the same open-attribution class as eu-macro/attention/
+COT/USAspending, not conditional like the issuer-authored streams), one
+new `apiMeta()` endpoint entry, and one new `agentToolSpec()` tool entry
+(`voltrade_jodi_oil_stocks`) — all three restate the GATE 1 PASSED / GATE
+2 KILLED status verbatim (never a silent gate-2-not-attempted), matching
+`jodiOil.ts`'s own `JODI_GATE_NOTE`. One new test in `apiProduct.test.ts`
+mirroring the existing per-stream license-mark/tool tests, plus the new
+route path added to the existing "wiring pinned" test's checklist array
+(that test only asserts membership + a `>=20` floor, so this was optional
+completeness, not a required fix).
+
+RATCHET / MEASUREMENT: `assertions` rose 12374 -> 12382 (+8) —
+`git diff server/apiProduct.test.ts` confirms exactly 8 new `assert.*`
+calls in the diff, so the full rise is this session's own direct effect,
+re-pinned in `ci/counter_baseline.txt` per PROMOTION RULE 5 (not left as
+drift). No other counter changed.
+
+GATES: `npx tsx --test server/apiProduct.test.ts server/jodiOil.test.ts`
+49/49 pass. `npx tsx --test server/*.test.ts` 1404/1404 pass (sandbox
+needed `npm ci`, node_modules absent at session start). `bash
+scripts/tsc_ratchet.sh` 12/12, TS2304 0, unchanged. `pip install -r
+requirements.txt -r requirements-dev.txt` (absent at session start) then
+`python3 -m pytest -q`: 1500 passed, 1 skipped, unchanged shape from
+baseline. `bash scripts/gated_tests.sh`: GATE PASSED (client 1070/1070,
+python 1500/1 skipped, quarantine 0/1 none overdue). `bash
+scripts/counter_ratchet.sh`: OK, 25 counters at or better than baseline
+(assertions re-pinned as above). `npm run build`: clean (pre-existing
+chunk-size warnings only, unrelated to this diff — no `.tsx`/client file
+touched, confirmed by `git diff --stat`, so no visual-harness run
+required per the VISUAL VERIFICATION rule's own scope).
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships an API-surface addition
+over an already gate-1-passed/gate-2-killed RAW archive, not a strategy,
+threshold, or scoring change; no trading behavior is touched.
+
+MARKET HOURS: shipped at 2026-08-28 ~00:16 UTC (20:16 ET, well outside
+9:30-16:00 ET) — no after-hours-merge caveat needed.
+
+**STARVED: no** — this session's primary action closed cleanly within
+this session's own capacity; no queued higher-priority item was left
+unaddressed (PROGRAM_STATE.md's own NEXT/QUEUE track a different,
+unrelated program — the Rendering & Motion/EARTH TWIN harness work — and
+explicitly is not this PRODUCT routine's mandate).
+
 ## 2026-08-27 (scheduled-routine session, market-hours run) [PIPELINE] — SHARED (server/layersRegistry.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): PROGRAM_STATE.md Q11 (EARTH TWIN Track 4.1) — renderKind + lod become a hard, pinned requirement across the layer registry, not just "well-formed when present" (v1.0.800)
 
 TERRITORY: SHARED-but-minimal (server/layersRegistry.test.ts is a T-CLIENT-

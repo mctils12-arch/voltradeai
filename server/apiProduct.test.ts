@@ -89,7 +89,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/methane-plumes"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -391,6 +391,20 @@ test("GEM methane-plume proximity license mark: CC BY 4.0 GEM data is freely res
   assert.ok(tool.description.includes("2(a)") && tool.description.includes("SHIPPED"), "honesty: gate 2(a) shipped status must travel with the tool description");
   assert.ok(tool.description.includes("2(b)-(d)") && tool.description.toUpperCase().includes("NOT BUILT"), "honesty: gates 2(b)-(d) must be stated as unbuilt, not a silent full gate-2 pass");
   assert.ok(tool.description.includes("not a confirmed or claimed emissions attribution"), "honesty: the proximity join must not read as an emissions claim");
+});
+
+test("JODI oil closing-stock license mark: free-with-acknowledgment JODI data resells freely with attribution like the government-produced/CC-BY streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the gate-1-pass/gate-2-KILLED state honestly, not a silent gate-2-not-attempted", () => {
+  assert.equal(LICENSE_MARKS["data/jodi-oil-stocks"].resell, "ok",
+    "JODI data are free with acknowledgment — must not be mismarked conditional like the issuer-authored or informational-use-terms streams");
+  assert.ok(LICENSE_MARKS["data/jodi-oil-stocks"].license.includes("JODI"));
+  assert.ok(LICENSE_MARKS["data/jodi-oil-stocks"].license.toLowerCase().includes("free with acknowledgment"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_jodi_oil_stocks");
+  assert.ok(tool, "voltrade_jodi_oil_stocks tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/jodi-oil-stocks"]);
+  assert.ok(tool.description.includes("GATE 1") && tool.description.includes("PASSED"), "honesty: gate-1 pass status must travel with the tool description");
+  assert.ok(tool.description.includes("GATE 2") && tool.description.includes("KILLED"), "honesty: the gate-2 kill must travel with the tool description, not a silent gate-2-not-attempted");
+  assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW self-reported levels must not read as a trading signal");
 });
 
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
