@@ -70,21 +70,58 @@ _LIQUIDITY_TIERS = (
 )
 _ILLIQUID_COST_PCT = 0.00185  # <=1M shares/day trailing average
 
+# MEASUREMENT INTEGRITY (2026-08-28, [RULE-REVIEW]): scripts/
+# microcap_cost_floor_check.py priced a second, INDEPENDENT under-charging
+# risk the volume tiers above don't capture — Reg NMS Rule 612's $0.01
+# minimum quoted price variation means a low-priced name's spread floor,
+# as a PERCENTAGE of price, can exceed the volume-tiered cost even at
+# volumes that would otherwise land in a cheap tier (a $2 stock has a
+# structural half-tick floor of 0.25%, above even _ILLIQUID_COST_PCT).
+# That session found 7/11 priced sub-$5 microcap names had this tick floor
+# alone exceed the model's flat illiquid-bucket cost by up to 2.7x. This is
+# a LOWER BOUND (real quoted spreads for thin names run several ticks, not
+# one) so takes max() with the volume tier rather than replacing it —
+# never lowers a cost, only raises one that was proven too low.
+MIN_TICK = 0.01  # Reg NMS Rule 612 minimum price variation, price >= $1.00
+
+
+def _tick_floor_cost_pct(price) -> float:
+    """Structural per-side cost floor from crossing one minimum tick
+    ($0.01) at `price`, expressed as a fraction (not a percentage) to match
+    liquidity_cost_pct()'s return units. Reg NMS Rule 612's penny tick only
+    applies at price >= $1.00 — sub-$1 names may quote in sub-penny
+    increments, so this returns 0.0 there rather than guessing a
+    substitute floor (microcap_cost_floor_check.py deliberately left that
+    case unpriced for the same reason: it needs live quote data, not a
+    structural regulatory constant)."""
+    if price is None or price < 1.00:
+        return 0.0
+    return (MIN_TICK / 2.0) / price
+
 
 def liquidity_cost_pct(bars: dict, i: int) -> float:
-    """Per-side slippage+fee cost at bar i, tiered by the trailing 20-day
-    average share volume ending at bar i (inclusive) — no lookahead, since
-    the window never reaches past the bar the decision/fill is keyed on.
-    Falls back to COST_PCT when there is no volume history at all."""
-    vols = bars["volume"]
+    """Per-side slippage+fee cost at bar i: the greater of (1) the tier for
+    the trailing 20-day average share volume ending at bar i (inclusive —
+    no lookahead, since the window never reaches past the bar the decision/
+    fill is keyed on) and (2) the Reg NMS tick-floor cost at bar i's close.
+    Falls back to COST_PCT when there is no volume history at all (the
+    no-history fallback predates the tick floor and is left as a pure
+    volume-ignorant default, matching its original fallback-only role)."""
+    vols = bars.get("volume")
+    if not vols:
+        return COST_PCT
     window = vols[max(0, i - 19):i + 1]
     if not window:
         return COST_PCT
     avg_vol = sum(window) / len(window)
+    volume_cost = _ILLIQUID_COST_PCT
     for threshold, cost in _LIQUIDITY_TIERS:
         if avg_vol > threshold:
-            return cost
-    return _ILLIQUID_COST_PCT
+            volume_cost = cost
+            break
+    closes = bars.get("close") or []
+    price = closes[i] if 0 <= i < len(closes) else None
+    return max(volume_cost, _tick_floor_cost_pct(price))
 
 # ── Regime → backtest params ─────────────────────────────────────────────────
 # Mirrors system_config.get_adaptive_params regime overrides (MAX_POSITIONS /

@@ -3,6 +3,186 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine [RULE-REVIEW] session) — SHARED-but-minimal (backtest_v2.py, test_backtest_v2_liquidity_cost.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): equity-side fill-realism gets a price-based tick-floor cost, closing the microcap cost-floor probe's own queued follow-up (v1.0.802)
+
+TERRITORY: SHARED-but-minimal — a single T-BOT-adjacent measurement-code
+file (`backtest_v2.py` is the shared backtest engine, not owned by any one
+workstream) + its own test file + version/counter bookkeeping. No
+client/, T-DATACORE, or FROZEN path touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, with the EDGE DOCTRINE and
+MEASUREMENT INTEGRITY sections specifically. `curl /api/health`:
+`status:"ok"`, `bot.status:"active"`, `equityPeak:110727.04`,
+`drawdownPct:"0.0"`, `liveness.dark:false`, all three feeds
+(aircraft/vessels/trains) `dead:false` — no LIVENESS ALARM. `python3
+scripts/research_state_check.py`: `thrash_ratio` 0/10 REPAIR (well under
+the 7+ trigger), `starvation_signal` 0 consecutive STARVED, `known_broken`
+37 items advisory-only (the 2 without an explicit close marker, #26/#34,
+were already independently confirmed fixed by prior sessions per their
+own entries) — not a [REPAIR] session. `git fetch origin main` confirmed
+local HEAD (280fa03, v1.0.801, #947 — the same-day earlier JODI /api/v1
+mirror session) matched `origin/main` exactly before starting.
+
+PRIMARY-ACTION SELECTION (all four EDGE DOCTRINE axes surveyed per this
+routine's brief): axis (a)'s standing named examples (Sentinel-2 tank
+shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+Trends) are all already built or correctly declined, confirmed against
+`datacore/data_census.md` and `datacore/signal_ladder.json`; `python3
+scripts/data_stream_registry_check.py --unbuilt` showed 11/35 unbuilt,
+every one either a declined dead/hostile source or blocked on a human
+key/registration/volume-budget decision — no free axis-(a) candidate
+unblocked today. Axis (c): the 2026-08-18/2026-08-21 critical-slowing-down
+(ecology) import already ran against real data and was KILLED; no new
+foreign-field candidate was found this session worth pre-registering over
+continuing the higher-value thread below. Axis (b) — the one the task
+brief explicitly flags as gated on a fill-realism fix — is EXACTLY where
+`research/open_questions.md`'s own "Options fill realism" entry and its
+2026-07-23 UPDATE point: that update already fixed the equity-side flat-
+cost gap once (tiering `liquidity_cost_pct()` by trailing volume) but the
+2026-08-26 microcap-cost-floor revival (reviving stale PR #834) found and
+priced a SECOND, independent equity-side gap the volume-only tiering
+still misses — a low PRICE, not just low volume, structurally floors
+spread cost via Reg NMS Rule 612's $0.01 minimum tick, and 7/11 priced
+sub-$5 microcap names had this tick floor alone exceed the model's flat
+illiquid-bucket cost by up to 2.7x. That session's own NEXT list named
+"a per-price-tier split of `liquidity_cost_pct()`'s single volume bucket"
+as its own dedicated [RULE-REVIEW] MEASUREMENT INTEGRITY follow-up —
+exactly this session's queued item, not a fresh axis-(b) start from
+scratch. Picked this over starting new axis-(a)/(c) work because it is a
+concrete, already-priced, already-scoped, single-file fix with a named
+queue slot, matching SESSION BUDGET's "next queued item" priority over
+fresh research.
+
+READ BEFORE WRITE: read `backtest_v2.py`'s `liquidity_cost_pct()` and its
+three call sites (entry fill, stop/target/time-stop exit, end-of-backtest
+close) in full before touching either — confirmed `bars["close"]` is
+always a valid, already-populated array at every index `i` the function
+is called with (no new lookahead risk: the price used is the SAME bar
+index the volume window is already keyed on, never a future bar). Read
+`scripts/microcap_cost_floor_check.py`'s `tick_floor_pct()` in full and
+ported its exact formula (half a $0.01 tick, as a fraction of price,
+applying only >= $1.00) rather than re-deriving it, so the two modules
+agree on the same regulatory constant. Read `test_backtest_v2_liquidity_
+cost.py` in full — confirmed its existing fixture (`_bars_with_volume`,
+`start=100.0` default) keeps prices in the ~100-152 range across all
+existing test windows, where the new tick floor (~0.003-0.005%) sits far
+below every existing volume tier (cheapest is 0.035%), so no existing
+test's expected value needed changing — verified this by running the
+full pre-fix suite unmodified before writing any new code.
+
+WHAT SHIPPED: `backtest_v2.py` — `liquidity_cost_pct(bars, i)` now
+returns `max(volume_tier_cost, _tick_floor_cost_pct(bars["close"][i]))`
+instead of the volume tier alone. New `_tick_floor_cost_pct(price)`:
+`(MIN_TICK / 2) / price` for `price >= 1.00`, `0.0` below (Reg NMS Rule
+612 permits sub-penny quoting below $1.00, so no substitute floor is
+guessed there — matching `microcap_cost_floor_check.py`'s own explicit
+choice not to price that case). `MIN_TICK = 0.01` is now a shared
+module-level constant (was a local in the probe script; the probe script
+itself is untouched — its own `tick_floor_pct()` returns a percentage,
+this returns a fraction, matching `liquidity_cost_pct()`'s existing
+units, so they are deliberately not merged into one function despite
+computing the same ratio). This is `max()`, never a replacement — it can
+only raise a cost the probe script already proved too low, never lower
+one, so no strategy's backtest can look BETTER from this change, only
+possibly worse (the honest direction; MEASUREMENT INTEGRITY's "suspect by
+default" scrutiny for metric changes that make results look better does
+not apply to this direction of change, but is noted here per the rule's
+own "state in the PR" requirement).
+
+RATCHET: `test_backtest_v2_liquidity_cost.py` gained 9 new tests across
+two new test classes (`TestTickFloorCostPct`: below-$1 unpriced, exact
+half-tick-over-price values, floor falls as price rises;
+`TestLiquidityCostPctAppliesTickFloor`: a $2/25M-share tape gets the tick
+floor not the cheap volume tier, a $100/25M-share tape is byte-identical
+to pre-fix behavior, a sub-$1 illiquid tape is unaffected since the floor
+doesn't apply there, and a price sweep proving the result is never below
+the pre-fix volume-tier value). A/B-verified via `git stash push --
+backtest_v2.py` (isolating just the implementation, keeping the new
+tests): the new test file fails to even import against pre-fix code
+(`ImportError: cannot import name '_tick_floor_cost_pct'`), confirming
+the tests exercise genuinely new code, not a tautology. `assertions`
+12382 -> 12394 (+12, `git diff test_backtest_v2_liquidity_cost.py | grep
+-c '^\+.*assert'` confirms exactly 12 new assert calls, the full rise is
+this session's own direct effect); re-fetched `origin/main` immediately
+before pinning, confirmed still byte-identical to this branch's base
+(280fa03/v1.0.801) — zero concurrent-drift component; pinned in
+`ci/counter_baseline.txt` in this same PR. All other 24 counters
+unchanged.
+
+GATES: fresh sandbox provisioning gap recurred as prior sessions have
+logged (`node_modules` absent, Python dev deps absent at session start)
+— `npm ci` (488 packages) and `pip install -r requirements.txt -r
+requirements-dev.txt` run, both clean, not a regression. `python3 -m
+pytest -q test_backtest_v2_liquidity_cost.py`: 14/14 pass (5 original + 9
+new). `python3 -m pytest -q` (full suite): 1507 passed, 1 skipped, 54
+subtests — identical shape to the pre-change baseline. `bash
+scripts/gated_tests.sh`: GATE PASSED — server 169 files OK (1070 tests),
+client 100 files OK, python 1507/1 skipped/54 subtests, quarantine 0/1
+none overdue. `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged
+(no `.ts` file touched). `bash scripts/counter_ratchet.sh`: OK after the
+assertions re-pin above, all 25 counters at or better than baseline.
+`npm run build`: clean, only the same pre-existing warnings recent
+sessions log (maplibre-gl chunk size, mapIcons dynamic/static dual
+import) — neither touched this session. No visual harness run: zero
+`client/src` files touched (`git diff --stat` confirms only
+`backtest_v2.py`, its test file, and bookkeeping), same exemption prior
+zero-rendering-delta PRs have applied.
+
+BACKTEST / MEASUREMENT INTEGRITY (PROMOTION RULE 3 + this file's own
+MEASUREMENT INTEGRITY section, since this changes the backtest engine's
+own cost model, not a strategy): this is a measurement-code change, its
+own PR, not bundled with any strategy/threshold/scoring change, tagged
+[RULE-REVIEW] per that section's own requirement. WHAT THE METRIC
+REPORTED BEFORE VS. AFTER on identical historical inputs: for any ticker
+whose trailing-20-day price sits below the point where `(MIN_TICK/2)/
+price` exceeds its volume tier's cost (worked example: a name priced
+under ~$14.29 in the cheapest 0.035% volume tier, under ~$6.67 in the
+0.075% tier, under ~$4.35 in the 0.115% tier, or under ~$2.70 in the
+0.185% illiquid tier — each is `(0.005/tier_cost)` in dollars), per-side
+cost is now HIGHER than before, so total_return_pct/Sharpe for any
+backtest touching such a ticker will read LOWER (or unchanged for
+tickers that never dip under those price points, including every liquid
+mega-cap/ETF this repo currently backtests routinely — SPY/QQQ/etc. sit
+far above every one of those thresholds, so their reported numbers are
+BYTE-IDENTICAL, confirmed by `test_high_price_leaves_volume_tier_
+untouched`). DIRECTION OF BIAS: strictly conservative — no existing
+strategy's reported performance can improve from this change, only stay
+the same or degrade, which is the opposite direction from the "suspect
+by default" pattern this section warns about (a change that makes
+results look better). No live strategy currently trades the specific
+sub-$5 microcap names this raises cost for (system_config.py's
+`MIN_PRICE=5.0` already excludes them, per the 2026-08-11 illiquid-
+universe-probe finding this whole cost-floor thread traces back to), so
+this PR's own observable effect on any CURRENTLY-RUNNING backtest is
+zero — its value is in correcting the model BEFORE any future session
+acts on the still-open "loosen MIN_PRICE" question with numbers that
+would otherwise silently under-charge exactly the risk this probe
+already proved is real.
+
+MARKET HOURS: shipped 2026-08-28, after the same-day JODI PRODUCT
+session — this diff touches only the offline backtest engine and its
+tests (zero live trading-loop code path), so it carries no merge-timing
+caveat regardless of market hours.
+
+NEXT (queued, not this session): (1) the sub-$1.00 tick-floor gap
+(`_tick_floor_cost_pct` returns 0.0 below $1.00 by design) still needs
+live-market-hours quote data to price honestly, unchanged from the
+original probe's own NEXT item; (2) the options-side "Options fill
+realism" ask (this item's own opening sentence) remains open, gated on
+KNOWN BROKEN #12(b)/(c) as it has been since 2026-07-23; (3) data-source
+staleness at sub-$5 sizes (the probe's third named risk) remains
+unpriced by any session so far.
+
+STARVED: no — this session's primary action was a concrete, already-
+scoped, single-file queued item (the microcap-cost-floor session's own
+named follow-up), completed in full including the A/B verification and
+the MEASUREMENT INTEGRITY before/after statement PROMOTION RULE 3 and
+this file's own MEASUREMENT INTEGRITY section both require. No higher-
+priority queued item was skipped: no LIVENESS ALARM, no thrash, no
+matured gate2_pending ladder root (both remain WAITING per
+`ladder_readiness_check.py`, not re-checked fresh this session since the
+same-day earlier JODI session already ran it with an unchanged result).
+
 ## 2026-08-28 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, research/*): JODI world-oil closing-stock levels gets its /api/v1 keyed mirror (v1.0.801)
 
 SESSION-START CHECKS: CLAUDE.md read in full, then research/ (experiments.md

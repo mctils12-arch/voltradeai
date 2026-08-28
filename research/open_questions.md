@@ -5676,6 +5676,35 @@ session trace; PR #797 closed as superseded by the new PR.
   tiered by trailing volume (`liquidity_cost_pct()`), mirroring the same
   four live bot.ts breakpoints this item references. This item's own
   options-side ask remains open and gated on #12(b)/(c) as before.
+  **UPDATE 2026-08-28 (scheduled-routine session, [RULE-REVIEW],
+  v1.0.802):** closed the EQUITY-side gap the 2026-08-26 microcap
+  cost-floor revival (PR reviving stale #834) priced but did not yet fix
+  — that session's `scripts/microcap_cost_floor_check.py` found 7/11
+  priced sub-$5 microcap names had a Reg NMS Rule 612 tick-size spread
+  floor ALONE exceeding `backtest_v2.py`'s flat `_ILLIQUID_COST_PCT`
+  (0.185%) by up to 2.7x, and named "a per-price-tier split of
+  `liquidity_cost_pct()`'s single volume bucket" as its own queued
+  MEASUREMENT INTEGRITY follow-up. `liquidity_cost_pct()` now returns
+  `max(volume_tier_cost, tick_floor_cost)`, where the new
+  `_tick_floor_cost_pct(price)` is half a minimum tick ($0.005) over
+  price, applying only at price >= $1.00 (sub-penny quoting is permitted
+  below that, so it's left unpriced there too, same as the probe script's
+  own choice — no guessed substitute). This can only ever RAISE a cost
+  that was proven too low, never lower one, so no strategy is made to
+  look better (the MEASUREMENT INTEGRITY "suspect by default" gate this
+  file's own rules apply to a metric-improving change does not apply
+  here — this metric change makes results look WORSE, the honest
+  direction). 9 new tests in `test_backtest_v2_liquidity_cost.py`
+  (tick-floor-alone behavior, the max() override on an otherwise-cheap
+  volume tier, that a normal-priced liquid tape is untouched, that the
+  illiquid bucket's own floor still holds below $1.00 where the tick
+  floor doesn't apply, and a price sweep proving cost is never lowered);
+  A/B-verified via `git stash push -- backtest_v2.py` (new tests fail
+  with an ImportError against pre-fix code, pass post-fix). Full
+  gated-tests / tsc / counter-ratchet run in experiments.md. Options-side
+  ask (the actual sentence this bullet opens with) remains open and
+  gated on #12(b)/(c) exactly as before — this update is the equity-side
+  sibling fix only, same split this item has followed since 2026-07-23.
 - **Strategy tournament.** Run strategies as isolated, tagged competitors
   (strategies/ modules are already shaped for this) with buy-and-hold SPY
   as a permanent benchmark entrant. Allocate more to winners, retire

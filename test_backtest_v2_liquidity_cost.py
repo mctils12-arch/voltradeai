@@ -25,6 +25,8 @@ from backtest_v2 import (
     COST_PCT,
     _LIQUIDITY_TIERS,
     _ILLIQUID_COST_PCT,
+    _tick_floor_cost_pct,
+    MIN_TICK,
 )
 
 
@@ -44,6 +46,19 @@ def _bars_with_volume(n, volume, start=100.0, daily=0.004, vol_shape=0.0):
         l.append(round(min(op, cl) * 0.996, 4))
         v.append(volume)
         px = cl
+    return {"date": dates, "open": o, "high": h, "low": l, "close": c, "volume": v}
+
+
+def _bars_with_price_and_volume(n, price, volume):
+    """Flat-price OHLCV bars at a fixed price and volume — isolates the
+    tick-floor cost from the volume tier (which _bars_with_volume's
+    uptrending path would otherwise drift away from a fixed price point)."""
+    dates, o, h, l, c, v = [], [], [], [], [], []
+    d0 = date(2022, 1, 3)
+    for i in range(n):
+        dates.append((d0 + timedelta(days=i)).isoformat())
+        o.append(price); c.append(price); h.append(price); l.append(price)
+        v.append(volume)
     return {"date": dates, "open": o, "high": h, "low": l, "close": c, "volume": v}
 
 
@@ -109,6 +124,68 @@ class TestLiquidityCostTiers(unittest.TestCase):
         self.assertEqual(thresholds, sorted(thresholds, reverse=True))
         for _, cost in _LIQUIDITY_TIERS:
             self.assertLess(cost, _ILLIQUID_COST_PCT)
+
+
+class TestTickFloorCostPct(unittest.TestCase):
+    """MEASUREMENT INTEGRITY (2026-08-28, [RULE-REVIEW]): a second,
+    price-based lower bound on per-side cost, from Reg NMS Rule 612's
+    $0.01 minimum quoted price variation — see scripts/
+    microcap_cost_floor_check.py, which priced this exact under-charging
+    risk against real sub-$5 microcap closes and found it uncharged."""
+
+    def test_below_one_dollar_is_unpriced(self):
+        """Sub-penny quoting is permitted below $1.00 — Rule 612's floor
+        does not apply there, and this function must not guess a
+        substitute (that needs live quote data, not a regulatory constant)."""
+        self.assertEqual(_tick_floor_cost_pct(0.99), 0.0)
+        self.assertEqual(_tick_floor_cost_pct(0.01), 0.0)
+        self.assertEqual(_tick_floor_cost_pct(None), 0.0)
+
+    def test_half_tick_over_price_at_and_above_one_dollar(self):
+        """Exactly half a tick ($0.005) divided by price, as a fraction."""
+        self.assertAlmostEqual(_tick_floor_cost_pct(1.00), (MIN_TICK / 2) / 1.00)
+        self.assertAlmostEqual(_tick_floor_cost_pct(2.00), 0.0025)  # 0.25%
+        self.assertAlmostEqual(_tick_floor_cost_pct(100.00), 0.00005)  # 0.005%
+
+    def test_floor_falls_as_price_rises(self):
+        prices = [1.00, 2.00, 5.00, 50.00, 500.00]
+        floors = [_tick_floor_cost_pct(p) for p in prices]
+        self.assertEqual(floors, sorted(floors, reverse=True))
+
+
+class TestLiquidityCostPctAppliesTickFloor(unittest.TestCase):
+    def test_low_price_overrides_a_cheaper_volume_tier(self):
+        """A $2 stock trading 25M shares/day would land in the CHEAPEST
+        volume tier (0.00035) on volume alone, but Rule 612's structural
+        tick floor at $2 (0.0025, i.e. 0.25%) is far larger — the live
+        model must charge the floor, not silently under-charge because the
+        share count looked liquid. This is exactly the risk
+        microcap_cost_floor_check.py priced and found unaccounted for."""
+        bars = _bars_with_price_and_volume(25, price=2.00, volume=25_000_000)
+        self.assertEqual(liquidity_cost_pct(bars, 24), _tick_floor_cost_pct(2.00))
+        self.assertGreater(liquidity_cost_pct(bars, 24), 0.00035)
+
+    def test_high_price_leaves_volume_tier_untouched(self):
+        """At a normal price, the tick floor is negligible and the volume
+        tier is unchanged from its pre-fix value — this fix must not alter
+        cost for the liquid mega-cap/ETF case it was never meant to touch."""
+        bars = _bars_with_price_and_volume(25, price=100.00, volume=25_000_000)
+        self.assertEqual(liquidity_cost_pct(bars, 24), 0.00035)
+
+    def test_illiquid_bucket_can_still_be_raised_by_tick_floor(self):
+        """A sub-$1M-volume name priced at $0.50 is still ABOVE the tick
+        floor's domain (Rule 612 doesn't apply below $1.00) so the illiquid
+        bucket's own cost stands unchanged here — the floor only ever adds
+        cost, never removes the existing illiquid-bucket protection."""
+        bars = _bars_with_price_and_volume(25, price=0.50, volume=500_000)
+        self.assertEqual(liquidity_cost_pct(bars, 24), _ILLIQUID_COST_PCT)
+
+    def test_never_lowers_cost_below_the_pre_fix_volume_tier(self):
+        """max() semantics: across a price sweep, the result is never less
+        than what the volume tier alone would have returned."""
+        for price in (0.50, 1.00, 2.00, 10.00, 1000.00):
+            bars = _bars_with_price_and_volume(25, price=price, volume=500_000)
+            self.assertGreaterEqual(liquidity_cost_pct(bars, 24), _ILLIQUID_COST_PCT)
 
 
 class TestLiquidityCostDeterminism(unittest.TestCase):
