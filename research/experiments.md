@@ -99,7 +99,7 @@ threshold, or scoring change; no trading behavior is touched.
 MARKET HOURS: shipped at 2026-08-28 ~00:16 UTC (20:16 ET, well outside
 9:30-16:00 ET) — no after-hours-merge caveat needed.
 
-**STARVED: no** — this session's primary action closed cleanly within
+STARVED: no — this session's primary action closed cleanly within
 this session's own capacity; no queued higher-priority item was left
 unaddressed (PROGRAM_STATE.md's own NEXT/QUEUE track a different,
 unrelated program — the Rendering & Motion/EARTH TWIN harness work — and
