@@ -183,9 +183,12 @@ CANDIDATES = [
              "framing only; candidate cleaner replacement for the VXX-ratio regime proxy behind KNOWN "
              "BROKEN #20, not wired into trading logic this session."},
     {"id": "dtcc_sbsdr", "name": "DTCC swap data repository",
-     "edge_doctrine_named": False, "status": "candidate_unbuilt",
-     "manifest_keys": [], "layer_ids": [],
-     "note": "keyless but 147MB/day — needs a volume-budget decision before build, never started by default"},
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["dtccswaps"], "layer_ids": [],
+     "note": "server/dtccSwaps.ts, GATE 1 (DATA) PASSED 2026-08-22 (scripts/dtcc_swaps_gate1.ts) — "
+             "US-underlier volume-budget scope (data_census.md census #2 item 2). GATE 2 blocked on "
+             "accumulating archive depth, not attempted. /data client view (dtccSwaps.tsx) and "
+             "/api/v1/data/dtcc-swaps mirror both shipped 2026-08-23/24."},
     {"id": "un_comtrade", "name": "UN Comtrade bilateral trade flows",
      "edge_doctrine_named": False, "status": "candidate_unbuilt",
      "manifest_keys": [], "layer_ids": [],

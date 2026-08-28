@@ -3,6 +3,160 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (scripts/data_stream_registry_check.py, package.json, package-lock.json, research/*): the compiled-knowledge data-stream registry itself had drifted — `dtcc_sbsdr` was still marked `candidate_unbuilt` months after it shipped, fixed (v1.0.804)
+
+TERRITORY: SHARED-but-minimal — one script file, no T-BOT/T-CLIENT/
+T-DATACORE-primary file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail), research/open_questions.md (KNOWN BROKEN + tail), research/
+wishlist.md (top, STALE-PR-BACKLOG section — already substantially worked
+through by the immediately prior REPAIR session this same day). `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+subsystems ok, daemon rss 377.4MB (well under 400MB trim), ml_feedback age
+9.2h, deploy_freshness server_version=1.0.803 matching this checkout. No
+LIVENESS ALARM; nothing blocks product work. `python3 scripts/
+research_state_check.py`: audits_register none overdue; thrash_ratio 1/10
+REPAIR in the last 10 tagged sessions (well under the 7+ trigger; today's
+prior 3 sessions were REPAIR/RULE-REVIEW/PRODUCT, all resolved cleanly, no
+meta-problem override); known_broken 37 items, 2 advisory-only (#26/#34,
+already resolved in prior sessions); starvation_signal 0 consecutive
+STARVED — no floor/starvation notice to act on.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py`
+showed both gate2_pending roots (cftc_cot_positioning ~56d of ~105d
+needed; sec_8k_earnings_language 55d of 90d) still WAITING — gate
+advancement (option a) not available today. `data_census.md`'s own text
+confirms "the CENSUS MASTER RANKING is now fully exhausted — nothing
+remains unbuilt or undeclined" (axis-(a) build queue). Checked option (d)
+next — datacore's API-boundary/docs/tests toward spinout-readiness — by
+running `python3 scripts/data_stream_registry_check.py --unbuilt`, the
+compiled-knowledge tool whose own docstring states its purpose is
+preventing exactly the kind of re-derived-from-memory archaeology this
+CLAUDE.md session log is full of. Its output listed `dtcc_sbsdr` as
+`candidate_unbuilt` ("keyless but 147MB/day — needs a volume-budget
+decision before build, never started by default"). That is stale:
+`data_census.md` census #2 item 2 and `datacore/signal_ladder.json`'s own
+`dtcc_sbsdr_equity_swaps` entry both show this root fully built —
+`server/dtccSwaps.ts` (poller), GATE 1 (DATA) PASSED 2026-08-22 with the
+volume-budget decision made (US-underlier scope), a `/data` client view
+(2026-08-23) and an `/api/v1` mirror (2026-08-24) both shipped. A future
+session trusting this tool's own stated purpose would have re-litigated
+"should we build DTCC SBSDR" from scratch, wasting a session re-deriving
+a decision already made three weeks ago — the exact failure mode EDGE
+DOCTRINE #3 exists to prevent, happening inside the tool built to prevent
+it.
+
+READ BEFORE WRITE: read `scripts/data_stream_registry_check.py` in full —
+the `CANDIDATES` table schema (`status`/`manifest_keys`/`layer_ids`/
+`note`), the `audit()` function's drift logic (lines 210-255), and its own
+test file `test_data_stream_registry_check.py` (all 8 existing tests) —
+did not guess the schema from the `--unbuilt` output alone. Root-caused
+WHY `audit()`'s own drift detector (built specifically to catch "table
+says NOT built but manifest/layer evidence exists") never caught this: the
+stale `dtcc_sbsdr` entry has `manifest_keys: []` — an empty list — so
+`has_evidence` is computed as `False` regardless of what actually exists
+on disk; the checker only cross-references keys the entry ITSELF names, it
+does not search all-disk-manifests-for-any-candidate. Confirmed by reading
+`_load_manifest_keys_on_disk()` and the `has_evidence = bool(manifest_hits
+or layer_hits)` line directly, not inferred. Confirmed `datacore/
+manifests/dtccswaps.json` exists on disk (`ls`) and was listed in the
+tool's own "Uncatalogued manifests on disk" advisory line before this fix
+— the tool already knew the file existed, it just wasn't wired to this
+candidate's id.
+
+WHAT SHIPPED: `scripts/data_stream_registry_check.py`'s `dtcc_sbsdr` entry
+— `status: "candidate_unbuilt"` -> `"built"`, `manifest_keys: []` ->
+`["dtccswaps"]`, and the `note` field rewritten to name the actual GATE 1
+result, the volume-budget scope decision, and both shipping dates (client
+view + `/api/v1` mirror) instead of the pre-build "needs a volume-budget
+decision" framing. This is a content fix to the compiled-knowledge table,
+not a code/mechanism change — `audit()` itself is untouched, since the
+drift-detection MECHANISM was working correctly on the data it was given;
+the data was wrong.
+
+RATCHET: no new test needed or added — `test_data_stream_registry_check.py`'s
+existing `test_no_drift_against_live_repo` already exercises exactly this
+path (it runs `audit()` against the real, live `CANDIDATES` table), it
+simply could not previously catch THIS specific drift because the stale
+entry's own `manifest_keys: []` kept it outside the check's search space
+(see READ BEFORE WRITE) — a table-content bug, not a test-coverage gap, so
+adding a new test here would only re-assert what the existing test already
+covers once the content is correct. Verified the fix is real, not
+cosmetic: before the fix, `python3 scripts/data_stream_registry_check.py
+--unbuilt` listed `dtcc_sbsdr` under NOT BUILT and `dtccswaps` under
+"Uncatalogued manifests on disk"; after, `dtcc_sbsdr` moves to the BUILT
+list (25/35, was 24/35) and `dtccswaps` no longer appears as uncatalogued
+— both observed directly, not assumed from the diff.
+
+GATES: fresh sandbox provisioning gap recurred (`node_modules` present but
+missing several packages — `npm ci` run, 488 packages added, clean; a
+pre-`npm ci` `tsc_ratchet.sh` run misleadingly read 3 errors vs. the 12
+pin, confirmed via re-run after `npm ci` to be the same sandbox-
+provisioning artifact prior sessions have logged, not a real improvement —
+did NOT lower the pin on it, same precedent as the 2026-08-26 session #5
+entry). `python3 -m pytest -q test_data_stream_registry_check.py`: 8/8
+pass (unchanged — this fix makes an existing assertion's real-world input
+correct, it does not add new assertions). `python3 -m pytest -q`
+(full suite): 1507 passed, 1 skipped, 54 subtests — unchanged, zero
+regressions. `bash scripts/tsc_ratchet.sh` (post-`npm ci`): 12/12, TS2304 0
+— unchanged, no `.ts` file touched. `bash scripts/counter_ratchet.sh`: OK,
+all 25 counters unchanged (this diff adds no test/assertion, so `assertions`
+correctly did not move). `bash scripts/gated_tests.sh`: GATE PASSED —
+python 1507/1 skipped/54 subtests, quarantine 0/1 none overdue (server/
+client suites unaffected, zero `.ts`/`.tsx` files touched). No visual
+harness run: zero `client/src` files touched (`git status --short`
+confirms only `scripts/data_stream_registry_check.py`, `package.json`,
+`package-lock.json`, `research/experiments.md`), same exemption prior
+zero-rendering-delta PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — a compiled-knowledge documentation/
+tooling fix, no strategy/scoring/sizing/threshold change, no FROZEN path
+touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/ads/
+paid-feature-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none new — this corrects an existing tool's
+record of an existing, already-shipped data stream; no new join, stream,
+or entity-graph tie.
+
+VERSION: v1.0.804 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`66b387b`/v1.0.803/#949 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Friday ~13:15 ET, inside market hours (opens 09:30,
+closes 16:00 ET). This diff touches only `scripts/data_stream_registry_check.py`,
+`package.json`/`package-lock.json`, and `research/experiments.md` — zero
+trading-loop blast radius (no server/, no bot_engine.py, no system_config.py).
+Per CLAUDE.md's "prefer merging PRs outside 9:30-16:00 ET" guidance, this
+PR's description asks for an after-hours/close merge rather than requesting
+an immediate one.
+
+NEXT (queued, not this session): the `un_comtrade` candidate remains the
+only genuinely-unbuilt (not declined) entry in this registry, correctly so
+per `data_census.md` (too lagged for direct alpha, structural-thesis-only)
+— not a queue item, just the registry's one honest "not yet" entry. No
+other stale-registry-entry was found this session (spot-checked the other
+24 "built" entries' `note` fields against `data_census.md`/
+`signal_ladder.json` while reading the file; none showed the same
+empty-`manifest_keys` pattern). Broader follow-up for a future session,
+not attempted here (would be its own PR): audit whether any of the 34
+"Uncatalogued manifests on disk" this tool reports as informational-only
+represent a SECOND instance of this same class of drift (a tracked
+candidate whose manifest key was renamed or was never linked), rather than
+correctly-out-of-scope streams (most are, per the file's own documented
+scope — this census tool only tracks EDGE-DOCTRINE-named + repeatedly-
+relitigated candidates, not every archived stream).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a real, verified drift in the compiled-knowledge registry,
+found by running the tool itself rather than assumed), used in full
+including reading the audit mechanism's own code to explain WHY the drift
+detector missed it rather than just patching the symptom.
+
 ## 2026-08-28 (scheduled-routine [REPAIR] session) — T-CLIENT (client/src/pages/datamap.tsx, client/src/lib/bodyDayNightControl.test.ts new, server/celestialToggleWiring.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, research/open_questions.md, package.json, package-lock.json): stale-PR-backlog PRIMARY ACTION — PR #844 salvaged (Day/Night body-lighting control re-derived and shipped, GPU raycast port re-queued), PR #817 closed and its 4 findings re-queued fresh, both orphaned by a main history rewrite (v1.0.803)
 
 TERRITORY: T-CLIENT primary (`client/src/pages/datamap.tsx` +
