@@ -3,6 +3,201 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-28 (scheduled-routine session) [PIPELINE] — T-CLIENT (scripts/visual_check.mjs) + SHARED-but-minimal (package.json, package-lock.json, research/PROGRAM_STATE.md, research/*): PROGRAM_STATE.md Q25 — the visual-harness perf gate stops firing on its own noise, closing a filed-since-#839 finding (v1.0.807)
+
+TERRITORY: T-CLIENT primary (`scripts/visual_check.mjs` is explicitly named
+in the WORKSTREAM PARTITION's T-CLIENT file list — "scripts/visual_check.mjs
+and visual tooling"); no `client/src` file touched. SHARED-but-minimal for
+version/research bookkeeping only.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(tail — 6 prior scheduled-routine sessions already ran today, v1.0.797
+through v1.0.806), research/open_questions.md (KNOWN BROKEN section + tail),
+research/wishlist.md (top — the STALE-PR BACKLOG entry is now resolved: a
+live `list_pull_requests(state=open)` check this session returned exactly
+one open PR, #604, the pre-existing "[BACKLOG] ... draft, do not merge
+as-is" entry correctly excluded by that entry's own precedent — no stale-PR
+work remains queued). `python3 scripts/session_health_check.py`: all 7 OK
+— liveness alive/not dark, subsystems ok, daemon rss 397.7MB (under
+trim_mb=400), ml_feedback age 16.4h, deploy_freshness server_version=
+1.0.806 matching this checkout pre-bump. No LIVENESS ALARM.
+`python3 scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 2/10 REPAIR in the last 10 tagged sessions, well under the 7+
+trigger; known_broken 38 items, 3 without an explicit close marker
+(#26/#34/#38) — advisory only, matches this script's own documented
+behavior, not treated as a blocker.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` — 0/2
+gate2_pending roots ready (cftc_cot_positioning ~56d of ~105d needed,
+sec_8k_earnings_language 35d of 90d — both still WAITING, nothing to
+judge). `python3 scripts/data_stream_registry_check.py --unbuilt` — the 10
+NOT-BUILT candidates are all declined_dead_source/blocked_free_key/
+blocked_registration/structural-thesis-only; nothing newly actionable. The
+most recent PRODUCT session's own NEXT note (this same day, v1.0.806) said
+no further "shipped-data-no-client-page" gap remains in the FINRA cluster
+and that a future session should re-scan `/api/data/*` vs `client/src/pages/`
+fresh rather than trust any prior account — did that scan (`grep` every
+`/api/data/` route path in `server/routes.ts` against `client/src/pages/`)
+and found no new gap either; the "shipped-data-no-UI" sweep this program
+has run repeatedly is, for today, genuinely exhausted. `research/
+PROGRAM_STATE.md` — the MASTER PROGRAM's own resume file — was checked next
+per its own instruction ("read this after CLAUDE.md and before the MASTER
+PROGRAM document"). Its QUEUE table showed every item DONE or REFRAMED
+except **Q25**, filed 2026-08-27 (PR #839 session) and still **TODO**: the
+visual harness's perf gate is non-deterministic — two runs of the identical
+commit failed at different widths (768 median 217>200, then 1440 p95
+367>350), and the row's own historical data point named a 283/317/383/467ms
+p95 spread on the same page across otherwise-unchanged runs, well inside
+the 350ms gate's own margin. This is a genuine, filed, previously-unclaimed
+finding with an explicit fix direction stated in the row itself ("measure
+the spread, set thresholds outside it (or take best-of-N) — do NOT simply
+raise the numbers"), and it serves the PREMIUM EXPERIENCE STANDARD directly
+("the perf harness gates feel, not just load time") — picked as this
+session's primary action over starting a new open-ended research probe,
+since HEALTH OF THE LOOP rule 3 (repairs must ratchet) and this program's
+own MASTER PROGRAM doctrine both treat a filed, reproducible test-harness
+defect as higher-value than a fresh untested hypothesis.
+
+READ BEFORE WRITE: read the full perf-measurement block in
+`scripts/visual_check.mjs` this session (not from memory) — the
+`runPans(record)` closure (records rAF frame deltas via
+`requestAnimationFrame` during 4 scripted `easeTo` pans, ~650ms settle each),
+the existing single warm-up pass + single measured pass shape, the `q(f)`
+percentile helper, and the two gate call sites (`MEDIAN_GATE` per viewport
+width, fixed `350`ms p95) at what were lines 2878-2885. Read
+`research/experiments.md`'s 2026-08-27 (#839) entry in full for the exact
+A/B evidence this finding is based on (three runs of the /data page: one
+with the day's Q14 rename change failing 768 median 217>200, a second run
+of the SAME commit failing 1440 p95 367>350 instead, a third run of the
+UNCHANGED tree failing harder — 4 hard failures — than the changed tree's
+1) before writing anything, rather than re-deriving or paraphrasing the
+finding from PROGRAM_STATE.md's one-line summary alone.
+
+WHAT SHIPPED: the perf sampler in `scripts/visual_check.mjs` (only the
+`data` page's `map: true` config exercises this branch — grep-confirmed no
+other PAGES entry sets `map: true`, so the blast radius is exactly the one
+page this finding is about) now runs the measured `runPans(true)` pass
+THREE times after one shared warm-up pass, instead of once, and reports
+`median`/`p95` as the MEDIAN of the three per-pass medians/p95s (a
+`medianOf3` helper on the sorted 3-element array) rather than the
+percentiles of one pass's raw frame deltas. This is the "best-of-N" branch
+of Q25's own stated fix, not the "widen the thresholds" branch —
+`MEDIAN_GATE` (120/200/250 by width) and the fixed `350`ms p95 gate are
+BYTE-IDENTICAL to before this diff; only what they are compared against
+changed. A single unlucky pass (a GC pause, a background hitch landing in
+one ~2.6s window) no longer decides the verdict; a regression that holds
+across all three consecutive passes still fails the gate exactly as before
+— this can only make the gate LESS likely to fire on noise, never more
+likely to pass a real regression, so no measurement-integrity direction-of-
+bias concern applies (mirrors the 2026-07-05 CALIBRATED GATE entry's own
+"this change can only make builds FAIL more, never look better" framing,
+inverted correctly: here the change can only make the SIGNAL more
+faithful, never mask a real regression, since three consecutive passes all
+elevated is the only way the median rises). The failure-message strings
+for both gates now interpolate the raw 3-element `passes` array
+(`{frames, median, p95, max}` per pass) so a future investigation into a
+red build doesn't need to re-run the harness to see the spread — it's in
+the failure text and in `.visual/results.json` directly.
+
+VERIFIED LIVE, not just reasoned about: ran `node scripts/visual_check.mjs
+--page data` three times total this session — twice PRE-fix (to get a
+fresh same-sandbox noise reading before touching anything) and once
+POST-fix. Pre-fix run 1: 768 median 133/p95 183, 1440 median 133/p95 233.
+Pre-fix run 2 (identical commit, immediately after): 768 median 117/p95
+167, 1440 median 133/p95 200 — real run-to-run movement on this sandbox
+too, though smaller than #839's own 217/367 reading (a different, less-
+contended sandbox — the finding doesn't require reproducing the worst case
+here to be valid, since #839's own evidence is the documented basis).
+Post-fix run: 0 hard failures at all three widths; inspected the raw
+`passes` arrays in `.visual/results.json` directly rather than trusting
+only the printed summary — e.g. the 768px page's three passes read
+median/p95 of `[117,167]`, `[100,183]`, `[117,167]`, collapsing to a
+reported 117/167 (the middle value of each), confirming the mechanism
+picks the middle pass rather than being dominated by whichever one pass
+happened to run first. `frames` (total sampled across all 3 passes) rose
+from ~20-60 per page pre-fix to ~50-150 post-fix, as expected from
+sampling 3x the wall-clock.
+
+RATCHET: no dedicated test file exists for `visual_check.mjs`'s perf logic
+(grep-confirmed: zero `*.test.*` files reference `visual_check`) — this
+class of change has never had one; the harness run itself, gated by
+PROMOTION RULE 6 and the WORKSTREAM PARTITION's own T-CLIENT territory
+definition, is this class's regression gate, same precedent the
+2026-07-05 CALIBRATED GATE entry and every visual-harness-only PR since
+has followed. Not adding one here for the same reason those didn't: the
+thing under test is real headless-browser frame timing, which a unit test
+can only mock, not verify.
+
+GATES: this sandbox needed `npm ci` (node_modules absent) and `pip install
+-r requirements.txt -r requirements-dev.txt` (python deps absent) at
+session start — same fresh-sandbox provisioning gap prior sessions have
+logged repeatedly, not a regression. `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304=0, unchanged (`.mjs` file, outside tsc's scanned surface). `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1074/1074, python 1507
+passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `npm run
+build`: clean, only the same pre-existing warnings recent sessions log
+(maplibre-gl chunk size, astronomy-engine default-export interop, mapIcons
+dynamic/static dual import) — none touched this session. `bash
+scripts/counter_ratchet.sh`: 3 counters read IMPROVED
+(`tests_run_in_ci`/`tests_gating_merge` 403->404, `assertions`
+12405->12418) — NOT re-pinned here per PROMOTION RULE 5: this diff adds
+zero new test files and zero new test assertions (confirmed via `git diff
+--stat`, only `scripts/visual_check.mjs` + version/research bookkeeping
+touched), and the exact same three numbers were already read as
+IMPROVED-but-unattributed by the immediately prior v1.0.806 session on
+this same base commit — pre-existing drift from an earlier, unpinned merge,
+not this session's or the prior session's effect; re-pinning it here would
+misattribute someone else's gain. `git fetch origin main` immediately
+before and again immediately before the version bump both confirmed
+`origin/main` still matched this branch's base exactly at `32a49fa`/
+v1.0.806 — no concurrent session had merged ahead of this one. All other
+22 counters unchanged.
+
+VISUAL VERIFICATION (PROMOTION RULE 6): `npm run visual` (via `--page
+data`) run at all three canonical widths this session as part of
+verifying the fix itself (see VERIFIED LIVE above) — 0 hard failures at
+390/768/1440, screenshots saved to `.visual/`. No `client/src` file was
+touched, so no rendering delta was expected or found; the run's purpose
+here was validating the gate's own new logic, not reviewing a UI change.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a CI/test-harness fix (how a
+performance regression guard measures itself), not a strategy, scoring,
+sizing, or threshold change; no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none — this is internal test tooling, not a data
+stream or entity-graph join.
+
+VERSION: v1.0.807 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`32a49fa`/v1.0.806 — no concurrent session had merged ahead of this one).
+
+MARKET-HOURS NOTE: Friday ~16:50 ET, after market close (16:00 ET). This
+diff also has zero trading-loop blast radius regardless (a CI/test-tooling
+change with no server/bot.ts, bot_engine.py, or Python file touched), so
+no merge-timing caveat is needed either way.
+
+NEXT (queued, not this session): `research/PROGRAM_STATE.md`'s QUEUE table
+now shows every item DONE or REFRAMED — Q12's REFRAMED half (the
+boot-fetch power-tiles path, A4 PHASE 2 item 2) remains the one
+substantive open thread in that file, alongside its own "NEXT, then Track
+2/3 — the moon" pointer (Track 2/3 work, not started). Both gate2_pending
+ladder roots (cftc_cot_positioning, sec_8k_earnings_language) remain
+WAITING per `ladder_readiness_check.py` — nothing to judge yet. The
+"shipped-data-no-client-page"/"/api/v1 mirror" sweeps are both genuinely
+exhausted as of today's earlier sessions — a future session should re-scan
+fresh rather than trust either account, since new pipelines ship between
+sessions.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action (a filed, reproducible test-harness defect with its fix
+direction already stated), used in full including reading the #839
+evidence trail and verifying the fix live with real per-pass data rather
+than trusting the reasoning alone.
+
 ## 2026-08-28 (scheduled-routine [PRODUCT] session) — T-CLIENT (client/src/pages/finraShortInterest.tsx new, client/src/pages/datamap.tsx, scripts/visual_check.mjs) + SHARED-but-minimal (package.json, package-lock.json, research/*): FINRA consolidated short interest + Reg SHO threshold list gets its /data client view, the last "shipped-data-no-client-page" gap in the FINRA Query API cluster (v1.0.806)
 
 TERRITORY: T-CLIENT (primary), touching only client/src/pages/datamap.tsx,

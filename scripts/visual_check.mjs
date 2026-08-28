@@ -2031,6 +2031,20 @@ async function main() {
       // PERF BUDGET: drive pans through the __vtMap hook while sampling rAF
       // frame deltas. Software-GL thresholds are regression guards, not the
       // on-device budget (that's DESIGN.md's number).
+      // BEST-OF-3 (PROGRAM_STATE.md Q25, 2026-08-28): a single measured pass
+      // sits inside its own noise band — two runs of the IDENTICAL commit
+      // were observed to fail at DIFFERENT widths (768 median 217>200, then
+      // 1440 p95 367>350), and prior p95 on this page measured 283/317/383/
+      // 467ms across otherwise-unchanged runs. That spread comes from
+      // environmental hitches (GC pause, host contention under SwiftShader)
+      // landing inside one ~2.6s measured window, not from the code. Per
+      // Q25's own instruction ("measure the spread, set thresholds outside
+      // it (or take best-of-N) — do NOT simply raise the numbers"): the gate
+      // now runs THREE independent measured passes and takes the MEDIAN of
+      // the three per-pass medians/p95s. A single unlucky pass no longer
+      // decides the verdict; a regression that holds across all three still
+      // fails the gate exactly as before. Thresholds are unchanged — this
+      // narrows what they're being compared against, not the bar itself.
       const perf = !cfg.map ? {} : await page.evaluate(async () => {
         const map = window.__vtMap;
         if (!map) return { error: "__vtMap hook missing" };
@@ -2049,15 +2063,24 @@ async function main() {
           await new Promise(r => setTimeout(r, 60));
           return deltas.filter(d => d > 0).sort((a, b) => a - b);
         };
+        const q = (sorted, f) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))] || 0;
+        const medianOf3 = (arr) => arr.slice().sort((a, b) => a - b)[1];
         await runPans(false);            // warm-up: first-pan upload hitches
-        const sorted = await runPans(true);   // measured window (warm)
-        const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))] || 0;
+        const passes = [];
+        for (let i = 0; i < 3; i++) {
+          const sorted = await runPans(true);   // measured window (warm)
+          passes.push({ frames: sorted.length, median: Math.round(q(sorted, 0.5)),
+                        p95: Math.round(q(sorted, 0.95)), max: Math.round(sorted[sorted.length - 1] || 0) });
+        }
         let rendered = 0;
         // decimation split (perf 3/3): full layer above z4.5, rank-filtered
         // twin below — sample whichever is active at the current zoom
         try { rendered = map.queryRenderedFeatures({ layers: ["aircraft-sym", "aircraft-sym-lo"].filter((l) => map.getLayer(l)) }).length; } catch {}
-        return { frames: sorted.length, median: Math.round(q(0.5)), p95: Math.round(q(0.95)),
-                 max: Math.round(sorted[sorted.length - 1] || 0), renderedAircraft: rendered };
+        return { frames: passes.reduce((s, p) => s + p.frames, 0),
+                 median: medianOf3(passes.map((p) => p.median)),
+                 p95: medianOf3(passes.map((p) => p.p95)),
+                 max: Math.max(...passes.map((p) => p.max)),
+                 passes, renderedAircraft: rendered };
       });
       const shot = path.join(OUT, `${name}-${vp.w}.png`);
       await page.screenshot({ path: shot });
@@ -2879,8 +2902,8 @@ async function main() {
       else if (cfg.map) {
         const MEDIAN_GATE = { 390: 120, 768: 200, 1440: 250 };
         const medGate = MEDIAN_GATE[vp.w] || 300;
-        if (perf.median > medGate) checks.failures.push(`perf: median frame ${perf.median}ms > ${medGate}ms gate @${vp.w} (steady-state jank at 10k features)`);
-        if (perf.p95 > 350) checks.failures.push(`perf: p95 frame ${perf.p95}ms > 350ms gate (observed ceiling 183ms)`);
+        if (perf.median > medGate) checks.failures.push(`perf: median-of-3-passes frame ${perf.median}ms > ${medGate}ms gate @${vp.w} (steady-state jank at 10k features; per-pass: ${JSON.stringify(perf.passes)})`);
+        if (perf.p95 > 350) checks.failures.push(`perf: median-of-3-passes p95 frame ${perf.p95}ms > 350ms gate (observed ceiling 183ms; per-pass: ${JSON.stringify(perf.passes)})`);
         if (perf.p95 > 250) checks.warnings.push(`perf: p95 frame ${perf.p95}ms (upload-hitch spikes)`);
         if (!perf.renderedAircraft) checks.warnings.push("perf: no aircraft features rendered in viewport sample");
         // DATA-RICHNESS GUARD (enables low-zoom decimation without data
