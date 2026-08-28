@@ -5998,12 +5998,16 @@ export default function DataMapPage() {
           } as any, firstMarker?.id);
         }
         setStatus("daynight", "active", undefined,
-          // DISCOVERABILITY (2026-08-13 report): this layer shades the MAP
-          // only. The user read "always on" and reasonably expected it to
-          // govern the Moon/planets too, then found toggling it did nothing
-          // out there. Name the other switch instead of leaving them to hunt.
-          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP only; " +
-          "day/night on the Moon and planets in the space view is CELESTIAL › Realistic lighting · " +
+          // DISCOVERABILITY (2026-08-13 report, REPAIRED 2026-08-14/28): this
+          // shade is the MAP's night side. Naming the other switch here
+          // (the original 2026-08-13 fix) did not work — the SAME report
+          // came back the next day, because a sentence telling you where a
+          // control lives is not the control. The row now carries the
+          // body-lighting switch itself whenever the camera is at a body
+          // (see the BODY control above), so this text no longer sends
+          // anyone hunting through panels.
+          "computed ephemeris (display-grade) — shaded side is night NOW · shades THIS MAP; " +
+          "fly to the Moon or a planet and this row also carries that body's day/night · " +
           "the Sun/Moon/planets in the sky above the horizon render always (astronomy-engine)");
       } catch { /* style mid-swap — next tick retries */ }
     };
@@ -12615,6 +12619,55 @@ export default function DataMapPage() {
             <button className="vt-filings-openfull"
                     onClick={() => { window.location.hash = "#/data/gnss-integrity"; setGnssIntegrityOpen(true); }}>
               Open GNSS integrity signal — Baltic GPS-jamming discrimination →
+            </button>
+          </div>
+        )}
+        {/* BODY DAY/NIGHT — the control that governs what you are actually
+            looking at, surfaced where you are looking.
+
+            HISTORY (ported from stale PR #844, 2026-08-14, orphaned by a
+            main history rewrite before it could merge — re-derived against
+            current datamap.tsx this session rather than git-merged). The
+            2026-08-13 report was "day/night is on but the Moon has no dark
+            side"; that pass answered it by naming the real switch in this
+            layer's status line ("CELESTIAL › Realistic lighting"). The
+            IDENTICAL report came back 2026-08-14, because A POINTER IS NOT A
+            CONTROL: the user was in the layers panel reading a row named
+            "Day/Night & Moon" while the switch sat in a different, collapsed
+            panel. Offered a rename as the fix, the human's answer was
+            explicit: "i want the feature not to rename." So the row keeps
+            its name and earns it.
+
+            On the flat map it shades the map, unchanged. With the camera at
+            a body it also carries that body's terminator — bound to the
+            SAME `vt-celestial-realistic` pref the CELESTIAL panel drives
+            (celRealistic / setRealisticLightingPref), never a second source
+            of truth, so the two surfaces cannot disagree.
+
+            Deliberately NOT gated on the row's own switch (`on`): out at a
+            body the map shade is invisible, so gating the body control
+            behind it would hide the lighting switch exactly when it is the
+            only one of the two that does anything. */}
+        {l.id === "daynight" && spaceActive && (
+          <div className="vt-field-controls" role="group" aria-label="Body day/night lighting">
+            <span style={{ letterSpacing: "1.5px", fontSize: "10px", color: "var(--text-tertiary)" }}>
+              BODY
+            </span>
+            <span className="vt-layer-covnote" style={{ flex: 1, minWidth: 0 }}>
+              {celRealistic
+                ? "sun-driven terminator on the Moon and planets, from the sim-clock ephemeris"
+                : "even-lit inspection mode — no terminator, so night-side landing sites stay visible"}
+            </span>
+            <button
+              role="switch"
+              aria-checked={celRealistic}
+              aria-label="Toggle realistic sun-driven lighting on the Moon and planets"
+              data-vt-body-daynight
+              title="Day/night on the BODY you are looking at. Same switch as CELESTIAL › Realistic lighting."
+              className={`vt-switch${celRealistic ? " on" : ""}`}
+              onClick={() => setRealisticLightingPref(!celRealistic)}
+            >
+              <i />
             </button>
           </div>
         )}

@@ -105,15 +105,41 @@ test("RATCHET: the realistic flag reaches the MOON patch AND the textured sphere
     "textureSphere must skip the lambert term when full-bright — this is what makes every PLANET honor the toggle");
 });
 
-test("the Earth-map daynight status line points at the space-view lighting toggle", () => {
+// UPDATED 2026-08-28 (ported from stale, orphaned PR #844 — RECURRENCE
+// ESCALATES): the 2026-08-13 fix this test originally pinned was "name the
+// other toggle in the status text." The IDENTICAL report ("day/night is on
+// but the Moon has no dark side") came back on 2026-08-14, because a
+// sentence naming a control is not the control — the user was in the layers
+// panel reading a row called "Day/Night & Moon" while the switch it named
+// sat in a different, collapsed panel. The second occurrence is a root-cause
+// fix, not a second paragraph, so this test is STRENGTHENED, not weakened:
+// it still requires the status line to state the flat-map-only limitation
+// (unchanged claim, still true), and now additionally requires the row to
+// RENDER the body-lighting control itself rather than merely naming where a
+// different one lives.
+test("the Earth-map daynight row states its map-only shading AND carries a real body-lighting control", () => {
   const src = datamap();
   const i = src.indexOf('setStatus("daynight", "active"');
   assert.ok(i > 0, "daynight active-status call not found");
   const status = src.slice(i, i + 900);
-  assert.ok(/THIS MAP only|map only/i.test(status),
-    "the daynight layer shades only the flat map — say so, or users read it as governing the Moon/planets too (the 2026-08-13 report)");
-  assert.ok(/Realistic lighting/.test(status),
-    "name the CELESTIAL › Realistic lighting toggle so the space-view control is discoverable from the layer the user actually found");
+  assert.ok(/THIS MAP/i.test(status),
+    "the daynight status text must still say it shades the flat map (the 2026-08-13 report's original claim)");
+
+  // The 2026-08-13 fix (naming "CELESTIAL › Realistic lighting" in the
+  // status text) is deliberately GONE from the status line — replaced by an
+  // actual control, not a second pointer.
+  assert.ok(!/CELESTIAL › Realistic lighting/.test(status),
+    "the status text must not fall back to naming another panel — it must carry the control instead");
+
+  // The row itself must render the body-lighting switch, gated on
+  // spaceActive (out at a body) and NOT on the row's own switch (out there
+  // the map shade is invisible, so gating behind it would hide the only
+  // control that does anything).
+  assert.match(src, /l\.id === "daynight" && spaceActive &&/,
+    'the "Day/Night & Moon" row must render a body-lighting control when at a body');
+  assert.match(src, /data-vt-body-daynight/, "the switch needs a stable test handle");
+  assert.match(src, /setRealisticLightingPref\(!celRealistic\)/,
+    "the row's control must drive the SAME pref the CELESTIAL panel drives, not a second copy");
 });
 
 // ── SITE CLAIM (2026-08-13 report: "when i click on Moon Mission it thinks i
