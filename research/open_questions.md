@@ -5112,6 +5112,64 @@
     delta salvaged into this entry.
     NOT A SPEND REQUEST.
 
+38. **[FOUND AND FIXED 2026-08-28, scheduled-routine session — via live
+    `/api/diag/audit`] `server/bot.ts`'s `DEPLOY_TIMESTAMP` reset on every
+    Railway redeploy, not just the one historical "post-27-bug-fix" cutover
+    it was written to mark — so `adjustStrategyWeights()`'s post-deploy
+    win-rate window was silently driven by a few hours of noise instead of
+    a stable clean-code sample.** Live evidence: `/api/diag/health` showed
+    `server_version` matching the day's most recent merge (a trivial
+    `/api/v1` data-registry fix, zero trading-logic relevance) and
+    `node_uptime_s` showing the process had been up only ~2 hours;
+    `/api/diag/audit` showed a `LEARN` line reading "Win rate 0% (20
+    post-deploy trades) — shifting weight toward VRP/squeeze" recurring
+    every ~30 minutes, driving `strategyWeights.vrp` toward its 40% cap and
+    `strategyWeights.momentum` toward its 15% floor off that single 2-hour,
+    20-trade sample. `DEPLOY_TIMESTAMP` was `new Date().toISOString()`,
+    recomputed fresh at every process boot — and this repo redeploys on
+    every merge to main, including merges with zero relation to trading
+    logic (a data mirror, a docs fix), multiple times per day. Every such
+    redeploy silently moved the "only trust trades after this" boundary to
+    "right now," so the mechanism could never accumulate more than a few
+    hours of sample before resetting again — the exact opposite of the
+    one-time historical boundary the surrounding comment describes
+    ("pre-27-bug-fix, pre-scale-out, pre-HEAT-CAP fix"). PRIORITY-2
+    (integrity of learning): live capital-allocation weights were being
+    whipsawed by small-sample noise on a cadence set by unrelated commit
+    activity, not by any actual belief update.
+    FIX: `DEPLOY_TIMESTAMP` is now sourced from a new
+    `loadOrInitDeployTimestamp()` helper that persists the value to
+    `/data/voltrade/voltrade_deploy_timestamp.json` (falling back to
+    `/tmp/voltrade_deploy_timestamp.json`), the same survive-the-redeploy
+    pattern `EQUITY_CURVE_PATH`/`saveEquityCurve()` already use a few lines
+    above it in the same file. First-ever boot mints and persists the
+    timestamp; every subsequent boot reads the persisted value back
+    instead of minting a new one, so the boundary now only moves when a
+    human deliberately clears the file for a genuine future cutover (e.g.
+    after fixing another broad, outcome-corrupting bug) — not on every
+    redeploy. No weight-adjustment threshold (win-rate cutoffs 0.4/0.65,
+    the 0.02/0.01 step sizes, the 0.40/0.15/0.10/0.30 caps/floors) was
+    touched — this is a fix to which trades are eligible to feed the
+    window, not a new sizing policy, so RULE REVIEW's threshold-change
+    evidence gate does not apply.
+    RATCHET: new `server/deployTimestampPersistence.test.ts` (5 tests) —
+    first-ever-boot minting + persistence, a restart reading the persisted
+    value back rather than minting a new one (simulated via a mocked
+    `Date.now()` 6 hours later, the exact scenario this bug produced),
+    fallback-path behavior when the first path is unwritable, a
+    corrupt/unreadable persisted file failing safe rather than crashing,
+    and a static check that `DEPLOY_TIMESTAMP` is wired through the
+    persisted loader rather than a bare `new Date()` call. A/B-verified via
+    `git stash` on `server/bot.ts` alone: all 5 fail on the pre-fix tree
+    (the function doesn't exist there) and all 5 pass post-fix.
+    BACKTEST: N/A per PROMOTION RULE 3 — no scoring, sizing, or threshold
+    value changed; this only changes which historical trades are eligible
+    to feed an existing live adjustment mechanism.
+    NEXT: a future session with live access, a few days out, should check
+    `/api/diag/audit?type=LEARN` for whether the weight-shift cadence has
+    settled down (fewer, more stable transitions) now that the window
+    persists across redeploys instead of resetting every few hours.
+
 ## RULE COST AUDIT — after counterfactual logging exists
 
 - Is MIN_SCORE=63 leaving winners on the table or blocking losers?
