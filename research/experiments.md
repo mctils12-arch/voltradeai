@@ -3,6 +3,274 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/shadowFleetReference.ts, server/shadowFleetReference.test.ts, server/shadowFleetGate1.ts, server/shadowFleetGate1.test.ts, scripts/ofac_sdn_ingest.ts, datacore/ofac_sdn_vessels.json, datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SHADOW-FLEET SIGNAL gate 1 — the OFAC SDN reference-list ingest (run live, 805 sanctioned-vessel MMSIs) and the case-control odds-ratio/CI enrichment test both BUILT and unit-tested; not yet run against the real AIS archive (v1.0.811)
+
+TERRITORY: SHARED-but-minimal, same posture the prior mirror-sweep
+sessions have taken for cross-cutting additions — new files under
+server/scripts/datacore plus the matching research/ci bookkeeping, no
+T-BOT/T-CLIENT file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session, then
+research/PROGRAM_STATE.md (a parallel code-quality-harness program, not
+this routine's territory — noted and set aside), research/data_census.md,
+and research/experiments.md's tail. `python3 scripts/session_health_check.py`:
+all 7 OK — liveness alive/not dark, subsystems ok, daemon rss=370.9MB
+(well under trim_mb=400MB), ml_feedback age 8.8h, deploy_freshness
+server_version=1.0.810 matching this checkout's package.json pre-bump. No
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits_register
+none overdue; thrash_ratio 2/10 REPAIR in the last 10 tagged sessions, well
+under the 7+ trigger; known_broken 38 items, 3 without an explicit close
+marker (#26/#34/#38), advisory only per the script's own documented
+behavior. NOT a [REPAIR] session; no LIVENESS ALARM blocks product work.
+`git fetch origin main` before starting: local checkout was already 4
+commits ahead of a stale first read of origin/main (a second fetch caught
+up to 9f4c134/v1.0.810 — a proxy/DNS propagation gap on the first fetch,
+not a concurrent-session race; confirmed by immediately re-fetching and
+seeing the exact same 4 commits, not new ones).
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language ~56d/90d — both still WAITING, unchanged).
+`python3 scripts/data_stream_registry_check.py --unbuilt` — axis (a)
+confirmed exhausted again (only `un_comtrade`, `candidate_unbuilt` but its
+own note says "too lagged ... structural-thesis input only," not a
+pipeline worth building blind — the fourth session to independently reach
+this same finding). The immediately prior 2026-08-29 PRODUCT session
+(v1.0.810) explicitly logged the `/api/v1` mirror sweep as "genuinely
+exhausted for today" with the standing caveat to re-scan rather than trust
+that account — re-scanned via `grep` across `server/apiProduct.ts`'s
+`LICENSE_MARKS` keys against every `/api/data/*` route in `server/
+routes.ts`: confirmed no new BUILT-root-without-a-mirror gap has appeared
+since. Fell through to this routine's own brief (options a-d): checked
+`datacore/signal_ladder.json` for any root with a DEFINED-but-unbuilt gate
+plan (option (a), explicitly named as product work). Found
+`shadow_fleet_maritime` — `status: raw_only`, `current_gate: 0`, note
+reading "gate-1 validation plan defined ... but not yet run per the
+record," `last_update_date: 2026-07-04` (untouched for 56 days). Read the
+full plan in `research/open_questions.md`'s "SHADOW-FLEET SIGNAL" section
+(then at line 7084): a two-part gate 1 — (1) build a public reference list
+of documented sanctioned/dark-fleet vessels, (2) test whether our own
+AIS-archive gap/loiter detections are statistically enriched for
+reference-list vessels vs a size-matched random tanker sample (odds ratio
+with CI). Neither part existed in the codebase (`grep -rn "OFAC\|SDN" server/
+scripts/` returned nothing). Picked this — a concrete, previously-scoped,
+unclaimed gate-1 item, matching SESSION BUDGET fall-through order 1 more
+directly than starting fresh research.
+
+READ BEFORE WRITE: read `server/shadowFleet.ts` in full (not from memory)
+— `readVesselTracks`'s `Pt` shape (`{t, la, lo, v, c}`, keyed by MMSI via
+the archive's `p.i` field), `detectGapEvents`/`detectLoitering`'s exact
+signatures and return shapes (`GapEvent[]` already carries `mmsi`;
+`detectLoitering` returns a per-zone count map, not per-vessel MMSIs — a
+detail that matters for the NEXT section below), and the module's own
+documented RAW-vs-SIGNAL boundary comment. Read `server/datacoreArchive.ts`
+to confirm the raw archive line DOES carry ship-type (`st: p.shiptype ??
+undefined` in `archiveVessels`) even though `readVesselTracks` currently
+drops it when building `Pt` — this is why a tanker-only universe can't be
+built from the current reader without a (deferred) extension. Read
+`server/euLoad.ts` in full as the dependency-free-XML-parsing precedent
+(`tagText`/`tagBlocks` regex-block helpers) and `scripts/dtcc_swaps_gate1.ts`
+as the "session-run gate-1 script imports from its own server module,
+result goes in experiments.md, not any runtime path" structural precedent.
+Read `datacore/shadow_zones.json` for the existing static-reference-file
+convention (`_doc` field, no manifest.json needed for a non-polled
+reference file, unlike the live-archive-stream manifests in
+`datacore/manifests/`).
+
+DATA ACQUISITION (live, this session): probed
+`https://www.treasury.gov/ofac/downloads/sdn.xml` — 302 redirect to a
+time-limited S3 URL, `curl -L` followed it, HTTP 200, 28,969,226 bytes,
+19,321 total SDN records (`Record_Count` in the document header), 1,540
+`sdnType=Vessel` entries, 805 of those carrying an `idType=MMSI` id
+(inspected several full raw entries by hand before writing the parser —
+confirmed IMO numbers live under `idType=Vessel Registration
+Identification` as `IMO <digits>`, not a dedicated `idType=IMO Number` as
+first guessed). `sanctionslistservice.ofac.treasury.gov` (the newer API
+host some public writeups cite) is blocked by this sandbox's egress proxy
+policy — irrelevant, `www.treasury.gov`'s redirect-to-S3 path works and is
+what the fetch code uses.
+
+WHAT SHIPPED:
+- `server/shadowFleetReference.ts` — dependency-free OFAC SDN.XML parser
+  (`parseSdnVesselEntries`, same regex-block `tagText`/`tagBlocks` pattern
+  as `euLoad.ts`) + `fetchOfacSdnXml` (injectable `FetchFn`, 60s timeout,
+  identifying User-Agent, same shape as `euLoad.ts`'s `fetchLoad`). Filters
+  to `sdnType=Vessel` entries carrying a valid-format MMSI id (7-9 digits)
+  — a vessel entry with no MMSI cannot be joined against our own
+  MMSI-keyed archive, so it is excluded rather than kept with a null
+  field. Extracts IMO (digits after "IMO " in the Vessel Registration
+  Identification id), vessel type/flag, and sanctions program tags.
+- BUG FOUND AND FIXED DURING THIS SESSION'S OWN TEST RUN (not left for
+  later): the first `tagText`/`tagBlocks` regex (`<${tag}[^>]*>`) let a
+  tag name that is a PREFIX of a sibling tag swallow the sibling's opening
+  tag — `<program[^>]*>` matched `<programList>` too (`[^>]*` absorbs
+  "List"), pairing it with the first `</program>` closing tag instead of
+  `</programList>`, and the same collision exists for `id`/`idList`. Caught
+  by the `programs` assertion in this session's own first test run
+  (`deepEqual` expected `["IRAN"]`, got `["<program>IRAN"]`). Fixed with a
+  lookahead requiring the character after the tag name to be whitespace,
+  `/`, or `>` (`<${tag}(?=[\\s\\/>])[^>]*>`) — general fix in the shared
+  helper, not a per-tag patch. Confirmed by re-running: the `id`/`idList`
+  collision (present in the same fixture, silently self-correcting by
+  coincidence in this specific data shape — traced by hand, not assumed)
+  is fixed by the same change. NOT applied to `euLoad.ts`'s own identical
+  helper: that file's actual tag names (`TimeSeries`/`Period`/`Point`/
+  `start`/`resolution`/`quantity`/`position`) have no prefix collision, so
+  it has no live bug to fix — patching it here would be an unrelated
+  change bundled into this PR (PROMOTION RULE 5).
+- `server/shadowFleetGate1.ts` — the case-control statistical test:
+  `contingencyCounts` (2x2 table, de-duplicates a repeated MMSI in the
+  universe), `oddsRatio`/`oddsRatioCI` (Haldane-Anscombe +0.5 correction
+  on every cell when any cell is zero — a small reference-list overlap
+  makes a zero cell likely; Woolf's method for the log-odds CI, z=1.96),
+  `seededSample`/`buildCaseControlUniverse` (deterministic xorshift32 PRNG,
+  no crypto/external-RNG dependency, reproducible from a logged seed —
+  controls are drawn from the tanker pool EXCLUDING the candidates, so a
+  vessel is never its own control), and `evaluateEnrichment` (the full
+  verdict object: odds ratio, 95% CI, `enriched` = CI lies entirely above
+  1, `insufficient_n` flag below 5 total reference-list hits — the same
+  REASONING STANDARD #4 small-n floor `hazard_rate_probe.py` uses).
+- `scripts/ofac_sdn_ingest.ts` — CLI: fetch, parse, write
+  `datacore/ofac_sdn_vessels.json`. RAN LIVE this session against the real
+  feed (not a dry run): 805 vessels, dominated by IRAN-EO13902 (310),
+  RUSSIA-EO14024 (231), UKRAINE-EO13662 (174), SDGT (95) program tags —
+  exactly the sanctioned-tanker population this signal targets. 192KB,
+  committed with `fetched_at`/`record_count` in the header so a future
+  session can judge staleness before trusting it.
+- `research/open_questions.md`'s "SHADOW-FLEET SIGNAL" section and
+  `datacore/signal_ladder.json`'s `shadow_fleet_maritime` entry both
+  updated with this session's progress (both files, one PR — a
+  status/documentation update paired with the code it describes, not a
+  separate change).
+
+WHY THE ENRICHMENT TEST WAS NOT RUN AGAINST THE REAL ARCHIVE THIS SESSION
+(honest constraint, not a shortcut — same class as the hazard_rate_probe
+and CSD probe sessions' first passes): `server/shadowFleet.ts`'s
+`archiveBaseDir()` falls back to `/tmp` when `/data` doesn't exist, and
+this sandbox has no `/data/voltrade/datacore_archive/vessels` — confirmed
+via `fs.existsSync`. Even with archive access, `readVesselTracks`'s `Pt`
+does not currently carry ship-type (see READ BEFORE WRITE above), so a
+tanker-only universe can't be built from it yet — extending that reader is
+a separate, its-own-test-coverage change (CLAUDE.md's no-untested-wiring
+discipline), not something to bolt on blind in the same PR as the
+statistical module it would feed. Both gaps are named explicitly as NEXT
+below rather than papered over.
+
+RATCHET: `server/shadowFleetReference.test.ts` (24 tests) — the tag-prefix
+collision bug above (would have shipped broken without this), MMSI/IMO
+extraction on a fixture matching the real, live-probed SDN.XML shape,
+non-Vessel-type exclusion, no-MMSI exclusion, Former-Vessel-Flag-never-
+misread-as-MMSI, malformed-MMSI rejection, empty-document handling, and
+`fetchOfacSdnXml`'s URL/header/error-status behavior via an injected fetch
+double. `server/shadowFleetGate1.test.ts` (17 tests) — hand-verified
+contingency counts and a hand-verified odds ratio (20/80/5/95 -> exactly
+4.75), the Haldane-Anscombe correction on a zero cell (verified to collapse
+to exactly 1, not 0 or Infinity), a clearly-enriched synthetic case whose
+CI excludes 1, a null/random case whose CI straddles 1, log-space symmetry
+of the Woolf CI around the point estimate, seeded-sample reproducibility
+and cross-seed variation, control-pool exhaustion (fewer eligible controls
+than cases uses every eligible one, never a duplicate draw), the
+`insufficient_n` floor, and full-verdict determinism given the same seed.
+
+A THIRD BUG FOUND MID-SESSION (fixed before it could become a counter
+regression, not after): the first draft of both new modules used
+`init?: any` in an injectable-fetch type (copying `euLoad.ts`'s own
+pattern verbatim) plus two `as any` casts in the test file.
+`bash scripts/counter_ratchet.sh` correctly failed on it
+(`ts_any` 1239->1242, `boundary_any` 233->234) before this PR's diff was
+finalized. Fixed the code, not the ruler, per MEASUREMENT INTEGRITY and
+this file's own L9/L11 precedent: `init?: RequestInit` (the `dom` lib is
+already in `tsconfig.json`) and dropped the casts entirely — `fetch`
+satisfies the narrower `FetchFn` structurally with no cast needed.
+Re-verified zero `any` type annotations remain in any new file (`grep -n
+"\bany\b"` — the only remaining hits are the prose words "any cell"/
+"any vessel", which the counter's `:\s*any\b` regex does not match).
+
+GATES: `npm ci` (488 packages; this sandbox's `node_modules` was absent at
+session start) and `pip install -r requirements.txt -r
+requirements-dev.txt` both run at session start — the same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a regression.
+`bash scripts/tsc_ratchet.sh`: 12/12 exactly, TS2304 0 — unchanged (the
+`any`-type fix above kept it there rather than needing it to get there).
+`npx tsx --test server/shadowFleetReference.test.ts
+server/shadowFleetGate1.test.ts`: 41/41 pass. `bash scripts/gated_tests.sh`:
+GATE PASSED — server 172/172, client 101/101, python 1532 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: after staging the new files (an unstaged new
+file is invisible to `program_status.sh`'s `git ls-files`-based counters —
+the same precondition the 2026-08-29 hazard-rate session's own entry
+names), `tests_run_in_ci`/`tests_gating_merge` 405->**407**, `assertions`
+12478->**12521** — all this session's own new test files' direct and sole
+effect (confirmed via `git fetch origin main` immediately before
+re-measuring: still exactly 9f4c134/v1.0.810, no concurrent-drift
+component); all three re-pinned in `ci/counter_baseline.txt` in this PR.
+All other 22 counters unchanged. `npm run build`: clean, only the same
+pre-existing warnings recent sessions log (maplibre-gl chunk size,
+astronomy-engine default-export interop, mapIcons dynamic/static dual
+import) — none touched this session. No visual harness run: zero
+`client/src` files touched.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a GATE 1 (DATA) build, not a
+strategy/scoring/sizing/threshold change; no FROZEN path touched. Gate 1
+itself has not been RUN against real data yet (see above), so there is no
+gate-1 verdict to report either — `shadow_fleet_maritime`'s
+`status`/`current_gate` in `datacore/signal_ladder.json` are deliberately
+left at `raw_only`/`0`, not advanced, because built infrastructure is not
+the same claim as a run result (MEASUREMENT INTEGRITY's spirit applied to
+ladder bookkeeping, not just metric code).
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed; `datacore/ofac_sdn_vessels.json` is
+read-only reference data behind no API route.
+
+CROSS-SYSTEM INTEGRATION: the OFAC SDN reference list is a candidate join
+key for other sanctions-adjacent work in this codebase (e.g., any future
+counterparty/entity-graph enrichment touching sanctioned programs) beyond
+the shadow-fleet use built here — noted, not built, since no other system
+currently consumes it and fabricating a second use would be exactly the
+"never fabricate a tie that isn't real" violation the CROSS-SYSTEM
+INTEGRATION PRINCIPLE warns against.
+
+VERSION: v1.0.811 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`9f4c134`/v1.0.810/#956 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Saturday ~09:15 ET — markets closed all day, no
+merge-timing caveat needed regardless of this diff's blast radius (which
+is zero-trading-loop anyway: no server/bot.ts, bot_engine.py, or Python
+runtime file touched).
+
+NEXT (queued, not this session): (1) add `st?: number` (shiptype) to `Pt`
+in `server/shadowFleet.ts`'s `readVesselTracks`/`readVesselTracksAsync`,
+tested against a synthetic fixture archive the way that file's existing
+tests already build one; (2) build the tanker-only universe (AIS
+ship-type codes 80-89) from the real archive; (3) run
+`evaluateEnrichment()` with candidates = `detectGapEvents`/
+`detectLoitering` MMSIs, reference = `datacore/ofac_sdn_vessels.json`
+MMSIs, tankerPool = the archive's tanker universe, and record the actual
+verdict (odds ratio, CI, PASS/FAIL) in both `open_questions.md` and
+`signal_ladder.json`. This needs a session with production
+`/data/voltrade` volume access (or an equivalent archive snapshot) — not
+runnable from a fresh sandbox, the same constraint that blocked
+`hazard_rate_probe.py`'s real-data run in the immediately prior session.
+Separately: `datacore/ofac_sdn_vessels.json` should be re-fetched
+periodically (Treasury updates the SDN list on its own schedule, not
+ours) — no cadence commitment made this session, left for whichever
+future session next touches this root to judge freshness against
+`fetched_at`.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a gate-1 build explicitly named as unclaimed in the
+ladder's own record), used in full including live-probing the real OFAC
+feed, hand-inspecting several raw entries before writing the parser, and
+fixing two bugs (the tag-prefix collision, the `any`-type counter
+regression) this session's own test/gate runs caught rather than shipping
+either.
+
+
+
 ## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA ATS venue summaries (weeklySummary/monthlySummary/blocksSummary) get their /api/v1 keyed mirror, the composite-shape gap the v1.0.808 session's own NEXT note left unclaimed (v1.0.810)
 
 TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts are the /api/v1

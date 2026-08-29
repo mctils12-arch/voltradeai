@@ -7097,6 +7097,67 @@ R6. **Dashboards from monitoring we already emit (charter directive
   the same archive window (odds ratio with CI, not eyeballing).
   Terrestrial-coverage ambiguity is controlled by the comparison: both
   cohorts suffer identical coverage loss.
+  **PROGRESS 2026-08-29 (scheduled-routine PRODUCT session, v1.0.811):
+  the reference-list half of gate 1 is BUILT and RUN against live data;
+  the statistical test half is BUILT and unit-tested; neither has been
+  RUN against our real AIS archive yet — that half still needs a
+  session with production `/data/voltrade` volume access, which this
+  sandbox does not have (same class of constraint the hazard-rate/CSD
+  probe sessions hit).**
+  - `server/shadowFleetReference.ts` — dependency-free OFAC SDN.XML
+    parser (regex-block, same pattern as `server/euLoad.ts`'s
+    tagBlocks/tagText) + live fetch. `scripts/ofac_sdn_ingest.ts` ran
+    this session against the real, current Treasury feed (28.97MB XML,
+    19,321 total SDN records, 1,540 Vessel-type, **805 with a joinable
+    MMSI id** — KSE Institute's dark-fleet publications are narrative/
+    PDF, not machine-readable in the same way, so this build uses OFAC
+    alone as the reference cohort, a legitimate scope choice per the
+    plan's own "OFAC ... + KSE ..." either-source wording; KSE stays a
+    manual secondary cross-check, not a second ingest pipeline).
+    Output: `datacore/ofac_sdn_vessels.json` (192KB, committed;
+    dominated by IRAN-EO13902/RUSSIA-EO14024/UKRAINE-EO13662 program
+    tags — exactly the sanctioned-tanker population this signal is
+    about). `fetched_at`/`record_count` are in the file so a future
+    session can see how stale it is before trusting it; re-running the
+    ingest script overwrites the snapshot with a fresh pull.
+  - `server/shadowFleetGate1.ts` — the case-control enrichment test
+    itself: cases = our detectors' gap/loiter MMSIs, controls = a
+    size-matched random sample (seeded, reproducible) of the same
+    tanker population EXCLUDING the cases, both checked for OFAC
+    reference-list membership via a 2x2 contingency table. PASS
+    criterion (matching this entry's own "odds ratio with CI, not
+    eyeballing"): the two-sided 95% Woolf log-odds CI for the odds
+    ratio lies entirely above 1 — a straddling or sub-1 CI is FAIL/
+    INCONCLUSIVE, never reported as a pass on the point estimate alone
+    (REASONING STANDARD #4, same discipline as hazard_rate_probe.py's
+    bootstrap range). Haldane-Anscombe correction handles the zero-cell
+    case a small reference-list overlap makes likely. 17 unit tests,
+    synthetic data only, including a hand-computed odds ratio, a
+    clearly-enriched synthetic case whose CI excludes 1, a null case
+    whose CI straddles 1, and seeded-sample reproducibility.
+  - **NOT DONE THIS SESSION, and the honest reason why**: wiring this
+    to the real archive needs `server/shadowFleet.ts`'s
+    `readVesselTracks`/`Pt` to carry ship-type (the raw archive line
+    already has it as `st` per `server/datacoreArchive.ts`'s
+    `archiveVessels`, but `readVesselTracks` currently drops it when
+    building `Pt`) so a tanker-only universe can be built; this
+    sandbox also has no `/data/voltrade/datacore_archive/vessels`
+    files to test the wiring against even if built, and CLAUDE.md's
+    READ-BEFORE-WRITE + no-untested-wiring discipline both argue
+    against extending a live archive reader blind. Left as the
+    concrete NEXT step below rather than attempted speculatively.
+  - **NEXT**: (1) add `st?: number` (shiptype) to `Pt` in
+    `server/shadowFleet.ts`'s `readVesselTracks`/`readVesselTracksAsync`,
+    tested against a synthetic fixture archive the way that file's
+    existing tests already build one; (2) build the tanker-only
+    universe (AIS ship-type codes 80-89) from the real archive; (3) run
+    `server/shadowFleetGate1.ts`'s `evaluateEnrichment()` with
+    candidates = `detectGapEvents`/`detectLoitering` MMSIs, reference =
+    `datacore/ofac_sdn_vessels.json` MMSIs, tankerPool = the archive's
+    tanker universe, and record the verdict (odds ratio, CI, PASS/FAIL)
+    here and in `datacore/signal_ladder.json`. Needs a session with
+    production `/data/voltrade` volume access (or an equivalent archive
+    snapshot) — not runnable from a fresh sandbox.
 - **GATE 2 (SIGNAL) hypothesis + trading relevance**: sanctioned-oil
   flow volume (proxied by gap+loiter event rates in Laconian/Kerch/
   Fujairah zones) leads (a) tanker-rate proxies (FRO, STNG, TNK — clean
