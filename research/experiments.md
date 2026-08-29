@@ -68849,3 +68849,110 @@ PRODUCT action (the standing queue item named by the immediately prior
 session), used in full including reading the source module and the
 ladder's exact two-test gate-2 verdict language rather than paraphrasing
 or reusing the nearest neighbor's "REJECTED"/"KILLED" language incorrectly.
+
+## 2026-08-29 (scheduled-routine session) [RESEARCH] — SHARED-but-minimal (scripts/hazard_rate_probe.py new, test_hazard_rate_probe.py new, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FOREIGN-FIELD IMPORT (axis c/d): reliability engineering's renewal-process hazard rate (aviation "bathtub curve" / overdue-for-overhaul signature) as a market regime-transition timing diagnostic, script built and unit-tested, not yet run against real data (v1.0.809)
+
+Full account filed in `research/open_questions.md`'s matching dated entry
+(same date, same title) — this is the compact experiments.md record per
+MEMORY PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: all 7 OK, no LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits register none overdue,
+thrash_ratio 2/10 REPAIR (below the 7+ trigger), known_broken 38 items — 3
+lack an explicit CLOSED-marker regex match (#26, #34, #38) but all three
+were read in full this session and are genuinely FIXED (their bodies use
+"FOUND ... FIXED" / "FOUND AND FIXED" phrasing rather than the checker's
+exact "FOUND + FIXED" string — a detector-precision gap, not an open
+repair item; not filed as new work since nothing about the underlying
+facts is wrong). NOT a [REPAIR] session. starvation_signal 0/10.
+
+AXIS SURVEY (all four options in this routine's brief considered, detail
+in the open_questions.md entry): axis (a) confirmed exhausted (three prior
+sessions already reached this, re-confirmed via `data_stream_registry_check.py
+--unbuilt` — only `un_comtrade` is `candidate_unbuilt`, and its own note
+says it's structural-thesis-only, not alpha-worthy). Axis (b) still gated
+on the options-side fill-realism fix (open, per the "Options fill realism"
+entry — the equity-side tick-floor half shipped 2026-08-28/v1.0.802, but
+that PR is explicitly equity-scoped). Axis (c)/(d): grepped for "aviation
+maintenance", "failure cascade", "hazard rate", "bathtub curve", "renewal
+process", "reliability engineering", "MTBF" — zero prior hits, despite
+CLAUDE.md's EDGE DOCTRINE #4 naming "aviation maintenance (failure
+cascades, redundancy)" as a standing target alongside ecology (used,
+2026-08-18/21) and epidemiology (used, 2026-08-26). Genuinely new import.
+
+FOREIGN FIELD / HYPOTHESIS / PRIOR: reliability engineering's renewal-gap
+coefficient of variation (CV = std/mean of inter-failure gaps) as the
+standard diagnostic for memoryless (CV~=1) vs. aging/wear-out (CV<1) vs.
+clustering (CV>1) failure timing. "Failure" reuses
+`critical_slowing_down_probe.find_transition_onsets` unmodified (EDGE
+DOCTRINE #3). PRIOR stated before running: expect CV > 1 (bursty,
+consistent with known volatility clustering) — CV < 1 would be the novel,
+actionable result (elapsed calm duration itself predicts elevated risk,
+independent of any recent-volatility/autocorrelation signal already in
+this codebase); CV >= 1 is a clean negative for the "market is overdue for
+a correction" trader heuristic specifically. Full hypothesis/prior text in
+the open_questions.md entry.
+
+WHAT SHIPPED: `scripts/hazard_rate_probe.py` — pure functions
+`inter_onset_gaps`/`gap_cv`/`bootstrap_cv_range` (primary renewal-gap CV
+diagnostic, with a seeded bootstrap uncertainty range per REASONING
+STANDARD #4) and `duration_since_last_onset`/`forward_onset_within`/
+`bucket_hazard` (secondary, explicitly descriptive-only day-level hazard
+breakdown, no-lookahead backward-duration-vs-forward-flag pairing), plus
+`run_probe()` which imports `find_transition_onsets` from the CSD probe
+module and reuses `backtest_v2.fetch_bars`/`regime_series` verbatim.
+
+WHY NOT RUN AGAINST REAL DATA: no `ALPACA_KEY`/`ALPACA_SECRET` in this
+sandbox's environment; Yahoo Finance returned HTTP 429 on repeated
+attempts, both before and after this session's work; no `.bt_cache`
+present. Same constraint the CSD entry's first pass hit.
+
+RATCHET: `test_hazard_rate_probe.py` (new, root, 25 tests, synthetic data
+only, no network) — every pure function covered including boundary/edge
+cases (None-before-first-onset, zero-on-onset-day, half-open bucket
+ranges, degenerate zero-mean/single-gap cases, reproducible bootstrap
+given a fixed seed). Full per-test breakdown in the open_questions.md
+entry.
+
+GATES: `npm ci` (this sandbox's `node_modules` was present but missing
+`express`/`better-sqlite3` — confirmed via `git status --short` that zero
+server/client files were touched this session, so this is the
+fresh-sandbox provisioning gap prior sessions have logged repeatedly, not
+a regression) and `pip install -r requirements.txt -r
+requirements-dev.txt` both run at session start. `python3 -m unittest
+test_hazard_rate_probe -v`: 25/25 pass. `python3 -m pytest -q`: 1532
+passed, 1 skipped (1507 baseline + 25 new, zero regressions). `bash
+scripts/gated_tests.sh`: first attempt (pre-`npm ci`) correctly FAILED on
+the two missing-package errors, confirming the gate actually gates; after
+`npm ci`, GATE PASSED (server+client all green, python 1532/1
+skipped/54 subtests, quarantine 0/1 none overdue). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged. `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge` 404 ->
+**405**, `assertions` 12426 -> **12469**, all re-pinned in
+`ci/counter_baseline.txt` — all three are this session's own new file's
+direct and sole effect (verified by staging the two new files with `git
+add` before re-measuring, since `program_status.sh` reads `git ls-files`
+and an unstaged new test file is invisible to it — worth stating
+explicitly as an easy way to mis-measure). All other 22 counters
+unchanged. No `.ts`/`.tsx` touched, so no visual harness run.
+
+BACKTEST: N/A per PROMOTION RULE 3 — research probe script and its tests
+only; no strategy, threshold, or scoring change.
+
+VERSION: v1.0.809 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base, v1.0.808/PR
+#954 — no concurrent session had merged ahead of this one).
+
+NEXT: whichever future session has real Alpaca/Yahoo data access should
+run `python3 scripts/hazard_rate_probe.py --days 2520` (or call
+`run_probe()` directly). Full read-the-result guidance (bootstrap range
+over point estimate given ~6 gaps expected, the day-level bucket view's
+own autocorrelation caveat, what a >=1 result means) is in the
+open_questions.md entry's own NEXT section.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a genuinely new foreign-field import, all four axes
+surveyed before picking), used in full including reading both prior
+foreign-field-import entries end to end as precedent.
