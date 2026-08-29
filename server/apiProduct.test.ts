@@ -80,6 +80,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/insider-history"), "SEC Form 4 accumulated filing-history keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/attention"), "Wikimedia pageviews attention proxy keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/cot"), "CFTC Commitments of Traders keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/cot-history"), "CFTC COT accumulated weekly-archive keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/contracts"), "USAspending federal contract awards keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/short-volume"), "FINRA Reg SHO short-volume keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/short-interest"), "FINRA consolidated short interest keyed mirror shipped — must be a live endpoint");
@@ -92,7 +93,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/insider-history", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/cot-history", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-interest", "/api/v1/data/ats-summary", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -365,6 +366,22 @@ test("CFTC COT license mark: government-published weekly report resells freely l
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
   assert.ok(tool.description.includes("KILLED"), "honesty: the gate-2 first-pass KILL on 6 of 7 markets (not a silent 'not attempted') must travel with the tool description");
   assert.ok(tool.description.includes("Bonferroni"), "honesty: the one nominal survivor's failure to clear multi-comparison correction must travel with the tool description, not read as a validated signal");
+});
+
+test("cot-history (CFTC COT accumulated weekly archive) shares the cot license mark and gate status — not a separate root, and it must not silently drop the gate-2 KILL just because it's a windowed companion endpoint", () => {
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_cot_history");
+  assert.ok(tool, "voltrade_cot_history tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/cot"], "must reuse the data/cot license mark, not fork a duplicate one for the same report under a different window");
+  assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
+  assert.ok(tool.description.includes("KILLED"), "honesty: the gate-2 KILL must travel with this companion endpoint's description too");
+  assert.equal(tool.input_schema.properties.weeks.maximum, 90, "must cap the lookback at the same 90-week bound the RAW /api/data/cot/history route enforces");
+  assert.ok(tool.input_schema.properties.code, "must expose the RAW route's per-market code lookup mode");
+  assert.ok(tool.input_schema.properties.q, "must expose the RAW route's market search mode");
+  const meta = apiMeta();
+  const entry = meta.endpoints.find((e) => e.path === "/api/v1/data/cot-history");
+  assert.ok(entry, "voltrade_cot_history must have a matching apiMeta().endpoints entry");
+  assert.equal(entry.preview, "/api/data/cot/history");
 });
 
 test("USAspending contracts license mark: government-published award record resells freely like the CAMD/FTD/MIDAS/crop-conditions/NRC/eu-macro/fred-macro/bank-failures/attention/cot streams, not conditional like the issuer-submitted insider/13F/earnings-language/DTCC streams; agent tool documents the gate-2 REJECTION honestly, not a silent gate-2-not-attempted", () => {

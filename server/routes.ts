@@ -4775,6 +4775,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // CFTC COT accumulated weekly-archive keyed mirror — closes the same
+  // "gate1-passed, no /history companion" gap the SEC Form 4 insider-history
+  // mirror closed (v1.0.813): /api/v1/data/cot above only ever wraps the
+  // latest poll (latestCot()); this wraps the RAW /api/data/cot/history
+  // route's three modes (default trend, ?q= market search, ?code= one
+  // market's multi-week series) verbatim, reusing readCotAggregateHistory/
+  // lookupMarketHistory/searchCotMarkets directly — no new fetch, no new
+  // computation. Same license mark as data/cot (not a separate root).
+  app.get("/api/v1/data/cot-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const weeks = Math.min(90, Math.max(1, parseInt(String(req.query.weeks || "26"), 10) || 26));
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const code = typeof req.query.code === "string" ? req.query.code.trim() : "";
+    try {
+      let payload: Record<string, unknown>;
+      if (code) {
+        const series = lookupMarketHistory(code, weeks, undefined);
+        payload = {
+          code: code.toUpperCase(),
+          weeks,
+          count: series.length,
+          note: series.length ? undefined : "no rows for this contract code in the archived window (typo, or the archive hasn't seen this market's report_date yet)",
+          series,
+        };
+      } else if (q) {
+        payload = {
+          query: q,
+          matches: searchCotMarkets(q, undefined),
+          note: "matched against the newest archived week only; pass the returned code to ?code= for its multi-week series",
+        };
+      } else {
+        payload = {
+          weeks,
+          today: latestCot(),
+          trend: readCotAggregateHistory(weeks, undefined),
+          note: "seed-wide total open interest + market count per archived week; pass ?q=NAME to search markets or ?code=CODE for one market's series",
+        };
+      }
+      res.json(v1Envelope("data/cot", payload));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/cot-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/cot-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // USAspending federal contract-award transactions keyed mirror — closes
   // the same "gate1-passed, no /api/v1 mirror" gap the COT mirror above
   // closed (this sweep's own audits named usaspending_contracts alongside

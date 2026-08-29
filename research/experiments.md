@@ -3,6 +3,163 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CFTC COT accumulated weekly-archive gets its `/api/v1/data/cot-history` keyed mirror — first of the four `/history`-companion gaps this sweep's prior session (v1.0.813) queued (v1.0.814)
+
+TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
+their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
+T-DATACORE-primary file touched. Same posture as every other mirror PR in
+this sweep.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+daemon rss=359.6MB well under trim_mb=400MB, ml_feedback age 16h,
+deploy_freshness server_version=1.0.813 matching this checkout's
+package.json pre-bump. Live `/api/health` (Railway) separately confirmed
+`status:"ok"`, bot `active`, `drawdownPct:"0.0"`, `liveness.dark:false`,
+all subsystems/feeds ok — **no LIVENESS ALARM**. `python3
+scripts/research_state_check.py`: audits_register none overdue,
+thrash_ratio 2/10 REPAIR in the last 10 tagged sessions (well under the 7+
+trigger — today's other 4 sessions were PRODUCT/PIPELINE), known_broken 38
+items/3 without an explicit close marker (advisory only, same three
+already independently confirmed fixed by prior sessions), starvation_signal
+0 consecutive STARVED.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+still 0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d
+needed, sec_8k_earnings_language 34d/90d needed, both WAITING, unchanged
+from the last check). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — all 10 NOT-BUILT candidates remain declined/blocked/lagged,
+same finding as every prior session's check. Read this same day's earlier
+`insider-history` PR's own logged NEXT queue (v1.0.813 entry,
+`research/experiments.md` line ~177): four `/history`-companion mirror
+gaps of the identical shape, explicitly filed as valid next picks —
+`cot/history`, `filings13f/history`, `earnings-language/history`,
+`short-volume/history`. Verified live rather than trusting the prior
+session's list unread: `grep -n "app.get(\"/api/data/...\|app.get(\"/api/v1/data/..." server/routes.ts`
+confirmed all four RAW `/history` routes exist and none has a `/api/v1`
+history mirror yet. Picked `cot/history` over the other three:
+`filings13f` turned out NOT to match the pattern on inspection — it has
+NO `/api/v1/data/filings13f` base mirror at all (only the RAW routes),
+so its `/history` companion would need building two endpoints, not one,
+a different-shaped and larger task than what the other three (and this
+session) are — re-filed below, not silently dropped. `cot/history` has
+the richest, best-differentiated payload of the remaining three (three
+distinct modes — market-wide trend, `?code=` per-market series, `?q=`
+search — versus insider-history's single windowed view), making it the
+clearest case that the companion route is "genuinely different, higher-
+value" per PROMOTION RULE 5's attribution standard, and its base `data/cot`
+license mark already documents the exact GATE 1 PASS / GATE 2
+first-pass-screen KILL wording to reuse verbatim.
+
+READ BEFORE WRITE: read `server/routes.ts`'s existing `/api/v1/data/cot`
+route (lines 4755-4776) and the RAW `/api/data/cot`/`/api/data/cot/history`
+routes (2660-2723) in full — confirmed `latestCot`, `searchCotMarkets`
+(aliased from `searchMarkets`), `lookupMarketHistory`, and
+`readCotAggregateHistory` (aliased from `readAggregateHistory`) were
+already imported (`server/routes.ts:80-81`) before adding a new route, and
+confirmed the exact three-mode branching (code lookup / q search / default
+trend) to reuse rather than re-derive it from memory. Read
+`server/cftcCot.ts`'s exported signatures (`lookupMarketHistory`,
+`searchMarkets`, `readAggregateHistory`, their `CotMarketPoint`/
+`CotMarketMatch`/`CotTrendPoint` return types) to confirm no new `: any`
+would be needed. Read `server/apiProduct.ts`'s `LICENSE_MARKS["data/cot"]`
+entry (line 222, already states GATE 1 PASSED / the Bonferroni-failing
+GATE 2 first-pass screen in both directions), the `apiMeta().endpoints`
+`data/cot` entry and `voltrade_cot` tool (lines ~291, ~526) as the exact
+template, and `server/apiProduct.test.ts`'s insider/insider-history test
+pair (lines 315-341) plus the two sweep-check arrays (`meta honesty` line
+82, `wiring pinned` line 95) and the `liveDataEndpoints`/`tools.length`
+and `Object.keys(doc.paths).length` parity assertions before writing new
+tests — confirmed `openApiSpec()` derives its paths automatically from
+`agentToolSpec().tools`, no third manual edit site needed.
+
+WHAT SHIPPED: `server/routes.ts` gained `/api/v1/data/cot-history`
+(`?weeks<=90` default 26, or `?code=` for one market's series, or `?q=` to
+search markets — mirroring the RAW route's exact three modes) — reuses
+`readCotAggregateHistory()`/`lookupMarketHistory()`/`searchCotMarkets()`
+verbatim, wrapped in `v1Envelope("data/cot", ...)` behind `requireApiKey` +
+`meterUsage`, no 503 warming-up guard (mirroring the RAW route's own
+behavior, which has none — matching the insider-history precedent's same
+reasoning). `server/apiProduct.ts` gained: a new `apiMeta().endpoints`
+entry (reusing the `data/cot` license framing, stating "not a separate
+root, not a separate license") and a new `voltrade_cot_history` tool in
+`agentToolSpec()` with `weeks` (1-90, default 26), `code`, and `q` params,
+`returns_provenance: ["data/cot"]` (deliberately NOT a new LICENSE_MARKS
+key). No new LICENSE_MARKS entry added.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the insider-history precedent) asserting: `voltrade_cot_history`
+exists, `returns_provenance` is exactly `["data/cot"]` (not a forked
+duplicate mark), the description carries both "GATE 1" and "KILLED" (so
+gate-2's actual first-pass-screen kill verdict travels with the companion
+endpoint too), the `weeks` param caps at 90 (matching the RAW route's own
+bound), both `code` and `q` modes are exposed in the input schema, and the
+`apiMeta().endpoints` entry's `preview` points at `/api/data/cot/history`.
+Also added `/api/v1/data/cot-history` to the existing generic "meta
+honesty" and "wiring pinned" sweep-check arrays.
+
+GATES: this sandbox's `node_modules` was absent and Python dev
+dependencies missing at session start (same fresh-sandbox provisioning gap
+prior sessions have logged repeatedly, not a regression) — `npm ci` and
+`pip install -r requirements.txt -r requirements-dev.txt` both run.
+`npx tsx --test server/apiProduct.test.ts`: 43/43 pass (42 baseline + 1
+new), first run clean — no `any`-type near-miss this time (the RAW route's
+own helper functions already had precise return types, so nothing needed
+loosening to reuse them). `bash scripts/tsc_ratchet.sh`: 12/12 both before
+and after, TS2304 0. `bash scripts/gated_tests.sh`: GATE PASSED first run —
+client 1074/1074, python 1532 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: only `assertions`
+improved (12536 -> 12546, this session's own new test's assertions,
+confirmed via `git status --short` showing only this session's files
+touched) — re-pinned in this PR, zero unaccounted drift. `npm run build`:
+clean, only the same pre-existing warnings recent sessions log (maplibre-gl
+chunk size, astronomy-engine default-export interop, mapIcons
+dynamic/static dual import) — none touched this session. No visual harness
+run: zero `client/src` files touched (`git status --short` confirms only
+server/ci/package/research files), same exemption every prior
+zero-rendering-delta mirror PR in this sweep has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route, reusing an existing license mark),
+no strategy/scoring/sizing/threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's provenance mark
+(`data/cot`) carries no aircraft/AIS-derived provider-compliance
+condition; no billing/pricing/subscription/paid-gating code added or
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes more of the existing
+CFTC COT weekly archive through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or
+data stream.
+
+VERSION: v1.0.814 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`c0c5593`/v1.0.813/PR #959 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Saturday 2026-08-29, markets closed (non-trading day) —
+no merge-timing caveat needed.
+
+NEXT (queued, not this session): two remaining `/history`-companion
+mirror picks of the same well-precedented shape — `earnings-language/history`,
+`short-volume/history`. `filings13f/history` is NOT the same shape (see
+PRIMARY-ACTION SELECTION above — needs a new base `/api/v1/data/filings13f`
+mirror built first, a larger two-endpoint task); filed here as its own
+distinct next candidate rather than folded into the other two. The
+shadow-fleet-gate-1 thread's real-archive steps remain blocked on
+production `/data/voltrade` access, not runnable from a fresh sandbox.
+Both gate2_pending ladder roots (cftc_cot_positioning, sec_8k_earnings_language)
+remain WAITING per `ladder_readiness_check.py`.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a pre-queued, well-verified gap from the same day's earlier
+session), used in full including re-verifying the queue live rather than
+trusting it unread, and correctly re-scoping one of the four candidates
+(`filings13f/history`) instead of building it under a false assumption of
+matching shape.
+
 ## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC Form 4 accumulated filing-history gets its own `/api/v1/data/insider-history` keyed mirror — the multi-day companion `/api/v1/data/insider` was missing (v1.0.813)
 
 TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
