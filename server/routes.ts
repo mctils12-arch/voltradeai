@@ -4844,6 +4844,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FINRA Query API ATS venue summaries keyed mirror — the second RAW
+  // route the finra_query_cluster BUILT root backs (queued NEXT note,
+  // v1.0.808 session): weekly + monthly per-symbol ATS/OTC leaderboards
+  // + monthly per-venue block-trading ranks. Reuses the existing
+  // latestFinraAts() cache the RAW /api/data/ats-summary route already
+  // populates — no new fetch, no new poller, no new computation.
+  // Distinct root from /api/v1/data/short-interest above: venue/
+  // execution composition, not settlement positions.
+  app.get("/api/v1/data/ats-summary", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestFinraAts();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/ats-summary", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/ats-summary", {
+        weekly: hit.weekly,
+        monthly: hit.monthly,
+        blocks: hit.blocks,
+        note: "ATS/OTC venue volume composition — distinct from /api/v1/data/short-interest (settlement positions) and " +
+              "/api/v1/data/short-volume (daily execution flow). weekly/monthly rank only *_SMBL (per-symbol, cross-firm) rows " +
+              "— composition on each summary states every row type mixed in the source partition. tiers_covered states exactly " +
+              "which FINRA tiers fed the reading; a partial-tier reading is never implied complete. RAW display only, no predictive claim; GATE 2 not attempted.",
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/ats-summary", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/ats-summary", status: 500, tier: auth.tier });
+    }
+  });
+
   // GEM methane-plume x extraction-registry proximity keyed mirror — closes
   // the last remaining "gate1-passed, no /api/v1 mirror" gap this sweep's
   // own audits named (see the COT/contracts/short-volume mirrors' comments
