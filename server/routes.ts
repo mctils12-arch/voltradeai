@@ -69,7 +69,7 @@ import {
   GRID_TTL_MS, UPSTREAM_PER_MIN_GUARD, WeatherSample,
 } from "./weatherGrid";
 import shadowZones from "../datacore/shadow_zones.json";
-import { bootForm4Poll, latestForm4Filings, readFilingHistory } from "./edgarForm4";
+import { bootForm4Poll, latestForm4Filings, readFilingHistory, type Form4Filing } from "./edgarForm4";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootSpaceWeatherPoll, latestSpaceWeather } from "./spaceWeather";
@@ -4676,6 +4676,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider", status: 500, tier: auth.tier });
+    }
+  });
+
+  // SEC Form 4 accumulated filing-history keyed mirror — the multi-day
+  // companion to /api/v1/data/insider above (that endpoint mirrors only the
+  // latest poll cache; this one mirrors /api/data/insider/history's
+  // up-to-90-day accumulated archive). Reuses readFilingHistory() and
+  // latestForm4Filings() directly — no new fetch, no new computation. Same
+  // underlying pipeline and license as data/insider (GATE 1 PASSED, GATE 2
+  // KILLED in both directions on the buy-clustering hypothesis), so this
+  // reuses the "data/insider" LICENSE_MARKS entry rather than adding a new,
+  // duplicate one for the same filings under a different window.
+  app.get("/api/v1/data/insider-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = readFilingHistory(days);
+      const live = latestForm4Filings()?.filings || [];
+      const seen = new Set(archived.map((f: Form4Filing) => f.accession));
+      const merged = [...live.filter((f: Form4Filing) => !seen.has(f.accession)), ...archived];
+      res.json(v1Envelope("data/insider", {
+        days,
+        count: merged.length,
+        filings: merged,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider-history", status: 500, tier: auth.tier });
     }
   });
 

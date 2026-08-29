@@ -3,6 +3,197 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC Form 4 accumulated filing-history gets its own `/api/v1/data/insider-history` keyed mirror — the multi-day companion `/api/v1/data/insider` was missing (v1.0.813)
+
+TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
+their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
+T-DATACORE-primary file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(tail + the day's other entries — 4 scheduled-routine sessions had already
+run today: PIPELINE shadow-fleet `st` field v1.0.812/#958, PRODUCT
+shadow-fleet gate-1 OFAC ingest v1.0.811/#957, PRODUCT FINRA ATS `/api/v1`
+mirror v1.0.810/#956, RESEARCH hazard-rate foreign-field import v1.0.809 —
+checked via `grep "^## 2026-08-29" experiments.md` before picking anything,
+so this session's job was to find the NEXT unclaimed item, not repeat one),
+`research/open_questions.md` KNOWN BROKEN section (tail), `research/
+wishlist.md` (top). `python3 scripts/session_health_check.py`: all 7 OK —
+liveness alive/not dark, subsystems ok, daemon rss=351.4MB (well under
+trim_mb=400MB), ml_feedback age 13.9h, deploy_freshness server_version=
+1.0.812 matching this checkout's package.json pre-bump. **No LIVENESS
+ALARM** — proceeded with product work per the scheduled task's own
+instruction. `python3 scripts/research_state_check.py`: audits_register
+none overdue; thrash_ratio 2/10 REPAIR in the last 10 tagged sessions, well
+under the 7+ trigger; known_broken 38 items, 3 without an explicit close
+marker (#26/#34/#38) — advisory only, same three already independently
+confirmed fixed by a prior session's read; starvation_signal 0 consecutive
+STARVED at the front.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 34d/90d needed, both still WAITING). `python3
+scripts/data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT
+candidates remain declined/blocked/lagged (same finding many prior
+sessions independently reached; `un_comtrade` is structural-thesis-only,
+not alpha-worthy). Checked the shadow-fleet-gate-1 thread's own NEXT queue
+(v1.0.812 entry): both remaining steps (real tanker-universe build,
+`evaluateEnrichment()` run against the live archive) explicitly need
+production `/data/voltrade` volume access — verified this sandbox has
+neither (`ls /data/voltrade` fails, no `ALPACA_*` env vars set), the same
+constraint the prior two sessions in that thread hit, so that thread stayed
+blocked here too. Fell through to a systematic gap audit instead of
+guessing: diffed every `app.get("/api/data/...")` raw route in
+`server/routes.ts` against every `app.get("/api/v1/data/...")` mirror
+(`grep -oE` both patterns, `comm -23`) — 103 raw routes vs. only 18 v1
+mirrors, most of the gap being RAW OVERLAYS (earthquakes, volcanoes,
+weather, aircraft tracks, etc.) that this sweep's own prior sessions never
+targeted, since those are free-standing map layers, not companions to an
+already-mirrored, ladder-tracked root. Narrowed to the subset that IS that
+shape: `/api/data/{cot,filings13f,insider,earnings-language,short-volume}
+/history` all showed up in the gap list as `/history` companions of roots
+whose LATEST-snapshot route already has a `/api/v1` mirror. Read
+`server/routes.ts:1935-1952` (`/api/data/insider/history`) in full: it
+serves `readFilingHistory(days<=90)` merged with the live poll cache — a
+genuinely different, higher-value payload than `/api/v1/data/insider`
+(server/routes.ts:4661), which only ever wraps the single latest poll
+(`latestForm4Filings()`). Picked this one over the other four `/history`
+candidates because it needed no new LICENSE_MARKS entry (same filings,
+same license, just a wider window — reusing `data/insider` keeps one
+license fact in one place) and because its RAW route's exact shape and gate
+status were already fully documented in this session's own reading, making
+it the cleanest, best-verified pick of the five rather than an arbitrary
+one — the other four (`cot/history`, `filings13f/history`,
+`earnings-language/history`, `short-volume/history`) are valid next picks
+for future sessions, filed in NEXT below.
+
+READ BEFORE WRITE: read `server/apiProduct.ts` in full relevant sections
+this session — the `LICENSE_MARKS["data/insider"]` entry (line 212, already
+states GATE 1 PASSED / GATE 2 KILLED in both directions), the
+`apiMeta().endpoints` entry and `agentToolSpec().tools` `voltrade_insider`
+entry (lines 288, 498-503) as the exact field/wording template. Read
+`server/routes.ts`'s existing `/api/v1/data/insider` route (lines
+4661-4680) and the RAW `/api/data/insider`/`/api/data/insider/history`
+routes (1917-1952) in full — confirmed `readFilingHistory`,
+`latestForm4Filings`, and `Form4Filing` were already imported
+(`server/routes.ts:72`) before adding a new route, and confirmed the exact
+merge-and-dedupe-by-accession logic to reuse rather than re-derive it from
+memory. Read `server/apiProduct.test.ts`'s existing insider test (line
+315-327) and the two sweep-check arrays (`meta honesty` line 79, `wiring
+pinned` line 94) plus the `liveDataEndpoints`/`tools.length` and
+`Object.keys(doc.paths).length` parity assertions (lines 464-465, 505-506)
+before writing new tests — confirmed `openApiSpec()` derives its paths
+automatically from `agentToolSpec().tools` (no third manual edit site
+needed).
+
+WHAT SHIPPED: `server/routes.ts` gained `/api/v1/data/insider-history`
+(`?days<=90`, default 30) — reuses `readFilingHistory()` +
+`latestForm4Filings()` + the same accession-based dedupe/merge the RAW
+route already runs, wrapped in `v1Envelope("data/insider", ...)` behind
+`requireApiKey` + `meterUsage`, no 503 warming-up guard (mirroring the RAW
+route's own behavior, which has none — the accumulated archive is never
+literally empty the way a single poll cache can be pre-first-fetch).
+`server/apiProduct.ts` gained: a new `apiMeta().endpoints` entry (reusing
+the existing `data/insider` license framing, explicitly stating "not a
+separate root, not a separate license") and a new `voltrade_insider_history`
+tool in `agentToolSpec()` with a `days` (1-90, default 30) integer param,
+`returns_provenance: ["data/insider"]` (deliberately NOT a new
+LICENSE_MARKS key — same filings, same license, different window). No new
+LICENSE_MARKS entry added.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the insider/short-volume precedent pair) asserting:
+`voltrade_insider_history` exists, `returns_provenance` is exactly
+`["data/insider"]` (not a forked duplicate mark), the description carries
+both "GATE 1" and "KILLED" (so gate-2's actual kill verdict travels with
+the companion endpoint too, not just the base one), the `days` param caps
+at 90 (matching the RAW route's own bound), and the `apiMeta().endpoints`
+entry's `preview` points at `/api/data/insider/history`. Also added
+`/api/v1/data/insider-history` to the existing generic "meta honesty" and
+"wiring pinned" sweep-check arrays. First test run caught its own bug:
+the new tool description said "killed" lowercase inside a parenthetical
+instead of the honesty convention's "GATE 2 KILLED" — fixed before this
+PR, not left as a near-miss (full account of the catch is in this
+entry's GATES section below).
+
+GATES: this sandbox's `node_modules` was absent and Python dev dependencies
+missing at session start (same fresh-sandbox provisioning gap prior
+sessions have logged repeatedly, not a regression) — `npm ci` and `pip
+install -r requirements.txt -r requirements-dev.txt` both run.
+`npx tsx --test server/apiProduct.test.ts`: first run FAILED (1/42) on the
+new dedicated test's own `"KILLED"` substring check against a description
+that said lowercase "killed" — fixed the description text to match the
+established honesty-language convention, re-ran: 42/42 pass. `bash
+scripts/tsc_ratchet.sh`: 12/12 both before and after, TS2304 0. `bash
+scripts/gated_tests.sh`: first full run FAILED — `test_ts_code_only.py`'s
+`ts_any` pin test caught 3 new `: any` annotations this session's own new
+code introduced (two in the new route's `archived.map`/`live.filter`
+callbacks, copy-pasted from the pre-existing RAW route's own `(f: any)`
+pattern; one in the new test's `meta.endpoints.find((e: any) => ...)`).
+Per PROGRAM_STATE.md's own L9 lesson ("fix the code, not the ruler"),
+fixed the actual code instead of re-pinning a growable-but-avoidable
+counter: imported the already-exported `Form4Filing` type from
+`edgarForm4.ts` and typed both callbacks with it instead of `any`; dropped
+the unnecessary `: any` in the test (TypeScript already infers the
+parameter type from `agentToolSpec()`'s return type, matching the
+pre-existing un-annotated `spec.tools.find((t) => ...)` pattern already
+used two tests above in the same file). Re-ran: GATE PASSED — server 1074
+files OK (client), python 1532 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: only `assertions`
+improved (12528 -> 12536, this session's own new test's assertions,
+confirmed via `git status --short` showing only this session's files
+touched) — the `ts_any` counter held at its exact pin after the fix above,
+zero unaccounted drift. Re-pinned `assertions` in `ci/counter_baseline.txt`
+in this PR. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms only server/ci/package/research
+files), same exemption every prior zero-rendering-delta mirror PR in this
+sweep has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route, reusing an existing license mark),
+no strategy/scoring/sizing/threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's provenance mark
+(`data/insider`) carries no aircraft/AIS-derived provider-compliance
+condition; no billing/pricing/subscription/paid-gating code added or
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes more of the existing SEC
+Form 4 archive through the existing v1 API boundary, the same pattern
+every prior mirror in this sweep has followed; no new join or data stream.
+
+VERSION: v1.0.813 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`2f7024d`/v1.0.812/PR #958 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Saturday 2026-08-29 ~14:22 ET — markets closed, no
+merge-timing caveat needed at all (not just "outside 9:30-16:00 ET" but a
+non-trading day entirely).
+
+NEXT (queued, not this session): the same `/history`-companion-mirror gap
+shape exists for four more roots named in this session's own gap audit —
+`cot/history`, `filings13f/history`, `earnings-language/history`, and
+`short-volume/history` — each a valid next pick with the same small,
+well-precedented, single-file-pattern shape as this one (check each RAW
+route's exact field shape before reusing its base root's LICENSE_MARKS key,
+the way this session did for insider). The shadow-fleet-gate-1 thread's
+real-archive steps (tanker-universe build, `evaluateEnrichment()` run)
+remain blocked on production `/data/voltrade` access, not runnable from a
+fresh sandbox — still true this session. Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py`.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a genuinely new, systematically-found gap, not a repeat of
+today's other three sessions' work), used in full including a full raw-vs-
+mirror route audit before picking, reading every touched file's relevant
+section before editing, and fixing (not re-pinning around) an avoidable
+`any`-type regression its own new code introduced.
+
 ## 2026-08-29 (scheduled-routine session) [PIPELINE] — T-DATACORE (server/shadowFleet.ts, server/shadowFleet.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/open_questions.md, datacore/signal_ladder.json): shadow-fleet `Pt` gains `st` (AIS ship-type), unblocking the tanker-only-universe step of gate 1, PR #958 (v1.0.812)
 
 TERRITORY: T-DATACORE (`server/shadowFleet.ts` is explicitly named in the
