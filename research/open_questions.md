@@ -12541,3 +12541,233 @@ fixed (`npm ci`) before confirming that.
 BACKTEST: N/A per PROMOTION RULE 3 — this ships a research probe script
 and its tests, not a strategy, threshold, or scoring change; no trading
 behavior is touched.
+
+## 2026-08-29 (scheduled-routine session) [RESEARCH] — FOREIGN-FIELD IMPORT (axis c): reliability engineering's renewal-process hazard rate ("bathtub curve" / aviation-maintenance overdue-for-overhaul signature) as a market regime-transition timing diagnostic — script built, not yet run against real data
+
+TERRITORY: SHARED-but-minimal, matching the CSD (2026-08-18/21) and R_t
+(2026-08-26) foreign-field-import precedent — this diff only touches
+`scripts/hazard_rate_probe.py` (new), `test_hazard_rate_probe.py` (new,
+root), `ci/counter_baseline.txt`, `package.json`, `package-lock.json`, and
+`research/*`. No T-BOT/T-CLIENT/T-DATACORE-primary file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session (not from
+memory). `python3 scripts/session_health_check.py`: all 7 OK — liveness
+alive/not dark, subsystems ok, daemon rss 164.1MB (well under trim_mb=400),
+ml_feedback age 22.7h, deploy_freshness server_version=1.0.808 matching
+this checkout pre-bump. No LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits_register none overdue;
+thrash_ratio 2/10 REPAIR in the last 10 tagged sessions, well under the 7+
+trigger; known_broken 38 items, 3 without an explicit close marker (#26,
+#34, #38) — read all three in full this session rather than trusting the
+advisory flag: all three are FIXED (fix text follows immediately under the
+FOUND text in each entry; the check's regex only looks for a marker in the
+opening line, so this is a detector-precision gap, not an open repair
+item — not filed as new work since the underlying facts are already
+correct and complete on the page, only a cosmetic marker placement would
+change). NOT a [REPAIR] session. starvation_signal 0/10 — no starvation.
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order): `python3
+scripts/ladder_readiness_check.py` — 0/2 gated roots ready, both WAITING
+(cftc_cot_positioning 56d/~105d needed, sec_8k_earnings_language 34d/90d
+needed) — nothing matured to judge. `python3
+scripts/data_stream_registry_check.py --unbuilt` — 10/35 not built, but
+every one is `declined_dead_source`/`blocked_free_key`/
+`blocked_registration` except `un_comtrade` (`candidate_unbuilt`, but its
+own note already says "too lagged (1-6mo) for direct alpha, structural-
+thesis input only" — not a pipeline worth building blind) — no unblocked
+axis-(a) candidate today. This session's own brief named four axes;
+surveyed all four before picking:
+
+- **Axis (a)** (free-data pipeline): confirmed exhausted, same finding
+  three separate prior sessions (2026-08-18, 2026-08-21 implicitly,
+  2026-08-26) already reached — every named example (Sentinel-2 tank
+  shadows, EDGAR Form 4, USAspending, CFTC COT, FDA calendar, Google
+  Trends/pytrends) is already built (`datacore/sentinel2/`,
+  `server/fdaEvents.ts`, `datacore/manifests/{cot,cftctff,usaspending}.json`
+  all re-confirmed present this session) or correctly declined
+  (`google_trends_pytrends` gate1_fail-dead in
+  `datacore/signal_ladder.json`, superseded by
+  `wikimedia_pageviews_attention`). `data_stream_registry_check.py
+  --unbuilt` (above) confirms no new unblocked candidate has appeared
+  since.
+- **Axis (b)** (capacity-constrained/illiquid-universe research): still
+  explicitly gated on the options-side fill-realism fix
+  (`research/open_questions.md`'s own "Options fill realism" entry,
+  line ~5794 — unchanged this session; note the EQUITY-side tick-floor
+  half of this problem shipped 2026-08-28 per v1.0.802, but that PR's own
+  text scopes it to equities only, options still open). Skipped per the
+  routine's own brief ("requires the fill-realism fix first, or results
+  are simulator fiction") and the 2026-08-18/2026-08-26 sessions' same
+  precedent.
+- **Axis (c)/(d)**: two prior imports exist (ecology's critical slowing
+  down, 2026-08-18/21, KILLED for SPY; epidemiology's R_t contagion
+  count, 2026-08-26, KILLED). Grepped `open_questions.md` +
+  `experiments.md` for "aviation maintenance", "failure cascade",
+  "redundan", "hazard rate", "bathtub curve", "renewal process",
+  "reliability engineering", "MTBF", "signal processing", "control
+  theory" — zero prior hits on the reliability-engineering angle
+  specifically (CLAUDE.md's EDGE DOCTRINE #4 names "aviation maintenance
+  (failure cascades, redundancy)" by name as a standing target,
+  alongside epidemiology and ecology, both now used). This is a
+  genuinely new import, not a re-derivation. Picked this.
+
+FOREIGN FIELD: reliability engineering / renewal theory — the "bathtub
+curve" hazard-rate model used to schedule aircraft-component overhauls
+(Barlow & Proschan, "Mathematical Theory of Reliability," 1965). The
+standard first diagnostic for whether a sequence of failure events is
+memoryless (constant hazard — an exponential/Poisson renewal process, the
+implicit assumption behind treating "time since the last incident" as
+uninformative), aging/wear-out (increasing hazard — a component overdue
+for maintenance is MORE likely to fail soon, the aviation-maintenance
+"past due for overhaul" signature), or clustering (decreasing hazard —
+failures beget failures in quick succession, then a long quiet stretch) is
+the coefficient of variation (CV = std/mean) of the inter-failure gaps:
+CV ~= 1 memoryless, CV < 1 aging/regular, CV > 1 bursty/clustering. This is
+a DIFFERENT technique from both prior imports: CSD measured a single
+index's own rolling autocorrelation/variance approaching a transition (a
+within-series diagnostic on the *approach* to failure); R_t measured
+cross-sectional breakdown counts across a peer basket (a contagion-rate
+diagnostic); this one treats the sequence of failures itself as a point
+process and asks about the *timing pattern between* failures — a question
+neither prior import asked.
+
+"FAILURE" reuses, unmodified, the exact onset definition the CSD entry
+already built, unit-tested, and validated as a reusable concept
+(`find_transition_onsets` in `scripts/critical_slowing_down_probe.py`: a
+regime-severity jump per `regime_util.classify_regime_5level` that
+persists >=3 days after >=20 days of prior stability) — imported directly
+rather than re-derived, per EDGE DOCTRINE #3 ("never analyze the same
+thing twice ... compile knowledge into code").
+
+HYPOTHESIS (pre-registered, testable form): the coefficient of variation
+of SPY regime-severity onset gaps (trading days between consecutive
+onsets, using the CSD entry's own onset series — 7 onsets were found for
+SPY 2019-2026 in that entry's real-data run) is measurably BELOW 1 — i.e.
+onsets are spaced more regularly than a memoryless process would predict,
+an aviation-maintenance "overdue for an incident" signature that would
+make elapsed calm-duration itself a usable, independent early-warning
+input.
+
+PRIOR (stated BEFORE running against real data, REASONING STANDARD #10):
+known volatility clustering already means failures often follow failures
+in quick succession — a DFR (bursty, CV > 1) signature, the OPPOSITE of
+this hypothesis. My prior is CV > 1, not < 1. Finding CV < 1 would be the
+genuinely novel, actionable result (elevated risk from mere elapsed calm
+duration, independent of any recent-volatility- or autocorrelation-based
+signal already in this codebase). Finding CV >= 1 is a clean negative for
+a specific, common trader heuristic — "the market is overdue for a
+correction because it's been calm a long time" — worth explicitly testing
+and, if false, recording as false rather than left as an ambient,
+unexamined belief. Given the small onset count (n=7 in the CSD entry,
+n-1=6 gaps), REASONING STANDARD #4 applies: this is reported with a seeded
+bootstrap uncertainty range, not a bare point estimate, and explicitly
+flagged `insufficient_n` below the same n>=5 floor this repo uses
+elsewhere.
+
+LADDER PATH: gate-2 SIGNAL test (statistical predictive power, no
+trading), built on regime labels already gate-1-verified elsewhere in this
+codebase (`backtest_v2.fetch_bars`/`regime_series`, the same plumbing the
+CSD entry reused) — no new gate-1 needed.
+
+WHAT SHIPPED THIS SESSION (code, not an analysis, per this routine's own
+"deliverable is a script ... not an analysis" instruction):
+`scripts/hazard_rate_probe.py` — pure statistical core
+(`inter_onset_gaps`/`gap_cv`/`bootstrap_cv_range`/
+`duration_since_last_onset`/`forward_onset_within`/`bucket_hazard`) plus
+`run_probe()`, which imports `find_transition_onsets` from
+`critical_slowing_down_probe.py` and reuses `backtest_v2.fetch_bars`/
+`regime_series` verbatim (EDGE DOCTRINE #3). `run_probe()` reports both
+the primary renewal-gap CV diagnostic (with its bootstrap range) and a
+secondary, explicitly descriptive-only day-level "hazard by
+duration-since-last-onset bucket" breakdown (backward-looking duration
+paired with a forward-looking "onset within the next `horizon` trading
+days" flag — no lookahead, same shape as the CSD entry's lead-offset
+comparison) for whichever future session runs it against real data.
+
+WHY NOT RUN AGAINST REAL DATA THIS SESSION (honest constraint, not a
+shortcut, same as the CSD entry's first pass): this sandbox has neither
+`ALPACA_KEY`/`ALPACA_SECRET` in its environment (checked via `env`,
+absent) nor working network access to Yahoo Finance —
+`curl https://query1.finance.yahoo.com/v8/finance/chart/SPY?...` returned
+HTTP 429 on two attempts, before and after the rest of this session's
+work; no pre-existing `.bt_cache/bt2_SPY_*.json` either. `run_probe()`
+cannot be exercised against real data from here.
+
+RATCHET: `test_hazard_rate_probe.py` (new, root, 25 tests, synthetic data
+only, no network) — `inter_onset_gaps` (basic/unsorted-input/fewer-than-2
+cases); `gap_cv` (None below 2 gaps and at zero mean; a hand-computed
+known value; constant gaps read exactly 0.0 — the pure-IFR extreme; a
+bursty series reads a higher CV than a regular one); `bootstrap_cv_range`
+(None below 2 gaps; reproducible given a fixed seed; a near-constant gap
+series keeps a tight range near 0 rather than blowing up; the valid-boot
+count matches the request when nothing degenerates); `duration_since_last_
+onset` (None before the first onset — never a fabricated 0; zero on the
+onset day itself; increments then resets on the next onset; unsorted
+input still correct; all-None with no onsets); `forward_onset_within`
+(true strictly within the horizon, false just outside it, false ON the
+onset day itself — the paired no-lookahead contract; all-false with no
+onsets; no out-of-range indexing near the series end); `bucket_hazard`
+(insufficient_n flagged and `hazard` key absent below `min_days`; a
+hand-verified hazard value once enough days exist; `None` durations
+excluded from every bucket; bucket ranges are half-open with the last
+bucket unbounded, hand-verified against 3 boundary values). One additional
+integration-shape test confirms `hazard_rate_probe.py` correctly imports
+`find_transition_onsets` from the CSD probe module (the one piece of
+`run_probe()`'s wiring the pure-function tests above don't otherwise
+exercise) against a small synthetic label series.
+
+GATES: `npm ci` (488 packages; this sandbox's `node_modules` was present
+but missing `express`/`better-sqlite3`, the identical fresh-sandbox
+provisioning gap prior sessions have logged repeatedly — confirmed via
+`git status --short` that zero server/client files were touched this
+session before concluding it, not a regression) and `pip install -r
+requirements.txt -r requirements-dev.txt` both run at session start.
+`python3 -m unittest test_hazard_rate_probe -v`: 25/25 pass. `python3 -m
+pytest -q`: 1532 passed, 1 skipped (1507 baseline-at-session-start + 25
+new, zero regressions). `bash scripts/gated_tests.sh`: GATE PASSED after
+`npm ci` (server+client all green, python 1532/1 skipped/54 subtests,
+quarantine 0/1 none overdue) — first attempt (before `npm ci`) correctly
+FAILED on the two missing-package errors, confirming the gate actually
+gates rather than silently passing. `bash scripts/tsc_ratchet.sh`: 12/12,
+TS2304 0, unchanged (no `.ts` touched). `bash scripts/counter_ratchet.sh`:
+`tests_run_in_ci`/`tests_gating_merge` 404 -> **405** and `assertions`
+12426 -> **12469** re-pinned in the same PR (`ci/counter_baseline.txt`) —
+all three are this session's own new file's direct and sole effect
+(confirmed by staging the two new files with `git add` before re-measuring
+— `program_status.sh`'s counters read `git ls-files`, so an unstaged new
+test file is invisible to them, a precondition worth stating explicitly
+since it is easy to mis-measure); all other 22 counters unchanged. No
+`.ts`/`.tsx` file touched, so no visual harness run, per the established
+Python-only-diff precedent.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a research probe script
+and its tests, not a strategy, threshold, or scoring change; no trading
+behavior is touched.
+
+NEXT: for whichever future session has real Alpaca/Yahoo data access, run
+`python3 scripts/hazard_rate_probe.py --days 2520` (or call `run_probe()`
+directly). Per this entry's own PRIOR, the interesting result is the sign
+of `gap_cv` relative to 1 and whether the bootstrap range
+(`gap_cv_bootstrap_range`) excludes 1 in either direction — given only 6
+gaps expected for SPY at this window, treat a point estimate alone as
+underpowered (REASONING STANDARD #4) and read the range, not just the
+center. If `gap_cv_insufficient_n` is true (fewer than 5 gaps), widen
+`--days` rather than trusting a 1-2-gap estimate. The
+`hazard_by_duration_bucket` breakdown is secondary/descriptive — useful
+for a qualitative "does the shape look bathtub-ish" read, but each
+bucket's own `insufficient_n` flag should gate whether any given cell is
+trusted, and the day-level autocorrelation within a bucket (consecutive
+days share nearly the same duration value) means this view should never
+be reported as if it had as many independent samples as it has rows. If
+`gap_cv` comes back >= 1 (this entry's own prior), record that as a clean
+negative for the "elapsed calm time predicts the next incident" hypothesis
+specifically — same disposition class as the CSD and R_t entries — and do
+not proceed further down the ladder without a materially different spec
+(e.g., a broader universe than SPY alone, matching the CSD entry's own
+noted follow-up candidate).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a genuinely new foreign-field import, all four axes
+surveyed before picking), used in full including reading the two prior
+foreign-field-import entries end to end as precedent rather than
+re-deriving their conventions from scratch.
