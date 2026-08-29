@@ -3,7 +3,183 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA consolidated short interest gets its /api/v1 keyed mirror, the newest "shipped-data-no-v1-mirror" gap this sweep tracks (v1.0.808)
+## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA ATS venue summaries (weeklySummary/monthlySummary/blocksSummary) get their /api/v1 keyed mirror, the composite-shape gap the v1.0.808 session's own NEXT note left unclaimed (v1.0.810)
+
+TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts are the /api/v1
+data-product surface, not a WORKSTREAM PARTITION-named territory of their
+own — same posture every prior mirror PR in this sweep has taken). Kept
+minimal and last: one route, its LICENSE_MARKS/endpoint/tool entries, and
+the matching test additions, nothing else.
+
+BRANCH NOTE: `claude/busy-fermi-2uswj9` (this session's designated branch)
+arrived already 3 commits ahead of a stale local `main` (v1.0.807/#953,
+v1.0.808/#954, v1.0.809/#955) — a `git fetch origin main` showed
+`origin/main` had already advanced to the same 3 commits (merged by
+parallel sessions/PRs earlier the same day), and `list_pull_requests(head=
+claude/busy-fermi-2uswj9)` returned zero open or closed PRs for this exact
+head. Per the harness's own merged-branch protocol, restarted the branch
+from `origin/main` (`git checkout -B claude/busy-fermi-2uswj9 origin/main`)
+before starting fresh work — no unmerged commits were discarded (all 3 were
+already in main under their own PR numbers).
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+subsystems ok, daemon rss=389.2MB (well under trim_mb=400MB), ml_feedback
+age 6.8h, deploy_freshness server_version=1.0.809 matching this checkout's
+package.json pre-bump. No LIVENESS ALARM. `python3 scripts/
+research_state_check.py`: audits_register none overdue; thrash_ratio 2/10
+REPAIR in the last 10 tagged sessions, well under the 7+ trigger;
+known_broken 38 items, 3 without an explicit close marker (#26/#34/#38) —
+advisory only per the script's own documented behavior, not a repair
+blocker. `research/wishlist.md` top (STALE-PR BACKLOG entry) and
+`research/open_questions.md` KNOWN BROKEN section read — nothing newly
+actionable, nothing blocks product work.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 56d/90d — both still WAITING). `python3 scripts/
+data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT candidates
+remain declined/blocked, nothing newly actionable. The immediately prior
+2026-08-29 v1.0.808 PRODUCT session's own NEXT note named exactly one
+concrete, unclaimed, previously-scoped-out gap: `/api/data/ats-summary`
+(the second RAW route the `finra_query_cluster` BUILT root backs, live
+since the 2026-07-08 ATS contract verification) has neither a `/api/v1`
+mirror nor a same-pattern precedent in this sweep — it's a three-shape
+composite (weekly + monthly + blocks), unlike every prior mirror's
+single-object cache, which is exactly why that session deliberately left
+it unattempted rather than rushing a guessed shape. Confirmed via `grep`
+that no concurrent session has since built it (`server/apiProduct.ts` had
+no `ats-summary` entry, `server/routes.ts` had only the existing RAW
+`/api/data/ats-summary` route). Picked as this session's primary action —
+a queued, previously-scoped item per SESSION BUDGET fall-through order 1,
+not a fresh re-scan needed.
+
+READ BEFORE WRITE: read `server/finraQuery.ts` in full this session (not
+from memory) — the file header's part-2 contract notes (weeklySummary/
+monthlySummary composite-key partitions mixing SIX summaryTypeCode
+granularities per partition, only `*_SMBL` rows safe to rank without
+double-counting; blocksSummary single-key, FINRA-precomputed ranks, safe
+to rank directly), the `AtsSymbolSummary`/`AtsBlocksSummary` interfaces,
+`summarizeWeeklyBySymbol`/`summarizeMonthlyBySymbol`/`summarizeAtsBlocks`,
+and `latestFinraAts()`'s exact `{at, weekly, monthly, blocks}` cache shape
+— confirmed `latestFinraAts` was already imported in `server/routes.ts`
+(used by the existing RAW route) so no new import was needed. Read the
+existing `/api/data/ats-summary` RAW route (server/routes.ts:2560) as the
+field-mapping template and its own comment distinguishing this dataset
+(venue/execution composition) from `/api/data/short-interest` (settlement
+positions). Read the short-interest `/api/v1` mirror (server/routes.ts
+~4811, server/apiProduct.ts LICENSE_MARKS["data/short-interest"] + its
+endpoint + its `voltrade_short_interest` tool, server/apiProduct.test.ts
+line ~383) as the wiring template — same `requireApiKey`/`v1Envelope`/
+`meterUsage` shape, same 503+Retry-After warming-up guard, same dedicated
+honesty-test pattern. Confirmed via `grep` that `datacore/signal_ladder.json`
+has no gate-2 verdict for this root (settlement-stress composite hypothesis
+stays gate-locked per the file header) — the tool description says "has
+NOT been attempted" rather than paraphrasing a verdict that doesn't exist.
+
+WHAT SHIPPED: `/api/v1/data/ats-summary` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/ats-summary` route, reusing
+`latestFinraAts()` directly (no new fetch, no new poller, no new
+computation, no new import). Response wraps the full `weekly`/`monthly`/
+`blocks` composite objects verbatim in `v1Envelope("data/ats-summary",
+{...}, hit.at)` behind `requireApiKey` + `meterUsage`, with the same
+503+Retry-After warming-up guard as every other mirror in this family, and
+a `note` field distinguishing this venue/execution-composition dataset
+from both the settlement-positions short-interest mirror and the daily
+execution-flow short-volume mirror so an agent consuming all three FINRA
+tools never conflates them. `apiProduct.ts` gained: a new
+`LICENSE_MARKS["data/ats-summary"]` entry (resell: `conditional`, same
+FINRA informational-use-terms class as short-interest/short-volume — FINRA
+compiles and publishes these files itself, not a US-government work
+product); a new `apiMeta().endpoints` entry naming the RAW-display-only,
+GATE-2-not-attempted state and the SMBL-only ranking caveat; and a new
+`voltrade_ats_summary` tool in `agentToolSpec()` with the same honesty
+language, explicit that `tiers_covered` on each summary states exactly
+which FINRA tiers fed that reading so a partial-tier reading is never
+implied complete.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the short-interest/short-volume/methane-plumes/jodi precedent)
+asserting: the license mark is `conditional` (not `ok`), the license text
+names FINRA and "attribution", the `voltrade_ats_summary` tool exists with
+`returns_provenance: ["data/ats-summary"]`, its description contains "NOT
+short interest or short volume" (so the three FINRA tools can never be
+conflated), "has NOT been attempted" (so a silent gate-2-pass or gate-2-
+kill misreading is ruled out), and "tiers_covered" (so a partial-tier
+reading is never implied complete). Also added `/api/v1/data/ats-summary`
+to the existing generic "wiring pinned" route-presence list and the
+endpoint-count/preview sweep tests — both already generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, so no hardcoded count
+needed bumping elsewhere.
+
+GATES: this sandbox's `node_modules` was empty and Python dev dependencies
+were absent at session start — same fresh-sandbox provisioning gap prior
+sessions have logged repeatedly, not a regression. Ran `npm ci` (488
+packages) + `pip install -r requirements.txt -r requirements-dev.txt`.
+`bash scripts/tsc_ratchet.sh`: 12/12 exactly, matching the existing pin
+(no regression). `npx tsx --test server/apiProduct.test.ts`: 41/41 pass
+(was 40, +1 new dedicated test). `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1074/1074, python 1532 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`: `assertions`
+12469->12478 — this session's diff is the direct and sole cause (confirmed
+via `git status --short`: only `server/apiProduct.ts`, `server/
+apiProduct.test.ts`, `server/routes.ts` touched before this bookkeeping),
+so pinned in `ci/counter_baseline.txt` in the same PR. All other 24
+counters unchanged. `npm run build`: clean, only the same pre-existing
+warnings recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms only server/ci/package/research
+files), same exemption prior zero-rendering-delta mirror PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's LICENSE_MARKS entry
+carries no aircraft/AIS-derived provider-compliance condition; FINRA's own
+terms are attribution-only, no adsb.lol-lineage constraint applies. No
+billing/pricing/subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing FINRA ATS
+archive through the existing v1 API boundary, the same pattern every prior
+mirror in this sweep has followed; no new join or data stream.
+
+VERSION: v1.0.810 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`406017b`/v1.0.809/#955 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Friday ~23:30 ET (per the prior v1.0.808 entry's own
+Friday-evening timestamp, this session runs later the same evening/into
+Saturday). Well after market close (16:00 ET). This diff also has zero
+trading-loop blast radius regardless (additive `/api/v1/*` GET route
+reading an existing cache, no server/bot.ts, bot_engine.py, or Python file
+touched), so no merge-timing caveat is needed either way.
+
+NEXT (queued, not this session): with both `short-interest` and
+`ats-summary` mirrored, every BUILT root in the compiled-knowledge
+registry now has an `/api/v1` mirror — the "shipped-data-no-v1-mirror"
+sweep this program has run repeatedly is, for today, genuinely exhausted
+(same caveat every "exhausted" note in this sweep has carried: re-scan
+fresh next time rather than trust this account, since new pipelines ship
+between sessions). Both gate2_pending ladder roots (cftc_cot_positioning,
+sec_8k_earnings_language) remain WAITING per `ladder_readiness_check.py`.
+Separately noted, not this session's territory: this experiments.md file's
+newest-at-top convention (line 3) was violated by the immediately prior
+2026-08-29 [RESEARCH] session (v1.0.809 entry landed at the file's bottom,
+line ~68853, not the top) — a future session appending should verify its
+insertion point rather than trusting the file's current top entry to be
+literally newest.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (the composite-shape gap the immediately prior session
+explicitly queued and deliberately left unattempted), used in full
+including reading the exact three-shape cache contract rather than
+guessing a single-object shape like the simpler mirrors.
+
+
 
 TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts are the /api/v1
 data-product surface, not a WORKSTREAM PARTITION-named territory of their
