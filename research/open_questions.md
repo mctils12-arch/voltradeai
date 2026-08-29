@@ -7146,12 +7146,21 @@ R6. **Dashboards from monitoring we already emit (charter directive
     READ-BEFORE-WRITE + no-untested-wiring discipline both argue
     against extending a live archive reader blind. Left as the
     concrete NEXT step below rather than attempted speculatively.
-  - **NEXT**: (1) add `st?: number` (shiptype) to `Pt` in
-    `server/shadowFleet.ts`'s `readVesselTracks`/`readVesselTracksAsync`,
-    tested against a synthetic fixture archive the way that file's
-    existing tests already build one; (2) build the tanker-only
-    universe (AIS ship-type codes 80-89) from the real archive; (3) run
-    `server/shadowFleetGate1.ts`'s `evaluateEnrichment()` with
+  - **STEP (1) SHIPPED 2026-08-29 (scheduled-routine PRODUCT session,
+    v1.0.812)**: `Pt` in `server/shadowFleet.ts` now carries
+    `st?: number`, threaded through all three archive readers
+    (`readVesselTracks`, `readVesselTracksAsync`,
+    `foldVesselArchiveAsync`) from the raw archive's `st` field —
+    purely additive, no consumer touched, `ShadowAggregator` already
+    stored/forwarded whole `Pt` objects so it needed no change of its
+    own. New test in `server/shadowFleet.test.ts` proves `st` survives
+    all three readers identically and stays `undefined` (never a
+    guessed `0`) when the archive line omits it. Steps (2) and (3)
+    below remain unbuilt — this was a scoped, single-purpose PR per
+    PROMOTION RULE 5.
+  - **NEXT**: (2) build the tanker-only universe (AIS ship-type codes
+    80-89) from the real archive, now that the reader carries `st`;
+    (3) run `server/shadowFleetGate1.ts`'s `evaluateEnrichment()` with
     candidates = `detectGapEvents`/`detectLoitering` MMSIs, reference =
     `datacore/ofac_sdn_vessels.json` MMSIs, tankerPool = the archive's
     tanker universe, and record the verdict (odds ratio, CI, PASS/FAIL)

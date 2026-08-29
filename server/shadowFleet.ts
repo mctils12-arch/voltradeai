@@ -52,7 +52,12 @@ const kmBetween = (aLat: number, aLon: number, bLat: number, bLon: number) => {
   return 2 * R * Math.asin(Math.sqrt(s));
 };
 
-interface Pt { t: number; la: number; lo: number; v?: number; c?: string }
+// `st` = AIS ship-type code (numeric, e.g. 80-89 = tanker) when the archive
+// line carries one (`archiveVessels`'s `st: p.shiptype ?? undefined` in
+// datacoreArchive.ts) — added 2026-08-29 so a tanker-only universe can be
+// built from the reader without a second archive pass. Purely additive:
+// existing consumers that never read `.st` are unaffected either way.
+interface Pt { t: number; la: number; lo: number; v?: number; c?: string; st?: number }
 
 /** Reads every vessel point in the lookback window, grouped per MMSI. */
 export function readVesselTracks(windowHours: number, baseDir?: string, nowMs?: number): Map<string, Pt[]> {
@@ -83,7 +88,7 @@ export function readVesselTracks(windowHours: number, baseDir?: string, nowMs?: 
         if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) continue;
         let arr = tracks.get(p.i);
         if (!arr) { arr = []; tracks.set(p.i, arr); }
-        arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
+        arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c, st: p.st });
       } catch {}
     }
   }
@@ -287,7 +292,7 @@ export function readVesselTracksAsync(windowHours: number, baseDir?: string, now
           if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) return;
           let arr = tracks.get(p.i);
           if (!arr) { arr = []; tracks.set(p.i, arr); }
-          arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
+          arr.push({ t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c, st: p.st });
         } catch {}
       });
       rl.on("close", () => resolve());
@@ -341,7 +346,7 @@ export function foldVesselArchiveAsync(windowHours: number,
         try {
           const p = JSON.parse(line);
           if (p.t < cutoff || p.t > nowSec || p.la == null || p.lo == null || !p.i) return;
-          onPoint(p.i, { t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c });
+          onPoint(p.i, { t: p.t, la: p.la, lo: p.lo, v: p.v, c: p.c, st: p.st });
         } catch {}
       });
       rl.on("close", () => resolve());

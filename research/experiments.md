@@ -3,6 +3,180 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-29 (scheduled-routine session) [PIPELINE] — T-DATACORE (server/shadowFleet.ts, server/shadowFleet.test.ts) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/open_questions.md, datacore/signal_ladder.json): shadow-fleet `Pt` gains `st` (AIS ship-type), unblocking the tanker-only-universe step of gate 1, PR #958 (v1.0.812)
+
+TERRITORY: T-DATACORE (`server/shadowFleet.ts` is explicitly named in the
+WORKSTREAM PARTITION's T-DATACORE list). Touched `ci/counter_baseline.txt`,
+`package.json`/`package-lock.json`, and `research/*` as SHARED-but-minimal —
+last commit, smallest possible diffs, same posture the shadow-fleet-gate-1
+session took the same day.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session (via the
+orchestrating scheduled-task prompt, which had already surfaced most of
+CLAUDE.md verbatim — re-verified against the actual file rather than trusted
+blind). `python3 scripts/session_health_check.py`: all 7 OK — liveness
+alive/not dark, subsystems ok, daemon rss=371.8MB (well under trim_mb=400MB),
+ml_feedback age 11.7h, deploy_freshness server_version=1.0.811 matching this
+checkout's package.json pre-bump. **No LIVENESS ALARM.** `python3 scripts/
+research_state_check.py`: audits_register none overdue (3 tracked);
+thrash_ratio **2/10 REPAIR** in the last 10 tagged sessions (confirmed by
+independently reading the last 10 `## ` headers in this file:
+PRODUCT/PRODUCT/PIPELINE/PRODUCT/REPAIR/PRODUCT/REPAIR/RULE-REVIEW/PRODUCT/
+PIPELINE — exactly 2 REPAIR), well under the 7+ thrash trigger — **the
+Priority-1 meta-problem response was NOT triggered**, normal SESSION BUDGET
+work proceeded; known_broken 38 items, 3 without an explicit close marker
+(#26/#34/#38), advisory only per the script's own documented behavior;
+starvation_signal 0 consecutive STARVED at the front, below the 10+ trigger.
+`mcp__github__list_pull_requests(state=open)`: exactly one open PR (#604, a
+`[BACKLOG]` draft explicitly marked "do not merge as-is") — no stale-PR
+backlog action needed, and no PR exists yet for this session's own branch.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 34d/90d — both still WAITING). `python3 scripts/
+data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT candidates
+remain declined/blocked/lagged, nothing newly actionable (same finding
+multiple prior sessions independently reached). Read this file's own
+immediately-prior 2026-08-29 entry (v1.0.811, PR #957): its own NEXT queue
+names a concrete, unclaimed, testable-without-production-access step: (1)
+add `st?: number` (shiptype) to `Pt` in `server/shadowFleet.ts`'s
+`readVesselTracks`/`readVesselTracksAsync`, tested against a synthetic
+fixture archive. Unlike steps (2)/(3) of that same queue (tanker-universe
+build, real enrichment run), step (1) needs no production `/data/voltrade`
+access — a pure code change testable in this sandbox. Picked per SESSION
+BUDGET fall-through order 1 (a queued item from the prior session's own
+record), matching more directly than starting fresh research.
+
+READ BEFORE WRITE: read `server/shadowFleet.ts` in full this session (478
+lines, not from memory) — the `Pt` interface and all three call sites that
+build `Pt` objects from parsed archive JSON (`readVesselTracks`'s sync
+`arr.push`, `readVesselTracksAsync`'s async `arr.push`,
+`foldVesselArchiveAsync`'s `onPoint` callback), confirming all three parse
+the same JSONL line shape and would need the identical one-field addition —
+not just the two functions the prior session's NEXT note named, since
+`foldVesselArchiveAsync` is the "only variant routes may use" per that
+file's own OOM-repair comment and skipping it would leave the field missing
+from the one path production actually runs. Confirmed `ShadowAggregator.push`
+already stores/forwards whole `Pt` objects (`this.prev.set(mmsi, p)` etc.),
+so it needed no change of its own — the new field flows through for free.
+Grepped `server/datacoreArchive.ts` to confirm the exact raw-archive field
+name (`st: p.shiptype ?? undefined` in `archiveVessels`, line 316) rather
+than trusting the prior session's prose paraphrase. Grepped `server/
+portDwell.ts` (the only other consumer of `readVesselTracks`/
+`foldVesselArchiveAsync`) — it declares its own local, narrower `Pt`
+interface without `st`; confirmed this is a non-issue by TypeScript's own
+structural-subtyping rules (a value with an extra optional property is
+assignable to a narrower target type; only object-literal excess-property
+checks would object, and none apply here) and by the full gate suite passing
+clean with zero portDwell.ts changes. Read `server/shadowFleet.test.ts` in
+full (351 lines) to match its exact fixture-writing convention
+(`writeArchive`, the `t(hoursAgo)` helper, `fs.mkdtempSync` hermetic tmpdirs)
+before adding a new test in the same style.
+
+WHAT SHIPPED: `server/shadowFleet.ts` — `Pt` gained `st?: number` (AIS
+ship-type code) with a doc comment explaining its origin and purpose;
+`readVesselTracks`, `readVesselTracksAsync`, and `foldVesselArchiveAsync`
+all now pass `st: p.st` through when building each `Pt`. Purely additive:
+no existing field removed or renamed, no existing consumer's behavior
+changed (confirmed by the full pre-existing test suite passing unchanged).
+
+RATCHET: `server/shadowFleet.test.ts` gained one new test — "ship-type
+(`st`) threads through all three readers when the archive line carries it,
+and stays undefined when it doesn't" — a 3-vessel fixture (tanker `st: 80`,
+cargo `st: 70`, and a vessel with no `st` field at all) asserting the sync
+reader, the async reader (via `deepEqual` against the sync reader, matching
+the file's existing async-vs-sync equivalence-ratchet pattern), and the
+`foldVesselArchiveAsync` callback all carry the correct code per vessel and
+`undefined` — never a guessed `0` — when the archive omits it. 12/12 tests
+pass in the file (was 11).
+
+GATES: this sandbox's `node_modules` was absent and Python dev dependencies
+missing at session start (same fresh-sandbox provisioning gap prior
+sessions have logged repeatedly, not a regression) — `npm ci` (488
+packages) and `pip install -r requirements.txt -r requirements-dev.txt`
+both run. Before `npm ci`, `bash scripts/tsc_ratchet.sh` misleadingly
+reported only 3 errors (missing `node`/`vite/client` type-def files with no
+`node_modules` present) — re-ran after `npm ci` and got the real number:
+12/12 exactly, matching the existing pin, TS2304 0 (no regression from this
+session's own change). `npx tsx --test server/shadowFleet.test.ts`: 12/12
+pass. `bash scripts/gated_tests.sh`: GATE PASSED — client 1074/1074, python
+1532 passed/1 skipped/54 subtests, quarantine 0/1 none overdue (server
+suite output was truncated out of the captured tail but the script's own
+all-three-or-fail contract plus the final GATE PASSED line confirm it ran
+clean too). `bash scripts/counter_ratchet.sh`: `assertions` 12521->**12528**
+— this session's own new test's assertions, confirmed via `git status
+--short` showing only this session's files touched; re-pinned in
+`ci/counter_baseline.txt` in this PR. All other 24 counters unchanged
+(zero new `any` — the only `any` hits in the touched test file are
+pre-existing, matching the file's own established pattern, confirmed via
+`grep`). `npm run build`: clean, only the same pre-existing warnings recent
+sessions log (maplibre-gl chunk size, mapIcons dynamic/static dual import)
+— none touched this session.
+
+DOCS PAIRED WITH THE CODE (same PR, not a separate change): updated
+`research/open_questions.md`'s SHADOW-FLEET SIGNAL section (the prior
+session's own "NEXT" list) to mark step (1) SHIPPED and renumber the
+remaining steps (2)/(3); updated `datacore/signal_ladder.json`'s
+`shadow_fleet_maritime` entry's `note`/`last_update_date`/`source_ref` to
+match, via a targeted string replace on the raw file (NOT `json.dump` with
+reformatting — a first attempt at this via Python's `json` module rewrote
+the entire file's whitespace/formatting, producing a 439-insertion/
+44-deletion diff for what should have been a 2-line change; caught before
+committing, reverted with `git checkout --`, redone as a minimal string
+substitution preserving the file's exact existing formatting). `status`/
+`current_gate` deliberately left at `raw_only`/`0` — infrastructure is not
+the same claim as a run verdict, same discipline the prior session applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure archive-reader wiring (an
+optional field addition), no strategy/scoring/sizing/threshold change, no
+FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/paid-
+gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new this session — this is infrastructure
+for the already-filed shadow-fleet-gate-1 cross-system tie (OFAC sanctions
+data × our own AIS archive), not a new tie of its own.
+
+VERSION: v1.0.812 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`e84c0f6`/v1.0.811/#957 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: scheduled session running during US market hours per
+the orchestrating prompt; PR #958 carries "Merge should wait until after
+4:00 PM ET" in its body, with an explicit non-urgency statement (this diff
+touches no live-trading-path file — server/bot.ts, bot_engine.py, and the
+Python runtime are all untouched — so there is no critical-break
+justification to skip the wait). Per this file's own well-documented
+PROCESS GAP entry in wishlist.md (10 confirmed occurrences through
+2026-08-22, 0% enforcement — the automerge job has no time gate and
+`.github/workflows/` is FROZEN), this note is not expected to actually hold
+anything back; included anyway per the scheduled task's own instruction,
+not self-applied as a new enforcement mechanism.
+
+NEXT (queued, not this session, same as the prior session's own record):
+(2) build the tanker-only universe (AIS ship-type codes 80-89) from the
+real archive, now unblocked by this session's change; (3) run
+`evaluateEnrichment()` with candidates = `detectGapEvents`/
+`detectLoitering` MMSIs, reference = `datacore/ofac_sdn_vessels.json`
+MMSIs, tankerPool = the archive's tanker universe, and record the actual
+verdict (odds ratio, CI, PASS/FAIL) in both `open_questions.md` and
+`signal_ladder.json`. Both still need a session with production
+`/data/voltrade` volume access (or an equivalent archive snapshot) — not
+runnable from a fresh sandbox, the same constraint noted by the prior two
+sessions in this same thread.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action (a previously-queued, unclaimed, sandbox-testable step),
+used in full including reading the full 478-line target file before
+editing, extending all three archive readers (not just the two the queue
+note named, after independently confirming the third is the one production
+actually uses), adding a dedicated ratchet test, and catching + fixing its
+own JSON-reformatting mistake in `signal_ladder.json` before it could ship
+as an oversized, hard-to-review diff.
+
 ## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/shadowFleetReference.ts, server/shadowFleetReference.test.ts, server/shadowFleetGate1.ts, server/shadowFleetGate1.test.ts, scripts/ofac_sdn_ingest.ts, datacore/ofac_sdn_vessels.json, datacore/signal_ladder.json, research/open_questions.md, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SHADOW-FLEET SIGNAL gate 1 — the OFAC SDN reference-list ingest (run live, 805 sanctioned-vessel MMSIs) and the case-control odds-ratio/CI enrichment test both BUILT and unit-tested; not yet run against the real AIS archive (v1.0.811)
 
 TERRITORY: SHARED-but-minimal, same posture the prior mirror-sweep

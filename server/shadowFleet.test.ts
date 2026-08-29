@@ -329,6 +329,42 @@ test("FUZZ oracle: grid+time-window hull-swap count matches independent brute-fo
   }
 });
 
+// [2026-08-29] `st` (AIS ship-type code) now threads through the Pt shape —
+// queued by the immediately-prior 2026-08-29 shadow-fleet-gate-1 session's
+// own NEXT note as step (1) toward a tanker-only universe (ship-type codes
+// 80-89), which gate 1's enrichment test needs but cannot build without this.
+// `archiveVessels` in datacoreArchive.ts writes `st: p.shiptype ?? undefined`
+// on the real archive line (confirmed by reading that file this session) —
+// this fixture matches that field name exactly, not a guessed one.
+test("ship-type (`st`) threads through all three readers when the archive line carries it, and stays undefined when it doesn't", async () => {
+  const { readVesselTracksAsync, foldVesselArchiveAsync } = await import("./shadowFleet");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-shiptype-"));
+  writeArchive(base, [
+    // TANKER: real AIS tanker-range code (80 = tanker, all types)
+    { t: t(10), i: "111000111", c: "TANKER", la: 10.0, lo: 10.0, v: 8, st: 80 },
+    // CARGO: a non-tanker code, must NOT be confused with the tanker above
+    { t: t(9), i: "222000222", c: "CARGO", la: 20.0, lo: 20.0, v: 8, st: 70 },
+    // NOTYPE: archive line omits `st` entirely (older record / unbroadcast) —
+    // must come back `undefined`, never `0` or a guessed value.
+    { t: t(8), i: "333000333", c: "NOTYPE", la: 30.0, lo: 30.0, v: 8 },
+  ]);
+
+  const sync = readVesselTracks(72, base, NOW);
+  assert.equal(sync.get("111000111")![0].st, 80, "sync reader must carry the tanker's ship-type code");
+  assert.equal(sync.get("222000222")![0].st, 70, "sync reader must carry the cargo ship's own, different code");
+  assert.equal(sync.get("333000333")![0].st, undefined, "sync reader must leave a missing `st` as undefined, never a guessed 0");
+
+  const asy = await readVesselTracksAsync(72, base, NOW);
+  assert.deepEqual(Array.from(asy.entries()).sort(), Array.from(sync.entries()).sort(),
+    "async streaming reader must carry `st` identically to the sync reader");
+
+  const folded = new Map<string, number | undefined>();
+  await foldVesselArchiveAsync(72, (mmsi, p) => folded.set(mmsi, p.st), base, NOW);
+  assert.equal(folded.get("111000111"), 80, "fold callback must receive the tanker's ship-type code");
+  assert.equal(folded.get("222000222"), 70, "fold callback must receive the cargo ship's own code");
+  assert.equal(folded.get("333000333"), undefined, "fold callback must receive undefined, not a guessed 0, when the archive omits `st`");
+});
+
 test("hull-swap boundary: candidate exactly at withinHours/nearKm counts; just past either edge doesn't", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-boundary-"));
   writeArchive(base, [
