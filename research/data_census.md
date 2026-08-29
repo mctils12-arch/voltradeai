@@ -112,7 +112,11 @@ RANKED TOP-5: 1. OCC volume-query, 2. DTCC SBSDR equities,
    (shortvol.tsx) and ATS/OTC venue volume (atsSummary.tsx) shipped
    earlier; consolidatedShortInterest + thresholdList's /data client view
    [BUILT v1.0.806, client/src/pages/finraShortInterest.tsx] closes the
-   last shipped-data-no-client-page gap in this cluster.
+   last shipped-data-no-client-page gap in this cluster. consolidatedShortInterest
+   + thresholdList also gained an `/api/v1/data/short-interest` keyed
+   mirror [BUILT v1.0.808]; ats-summary (weekly/monthly/blocks) remains
+   the one part of this cluster with neither a mirror nor a single-root
+   precedent for its three-shape composite.
 4. **SEC fails-to-deliver [BUILT v1.0.171, server/secFtd.ts]** — sec.gov cnsfails zips probed 200
    (bi-monthly halves, 2004→present, public domain, resale-safe).
    SIGNAL: raw FTD spikes maximally crowded; edge only in the

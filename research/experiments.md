@@ -3,6 +3,201 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA consolidated short interest gets its /api/v1 keyed mirror, the newest "shipped-data-no-v1-mirror" gap this sweep tracks (v1.0.808)
+
+TERRITORY: SHARED (server/apiProduct.ts, server/routes.ts are the /api/v1
+data-product surface, not a WORKSTREAM PARTITION-named territory of their
+own — every prior mirror PR in this sweep has treated them the same way).
+Kept minimal and last: one route, its LICENSE_MARKS/endpoint/tool
+entries, and the matching test additions, nothing else.
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `python3
+scripts/session_health_check.py`: all 7 OK except one WARN
+(daemon_memory rss=403.8MB >= trim_mb=400MB, deep_score running in
+trimmed mode — a known auto-trim behavior, not a liveness alarm); no
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits
+register none overdue, thrash_ratio 2/10 REPAIR (well under the 7+
+trigger), known_broken 38 items/3 unclosed markers (#26/#34/#38,
+advisory only per the script's own documented behavior). Read
+`research/open_questions.md`'s KNOWN BROKEN section in full: all
+items are RESOLVED/FIXED except #20 (a design/threshold judgment call,
+not a bug), #29/#30 (T-BOT options-slot-cap edge cases, root-caused,
+fix proposed/partial), #35 (T-BOT POS-KILL dedup, half fixed) — none of
+these are a liveness alarm and none block product work; noting per this
+session's own instructions rather than preempting a DAILY repair
+routine's duty. `research/wishlist.md` top: the STALE-PR BACKLOG entry
+is resolved per the immediately prior 2026-08-28 session's own note (one
+open PR, #604, correctly excluded as "[BACKLOG] ... do not merge
+as-is").
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning, sec_8k_earnings_
+language both still WAITING, nothing to judge). `python3
+scripts/data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT
+candidates remain declined_dead_source/blocked_free_key/blocked_
+registration/structural-thesis-only; nothing newly actionable.
+`research/PROGRAM_STATE.md` (a separate T-CLIENT/rendering MASTER
+PROGRAM track, not this session's product mandate) shows its own QUEUE
+fully DONE/REFRAMED as of the prior session — not this session's
+territory regardless. The prior 2026-08-28 (v1.0.807) session's own NEXT
+note said the "/api/v1 mirror" and "shipped-data-no-client-page" sweeps
+were BOTH "genuinely exhausted... a future session should re-scan fresh
+rather than trust either account, since new pipelines ship between
+sessions" — did exactly that re-scan this session rather than trusting
+the prior account: diffed every `/api/data/*` route path in
+`server/routes.ts` (103 distinct paths) against every `/api/v1/data/*`
+and `/api/v1/stats/*`/`/api/v1/tracks/*` path already mirrored in
+`server/apiProduct.ts`/`server/routes.ts` (29 total). Most of the
+uncovered RAW routes (earthquakes, volcanoes, weather, buoys, fires,
+meteors, border-waits, military installations, etc.) are general-purpose
+map-layer overlays, not part of the 35-candidate compiled-knowledge
+registry `scripts/data_stream_registry_check.py` tracks, and were never
+in scope for this specific mirror sweep (confirmed by cross-referencing
+the registry's 25 BUILT roots against which ones already have a mirror —
+every BUILT root except one already does). The one gap: `finra_query_
+cluster` (BUILT) backs THREE RAW routes — `/api/data/short-volume`
+(mirrored), `/api/data/ats-summary` (not part of the registry's stated
+scope, a venue-level dark-pool composition feed with no named single-root
+mirror precedent), and `/api/data/short-interest` — live since v1.0.207,
+and the immediately prior 2026-08-28 v1.0.806 session (a DIFFERENT
+session from the one that logged the exhausted-sweep note) had *just*
+given it its first-ever /data client page, explicitly calling out in its
+own commit message that this closed "the last shipped-data-no-client-
+page gap" — but never mentioned or built a /api/v1 mirror, because that
+was never its scope. This is exactly the recurring shape this sweep
+exists to close (a real, live, populated RAW route with zero API
+surface) and a materially fresher, higher-confidence find than
+guessing among the registry's already-declined NOT-BUILT candidates —
+picked as this session's primary action.
+
+READ BEFORE WRITE: read `server/finraQuery.ts`'s `ShortInterestSummary`/
+`ThresholdSummary` interfaces and `latestFinraSi()` in full this session
+(not from memory) — the exact `{at, si, threshold}` cache shape,
+`si`'s `top_days_to_cover`/`top_change_pct`/`adv_floor`/`position_floor`/
+`top_cap` fields, and the ADV/position/previous-position floors that
+exist specifically to keep near-zero-base percent-change artifacts off
+the leaderboard (the file's own comment cites a live NVRI +259,847,500%
+incident as the reason). Read the existing `/api/data/short-interest`
+RAW route (server/routes.ts:2530) as the field-mapping template and its
+own comment distinguishing SHORT INTEREST (settlement positions,
+semi-monthly) from `/api/data/short-volume` (daily execution flow) —
+carried that exact distinction into both the route's `note` field and
+the new tool's description so an agent consuming both tools never
+conflates them. Read the short-volume mirror (server/routes.ts ~4784,
+server/apiProduct.ts LICENSE_MARKS["data/short-volume"] + its endpoint
++ its `voltrade_short_volume` tool) as the wiring template — same
+`requireApiKey`/`v1Envelope`/`meterUsage` shape, same 503+Retry-After
+warming-up guard. Read `server/apiProduct.test.ts`'s short-volume
+dedicated test (line ~367) as the honesty-test template. Confirmed via
+`grep` that `datacore/signal_ladder.json` has NO entry for short
+interest specifically (unlike short-volume, which carries a two-test
+GATE 2 FAIL/INCONCLUSIVE verdict) — this root has never been GATE-2
+tested at all, so the tool description says "has NOT been attempted"
+rather than paraphrasing a verdict that doesn't exist.
+
+WHAT SHIPPED: `/api/v1/data/short-interest` (server/routes.ts) — a keyed
+mirror of the existing `/api/data/short-interest` route, reusing
+`latestFinraSi()` directly (no new fetch, no new poller, no new
+computation). Field mapping: `settlement_date`/`si_records` pulled from
+`hit.si` the same way the RAW route does, plus the full `si` and
+`threshold` objects verbatim, wrapped in `v1Envelope("data/short-
+interest", {...}, hit.at)` behind `requireApiKey` + `meterUsage`, with
+the same 503+Retry-After warming-up guard as every other mirror in this
+family. `apiProduct.ts` gained: a new `LICENSE_MARKS["data/short-
+interest"]` entry (resell: `conditional`, same FINRA informational-use-
+terms class as `data/short-volume` — FINRA compiles and publishes this
+file itself, not a US-government work product); a new `apiMeta().
+endpoints` entry naming the RAW-display-only, GATE-2-not-attempted state
+and explicitly distinguishing it from the short-volume endpoint; and a
+new `voltrade_short_interest` tool in `agentToolSpec()` with the same
+honesty language, explicit that this is settlement POSITIONS, not
+execution volume.
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the short-volume/methane-plumes/jodi precedent) asserting:
+the license mark is `conditional` (not `ok`), the license text names
+FINRA and "attribution", the `voltrade_short_interest` tool exists with
+`returns_provenance: ["data/short-interest"]`, its description contains
+"NOT short volume" (so the two FINRA tools can never be conflated) and
+"has NOT been attempted" (so a silent gate-2-pass or gate-2-kill
+misreading is ruled out). Also added `/api/v1/data/short-interest` to
+the existing generic "wiring pinned" route-presence list and the
+endpoint-count/preview sweep tests — both already generic over
+`apiMeta().endpoints`/`agentToolSpec().tools`, so no hardcoded count
+needed bumping elsewhere.
+
+GATES: this sandbox's `node_modules` was present but under-provisioned
+(1 entry) and Python dev dependencies were absent at session start —
+same fresh-sandbox provisioning gap prior sessions have logged
+repeatedly, not a regression. A pre-`npm ci` run of `tsc_ratchet.sh`
+read 3 errors (vs. the 12 pin); ran `npm ci` (488 packages) + `pip
+install -r requirements.txt -r requirements-dev.txt` and re-ran —
+12/12 exactly, confirming the "3" reading was the same known sandbox-
+provisioning artifact prior sessions documented, not a real
+improvement; did NOT lower the pin. `npx tsx --test
+server/apiProduct.test.ts`: 40/40 pass (was 39; +1 new dedicated test).
+`bash scripts/gated_tests.sh`: GATE PASSED — client 1074/1074, python
+1507 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: `tests_run_in_ci`/`tests_gating_merge`
+403->404 and `assertions` 12405->12426 — this session's diff is the
+direct and sole cause (confirmed via `git status --short`: only
+`server/apiProduct.ts`, `server/apiProduct.test.ts`, `server/routes.ts`
+touched before this bookkeeping), so pinned in `ci/counter_baseline.txt`
+in the same PR, unlike the prior two sessions' unattributed-drift
+counters which were correctly left alone. All other 22 counters
+unchanged. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine default-
+export interop, mapIcons dynamic/static dual import) — none touched
+this session. No visual harness run: zero `client/src` files touched
+(`git status --short` confirms only server/ci/package/research files),
+same exemption prior zero-rendering-delta mirror PRs applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route), no strategy/scoring/sizing/
+threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's LICENSE_MARKS entry
+carries no aircraft/AIS-derived provider-compliance condition; FINRA's
+own terms are attribution-only, no adsb.lol-lineage constraint applies.
+No billing/pricing/subscription/paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes the existing FINRA
+short-interest archive through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or
+data stream.
+
+VERSION: v1.0.808 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`23790ba`/v1.0.807/#953 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Friday ~20:14 ET, well after market close (16:00 ET).
+This diff also has zero trading-loop blast radius regardless (additive
+`/api/v1/*` GET route reading an existing cache, no server/bot.ts,
+bot_engine.py, or Python file touched), so no merge-timing caveat is
+needed either way.
+
+NEXT (queued, not this session): `/api/data/ats-summary` (FINRA
+weekly/monthly/blocks ATS venue summaries — the second RAW route the
+same `finra_query_cluster` BUILT root backs) has neither a /api/v1
+mirror nor an obvious single-root precedent in this sweep (it's a
+three-shape composite, unlike every prior mirror's single-object cache)
+— a valid candidate for a future session willing to design that shape,
+but NOT a same-pattern one-file copy like this session's pick, so
+deliberately not attempted here. Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py`. A fresh re-scan of `/api/data/*` vs the
+registry's 25 BUILT roots after this PR shows every BUILT root now
+mirrored except the ats-summary composite above — the sweep is close to
+truly exhausted, but that composite-shape gap is real and unclaimed.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a freshly re-scanned, previously-unclaimed "shipped-
+data-no-v1-mirror" gap), used in full including reading the source
+module's exact field shapes and the RAW route's own honesty language
+rather than guessing or reusing a neighbor's fields incorrectly.
+
 ## 2026-08-28 (scheduled-routine session) [PIPELINE] — T-CLIENT (scripts/visual_check.mjs) + SHARED-but-minimal (package.json, package-lock.json, research/PROGRAM_STATE.md, research/*): PROGRAM_STATE.md Q25 — the visual-harness perf gate stops firing on its own noise, closing a filed-since-#839 finding (v1.0.807)
 
 TERRITORY: T-CLIENT primary (`scripts/visual_check.mjs` is explicitly named

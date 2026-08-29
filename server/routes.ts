@@ -4808,6 +4808,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FINRA Query API consolidated short interest + Reg SHO threshold list
+  // keyed mirror — closes the newest "shipped-data-no-v1-mirror" gap this
+  // sweep's audits track: /api/data/short-interest has been live since
+  // v1.0.207 and just got its /data client view (v1.0.806,
+  // finraShortInterest.tsx) but never a keyed API mirror. Reuses the
+  // existing latestFinraSi() cache the RAW route already populates — no
+  // new fetch, no new poller, no new computation. Distinct root from
+  // /api/v1/data/short-volume above: SETTLEMENT POSITIONS (semi-monthly),
+  // not daily EXECUTION flow — the note field says so explicitly so an
+  // agent consuming both tools never conflates them.
+  app.get("/api/v1/data/short-interest", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const hit = latestFinraSi();
+      if (!hit) {
+        res.status(503).set("Retry-After", "60").json({ error: "warming up — first archive scan in progress" });
+        meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-interest", status: 503, tier: auth.tier });
+        return;
+      }
+      res.json(v1Envelope("data/short-interest", {
+        settlement_date: hit.si?.settlement_date ?? null,
+        si_records: hit.si?.records ?? 0,
+        si: hit.si,
+        threshold: hit.threshold,
+        note: "SHORT INTEREST (settlement positions, ~T+9 semi-monthly publish) — distinct from /api/v1/data/short-volume (daily execution flow). " +
+              "Leaderboards floor ADV/position/previous-position (stated in si.adv_floor/si.position_floor) to keep near-zero-base percent-change artifacts out; " +
+              "threshold list here is FINRA's OTC side only. RAW display only, no predictive claim; GATE 2 not attempted.",
+      }, hit.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-interest", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-interest", status: 500, tier: auth.tier });
+    }
+  });
+
   // GEM methane-plume x extraction-registry proximity keyed mirror — closes
   // the last remaining "gate1-passed, no /api/v1 mirror" gap this sweep's
   // own audits named (see the COT/contracts/short-volume mirrors' comments
