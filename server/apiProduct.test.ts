@@ -81,6 +81,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/cot"), "CFTC Commitments of Traders keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/contracts"), "USAspending federal contract awards keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/short-volume"), "FINRA Reg SHO short-volume keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/data/short-interest"), "FINRA consolidated short interest keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/methane-plumes"), "GEM methane-plume proximity keyed mirror shipped — must be a live endpoint");
   assert.ok(meta.coming_gated.length >= 1, "tank-fill remains the one still-gated product");
   assert.ok(!meta.coming_gated.join(" ").includes("Everything Graph"), "graph must not be listed as coming once live");
@@ -89,7 +90,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
 
 test("wiring pinned: /api/v1 routes registered behind requireApiKey; meta is the only public one", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
-  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
+  for (const p of ["/api/v1/meta", "/api/v1/tracks/:kind/:id", "/api/v1/stats/portdwell", "/api/v1/stats/shadow", "/api/v1/stats/archive", "/api/v1/graph", "/api/v1/stats/plant-operations", "/api/v1/stats/secftd", "/api/v1/stats/midas", "/api/v1/stats/occ-volume", "/api/v1/data/earnings-language", "/api/v1/data/appstore-rankings", "/api/v1/data/github-activity", "/api/v1/data/crop-conditions", "/api/v1/stats/vix-term-structure", "/api/v1/stats/nrc-reactor-status", "/api/v1/data/13f-holdings", "/api/v1/stats/eu-macro", "/api/v1/stats/fred-macro", "/api/v1/data/bank-failures", "/api/v1/data/gnss-integrity-signal", "/api/v1/data/dtcc-swaps", "/api/v1/data/fleet-utilization", "/api/v1/data/insider", "/api/v1/data/attention", "/api/v1/data/cot", "/api/v1/data/contracts", "/api/v1/data/short-volume", "/api/v1/data/short-interest", "/api/v1/data/methane-plumes", "/api/v1/data/jodi-oil-stocks"]) {
     assert.ok(routes.includes(`"${p}"`), `route ${p} missing`);
   }
   const v1Block = routes.slice(routes.indexOf("/api/v1 — the DATA PRODUCT"));
@@ -376,6 +377,19 @@ test("FINRA short-volume license mark: FINRA-published informational-use data is
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1-pass status must travel with the tool description");
   assert.ok(tool.description.includes("FAIL/INCONCLUSIVE"), "honesty: the two-test FAIL/INCONCLUSIVE verdict (not a silent 'not attempted', and not a false 'KILLED') must travel with the tool description");
   assert.ok(tool.description.includes("NOT short interest"), "honesty: short-marked execution volume must not be conflated with short interest in the tool description");
+});
+
+test("FINRA consolidated short interest license mark: FINRA-published informational-use data is conditional resell like short-volume/OCC/Cboe, not government work product; agent tool distinguishes settlement POSITIONS from the separate short-volume EXECUTION-flow tool and documents gate-2 as unattempted", () => {
+  assert.equal(LICENSE_MARKS["data/short-interest"].resell, "conditional",
+    "FINRA compiles and publishes this file itself under informational-use terms, not as a US government work product — must not be mismarked ok like the government-published streams");
+  assert.ok(LICENSE_MARKS["data/short-interest"].license.includes("FINRA"));
+  assert.ok(LICENSE_MARKS["data/short-interest"].license.includes("attribution"));
+  const spec = agentToolSpec();
+  const tool = spec.tools.find((t) => t.name === "voltrade_short_interest");
+  assert.ok(tool, "voltrade_short_interest tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/short-interest"]);
+  assert.ok(tool.description.includes("NOT short volume"), "honesty: settlement positions must not be conflated with the separate daily short-volume flow tool");
+  assert.ok(tool.description.includes("has NOT been attempted"), "honesty: gate-2-unattempted status must travel with the tool description, not read as a silent pass or kill");
 });
 
 test("GEM methane-plume proximity license mark: CC BY 4.0 GEM data is freely resellable with attribution like the government-produced streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the gate 2(a)-shipped/2(b)-(d)-unbuilt state honestly, never a silent gate-2-pass claim", () => {
