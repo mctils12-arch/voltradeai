@@ -485,7 +485,7 @@ test("FINRA ATS venue summaries license mark: FINRA-published informational-use 
   assert.ok(tool.description.includes("tiers_covered"), "honesty: partial-tier readings must never be implied complete in the tool description");
 });
 
-test("GEM methane-plume proximity license mark: CC BY 4.0 GEM data is freely resellable with attribution like the government-produced streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the gate 2(a)-shipped/2(b)-(d)-unbuilt state honestly, never a silent gate-2-pass claim", () => {
+test("GEM methane-plume proximity license mark: CC BY 4.0 GEM data is freely resellable with attribution like the government-produced streams, not conditional like the issuer-authored/informational-use-terms streams; agent tool documents the actual gate 2(a)/(b)-shipped, 2(c)-FAIL-but-data-limited, 2(d)-unsourced state honestly, never a silent gate-2-pass or a stale unbuilt claim", () => {
   assert.equal(LICENSE_MARKS["data/methane-plumes"].resell, "ok",
     "GEM publishes both source datasets under CC BY 4.0 — must not be mismarked conditional like the issuer-authored or informational-use-terms streams");
   assert.ok(LICENSE_MARKS["data/methane-plumes"].license.includes("CC BY 4.0"));
@@ -495,8 +495,10 @@ test("GEM methane-plume proximity license mark: CC BY 4.0 GEM data is freely res
   assert.ok(tool, "voltrade_methane_plumes tool must exist");
   assert.deepEqual(tool.returns_provenance, ["data/methane-plumes"]);
   assert.ok(tool.description.includes("GATE 1"), "honesty: gate-1 status must travel with the tool description");
-  assert.ok(tool.description.includes("2(a)") && tool.description.includes("SHIPPED"), "honesty: gate 2(a) shipped status must travel with the tool description");
-  assert.ok(tool.description.includes("2(b)-(d)") && tool.description.toUpperCase().includes("NOT BUILT"), "honesty: gates 2(b)-(d) must be stated as unbuilt, not a silent full gate-2 pass");
+  assert.ok(tool.description.includes("2(a)") && tool.description.includes("2(b)") && tool.description.includes("SHIPPED"), "honesty: gate 2(a)/(b) shipped status must travel with the tool description");
+  assert.ok(tool.description.includes("2(c)") && tool.description.toUpperCase().includes("FAIL"), "honesty: the real gate 2(c) FAIL verdict must travel with the tool description, not a stale 'not built' claim");
+  assert.ok(tool.description.toUpperCase().includes("DATA-AVAILABILITY-LIMITED"), "honesty: the FAIL's small, single-name-dominated sample must not read as a clean kill");
+  assert.ok(tool.description.includes("2(d)") && tool.description.toUpperCase().includes("UNSOURCED"), "honesty: gate 2(d) must be stated as unsourced/not attempted");
   assert.ok(tool.description.includes("not a confirmed or claimed emissions attribution"), "honesty: the proximity join must not read as an emissions claim");
 });
 
