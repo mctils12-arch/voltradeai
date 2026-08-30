@@ -4918,6 +4918,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // FINRA Reg SHO short-volume accumulated history keyed mirror — the
+  // multi-day companion to /api/v1/data/short-volume above (that endpoint
+  // mirrors only the latest poll cache; this one mirrors /api/data/
+  // short-volume/history's two modes). Reuses readSummaryHistory()/
+  // lookupSymbolHistory()/latestShortVol() directly — no new fetch, no new
+  // computation. Same GATE 1 PASSED / GATE 2 FAIL-INCONCLUSIVE status and
+  // the same conditional-resell posture as data/short-volume, so this
+  // reuses that LICENSE_MARKS entry rather than forking a duplicate one.
+  // Same shape as the insider-history/cot-history/earnings-language-history
+  // companions this sweep already shipped.
+  app.get("/api/v1/data/short-volume-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    const symbol = typeof req.query.symbol === "string" ? req.query.symbol.trim() : "";
+    try {
+      if (symbol) {
+        const series = lookupSymbolHistory(symbol, days);
+        res.json(v1Envelope("data/short-volume", {
+          symbol: symbol.toUpperCase(),
+          days,
+          count: series.length,
+          note: series.length ? undefined : "no rows for this symbol in the archived window (delisted, not yet listed, or a typo)",
+          series,
+        }));
+      } else {
+        res.json(v1Envelope("data/short-volume", {
+          days,
+          today: latestShortVol()?.summary ?? null,
+          trend: readSummaryHistory(days),
+          note: "market-wide agg_short_ratio trend; this log started accumulating 2026-07-06 — pass ?symbol=TICKER for that ticker's multi-year ratio series from the existing day-archive instead",
+        }));
+      }
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-volume-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/short-volume-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // FINRA Query API consolidated short interest + Reg SHO threshold list
   // keyed mirror — closes the newest "shipped-data-no-v1-mirror" gap this
   // sweep's audits track: /api/data/short-interest has been live since
