@@ -3122,8 +3122,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // extraction or coal-mine asset within MATCH_RADIUS_KM, or null when
   // nothing catalogued is that close. STILL RAW, NOT A SIGNAL — a
   // geometric proximity fact, not a claimed emissions attribution; gates
-  // 2(b)-(d) (repeat-detection rate, base rate, disclosed-intensity match)
-  // are unbuilt.
+  // 2(a)/(b) shipped, 2(c) ran and FAILed (small, single-name-dominated
+  // sample — data-availability-limited, not a clean kill), 2(d) is
+  // unsourced. See datacore/signal_ladder.json's gem_methane_plume_proximity
+  // entry for the full account.
   app.get("/api/data/methane-plumes", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
     const hit = cachedGemMethaneProximity();
@@ -5076,9 +5078,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // above; usaspending_contracts and finra_short_volume both closed
   // 2026-08-26). Reuses the existing cachedGemMethaneProximity() cache the
   // RAW /api/data/methane-plumes route already populates — no new fetch, no
-  // new poller, no new computation. gate2_pending per datacore/
-  // signal_ladder.json (2(a) shipped, 2(b)-(d) unbuilt) — same RAW-display-
-  // only posture the route's own comment above already states.
+  // new poller, no new computation. gate2_fail per datacore/
+  // signal_ladder.json (2(a)/(b) shipped, 2(c) ran and FAILed on a small
+  // data-limited sample, 2(d) unsourced) — same RAW-display-only posture
+  // the route's own comment above already states.
   app.get("/api/v1/data/methane-plumes", (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
@@ -5095,8 +5098,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ambiguousCount: hit.ambiguousCount,
         note: "satellite methane-plume detections joined to the nearest catalogued GEM oil/gas-extraction or coal-mine "
           + `asset within ${MATCH_RADIUS_KM}km (null when nothing catalogued is that close). nearestAsset is a geometric `
-          + "proximity fact, not a confirmed emissions attribution. GATE 2(a) (this join) shipped; gates 2(b)-(d) "
-          + "(repeat-detection rate, base rate, disclosed-intensity match) are unbuilt — RAW display only, not a trading signal.",
+          + "proximity fact, not a confirmed emissions attribution. GATE 2(a)/(b) (proximity join, repeat-detection rate) "
+          + "shipped; GATE 2(c) (same-universe base rate) was run and FAILed at all 3 horizons, but on a small "
+          + "single-name-dominated sample (N=32, data-availability-limited, not a clean kill); GATE 2(d) "
+          + "(disclosed-intensity match) is unsourced — RAW display only, not a trading signal.",
         plumes: hit.plumes,
       }));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/methane-plumes", status: 200, tier: auth.tier });

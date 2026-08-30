@@ -3,6 +3,217 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-30 (scheduled-routine PRODUCT session #3) [PRODUCT] — SHARED-but-minimal (datacore/signal_ladder.json, server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): fixed a stale, customer-facing GATE 2 claim on GEM methane-plume proximity — the live API and the ladder registry both said gates 2(b)-(d) were "explicitly NOT built" when 2(b) shipped and 2(c) actually ran and returned a real (data-limited) FAIL a month earlier (v1.0.819)
+
+TERRITORY: SHARED-but-minimal — `datacore/signal_ladder.json` (the ladder
+registry), `server/apiProduct.ts`/`apiProduct.test.ts`/`routes.ts` (the
+v1 API surface + its live JSON response text), version/counter
+bookkeeping. No T-BOT/T-CLIENT/T-DATACORE-primary file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of `research/*`
+(PROGRAM_STATE.md — a separate audit-ratchet program last touched
+2026-08-15, not this session's territory; experiments.md tail; the KNOWN
+BROKEN section via `research_state_check.py`; wishlist.md head;
+platform_program.md; data_census.md). `python3 scripts/
+session_health_check.py`: all 7 OK — liveness alive/not dark, subsystems
+ok, daemon rss=353.9MB well under trim_mb=400MB, alt_data_enrichment
+fresh, ml_feedback age 13.2h, deploy_freshness server_version=1.0.818
+matching this checkout's package.json pre-bump. No LIVENESS ALARM —
+nothing blocks product work. `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 0/10 REPAIR (well under the
+7+ trigger), known_broken 38 items/3 without an explicit close marker
+(#26/#34/#38, advisory only, already independently confirmed fixed by
+prior sessions), starvation_signal 0 consecutive STARVED.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+still 0/2 gated roots READY (cftc_cot_positioning, sec_8k_earnings_language,
+both WAITING, unchanged). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — same 10/35 not-built roots, all declined/blocked/lagged
+(axis (a) confirmed exhausted by several prior sessions in a row).
+`grep "^## 2026-08-30" experiments.md` showed this repo had already run
+3 scheduled-routine sessions today (an Omori-Utsu research build, its
+real-data judgment [gate 2 KILLED], and a PRODUCT session shipping the
+13F-holdings-history mirror that explicitly closed the standing
+`/history`-companion mirror queue) — so this session's job was to find
+the genuinely NEXT unclaimed item, not repeat the mirror-sweep pattern a
+4th time. That prior PRODUCT session's own NEXT note pointed at
+`data/ats-summary` needing a `/history` companion, but flagged it as a
+"NEW-shape task... not urgent" rather than the standing pattern — a
+weaker lead than option (a) in this session's own brief ("advance a
+datacore/ pipeline through its next ladder gate — gate 1/2 testing ARE
+product work"), so gate-2-pending roots were checked first via
+`ladder_readiness_check.py`/`data_stream_registry_check.py` (both
+empty/exhausted, above) before falling through to a broader read of
+`research/open_questions.md`'s environmental section.
+
+READING gem_methane_plume_proximity's full history (open_questions.md
+lines ~9904-10064, three dated updates: 2026-07-19 filing, 2026-07-20
+gate 2(b)/2(c) run, 2026-07-23 Abbreviation-widening retry) surfaced a
+real defect rather than a build opportunity: `datacore/
+signal_ladder.json`'s entry for this root was frozen at its 2026-07-19
+snapshot (`status: gate2_pending`, `current_gate: 1`, note claiming
+"gate 2(b)-(d)... explicitly not done") — but 2(b) (repeat-detection
+rate, `computeAssetPlumeStats`) shipped the very next day, and 2(c) (the
+same-universe base-rate test) was ACTUALLY RUN 2026-07-20 against real
+data and returned a real verdict: FAIL at all 3 horizons (5/20/60d), N=32
+events across 8 resolvable tickers, one unrelated bankruptcy-recovery
+name (CRC) dominating 74-83% of the result — filed honestly as
+data-availability-limited, not a clean kill, with a follow-up widening
+attempt 2026-07-23 that verified a NULL effect (root-caused to a correct,
+pre-existing precision guard, not a bug). VERIFIED LIVE, not assumed
+stale from the ladder file alone: read `scripts/gem_methane_gate2c.py`
+in full and re-derived the same resolution_counts/N=32/CRC-dominance
+numbers the 2026-07-20 and 2026-07-23 experiments.md entries report,
+before writing any new text.
+
+WHY THIS MATTERS (not just a stale-comment cleanup): the SAME stale
+claim — "gates 2(b)-(d)... explicitly NOT built" — was live in THREE
+customer-facing places: `server/apiProduct.ts`'s `/developers` endpoint
+description, its `voltrade_methane_plumes` agent-tool description
+(LLM function-calling spec, `/api/v1/agent-tools`), AND the actual JSON
+`note` field returned by every real call to `/api/v1/data/
+methane-plumes` (server/routes.ts:5092-5101) — a paying API customer
+querying this endpoint today would read "gates 2(b)-(d)... unbuilt" when
+in fact gate 2(c) had already been tested and come back a (data-limited)
+FAIL a month earlier. This is a HONESTY METRIC / MEASUREMENT INTEGRITY
+issue, not cosmetic: CLAUDE.md's anti-goal is "never sell or surface a
+signal the ladder has not validated," and the flip side holds too — a
+customer is owed the CURRENT state of validation, not a snapshot frozen
+at the first gate-2 sub-step. Undersold accuracy is a smaller sin than
+oversold accuracy, but it is still inaccurate, and the ladder registry
+that other scripts (`ladder_readiness_check.py`, `signalLadder.ts`'s
+`/data/signal-ladder` dashboard) read as ground truth was carrying the
+same staleness.
+
+WHAT SHIPPED (one logical change: bring every customer/registry-facing
+statement of this root's gate-2 status up to date with what actually
+happened):
+- `datacore/signal_ladder.json`: `gem_methane_plume_proximity` status
+  `gate2_pending`→**`gate2_fail`**, `current_gate` 1→**2**,
+  `last_update_date`→2026-07-23, matching the established convention
+  this file already uses for an "attempted, real FAIL verdict, but
+  data-limited and not a clean kill" root (same pattern as
+  `finra_short_volume`'s `gate2_fail`/"FAIL/INCONCLUSIVE... NOT marked
+  killed" entry, read as the precedent before writing this one). Note
+  rewritten to state 2(a)/(b) shipped, 2(c)'s exact verdict and its
+  CRC-dominance caveat, the 2026-07-23 null-effect widening attempt, and
+  that 2(d) remains CURRENTLY UNSOURCED — `source_ref` widened to cover
+  all three dated updates plus the gate2c script.
+- `server/apiProduct.ts`: both the `/api/v1/data/methane-plumes`
+  `apiMeta().endpoints` description and the `voltrade_methane_plumes`
+  `agentToolSpec()` tool description rewritten to state 2(a)/(b) SHIPPED,
+  2(c) RUN/FAIL (data-availability-limited, N=32/8-tickers/CRC-dominated,
+  not a clean kill), 2(d) CURRENTLY UNSOURCED — replacing the old
+  "2(b)-(d)... NOT built" line in both places. `LICENSE_MARKS["data/
+  methane-plumes"]` untouched (CC BY 4.0 resell:"ok" was never the stale
+  part).
+- `server/routes.ts`: the actual live JSON `note` field returned by
+  `/api/v1/data/methane-plumes` (the text a real API customer reads)
+  rewritten with the same accurate 2(a)/(b)/(c)/(d) language; the two
+  surrounding code comments above `/api/data/methane-plumes` and
+  `/api/v1/data/methane-plumes` updated to match (internal-only, not
+  customer-facing, but same staleness). `server/gemMethaneProximity.ts`'s
+  own module-doc comment was checked and left AS-IS — it already
+  correctly scopes its claim to "not built HERE" (in that module) and
+  defers detail to open_questions.md, which remains true (2(c) lives in
+  a standalone script, not that module).
+
+RATCHET: `server/apiProduct.test.ts`'s existing GEM methane-plume
+dedicated test rewritten (not a new test — this is a correction to an
+existing assertion that was itself pinning the STALE claim, per
+MEASUREMENT INTEGRITY's "the ruler can be wrong" discipline) to assert
+the actual current state: GATE 1 present, "2(a)"+"2(b)"+"SHIPPED" present
+(was asserting only "2(a)"+"SHIPPED"), "2(c)"+"FAIL" present (new),
+"DATA-AVAILABILITY-LIMITED" present (new, so a future regression to a
+clean-kill or clean-pass framing fails the build), "2(d)"+"UNSOURCED"
+present (was asserting "2(b)-(d)"+"NOT BUILT", which is no longer true
+for (b)/(c)). The "not a confirmed or claimed emissions attribution"
+assertion is unchanged — that honesty clause never depended on the
+gate-2 sub-step status. Net assertion count in this test: same test,
++2 assertions (12618→12620, re-pinned in `ci/counter_baseline.txt`,
+this session's own direct and sole effect).
+
+GATES: this sandbox's `node_modules` was absent at session start (`npm
+ci` run, 488 packages, clean) and Python dev dependencies were missing
+(`pip install -r requirements.txt -r requirements-dev.txt` run, clean) —
+same recurring fresh-sandbox provisioning gap prior sessions have
+logged, not a regression. `npx tsx --test server/apiProduct.test.ts`:
+46/46 pass. `npx tsx --test server/signalLadder.test.ts`: 5/5 pass
+(confirmed the real-registry-reading tests — `total > 10`, unique ids,
+non-empty source_ref/note, `current_gate` 0-5, `raw_only`⇒`current_gate
+0` — all still hold against the edited entry; no test in this file pins
+a specific by-status count against the live file, verified by reading
+it before editing). `bash scripts/tsc_ratchet.sh`: 12/12, TS2304 0,
+unchanged (routes.ts/apiProduct.ts edits are string-literal-only, no
+type surface changed). `bash scripts/gated_tests.sh`: GATE PASSED —
+server+client all green (client 1074/1074), python 1555 passed/1
+skipped/54 subtests, quarantine 0/1 none overdue. `bash scripts/
+counter_ratchet.sh`: only `assertions` improved (12618→12620, this
+session's own new assertions in the rewritten test) — re-pinned in
+`ci/counter_baseline.txt` in this same PR; all other 24 counters
+unchanged. `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. No visual harness run: zero `client/src` files
+touched (`git status --short` confirms only server/datacore/ci/package/
+research files), same exemption every prior zero-rendering-delta PR in
+this family has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this is a documentation/registry
+accuracy correction (the ladder snapshot and the API's own description
+text), not a strategy/scoring/sizing/threshold change; no FROZEN path
+touched. This IS, however, adjacent to MEASUREMENT INTEGRITY in spirit
+(a claim-about-validation-state correction) — stated explicitly per that
+section's own discipline: before this PR, the live API and ladder
+registry UNDERSTATED how much testing had happened (made the root look
+LESS validated than it is, the opposite of the "flatters" direction
+MEASUREMENT INTEGRITY treats as suspect by default) — this is corroborated
+by rereading the original 2026-07-20/07-23 experiments.md entries
+directly rather than trusted from the stale ladder text, so the
+correction is not itself introducing a new, unverified claim.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed; this endpoint's LICENSE_MARKS entry
+(CC BY 4.0, resell:"ok") is unaffected.
+
+CROSS-SYSTEM INTEGRATION: none new — this corrects the accuracy of an
+already-exposed root's documented ladder state; no new join, data
+stream, or entity-graph tie.
+
+VERSION: v1.0.819 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`a639e96`/v1.0.818/PR #965 — no concurrent session had merged ahead of
+this one).
+
+MARKET-HOURS NOTE: Sunday 2026-08-30 ~14:17 ET, markets closed all day —
+no merge-timing caveat needed either way. This diff also has zero
+trading-loop blast radius regardless (docs/registry-text + a JSON `note`
+field on an already-RAW, already-shipped endpoint; no scoring/sizing/
+execution path touched).
+
+NEXT (queued, not this session): the two genuinely open NEXT STEPs from
+the 2026-07-23 filing remain open and are NOT re-litigated here — (i)
+re-run gate 2(c) wholesale once GEM ships a newer release (more
+detection history reduces the CRC single-name dominance); (d) matching
+against operators' own disclosed methane intensity remains CURRENTLY
+UNSOURCED, no candidate source identified yet. Also worth a future
+session's attention: `data/ats-summary`'s missing `/history` companion
+(the immediately-prior session's own NEXT note) remains a valid,
+un-urgent pick with a genuinely new three-shape-composite pattern, not
+this sweep's established single-file shape. A future STALENESS-AUDIT-
+flavored session could usefully grep the rest of `server/apiProduct.ts`'s
+`coming_gated`/gate-status prose against `datacore/signal_ladder.json`
+for the same class of drift this session found by accident while reading
+one entry closely — not attempted broadly this session (scoped to the
+one root this session's own reading actually verified end-to-end).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a real accuracy defect found by reading a ladder entry's
+full history closely rather than trusting its snapshot, verified against
+the underlying experiments.md record before touching any customer-facing
+text), used in full.
+
 ## 2026-08-30 (scheduled-routine session, market-hours run) [RESEARCH] — SHARED-but-minimal (research/open_questions.md, research/experiments.md; no code/test/config file touched): judged the 2026-08-30 Omori-Utsu aftershock-decay probe against real SPY data — GATE 2 CLEAN NEGATIVE, KILLED for this exact spec (no version bump)
 
 TERRITORY: research/* only — no T-BOT/T-CLIENT/T-DATACORE file touched.
