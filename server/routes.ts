@@ -4475,6 +4475,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC EDGAR 13F-HR institutional holdings accumulated history keyed
+  // mirror — the multi-day companion to /api/v1/data/13f-holdings above,
+  // which mirrors only the latest poll cache. Reuses read13FHistory()/
+  // latest13FFilings() directly — no new fetch, no new computation. Same
+  // GATE 1 PASSED / GATE 2 NOT-ATTEMPTED status and the same conditional-
+  // resell posture as data/13f-holdings, so this reuses that LICENSE_MARKS
+  // entry rather than forking a duplicate one. RESPONSE SHAPE DECISION:
+  // read13FHistory()'s own default trims holdings to the top 25 by value
+  // (a display-bandwidth trim for the RAW /data page) — this route instead
+  // passes topHoldings=FOCUSED_MAX_HOLDINGS so it stays consistent with
+  // the base /api/v1/data/13f-holdings mirror's own deliberate "full
+  // as-filed table, not the RAW route's 25-row UI trim" decision (see that
+  // route's comment above): a paying API consumer should not see a
+  // different holdings count for the same filing depending on which of the
+  // two endpoints they call. Same shape as the insider-history/cot-history/
+  // earnings-language-history/short-volume-history companions this sweep
+  // already shipped; the days cap matches the RAW /api/data/filings13f/
+  // history route's own 120-day bound (wider than those companions' 90d —
+  // 13F's quarterly filing cadence means a 90-day window can otherwise
+  // miss a manager's only filing entirely).
+  app.get("/api/v1/data/13f-holdings-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(120, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = read13FHistory(days, undefined, undefined, 500, FOCUSED_MAX_HOLDINGS);
+      const live = latest13FFilings()?.filings || [];
+      const seen = new Set(archived.map((f) => f.accession));
+      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      res.json(v1Envelope("data/13f-holdings", {
+        days,
+        count: merged.length,
+        focused_cap: FOCUSED_MAX_HOLDINGS,
+        filings: merged,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // European macro cluster keyed mirror (same "shipped-data-no-v1-API"
   // sweep as plant-operations/secftd/midas/occ-volume/earnings-language/
   // appstore-rankings/github-activity/crop-conditions/vix-term-structure/

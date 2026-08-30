@@ -3,7 +3,195 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-30 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA Reg SHO short-volume accumulated history gets its `/api/v1/data/short-volume-history` keyed mirror — third of the four `/history`-companion gaps the 2026-08-29 sweep queued, last one of same shape as insider-history/cot-history/earnings-language-history (v1.0.817)
+## 2026-08-30 (scheduled-routine PRODUCT session #2) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC EDGAR 13F-HR institutional holdings gets its `/api/v1/data/13f-holdings-history` keyed mirror, closing the four-gap `/history`-companion queue the 2026-08-29 sweep opened — and correcting the prior session's NEXT note along the way (v1.0.818)
+
+TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
+their test file, and version/counter/ci bookkeeping touched; no T-BOT/
+T-CLIENT/T-DATACORE-primary file touched. Same posture as every other
+mirror PR in this sweep.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then all of `research/*`
+(PROGRAM_STATE.md — the separate audit-ratchet program, not this
+session's territory; experiments.md tail/head; open_questions.md KNOWN
+BROKEN section + tail; wishlist.md head/tail; platform_program.md;
+data_census.md). `python3 scripts/session_health_check.py`: all 7 OK —
+liveness alive/not dark, subsystems ok, daemon rss=377.1MB well under
+trim_mb=400MB, alt_data_enrichment fresh, ml_feedback age 8.1h,
+deploy_freshness server_version=1.0.817 matching this checkout's
+package.json pre-bump. No LIVENESS ALARM — nothing blocks product work.
+`python3 scripts/research_state_check.py`: audits_register none overdue,
+thrash_ratio 0/10 REPAIR (well under the 7+ trigger), known_broken 38
+items/3 without an explicit close marker (#26/#34/#38, advisory only,
+already independently confirmed fixed by prior sessions), starvation_signal
+0 consecutive STARVED.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 33d/90d needed, both WAITING, unchanged from
+this morning's earlier session). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — same 10/35 not-built roots, all declined/blocked/lagged, no
+new axis-(a) candidate. Fell through to SESSION BUDGET step 1: the
+just-prior 2026-08-30 session's own NEXT note named `filings13f/history`
+as the one remaining `/history`-companion gap this sweep's 2026-08-29
+opener queued, but flagged it as "differently shaped" — claiming
+`filings13f` had no `/api/v1/data/13f-holdings` **base** mirror at all
+yet. VERIFIED LIVE rather than trusted: `grep -n
+'app.get("/api/data/filings13f\|app.get("/api/v1/data/13f-holdings\|
+app.get("/api/v1/data/filings13f' server/routes.ts` — the prior session's
+premise was WRONG. A base `/api/v1/data/13f-holdings` mirror has existed
+since an earlier session in this same broader "shipped-data-no-v1-mirror"
+sweep (comment at server/routes.ts:4436 names it alongside plant-
+operations/secftd/midas/occ-volume/earnings-language/appstore-rankings/
+github-activity/crop-conditions/vix-term-structure/nrc-reactor-status) —
+it is simply named `13f-holdings`, not `filings13f` (the RAW route's own
+name), which is why a stale note calling it unbuilt went unchallenged for
+one session. The actual gap is exactly the same SHAPE as every other item
+in this sweep: `/api/data/filings13f/history` (the RAW route, using
+`read13FHistory()`) has no `/api/v1` companion. Picked this corrected
+target rather than propagating the wrong premise forward.
+
+READ BEFORE WRITE: read `server/routes.ts`'s existing `/api/v1/data/
+13f-holdings` base mirror (~4436-4476) in full, including its own comment
+explaining a prior deliberate RESPONSE SHAPE DECISION — return the FULL
+as-filed holdings table (up to `FOCUSED_MAX_HOLDINGS`=250), NOT the RAW
+route's top-25-by-value UI display trim, because "a paying API consumer's
+value IS the actual filed positions." Read the RAW `/api/data/filings13f`
++ `/api/data/filings13f/history` routes (~2129-2171) to confirm the
+history route's exact two-source merge (archived + live, deduped by
+`accession`) and its 120-day cap (wider than this sweep's other RAW
+history routes, which cap at 90 — confirmed by grepping
+`/api/data/insider/history` and `/api/data/earnings-language/history`,
+both 90). Read `server/edgar13f.ts`'s `read13FHistory(days, baseDir?,
+nowMs?, maxFilings=500, topHoldings=25)` signature in full and noticed
+its DEFAULT silently applies the RAW route's 25-row display trim
+(`trimHoldings(f, topHoldings)` on every archived record) — reusing it
+with defaults would have made the v1 history companion inconsistently
+LESS complete than the v1 base mirror for the exact same filing on the
+same day, quietly contradicting that base mirror's own documented
+decision. Not assumed away: `topHoldings` is a positional parameter, so
+the new route calls `read13FHistory(days, undefined, undefined, 500,
+FOCUSED_MAX_HOLDINGS)` to keep full holdings, and the routing/tool/meta
+comments all state this explicitly so a future session can't "fix" the
+call back to the trimmed default without reading why. Read the
+insider-history/earnings-language-history/short-volume-history companion
+routes (~4265-4284, ~4887-4959) as the wiring template (`v1Envelope` +
+`requireApiKey` + `meterUsage`, no 503 guard — the RAW route has none
+either), and their matching `apiProduct.test.ts` dedicated tests
+(~332-372) as the exact test-shape template.
+
+WHAT SHIPPED: `server/routes.ts` gained `/api/v1/data/13f-holdings-history`
+(`?days<=120` default 30, matching the RAW route's own cap) — reuses
+`read13FHistory()`/`latest13FFilings()` verbatim, wrapped in
+`v1Envelope("data/13f-holdings", ...)` behind `requireApiKey` +
+`meterUsage`. `server/apiProduct.ts` gained: a new `apiMeta().endpoints`
+entry (reusing the `data/13f-holdings` license framing, stating the
+full-holdings-consistency decision and the wider 120d cap) and a new
+`voltrade_thirteenf_holdings_history` tool in `agentToolSpec()` with a
+`days` (1-120, default 30) param, `returns_provenance:
+["data/13f-holdings"]` (deliberately NOT a new `LICENSE_MARKS` key, same
+"not a separate root" posture every companion in this sweep has taken).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the insider-history/earnings-language-history/short-volume-
+history precedent) asserting: the `voltrade_thirteenf_holdings_history`
+tool exists, `returns_provenance` is exactly `["data/13f-holdings"]` (not
+a forked duplicate mark), the description carries both "GATE 1" and "NOT
+been attempted" (so gate-2's actual not-attempted status travels with the
+companion tool, matching the base mirror's own honest framing rather than
+a stronger or weaker claim) AND "FULL" (so the deliberate full-holdings
+response-shape decision travels too, catching a future regression to the
+trimmed default), the `days` param caps at 120 (matching the RAW route's
+own bound, not blindly copied from this sweep's other 90-day companions),
+and the `apiMeta().endpoints` entry's `preview` points at
+`/api/data/filings13f/history`. Also added
+`/api/v1/data/13f-holdings-history` to the existing generic "meta
+honesty" and "wiring pinned" sweep-check arrays.
+
+GATES: this sandbox's `node_modules` was present but missing
+`@types/node`/`vite` (the same partial-install "environment divergence,
+not a regression" case the just-prior session's own GATES note already
+named) — first `bash scripts/tsc_ratchet.sh` run reported only 3 errors
+(TS2688/TS5101, config/type-resolution noise) instead of the pinned 12;
+confirmed via `npx tsc --noEmit` directly before touching anything, not
+assumed. Fixed by running `npm ci` (488 packages), after which
+`tsc_ratchet.sh` reported exactly 12, TS2304=0, matching the pin — NOT
+treated as a real fix, baseline NOT touched for this. Python dev
+dependencies were also missing at session start (`pip install -r
+requirements.txt -r requirements-dev.txt` run, same recurring
+fresh-sandbox gap prior sessions have logged). `npx tsx --test
+server/apiProduct.test.ts`: FIRST attempt 46/46 passed but
+`bash scripts/gated_tests.sh` then failed on `test_ts_code_only.py`'s
+`ts_any` pin (1239 -> 1241) — caused by copying the OLDER
+`(t: any) => ...`/`(e: any) => ...` style from the pre-existing
+`13f-holdings` test (line ~228) instead of the newer no-annotation style
+every subsequent companion test in this file already uses (relying on
+`agentToolSpec()`'s/`apiMeta()`'s own return-type inference). Fixed the
+new test's two callback signatures to drop the explicit `: any` — real
+fix, not a ruler change, and it is now the SAME pattern every other
+companion test in the file follows, so re-reading before writing similar
+tests in future sessions should default to the newer, un-annotated form.
+Re-ran: `npx tsx --test server/apiProduct.test.ts` 46/46 pass (45 baseline
++ 1 new), `tsc_ratchet.sh` back to 12/12 unchanged. `bash
+scripts/gated_tests.sh`: GATE PASSED — client 1074/1074 (unchanged, no
+client file touched), python 1555 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`: only
+`assertions` improved (12609 -> 12618, this session's own new test's
+assertions) — re-pinned in `ci/counter_baseline.txt` in this same PR,
+zero unaccounted drift; all 25 counters OK after. `npm run build`: clean,
+only the same pre-existing warnings recent sessions log (maplibre-gl
+chunk size, mapIcons dynamic/static dual import) — none touched this
+session. No visual harness run: zero `client/src` files touched (`git
+status --short` confirms only server/ci/package/research files), same
+exemption every prior zero-rendering-delta mirror PR in this sweep has
+applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route, reusing an existing license
+mark), no strategy/scoring/sizing/threshold change, no FROZEN path
+touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's provenance mark
+(`data/13f-holdings`) carries no aircraft/AIS-derived provider-compliance
+condition; no billing/pricing/subscription/paid-gating code added or
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes more of the existing
+SEC EDGAR 13F-HR archive through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or
+data stream.
+
+NEXT (queued, not this session): this closes the four-gap `/history`-
+companion queue the 2026-08-29 sweep opened (insider-history, cot-history,
+earnings-language-history, short-volume-history, and now
+13f-holdings-history). A future session should re-run
+`data_stream_registry_check.py --unbuilt` and re-survey `data_census.md`/
+`platform_program.md` fresh rather than assume a further queue continues
+— axis (a) has been reported exhausted by several sessions in a row now.
+Also worth a future session's attention, not urgent: `data/ats-summary`
+(FINRA ATS venue summaries) is the one root in the FINRA Query API
+cluster with neither a `/history` companion nor an established single-
+file precedent for its three-shape composite (weekly/monthly/blocks) —
+noted, not picked, since it is a NEW-shape task rather than this sweep's
+established pattern.
+
+VERSION: v1.0.818 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`9c354a6`/v1.0.817/PR #963 — no concurrent session had merged ahead of
+this one).
+
+MARKET-HOURS NOTE: Sunday 2026-08-30 ~09:20 ET, markets closed. This diff
+also has zero trading-loop blast radius regardless (additive
+`/api/v1/*` GET route reading an existing cache), so no market-hours
+gating applies.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (closing out the standing queue this sweep's own prior
+sessions named), used in full including catching and correcting a stale
+premise in the immediately prior session's own NEXT note rather than
+propagating it forward unread.
+
+
 
 TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
 their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
