@@ -70084,3 +70084,132 @@ STARVED: no — this session had capacity for exactly one clean, scoped
 RESEARCH action (a genuinely new foreign-field import, all four axes
 surveyed before picking), used in full including reading both prior
 foreign-field-import entries end to end as precedent.
+
+## 2026-08-30 (scheduled-routine session) [RESEARCH] — SHARED-but-minimal (scripts/omori_aftershock_probe.py new, test_omori_aftershock_probe.py new, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FOREIGN-FIELD IMPORT (axis c/d): seismology's Omori-Utsu aftershock-decay law (power-law vs. exponential shock-rate decay) as a market shock-clustering diagnostic, script built and unit-tested, not yet run against real data (v1.0.816)
+
+Full account filed in `research/open_questions.md`'s matching dated entry
+(same date, same title) — this is the compact experiments.md record per
+MEMORY PROTOCOL.
+
+SESSION-START CHECKS: CLAUDE.md read in full. `python3
+scripts/session_health_check.py` (see open_questions.md entry for the
+exact output) and `python3 scripts/research_state_check.py`: audits
+register none overdue, thrash_ratio 1/10 REPAIR (below the 7+ trigger),
+known_broken 38 items — 3 lack an explicit CLOSED-marker regex match (#26,
+#34, #38), already dispositioned as genuinely fixed by the 2026-08-20 and
+2026-08-29 sessions (detector-precision gap, not new work). NOT a
+[REPAIR] session. starvation_signal 0/10.
+
+AXIS SURVEY (all four options in this routine's brief re-checked, not
+assumed from the last session's survey): axis (a) re-confirmed exhausted
+via `data_stream_registry_check.py --unbuilt` — same 10/35 unbuilt roots
+as the 2026-08-29 survey (declined-dead-source or blocked-on-registration,
+`un_comtrade` still the only `candidate_unbuilt` and still structural-
+thesis-only). Axis (b) still gated: `research/open_questions.md`'s
+"Options fill realism" entry's own 2026-08-28 update confirms only the
+EQUITY-side tick-floor half shipped (v1.0.802); the options-side half
+remains explicitly deferred behind KNOWN BROKEN #12(b)/(c). Axis (c)/(d):
+grepped experiments.md + open_questions.md for "omori", "aftershock",
+"seismol", "earthquake" (in a market-timing-signal sense, not the existing
+USGS RAW-overlay earthquake data layer, a genuinely different topic
+confirmed by reading the hit at experiments.md:19481) — zero prior hits.
+The three fields CLAUDE.md's EDGE DOCTRINE #4 names by example (ecology
+2026-08-18/21, epidemiology 2026-08-26, aviation-maintenance/reliability
+engineering 2026-08-29) are now all used at least once — seismology is a
+field CLAUDE.md does not name but EDGE DOCTRINE #4 explicitly invites
+("import from foreign fields... deliberately research outside finance").
+
+REAL-DATA ACCESS RE-CHECKED, NOT ASSUMED STILL BLOCKED: this session
+independently confirmed no `ALPACA_KEY`/`ALPACA_SECRET` in the environment
+and a hard proxy-level connection reset on query2/guce/fc.finance.yahoo.com
+(not a 429 this time — a `ws_closed_mid_exchange` at the agent proxy
+layer, logged via `pip install` + a direct `yfinance.Ticker.history` call
+before writing any probe code), no `.bt_cache` present. Same class of
+constraint as the three prior foreign-field entries, independently
+re-verified rather than inherited on faith.
+
+FOREIGN FIELD / HYPOTHESIS / PRIOR: seismology's Omori-Utsu law
+(rate of aftershocks decays as a POWER LAW in time after a mainshock, not
+an exponential) applied to SPY daily-return shocks (a "mainshock" =
+|log-return| >= k trailing-sigma, sigma from STRICTLY PRIOR days only —
+the day's own magnitude never inflates the sigma used to classify it).
+Superposed-epoch analysis over every mainshock builds an empirical
+aftershock-rate curve by forward lag; two competing OLS log-log/log-lin
+fits (power law vs. exponential) are compared by R^2. PRIOR stated before
+running: expect the exponential fit to do AS WELL AS or BETTER than the
+power law (a clean negative for "seismology adds something GARCH-style
+vol-clustering doesn't") — REASONING STANDARD #5 second-order reasoning:
+if a heavy-tailed power-law aftershock structure in equity shocks were
+both real and this easy to detect, decades of FIGARCH/HAR-RV literature
+would already have absorbed it. Finding the power law wins AND p < 1
+would be the novel, actionable result (a longer defensive window than
+standard vol models imply); the expected exponential-favored outcome is
+an equally valid negative to log (REASONING STANDARD #10).
+
+WHAT SHIPPED: `scripts/omori_aftershock_probe.py` — pure functions
+`trailing_sigma`/`shock_flags` (mainshock/aftershock event definition,
+strictly-prior sigma, explicit zero-sigma guard against a degenerate
+always-true classification), `aftershock_rate_curve`/`baseline_shock_rate`
+(the superposed-epoch analysis + its asymptote), `fit_power_law_decay`/
+`fit_exponential_decay` (grid-search-over-c OLS log-log / log-lin fits,
+each requiring >=3 positive-excess points to fit at all) and
+`power_law_beats_exponential` (the actual discriminating test, factored
+out as its own testable function rather than left inline), plus
+`run_probe()` reusing `backtest_v2.fetch_bars` and the CSD entry's
+`log_returns` verbatim (EDGE DOCTRINE #3). Deliberately did NOT reuse
+`critical_slowing_down_probe.rolling_variance` for the sigma estimate —
+that helper's window is inclusive of the current day (correct for CSD's
+own use, wrong here: it would let a shock's own size inflate the sigma
+used to judge it) — a new, narrower `trailing_sigma` was the honest
+choice, not a re-derivation of already-verified plumbing.
+
+RATCHET: `test_omori_aftershock_probe.py` (new, root, 23 tests, synthetic
+data only, no network) — every pure function covered, including the
+zero-sigma degenerate-shock guard, the strictly-prior-window property
+(hand-constructed outlier-at-t case), a hand-computed aftershock-curve
+example, and — the two tests that actually matter for the hypothesis —
+exact power-law-generated and exact exponential-generated synthetic
+curves each correctly recovered by their matching fit (R^2 ~= 1.0) AND
+correctly discriminated against the other model via
+`power_law_beats_exponential`. One integration-shape test confirms the
+CSD `log_returns` import wiring, mirroring the hazard-rate entry's own
+precedent.
+
+GATES: `npm ci` (488 packages; this sandbox's `node_modules` was present
+but missing `express`/`better-sqlite3`, the same recurring fresh-sandbox
+provisioning gap prior sessions have logged — confirmed via `git status
+--short` that zero server/client files were touched before concluding
+this was not a regression) and `pip install -r requirements.txt -r
+requirements-dev.txt` both run at session start. `python3 -m unittest
+test_omori_aftershock_probe -v`: 23/23 pass. `python3 -m pytest -q`: 1555
+passed, 1 skipped, 54 subtests (1532 baseline + 23 new, zero regressions).
+`bash scripts/gated_tests.sh`: GATE PASSED (server+client all green,
+python 1555/1 skipped/54 subtests, quarantine 0/1 none overdue). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no `.ts` touched).
+`bash scripts/counter_ratchet.sh`: first run (before `git add`) reported
+no movement — confirmed this is `program_status.sh`'s documented
+`git ls-files`-blindness to untracked new files (the exact gotcha the
+2026-08-29 entry names); staged the two new files and re-ran:
+`tests_run_in_ci`/`tests_gating_merge` 407 -> **408**, `assertions` 12554
+-> **12601**, all re-pinned in `ci/counter_baseline.txt` in this same PR
+— this session's own new files' direct and sole effect. All other 22
+counters unchanged. No `.ts`/`.tsx` touched, so no visual harness run.
+
+BACKTEST: N/A per PROMOTION RULE 3 — research probe script and its tests
+only; no strategy, threshold, or scoring change.
+
+VERSION: v1.0.816 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base, v1.0.815/PR
+#961 — no concurrent session had merged ahead of this one).
+
+NEXT: whichever future session has real Alpaca/Yahoo data access should
+run `python3 scripts/omori_aftershock_probe.py --days 2520`. Full
+read-the-result guidance (what a power-law win with p<1 vs. an
+exponential-favored result each mean, and the `n_mainshocks_insufficient`
+floor to respect) is in the open_questions.md entry's own NEXT section.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a genuinely new foreign-field import, all four axes
+re-surveyed rather than assumed stale), used in full including reading
+all three prior foreign-field-import entries end to end as precedent.
