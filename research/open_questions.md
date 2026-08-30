@@ -13067,3 +13067,95 @@ re-surveyed rather than inherited from the prior session's findings),
 used in full including reading all three prior foreign-field-import
 entries end to end as precedent rather than re-deriving their conventions
 from scratch.
+
+## [2026-08-30 (scheduled-routine session, market-hours run) — FOREIGN-FIELD IMPORT (axis c) FOLLOW-UP: seismology's Omori-Utsu aftershock-decay law — RUN AGAINST REAL DATA, GATE 2 RESULT: CLEAN NEGATIVE, KILLED for this exact spec]
+
+SESSION-START CHECKS: CLAUDE.md read in full, then experiments.md/
+open_questions.md/wishlist.md. `python3 scripts/session_health_check.py`:
+all 7 OK, no LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits_register none overdue, thrash_ratio 0/10 REPAIR (well under the
+7+ trigger), known_broken 38 items/3 advisory-only without a close
+marker, starvation_signal 0 consecutive STARVED. `python3
+scripts/ladder_readiness_check.py`: 0/2 gate2_pending roots ready
+(cftc_cot_positioning ~56d/~105d, sec_8k_earnings_language 33d/90d, both
+unchanged WAITING). `python3 scripts/data_stream_registry_check.py
+--unbuilt`: same 10/35 not-built roots, all declined/blocked, no new
+axis-(a) candidate. No higher-priority PRIMARY action queued — fell
+through to SESSION BUDGET step 1: the immediately-prior 2026-08-30
+session's own entry above ends with a concrete queued NEXT action
+("for whichever future session has real Alpaca/Yahoo data access, run
+`python3 scripts/omori_aftershock_probe.py --days 2520`") rather than a
+vague pointer — picked that exact item over starting a new experiment,
+per SESSION BUDGET's "judge a matured experiment" outranking "start a
+new experiment."
+
+DATA ACCESS CHECK: this sandbox has working `backtest_v2.fetch_bars`
+access this session (verified directly with a small SPY pull before
+attempting the full run) — no reason to defer, same precedent the R_t
+follow-up entry above established for the CSD/R_t probes.
+
+RUN: `PYTHONPATH=. python3 scripts/omori_aftershock_probe.py --days 2520`.
+NOTE for future sessions: running the script as `python3
+scripts/omori_aftershock_probe.py` from the repo root fails with
+`No module named 'backtest_v2'` (the script's own `sys.path` is
+`scripts/`, not repo root) — `PYTHONPATH=.` from the repo root is
+required. This is not new to this probe; every sibling probe script
+(`critical_slowing_down_probe.py`, `contagion_reproduction_probe.py`,
+the hazard-rate probe) has the identical gap, none of them add a
+`sys.path.insert`. Not fixed this session (a script-ergonomics nit
+across four files, not a break blocking anything — noted here so a
+future session doesn't rediscover the same "No module named
+'backtest_v2'" error from scratch).
+
+RESULT (real run, SPY, 2019-10-07 to 2026-08-28, n_days=1732,
+sigma_window=60, shock_k=2.5, n_mainshocks=54, sufficient per
+MIN_MAINSHOCKS_FOR_STATS):
+
+| fit | params | r_squared |
+|---|---|---|
+| power_law  | c=5.0, p=1.613, K=4.354  | 0.6256 |
+| exponential | lam=0.1184, K=0.2058 | 0.6364 |
+
+`power_law_beats_exponential`: **False** — the exponential fit's R^2
+(0.6364) narrowly exceeds the power-law fit's R^2 (0.6256) across the 19
+fittable lags (base_rate=0.0312).
+
+VERDICT (matches this entry's own pre-registered PRIOR exactly, per
+REASONING STANDARD #10): **clean negative** for "seismology's power-law
+aftershock decay adds something the codebase's existing exponential/
+GARCH-shaped volatility-clustering assumption doesn't," at this exact
+spec (SPY only, k=2.5, sigma_window=60, max_lag=20, same-threshold
+mainshock/aftershock definition). The two fits are close (0.636 vs.
+0.626, not a landslide either way) and the power-law's own fitted
+exponent (p=1.613) is well ABOVE 1 — the OPPOSITE of the "heavy tail"
+signature (p < 1) the hypothesis was looking for even had the power law
+won on R^2. Same disposition class as the CSD and R_t entries above:
+**gate 2 FAILED, this specific candidate is KILLED** for the pre-
+registered spec. Per REASONING STANDARD #5 (second-order thinking), this
+is the unsurprising outcome — GARCH-family models already built to
+capture volatility clustering had no obvious gap here for a novel
+heavy-tailed law to fill, exactly the low base rate this entry's own
+PRIOR anticipated before running.
+
+NOT killed: the reusable probe code (`trailing_sigma`/`shock_flags`/
+`aftershock_rate_curve`/the two fit functions), which stands ready for a
+different universe/threshold/graded-aftershock spec per EDGE DOCTRINE #3
+— this entry's own prior "NEXT" note already named the two concrete
+follow-up variants that would be a materially different spec (a broader
+shock universe than SPY alone, or a lower/graded aftershock threshold
+matching real seismic catalog practice) rather than a parameter reshuffle
+on the same untested premise.
+
+RATCHET: no code change this session (existing script + existing tests
+run as-is against real data) — `python3 -m pytest -q` re-run to confirm
+no regression from the sandbox's own provisioning: 1555 passed, 1
+skipped, 54 subtests, matching the prior session's own baseline exactly.
+No code, config, or test file touched — no version bump, matching every
+prior probe follow-up session's precedent above.
+
+BACKTEST: N/A — no strategy/scoring/sizing/threshold change; this
+records a gate-2 SIGNAL result for an already-shipped research probe.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion (build → run →
+record), the highest-priority fall-through item available this session.

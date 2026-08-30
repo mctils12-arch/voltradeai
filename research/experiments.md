@@ -3,6 +3,105 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-30 (scheduled-routine session, market-hours run) [RESEARCH] — SHARED-but-minimal (research/open_questions.md, research/experiments.md; no code/test/config file touched): judged the 2026-08-30 Omori-Utsu aftershock-decay probe against real SPY data — GATE 2 CLEAN NEGATIVE, KILLED for this exact spec (no version bump)
+
+TERRITORY: research/* only — no T-BOT/T-CLIENT/T-DATACORE file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then research/experiments.md
+(this file, head + this session's predecessor entry in full), research/
+open_questions.md (KNOWN BROKEN section + tail), research/wishlist.md
+(head + tail). `python3 scripts/session_health_check.py`: all 7 OK —
+liveness alive/not dark, subsystems ok, daemon rss=370MB well under
+trim_mb=400MB, alt_data_enrichment fresh, ml_feedback model_age_hours=11.1,
+deploy_freshness server_version=1.0.818 matches this checkout's
+package.json. No LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits_register none overdue (3 tracked), thrash_ratio 0/10 REPAIR in the
+last 10 tagged sessions (well under the 7+ trigger — loop health is
+healthy, no meta-problem to fix), known_broken 38 items/3 advisory-only
+without a close marker (#26/#34/#38, already independently confirmed
+fixed by prior sessions, not treated as live blockers), starvation_signal
+0 consecutive STARVED.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 33d/90d needed, both unchanged WAITING from the
+prior session). `python3 scripts/data_stream_registry_check.py
+--unbuilt` — same 10/35 not-built roots, all declined_gate1_fail/
+declined_dead_source/blocked_registration/blocked_free_key, no new
+axis-(a) candidate (matches the immediately-prior session's own
+"axis (a) reported exhausted by several sessions in a row" note). Fell
+through to SESSION BUDGET step 1: the immediately-prior session's own
+research/open_questions.md entry ends with a concrete, ready-to-execute
+NEXT action — "for whichever future session has real Alpaca/Yahoo data
+access, run `python3 scripts/omori_aftershock_probe.py --days 2520`" —
+a matured-but-unrun gate-2 probe, which SESSION BUDGET's own PRIMARY
+ACTION ordering ranks above starting a new experiment. Verified this
+sandbox has data access first (`backtest_v2.fetch_bars('SPY', 30)`
+returned 6 bars) before committing to the action.
+
+WHAT SHIPPED: no code change. Ran the already-built, already-tested
+probe (`scripts/omori_aftershock_probe.py`, shipped v1.0.816 by the
+prior session) against 2019-10-07 through 2026-08-28 real SPY daily
+bars (`PYTHONPATH=. python3 scripts/omori_aftershock_probe.py --days
+2520`; noted for future sessions in the open_questions.md entry that
+`PYTHONPATH=.` from the repo root is required — running the script
+directly from repo root without it fails with `No module named
+'backtest_v2'`, a gap shared by every sibling probe script, not new to
+this one, not fixed this session as a script-ergonomics nit rather than
+a break). Recorded the full result and verdict in `research/
+open_questions.md` (new entry appended after the probe's own build
+entry, matching the CSD/R_t follow-up precedent's format) rather than
+duplicating the numbers here — see that file for the fit table.
+
+RESULT SUMMARY: n_mainshocks=54 (sufficient), power-law fit r_squared
+0.6256 (p=1.613, well ABOVE 1 — the opposite of the heavy-tail signature
+the hypothesis needed) vs. exponential fit r_squared 0.6364 —
+`power_law_beats_exponential=False`. This is the CLEAN NEGATIVE this
+entry's own pre-registered PRIOR anticipated (REASONING STANDARD #10):
+seismology's power-law aftershock decay does not measurably beat the
+codebase's existing exponential/GARCH-shaped volatility-clustering
+assumption at this spec. GATE 2 FAILED — killed for SPY/k=2.5/
+sigma_window=60/max_lag=20; the reusable probe code is not killed and
+stands ready for a materially different spec (broader shock universe,
+or a graded aftershock threshold) per EDGE DOCTRINE #3, both already
+named as the concrete follow-up variants in the probe's own prior NEXT
+note rather than an untested parameter reshuffle.
+
+RATCHET: no new test needed (pure real-data run of already-tested pure
+functions, zero code changed) — re-ran `python3 -m pytest -q` to confirm
+the sandbox's own environment introduced no regression: 1555 passed, 1
+skipped, 54 subtests, byte-identical to the prior session's own recorded
+baseline. `git status --short` confirms only `research/open_questions.md`
+and this file changed.
+
+BACKTEST: N/A per PROMOTION RULE 3 — no strategy/scoring/sizing/threshold
+change; this records a gate-2 SIGNAL result for an already-shipped
+research probe, not a trading-behavior change.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code touched.
+
+CROSS-SYSTEM INTEGRATION: none — this judges an existing single-index
+(SPY) research probe; no new join or data stream.
+
+VERSION: no bump — docs-only (research/* only), matching the established
+precedent for prior no-code judging/follow-up sessions (see the 2026-08-26
+R_t follow-up and the 2026-08-21 CSD follow-up, same file).
+
+MARKET-HOURS NOTE: this session ran during market hours. The PR opened
+for this change is docs-only (research/* only, no runtime/trading code
+touched) so it carries no live-trading risk regardless of merge timing,
+but per the standing instruction for market-hours runs, the PR body
+still states merge should wait until after 4:00 PM ET unless a session
+judges otherwise.
+
+STARVED: no — this session's one primary action was judging this exact
+matured, previously-flagged experiment to completion, the highest-value
+fall-through item available; no higher-priority queued item existed
+(both readiness checks came back empty) and no capacity remained to also
+start a second, unrelated action within the same session/PR without
+violating the one-logical-change-per-PR rule.
+
 ## 2026-08-30 (scheduled-routine PRODUCT session #2) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC EDGAR 13F-HR institutional holdings gets its `/api/v1/data/13f-holdings-history` keyed mirror, closing the four-gap `/history`-companion queue the 2026-08-29 sweep opened — and correcting the prior session's NEXT note along the way (v1.0.818)
 
 TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
