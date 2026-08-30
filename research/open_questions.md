@@ -12841,3 +12841,229 @@ RESEARCH action (a genuinely new foreign-field import, all four axes
 surveyed before picking), used in full including reading the two prior
 foreign-field-import entries end to end as precedent rather than
 re-deriving their conventions from scratch.
+
+## 2026-08-30 (scheduled-routine session) [RESEARCH] — FOREIGN-FIELD IMPORT (axis c): seismology's Omori-Utsu aftershock-decay law (power-law vs. exponential shock-rate decay) as a market shock-clustering diagnostic — script built, not yet run against real data
+
+TERRITORY: SHARED-but-minimal, matching the CSD (2026-08-18/21), R_t
+(2026-08-26), and hazard-rate (2026-08-29) foreign-field-import precedent
+— this diff only touches `scripts/omori_aftershock_probe.py` (new),
+`test_omori_aftershock_probe.py` (new, root), `ci/counter_baseline.txt`,
+`package.json`/`package-lock.json` (version bump), and `research/*`. No
+T-DATACORE/T-CLIENT/T-BOT territory file touched.
+
+SESSION-START CHECKS: CLAUDE.md read in full, with special attention to
+the EDGE DOCTRINE per this routine's own instruction. `python3
+scripts/session_health_check.py`: all OK, no LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits register none overdue,
+thrash_ratio 1/10 REPAIR (well under the 7+ trigger), known_broken 38
+items, 3 without an explicit close-marker regex match (#26/#34/#38) —
+already read and dispositioned as genuinely fixed by two prior sessions
+(a detector-precision gap, not new work; not re-litigated here).
+starvation_signal 0/10. NOT a [REPAIR] session.
+
+AXIS SURVEY (all four options in this routine's brief re-checked this
+session, not inherited from the 2026-08-29 survey without verification):
+
+- Axis (a) — free-data pipeline build. Re-ran `python3
+  scripts/data_stream_registry_check.py --unbuilt`: identical 10/35
+  unbuilt roots as the 2026-08-29 session found (all declined_dead_source/
+  declined_gate1_fail/blocked_registration/blocked_free_key except
+  `un_comtrade`, still tagged `candidate_unbuilt` with its own note that
+  it is structural-thesis-only, too lagged for direct alpha). No new
+  pipeline opportunity has appeared since the last check. Confirmed
+  exhausted for this session.
+- Axis (b) — capacity-constrained/illiquid-universe research. This file's
+  own "Options fill realism" entry (grep-verified this session, its
+  2026-08-28/v1.0.802 UPDATE) confirms only the EQUITY-side tick-floor
+  gap closed; the options-side quote-based-fill model remains explicitly
+  deferred behind KNOWN BROKEN #12(b)/(c) ("do not touch until then — one
+  attribution at a time"). Still gated, same as every prior session's
+  finding.
+- Axis (c)/(d) — foreign-field import / compiled reasoning. Grepped
+  experiments.md + open_questions.md for "omori", "aftershock", "seismol",
+  and "earthquake" in a market-signal sense. The only "earthquake" hits
+  are the USGS RAW-overlay map layer (raw seismic event data displayed
+  as-is on /data, no predictive claim — read the hit at
+  experiments.md:19481 directly to confirm this is a different topic, not
+  a near-duplicate of what this session is about) — zero prior hits on
+  aftershock-decay-as-a-market-signal. The three fields CLAUDE.md's EDGE
+  DOCTRINE #4 names by direct example (ecology/CSD 2026-08-18/21,
+  epidemiology/R_t 2026-08-26, aviation-maintenance-reliability-
+  engineering/hazard-rate 2026-08-29) are now each used at least once.
+  Seismology is not one of CLAUDE.md's named examples, but EDGE DOCTRINE
+  #4's own text ("deliberately research outside finance... epidemiology
+  ... ecology... aviation maintenance") frames those as standing
+  examples, not an exhaustive list ("Tether: a cross-domain idea lands as
+  a testable hypothesis... or is discarded") — a genuinely new import,
+  not a fourth pass over the same three fields.
+
+REAL-DATA ACCESS RE-CHECKED, NOT ASSUMED STILL BLOCKED (worth stating
+explicitly rather than inheriting the prior session's finding on faith):
+`env | grep -iE "alpaca|yahoo"` empty — no `ALPACA_KEY`/`ALPACA_SECRET`.
+`pip install -r requirements.txt -r requirements-dev.txt` then a direct
+`yfinance.Ticker('SPY').history(period='5d')` call: this session's failure
+mode was DIFFERENT from the 2026-08-29 session's HTTP 429 — a hard
+connection reset at the agent egress proxy layer on
+query2.finance.yahoo.com / guce.yahoo.com / fc.yahoo.com
+(`ws_closed_mid_exchange`, confirmed via the proxy's own status output),
+consistent with Yahoo now blocking this sandbox's egress IP range
+entirely rather than just rate-limiting it. No pre-existing `.bt_cache`.
+Same disposition as the three prior entries (real-data run deferred to a
+future session with access), independently re-verified rather than
+assumed.
+
+FOREIGN FIELD: seismology's Omori-Utsu aftershock-decay law — Omori
+(1894); Utsu, Ogata & Matsu'ura (1995), "The Centenary of the Omori
+Formula for a Decay Law of Aftershock Activity," J. Phys. Earth
+43(1):1-33. The rate of aftershocks n(t) following a mainshock decays as
+n(t) = K/(t+c)^p, typically p near 1 — a POWER LAW, not an exponential.
+Power-law-vs-exponential is the field's own standard diagnostic for
+self-exciting/heavy-tailed processes vs. ordinary short-memory relaxation.
+
+This is a DIFFERENT statistical technique from all three prior
+foreign-field imports on file: CSD measured a single index's own rolling
+autocorrelation/variance ahead of a transition (a within-series
+early-warning diagnostic, no event-timing model); R_t measured a
+cross-sectional breakdown-count growth RATIO across a peer basket (no
+decay-curve fit); the hazard-rate entry measured the coefficient of
+variation of inter-failure GAP TIMING (regular vs. bursty spacing, not a
+rate-decay shape). None of the three fit a parametric decay curve to the
+rate of subsequent events following a reference event, and none directly
+targets an assumption already built into this codebase's own machinery —
+this one does: the regime classifier and options/backtest cost models
+already assume vol clustering decays in a roughly exponential/GARCH-like
+way, and this probe's whole point is testing whether that assumption
+itself is missing a heavier tail.
+
+HYPOTHESIS (pre-registered): following an SPY daily log-return shock
+(|return| >= k trailing-sigma, sigma computed from STRICTLY PRIOR trading
+days only — never the shock day itself, so a shock's own magnitude cannot
+inflate the sigma used to classify it), the empirical rate of a further
+shock at forward lag t (a standard superposed-epoch analysis averaged
+across every mainshock) fits a power-law decay BETTER (higher log-log
+R^2) than an exponential decay, with fitted exponent p < 1.
+
+PRIOR (stated before ever running this against real data): my prior is
+that the exponential fit does about AS WELL AS, or better than, the power
+law — a CLEAN NEGATIVE for "seismology adds something GARCH doesn't," the
+same disposition the CSD and R_t entries landed on. REASONING STANDARD #5
+(second-order): if a heavy-tailed power-law aftershock structure in
+equity-index shocks were both real and this easy to detect with a
+superposed-epoch analysis, GARCH variants already built to fit
+fat-tailed/long-memory volatility (FIGARCH, HAR-RV) would already have
+absorbed it — this is about as well-trodden a corner of quant finance as
+exists, so the base rate for "found something new" here is low. Finding
+p < 1 WITH a power-law R^2 clearly beating the exponential fit's R^2
+would be the genuinely interesting, actionable result (a longer
+defensive-window duration edge than standard vol models imply); the
+exponential-favored outcome is the expected, unglamorous, and equally
+valid-to-log negative (REASONING STANDARD #10 — state the prior, then
+update, don't only write conclusions after seeing data).
+
+SIMPLIFICATION STATED EXPLICITLY (REASONING STANDARD #4): "aftershock"
+reuses the SAME shock definition as "mainshock" (any day clearing the
+same k-sigma bar counts as both), not a lower/graded threshold the way
+real seismic aftershock catalogs sometimes use — the simplest faithful
+reading of the law, named as a limitation, not the whole design space.
+
+LADDER PATH: gate-2 SIGNAL test (statistical predictive power only, no
+trading), built on `backtest_v2.fetch_bars` (already gate-1 verified
+elsewhere) and `critical_slowing_down_probe.log_returns` reused verbatim
+(EDGE DOCTRINE #3). Deliberately did NOT reuse `critical_slowing_down_
+probe.rolling_variance` for the sigma estimate: that helper's window is
+INCLUSIVE of the current day, correct for CSD's own approach-to-transition
+use but wrong here, where the sigma classifying day t must be strictly
+prior to t — a new, narrower `trailing_sigma` function was the honest
+choice, not a re-derivation of already-verified plumbing.
+
+WHAT SHIPPED: `scripts/omori_aftershock_probe.py` — pure functions
+`trailing_sigma` (strictly-prior population std), `shock_flags` (mainshock/
+aftershock event flag, with an explicit `sigma > 0` guard against the
+degenerate case where a zero-variance window would make abs(return) >= 0
+trivially true), `aftershock_rate_curve`/`baseline_shock_rate` (the
+superposed-epoch analysis and its long-lag asymptote, each lag entry
+carrying its own `n_mainshocks`/`insufficient_n` flag rather than a bare
+number), `fit_power_law_decay`/`fit_exponential_decay` (grid-search-over-c
+OLS log-log / log-lin fits, each requiring >=3 strictly-positive-excess
+lags before attempting a fit at all — a 2-point "fit" is refused, not
+silently returned), and `power_law_beats_exponential` (the actual
+discriminating test, factored out as its own small testable function
+rather than left inline in `run_probe()`), plus `run_probe()` orchestrating
+the whole probe against real data once it's reachable.
+
+RATCHET: `test_omori_aftershock_probe.py` (new, root, 23 tests, synthetic
+data only, no network) covers: `trailing_sigma` (None before the window
+fills; a hand-verified constant-variance arithmetic-progression case; the
+strictly-prior property directly tested via a huge outlier placed AT the
+index whose sigma must stay unaffected); `shock_flags` (None-sigma never a
+shock; zero-sigma never a shock despite the trivial-true abs-comparison
+trap; above/below-threshold cases); `aftershock_rate_curve` (a fully
+hand-computed 10-day/3-mainshock/3-lag example; the no-mainshocks case;
+the sufficient-n case correctly omitting the `insufficient_n` key rather
+than always including it as `False`); `baseline_shock_rate` (empty ->
+None; a known fraction); `fit_power_law_decay`/`fit_exponential_decay`
+(None on missing base_rate; None below the 3-point floor; and — the tests
+that actually matter for the hypothesis — an EXACT synthetic power-law
+curve and an EXACT synthetic exponential curve, each reconstructed to
+R^2 ~= 1.0 by ITS OWN matching fit function); a dedicated discrimination
+test class confirms `power_law_beats_exponential` correctly favors the
+power-law fit on power-law-generated data and correctly favors the
+exponential fit on exponential-generated data — i.e., the probe's
+discriminating machinery actually discriminates, not just that each fit
+function runs without error. One integration-shape test confirms the CSD
+`log_returns` import wiring, mirroring the hazard-rate entry's own
+precedent.
+
+GATES: `npm ci` (488 packages; missing `express`/`better-sqlite3` in this
+fresh sandbox, the same recurring provisioning gap prior sessions have
+logged — confirmed via `git status --short` that zero server/client files
+were touched before concluding it's not a regression) and `pip install -r
+requirements.txt -r requirements-dev.txt` both run at session start.
+`python3 -m unittest test_omori_aftershock_probe -v`: 23/23 pass. `python3
+-m pytest -q`: 1555 passed, 1 skipped, 54 subtests (1532 baseline + 23
+new, zero regressions). `bash scripts/gated_tests.sh`: GATE PASSED
+(server+client all green — 1074 client subtests, python 1555/1
+skipped/54 subtests, quarantine 0/1 none overdue). `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304 0, unchanged (no `.ts` touched).
+`bash scripts/counter_ratchet.sh`: first run (before staging the new
+files) reported zero movement — this is `program_status.sh`'s documented
+`git ls-files` blindness to untracked files, the exact gotcha the
+2026-08-29 entry names explicitly; staged both new files with `git add`
+and re-ran: `tests_run_in_ci`/`tests_gating_merge` 407 -> **408** and
+`assertions` 12554 -> **12601**, both re-pinned in `ci/counter_baseline.txt`
+in this same PR — this session's own two new files' direct and sole
+effect. All other 22 counters unchanged. No `.ts`/`.tsx` file touched, so
+no visual harness run, per the established Python-only-diff precedent.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this ships a research probe script
+and its tests, not a strategy, threshold, or scoring change; no trading
+behavior is touched.
+
+NEXT: for whichever future session has real Alpaca/Yahoo data access, run
+`python3 scripts/omori_aftershock_probe.py --days 2520` (or call
+`run_probe()` directly). Read the result per this entry's own PRIOR: the
+key fields are `power_law_fit`/`exponential_fit`'s `r_squared` (which one
+is higher) and, if the power law wins, whether `power_law_fit["p"]` is
+meaningfully below 1. Respect `n_mainshocks_insufficient` (fewer than 5
+mainshocks at the default k=2.5, sigma_window=60) and each curve entry's
+own `insufficient_n` flag before trusting any single lag's rate — widen
+`--days` or lower `--k` rather than reading a thin curve as conclusive.
+If `power_law_beats_exponential` comes back `None`, the fit failed
+outright (fewer than 3 positive-excess lags) — that itself is worth
+recording as "no detectable decay structure above baseline" rather than
+silently retried with different parameters until something fits (would
+violate REASONING STANDARD #4's multiple-hypothesis-fishing discount). If
+the exponential fit wins (this entry's own prior), record that as a clean
+negative for "seismology adds a duration edge beyond GARCH-style decay"
+specifically — same disposition class as the CSD, R_t, and hazard-rate
+entries — and do not proceed further down the ladder without a materially
+different spec (e.g., a broader shock universe than SPY alone, or a
+lower/graded aftershock threshold matching real seismic catalog practice,
+both noted above as this entry's own stated simplifications).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+RESEARCH action (a genuinely new foreign-field import, all four axes
+re-surveyed rather than inherited from the prior session's findings),
+used in full including reading all three prior foreign-field-import
+entries end to end as precedent rather than re-deriving their conventions
+from scratch.
