@@ -494,6 +494,14 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                 "stop_loss_mult": T1_STOP_LOSS_MULT,
                 "force_close_dte": T1_FORCE_CLOSE_DTE,
                 "min_iv_rank": T1_MIN_IV_RANK,
+                # CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
+                # filed 2026-07-28/2026-08-06): the live dispatcher (server/bot.ts)
+                # needs these to label a capital-starved rejection's shadow record
+                # the same way log_masterkill_csp_shadow already does — without
+                # them it would have to re-derive regime context it has no access
+                # to at the point options_execution.select_contract fails.
+                "vxx_ratio": ctx.vxx_ratio,
+                "regime_label": regime_label,
             },
         ))
 

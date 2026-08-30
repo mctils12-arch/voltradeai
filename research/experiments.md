@@ -3,6 +3,200 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-30 (scheduled-routine session #4) [PIPELINE] — T-BOT (options_execution.py, tiered_strategy.py, shadow_portfolio.py, server/bot.ts) + SHARED-but-minimal (server/cspCapitalCounterfactualLogging.test.ts, test_options_fixes.py, test_tiered_strategy.py, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CSP CAPITAL ALLOCATION gets its counterfactual shadow-logging bucket, a 24-day-old unclaimed follow-up — a capital-starved SELL_CSP dispatch now logs a `rejected_capital` record instead of leaving only a T-FAIL audit line (v1.0.820)
+
+TERRITORY: T-BOT (options_execution.py/tiered_strategy.py/server/bot.ts are
+all listed under T-BOT's WORKSTREAM PARTITION territory — "server/bot.ts
+outside frozen paths" explicitly, and the options stack is bot-orchestration
+code with no T-DATACORE/T-CLIENT overlap) + SHARED-but-minimal for the usual
+version/counter bookkeeping and research/*. No order-transmission internals
+touched (`submit_options_order` and the raw HTTP order POST paths are
+FROZEN and untouched by this diff — this changes what gets LOGGED about a
+rejection, never how an order is transmitted, retried, or authenticated).
+
+SESSION-START CHECKS: CLAUDE.md read in full this session. `python3
+scripts/session_health_check.py`: all 7 OK — liveness alive/not dark,
+subsystems ok, daemon rss=360.3MB well under trim_mb=400MB,
+alt_data_enrichment fresh, ml_feedback age 15.3h, deploy_freshness
+server_version=1.0.819 matching this checkout's package.json pre-bump. No
+LIVENESS ALARM. `python3 scripts/research_state_check.py`: audits_register
+none overdue, thrash_ratio 0/10 REPAIR (well under the 7+ trigger),
+known_broken 38 items/3 without an explicit close marker (advisory only,
+already independently confirmed fixed by prior sessions per today's
+session #3 entry), starvation_signal 0 consecutive STARVED. `list_pull_
+requests(state=open)`: 1 open PR (#604, explicitly "[BACKLOG] ... draft, do
+not merge as-is" — correctly excluded from any stale-PR concern; the
+2026-08-20 stale-PR-backlog finding in wishlist.md is confirmed resolved,
+auto-merge working normally).
+
+PRIMARY-ACTION SELECTION (SESSION BUDGET order, fix-bug > judge-matured-
+experiment > start-new-experiment > research): no bug found in the audit
+log via the health checks above. Checked for a matured experiment to judge
+first: today's repo already ran a RESEARCH session building+judging the
+Omori-Utsu aftershock-decay probe (GATE 2 CLEAN NEGATIVE, KILLED) and two
+PRODUCT sessions (13F-history mirror, GEM methane-plume staleness fix) —
+so this session (#4 today) checked what remained. The other standing
+matured-but-unjudged research probe, `scripts/hazard_rate_probe.py`
+(filed 2026-08-29, "script built, not yet run against real data"), was
+re-attempted: `env` confirms no `ALPACA_KEY`/`ALPACA_SECRET` in this
+sandbox, and `curl https://query1.finance.yahoo.com/v8/finance/chart/SPY...`
+returned HTTP 429 (same environmental block the 2026-08-29 entry already
+documented — confirmed this is intermittent across sandboxes/sessions per
+the 2026-08-21 CSD follow-up note "ran the moment data access existed",
+not something this session can fix). Checked general network reachability
+to rule out a total outage rather than a Yahoo-specific block: SEC EDGAR
+(200), FRED (200), GitHub API (200), google.com (200) all reachable — only
+Yahoo/Alpaca are blocked, so re-filing the same "can't run yet" finding a
+second time would add no new information. Also checked whether the
+shadow-fleet gate-1 case-control test (`server/shadowFleetGate1.ts`,
+2026-08-29, "not yet run against the real AIS archive") could be judged
+instead — no AIS archive data exists in this sandbox (only lives on the
+Railway volume the live daemon populates); same class of environmental
+block, not fixable here either. `python3 scripts/ladder_readiness_check.py`:
+still 0/2 gated roots ready (unchanged). `python3 scripts/data_stream_
+registry_check.py --unbuilt`: still 10/35 not built, all declined/blocked
+(axis (a) confirmed exhausted again, same finding as every prior session
+this week).
+
+Given axis (a) exhausted, axis (b) explicitly gated on the options
+fill-realism fix, and axis (c)/(d) foreign-field imports already used
+twice today (Omori-Utsu built+judged) — a THIRD foreign-field import in
+one day risked exactly the multiple-hypothesis-fishing pattern REASONING
+STANDARD #4 warns against, with no new technique obviously left unexplored
+— this session instead re-read the CSP CAPITAL ALLOCATION open_questions.md
+entry (filed 2026-07-28, most recently touched 2026-08-23) end to end and
+found its own 2026-08-06 CORRECTION had queued real, concrete, still-open
+work: "shadow_portfolio counterfactual logging ... NOT BUILT this session
+... still queued for a future session as its own small filing" — unclaimed
+24 days later. Unlike the blocked research probes above, this needed no
+live market data: it is pure code wiring using infrastructure
+(`shadow_portfolio.log_candidate`, the `rejected_masterkill` bucket
+precedent in `tiered_strategy.log_masterkill_csp_shadow`) that already
+exists and is fully exercisable in this sandbox. This is a real MEASUREMENT
+INTEGRITY / RULE-REVIEW gap CLAUDE.md names directly: "The evidence
+requirement is COUNTERFACTUAL LOGGING ... whenever a rule blocks a
+candidate trade ... log {date, ticker, rule, entry price, score}" — the
+capital check is exactly such a rule, and it was blocking candidates with
+zero logging.
+
+READ BEFORE WRITE: read `shadow_portfolio.py`'s `log_candidate`/
+`update_last_decision`/`get_shadow_stats` in full (not from memory) before
+touching anything — confirmed `get_shadow_stats()`'s `by_decision`/
+`win_rate_by_decision` dicts are keyed generically off whatever string
+`decision` is, so a new `rejected_capital` bucket needs no changes there.
+Read `tiered_strategy.log_masterkill_csp_shadow` in full as the precedent
+to match. Read `options_execution.py`'s `select_contract`/`_select_sell_put`
+in full, specifically to find where a live capital-insufficient rejection
+actually originates: two distinct paths both return `{"error": ...}` —
+"All available puts exceed position budget for {ticker}..." (line ~966,
+the one actually observed live per this item's own 07-28 evidence:
+XLP/KO/INTC/AAL/DRAM) and "Not enough capital to sell cash-secured put at
+$X..." (line ~1026, marked in its own comment as defense-in-depth for
+rounding edges — "shouldn't reach here now"). Both mean the same thing
+(capital-insufficient, not a data/liquidity failure) and both needed
+logging. Traced the actual live dispatch call site: `server/bot.ts`'s
+SELL_CSP branch (~line 4044) spawns an inline Python subprocess calling
+`select_contract` — there is no RPC method name for this, it is one of the
+inline-subprocess call sites CLAUDE.md's READ-BEFORE-WRITE rule warns are
+easy to miss when tracing a Python-side signature change.
+
+WHAT SHIPPED (one logical change — wire the capital-starved counterfactual
+bucket, nothing else):
+- `options_execution.py`: both capital-insufficient error dicts in
+  `_select_sell_put` now also return `"price": price` — the underlying
+  price the function had already resolved internally (via `select_contract`'s
+  self-healing snapshot fetch when the caller passes `price=0`, which the
+  live SELL_CSP dispatch always does). This is the only zero-extra-API-call
+  way for the caller to get a price to log — `shadow_portfolio.log_candidate`
+  requires an `entry_price` for `backfill_outcomes` to ever label the record.
+- `tiered_strategy.py`: `tier1_csp_core`'s `SELL_CSP` `TierAction.metadata`
+  gains `vxx_ratio`/`regime_label` (both already computed locally in the
+  function) — the live dispatcher has no other way to know regime context
+  at the exact point `options_execution.select_contract` rejects a
+  candidate, since that rejection happens inside a spawned subprocess with
+  no access to the Node-side `TierContext`.
+- `server/bot.ts`: the existing inline Python SELL_CSP dispatch snippet now
+  checks whether `contract['error']` contains `"budget"` or `"capital"`
+  (the two substrings that uniquely identify the capital-insufficient error
+  messages above, verified by reading every other `_select_sell_put`/
+  `select_contract` error string — "No liquid options contracts", "No OTM
+  puts available", "Could not determine current price", "No options
+  contracts available", "No suitable puts found for selling" — none contain
+  either word) and, only then, calls `shadow_portfolio.log_candidate` with
+  `decision='rejected_capital'`, the resolved `price`, and the action's own
+  `vxx_ratio`/`regime_label` metadata. Wrapped in its own `try/except:
+  pass` so a logging failure can never alter or suppress the real error
+  response already returned to the dispatcher (same "must never affect a
+  live decision" discipline `log_masterkill_csp_shadow` already holds
+  itself to).
+- `shadow_portfolio.py`: `log_candidate`'s docstring `decision` enum
+  updated to list `rejected_masterkill`/`rejected_capital` (both existed
+  in practice before this session for the former; documentation-only fix).
+
+RATCHET: `test_options_fixes.py` — extended (not replaced)
+`test_sell_put_rejects_when_cash_available_below_equity_budget` and
+`test_sell_put_stretch_mode_also_capped_by_cash_available` with a new
+assertion each (`result.get("price")` equals the exact price argument
+passed in), pinning the new field on the two real call shapes that already
+existed for these tests. `test_tiered_strategy.py` — new parametrized test
+`test_tier1_csp_core_metadata_carries_regime_context_for_shadow_logging`
+(2 cases: NEUTRAL/BEAR) pinning that every `SELL_CSP` action's metadata
+carries the exact `ctx.vxx_ratio`/regime the tier computed.
+`server/cspCapitalCounterfactualLogging.test.ts` (new, 5 tests, same
+source-slicing convention `optionsCapitalCheckFix.test.ts` already
+established for this un-executable-from-Node inline-Python code): the
+signature-check gate fires only on "budget"/"capital"; the shadow-log call
+is wrapped in its own try/except so it can never suppress the real error
+response; the logged price comes from `contract.get('price', 0.0)`, not
+the placeholder `0` the payload always sends; `vxx_ratio`/`regime_label`
+are read from `data.get('metadata')`; `cspPayload` still forwards
+`action.metadata` unchanged so the new keys actually reach the subprocess.
+
+GATES: `npm ci` (488 packages; fresh sandbox, same recurring provisioning
+gap prior sessions have logged) and `pip install -r requirements.txt -r
+requirements-dev.txt` both run at session start. `python3 -m pytest -q
+test_options_fixes.py test_tiered_strategy.py`: 98/98 pass. `npx tsx --test
+server/cspCapitalCounterfactualLogging.test.ts server/
+optionsCapitalCheckFix.test.ts`: 10/10 pass. `bash scripts/tsc_ratchet.sh`:
+12/12, TS2304 0, unchanged (all `.ts` edits are additive — a new inline
+string literal in bot.ts, a new standalone test file — no type surface
+changed). `bash scripts/gated_tests.sh` (run twice — the new test file was
+initially untracked and therefore invisible to the script's `git ls-files`
+collection, per the same gotcha PROGRAM_STATE.md's Q23 already documented
+for `program_status.sh`; `git add`-ing it before the second run fixed this
+and is the correct one to trust): GATE PASSED — server 1446/173 files,
+client 1074/101 files, python 1557 passed/1 skipped/54 subtests, quarantine
+0/1 none overdue. `bash scripts/counter_ratchet.sh`: `tests_run_in_ci`/
+`tests_gating_merge` 408→**409** and `assertions` 12620→**12636**
+re-pinned in `ci/counter_baseline.txt` — all three are this session's own
+direct and sole effect (the one new test file plus the two extended
+assertions in `test_options_fixes.py`); all other 22 counters unchanged.
+Version bumped 1.0.819→**1.0.820** (`package.json`/`package-lock.json`)
+per PROMOTION RULE 4.
+
+BACKTEST: N/A per PROMOTION RULE 3 — this adds observability (a shadow
+counterfactual log entry on an existing rejection path) and two additive
+dict/metadata keys; it changes no scoring, sizing, threshold, or trading
+decision. No RULE-REVIEW evidence gate applies (matches the 07-31/08-06/
+08-23 fixes already logged against this same open_questions.md item).
+
+NEXT: once enough `rejected_capital` shadow records accumulate (same
+n>=5-per-horizon floor `get_shadow_stats()` already enforces elsewhere), a
+future session reads `get_shadow_stats()["win_rate_by_decision"]
+["rejected_capital"]` — this is the actual evidence the CSP CAPITAL
+ALLOCATION question has been waiting on since 2026-07-28 (a `backtest_v2`
+ablation was already ruled out 2026-08-06 as infeasible; this shadow-log
+path was named the correct alternative then and is now built). A future
+session should also check `/api/diag/audit?type=T2-FAIL` a few days out to
+sanity-check that live "insufficient capital"-class rejections now have a
+matching shadow record appearing (`grep rejected_capital` on the shadow
+log, or `get_shadow_stats()["by_decision"]`).
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PIPELINE action end to end (read-before-write across four files, real
+tests, both gate scripts run twice to confirm the git-ls-files gotcha
+didn't mask a false pass, counter re-pin, version bump).
+
 ## 2026-08-30 (scheduled-routine PRODUCT session #3) [PRODUCT] — SHARED-but-minimal (datacore/signal_ladder.json, server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): fixed a stale, customer-facing GATE 2 claim on GEM methane-plume proximity — the live API and the ladder registry both said gates 2(b)-(d) were "explicitly NOT built" when 2(b) shipped and 2(c) actually ran and returned a real (data-limited) FAIL a month earlier (v1.0.819)
 
 TERRITORY: SHARED-but-minimal — `datacore/signal_ladder.json` (the ladder

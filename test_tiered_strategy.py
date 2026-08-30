@@ -96,6 +96,27 @@ def test_tier1_csp_core_still_respects_options_cap_when_full():
     assert actions == []
 
 
+@pytest.mark.parametrize("vxx_ratio,expected_regime", [
+    (1.00, "NEUTRAL"),
+    (1.20, "BEAR"),
+])
+def test_tier1_csp_core_metadata_carries_regime_context_for_shadow_logging(vxx_ratio, expected_regime):
+    """CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
+    filed 2026-07-28/2026-08-06): server/bot.ts's live SELL_CSP dispatcher
+    has no other zero-API-call way to learn vxx_ratio/regime_label at the
+    exact point options_execution.select_contract rejects a candidate for
+    insufficient capital — it must read them off the action's own metadata,
+    the same way log_masterkill_csp_shadow reads them off ctx directly."""
+    ctx = _ctx(vxx_ratio=vxx_ratio, positions=[])
+    with patch("tiered_strategy._get_t1_universe", return_value=FALLBACK_UNIVERSE):
+        actions = tier1_csp_core(ctx)
+
+    assert len(actions) > 0
+    for a in actions:
+        assert a.metadata["vxx_ratio"] == vxx_ratio
+        assert a.metadata["regime_label"] == expected_regime
+
+
 def test_run_tiers_exposes_killed_and_kill_reason_contract():
     """run_tiers()'s own docstring promises {"killed": bool, "kill_reason":
     str}. bot_engine.py never read these two keys before 2026-07-11, so a
