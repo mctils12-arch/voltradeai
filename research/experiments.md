@@ -3,7 +3,156 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-08-30 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC 8-K earnings-language accumulated filing-history gets its `/api/v1/data/earnings-language-history` keyed mirror — second of the four `/history`-companion gaps the 2026-08-29 sweep queued (v1.0.815)
+## 2026-08-30 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): FINRA Reg SHO short-volume accumulated history gets its `/api/v1/data/short-volume-history` keyed mirror — third of the four `/history`-companion gaps the 2026-08-29 sweep queued, last one of same shape as insider-history/cot-history/earnings-language-history (v1.0.817)
+
+TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
+their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
+T-DATACORE-primary file touched. Same posture as every other mirror PR in
+this sweep.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/experiments.md`
+(tail), `research/open_questions.md` (KNOWN BROKEN head), `research/
+wishlist.md` (head). `python3 scripts/session_health_check.py`: all 7 OK —
+liveness alive/not dark, daemon rss=386.4MB well under trim_mb=400MB,
+ml_feedback age 6.1h, deploy_freshness server_version=1.0.816 matching this
+checkout's package.json pre-bump. No LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits_register none overdue, thrash_ratio
+0/10 REPAIR in the last 10 tagged sessions (well under the 7+ trigger),
+known_broken 38 items/3 without an explicit close marker (#26/#34/#38,
+advisory only, same three already independently confirmed fixed by prior
+sessions per this script's own note), starvation_signal 0 consecutive
+STARVED. No unfixed CRITICAL trading-loop item blocks product work.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` — still
+0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d needed,
+sec_8k_earnings_language 33d/90d needed, both WAITING). `python3
+scripts/data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT
+candidates remain declined/blocked/lagged, same finding as every prior
+session's check; no new axis-(a) candidate unblocked. Fell through to
+SESSION BUDGET step 1 (next queued item): the 2026-08-30 earnings-language-
+history session's own NEXT/queue note (this file, `## 2026-08-30 ...
+earnings-language-history` entry, now second from top) named `short-volume/
+history` as the one remaining same-shape `/history`-companion gap
+(`filings13f/history` stays excluded — different shape, needs a new base
+`/api/v1/data/filings13f` mirror first, not just a companion route).
+Verified live rather than trusting the prior session's queue note unread:
+`grep -n 'app.get("/api/data/short-volume\|app.get("/api/v1/data/short-volume'
+server/routes.ts` confirmed the RAW `/api/data/short-volume/history` route
+exists (two modes: no-symbol market-wide trend, `?symbol=X` per-ticker
+series) and the `/api/v1/data/short-volume` base mirror exists, but no
+`/api/v1/data/short-volume-history` companion yet — same gap shape as the
+three prior mirrors in this sweep.
+
+READ BEFORE WRITE: read `server/routes.ts`'s existing `/api/v1/data/
+short-volume` base mirror (~4887-4919) and the RAW `/api/data/short-volume`
++ `/api/data/short-volume/history` routes (~2470-2522) in full — confirmed
+`latestShortVol`, `readSummaryHistory`, `lookupSymbolHistory` were already
+imported (`server/routes.ts:79`) before adding a new route, and confirmed
+the RAW history route's exact two-mode branching (symbol vs market-wide) to
+reuse rather than re-derive it from memory. Read `server/finraShortVolume.ts`'s
+`readSummaryHistory(days, baseDir?)` and `lookupSymbolHistory(symbol, days,
+baseDir?)` signatures to confirm the optional `baseDir` param can simply be
+omitted in the new route (same as most call sites). Read `server/
+apiProduct.ts`'s `LICENSE_MARKS["data/short-volume"]` entry (conditional
+resell, FINRA informational-use terms) and the `voltrade_short_volume` tool
+entry's exact GATE 1 PASSED / GATE 2 FAIL-INCONCLUSIVE honesty language
+(two consecutive pre-registered tests failed, not a KILL) to reuse verbatim
+rather than paraphrase — this is a different honesty shape than insider's
+KILLED or earnings-language's INCOMPLETE-pilot, so the wrong keyword would
+have silently misrepresented the gate-2 status. Read `server/
+apiProduct.test.ts`'s dedicated `insider-history`/`earnings-language-history`
+tests (lines ~331-357) as the exact companion-route test template, and the
+existing `voltrade_short_volume` license/honesty test (line ~417) for the
+exact `FAIL/INCONCLUSIVE` and `NOT short interest` strings that must travel
+into the new companion tool's description too.
+
+WHAT SHIPPED: `server/routes.ts` gained `/api/v1/data/short-volume-history`
+(`?days<=90` default 30, `?symbol=TICKER` optional) — reuses
+`readSummaryHistory()`/`lookupSymbolHistory()`/`latestShortVol()` verbatim
+(same two-mode branching as the RAW route), wrapped in
+`v1Envelope("data/short-volume", ...)` behind `requireApiKey` + `meterUsage`,
+no 503 warming-up guard (the RAW route has none either — this mirrors reader
+paths that already tolerate an empty/missing archive). `server/apiProduct.ts`
+gained: a new `apiMeta().endpoints` entry (reusing the `data/short-volume`
+license framing, stating "not a separate root, not a separate license") and
+a new `voltrade_short_volume_history` tool in `agentToolSpec()` with `days`
+(1-90, default 30) and an optional `symbol` string param,
+`returns_provenance: ["data/short-volume"]` (deliberately NOT a new
+`LICENSE_MARKS` key).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the insider-history/earnings-language-history precedent)
+asserting: the `voltrade_short_volume_history` tool exists,
+`returns_provenance` is exactly `["data/short-volume"]` (not a forked
+duplicate mark), the description carries both "GATE 1" and
+"FAIL/INCONCLUSIVE" (so gate-2's actual two-consecutive-fails verdict
+travels with the companion endpoint, ruling out both a false "gate 2 not
+attempted" reading and a false "gate 2 KILLED" reading), the `days` param
+caps at 90 (matching the RAW route's own bound), and the `apiMeta().
+endpoints` entry's `preview` points at `/api/data/short-volume/history`.
+Also added `/api/v1/data/short-volume-history` to the existing generic
+"meta honesty" and "wiring pinned" sweep-check arrays.
+
+GATES: this sandbox's `node_modules` was present but missing `@types/node`/
+`vite` (partial install, not a from-scratch missing directory) — first
+`bash scripts/tsc_ratchet.sh` run reported only 3 errors (TS2688/TS5101,
+config/type-resolution noise, nothing matching the pinned baseline's actual
+TS2339/TS2345/TS2349/TS2353/TS7016 breakdown) instead of the pinned 12; this
+is the exact "environment divergence, not a regression" case the ratchet's
+own header warns about, confirmed by re-running plain `npx tsc --noEmit`
+against a `git stash`ed tree (still only 3, different codes) before touching
+anything — NOT treated as a real fix, baseline NOT lowered. Fixed by running
+`npm ci` (488 packages), after which `tsc_ratchet.sh` reported exactly 12,
+TS2304=0, matching the pin precisely — confirming the divergence was purely
+a partial local install, not a live codebase change. Python dev dependencies
+were also missing at session start (`pip install -r requirements.txt -r
+requirements-dev.txt` run, same fresh-sandbox provisioning gap prior
+sessions have logged repeatedly). `npx tsx --test server/apiProduct.test.ts`:
+45/45 pass (44 baseline + 1 new). `bash scripts/gated_tests.sh`: GATE
+PASSED — client 1074/1074, python 1555 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`: only
+`assertions` improved (12601 -> 12609, this session's own new test's
+assertions plus the two sweep-array additions) — re-pinned in `ci/
+counter_baseline.txt` in this same PR, zero unaccounted drift. `npm run
+build`: clean, only the same pre-existing warnings recent sessions log
+(maplibre-gl chunk size, astronomy-engine default-export interop, mapIcons
+dynamic/static dual import) — none touched this session. No visual harness
+run: zero `client/src` files touched (`git status --short` confirms only
+server/ci/package/research files), same exemption every prior
+zero-rendering-delta mirror PR in this sweep has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route, reusing an existing license mark),
+no strategy/scoring/sizing/threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's provenance mark
+(`data/short-volume`) carries no aircraft/AIS-derived provider-compliance
+condition; no billing/pricing/subscription/paid-gating code added or
+changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes more of the existing
+FINRA short-volume archive through the existing v1 API boundary, the same
+pattern every prior mirror in this sweep has followed; no new join or data
+stream.
+
+NEXT (queued, not this session): `filings13f/history` remains the one
+outstanding `/history`-companion gap named by the 2026-08-29 sweep session,
+and it is a differently-shaped task — `filings13f` has no `/api/v1/data/
+filings13f` base mirror at all yet (only RAW routes), so a future session
+must build that base mirror first before a `/history` companion makes
+sense. That closes the four-gap queue this sweep opened; a future session
+should re-run `data_stream_registry_check.py --unbuilt` fresh rather than
+assume this specific queue continues.
+
+VERSION: v1.0.817 (`package.json` + `package-lock.json`, read-and-increment
+at commit time; `git fetch origin main` immediately before the bump
+confirmed `origin/main` still matched this branch's base exactly at
+`9f9d222`/v1.0.816/PR #962 — no concurrent session had merged ahead of this
+one).
+
+MARKET-HOURS NOTE: Sunday 2026-08-30, markets closed. This diff also has
+zero trading-loop blast radius regardless (additive `/api/v1/*` GET route
+reading an existing cache), so no market-hours gating applies.
 
 TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
 their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
