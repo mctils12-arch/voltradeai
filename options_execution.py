@@ -969,7 +969,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
                 f"but max affordable per-position is ${affordable_budget:,.0f} "
                 f"(equity ${equity:,.0f} × size_pct {size_pct:.2%}).{_cash_note} "
                 f"Underlying too expensive at ${price:.2f} for this account."
-            )}
+            ), "price": price}
 
     # Use the affordable subset for the rest of selection
     puts = affordable_puts
@@ -1023,7 +1023,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
     if max_contracts <= 0:
         # Shouldn't reach here now that sizing matches the affordability
         # filter's budget, but keep as defense-in-depth for rounding edges.
-        return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)"}
+        return {"error": f"Not enough capital to sell cash-secured put at ${best['strike']} (need ${cash_per_contract:,.0f} per contract)", "price": price}
 
     qty = min(max_contracts, 2)  # Conservative: max 2 contracts
     premium_received = qty * limit_price * 100

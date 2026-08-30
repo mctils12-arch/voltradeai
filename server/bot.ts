@@ -4064,7 +4064,28 @@ data = json.load(open('${cspTmpPath}'))
 import os; os.remove('${cspTmpPath}')
 contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'))
 if contract.get('error'):
-    print(json.dumps({'status': 'error', 'reason': contract['error']}))
+    _err = contract['error']
+    # CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
+    # filed 2026-07-28/2026-08-06): before this, a capital-starved CSP
+    # candidate left zero trace beyond a T-FAIL audit line — no way to
+    # ever answer 'would reserving a cash sleeve have helped' with
+    # evidence, per CLAUDE.md's COUNTERFACTUAL LOGGING mandate. Only the
+    # two _select_sell_put error messages that mean capital-insufficient
+    # (not a data/liquidity failure) carry 'budget' or 'capital'.
+    if 'budget' in _err or 'capital' in _err:
+        try:
+            import shadow_portfolio
+            _meta = data.get('metadata') or {}
+            shadow_portfolio.log_candidate(
+                ticker=data['ticker'], features={}, score=0.0,
+                decision='rejected_capital', decision_reason=_err,
+                entry_price=contract.get('price', 0.0),
+                vxx_ratio=_meta.get('vxx_ratio', 1.0),
+                regime_label=_meta.get('regime_label', 'unknown'),
+            )
+        except Exception:
+            pass
+    print(json.dumps({'status': 'error', 'reason': _err}))
 else:
     result = submit_options_order(contract)
     result['cash_required'] = contract.get('cash_required', 0)

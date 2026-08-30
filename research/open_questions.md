@@ -5472,6 +5472,39 @@ current `main` (read-before-write, not a blind cherry-pick) rather than
 trying to resurrect the old branch. See experiments.md for the full
 session trace; PR #797 closed as superseded by the new PR.
 
+**COUNTERFACTUAL LOGGING BUILT 2026-08-30 (scheduled-routine session,
+[PIPELINE], v1.0.820):** the 2026-08-06 CORRECTION above named this as its
+own queued, unclaimed follow-up ("shadow_portfolio counterfactual logging
+... NOT BUILT this session ... still queued for a future session as its
+own small filing") — unclaimed for 24 days. Built this session, reusing
+`shadow_portfolio.log_candidate`'s existing decision-bucket machinery
+exactly the way `tiered_strategy.log_masterkill_csp_shadow` already does
+for the `rejected_masterkill` bucket (CLAUDE.md EDGE DOCTRINE #3 — reuse,
+don't re-derive): a live SELL_CSP dispatch that fails at `options_execution.
+select_contract` for a capital-insufficient reason (identified by the
+`_select_sell_put` error message containing "budget" or "capital" — the two
+messages that mean the account cannot afford any available strike, as
+opposed to a data/liquidity failure like "No liquid options contracts") now
+logs a `rejected_capital` shadow record from `server/bot.ts`'s existing
+inline Python dispatch, before this session leaving that same rejection
+with only a `T{tier}-FAIL` audit-log line and no way to ever accumulate
+evidence toward this question. `options_execution._select_sell_put`'s two
+capital-insufficient error dicts now also return the `price` they had
+already resolved internally (zero extra API calls, matching
+`log_candidate`'s own "Rate cost: ZERO API calls" contract); `tiered_
+strategy.tier1_csp_core`'s `SELL_CSP` action metadata now carries
+`vxx_ratio`/`regime_label` so the dispatcher can label the shadow record
+with real regime context instead of a hardcoded default. NOT a threshold or
+design change — no RULE-REVIEW evidence gate applies, same class as the
+07-31/08-06/08-23 fixes on this item. NEXT: once enough `rejected_capital`
+records accumulate (same n>=5-per-horizon floor `get_shadow_stats()`
+already enforces), a future session reads `get_shadow_stats()
+["win_rate_by_decision"]["rejected_capital"]` — this is the real evidence
+this item's own RULE-REVIEW question ("would a cash sleeve raise long-run
+compound growth") has been waiting on since 2026-07-28, now that
+`backtest_v2.py` ablation was already ruled out as infeasible (options legs
+aren't simulated) and this was named the correct alternative path.
+
 
 - **Insider Form 4 clustering as a signal** (gate 1 PASSED 2026-07-03 — see
   `server/edgarForm4.ts` / `edgarForm4.test.ts` / `datacore/README.md`; the

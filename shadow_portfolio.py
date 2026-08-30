@@ -234,7 +234,8 @@ def log_candidate(
         features:        the 34-feature dict passed to ml_score()
         score:           the final combined_score from deep_score
         decision:        one of "taken" | "rejected_score" | "rejected_heat" |
-                         "rejected_halt" | "rejected_earnings" | "rejected_other"
+                         "rejected_halt" | "rejected_earnings" | "rejected_other" |
+                         "rejected_masterkill" | "rejected_capital"
         decision_reason: human-readable explanation (for debugging)
         entry_price:     stock price at scan time (for forward-return math)
         vxx_ratio:       VXX regime context

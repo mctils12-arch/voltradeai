@@ -367,6 +367,11 @@ class TestSizePctParameter(unittest.TestCase):
             "Alpaca will reject",
         )
         self.assertIn("cash_available", result["error"])
+        # CSP CAPITAL ALLOCATION counterfactual logging (open_questions.md,
+        # 2026-07-28/2026-08-06): the caller (server/bot.ts) needs the
+        # resolved underlying price to log a shadow_portfolio record for
+        # this rejection — it has no other zero-API-call way to get it.
+        self.assertEqual(result.get("price"), 82.0)
 
     def test_sell_put_unaffected_by_generous_cash_available(self):
         """cash_available higher than the equity-based budget must not
@@ -404,6 +409,7 @@ class TestSizePctParameter(unittest.TestCase):
             result.get("error"),
             "stretch mode must not exceed cash_available",
         )
+        self.assertEqual(result.get("price"), 68.0)
 
     def test_sell_put_no_otm_strikes_gives_honest_error_not_zero_strike(self):
         """
