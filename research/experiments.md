@@ -3,6 +3,168 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-30 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): SEC 8-K earnings-language accumulated filing-history gets its `/api/v1/data/earnings-language-history` keyed mirror — second of the four `/history`-companion gaps the 2026-08-29 sweep queued (v1.0.815)
+
+TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,
+their test file, and version/counter bookkeeping touched; no T-BOT/T-CLIENT/
+T-DATACORE-primary file touched. Same posture as every other mirror PR in
+this sweep.
+
+SESSION-START CHECKS: CLAUDE.md read in full, then `research/PROGRAM_STATE.md`
+(the separate audit-ratchet program, T-CLIENT/shared territory, currently
+mid-Track-1/Track-2 with its own unclaimed queue — not this session's
+territory), `research/experiments.md` (tail) and `research/wishlist.md`
+(tail). `python3 scripts/session_health_check.py`: all 7 OK — liveness
+alive/not dark, daemon rss=380.8MB well under trim_mb=400MB, ml_feedback
+age 19.7h, deploy_freshness server_version=1.0.814 matching this
+checkout's package.json pre-bump. No LIVENESS ALARM. `python3
+scripts/research_state_check.py`: audits_register none overdue,
+thrash_ratio 1/10 REPAIR in the last 10 tagged sessions (well under the 7+
+trigger), known_broken 38 items/3 without an explicit close marker
+(#26/#34/#38, advisory only — same three already independently confirmed
+fixed by prior sessions per this script's own note), starvation_signal 0
+consecutive STARVED. No unfixed CRITICAL trading-loop item blocks product
+work.
+
+PRIMARY-ACTION SELECTION: `python3 scripts/ladder_readiness_check.py` —
+still 0/2 gate2_pending roots ready (cftc_cot_positioning ~56d/~105d
+needed, sec_8k_earnings_language 33d/90d needed, both WAITING). `python3
+scripts/data_stream_registry_check.py --unbuilt` — all 10 NOT-BUILT
+candidates remain declined/blocked/lagged, same finding as every prior
+session's check; no new axis-(a) candidate unblocked. Fell through to
+SESSION BUDGET step 1 (next queued item): the 2026-08-29 `cot-history`
+session's own NEXT section named two remaining same-shape `/history`-
+companion mirror gaps — `earnings-language/history` and `short-volume/
+history` — plus `filings13f/history` as a larger, differently-shaped task
+(needs a new base `/api/v1/data/filings13f` mirror first, not just a
+companion route). Verified live rather than trusting the prior session's
+list unread: `grep -n 'app.get("/api/data/...\|app.get("/api/v1/data/...'
+server/routes.ts` confirmed `/api/data/earnings-language/history` and
+`/api/data/short-volume/history` both exist as RAW routes with no `/api/v1`
+mirror yet, and confirmed `filings13f` genuinely has no `/api/v1/data/
+filings13f` base route at all (re-confirming the prior session's own
+re-scoping rather than assuming it). Picked `earnings-language/history`
+over `short-volume/history`: no ordering preference is stated between the
+two in the queued list, and earnings-language/history reuses a richly-
+documented existing base mirror (already carries the "GATE 1 PASSED / GATE
+2 encouraging-but-INCOMPLETE" honesty language verbatim) with a single
+`days` param, matching insider-history's own shape exactly — the cleanest
+next pick; short-volume/history remains a valid, equally-shaped next
+candidate for a future session.
+
+READ BEFORE WRITE: read `server/routes.ts`'s existing `/api/v1/data/
+earnings-language` base mirror (lines ~4235-4251) and the RAW `/api/data/
+earnings-language` + `/api/data/earnings-language/history` routes
+(~2092-2127) in full — confirmed `readEarnings8kHistory` and
+`latestEarnings8Ks` were already imported (`server/routes.ts:115`) before
+adding a new route, and confirmed the RAW history route's exact dedup-
+by-accession merge (`archived` + `live` filtered against a `Set` of
+archived accessions) to reuse rather than re-derive it from memory. Read
+`server/sec8kEarnings.ts`'s `Earnings8K` interface and
+`readEarnings8kHistory(days, ...)` signature to confirm no new `: any`
+would be needed for the merge. Read `server/apiProduct.ts`'s
+`LICENSE_MARKS["data/earnings-language"]` entry (line 147, already states
+the issuer-authored/conditional-resell posture) and the `voltrade_insider_
+history`/`voltrade_cot_history` tool entries as the exact companion-route
+template (reuse the base root's license mark and provenance key, never
+fork a duplicate one for the same filings under a different window). Read
+`server/apiProduct.test.ts`'s `insider-history` dedicated test (lines
+330-342) and the two sweep-check arrays (`meta honesty` line 66, `wiring
+pinned` line 96) before writing new tests.
+
+WHAT SHIPPED: `server/routes.ts` gained `/api/v1/data/earnings-language-
+history` (`?days<=90` default 30, mirroring the RAW route's own bound) —
+reuses `readEarnings8kHistory()`/`latestEarnings8Ks()` verbatim (same
+dedup-by-accession merge as the RAW route), wrapped in
+`v1Envelope("data/earnings-language", ...)` behind `requireApiKey` +
+`meterUsage`, no 503 warming-up guard (mirroring the RAW route's own
+behavior, matching the insider-history/cot-history precedent's same
+reasoning). `server/apiProduct.ts` gained: a new `apiMeta().endpoints`
+entry (reusing the `data/earnings-language` license framing, stating "not
+a separate root, not a separate license") and a new `voltrade_earnings_
+language_history` tool in `agentToolSpec()` with a `days` (1-90, default
+30) param, `returns_provenance: ["data/earnings-language"]` (deliberately
+NOT a new `LICENSE_MARKS` key).
+
+RATCHET: `server/apiProduct.test.ts` gained one new dedicated test
+(mirroring the insider-history/cot-history precedent) asserting: the
+`voltrade_earnings_language_history` tool exists, `returns_provenance` is
+exactly `["data/earnings-language"]` (not a forked duplicate mark), the
+description carries both "GATE 1" and "INCOMPLETE" (so gate-2's actual
+encouraging-but-incomplete pilot status travels with the companion
+endpoint, ruling out both a false "gate 2 not attempted" reading and a
+false "gate 2 validated" reading), the `days` param caps at 90 (matching
+the RAW route's own bound), and the `apiMeta().endpoints` entry's
+`preview` points at `/api/data/earnings-language/history`. Also added
+`/api/v1/data/earnings-language-history` to the existing generic "meta
+honesty" and "wiring pinned" sweep-check arrays.
+
+GATES: this sandbox's `node_modules` was present (`npm ci` run clean) but
+Python dev dependencies were missing at session start (same fresh-sandbox
+provisioning gap prior sessions have logged repeatedly, not a
+regression) — `pip install -r requirements.txt -r requirements-dev.txt`
+run. First `bash scripts/counter_ratchet.sh` FAILED on `ts_any` 1239 ->
+1240: the new route's `catch (e: any)` (copied from the base earnings-
+language route's own older style) tripped the ratchet. Fixed by matching
+the insider-history/cot-history precedent instead — `catch (e: unknown)`
++ `(e as Error)?.message` — re-ran clean, `ts_any` unchanged. `npx tsx
+--test server/apiProduct.test.ts`: 44/44 pass (43 baseline + 1 new).
+`bash scripts/tsc_ratchet.sh`: 12/12 both before and after, TS2304 0.
+`bash scripts/gated_tests.sh`: GATE PASSED — client 1074/1074, python
+1532 passed/1 skipped/54 subtests, quarantine 0/1 none overdue. `bash
+scripts/counter_ratchet.sh`: only `assertions` improved (12546 -> 12554,
+this session's own new test's assertions, confirmed via `git status
+--short` showing only this session's files touched) — re-pinned in
+`ci/counter_baseline.txt` in this same PR, zero unaccounted drift. `npm
+run build`: clean, only the same pre-existing warnings recent sessions
+log (maplibre-gl chunk size, astronomy-engine default-export interop,
+mapIcons dynamic/static dual import) — none touched this session. No
+visual harness run: zero `client/src` files touched (`git status --short`
+confirms only server/ci/package/research files), same exemption every
+prior zero-rendering-delta mirror PR in this sweep has applied.
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-surface addition (a keyed
+mirror of an already-shipped RAW route, reusing an existing license
+mark), no strategy/scoring/sizing/threshold change, no FROZEN path
+touched.
+
+MONETIZATION TRIPWIRE: not touched — this endpoint's provenance mark
+(`data/earnings-language`) carries no aircraft/AIS-derived
+provider-compliance condition; no billing/pricing/subscription/
+paid-gating code added or changed.
+
+CROSS-SYSTEM INTEGRATION: none new — this exposes more of the existing
+SEC 8-K earnings-language archive through the existing v1 API boundary,
+the same pattern every prior mirror in this sweep has followed; no new
+join or data stream.
+
+VERSION: v1.0.815 (`package.json` + `package-lock.json`, read-and-
+increment at commit time; `git fetch origin main` immediately before the
+bump confirmed `origin/main` still matched this branch's base exactly at
+`1f2d615`/v1.0.814/PR #960 — no concurrent session had merged ahead of
+this one).
+
+MARKET-HOURS NOTE: Sunday 2026-08-30 (sandbox clock reads Saturday
+2026-08-29 evening ET — either way a non-trading weekend day), markets
+closed. This diff also has zero trading-loop blast radius regardless
+(additive `/api/v1/*` GET route reading an existing cache), so no
+merge-timing caveat is needed either way.
+
+NEXT (queued, not this session): `short-volume/history` remains the last
+same-shape `/history`-companion mirror pick from the 2026-08-29 sweep's
+own audit — a valid next pick for a future session (same small,
+single-file-pattern shape as this one). `filings13f/history` remains
+re-scoped as a larger, two-endpoint task (needs a new base `/api/v1/data/
+filings13f` mirror built first). Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING per
+`ladder_readiness_check.py`.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a pre-queued, well-verified gap from the prior day's
+sweep), used in full including re-verifying the queue live rather than
+trusting it unread, and catching a real ratchet regression (`ts_any`)
+before it reached the PR rather than after.
+
 ## 2026-08-29 (scheduled-routine PRODUCT session) [PRODUCT] — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, server/routes.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): CFTC COT accumulated weekly-archive gets its `/api/v1/data/cot-history` keyed mirror — first of the four `/history`-companion gaps this sweep's prior session (v1.0.813) queued (v1.0.814)
 
 TERRITORY: SHARED-but-minimal — only `server/apiProduct.ts`, `server/routes.ts`,

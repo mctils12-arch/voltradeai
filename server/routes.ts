@@ -4250,6 +4250,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // SEC 8-K earnings-language accumulated filing-history keyed mirror — the
+  // multi-day companion to /api/v1/data/earnings-language above (that
+  // endpoint mirrors only the latest poll cache; this one mirrors
+  // /api/data/earnings-language/history's up-to-90-day accumulated archive).
+  // Reuses readEarnings8kHistory() and latestEarnings8Ks() directly — no new
+  // fetch, no new computation. Same underlying pipeline and license as
+  // data/earnings-language (GATE 1 PASSED for extraction, GATE 2 an
+  // encouraging but INCOMPLETE preliminary pilot only, not a validated
+  // signal), so this reuses the "data/earnings-language" LICENSE_MARKS entry
+  // rather than adding a new, duplicate one for the same filings under a
+  // different window. Same shape as the insider-history / cot-history
+  // companions this sweep already shipped.
+  app.get("/api/v1/data/earnings-language-history", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+    try {
+      const archived = readEarnings8kHistory(days);
+      const live = latestEarnings8Ks()?.filings || [];
+      const seen = new Set(archived.map((f) => f.accession));
+      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      res.json(v1Envelope("data/earnings-language", {
+        days,
+        count: merged.length,
+        filings: merged,
+      }));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language-history", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language-history", status: 500, tier: auth.tier });
+    }
+  });
+
   // App Store rank + rating-velocity keyed mirror (same "shipped-data-
   // no-v1-API" sweep as plant-operations/secftd/midas/earnings-language
   // above). Reuses the latestAppStoreRankings() cache /api/data/
