@@ -3,6 +3,208 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-08-31 (scheduled-routine [PRODUCT] session) — SHARED-but-minimal (server/apiProduct.ts, server/apiProduct.test.ts, ci/counter_baseline.txt, package.json, package-lock.json, research/*): the /api/v1 OpenAPI spec's response bodies get hand-verified per-endpoint `data` schemas for 32/37 tools, replacing most of the blanket `{type:"object"}` fallback (v1.0.824)
+
+TERRITORY: SHARED-but-minimal — touches only server/apiProduct.ts (+its
+test) and the SHARED bookkeeping files (ci/counter_baseline.txt,
+package.json/package-lock.json, research/*); no T-CLIENT/T-BOT/T-DATACORE
+file touched.
+
+SESSION-START CHECKS: branch `claude/lucid-keller-lzh8yj` had zero unique
+commits over `origin/main` (it was just tracking an older point, v1.0.806)
+— reset to `origin/main` (v1.0.823) before doing anything, since research/
+had moved 17 versions since that stale base and re-reading it from the old
+point would have duplicated work already done (`git log
+origin/main..claude/lucid-keller-lzh8yj --oneline` confirmed empty before
+resetting — no work was discarded). `python3 scripts/session_health_check.py`
+post-reset: all 7 OK, deploy_freshness server_version=1.0.823 matching this
+checkout — no LIVENESS ALARM. `python3 scripts/research_state_check.py`:
+audits none overdue, thrash_ratio 0/10 REPAIR, starvation 0 consecutive —
+no meta-problem gating normal work.
+
+PRIMARY-ACTION SELECTION: checked in SESSION BUDGET order.
+`ladder_readiness_check.py`: both gate2_pending roots still WAITING
+(cftc_cot_positioning ~56d/~105d, sec_8k_earnings_language 58d/90d).
+`data_stream_registry_check.py --unbuilt`: all 10 NOT-BUILT candidates
+declined/blocked, nothing newly actionable (axis (a) build queue
+genuinely exhausted per research/data_census.md's own CENSUS MASTER
+RANKING). Re-swept the "/api/v1 mirror" gap the last several PRODUCT
+sessions closed one-by-one: cross-referenced every `gate1_pass`+ root in
+`datacore/signal_ladder.json` (42 roots) against every `/api/v1/data/*`
+and `/api/v1/stats/*` route in server/routes.ts — found the sweep is now
+FULLY EXHAUSTED (the two roots that looked unmirrored at first grep,
+`fred_macro_series`/`eu_macro_ecb_eurostat_bundesbank`, turned out to
+already be mirrored under `/api/v1/stats/fred-macro`/`/eu-macro` — my
+first grep only searched the `/api/v1/data/*` prefix and missed the
+`/api/v1/stats/*` family; `sec_midas` and `nrc_outage_reports` are
+likewise already mirrored at `/api/v1/stats/midas`/`/nrc-reactor-status`;
+`entity_map_operator_ticker` is infrastructure consumed internally by
+`/api/v1/graph`, never meant to be its own mirror). Also re-swept
+"shipped-data-no-client-page/layer" (the prior 2026-08-28 session's own
+explicit NEXT instruction: re-scan from scratch, don't trust its
+account) — cross-referenced all ~90 `/api/data/*` RAW routes against
+`client/src/pages/*.tsx` and `datacore/layers.json`'s registered layer
+ids; every route resolved to either a dedicated page or a registered map
+layer (spot-checked the 5 that looked orphaned at first glance —
+`cancer-rates`, `portdwell`, `shadowstats`, `spaceweather`, `pfas` — all
+5 already have `datacore/layers.json` entries: `cancerrates`,
+`portdwell`, `shadowstats`, `spaceweather`, `pfas`). Both gate1_pending
+roots (`space_weather_swpc`, `port_dwell_maritime_transit`) stay
+genuinely blocked: live-checked NOAA SWPC's own Kp-index feed
+(`services.swpc.noaa.gov/products/noaa-planetary-k-index.json`) — max Kp
+this week is 3.33, nowhere near the G2+ (Kp>=6) threshold the gate-1
+validation needs; port-dwell's blocker (no monthly TEU report yet covers
+a window inside the post-2026-08-19 reliably-archived range) hasn't
+cleared either. `platform_program.md`'s P1-P4 queue is fully SHIPPED (P5
+is HUMAN-GATED, untouched). With every build/mirror/UI-gap axis
+exhausted, fell through to CLAUDE.md's session-budget option (d):
+"improve datacore's API boundary, docs, or tests toward spinout-
+readiness" — `openApiSpec()`'s own doc comment (apiProduct.ts:671-676,
+pre-diff) explicitly named this exact gap as a deliberate, documented
+omission ("no endpoint here has a hand-verified OpenAPI response schema,
+and claiming one would violate the never-fabricate rule"), and the
+2026-08-27 OpenAPI-launch session's own NEXT note called per-field
+response schemas a valid future item — a real, previously-flagged,
+un-stale gap, not a fabricated task.
+
+READ BEFORE WRITE: read every `/api/v1/data/*` and `/api/v1/stats/*`
+route handler in server/routes.ts this session (all 34, lines
+~3925-5210) to see each one's ACTUAL JSON construction rather than
+guess from the tool name — most build the response inline
+(`v1Envelope(mark, {count, records: hit.x, ...}, hit.at)`), a few just
+spread an opaque cached object (`hit.summary`/`dwellCache.data`) with no
+field-by-field construction visible. For the one root whose full nested
+type IS separately defined and stable (`gnss_integrity_adsb`, the
+highest-quality live signal on the API — gate2_pass), read
+`server/gnssIntegritySignal.ts`'s `GnssIntegritySignalSummary`/
+`BandVerdict` interfaces directly rather than reconstruct the shape from
+the route. Read server/apiProduct.test.ts's existing openapi-spec test
+block (lines ~599-655) in full as the test-style template before adding
+new ones — matched its `byName()`/`doc.paths[...]` access pattern rather
+than inventing a new one.
+
+WHAT SHIPPED: `server/apiProduct.ts` gained `RESPONSE_DATA_SCHEMAS`, a
+`Record<toolName, JSON-Schema>` populated for 32 of the 37 live
+`agent-tools` (the 5 left out — `voltrade_get_track`,
+`voltrade_get_graph`, `voltrade_archive_stats`,
+`voltrade_secftd_stats`, `voltrade_midas_stats` — return a pure opaque
+`hit.summary`/imported-function spread that was NOT read field-by-field
+this session, so they correctly keep the pre-existing generic fallback
+rather than get a guessed schema). DISCIPLINE APPLIED THROUGHOUT: a
+field's TYPE (string/integer/array/boolean) is stated only when this
+session's own read of the source made it unambiguous — an explicit
+`.length`/`.map`/`.filter`/`.slice` call proves "array"; an ISO-date
+construction or a `_date`-suffixed field literal proves "string"; every
+other field (e.g. `short-volume`'s `symbols`/`agg_short_ratio`/
+`top_ratio` — plausible types, not confirmed this session) is left as
+`{}` (JSON-Schema "matches anything") rather than typed by inference.
+Query-branching endpoints (the `*-history` companions, `cot-history`'s
+`?code=`/`?q=`/neither modes) list every branch's fields as optional
+properties on one object (none marked `required`) rather than a
+fabricated `oneOf` split this session can't verify is exhaustive — an
+honest "these fields CAN appear, together or apart" rather than a
+precise-looking guess at which combination is real. `openApiSpec()`'s
+response-building loop now wraps a mapped tool's `data` schema in the
+real `v1Envelope()` shell (api_version/license/attribution/resell/
+generated_at/disclaimer/data, matching routes.ts's own `v1Envelope`
+function exactly) instead of the bare `{type:"object"}`; an unmapped
+tool's response schema is byte-identical to before (verified by a
+dedicated test, see RATCHET). Doc comments on both the new
+`RESPONSE_DATA_SCHEMAS` block and the existing `openApiSpec()` header
+were rewritten to state the "deliberately incomplete, never fabricated"
+discipline explicitly, so a future session extending this map inherits
+the same rule rather than free-typing from memory.
+
+RATCHET: 5 new tests in server/apiProduct.test.ts — (1) every
+`RESPONSE_DATA_SCHEMAS` key resolves to a real, live `agent-tools` name
+(catches a stale/renamed entry); (2) a mapped tool (`voltrade_cot`) gets
+the full v1Envelope-shell wrapping with its own `data` shape, `data`
+marked required; (3) an unmapped tool (`voltrade_get_track`) keeps the
+EXACT pre-existing `{type:"object"}` fallback, byte-for-byte — the
+regression guard that would catch this change accidentally widening
+scope beyond what was verified; (4) the GNSS schema's nested field names
+(`gate`/`bands[].band`/`bands[].elevated`/etc.) are asserted against the
+real interface names, not a paraphrase; (5) every schema entry is a
+well-formed `{type:"object", properties, required: []}` shape (catches a
+malformed future addition before it ships). All 5 A/B-relevant in the
+sense that they fail on a naive revert (removing `RESPONSE_DATA_SCHEMAS`
+or the wrapping logic breaks tests 2-5 immediately; a typo'd key breaks
+test 1). `npx tsx --test server/apiProduct.test.ts`: 52/52 pass (was 47
+— all 47 pre-existing tests pass UNCHANGED, +5 new).
+
+GATES: this sandbox needed `npm ci` (node_modules present but
+under-provisioned — a pre-`npm ci` `tsc_ratchet.sh` read 3 errors vs. the
+12 pin, the same sandbox-provisioning artifact the 2026-08-28 session
+already documented; re-ran post-`npm ci` and it read exactly 12, matching
+the pin — did NOT lower it on the false pre-`npm-ci` reading) and `pip
+install -r requirements.txt -r requirements-dev.txt`. `bash
+scripts/tsc_ratchet.sh`: 12/12, TS2304=0 (post-`npm ci`, matches pin
+exactly). `npm run build`: clean, only the same pre-existing warnings
+recent sessions log (maplibre-gl chunk size, astronomy-engine
+default-export interop, mapIcons dynamic/static dual import) — none
+touched this session. `bash scripts/gated_tests.sh`: GATE PASSED —
+client 1075/1075 (0 new client test files — this is a server-only
+change), 101 files OK; python 1558 passed/1 skipped/54 subtests,
+quarantine 0/1 none overdue. `bash scripts/counter_ratchet.sh`: 1 counter
+IMPROVED (`assertions` 12650->12664, this session's own 5 new tests'
+worth of `assert.*` calls — direct and sole cause, confirmed via
+`git fetch origin main` immediately before AND immediately before the
+version bump, both showing this branch's base exactly matches
+`origin/main` at `2f63822`/v1.0.823, zero concurrent-drift component) —
+RE-PINNED in `ci/counter_baseline.txt` in this same PR per PROMOTION
+RULE 5. All other 24 counters unchanged. No `.tsx`/client files touched
+— VISUAL VERIFICATION does not apply (server-only territory).
+
+BACKTEST: N/A per PROMOTION RULE 3 — pure API-documentation enrichment
+(OpenAPI response-schema fields on an already-shipped surface), no
+strategy/scoring/sizing/threshold change, no FROZEN path touched.
+
+MONETIZATION TRIPWIRE: not touched — no billing/pricing/subscription/
+paid-gating code added or changed; this is a docs-only enrichment of the
+already-public `/api/v1/openapi.json` spec (public like `/meta` and
+`/agent-tools` — the DATA behind each tool still requires a key,
+unchanged).
+
+CROSS-SYSTEM INTEGRATION: none new — no new join, no new data stream, no
+entity-graph change; this only describes the shape of responses already
+being served.
+
+VERSION: v1.0.824 (`package.json` + `package-lock.json`,
+read-and-increment at commit time; `git fetch origin main` immediately
+before the bump confirmed `origin/main` still matched this branch's base
+exactly at `2f63822`/v1.0.823 — no concurrent session had merged ahead of
+this one).
+
+MARKET-HOURS NOTE: Monday ~14:3x ET, inside market hours (9:30-16:00
+ET). This diff touches only server/apiProduct.ts + its test + doc/CI
+bookkeeping (no server/bot.ts, bot_engine.py, or Python file touched) —
+zero trading-loop blast radius (the changed code path is
+`/api/v1/openapi.json`, a public documentation endpoint no trading logic
+reads). Per CLAUDE.md's "prefer merging PRs outside 9:30-16:00 ET"
+guidance, this PR's description asks for an after-hours/close merge
+rather than requesting an immediate one, consistent with the 2026-08-28
+short-interest-UI session's precedent for a similarly zero-blast-radius
+mid-market diff.
+
+NEXT (queued, not this session): the 5 unmapped tools
+(`voltrade_get_track`/`voltrade_get_graph`/`voltrade_archive_stats`/
+`voltrade_secftd_stats`/`voltrade_midas_stats`) are real candidates for a
+future session willing to read `computeShadowStatsAsync`/
+`computePortDwellAsync`/`archiveStats`/the SEC FTD+MIDAS summary types
+and `neighborhood()`'s return shape field-by-field first — flagged
+rather than guessed at here. Both gate2_pending ladder roots
+(cftc_cot_positioning, sec_8k_earnings_language) remain WAITING; both
+gate1_pending roots (space_weather_swpc, port_dwell_maritime_transit)
+remain externally blocked (no G2+ storm yet; no in-window monthly TEU
+report yet) — nothing to act on for either until their respective
+external conditions clear.
+
+STARVED: no — this session had capacity for exactly one clean, scoped
+PRODUCT action (a real, previously-flagged API-boundary gap, not
+fabricated), used in full including reading all 34 route handlers this
+sweep touches plus the one nested-type source file, rather than
+skimming a sample and generalizing.
+
 ## 2026-08-31 (scheduled-routine session) [PIPELINE] — T-CLIENT (client/src/lib/gridMaster.ts, client/src/lib/gridMaster.test.ts, client/src/pages/datamap.tsx) + SHARED-but-minimal (ci/counter_baseline.txt, package.json, package-lock.json, research/*): "All power grids" master switch gains the missing `powergrid_asia` continent plus a registry-parity regression test, closing item #2 of the 2026-08-28 STALE PR #817 re-queue (v1.0.822)
 
 TERRITORY: T-CLIENT (`client/src/lib/gridMaster.ts`, its test, and

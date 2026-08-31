@@ -659,6 +659,115 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
   };
 }
 
+/** Per-tool response `data` schemas — the field-level counterpart to
+ *  RESPONSE_DATA_SCHEMAS's neighbor `input_schema` (request params).
+ *  DELIBERATELY INCOMPLETE: a tool only gets an entry here once its route
+ *  handler's own JSON construction in routes.ts (or, for a handful, an
+ *  imported response TYPE) was read this session and its top-level fields
+ *  confirmed — never guessed from the tool name or a sibling endpoint's
+ *  shape. A field's TYPE is stated only when the read source made it
+ *  unambiguous (an explicit `.length`/`.map`/`.filter`/`.slice` call proves
+ *  "array"; an `Iso` date-stamp construction or a `report_date`/`_date`
+ *  string literal proves "string"); every other field is left as `{}`
+ *  (JSON-Schema's "matches anything") rather than typed by inference — the
+ *  same "never fabricate" discipline this module already applies to
+ *  license/gate claims. Endpoints branch on query params (the `*-history`
+ *  companions, cot-history's `?code=`/`?q=` modes) list every branch's
+ *  fields as optional properties on one object rather than a fabricated
+ *  `oneOf` split this session can't verify is exhaustive. A tool absent
+ *  from this map (get_track, get_graph, archive/secftd/midas stats — pure
+ *  opaque `hit.summary`/imported-function spreads not read field-by-field
+ *  this session) falls back to openApiSpec()'s pre-existing generic
+ *  `{type:"object"}`, unchanged. */
+const ARR = { type: "array", items: {} } as const;
+const STR = { type: "string" } as const;
+const INT = { type: "integer" } as const;
+const ANY = {} as const;
+function dataObj(properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> {
+  return { type: "object", properties, required };
+}
+export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
+  voltrade_port_dwell_stats: dataObj({ kind: STR, source: STR }, ["kind", "source"]),
+  voltrade_shadow_fleet_stats: dataObj({
+    kind: STR, source: STR,
+    zones: { type: "array", items: dataObj({ id: ANY, name: ANY }) },
+  }, ["kind", "source", "zones"]),
+  voltrade_plant_operations_stats: dataObj({
+    state: STR, year: INT, quarter: INT, unit_days: INT, key_mode: STR, facilities: ANY,
+  }, ["state", "year", "quarter", "unit_days", "key_mode", "facilities"]),
+  voltrade_occ_volume_stats: dataObj({
+    report_date: STR, underlyings: ANY, count: INT, top: ARR,
+  }, ["report_date", "count", "top"]),
+  voltrade_earnings_language: dataObj({ count: INT, filings: ARR }, ["count", "filings"]),
+  voltrade_earnings_language_history: dataObj({ days: INT, count: INT, filings: ARR }, ["count", "filings"]),
+  voltrade_appstore_rankings: dataObj({ count: INT, records: ARR }, ["count", "records"]),
+  voltrade_github_activity: dataObj({ count: INT, records: ARR }, ["count", "records"]),
+  voltrade_crop_conditions: dataObj({ latest_week: STR, count: INT, rows: ARR }, ["latest_week", "count", "rows"]),
+  voltrade_vix_term_structure: dataObj({ latest: ANY, recent: ANY }),
+  voltrade_nrc_reactor_status: dataObj({
+    date: STR, count: INT, rows: ARR, plantCount: INT, plants: ARR,
+  }, ["date", "count", "rows", "plantCount", "plants"]),
+  voltrade_thirteenf_holdings: dataObj({ count: INT, focused_cap: INT, filings: ARR }, ["count", "focused_cap", "filings"]),
+  voltrade_thirteenf_holdings_history: dataObj({ days: INT, count: INT, focused_cap: INT, filings: ARR }, ["count", "focused_cap", "filings"]),
+  voltrade_fred_macro: dataObj({ count: INT, series: ARR }, ["count", "series"]),
+  voltrade_eu_macro: dataObj({ count: INT, series: ARR }, ["count", "series"]),
+  voltrade_bank_failures: dataObj({ count: INT, failures: ARR }, ["count", "failures"]),
+  // gnssIntegritySignal.ts's own GnssIntegritySignalSummary interface — the
+  // one tool here where the FULL nested shape (not just top-level keys) was
+  // read and is stable/typed at the source, not reconstructed from a route
+  // handler's inline object literal.
+  voltrade_gnss_integrity_signal: dataObj({
+    kind: STR, root_id: STR, generated_at: STR,
+    gate: dataObj({ current_gate: INT, status: STR }, ["current_gate", "status"]),
+    verdict: STR,
+    bands: { type: "array", items: dataObj({
+      band: STR, candidate_k: INT, candidate_n: INT, control_rate: ANY, expected_under_null: ANY,
+      p_value: ANY, elevated: { type: "boolean" }, expected_to_elevate: { type: "boolean" },
+    }) },
+    region: dataObj({ candidate_bbox: ARR, candidate_label: STR, control_bbox: ARR, control_label: STR }),
+    freshness: ANY, methodology_note: STR, caveats: ARR, license: dataObj({ source: STR, note: STR }),
+  }, ["kind", "root_id", "generated_at", "gate", "verdict", "bands", "region", "methodology_note", "caveats", "license"]),
+  voltrade_dtcc_swaps: dataObj({
+    file_date: STR, source_date: STR, us_underlier_rows_today: INT, new_rows_archived: INT, total_archived: INT,
+    top_rows: { type: "array", items: dataObj({
+      dissemination_id: ANY, action_type: ANY, event_timestamp: ANY, effective_date: ANY, notional_amount: ANY,
+      notional_currency: ANY, underlier_id: ANY, underlier_id_source: ANY, underlier_name: ANY,
+    }) },
+  }, ["file_date", "source_date", "us_underlier_rows_today", "new_rows_archived", "total_archived", "top_rows"]),
+  voltrade_fleet_utilization: dataObj({ owners_total: INT, count: INT, note: STR, owners: ARR }, ["owners_total", "count", "owners"]),
+  voltrade_insider: dataObj({ count: INT, filings: ARR }, ["count", "filings"]),
+  voltrade_insider_history: dataObj({ days: INT, count: INT, filings: ARR }, ["count", "filings"]),
+  voltrade_attention: dataObj({ date: STR, seed_size: INT, count: INT, note: STR, tickers: ARR }, ["date", "seed_size", "count", "tickers"]),
+  // branches on ?ticker= (single-series) vs. no query (seed-wide trend) —
+  // every field from both branches listed, none required (present depends
+  // on which branch a given call takes).
+  voltrade_attention_history: dataObj({
+    ticker: STR, article: ANY, days: INT, count: INT, note: STR, series: ARR, today: ANY, trend: ANY,
+  }),
+  voltrade_cot: dataObj({ report_date: STR, count: INT, note: STR, markets: ARR }, ["report_date", "count", "markets"]),
+  // branches on ?code= (one market's series) / ?q= (search) / neither
+  // (seed-wide trend) — all three branches' fields listed, none required.
+  voltrade_cot_history: dataObj({
+    code: STR, weeks: INT, count: INT, note: STR, series: ARR, query: STR, matches: ANY, today: ANY, trend: ANY,
+  }),
+  voltrade_usaspending_contracts: dataObj({ count: INT, note: STR, contracts: ARR }, ["count", "note", "contracts"]),
+  voltrade_short_volume: dataObj({
+    date: STR, symbols: ANY, agg_short_ratio: ANY, floor_total_vol: ANY, top_cap: ANY, note: STR, top_ratio: ANY,
+  }, ["date", "note"]),
+  // branches on ?symbol= (one symbol's series) vs. no query (market-wide trend).
+  voltrade_short_volume_history: dataObj({ symbol: STR, days: INT, count: INT, note: STR, series: ARR, today: ANY, trend: ANY }),
+  voltrade_short_interest: dataObj({
+    settlement_date: STR, si_records: INT, si: ANY, threshold: ANY, note: STR,
+  }, ["si_records", "note"]),
+  voltrade_ats_summary: dataObj({ weekly: ANY, monthly: ANY, blocks: ANY, note: STR }, ["note"]),
+  voltrade_methane_plumes: dataObj({
+    count: INT, matchedCount: INT, ambiguousCount: INT, note: STR, plumes: ARR,
+  }, ["count", "matchedCount", "ambiguousCount", "note", "plumes"]),
+  voltrade_jodi_oil_stocks: dataObj({
+    product: STR, archiveLatestPeriod: ANY, seriesCount: INT, countriesReporting: ANY, note: STR, rows: ARR,
+  }, ["product", "seriesCount", "note", "rows"]),
+};
+
 /** OpenAPI 3.0 document for the live /api/v1 surface — the standard-tooling
  *  counterpart to agentToolSpec() (Postman/Insomnia import, client codegen,
  *  Swagger UI), for spinout-readiness (CLAUDE.md STANDING BEHAVIORS,
@@ -668,12 +777,14 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
  *  `endpoint` template ("GET /path/{p}?q={q}") are the one place param
  *  names/types/required-ness are already verified against the real route
  *  handlers, so this reuses that structure instead of inventing a second,
- *  possibly-drifting parse of the same information. Response bodies are
- *  intentionally left as an untyped object with a pointer to the live
- *  preview/provenance rather than a fabricated field-level schema — no
- *  endpoint here has a hand-verified OpenAPI response schema, and claiming
- *  one would violate the "never fabricate" rule the rest of this module
- *  follows for license/gate claims. */
+ *  possibly-drifting parse of the same information. Response BODIES: a tool
+ *  with a RESPONSE_DATA_SCHEMAS entry (above) gets that hand-verified
+ *  `data` shape wrapped in the standard v1Envelope shell (api_version/
+ *  license/attribution/resell/generated_at/disclaimer/data — routes.ts's
+ *  own v1Envelope()); every other tool keeps the untyped-object fallback —
+ *  no endpoint's response is ever typed beyond what was actually read this
+ *  session, per the "never fabricate" rule the rest of this module follows
+ *  for license/gate claims. */
 export interface OpenApiParam {
   name: string;
   in: "path" | "query";
@@ -714,6 +825,14 @@ export function openApiSpec(baseUrl = "https://voltradeai.com") {
       description: properties[name]?.description,
     });
     const tag = (tool.returns_provenance[0] || "data").split("/")[0];
+    const dataSchema = RESPONSE_DATA_SCHEMAS[tool.name];
+    const responseSchema = dataSchema
+      ? dataObj({
+          api_version: STR, license: STR, attribution: STR,
+          resell: { type: "string", enum: ["ok", "share-alike", "conditional"] },
+          generated_at: STR, disclaimer: STR, data: dataSchema,
+        }, ["api_version", "license", "attribution", "resell", "generated_at", "disclaimer", "data"])
+      : { type: "object" };
     paths[pathTemplate] = {
       [method.toLowerCase()]: {
         operationId: tool.name,
@@ -725,8 +844,10 @@ export function openApiSpec(baseUrl = "https://voltradeai.com") {
         "x-license-marks": tool.returns_provenance,
         responses: {
           "200": {
-            description: "Live data — exact field shape not pinned here; see x-license-marks and the endpoint's own /api/v1/meta preview for a live example.",
-            content: { "application/json": { schema: { type: "object" } } },
+            description: dataSchema
+              ? "Live data — v1Envelope shell with a hand-verified `data` shape; see x-license-marks and the endpoint's own /api/v1/meta preview for a live example."
+              : "Live data — exact field shape not pinned here; see x-license-marks and the endpoint's own /api/v1/meta preview for a live example.",
+            content: { "application/json": { schema: responseSchema } },
           },
           "401": { description: "missing or invalid x-api-key." },
           "429": { description: "rate limit exceeded for this key's tier." },
